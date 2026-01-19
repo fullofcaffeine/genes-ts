@@ -134,8 +134,8 @@ class ExprEmitter extends Emitter {
       case TField(x, f) if (fieldName(f) == "iterator" && isDynamicIterator(x)):
         switch (f) {
           case FStatic(c, cf):
-            write(c.get().name);
-            write(".iterator");
+            emitValue(x);
+            emitField("iterator");
           default:
             ctx.addFeature("use.$iterator");
             write(ctx.typeAccessor(registerType));

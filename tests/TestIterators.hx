@@ -48,4 +48,16 @@ class TestIterators {
     final x = a.iterator;
     return assert(x().next() == 0);
   }
+
+  // benmerckx/genes#82
+  public function testIteratorWithImportAlias() {
+    final set = new Set<Int>();
+    set.add(1);
+    set.add(2);
+    var count = 0;
+    for (item in set) {
+      count++;
+    }
+    return assert(count == 2);
+  }
 }
