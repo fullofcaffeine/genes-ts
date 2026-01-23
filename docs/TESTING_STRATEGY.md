@@ -71,3 +71,18 @@ Run the full acceptance gate locally:
 npm run test:acceptance
 ```
 
+## ts2hx (experimental)
+
+The repository also contains an experimental TS/JS → Haxe transpiler under `tools/ts2hx/`.
+
+It is validated by:
+- golden/snapshot tests for deterministic output
+- a small JS smoke test by compiling the emitted Haxe with the Haxe JS target
+
+Run:
+
+```bash
+yarn --cwd tools/ts2hx test
+```
+
+This is also executed as part of `npm run test:acceptance` unless `SKIP_TS2HX=1` is set.
