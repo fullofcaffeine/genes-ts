@@ -498,7 +498,7 @@ class ExprEmitter extends Emitter {
         switch extendsExtern {
           case Some(t):
             write(ctx.typeAccessor(t));
-            write('.call(this, ');
+            write(args.length > 0 ? '.call(this, ' : '.call(this');
           case None:
             write('super[');
             write(ctx.typeAccessor(registerType));

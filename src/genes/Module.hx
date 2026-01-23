@@ -151,6 +151,7 @@ class Module {
       return typeDependencies;
     final endTimer = timer('typeDependencies');
     final dependencies = new Dependencies(this, false);
+    final tsMode = Context.defined('genes.ts');
     final noop = function() {}
     final writer = {
       write: function(code: String) {},
@@ -170,6 +171,19 @@ class Module {
       TypeEmitter.emitType(writer, type);
     function addParams(params: Array<Type>)
       TypeEmitter.emitParams(writer, params, true);
+    function addExprLocalTypes(e: TypedExpr) {
+      if (e == null)
+        return;
+      switch e.expr {
+        case TVar(v, _):
+          addType(v.t);
+        case TFunction(f):
+          for (arg in f.args)
+            addType(arg.v.t);
+        default:
+      }
+      e.iter(addExprLocalTypes);
+    }
     for (member in members) {
       switch member {
         case MClass(cl, params, fields):
@@ -192,6 +206,11 @@ class Module {
             addParams(field.params.map(p -> p.t));
             addType(field.type);
           }
+          if (tsMode) {
+            for (field in fields)
+              addExprLocalTypes(field.expr);
+            addExprLocalTypes(cl.init);
+          }
         case MEnum(et, params):
           addParams(params);
           for (c in et.constructs) {
@@ -206,6 +225,8 @@ class Module {
           }
         case MMain(expr):
           addType(expr.t);
+          if (tsMode)
+            addExprLocalTypes(expr);
         case MType(def, params):
           addParams(params);
           addType(def.type);
@@ -269,7 +290,7 @@ class Module {
       case {t: _.get() => v}: hasExternSuper(v);
     }
 
-  static function fieldsOf(cl: ClassType) {
+  public static function fieldsOf(cl: ClassType) {
     final fields: Array<Field> = [];
     final classDisableNativeAccessors = haxe.macro.Context.defined('genes.disable_native_accessors')
       || cl.meta.has(':genes.disableNativeAccessors');

@@ -11,6 +11,7 @@ class EsMap<K, V> {
   public inline function set(key: K, value: V): Void
     inst.set(key, value);
 
+  @:ts.returnType("any")
   public inline function get(key: K): Null<V>
     return inst.get(key);
 
@@ -32,7 +33,7 @@ class EsMap<K, V> {
 
   static function adaptIterator<T>(from: js.lib.Iterator<T>): Iterator<T> {
     var value: T;
-    var done: Bool;
+    var done: Null<Bool>;
     function queue() {
       var data = from.next();
       value = data.value;

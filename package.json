@@ -6,6 +6,7 @@
     "test": "rimraf bin && haxe test.hxml && cross-env ANSICON=true node bin/tests.js",
     "test:genjs": "haxe -D genes.disable test.hxml && node bin/tests.js",
     "test:genes-ts": "node scripts/test-genes-ts.mjs",
+    "test:genes-ts:full": "node scripts/test-genes-ts-full.mjs",
     "postinstall": "lix download"
   },
   "devDependencies": {

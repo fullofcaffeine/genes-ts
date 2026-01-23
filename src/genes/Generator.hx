@@ -89,12 +89,13 @@ class Generator {
           Context.currentPos());
       addModule(module, types);
     }
+    final tsMode = Context.defined('genes.ts');
     for (module in modules) {
-      if (needsGen(module))
+      if (tsMode || needsGen(module))
         generateModule(api, module);
     }
 
-    if (Context.defined('genes.ts')) {
+    if (tsMode) {
       emitStdTypes(Path.join([outputDir, 'StdTypes']) + Genes.outExtension);
     }
   }
@@ -187,7 +188,19 @@ class Generator {
   static function emitStdTypes(path: String) {
     final writer = Writer.bufferedFileWriter(path);
     writer.write('export type Iterator<T> = { hasNext(): boolean; next(): T };\n');
+    writer.write('export type Iterable<T> = any;\n');
+    writer.write('export type KeyValueIterator<K, V> = Iterator<{ key: K; value: V }>;\n');
+    writer.write('export type KeyValueIterable<K, V> = { keyValueIterator(): KeyValueIterator<K, V> };\n');
+    writer.write('export interface ArrayAccess<T> {}\n');
+    writer.write('declare global {\n');
+    writer.write('  interface StringConstructor { __name__?: any }\n');
+    writer.write('  interface ArrayConstructor { __name__?: any }\n');
+    writer.write('}\n');
     writer.write('export const Iterator: any = null;\n');
+    writer.write('export const Iterable: any = null;\n');
+    writer.write('export const KeyValueIterator: any = null;\n');
+    writer.write('export const KeyValueIterable: any = null;\n');
+    writer.write('export const ArrayAccess: any = null;\n');
     writer.close();
   }
 

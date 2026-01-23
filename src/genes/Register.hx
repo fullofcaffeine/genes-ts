@@ -10,8 +10,9 @@ class Register {
   @:ts.type("{[key: string]: any}")
   static final globals = {}
   @:keep @:native('new')
+  @:ts.type("unique symbol")
   static final construct = new js.lib.Symbol();
-  @:keep static final init = new js.lib.Symbol();
+  @:keep @:ts.type("unique symbol") static final init = new js.lib.Symbol();
 
   @:keep public static function global(name: String) {
     return untyped globals[name] ? globals[name] : globals[name] = {};

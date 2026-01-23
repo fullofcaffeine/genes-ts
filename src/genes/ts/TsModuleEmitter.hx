@@ -36,24 +36,46 @@ class TsModuleEmitter extends JsModuleEmitter {
     mergeDepsInto(deps, module.typeDependencies);
     ctx.typeAccessor = deps.typeAccessor;
 
-    final typedOnly = module.members.filter(m -> m.match(MType(_, _)));
-    if (typedOnly.length == module.members.length && module.expose.length == 0)
-      return endTimer();
-
     if (haxe.macro.Context.defined('genes.banner')) {
       write(haxe.macro.Context.definedValue('genes.banner'));
       writeNewline();
     }
 
     final endImportTimer = timer('emitImports');
+    final runtimeNamesByModule: Map<String, Map<String, Bool>> = [];
+    for (path => imports in module.codeDependencies.imports) {
+      final names: Map<String, Bool> = [];
+      for (dep in imports)
+        names.set(dep.name, true);
+      runtimeNamesByModule.set(path, names);
+    }
+
     for (path => imports in deps.imports) {
-      emitImports(if (imports[0].external) path else module.toPath(path),
-        imports, importExtension);
+      final runtimeNames = runtimeNamesByModule.get(path);
+      final valueImports = [];
+      final typeImports = [];
+      for (dep in imports) {
+        if (runtimeNames != null && runtimeNames.exists(dep.name))
+          valueImports.push(dep);
+        else
+          typeImports.push(dep);
+      }
+      final rel = if (imports[0].external) path else module.toPath(path);
+      if (valueImports.length > 0)
+        emitTsImports(rel, valueImports, importExtension, false);
+      if (typeImports.length > 0)
+        emitTsImports(rel, typeImports, importExtension, true);
     }
     endImportTimer();
 
     // Keep Genes behavior for js.Lib.global feature.
-    if (module.module != 'genes.Register' && ctx.hasFeature('js.Lib.global')) {
+    final hasRuntimeCode = module.members.exists(m -> switch m {
+      case MClass(cl, _, _) if (cl.isInterface): false;
+      case MType(_, _): false;
+      case _: true;
+    });
+    if (hasRuntimeCode && module.module != 'genes.Register'
+      && ctx.hasFeature('js.Lib.global')) {
       writeNewline();
       write("const $global = ");
       write(ctx.typeAccessor(TypeUtil.registerType));
@@ -64,8 +86,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     for (member in module.members) {
       switch member {
         case MClass(cl, _, fields) if (cl.isInterface):
-          // TODO(genes-ts): Emit `export interface` + runtime stub merge.
-          emitInterface(cl);
+          emitTsInterface(cl, fields);
         case MClass(cl, _, fields):
           final endClassTimer = timer('emitClass');
           emitTsClass(module.isCyclic, cl, fields);
@@ -76,8 +97,10 @@ class TsModuleEmitter extends JsModuleEmitter {
           emitInit(cl);
         case MEnum(et, _):
           final endEnumTimer = timer('emitEnums');
-          emitEnum(et);
+          emitTsEnum(et);
           endEnumTimer();
+        case MType(def, params):
+          emitTsTypeDefinition(def, params);
         case MMain(e):
           writeNewline();
           emitExpr(e);
@@ -95,16 +118,69 @@ class TsModuleEmitter extends JsModuleEmitter {
   static function mergeDepsInto(into: Dependencies, from: Dependencies) {
     for (path => imports in from.imports) {
       for (dep in imports) {
+        final isAutoAlias = dep.alias != null && dep.alias.length > 3
+          && dep.alias.startsWith(dep.name + "__");
         into.push(path, {
           type: dep.type,
           name: dep.name,
           external: dep.external,
           path: dep.path,
-          alias: dep.alias,
+          alias: isAutoAlias ? null : dep.alias,
           pos: dep.pos
         });
       }
     }
+  }
+
+  function emitTsImports(where: String,
+      imports: Array<genes.Dependencies.Dependency>, extension: Null<String>,
+      typeOnly: Bool) {
+    final named = [];
+    for (def in imports)
+      switch def.type {
+        case genes.Dependencies.DependencyType.DAsterisk
+          | genes.Dependencies.DependencyType.DDefault:
+          emitTsImport([def], where, extension, typeOnly);
+        default:
+          named.push(def);
+      }
+    if (named.length > 0)
+      emitTsImport(named, where, extension, typeOnly);
+  }
+
+  function emitTsImport(what: Array<genes.Dependencies.Dependency>, where: String,
+      extension: Null<String>, typeOnly: Bool) {
+    write(typeOnly ? 'import type' : 'import');
+    writeSpace();
+    switch what {
+      case [def = {type: genes.Dependencies.DependencyType.DAsterisk}]:
+        emitPos(def.pos);
+        write('* as ' + if (def.alias != null) def.alias else def.name);
+      case [def = {type: genes.Dependencies.DependencyType.DDefault}]:
+        emitPos(def.pos);
+        write(if (def.alias != null) def.alias else def.name);
+      case defs:
+        write('{');
+        for (def in join(defs, write.bind(', '))) {
+          emitPos(def.pos);
+          write(def.name
+            + if (def.alias != null && def.alias != def.name)
+              ' as ${def.alias}' else '');
+        }
+        write('}');
+    }
+    writeSpace();
+    write('from');
+    writeSpace();
+    var isExternal = false;
+    for (dependency in what)
+      if (dependency.external) {
+        isExternal = true;
+        break;
+      }
+    emitString(if (!isExternal && extension != null) '$where$extension' else
+      where);
+    writeNewline();
   }
 
   function emitTsStatics(checkCycles: (module: String) -> Bool, cl: ClassType,
@@ -117,6 +193,24 @@ class TsModuleEmitter extends JsModuleEmitter {
 
     // No-op for now: declarations are emitted in emitTsClass.
     super.emitStatics(checkCycles, cl, fields);
+  }
+
+  override function emitStatic(cl: ClassType, field: GenesField) {
+    // Some TS special-cases for strict type-checking.
+    // `unique symbol` statics must be `readonly`, but Haxe emits assignments after
+    // the class body. Keep runtime behavior but silence TS on that assignment.
+    if (field.tsType == 'unique symbol') {
+      writeNewline();
+      write('// @ts-ignore');
+      writeNewline();
+      emitPos(field.pos);
+      emitIdent(TypeUtil.className(cl));
+      emitField(staticName(cl, field));
+      write(' = ');
+      emitValue(field.expr);
+      return;
+    }
+    super.emitStatic(cl, field);
   }
 
   function emitTsClass(checkCycles: (module: String) -> Bool, cl: ClassType,
@@ -132,19 +226,41 @@ class TsModuleEmitter extends JsModuleEmitter {
     final extendsInherits = cl.superClass != null
       || JsModuleEmitter.hasConstructor(fields);
     if (extendsInherits) {
-      write(' extends ');
+      write(' extends (');
       write(ctx.typeAccessor(TypeUtil.registerType));
       write('.inherits(');
+      var superAccessor: Null<String> = null;
+      var superTypeParamCount = 0;
       switch cl.superClass {
         case null:
-        case {t: TClassDecl(_) => t}:
+        case {t: ref}:
+          final t: ModuleType = TClassDecl(ref);
+          superTypeParamCount = ref.get().params.length;
           final isCyclic = checkCycles(TypeUtil.moduleTypeModule(t));
           if (isCyclic)
             write('() => ');
-          write(ctx.typeAccessor(t));
+          superAccessor = ctx.typeAccessor(t);
+          write(superAccessor);
           if (isCyclic)
             write(', true');
       }
+      write(')');
+      if (superAccessor != null) {
+        final castSuperToAny = superAccessor.indexOf('.') != -1;
+        write(' as new (...args: any[]) => ');
+        if (castSuperToAny) {
+          write('any');
+        } else {
+          write(superAccessor);
+          if (superTypeParamCount > 0) {
+            write('<');
+            for (_ in joinIt(0...superTypeParamCount, write.bind(', ')))
+              write('any');
+            write('>');
+          }
+        }
+      } else
+        write(' as any');
       write(')');
     }
 
@@ -192,14 +308,17 @@ class TsModuleEmitter extends JsModuleEmitter {
           // Still declare the property name as a field so TS knows it exists.
           writeNewline();
           emitPos(field.pos);
-          if (!field.isStatic && !field.isPublic)
-            write('protected ');
-          if (field.isStatic)
-            write('static ');
+          write('declare ');
+          if (field.isStatic) {
+            if (field.tsType == 'unique symbol')
+              write('static readonly ');
+            else
+              write('static ');
+          }
           emitMemberName(field.isStatic ? staticName(cl, field) : field.name);
           write(': ');
           emitFieldTsType(field);
-          write(' = null as any;');
+          write(';');
         default:
       }
     }
@@ -230,7 +349,10 @@ class TsModuleEmitter extends JsModuleEmitter {
 
               emitMethodTypeParams(field);
               write('(');
-              emitTypedFunctionArguments(f, field);
+              if (field.kind.equals(Constructor))
+                emitCtorImplementationArguments(f, field);
+              else
+                emitTypedFunctionArguments(f, field);
               write(')');
 
               // Return type
@@ -242,7 +364,26 @@ class TsModuleEmitter extends JsModuleEmitter {
                 write(' ');
               }
 
-              emitExpr(getFunctionBody(f));
+              final body = getFunctionBody(f);
+              final returnOverride = field.meta != null ? (switch extractStringMeta(field.meta,
+                ':ts.returnType') {
+                case null: extractStringMeta(field.meta, ':genes.returnType');
+                case v: v;
+              }) : null;
+              switch [returnOverride, body.expr] {
+                case [v, TBlock([])] if (v != null && v != 'any' && v != 'void' && v != 'undefined'):
+                  // TS requires a return for non-void declared return types.
+                  // Preserve JS runtime behavior by returning `undefined`.
+                  write('{');
+                  increaseIndent();
+                  writeNewline();
+                  write('return undefined as any;');
+                  decreaseIndent();
+                  writeNewline();
+                  write('}');
+                default:
+                  emitExpr(body);
+              }
             default:
           }
         default:
@@ -251,7 +392,7 @@ class TsModuleEmitter extends JsModuleEmitter {
 
     // Keep Genes runtime identity helpers.
     writeNewline();
-    write('static get __name__() {');
+    write('static get __name__(): any {');
     increaseIndent();
     writeNewline();
     write('return ');
@@ -264,7 +405,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       case []:
       case v:
         writeNewline();
-        write('static get __interfaces__() {');
+        write('static get __interfaces__(): any {');
         increaseIndent();
         writeNewline();
         write('return [');
@@ -280,7 +421,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       case null:
       case {t: TClassDecl(_) => t}:
         writeNewline();
-        write('static get __super__() {');
+        write('static get __super__(): any {');
         increaseIndent();
         writeNewline();
         write('return ');
@@ -291,7 +432,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
 
     writeNewline();
-    write('get __class__() {');
+    write('get __class__(): any {');
     increaseIndent();
     writeNewline();
     write('return ');
@@ -317,6 +458,50 @@ class TsModuleEmitter extends JsModuleEmitter {
       write(';');
       writeNewline();
     }
+
+    // Ensure Haxe/Genes reflection works similarly to the JS emitter:
+    // - instance vars should appear on the prototype for Type.getInstanceFields()
+    // - native accessor properties should exist at runtime for Reflect.field()
+    final className = TypeUtil.className(cl);
+    for (field in fields) {
+      if (!field.kind.equals(Property) || field.isStatic)
+        continue;
+
+      if (field.getter || field.setter) {
+        writeNewline();
+        write('Object.defineProperty(');
+        emitIdent(className);
+        write('.prototype, ');
+        emitString(field.name);
+        write(', {');
+        increaseIndent();
+        if (field.getter) {
+          writeNewline();
+          write('get: function (this: any) { return this.get_');
+          write(field.name);
+          write('(); },');
+        }
+        if (field.setter) {
+          writeNewline();
+          write('set: function (this: any, v: ');
+          emitFieldTsType(field);
+          write(') { this.set_');
+          write(field.name);
+          write('(v); },');
+        }
+        decreaseIndent();
+        writeNewline();
+        write('});');
+        writeNewline();
+      } else {
+        writeNewline();
+        emitIdent(className);
+        write('.prototype');
+        emitField(field.name);
+        write(' = null as any;');
+        writeNewline();
+      }
+    }
   }
 
   function emitMethodTypeParams(field: GenesField) {
@@ -332,6 +517,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     TypeEmitter.emitType(this, v.t);
     switch (eo) {
       case null:
+        write(' = undefined as any');
       case {expr: TConst(TNull)}:
         write(' = null as any');
       case e:
@@ -339,6 +525,117 @@ class TsModuleEmitter extends JsModuleEmitter {
         emitValue(e);
     }
   }
+
+  override public function emitExpr(e: TypedExpr) {
+    emitPos(e.pos);
+    switch e.expr {
+      case TBinop(op = OpAssign, lhs = {expr: TField(_, f)}, rhs)
+        if (isOverriddenField(f)):
+        emitValue(lhs);
+        writeSpace();
+        writeBinop(op);
+        writeSpace();
+        write('(');
+        emitValue(rhs);
+        write(' as any)');
+      case TCall(fn = {expr: TCall({expr: TField(_, f)}, _)}, args)
+        if (switch fieldAccessName(f) { case "shift" | "pop": true; default: false; }):
+        // Array#shift/#pop returns `T | undefined` in TS. When the Haxe code
+        // guarantees non-emptiness (e.g. checked `.length > 0`), allow calling
+        // the returned function under `strict`.
+        write('(');
+        emitValue(fn);
+        write(' as any)(');
+        for (arg in join(args, write.bind(', ')))
+          emitValue(arg);
+        write(')');
+      case TFunction(f):
+        final inValue = this.inValue;
+        final inLoop = this.inLoop;
+        this.inValue = 0;
+        this.inLoop = false;
+        final args = switch e.t {
+          case TFun(args, _): args;
+          default: [];
+        }
+        var noOptionalUntil = -1;
+        var hadOptional = true;
+        for (i in 0...args.length) {
+          final arg = args[i];
+          if (arg.opt) {
+            hadOptional = true;
+          } else if (hadOptional && !arg.opt) {
+            noOptionalUntil = i;
+            hadOptional = false;
+          }
+        }
+        write('function (');
+        for (i in joinIt(0...f.args.length, write.bind(', '))) {
+          final arg = f.args[i];
+          final t = i < args.length ? args[i].t : arg.v.t;
+          if (genes.util.TypeUtil.isRest(t))
+            write('...');
+          emitLocalIdent(arg.v.name);
+          if (i < args.length && args[i].opt && i > noOptionalUntil)
+            write('?');
+          write(': ');
+          TypeEmitter.emitType(this, t);
+        }
+        write('): any ');
+        emitExpr(getFunctionBody(f));
+        this.inValue = inValue;
+        this.inLoop = inLoop;
+      case TBinop(op = OpEq | OpNotEq, e1, e2) if (isNullConst(e1) || isNullConst(e2)):
+        emitValueWithPlainNull(e1);
+        writeSpace();
+        writeBinop(op);
+        writeSpace();
+        emitValueWithPlainNull(e2);
+      default:
+        super.emitExpr(e);
+    }
+  }
+
+  static function fieldAccessName(field: FieldAccess): Null<String> {
+    return switch field {
+      case FInstance(_, _, cf) | FStatic(_, cf) | FAnon(cf): cf.get().name;
+      case FDynamic(name): name;
+      default: null;
+    }
+  }
+
+  static function isOverriddenField(field: FieldAccess): Bool {
+    final meta = switch field {
+      case FInstance(_, _, cf) | FStatic(_, cf) | FAnon(cf): cf.get().meta;
+      default: null;
+    }
+    if (meta == null)
+      return false;
+    return meta.has(':ts.type') || meta.has(':genes.type');
+  }
+
+  static inline function isNullConst(e: TypedExpr): Bool
+    return switch e.expr {
+      case TConst(TNull): true;
+      default: false;
+    }
+
+  function emitValueWithPlainNull(e: TypedExpr) {
+    switch e.expr {
+      case TConst(TNull):
+        write('null');
+      default:
+        emitValue(e);
+    }
+  }
+
+  override public function emitConstant(c: TConstant)
+    switch (c) {
+      case TNull:
+        write('null as any');
+      default:
+        super.emitConstant(c);
+    }
 
   function emitTypedFunctionArguments(f: TFunc, field: GenesField) {
     switch field.type {
@@ -359,9 +656,10 @@ class TsModuleEmitter extends JsModuleEmitter {
         for (i in genes.util.IteratorUtil.joinIt(0...args.length,
           write.bind(', '))) {
           final arg = args[i];
+          final argName = f.args[i].v.name;
           if (genes.util.TypeUtil.isRest(arg.t))
             write('...');
-          emitLocalIdent(arg.name);
+          emitLocalIdent(argName);
           if (arg.opt && i > noOptionalUntil)
             write('?');
           write(': ');
@@ -369,6 +667,32 @@ class TsModuleEmitter extends JsModuleEmitter {
         }
       default:
         // Fallback: keep old behavior.
+        emitFunctionArguments(f);
+    }
+  }
+
+  function emitCtorImplementationArguments(f: TFunc, field: GenesField) {
+    // Avoid TS override checks across the prototype chain:
+    // constructors are not overrides in Haxe, but Genes' runtime uses the same
+    // `[Register.new]` key for initialization.
+    switch field.type {
+      case TFun(args, _):
+        for (i in genes.util.IteratorUtil.joinIt(0...args.length,
+          write.bind(', '))) {
+          final arg = args[i];
+          final argName = f.args[i].v.name;
+          if (genes.util.TypeUtil.isRest(arg.t))
+            write('...');
+          emitLocalIdent(argName);
+          if (!genes.util.TypeUtil.isRest(arg.t))
+            write('?');
+          write(': ');
+          if (genes.util.TypeUtil.isRest(arg.t))
+            write('any[]');
+          else
+            write('any');
+        }
+      default:
         emitFunctionArguments(f);
     }
   }
@@ -419,6 +743,237 @@ class TsModuleEmitter extends JsModuleEmitter {
       return;
     }
     emitType(field.type, field.isStatic ? null : field.params);
+  }
+
+  function emitTsInterface(cl: ClassType, fields: Array<GenesField>) {
+    var clForFields = cl;
+    try {
+      final declaredPath = cl.pack.concat([cl.name]).join('.');
+      final fullName = (declaredPath == cl.module) ? declaredPath : (cl.module + '.' + cl.name);
+      switch haxe.macro.Context.getType(fullName) {
+        case TInst(ref, _):
+          clForFields = ref.get();
+        default:
+      }
+    } catch (_: Dynamic) {}
+
+    writeNewline();
+    emitComment(cl.doc);
+    emitPos(cl.pos);
+    write('export interface ');
+    write(TypeUtil.className(cl));
+    if (cl.params != null && cl.params.length > 0)
+      TypeEmitter.emitParams(this, cl.params.map(p -> p.t), true);
+    if (cl.interfaces != null && cl.interfaces.length > 0) {
+      write(' extends ');
+      for (i in join(cl.interfaces, write.bind(', '))) {
+        write(ctx.typeAccessor(i.t.get()));
+        if (i.params != null && i.params.length > 0)
+          TypeEmitter.emitParams(this, i.params, true);
+      }
+    }
+    write(' {');
+    increaseIndent();
+    for (field in clForFields.fields.get()) {
+      if (!field.isPublic)
+        continue;
+      switch field.kind {
+        case FVar(_, _):
+          writeNewline();
+          emitPos(field.pos);
+          emitMemberName(field.name);
+          write(': ');
+          final typeOverride = extractStringMeta(field.meta, ':ts.type')
+            ?? extractStringMeta(field.meta, ':genes.type');
+          if (typeOverride != null)
+            write(typeOverride);
+          else
+            emitType(field.type);
+          write(';');
+        case FMethod(_):
+          writeNewline();
+          emitPos(field.pos);
+          emitMemberName(field.name);
+          if (field.params != null && field.params.length > 0)
+            TypeEmitter.emitParams(this, field.params.map(p -> p.t), true);
+          write('(');
+          emitFunctionTypeArguments(field.type);
+          write('): ');
+          emitFunctionReturnType(field.type);
+          write(';');
+      }
+    }
+    writeNewline();
+    write('[key: string]: any;');
+    decreaseIndent();
+    writeNewline();
+    write('}');
+    writeNewline();
+
+    // Runtime marker (Genes runtime compatibility).
+    write('export const ');
+    write(TypeUtil.className(cl));
+    write(' = function() {};');
+    writeNewline();
+    write(TypeUtil.className(cl));
+    write('.__isInterface__ = true;');
+    writeNewline();
+  }
+
+  function emitFunctionTypeArguments(type: Type) {
+    switch type {
+      case TFun(args, _):
+        for (arg in join(args, write.bind(', '))) {
+          if (genes.util.TypeUtil.isRest(arg.t))
+            write('...');
+          emitLocalIdent(arg.name != "" ? arg.name : 'arg');
+          if (arg.opt)
+            write('?');
+          write(': ');
+          emitType(arg.t);
+        }
+      default:
+    }
+  }
+
+  function emitFunctionReturnType(type: Type) {
+    switch type {
+      case TFun(_, ret):
+        emitType(ret);
+      default:
+        write('any');
+    }
+  }
+
+  function emitTsEnum(et: EnumType) {
+    final discriminator = haxe.macro.Context.definedValue('genes.enum_discriminator');
+    final id = et.pack.concat([et.name]).join('.');
+    writeNewline();
+    emitComment(et.doc);
+    emitPos(et.pos);
+    write('export type ');
+    write(et.name);
+    if (et.params != null && et.params.length > 0)
+      TypeEmitter.emitParams(this, et.params.map(p -> p.t), true);
+    write(' = any');
+    writeNewline();
+    emitPos(et.pos);
+    write('export const ');
+    write(et.name);
+    write(': any = ');
+    writeNewline();
+    writeGlobalVar("$hxEnums");
+    write('[');
+    emitString(id);
+    write(']');
+    write(' = ');
+    writeNewline();
+    write('{');
+    increaseIndent();
+    writeNewline();
+    if (ctx.hasFeature('js.Boot.isEnum')) {
+      write('__ename__: "${id}",');
+      writeNewline();
+    }
+    writeNewline();
+    for (name in join(et.names, () -> {
+      write(',');
+      writeNewline();
+    })) {
+      final c = et.constructs.get(name);
+      emitComment(c.doc);
+      emitPos(c.pos);
+      write(name);
+      write(': ');
+      switch c.type {
+        case TFun(args, ret):
+          write('Object.assign((');
+          for (param in join(args, write.bind(', '))) {
+            emitLocalIdent(param.name);
+            if (param.opt)
+              write('?');
+            write(': ');
+            write('any');
+          }
+          write(') => ({_hx_index: ${c.index}, __enum__: "${id}", ');
+          for (param in join(args, write.bind(', '))) {
+            emitString(param.name);
+            write(': ');
+            emitLocalIdent(param.name);
+          }
+          if (discriminator != null) {
+            write(', ');
+            emitString(discriminator);
+            write(': ');
+            emitString(name);
+          }
+          write('}), {_hx_name: "${name}", __params__: [');
+          for (param in join(args, write.bind(', ')))
+            emitString(param.name);
+          write(']})');
+        default:
+          write('{_hx_name: "${name}", _hx_index: ${c.index}, __enum__: "${id}"');
+          if (discriminator != null) {
+            write(', ');
+            emitString(discriminator);
+            write(': ');
+            emitString(name);
+          }
+          write('}');
+      }
+    }
+    decreaseIndent();
+    writeNewline();
+    write('}');
+    writeNewline();
+
+    write(et.name);
+    write('.__constructs__ = [');
+    for (c in join(et.names, write.bind(', '))) {
+      #if (haxe_ver >= 4.2)
+      write(et.name);
+      emitField(c);
+      #else
+      emitString(c);
+      #end
+    }
+    write(']');
+    writeNewline();
+
+    write(et.name);
+    write('.__empty_constructs__ = [');
+    final empty = [
+      for (name in et.names)
+        if (!et.constructs[name].type.match(TFun(_, _))) et.constructs[name]
+    ];
+    for (c in join(empty, write.bind(', '))) {
+      write(et.name);
+      emitField(c.name);
+    }
+    write(']');
+    writeNewline();
+  }
+
+  function emitTsTypeDefinition(def: DefType, params: Array<Type>) {
+    writeNewline();
+    emitComment(def.doc);
+    emitPos(def.pos);
+    write('export type ');
+    TypeEmitter.emitBaseType(this, def, params, true);
+    write(' = ');
+    final typeOverride = switch def.meta.extract(':ts.type') {
+      case [{params: [{expr: EConst(CString(type))}]}]: type;
+      default:
+        switch def.meta.extract(':genes.type') {
+          case [{params: [{expr: EConst(CString(type))}]}]: type;
+          default: null;
+        }
+    };
+    if (typeOverride != null)
+      write(typeOverride);
+    else
+      emitType(def.type);
+    writeNewline();
   }
 
   public function includeType(type: Type) {}
