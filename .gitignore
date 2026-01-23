@@ -1,3 +1,5 @@
 /bin
 /dump
 /node_modules
+/tests_ts/src-gen
+/tests_ts/dist

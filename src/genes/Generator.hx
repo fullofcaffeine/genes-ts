@@ -6,6 +6,7 @@ import haxe.macro.Context;
 import haxe.macro.Type;
 import haxe.io.Path;
 import genes.es.ModuleEmitter;
+import genes.ts.TsModuleEmitter;
 import genes.dts.DefinitionEmitter;
 import genes.util.TypeUtil;
 import genes.Module;
@@ -20,6 +21,7 @@ class Generator {
     final toGenerate = typesPerModule(api.types);
     final output = Path.withoutExtension(Path.withoutDirectory(api.outputFile));
     final extension = Path.extension(api.outputFile);
+    final outputDir = Path.directory(api.outputFile);
     Genes.outExtension = extension.length > 0 ? '.$extension' : extension;
     final modules = new Map();
     final expose: Map<String, ModuleExport> = new Map();
@@ -91,6 +93,10 @@ class Generator {
       if (needsGen(module))
         generateModule(api, module);
     }
+
+    if (Context.defined('genes.ts')) {
+      emitStdTypes(Path.join([outputDir, 'StdTypes']) + Genes.outExtension);
+    }
   }
 
   static function needsGen(module: Module) {
@@ -149,9 +155,20 @@ class Generator {
     final path = Path.join([outputDir, module.path]) + Genes.outExtension;
     final definition = [Path.join([outputDir, module.path]), 'd.ts'].join('.');
     final ctx = module.createContext(api);
-    final moduleEmitter = new ModuleEmitter(ctx,
-      Writer.bufferedFileWriter(path));
-    moduleEmitter.emitModule(module, Genes.outExtension);
+    final moduleEmitter = switch haxe.macro.Context.defined('genes.ts') {
+      case true:
+        final importExtension = if (haxe.macro.Context.defined('genes.ts.no_extension')
+          || haxe.macro.Context.defined('genes.no_extension')) null else '.js';
+        final emitter = new TsModuleEmitter(ctx,
+          Writer.bufferedFileWriter(path));
+        emitter.emitTsModule(module, importExtension);
+        emitter;
+      case false:
+        final emitter = new ModuleEmitter(ctx,
+          Writer.bufferedFileWriter(path));
+        emitter.emitModule(module, Genes.outExtension);
+        emitter;
+    }
     #if (debug || js_source_map)
     moduleEmitter.emitSourceMap(path + '.map', true);
     #end
@@ -165,6 +182,13 @@ class Generator {
     #end
     definitionEmitter.finish();
     #end
+  }
+
+  static function emitStdTypes(path: String) {
+    final writer = Writer.bufferedFileWriter(path);
+    writer.write('export type Iterator<T> = { hasNext(): boolean; next(): T };\n');
+    writer.write('export const Iterator: any = null;\n');
+    writer.close();
   }
 
   #if macro

@@ -50,7 +50,7 @@ class Genes {
                 importExpr: {
                   final path = PathUtil.relative(current.replace('.', '/'),
                     module.replace('.', '/'))
-                  #if !genes.no_extension
+                  #if !(genes.no_extension || genes.ts.no_extension)
                   + outExtension
                   #end
                   ;

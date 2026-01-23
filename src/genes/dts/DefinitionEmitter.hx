@@ -46,12 +46,18 @@ class DefinitionEmitter extends ModuleEmitter {
     write('export type ');
     emitBaseType(def, params, true);
     write(' = ');
-    switch def.meta.extract(':genes.type') {
-      case [{params: [{expr: EConst(CString(type))}]}]:
-        write(type);
+    final typeOverride = switch def.meta.extract(':ts.type') {
+      case [{params: [{expr: EConst(CString(type))}]}]: type;
       default:
-        emitType(def.type);
-    }
+        switch def.meta.extract(':genes.type') {
+          case [{params: [{expr: EConst(CString(type))}]}]: type;
+          default: null;
+        }
+    };
+    if (typeOverride != null)
+      write(typeOverride);
+    else
+      emitType(def.type);
     writeNewline();
   }
 
@@ -222,11 +228,18 @@ class DefinitionEmitter extends ModuleEmitter {
               emitPos(field.pos);
               write(if (field.kind.equals(Constructor)) 'constructor' else
                 field.name);
-              final tsType = switch field.meta != null ? field.meta.extract(':genes.type') : [] {
-                case [{params: [{expr: EConst(CString(type))}]}]:
-                  type;
-                default: null;
-              }
+              final tsType = field.meta != null
+                ? (switch field.meta.extract(':ts.type') {
+                  case [{params: [{expr: EConst(CString(type))}]}]:
+                    type;
+                  default:
+                    switch field.meta.extract(':genes.type') {
+                      case [{params: [{expr: EConst(CString(type))}]}]:
+                        type;
+                      default: null;
+                    }
+                })
+                : null;
               if (tsType != null) {
                 write(': $tsType');
               } else {
@@ -254,10 +267,19 @@ class DefinitionEmitter extends ModuleEmitter {
                       emitType(arg.t);
                     case {expr: TFunction(f)}:
                       final meta = f.args[i].v.meta;
-                      switch meta.extract(':genes.type') {
-                        case [{params: [{expr: EConst(CString(type))}]}]: write(type);
-                        default: emitType(arg.t);
-                      }
+                      final paramTypeOverride = switch meta.extract(':ts.type') {
+                        case [{params: [{expr: EConst(CString(type))}]}]: type;
+                        default:
+                          switch meta.extract(':genes.type') {
+                            case [{params: [{expr: EConst(CString(type))}]}]:
+                              type;
+                            default: null;
+                          }
+                      };
+                      if (paramTypeOverride != null)
+                        write(paramTypeOverride);
+                      else
+                        emitType(arg.t);
                     default:
                       emitType(arg.t);
                   }
@@ -268,9 +290,20 @@ class DefinitionEmitter extends ModuleEmitter {
                   switch field.meta {
                     case null:
                       emitType(ret);
-                    case _.extract(':genes.returnType') =>
-                      [{params: [{expr: EConst(CString(type))}]}]:
-                      write(type);
+                    case meta:
+                      final returnTypeOverride = switch meta.extract(':ts.returnType') {
+                        case [{params: [{expr: EConst(CString(type))}]}]: type;
+                        default:
+                          switch meta.extract(':genes.returnType') {
+                            case [{params: [{expr: EConst(CString(type))}]}]:
+                              type;
+                            default: null;
+                          }
+                      };
+                      if (returnTypeOverride != null)
+                        write(returnTypeOverride);
+                      else
+                        emitType(ret);
                     default:
                       emitType(ret);
                   }

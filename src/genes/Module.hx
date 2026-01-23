@@ -300,6 +300,16 @@ class Module {
       final isVar = field.meta.has(':isVar');
       final disableNativeAccessors = field.meta.has(':genes.disableNativeAccessors')
         || classDisableNativeAccessors;
+      inline function extractTsType(meta: MetaAccess): Null<String> {
+        return switch meta.extract(':ts.type') {
+          case [{params: [{expr: EConst(CString(type))}]}]: type;
+          default:
+            switch meta.extract(':genes.type') {
+              case [{params: [{expr: EConst(CString(type))}]}]: type;
+              default: null;
+            }
+        }
+      }
       fields.push({
         kind: switch field.kind {
           case FVar(_, _): Property;
@@ -321,16 +331,23 @@ class Module {
         && field.kind.match(FVar(AccCall, AccCall | AccNever)),
         setter: !disableNativeAccessors && !isVar
         && field.kind.match(FVar(AccCall | AccNever, AccCall)),
-        tsType: switch field.meta.extract(':genes.type') {
-          case [{params: [{expr: EConst(CString(type))}]}]: type;
-          default: null;
-        }
+        tsType: extractTsType(field.meta)
       });
     }
     for (field in cl.statics.get()) {
       final isVar = field.meta.has(':isVar');
       final disableNativeAccessors = field.meta.has(':genes.disableNativeAccessors')
         || classDisableNativeAccessors;
+      inline function extractTsType(meta: MetaAccess): Null<String> {
+        return switch meta.extract(':ts.type') {
+          case [{params: [{expr: EConst(CString(type))}]}]: type;
+          default:
+            switch meta.extract(':genes.type') {
+              case [{params: [{expr: EConst(CString(type))}]}]: type;
+              default: null;
+            }
+        }
+      }
       fields.push({
         kind: switch field.kind {
           case FVar(_, _): Property;
@@ -363,10 +380,7 @@ class Module {
         && field.kind.match(FVar(AccCall, AccCall | AccNever)),
         setter: !disableNativeAccessors && !isVar
         && field.kind.match(FVar(AccCall | AccNever, AccCall)),
-        tsType: switch field.meta.extract(':genes.type') {
-          case [{params: [{expr: EConst(CString(type))}]}]: type;
-          default: null;
-        }
+        tsType: extractTsType(field.meta)
       });
     }
     return fields;

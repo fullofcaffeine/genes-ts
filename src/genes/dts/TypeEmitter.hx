@@ -56,16 +56,30 @@ class TypeEmitter {
     final write = writer.write, emitPos = writer.emitPos,
     includeType = writer.includeType;
     switch type {
-      case TInst(_.get().meta => meta, _) if (meta.has(':genes.type')):
-        switch meta.extract(':genes.type') {
-          case [{params: [{expr: EConst(CString(type))}]}]: write(type);
-          default: throw '@:genes.type needs an expression';
+      case TInst(_.get().meta => meta, _)
+        if (meta.has(':ts.type') || meta.has(':genes.type')):
+        final tsOverride = switch meta.extract(':ts.type') {
+          case [{params: [{expr: EConst(CString(type))}]}]: type;
+          default: null;
+        }
+        final genesOverride = switch meta.extract(':genes.type') {
+          case [{params: [{expr: EConst(CString(type))}]}]: type;
+          default: null;
+        }
+        switch tsOverride != null ? tsOverride : genesOverride {
+          case null:
+            throw '@:ts.type/@:genes.type needs an expression';
+          case v:
+            write(v);
         }
       case TInst(ref = _.get() => cl, params):
         switch [cl, params] {
           case [{pack: [], name: 'String'}, _]:
             emitPos(cl.pos);
             write('string');
+          case [{module: "js.lib.Symbol", name: "Symbol"}, _]:
+            emitPos(cl.pos);
+            write('symbol');
           case [{pack: [], name: "Array"}, [elemT]]:
             emitPos(cl.pos);
             emitType(writer, elemT);
@@ -79,6 +93,9 @@ class TypeEmitter {
         }
       case TAbstract(_.get() => ab, params):
         switch [ab, params] {
+          case [{module: "js.lib.Symbol", name: "Symbol"}, _]:
+            emitPos(ab.pos);
+            write('symbol');
           case [{pack: [], name: "Int" | "Float"}, _]:
             emitPos(ab.pos);
             write('number');

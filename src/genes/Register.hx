@@ -7,17 +7,18 @@ class Register {
   @:keep @:native("$global")
   public static final _global = js.Syntax.code('typeof window != "undefined" ? window : typeof global != "undefined" ? global : typeof self != "undefined" ? self : undefined');
 
+  @:ts.type("{[key: string]: any}")
   static final globals = {}
   @:keep @:native('new')
   static final construct = new js.lib.Symbol();
   @:keep static final init = new js.lib.Symbol();
 
-  @:keep public static function global(name) {
+  @:keep public static function global(name: String) {
     return untyped globals[name] ? globals[name] : globals[name] = {};
   }
 
   @:keep public static function createStatic<T>(obj: {}, name: String,
-      get: () -> T) {
+      get: Null<() -> T>) {
     var value: T = null;
     inline function init() {
       if (get != null) {
@@ -38,13 +39,13 @@ class Register {
     });
   }
 
-  @:keep public static function iterator<T>(a: Array<T>): Void->Iterator<T> {
+  @:keep public static function iterator<T>(@:ts.type("any") a: Array<T>): Void->Iterator<T> {
     return if (!untyped Array.isArray(a))
       js.Syntax.code('typeof a.iterator === "function" ? a.iterator.bind(a) : a.iterator') else
       mkIter.bind(a);
   }
 
-  @:keep public static function getIterator<T>(a: Array<T>): Iterator<T> {
+  @:keep public static function getIterator<T>(@:ts.type("any") a: Array<T>): Iterator<T> {
     return if (!untyped Array.isArray(a)) js.Syntax.code('a.iterator()') else
       mkIter(a);
   }
@@ -53,9 +54,11 @@ class Register {
     return new ArrayIterator(a);
   }
 
-  @:keep public static function extend(superClass) {
+  @:keep @:ts.returnType("any")
+  public static function extend(superClass) {
     Syntax.code('
       function res() {
+        // @ts-ignore
         this[Register.new].apply(this, arguments)
       }
       Object.setPrototypeOf(res.prototype, superClass.prototype)
@@ -63,28 +66,35 @@ class Register {
     ');
   }
 
-  @:keep public static function inherits(resolve, defer = false) {
+  @:keep @:ts.returnType("any")
+  public static function inherits(?resolve, defer = false) {
     Syntax.code('
       function res() {
+        // @ts-ignore
         if (defer && resolve && res[Register.init]) res[Register.init]()
+        // @ts-ignore
         this[Register.new].apply(this, arguments)
       }
       if (!defer) {
         if (resolve && resolve[Register.init]) {
           defer = true
+          // @ts-ignore
           res[Register.init] = () => {
             if (resolve[Register.init]) resolve[Register.init]()
             Object.setPrototypeOf(res.prototype, resolve.prototype)
+            // @ts-ignore
             res[Register.init] = undefined
           } 
         } else if (resolve) {
           Object.setPrototypeOf(res.prototype, resolve.prototype)
         }
       } else {
+        // @ts-ignore
         res[Register.init] = () => {
           const superClass = resolve()
           if (superClass[Register.init]) superClass[Register.init]()
           Object.setPrototypeOf(res.prototype, superClass.prototype)
+          // @ts-ignore
           res[Register.init] = undefined
         } 
       }

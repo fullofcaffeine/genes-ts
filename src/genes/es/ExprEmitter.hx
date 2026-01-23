@@ -298,14 +298,7 @@ class ExprEmitter extends Emitter {
         write('throw ');
         emitValue(e);
       case TVar(v, eo):
-        write('$declare ');
-        emitLocalIdent(v.name);
-        switch (eo) {
-          case null:
-          case e:
-            write(' = ');
-            emitValue(e);
-        }
+        emitVar(v, eo);
       case TNew(c, _, el):
         write(switch (c.get().constructor) {
           case null:
@@ -809,6 +802,24 @@ class ExprEmitter extends Emitter {
       write('["${name}"]')
     else
       write('.${name}');
+  }
+
+  public function emitMemberName(name: String) {
+    if (keywords.exists(name))
+      write('["${name}"]');
+    else
+      write(name);
+  }
+
+  public function emitVar(v: TVar, eo: Null<TypedExpr>) {
+    write('$declare ');
+    emitLocalIdent(v.name);
+    switch (eo) {
+      case null:
+      case e:
+        write(' = ');
+        emitValue(e);
+    }
   }
 
   public function emitComment(text: Null<String>) {
