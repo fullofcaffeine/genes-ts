@@ -106,4 +106,3 @@ export class Boot {
 }
 
 ;Boot.__toStr = ({}).toString
-

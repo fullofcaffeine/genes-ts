@@ -22,5 +22,3 @@ export class Foo extends (Register.inherits() as any) {
 (Register.global("$hxClasses") as any)["foo.Foo"] = Foo;
 
 Foo.prototype.x = null as any;
-
-

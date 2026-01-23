@@ -1,0 +1,12 @@
+-lib genes-ts
+-lib hxnodejs
+
+-cp examples/todoapp/src
+--main todo.server.Main
+
+# Emit TypeScript via genes-ts (still uses -js because we compile on the JS platform)
+-js examples/todoapp/server/src-gen/index.ts
+-D genes.ts
+
+-dce full
+

@@ -4,6 +4,7 @@ import haxe.macro.Expr;
 import haxe.macro.Type;
 import haxe.ds.Option;
 import helder.Set;
+import genes.TypeAccessor;
 import genes.util.TypeUtil.*;
 import genes.util.IteratorUtil.*;
 
@@ -193,6 +194,8 @@ class ExprEmitter extends Emitter {
           case TFun(args, _): args[i].name;
           case _: throw 'assert';
         });
+      case TField(_, FStatic(_, _.get() => field)) if (field.meta.has(':jsRequire')):
+        emitJsRequireField(field);
       case TField(_, FStatic(_.get() => {
         pack: [],
         name: ''
@@ -776,6 +779,32 @@ class ExprEmitter extends Emitter {
 
   function emitFieldName(f: FieldAccess) {
     write(fieldName(f));
+  }
+
+  function emitJsRequireField(field: haxe.macro.Type.ClassField) {
+    switch field.meta.extract(':jsRequire') {
+      case [{params: [{expr: EConst(CString(path))}]}]:
+        write(ctx.typeAccessor((Concrete(path, field.name, null) : TypeAccessor)));
+      case [{
+        params: [
+          {expr: EConst(CString(path))},
+          {expr: EConst(CString('default'))}
+        ]
+      }]:
+        write(ctx.typeAccessor((Concrete(path, field.name, null) : TypeAccessor)));
+      case [{
+        params: [
+          {expr: EConst(CString(path))},
+          {expr: EConst(CString(name))}
+        ]
+      }]:
+        // Dotted paths would require additional member access; keep the import
+        // identifier stable by using the first segment.
+        final importName = name.indexOf('.') > -1 ? name.split('.')[0] : name;
+        write(ctx.typeAccessor((Concrete(path, importName, null) : TypeAccessor)));
+      default:
+        emitIdent(field.name);
+    }
   }
 
   function transformIdent(name: String) {

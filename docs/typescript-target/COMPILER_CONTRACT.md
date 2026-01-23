@@ -2,6 +2,8 @@
 
 This document locks the **user-facing contract** for **genes-ts**, a Haxe→TypeScript compiler built on the Genes-style JS platform pipeline.
 
+This document specifically describes the **TypeScript source output mode** (enabled with `-D genes.ts`). The same library also supports **classic Genes JS output** when `-D genes.ts` is not set (see `readme.md`).
+
 ## Goals
 
 - Emit **idiomatic TypeScript** (both code style and project/module structure).
@@ -22,7 +24,7 @@ This target runs under the Haxe **JS platform** and is enabled via a define.
 
 Note: the haxelib name is **genes-ts** (used via `-lib genes-ts`), but the Haxe package namespace remains `genes.*`.
 
-Minimal invocation (planned):
+Minimal invocation:
 
 ```hxml
 -lib genes-ts

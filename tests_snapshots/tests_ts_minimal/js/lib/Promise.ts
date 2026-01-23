@@ -9,4 +9,3 @@ export type PromiseSettleOutcome<T> = {
 	status: string,
 	value?: any
 }
-

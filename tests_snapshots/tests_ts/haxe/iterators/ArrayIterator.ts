@@ -40,5 +40,3 @@ export class ArrayIterator<T = any> extends (Register.inherits() as any) {
 ArrayIterator.prototype.array = null as any;
 
 ArrayIterator.prototype.current = null as any;
-
-

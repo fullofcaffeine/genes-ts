@@ -26,4 +26,3 @@ Object.assign(MyEnum, {
 	__constructs__: [MyEnum.A, MyEnum.B],
 	__empty_constructs__: [MyEnum.A]
 });
-

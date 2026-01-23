@@ -11,3 +11,8 @@
 /tests_tsx/dist-*
 /examples/typescript-target/src-gen
 /examples/typescript-target/dist
+/examples/todoapp/web/src-gen
+/examples/todoapp/web/dist
+/examples/todoapp/server/src-gen
+/examples/todoapp/server/dist
+/examples/todoapp/server/data.json

@@ -14,5 +14,3 @@ export class Main {
 	}
 }
 (Register.global("$hxClasses") as any)["Main"] = Main;
-
-

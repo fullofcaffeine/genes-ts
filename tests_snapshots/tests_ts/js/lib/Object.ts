@@ -81,4 +81,3 @@ export type ObjectPropertyDescriptor = {
 	*/
 	writable?: any
 }
-

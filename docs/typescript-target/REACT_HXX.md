@@ -117,3 +117,9 @@ Same constraints as Reflaxe.Elixir inline markup:
 ## Tracking
 
 Beads issue: `genes-t6g.12`
+
+## Output mode note
+
+React HXX is designed for **genes-ts TypeScript output** (`-D genes.ts`), where the TS emitter can lower JSX markers into either:
+- idiomatic `.tsx` output, or
+- low-level `.ts` output using `React.createElement(...)`.

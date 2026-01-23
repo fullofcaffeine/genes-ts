@@ -124,7 +124,7 @@ export class Register {
 	}
 }
 
-Register.$global = typeof window != "undefined" ? window : typeof global != "undefined" ? global : typeof self != "undefined" ? self : undefined
+Register.$global = globalThis
 Register.globals = {}
 // @ts-ignore
 Register["new"] = Symbol()
@@ -158,5 +158,3 @@ export class ArrayIterator<T = any> extends (Register.inherits() as any) {
 ArrayIterator.prototype.array = null as any;
 
 ArrayIterator.prototype.current = null as any;
-
-

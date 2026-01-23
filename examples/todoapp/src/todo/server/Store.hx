@@ -1,0 +1,106 @@
+package todo.server;
+
+import js.Node;
+import js.node.Fs;
+import todo.shared.Api.UpdateTodoBody;
+import todo.shared.Todo;
+import todo.shared.TodoId;
+
+class Store {
+  final todos: Array<Todo> = [];
+  final dataPath: Null<String>;
+
+  public function new(?dataPath: String) {
+    this.dataPath = dataPath;
+    if (dataPath != null)
+      load();
+  }
+
+  static function nowIso(): String
+    return cast js.Syntax.code("new Date().toISOString()");
+
+  public function list(): Array<Todo>
+    return todos.copy();
+
+  public function get(id: TodoId): Null<Todo> {
+    for (t in todos)
+      if (t.id == id)
+        return t;
+    return null;
+  }
+
+  public function create(title: String): Todo {
+    final now = nowIso();
+    final todo: Todo = {
+      id: TodoId.create(),
+      title: title,
+      completed: false,
+      createdAt: now,
+      updatedAt: now
+    };
+    todos.push(todo);
+    save();
+    return todo;
+  }
+
+  public function update(id: TodoId, patch: UpdateTodoBody): Null<Todo> {
+    final todo = get(id);
+    if (todo == null)
+      return null;
+    if (patch.title != null)
+      todo.title = patch.title;
+    if (patch.completed != null)
+      todo.completed = patch.completed;
+    todo.updatedAt = nowIso();
+    save();
+    return todo;
+  }
+
+  public function remove(id: TodoId): Bool {
+    for (i in 0...todos.length) {
+      if (todos[i].id == id) {
+        todos.splice(i, 1);
+        save();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function load(): Void {
+    if (dataPath == null)
+      return;
+    try {
+      if (!Fs.existsSync(dataPath))
+        return;
+      final raw = Fs.readFileSync(dataPath, "utf8");
+      final parsed: Dynamic = haxe.Json.parse(raw);
+      final arr: Array<Dynamic> = cast parsed.todos;
+      if (arr == null)
+        return;
+      for (d in arr) {
+        todos.push({
+          id: cast d.id,
+          title: cast d.title,
+          completed: cast d.completed,
+          createdAt: cast d.createdAt,
+          updatedAt: cast d.updatedAt
+        });
+      }
+    } catch (e) {
+      Node.console.error("Failed to load data:", e);
+    }
+  }
+
+  function save(): Void {
+    if (dataPath == null)
+      return;
+    try {
+      final payload = {todos: todos};
+      Fs.writeFileSync(dataPath, haxe.Json.stringify(payload, null, "  "),
+        "utf8");
+    } catch (e) {
+      Node.console.error("Failed to save data:", e);
+    }
+  }
+}

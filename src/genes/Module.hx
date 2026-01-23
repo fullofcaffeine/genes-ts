@@ -242,7 +242,95 @@ class Module {
       return codeDependencies;
     final endTimer = timer('codeDependencies');
     final dependencies = new Dependencies(this);
+    #if (haxe_ver >= 4.2)
+    function addModuleFieldRequires(cl: ClassType, fields: Array<Field>) {
+      if (!cl.kind.match(KModuleFields(_)))
+        return;
+      for (field in fields) {
+        if (!field.isStatic || field.meta == null)
+          continue;
+        switch field.meta.extract(':jsRequire') {
+          case [{params: [{expr: EConst(CString(path))}]}]:
+            // Mirror Dependencies.makeDependency behavior for types:
+            // single-arg jsRequire implies default import (or wildcard import, but
+            // fields can't be wildcard-imported reliably).
+            dependencies.push(path, {
+              type: DependencyType.DDefault,
+              name: field.name,
+              path: path,
+              external: true,
+              pos: field.pos
+            });
+          case [{params: [{expr: EConst(CString(path))}, {expr: EConst(CString('default'))}]}]:
+            dependencies.push(path, {
+              type: DependencyType.DDefault,
+              name: field.name,
+              path: path,
+              external: true,
+              pos: field.pos
+            });
+          case [{params: [{expr: EConst(CString(path))}, {expr: EConst(CString(name))}]}]:
+            dependencies.push(path, {
+              type: DependencyType.DName,
+              name: name,
+              path: path,
+              external: true,
+              pos: field.pos
+            });
+          default:
+        }
+      }
+    }
+    #end
+    function addJsRequireFromExpr(e: TypedExpr) {
+      if (e == null)
+        return;
+      switch e.expr {
+        case TField(_,
+          FStatic(_, _.get() => field)):
+          switch field.meta.extract(':jsRequire') {
+            case [{params: [{expr: EConst(CString(path))}]}]:
+              dependencies.push(path, {
+                type: DependencyType.DDefault,
+                name: field.name,
+                path: path,
+                external: true,
+                pos: field.pos
+              });
+            case [{
+              params: [
+                {expr: EConst(CString(path))},
+                {expr: EConst(CString('default'))}
+              ]
+            }]:
+              dependencies.push(path, {
+                type: DependencyType.DDefault,
+                name: field.name,
+                path: path,
+                external: true,
+                pos: field.pos
+              });
+            case [{
+              params: [
+                {expr: EConst(CString(path))},
+                {expr: EConst(CString(name))}
+              ]
+            }]:
+              dependencies.push(path, {
+                type: DependencyType.DName,
+                name: name,
+                path: path,
+                external: true,
+                pos: field.pos
+              });
+            default:
+          }
+        default:
+      }
+      e.iter(addJsRequireFromExpr);
+    }
     function addFromExpr(e: TypedExpr) {
+      addJsRequireFromExpr(e);
       for (type in TypeUtil.typesInExpr(e))
         dependencies.add(type);
     }
@@ -259,6 +347,9 @@ class Module {
             case null:
             case {t: t}: dependencies.add(TClassDecl(t));
           }
+          #if (haxe_ver >= 4.2)
+          addModuleFieldRequires(cl, fields);
+          #end
           for (field in fields)
             addFromExpr(field.expr);
           addFromExpr(cl.init);

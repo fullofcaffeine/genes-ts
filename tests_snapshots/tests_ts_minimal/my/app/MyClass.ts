@@ -17,5 +17,3 @@ export class MyClass extends (Register.inherits() as any) {
 	}
 }
 MyClass.prototype.value = null as any;
-
-

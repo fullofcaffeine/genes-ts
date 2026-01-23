@@ -32,4 +32,3 @@ export class Main {
 		return Main
 	}
 }
-

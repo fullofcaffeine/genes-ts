@@ -147,6 +147,48 @@ class ModuleEmitter extends ExprEmitter {
     #if (haxe_ver >= 4.2)
     if (!cl.kind.match(KModuleFields(_)))
       return;
+
+    // Bind `@:jsRequire` module-level externs onto the module fields class.
+    //
+    // Haxe represents module-level functions/vars as static fields on a
+    // synthetic "module fields" class. When those fields are externs backed
+    // by `@:jsRequire`, they have no body, so we need to explicitly bind them
+    // to the imported value for runtime correctness.
+    for (field in fields)
+      switch field {
+        case {isStatic: true, meta: meta} if (meta != null):
+          switch meta.extract(':jsRequire') {
+            case [{params: [{expr: EConst(CString(_))}]}]:
+              // Single-arg form imports the module; treat the field name as the
+              // imported identifier.
+              writeNewline();
+              emitPos(field.pos);
+              emitIdent(TypeUtil.className(cl));
+              emitField(staticName(cl, field));
+              write(' = ');
+              emitIdent(field.name);
+              writeNewline();
+            case [{params: [{expr: EConst(CString(_))}, {expr: EConst(CString('default'))}]}]:
+              writeNewline();
+              emitPos(field.pos);
+              emitIdent(TypeUtil.className(cl));
+              emitField(staticName(cl, field));
+              write(' = ');
+              emitIdent(field.name);
+              writeNewline();
+            case [{params: [{expr: EConst(CString(_))}, {expr: EConst(CString(name))}]}]:
+              writeNewline();
+              emitPos(field.pos);
+              emitIdent(TypeUtil.className(cl));
+              emitField(staticName(cl, field));
+              write(' = ');
+              emitIdent(name);
+              writeNewline();
+            default:
+          }
+        default:
+      }
+
     writeNewline();
     for (field in fields)
       switch field {

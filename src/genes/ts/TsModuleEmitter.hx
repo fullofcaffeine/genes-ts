@@ -682,6 +682,31 @@ class TsModuleEmitter extends JsModuleEmitter {
           write(': ');
           emitFieldTsType(field);
           write(';');
+        case Method
+          #if (haxe_ver >= 4.2) if (!field.isAbstract) #end:
+          // Module-level externs (KModuleFields) can be declared as extern
+          // functions (no body) with `@:jsRequire`. These appear as static
+          // fields on the module fields class, so we declare them as function
+          //-typed properties and bind them at runtime in the JS emitter.
+          if (field.expr == null && field.isStatic && field.meta != null
+            #if (haxe_ver >= 4.2)
+            && cl.kind.match(KModuleFields(_))
+            #end
+          ) {
+            final hasJsRequire = switch field.meta.extract(':jsRequire') {
+              case [_]: true;
+              default: false;
+            };
+            if (!hasJsRequire)
+              continue;
+            writeNewline();
+            emitPos(field.pos);
+            write('declare static ');
+            emitMemberName(staticName(cl, field));
+            write(': ');
+            emitType(field.type, field.params);
+            write(';');
+          }
         default:
       }
     }

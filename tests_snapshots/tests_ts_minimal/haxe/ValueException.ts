@@ -36,5 +36,3 @@ export class ValueException extends (Register.inherits(() => Exception, true) as
 	}
 }
 ValueException.prototype.value = null as any;
-
-

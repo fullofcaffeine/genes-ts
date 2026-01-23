@@ -17,4 +17,3 @@ export class Std {
 	Register.global("$hxClasses")["Array"] = Array;
 	Array.__name__ = true;
 }
-

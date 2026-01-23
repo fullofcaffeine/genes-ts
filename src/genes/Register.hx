@@ -5,7 +5,7 @@ import js.Syntax;
 
 class Register {
   @:keep @:native("$global")
-  public static final _global = js.Syntax.code('typeof window != "undefined" ? window : typeof global != "undefined" ? global : typeof self != "undefined" ? self : undefined');
+  public static final _global = js.Syntax.code('globalThis');
 
   @:ts.type("{[key: string]: any}")
   static final globals = {}

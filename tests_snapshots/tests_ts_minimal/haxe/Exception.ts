@@ -87,5 +87,3 @@ Exception.prototype.__skipStack = null as any;
 Exception.prototype.__nativeException = null as any;
 
 Exception.prototype.__previousException = null as any;
-
-

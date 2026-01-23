@@ -10,4 +10,3 @@ passed to that method.
 @see <https://haxe.org/manual/lf-externs.html>
 */
 export type Rest<T> = T[]
-

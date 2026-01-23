@@ -3,6 +3,7 @@ package genes.react;
 #if macro
 import haxe.macro.Context;
 import haxe.macro.Expr;
+import haxe.macro.ExprTools;
 #end
 
 class JSX {
@@ -296,7 +297,7 @@ private class Parser {
     final exprStr = StringTools.trim(trimmed.substr(3));
     if (exprStr.length == 0)
       Context.error('Spread attribute missing expression', pos);
-    return Context.parse(exprStr, pos);
+    return rewriteMarkupExpr(Context.parse(exprStr, pos));
   }
 
   function parseBraceExpr(): Expr {
@@ -304,7 +305,21 @@ private class Parser {
     final exprStr = StringTools.trim(raw);
     if (exprStr.length == 0)
       Context.error('Empty `{}` expression in jsx()', pos);
-    return Context.parse(exprStr, pos);
+    return rewriteMarkupExpr(Context.parse(exprStr, pos));
+  }
+
+  static function rewriteMarkupExpr(expr: Expr): Expr {
+    if (expr == null)
+      return expr;
+    return switch expr.expr {
+      case EMeta(meta, inner)
+        if (meta != null && (meta.name == ':markup' || meta.name == 'markup')):
+        final call = macro genes.react.JSX.jsx($inner);
+        call.pos = expr.pos;
+        call;
+      default:
+        ExprTools.map(expr, rewriteMarkupExpr);
+    }
   }
 
   function readText(): String {

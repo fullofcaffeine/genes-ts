@@ -6,4 +6,3 @@ export type V8CallSite = {
 	getFunctionName: () => string,
 	getLineNumber: () => number
 }
-
