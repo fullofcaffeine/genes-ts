@@ -7,6 +7,7 @@
     "test:genjs": "haxe -D genes.disable test.hxml && node bin/tests.js",
     "test:genes-ts": "node scripts/test-genes-ts.mjs",
     "test:genes-ts:full": "node scripts/test-genes-ts-full.mjs",
+    "build:example:genes-ts": "node scripts/build-example-typescript-target.mjs",
     "postinstall": "lix download"
   },
   "devDependencies": {

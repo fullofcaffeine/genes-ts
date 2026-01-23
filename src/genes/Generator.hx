@@ -90,6 +90,50 @@ class Generator {
       addModule(module, types);
     }
     final tsMode = Context.defined('genes.ts');
+
+    // TS output needs all type-reachable modules to exist on disk, even if Haxe DCE
+    // would normally strip them from runtime output (type-only reachability).
+    //
+    // Until we have a dedicated "type graph" emission mode (M6), we conservatively
+    // include any missing modules referenced by type dependencies so `tsc` can
+    // resolve imports under `-dce full`.
+    if (tsMode) {
+      final pending = [for (k in modules.keys()) k];
+      var i = 0;
+      while (i < pending.length) {
+        final moduleName = pending[i++];
+        final m = modules.get(moduleName);
+        if (m == null)
+          continue;
+        for (path => imports in m.typeDependencies.imports) {
+          if (imports.length == 0)
+            continue;
+          if (imports[0].external)
+            continue;
+          // `StdTypes` is generated as a special TS-only file.
+          if (path == 'StdTypes')
+            continue;
+          if (modules.exists(path))
+            continue;
+          final types: Array<Type> = [];
+          for (dep in imports) {
+            final fullName = {
+              final parts = path.split('.');
+              final last = parts[parts.length - 1];
+              (last == dep.name) ? path : (path + '.' + dep.name);
+            };
+            try {
+              types.push(Context.getType(fullName));
+            } catch (_: Dynamic) {}
+          }
+          if (types.length > 0) {
+            addModule(path, types);
+            pending.push(path);
+          }
+        }
+      }
+    }
+
     for (module in modules) {
       if (tsMode || needsGen(module))
         generateModule(api, module);

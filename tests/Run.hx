@@ -14,6 +14,7 @@ class Run {
       new TestAbstract(), new TestRequire(), new TestExtendExtern(),
       new TestReactComponent(), new TestImportModule(), new TestCycle(),
       new TestCycle2(), new TestComments(), new TestTsTypes(),
+      new TestTypeOnlyDce(),
       new TestTsGenerics(), new TestTypeAlias(), new TestSyntax(),
       #end
       new TestAsterisk(),
