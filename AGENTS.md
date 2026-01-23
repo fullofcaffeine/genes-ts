@@ -11,6 +11,15 @@ genes-ts intentionally supports **two output modes** within the same library:
 
 Both modes should remain well-maintained and share as much implementation as practical.
 
+## Type safety (no `untyped` / no `Dynamic`)
+
+In **framework + test code** (including the todoapp harness), avoid:
+
+- `untyped`
+- `Dynamic` (and other "escape hatches" that erase types)
+
+Prefer small, well-typed externs/abstracts and keep any unavoidable JS interop confined to a narrow boundary (e.g. `extern` modules or a single wrapper).
+
 ## Quick Reference
 
 ```bash

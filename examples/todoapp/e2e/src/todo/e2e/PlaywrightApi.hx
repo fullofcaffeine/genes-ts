@@ -4,5 +4,4 @@ package todo.e2e;
 extern function test(name: String, fn: Dynamic): Void;
 
 @:jsRequire("@playwright/test", "expect")
-extern function expect(value: Dynamic): Dynamic;
-
+extern function expect<T>(value: T): Dynamic;

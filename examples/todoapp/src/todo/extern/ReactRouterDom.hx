@@ -16,8 +16,7 @@ extern class Route {}
 extern class Link {}
 
 @:jsRequire("react-router-dom", "useNavigate")
-extern function useNavigate(): Dynamic;
+extern function useNavigate(): String->Void;
 
 @:jsRequire("react-router-dom", "useParams")
 extern function useParams(): Dynamic;
-

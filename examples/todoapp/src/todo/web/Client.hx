@@ -1,8 +1,12 @@
 package todo.web;
 
 import js.lib.Promise;
+import todo.extern.Fetch.Fetch;
+import todo.extern.Fetch.FetchHeaders;
+import todo.extern.Fetch.FetchRequestInit;
 import todo.shared.Api;
 import todo.shared.Api.CreateTodoBody;
+import todo.shared.Api.ErrorResponse;
 import todo.shared.Api.TodoListResponse;
 import todo.shared.Api.TodoResponse;
 import todo.shared.Api.UpdateTodoBody;
@@ -10,57 +14,63 @@ import todo.shared.Todo;
 import todo.shared.TodoId;
 
 class Client {
-  static function requestJson(method: String, url: String,
-      ?body: Dynamic): Promise<Dynamic> {
-    final headers: Dynamic = {"Content-Type": "application/json"};
-    final opts: Dynamic = {method: method, headers: headers};
+  static function requestJson<T>(method: String, url: String, ?body: {}): Promise<T> {
+    final headers: FetchHeaders = {};
+    headers["Content-Type"] = "application/json";
+
+    final opts: FetchRequestInit = {method: method, headers: headers};
     if (body != null)
       opts.body = haxe.Json.stringify(body);
 
-    final p: Promise<Dynamic> = cast js.Syntax.code("fetch({0}, {1})", url, opts);
-    return p.then(res -> {
-      final ok: Bool = untyped res.ok;
-      final status: Int = untyped res.status;
-      if (status == 204)
-        return Promise.resolve(null);
-      final jp: Promise<Dynamic> = cast untyped res.json();
-      if (ok)
-        return jp;
+    return Fetch.fetch(url, opts).then(res -> {
+      if (res.status == 204)
+        return Promise.reject({error: "no_content"});
+
+      if (res.ok)
+        return res.json();
+
+      final jp: Promise<ErrorResponse> = res.json();
       return jp.then(err -> Promise.reject(err));
     });
   }
 
   public static function listTodos(): Promise<Array<Todo>> {
-    return requestJson("GET", Api.TODOS).then((data: Dynamic) -> {
-      final res: TodoListResponse = cast data;
+    final p: Promise<TodoListResponse> = requestJson("GET", Api.TODOS);
+    return p.then(res -> {
       return res.todos;
     });
   }
 
   public static function getTodo(id: TodoId): Promise<Todo> {
-    return requestJson("GET", Api.todo(id)).then((data: Dynamic) -> {
-      final res: TodoResponse = cast data;
+    final p: Promise<TodoResponse> = requestJson("GET", Api.todo(id));
+    return p.then(res -> {
       return res.todo;
     });
   }
 
   public static function createTodo(title: String): Promise<Todo> {
     final body: CreateTodoBody = {title: title};
-    return requestJson("POST", Api.TODOS, body).then((data: Dynamic) -> {
-      final res: TodoResponse = cast data;
+    final p: Promise<TodoResponse> = requestJson("POST", Api.TODOS, body);
+    return p.then(res -> {
       return res.todo;
     });
   }
 
   public static function updateTodo(id: TodoId, patch: UpdateTodoBody): Promise<Todo> {
-    return requestJson("PATCH", Api.todo(id), patch).then((data: Dynamic) -> {
-      final res: TodoResponse = cast data;
+    final p: Promise<TodoResponse> = requestJson("PATCH", Api.todo(id), patch);
+    return p.then(res -> {
       return res.todo;
     });
   }
 
   public static function deleteTodo(id: TodoId): Promise<Bool> {
-    return requestJson("DELETE", Api.todo(id)).then((_data: Dynamic) -> true);
+    // This endpoint returns 204 No Content on success.
+    final headers: FetchHeaders = {};
+    return Fetch.fetch(Api.todo(id), {method: "DELETE", headers: headers}).then(res -> {
+      if (res.status == 204)
+        return Promise.resolve(true);
+      final jp: Promise<ErrorResponse> = res.json();
+      return jp.then(err -> (Promise.reject(err) : Promise<Bool>));
+    });
   }
 }
-

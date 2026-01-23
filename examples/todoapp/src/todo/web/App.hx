@@ -5,14 +5,16 @@ import todo.extern.ReactRouterDom.BrowserRouter;
 import todo.extern.ReactRouterDom.Link;
 import todo.extern.ReactRouterDom.Route;
 import todo.extern.ReactRouterDom.Routes;
+import todo.web.ReactTypes.ReactComponent;
+import todo.web.ReactTypes.ReactElement;
 import todo.web.pages.TodoDetailPage;
 import todo.web.pages.TodoListPage;
 
 @:jsx_inline_markup
 class App {
-  public static function Component(): Dynamic {
-    final TodoListComponent: Dynamic = TodoListPage.Component;
-    final TodoDetailComponent: Dynamic = TodoDetailPage.Component;
+  public static function Component(): ReactElement {
+    final TodoListComponent: ReactComponent = TodoListPage.Component;
+    final TodoDetailComponent: ReactComponent = TodoDetailPage.Component;
 
     return <BrowserRouter>
       <div style={{

@@ -7,11 +7,14 @@ export class Register {
 	declare static readonly init: unique symbol;
 	declare static fid: number;
 	static global(name: string): any {
-		if (Register.globals[name]) {
-			return Register.globals[name];
-		} else {
-			return Register.globals[name] = {};
+		let existing: any = Register.globals[name];
+		if (existing != null) {
+			return existing;
 		};
+		let created: {
+		} = {};
+		Register.globals[name] = created;
+		return created;
 	}
 	static createStatic<T = any>(obj: {
 	}, name: string, get: any): void {
@@ -75,27 +78,27 @@ export class Register {
         if (resolve && resolve[Register.init]) {
           defer = true
           // @ts-ignore
-          res[Register.init] = () => {
-            if (resolve[Register.init]) resolve[Register.init]()
-            Object.setPrototypeOf(res.prototype, resolve.prototype)
-            // @ts-ignore
-            res[Register.init] = undefined
-          }
-        } else if (resolve) {
-          Object.setPrototypeOf(res.prototype, resolve.prototype)
-        }
+	          res[Register.init] = () => {
+	            if (resolve[Register.init]) resolve[Register.init]()
+	            Object.setPrototypeOf(res.prototype, resolve.prototype)
+	            // @ts-ignore
+	            res[Register.init] = undefined
+	          }
+	        } else if (resolve) {
+	          Object.setPrototypeOf(res.prototype, resolve.prototype)
+	        }
       } else {
         // @ts-ignore
         res[Register.init] = () => {
           const superClass = resolve()
           if (superClass[Register.init]) superClass[Register.init]()
-          Object.setPrototypeOf(res.prototype, superClass.prototype)
-          // @ts-ignore
-          res[Register.init] = undefined
-        }
-      }
-      return res
-    ;
+	          Object.setPrototypeOf(res.prototype, superClass.prototype)
+	          // @ts-ignore
+	          res[Register.init] = undefined
+	        }
+	      }
+	      return res
+	    ;
 	}
 	static bind(o: any, m: any): any {
 		if (m == null) {

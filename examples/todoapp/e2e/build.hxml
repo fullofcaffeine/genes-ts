@@ -1,4 +1,5 @@
 -lib genes-ts
+-lib hxnodejs
 
 -cp examples/todoapp/e2e/src
 --main todo.e2e.Main
