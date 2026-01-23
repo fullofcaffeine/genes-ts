@@ -1,14 +1,19 @@
-# genes-ts — example configs
+# genes-ts — example project
 
-These files are a **contract draft** for how a consuming project is expected to compile Haxe to TypeScript (Haxe 4.7) using **genes-ts**, and then package it.
+This directory is a minimal end-to-end example of:
+1) compiling **Haxe → TypeScript** with `genes-ts`, then
+2) compiling **TypeScript → JavaScript** with `tsc` for Node ESM.
 
-Nothing here is wired up yet; this is for settling the interface early (M0).
+## Run it
 
-## Haxe usage (planned)
+From the repo root:
 
-- `build.hxml` shows the intended invocation pattern.
+```bash
+npm run build:example:genes-ts
+```
 
-## TypeScript configs
+## Files
 
-- `tsconfig.node-next.json`: Node ESM friendly defaults (explicit `.js` specifiers).
-- `tsconfig.bundler.json`: bundler-friendly defaults (extensionless imports).
+- `build.hxml`: emits TS into `src-gen/` (still uses `-js` because we compile on the JS platform).
+- `tsconfig.node-next.json`: NodeNext-friendly TS→JS compile (explicit `.js` import specifiers).
+- `tsconfig.bundler.json`: bundler-friendly TS→JS compile (extensionless imports).

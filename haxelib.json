@@ -1,17 +1,19 @@
 {
-  "name": "genes",
+  "name": "genes-ts",
   "license": "MIT",
   "tags": [
-    "js"
+    "js",
+    "typescript"
   ],
   "classPath": "src",
-  "description": "Generates split ES6 modules and Typescript definitions from Haxe modules.",
+  "description": "Haxe → TypeScript compiler (genes-ts): emit split ESM TypeScript from Haxe (JS platform) with strict typechecking and optional React TSX authoring.",
   "contributors": [
+    "fullofcaffeine",
     "benmerckx"
   ],
   "releasenote": "See repository",
-  "version": "0.4.14",
-  "url": "https://github.com/benmerckx/genes",
+  "version": "1.0.0",
+  "url": "https://github.com/fullofcaffeine/genes-ts",
   "dependencies": {
     "helder.set": "0.3.1"
   }

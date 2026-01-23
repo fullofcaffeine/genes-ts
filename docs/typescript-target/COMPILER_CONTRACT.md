@@ -1,11 +1,11 @@
-# genes-ts — compiler contract (Haxe 4.7)
+# genes-ts — compiler contract (Haxe 4.3.7)
 
 This document locks the **user-facing contract** for **genes-ts**, a Haxe→TypeScript compiler built on the Genes-style JS platform pipeline.
 
 ## Goals
 
 - Emit **idiomatic TypeScript** (both code style and project/module structure).
-- Be **semantically faithful** to Haxe→JS on Haxe 4.7.
+- Be **semantically faithful** to Haxe→JS on Haxe 4.3.7.
 - Type-check under a **strict-by-default** TS configuration, while providing pragmatic escape hatches.
 - Support two runtime profiles:
   - **Default:** Haxe runtime compatibility (reflection-friendly).
@@ -13,19 +13,19 @@ This document locks the **user-facing contract** for **genes-ts**, a Haxe→Type
 
 ## Non-goals (for 1.0)
 
-- Haxe 5 `--custom-target`. Haxe 4.7 first.
+- Haxe 5 `--custom-target`. Haxe 4.3.7 first.
 - Guaranteed Haxe→TS→JS sourcemap composition. (We will ship Haxe→TS maps early; composition is a later milestone.)
 
-## How users invoke the compiler (Haxe 4.7)
+## How users invoke the compiler (Haxe 4.3.7)
 
 This target runs under the Haxe **JS platform** and is enabled via a define.
 
-Note: genes-ts is being developed inside the `genes` codebase initially; the user-facing name is **genes-ts** regardless of whether it later ships as its own `-lib` or as a mode of `genes`.
+Note: the haxelib name is **genes-ts** (used via `-lib genes-ts`), but the Haxe package namespace remains `genes.*`.
 
 Minimal invocation (planned):
 
 ```hxml
--lib genes
+-lib genes-ts
 -cp src
 --main my.app.Main
 
@@ -33,7 +33,7 @@ Minimal invocation (planned):
 # The output filename defines the output directory and the “main module” name.
 -js src-gen/index.ts
 
-# Enable TS emission (planned)
+# Enable TS emission
 -D genes.ts
 ```
 

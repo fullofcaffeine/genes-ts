@@ -1,4 +1,4 @@
--lib genes
+-lib genes-ts
 
 -cp tests_ts/src
 --main Main
@@ -9,4 +9,3 @@
 
 # Keep output small and readable
 -dce full
-

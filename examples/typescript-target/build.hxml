@@ -1,17 +1,17 @@
--lib genes
+-lib genes-ts
 -cp src
 --main my.app.Main
 
-# NOTE: Still uses -js because we compile on the JS platform (Haxe 4.7).
+# NOTE: Still uses -js because we compile on the JS platform (Haxe 4.3.7).
 # The output path determines the output directory and the entry module name.
 -js src-gen/index.ts
 
-# Enable TypeScript emission (genes-ts, planned)
+# Enable TypeScript emission
 -D genes.ts
 
 # Add -debug (or -D js_source_map) to emit Haxe → TS sourcemaps (src-gen/**/*.ts.map).
 
-# Optional profiles (planned)
+# Optional profiles
 # -D genes.ts.no_extension        # extensionless imports (bundler-first)
 # -D genes.ts.dynamic_unknown     # Dynamic -> unknown
 # -D genes.ts.minimal_runtime     # minimal runtime / no-reflection output

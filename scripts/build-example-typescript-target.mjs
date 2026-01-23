@@ -25,14 +25,14 @@ function run(cmd, args, opts = {}) {
 rmrf("src-gen");
 rmrf("dist");
 
-// Run Haxe from the repo root so `-lib genes` resolves its `extraParams.hxml`
-// include correctly (the in-repo `haxe_libraries/genes.hxml` uses a relative
+// Run Haxe from the repo root so `-lib genes-ts` resolves its `extraParams.hxml`
+// include correctly (the in-repo `haxe_libraries/genes-ts.hxml` uses a relative
 // include).
 run(
   "haxe",
   [
     "-lib",
-    "genes",
+    "genes-ts",
     "-cp",
     "examples/typescript-target/src",
     "--main",
