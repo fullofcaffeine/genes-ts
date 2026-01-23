@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "baseUrl": ".",
+    "paths": {
+      "@playwright/test": ["./shims/playwright-test.d.ts"]
+    },
+    "sourceMap": true,
+    "rootDir": "./src-gen",
+    "outDir": "./dist",
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": false
+  },
+  "include": ["src-gen/**/*.ts", "shims/**/*.d.ts"]
+}
+

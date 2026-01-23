@@ -26,12 +26,9 @@ class TodoListPage {
     useEffect(() -> {
       Client.listTodos().then(next -> {
         setTodos(next);
-        return null;
       }).catchError(err -> {
         setError("Failed to load todos");
-        return null;
       });
-      return null;
     }, []);
 
     function replaceTodo(updated: Todo) {

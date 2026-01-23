@@ -5,6 +5,7 @@
     "submit": "bestzip submit.zip src/* haxelib.json readme.md extraParams.hxml && haxelib submit submit.zip && rm submit.zip",
     "test": "rimraf bin && haxe test.hxml && cross-env ANSICON=true node bin/tests.js",
     "test:genjs": "haxe -D genes.disable test.hxml && node bin/tests.js",
+    "test:acceptance": "node scripts/test-acceptance.mjs",
     "test:genes-ts": "node scripts/test-genes-ts.mjs",
     "test:genes-ts:snapshots": "node scripts/test-genes-ts-snapshots.mjs",
     "test:genes-ts:sourcemaps": "node scripts/test-genes-ts-sourcemaps.mjs",
@@ -13,9 +14,13 @@
     "test:genes-ts:full": "node scripts/test-genes-ts-full.mjs",
     "build:example:genes-ts": "node scripts/build-example-typescript-target.mjs",
     "build:example:todoapp": "node scripts/build-example-todoapp.mjs",
+    "build:todoapp:e2e": "node scripts/build-todoapp-e2e.mjs",
+    "test:todoapp": "node scripts/qa-todoapp.mjs",
+    "test:todoapp:e2e": "node scripts/qa-todoapp.mjs --playwright",
     "postinstall": "lix download"
   },
   "devDependencies": {
+    "@playwright/test": "1.48.2",
     "@types/express": "^4.17.21",
     "@types/node": "^12.7.2",
     "@types/react": "^18.2.0",

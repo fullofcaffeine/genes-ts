@@ -11,6 +11,9 @@ import todo.web.pages.TodoListPage;
 @:jsx_inline_markup
 class App {
   public static function Component(): Dynamic {
+    final TodoListComponent: Dynamic = TodoListPage.Component;
+    final TodoDetailComponent: Dynamic = TodoDetailPage.Component;
+
     return <BrowserRouter>
       <div style={{
         maxWidth: "720px",
@@ -26,8 +29,8 @@ class App {
         </header>
         <hr />
         <Routes>
-          <Route path={"/"} element={TodoListPage.Component()} />
-          <Route path={"/todos/:id"} element={TodoDetailPage.Component()} />
+          <Route path={"/"} element={<TodoListComponent />} />
+          <Route path={"/todos/:id"} element={<TodoDetailComponent />} />
         </Routes>
       </div>
     </BrowserRouter>;

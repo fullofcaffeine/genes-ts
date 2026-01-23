@@ -1,0 +1,10 @@
+-lib genes-ts
+
+-cp examples/todoapp/e2e/src
+--main todo.e2e.Main
+
+# Emit TypeScript via genes-ts (still uses -js because we compile on the JS platform)
+-js examples/todoapp/e2e/src-gen/tests/spec.ts
+-D genes.ts
+
+-dce full

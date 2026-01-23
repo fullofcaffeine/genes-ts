@@ -104,9 +104,12 @@ Classic Genes mode (JS output) also supports:
 ## Development
 
 - `npm test` (Genes baseline tests)
+- `npm run test:acceptance` (compiler + todoapp acceptance gate)
 - `npm run test:genes-ts`
 - `npm run test:genes-ts:minimal`
 - `npm run test:genes-ts:full`
 - `npm run test:genes-ts:tsx`
 - `npm run test:genes-ts:snapshots` (or `UPDATE_SNAPSHOTS=1 npm run test:genes-ts:snapshots`)
 - `npm run test:genes-ts:sourcemaps`
+- `npm run test:todoapp` (todoapp API smoke)
+- `npm run test:todoapp:e2e` (todoapp API + Playwright E2E; Playwright specs are authored in Haxe)

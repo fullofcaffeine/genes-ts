@@ -37,6 +37,12 @@ npm run test:genes-ts:tsx
 npm run test:genes-ts:snapshots
 npm run test:genes-ts:sourcemaps
 
+# Full acceptance (compiler + todoapp E2E)
+npm run test:acceptance
+
+# Todoapp E2E only
+npm run test:todoapp:e2e
+
 # Example build (TS output)
 npm run build:example:genes-ts
 npm run build:example:todoapp

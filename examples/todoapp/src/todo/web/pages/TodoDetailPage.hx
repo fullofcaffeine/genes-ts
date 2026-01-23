@@ -35,17 +35,14 @@ class TodoDetailPage {
     useEffect(() -> {
       if (id == null) {
         setError("Missing id");
-        return null;
+        return;
       }
       Client.getTodo(id).then(t -> {
         setTodo(t);
         setTitle(t.title);
-        return null;
       }).catchError(_ -> {
         setError("Todo not found");
-        return null;
       });
-      return null;
     }, [idStr]);
 
     function onSave() {

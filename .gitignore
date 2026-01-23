@@ -16,3 +16,9 @@
 /examples/todoapp/server/src-gen
 /examples/todoapp/server/dist
 /examples/todoapp/server/data.json
+/examples/todoapp/e2e/src-gen
+/examples/todoapp/e2e/dist
+/examples/todoapp/e2e/playwright-report
+/examples/todoapp/e2e/test-results
+/test-results
+/playwright-report
