@@ -97,6 +97,10 @@ class Dependencies {
 
   public static function makeDependency(base: BaseType): Dependency {
     final name = TypeUtil.baseTypeName(base);
+    final explicitAlias = switch base.meta.extract(':genes.importAlias') {
+      case [{params: [{expr: EConst(CString(alias))}]}]: alias;
+      default: null;
+    }
     if (base.isExtern) {
       switch base.meta.extract(':jsRequire') {
         case [{params: [{expr: EConst(CString(path))}]}]:
@@ -119,6 +123,7 @@ class Dependencies {
             name: name,
             path: path,
             external: true,
+            alias: explicitAlias,
             pos: base.pos
           }
         case [{params: [{expr: EConst(CString(path))}, {expr: EConst(CString('default'))}]}]:
@@ -127,6 +132,7 @@ class Dependencies {
             name: name,
             path: path,
             external: true,
+            alias: explicitAlias,
             pos: base.pos
           }
         case [{params: [{expr: EConst(CString(path))}, {expr: EConst(CString(name))}]}]:
@@ -142,6 +148,7 @@ class Dependencies {
               name: native.split('.')[0],
               path: path,
               external: true,
+              alias: explicitAlias,
               pos: base.pos
             }
           }
@@ -152,6 +159,7 @@ class Dependencies {
               name: name.split('.')[0],
               path: path,
               external: true,
+              alias: explicitAlias,
               pos: base.pos
             }
           }
@@ -160,6 +168,7 @@ class Dependencies {
             name: name,
             path: path,
             external: true,
+            alias: explicitAlias,
             pos: base.pos
           }
         default:
@@ -171,6 +180,7 @@ class Dependencies {
       name: name,
       external: false,
       path: base.module,
+      alias: explicitAlias,
       pos: base.pos
     }
   }

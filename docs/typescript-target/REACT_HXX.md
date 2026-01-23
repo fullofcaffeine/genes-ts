@@ -120,18 +120,25 @@ genes-ts relies on normal Haxe JS-platform interop patterns for importing values
 - `@:jsRequire(...)` on an `extern` type (default/named imports)
 - regular Haxe `import` / `using` for module structure
 
+It also ships a **macro-based import helper** (recommended for new genes-ts projects):
+- `genes.ts.Imports.defaultImport(...)`
+- `genes.ts.Imports.namedImport(...)`
+- `genes.ts.Imports.namespaceImport(...)`
+
+This generates hidden `extern` imports (via `@:jsRequire`) so Genes emits real ESM imports in both:
+- genes-ts TypeScript output (`-D genes.ts`)
+- classic Genes JS output (default)
+
+Note: when used inside a method body, the helper intentionally uses a local-scope-safe internal import alias (so `final X = Imports.*(...)` never becomes `let X = X;` in emitted JS/TS). If you use it in a static field initializer, it can emit nicer import names.
+
 ### Import a local TSX component (default export)
 
 ```haxe
-// ButtonExterns.hx (or any module you keep externs in)
-@:jsRequire("./components/Button.tsx", "default")
-extern class Button {}
-```
-
-Then use it in markup:
-
-```haxe
 import genes.react.JSX.*;
+import genes.ts.Imports;
+
+// NodeNext-friendly: TS resolves `./components/Button.js` to `Button.tsx` at compile time.
+final Button = Imports.defaultImport("./components/Button.js");
 
 return jsx('<Button label={"Save"} />');
 ```
@@ -141,8 +148,9 @@ Type-safety comes from the emitted TS/TSX being checked by `tsc` against the com
 ### Import a named export from an npm package
 
 ```haxe
-@:jsRequire("@radix-ui/react-dialog", "Root")
-extern class DialogRoot {}
+import genes.ts.Imports;
+
+final DialogRoot = Imports.namedImport("@radix-ui/react-dialog", "Root");
 ```
 
 ## Tracking
