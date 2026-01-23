@@ -113,7 +113,7 @@ class SourceMapGenerator {
     final map: Dynamic = {
       version: 3,
       names: [],
-      file: Path.withoutDirectory(path),
+      file: Path.withoutDirectory(Path.withoutExtension(path)),
       sourceRoot: "",
       sources: sources.map(source -> if (source == '?') null else PathUtil.relative(path, source)),
       mappings: mappings

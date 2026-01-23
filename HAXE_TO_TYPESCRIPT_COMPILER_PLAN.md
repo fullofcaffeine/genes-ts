@@ -29,7 +29,7 @@ This leverages the biggest advantage we have: **Haxe’s JS-platform typing + st
 - **Output contract:** TS is the primary artifact; output should be **idiomatic TS** in both code and project/module structure.
   - Packaging: do **both** — emit TS source as the “primary” human-readable artifact, and provide an official build path that produces `dist/` (`.js` + `.d.ts`) for npm consumption.
 - **TypeScript strictness:** **strict by default**, but configurable.
-- **Haxe version:** start with **Haxe 4.7** (no Haxe 5 yet).
+- **Haxe version:** start with **Haxe 4.3.7** (latest stable Haxe 4.x).
 - **Debugging:** first-class Haxe→TS sourcemaps early; TS→JS map composition can be a later milestone.
 - **Interop/idioms:** support Haxe stdlib + reflection conventions by default, while allowing “TS-first” coding via externs/metadata/opt-in behaviors.
 - **Module/import policy:** support both:
@@ -38,7 +38,7 @@ This leverages the biggest advantage we have: **Haxe’s JS-platform typing + st
 - **`Dynamic` mapping:** default `Dynamic` → `any`, with an opt-in mode for `Dynamic` → `unknown`.
 - **Runtime profiles:** default “Haxe runtime compatibility” output, plus an opt-in “minimal runtime / no-reflection” profile.
 - **Metadata:** prefer TS-specific metadata (e.g. `@:ts.type`, `@:ts.returnType`), with optional compatibility aliases for Genes metadata (`@:genes.type`, `@:genes.returnType`).
-- **Foundation choice:** use a **Genes-style custom JS generator** as the base (for JS-semantics fidelity on Haxe 4.7); borrow Reflaxe patterns (prepasses, config profiles) as needed.
+- **Foundation choice:** use a **Genes-style custom JS generator** as the base (for JS-semantics fidelity on Haxe 4.x); borrow Reflaxe patterns (prepasses, config profiles) as needed.
 
 ---
 
@@ -258,7 +258,7 @@ Recommendation:
 - Decide `tsconfig` expectations (`strict` by default is agreed; confirm `useDefineForClassFields`, module target, lib target).
 - Confirm import-specifier policy for emitted TS (default explicit `.js` specifiers; opt-in extensionless mode) and define names.
 - Confirm default `Dynamic` mapping (`any`) and the opt-in `unknown` mode define name.
-- Lock minimum Haxe version to 4.7 (agreed).
+- Lock minimum Haxe version to 4.3.7 (latest stable Haxe 4.x).
 - Decide how important composed source maps are for 1.0 (deferred is agreed).
 
 Deliverable:
@@ -347,7 +347,7 @@ Tests:
 - Execute Node tests to confirm semantics.
 
 4) **Compatibility matrix**
-- Haxe 4.7.x baseline (optionally back-compat to 4.3.x if it’s cheap)
+- Haxe 4.3.7 baseline (optionally add Haxe 5 preview compatibility later)
 - Node LTS versions
 - TS versions (likely a modern baseline, not TS 3.7)
 

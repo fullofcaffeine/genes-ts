@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { assertDirSnapshots } from "./snapshots.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,6 +24,12 @@ rmrf("tests_ts/src-gen");
 rmrf("tests_ts/dist");
 
 run("haxe", ["tests_ts/build.hxml"]);
+assertDirSnapshots({
+  repoRoot,
+  generatedDir: "tests_ts/src-gen",
+  snapshotsDir: "tests_snapshots/tests_ts",
+  fileExts: [".ts"]
+});
 
 // Use a pinned TypeScript version for consistent behavior.
 // Note: `npx typescript@X tsc -p ...` is ambiguous in some npm versions.
