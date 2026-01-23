@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { execFileSync } from "child_process";
 import { emitProjectToHaxe } from "./haxe/emit.js";
 import { loadProject } from "./project.js";
 
@@ -31,78 +32,119 @@ function normalize(text: string): string {
   return text.replace(/\r\n/g, "\n");
 }
 
+function run(cmd: string, args: string[], cwd: string) {
+  execFileSync(cmd, args, { cwd, stdio: "inherit" });
+}
+
+type Fixture = {
+  name: string;
+  tsconfigPath: string;
+  snapshotsDir: string;
+  basePackage: string;
+  smokeMain: string | null;
+};
+
 function main(): number {
   const toolRoot = path.resolve(path.dirname(process.argv[1] ?? "."), "..");
-  const fixtureRoot = path.join(toolRoot, "fixtures", "minimal-codegen");
-  const projectPath = path.join(fixtureRoot, "tsconfig.json");
-  const outDir = path.join(toolRoot, ".tmp", "minimal-codegen-out");
-  const snapshotsDir = path.join(toolRoot, "tests_snapshots", "minimal-codegen");
-
-  rmrf(outDir);
-  fs.mkdirSync(outDir, { recursive: true });
-
-  const loaded = loadProject(projectPath);
-  if (!loaded.ok) {
-    process.stderr.write(`Failed to load fixture project: ${projectPath}\n`);
-    for (const d of loaded.diagnostics) process.stderr.write(`${d.messageText}\n`);
-    return 1;
-  }
-
-  emitProjectToHaxe({
-    projectDir: loaded.projectDir,
-    rootDir: loaded.rootDir,
-    program: loaded.program,
-    checker: loaded.checker,
-    sourceFiles: loaded.sourceFiles,
-    outDir,
-    basePackage: "ts2hx"
-  });
-
-  const generatedFiles = walkFiles(outDir).sort((a, b) => a.localeCompare(b));
-  const snapshotFiles = walkFiles(snapshotsDir).sort((a, b) => a.localeCompare(b));
-
   const update = process.env.UPDATE_SNAPSHOTS === "1";
 
-  if (update) {
-    rmrf(snapshotsDir);
-    fs.mkdirSync(snapshotsDir, { recursive: true });
-    for (const rel of generatedFiles) {
-      const absSrc = path.join(outDir, rel);
-      const absDest = path.join(snapshotsDir, rel);
-      fs.mkdirSync(path.dirname(absDest), { recursive: true });
-      fs.copyFileSync(absSrc, absDest);
+  const fixtures: Fixture[] = [
+    {
+      name: "minimal-codegen",
+      tsconfigPath: path.join(toolRoot, "fixtures", "minimal-codegen", "tsconfig.json"),
+      snapshotsDir: path.join(toolRoot, "tests_snapshots", "minimal-codegen"),
+      basePackage: "ts2hx",
+      smokeMain: "ts2hx.Main"
+    },
+    {
+      name: "classes-enums",
+      tsconfigPath: path.join(toolRoot, "fixtures", "classes-enums", "tsconfig.json"),
+      snapshotsDir: path.join(toolRoot, "tests_snapshots", "classes-enums"),
+      basePackage: "ts2hx",
+      smokeMain: "ts2hx.Main"
     }
-    process.stdout.write(`Updated snapshots in ${snapshotsDir}\n`);
-    return 0;
-  }
+  ];
 
-  const missingSnapshots = generatedFiles.filter((rel) => !fs.existsSync(path.join(snapshotsDir, rel)));
-  const extraSnapshots = snapshotFiles.filter((rel) => !fs.existsSync(path.join(outDir, rel)));
+  let totalFiles = 0;
 
-  if (missingSnapshots.length > 0) {
-    process.stderr.write(`Missing snapshot files:\n${missingSnapshots.map((p) => `  ${p}`).join("\n")}\n`);
-    return 1;
-  }
+  for (const fixture of fixtures) {
+    const outDir = path.join(toolRoot, ".tmp", `${fixture.name}-out`);
+    const distDir = path.join(toolRoot, ".tmp", `${fixture.name}-dist`);
 
-  if (extraSnapshots.length > 0) {
-    process.stderr.write(`Extra snapshot files (stale):\n${extraSnapshots.map((p) => `  ${p}`).join("\n")}\n`);
-    return 1;
-  }
+    rmrf(outDir);
+    fs.mkdirSync(outDir, { recursive: true });
 
-  for (const rel of generatedFiles) {
-    const absGen = path.join(outDir, rel);
-    const absSnap = path.join(snapshotsDir, rel);
-    const gen = normalize(fs.readFileSync(absGen, "utf8"));
-    const snap = normalize(fs.readFileSync(absSnap, "utf8"));
-    if (gen !== snap) {
-      process.stderr.write(`Snapshot mismatch: ${rel}\n`);
+    const loaded = loadProject(fixture.tsconfigPath);
+    if (!loaded.ok) {
+      process.stderr.write(`Failed to load fixture project: ${fixture.tsconfigPath}\n`);
+      for (const d of loaded.diagnostics) process.stderr.write(`${d.messageText}\n`);
       return 1;
     }
+
+    emitProjectToHaxe({
+      projectDir: loaded.projectDir,
+      rootDir: loaded.rootDir,
+      program: loaded.program,
+      checker: loaded.checker,
+      sourceFiles: loaded.sourceFiles,
+      outDir,
+      basePackage: fixture.basePackage
+    });
+
+    const generatedFiles = walkFiles(outDir).sort((a, b) => a.localeCompare(b));
+    const snapshotFiles = walkFiles(fixture.snapshotsDir).sort((a, b) => a.localeCompare(b));
+    totalFiles += generatedFiles.length;
+
+    if (update) {
+      rmrf(fixture.snapshotsDir);
+      fs.mkdirSync(fixture.snapshotsDir, { recursive: true });
+      for (const rel of generatedFiles) {
+        const absSrc = path.join(outDir, rel);
+        const absDest = path.join(fixture.snapshotsDir, rel);
+        fs.mkdirSync(path.dirname(absDest), { recursive: true });
+        fs.copyFileSync(absSrc, absDest);
+      }
+      process.stdout.write(`Updated snapshots in ${fixture.snapshotsDir}\n`);
+    } else {
+      const missingSnapshots = generatedFiles.filter((rel) => !fs.existsSync(path.join(fixture.snapshotsDir, rel)));
+      const extraSnapshots = snapshotFiles.filter((rel) => !fs.existsSync(path.join(outDir, rel)));
+
+      if (missingSnapshots.length > 0) {
+        process.stderr.write(
+          `Missing snapshot files for ${fixture.name}:\n${missingSnapshots.map((p) => `  ${p}`).join("\n")}\n`
+        );
+        return 1;
+      }
+
+      if (extraSnapshots.length > 0) {
+        process.stderr.write(
+          `Extra snapshot files for ${fixture.name} (stale):\n${extraSnapshots.map((p) => `  ${p}`).join("\n")}\n`
+        );
+        return 1;
+      }
+
+      for (const rel of generatedFiles) {
+        const absGen = path.join(outDir, rel);
+        const absSnap = path.join(fixture.snapshotsDir, rel);
+        const gen = normalize(fs.readFileSync(absGen, "utf8"));
+        const snap = normalize(fs.readFileSync(absSnap, "utf8"));
+        if (gen !== snap) {
+          process.stderr.write(`Snapshot mismatch (${fixture.name}): ${rel}\n`);
+          return 1;
+        }
+      }
+    }
+
+    if (fixture.smokeMain) {
+      rmrf(distDir);
+      fs.mkdirSync(distDir, { recursive: true });
+      run("haxe", ["-cp", outDir, "-main", fixture.smokeMain, "-js", path.join(distDir, "index.js")], toolRoot);
+      run("node", [path.join(distDir, "index.js")], toolRoot);
+    }
   }
 
-  process.stdout.write(`Snapshots OK (${generatedFiles.length} files)\n`);
+  if (!update) process.stdout.write(`Snapshots OK (${totalFiles} files)\n`);
   return 0;
 }
 
 process.exitCode = main();
-

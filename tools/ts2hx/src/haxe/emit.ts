@@ -71,6 +71,12 @@ function emitType(typeNode: ts.TypeNode | undefined): string {
     case ts.SyntaxKind.AnyKeyword:
     case ts.SyntaxKind.UnknownKeyword:
       return "Dynamic";
+    case ts.SyntaxKind.TypeReference: {
+      const ref = typeNode as ts.TypeReferenceNode;
+      if (ts.isIdentifier(ref.typeName)) return ref.typeName.text;
+      if (ts.isQualifiedName(ref.typeName)) return ref.typeName.right.text;
+      return "Dynamic";
+    }
     default:
       return "Dynamic";
   }
@@ -90,12 +96,35 @@ function emitExpression(expr: ts.Expression): string | null {
       return "null";
     case ts.SyntaxKind.Identifier:
       return (expr as ts.Identifier).text;
+    case ts.SyntaxKind.ThisKeyword:
+      return "this";
+    case ts.SyntaxKind.ParenthesizedExpression: {
+      const inner = emitExpression((expr as ts.ParenthesizedExpression).expression);
+      return inner ? `(${inner})` : null;
+    }
+    case ts.SyntaxKind.PropertyAccessExpression: {
+      const access = expr as ts.PropertyAccessExpression;
+      const left = emitExpression(access.expression);
+      if (!left) return null;
+      return `${left}.${access.name.text}`;
+    }
+    case ts.SyntaxKind.NewExpression: {
+      const ne = expr as ts.NewExpression;
+      const callee = emitExpression(ne.expression);
+      if (!callee) return null;
+      const args = (ne.arguments ?? []).map(emitExpression);
+      if (args.some((a) => a == null)) return null;
+      return `new ${callee}(${args.join(", ")})`;
+    }
     case ts.SyntaxKind.BinaryExpression: {
       const bin = expr as ts.BinaryExpression;
       const left = emitExpression(bin.left);
       const right = emitExpression(bin.right);
       if (!left || !right) return null;
       const op = bin.operatorToken.kind;
+      if (op === ts.SyntaxKind.EqualsToken) {
+        return `${left} = ${right}`;
+      }
       if (
         op === ts.SyntaxKind.PlusToken ||
         op === ts.SyntaxKind.MinusToken ||
@@ -120,37 +149,80 @@ function emitExpression(expr: ts.Expression): string | null {
   }
 }
 
-function emitFunction(fn: ts.FunctionDeclaration): string {
-  const name = fn.name?.text ?? "anon";
-  const params = fn.parameters.map((p) => {
+function emitStatements(statements: readonly ts.Statement[], indent: string): string | null {
+  const out: string[] = [];
+
+  for (const stmt of statements) {
+    if (ts.isReturnStatement(stmt)) {
+      if (!stmt.expression) {
+        out.push(`${indent}return;`);
+        continue;
+      }
+      const expr = emitExpression(stmt.expression);
+      if (!expr) return null;
+      out.push(`${indent}return ${expr};`);
+      continue;
+    }
+
+    if (ts.isExpressionStatement(stmt)) {
+      const expr = emitExpression(stmt.expression);
+      if (!expr) return null;
+      out.push(`${indent}${expr};`);
+      continue;
+    }
+
+    if (ts.isVariableStatement(stmt)) {
+      for (const decl of stmt.declarationList.declarations) {
+        if (!ts.isIdentifier(decl.name)) return null;
+        const name = decl.name.text;
+        const init = decl.initializer ? emitExpression(decl.initializer) : null;
+        if (!init) return null;
+        out.push(`${indent}var ${name} = ${init};`);
+      }
+      continue;
+    }
+
+    return null;
+  }
+
+  return out.join("\n");
+}
+
+function emitFunctionLike(opts: {
+  name: string;
+  parameters: readonly ts.ParameterDeclaration[];
+  returnType: ts.TypeNode | undefined;
+  body: ts.Block | undefined;
+  modifierPrefix: string;
+  omitReturnType?: boolean;
+}): string {
+  const params = opts.parameters.map((p) => {
     const id = ts.isIdentifier(p.name) ? p.name.text : "arg";
     const isOptional = !!p.questionToken;
     const type = emitType(p.type);
     return `${isOptional ? "?" : ""}${id}: ${type}`;
   });
 
-  const returnType = emitType(fn.type);
+  const returnType = emitType(opts.returnType);
+  const returnTypeSuffix = opts.omitReturnType ? "" : `: ${returnType}`;
 
-  let body = 'throw "ts2hx: unsupported";';
-  if (fn.body) {
-    const statements = fn.body.statements;
-    if (statements.length === 1) {
-      const stmt = statements[0];
-      if (ts.isReturnStatement(stmt)) {
-        if (!stmt.expression) {
-          body = "return;";
-        } else {
-          const expr = emitExpression(stmt.expression);
-          if (expr) body = `return ${expr};`;
-        }
-      } else if (ts.isExpressionStatement(stmt)) {
-        const expr = emitExpression(stmt.expression);
-        if (expr) body = `${expr};`;
-      }
-    }
+  let body = `  throw "ts2hx: unsupported";`;
+  if (opts.body) {
+    const emitted = emitStatements(opts.body.statements, "  ");
+    if (emitted) body = emitted;
   }
 
-  return `function ${name}(${params.join(", ")}): ${returnType} {\n  ${body}\n}`;
+  return `${opts.modifierPrefix}function ${opts.name}(${params.join(", ")})${returnTypeSuffix} {\n${body}\n}`;
+}
+
+function emitFunction(fn: ts.FunctionDeclaration): string {
+  return emitFunctionLike({
+    name: fn.name?.text ?? "anon",
+    parameters: fn.parameters,
+    returnType: fn.type,
+    body: fn.body,
+    modifierPrefix: ""
+  });
 }
 
 function emitTypeAlias(decl: ts.TypeAliasDeclaration): string {
@@ -184,6 +256,93 @@ function emitInterface(decl: ts.InterfaceDeclaration): string {
       const ret = emitType(member.type);
       const prefix = isOptional ? "  @:optional " : "  ";
       lines.push(`${prefix}function ${member.name.text}(${params.join(", ")}): ${ret};`);
+      continue;
+    }
+  }
+
+  lines.push(`}`);
+  return lines.join("\n");
+}
+
+function emitEnum(decl: ts.EnumDeclaration): string {
+  const name = decl.name.text;
+
+  let underlying: "Float" | "String" = "Float";
+  for (const member of decl.members) {
+    if (member.initializer && ts.isStringLiteral(member.initializer)) underlying = "String";
+  }
+
+  const lines: string[] = [];
+  lines.push(`enum abstract ${name}(${underlying}) from ${underlying} to ${underlying} {`);
+
+  let nextNumeric = 0;
+  for (const member of decl.members) {
+    const memberName = ts.isIdentifier(member.name)
+      ? member.name.text
+      : ts.isStringLiteral(member.name)
+        ? member.name.text
+        : "Member";
+
+    let valueText: string | null = null;
+    if (!member.initializer) {
+      valueText = underlying === "String" ? JSON.stringify(memberName) : String(nextNumeric);
+      nextNumeric++;
+    } else if (ts.isNumericLiteral(member.initializer)) {
+      valueText = member.initializer.text;
+      nextNumeric = parseInt(member.initializer.text, 10) + 1;
+    } else if (ts.isStringLiteral(member.initializer)) {
+      valueText = JSON.stringify(member.initializer.text);
+    }
+
+    if (!valueText) continue;
+    lines.push(`  var ${memberName} = ${valueText};`);
+  }
+
+  lines.push(`}`);
+  return lines.join("\n");
+}
+
+function emitClass(decl: ts.ClassDeclaration): string {
+  const name = decl.name?.text ?? "AnonymousClass";
+  const lines: string[] = [];
+
+  lines.push(`class ${name} {`);
+
+  for (const member of decl.members) {
+    if (ts.isPropertyDeclaration(member) && member.name && ts.isIdentifier(member.name)) {
+      const isStatic = member.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword) ?? false;
+      const isPrivate = member.modifiers?.some((m) => m.kind === ts.SyntaxKind.PrivateKeyword) ?? false;
+      const visibility = isPrivate ? "private" : "public";
+      const type = emitType(member.type);
+      lines.push(`  ${visibility} ${isStatic ? "static " : ""}var ${member.name.text}: ${type};`);
+      continue;
+    }
+
+    if (ts.isConstructorDeclaration(member)) {
+      const emitted = emitFunctionLike({
+        name: "new",
+        parameters: member.parameters,
+        returnType: undefined,
+        body: member.body,
+        modifierPrefix: "  public ",
+        omitReturnType: true
+      });
+      lines.push(...emitted.split("\n").map((l, i) => (i === 0 ? l : `  ${l}`)));
+      continue;
+    }
+
+    if (ts.isMethodDeclaration(member) && member.name && ts.isIdentifier(member.name)) {
+      const isStatic = member.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword) ?? false;
+      const isPrivate = member.modifiers?.some((m) => m.kind === ts.SyntaxKind.PrivateKeyword) ?? false;
+      const visibility = isPrivate ? "private" : "public";
+      const emitted = emitFunctionLike({
+        name: member.name.text,
+        parameters: member.parameters,
+        returnType: member.type,
+        body: member.body,
+        modifierPrefix: `  ${visibility} ${isStatic ? "static " : ""}`
+      });
+      lines.push(...emitted.split("\n").map((l, i) => (i === 0 ? l : `  ${l}`)));
       continue;
     }
   }
@@ -247,7 +406,13 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
     for (const { name, alias } of imp.named) {
       const effectiveName = alias ?? name;
       if (isLikelyTypeName(effectiveName)) {
-        const typeImport = target.packagePath.length > 0 ? `${target.packagePath}.${effectiveName}` : effectiveName;
+        const moduleBase = target.packagePath.length > 0 ? `${target.packagePath}.${target.moduleName}` : target.moduleName;
+        const typeImport =
+          effectiveName === target.moduleName
+            ? target.packagePath.length > 0
+              ? `${target.packagePath}.${effectiveName}`
+              : effectiveName
+            : `${moduleBase}.${effectiveName}`;
         out.push(alias ? `import ${typeImport} as ${name};` : `import ${typeImport};`);
       } else {
         const valueImportBase = target.packagePath.length > 0 ? `${target.packagePath}.${target.moduleName}` : target.moduleName;
@@ -279,6 +444,22 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
       const isExported = (ts.getCombinedModifierFlags(stmt) & ts.ModifierFlags.Export) !== 0;
       if (!isExported) continue;
       out.push(emitInterface(stmt));
+      out.push("");
+      continue;
+    }
+
+    if (ts.isEnumDeclaration(stmt)) {
+      const isExported = (ts.getCombinedModifierFlags(stmt) & ts.ModifierFlags.Export) !== 0;
+      if (!isExported) continue;
+      out.push(emitEnum(stmt));
+      out.push("");
+      continue;
+    }
+
+    if (ts.isClassDeclaration(stmt)) {
+      const isExported = (ts.getCombinedModifierFlags(stmt) & ts.ModifierFlags.Export) !== 0;
+      if (!isExported) continue;
+      out.push(emitClass(stmt));
       out.push("");
       continue;
     }
