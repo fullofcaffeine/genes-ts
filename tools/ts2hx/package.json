@@ -1,0 +1,15 @@
+{
+  "name": "@genes-ts/ts2hx",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "description": "Experimental TS/JS → Haxe transpiler (ts2hx).",
+  "bin": {
+    "ts2hx": "./src/cli.mjs"
+  },
+  "scripts": {
+    "ts2hx": "node src/cli.mjs",
+    "test": "node src/cli.mjs --version"
+  }
+}
+
