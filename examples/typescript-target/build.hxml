@@ -9,6 +9,8 @@
 # Enable TypeScript emission (genes-ts, planned)
 -D genes.ts
 
+# Add -debug (or -D js_source_map) to emit Haxe → TS sourcemaps (src-gen/**/*.ts.map).
+
 # Optional profiles (planned)
 # -D genes.ts.no_extension        # extensionless imports (bundler-first)
 # -D genes.ts.dynamic_unknown     # Dynamic -> unknown
