@@ -4,6 +4,12 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "strict": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "react": ["./shims/react.d.ts"],
+      "react-dom/server": ["./shims/react-dom-server.d.ts"]
+    },
     "declaration": true,
     "sourceMap": true,
     "rootDir": "./src-gen",
@@ -11,5 +17,5 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": false
   },
-  "include": ["src-gen/**/*.ts", "ambient.d.ts"]
+  "include": ["src-gen/**/*.ts", "ambient.d.ts", "shims/**/*.d.ts"]
 }

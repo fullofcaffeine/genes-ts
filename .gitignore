@@ -7,5 +7,7 @@
 /tests_ts_full/dist
 /tests_ts_minimal/src-gen
 /tests_ts_minimal/dist
+/tests_tsx/src-gen-*
+/tests_tsx/dist-*
 /examples/typescript-target/src-gen
 /examples/typescript-target/dist

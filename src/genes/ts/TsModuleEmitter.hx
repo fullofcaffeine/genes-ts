@@ -27,8 +27,13 @@ using haxe.macro.Tools;
  * This is intentionally incomplete. Expression coverage and richer typing land in later milestones.
  */
 class TsModuleEmitter extends JsModuleEmitter {
+  static final JSX_REACT_IMPORT = 'React__genes_jsx';
+
+  var jsxEmitTsx: Bool = false;
+
   public function emitTsModule(module: Module, importExtension: Null<String>) {
     final endTimer = timer('emitTsModule');
+    jsxEmitTsx = genes.Genes.outExtension == '.tsx';
 
     // Merge code + type dependencies so TS signatures can resolve.
     final deps = new Dependencies(module, true);
@@ -38,6 +43,16 @@ class TsModuleEmitter extends JsModuleEmitter {
 
     if (haxe.macro.Context.defined('genes.banner')) {
       write(haxe.macro.Context.definedValue('genes.banner'));
+      writeNewline();
+    }
+
+    // If we lower JSX markers into `React.createElement`, ensure React is in scope.
+    // TSX output uses the automatic JSX runtime and doesn't need this import.
+    if (!jsxEmitTsx && moduleUsesReactJsxMarkers(module)) {
+      write('import * as ');
+      write(JSX_REACT_IMPORT);
+      write(' from ');
+      emitString('react');
       writeNewline();
     }
 
@@ -113,6 +128,74 @@ class TsModuleEmitter extends JsModuleEmitter {
         emitExport(export, module.toPath(export.module), importExtension);
 
     return endTimer();
+  }
+
+  static function moduleUsesReactJsxMarkers(module: Module): Bool {
+    var found = false;
+    function visitExpr(e: TypedExpr) {
+      if (found || e == null)
+        return;
+      if (isReactJsxMarkerCallExpr(e)) {
+        found = true;
+        return;
+      }
+      e.iter(visitExpr);
+    }
+    for (member in module.members) {
+      if (found)
+        break;
+      switch member {
+        case MClass(cl, _, fields):
+          for (field in fields) {
+            visitExpr(field.expr);
+            if (found)
+              break;
+          }
+          visitExpr(cl.init);
+        case MMain(e):
+          visitExpr(e);
+        case _:
+      }
+    }
+    return found;
+  }
+
+  static function isReactJsxMarkerCallExpr(e: TypedExpr): Bool {
+    return switch unwrapExpr(e).expr {
+      case TCall(callee, _):
+        isReactJsxMarkerCallee(callee) != null;
+      default:
+        false;
+    }
+  }
+
+  static function isReactJsxMarkerCallee(callee: TypedExpr): Null<String> {
+    return switch unwrapExpr(callee).expr {
+      case TField(_,
+        FStatic(_.get() => cl, _.get() => {name: name}))
+        if (cl.pack.join('.') == 'genes.react.internal' && cl.name == 'Jsx'
+          && (name == '__jsx' || name == '__frag')):
+        name;
+      default:
+        null;
+    }
+  }
+
+  static function unwrapExpr(e: TypedExpr): TypedExpr {
+    var cur = e;
+    while (cur != null) {
+      switch cur.expr {
+        case TMeta(_, e1):
+          cur = e1;
+        case TCast(e1, null):
+          cur = e1;
+        case TParenthesis(e1):
+          cur = e1;
+        default:
+          return cur;
+      }
+    }
+    return e;
   }
 
   static function mergeDepsInto(into: Dependencies, from: Dependencies) {
@@ -213,6 +296,274 @@ class TsModuleEmitter extends JsModuleEmitter {
       return;
     }
     super.emitStatic(cl, field);
+  }
+
+  override function emitCall(e: TypedExpr, params: Array<TypedExpr>,
+      inValue: Bool) {
+    final marker = isReactJsxMarkerCallee(e);
+    if (marker != null) {
+      switch marker {
+        case '__jsx':
+          emitReactJsxElement(params);
+        case '__frag':
+          emitReactJsxFragment(params);
+        default:
+      }
+      return;
+    }
+    super.emitCall(e, params, inValue);
+  }
+
+  function emitReactJsxElement(args: Array<TypedExpr>) {
+    if (args.length != 3)
+      haxe.macro.Context.error('Invalid JSX marker call', args.length > 0 ? args[0].pos : haxe.macro.Context.currentPos());
+
+    final tag = args[0];
+    final props = parseJsxProps(args[1]);
+    final children = parseJsxChildren(args[2]);
+
+    if (jsxEmitTsx)
+      emitTsxElement(tag, props, children);
+    else
+      emitCreateElement(tag, props, children);
+  }
+
+  function emitReactJsxFragment(args: Array<TypedExpr>) {
+    if (args.length != 1)
+      haxe.macro.Context.error('Invalid JSX fragment marker call',
+        args.length > 0 ? args[0].pos : haxe.macro.Context.currentPos());
+
+    final children = parseJsxChildren(args[0]);
+    if (jsxEmitTsx)
+      emitTsxFragment(children);
+    else
+      emitCreateElementFragment(children);
+  }
+
+  function parseJsxChildren(e: TypedExpr): Array<TypedExpr> {
+    return switch unwrapExpr(e).expr {
+      case TArrayDecl(el):
+        el;
+      case TConst(TNull):
+        [];
+      default:
+        haxe.macro.Context.error('Invalid JSX marker children; expected an array literal',
+          e.pos);
+    }
+  }
+
+  function parseJsxProps(e: TypedExpr): Array<ReactJsxProp> {
+    return switch unwrapExpr(e).expr {
+      case TArrayDecl(el):
+        el.map(parseJsxPropEntry);
+      case TConst(TNull):
+        [];
+      default:
+        haxe.macro.Context.error('Invalid JSX marker props; expected an array literal',
+          e.pos);
+    }
+  }
+
+  function parseJsxPropEntry(e: TypedExpr): ReactJsxProp {
+    return switch unwrapExpr(e).expr {
+      case TObjectDecl(fields):
+        var name: Null<String> = null;
+        var value: Null<TypedExpr> = null;
+        var spread: Null<TypedExpr> = null;
+        for (f in fields) {
+          switch f.name {
+            case 'name':
+              switch unwrapExpr(f.expr).expr {
+                case TConst(TString(s)):
+                  name = s;
+                default:
+                  haxe.macro.Context.error('JSX prop entry `name` must be a string literal',
+                    f.expr.pos);
+              }
+            case 'value':
+              value = f.expr;
+            case 'spread':
+              spread = f.expr;
+            case _:
+          }
+        }
+        if (spread != null)
+          return Spread(spread);
+        if (name == null || value == null)
+          haxe.macro.Context.error('Invalid JSX prop entry', e.pos);
+        return Normal(name, value);
+      default:
+        haxe.macro.Context.error('Invalid JSX prop entry; expected an object literal',
+          e.pos);
+    }
+  }
+
+  function emitTsxFragment(children: Array<TypedExpr>) {
+    write('<>');
+    emitTsxChildren(children);
+    write('</>');
+  }
+
+  function emitTsxElement(tag: TypedExpr, props: Array<ReactJsxProp>,
+      children: Array<TypedExpr>) {
+    write('<');
+    emitTsxTagName(tag);
+    emitTsxAttributes(props);
+    if (children.length == 0) {
+      write(' />');
+      return;
+    }
+    write('>');
+    emitTsxChildren(children);
+    write('</');
+    emitTsxTagName(tag);
+    write('>');
+  }
+
+  function emitTsxTagName(tag: TypedExpr) {
+    switch unwrapExpr(tag).expr {
+      case TConst(TString(s)):
+        write(s);
+      default:
+        emitValue(tag);
+    }
+  }
+
+  function emitTsxAttributes(props: Array<ReactJsxProp>) {
+    for (p in props) {
+      switch p {
+        case Spread(e):
+          write(' {...');
+          emitValue(e);
+          write('}');
+        case Normal(name, value):
+          write(' ');
+          write(name);
+          switch unwrapExpr(value).expr {
+            case TConst(TBool(true)):
+              // Boolean attribute shorthand.
+            case TConst(TString(s)):
+              write('=');
+              emitString(s);
+            default:
+              write('={');
+              emitValue(value);
+              write('}');
+          }
+      }
+    }
+  }
+
+  function emitTsxChildren(children: Array<TypedExpr>) {
+    for (child in children) {
+      if (isReactJsxMarkerCallExpr(child)) {
+        emitValue(child);
+        continue;
+      }
+      switch unwrapExpr(child).expr {
+        case TConst(TString(s)):
+          write(s);
+        default:
+          write('{');
+          emitValue(child);
+          write('}');
+      }
+    }
+  }
+
+  function emitCreateElement(tag: TypedExpr, props: Array<ReactJsxProp>,
+      children: Array<TypedExpr>) {
+    write(JSX_REACT_IMPORT);
+    write('.createElement(');
+    emitValue(tag);
+    write(', ');
+    emitCreateElementProps(tag, props);
+    for (child in children) {
+      write(', ');
+      emitValue(child);
+    }
+    write(')');
+  }
+
+  function emitCreateElementFragment(children: Array<TypedExpr>) {
+    write(JSX_REACT_IMPORT);
+    write('.createElement(');
+    write(JSX_REACT_IMPORT);
+    write('.Fragment, null');
+    for (child in children) {
+      write(', ');
+      emitValue(child);
+    }
+    write(')');
+  }
+
+  function emitCreateElementProps(tag: TypedExpr, props: Array<ReactJsxProp>) {
+    if (props.length == 0) {
+      write('null');
+      return;
+    }
+    write('(');
+    write('{');
+    for (p in join(props, write.bind(', '))) {
+      switch p {
+        case Spread(e):
+          write('...');
+          emitValue(e);
+        case Normal(name, value):
+          emitObjectKey(name);
+          write(': ');
+          emitValue(value);
+      }
+    }
+    write('}');
+    write(' satisfies ');
+    write('(');
+    write(JSX_REACT_IMPORT);
+    write('.ComponentPropsWithoutRef<');
+    emitComponentPropsTypeArgForTag(tag);
+    write('>');
+    // In TSX, TypeScript allows `data-*` / `aria-*` attributes by default.
+    // In low-level `createElement(...)` mode, we add explicit mapped types so
+    // real-world attributes don't get blocked by excess property checks.
+    write(' & { [K in `data-$${string}`]?: string | number | boolean | null | undefined }');
+    write(' & { [K in `aria-$${string}`]?: string | number | boolean | null | undefined }');
+    write(')');
+    write(')');
+  }
+
+  function emitObjectKey(name: String) {
+    if (isValidTsObjectKey(name)) {
+      write(name);
+      return;
+    }
+    emitString(name);
+  }
+
+  static function isValidTsObjectKey(name: String): Bool {
+    if (name == null || name.length == 0)
+      return false;
+    final first = name.charCodeAt(0);
+    if (!((first >= 'a'.code && first <= 'z'.code)
+      || (first >= 'A'.code && first <= 'Z'.code)
+      || first == '_'.code || first == '$'.code))
+      return false;
+    for (i in 1...name.length) {
+      final c = name.charCodeAt(i);
+      if (!((c >= 'a'.code && c <= 'z'.code) || (c >= 'A'.code && c <= 'Z'.code)
+        || (c >= '0'.code && c <= '9'.code) || c == '_'.code || c == '$'.code))
+        return false;
+    }
+    return true;
+  }
+
+  function emitComponentPropsTypeArgForTag(tag: TypedExpr) {
+    switch unwrapExpr(tag).expr {
+      case TConst(TString(s)):
+        emitString(s);
+      default:
+        write('typeof ');
+        emitValue(tag);
+    }
   }
 
   function emitTsClass(checkCycles: (module: String) -> Bool, cl: ClassType,
@@ -1240,4 +1591,9 @@ class TsModuleEmitter extends JsModuleEmitter {
       default: null;
     }
   }
+}
+
+private enum ReactJsxProp {
+  Normal(name: String, value: TypedExpr);
+  Spread(expr: TypedExpr);
 }

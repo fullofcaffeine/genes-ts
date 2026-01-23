@@ -1,3 +1,4 @@
 -D js-es=6
 --macro genes.Generator.use()
+--macro genes.react.InlineMarkup.enable()
 --macro addMetadata('@:genes.disableNativeAccessors', 'haxe.Exception')

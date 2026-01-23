@@ -6,6 +6,7 @@
     "test": "rimraf bin && haxe test.hxml && cross-env ANSICON=true node bin/tests.js",
     "test:genjs": "haxe -D genes.disable test.hxml && node bin/tests.js",
     "test:genes-ts": "node scripts/test-genes-ts.mjs",
+    "test:genes-ts:tsx": "node scripts/test-genes-tsx.mjs",
     "test:genes-ts:minimal": "node scripts/test-genes-ts-minimal.mjs",
     "test:genes-ts:full": "node scripts/test-genes-ts-full.mjs",
     "build:example:genes-ts": "node scripts/build-example-typescript-target.mjs",
@@ -13,12 +14,15 @@
   },
   "devDependencies": {
     "@types/node": "^12.7.2",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
     "bestzip": "^2.1.5",
     "cross-env": "^7.0.2",
     "lix": "^15.9.1",
-    "react": "^16.12.0",
-    "react-dom": "^16.12.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
     "rimraf": "^2.7.0",
     "typescript": "^3.7.5"
-  }
+  },
+  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }
