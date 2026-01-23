@@ -125,6 +125,8 @@ class TsModuleEmitter extends JsModuleEmitter {
           name: dep.name,
           external: dep.external,
           path: dep.path,
+          // Preserve explicit aliases (e.g. `import X in Y;`) but let merged dependency
+          // analysis recompute auto-aliases (`Foo__1`, `Foo__2`, ...) deterministically.
           alias: isAutoAlias ? null : dep.alias,
           pos: dep.pos
         });
@@ -221,7 +223,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     write('export class ');
     write(TypeUtil.className(cl));
     if (cl.params != null && cl.params.length > 0)
-      TypeEmitter.emitParams(this, cl.params.map(p -> p.t), true);
+      emitTypeParamDecls(cl.params.map(p -> p.t), true);
 
     final extendsInherits = cl.superClass != null
       || JsModuleEmitter.hasConstructor(fields);
@@ -507,7 +509,33 @@ class TsModuleEmitter extends JsModuleEmitter {
   function emitMethodTypeParams(field: GenesField) {
     if (field.params == null || field.params.length == 0)
       return;
-    TypeEmitter.emitParams(this, field.params.map(p -> p.t), true);
+    emitTypeParamDecls(field.params.map(p -> p.t), true);
+  }
+
+  function emitTypeParamDecls(params: Array<Type>, withConstraints: Bool) {
+    if (params.length == 0)
+      return;
+    write('<');
+    for (param in join(params, write.bind(', '))) {
+      switch param {
+        case TInst(_.get() => {kind: KTypeParameter(constraints)}, _):
+          // Use TypeEmitter so `@:ts.type` / `@:genes.type` overrides apply even
+          // on type parameter names (see tests/TestTsTypes.hx expectations).
+          TypeEmitter.emitType(this, param);
+          if (withConstraints && constraints.length > 0) {
+            write(' extends ');
+            for (c in join(constraints, write.bind(' & ')))
+              TypeEmitter.emitType(this, c);
+          }
+          // Default Haxe generics to `any` for ergonomics and to avoid `unknown`
+          // inference in downstream generic code under `strict`.
+          write(' = any');
+        default:
+          // Fallback: best-effort rendering.
+          TypeEmitter.emitType(this, param);
+      }
+    }
+    write('>');
   }
 
   override public function emitVar(v: TVar, eo: Null<TypedExpr>) {
@@ -581,7 +609,10 @@ class TsModuleEmitter extends JsModuleEmitter {
           write(': ');
           TypeEmitter.emitType(this, t);
         }
-        write('): any ');
+        // Omit explicit return annotations so TS can infer and preserve generic
+        // inference. Writing `: any` here causes widespread `unknown` inference
+        // under `strict` in downstream code (e.g. tink.*).
+        write(') ');
         emitExpr(getFunctionBody(f));
         this.inValue = inValue;
         this.inLoop = inLoop;
@@ -594,6 +625,81 @@ class TsModuleEmitter extends JsModuleEmitter {
       default:
         super.emitExpr(e);
     }
+  }
+
+  override function emitSwitch(cond: TypedExpr,
+      cases: Array<{values: Array<TypedExpr>, expr: TypedExpr}>,
+      def: Null<TypedExpr>, leaf: TypedExpr->Void) {
+    write('switch ');
+    emitValue(cond);
+    write(' {');
+    increaseIndent();
+    writeNewline();
+    for (c in cases) {
+      emitPos(c.expr.pos);
+      for (v in c.values) {
+        emitPos(v.pos);
+        switch v.expr {
+          case TConst(TNull):
+            write('case null: case undefined:');
+          default:
+            write('case ');
+            emitValue(v);
+            write(':');
+        }
+      }
+      increaseIndent();
+      leaf(c.expr);
+      writeNewline();
+      write('break');
+      decreaseIndent();
+      writeNewline();
+    }
+    switch def {
+      case null:
+        // When Haxe proves a switch exhaustive, it often omits a `default` case.
+        // In TS mode, a missing `default` can cause inferred return types to
+        // include `undefined`, breaking assignability for callbacks (e.g. `Next.ofSafe`).
+        // If any branch returns, add a default that throws to keep TS happy
+        // without changing the successful-path semantics.
+        if (cases.exists(c -> hasReturnExpr(c.expr))) {
+          emitPos(cond.pos);
+          write('default:');
+          increaseIndent();
+          writeNewline();
+          write('throw ');
+          emitString('unreachable');
+          write(';');
+          decreaseIndent();
+          writeNewline();
+        }
+      case e:
+        emitPos(e.pos);
+        write('default:');
+        leaf(e);
+        writeNewline();
+    }
+    decreaseIndent();
+    writeNewline();
+    write('}');
+  }
+
+  static function hasReturnExpr(e: TypedExpr): Bool {
+    var found = false;
+    function visit(e: TypedExpr) {
+      if (found)
+        return;
+      switch e.expr {
+        case TReturn(_):
+          found = true;
+        case TFunction(_):
+          // Returns in nested functions do not affect the outer switch.
+        default:
+          e.iter(visit);
+      }
+    }
+    visit(e);
+    return found;
   }
 
   static function fieldAccessName(field: FieldAccess): Null<String> {
@@ -763,7 +869,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     write('export interface ');
     write(TypeUtil.className(cl));
     if (cl.params != null && cl.params.length > 0)
-      TypeEmitter.emitParams(this, cl.params.map(p -> p.t), true);
+      emitTypeParamDecls(cl.params.map(p -> p.t), true);
     if (cl.interfaces != null && cl.interfaces.length > 0) {
       write(' extends ');
       for (i in join(cl.interfaces, write.bind(', '))) {
@@ -795,7 +901,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           emitPos(field.pos);
           emitMemberName(field.name);
           if (field.params != null && field.params.length > 0)
-            TypeEmitter.emitParams(this, field.params.map(p -> p.t), true);
+            emitTypeParamDecls(field.params.map(p -> p.t), true);
           write('(');
           emitFunctionTypeArguments(field.type);
           write('): ');
@@ -848,45 +954,168 @@ class TsModuleEmitter extends JsModuleEmitter {
   function emitTsEnum(et: EnumType) {
     final discriminator = haxe.macro.Context.definedValue('genes.enum_discriminator');
     final id = et.pack.concat([et.name]).join('.');
+    final enumParams = et.params != null ? et.params.map(p -> p.t) : [];
+    final enumParamNames = et.params != null ? et.params.map(p -> p.name) : [];
+    writeNewline();
+    emitComment(et.doc);
+    emitPos(et.pos);
+
+    // Emit TS union types for enums using declaration merging.
+    //
+    // IMPORTANT: TS does not allow `export const EnumName` to merge with
+    // `export declare namespace EnumName` (duplicate identifier). A function
+    // works as the runtime enum container while still allowing type namespace
+    // merging.
+    write('export declare namespace ');
+    write(et.name);
+    write(' {');
+    increaseIndent();
+    writeNewline();
+    emitPos(et.pos);
+    write('export const __constructs__: any[];');
+    writeNewline();
+    emitPos(et.pos);
+    write('export const __empty_constructs__: any[];');
+    if (ctx.hasFeature('js.Boot.isEnum')) {
+      writeNewline();
+      emitPos(et.pos);
+      write('export const __ename__: string;');
+    }
+
+    for (ctorName in et.names) {
+      final c = et.constructs.get(ctorName);
+      writeNewline();
+      emitComment(c.doc);
+      emitPos(c.pos);
+      write('export type ');
+      write(ctorName);
+      emitTypeParamDecls(enumParams, true);
+      write(' = {');
+      if (discriminator != null) {
+        emitString(discriminator);
+        write(': ');
+        emitString(ctorName);
+        write(', ');
+      }
+      write('_hx_index: ${c.index}');
+      switch c.type {
+        case TFun(args, _):
+          for (arg in args) {
+            write(', ');
+            emitIdent(arg.name);
+            write(': ');
+            switch arg.t {
+              case TInst(_.get() => {
+                name: name,
+                kind: KTypeParameter(_)
+              }, []) if (enumParamNames.indexOf(name) > -1):
+                write(name);
+              case TInst(_.get() => {kind: KTypeParameter(_)}, []):
+                write('any');
+              default:
+                emitType(arg.t);
+            }
+          }
+        default:
+      }
+      write(', __enum__: ');
+      emitString(id);
+      write('}');
+
+      writeNewline();
+      emitPos(c.pos);
+      write('export const ');
+      write(ctorName);
+      write(': ');
+      switch c.type {
+        case TFun(args, ret):
+          final allParams = enumParams.concat(c.params.map(p -> p.t));
+          emitTypeParamDecls(allParams, true);
+          write('(');
+          for (arg in join(args, write.bind(', '))) {
+            emitIdent(arg.name);
+            write(': ');
+            emitType(arg.t);
+          }
+          write(') => ');
+          emitType(ret);
+        default:
+          write(ctorName);
+          // Nullary constructors should be usable as any instantiation of the
+          // enum's type params; emit `<any, ...>` to keep TS assignment-friendly.
+          if (enumParams.length > 0) {
+            write('<');
+            for (_ in join(enumParams, write.bind(', ')))
+              write('any');
+            write('>');
+          }
+      }
+      write(';');
+    }
+    decreaseIndent();
+    writeNewline();
+    write('}');
+    writeNewline();
+
     writeNewline();
     emitComment(et.doc);
     emitPos(et.pos);
     write('export type ');
     write(et.name);
-    if (et.params != null && et.params.length > 0)
-      TypeEmitter.emitParams(this, et.params.map(p -> p.t), true);
-    write(' = any');
+    emitTypeParamDecls(enumParams, true);
+    write(' =');
+    increaseIndent();
+    for (ctorName in et.names) {
+      final c = et.constructs.get(ctorName);
+      writeNewline();
+      emitComment(c.doc);
+      write('| ');
+      write(et.name);
+      write('.');
+      emitPos(c.pos);
+      write(ctorName);
+      TypeEmitter.emitParams(this, enumParams, false);
+    }
+    decreaseIndent();
     writeNewline();
+
     emitPos(et.pos);
-    write('export const ');
+    write('export function ');
     write(et.name);
-    write(': any = ');
+    write('() {}');
+    writeNewline();
     writeNewline();
     writeGlobalVar("$hxEnums");
     write('[');
     emitString(id);
-    write(']');
-    write(' = ');
+    write('] = ');
+    write(et.name);
+    write(' as any');
     writeNewline();
-    write('{');
+
+    writeNewline();
+    write('Object.assign(');
+    write(et.name);
+    write(', {');
     increaseIndent();
     writeNewline();
     if (ctx.hasFeature('js.Boot.isEnum')) {
-      write('__ename__: "${id}",');
+      write('__ename__: ');
+      emitString(id);
+      write(',');
       writeNewline();
     }
-    writeNewline();
-    for (name in join(et.names, () -> {
+    for (ctorName in join(et.names, () -> {
       write(',');
       writeNewline();
     })) {
-      final c = et.constructs.get(name);
+      final c = et.constructs.get(ctorName);
       emitComment(c.doc);
       emitPos(c.pos);
-      write(name);
+      write(ctorName);
       write(': ');
       switch c.type {
-        case TFun(args, ret):
+        case TFun(args, _):
           write('Object.assign((');
           for (param in join(args, write.bind(', '))) {
             emitLocalIdent(param.name);
@@ -895,7 +1124,9 @@ class TsModuleEmitter extends JsModuleEmitter {
             write(': ');
             write('any');
           }
-          write(') => ({_hx_index: ${c.index}, __enum__: "${id}", ');
+          write(') => ({_hx_index: ${c.index}, __enum__: ');
+          emitString(id);
+          write(', ');
           for (param in join(args, write.bind(', '))) {
             emitString(param.name);
             write(': ');
@@ -905,43 +1136,51 @@ class TsModuleEmitter extends JsModuleEmitter {
             write(', ');
             emitString(discriminator);
             write(': ');
-            emitString(name);
+            emitString(ctorName);
           }
-          write('}), {_hx_name: "${name}", __params__: [');
+          write('}), {_hx_name: ');
+          emitString(ctorName);
+          write(', __params__: [');
           for (param in join(args, write.bind(', ')))
             emitString(param.name);
           write(']})');
         default:
-          write('{_hx_name: "${name}", _hx_index: ${c.index}, __enum__: "${id}"');
+          write('{_hx_name: ');
+          emitString(ctorName);
+          write(', _hx_index: ${c.index}, __enum__: ');
+          emitString(id);
           if (discriminator != null) {
             write(', ');
             emitString(discriminator);
             write(': ');
-            emitString(name);
+            emitString(ctorName);
           }
           write('}');
       }
     }
     decreaseIndent();
     writeNewline();
-    write('}');
+    write('});');
     writeNewline();
 
+    writeNewline();
+    write('Object.assign(');
     write(et.name);
-    write('.__constructs__ = [');
-    for (c in join(et.names, write.bind(', '))) {
+    write(', {');
+    increaseIndent();
+    writeNewline();
+    write('__constructs__: [');
+    for (ctorName in join(et.names, write.bind(', '))) {
       #if (haxe_ver >= 4.2)
       write(et.name);
-      emitField(c);
+      emitField(ctorName);
       #else
-      emitString(c);
+      emitString(ctorName);
       #end
     }
-    write(']');
+    write('],');
     writeNewline();
-
-    write(et.name);
-    write('.__empty_constructs__ = [');
+    write('__empty_constructs__: [');
     final empty = [
       for (name in et.names)
         if (!et.constructs[name].type.match(TFun(_, _))) et.constructs[name]
@@ -951,6 +1190,9 @@ class TsModuleEmitter extends JsModuleEmitter {
       emitField(c.name);
     }
     write(']');
+    decreaseIndent();
+    writeNewline();
+    write('});');
     writeNewline();
   }
 

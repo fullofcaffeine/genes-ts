@@ -41,8 +41,17 @@ class Dependencies {
       switch member {
         case MClass(type, _, _):
           names.push({name: TypeUtil.className(type), module: type.module});
-        case MEnum({name: name, module: module}, _):
-          names.push({name: name, module: module});
+        case MEnum(et, _):
+          // Treat enum constructor names as reserved identifiers in the module.
+          //
+          // This matters for TS output where enums are emitted via declaration
+          // merging (`export declare namespace EnumName { export type Ctor = ... }`).
+          // Without reserving ctor names, imported types that share a ctor name
+          // (e.g. enum ctor `Assertion` and class `Assertion`) can become ambiguous
+          // or recursively refer to themselves in generated TS types.
+          names.push({name: et.name, module: et.module});
+          for (ctorName in et.names)
+            names.push({name: ctorName, module: et.module});
         case MType({name: name, module: module}, _):
           names.push({name: name, module: module});
         default:

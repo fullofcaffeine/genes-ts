@@ -77,12 +77,9 @@ class TestTsTypes {
     asserts.assert(types.contains('Typedef prop comment'));
     asserts.assert(types.contains('Typedef prop2 comment'));
 
-    // benmerckx/genes#70 (Genes-generated .d.ts). In TS mode we rely on `tsc`
-    // for declarations, which does not preserve this shape.
-    #if (!genes.ts)
+    // benmerckx/genes#70 (enum discriminator typing)
     asserts.assert(types.contains('"$$kind": "A"'));
     asserts.assert(types.contains('"$$kind": "B"'));
-    #end
     return asserts.done();
   }
 }
