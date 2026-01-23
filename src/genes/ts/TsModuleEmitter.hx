@@ -28,12 +28,14 @@ using haxe.macro.Tools;
  */
 class TsModuleEmitter extends JsModuleEmitter {
   static final JSX_REACT_IMPORT = 'React__genes_jsx';
+  static final JSX_CLASSIC_REACT_IMPORT = 'React';
 
   var jsxEmitTsx: Bool = false;
 
   public function emitTsModule(module: Module, importExtension: Null<String>) {
     final endTimer = timer('emitTsModule');
     jsxEmitTsx = genes.Genes.outExtension == '.tsx';
+    final usesReactJsxMarkers = moduleUsesReactJsxMarkers(module);
 
     // Merge code + type dependencies so TS signatures can resolve.
     final deps = new Dependencies(module, true);
@@ -46,11 +48,19 @@ class TsModuleEmitter extends JsModuleEmitter {
       writeNewline();
     }
 
-    // If we lower JSX markers into `React.createElement`, ensure React is in scope.
-    // TSX output uses the automatic JSX runtime and doesn't need this import.
-    if (!jsxEmitTsx && moduleUsesReactJsxMarkers(module)) {
+    // Ensure React is in scope for JSX output:
+    // - `.ts` mode lowers JSX markers into `React__genes_jsx.createElement(...)`.
+    // - `.tsx` mode normally relies on the automatic JSX runtime, but we can opt into
+    //   classic runtime (which needs a `React` namespace in scope).
+    if (usesReactJsxMarkers && !jsxEmitTsx) {
       write('import * as ');
       write(JSX_REACT_IMPORT);
+      write(' from ');
+      emitString('react');
+      writeNewline();
+    } else if (usesReactJsxMarkers && jsxEmitTsx && haxe.macro.Context.defined('genes.ts.jsx_classic')) {
+      write('import * as ');
+      write(JSX_CLASSIC_REACT_IMPORT);
       write(' from ');
       emitString('react');
       writeNewline();

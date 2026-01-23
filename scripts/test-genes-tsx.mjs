@@ -34,6 +34,18 @@ run("npx", [
 ]);
 run("node", ["tests_tsx/dist-tsx/index.js"]);
 
+rmrf("tests_tsx/src-gen-tsx");
+rmrf("tests_tsx/dist-tsx");
+run("haxe", ["tests_tsx/build-tsx.hxml", "-D", "genes.ts.jsx_classic"]);
+run("npx", [
+  "-y",
+  "--package",
+  "typescript@5.5.4",
+  "-c",
+  "tsc -p tests_tsx/tsconfig.tsx.classic.json"
+]);
+run("node", ["tests_tsx/dist-tsx/index.js"]);
+
 run("haxe", ["tests_tsx/build-ts.hxml"]);
 run("npx", [
   "-y",
@@ -43,4 +55,3 @@ run("npx", [
   "tsc -p tests_tsx/tsconfig.ts.json"
 ]);
 run("node", ["tests_tsx/dist-ts/index.js"]);
-
