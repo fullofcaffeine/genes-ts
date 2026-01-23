@@ -1,7 +1,8 @@
 # React HXX (genes-ts): TSX-like authoring in Haxe
 
 Goal: let users write **React/TSX-style markup in Haxe**, compile it with `genes-ts`, and get:
-- **Type-safe** component props (at least for Haxe-defined components)
+- **Type-safe** component props
+- **Type-safe** intrinsic elements (e.g. `<div ...>`), no Dynamic fallback
 - **Ergonomic** authoring (string templates and/or inline markup)
 - **Zero runtime template engine** (compile-time only)
 
@@ -53,11 +54,15 @@ Implement `genes.react.JSX.jsx(template: Expr): Expr` (macro):
 - Parses a JSX-ish subset (XML-like tags + attributes + children).
 - Lowers to a normal Haxe expression that builds React nodes.
 
-Output shape v1:
-- Generate `React.createElement(...)` calls (works in `.ts`, no TSX required).
+Output shapes (do both):
+- **Default (idiomatic):** emit `.tsx` and print TSX markup for React element expressions.
+- **Low-level mode:** emit `.ts` and keep `React.createElement(...)` calls.
 
-Future option:
-- Emit TSX (`.tsx`) for more idiomatic generated output and better debug UX.
+JSX runtime recommendation:
+- Default to the **automatic runtime** (TypeScript `jsx: "react-jsx"`), since it:
+  - avoids per-file `import React from "react"` boilerplate
+  - matches modern React projects
+- Allow classic runtime as an opt-in for older setups.
 
 ### B) Interpolation + attribute values
 
@@ -73,16 +78,13 @@ Avoid “stringly” expression parsing wherever possible:
 - Use `Context.parse()` on the `{...}` contents to get a real `Expr`.
 - Keep error positions readable (line/column mapping relative to the template literal).
 
-### C) Type safety strategy (incremental)
+### C) Type safety strategy (always typed)
 
-Phase 1 (good UX, minimal scope):
 - **Component tags** get typed props:
-  - `<MyComponent foo={123} />` should type-check against `MyComponent`’s props type.
-- **Intrinsic tags** (`div`, `span`, …) accept `Dynamic` props initially.
-
-Phase 2 (strict intrinsic elements):
-- Add an optional registry that maps intrinsic tag names → props types (like TS’s `JSX.IntrinsicElements`).
-- Use it for compile-time validation and better IDE completion.
+  - `<MyComponent foo={123} />` type-checks against `MyComponent`’s props type.
+- **Intrinsic tags** are always typed:
+  - `<div onClick={...} />` is validated against a typed intrinsic-props surface (no `Dynamic` fallback).
+  - `data-*` / `aria-*` support should be included (typed) so real-world apps don’t get blocked.
 
 ### D) Inline markup rewrite (opt-in)
 
@@ -103,7 +105,10 @@ Same constraints as Reflaxe.Elixir inline markup:
 
 ## Testing plan
 
-- Add a small fixture under `tests_ts_full/` that:
+- Add a TSX-focused harness (separate from `tests_ts_full`) that:
+  - compiles with `tsc` `jsx: "react-jsx"` (default)
+  - runs a Node runtime smoke test with `react-dom/server`
+- Add a small fixture under that harness that:
   - Uses `genes.react.JSX.jsx(...)` to create a tree
   - Renders it via `react-dom/server` (`renderToString`)
   - Asserts output (runtime smoke)
@@ -112,4 +117,3 @@ Same constraints as Reflaxe.Elixir inline markup:
 ## Tracking
 
 Beads issue: `genes-t6g.12`
-
