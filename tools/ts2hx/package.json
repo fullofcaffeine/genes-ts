@@ -11,6 +11,6 @@
     "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
     "prets2hx": "yarn build",
     "ts2hx": "node dist/cli.js",
-    "test": "yarn build && node dist/cli.js --version"
+    "test": "yarn build && node dist/test-snapshots.js"
   }
 }

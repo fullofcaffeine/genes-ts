@@ -3,11 +3,21 @@
 import fs from "fs";
 import path from "path";
 import ts from "typescript";
+import { emitProjectToHaxe } from "./haxe/emit.js";
+import { loadProject } from "./project.js";
 
 type CliCommand =
   | { kind: "help" }
   | { kind: "version" }
-  | { kind: "inspect"; projectPath: string; listFiles: boolean; showDiagnostics: boolean };
+  | {
+      kind: "run";
+      projectPath: string;
+      listFiles: boolean;
+      showDiagnostics: boolean;
+      outDir: string | null;
+      basePackage: string;
+      cleanOutDir: boolean;
+    };
 
 function readPackageJsonVersion(argv1: string | undefined): string {
   try {
@@ -38,6 +48,9 @@ Options:
   --project, -p         Path to tsconfig.json (default: ./tsconfig.json)
   --list-files          Print project source files (sorted, path-relative)
   --diagnostics         Print TypeScript diagnostics (sorted)
+  --out, -o             Emit Haxe into this directory
+  --base-package        Haxe base package for generated modules (default: ts2hx)
+  --clean               Delete output dir contents before emitting
 `);
 }
 
@@ -55,6 +68,9 @@ function parseArgs(argv: string[]): CliCommand | { kind: "error"; message: strin
   let projectPath = "tsconfig.json";
   let listFiles = false;
   let showDiagnostics = false;
+  let outDir: string | null = null;
+  let basePackage = "ts2hx";
+  let cleanOutDir = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] ?? "";
@@ -63,6 +79,24 @@ function parseArgs(argv: string[]): CliCommand | { kind: "error"; message: strin
       if (!next) return { kind: "error", message: "Missing value for --project." };
       projectPath = next;
       i++;
+      continue;
+    }
+    if (arg === "--out" || arg === "-o") {
+      const next = args[i + 1];
+      if (!next) return { kind: "error", message: "Missing value for --out." };
+      outDir = next;
+      i++;
+      continue;
+    }
+    if (arg === "--base-package") {
+      const next = args[i + 1];
+      if (!next) return { kind: "error", message: "Missing value for --base-package." };
+      basePackage = next;
+      i++;
+      continue;
+    }
+    if (arg === "--clean") {
+      cleanOutDir = true;
       continue;
     }
     if (arg === "--list-files") {
@@ -76,7 +110,7 @@ function parseArgs(argv: string[]): CliCommand | { kind: "error"; message: strin
     return { kind: "error", message: `Unknown arg: ${arg}` };
   }
 
-  return { kind: "inspect", projectPath, listFiles, showDiagnostics };
+  return { kind: "run", projectPath, listFiles, showDiagnostics, outDir, basePackage, cleanOutDir };
 }
 
 function formatDiagnostic(projectDir: string, diag: ts.Diagnostic): string {
@@ -89,45 +123,40 @@ function formatDiagnostic(projectDir: string, diag: ts.Diagnostic): string {
   return message;
 }
 
+function rmrf(absPath: string): void {
+  if (!fs.existsSync(absPath)) return;
+  const stat = fs.lstatSync(absPath);
+  if (stat.isDirectory()) {
+    for (const entry of fs.readdirSync(absPath)) {
+      rmrf(path.join(absPath, entry));
+    }
+    fs.rmdirSync(absPath);
+  } else {
+    fs.unlinkSync(absPath);
+  }
+}
+
 function inspectProject(opts: {
   projectPath: string;
   listFiles: boolean;
   showDiagnostics: boolean;
+  outDir: string | null;
+  basePackage: string;
+  cleanOutDir: boolean;
 }): number {
-  const resolvedProjectPath = path.resolve(opts.projectPath);
-  const projectDir = path.dirname(resolvedProjectPath);
-
-  const configFile = ts.readConfigFile(resolvedProjectPath, ts.sys.readFile);
-  if (configFile.error) {
-    process.stderr.write(`${formatDiagnostic(projectDir, configFile.error)}\n`);
-    return 1;
-  }
-
-  const parsed = ts.parseJsonConfigFileContent(
-    configFile.config,
-    ts.sys,
-    projectDir,
-    /*existingOptions*/ undefined,
-    resolvedProjectPath
-  );
-
-  if (parsed.errors.length > 0) {
-    const errors = parsed.errors
+  const loaded = loadProject(opts.projectPath);
+  if (!loaded.ok) {
+    const errors = loaded.diagnostics
       .slice()
       .sort((a, b) => (a.code ?? 0) - (b.code ?? 0))
-      .map((e) => formatDiagnostic(projectDir, e));
+      .map((e) => formatDiagnostic(loaded.projectDir, e));
     process.stderr.write(`${errors.join("\n")}\n`);
     return 1;
   }
 
-  const program = ts.createProgram({
-    rootNames: parsed.fileNames,
-    options: parsed.options
-  });
-
   if (opts.showDiagnostics) {
     const diagnostics = ts
-      .getPreEmitDiagnostics(program)
+      .getPreEmitDiagnostics(loaded.program)
       .slice()
       .sort((a, b) => {
         const af = a.file?.fileName ?? "";
@@ -137,19 +166,35 @@ function inspectProject(opts: {
       });
 
     for (const diag of diagnostics) {
-      process.stderr.write(`${formatDiagnostic(projectDir, diag)}\n`);
+      process.stderr.write(`${formatDiagnostic(loaded.projectDir, diag)}\n`);
     }
   }
 
   if (opts.listFiles) {
-    const files = program
-      .getRootFileNames()
-      .map((fileName) => path.relative(projectDir, fileName))
+    const files = loaded.rootFileNames
+      .map((fileName) => path.relative(loaded.projectDir, fileName))
       .sort((a, b) => a.localeCompare(b));
 
     for (const file of files) {
       process.stdout.write(`${file}\n`);
     }
+  }
+
+  if (opts.outDir) {
+    const outAbsDir = path.resolve(opts.outDir);
+    if (opts.cleanOutDir) {
+      rmrf(outAbsDir);
+    }
+    const emitted = emitProjectToHaxe({
+      projectDir: loaded.projectDir,
+      rootDir: loaded.rootDir,
+      program: loaded.program,
+      checker: loaded.checker,
+      sourceFiles: loaded.sourceFiles,
+      outDir: outAbsDir,
+      basePackage: opts.basePackage
+    });
+    process.stderr.write(`Wrote ${emitted.writtenFiles.length} Haxe module(s) to ${outAbsDir}\n`);
   }
 
   return 0;

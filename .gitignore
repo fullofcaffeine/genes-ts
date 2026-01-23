@@ -24,3 +24,6 @@
 /playwright-report
 /tools/ts2hx/dist
 /tools/ts2hx/*.tsbuildinfo
+/tools/ts2hx/out
+/tools/ts2hx/out-dist
+/tools/ts2hx/.tmp
