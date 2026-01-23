@@ -449,7 +449,7 @@ class TsModuleEmitter extends JsModuleEmitter {
 
     // Register class in $hxClasses registry (Genes runtime compatibility).
     final id = cl.pack.concat([TypeUtil.className(cl)]).join('.');
-    if (id != 'genes.Register') {
+    if (id != 'genes.Register' && !haxe.macro.Context.defined('genes.ts.minimal_runtime')) {
       writeNewline();
       write('(');
       writeGlobalVar("$hxClasses");
@@ -1085,13 +1085,15 @@ class TsModuleEmitter extends JsModuleEmitter {
     write('() {}');
     writeNewline();
     writeNewline();
-    writeGlobalVar("$hxEnums");
-    write('[');
-    emitString(id);
-    write('] = ');
-    write(et.name);
-    write(' as any');
-    writeNewline();
+    if (!haxe.macro.Context.defined('genes.ts.minimal_runtime')) {
+      writeGlobalVar("$hxEnums");
+      write('[');
+      emitString(id);
+      write('] = ');
+      write(et.name);
+      write(' as any');
+      writeNewline();
+    }
 
     writeNewline();
     write('Object.assign(');

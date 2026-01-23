@@ -116,6 +116,11 @@ In this mode we will *avoid* (where practical):
 - global registries / reflection helpers
 - extra identity fields that only exist for Haxe reflection
 
+Current behavior (implemented):
+- The compiler does **not** populate `$hxClasses` / `$hxEnums` registries.
+  - This means `Type.resolveClass("...")` / `Type.resolveEnum("...")` return `null`.
+  - Other Haxe runtime metadata is still emitted for now to preserve core stdlib behavior.
+
 Tradeoff: some Haxe reflection APIs may not work or may become partial.
 
 ## Defines (proposed)

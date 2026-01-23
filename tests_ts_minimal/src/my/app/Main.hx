@@ -1,0 +1,29 @@
+package my.app;
+
+import genes.Register;
+
+class Main {
+  static function main() {
+    final _ = new MyClass(1);
+    final __: MyEnum = MyEnum.B(2);
+
+    final hxClasses: Dynamic = Register.global("$hxClasses");
+    final hxEnums: Dynamic = Register.global("$hxEnums");
+
+    final classKey = "my.app.MyClass";
+    final enumKey = "my.app.MyEnum";
+
+    if (Reflect.hasField(hxClasses, classKey))
+      throw "minimal_runtime should not register classes in $hxClasses";
+    if (Reflect.hasField(hxEnums, enumKey))
+      throw "minimal_runtime should not register enums in $hxEnums";
+
+    if (Type.resolveClass(classKey) != null)
+      throw "minimal_runtime should make Type.resolveClass(...) return null";
+    if (Type.resolveEnum(enumKey) != null)
+      throw "minimal_runtime should make Type.resolveEnum(...) return null";
+
+    trace("ok");
+  }
+}
+
