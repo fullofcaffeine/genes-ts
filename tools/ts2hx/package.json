@@ -5,11 +5,12 @@
   "version": "0.0.0",
   "description": "Experimental TS/JS → Haxe transpiler (ts2hx).",
   "bin": {
-    "ts2hx": "./src/cli.mjs"
+    "ts2hx": "./dist/cli.js"
   },
   "scripts": {
-    "ts2hx": "node src/cli.mjs",
-    "test": "node src/cli.mjs --version"
+    "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
+    "prets2hx": "yarn build",
+    "ts2hx": "node dist/cli.js",
+    "test": "yarn build && node dist/cli.js --version"
   }
 }
-

@@ -8,6 +8,6 @@ ts2hx is a **post-1.0 experiment**: a TS/JS → Haxe transpiler intended as a mi
 Run:
 
 ```bash
-yarn --cwd tools/ts2hx ts2hx --help
+node node_modules/typescript/bin/tsc -p tools/ts2hx/tsconfig.json
+node tools/ts2hx/dist/cli.js --help
 ```
-
