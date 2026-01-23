@@ -11,3 +11,15 @@ Run:
 node node_modules/typescript/bin/tsc -p tools/ts2hx/tsconfig.json
 node tools/ts2hx/dist/cli.js --help
 ```
+
+Tests (snapshots + Haxe JS smoke):
+
+```bash
+yarn --cwd tools/ts2hx test
+```
+
+Update snapshots:
+
+```bash
+UPDATE_SNAPSHOTS=1 yarn --cwd tools/ts2hx test
+```
