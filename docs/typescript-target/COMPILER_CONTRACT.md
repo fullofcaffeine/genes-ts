@@ -12,6 +12,7 @@ This document specifically describes the **TypeScript source output mode** (enab
 - Support two runtime profiles:
   - **Default:** Haxe runtime compatibility (reflection-friendly).
   - **Opt-in:** minimal runtime / “TS-first” mode (less Haxe runtime surface).
+- Provide optional authoring sugar for modern JS/TS patterns (e.g. `@:async` + `await(...)`).
 
 ## Non-goals (for 1.0)
 
@@ -141,6 +142,9 @@ Runtime profile:
 
 JSX/TSX:
 - `-D genes.ts.jsx_classic` — when emitting `.tsx`, also emit `import * as React from "react"` so the output compiles under TypeScript `jsx: "react"` (classic runtime). Default expects `jsx: "react-jsx"`.
+
+Async/await sugar:
+- `@:async` + `await(...)` are available via `genes.js.Async` (see `ASYNC_AWAIT.md`).
 
 ## Metadata (proposed)
 

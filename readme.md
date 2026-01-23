@@ -85,6 +85,23 @@ Inline markup is opt-in (rewrite `@:markup "<...>"` → `JSX.jsx("<...>")`):
 
 Note: React TSX authoring is designed for `-D genes.ts` builds (TypeScript output). Classic Genes JS output does not currently lower JSX markers.
 
+## Async/await sugar (optional)
+
+genes-ts includes an `@:async` + `await(...)` macro that emits native `async`/`await`:
+
+```haxe
+import genes.js.Async.await;
+import js.lib.Promise;
+
+@:async
+function plusOne(x: Int): Promise<Int> {
+  final v = await(Promise.resolve(x));
+  return v + 1;
+}
+```
+
+See `docs/typescript-target/ASYNC_AWAIT.md`.
+
 ## Examples
 
 - `examples/typescript-target/` — TS output contract + examples
