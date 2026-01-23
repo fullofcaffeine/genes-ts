@@ -16,6 +16,7 @@ class Run {
       new TestCycle2(), new TestComments(), new TestTsTypes(),
       new TestTypeOnlyDce(),
       new TestTsGenerics(), new TestTypeAlias(), new TestSyntax(),
+      new TestAsyncAwait(),
       #end
       new TestAsterisk(),
       new TestBind(),

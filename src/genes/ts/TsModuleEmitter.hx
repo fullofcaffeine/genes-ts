@@ -724,14 +724,19 @@ class TsModuleEmitter extends JsModuleEmitter {
                 writeNewline();
               emitComment(field.doc);
               emitPos(field.pos);
+              final isAsync = field.meta != null && (field.meta.has(':jsAsync') || field.meta.has('jsAsync'));
               if (field.isStatic) {
                 write('static ');
+                if (isAsync)
+                  write('async ');
                 emitMemberName(staticName(cl, field));
               } else if (field.kind.equals(Constructor)) {
                 write('[');
                 write(ctx.typeAccessor(TypeUtil.registerType));
                 write('.new]');
               } else {
+                if (isAsync)
+                  write('async ');
                 emitMemberName(field.name);
               }
 

@@ -227,6 +227,17 @@ class ExprEmitter extends Emitter {
         write('(');
         emitValue(e1);
         write(')');
+      case TMeta({name: name}, {expr: TFunction(f)}) if (name == ':jsAsync' || name == 'jsAsync'):
+        final inValue = this.inValue;
+        final inLoop = this.inLoop;
+        this.inValue = 0;
+        this.inLoop = false;
+        write('async function (');
+        emitFunctionArguments(f);
+        write(') ');
+        emitExpr(getFunctionBody(f));
+        this.inValue = inValue;
+        this.inLoop = inLoop;
       case TMeta({name: ':loopLabel', params: [{expr: EConst(CInt(n))}]}, e):
         switch (e.expr) {
           case TWhile(_, _, _), TFor(_, _, _):
