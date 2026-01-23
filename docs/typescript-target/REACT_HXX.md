@@ -114,6 +114,37 @@ Same constraints as Reflaxe.Elixir inline markup:
   - Asserts output (runtime smoke)
 - Add an opt-in inline-markup fixture gated by `-D genes.react.inline_markup`
 
+## Consuming existing TSX/JSX components
+
+genes-ts relies on normal Haxe JS-platform interop patterns for importing values:
+- `@:jsRequire(...)` on an `extern` type (default/named imports)
+- regular Haxe `import` / `using` for module structure
+
+### Import a local TSX component (default export)
+
+```haxe
+// ButtonExterns.hx (or any module you keep externs in)
+@:jsRequire("./components/Button.tsx", "default")
+extern class Button {}
+```
+
+Then use it in markup:
+
+```haxe
+import genes.react.JSX.*;
+
+return jsx('<Button label={"Save"} />');
+```
+
+Type-safety comes from the emitted TS/TSX being checked by `tsc` against the component’s real props type.
+
+### Import a named export from an npm package
+
+```haxe
+@:jsRequire("@radix-ui/react-dialog", "Root")
+extern class DialogRoot {}
+```
+
 ## Tracking
 
 Beads issue: `genes-t6g.12`
