@@ -16,4 +16,6 @@ npm run build:example:genes-ts
 
 - `build.hxml`: emits TS into `src-gen/` (still uses `-js` because we compile on the JS platform).
 - `tsconfig.node-next.json`: NodeNext-friendly TS→JS compile (explicit `.js` import specifiers).
+- `tsconfig.node-next.null-tolerant.json`: Same as above, but with `strictNullChecks: false`.
 - `tsconfig.bundler.json`: bundler-friendly TS→JS compile (extensionless imports).
+- `tsconfig.bundler.null-tolerant.json`: Same as above, but with `strictNullChecks: false`.

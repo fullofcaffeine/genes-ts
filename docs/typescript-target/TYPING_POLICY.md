@@ -32,6 +32,17 @@ for when we permit escape hatches like `any`.
 
 This profile produces TS that is easiest to migrate to hand-written TypeScript.
 
+Recommended `tsconfig.json` template:
+
+```json
+{
+  "compilerOptions": {
+    "strict": true,
+    "strictNullChecks": true
+  }
+}
+```
+
 ### Optional: Haxe-null-tolerant (`strictNullChecks: false`)
 
 - Intended for projects that want a smoother “Haxe semantics on JS” experience.
@@ -40,6 +51,20 @@ This profile produces TS that is easiest to migrate to hand-written TypeScript.
 
 Recommended: keep `strict: true` but set `strictNullChecks: false` in your
 `tsconfig.json`.
+
+Recommended `tsconfig.json` template:
+
+```json
+{
+  "compilerOptions": {
+    "strict": true,
+    "strictNullChecks": false
+  }
+}
+```
+
+Optional (recommended for this profile): compile with `-D genes.ts.no_null_union`
+to erase `Null<T>` unions in the emitted TS.
 
 ## Mapping rules (high-level)
 
@@ -95,4 +120,3 @@ Example:
 
 - Perfectly modeling all of non-null-safe Haxe’s “implicit nullability” under TS
   strict null checks. For projects that need this, use the null-tolerant profile.
-

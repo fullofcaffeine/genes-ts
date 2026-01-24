@@ -111,6 +111,7 @@ See `docs/typescript-target/ASYNC_AWAIT.md`.
 
 - `-D genes.ts` — emit TypeScript instead of JS.
 - `-D genes.ts.no_extension` — emit extensionless import specifiers (bundler-first). Default is explicit `.js` specifiers.
+- `-D genes.ts.no_null_union` — erase `Null<T>` → `T | null` unions in TS output (recommended when compiling with `strictNullChecks: false`).
 - `-D genes.ts.minimal_runtime` — opt into minimal runtime / no-reflection output.
 - `-D genes.ts.jsx_classic` — when emitting `.tsx`, also emit `import * as React from "react"` so the output compiles under TypeScript `jsx: "react"` (classic runtime). Default expects `jsx: "react-jsx"`.
 
