@@ -390,7 +390,12 @@ class TypeEmitter {
         if (wrap)
           write(')');
       case TDynamic(null):
-        write('any');
+        // genes-ts default is `Dynamic -> any` (pragmatic).
+        // Opt-in: map to `unknown` for stricter userland (forces narrowing/casts).
+        if (Context.defined('genes.ts') && Context.defined('genes.ts.dynamic_unknown'))
+          write('unknown');
+        else
+          write('any');
       case TDynamic(elemT):
         write('{[key: string]: ');
         emitType(writer, elemT);
