@@ -107,6 +107,14 @@ See `docs/typescript-target/ASYNC_AWAIT.md`.
 - `examples/typescript-target/` — TS output contract + examples
 - `examples/todoapp/` — fullstack todoapp (React Router + Express): `npm run build:example:todoapp`
 
+## Security (secret scanning)
+
+This repo includes a local + CI secret scan using **gitleaks** (pinned).
+
+```bash
+yarn test:secrets
+```
+
 ## Defines (genes-ts)
 
 - `-D genes.ts` — emit TypeScript instead of JS.
