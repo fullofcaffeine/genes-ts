@@ -6,6 +6,7 @@
     "test": "rimraf bin && haxe test.hxml && cross-env ANSICON=true node bin/tests.js",
     "test:genjs": "haxe -D genes.disable test.hxml && node bin/tests.js",
     "test:acceptance": "node scripts/test-acceptance.mjs",
+    "test:ci": "yarn test && cross-env SKIP_CLASSIC=1 yarn test:acceptance",
     "test:genes-ts": "node scripts/test-genes-ts.mjs",
     "test:genes-ts:snapshots": "node scripts/test-genes-ts-snapshots.mjs",
     "test:genes-ts:sourcemaps": "node scripts/test-genes-ts-sourcemaps.mjs",

@@ -71,6 +71,12 @@ Run the full acceptance gate locally:
 npm run test:acceptance
 ```
 
+To mirror the CI split locally (classic tests + acceptance without rerunning classic):
+
+```bash
+npm run test:ci
+```
+
 ## ts2hx (experimental)
 
 The repository also contains an experimental TS/JS → Haxe transpiler under `tools/ts2hx/`.
