@@ -108,6 +108,14 @@ This is intended for bundler workflows and TS `moduleResolution: "Bundler"`.
 - **Opt-in:** `Dynamic -> unknown` (forces narrowing/casts):
   - `-D genes.ts.dynamic_unknown`
 
+## Enum abstracts
+
+When the valid values are known, `enum abstract` types are emitted as **TS
+literal unions** to avoid “stringly” APIs.
+
+Example:
+- `js.html.RequestCache` → `"default" | "no-store" | ..."`
+
 ## Runtime profiles
 
 ### Default profile: Haxe runtime compatibility

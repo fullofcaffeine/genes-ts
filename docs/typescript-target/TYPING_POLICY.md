@@ -87,6 +87,18 @@ Where TypeScript already has a well-known type with correct semantics, prefer it
 This reduces “stringly” outputs (like `status: string`) and avoids `any` where
 TypeScript already provides a better model.
 
+### Enum abstracts (prefer literal unions)
+
+Haxe `enum abstract` types (especially JS/DOM enums like `js.html.RequestCache`)
+should not degrade to plain `string`/`number` when the valid values are known.
+
+In genes-ts mode, when values are known, we emit **TypeScript literal unions**:
+
+- `enum abstract RequestCache(String)` → `"default" | "no-store" | ..."`
+
+If values cannot be determined (e.g. unusual extern patterns), we fall back to
+the underlying type.
+
 ### `Dynamic`
 
 - Default: `Dynamic` → `any` (because it is literally “dynamic” in Haxe).
