@@ -4,6 +4,23 @@ import { execFileSync } from "child_process";
 import { emitProjectToHaxe } from "./haxe/emit.js";
 import { loadProject } from "./project.js";
 
+function resolveHaxeBin(toolRoot: string): string {
+  const env = process.env.HAXE_BIN;
+  if (typeof env === "string" && env.length > 0) return env;
+
+  const localBin = path.resolve(
+    toolRoot,
+    "..",
+    "..",
+    "node_modules",
+    ".bin",
+    process.platform === "win32" ? "haxe.cmd" : "haxe"
+  );
+  if (fs.existsSync(localBin)) return localBin;
+
+  return "haxe";
+}
+
 function rmrf(absPath: string): void {
   if (!fs.existsSync(absPath)) return;
   const stat = fs.lstatSync(absPath);
@@ -46,6 +63,7 @@ type Fixture = {
 
 function main(): number {
   const toolRoot = path.resolve(path.dirname(process.argv[1] ?? "."), "..");
+  const haxeBin = resolveHaxeBin(toolRoot);
   const update = process.env.UPDATE_SNAPSHOTS === "1";
 
   const fixtures: Fixture[] = [
@@ -138,7 +156,7 @@ function main(): number {
     if (fixture.smokeMain) {
       rmrf(distDir);
       fs.mkdirSync(distDir, { recursive: true });
-      run("haxe", ["-cp", outDir, "-main", fixture.smokeMain, "-js", path.join(distDir, "index.js")], toolRoot);
+      run(haxeBin, ["-cp", outDir, "-main", fixture.smokeMain, "-js", path.join(distDir, "index.js")], toolRoot);
       run("node", [path.join(distDir, "index.js")], toolRoot);
     }
   }
