@@ -1,5 +1,6 @@
 {
   "type": "module",
+  "version": "1.0.2",
   "license": "MIT",
   "scripts": {
     "submit:zip": "bestzip submit.zip src/* haxelib.json readme.md extraParams.hxml",
@@ -7,9 +8,10 @@
     "test": "rimraf bin && haxe test.hxml && cross-env ANSICON=true node bin/tests.js",
     "test:genjs": "haxe -D genes.disable test.hxml && node bin/tests.js",
     "build:scripts": "tsc -p scripts/tsconfig.json",
+    "test:versions": "yarn build:scripts && node scripts/dist/check-versions.js",
     "test:secrets": "yarn build:scripts && node scripts/dist/secret-scan.js",
     "test:acceptance": "yarn build:scripts && node scripts/dist/test-acceptance.js",
-    "test:ci": "yarn test:secrets && yarn test && cross-env SKIP_CLASSIC=1 yarn test:acceptance",
+    "test:ci": "yarn test:secrets && yarn test:versions && yarn test && cross-env SKIP_CLASSIC=1 yarn test:acceptance",
     "test:genes-ts": "yarn build:scripts && node scripts/dist/test-genes-ts.js",
     "test:genes-ts:snapshots": "yarn build:scripts && node scripts/dist/test-genes-ts-snapshots.js",
     "test:genes-ts:sourcemaps": "yarn build:scripts && node scripts/dist/test-genes-ts-sourcemaps.js",
@@ -37,7 +39,54 @@
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.22.3",
     "rimraf": "^2.7.0",
-    "typescript": "5.5.4"
+    "typescript": "5.5.4",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/commit-analyzer": "^13.0.1",
+    "@semantic-release/exec": "^6.0.3",
+    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/github": "^11.0.3",
+    "@semantic-release/release-notes-generator": "^14.0.3",
+    "semantic-release": "^24.2.5"
+  },
+  "release": {
+    "branches": [
+      "main"
+    ],
+    "plugins": [
+      "@semantic-release/commit-analyzer",
+      "@semantic-release/release-notes-generator",
+      "@semantic-release/changelog",
+      [
+        "@semantic-release/exec",
+        {
+          "prepareCmd": "node scripts/dist/release/sync-versions.js ${nextRelease.version} && yarn submit:zip"
+        }
+      ],
+      [
+        "@semantic-release/git",
+        {
+          "assets": [
+            "package.json",
+            "yarn.lock",
+            "haxelib.json",
+            "readme.md",
+            "CHANGELOG.md"
+          ],
+          "message": "chore(release): ${nextRelease.version} [skip ci]\\n\\n${nextRelease.notes}"
+        }
+      ],
+      [
+        "@semantic-release/github",
+        {
+          "assets": [
+            {
+              "path": "submit.zip",
+              "label": "haxelib package (submit.zip)"
+            }
+          ]
+        }
+      ]
+    ]
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }

@@ -4,6 +4,7 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "strict": true,
+    "types": ["node"],
     "declaration": true,
     "sourceMap": true,
     "rootDir": "./src-gen",
@@ -13,4 +14,3 @@
   },
   "include": ["src-gen/**/*.ts"]
 }
-

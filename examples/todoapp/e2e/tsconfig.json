@@ -6,7 +6,8 @@
     "strict": true,
     "baseUrl": ".",
     "paths": {
-      "@playwright/test": ["./shims/playwright-test.d.ts"]
+      "@playwright/test": ["./shims/playwright-test.d.ts"],
+      "mime": ["./shims/mime.d.cts"]
     },
     "sourceMap": true,
     "rootDir": "./src-gen",
@@ -14,6 +15,5 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": false
   },
-  "include": ["src-gen/**/*.ts", "shims/**/*.d.ts"]
+  "include": ["src-gen/**/*.ts", "shims/**/*.d.ts", "shims/**/*.d.cts"]
 }
-

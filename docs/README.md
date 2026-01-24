@@ -25,6 +25,7 @@ feature surface beyond the quick examples in `readme.md`.
 
 - `TESTING_STRATEGY.md` — compiler harnesses, todoapp E2E, and “one command” gates
 - `SECURITY.md` — local + CI secret scanning (gitleaks)
+- `RELEASING.md` — semver, changelog, GitHub Releases (semantic-release)
 
 ## Experimental
 

@@ -5,6 +5,10 @@
     "moduleResolution": "NodeNext",
     "strict": true,
     "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "mime": ["./shims/mime.d.cts"]
+    },
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "declaration": true,
@@ -14,6 +18,5 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": false
   },
-  "include": ["src-gen/**/*.ts"]
+  "include": ["src-gen/**/*.ts", "shims/**/*.d.ts", "shims/**/*.d.cts"]
 }
-
