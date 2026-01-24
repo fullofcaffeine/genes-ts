@@ -40,6 +40,13 @@ Minimal invocation:
 -D genes.ts
 ```
 
+To emit TSX (so JSX markers print real TSX markup), use a `.tsx` output:
+
+```hxml
+-js src-gen/index.tsx
+-D genes.ts
+```
+
 ## Output layout
 
 - Output directory is derived from the `-js <path>` argument.
@@ -98,7 +105,8 @@ This is intended for bundler workflows and TS `moduleResolution: "Bundler"`.
 ## `Dynamic` mapping
 
 - **Default:** `Dynamic -> any` (pragmatic, closest to Haxe intent, avoids huge friction).
-- **Opt-in:** `Dynamic -> unknown` (forces narrowing/casts; may require additional compiler instrumentation).
+- **Opt-in:** `Dynamic -> unknown` (forces narrowing/casts):
+  - `-D genes.ts.dynamic_unknown`
 
 ## Runtime profiles
 
@@ -126,13 +134,14 @@ Current behavior (implemented):
 
 Tradeoff: some Haxe reflection APIs may not work or may become partial.
 
-## Defines (proposed)
+## Defines
 
 Enable the target:
 - `-D genes.ts` — emit TypeScript instead of JS
 
 Import mode:
 - `-D genes.ts.no_extension` — emit extensionless import specifiers (bundler-first). Default is `.js` specifiers.
+- `-D genes.ts.no_null_union` — erase `Null<T>` unions (recommended with `strictNullChecks: false`).
 
 Type strictness knobs:
 - `-D genes.ts.dynamic_unknown` — map `Dynamic` to `unknown` instead of `any`.
@@ -146,14 +155,14 @@ JSX/TSX:
 Async/await sugar:
 - `@:async` + `await(...)` are available via `genes.js.Async` (see `ASYNC_AWAIT.md`).
 
-## Metadata (proposed)
+## Metadata
 
 TS-specific overrides:
 - `@:ts.type("...")` — override a type in emitted TS types (fields/typedefs/type params/etc.).
 - `@:ts.returnType("...")` — override a function return type in emitted TS.
 
 Compatibility aliases (optional):
-- Support `@:genes.type` and `@:genes.returnType` as aliases for the TS metadata above during transition.
+- `@:genes.type` and `@:genes.returnType` are supported as aliases for the TS metadata above.
 
 ## Recommended `tsconfig` baselines
 

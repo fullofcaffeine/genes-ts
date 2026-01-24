@@ -77,6 +77,16 @@ To mirror the CI split locally (classic tests + acceptance without rerunning cla
 npm run test:ci
 ```
 
+## Security scanning
+
+Secrets scanning is part of the standard gates:
+
+```bash
+yarn test:secrets
+```
+
+This is also executed as part of `yarn test:ci` and in GitHub Actions.
+
 ## ts2hx (experimental)
 
 The repository also contains an experimental TS/JS → Haxe transpiler under `tools/ts2hx/`.

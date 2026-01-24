@@ -90,7 +90,7 @@ TypeScript already provides a better model.
 ### `Dynamic`
 
 - Default: `Dynamic` → `any` (because it is literally “dynamic” in Haxe).
-- Optional future mode: `Dynamic` → `unknown`.
+- Optional: `Dynamic` → `unknown` via `-D genes.ts.dynamic_unknown`.
 
 ## Escape hatches (`any` / `unknown`)
 

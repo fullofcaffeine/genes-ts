@@ -6,6 +6,27 @@ This repo started as a fork of **Genes** (benmerckx/genes). It intentionally sup
 
 Requires **Haxe 4.3.7+**.
 
+## Documentation
+
+- `docs/README.md` — documentation index (start here)
+- `docs/typescript-target/COMPILER_CONTRACT.md` — TS target contract
+- `docs/typescript-target/TYPING_POLICY.md` — TS typing rules + profiles
+- `docs/OUTPUT_MODES.md` — TS output vs classic Genes JS output
+
+## Feature highlights
+
+- **Two output modes** in one library:
+  - Haxe → **TypeScript source** (`-D genes.ts`)
+  - Haxe → **ESM JavaScript + optional `.d.ts`** (classic Genes mode)
+- **Strict-by-default** TS output (typed, idiomatic, ESM)
+- **React authoring** from Haxe:
+  - TSX output (`.tsx`) or low-level `React.createElement(...)` output (`.ts`)
+  - optional inline markup (`return <div>...</div>;`)
+- **JS/TS interop helpers** via `genes.ts.Imports` (consume existing TS/TSX easily)
+- **Async/await sugar** (`@:async` + `await(...)`) emitting native `async`/`await`
+- **SOTA harness**: snapshots + `tsc` typecheck + runtime smoke + full todoapp E2E (Playwright)
+- **Secret scanning** in CI + local (`gitleaks`)
+
 ## Install
 
 With lix:
@@ -35,7 +56,9 @@ tsc -p tsconfig.json
 node --enable-source-maps dist/index.js
 ```
 
-See `docs/typescript-target/COMPILER_CONTRACT.md` and `examples/typescript-target/`.
+See:
+- `docs/typescript-target/COMPILER_CONTRACT.md`
+- `examples/typescript-target/`
 
 ## Output modes
 
@@ -79,11 +102,17 @@ import genes.react.JSX.*;
 return jsx('<div className={"x"}>{title}</div>');
 ```
 
+TSX vs low-level mode:
+- Emit `.tsx` (idiomatic TSX): set your `-js` output to `.../index.tsx`
+- Emit `.ts` (low-level): set your `-js` output to `.../index.ts`
+
 Inline markup is opt-in (rewrite `@:markup "<...>"` → `JSX.jsx("<...>")`):
 - `-D genes.react.inline_markup`
 - `@:jsx_inline_markup` on the class (or `-D genes.react.inline_markup_all`)
 
 Note: React TSX authoring is designed for `-D genes.ts` builds (TypeScript output). Classic Genes JS output does not currently lower JSX markers.
+
+See `docs/typescript-target/REACT_HXX.md`.
 
 ## Async/await sugar (optional)
 
@@ -102,6 +131,33 @@ function plusOne(x: Int): Promise<Int> {
 
 See `docs/typescript-target/ASYNC_AWAIT.md`.
 
+## Importing existing JS/TS/TSX
+
+Use `genes.ts.Imports` for ergonomic imports that work in both output modes:
+
+```haxe
+import genes.ts.Imports;
+
+final Path = Imports.namespaceImport("node:path");
+final Button = Imports.defaultImport("./components/Button.js");
+```
+
+See `docs/typescript-target/IMPORTS.md`.
+
+## Typing + strictness
+
+- Typing goals and escape-hatch rules: `docs/typescript-target/TYPING_POLICY.md`
+- Nullability profiles:
+  - Default: `strictNullChecks: true` (recommended for TS migration)
+  - Optional: `strictNullChecks: false` + `-D genes.ts.no_null_union`
+- Runtime profile:
+  - Default: reflection-friendly
+  - Opt-in: `-D genes.ts.minimal_runtime` (reduces reflection surface)
+
+## Debugging + source maps
+
+See `docs/typescript-target/DEBUGGING.md`.
+
 ## Examples
 
 - `examples/typescript-target/` — TS output contract + examples
@@ -115,13 +171,20 @@ This repo includes a local + CI secret scan using **gitleaks** (pinned).
 yarn test:secrets
 ```
 
+See `docs/SECURITY.md`.
+
 ## Defines (genes-ts)
 
 - `-D genes.ts` — emit TypeScript instead of JS.
 - `-D genes.ts.no_extension` — emit extensionless import specifiers (bundler-first). Default is explicit `.js` specifiers.
 - `-D genes.ts.no_null_union` — erase `Null<T>` → `T | null` unions in TS output (recommended when compiling with `strictNullChecks: false`).
+- `-D genes.ts.dynamic_unknown` — map `Dynamic` to `unknown` instead of `any` (opt-in stricter interop).
 - `-D genes.ts.minimal_runtime` — opt into minimal runtime / no-reflection output.
 - `-D genes.ts.jsx_classic` — when emitting `.tsx`, also emit `import * as React from "react"` so the output compiles under TypeScript `jsx: "react"` (classic runtime). Default expects `jsx: "react-jsx"`.
+
+React/markup:
+- `-D genes.react.inline_markup` — enable inline markup rewrite (scoped; requires `@:jsx_inline_markup` on classes).
+- `-D genes.react.inline_markup_all` — enable inline markup rewrite globally.
 
 Classic Genes mode (JS output) also supports:
 - `-D dts` — emit `.d.ts` alongside the generated `.js`.

@@ -21,10 +21,15 @@ Characteristics:
 
 Related knobs:
 - `-D genes.ts.no_extension` for bundler workflows (extensionless imports).
+- `-D genes.ts.no_null_union` for `strictNullChecks: false` projects (erase `Null<T>` unions).
+- `-D genes.ts.dynamic_unknown` to map `Dynamic -> unknown` (opt-in stricter interop).
 - `-D genes.ts.minimal_runtime` for a “TS-first / no-reflection” profile.
 
 React authoring:
 - `genes.react.JSX.jsx(...)` + inline markup are intended for this mode (see `docs/typescript-target/REACT_HXX.md`).
+
+Typing:
+- See `docs/typescript-target/TYPING_POLICY.md`.
 
 ## 2) Classic Genes JS output (recommended for Haxe-first projects)
 
@@ -42,4 +47,3 @@ Related knobs:
 
 - If your goal is “Haxe is a better language on top of TS, and we may port to TS later” → use **TypeScript output** (`-D genes.ts`).
 - If your goal is “we keep writing Haxe, but want modern ESM output + excellent `.d.ts`” → use **classic Genes JS output** (omit `-D genes.ts`, keep `-D dts`).
-

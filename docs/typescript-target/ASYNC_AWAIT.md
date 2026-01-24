@@ -2,6 +2,8 @@
 
 genes-ts includes an opt-in async/await authoring layer that compiles to **native** TypeScript/JavaScript `async` / `await`.
 
+Note: When you `-lib genes-ts`, the build macro that powers `@:async` is installed automatically via the library’s `extraParams.hxml`. You only need to use `@:async` + `await(...)`.
+
 ## Usage
 
 1) Mark functions with `@:async`.
@@ -51,4 +53,3 @@ final fn = @:async function(x: Int): Promise<Int> {
 ```
 
 - For `Promise<Void>`, the macro ensures an implicit resolved return on fallthrough so Haxe type-checks cleanly.
-
