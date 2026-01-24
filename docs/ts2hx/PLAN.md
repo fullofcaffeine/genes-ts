@@ -161,7 +161,11 @@ This mirrors the approach used successfully by `dts2hx` (diff-based stability), 
 
 ## Milestones (beads)
 
-This work is tracked under `genes-av0` and should remain isolated from the main compiler pipeline.
+This work is tracked under:
+- `genes-av0` (v0 experiment, completed)
+- `genes-dhg` (v1+ long-term “full TS project acceptance”, deferred)
+
+It should remain isolated from the main compiler pipeline.
 
 Suggested milestone breakdown:
 
