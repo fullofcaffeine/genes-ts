@@ -40,8 +40,6 @@ class TsModuleEmitter extends JsModuleEmitter {
     final fast = switch t {
       case TDynamic(null):
         true;
-      case TAbstract(_.get() => ab, _) if (ab.meta.has(":coreType")):
-        true;
       case TInst(_.get() => cl, _) if (cl.module != null && cl.module.startsWith('haxe.macro')):
         true;
       case TType(_.get() => dt, _) if (dt.module != null && dt.module.startsWith('haxe.macro')):
@@ -1332,6 +1330,9 @@ class TsModuleEmitter extends JsModuleEmitter {
         }
       case e:
         write(' = ');
+        if (tryEmitReactUseStateCall(v.t, e)) {
+          return;
+        }
         if (!typeAllowsNull(v.t) && typeAllowsNull(e.t)) {
           write(ctx.typeAccessor(TypeUtil.registerType));
           write('.unsafeCast<');
@@ -1342,6 +1343,55 @@ class TsModuleEmitter extends JsModuleEmitter {
         } else {
           emitValue(e);
         }
+    }
+  }
+
+  static function extractTypeArgs(t: Type): Array<Type> {
+    return switch t {
+      case TAbstract(_, params) | TType(_, params) | TInst(_, params) | TEnum(_, params):
+        params;
+      case TMono(tref):
+        final inner = tref.get();
+        inner == null ? [] : extractTypeArgs(inner);
+      default:
+        [];
+    };
+  }
+
+  static function isUseStateCallee(callee: TypedExpr): Bool {
+    return switch unwrapExpr(callee).expr {
+      case TField(_, f):
+        fieldAccessName(f) == "useState";
+      case TLocal(v):
+        v.name == "useState";
+      case TIdent(name):
+        name == "useState";
+      default:
+        false;
+    }
+  }
+
+  function tryEmitReactUseStateCall(varType: Type, init: TypedExpr): Bool {
+    final unwrapped = unwrapExpr(init);
+    return switch unwrapped.expr {
+      case TCall(callee, args)
+        if (isUseStateCallee(callee)
+          && args.length == 1):
+        final typeArgs = extractTypeArgs(varType);
+        final stateTypeArg = (typeArgs.length == 1) ? typeArgs[0] : null;
+        // Avoid leaking explicit `any` type arguments into user modules.
+        if (stateTypeArg == null || typeEmitsAny(stateTypeArg)) {
+          return false;
+        }
+        emitValue(callee);
+        write('<');
+        TypeEmitter.emitType(this, stateTypeArg);
+        write('>(');
+        emitValue(args[0]);
+        write(')');
+        true;
+      default:
+        false;
     }
   }
 

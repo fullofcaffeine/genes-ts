@@ -249,6 +249,13 @@ class Generator {
     // human-readable name (e.g. `"String"`).
     writer.write('  interface StringConstructor { __name__?: string | boolean }\n');
     writer.write('  interface ArrayConstructor { __name__?: string | boolean }\n');
+    // Some Haxe JS externs are generated from Mozilla WebIDL and are not part of
+    // TypeScript's standard `lib.dom.d.ts` surface. Provide minimal global types
+    // so generated TS can type-check under `skipLibCheck: false`.
+    writer.write('  interface PositionError { readonly code: number; readonly message: string }\n');
+    writer.write('  const PositionError: { readonly PERMISSION_DENIED: 1; readonly POSITION_UNAVAILABLE: 2; readonly TIMEOUT: 3; readonly prototype: PositionError };\n');
+    writer.write('  interface FetchObserver { readonly state: \"requesting\" | \"responding\" | \"aborted\" | \"errored\" | \"complete\"; onstatechange: Function; onrequestprogress: Function; onresponseprogress: Function }\n');
+    writer.write('  const FetchObserver: { readonly prototype: FetchObserver };\n');
     writer.write('}\n');
     // These value-level stubs exist for compatibility with Haxe reflection-ish
     // patterns, but they do not carry meaningful runtime values in JS.

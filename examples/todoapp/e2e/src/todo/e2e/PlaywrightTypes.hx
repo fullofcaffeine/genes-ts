@@ -4,7 +4,7 @@ import haxe.extern.EitherType;
 import js.lib.Promise;
 import js.lib.RegExp;
 
-@:ts.type("import('@playwright/test').Response")
+@:ts.type("import('playwright').Response")
 typedef Response = {};
 
 typedef WaitForUrlOptions = {

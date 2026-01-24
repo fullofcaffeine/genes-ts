@@ -7,6 +7,10 @@ export interface ArrayAccess<T> {}
 declare global {
   interface StringConstructor { __name__?: string | boolean }
   interface ArrayConstructor { __name__?: string | boolean }
+  interface PositionError { readonly code: number; readonly message: string }
+  const PositionError: { readonly PERMISSION_DENIED: 1; readonly POSITION_UNAVAILABLE: 2; readonly TIMEOUT: 3; readonly prototype: PositionError };
+  interface FetchObserver { readonly state: "requesting" | "responding" | "aborted" | "errored" | "complete"; onstatechange: Function; onrequestprogress: Function; onresponseprogress: Function }
+  const FetchObserver: { readonly prototype: FetchObserver };
 }
 export const Iterator: null = null;
 export const Iterable: null = null;
