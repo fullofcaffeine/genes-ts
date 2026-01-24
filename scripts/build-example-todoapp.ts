@@ -2,6 +2,7 @@ import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { copyFileSync, mkdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { assertNoUnsafeTypes } from "./typing-policy.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,6 +27,11 @@ rmrf("server/src-gen");
 rmrf("server/dist");
 
 run("haxe", ["examples/todoapp/web/build.hxml"]);
+assertNoUnsafeTypes({
+  repoRoot,
+  generatedDir: "examples/todoapp/web/src-gen/todo",
+  fileExts: [".ts", ".tsx"]
+});
 run("npx", ["-y", "--package", "typescript@5.5.4", "-c", "tsc -p examples/todoapp/web/tsconfig.json"]);
 
 mkdirSync(path.join(exampleRoot, "web", "dist", "assets"), { recursive: true });
@@ -48,5 +54,9 @@ run("npx", [
 ]);
 
 run("haxe", ["examples/todoapp/server/build.hxml"]);
+assertNoUnsafeTypes({
+  repoRoot,
+  generatedDir: "examples/todoapp/server/src-gen/todo",
+  fileExts: [".ts"]
+});
 run("npx", ["-y", "--package", "typescript@5.5.4", "-c", "tsc -p examples/todoapp/server/tsconfig.json"]);
-

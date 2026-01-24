@@ -2,6 +2,7 @@ import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { assertNoUnsafeTypes } from "./typing-policy.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,7 +25,11 @@ rmrf("src-gen");
 rmrf("dist");
 
 run("haxe", ["examples/todoapp/e2e/build.hxml"]);
+assertNoUnsafeTypes({
+  repoRoot,
+  generatedDir: "examples/todoapp/e2e/src-gen/tests/todo",
+  fileExts: [".ts"]
+});
 
 // Use a pinned TypeScript version for consistent behavior.
 run("npx", ["-y", "--package", "typescript@5.5.4", "-c", "tsc -p examples/todoapp/e2e/tsconfig.json"]);
-
