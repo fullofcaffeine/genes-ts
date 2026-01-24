@@ -32,8 +32,41 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   var jsxEmitTsx: Bool = false;
   var inAssignTarget: Bool = false;
+  var currentClass: Null<ClassType> = null;
   var currentReturnType: Null<Type> = null;
   var currentReturnIsVoidLike: Bool = false;
+
+  function typeEmitsAny(t: Type): Bool {
+    final fast = switch t {
+      case TDynamic(null):
+        true;
+      case TAbstract(_.get() => ab, _) if (ab.meta.has(":coreType")):
+        true;
+      case TInst(_.get() => cl, _) if (cl.module != null && cl.module.startsWith('haxe.macro')):
+        true;
+      case TType(_.get() => dt, _) if (dt.module != null && dt.module.startsWith('haxe.macro')):
+        true;
+      default:
+        false;
+    };
+    if (fast)
+      return true;
+
+    final out = new StringBuf();
+    final noop = function() {}
+    final writer: genes.dts.TypeEmitter.TypeWriter = {
+      write: out.add,
+      writeNewline: noop,
+      emitComment: function(_comment: String) {},
+      increaseIndent: noop,
+      decreaseIndent: noop,
+      emitPos: function(_pos) {},
+      includeType: function(_type: Type) {},
+      typeAccessor: ctx.typeAccessor
+    };
+    TypeEmitter.emitType(writer, t);
+    return out.toString() == 'any';
+  }
 
   public function emitTsModule(module: Module, importExtension: Null<String>) {
     final endTimer = timer('emitTsModule');
@@ -438,12 +471,18 @@ class TsModuleEmitter extends JsModuleEmitter {
             write('.unsafeCast<never>(null)');
           } else if (expected != null && !typeAllowsNull(expected)
             && typeAllowsNull(actual.t) && !isTypeParam(expected)) {
-            write(ctx.typeAccessor(TypeUtil.registerType));
-            write('.unsafeCast<');
-            TypeEmitter.emitType(this, expected);
-            write('>(');
-            emitValue(actual);
-            write(')');
+            // If the expected type is `any`, a cast is unnecessary and emitting
+            // `<any>` would violate the typing policy for user modules.
+            if (typeEmitsAny(expected)) {
+              emitValue(actual);
+            } else {
+              write(ctx.typeAccessor(TypeUtil.registerType));
+              write('.unsafeCast<');
+              TypeEmitter.emitType(this, expected);
+              write('>(');
+              emitValue(actual);
+              write(')');
+            }
           } else {
             emitValue(actual);
           }
@@ -709,6 +748,9 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   function emitTsClass(checkCycles: (module: String) -> Bool, cl: ClassType,
       fields: Array<GenesField>) {
+    final prevClass = currentClass;
+    currentClass = cl;
+
     writeNewline();
     emitComment(cl.doc);
     emitPos(cl.pos);
@@ -1084,6 +1126,8 @@ class TsModuleEmitter extends JsModuleEmitter {
         writeNewline();
       }
     }
+
+    currentClass = prevClass;
   }
 
   function emitMethodTypeParams(field: GenesField) {
@@ -1433,12 +1477,19 @@ class TsModuleEmitter extends JsModuleEmitter {
         // Haxe inserts implicit casts in a few places where its non-null-safe
         // type system differs from TS strict null checks. Preserve those casts
         // as TS-only assertions (no runtime effect).
-        write(ctx.typeAccessor(TypeUtil.registerType));
-        write('.unsafeCast<');
-        TypeEmitter.emitType(this, e.t);
-        write('>(');
-        emitValue(e1);
-        write(')');
+        // If the cast target is `any`, emitting `unsafeCast<any>(...)` would
+        // leak `any` into user modules. For `any`, the cast is a no-op in TS
+        // anyway, so omit it.
+        if (typeEmitsAny(e.t)) {
+          emitValue(e1);
+        } else {
+          write(ctx.typeAccessor(TypeUtil.registerType));
+          write('.unsafeCast<');
+          TypeEmitter.emitType(this, e.t);
+          write('>(');
+          emitValue(e1);
+          write(')');
+        }
       case TBinop(op = OpAssign, lhs = {expr: TField(_, f)}, rhs)
         if (isOverriddenField(f)):
         inAssignTarget = true;
@@ -1624,14 +1675,18 @@ class TsModuleEmitter extends JsModuleEmitter {
           if (genes.util.TypeUtil.isRest(t))
             write('...');
           emitLocalIdent(arg.v.name);
-          final optional = i < args.length && args[i].opt && i > noOptionalUntil;
-          final defaultNull = optional && typeAllowsNull(t);
-          if (optional && !defaultNull)
-            write('?');
-          write(': ');
-          TypeEmitter.emitType(this, t);
-          if (defaultNull)
-            write(' = null');
+          final omitType = (arg.v.name == '_' || StringTools.startsWith(arg.v.name, '_'))
+            && typeEmitsAny(t);
+          if (!omitType) {
+            final optional = i < args.length && args[i].opt && i > noOptionalUntil;
+            final defaultNull = optional && typeAllowsNull(t);
+            if (optional && !defaultNull)
+              write('?');
+            write(': ');
+            TypeEmitter.emitType(this, t);
+            if (defaultNull)
+              write(' = null');
+          }
         }
         // Omit explicit return annotations so TS can infer and preserve generic
         // inference. Writing `: any` here causes widespread `unknown` inference
@@ -1902,6 +1957,15 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   function emitArgTsType(field: GenesField, f: TFunc, index: Int,
       type: Type) {
+    // TS `strict` enables `useUnknownInCatchVariables`, so catch variables are
+    // `unknown`. Avoid emitting `Register.unsafeCast<any>(...)` in user modules
+    // by making `haxe.Exception.caught` accept `unknown` in TS.
+    if (currentClass != null && currentClass.module == 'haxe.Exception'
+      && currentClass.name == 'Exception' && field.name == 'caught' && index == 0) {
+      write('unknown');
+      return;
+    }
+
     // Param-level override (preferred): @:ts.type / @:genes.type on the argument var meta.
     final argMeta = f.args[index].v.meta;
     final typeOverride = switch argMeta.extract(':ts.type') {
