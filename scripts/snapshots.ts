@@ -1,8 +1,22 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from "node:fs";
 import path from "node:path";
 
-function normalizeSnapshotText(text) {
+type AssertDirSnapshotsOptions = {
+  repoRoot: string;
+  generatedDir: string;
+  snapshotsDir: string;
+  fileExts: ReadonlyArray<string>;
+};
+
+function normalizeSnapshotText(text: string): string {
   let normalized = text
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
@@ -11,9 +25,9 @@ function normalizeSnapshotText(text) {
   return `${normalized}\n`;
 }
 
-function listFilesRecursive(rootDir) {
-  const out = [];
-  function walk(dir) {
+function listFilesRecursive(rootDir: string): string[] {
+  const out: string[] = [];
+  function walk(dir: string) {
     for (const ent of readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, ent.name);
       if (ent.isDirectory()) {
@@ -27,7 +41,7 @@ function listFilesRecursive(rootDir) {
   return out;
 }
 
-function statExists(p) {
+function statExists(p: string): boolean {
   try {
     statSync(p);
     return true;
@@ -36,16 +50,16 @@ function statExists(p) {
   }
 }
 
-function ensureDir(p) {
+function ensureDir(p: string): void {
   mkdirSync(p, { recursive: true });
 }
 
-function writeFileEnsuringDir(filePath, contents) {
+function writeFileEnsuringDir(filePath: string, contents: string): void {
   ensureDir(path.dirname(filePath));
   writeFileSync(filePath, contents, "utf8");
 }
 
-function runGitDiff(a, b) {
+function runGitDiff(a: string, b: string): void {
   try {
     execFileSync("git", ["--no-pager", "diff", "--no-index", "--", a, b], {
       stdio: "inherit"
@@ -55,7 +69,12 @@ function runGitDiff(a, b) {
   }
 }
 
-export function assertDirSnapshots({ repoRoot, generatedDir, snapshotsDir, fileExts }) {
+export function assertDirSnapshots({
+  repoRoot,
+  generatedDir,
+  snapshotsDir,
+  fileExts
+}: AssertDirSnapshotsOptions): void {
   const update = process.env.UPDATE_SNAPSHOTS === "1" || process.env.UPDATE_SNAPSHOTS === "true";
 
   const absGeneratedDir = path.join(repoRoot, generatedDir);
@@ -97,7 +116,7 @@ export function assertDirSnapshots({ repoRoot, generatedDir, snapshotsDir, fileE
     for (const f of extra) console.error(`  - ${f}`);
   }
 
-  const mismatched = [];
+  const mismatched: string[] = [];
   for (const rel of [...genRel].filter((p) => snapRel.has(p)).sort()) {
     const absGen = path.join(absGeneratedDir, rel);
     const absSnap = path.join(absSnapshotsDir, rel);
@@ -119,9 +138,8 @@ export function assertDirSnapshots({ repoRoot, generatedDir, snapshotsDir, fileE
   }
 
   if (failed) {
-    console.error(
-      `\nTo update snapshots: UPDATE_SNAPSHOTS=1 node scripts/test-genes-ts-snapshots.mjs`
-    );
+    console.error(`\nTo update snapshots: UPDATE_SNAPSHOTS=1 yarn test:genes-ts:snapshots`);
     process.exit(1);
   }
 }
+

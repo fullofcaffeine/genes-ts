@@ -1,13 +1,13 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const repoRoot = path.resolve(__dirname, "..");
+const repoRoot = path.resolve(__dirname, "../..");
 
-function run(cmd, args, opts = {}) {
-  execFileSync(cmd, args, {
+function run(cmd: string, args: ReadonlyArray<string>, opts: ExecFileSyncOptions = {}): void {
+  execFileSync(cmd, [...args], {
     cwd: repoRoot,
     stdio: "inherit",
     ...opts
@@ -23,11 +23,11 @@ if (!skipClassic) {
   run("npm", ["test"]);
 }
 
-run("node", ["scripts/test-genes-ts.mjs"]);
-run("node", ["scripts/test-genes-ts-minimal.mjs"]);
-run("node", ["scripts/test-genes-ts-full.mjs"]);
-run("node", ["scripts/test-genes-tsx.mjs"]);
-run("node", ["scripts/test-genes-ts-sourcemaps.mjs"]);
+run("node", ["scripts/dist/test-genes-ts.js"]);
+run("node", ["scripts/dist/test-genes-ts-minimal.js"]);
+run("node", ["scripts/dist/test-genes-ts-full.js"]);
+run("node", ["scripts/dist/test-genes-tsx.js"]);
+run("node", ["scripts/dist/test-genes-ts-sourcemaps.js"]);
 
 if (!skipTs2hx) {
   run("yarn", ["--cwd", "tools/ts2hx", "test"]);
@@ -35,7 +35,8 @@ if (!skipTs2hx) {
 
 if (!skipTodoapp) {
   run("node", [
-    "scripts/qa-todoapp.mjs",
+    "scripts/dist/qa-todoapp.js",
     ...(skipPlaywright ? [] : ["--playwright"])
   ]);
 }
+

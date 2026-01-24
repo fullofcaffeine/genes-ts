@@ -1,22 +1,26 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const repoRoot = path.resolve(__dirname, "..");
+const repoRoot = path.resolve(__dirname, "../..");
 
-function rmrf(relPath) {
+function rmrf(relPath: string): void {
   rmSync(path.join(repoRoot, relPath), { recursive: true, force: true });
 }
 
-function run(cmd, args, opts = {}) {
-  execFileSync(cmd, args, {
+function run(cmd: string, args: ReadonlyArray<string>, opts: ExecFileSyncOptions = {}): void {
+  execFileSync(cmd, [...args], {
     cwd: repoRoot,
     stdio: "inherit",
     ...opts
   });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 rmrf("tests_ts/src-gen");
@@ -32,11 +36,20 @@ if (!existsSync(mapPath)) {
   throw new Error(`Expected Haxe→TS sourcemap at ${mapPath}`);
 }
 
-const map = JSON.parse(readFileSync(mapPath, "utf8"));
-if (map.file !== "Main.ts") {
-  throw new Error(`Expected sourcemap file to be Main.ts, got ${map.file}`);
+const mapUnknown: unknown = JSON.parse(readFileSync(mapPath, "utf8"));
+if (!isRecord(mapUnknown)) {
+  throw new Error(`Expected sourcemap JSON object, got ${typeof mapUnknown}`);
 }
-if (!Array.isArray(map.sources) || !map.sources.includes("../src/Main.hx")) {
+
+if (mapUnknown.file !== "Main.ts") {
+  throw new Error(`Expected sourcemap file to be Main.ts, got ${String(mapUnknown.file)}`);
+}
+
+const sources = mapUnknown.sources;
+if (!(Array.isArray(sources) && sources.every((s) => typeof s === "string"))) {
+  throw new Error(`Expected sourcemap sources to be an array of strings`);
+}
+if (!sources.includes("../src/Main.hx")) {
   throw new Error(`Expected sourcemap sources to include ../src/Main.hx`);
 }
 

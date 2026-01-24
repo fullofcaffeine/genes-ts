@@ -1,24 +1,23 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const repoRoot = path.resolve(__dirname, "..");
+const repoRoot = path.resolve(__dirname, "../..");
 const exampleRoot = path.join(repoRoot, "examples", "typescript-target");
 
-function rmrf(relPath) {
+function rmrf(relPath: string): void {
   rmSync(path.join(exampleRoot, relPath), { recursive: true, force: true });
 }
 
-function run(cmd, args, opts = {}) {
+function run(cmd: string, args: ReadonlyArray<string>, opts: ExecFileSyncOptions = {}): void {
   const cwd = opts.cwd ?? exampleRoot;
-  const { cwd: _cwdIgnored, ...rest } = opts;
-  execFileSync(cmd, args, {
-    cwd,
+  execFileSync(cmd, [...args], {
     stdio: "inherit",
-    ...rest
+    ...opts,
+    cwd
   });
 }
 
@@ -46,12 +45,7 @@ run(
 );
 
 // Use a pinned TypeScript version for consistent behavior.
-run("npx", [
-  "-y",
-  "--package",
-  "typescript@5.5.4",
-  "-c",
-  "tsc -p tsconfig.node-next.json"
-]);
+run("npx", ["-y", "--package", "typescript@5.5.4", "-c", "tsc -p tsconfig.node-next.json"]);
 
 run("node", ["dist/index.js"]);
+

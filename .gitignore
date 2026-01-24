@@ -22,6 +22,7 @@
 /examples/todoapp/e2e/test-results
 /test-results
 /playwright-report
+/scripts/dist
 /tools/ts2hx/dist
 /tools/ts2hx/*.tsbuildinfo
 /tools/ts2hx/out

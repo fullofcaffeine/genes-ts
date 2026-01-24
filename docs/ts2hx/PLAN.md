@@ -8,6 +8,23 @@ This is a **low-priority, post-1.0 experiment** for genes-ts:
 
 Terminology: this is a **transpiler / migration tool**, not a “reverse compiler”.
 
+## North star (new requirement)
+
+The long-term goal is for `ts2hx` to be able to take **arbitrarily complex real-world
+TypeScript projects** and produce **Haxe** that:
+
+- **Compiles** (initially) for the **JS platform** (genes-ts or classic Genes)
+- Is **behaviorally equivalent** enough to unblock migration
+- Uses **best-effort typing** (fall back only when required)
+
+Important nuance: “support all TS” should be interpreted as:
+- **All TS syntax / module shapes** are accepted without the tool crashing.
+- If a construct can’t be expressed cleanly in Haxe, the tool may emit:
+  - narrow `Dynamic`/`Any`-style escape hatches at the boundary,
+  - small generated `extern` stubs, and/or
+  - targeted `js.Syntax.code(...)` wrappers (kept rare and well-isolated),
+  so the overall project still compiles and runs.
+
 ---
 
 ## Why Haxe is used more for transpilers than TypeScript (and why that matters here)
@@ -24,7 +41,10 @@ In practice, “compile TS to other languages” is harder than “compile Haxe 
 
 Implication for ts2hx:
 - We should treat this primarily as a **migration tool** (TS/JS → Haxe-for-JS), not as “TS → portable Haxe for all targets”.
-- The first milestone should optimize for **behavioral equivalence on JS** and deterministic output, not perfect Haxe portability.
+- A realistic path to “support all TS” is:
+  - prioritize **JS behavioral equivalence**,
+  - accept that some portions may translate into “less-idiomatic” Haxe initially,
+  - provide clear escape hatches rather than blocking on perfect modeling.
 
 ---
 
@@ -51,6 +71,14 @@ Implication for ts2hx:
 - Producing perfectly idiomatic Haxe for every construct.
 - Automatic porting to non-JS targets (that’s a later, manual refactor process).
 - Framework remapping (e.g. React Router → Phoenix) — this belongs to a future “meta framework” layer, not the compiler.
+
+### v1+ goals (long-term)
+
+- **Full TS project acceptance**: parse + type-check + emit for “real” TS projects (including TSX).
+- **Import/export completeness**: handle all module syntaxes/re-exports encountered in the wild.
+- **Statement/expression completeness**: cover the full TS/JS statement and expression set.
+- **Type coverage**: best-effort mapping for advanced TS types (unions, intersections, generics, mapped/conditional types, declaration merging), with explicit fallbacks when required.
+- **Interop strategy** for “unrepresentable” JS patterns (prototype mutation, dynamic property bags, `Proxy`, etc.) that still compiles for JS via tightly scoped escape hatches.
 
 ---
 
@@ -151,4 +179,3 @@ Suggested milestone breakdown:
    - Golden tests + a couple compile+run fixtures.
 7) **M6 — Docs + workflow**
    - Document limitations and intended migration workflow.
-
