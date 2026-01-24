@@ -15,24 +15,25 @@ will be compiled to
 throw new ValueException("Terrible error");
 ```
 */
-export class ValueException extends (Register.inherits(() => Exception, true) as new (...args: any[]) => Exception) {
-	constructor(value: any, previous?: any, $native?: any);
-	constructor(...args: any[]) {
-		super(...args);
+export class ValueException extends (Register.inherits(() => Exception, true) as typeof Exception) {
+	constructor(value: any, previous: Exception | null = null, $native: any | null = null) {
+		// @ts-ignore
+		super(value, previous, $native);
 	}
 	declare value: any;
-	[Register.new](value?: any, previous?: any, $native?: any): void {
-		super[Register.new](String(value), previous, $native);
+	[Register.new](...args: never[]): void;
+	[Register.new](value: any, previous: Exception | null = null, $native: any | null = null): void {
+		Register.unsafeCast<Function>(super[Register.new]).call(this, String(value), previous, $native);
 		this.value = value;
 	}
-	static get __name__(): any {
+	static get __name__(): string {
 		return "haxe.ValueException"
 	}
-	static get __super__(): any {
+	static get __super__(): Function {
 		return Exception
 	}
-	get __class__(): any {
+	get __class__(): Function {
 		return ValueException
 	}
 }
-ValueException.prototype.value = null as any;
+Register.seedProtoField(ValueException, "value");

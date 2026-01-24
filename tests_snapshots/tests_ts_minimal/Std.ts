@@ -4,16 +4,16 @@ import {Register} from "./genes/Register.js"
 The Std class provides standard methods for manipulating basic types.
 */
 export class Std {
-	static get __name__(): any {
+	static get __name__(): string {
 		return "Std"
 	}
-	get __class__(): any {
+	get __class__(): Function {
 		return Std
 	}
 }
 
 ;{
 	String.__name__ = true;
-	Register.global("$hxClasses")["Array"] = Array;
+	Register.hxClasses()["Array"] = Array;
 	Array.__name__ = true;
 }

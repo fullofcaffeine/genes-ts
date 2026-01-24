@@ -3,6 +3,7 @@ import { rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { assertDirSnapshots } from "./snapshots.js";
+import { assertNoUnsafeTypes } from "./typing-policy.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,6 +25,12 @@ rmrf("tests_ts/src-gen");
 rmrf("tests_ts/dist");
 
 run("haxe", ["tests_ts/build.hxml"]);
+assertNoUnsafeTypes({
+  repoRoot,
+  generatedDir: "tests_ts/src-gen",
+  fileExts: [".ts"],
+  ignoreTopLevelDirs: ["genes", "haxe", "js", "tink"]
+});
 assertDirSnapshots({
   repoRoot,
   generatedDir: "tests_ts/src-gen",
@@ -36,4 +43,3 @@ assertDirSnapshots({
 run("npx", ["-y", "--package", "typescript@5.5.4", "-c", "tsc -p tests_ts/tsconfig.json"]);
 
 run("node", ["tests_ts/dist/index.js"]);
-

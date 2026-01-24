@@ -1,14 +1,15 @@
 export type Iterator<T> = { hasNext(): boolean; next(): T };
-export type Iterable<T> = any;
+export type HxMapKey = string | number | boolean | symbol | object | null;
+export type Iterable<T> = { iterator(): Iterator<T> } | { keys(): Iterator<HxMapKey>; get(k: HxMapKey): T | null } | Array<T>;
 export type KeyValueIterator<K, V> = Iterator<{ key: K; value: V }>;
 export type KeyValueIterable<K, V> = { keyValueIterator(): KeyValueIterator<K, V> };
 export interface ArrayAccess<T> {}
 declare global {
-  interface StringConstructor { __name__?: any }
-  interface ArrayConstructor { __name__?: any }
+  interface StringConstructor { __name__?: string | boolean }
+  interface ArrayConstructor { __name__?: string | boolean }
 }
-export const Iterator: any = null;
-export const Iterable: any = null;
-export const KeyValueIterator: any = null;
-export const KeyValueIterable: any = null;
-export const ArrayAccess: any = null;
+export const Iterator: null = null;
+export const Iterable: null = null;
+export const KeyValueIterator: null = null;
+export const KeyValueIterable: null = null;
+export const ArrayAccess: null = null;

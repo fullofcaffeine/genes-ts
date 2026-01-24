@@ -37,7 +37,9 @@ class EsMap<K, V> {
     function queue() {
       var data = from.next();
       value = data.value;
-      done = data.done;
+      // In TS lib types, `IteratorResult.done` is optional on yield results.
+      // Treat `undefined` as `false` to avoid double-queueing.
+      done = data.done == true;
     }
     return {
       hasNext: () -> {

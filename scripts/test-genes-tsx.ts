@@ -2,6 +2,7 @@ import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { cpSync, mkdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { assertNoUnsafeTypes } from "./typing-policy.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -38,6 +39,12 @@ rmrf("tests_tsx/dist-ts");
 
 run("haxe", ["tests_tsx/build-tsx.hxml"]);
 copyTsxFixtures("tests_tsx/src-gen-tsx");
+assertNoUnsafeTypes({
+  repoRoot,
+  generatedDir: "tests_tsx/src-gen-tsx",
+  fileExts: [".ts", ".tsx"],
+  ignoreTopLevelDirs: ["genes", "haxe", "js", "tink", "components"]
+});
 run("npx", ["-y", "--package", "typescript@5.5.4", "-c", "tsc -p tests_tsx/tsconfig.tsx.json"]);
 run("node", ["tests_tsx/dist-tsx/index.js"]);
 
@@ -45,6 +52,12 @@ rmrf("tests_tsx/src-gen-tsx");
 rmrf("tests_tsx/dist-tsx");
 run("haxe", ["tests_tsx/build-tsx.hxml", "-D", "genes.ts.jsx_classic"]);
 copyTsxFixtures("tests_tsx/src-gen-tsx");
+assertNoUnsafeTypes({
+  repoRoot,
+  generatedDir: "tests_tsx/src-gen-tsx",
+  fileExts: [".ts", ".tsx"],
+  ignoreTopLevelDirs: ["genes", "haxe", "js", "tink", "components"]
+});
 run("npx", [
   "-y",
   "--package",
@@ -56,6 +69,11 @@ run("node", ["tests_tsx/dist-tsx/index.js"]);
 
 run("haxe", ["tests_tsx/build-ts.hxml"]);
 copyTsxFixtures("tests_tsx/src-gen-ts");
+assertNoUnsafeTypes({
+  repoRoot,
+  generatedDir: "tests_tsx/src-gen-ts",
+  fileExts: [".ts", ".tsx"],
+  ignoreTopLevelDirs: ["genes", "haxe", "js", "tink", "components"]
+});
 run("npx", ["-y", "--package", "typescript@5.5.4", "-c", "tsc -p tests_tsx/tsconfig.ts.json"]);
 run("node", ["tests_tsx/dist-ts/index.js"]);
-

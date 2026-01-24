@@ -10,11 +10,11 @@ export class Main {
 			console.log("tests_ts/src/Main.hx:8:",v);
 		});
 	}
-	static get __name__(): any {
+	static get __name__(): string {
 		return "Main"
 	}
-	get __class__(): any {
+	get __class__(): Function {
 		return Main
 	}
 }
-(Register.global("$hxClasses") as any)["Main"] = Main;
+Register.setHxClass("Main", Main);

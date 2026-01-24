@@ -1,19 +1,19 @@
 import {Register} from "../../genes/Register.js"
 
-export class MyClass extends (Register.inherits() as any) {
-	constructor(value: number);
-	constructor(...args: any[]) {
-		super(...args);
+export class MyClass extends Register.inherits() {
+	constructor(value: number) {
+		super(value);
 	}
 	declare value: number;
-	[Register.new](value?: any): void {
+	[Register.new](...args: never[]): void;
+	[Register.new](value: number): void {
 		this.value = value;
 	}
-	static get __name__(): any {
+	static get __name__(): string {
 		return "my.app.MyClass"
 	}
-	get __class__(): any {
+	get __class__(): Function {
 		return MyClass
 	}
 }
-MyClass.prototype.value = null as any;
+Register.seedProtoField(MyClass, "value");

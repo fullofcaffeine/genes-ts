@@ -1,14 +1,15 @@
 package my.app;
 
 import genes.Register;
+import genes.Register.HxRegistry;
 
 class Main {
   static function main() {
     final _ = new MyClass(1);
     final __: MyEnum = MyEnum.B(2);
 
-    final hxClasses: Dynamic = Register.global("$hxClasses");
-    final hxEnums: Dynamic = Register.global("$hxEnums");
+    final hxClasses: HxRegistry = Register.global("$hxClasses");
+    final hxEnums: HxRegistry = Register.global("$hxEnums");
 
     final classKey = "my.app.MyClass";
     final enumKey = "my.app.MyEnum";
@@ -26,4 +27,3 @@ class Main {
     trace("ok");
   }
 }
-

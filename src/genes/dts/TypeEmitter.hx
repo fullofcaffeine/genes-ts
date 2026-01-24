@@ -2,6 +2,7 @@ package genes.dts;
 
 import genes.SourceMapGenerator;
 import haxe.macro.Type;
+import haxe.macro.Context;
 import genes.util.IteratorUtil.*;
 import genes.util.TypeUtil;
 
@@ -87,6 +88,10 @@ class TypeEmitter {
         }
       case TInst(ref = _.get() => cl, params):
         switch [cl, params] {
+          case [{module: "js.node.Fs", name: "FsPath"}, _]:
+            // hxnodejs `FsPath` maps to Node's `fs.PathLike`.
+            emitPos(cl.pos);
+            write('import("node:fs").PathLike');
           case [{name: name}, _] if (name.indexOf('<') > -1):
             // Haxe sometimes produces synthetic/monomorphized core types like
             // `Class<foo.Bar>` as a base type name. These don't map cleanly to
@@ -127,7 +132,12 @@ class TypeEmitter {
             default: false;
           }):
             emitPos(cl.pos);
-            write('(RegExp & { m?: any; s?: string })');
+            write('(RegExp & { m?: RegExpExecArray | null; s?: string })');
+          case [{name: "RegExpMatch"}, _]:
+            // Haxe std uses `RegExpMatch` for `RegExp#exec` results.
+            // Map to the TS builtin.
+            emitPos(cl.pos);
+            write('RegExpExecArray | null');
           case [{pack: [], name: 'String'}, _]:
             emitPos(cl.pos);
             write('string');
@@ -185,6 +195,22 @@ class TypeEmitter {
             includeType(TInst(ref, params));
             emitBaseType(writer, cl, params);
         }
+      case TAbstract(_.get().meta => meta, _)
+        if (meta.has(':ts.type') || meta.has(':genes.type')):
+        final tsOverride = switch meta.extract(':ts.type') {
+          case [{params: [{expr: EConst(CString(type))}]}]: type;
+          default: null;
+        }
+        final genesOverride = switch meta.extract(':genes.type') {
+          case [{params: [{expr: EConst(CString(type))}]}]: type;
+          default: null;
+        }
+        switch tsOverride != null ? tsOverride : genesOverride {
+          case null:
+            throw '@:ts.type/@:genes.type needs an expression';
+          case v:
+            write(v);
+        }
       case TAbstract(_.get() => ab, params):
         switch [ab, params] {
           case [{module: "js.lib.Symbol", name: "Symbol"}, _]:
@@ -204,10 +230,32 @@ class TypeEmitter {
             write('void');
           case [{pack: [], name: "Null"}, [realT]]: // Haxe 4.x
             emitPos(ab.pos);
-            // Haxe (without null-safety) is effectively null-tolerant for most
-            // reference types. Emitting strict unions here causes widespread
-            // `strictNullChecks` errors in the generated TS, so we fall back to `any`.
-            write('any');
+            // genes-ts TS output profile:
+            // - Default: `Null<T>` becomes `T | null` (works with strictNullChecks: true).
+            // - Optional: `-D genes.ts.no_null_union` erases `Null<T>` to `T` (for
+            //   strictNullChecks: false projects).
+            if (Context.defined('genes.ts')) {
+              if (Context.defined('genes.ts.no_null_union')) {
+                emitType(writer, realT);
+              } else {
+                final needsParens = switch realT {
+                  case TFun(_, _): true;
+                  default: false;
+                }
+                if (needsParens) {
+                  write('(');
+                  emitType(writer, realT);
+                  write(')');
+                } else {
+                  emitType(writer, realT);
+                }
+                write(' | null');
+              }
+            } else {
+              // Classic Genes `.d.ts` mode historically used `any` here to avoid
+              // strict-nullness incompatibilities for Haxe 4.x projects.
+              write('any');
+            }
           case [{pack: ["haxe", "extern"] | ['haxe'], name: "Rest"}, [t]]:
             emitPos(ab.pos);
             emitType(writer, t);
@@ -261,6 +309,15 @@ class TypeEmitter {
         }
       case TType(_.get() => dt, params):
         switch [dt, params] {
+          case [{module: "js.node.Fs", name: "FsPath"}, _]:
+            // hxnodejs `FsPath` maps to Node's `fs.PathLike`.
+            emitPos(dt.pos);
+            write('import("node:fs").PathLike');
+          case [{name: "RegExpMatch"}, _]:
+            // Haxe std uses `RegExpMatch` for `RegExp#exec` results.
+            // Map to the TS builtin.
+            emitPos(dt.pos);
+            write('RegExpExecArray | null');
           case [{name: "RegroupStatus" | "RegroupResult"}, _]:
             // Some libraries reference internal helper types in public signatures, but those
             // helpers may be stripped by DCE in runtime output. Fall back to `any`.
@@ -273,7 +330,26 @@ class TypeEmitter {
             emitPos(dt.pos);
             write('any');
           case [{pack: [], name: "Null"}, [realT]]: // Haxe 3.x
-            write('any');
+            if (Context.defined('genes.ts')) {
+              if (Context.defined('genes.ts.no_null_union')) {
+                emitType(writer, realT);
+              } else {
+                final needsParens = switch realT {
+                  case TFun(_, _): true;
+                  default: false;
+                }
+                if (needsParens) {
+                  write('(');
+                  emitType(writer, realT);
+                  write(')');
+                } else {
+                  emitType(writer, realT);
+                }
+                write(' | null');
+              }
+            } else {
+              write('any');
+            }
           case [{module: "js.lib.Iterator", name: "Iterator"}, [elemT]]:
             emitPos(dt.pos);
             write('IterableIterator<');

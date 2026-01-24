@@ -31,6 +31,9 @@ class TsModuleEmitter extends JsModuleEmitter {
   static final JSX_CLASSIC_REACT_IMPORT = 'React';
 
   var jsxEmitTsx: Bool = false;
+  var inAssignTarget: Bool = false;
+  var currentReturnType: Null<Type> = null;
+  var currentReturnIsVoidLike: Bool = false;
 
   public function emitTsModule(module: Module, importExtension: Null<String>) {
     final endTimer = timer('emitTsModule');
@@ -310,6 +313,37 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   override function emitCall(e: TypedExpr, params: Array<TypedExpr>,
       inValue: Bool) {
+    switch [e.expr, params] {
+      case [TConst(TSuper), args]:
+        // Constructors (`new`) are implemented via the `[Register.new]` runtime
+        // initializer. In TS output we still emit a normal `constructor`, but
+        // `super(...)` calls inside Haxe constructor bodies must target the
+        // initializer chain.
+        emitPos(e.pos);
+        switch extendsExtern {
+          case Some(t):
+            write(ctx.typeAccessor(t));
+            write(args.length > 0 ? '.call(this, ' : '.call(this');
+          case None:
+            // `[Register.new]` overload signatures are intentionally typed as
+            // uncallable (`never[]`) to avoid forcing TS constructor signature
+            // compatibility across inheritance. Use an unsafe cast here to
+            // call the super initializer without leaking `any`.
+            write(ctx.typeAccessor(TypeUtil.registerType));
+            write('.unsafeCast<Function>(');
+            write('super[');
+            write(ctx.typeAccessor(TypeUtil.registerType));
+            write('.new]');
+            write(').call(this');
+            if (args.length > 0)
+              write(', ');
+        }
+        for (param in join(args, write.bind(', ')))
+          emitValue(param);
+        write(')');
+        return;
+      default:
+    }
     final marker = isReactJsxMarkerCallee(e);
     if (marker != null) {
       switch marker {
@@ -320,6 +354,103 @@ class TsModuleEmitter extends JsModuleEmitter {
         default:
       }
       return;
+    }
+
+    // If a nullable value is passed to a non-nullable parameter, TS `strict`
+    // errors even though Haxe commonly allows this (not null-safe by default).
+    // Preserve Haxe semantics by inserting an unsafe cast at the call-site.
+    //
+    // We only do this for "plain" calls to avoid bypassing special call
+    // lowering in the JS emitter (`js.Syntax.*`, feature macros, etc).
+    final isEnumCtorCall = switch unwrapExpr(e).expr {
+      case TField(_, FEnum(_, _)): true;
+      default: false;
+    }
+    final fnType = haxe.macro.Context.followWithAbstracts(e.t);
+    final args = switch fnType {
+      case TFun(a, _): a;
+      default: null;
+    }
+    if (params.length > 0) {
+      inline function isUnresolvedMono(t: Type): Bool
+        return switch t {
+          case TMono(r): r.get() == null;
+          default: false;
+        }
+      inline function isTypeParam(t: Type): Bool
+        return switch t {
+          case TInst(_.get() => {kind: KTypeParameter(_)}, _): true;
+          default: false;
+        }
+      var needsCasts = false;
+      if (isEnumCtorCall && params.exists(p -> isNullConst(unwrapExpr(p))))
+        needsCasts = true;
+      if (!needsCasts && args != null) {
+        final max = params.length < args.length ? params.length : args.length;
+        for (i in 0...max) {
+          final expected = args[i].t;
+          final actual = params[i];
+          final actualUnwrapped = unwrapExpr(actual);
+          if (isUnresolvedMono(expected) && isNullConst(actualUnwrapped)) {
+            needsCasts = true;
+            break;
+          }
+          if (!typeAllowsNull(expected) && typeAllowsNull(actual.t)) {
+            needsCasts = true;
+            break;
+          }
+        }
+      }
+      final isPlainCall = switch unwrapExpr(e).expr {
+        case TIdent('`trace' | "__resources__" | "__new__" | "__instanceof__"
+          | "__typeof__" | "__strict_eq__" | "__strict_neq__"
+          | "__define_feature__" | "__feature__"):
+          false;
+        case TCall(_, _):
+          false;
+        case TField(_,
+          FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: _})):
+          false;
+        default:
+          true;
+      }
+      if (needsCasts && isPlainCall) {
+        emitPos(e.pos);
+        emitValue(e);
+        write('(');
+        for (i in 0...params.length) {
+          if (i > 0)
+            write(', ');
+          final expected = args != null && i < args.length ? args[i].t : null;
+          final actual = params[i];
+          final actualUnwrapped = unwrapExpr(actual);
+          if (expected != null && isUnresolvedMono(expected)
+            && isNullConst(unwrapExpr(actual))) {
+            // Avoid TS inferring `null` for unconstrained generic params.
+            // `never` keeps the call assignable without introducing `any`.
+            write(ctx.typeAccessor(TypeUtil.registerType));
+            write('.unsafeCast<never>(null)');
+          } else if (isEnumCtorCall && isNullConst(actualUnwrapped)
+            && (expected == null || typeAllowsNull(expected))) {
+            // Enum constructors are often used with `null` (e.g. `Noise`). Casting
+            // to `never` avoids TS inferring `null` for generic params.
+            write(ctx.typeAccessor(TypeUtil.registerType));
+            write('.unsafeCast<never>(null)');
+          } else if (expected != null && !typeAllowsNull(expected)
+            && typeAllowsNull(actual.t) && !isTypeParam(expected)) {
+            write(ctx.typeAccessor(TypeUtil.registerType));
+            write('.unsafeCast<');
+            TypeEmitter.emitType(this, expected);
+            write('>(');
+            emitValue(actual);
+            write(')');
+          } else {
+            emitValue(actual);
+          }
+        }
+        write(')');
+        return;
+      }
     }
     super.emitCall(e, params, inValue);
   }
@@ -589,42 +720,33 @@ class TsModuleEmitter extends JsModuleEmitter {
     final extendsInherits = cl.superClass != null
       || JsModuleEmitter.hasConstructor(fields);
     if (extendsInherits) {
-      write(' extends (');
-      write(ctx.typeAccessor(TypeUtil.registerType));
-      write('.inherits(');
-      var superAccessor: Null<String> = null;
-      var superTypeParamCount = 0;
+      write(' extends ');
       switch cl.superClass {
         case null:
-        case {t: ref}:
+          // Root classes still use `Register.inherits()` so we can share the same
+          // `[Register.new]` initialization convention across the runtime.
+          write(ctx.typeAccessor(TypeUtil.registerType));
+          write('.inherits()');
+        case {t: ref, params: superParams}:
           final t: ModuleType = TClassDecl(ref);
-          superTypeParamCount = ref.get().params.length;
           final isCyclic = checkCycles(TypeUtil.moduleTypeModule(t));
+          // Preserve Genes' runtime semantics (especially cycle handling) by
+          // always extending a `Register.inherits(...)` base class. We then cast
+          // to the concrete superclass type so TS can see inherited members.
+          write('(');
+          write(ctx.typeAccessor(TypeUtil.registerType));
+          write('.inherits(');
           if (isCyclic)
             write('() => ');
-          superAccessor = ctx.typeAccessor(t);
-          write(superAccessor);
+          write(ctx.typeAccessor(t));
           if (isCyclic)
             write(', true');
+          write(') as typeof ');
+          write(ctx.typeAccessor(t));
+          write(')');
+          if (superParams != null)
+            TypeEmitter.emitParams(this, superParams, false);
       }
-      write(')');
-      if (superAccessor != null) {
-        final castSuperToAny = superAccessor.indexOf('.') != -1;
-        write(' as new (...args: any[]) => ');
-        if (castSuperToAny) {
-          write('any');
-        } else {
-          write(superAccessor);
-          if (superTypeParamCount > 0) {
-            write('<');
-            for (_ in joinIt(0...superTypeParamCount, write.bind(', ')))
-              write('any');
-            write('>');
-          }
-        }
-      } else
-        write(' as any');
-      write(')');
     }
 
     extendsExtern = switch cl.superClass {
@@ -637,30 +759,39 @@ class TsModuleEmitter extends JsModuleEmitter {
     write(' {');
     increaseIndent();
 
-    // Explicit ctor signatures (TS) matching Haxe `new`.
-    // Runtime behavior is unchanged: the implementation forwards to `super(...args)`.
+    // Emit a typed TS constructor wrapper that forwards to `super(...)`.
+    //
+    // The actual Haxe initialization logic lives in `[Register.new](...)` and is
+    // invoked by the `Register.inherits(...)` constructor at runtime. Having a
+    // real TS `constructor` gives correct `new (...)` typing for consumers.
     if (extendsInherits) {
       final ctorField = fields.find(f -> f.kind.equals(Constructor));
-      writeNewline();
-      if (ctorField != null)
-        emitPos(ctorField.pos);
-      write('constructor(');
       if (ctorField != null)
         switch ctorField.expr {
-          case {expr: TFunction(f)}:
-            emitTypedFunctionArguments(f, ctorField);
-          default:
+	          case {expr: TFunction(f)}:
+	            writeNewline();
+	            emitPos(ctorField.pos);
+	            write('constructor(');
+	            emitTypedFunctionArguments(f, ctorField);
+	            write(') {');
+	            increaseIndent();
+	            writeNewline();
+	            // Haxe constructors are routed through `Register.inherits(...)`
+	            // and `[Register.new]`. The superclass type may have an unrelated
+	            // TS constructor signature, so we silence `super(...)` arity/type
+	            // checks here while keeping the public constructor signature typed.
+	            if (cl.superClass != null) {
+	              write('// @ts-ignore');
+	              writeNewline();
+	            }
+	            write('super(');
+	            emitForwardArgs(f, ctorField);
+	            write(');');
+	            decreaseIndent();
+	            writeNewline();
+	            write('}');
+	          default:
         }
-      write(');');
-
-      writeNewline();
-      write('constructor(...args: any[]) {');
-      increaseIndent();
-      writeNewline();
-      write('super(...args);');
-      decreaseIndent();
-      writeNewline();
-      write('}');
     }
 
     // Emit typed property declarations so TS code can type-check under `strict`.
@@ -680,7 +811,14 @@ class TsModuleEmitter extends JsModuleEmitter {
           }
           emitMemberName(field.isStatic ? staticName(cl, field) : field.name);
           write(': ');
-          emitFieldTsType(field);
+          // Node vs DOM timer handles: `setInterval` return type varies by lib.
+          // Model `haxe.Timer.id` as whatever the host `setInterval` returns.
+          if (!field.isStatic && field.name == 'id' && cl.pack.join('.') == 'haxe'
+            && cl.name == 'Timer') {
+            write('ReturnType<typeof setInterval> | null');
+          } else {
+            emitFieldTsType(field);
+          }
           write(';');
         case Method
           #if (haxe_ver >= 4.2) if (!field.isAbstract) #end:
@@ -731,6 +869,18 @@ class TsModuleEmitter extends JsModuleEmitter {
                   write('async ');
                 emitMemberName(staticName(cl, field));
               } else if (field.kind.equals(Constructor)) {
+                // Provide an overload signature for `[Register.new]` so
+                // subclasses can have different constructor signatures without
+                // triggering override incompatibilities in TS.
+                //
+                // We intentionally make this overload uncallable (`never[]`) to
+                // keep `[Register.new]` an internal runtime convention; TS
+                // consumers should use `new (...)`.
+                write('[');
+                write(ctx.typeAccessor(TypeUtil.registerType));
+                write('.new](...args: never[]): void;');
+                writeNewline();
+                emitPos(field.pos);
                 write('[');
                 write(ctx.typeAccessor(TypeUtil.registerType));
                 write('.new]');
@@ -742,10 +892,7 @@ class TsModuleEmitter extends JsModuleEmitter {
 
               emitMethodTypeParams(field);
               write('(');
-              if (field.kind.equals(Constructor))
-                emitCtorImplementationArguments(f, field);
-              else
-                emitTypedFunctionArguments(f, field);
+              emitTypedFunctionArguments(f, field);
               write(')');
 
               // Return type
@@ -763,19 +910,56 @@ class TsModuleEmitter extends JsModuleEmitter {
                 case null: extractStringMeta(field.meta, ':genes.returnType');
                 case v: v;
               }) : null;
-              switch [returnOverride, body.expr] {
-                case [v, TBlock([])] if (v != null && v != 'any' && v != 'void' && v != 'undefined'):
-                  // TS requires a return for non-void declared return types.
-                  // Preserve JS runtime behavior by returning `undefined`.
-                  write('{');
-                  increaseIndent();
-                  writeNewline();
-                  write('return undefined as any;');
-                  decreaseIndent();
-                  writeNewline();
-                  write('}');
-                default:
-                  emitExpr(body);
+              final isRuntimeUnsafeCast = field.isStatic && field.name == 'unsafeCast'
+                && cl.module == 'genes.Register' && cl.name == 'Register';
+              if (isRuntimeUnsafeCast) {
+                // `Register.unsafeCast` must be the identity function at runtime.
+                // Avoid emitter-inserted casts causing infinite recursion here.
+                write('{');
+                increaseIndent();
+                writeNewline();
+                write('return ');
+                if (f.args.length > 0)
+                  emitLocalIdent(f.args[0].v.name);
+                else
+                  write('undefined');
+                write(';');
+                decreaseIndent();
+                writeNewline();
+                write('}');
+              } else {
+                switch [returnOverride, body.expr] {
+                  case [v, TBlock([])] if (v != null && v != 'any' && v != 'void' && v != 'undefined'):
+                    // TS requires a return for non-void declared return types.
+                    // Preserve JS runtime behavior by returning `undefined`.
+                    write('{');
+                    increaseIndent();
+                    writeNewline();
+                    write('return ');
+                    write(ctx.typeAccessor(TypeUtil.registerType));
+                    write('.unsafeCast<');
+                    write(v);
+                    write('>(undefined);');
+                    decreaseIndent();
+                    writeNewline();
+                    write('}');
+                  default:
+                    final prevReturn = currentReturnType;
+                    final prevVoidLike = currentReturnIsVoidLike;
+                    currentReturnType = switch field.type {
+                      case TFun(_, ret): ret;
+                      default: null;
+                    }
+                    currentReturnIsVoidLike = switch returnOverride {
+                      case "void" | "Promise<void>":
+                        true;
+                      default:
+                        currentReturnType != null && isVoidLike(currentReturnType);
+                    }
+                    emitExpr(body);
+                    currentReturnType = prevReturn;
+                    currentReturnIsVoidLike = prevVoidLike;
+                }
               }
             default:
           }
@@ -785,7 +969,7 @@ class TsModuleEmitter extends JsModuleEmitter {
 
     // Keep Genes runtime identity helpers.
     writeNewline();
-    write('static get __name__(): any {');
+    write('static get __name__(): string {');
     increaseIndent();
     writeNewline();
     write('return ');
@@ -798,7 +982,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       case []:
       case v:
         writeNewline();
-        write('static get __interfaces__(): any {');
+        write('static get __interfaces__(): Function[] {');
         increaseIndent();
         writeNewline();
         write('return [');
@@ -814,7 +998,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       case null:
       case {t: TClassDecl(_) => t}:
         writeNewline();
-        write('static get __super__(): any {');
+        write('static get __super__(): Function {');
         increaseIndent();
         writeNewline();
         write('return ');
@@ -825,7 +1009,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
 
     writeNewline();
-    write('get __class__(): any {');
+    write('get __class__(): Function {');
     increaseIndent();
     writeNewline();
     write('return ');
@@ -842,13 +1026,12 @@ class TsModuleEmitter extends JsModuleEmitter {
     final id = cl.pack.concat([TypeUtil.className(cl)]).join('.');
     if (id != 'genes.Register' && !haxe.macro.Context.defined('genes.ts.minimal_runtime')) {
       writeNewline();
-      write('(');
-      writeGlobalVar("$hxClasses");
-      write(' as any)[');
+      write(ctx.typeAccessor(TypeUtil.registerType));
+      write('.setHxClass(');
       emitString(id);
-      write('] = ');
+      write(', ');
       emitIdent(TypeUtil.className(cl));
-      write(';');
+      write(');');
       writeNewline();
     }
 
@@ -870,13 +1053,17 @@ class TsModuleEmitter extends JsModuleEmitter {
         increaseIndent();
         if (field.getter) {
           writeNewline();
-          write('get: function (this: any) { return this.get_');
+          write('get: function (this: ');
+          emitIdent(className);
+          write(') { return this.get_');
           write(field.name);
           write('(); },');
         }
         if (field.setter) {
           writeNewline();
-          write('set: function (this: any, v: ');
+          write('set: function (this: ');
+          emitIdent(className);
+          write(', v: ');
           emitFieldTsType(field);
           write(') { this.set_');
           write(field.name);
@@ -888,10 +1075,12 @@ class TsModuleEmitter extends JsModuleEmitter {
         writeNewline();
       } else {
         writeNewline();
+        write(ctx.typeAccessor(TypeUtil.registerType));
+        write('.seedProtoField(');
         emitIdent(className);
-        write('.prototype');
-        emitField(field.name);
-        write(' = null as any;');
+        write(', ');
+        emitString(field.name);
+        write(');');
         writeNewline();
       }
     }
@@ -918,13 +1107,164 @@ class TsModuleEmitter extends JsModuleEmitter {
             for (c in join(constraints, write.bind(' & ')))
               TypeEmitter.emitType(this, c);
           }
-          // Default Haxe generics to `any` for ergonomics and to avoid `unknown`
-          // inference in downstream generic code under `strict`.
-          write(' = any');
         default:
           // Fallback: best-effort rendering.
           TypeEmitter.emitType(this, param);
       }
+    }
+    write('>');
+  }
+
+  static inline function typeParamKey(param: Type): Null<String> {
+    return switch param {
+      case TInst(ref, _):
+        final cl = ref.get();
+        switch cl.kind {
+          case KTypeParameter(_): cl.module + '.' + cl.name;
+          default: null;
+        }
+      default:
+        null;
+    }
+  }
+
+  static function collectUsedTypeParamKeys(type: Type, used: Map<String, Bool>) {
+    final followed = haxe.macro.Context.followWithAbstracts(type);
+    switch followed {
+      case TInst(ref, params):
+        final cl = ref.get();
+        switch cl.kind {
+          case KTypeParameter(_):
+            used.set(cl.module + '.' + cl.name, true);
+          default:
+        }
+        for (p in params)
+          collectUsedTypeParamKeys(p, used);
+      case TEnum(_, params) | TType(_, params) | TAbstract(_, params):
+        for (p in params)
+          collectUsedTypeParamKeys(p, used);
+      case TFun(args, ret):
+        for (a in args)
+          collectUsedTypeParamKeys(a.t, used);
+        collectUsedTypeParamKeys(ret, used);
+      case TAnonymous(a):
+        for (f in a.get().fields)
+          collectUsedTypeParamKeys(f.type, used);
+      case TDynamic(t):
+        if (t != null)
+          collectUsedTypeParamKeys(t, used);
+      case TMono(r):
+        final inner = r.get();
+        if (inner != null)
+          collectUsedTypeParamKeys(inner, used);
+      default:
+    }
+  }
+
+  function emitTypeParamDeclsUnusedNever(params: Array<Type>, withConstraints: Bool,
+      used: Map<String, Bool>, tsxSafe: Bool) {
+    if (params.length == 0)
+      return;
+    write('<');
+    var first = true;
+    var seenDefault = false;
+    for (param in params) {
+      if (!first)
+        write(', ');
+      first = false;
+      final key = typeParamKey(param);
+      final defaultNever = key != null && !used.exists(key);
+      final needsDefault = defaultNever || seenDefault;
+      switch param {
+        case TInst(_.get() => {kind: KTypeParameter(constraints)}, _):
+          TypeEmitter.emitType(this, param);
+          if (withConstraints && constraints.length > 0) {
+            write(' extends ');
+            for (c in join(constraints, write.bind(' & ')))
+              TypeEmitter.emitType(this, c);
+          }
+        default:
+          TypeEmitter.emitType(this, param);
+      }
+      if (needsDefault) {
+        write(' = never');
+        seenDefault = true;
+      }
+    }
+    if (tsxSafe && jsxEmitTsx && params.length == 1)
+      write(',');
+    write('>');
+  }
+
+  function emitTypeParamDeclsTsxSafe(params: Array<Type>, withConstraints: Bool) {
+    if (params.length == 0)
+      return;
+    write('<');
+    var first = true;
+    for (param in params) {
+      if (!first)
+        write(', ');
+      first = false;
+      switch param {
+        case TInst(_.get() => {kind: KTypeParameter(constraints)}, _):
+          TypeEmitter.emitType(this, param);
+          if (withConstraints && constraints.length > 0) {
+            write(' extends ');
+            for (c in join(constraints, write.bind(' & ')))
+              TypeEmitter.emitType(this, c);
+          }
+        default:
+          TypeEmitter.emitType(this, param);
+      }
+    }
+    // In TSX files, a single-type-param arrow function needs a trailing comma
+    // to disambiguate from JSX (`<T,>(x) => ...`).
+    if (jsxEmitTsx && params.length == 1)
+      write(',');
+    write('>');
+  }
+
+  /**
+   * Emit type parameters for enum constructor *types*.
+   *
+   * Constructor-specific type params cannot be left "free" in TS type aliases,
+   * so we give them a `never` default to allow referencing the constructor type
+   * with only the enum's own parameters.
+   */
+  function emitEnumCtorTypeParamDecls(enumParams: Array<Type>,
+      ctorParams: Array<Type>, withConstraints: Bool) {
+    if ((enumParams == null || enumParams.length == 0)
+      && (ctorParams == null || ctorParams.length == 0))
+      return;
+    write('<');
+    var first = true;
+    inline function emitOne(param: Type, defaultValue: Null<String>) {
+      if (!first)
+        write(', ');
+      first = false;
+      switch param {
+        case TInst(_.get() => {kind: KTypeParameter(constraints)}, _):
+          TypeEmitter.emitType(this, param);
+          if (withConstraints && constraints.length > 0) {
+            write(' extends ');
+            for (c in join(constraints, write.bind(' & ')))
+              TypeEmitter.emitType(this, c);
+          }
+        default:
+          TypeEmitter.emitType(this, param);
+      }
+      if (defaultValue != null) {
+        write(' = ');
+        write(defaultValue);
+      }
+    }
+    if (enumParams != null) {
+      for (param in enumParams)
+        emitOne(param, null);
+    }
+    if (ctorParams != null) {
+      for (param in ctorParams)
+        emitOne(param, 'never');
     }
     write('>');
   }
@@ -936,27 +1276,309 @@ class TsModuleEmitter extends JsModuleEmitter {
     TypeEmitter.emitType(this, v.t);
     switch (eo) {
       case null:
-        write(' = undefined as any');
       case {expr: TConst(TNull)}:
-        write(' = null as any');
+        if (typeAllowsNull(v.t)) {
+          write(' = null');
+        } else {
+          write(' = ');
+          write(ctx.typeAccessor(TypeUtil.registerType));
+          write('.unsafeCast<');
+          TypeEmitter.emitType(this, v.t);
+          write('>(null)');
+        }
       case e:
         write(' = ');
-        emitValue(e);
+        if (!typeAllowsNull(v.t) && typeAllowsNull(e.t)) {
+          write(ctx.typeAccessor(TypeUtil.registerType));
+          write('.unsafeCast<');
+          TypeEmitter.emitType(this, v.t);
+          write('>(');
+          emitValue(e);
+          write(')');
+        } else {
+          emitValue(e);
+        }
+    }
+  }
+
+  static function typeAllowsNull(t: Type): Bool {
+    return switch t {
+      case TAbstract(_.get() => {pack: [], name: "Null"}, _):
+        true;
+      case TType(_.get() => {pack: [], name: "Null"}, _):
+        true;
+      case TDynamic(_):
+        true;
+      case TMono(tref):
+        final inner = tref.get();
+        inner == null ? true : typeAllowsNull(inner);
+      case TType(_, _):
+        typeAllowsNull(haxe.macro.Context.follow(t));
+      default:
+        false;
+    }
+  }
+
+  static function stripNull(t: Type): Type {
+    return switch t {
+      case TAbstract(_.get() => {pack: [], name: "Null"}, [inner]):
+        inner;
+      case TType(_.get() => {pack: [], name: "Null"}, [inner]):
+        inner;
+      case TMono(tref):
+        final inner = tref.get();
+        inner == null ? t : stripNull(inner);
+      case TType(_, _):
+        stripNull(haxe.macro.Context.follow(t));
+      default:
+        t;
+    }
+  }
+
+  static function isNumberLike(t: Type): Bool {
+    return switch haxe.macro.Context.followWithAbstracts(stripNull(t)) {
+      case TAbstract(_.get() => {pack: [], name: "Int" | "Float"}, _): true;
+      default: false;
+    }
+  }
+
+  static function isVoidLike(t: Type): Bool {
+    return switch haxe.macro.Context.followWithAbstracts(t) {
+      case TAbstract(_.get() => {pack: [], name: "Void"}, _):
+        true;
+      case TInst(_.get() => {module: "js.lib.Promise", name: "Promise"}, [inner])
+        | TInst(_.get() => {pack: ["js", "lib"], name: "Promise"}, [inner]):
+        isVoidLike(inner);
+      case TType(_.get() => {module: "js.lib.Promise", name: "Promise"}, [inner])
+        | TType(_.get() => {pack: ["js", "lib"], name: "Promise"}, [inner]):
+        isVoidLike(inner);
+      default:
+        false;
+    }
+  }
+
+  function typeToString(type: Type): String {
+    final buf = new StringBuf();
+    final noop = function() {};
+    final writer = {
+      write: (code: String) -> buf.add(code),
+      writeNewline: noop,
+      emitComment: (_: String) -> {},
+      increaseIndent: noop,
+      decreaseIndent: noop,
+      emitPos: (_: Dynamic) -> {},
+      includeType: (_: Type) -> {},
+      typeAccessor: ctx.typeAccessor
+    }
+    TypeEmitter.emitType(writer, type);
+    return buf.toString();
+  }
+
+  override public function emitValue(e: TypedExpr) {
+    emitPos(e.pos);
+    switch e.expr {
+      case TCall({
+        expr: TField(_,
+          FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))
+      }, [{expr: TConst(TString("undefined"))}])
+        if (typeAllowsNull(e.t)):
+        // See `emitExpr` for rationale.
+        write('null');
+      case TBinop(op = OpGt | OpGte | OpLt | OpLte, e1, e2)
+        if ((typeAllowsNull(e1.t) && isNumberLike(e1.t))
+          || (typeAllowsNull(e2.t) && isNumberLike(e2.t))):
+        // See `emitExpr` for rationale.
+        inline function emitOperand(expr: TypedExpr) {
+          if (typeAllowsNull(expr.t) && isNumberLike(expr.t)) {
+            write(ctx.typeAccessor(TypeUtil.registerType));
+            write('.unsafeCast<number>(');
+            emitValue(expr);
+            write(')');
+          } else {
+            emitValue(expr);
+          }
+        }
+        emitOperand(e1);
+        writeSpace();
+        writeBinop(op);
+        writeSpace();
+        emitOperand(e2);
+      default:
+        super.emitValue(e);
     }
   }
 
   override public function emitExpr(e: TypedExpr) {
     emitPos(e.pos);
     switch e.expr {
+      case TCall({
+        expr: TField(_,
+          FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))
+      }, [{expr: TConst(TString("undefined"))}])
+        if (typeAllowsNull(e.t)):
+        // Haxe stdlib sometimes uses `js.Syntax.code("undefined")` in places
+        // where `null` is the intended "no value" signal (e.g. `HxOverrides.cca`).
+        // Normalize to `null` to keep TS `strictNullChecks` consistent.
+        write('null');
+      case TConst(TNull):
+        if (typeAllowsNull(e.t)) {
+          write('null');
+        } else {
+          write(ctx.typeAccessor(TypeUtil.registerType));
+          write('.unsafeCast<');
+          TypeEmitter.emitType(this, e.t);
+          write('>(null)');
+        }
+      case TCast(e1, null):
+        // Haxe inserts implicit casts in a few places where its non-null-safe
+        // type system differs from TS strict null checks. Preserve those casts
+        // as TS-only assertions (no runtime effect).
+        write(ctx.typeAccessor(TypeUtil.registerType));
+        write('.unsafeCast<');
+        TypeEmitter.emitType(this, e.t);
+        write('>(');
+        emitValue(e1);
+        write(')');
       case TBinop(op = OpAssign, lhs = {expr: TField(_, f)}, rhs)
         if (isOverriddenField(f)):
+        inAssignTarget = true;
         emitValue(lhs);
+        inAssignTarget = false;
         writeSpace();
         writeBinop(op);
         writeSpace();
-        write('(');
+        final meta = switch f {
+          case FInstance(_, _, cf) | FStatic(_, cf) | FAnon(cf): cf.get().meta;
+          default: null;
+        }
+        final typeOverride = extractStringMeta(meta, ':ts.type')
+          ?? extractStringMeta(meta, ':genes.type');
+        // If the override is `any`, no cast is required and emitting `<any>`
+        // would leak `any` into user modules.
+        if (typeOverride == null || typeOverride == 'any') {
+          emitValue(rhs);
+        } else {
+          write(ctx.typeAccessor(TypeUtil.registerType));
+          write('.unsafeCast<');
+          write(typeOverride);
+          write('>(');
+          emitValue(rhs);
+          write(')');
+        }
+      case TBinop(op = OpAssign, lhs, rhs)
+        if (!typeAllowsNull(lhs.t) && typeAllowsNull(rhs.t)):
+        // Haxe allows assigning nullable values to non-nullable types in many
+        // cases. Preserve that behavior under TS `strictNullChecks` by casting.
+        inAssignTarget = true;
+        emitValue(lhs);
+        inAssignTarget = false;
+        writeSpace();
+        writeBinop(op);
+        writeSpace();
+        write(ctx.typeAccessor(TypeUtil.registerType));
+        write('.unsafeCast<');
+        TypeEmitter.emitType(this, lhs.t);
+        write('>(');
         emitValue(rhs);
-        write(' as any)');
+        write(')');
+      case TBinop(op = OpAssign | OpAssignOp(_), lhs, rhs):
+        // Avoid optional-field `?? null` rewrites on assignment targets.
+        inAssignTarget = true;
+        emitValue(lhs);
+        inAssignTarget = false;
+        writeSpace();
+        writeBinop(op);
+        writeSpace();
+        emitValue(rhs);
+      case TArray(_, _)
+        if (!inAssignTarget && typeAllowsNull(e.t)):
+        // Haxe generally models missing values as `null` while JS property/index
+        // reads can produce `undefined`. Normalize to `null` for TS `strict`.
+        write('(');
+        super.emitExpr(e);
+        write(' ?? null)');
+      case TField(x, f)
+        // If the receiver type is nullable in TS (`T | null`), TS does not
+        // reliably narrow property accesses across statements (e.g. `this.pos`).
+        // Add a non-null assertion to preserve Haxe semantics under `strict`.
+        //
+        // Note: skip dynamic-iterator special cases handled by the JS emitter.
+        if (typeAllowsNull(x.t)
+          && !(fieldAccessName(f) == "iterator" && genes.util.TypeUtil.isDynamicIterator(x))):
+        final isOptionalField = !inAssignTarget && switch f {
+          case FAnon(cf) | FInstance(_, _, cf) | FStatic(_, cf):
+            final meta = cf.get().meta;
+            meta != null && meta.has(':optional');
+          default:
+            false;
+        };
+        function skip(e: TypedExpr): TypedExpr
+          return switch e.expr {
+            case TCast(e1, null) | TMeta(_, e1): skip(e1);
+            case TConst(TInt(_) | TFloat(_)) | TObjectDecl(_): TypeUtil.with(e,
+                TParenthesis(e));
+            case _: e;
+          }
+        if (isOptionalField)
+          write('(');
+        write('(');
+        emitValue(skip(x));
+        write('!)');
+        switch f {
+          case FStatic(_.get() => c, _):
+            emitStaticField(c, TypeUtil.fieldName(f));
+          case FEnum(_), FInstance(_), FAnon(_), FDynamic(_), FClosure(_):
+            emitField(TypeUtil.fieldName(f));
+        }
+        if (isOptionalField)
+          write(' ?? null)');
+      case TField(_, f)
+        if (!inAssignTarget && switch f {
+          case FAnon(cf) | FInstance(_, _, cf) | FStatic(_, cf):
+            final meta = cf.get().meta;
+            meta != null && meta.has(':optional');
+          default:
+            false;
+        }):
+        // Optional anonymous structure fields may be absent at runtime (`undefined`)
+        // but Haxe treats access as `null` in most contexts. Normalize to `null`
+        // to avoid leaking `undefined` into TS types.
+        write('(');
+        super.emitExpr(e);
+        write(' ?? null)');
+      case TReturn(eo):
+        switch eo {
+          case null:
+            write('return');
+          case e1:
+            final ret = currentReturnType;
+            final unwrapped = unwrapExpr(e1);
+            final isNull = isNullConst(unwrapped) || isJsUndefinedConst(unwrapped);
+            if (currentReturnIsVoidLike && isNull) {
+              // Haxe often uses `null` as the implicit return value for `Void`.
+              // In TS, `return null` is not valid for `void` / `Promise<void>`.
+              write('return');
+            } else {
+              write('return ');
+              if (ret != null && !typeAllowsNull(ret) && typeAllowsNull(e1.t)) {
+                write(ctx.typeAccessor(TypeUtil.registerType));
+                write('.unsafeCast<');
+                TypeEmitter.emitType(this, ret);
+                write('>(');
+                emitValue(e1);
+                write(')');
+              } else {
+                emitValue(e1);
+              }
+            }
+        }
+      case TCall({expr: TField(_, f)}, [])
+        if (switch fieldAccessName(f) { case "shift" | "pop": true; default: false; }):
+        // Normalize JS `undefined` to Haxe `null` for Array#shift/#pop.
+        // This keeps TS strict-null types aligned with Haxe semantics.
+        write('(');
+        super.emitExpr(e);
+        write(' ?? null)');
       case TCall(fn = {expr: TCall({expr: TField(_, f)}, _)}, args)
         if (switch fieldAccessName(f) { case "shift" | "pop": true; default: false; }):
         // Array#shift/#pop returns `T | undefined` in TS. When the Haxe code
@@ -964,13 +1586,20 @@ class TsModuleEmitter extends JsModuleEmitter {
         // the returned function under `strict`.
         write('(');
         emitValue(fn);
-        write(' as any)(');
+        write('!)(');
         for (arg in join(args, write.bind(', ')))
           emitValue(arg);
         write(')');
       case TFunction(f):
         final inValue = this.inValue;
         final inLoop = this.inLoop;
+        final prevReturn = currentReturnType;
+        final prevVoidLike = currentReturnIsVoidLike;
+        currentReturnType = switch e.t {
+          case TFun(_, ret): ret;
+          default: null;
+        }
+        currentReturnIsVoidLike = currentReturnType != null && isVoidLike(currentReturnType);
         this.inValue = 0;
         this.inLoop = false;
         final args = switch e.t {
@@ -995,10 +1624,14 @@ class TsModuleEmitter extends JsModuleEmitter {
           if (genes.util.TypeUtil.isRest(t))
             write('...');
           emitLocalIdent(arg.v.name);
-          if (i < args.length && args[i].opt && i > noOptionalUntil)
+          final optional = i < args.length && args[i].opt && i > noOptionalUntil;
+          final defaultNull = optional && typeAllowsNull(t);
+          if (optional && !defaultNull)
             write('?');
           write(': ');
           TypeEmitter.emitType(this, t);
+          if (defaultNull)
+            write(' = null');
         }
         // Omit explicit return annotations so TS can infer and preserve generic
         // inference. Writing `: any` here causes widespread `unknown` inference
@@ -1007,12 +1640,56 @@ class TsModuleEmitter extends JsModuleEmitter {
         emitExpr(getFunctionBody(f));
         this.inValue = inValue;
         this.inLoop = inLoop;
+        currentReturnType = prevReturn;
+        currentReturnIsVoidLike = prevVoidLike;
+      case TBinop(op = OpGt | OpGte | OpLt | OpLte, e1, e2)
+        if ((typeAllowsNull(e1.t) && isNumberLike(e1.t))
+          || (typeAllowsNull(e2.t) && isNumberLike(e2.t))):
+        // Relational operators on nullable numbers are allowed in Haxe but
+        // rejected by TS `strictNullChecks`. Cast to `number` to preserve JS
+        // coercion semantics (`null > 0` is `false`, etc).
+        inline function emitOperand(expr: TypedExpr) {
+          if (typeAllowsNull(expr.t) && isNumberLike(expr.t)) {
+            write(ctx.typeAccessor(TypeUtil.registerType));
+            write('.unsafeCast<number>(');
+            emitValue(expr);
+            write(')');
+          } else {
+            emitValue(expr);
+          }
+        }
+        emitOperand(e1);
+        writeSpace();
+        writeBinop(op);
+        writeSpace();
+        emitOperand(e2);
       case TBinop(op = OpEq | OpNotEq, e1, e2) if (isNullConst(e1) || isNullConst(e2)):
         emitValueWithPlainNull(e1);
         writeSpace();
         writeBinop(op);
         writeSpace();
         emitValueWithPlainNull(e2);
+      case TCall({expr: TField(_, f)}, [{expr: TConst(TString(name))}])
+        if (switch f {
+          case FStatic(cl, cf)
+            if (cl.get().module == "genes.Register" && cl.get().name == "Register"
+              && cf.get().name == "global"):
+            true;
+          default:
+            false;
+        }):
+        // Avoid leaking `unknown` from `Register.global()` into user modules for
+        // common reflection registries.
+        switch name {
+          case "$hxEnums":
+            write(ctx.typeAccessor(TypeUtil.registerType));
+            write('.hxEnums()');
+          case "$hxClasses":
+            write(ctx.typeAccessor(TypeUtil.registerType));
+            write('.hxClasses()');
+          default:
+            super.emitExpr(e);
+        }
       default:
         super.emitExpr(e);
     }
@@ -1117,6 +1794,15 @@ class TsModuleEmitter extends JsModuleEmitter {
       default: false;
     }
 
+  static inline function isJsUndefinedConst(e: TypedExpr): Bool
+    return switch e.expr {
+      case TCall({
+        expr: TField(_,
+          FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))
+      }, [{expr: TConst(TString("undefined"))}]): true;
+      default: false;
+    }
+
   function emitValueWithPlainNull(e: TypedExpr) {
     switch e.expr {
       case TConst(TNull):
@@ -1129,10 +1815,26 @@ class TsModuleEmitter extends JsModuleEmitter {
   override public function emitConstant(c: TConstant)
     switch (c) {
       case TNull:
-        write('null as any');
+        write('null');
       default:
         super.emitConstant(c);
     }
+
+  function emitForwardArgs(f: TFunc, field: GenesField) {
+    switch field.type {
+      case TFun(args, _):
+        for (i in 0...args.length) {
+          if (i > 0)
+            write(', ');
+          final arg = args[i];
+          final argName = f.args[i].v.name;
+          if (genes.util.TypeUtil.isRest(arg.t))
+            write('...');
+          emitLocalIdent(argName);
+        }
+      default:
+    }
+  }
 
   function emitTypedFunctionArguments(f: TFunc, field: GenesField) {
     switch field.type {
@@ -1157,10 +1859,14 @@ class TsModuleEmitter extends JsModuleEmitter {
           if (genes.util.TypeUtil.isRest(arg.t))
             write('...');
           emitLocalIdent(argName);
-          if (arg.opt && i > noOptionalUntil)
+          final optional = arg.opt && i > noOptionalUntil;
+          final defaultNull = optional && typeAllowsNull(arg.t);
+          if (optional && !defaultNull)
             write('?');
           write(': ');
           emitArgTsType(field, f, i, arg.t);
+          if (defaultNull)
+            write(' = null');
         }
       default:
         // Fallback: keep old behavior.
@@ -1188,7 +1894,7 @@ class TsModuleEmitter extends JsModuleEmitter {
             write('any[]');
           else
             write('any');
-        }
+      }
       default:
         emitFunctionArguments(f);
     }
@@ -1346,7 +2052,6 @@ class TsModuleEmitter extends JsModuleEmitter {
     final discriminator = haxe.macro.Context.definedValue('genes.enum_discriminator');
     final id = et.pack.concat([et.name]).join('.');
     final enumParams = et.params != null ? et.params.map(p -> p.t) : [];
-    final enumParamNames = et.params != null ? et.params.map(p -> p.name) : [];
     writeNewline();
     emitComment(et.doc);
     emitPos(et.pos);
@@ -1363,10 +2068,6 @@ class TsModuleEmitter extends JsModuleEmitter {
     increaseIndent();
     writeNewline();
     emitPos(et.pos);
-    write('export const __constructs__: any[];');
-    writeNewline();
-    emitPos(et.pos);
-    write('export const __empty_constructs__: any[];');
     if (ctx.hasFeature('js.Boot.isEnum')) {
       writeNewline();
       emitPos(et.pos);
@@ -1375,12 +2076,13 @@ class TsModuleEmitter extends JsModuleEmitter {
 
     for (ctorName in et.names) {
       final c = et.constructs.get(ctorName);
+      final ctorParams = c.params != null ? c.params.map(p -> p.t) : [];
       writeNewline();
       emitComment(c.doc);
       emitPos(c.pos);
       write('export type ');
       write(ctorName);
-      emitTypeParamDecls(enumParams, true);
+      emitEnumCtorTypeParamDecls(enumParams, ctorParams, true);
       write(' = {');
       if (discriminator != null) {
         emitString(discriminator);
@@ -1395,17 +2097,7 @@ class TsModuleEmitter extends JsModuleEmitter {
             write(', ');
             emitIdent(arg.name);
             write(': ');
-            switch arg.t {
-              case TInst(_.get() => {
-                name: name,
-                kind: KTypeParameter(_)
-              }, []) if (enumParamNames.indexOf(name) > -1):
-                write(name);
-              case TInst(_.get() => {kind: KTypeParameter(_)}, []):
-                write('any');
-              default:
-                emitType(arg.t);
-            }
+            emitType(arg.t);
           }
         default:
       }
@@ -1421,7 +2113,10 @@ class TsModuleEmitter extends JsModuleEmitter {
       switch c.type {
         case TFun(args, ret):
           final allParams = enumParams.concat(c.params.map(p -> p.t));
-          emitTypeParamDecls(allParams, true);
+          final used = new Map<String, Bool>();
+          for (a in args)
+            collectUsedTypeParamKeys(a.t, used);
+          emitTypeParamDeclsUnusedNever(allParams, true, used, false);
           write('(');
           for (arg in join(args, write.bind(', '))) {
             emitIdent(arg.name);
@@ -1433,16 +2128,48 @@ class TsModuleEmitter extends JsModuleEmitter {
         default:
           write(ctorName);
           // Nullary constructors should be usable as any instantiation of the
-          // enum's type params; emit `<any, ...>` to keep TS assignment-friendly.
+          // enum's type params; emit `<never, ...>` to keep TS assignment-friendly
+          // without leaking `any` into user modules.
           if (enumParams.length > 0) {
             write('<');
             for (_ in join(enumParams, write.bind(', ')))
-              write('any');
+              write('never');
             write('>');
           }
       }
       write(';');
     }
+    writeNewline();
+    emitPos(et.pos);
+    write('export type __Construct = ');
+    for (ctorName in join(et.names, write.bind(' | '))) {
+      write('typeof ');
+      write(ctorName);
+    }
+    write(';');
+    writeNewline();
+    emitPos(et.pos);
+    write('export const __constructs__: __Construct[];');
+
+    writeNewline();
+    emitPos(et.pos);
+    write('export type __EmptyConstruct = ');
+    final emptyCtorNames = [
+      for (name in et.names)
+        if (!et.constructs[name].type.match(TFun(_, _))) name
+    ];
+    if (emptyCtorNames.length == 0) {
+      write('never');
+    } else {
+      for (ctorName in join(emptyCtorNames, write.bind(' | '))) {
+        write('typeof ');
+        write(ctorName);
+      }
+    }
+    write(';');
+    writeNewline();
+    emitPos(et.pos);
+    write('export const __empty_constructs__: __EmptyConstruct[];');
     decreaseIndent();
     writeNewline();
     write('}');
@@ -1477,12 +2204,12 @@ class TsModuleEmitter extends JsModuleEmitter {
     writeNewline();
     writeNewline();
     if (!haxe.macro.Context.defined('genes.ts.minimal_runtime')) {
-      writeGlobalVar("$hxEnums");
-      write('[');
+      write(ctx.typeAccessor(TypeUtil.registerType));
+      write('.setHxEnum(');
       emitString(id);
-      write('] = ');
+      write(', ');
       write(et.name);
-      write(' as any');
+      write(');');
       writeNewline();
     }
 
@@ -1509,13 +2236,19 @@ class TsModuleEmitter extends JsModuleEmitter {
       write(': ');
       switch c.type {
         case TFun(args, _):
-          write('Object.assign((');
+          write('Object.assign(');
+          final allParams = enumParams.concat(c.params.map(p -> p.t));
+          final used = new Map<String, Bool>();
+          for (a in args)
+            collectUsedTypeParamKeys(a.t, used);
+          emitTypeParamDeclsUnusedNever(allParams, true, used, true);
+          write('(');
           for (param in join(args, write.bind(', '))) {
             emitLocalIdent(param.name);
             if (param.opt)
               write('?');
             write(': ');
-            write('any');
+            emitType(param.t);
           }
           write(') => ({_hx_index: ${c.index}, __enum__: ');
           emitString(id);
@@ -1590,6 +2323,50 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   function emitTsTypeDefinition(def: DefType, params: Array<Type>) {
+    // Prefer TypeScript builtins for well-known JS types to avoid "stringly"
+    // typedefs (e.g. `{ status: string, ... }`) and reduce `any` usage.
+    if (def.module == 'js.lib.Promise') {
+      switch def.name {
+        case 'PromiseSettleOutcome' if (params.length == 1):
+          writeNewline();
+          emitComment(def.doc);
+          emitPos(def.pos);
+          write('export type ');
+          TypeEmitter.emitBaseType(this, def, params, true);
+          write(' = PromiseSettledResult<');
+          emitType(params[0]);
+          write('>');
+          writeNewline();
+          return;
+        case 'ThenableStruct' if (params.length == 1):
+          writeNewline();
+          emitComment(def.doc);
+          emitPos(def.pos);
+          write('export type ');
+          TypeEmitter.emitBaseType(this, def, params, true);
+          write(' = PromiseLike<');
+          emitType(params[0]);
+          write('>');
+          writeNewline();
+          return;
+        default:
+      }
+    }
+    if (def.module == 'js.lib.Object') {
+      switch def.name {
+        case 'ObjectPropertyDescriptor':
+          writeNewline();
+          emitComment(def.doc);
+          emitPos(def.pos);
+          write('export type ');
+          TypeEmitter.emitBaseType(this, def, params, true);
+          write(' = PropertyDescriptor');
+          writeNewline();
+          return;
+        default:
+      }
+    }
+
     writeNewline();
     emitComment(def.doc);
     emitPos(def.pos);

@@ -1,4 +1,5 @@
 import genes.react.JSX.*;
+import genes.react.Element;
 import genes.ts.Imports;
 
 @:jsx_inline_markup
@@ -8,10 +9,10 @@ class Main {
 
     // NodeNext-friendly specifier: TS resolves `./components/Button.js` to
     // `./components/Button.tsx` at compile time, and emitted JS imports `.js`.
-    final Button: Any = Imports.defaultImport("./components/Button.js");
+    final Button: ({label: String}) -> Element = Imports.defaultImport("./components/Button.js");
 
     final el = <div className={"root"} data-test-id="x">{title}<span>{1 + 1}</span></div>;
-    final renderToStaticMarkup: Any->String = Imports.namedImport("react-dom/server",
+    final renderToStaticMarkup: Element->String = Imports.namedImport("react-dom/server",
       "renderToStaticMarkup");
     final html = renderToStaticMarkup(el);
     if (html != '<div class="root" data-test-id="x">Hi<span>2</span></div>')

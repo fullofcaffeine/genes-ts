@@ -232,19 +232,31 @@ class Generator {
   static function emitStdTypes(path: String) {
     final writer = Writer.bufferedFileWriter(path);
     writer.write('export type Iterator<T> = { hasNext(): boolean; next(): T };\n');
-    writer.write('export type Iterable<T> = any;\n');
+    // Map keys in Haxe can be primitives or objects. We avoid `any`/`unknown`
+    // here to keep non-runtime output strongly typed under the typing policy.
+    writer.write('export type HxMapKey = string | number | boolean | symbol | object | null;\n');
+    // Haxe `Iterable<T>` is structural: anything with `iterator(): Iterator<T>`.
+    // Arrays are also valid iterables in Haxe.
+    // In genes-ts we also treat `haxe.Constraints.IMap`-like shapes as iterable
+    // over values (via `keys()` + `get()`), even when DCE removes an explicit
+    // `iterator()` method.
+    writer.write('export type Iterable<T> = { iterator(): Iterator<T> } | { keys(): Iterator<HxMapKey>; get(k: HxMapKey): T | null } | Array<T>;\n');
     writer.write('export type KeyValueIterator<K, V> = Iterator<{ key: K; value: V }>;\n');
     writer.write('export type KeyValueIterable<K, V> = { keyValueIterator(): KeyValueIterator<K, V> };\n');
     writer.write('export interface ArrayAccess<T> {}\n');
     writer.write('declare global {\n');
-    writer.write('  interface StringConstructor { __name__?: any }\n');
-    writer.write('  interface ArrayConstructor { __name__?: any }\n');
+    // Haxe/JS stdlib uses `__name__` both as a marker (`true`) and as a
+    // human-readable name (e.g. `"String"`).
+    writer.write('  interface StringConstructor { __name__?: string | boolean }\n');
+    writer.write('  interface ArrayConstructor { __name__?: string | boolean }\n');
     writer.write('}\n');
-    writer.write('export const Iterator: any = null;\n');
-    writer.write('export const Iterable: any = null;\n');
-    writer.write('export const KeyValueIterator: any = null;\n');
-    writer.write('export const KeyValueIterable: any = null;\n');
-    writer.write('export const ArrayAccess: any = null;\n');
+    // These value-level stubs exist for compatibility with Haxe reflection-ish
+    // patterns, but they do not carry meaningful runtime values in JS.
+    writer.write('export const Iterator: null = null;\n');
+    writer.write('export const Iterable: null = null;\n');
+    writer.write('export const KeyValueIterator: null = null;\n');
+    writer.write('export const KeyValueIterable: null = null;\n');
+    writer.write('export const ArrayAccess: null = null;\n');
     writer.close();
   }
 

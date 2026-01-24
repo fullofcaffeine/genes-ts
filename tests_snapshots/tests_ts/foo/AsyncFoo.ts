@@ -1,10 +1,10 @@
 import {Register} from "../genes/Register.js"
 
-export class AsyncFoo extends (Register.inherits() as any) {
-	constructor();
-	constructor(...args: any[]) {
-		super(...args);
+export class AsyncFoo extends Register.inherits() {
+	constructor() {
+		super();
 	}
+	[Register.new](...args: never[]): void;
 	[Register.new](): void {
 	}
 	async plusOneAsync(x: number): Promise<number> {
@@ -14,11 +14,11 @@ export class AsyncFoo extends (Register.inherits() as any) {
 	static demo(): Promise<number> {
 		return new AsyncFoo().plusOneAsync(41);
 	}
-	static get __name__(): any {
+	static get __name__(): string {
 		return "foo.AsyncFoo"
 	}
-	get __class__(): any {
+	get __class__(): Function {
 		return AsyncFoo
 	}
 }
-(Register.global("$hxClasses") as any)["foo.AsyncFoo"] = AsyncFoo;
+Register.setHxClass("foo.AsyncFoo", AsyncFoo);

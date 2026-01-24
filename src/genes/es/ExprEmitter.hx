@@ -1,6 +1,7 @@
 package genes.es;
 
 import haxe.macro.Expr;
+import haxe.macro.Context;
 import haxe.macro.Type;
 import haxe.ds.Option;
 import helder.Set;
@@ -617,6 +618,26 @@ class ExprEmitter extends Emitter {
             _.get() => {name: 'ignore'}))
       }, [_, body]):
         emitValue(body);
+      case TCall(callee, params)
+        if (Context.defined('genes.ts') && params.length == 0 && switch callee.expr {
+          case TField(_, f): (fieldName(f) == "pop" || fieldName(f) == "shift");
+          default: false;
+        }):
+        // In TS mode, normalize JS `undefined` to Haxe `null` for Array#pop/#shift.
+        write('(');
+        emitCall(callee, params, true);
+        write(' ?? null)');
+      case TCall(callee, params)
+        if (Context.defined('genes.ts') && switch callee.expr {
+          case TField(target, f):
+            fieldName(f) == "get" && isIMapType(target.t);
+          default: false;
+        }):
+        // Haxe allows assigning `Null<V>` results to `V` in many contexts on JS.
+        // Keep TS strict-null typing happy by casting away the nullable union.
+        write('(');
+        emitCall(callee, params, true);
+        write('!)');
       case TCall(e, params):
         emitCall(e, params, true);
       case TReturn(_) | TBreak | TContinue:
@@ -938,9 +959,44 @@ class ExprEmitter extends Emitter {
 
   function writeGlobalVar(name) {
     write(ctx.typeAccessor(registerType));
-    write('.global(');
-    emitString(name);
-    write(')');
+    switch (name) {
+      case "$hxEnums":
+        write(".hxEnums()");
+      case "$hxClasses":
+        write(".hxClasses()");
+      default:
+        write('.global(');
+        emitString(name);
+        write(')');
+    }
+  }
+
+  static function isIMapType(t: Type): Bool {
+    return switch Context.follow(t) {
+      case TInst(ref, _):
+        final cl = ref.get();
+        cl.module == "haxe.Constraints" && cl.name == "IMap";
+      default:
+        false;
+    }
+  }
+
+  static function typeAllowsNull(t: Type): Bool {
+    return switch t {
+      case TAbstract(_.get() => {pack: [], name: "Null"}, _):
+        true;
+      case TType(_.get() => {pack: [], name: "Null"}, _):
+        true;
+      case TDynamic(_):
+        true;
+      case TMono(tref):
+        final inner = tref.get();
+        inner == null ? true : typeAllowsNull(inner);
+      case TType(_, _):
+        typeAllowsNull(Context.follow(t));
+      default:
+        false;
+    }
   }
 
   // Utilities

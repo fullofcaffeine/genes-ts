@@ -3,14 +3,14 @@ import {Register} from "../../genes/Register.js"
 /**
 This iterator is used only when `Array<T>` is passed to `Iterable<T>`
 */
-export class ArrayIterator<T = any> extends (Register.inherits() as any) {
-	constructor(array: T[]);
-	constructor(...args: any[]) {
-		super(...args);
+export class ArrayIterator<T> extends Register.inherits() {
+	constructor(array: T[]) {
+		super(array);
 	}
 	declare array: T[];
 	declare current: number;
-	[Register.new](array?: any): void {
+	[Register.new](...args: never[]): void;
+	[Register.new](array: T[]): void {
 		this.current = 0;
 		this.array = array;
 	}
@@ -28,15 +28,15 @@ export class ArrayIterator<T = any> extends (Register.inherits() as any) {
 	next(): T {
 		return this.array[this.current++];
 	}
-	static get __name__(): any {
+	static get __name__(): string {
 		return "haxe.iterators.ArrayIterator"
 	}
-	get __class__(): any {
+	get __class__(): Function {
 		return ArrayIterator
 	}
 }
-(Register.global("$hxClasses") as any)["haxe.iterators.ArrayIterator"] = ArrayIterator;
+Register.setHxClass("haxe.iterators.ArrayIterator", ArrayIterator);
 
-ArrayIterator.prototype.array = null as any;
+Register.seedProtoField(ArrayIterator, "array");
 
-ArrayIterator.prototype.current = null as any;
+Register.seedProtoField(ArrayIterator, "current");

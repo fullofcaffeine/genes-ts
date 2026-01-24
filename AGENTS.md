@@ -20,6 +20,15 @@ In **framework + test code** (including the todoapp harness), avoid:
 
 Prefer small, well-typed externs/abstracts and keep any unavoidable JS interop confined to a narrow boundary (e.g. `extern` modules or a single wrapper).
 
+## Generated TS typing policy (no `any` / `unknown`)
+
+- Generated TypeScript should be **idiomatic and strongly typed**.
+- Avoid emitting `any` / `unknown` in **user modules**.
+- `any` / `unknown` is only acceptable in a **small runtime boundary** (e.g. `genes/Register.ts`) and only when:
+  - the behavior is inherently dynamic (reflection registry, prototype mutation, raw JS interop), and
+  - there is no practical alternative.
+- When `any` / `unknown` is used in runtime code, include a short comment explaining **why**.
+
 ## Quick Reference
 
 ```bash

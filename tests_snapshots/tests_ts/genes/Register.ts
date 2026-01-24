@@ -1,41 +1,136 @@
 import type {Iterator} from "../StdTypes.js"
 
 export class Register {
-	declare static $global: any;
-	declare static globals: {[key: string]: any};
+	declare static $global: typeof globalThis & { [key: string]: unknown };
+	declare static globals: {[key: string]: HxRegistry};
 	declare static readonly ["new"]: unique symbol;
 	declare static readonly init: unique symbol;
 	declare static fid: number;
-	static global(name: string): any {
-		let existing: any = Register.globals[name];
+
+	/**
+	* Get (or lazily create) a named registry object on `globalThis`.
+	*
+	* This function is intentionally dynamic: the returned object is used for
+	* heterogeneous registries like `$hxClasses` and `$hxEnums`.
+	*/
+	static global(name: string): HxRegistry {
+		let existing: HxRegistry | null = (Register.globals[name] ?? null);
 		if (existing != null) {
-			return existing;
+			return Register.unsafeCast<HxRegistry>(existing);
 		};
-		let created: {
-		} = {};
+		let created: HxRegistry = {};
 		Register.globals[name] = created;
 		return created;
 	}
-	static createStatic<T = any>(obj: {
-	}, name: string, get: any): void {
-		let value: T = null as any;
+
+	/**
+	* Register a runtime type in the `$hxClasses` global registry.
+	*
+	* This is used by genes-ts output to keep Haxe/Genes reflection compatible
+	* without emitting `(… as any)[…] = …` patterns into every generated module.
+	*/
+	static setHxClass(id: string, value: Function): void {
+		let hxClasses: HxRegistry = Register.global("$hxClasses");
+		hxClasses[id] = value;
+	}
+
+	/**
+	* Register a runtime enum in the `$hxEnums` global registry.
+	*
+	* This registry is used by `Type.resolveEnum(...)` and parts of the Haxe JS
+	* runtime (e.g. `js.Boot.__string_rec`) to map enum names to their values.
+	*/
+	static setHxEnum(id: string, value: Function): void {
+		let hxEnums: HxRegistry = Register.global("$hxEnums");
+		hxEnums[id] = value;
+	}
+
+	/**
+	* Typed view of the `$hxClasses` registry (reflection).
+	*
+	* This keeps `Type.resolveClass(...)` and related code typed in generated TS
+	* without leaking `unknown` into user modules.
+	*/
+	static hxClasses(): HxClasses {
+		return Register.unsafeCast(Register.global("$hxClasses"));
+	}
+
+	/**
+	* Typed view of the `$hxEnums` registry (reflection).
+	*
+	* This keeps enum reflection code typed in generated TS without leaking
+	* `unknown` into user modules.
+	*/
+	static hxEnums(): HxEnums {
+		return Register.unsafeCast(Register.global("$hxEnums"));
+	}
+
+	/**
+	* Ensure an instance field exists on a class prototype for reflection
+	* (`Type.getInstanceFields`, etc) without forcing a TS `any` cast.
+	*
+	* We intentionally set a `null` value (not `undefined`) to match Genes' legacy
+	* behavior for uninitialized fields.
+	*/
+	static seedProtoField(cls: Function, name: string): void {
+		Object.defineProperty(cls.prototype, name, {"value": null, "writable": true, "enumerable": true, "configurable": true});
+	}
+
+	/**
+	* Unsafe type assertion helper.
+	*
+	* This is used by the TS emitter to keep `any` out of user modules when:
+	* - metadata forces a TS type override (`@:genes.type`, `@:genes.returnType`)
+	* - Haxe semantics rely on "impossible" states under TS types (e.g. some JS
+	*   APIs return `undefined` but Haxe models `null`)
+	*
+	* It intentionally centralizes the unsafety inside the runtime boundary.
+	*/
+	static unsafeCast<T>(value: any): T {
+		return value;
+	}
+	static createStatic<T>(obj: {
+	}, name: string, get: ((() => T)) | null): void {
+		let value: T | null = null;
 		Object.defineProperty(obj, name, {"enumerable": true, "get": function () {
 			if (get != null) {
 				value = get();
-				get = null as any;
+				get = null;
 			};
-			return value;
+			return Register.unsafeCast<any>(value);
 		}, "set": function (v: any) {
 			if (get != null) {
 				value = get();
-				get = null as any;
+				get = null;
 			};
 			value = v;
 		}});
 	}
-	static iterator<T = any>(a: any): (() => Iterator<T>) {
+
+	/**
+	* NOTE: This function is intentionally typed as `any` in generated TS.
+	*
+	* In JS/Genes, dynamic field access to `.iterator` may refer to either:
+	* - the Haxe/Genes iterator function (callable), OR
+	* - an arbitrary user field value (non-callable), e.g. `{ iterator: 0 }`.
+	*
+	* Returning `any` preserves Genes semantics for dynamic field access while
+	* keeping the unsafety confined to the runtime boundary.
+	*/
+	static iterator<T>(a: Array<T> | { iterator: () => Iterator<T> } | { keys: () => Iterator<any>; get: (k: any) => T | null }): any {
 		if (!Array.isArray(a)) {
-			return typeof a.iterator === "function" ? a.iterator.bind(a) : a.iterator;
+			if ("iterator" in a) {
+				return Register.unsafeCast<(() => Iterator<T>)>(typeof a.iterator === "function" ? a.iterator.bind(a) : a.iterator);
+			} else {
+				return function () {
+					let keys: Iterator<any> = Register.unsafeCast<Iterator<any>>((a!).keys());
+					return {"hasNext": function () {
+						return keys.hasNext();
+					}, "next": function () {
+						return Register.unsafeCast((a!).get(keys.next()));
+					}};
+				};
+			};
 		} else {
 			let a1: T[] = a;
 			return function () {
@@ -43,27 +138,61 @@ export class Register {
 			};
 		};
 	}
-	static getIterator<T = any>(a: any): Iterator<T> {
+	static getIterator<T>(a: Array<T> | { iterator: () => Iterator<T> } | { keys: () => Iterator<any>; get: (k: any) => T | null }): Iterator<T> {
 		if (!Array.isArray(a)) {
-			return a.iterator();
+			if ("iterator" in a) {
+				return Register.unsafeCast<Iterator<T>>(a.iterator());
+			} else {
+				let keys: Iterator<any> = Register.unsafeCast<Iterator<any>>((a!).keys());
+				return {"hasNext": function () {
+					return keys.hasNext();
+				}, "next": function () {
+					return Register.unsafeCast((a!).get(keys.next()));
+				}};
+			};
 		} else {
 			return Register.mkIter(a);
 		};
 	}
-	static mkIter<T = any>(a: T[]): Iterator<T> {
+	static mkIter<T>(a: T[]): Iterator<T> {
 		return new ArrayIterator(a);
 	}
+
+	/**
+	* Create a "synthetic" subclass constructor at runtime.
+	*
+	* genes-ts uses this to preserve Genes/Haxe JS inheritance semantics while
+	* breaking module cycles. The return type is `any` because TS cannot express
+	* the precise constructor signature of the dynamically-computed superclass.
+	*/
 	static extend(superClass: any): any {
 
       function res() {
+        // Prefer the legacy Genes initializer path when present.
         // @ts-ignore
-        this[Register.new].apply(this, arguments)
+        const init = this[Register.new]
+        if (typeof init === "function") {
+          // @ts-ignore
+          init.apply(this, arguments)
+          return
+        }
+        // genes-ts may emit real constructors (no `[Register.new]`), so fall
+        // back to delegating to the provided superclass constructor.
+        return Reflect.construct(superClass, arguments, new.target)
       }
       Object.setPrototypeOf(res.prototype, superClass.prototype)
       return res
     ;
 	}
-	static inherits(resolve?: any, defer?: boolean): any {
+
+	/**
+	* Return a base class for `extends` that supports deferred resolution.
+	*
+	* This is a core part of Genes' cycle handling. The return type is `any`
+	* because the actual superclass can be resolved lazily and may have an
+	* arbitrary constructor signature.
+	*/
+	static inherits(resolve: any | null = null, defer?: boolean): any {
 		if (defer == null) {
 			defer = false;
 		};
@@ -71,8 +200,22 @@ export class Register {
       function res() {
         // @ts-ignore
         if (defer && resolve && res[Register.init]) res[Register.init]()
+        // Prefer the legacy Genes initializer path when present.
         // @ts-ignore
-        this[Register.new].apply(this, arguments)
+        const init = this[Register.new]
+        if (typeof init === "function") {
+          // @ts-ignore
+          init.apply(this, arguments)
+          return
+        }
+        // genes-ts may emit real constructors (no `[Register.new]`). In that
+        // case, delegate to the resolved superclass constructor.
+        if (resolve) {
+          const superClass = (defer && !resolve.prototype) ? resolve() : resolve
+          // @ts-ignore
+          if (superClass[Register.init]) superClass[Register.init]()
+          return Reflect.construct(superClass, arguments, new.target)
+        }
       }
       if (!defer) {
         if (resolve && resolve[Register.init]) {
@@ -98,31 +241,38 @@ export class Register {
 	        }
 	      }
 	      return res
-	    ;
+    ;
 	}
-	static bind(o: any, m: any): any {
+
+	/**
+	* Bind a method to `this` and cache the closure on the receiver.
+	*
+	* The inputs are dynamic because this is used by the JS runtime and relies
+	* on attaching hidden fields (`__id__`, `hx__closures__`) to arbitrary values.
+	*/
+	static bind(o: any, m: any): any | null {
 		if (m == null) {
-			return null as any;
+			return null;
 		};
-		if (m.__id__ == null) {
-			m.__id__ = Register.fid++;
+		if ((m!).__id__ == null) {
+			(m!).__id__ = Register.fid++;
 		};
-		let f: any = null as any;
-		if (o.hx__closures__ == null) {
-			o.hx__closures__ = {};
+		let f: any | null = null;
+		if ((o!).hx__closures__ == null) {
+			(o!).hx__closures__ = {};
 		} else {
-			f = o.hx__closures__[m.__id__];
+			f = ((o!).hx__closures__[(m!).__id__] ?? null);
 		};
 		if (f == null) {
-			f = m.bind(o);
-			o.hx__closures__[m.__id__] = f;
+			f = (m!).bind(o);
+			(o!).hx__closures__[(m!).__id__] = f;
 		};
 		return f;
 	}
-	static get __name__(): any {
+	static get __name__(): string {
 		return "genes.Register"
 	}
-	get __class__(): any {
+	get __class__(): Function {
 		return Register
 	}
 }
@@ -134,14 +284,40 @@ Register["new"] = Symbol()
 // @ts-ignore
 Register.init = Symbol()
 Register.fid = 0
-export class ArrayIterator<T = any> extends (Register.inherits() as any) {
-	constructor(array: T[]);
-	constructor(...args: any[]) {
-		super(...args);
+/**
+* genes-ts runtime registry type.
+*
+* The values are intentionally `unknown`: these registries store heterogeneous
+* values (classes, enums, internal helpers) and are populated dynamically at
+* runtime. Using `unknown` avoids leaking `any` into user modules.
+*/
+export type HxRegistry = {[key: string]: unknown}
+
+/**
+* `$hxClasses` registry: `Type.resolveClass(...)` and friends.
+*/
+export type HxClasses = {[key: string]: Function}
+
+/**
+* Minimal runtime shape for Haxe enum values stored in `$hxEnums`.
+*
+* We only type what the runtime reflection code actually uses today.
+*/
+export type HxEnumInfo = { __constructs__: Array<{ _hx_name: string }> }
+
+/**
+* `$hxEnums` registry: `Type.resolveEnum(...)` and friends.
+*/
+export type HxEnums = {[key: string]: HxEnumInfo}
+
+export class ArrayIterator<T> extends Register.inherits() {
+	constructor(array: T[]) {
+		super(array);
 	}
 	declare array: T[];
 	declare current: number;
-	[Register.new](array?: any): void {
+	[Register.new](...args: never[]): void;
+	[Register.new](array: T[]): void {
 		this.current = 0;
 		this.array = array;
 	}
@@ -151,15 +327,15 @@ export class ArrayIterator<T = any> extends (Register.inherits() as any) {
 	next(): T {
 		return this.array[this.current++];
 	}
-	static get __name__(): any {
+	static get __name__(): string {
 		return "genes._Register.ArrayIterator"
 	}
-	get __class__(): any {
+	get __class__(): Function {
 		return ArrayIterator
 	}
 }
-(Register.global("$hxClasses") as any)["genes._Register.ArrayIterator"] = ArrayIterator;
+Register.setHxClass("genes._Register.ArrayIterator", ArrayIterator);
 
-ArrayIterator.prototype.array = null as any;
+Register.seedProtoField(ArrayIterator, "array");
 
-ArrayIterator.prototype.current = null as any;
+Register.seedProtoField(ArrayIterator, "current");

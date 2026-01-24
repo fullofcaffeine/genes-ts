@@ -42,16 +42,17 @@ throw e; // rethrows native exception instead of haxe.Exception
 }
 ```
 */
-export class Exception extends (Register.inherits(() => Error, true) as new (...args: any[]) => Error) {
-	constructor(message: string, previous?: any, $native?: any);
-	constructor(...args: any[]) {
-		super(...args);
+export class Exception extends (Register.inherits(() => Error, true) as typeof Error) {
+	constructor(message: string, previous: Exception | null = null, $native: any | null = null) {
+		// @ts-ignore
+		super(message, previous, $native);
 	}
 	declare ["native"]: any;
 	declare __skipStack: number;
 	declare __nativeException: any;
-	declare __previousException: any;
-	[Register.new](message?: any, previous?: any, $native?: any): void {
+	declare __previousException: Exception | null;
+	[Register.new](...args: never[]): void;
+	[Register.new](message: string, previous: Exception | null = null, $native: any | null = null): void {
 		Error.call(this, message);
 		this.message = message;
 		this.__previousException = previous;
@@ -70,20 +71,20 @@ export class Exception extends (Register.inherits(() => Error, true) as new (...
 			return e;
 		};
 	}
-	static get __name__(): any {
+	static get __name__(): string {
 		return "haxe.Exception"
 	}
-	static get __super__(): any {
+	static get __super__(): Function {
 		return Error
 	}
-	get __class__(): any {
+	get __class__(): Function {
 		return Exception
 	}
 }
-Exception.prototype["native"] = null as any;
+Register.seedProtoField(Exception, "native");
 
-Exception.prototype.__skipStack = null as any;
+Register.seedProtoField(Exception, "__skipStack");
 
-Exception.prototype.__nativeException = null as any;
+Register.seedProtoField(Exception, "__nativeException");
 
-Exception.prototype.__previousException = null as any;
+Register.seedProtoField(Exception, "__previousException");

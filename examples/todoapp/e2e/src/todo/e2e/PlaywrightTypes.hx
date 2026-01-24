@@ -8,6 +8,7 @@ typedef WaitForUrlOptions = {
   @:optional var waitUntil: String;
 }
 
+@:ts.type("import('@playwright/test').GetByRoleOptions")
 typedef GetByRoleOptions = {
   @:optional var name: String;
 }
@@ -26,6 +27,7 @@ typedef Locator = {
   function isChecked(): Promise<Bool>;
 }
 
+@:ts.type("import('@playwright/test').Page")
 typedef Page = {
   function on<T>(event: String, listener: T->Void): Void;
   function goto(url: String): Promise<Dynamic>;
@@ -37,4 +39,3 @@ typedef Page = {
   function url(): String;
   function locator(selector: String): Locator;
 }
-

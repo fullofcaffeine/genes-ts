@@ -1,5 +1,7 @@
 package genes.react.internal;
 
+import genes.react.Element;
+
 /**
  * Internal marker API for genes-ts JSX/TSX emission.
  *
@@ -10,8 +12,7 @@ package genes.react.internal;
  */
 extern class Jsx {
   public static function __jsx(tag: Dynamic, props: Array<Dynamic>,
-    children: Array<Dynamic>): Dynamic;
+    children: Array<Dynamic>): Element;
 
-  public static function __frag(children: Array<Dynamic>): Dynamic;
+  public static function __frag(children: Array<Dynamic>): Element;
 }
-

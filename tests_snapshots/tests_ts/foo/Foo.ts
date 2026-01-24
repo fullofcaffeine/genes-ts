@@ -1,24 +1,24 @@
 import {Register} from "../genes/Register.js"
 
-export class Foo extends (Register.inherits() as any) {
-	constructor(x: number);
-	constructor(...args: any[]) {
-		super(...args);
+export class Foo extends Register.inherits() {
+	constructor(x: number) {
+		super(x);
 	}
 	declare x: number;
-	[Register.new](x?: any): void {
+	[Register.new](...args: never[]): void;
+	[Register.new](x: number): void {
 		this.x = x;
 	}
 	add(y: number): number {
 		return this.x + y;
 	}
-	static get __name__(): any {
+	static get __name__(): string {
 		return "foo.Foo"
 	}
-	get __class__(): any {
+	get __class__(): Function {
 		return Foo
 	}
 }
-(Register.global("$hxClasses") as any)["foo.Foo"] = Foo;
+Register.setHxClass("foo.Foo", Foo);
 
-Foo.prototype.x = null as any;
+Register.seedProtoField(Foo, "x");
