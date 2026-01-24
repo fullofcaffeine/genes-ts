@@ -1,8 +1,10 @@
 package todo.server;
 
-import js.Node;
+import js.Syntax;
 import js.node.Fs;
 import js.node.Path;
+import js.node.Process;
+import js.node.console.Console;
 import todo.extern.Express;
 import todo.shared.Api;
 import todo.shared.Api.CreateTodoBody;
@@ -12,18 +14,28 @@ import todo.shared.Api.TodoResponse;
 import todo.shared.Api.UpdateTodoBody;
 import todo.shared.TodoId;
 
+@:ts.type("NodeJS.Process")
+@:forward(env, cwd)
+private abstract NodeProcess(Process) from Process to Process {}
+
 class Main {
   static function main() {
-    final port = parsePort(Node.process.env.get("PORT"), 8787);
-    final dataPath = switch Node.process.env.get("TODOAPP_DATA_PATH") {
+    // `js.Node.process/console` in hxnodejs are implemented via `untyped __js__`,
+    // which is deprecated and triggers warnings at call sites when inlined.
+    // Use an explicit `js.Syntax.code` boundary instead.
+    final nodeProcess: NodeProcess = cast Syntax.code("process");
+    final nodeConsole: Console = cast Syntax.code("console");
+
+    final port = parsePort(nodeProcess.env.get("PORT"), 8787);
+    final dataPath = switch nodeProcess.env.get("TODOAPP_DATA_PATH") {
       case null:
-        Path.join(Node.process.cwd(), "examples", "todoapp", "server",
+        Path.join(nodeProcess.cwd(), "examples", "todoapp", "server",
           "data.json");
       case v:
         v;
     }
 
-    final webDist = Path.join(Node.process.cwd(), "examples", "todoapp", "web",
+    final webDist = Path.join(nodeProcess.cwd(), "examples", "todoapp", "web",
       "dist");
 
     final store = new Store(dataPath);
@@ -115,7 +127,7 @@ class Main {
     });
 
     app.listen(port, () -> {
-      Node.console.log('todoapp listening on http://localhost:$port');
+      nodeConsole.log('todoapp listening on http://localhost:$port');
     });
   }
 

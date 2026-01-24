@@ -1,26 +1,38 @@
 package todo.e2e;
 
-import js.Node;
+import js.Syntax;
 import js.lib.RegExp;
 import js.lib.Error;
+import js.node.Process;
+import js.node.console.Console;
 import todo.e2e.Playwright.PW;
 import todo.e2e.PlaywrightTypes.ConsoleMessage;
 import todo.e2e.PlaywrightTypes.Page;
 
+@:ts.type("NodeJS.Process")
+@:forward(env, cwd)
+private abstract NodeProcess(Process) from Process to Process {}
+
 class Main {
   static function main() {
     PW.testPage("todoapp: create, navigate, update, toggle, delete", (page: Page) -> {
-      final baseUrl = switch Node.process.env.get("BASE_URL") {
+      // `js.Node.process/console` in hxnodejs are implemented via `untyped __js__`,
+      // which is deprecated and triggers warnings at call sites when inlined.
+      // Use an explicit `js.Syntax.code` boundary instead.
+      final nodeProcess: NodeProcess = cast Syntax.code("process");
+      final nodeConsole: Console = cast Syntax.code("console");
+
+      final baseUrl = switch nodeProcess.env.get("BASE_URL") {
         case null: "http://localhost:8787";
         case v: v;
       }
 
       // Debug helpers: surface browser failures in CI logs.
       page.on("pageerror", (err: Error) -> {
-        Node.console.error("[pageerror]", err);
+        nodeConsole.error("[pageerror]", err);
       });
       page.on("console", (msg: ConsoleMessage) -> {
-        Node.console.log("[console]", msg.type(), msg.text());
+        nodeConsole.log("[console]", msg.type(), msg.text());
       });
 
       return page.goto(baseUrl + "/")

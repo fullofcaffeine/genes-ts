@@ -1,7 +1,8 @@
 package todo.server;
 
-import js.Node;
+import js.Syntax;
 import js.node.Fs;
+import js.node.console.Console;
 import todo.shared.Api.UpdateTodoBody;
 import todo.shared.Todo;
 import todo.shared.TodoId;
@@ -13,9 +14,14 @@ private typedef PersistedStore = {
 class Store {
   final todos: Array<Todo> = [];
   final dataPath: Null<String>;
+  final console: Console;
 
   public function new(?dataPath: String) {
     this.dataPath = dataPath;
+    // `js.Node.console` in hxnodejs is implemented via `untyped __js__`, which is
+    // deprecated and triggers warnings at call sites when inlined. Use an
+    // explicit `js.Syntax.code` boundary instead.
+    this.console = cast Syntax.code("console");
     if (dataPath != null)
       load();
   }
@@ -85,7 +91,7 @@ class Store {
       for (t in arr)
         todos.push(t);
     } catch (e) {
-      Node.console.error("Failed to load data:", e);
+      console.error("Failed to load data:", e);
     }
   }
 
@@ -97,7 +103,7 @@ class Store {
       Fs.writeFileSync(dataPath, haxe.Json.stringify(payload, null, "  "),
         "utf8");
     } catch (e) {
-      Node.console.error("Failed to save data:", e);
+      console.error("Failed to save data:", e);
     }
   }
 }
