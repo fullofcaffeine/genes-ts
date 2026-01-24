@@ -1,7 +1,11 @@
 package todo.e2e;
 
-@:jsRequire("@playwright/test", "test")
-extern function test(name: String, fn: Dynamic): Void;
+import js.lib.Promise;
+import todo.e2e.PlaywrightTypes.Page;
 
-@:jsRequire("@playwright/test", "expect")
-extern function expect<T>(value: T): Dynamic;
+typedef TestArgs = {
+  final page: Page;
+}
+
+@:jsRequire("@playwright/test", "test")
+extern function test(name: String, fn: TestArgs->Promise<Void>): Void;

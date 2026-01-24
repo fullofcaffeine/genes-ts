@@ -6,6 +6,10 @@ import todo.shared.Api.UpdateTodoBody;
 import todo.shared.Todo;
 import todo.shared.TodoId;
 
+private typedef PersistedStore = {
+  final todos: Array<Todo>;
+}
+
 class Store {
   final todos: Array<Todo> = [];
   final dataPath: Null<String>;
@@ -74,19 +78,12 @@ class Store {
       if (!Fs.existsSync(dataPath))
         return;
       final raw = Fs.readFileSync(dataPath, "utf8");
-      final parsed: Dynamic = haxe.Json.parse(raw);
-      final arr: Array<Dynamic> = cast parsed.todos;
+      final parsed: PersistedStore = cast haxe.Json.parse(raw);
+      final arr = parsed.todos;
       if (arr == null)
         return;
-      for (d in arr) {
-        todos.push({
-          id: cast d.id,
-          title: cast d.title,
-          completed: cast d.completed,
-          createdAt: cast d.createdAt,
-          updatedAt: cast d.updatedAt
-        });
-      }
+      for (t in arr)
+        todos.push(t);
     } catch (e) {
       Node.console.error("Failed to load data:", e);
     }

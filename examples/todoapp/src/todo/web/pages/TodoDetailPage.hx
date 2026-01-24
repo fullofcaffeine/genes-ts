@@ -82,7 +82,7 @@ class TodoDetailPage {
         />
       </label>
       <div style={{marginTop: "12px"}}>
-        <button onClick={_ -> onSave()} style={{padding: "8px 12px"}}>Save</button>
+        <button onClick={() -> onSave()} style={{padding: "8px 12px"}}>Save</button>
       </div>
     </div>;
   }

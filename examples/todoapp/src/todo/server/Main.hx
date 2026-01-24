@@ -41,7 +41,7 @@ class Main {
     });
 
     app.get("/api/todos/:id", (req, res) -> {
-      final id: TodoId = cast req.params.id;
+      final id: TodoId = cast req.params.get("id");
       final todo = store.get(id);
       if (todo == null) {
         final body: ErrorResponse = {error: "not_found"};
@@ -66,7 +66,7 @@ class Main {
     });
 
     app.patch("/api/todos/:id", (req, res) -> {
-      final id: TodoId = cast req.params.id;
+      final id: TodoId = cast req.params.get("id");
       final patch: UpdateTodoBody = cast req.body;
       final todo = store.update(id, patch == null ? {} : patch);
       if (todo == null) {
@@ -79,7 +79,7 @@ class Main {
     });
 
     app.delete("/api/todos/:id", (req, res) -> {
-      final id: TodoId = cast req.params.id;
+      final id: TodoId = cast req.params.get("id");
       final ok = store.remove(id);
       if (!ok) {
         final err: ErrorResponse = {error: "not_found"};

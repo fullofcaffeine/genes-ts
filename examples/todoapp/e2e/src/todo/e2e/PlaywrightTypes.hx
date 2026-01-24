@@ -4,6 +4,9 @@ import haxe.extern.EitherType;
 import js.lib.Promise;
 import js.lib.RegExp;
 
+@:ts.type("import('@playwright/test').Response")
+typedef Response = {};
+
 typedef WaitForUrlOptions = {
   @:optional var waitUntil: String;
 }
@@ -30,7 +33,7 @@ typedef Locator = {
 @:ts.type("import('@playwright/test').Page")
 typedef Page = {
   function on<T>(event: String, listener: T->Void): Void;
-  function goto(url: String): Promise<Dynamic>;
+  function goto(url: String): Promise<Null<Response>>;
   function getByPlaceholder(text: String): Locator;
   function getByRole(role: String, @:optional options: GetByRoleOptions): Locator;
   function getByText(text: String): Locator;

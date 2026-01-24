@@ -26,7 +26,7 @@ class TodoListPage {
     useEffect(() -> {
       Client.listTodos().then(next -> {
         todosState.set(next);
-      }).catchError(err -> {
+      }).catchError(_ -> {
         errorState.set("Failed to load todos");
       });
     }, []);
@@ -54,6 +54,8 @@ class TodoListPage {
       });
     }
 
+    final errorView: ReactChild = error != "" ? <p style={{color: "crimson"}}>{error}</p> : null;
+
     function renderTodoTitle(todo: Todo): ReactChild {
       return if (todo.completed)
         <s>{todo.title}</s>
@@ -72,13 +74,13 @@ class TodoListPage {
         <input
           type={"checkbox"}
           checked={todo.completed}
-          onChange={_ -> Client.updateTodo(todo.id, {completed: !todo.completed}).then(updated -> { replaceTodo(updated); return null; })}
+          onChange={() -> Client.updateTodo(todo.id, {completed: !todo.completed}).then(updated -> { replaceTodo(updated); return null; })}
         />
         <Link to={"/todos/" + todo.id} style={{flex: "1"}}>
           {renderTodoTitle(todo)}
         </Link>
         <button
-          onClick={_ -> Client.deleteTodo(todo.id).then(_ -> { removeTodo(todo.id); return null; })}
+          onClick={() -> Client.deleteTodo(todo.id).then(_ -> { removeTodo(todo.id); return null; })}
         >
           Delete
         </button>
@@ -87,7 +89,7 @@ class TodoListPage {
 
     return <div>
       <h2>Todos</h2>
-      {error != "" ? <p style={{color: "crimson"}}>{error}</p> : null}
+      {errorView}
       <div style={{display: "flex", gap: "8px", marginBottom: "12px"}}>
         <input
           value={title}
@@ -95,7 +97,7 @@ class TodoListPage {
           onChange={(e: ChangeEvent) -> titleState.set(e.target.value)}
           style={{flex: "1", padding: "8px"}}
         />
-        <button onClick={_ -> onAdd()} style={{padding: "8px 12px"}}>Add</button>
+        <button onClick={() -> onAdd()} style={{padding: "8px 12px"}}>Add</button>
       </div>
       <ul style={{listStyle: "none", padding: "0", margin: "0"}}>
         {todos.map(renderTodoItem)}

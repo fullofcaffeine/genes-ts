@@ -3,6 +3,8 @@ package todo.extern;
 // Minimal React Router externs used by the todoapp example.
 // React Router ships its own TS types; these externs exist to generate imports.
 
+import haxe.DynamicAccess;
+
 @:jsRequire("react-router-dom", "BrowserRouter")
 extern class BrowserRouter {}
 
@@ -18,5 +20,8 @@ extern class Link {}
 @:jsRequire("react-router-dom", "useNavigate")
 extern function useNavigate(): String->Void;
 
+@:ts.type("Readonly<Record<string, string | undefined>>")
+typedef Params = DynamicAccess<String>;
+
 @:jsRequire("react-router-dom", "useParams")
-extern function useParams(): Dynamic;
+extern function useParams(): Params;
