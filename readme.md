@@ -194,6 +194,7 @@ Classic Genes mode (JS output) also supports:
 
 - `npm test` (Genes baseline tests)
 - `npm run test:acceptance` (compiler + todoapp acceptance gate)
+- `npm run test:ci` (CI-equivalent local run; includes secret scan)
 - `npm run test:genes-ts`
 - `npm run test:genes-ts:minimal`
 - `npm run test:genes-ts:full`
@@ -202,3 +203,17 @@ Classic Genes mode (JS output) also supports:
 - `npm run test:genes-ts:sourcemaps`
 - `npm run test:todoapp` (todoapp API smoke)
 - `npm run test:todoapp:e2e` (todoapp API + Playwright E2E; Playwright specs are authored in Haxe)
+
+## Publishing
+
+Build the haxelib package zip:
+
+```bash
+yarn submit:zip
+```
+
+Submit to haxelib (interactive):
+
+```bash
+yarn submit
+```
