@@ -927,7 +927,7 @@ class TsModuleEmitter extends JsModuleEmitter {
               } else {
                 if (isAsync)
                   write('async ');
-                emitMemberName(field.name);
+              emitMemberName(field.name);
               }
 
               emitMethodTypeParams(field);
@@ -940,7 +940,7 @@ class TsModuleEmitter extends JsModuleEmitter {
                 write(': void ');
               } else {
                 write(': ');
-                emitReturnTsType(field, f);
+                emitReturnTsType(field, f, null);
                 write(' ');
               }
 
@@ -1942,16 +1942,25 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   function emitTypedFunctionArguments(f: TFunc, field: GenesField) {
-    switch field.type {
+    emitTypedFunctionArgumentsWithType(f, field, null);
+  }
+
+  function emitTypedFunctionArgumentsWithType(f: TFunc, field: GenesField,
+      declaredType: Null<Type>) {
+    final effectiveType = declaredType != null ? declaredType : field.type;
+    final cachedSig = (currentClass != null) ? SignatureCache.getSig(currentClass, field.isStatic, field.name) : null;
+    switch effectiveType {
       case TFun(args, _):
+        final cachedArgs = (cachedSig != null && cachedSig.args.length == args.length) ? cachedSig.args : null;
         // Handle Haxe optional argument skipping semantics (same as TypeEmitter.emitArgs).
         var noOptionalUntil = -1;
         var hadOptional = true;
         for (i in 0...args.length) {
           final arg = args[i];
-          if (arg.opt) {
+          final opt = cachedArgs != null ? cachedArgs[i].opt : arg.opt;
+          if (opt) {
             hadOptional = true;
-          } else if (hadOptional && !arg.opt) {
+          } else if (hadOptional && !opt) {
             noOptionalUntil = i;
             hadOptional = false;
           }
@@ -1961,15 +1970,19 @@ class TsModuleEmitter extends JsModuleEmitter {
           write.bind(', '))) {
           final arg = args[i];
           final argName = f.args[i].v.name;
+          final argType = (i >= 0 && i < f.args.length) ? f.args[i].v.t : arg.t;
+          final opt = cachedArgs != null ? cachedArgs[i].opt : arg.opt;
           if (genes.util.TypeUtil.isRest(arg.t))
             write('...');
           emitLocalIdent(argName);
-          final optional = arg.opt && i > noOptionalUntil;
-          final defaultNull = optional && typeAllowsNull(arg.t);
+          final optional = opt && i > noOptionalUntil;
+          final defaultNull = optional
+            && (cachedArgs != null ? cachedArgs[i].allowsNull : typeAllowsNull(argType));
           if (optional && !defaultNull)
             write('?');
           write(': ');
-          emitArgTsType(field, f, i, arg.t);
+          final cachedType = cachedArgs != null ? cachedArgs[i].tsType : null;
+          emitArgTsType(field, f, i, argType, cachedType);
           if (defaultNull)
             write(' = null');
         }
@@ -2006,7 +2019,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   function emitArgTsType(field: GenesField, f: TFunc, index: Int,
-      type: Type) {
+      type: Type, fallbackType: Null<String>) {
     // TS `strict` enables `useUnknownInCatchVariables`, so catch variables are
     // `unknown`. Avoid emitting `Register.unsafeCast<any>(...)` in user modules
     // by making `haxe.Exception.caught` accept `unknown` in TS.
@@ -2033,10 +2046,15 @@ class TsModuleEmitter extends JsModuleEmitter {
       write(typeOverride);
       return;
     }
+    if (fallbackType != null) {
+      write(fallbackType);
+      return;
+    }
     emitType(type);
   }
 
-  function emitReturnTsType(field: GenesField, f: TFunc) {
+  function emitReturnTsType(field: GenesField, f: TFunc,
+      declaredType: Null<Type>) {
     final returnOverride = field.meta != null ? (switch extractStringMeta(field.meta,
       ':ts.returnType') {
       case null: extractStringMeta(field.meta, ':genes.returnType');
@@ -2046,12 +2064,12 @@ class TsModuleEmitter extends JsModuleEmitter {
       write(returnOverride);
       return;
     }
-    switch field.type {
-      case TFun(_, ret):
-        emitType(ret);
-      default:
-        write('any');
+    final cachedSig = (currentClass != null) ? SignatureCache.getSig(currentClass, field.isStatic, field.name) : null;
+    if (cachedSig != null && cachedSig.retTsType != null) {
+      write(cachedSig.retTsType);
+      return;
     }
+    emitType(f.t);
   }
 
   function emitFieldTsType(field: GenesField) {

@@ -3,8 +3,10 @@ package genes.dts;
 import genes.SourceMapGenerator;
 import haxe.macro.Type;
 import haxe.macro.Context;
+import haxe.macro.Expr;
 import genes.util.IteratorUtil.*;
 import genes.util.TypeUtil;
+import haxe.Json;
 
 using haxe.macro.Tools;
 
@@ -22,6 +24,138 @@ typedef TypeWriter = {
 }
 
 class TypeEmitter {
+  static function unwrapExpr(e: TypedExpr): TypedExpr {
+    var cur = e;
+    while (cur != null) {
+      switch cur.expr {
+        case TMeta(_, e1) | TParenthesis(e1) | TCast(e1, _):
+          cur = e1;
+        default:
+          return cur;
+      }
+    }
+    return e;
+  }
+
+  static function unwrapMetaExpr(e: Expr): Expr {
+    var cur = e;
+    while (cur != null) {
+      switch cur.expr {
+        case EMeta(_, e1) | EParenthesis(e1) | ECast(e1, _):
+          cur = e1;
+        default:
+          return cur;
+      }
+    }
+    return e;
+  }
+
+  static function enumAbstractValueFromMeta(field: ClassField): Null<String> {
+    if (field == null)
+      return null;
+    return switch field.meta.extract(':value') {
+      case [{params: [p]}]:
+        switch unwrapMetaExpr(p).expr {
+          case EConst(CString(s)):
+            Json.stringify(s);
+          case EConst(CInt(i)):
+            i;
+          case EConst(CFloat(f)):
+            f;
+          case EConst(CIdent('true')):
+            'true';
+          case EConst(CIdent('false')):
+            'false';
+          default:
+            null;
+        }
+      default:
+        null;
+    }
+  }
+
+  static function enumAbstractLiteralUnion(ab: AbstractType): Null<Array<String>> {
+    if (ab == null || ab.impl == null || !ab.meta.has(':enum'))
+      return null;
+
+    inline function fullNameOf(t: AbstractType): String {
+      final parts = t.module.split('.');
+      final last = parts[parts.length - 1];
+      return (last == t.name) ? t.module : (t.module + '.' + t.name);
+    }
+
+    function collectFrom(t: AbstractType): Array<String> {
+      final impl = t.impl.get();
+      if (impl == null)
+        return [];
+
+      final out: Array<String> = [];
+      for (field in impl.statics.get()) {
+        if (field == null)
+          continue;
+        // Enum abstract values are static variables with constant expressions.
+        switch field.kind {
+          case FVar(_, _):
+          case _:
+            continue;
+        }
+        final metaValue = enumAbstractValueFromMeta(field);
+        if (metaValue != null) {
+          out.push(metaValue);
+          continue;
+        }
+        final e = field.expr();
+        if (e == null)
+          continue;
+        switch unwrapExpr(e).expr {
+          case TConst(TString(s)):
+            out.push(Json.stringify(s));
+          case TConst(TInt(i)):
+            out.push(Std.string(i));
+          case TConst(TFloat(s)):
+            out.push(s);
+          case TConst(TBool(b)):
+            out.push(b ? 'true' : 'false');
+          default:
+        }
+      }
+      return out;
+    }
+
+    // Haxe may not type enum-abstract value initializers unless the module is
+    // explicitly loaded. If we don't have any constants, force-load the type
+    // and try again so we can still emit a TS literal union.
+    var out = collectFrom(ab);
+    if (out.length == 0) {
+      final fullName = fullNameOf(ab);
+      try {
+        Context.getType(fullName);
+      } catch (_: Dynamic) {}
+      try {
+        switch Context.getType(fullName) {
+          case TAbstract(_.get() => reloaded, _):
+            out = collectFrom(reloaded);
+          default:
+        }
+      } catch (_: Dynamic) {}
+    }
+
+    if (out.length == 0)
+      return null;
+
+    // Deterministic output: keep unique + sorted.
+    final seen = new Map<String, Bool>();
+    final uniq: Array<String> = [];
+    for (v in out) {
+      if (!seen.exists(v)) {
+        seen.set(v, true);
+        uniq.push(v);
+      }
+    }
+    uniq.sort(Reflect.compare);
+    return uniq;
+  }
+
   static function emitTypeOverride(writer: TypeWriter, template: String,
       params: Array<Type>) {
     final write = writer.write;
@@ -257,6 +391,17 @@ class TypeEmitter {
             emitTypeOverride(writer, v, params);
         }
       case TAbstract(_.get() => ab, params):
+        if (Context.defined('genes.ts')) {
+          // genes-ts: treat `@:enum abstract` as a TS literal union when values
+          // are known (e.g. DOM enums like `RequestCache`).
+          final values = enumAbstractLiteralUnion(ab);
+          if (values != null) {
+            emitPos(ab.pos);
+            for (v in join(values, write.bind(' | ')))
+              write(v);
+            return;
+          }
+        }
         switch [ab, params] {
           case [{module: "js.lib.Symbol", name: "Symbol"}, _]:
             emitPos(ab.pos);

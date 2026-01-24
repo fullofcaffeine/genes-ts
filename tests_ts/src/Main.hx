@@ -1,6 +1,7 @@
 import foo.Foo;
 import foo.AsyncFoo;
 import foo.Placeholder;
+import foo.EnumAbstract;
 
 class Main {
   static function main() {
@@ -8,5 +9,6 @@ class Main {
     trace(f.add(2));
     AsyncFoo.demo().then(v -> trace(v));
     trace(Placeholder.demo());
+    trace(EnumAbstract.demo());
   }
 }

@@ -271,6 +271,9 @@ class Generator {
   public static function use() {
     #if !genes.disable
     if (Context.defined('js')) {
+      if (Context.defined('genes.ts')) {
+        genes.ts.SignatureCache.install();
+      }
       Compiler.include('genes.Register');
       Context.onGenerate(types -> {
         generation++;
