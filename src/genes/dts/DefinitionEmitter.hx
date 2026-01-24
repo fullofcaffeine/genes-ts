@@ -304,8 +304,6 @@ class DefinitionEmitter extends ModuleEmitter {
                         write(returnTypeOverride);
                       else
                         emitType(ret);
-                    default:
-                      emitType(ret);
                   }
                 }
               }
