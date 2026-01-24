@@ -22,6 +22,51 @@ typedef TypeWriter = {
 }
 
 class TypeEmitter {
+  static function emitTypeOverride(writer: TypeWriter, template: String,
+      params: Array<Type>) {
+    final write = writer.write;
+    var i = 0;
+    while (i < template.length) {
+      final idx = template.indexOf('$', i);
+      if (idx == -1) {
+        write(template.substr(i));
+        break;
+      }
+      write(template.substr(i, idx - i));
+
+      // Escape: `$$` -> `$`
+      if (idx + 1 < template.length && template.charAt(idx + 1) == '$') {
+        write('$');
+        i = idx + 2;
+        continue;
+      }
+
+      // Placeholder: `$0`, `$1`, ... expands to the corresponding type arg.
+      var j = idx + 1;
+      while (j < template.length) {
+        final c = template.charCodeAt(j);
+        if (c < '0'.code || c > '9'.code)
+          break;
+        j++;
+      }
+      if (j == idx + 1) {
+        // Not a placeholder (e.g. `$Foo`), keep the `$` literal.
+        write('$');
+        i = idx + 1;
+        continue;
+      }
+
+      final n = Std.parseInt(template.substr(idx + 1, j - (idx + 1)));
+      if (n == null || n < 0 || n >= params.length) {
+        // Invalid placeholder; keep literal so the TS compiler can surface it.
+        write(template.substr(idx, j - idx));
+      } else {
+        emitType(writer, params[n]);
+      }
+      i = j;
+    }
+  }
+
   public static function emitBaseType(writer: TypeWriter, type: BaseType,
       params: Array<Type>, withConstraints = false) {
     final write = writer.write, emitPos = writer.emitPos;
@@ -70,7 +115,7 @@ class TypeEmitter {
       case TType(_.get() => {name: "RegroupStatus" | "RegroupResult", pos: pos}, _):
         emitPos(pos);
         write('any');
-      case TInst(_.get().meta => meta, _)
+      case TInst(_.get().meta => meta, params)
         if (meta.has(':ts.type') || meta.has(':genes.type')):
         final tsOverride = switch meta.extract(':ts.type') {
           case [{params: [{expr: EConst(CString(type))}]}]: type;
@@ -84,7 +129,7 @@ class TypeEmitter {
           case null:
             throw '@:ts.type/@:genes.type needs an expression';
           case v:
-            write(v);
+            emitTypeOverride(writer, v, params);
         }
       case TInst(ref = _.get() => cl, params):
         switch [cl, params] {
@@ -195,7 +240,7 @@ class TypeEmitter {
             includeType(TInst(ref, params));
             emitBaseType(writer, cl, params);
         }
-      case TAbstract(_.get().meta => meta, _)
+      case TAbstract(_.get().meta => meta, params)
         if (meta.has(':ts.type') || meta.has(':genes.type')):
         final tsOverride = switch meta.extract(':ts.type') {
           case [{params: [{expr: EConst(CString(type))}]}]: type;
@@ -209,7 +254,7 @@ class TypeEmitter {
           case null:
             throw '@:ts.type/@:genes.type needs an expression';
           case v:
-            write(v);
+            emitTypeOverride(writer, v, params);
         }
       case TAbstract(_.get() => ab, params):
         switch [ab, params] {
