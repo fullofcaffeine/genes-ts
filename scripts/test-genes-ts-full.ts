@@ -1,5 +1,5 @@
 import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
-import { rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -19,6 +19,21 @@ function run(cmd: string, args: ReadonlyArray<string>, opts: ExecFileSyncOptions
   });
 }
 
+function ensureClassicTestArtifacts(): void {
+  const jsPath = path.join(repoRoot, "bin", "tests.js");
+  const dtsPath = path.join(repoRoot, "bin", "tests.d.ts");
+
+  if (existsSync(jsPath) && existsSync(dtsPath)) return;
+
+  // `tests_ts_full` reuses some of the classic Genes tests (e.g. TestExpose)
+  // which assert against the generated `bin/tests.js` + `bin/tests.d.ts`.
+  // When running in CI with `SKIP_CLASSIC=1`, those artifacts may not exist yet.
+  // Compile them here (without executing the runtime test suite).
+  run("haxe", ["test.hxml"]);
+}
+
+ensureClassicTestArtifacts();
+
 rmrf("tests_ts_full/src-gen");
 rmrf("tests_ts_full/dist");
 
@@ -28,4 +43,3 @@ run("haxe", ["tests_ts_full/build.hxml"]);
 run("npx", ["-y", "--package", "typescript@5.5.4", "-c", "tsc -p tests_ts_full/tsconfig.json"]);
 
 run("node", ["tests_ts_full/dist/index.js"]);
-
