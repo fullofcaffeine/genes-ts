@@ -400,3 +400,52 @@ If we rely on TS compilation, debugging quality depends on map chaining/composit
 
 3) **Distribution shape**
    - Decide whether we output TS into `src-gen/` vs `generated/ts/`, and define the recommended `package.json` exports map for `dist/`.
+
+---
+
+## Future (low priority): `ts2hx` (TypeScript/JS → Haxe) “reverse compiler”
+
+This is **not** part of genes-ts 1.0, but is a useful long-term experiment to make it easier to:
+- migrate existing TS/JS codebases into Haxe, and then
+- reuse Haxe as a multi-target “portability layer” (e.g. later porting subsets toward other backends like Reflaxe.Elixir).
+
+### Goal / scope
+
+- **Goal:** translate “real world” TS projects into Haxe with **maximum type preservation** and a pragmatic interop story.
+- **Scope target:** “all TS code” is aspirational; in practice we should define tiers:
+  - Tier 0: TS syntax coverage + buildable Haxe output (even if extern-heavy)
+  - Tier 1: strong typing parity for the majority of code (interfaces, generics, unions, narrowing)
+  - Tier 2: higher-fidelity patterns (decorators, emit helpers, JSX/TSX, advanced conditional types where representable)
+
+### Recommended implementation approach
+
+- Implement `ts2hx` in **TypeScript** (Node tool), using the **TypeScript compiler API**:
+  - build a `Program` and use a `TypeChecker` to recover types, symbols, and resolved signatures
+  - this is critical for accurate output (AST-only transforms lose too much semantic information)
+- Produce Haxe source + extern stubs as needed:
+  - prefer generating Haxe that compiles without `Dynamic` escape hatches in *translated* code
+  - allow a controlled boundary of “extern + unsafe interop” for patterns that don’t map cleanly
+
+### Why keep it in this repo?
+
+Recommendation: keep it in the same repo only if:
+- it shares significant type-mapping logic and golden fixtures with genes-ts, and
+- we can keep it isolated (e.g. `tools/ts2hx/` with its own tests and CI step).
+
+Otherwise, publish it as a sibling repo once it becomes substantial.
+
+### References / inspiration
+
+- `dts2hx` is a useful reference for *declaration* conversion patterns, but `ts2hx` must go further:
+  - full AST + module graph + runtime semantics
+  - a strategy for code that depends on JS runtime behavior (prototype mutation, global augmentation, etc.)
+
+### Testing strategy (proposed)
+
+- Golden “fixture projects” (realistic TS apps/libs) + snapshot tests for generated Haxe.
+- A smoke pipeline:
+  1) `ts2hx` translates → Haxe
+  2) Haxe compiles back to TS/JS via genes-ts
+  3) original test suite (or a reduced suite) runs against the rebuilt output
+
+This turns `ts2hx` into a measured experiment rather than a speculative rewrite tool.
