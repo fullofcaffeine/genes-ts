@@ -32,7 +32,8 @@ assertDirSnapshots({
   repoRoot,
   generatedDir: "examples/todoapp/web/src-gen",
   snapshotsDir: "examples/todoapp/web/dist-ts/src-gen",
-  fileExts: [".ts", ".tsx"]
+  fileExts: [".ts", ".tsx"],
+  updateHint: "UPDATE_SNAPSHOTS=1 yarn build:example:todoapp"
 });
 assertNoUnsafeTypes({
   repoRoot,
@@ -65,7 +66,8 @@ assertDirSnapshots({
   repoRoot,
   generatedDir: "examples/todoapp/server/src-gen",
   snapshotsDir: "examples/todoapp/server/dist-ts/src-gen",
-  fileExts: [".ts"]
+  fileExts: [".ts"],
+  updateHint: "UPDATE_SNAPSHOTS=1 yarn build:example:todoapp"
 });
 assertNoUnsafeTypes({
   repoRoot,

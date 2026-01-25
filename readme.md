@@ -208,6 +208,14 @@ Classic Genes mode (JS output) also supports:
 
 Snapshot fixtures live under `tests/genes-ts/snapshot/` (each case has `src/`, `intended/`, and `out/`).
 
+## Generated output directories (recommended)
+
+genes-ts writes output wherever you point `-js <path>`. Recommended conventions:
+
+- `src-gen/` — generated TypeScript source (`.ts` / `.tsx`) from genes-ts (usually gitignored).
+- `dist/` — compiled/bundled runtime artifacts (JS + `.d.ts` + assets).
+- `dist-ts/` — optional *checked-in* copy of the generated TS source (best for examples/audits, not daily builds).
+
 ## Publishing
 
 Build the haxelib package zip:

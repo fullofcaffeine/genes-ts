@@ -18,6 +18,18 @@ This example checks in the **intended** generated TypeScript output:
 During development, the build generates into `examples/todoapp/{web,server}/src-gen` (gitignored)
 and the build/test pipeline compares it against the committed `dist-ts/src-gen`.
 
+Why `dist-ts/`?
+
+- It provides a stable, browsable “what genes-ts emits” source tree next to a real app.
+- It’s useful as an audit trail when changing the compiler (diffs are obvious).
+- It helps the long-term goal of TS-only porting: the TS project structure is already present.
+
+What `dist-ts/` is not:
+
+- It is **not** the runtime build output. Runtime artifacts still go to `dist/`:
+  - `examples/todoapp/web/dist/**` (bundled browser assets)
+  - `examples/todoapp/server/dist/**` (Node `.js` + `.d.ts`)
+
 Update the committed output after a compiler change:
 
 ```bash

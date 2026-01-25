@@ -47,3 +47,12 @@ Related knobs:
 
 - If your goal is “Haxe is a better language on top of TS, and we may port to TS later” → use **TypeScript output** (`-D genes.ts`).
 - If your goal is “we keep writing Haxe, but want modern ESM output + excellent `.d.ts`” → use **classic Genes JS output** (omit `-D genes.ts`, keep `-D dts`).
+
+## Directory conventions (recommended)
+
+genes-ts writes output wherever you point `-js <path>`. For most projects, these naming conventions
+minimize confusion:
+
+- `src-gen/` — generated TypeScript source from genes-ts (intermediate; meant to be compiled by TS tooling).
+- `dist/` — built runtime artifacts (JS, `.d.ts`, bundler output).
+- `dist-ts/` — optional checked-in generated TS source tree (useful for examples and audit trails).

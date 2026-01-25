@@ -14,6 +14,7 @@ type AssertDirSnapshotsOptions = {
   generatedDir: string;
   snapshotsDir: string;
   fileExts: ReadonlyArray<string>;
+  updateHint?: string;
 };
 
 function normalizeSnapshotText(text: string): string {
@@ -73,7 +74,8 @@ export function assertDirSnapshots({
   repoRoot,
   generatedDir,
   snapshotsDir,
-  fileExts
+  fileExts,
+  updateHint
 }: AssertDirSnapshotsOptions): void {
   const update = process.env.UPDATE_SNAPSHOTS === "1" || process.env.UPDATE_SNAPSHOTS === "true";
 
@@ -138,7 +140,7 @@ export function assertDirSnapshots({
   }
 
   if (failed) {
-    console.error(`\nTo update snapshots: UPDATE_SNAPSHOTS=1 yarn test:genes-ts:snapshots`);
+    console.error(`\nTo update snapshots: ${updateHint ?? "UPDATE_SNAPSHOTS=1 yarn test:genes-ts:snapshots"}`);
     process.exit(1);
   }
 }

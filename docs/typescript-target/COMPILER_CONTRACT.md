@@ -54,6 +54,44 @@ To emit TSX (so JSX markers print real TSX markup), use a `.tsx` output:
 - Output is **file-per-module** (like Genes today), using ESM.
 - Entry module is the basename of the `-js` output file (e.g. `index`).
 
+## Recommended directory conventions (TS output)
+
+genes-ts only cares about the `-js <path>` you pass it, but we recommend a consistent
+directory layout to avoid confusion when mixing TS compilation, bundling, and runtime artifacts:
+
+- **`src-gen/`** (recommended default)
+  - “Generated source” output from genes-ts (`.ts` / `.tsx`).
+  - Consider this an intermediate source tree that is meant to be typechecked/bundled by TS tooling.
+  - Typically gitignored.
+- **`dist/`**
+  - “Built artifacts” produced by TypeScript (and optionally bundlers): `.js`, `.d.ts`, `.map`, assets, etc.
+  - Typically gitignored (unless you publish built artifacts).
+- **`dist-ts/`** (optional, best used for examples / porting / audit trails)
+  - A *checked-in* copy of the generated TS output (usually `dist-ts/src-gen/**`).
+  - This is helpful when you want the repo to contain a stable, browsable “what genes-ts emits” tree
+    (e.g. to demonstrate the app structure, or to make later TS-only porting easier).
+  - This is **not** a good default output directory for day-to-day builds because “dist” implies runtime artifacts.
+
+Example patterns:
+
+1) Normal build (recommended):
+
+```hxml
+-js src-gen/index.tsx   # genes-ts output
+```
+
+Then TS/bundler produces:
+- `dist/**` (runtime)
+
+2) “Canonical generated TS tree” (opt-in):
+
+```hxml
+-js dist-ts/src-gen/index.tsx
+```
+
+Then TS/bundler still produces:
+- `dist/**` (runtime)
+
 ## Packaging strategy (do both)
 
 We support two consumption modes:
