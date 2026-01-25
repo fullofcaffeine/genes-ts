@@ -47,6 +47,21 @@ jobs:
       - run: yarn install --frozen-lockfile
       - run: yarn test:secrets
 
+  vulns:
+    name: Vulnerabilities (OSV)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: yarn
+          cache-dependency-path: yarn.lock
+      - run: corepack enable
+      - run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
+      - run: yarn install --frozen-lockfile
+      - run: yarn test:vulns
+
   classic:
     name: Classic Genes (Haxe ${{ matrix.haxe-version }})
     runs-on: ubuntu-latest

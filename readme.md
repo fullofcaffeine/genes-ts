@@ -26,6 +26,7 @@ Requires **Haxe 4.3.7+**.
 - **Async/await sugar** (`@:async` + `await(...)`) emitting native `async`/`await`
 - **SOTA harness**: snapshots + `tsc` typecheck + runtime smoke + full todoapp E2E (Playwright)
 - **Secret scanning** in CI + local (`gitleaks`)
+- **Dependency vulnerability scanning** in CI + local (`osv-scanner`)
 
 ## Install
 

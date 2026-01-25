@@ -20,6 +20,15 @@ In **framework + test code** (including the todoapp harness), avoid:
 
 Prefer small, well-typed externs/abstracts and keep any unavoidable JS interop confined to a narrow boundary (e.g. `extern` modules or a single wrapper).
 
+## Documentation quality (hxdoc)
+
+For **vital or complex** code (compiler internals, runtime helpers, macros, harness/test infrastructure):
+
+- Use **hxdoc** (`/** ... */`) and write it **didactically** with **Why / What / How**.
+- Prefer documenting the *contract* (inputs/outputs/side effects), invariants, and edge cases over restating obvious code.
+- Include examples when it clarifies non-obvious behavior.
+- Keep trivial helpers undocumented unless they hide important constraints.
+
 ## Generated TS typing policy (no `any` / `unknown`)
 
 - Generated TypeScript should be **idiomatic and strongly typed**.

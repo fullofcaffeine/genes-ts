@@ -1,6 +1,7 @@
 package todo.e2e;
 
 import js.Syntax;
+import js.lib.Promise;
 import js.lib.RegExp;
 import js.lib.Error;
 import js.node.Process;
@@ -14,6 +15,42 @@ import todo.e2e.PlaywrightTypes.Page;
 private abstract NodeProcess(Process) from Process to Process {}
 
 class Main {
+  static function sleep(ms: Int): Promise<Void> {
+    return cast Syntax.code("new Promise(resolve => setTimeout(resolve, {0}))", ms);
+  }
+
+  static function waitForChecked(locator: todo.e2e.PlaywrightTypes.Locator, timeoutMs: Int): Promise<Void> {
+    final start = haxe.Timer.stamp();
+
+    function loop(): Promise<Void> {
+      return locator.isChecked().then(checked -> {
+        if (checked)
+          return sleep(0);
+        if ((haxe.Timer.stamp() - start) * 1000 > timeoutMs)
+          throw "Expected first todo checkbox to be checked";
+        return sleep(50).then(_ -> loop());
+      });
+    }
+
+    return loop();
+  }
+
+  static function waitForCount(locator: todo.e2e.PlaywrightTypes.Locator, expected: Int, timeoutMs: Int): Promise<Void> {
+    final start = haxe.Timer.stamp();
+
+    function loop(): Promise<Void> {
+      return locator.count().then(count -> {
+        if (count == expected)
+          return sleep(0);
+        if ((haxe.Timer.stamp() - start) * 1000 > timeoutMs)
+          throw 'Expected count $expected, got $count';
+        return sleep(50).then(_ -> loop());
+      });
+    }
+
+    return loop();
+  }
+
   static function main() {
     PW.testPage("todoapp: create, navigate, update, toggle, delete", (page: Page) -> {
       // `js.Node.process/console` in hxnodejs are implemented via `untyped __js__`,
@@ -61,17 +98,9 @@ class Main {
             throw 'Expected updated todo title in list, got $count';
         })
         .then(_ -> page.locator('input[type=\"checkbox\"]').nth(0).click())
-        .then(_ -> page.locator('input[type=\"checkbox\"]').nth(0).isChecked())
-        .then(checked -> {
-          if (!checked)
-            throw "Expected first todo checkbox to be checked";
-        })
+        .then(_ -> waitForChecked(page.locator('input[type=\"checkbox\"]').nth(0), 5000))
         .then(_ -> page.getByRole("button", {name: "Delete"}).nth(0).click())
-        .then(_ -> page.getByText("Buy oat milk").count())
-        .then(count -> {
-          if (count != 0)
-            throw 'Expected todo to be deleted, but count was $count';
-        });
+        .then(_ -> waitForCount(page.getByText("Buy oat milk"), 0, 5000));
     });
   }
 }

@@ -25,3 +25,19 @@ If a detection is a false positive, prefer fixing it by:
 If you must ignore a finding, use gitleaks’ ignore mechanisms (baseline or
 ignore file) and document why. Keep ignores narrow and reviewed.
 
+## Dependency vulnerability scanning (local + CI)
+
+This repo runs a dependency vulnerability scan using **OSV-Scanner** (pinned
+version):
+
+- Locally: `yarn test:vulns`
+- In CI: GitHub Actions job `vulns` (runs on every push/PR)
+
+### Exceptions / ignores
+
+OSV configuration lives in `.osv-scanner.toml`. Exceptions must be:
+
+- narrow (package-specific),
+- justified (include a reason),
+- time-bounded (`effectiveUntil`), and
+- reviewed regularly.

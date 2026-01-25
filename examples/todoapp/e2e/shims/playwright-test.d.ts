@@ -5,6 +5,7 @@ declare module "@playwright/test" {
   export interface Locator {
     fill(value: string): Promise<void>;
     click(): Promise<void>;
+    check(): Promise<void>;
     count(): Promise<number>;
     waitFor(): Promise<void>;
     nth(index: number): Locator;

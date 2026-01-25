@@ -24,6 +24,7 @@ typedef ConsoleMessage = {
 typedef Locator = {
   function fill(value: String): Promise<Void>;
   function click(): Promise<Void>;
+  function check(): Promise<Void>;
   function count(): Promise<Int>;
   function waitFor(): Promise<Void>;
   function nth(index: Int): Locator;
