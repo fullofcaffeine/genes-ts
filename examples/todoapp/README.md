@@ -8,6 +8,22 @@ Goals:
 - show practical extern usage (`@:jsRequire`) for JS/TS ecosystem libraries
 - share Haxe types between frontend and backend
 
+## Committed generated output
+
+This example checks in the **intended** generated TypeScript output:
+
+- `examples/todoapp/web/intended/src-gen`
+- `examples/todoapp/server/intended/src-gen`
+
+During development, the build generates into `examples/todoapp/{web,server}/src-gen` (gitignored)
+and the build/test pipeline compares it against the committed `intended/src-gen`.
+
+Update the committed output after a compiler change:
+
+```bash
+UPDATE_SNAPSHOTS=1 npm run build:example:todoapp
+```
+
 ## Build + run (from repo root)
 
 ```bash
@@ -31,4 +47,3 @@ Then open `http://localhost:8787`.
 - `examples/todoapp/server/` — server build inputs/outputs
   - `build.hxml` emits TS into `server/src-gen/`
   - `tsconfig.json` compiles TS → JS into `server/dist/`
-

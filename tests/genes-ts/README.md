@@ -26,12 +26,12 @@ UPDATE_SNAPSHOTS=1 yarn test:genes-ts:snapshots
 
 ### todoapp output
 
-`tests/genes-ts/snapshot/todoapp/` snapshots the generated output for `examples/todoapp`, but only for:
+The `examples/todoapp` example checks in its own intended generated output next to the example:
 
-- `todo/**` modules, and
-- the entrypoint (`index.ts` / `index.tsx`)
+- `examples/todoapp/web/intended/src-gen`
+- `examples/todoapp/server/intended/src-gen`
 
-This keeps the snapshot small while still proving the compiler’s ergonomics on a real app.
+The build (`yarn build:example:todoapp`) regenerates `examples/todoapp/{web,server}/src-gen` and compares it against the committed `intended/src-gen`.
 
 ## Full suite (runtime + TS typecheck)
 

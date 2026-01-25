@@ -2,6 +2,7 @@ import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { copyFileSync, mkdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { assertDirSnapshots } from "./snapshots.js";
 import { assertNoUnsafeTypes } from "./typing-policy.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -27,6 +28,12 @@ rmrf("server/src-gen");
 rmrf("server/dist");
 
 run("haxe", ["examples/todoapp/web/build.hxml"]);
+assertDirSnapshots({
+  repoRoot,
+  generatedDir: "examples/todoapp/web/src-gen",
+  snapshotsDir: "examples/todoapp/web/intended/src-gen",
+  fileExts: [".ts", ".tsx"]
+});
 assertNoUnsafeTypes({
   repoRoot,
   generatedDir: "examples/todoapp/web/src-gen/todo",
@@ -54,6 +61,12 @@ run("npx", [
 ]);
 
 run("haxe", ["examples/todoapp/server/build.hxml"]);
+assertDirSnapshots({
+  repoRoot,
+  generatedDir: "examples/todoapp/server/src-gen",
+  snapshotsDir: "examples/todoapp/server/intended/src-gen",
+  fileExts: [".ts"]
+});
 assertNoUnsafeTypes({
   repoRoot,
   generatedDir: "examples/todoapp/server/src-gen/todo",
