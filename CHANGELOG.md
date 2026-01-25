@@ -1,3 +1,10 @@
+## [1.1.3](https://github.com/fullofcaffeine/genes-ts/compare/v1.1.2...v1.1.3) (2026-01-25)
+
+
+### Bug Fixes
+
+* **genes-ts:** tighten exception payload types ([ad62ba4](https://github.com/fullofcaffeine/genes-ts/commit/ad62ba4da91543ee133c6ec3143bf38fb51c17c7))
+
 ## [1.1.2](https://github.com/fullofcaffeine/genes-ts/compare/v1.1.1...v1.1.2) (2026-01-25)
 
 
