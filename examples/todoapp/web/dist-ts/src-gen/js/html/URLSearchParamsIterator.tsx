@@ -1,8 +1,3 @@
 import {Register} from "../../genes/Register"
 
-export type URLSearchParamsIterator = {
-	/**
-	@throws DOMError
-	*/
-	next: () => any
-}
+export type URLSearchParamsIterator = IterableIterator<[string, string]>

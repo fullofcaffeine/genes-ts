@@ -1,8 +1,3 @@
 import {Register} from "../../genes/Register"
 
-export type FormDataIterator = {
-	/**
-	@throws DOMError
-	*/
-	next: () => any
-}
+export type FormDataIterator = IterableIterator<[string, FormDataEntryValue]>

@@ -2484,6 +2484,42 @@ class TsModuleEmitter extends JsModuleEmitter {
         default:
       }
     }
+    // WebIDL-generated DOM iterator typedefs in Haxe std are often `next(): Dynamic`,
+    // which becomes `next(): any` in TS output. Replace the entire typedef with the
+    // idiomatic TS iterator type when we can provide the correct element type.
+    //
+    // NOTE: These are purely type-level overrides; runtime values come from the DOM.
+    if (def.module == 'js.html.HeadersIterator' && def.name == 'HeadersIterator') {
+      writeNewline();
+      emitComment(def.doc);
+      emitPos(def.pos);
+      write('export type ');
+      TypeEmitter.emitBaseType(this, def, params, true);
+      write(' = IterableIterator<[string, string]>');
+      writeNewline();
+      return;
+    }
+    if (def.module == 'js.html.URLSearchParamsIterator' && def.name == 'URLSearchParamsIterator') {
+      writeNewline();
+      emitComment(def.doc);
+      emitPos(def.pos);
+      write('export type ');
+      TypeEmitter.emitBaseType(this, def, params, true);
+      write(' = IterableIterator<[string, string]>');
+      writeNewline();
+      return;
+    }
+    if (def.module == 'js.html.FormDataIterator' && def.name == 'FormDataIterator') {
+      writeNewline();
+      emitComment(def.doc);
+      emitPos(def.pos);
+      write('export type ');
+      TypeEmitter.emitBaseType(this, def, params, true);
+      // TS DOM lib provides `FormDataEntryValue = File | string`.
+      write(' = IterableIterator<[string, FormDataEntryValue]>');
+      writeNewline();
+      return;
+    }
     if (def.module == 'js.lib.Object') {
       switch def.name {
         case 'ObjectPropertyDescriptor':
