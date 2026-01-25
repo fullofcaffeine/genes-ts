@@ -20,21 +20,61 @@ function run(cmd: string, args: ReadonlyArray<string>, opts: ExecFileSyncOptions
   });
 }
 
-rmrf("tests_ts/src-gen");
-run("haxe", ["tests_ts/build.hxml"]);
-assertDirSnapshots({
-  repoRoot,
-  generatedDir: "tests_ts/src-gen",
-  snapshotsDir: "tests_snapshots/tests_ts",
-  fileExts: [".ts"]
-});
+type SnapshotCase = {
+  name: string;
+  buildHxml: string;
+  outDir: string;
+  intendedDir: string;
+  fileExts: ReadonlyArray<string>;
+};
 
-rmrf("tests_ts_minimal/src-gen");
-run("haxe", ["tests_ts_minimal/build.hxml"]);
-assertDirSnapshots({
-  repoRoot,
-  generatedDir: "tests_ts_minimal/src-gen",
-  snapshotsDir: "tests_snapshots/tests_ts_minimal",
-  fileExts: [".ts"]
-});
+const cases: ReadonlyArray<SnapshotCase> = [
+  {
+    name: "basic",
+    buildHxml: "tests/genes-ts/snapshot/basic/build.hxml",
+    outDir: "tests/genes-ts/snapshot/basic/out/src-gen",
+    intendedDir: "tests/genes-ts/snapshot/basic/intended",
+    fileExts: [".ts"]
+  },
+  {
+    name: "minimal",
+    buildHxml: "tests/genes-ts/snapshot/minimal/build.hxml",
+    outDir: "tests/genes-ts/snapshot/minimal/out/src-gen",
+    intendedDir: "tests/genes-ts/snapshot/minimal/intended",
+    fileExts: [".ts"]
+  },
+  {
+    name: "react/tsx",
+    buildHxml: "tests/genes-ts/snapshot/react/build-tsx.hxml",
+    outDir: "tests/genes-ts/snapshot/react/out/tsx/src-gen",
+    intendedDir: "tests/genes-ts/snapshot/react/intended/tsx",
+    fileExts: [".ts", ".tsx"]
+  },
+  {
+    name: "react/tsx-classic",
+    buildHxml: "tests/genes-ts/snapshot/react/build-tsx-classic.hxml",
+    outDir: "tests/genes-ts/snapshot/react/out/tsx-classic/src-gen",
+    intendedDir: "tests/genes-ts/snapshot/react/intended/tsx-classic",
+    fileExts: [".ts", ".tsx"]
+  },
+  {
+    name: "react/ts",
+    buildHxml: "tests/genes-ts/snapshot/react/build-ts.hxml",
+    outDir: "tests/genes-ts/snapshot/react/out/ts/src-gen",
+    intendedDir: "tests/genes-ts/snapshot/react/intended/ts",
+    fileExts: [".ts", ".tsx"]
+  }
+];
+
+for (const c of cases) {
+  // Keep the output on disk so `intended vs out` diffs are easy to inspect.
+  rmrf(path.dirname(c.outDir));
+  run("haxe", [c.buildHxml]);
+  assertDirSnapshots({
+    repoRoot,
+    generatedDir: c.outDir,
+    snapshotsDir: c.intendedDir,
+    fileExts: c.fileExts
+  });
+}
 

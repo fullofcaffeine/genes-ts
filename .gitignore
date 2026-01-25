@@ -1,14 +1,9 @@
 /bin
 /dump
 /node_modules
-/tests_ts/src-gen
-/tests_ts/dist
-/tests_ts_full/src-gen
-/tests_ts_full/dist
-/tests_ts_minimal/src-gen
-/tests_ts_minimal/dist
-/tests_tsx/src-gen-*
-/tests_tsx/dist-*
+/tests/genes-ts/**/out
+/tests/genes-ts/**/src-gen*
+/tests/genes-ts/**/dist*
 /examples/typescript-target/src-gen
 /examples/typescript-target/dist
 /examples/todoapp/web/src-gen

@@ -23,11 +23,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-rmrf("tests_ts/src-gen");
-run("haxe", ["-debug", "tests_ts/build.hxml"]);
+rmrf("tests/genes-ts/snapshot/basic/out");
+run("haxe", ["-debug", "tests/genes-ts/snapshot/basic/build.hxml"]);
 
-const tsPath = path.join(repoRoot, "tests_ts/src-gen/Main.ts");
-const mapPath = path.join(repoRoot, "tests_ts/src-gen/Main.ts.map");
+const tsPath = path.join(repoRoot, "tests/genes-ts/snapshot/basic/out/src-gen/Main.ts");
+const mapPath = path.join(repoRoot, "tests/genes-ts/snapshot/basic/out/src-gen/Main.ts.map");
 
 if (!existsSync(tsPath)) {
   throw new Error(`Expected generated TS at ${tsPath}`);
@@ -49,8 +49,8 @@ const sources = mapUnknown.sources;
 if (!(Array.isArray(sources) && sources.every((s) => typeof s === "string"))) {
   throw new Error(`Expected sourcemap sources to be an array of strings`);
 }
-if (!sources.includes("../src/Main.hx")) {
-  throw new Error(`Expected sourcemap sources to include ../src/Main.hx`);
+if (!sources.includes("../../src/Main.hx")) {
+  throw new Error(`Expected sourcemap sources to include ../../src/Main.hx`);
 }
 
 const ts = readFileSync(tsPath, "utf8");
@@ -59,4 +59,3 @@ if (!ts.includes("//# sourceMappingURL=Main.ts.map")) {
 }
 
 console.log("ok");
-

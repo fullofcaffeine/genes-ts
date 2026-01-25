@@ -206,6 +206,8 @@ Classic Genes mode (JS output) also supports:
 - `npm run test:todoapp` (todoapp API smoke)
 - `npm run test:todoapp:e2e` (todoapp API + Playwright E2E; Playwright specs are authored in Haxe)
 
+Snapshot fixtures live under `tests/genes-ts/snapshot/` (each case has `src/`, `intended/`, and `out/`).
+
 ## Publishing
 
 Build the haxelib package zip:

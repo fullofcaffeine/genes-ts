@@ -1,0 +1,14 @@
+-lib genes-ts
+
+-cp tests/genes-ts/snapshot/react/src
+--main Main
+
+# TSX (classic) mode: emit `.tsx`, but lower JSX to `React.createElement(...)` (classic runtime).
+-js tests/genes-ts/snapshot/react/out/tsx-classic/src-gen/index.tsx
+-D genes.ts
+-D genes.ts.jsx_classic
+
+-dce full
+
+# Enable inline markup rewrite (requires `@:jsx_inline_markup` on the class)
+-D genes.react.inline_markup

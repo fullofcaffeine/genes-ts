@@ -1,0 +1,13 @@
+-lib genes-ts
+
+-cp tests/genes-ts/snapshot/react/src
+--main Main
+
+# Low-level mode: emit `.ts` and keep `React.createElement(...)` calls.
+-js tests/genes-ts/snapshot/react/out/ts/src-gen/index.ts
+-D genes.ts
+
+-dce full
+
+# Enable inline markup rewrite (requires `@:jsx_inline_markup` on the class)
+-D genes.react.inline_markup

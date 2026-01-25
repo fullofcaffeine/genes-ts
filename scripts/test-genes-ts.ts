@@ -2,7 +2,6 @@ import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { assertDirSnapshots } from "./snapshots.js";
 import { assertNoUnsafeTypes } from "./typing-policy.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -21,25 +20,24 @@ function run(cmd: string, args: ReadonlyArray<string>, opts: ExecFileSyncOptions
   });
 }
 
-rmrf("tests_ts/src-gen");
-rmrf("tests_ts/dist");
+rmrf("tests/genes-ts/snapshot/basic/out");
 
-run("haxe", ["tests_ts/build.hxml"]);
+run("haxe", ["tests/genes-ts/snapshot/basic/build.hxml"]);
 assertNoUnsafeTypes({
   repoRoot,
-  generatedDir: "tests_ts/src-gen",
+  generatedDir: "tests/genes-ts/snapshot/basic/out/src-gen",
   fileExts: [".ts"],
   ignoreTopLevelDirs: ["genes", "haxe", "js", "tink"]
-});
-assertDirSnapshots({
-  repoRoot,
-  generatedDir: "tests_ts/src-gen",
-  snapshotsDir: "tests_snapshots/tests_ts",
-  fileExts: [".ts"]
 });
 
 // Use a pinned TypeScript version for consistent behavior.
 // Note: `npx typescript@X tsc -p ...` is ambiguous in some npm versions.
-run("npx", ["-y", "--package", "typescript@5.5.4", "-c", "tsc -p tests_ts/tsconfig.json"]);
+run("npx", [
+  "-y",
+  "--package",
+  "typescript@5.5.4",
+  "-c",
+  "tsc -p tests/genes-ts/snapshot/basic/tsconfig.json"
+]);
 
-run("node", ["tests_ts/dist/index.js"]);
+run("node", ["tests/genes-ts/snapshot/basic/out/dist/index.js"]);

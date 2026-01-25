@@ -1,0 +1,16 @@
+-lib genes-ts
+-lib hxnodejs
+-lib tink_unittest
+
+-debug
+-D no-deprecation-warnings
+-dce full
+-D js-es=6
+
+-D genes.enum_discriminator=$kind
+
+# Emit TypeScript via genes-ts (still uses -js because we compile on the JS platform)
+-js tests/genes-ts/full/out/src-gen/index.ts
+-D genes.ts
+
+-main tests.Run

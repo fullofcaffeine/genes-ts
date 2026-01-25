@@ -21,7 +21,7 @@ This leverages the biggest advantage we have: **Haxe’s JS-platform typing + st
 ## Current status (Jan 23, 2026)
 
 - A TS emission mode is wired behind `-D genes.ts` with a minimal emitter (`src/genes/ts/TsModuleEmitter.hx`).
-- A strict TS typecheck + runtime smoke test harness exists in `tests_ts/` and runs via `npm run test:genes-ts`.
+- A strict TS typecheck + runtime smoke test harness exists under `tests/genes-ts/snapshot/` and runs via `npm run test:genes-ts`.
 - `npm test` and `npm run test:genes-ts` are green.
 
 ## Decisions (Jan 2026 discussion)

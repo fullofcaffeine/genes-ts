@@ -1,0 +1,11 @@
+-lib genes-ts
+
+-cp tests/genes-ts/snapshot/basic/src
+--main Main
+
+# Emit TypeScript via genes-ts (still uses -js because we compile on the JS platform)
+-js tests/genes-ts/snapshot/basic/out/src-gen/index.ts
+-D genes.ts
+
+# Keep output small and readable
+-dce full

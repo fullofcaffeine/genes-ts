@@ -1,0 +1,13 @@
+-lib genes-ts
+
+-cp tests/genes-ts/snapshot/react/src
+--main Main
+
+# TSX mode: emit `.tsx` and print TSX markup from JSX markers.
+-js tests/genes-ts/snapshot/react/out/tsx/src-gen/index.tsx
+-D genes.ts
+
+-dce full
+
+# Enable inline markup rewrite (requires `@:jsx_inline_markup` on the class)
+-D genes.react.inline_markup

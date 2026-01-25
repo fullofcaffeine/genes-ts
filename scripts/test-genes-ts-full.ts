@@ -1,5 +1,5 @@
 import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
-import { existsSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -25,7 +25,7 @@ function ensureClassicTestArtifacts(): void {
 
   if (existsSync(jsPath) && existsSync(dtsPath)) return;
 
-  // `tests_ts_full` reuses some of the classic Genes tests (e.g. TestExpose)
+  // `tests/genes-ts/full` reuses some of the classic Genes tests (e.g. TestExpose)
   // which assert against the generated `bin/tests.js` + `bin/tests.d.ts`.
   // When running in CI with `SKIP_CLASSIC=1`, those artifacts may not exist yet.
   // Compile them here (without executing the runtime test suite).
@@ -34,12 +34,19 @@ function ensureClassicTestArtifacts(): void {
 
 ensureClassicTestArtifacts();
 
-rmrf("tests_ts_full/src-gen");
-rmrf("tests_ts_full/dist");
+rmrf("tests/genes-ts/full/out");
 
-run("haxe", ["tests_ts_full/build.hxml"]);
+run("haxe", ["tests/genes-ts/full/build.hxml"]);
+
+// Runtime fixtures needed for dynamic `@:jsRequire('../../tests/…')` modules.
+// These must be present both for `tsc` module resolution and for Node at runtime.
+const outRoot = path.join(repoRoot, "tests/genes-ts/full/out");
+mkdirSync(path.join(outRoot, "tests"), { recursive: true });
+cpSync(path.join(repoRoot, "tests/genes-ts/full/tests"), path.join(outRoot, "tests"), {
+  recursive: true
+});
 
 // Use a pinned TypeScript version for consistent behavior.
-run("npx", ["-y", "--package", "typescript@5.5.4", "-c", "tsc -p tests_ts_full/tsconfig.json"]);
+run("npx", ["-y", "--package", "typescript@5.5.4", "-c", "tsc -p tests/genes-ts/full/tsconfig.json"]);
 
-run("node", ["tests_ts_full/dist/index.js"]);
+run("node", ["tests/genes-ts/full/out/dist/index.js"]);

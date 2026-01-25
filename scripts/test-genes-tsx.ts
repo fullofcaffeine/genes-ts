@@ -21,7 +21,7 @@ function run(cmd: string, args: ReadonlyArray<string>, opts: ExecFileSyncOptions
 }
 
 function copyTsxFixtures(intoRelDir: string): void {
-  const fixturesDir = path.join(repoRoot, "tests_tsx", "fixtures");
+  const fixturesDir = path.join(repoRoot, "tests/genes-ts/snapshot/react/fixtures");
   const destDir = path.join(repoRoot, intoRelDir);
 
   // Copy required local TSX files into the generated source dir so `tsc`
@@ -32,29 +32,15 @@ function copyTsxFixtures(intoRelDir: string): void {
   cpSync(srcButton, destButton);
 }
 
-rmrf("tests_tsx/src-gen-tsx");
-rmrf("tests_tsx/dist-tsx");
-rmrf("tests_tsx/src-gen-ts");
-rmrf("tests_tsx/dist-ts");
+rmrf("tests/genes-ts/snapshot/react/out/tsx");
+rmrf("tests/genes-ts/snapshot/react/out/tsx-classic");
+rmrf("tests/genes-ts/snapshot/react/out/ts");
 
-run("haxe", ["tests_tsx/build-tsx.hxml"]);
-copyTsxFixtures("tests_tsx/src-gen-tsx");
+run("haxe", ["tests/genes-ts/snapshot/react/build-tsx.hxml"]);
+copyTsxFixtures("tests/genes-ts/snapshot/react/out/tsx/src-gen");
 assertNoUnsafeTypes({
   repoRoot,
-  generatedDir: "tests_tsx/src-gen-tsx",
-  fileExts: [".ts", ".tsx"],
-  ignoreTopLevelDirs: ["genes", "haxe", "js", "tink", "components"]
-});
-run("npx", ["-y", "--package", "typescript@5.5.4", "-c", "tsc -p tests_tsx/tsconfig.tsx.json"]);
-run("node", ["tests_tsx/dist-tsx/index.js"]);
-
-rmrf("tests_tsx/src-gen-tsx");
-rmrf("tests_tsx/dist-tsx");
-run("haxe", ["tests_tsx/build-tsx.hxml", "-D", "genes.ts.jsx_classic"]);
-copyTsxFixtures("tests_tsx/src-gen-tsx");
-assertNoUnsafeTypes({
-  repoRoot,
-  generatedDir: "tests_tsx/src-gen-tsx",
+  generatedDir: "tests/genes-ts/snapshot/react/out/tsx/src-gen",
   fileExts: [".ts", ".tsx"],
   ignoreTopLevelDirs: ["genes", "haxe", "js", "tink", "components"]
 });
@@ -63,17 +49,41 @@ run("npx", [
   "--package",
   "typescript@5.5.4",
   "-c",
-  "tsc -p tests_tsx/tsconfig.tsx.classic.json"
+  "tsc -p tests/genes-ts/snapshot/react/tsconfig.tsx.json"
 ]);
-run("node", ["tests_tsx/dist-tsx/index.js"]);
+run("node", ["tests/genes-ts/snapshot/react/out/tsx/dist/index.js"]);
 
-run("haxe", ["tests_tsx/build-ts.hxml"]);
-copyTsxFixtures("tests_tsx/src-gen-ts");
+rmrf("tests/genes-ts/snapshot/react/out/tsx-classic");
+run("haxe", ["tests/genes-ts/snapshot/react/build-tsx-classic.hxml"]);
+copyTsxFixtures("tests/genes-ts/snapshot/react/out/tsx-classic/src-gen");
 assertNoUnsafeTypes({
   repoRoot,
-  generatedDir: "tests_tsx/src-gen-ts",
+  generatedDir: "tests/genes-ts/snapshot/react/out/tsx-classic/src-gen",
   fileExts: [".ts", ".tsx"],
   ignoreTopLevelDirs: ["genes", "haxe", "js", "tink", "components"]
 });
-run("npx", ["-y", "--package", "typescript@5.5.4", "-c", "tsc -p tests_tsx/tsconfig.ts.json"]);
-run("node", ["tests_tsx/dist-ts/index.js"]);
+run("npx", [
+  "-y",
+  "--package",
+  "typescript@5.5.4",
+  "-c",
+  "tsc -p tests/genes-ts/snapshot/react/tsconfig.tsx.classic.json"
+]);
+run("node", ["tests/genes-ts/snapshot/react/out/tsx-classic/dist/index.js"]);
+
+run("haxe", ["tests/genes-ts/snapshot/react/build-ts.hxml"]);
+copyTsxFixtures("tests/genes-ts/snapshot/react/out/ts/src-gen");
+assertNoUnsafeTypes({
+  repoRoot,
+  generatedDir: "tests/genes-ts/snapshot/react/out/ts/src-gen",
+  fileExts: [".ts", ".tsx"],
+  ignoreTopLevelDirs: ["genes", "haxe", "js", "tink", "components"]
+});
+run("npx", [
+  "-y",
+  "--package",
+  "typescript@5.5.4",
+  "-c",
+  "tsc -p tests/genes-ts/snapshot/react/tsconfig.ts.json"
+]);
+run("node", ["tests/genes-ts/snapshot/react/out/ts/dist/index.js"]);
