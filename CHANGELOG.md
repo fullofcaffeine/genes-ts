@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/fullofcaffeine/genes-ts/compare/v1.1.0...v1.1.1) (2026-01-25)
+
+
+### Bug Fixes
+
+* **genes-ts:** avoid any in iterator results ([bf722dd](https://github.com/fullofcaffeine/genes-ts/commit/bf722dd136f1acf709ec8880e4b3669a93465f41))
+
 # [1.1.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.0.2...v1.1.0) (2026-01-24)
 
 
