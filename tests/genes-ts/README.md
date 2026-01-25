@@ -28,10 +28,10 @@ UPDATE_SNAPSHOTS=1 yarn test:genes-ts:snapshots
 
 The `examples/todoapp` example checks in its own intended generated output next to the example:
 
-- `examples/todoapp/web/intended/src-gen`
-- `examples/todoapp/server/intended/src-gen`
+- `examples/todoapp/web/dist-ts/src-gen`
+- `examples/todoapp/server/dist-ts/src-gen`
 
-The build (`yarn build:example:todoapp`) regenerates `examples/todoapp/{web,server}/src-gen` and compares it against the committed `intended/src-gen`.
+The build (`yarn build:example:todoapp`) regenerates `examples/todoapp/{web,server}/src-gen` and compares it against the committed `dist-ts/src-gen`.
 
 ## Full suite (runtime + TS typecheck)
 

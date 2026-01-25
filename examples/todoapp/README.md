@@ -12,11 +12,11 @@ Goals:
 
 This example checks in the **intended** generated TypeScript output:
 
-- `examples/todoapp/web/intended/src-gen`
-- `examples/todoapp/server/intended/src-gen`
+- `examples/todoapp/web/dist-ts/src-gen`
+- `examples/todoapp/server/dist-ts/src-gen`
 
 During development, the build generates into `examples/todoapp/{web,server}/src-gen` (gitignored)
-and the build/test pipeline compares it against the committed `intended/src-gen`.
+and the build/test pipeline compares it against the committed `dist-ts/src-gen`.
 
 Update the committed output after a compiler change:
 

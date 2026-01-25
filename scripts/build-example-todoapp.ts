@@ -31,7 +31,7 @@ run("haxe", ["examples/todoapp/web/build.hxml"]);
 assertDirSnapshots({
   repoRoot,
   generatedDir: "examples/todoapp/web/src-gen",
-  snapshotsDir: "examples/todoapp/web/intended/src-gen",
+  snapshotsDir: "examples/todoapp/web/dist-ts/src-gen",
   fileExts: [".ts", ".tsx"]
 });
 assertNoUnsafeTypes({
@@ -64,7 +64,7 @@ run("haxe", ["examples/todoapp/server/build.hxml"]);
 assertDirSnapshots({
   repoRoot,
   generatedDir: "examples/todoapp/server/src-gen",
-  snapshotsDir: "examples/todoapp/server/intended/src-gen",
+  snapshotsDir: "examples/todoapp/server/dist-ts/src-gen",
   fileExts: [".ts"]
 });
 assertNoUnsafeTypes({
