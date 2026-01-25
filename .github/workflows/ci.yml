@@ -125,3 +125,4 @@ jobs:
       - run: yarn test:acceptance
         env:
           SKIP_CLASSIC: "1"
+      - run: yarn test:ts2hx
