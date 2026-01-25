@@ -24,3 +24,8 @@
 /tools/ts2hx/out-dist
 /tools/ts2hx/.tmp
 /submit.zip
+
+# Beads (issue tracker) sync artifact:
+# - Keep this OUT of `main` to avoid noisy “sync” commits.
+# - The canonical tracked copy lives on the `beads-sync` branch.
+/.beads/issues.jsonl

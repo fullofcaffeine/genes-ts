@@ -2,6 +2,14 @@
 
 This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
 
+## Beads sync branch (keep `main` clean)
+
+The exported issue database `.beads/issues.jsonl` is **not tracked on `main`** to avoid
+constant “sync” commits. The canonical tracked copy lives on the `beads-sync` branch.
+
+- Normal dev on `main`: use `bd` as usual; the JSONL file may update locally but is ignored.
+- If you want to publish issue updates: switch to the `beads-sync` worktree/branch and push that.
+
 ## Output modes (keep both green)
 
 genes-ts intentionally supports **two output modes** within the same library:
