@@ -12,6 +12,7 @@ Requires **Haxe 4.3.7+**.
 - `docs/typescript-target/COMPILER_CONTRACT.md` — TS target contract
 - `docs/typescript-target/TYPING_POLICY.md` — TS typing rules + profiles
 - `docs/OUTPUT_MODES.md` — TS output vs classic Genes JS output
+- `CONTRIBUTING.md` — contribution guidelines
 
 ## Feature highlights
 
