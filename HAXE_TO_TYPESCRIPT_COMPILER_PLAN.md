@@ -18,11 +18,25 @@ Then optionally:
 
 This leverages the biggest advantage we have: **Haxe’s JS-platform typing + stdlib + semantics are already correct for the runtime we ultimately want (JavaScript).**
 
-## Current status (Jan 23, 2026)
+## Current status (Jan 25, 2026)
 
-- A TS emission mode is wired behind `-D genes.ts` with a minimal emitter (`src/genes/ts/TsModuleEmitter.hx`).
-- A strict TS typecheck + runtime smoke test harness exists under `tests/genes-ts/snapshot/` and runs via `npm run test:genes-ts`.
-- `npm test` and `npm run test:genes-ts` are green.
+genes-ts is already “real” in this repo, not just a design:
+
+- TS emission mode is wired behind `-D genes.ts` (`src/genes/ts/TsModuleEmitter.hx`).
+- Two output modes are supported and must remain green:
+  - **genes-ts** TypeScript source output (`-D genes.ts`)
+  - **Classic Genes** JS output (default when `-D genes.ts` is not set)
+- Snapshot harness for the TS target lives under `tests/genes-ts/snapshot/*` and is exercised via the yarn scripts.
+- The **todoapp** example under `examples/todoapp/` is both:
+  - a reference “real app” structure, and
+  - an indirect compiler E2E: it is built, type-checked (`tsc --noEmit`), and tested via Playwright in CI.
+  - The canonical generated TS for the example is checked in under `examples/todoapp/*/dist-ts/src-gen/`.
+- CI is in place and runs the same gates locally (`yarn test:ci`), including:
+  - classic Genes tests,
+  - genes-ts acceptance (snapshots + todoapp E2E),
+  - secret scanning (gitleaks) and dependency vulnerability scanning (OSV),
+  - CodeQL and dependency review on GitHub.
+- Release automation is configured (semantic-release) so changes to the compiler/tooling remain continuously validated.
 
 ## Decisions (Jan 2026 discussion)
 
@@ -253,6 +267,9 @@ Recommendation:
 
 ## Implementation roadmap (milestones)
 
+This section started as a “from scratch” roadmap. The repo has since implemented a large portion of it.
+For the living “what’s next” list, track the `genes-6my` epic in beads (`bd show genes-6my`).
+
 ### Milestone 0 — Align on target contract
 - Confirm TS is the primary artifact (agreed) and define the expected output layout (e.g. `src-gen/` with ESM).
 - Decide `tsconfig` expectations (`strict` by default is agreed; confirm `useDefineForClassFields`, module target, lib target).
@@ -335,21 +352,31 @@ Tests:
 
 ## Testing and CI strategy (practical)
 
+The guiding idea is “local == CI”: every check that runs in GitHub Actions should be runnable via a single local command.
+
+- Primary local gate: `yarn test:ci`
+- Acceptance gate (genes-ts): `yarn test:acceptance`
+- Snapshot-only gate: `yarn test:genes-ts:snapshots`
+  - Update snapshots intentionally with: `UPDATE_SNAPSHOTS=1 yarn test:genes-ts:snapshots`
+  - For the todoapp canonical output: `UPDATE_SNAPSHOTS=1 yarn build:example:todoapp`
+
+Recommended testing layers:
+
 1) **Golden tests (output stability)**
-- Snapshot generated TS for a suite of Haxe inputs.
-- Assert deterministic output (no timestamps, stable ordering).
+   - Snapshot generated TS for a suite of Haxe inputs (`tests/genes-ts/snapshot/*`).
+   - Assert deterministic output (stable ordering, no timestamps).
 
 2) **Type-check tests**
-- Run `tsc --noEmit` on the generated TS with the chosen `tsconfig`.
+   - Run `tsc --noEmit` on generated TS using strict `tsconfig` profiles.
 
 3) **Runtime tests**
-- Compile generated TS to JS (tsc/esbuild/swc).
-- Execute Node tests to confirm semantics.
+   - Compile/bundle the emitted TS (e.g. esbuild for web bundles, `tsc` for server).
+   - Execute Node tests and Playwright E2E tests for representative apps.
 
 4) **Compatibility matrix**
-- Haxe 4.3.7 baseline (optionally add Haxe 5 preview compatibility later)
-- Node LTS versions
-- TS versions (likely a modern baseline, not TS 3.7)
+   - Haxe 4.3.7 baseline (Haxe 5 later, once stable).
+   - Node LTS versions (CI pins a baseline but can be expanded).
+   - TypeScript baseline pinned in scripts for reproducible type-checks.
 
 ---
 
@@ -392,11 +419,17 @@ If we rely on TS compilation, debugging quality depends on map chaining/composit
    - Provide a documented “bundler profile” alternative for extensionless imports.
 
 2) **Define/metadata names (proposed)**
-   - `-D ts.output=<dir>` (or `-D typescript_output=<dir>`) for output directory.
-   - `-D ts.no_extension` for extensionless import specifiers.
-   - `-D ts.dynamic_unknown` for `Dynamic -> unknown`.
-   - `-D ts.minimal_runtime` for no-reflection/minimal runtime output.
-   - `@:ts.type("...")`, `@:ts.returnType("...")` (and support `@:genes.*` aliases).
+   Current repo defines (as implemented):
+   - `-D genes.ts` enables TS source output mode.
+   - `-D genes.ts.no_extension` enables extensionless import specifiers (bundler profile).
+   - `-D genes.ts.dynamic_unknown` maps `Dynamic -> unknown` (opt-in stricter mode).
+   - `-D genes.ts.no_null_union` disables `Null<T> -> T | null` unions (compat profile).
+   - `-D genes.ts.minimal_runtime` opts into a reduced runtime surface (no-reflection profile; still evolving).
+   - `-D genes.ts.jsx_classic` selects classic JSX emit (low-level `React.createElement` style).
+
+   Metadata:
+   - Prefer `@:ts.type("...")`, `@:ts.returnType("...")`.
+   - Support `@:genes.type("...")`, `@:genes.returnType("...")` as compatibility aliases.
 
 3) **Distribution shape**
    - Decide whether we output TS into `src-gen/` vs `generated/ts/`, and define the recommended `package.json` exports map for `dist/`.
@@ -422,6 +455,19 @@ This is **not** part of genes-ts 1.0, but is a useful long-term experiment to ma
 - Implement `ts2hx` in **TypeScript** (Node tool), using the **TypeScript compiler API**:
   - build a `Program` and use a `TypeChecker` to recover types, symbols, and resolved signatures
   - this is critical for accurate output (AST-only transforms lose too much semantic information)
+
+Why `Program` + `TypeChecker` (and why this style of tool is rarer in TS land):
+
+- The TS AST alone does not give you what you need for a “real” transpiler:
+  - resolved symbols, aliased imports, inferred types, overload resolution, and contextual typing
+  - control-flow based narrowing (a huge part of “idiomatic TS”)
+- The compiler API is powerful but comparatively *heavy*:
+  - performance and memory costs are real on large monorepos
+  - the API surface is large and easy to misuse (subtle bugs show up as “wrong types”)
+- Many TS “transpilers” target syntax-only transformations (Babel/SWC), so they intentionally avoid the typechecker.
+
+In contrast, Haxe’s compiler/macro APIs are designed for typed AST transforms and multi-target codegen,
+so Haxe is often a more ergonomic foundation when the goal is “typed source-to-source compilation”.
 - Produce Haxe source + extern stubs as needed:
   - prefer generating Haxe that compiles without `Dynamic` escape hatches in *translated* code
   - allow a controlled boundary of “extern + unsafe interop” for patterns that don’t map cleanly
