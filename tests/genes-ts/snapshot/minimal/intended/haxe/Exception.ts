@@ -43,25 +43,25 @@ throw e; // rethrows native exception instead of haxe.Exception
 ```
 */
 export class Exception extends (Register.inherits(() => Error, true) as typeof Error) {
-	constructor(message: string, previous: Exception | null = null, $native: any | null = null) {
+	constructor(message: string, previous: Exception | null = null, $native: unknown | null = null) {
 		// @ts-ignore
 		super(message, previous, $native);
 	}
-	declare ["native"]: any;
+	declare ["native"]: unknown;
 	declare __skipStack: number;
-	declare __nativeException: any;
+	declare __nativeException: unknown;
 	declare __previousException: Exception | null;
 	[Register.new](...args: never[]): void;
-	[Register.new](message: string, previous: Exception | null = null, $native: any | null = null): void {
+	[Register.new](message: string, previous: Exception | null = null, $native: unknown | null = null): void {
 		Error.call(this, message);
 		this.message = message;
 		this.__previousException = previous;
 		this.__nativeException = ($native != null) ? $native : this;
 	}
-	get_native(): any {
+	get_native(): unknown {
 		return this.__nativeException;
 	}
-	static thrown(value: any): any {
+	static thrown(value: unknown): unknown {
 		if (((value) instanceof Exception)) {
 			return value.get_native();
 		} else if (((value) instanceof Error)) {

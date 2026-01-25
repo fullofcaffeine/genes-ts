@@ -2029,6 +2029,33 @@ class TsModuleEmitter extends JsModuleEmitter {
       return;
     }
 
+    // haxe.Exception/ValueException are part of the JS runtime surface.
+    //
+    // In Haxe, `native: Any` can represent arbitrary thrown values. In TS, the
+    // closest semantic match is `unknown` (safe top type), not `any`.
+    if (currentClass != null) {
+      if (currentClass.module == 'haxe.Exception' && currentClass.name == 'Exception'
+        && field.kind.equals(Constructor) && index == 2) {
+        write('unknown | null');
+        return;
+      }
+      if (currentClass.module == 'haxe.Exception' && currentClass.name == 'Exception'
+        && field.isStatic && field.name == 'thrown' && index == 0) {
+        write('unknown');
+        return;
+      }
+      if (currentClass.module == 'haxe.ValueException' && currentClass.name == 'ValueException') {
+        if (field.kind.equals(Constructor) && index == 0) {
+          write('unknown');
+          return;
+        }
+        if (field.kind.equals(Constructor) && index == 2) {
+          write('unknown | null');
+          return;
+        }
+      }
+    }
+
     // Param-level override (preferred): @:ts.type / @:genes.type on the argument var meta.
     final argMeta = f.args[index].v.meta;
     final typeOverride = switch argMeta.extract(':ts.type') {
@@ -2069,6 +2096,18 @@ class TsModuleEmitter extends JsModuleEmitter {
       write(cachedSig.retTsType);
       return;
     }
+
+    if (currentClass != null && currentClass.module == 'haxe.Exception'
+      && currentClass.name == 'Exception') {
+      if (field.isStatic && field.name == 'thrown') {
+        write('unknown');
+        return;
+      }
+      if (!field.isStatic && field.name == 'get_native') {
+        write('unknown');
+        return;
+      }
+    }
     emitType(f.t);
   }
 
@@ -2076,6 +2115,22 @@ class TsModuleEmitter extends JsModuleEmitter {
     if (field.tsType != null) {
       write(field.tsType);
       return;
+    }
+
+    if (currentClass != null) {
+      if (currentClass.module == 'haxe.Exception' && currentClass.name == 'Exception') {
+        switch field.name {
+          case 'native' | '__nativeException':
+            write('unknown');
+            return;
+          default:
+        }
+      }
+      if (currentClass.module == 'haxe.ValueException' && currentClass.name == 'ValueException'
+        && field.name == 'value') {
+        write('unknown');
+        return;
+      }
     }
     emitType(field.type, field.isStatic ? null : field.params);
   }

@@ -16,13 +16,13 @@ throw new ValueException("Terrible error");
 ```
 */
 export class ValueException extends (Register.inherits(() => Exception, true) as typeof Exception) {
-	constructor(value: any, previous: Exception | null = null, $native: any | null = null) {
+	constructor(value: unknown, previous: Exception | null = null, $native: unknown | null = null) {
 		// @ts-ignore
 		super(value, previous, $native);
 	}
-	declare value: any;
+	declare value: unknown;
 	[Register.new](...args: never[]): void;
-	[Register.new](value: any, previous: Exception | null = null, $native: any | null = null): void {
+	[Register.new](value: unknown, previous: Exception | null = null, $native: unknown | null = null): void {
 		Register.unsafeCast<Function>(super[Register.new]).call(this, String(value), previous, $native);
 		this.value = value;
 	}
