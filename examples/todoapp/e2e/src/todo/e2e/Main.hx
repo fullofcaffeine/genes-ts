@@ -75,11 +75,7 @@ class Main {
       return page.goto(baseUrl + "/")
         .then(_ -> page.getByPlaceholder("New todo").fill("Buy milk"))
         .then(_ -> page.getByRole("button", {name: "Add"}).click())
-        .then(_ -> page.getByText("Buy milk").count())
-        .then(count -> {
-          if (count != 1)
-            throw 'Expected 1 todo in list, got $count';
-        })
+        .then(_ -> waitForCount(page.getByText("Buy milk"), 1, 5000))
         .then(_ -> page.getByText("Buy milk").click())
         .then(_ -> page.waitForURL(new RegExp("/todos/"), {waitUntil: "commit"}))
         .then(_ -> {
