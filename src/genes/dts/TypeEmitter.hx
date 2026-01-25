@@ -476,7 +476,9 @@ class TypeEmitter {
         } else {
           write('{');
           writer.increaseIndent();
-          for (field in join(anon.fields, write.bind(', '))) {
+          // Fields are each emitted on their own line (see `writeNewline()` below),
+          // so the field separator should not include a trailing space.
+          for (field in join(anon.fields, write.bind(','))) {
             writer.writeNewline();
             emitPos(field.pos);
             if (field.doc != null)
@@ -554,7 +556,13 @@ class TypeEmitter {
             emitPos(dt.pos);
             write('IteratorResult<');
             emitType(writer, elemT);
-            write(', any>');
+            // Haxe std defines `js.lib.IteratorStep<T>` as a simple `{ done: Bool, ?value: T }`
+            // record. In TS, the equivalent and idiomatic type is the builtin `IteratorResult`
+            // (a discriminated union for yield/return results).
+            //
+            // We intentionally use `undefined` for `TReturn` to avoid leaking `any` into
+            // generated code (most iterators do not use a meaningful return value).
+            write(', undefined>');
           default:
             switch dt.type {
               case TInst(_.get() => {isExtern: true}, _):
