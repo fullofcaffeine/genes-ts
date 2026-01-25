@@ -24,10 +24,34 @@ Prefer small, well-typed externs/abstracts and keep any unavoidable JS interop c
 
 For **vital or complex** code (compiler internals, runtime helpers, macros, harness/test infrastructure):
 
+This repo should be a **world-class reference** for how to build and maintain a
+real compiler/codegen pipeline in Haxe.
+
 - Use **hxdoc** (`/** ... */`) and write it **didactically** with **Why / What / How**.
+- Be explicit about the **compiler contract**:
+  - inputs/outputs, determinism requirements, file layout, import policy,
+  - compatibility assumptions (Node/TS/Haxe versions), and
+  - the two output modes (classic JS vs TS source output).
 - Prefer documenting the *contract* (inputs/outputs/side effects), invariants, and edge cases over restating obvious code.
-- Include examples when it clarifies non-obvious behavior.
-- Keep trivial helpers undocumented unless they hide important constraints.
+- When a decision is non-obvious, document the **tradeoff** (why we chose it and what we rejected).
+- Include examples when it clarifies non-obvious behavior (short snippets are fine).
+
+### Required hxdoc for advanced Haxe features
+
+If you use intermediate/advanced Haxe features, add comprehensive hxdoc that explains:
+
+- **Why** the feature is used (what problem it solves here)
+- **What** it expands to / what it guarantees
+- **How** it interacts with typing/codegen and what pitfalls exist
+
+Examples of “advanced” constructs that should be documented when used:
+
+- macros (`macro`, `haxe.macro.*`, reification/quoting/splicing, `Context.*`)
+- codegen/emitters that depend on typing subtleties (e.g. `Null<T>`, abstracts, enum abstracts, overloads, type/value namespaces)
+- `@:build` / `@:autoBuild`, `@:generic`, `@:using`, `@:forward`, `@:from`/`@:to`, `@:native`, `@:jsRequire`
+- JS interop boundaries (`js.Syntax.code`, externs) and any runtime reflection hooks
+
+Keep trivial helpers undocumented unless they hide important constraints.
 
 ## Generated TS typing policy (no `any` / `unknown`)
 
