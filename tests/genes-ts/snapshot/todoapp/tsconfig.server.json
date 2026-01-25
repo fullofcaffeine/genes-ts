@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "types": ["node"],
+    "declaration": true,
+    "sourceMap": true,
+    "rootDir": "./out/server/src-gen",
+    "outDir": "./out/server/dist",
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": false
+  },
+  "include": ["out/server/src-gen/**/*.ts"]
+}
+

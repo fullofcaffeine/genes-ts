@@ -63,6 +63,20 @@ const cases: ReadonlyArray<SnapshotCase> = [
     outDir: "tests/genes-ts/snapshot/react/out/ts/src-gen",
     intendedDir: "tests/genes-ts/snapshot/react/intended/ts",
     fileExts: [".ts", ".tsx"]
+  },
+  {
+    name: "todoapp/web",
+    buildHxml: "tests/genes-ts/snapshot/todoapp/build-web.hxml",
+    outDir: "tests/genes-ts/snapshot/todoapp/out/web/src-gen",
+    intendedDir: "tests/genes-ts/snapshot/todoapp/intended/web",
+    fileExts: [".ts", ".tsx"]
+  },
+  {
+    name: "todoapp/server",
+    buildHxml: "tests/genes-ts/snapshot/todoapp/build-server.hxml",
+    outDir: "tests/genes-ts/snapshot/todoapp/out/server/src-gen",
+    intendedDir: "tests/genes-ts/snapshot/todoapp/intended/server",
+    fileExts: [".ts"]
   }
 ];
 
@@ -74,7 +88,12 @@ for (const c of cases) {
     repoRoot,
     generatedDir: c.outDir,
     snapshotsDir: c.intendedDir,
-    fileExts: c.fileExts
+    fileExts: c.fileExts,
+    includeRelPrefixes:
+      c.name === "todoapp/web"
+        ? ["index.tsx", "todo/"]
+        : c.name === "todoapp/server"
+          ? ["index.ts", "todo/"]
+          : undefined
   });
 }
-

@@ -24,6 +24,15 @@ UPDATE_SNAPSHOTS=1 yarn test:genes-ts:snapshots
 - `out/tsx-classic` vs `intended/tsx-classic` — TSX lowered to classic `React.createElement`
 - `out/ts` vs `intended/ts` — low-level `.ts` output (no TSX)
 
+### todoapp output
+
+`tests/genes-ts/snapshot/todoapp/` snapshots the generated output for `examples/todoapp`, but only for:
+
+- `todo/**` modules, and
+- the entrypoint (`index.ts` / `index.tsx`)
+
+This keeps the snapshot small while still proving the compiler’s ergonomics on a real app.
+
 ## Full suite (runtime + TS typecheck)
 
 `tests/genes-ts/full/` compiles the main `tests/` (classic Genes test corpus) through genes-ts and then:
@@ -32,4 +41,3 @@ UPDATE_SNAPSHOTS=1 yarn test:genes-ts:snapshots
 - executes the compiled JS test runner with Node
 
 This is intentionally larger/noisier than the snapshot cases and focuses on compatibility.
-

@@ -14,6 +14,7 @@ type AssertDirSnapshotsOptions = {
   generatedDir: string;
   snapshotsDir: string;
   fileExts: ReadonlyArray<string>;
+  includeRelPrefixes?: ReadonlyArray<string>;
 };
 
 function normalizeSnapshotText(text: string): string {
@@ -73,15 +74,24 @@ export function assertDirSnapshots({
   repoRoot,
   generatedDir,
   snapshotsDir,
-  fileExts
+  fileExts,
+  includeRelPrefixes
 }: AssertDirSnapshotsOptions): void {
   const update = process.env.UPDATE_SNAPSHOTS === "1" || process.env.UPDATE_SNAPSHOTS === "true";
 
   const absGeneratedDir = path.join(repoRoot, generatedDir);
   const absSnapshotsDir = path.join(repoRoot, snapshotsDir);
 
+  const include = includeRelPrefixes && includeRelPrefixes.length > 0 ? [...includeRelPrefixes] : null;
+  const shouldInclude = (absFile: string): boolean => {
+    if (!include) return true;
+    const rel = path.relative(absGeneratedDir, absFile).replace(/\\/g, "/");
+    return include.some((p) => rel === p || rel.startsWith(p));
+  };
+
   const genFiles = listFilesRecursive(absGeneratedDir)
     .filter((p) => fileExts.some((ext) => p.endsWith(ext)))
+    .filter(shouldInclude)
     .sort();
 
   if (update) {
@@ -142,4 +152,3 @@ export function assertDirSnapshots({
     process.exit(1);
   }
 }
-
