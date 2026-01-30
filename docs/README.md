@@ -31,6 +31,7 @@ feature surface beyond the quick examples in `readme.md`.
 ## Product / planning
 
 - `PRD_TODOAPP_HARNESS.md` — todoapp as prime-time harness + ts2hx roundtrip fixture
+- `PRIME_TIME_CRITERIA.md` — definition of “prime time” + where it’s tested
 
 ## Experimental
 

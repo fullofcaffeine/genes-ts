@@ -250,6 +250,7 @@ CI should run a single command that performs:
 
 - Define “prime time” criteria specific to genes-ts (typing, determinism, DX).
 - Decide the exact list of compiler features the todoapp must exercise.
+- Record the criteria + test mapping in `docs/PRIME_TIME_CRITERIA.md`.
 
 ### M1 — Todoapp interop expansion
 
