@@ -28,6 +28,10 @@ feature surface beyond the quick examples in `readme.md`.
 - `BRANCH_PROTECTION.md` — recommended GitHub branch protection / required checks
 - `RELEASING.md` — semver, changelog, GitHub Releases (semantic-release)
 
+## Product / planning
+
+- `PRD_TODOAPP_HARNESS.md` — todoapp as prime-time harness + ts2hx roundtrip fixture
+
 ## Experimental
 
 - `ts2hx/PLAN.md` — long-term TS/JS → Haxe transpiler experiment (post-1.0)
