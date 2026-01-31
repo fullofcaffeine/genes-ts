@@ -111,6 +111,13 @@ function main(): number {
       smokeMain: "ts2hx.Main"
     },
     {
+      name: "export-forms",
+      tsconfigPath: path.join(toolRoot, "fixtures", "export-forms", "tsconfig.json"),
+      snapshotsDir: path.join(toolRoot, "tests_snapshots", "export-forms"),
+      basePackage: "ts2hx",
+      smokeMain: "ts2hx.Main"
+    },
+    {
       name: "object-methods-spreads",
       tsconfigPath: path.join(toolRoot, "fixtures", "object-methods-spreads", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "object-methods-spreads"),

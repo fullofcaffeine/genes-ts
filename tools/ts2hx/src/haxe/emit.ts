@@ -847,8 +847,8 @@ function emitEnum(decl: ts.EnumDeclaration): string {
   return lines.join("\n");
 }
 
-function emitClass(ctx: EmitContext, decl: ts.ClassDeclaration): string {
-  const name = decl.name?.text ?? "AnonymousClass";
+function emitClass(ctx: EmitContext, decl: ts.ClassDeclaration, forcedName?: string): string {
+  const name = forcedName ?? decl.name?.text ?? "AnonymousClass";
   const lines: string[] = [];
 
   lines.push(`class ${name} {`);
@@ -954,6 +954,73 @@ function collectExportFroms(sf: ts.SourceFile): ExportFromSpec[] {
 }
 
 type ExportKind = "value" | "type" | "both";
+
+type LocalExportSpec = { exported: string; source: string; isTypeOnly: boolean };
+
+function collectLocalExports(sf: ts.SourceFile): LocalExportSpec[] {
+  const exports: LocalExportSpec[] = [];
+
+  for (const stmt of sf.statements) {
+    if (!ts.isExportDeclaration(stmt)) continue;
+    if (stmt.moduleSpecifier) continue;
+    if (!stmt.exportClause || !ts.isNamedExports(stmt.exportClause)) continue;
+
+    for (const el of stmt.exportClause.elements) {
+      exports.push({
+        exported: el.name.text,
+        source: el.propertyName ? el.propertyName.text : el.name.text,
+        isTypeOnly: (stmt.isTypeOnly ?? false) || (el.isTypeOnly ?? false)
+      });
+    }
+  }
+
+  return exports;
+}
+
+function collectLocalDeclarationKinds(sf: ts.SourceFile): Map<string, ExportKind> {
+  const kinds = new Map<string, ExportKind>();
+
+  function set(name: string, kind: ExportKind) {
+    const prev = kinds.get(name);
+    if (!prev) {
+      kinds.set(name, kind);
+      return;
+    }
+    if (prev === kind) return;
+    kinds.set(name, "both");
+  }
+
+  for (const stmt of sf.statements) {
+    if (ts.isFunctionDeclaration(stmt) && stmt.name) {
+      set(stmt.name.text, "value");
+      continue;
+    }
+    if (ts.isVariableStatement(stmt)) {
+      for (const decl of stmt.declarationList.declarations) {
+        if (ts.isIdentifier(decl.name)) set(decl.name.text, "value");
+      }
+      continue;
+    }
+    if (ts.isInterfaceDeclaration(stmt)) {
+      set(stmt.name.text, "type");
+      continue;
+    }
+    if (ts.isTypeAliasDeclaration(stmt)) {
+      set(stmt.name.text, "type");
+      continue;
+    }
+    if (ts.isEnumDeclaration(stmt)) {
+      set(stmt.name.text, "both");
+      continue;
+    }
+    if (ts.isClassDeclaration(stmt) && stmt.name) {
+      set(stmt.name.text, "both");
+      continue;
+    }
+  }
+
+  return kinds;
+}
 
 function collectExportKinds(sf: ts.SourceFile): Map<string, ExportKind> {
   const kinds = new Map<string, ExportKind>();
@@ -1146,6 +1213,26 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
     out.push("");
   }
 
+  const localExports = collectLocalExports(sf);
+  const localExportSources = new Set(localExports.map((e) => e.source).filter((s) => s !== "default"));
+  const localDeclKinds = collectLocalDeclarationKinds(sf);
+  const localClassNames = new Set(
+    sf.statements
+      .filter((s): s is ts.ClassDeclaration => ts.isClassDeclaration(s) && !!s.name)
+      .map((s) => (s.name as ts.Identifier).text)
+  );
+
+  function uniqueTopLevelTypeName(base: string): string {
+    const used = new Set(localDeclKinds.keys());
+    let name = base;
+    let i = 2;
+    while (used.has(name)) {
+      name = `${base}${i}`;
+      i++;
+    }
+    return name;
+  }
+
   for (const stmt of sf.statements) {
     if (ts.isExportAssignment(stmt) && !stmt.isExportEquals) {
       const expr = emitExpression(ctx, stmt.expression);
@@ -1157,7 +1244,11 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
 
     if (ts.isVariableStatement(stmt)) {
       const isExported = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
-      if (!isExported) continue;
+      const declNames = stmt.declarationList.declarations
+        .map((d) => (ts.isIdentifier(d.name) ? d.name.text : null))
+        .filter((n): n is string => !!n);
+      const isLocalExported = declNames.some((n) => localExportSources.has(n));
+      if (!isExported && !isLocalExported) continue;
 
       const declKeyword = (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0 ? "final" : "var";
       for (const decl of stmt.declarationList.declarations) {
@@ -1174,12 +1265,40 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
 
     if (ts.isFunctionDeclaration(stmt)) {
       const isExported = (ts.getCombinedModifierFlags(stmt) & ts.ModifierFlags.Export) !== 0;
-      if (!isExported) continue;
-      out.push(emitFunction(ctx, stmt));
       const isDefault = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword) ?? false;
-      if (isDefault) {
-        if (!stmt.name) return null;
-        out.push(`final __default = ${stmt.name.text};`);
+      const isLocalExported = !!stmt.name && localExportSources.has(stmt.name.text);
+      if (!isExported && !isLocalExported) continue;
+
+      if (isDefault && !stmt.name) {
+        const params = stmt.parameters.map((p) => {
+          const id = ts.isIdentifier(p.name) ? p.name.text : "arg";
+          const isOptional = !!p.questionToken;
+          const type = emitType(p.type);
+          return `${isOptional ? "?" : ""}${id}: ${type}`;
+        });
+
+        let fn: string | null = null;
+        if (stmt.body && stmt.body.statements.length === 1 && ts.isReturnStatement(stmt.body.statements[0])) {
+          const ret = stmt.body.statements[0] as ts.ReturnStatement;
+          if (!ret.expression) return null;
+          const retExpr = emitExpression(ctx, ret.expression);
+          if (!retExpr) return null;
+          fn = `function(${params.join(", ")}) return ${retExpr}`;
+        } else if (stmt.body) {
+          const body = emitStatements(ctx, stmt.body.statements, "  ");
+          if (body == null) return null;
+          fn = `function(${params.join(", ")}) {\n${body}\n}`;
+        } else {
+          return null;
+        }
+
+        out.push(`final __default = ${fn};`);
+      } else {
+        out.push(emitFunction(ctx, stmt));
+        if (isDefault) {
+          if (!stmt.name) return null;
+          out.push(`final __default = ${stmt.name.text};`);
+        }
       }
       out.push("");
       continue;
@@ -1187,7 +1306,8 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
 
     if (ts.isTypeAliasDeclaration(stmt)) {
       const isExported = (ts.getCombinedModifierFlags(stmt) & ts.ModifierFlags.Export) !== 0;
-      if (!isExported) continue;
+      const isLocalExported = localExportSources.has(stmt.name.text);
+      if (!isExported && !isLocalExported) continue;
       out.push(emitTypeAlias(stmt));
       out.push("");
       continue;
@@ -1195,7 +1315,8 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
 
     if (ts.isInterfaceDeclaration(stmt)) {
       const isExported = (ts.getCombinedModifierFlags(stmt) & ts.ModifierFlags.Export) !== 0;
-      if (!isExported) continue;
+      const isLocalExported = localExportSources.has(stmt.name.text);
+      if (!isExported && !isLocalExported) continue;
       out.push(emitInterface(stmt));
       out.push("");
       continue;
@@ -1203,7 +1324,8 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
 
     if (ts.isEnumDeclaration(stmt)) {
       const isExported = (ts.getCombinedModifierFlags(stmt) & ts.ModifierFlags.Export) !== 0;
-      if (!isExported) continue;
+      const isLocalExported = localExportSources.has(stmt.name.text);
+      if (!isExported && !isLocalExported) continue;
       out.push(emitEnum(stmt));
       out.push("");
       continue;
@@ -1211,15 +1333,55 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
 
     if (ts.isClassDeclaration(stmt)) {
       const isExported = (ts.getCombinedModifierFlags(stmt) & ts.ModifierFlags.Export) !== 0;
-      if (!isExported) continue;
-      out.push(emitClass(ctx, stmt));
       const isDefault = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword) ?? false;
-      if (isDefault) {
-        if (!stmt.name) return null;
-        out.push(`final __default = ${stmt.name.text};`);
+      const isLocalExported = !!stmt.name && localExportSources.has(stmt.name.text);
+      if (!isExported && !isLocalExported) continue;
+
+      if (isDefault && !stmt.name) {
+        const generatedName = uniqueTopLevelTypeName("DefaultExport");
+        out.push(emitClass(ctx, stmt, generatedName));
+        out.push(`final __default = ${generatedName};`);
+      } else {
+        out.push(emitClass(ctx, stmt));
+        if (isDefault) {
+          if (!stmt.name) return null;
+          out.push(`final __default = ${stmt.name.text};`);
+        }
       }
       out.push("");
       continue;
+    }
+  }
+
+  if (localExports.length > 0) {
+    const emitted = new Set<string>();
+    for (const exp of localExports) {
+      const exportedHx = exp.exported === "default" ? "__default" : exp.exported;
+      const sourceHx = exp.source === "default" ? "__default" : exp.source;
+
+      if (exportedHx === "__default" && sourceHx === "__default") continue;
+      if (exportedHx === sourceHx && exportedHx !== "__default") continue;
+      if (emitted.has(exportedHx)) continue;
+      emitted.add(exportedHx);
+
+      const kind: ExportKind =
+        exp.isTypeOnly ? "type" : (localDeclKinds.get(exp.source) ?? (isLikelyTypeName(exp.exported) ? "type" : "value"));
+
+      if (exportedHx === "__default") {
+        out.push(`final __default = ${sourceHx};`);
+        out.push("");
+        continue;
+      }
+
+      if (kind === "type") out.push(`typedef ${exportedHx} = ${sourceHx};`);
+      else if (kind === "both") {
+        // Haxe does not allow emitting a type alias and a value alias with the same identifier in a module.
+        // For local classes, approximate TS' "type+value" export by generating a thin subclass.
+        // (This preserves a usable type and a usable runtime value, but is not a perfect alias.)
+        if (localClassNames.has(exp.source)) out.push(`class ${exportedHx} extends ${sourceHx} {}`);
+        else out.push(`final ${exportedHx} = ${sourceHx};`);
+      } else out.push(`final ${exportedHx} = ${sourceHx};`);
+      out.push("");
     }
   }
 
