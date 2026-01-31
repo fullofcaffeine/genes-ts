@@ -91,6 +91,11 @@ class Async {
   public static macro function await(expr: Expr): Expr {
     final typed = Context.typeExpr(expr);
     final awaitedType = unwrapPromiseType(typed.t);
+    // `js.Syntax.code()` returns `Dynamic`, which cannot be checked to `Void`.
+    // For `Promise<Void>`, avoid adding a `Void` check-type and rely on the
+    // expression being used for side effects only.
+    if (isVoidType(awaitedType))
+      return macro @:pos(expr.pos) js.Syntax.code('await {0}', $expr);
     final ct = awaitedType.toComplexType();
     if (ct == null)
       return macro @:pos(expr.pos) (js.Syntax.code('await {0}', $expr): Dynamic);

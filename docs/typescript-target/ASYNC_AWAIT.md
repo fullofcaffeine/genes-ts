@@ -53,3 +53,4 @@ final fn = @:async function(x: Int): Promise<Int> {
 ```
 
 - For `Promise<Void>`, the macro ensures an implicit resolved return on fallthrough so Haxe type-checks cleanly.
+- For `Promise<Void>`, `await(...)` is intended to be used for side effects (statement position). Since the underlying `js.Syntax.code(...)` boundary is typed as `Dynamic`, genes-ts does not attempt to check-type the result to `Void` (Haxe rejects `Dynamic → Void`).

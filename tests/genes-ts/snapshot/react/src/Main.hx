@@ -23,10 +23,41 @@ class Main {
     if (buttonHtml != '<button>Save</button>')
       throw 'Unexpected button HTML: ' + buttonHtml;
 
+    // Spread props (intrinsic + component).
+    final divProps = {className: "spread", id: "x"};
+    final divWithSpread = jsx('<div {...divProps}>Z</div>');
+    final divWithSpreadHtml = renderToStaticMarkup(divWithSpread);
+    if (divWithSpreadHtml != '<div class="spread" id="x">Z</div>')
+      throw 'Unexpected spread HTML: ' + divWithSpreadHtml;
+
+    final buttonProps = {label: "Spread"};
+    final buttonSpreadEl = jsx('<Button {...buttonProps} />');
+    final buttonSpreadHtml = renderToStaticMarkup(buttonSpreadEl);
+    if (buttonSpreadHtml != '<button>Spread</button>')
+      throw 'Unexpected spread button HTML: ' + buttonSpreadHtml;
+
     final frag = jsx('<><span>A</span><span>B</span></>');
     final fragHtml = renderToStaticMarkup(frag);
     if (fragHtml != '<span>A</span><span>B</span>')
       throw 'Unexpected fragment HTML: ' + fragHtml;
+
+    // Event handler typing.
+    //
+    // We can't reference React event types from Haxe without extern boilerplate,
+    // but TS will still validate the handler type in the generated output.
+    final okHandler = () -> trace("ok");
+    final okClick = jsx('<button onClick={okHandler}>Click</button>');
+    renderToStaticMarkup(okClick);
+
+    final badHandler = "nope";
+    js.Syntax.code("// @ts-expect-error");
+    final badClick = jsx('<button onClick={badHandler}>Bad</button>');
+    renderToStaticMarkup(badClick);
+
+    // Component props typing.
+    js.Syntax.code("// @ts-expect-error");
+    final badButton = jsx('<Button label={123} />');
+    renderToStaticMarkup(badButton);
 
     // Ensure intrinsic element types are enforced (via @types/react):
     // If `JSX.IntrinsicElements["div"]` is missing/any, this line would not error

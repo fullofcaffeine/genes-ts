@@ -22,11 +22,40 @@ export class Main {
 		if (buttonHtml != "<button>Save</button>") {
 			throw Exception.thrown("Unexpected button HTML: " + buttonHtml);
 		};
+		let divProps: {
+			className: string,
+			id: string
+		} = {"className": "spread", "id": "x"};
+		let divWithSpread: JSX.Element = <div {...divProps}>Z</div>;
+		let divWithSpreadHtml: string = renderToStaticMarkup(divWithSpread);
+		if (divWithSpreadHtml != "<div class=\"spread\" id=\"x\">Z</div>") {
+			throw Exception.thrown("Unexpected spread HTML: " + divWithSpreadHtml);
+		};
+		let buttonProps: {
+			label: string
+		} = {"label": "Spread"};
+		let buttonSpreadEl: JSX.Element = <Button {...buttonProps} />;
+		let buttonSpreadHtml: string = renderToStaticMarkup(buttonSpreadEl);
+		if (buttonSpreadHtml != "<button>Spread</button>") {
+			throw Exception.thrown("Unexpected spread button HTML: " + buttonSpreadHtml);
+		};
 		let frag: JSX.Element = <><span>A</span><span>B</span></>;
 		let fragHtml: string = renderToStaticMarkup(frag);
 		if (fragHtml != "<span>A</span><span>B</span>") {
 			throw Exception.thrown("Unexpected fragment HTML: " + fragHtml);
 		};
+		let okHandler: (() => void) = function () {
+			console.log("tests/genes-ts/snapshot/react/src/Main.hx:48:","ok");
+		};
+		let okClick: JSX.Element = <button onClick={okHandler}>Click</button>;
+		renderToStaticMarkup(okClick);
+		let badHandler: string = "nope";
+		// @ts-expect-error;
+		let badClick: JSX.Element = <button onClick={badHandler}>Bad</button>;
+		renderToStaticMarkup(badClick);
+		// @ts-expect-error;
+		let badButton: JSX.Element = <Button label={123} />;
+		renderToStaticMarkup(badButton);
 		// @ts-expect-error;
 		let bad: JSX.Element = <div href="nope" />;
 		renderToStaticMarkup(bad);

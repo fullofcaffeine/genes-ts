@@ -1,5 +1,6 @@
 package todo.e2e;
 
+import genes.js.Async.await;
 import js.Syntax;
 import js.lib.Promise;
 import js.lib.RegExp;
@@ -19,40 +20,34 @@ class Main {
     return cast Syntax.code("new Promise(resolve => setTimeout(resolve, {0}))", ms);
   }
 
+  @:async
   static function waitForChecked(locator: todo.e2e.PlaywrightTypes.Locator, timeoutMs: Int): Promise<Void> {
     final start = haxe.Timer.stamp();
-
-    function loop(): Promise<Void> {
-      return locator.isChecked().then(checked -> {
-        if (checked)
-          return sleep(0);
-        if ((haxe.Timer.stamp() - start) * 1000 > timeoutMs)
-          throw "Expected first todo checkbox to be checked";
-        return sleep(50).then(_ -> loop());
-      });
+    while (true) {
+      final checked = await(locator.isChecked());
+      if (checked)
+        return;
+      if ((haxe.Timer.stamp() - start) * 1000 > timeoutMs)
+        throw "Expected first todo checkbox to be checked";
+      await(sleep(50));
     }
-
-    return loop();
   }
 
+  @:async
   static function waitForCount(locator: todo.e2e.PlaywrightTypes.Locator, expected: Int, timeoutMs: Int): Promise<Void> {
     final start = haxe.Timer.stamp();
-
-    function loop(): Promise<Void> {
-      return locator.count().then(count -> {
-        if (count == expected)
-          return sleep(0);
-        if ((haxe.Timer.stamp() - start) * 1000 > timeoutMs)
-          throw 'Expected count $expected, got $count';
-        return sleep(50).then(_ -> loop());
-      });
+    while (true) {
+      final count = await(locator.count());
+      if (count == expected)
+        return;
+      if ((haxe.Timer.stamp() - start) * 1000 > timeoutMs)
+        throw 'Expected count $expected, got $count';
+      await(sleep(50));
     }
-
-    return loop();
   }
 
   static function main() {
-    PW.testPage("todoapp: validation + create, navigate, update, toggle, delete", (page: Page) -> {
+    PW.testPage("todoapp: validation + create, navigate, update, toggle, delete", @:async function(page: Page): Promise<Void> {
       // `js.Node.process/console` in hxnodejs are implemented via `untyped __js__`,
       // which is deprecated and triggers warnings at call sites when inlined.
       // Use an explicit `js.Syntax.code` boundary instead.
@@ -72,37 +67,39 @@ class Main {
         nodeConsole.log("[console]", msg.type(), msg.text());
       });
 
-      return page.goto(baseUrl + "/")
-        .then(_ -> page.getByText("interop: ts-imports-haxe-ok").waitFor())
-        .then(_ -> page.getByRole("button", {name: "Add"}).click())
-        .then(_ -> page.getByText("Title is required").waitFor())
-        .then(_ -> page.getByPlaceholder("New todo").fill("Buy milk"))
-        .then(_ -> page.getByRole("button", {name: "Add"}).click())
-        .then(_ -> waitForCount(page.getByText("Buy milk"), 1, 5000))
-        .then(_ -> page.getByText("Buy milk").click())
-        .then(_ -> page.waitForURL(new RegExp("/todos/"), {waitUntil: "commit"}))
-        .then(_ -> {
-          final url = page.url();
-          if (url.indexOf("/todos/") == -1)
-            throw 'Expected /todos/:id URL, got ' + url;
-        })
-        // Detail page has exactly one <input>; reuse it to update the title.
-        .then(_ -> page.locator("input").fill("Buy oat milk"))
-        .then(_ -> page.getByRole("button", {name: "Save"}).click())
-        .then(_ -> page.waitForURL(baseUrl + "/", {waitUntil: "commit"}))
-        .then(_ -> page.getByText("Buy oat milk").waitFor())
-        .then(_ -> page.getByText("Buy oat milk").count())
-        .then(count -> {
-          if (count != 1)
-            throw 'Expected updated todo title in list, got $count';
-        })
-        .then(_ -> page.locator('input[type=\"checkbox\"]').nth(0).click())
-        .then(_ -> waitForChecked(page.locator('input[type=\"checkbox\"]').nth(0), 5000))
-        .then(_ -> page.getByRole("button", {name: "Delete"}).nth(0).click())
-        .then(_ -> waitForCount(page.getByText("Buy oat milk"), 0, 5000));
+      await(page.goto(baseUrl + "/"));
+      await(page.getByText("interop: ts-imports-haxe-ok").waitFor());
+
+      await(page.getByRole("button", {name: "Add"}).click());
+      await(page.getByText("Title is required").waitFor());
+
+      await(page.getByPlaceholder("New todo").fill("Buy milk"));
+      await(page.getByRole("button", {name: "Add"}).click());
+      await(waitForCount(page.getByText("Buy milk"), 1, 5000));
+
+      await(page.getByText("Buy milk").click());
+      await(page.waitForURL(new RegExp("/todos/"), {waitUntil: "commit"}));
+      final url = page.url();
+      if (url.indexOf("/todos/") == -1)
+        throw 'Expected /todos/:id URL, got ' + url;
+
+      // Detail page has exactly one <input>; reuse it to update the title.
+      await(page.locator("input").fill("Buy oat milk"));
+      await(page.getByRole("button", {name: "Save"}).click());
+      await(page.waitForURL(baseUrl + "/", {waitUntil: "commit"}));
+
+      await(page.getByText("Buy oat milk").waitFor());
+      final count = await(page.getByText("Buy oat milk").count());
+      if (count != 1)
+        throw 'Expected updated todo title in list, got $count';
+
+      await(page.locator('input[type=\"checkbox\"]').nth(0).click());
+      await(waitForChecked(page.locator('input[type=\"checkbox\"]').nth(0), 5000));
+      await(page.getByRole("button", {name: "Delete"}).nth(0).click());
+      await(waitForCount(page.getByText("Buy oat milk"), 0, 5000));
     });
 
-    PW.testPage("todoapp: deep-link refresh keeps detail state", (page: Page) -> {
+    PW.testPage("todoapp: deep-link refresh keeps detail state", @:async function(page: Page): Promise<Void> {
       final nodeProcess: NodeProcess = cast Syntax.code("process");
       final baseUrl = switch nodeProcess.env.get("BASE_URL") {
         case null: "http://localhost:8787";
@@ -111,38 +108,36 @@ class Main {
 
       var detailUrl = "";
 
-      return page.goto(baseUrl + "/")
-        .then(_ -> page.getByPlaceholder("New todo").fill("Deep link todo"))
-        .then(_ -> page.getByRole("button", {name: "Add"}).click())
-        .then(_ -> page.getByText("Deep link todo").waitFor())
-        .then(_ -> page.getByText("Deep link todo").click())
-        .then(_ -> page.waitForURL(new RegExp("/todos/"), {waitUntil: "commit"}))
-        .then(_ -> {
-          detailUrl = page.url();
-          if (detailUrl.indexOf("/todos/") == -1)
-            throw 'Expected /todos/:id URL, got ' + detailUrl;
-        })
-        // Refresh by navigating directly to the same URL again.
-        .then(_ -> page.goto(detailUrl))
-        .then(_ -> page.locator("input").inputValue())
-        .then(value -> {
-          if (value != "Deep link todo")
-            throw 'Expected detail title to persist after deep-link refresh, got ' + value;
-        });
+      await(page.goto(baseUrl + "/"));
+      await(page.getByPlaceholder("New todo").fill("Deep link todo"));
+      await(page.getByRole("button", {name: "Add"}).click());
+      await(page.getByText("Deep link todo").waitFor());
+      await(page.getByText("Deep link todo").click());
+      await(page.waitForURL(new RegExp("/todos/"), {waitUntil: "commit"}));
+
+      detailUrl = page.url();
+      if (detailUrl.indexOf("/todos/") == -1)
+        throw 'Expected /todos/:id URL, got ' + detailUrl;
+
+      // Refresh by navigating directly to the same URL again.
+      await(page.goto(detailUrl));
+      final value = await(page.locator("input").inputValue());
+      if (value != "Deep link todo")
+        throw 'Expected detail title to persist after deep-link refresh, got ' + value;
     });
 
-    PW.testPage("todoapp: invalid deep link shows error and can return home", (page: Page) -> {
+    PW.testPage("todoapp: invalid deep link shows error and can return home", @:async function(page: Page): Promise<Void> {
       final nodeProcess: NodeProcess = cast Syntax.code("process");
       final baseUrl = switch nodeProcess.env.get("BASE_URL") {
         case null: "http://localhost:8787";
         case v: v;
       }
 
-      return page.goto(baseUrl + "/todos/does-not-exist")
-        .then(_ -> page.getByText("Todo not found").waitFor())
-        .then(_ -> page.getByRole("link", {name: "Back"}).click())
-        .then(_ -> page.waitForURL(baseUrl + "/", {waitUntil: "commit"}))
-        .then(_ -> page.getByText("Todoapp").waitFor());
+      await(page.goto(baseUrl + "/todos/does-not-exist"));
+      await(page.getByText("Todo not found").waitFor());
+      await(page.getByRole("link", {name: "Back"}).click());
+      await(page.waitForURL(baseUrl + "/", {waitUntil: "commit"}));
+      await(page.getByText("Todoapp").waitFor());
     });
   }
 }

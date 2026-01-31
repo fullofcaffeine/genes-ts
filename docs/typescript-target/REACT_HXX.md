@@ -132,3 +132,37 @@ final Button = Imports.defaultImport("./components/Button.js");
 
 return jsx('<Button label={"Save"} />');
 ```
+
+---
+
+## Typechecking behavior (important)
+
+The JSX/HXX macros are **syntactic sugar**: they don’t typecheck React props at
+Haxe compile time.
+
+Instead, the contract is:
+
+- Haxe typechecks the **interpolated expressions** (`{ ... }`) as normal Haxe.
+- TypeScript typechecks the **resulting TS/TSX** against React typings (`@types/react`).
+
+This is why genes-ts strongly recommends:
+
+- `tsc --noEmit` in CI for your generated output, and
+- strict React typings installed in the consuming project.
+
+### Testing for expected TS errors
+
+In snapshot fixtures and harnesses, it’s often useful to assert that TypeScript
+*rejects* an invalid pattern (e.g. wrong prop type).
+
+Since the invalid code must still pass Haxe typing, the pattern used in this repo
+is to inject `// @ts-expect-error` right before the generated TS expression:
+
+```haxe
+js.Syntax.code("// @ts-expect-error");
+final bad = jsx('<Button label={123} />');
+```
+
+If the generated TS becomes “too loose” (e.g. `any` leaks), TypeScript will stop
+erroring and then fail due to an unused `@ts-expect-error` directive — which is
+exactly what we want for regression protection.
