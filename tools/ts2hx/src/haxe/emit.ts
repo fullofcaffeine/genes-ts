@@ -141,6 +141,53 @@ function emitExpression(expr: ts.Expression): string | null {
 
       return `(${parts.join(" + ")})`;
     }
+    case ts.SyntaxKind.NonNullExpression: {
+      const inner = emitExpression((expr as ts.NonNullExpression).expression);
+      return inner ? `(${inner})` : null;
+    }
+    case ts.SyntaxKind.ArrowFunction: {
+      const fn = expr as ts.ArrowFunction;
+      const params = fn.parameters.map((p) => {
+        const id = ts.isIdentifier(p.name) ? p.name.text : "arg";
+        const t = emitType(p.type);
+        return p.type ? `${id}: ${t}` : id;
+      });
+
+      if (ts.isBlock(fn.body)) {
+        const body = emitStatements(fn.body.statements, "  ");
+        if (body == null) return null;
+        return `function(${params.join(", ")}) {\n${body}\n}`;
+      }
+
+      const bodyExpr = emitExpression(fn.body);
+      if (!bodyExpr) return null;
+      return `function(${params.join(", ")}) return ${bodyExpr}`;
+    }
+    case ts.SyntaxKind.ObjectLiteralExpression: {
+      const obj = expr as ts.ObjectLiteralExpression;
+      const fields: string[] = [];
+      for (const prop of obj.properties) {
+        if (ts.isPropertyAssignment(prop)) {
+          const name =
+            ts.isIdentifier(prop.name)
+              ? prop.name.text
+              : ts.isStringLiteral(prop.name)
+                ? prop.name.text
+                : null;
+          if (!name) return null;
+          const value = emitExpression(prop.initializer);
+          if (!value) return null;
+          fields.push(`${name}: ${value}`);
+          continue;
+        }
+        if (ts.isShorthandPropertyAssignment(prop)) {
+          fields.push(`${prop.name.text}: ${prop.name.text}`);
+          continue;
+        }
+        return null;
+      }
+      return `{ ${fields.join(", ")} }`;
+    }
     case ts.SyntaxKind.ArrayLiteralExpression: {
       const arr = expr as ts.ArrayLiteralExpression;
       const items = arr.elements.map(emitExpression);
@@ -158,7 +205,8 @@ function emitExpression(expr: ts.Expression): string | null {
       const access = expr as ts.PropertyAccessExpression;
       const left = emitExpression(access.expression);
       if (!left) return null;
-      return `${left}.${access.name.text}`;
+      const hasQuestionDot = "questionDotToken" in access && (access as unknown as { questionDotToken?: unknown }).questionDotToken != null;
+      return hasQuestionDot ? `${left}?.${access.name.text}` : `${left}.${access.name.text}`;
     }
     case ts.SyntaxKind.NewExpression: {
       const ne = expr as ts.NewExpression;
@@ -316,7 +364,8 @@ function emitStatement(stmt: ts.Statement, indent: string): string | null {
       const name = decl.name.text;
       const init = decl.initializer ? emitExpression(decl.initializer) : null;
       if (!init) return null;
-      decls.push(`${indent}var ${name} = ${init};`);
+      const typeSuffix = decl.type ? `: ${emitType(decl.type)}` : "";
+      decls.push(`${indent}var ${name}${typeSuffix} = ${init};`);
     }
     return decls.join("\n");
   }
@@ -393,6 +442,21 @@ function emitStatement(stmt: ts.Statement, indent: string): string | null {
     return `${indent}{\n${initLines.join("\n")}\n${whileBody}\n${indent}}`;
   }
 
+  if (ts.isForOfStatement(stmt)) {
+    if (!ts.isVariableDeclarationList(stmt.initializer)) return null;
+    const decl = stmt.initializer.declarations[0];
+    if (!decl || !ts.isIdentifier(decl.name)) return null;
+    const name = decl.name.text;
+
+    const iter = emitExpression(stmt.expression);
+    if (!iter) return null;
+
+    const bodyPart = emitStatement(stmt.statement, ts.isBlock(stmt.statement) ? indent : indent + "  ");
+    if (bodyPart == null) return null;
+    const bodyBlock = ts.isBlock(stmt.statement) ? bodyPart : `${indent}{\n${bodyPart}\n${indent}}`;
+    return `${indent}for (${name} in ${iter}) ${bodyBlock}`;
+  }
+
   return null;
 }
 
@@ -435,6 +499,28 @@ function emitFunction(fn: ts.FunctionDeclaration): string {
 
 function emitTypeAlias(decl: ts.TypeAliasDeclaration): string {
   const name = decl.name.text;
+  if (ts.isUnionTypeNode(decl.type)) {
+    const items = decl.type.types;
+    const stringLits: string[] = [];
+    for (const item of items) {
+      if (!ts.isLiteralTypeNode(item) || !ts.isStringLiteral(item.literal)) {
+        stringLits.length = 0;
+        break;
+      }
+      stringLits.push(item.literal.text);
+    }
+    if (stringLits.length > 0) {
+      const lines: string[] = [];
+      lines.push(`enum abstract ${name}(String) from String to String {`);
+      for (const lit of stringLits) {
+        const member = toHaxeModuleName(lit);
+        lines.push(`  var ${member} = ${JSON.stringify(lit)};`);
+      }
+      lines.push(`}`);
+      return lines.join("\n");
+    }
+  }
+
   const type = emitType(decl.type);
   return `typedef ${name} = ${type};`;
 }
@@ -632,6 +718,23 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
   if (imports.length > 0) out.push("");
 
   for (const stmt of sf.statements) {
+    if (ts.isVariableStatement(stmt)) {
+      const isExported = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
+      if (!isExported) continue;
+
+      const declKeyword = (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0 ? "final" : "var";
+      for (const decl of stmt.declarationList.declarations) {
+        if (!ts.isIdentifier(decl.name)) return null;
+        if (!decl.initializer) return null;
+        const init = emitExpression(decl.initializer);
+        if (!init) return null;
+        const typeSuffix = decl.type ? `: ${emitType(decl.type)}` : "";
+        out.push(`${declKeyword} ${decl.name.text}${typeSuffix} = ${init};`);
+      }
+      out.push("");
+      continue;
+    }
+
     if (ts.isFunctionDeclaration(stmt)) {
       const isExported = (ts.getCombinedModifierFlags(stmt) & ts.ModifierFlags.Export) !== 0;
       if (!isExported) continue;

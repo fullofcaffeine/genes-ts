@@ -24,6 +24,10 @@ Tests (snapshots + Haxe JS smoke):
 yarn --cwd tools/ts2hx test
 ```
 
+Current fixtures:
+- `fixtures/roundtrip-fixture/` (baseline parity)
+- `fixtures/roundtrip-advanced/` (more “real-world TS” surface: object literals, arrow fns, optional chaining, string-literal unions)
+
 Update snapshots:
 
 ```bash

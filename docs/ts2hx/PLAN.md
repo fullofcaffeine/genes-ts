@@ -256,3 +256,21 @@ The harness should:
   them only inside the runtime/stdlib boundary directories).
 
 This is intended to catch “everything became Dynamic” regressions early.
+
+## M8 — Expand roundtrip coverage (advanced fixture)
+
+We maintain a second dependency-free fixture:
+
+- `tools/ts2hx/fixtures/roundtrip-advanced/`
+
+This fixture intentionally adds a more “real-world TS” surface area while still
+being deterministic and cheap to run in CI:
+
+- exported `const` bindings (function values)
+- object literals (incl shorthand properties)
+- arrow functions (used with `Array.filter`/`Array.map`)
+- optional chaining (property access) + nullish coalescing
+- string-literal union type aliases (emitted as Haxe `enum abstract`)
+
+The roundtrip harness (`yarn --cwd tools/ts2hx test:roundtrip`) runs **both**
+fixtures.

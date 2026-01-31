@@ -112,90 +112,104 @@ function main(): number {
   const haxeBin = resolveHaxeBin(toolRoot);
 
   const tscBin = path.join(repoRoot, "node_modules", "typescript", "bin", "tsc");
-  const fixtureDir = path.join(toolRoot, "fixtures", "roundtrip-fixture");
-  const fixtureTsconfig = path.join(fixtureDir, "tsconfig.json");
+  const fixtures: Array<{ name: string; marker: string; basePackage: string }> = [
+    { name: "roundtrip-fixture", marker: "ROUNDTRIP_OK", basePackage: "ts2hx_roundtrip" },
+    { name: "roundtrip-advanced", marker: "ROUNDTRIP_ADV_OK", basePackage: "ts2hx_roundtrip_adv" }
+  ];
 
-  const marker = "ROUNDTRIP_OK";
+  for (const fixture of fixtures) {
+    const fixtureDir = path.join(toolRoot, "fixtures", fixture.name);
+    const fixtureTsconfig = path.join(fixtureDir, "tsconfig.json");
 
-  // 1) Run the original TS fixture (tsc -> node).
-  const origDist = path.join(toolRoot, ".tmp", "roundtrip-fixture-orig-dist");
-  rmrf(origDist);
-  fs.mkdirSync(origDist, { recursive: true });
-  run("node", [tscBin, "-p", fixtureTsconfig, "--outDir", origDist], repoRoot);
-  const origOut = runCapture("node", [path.join(origDist, "index.js")], repoRoot);
-  requireMarker(origOut, marker, "original fixture");
+    // 1) Run the original TS fixture (tsc -> node).
+    const origDist = path.join(toolRoot, ".tmp", `${fixture.name}-orig-dist`);
+    rmrf(origDist);
+    fs.mkdirSync(origDist, { recursive: true });
+    run("node", [tscBin, "-p", fixtureTsconfig, "--outDir", origDist], repoRoot);
+    const origOut = runCapture("node", [path.join(origDist, "index.js")], repoRoot);
+    requireMarker(origOut, fixture.marker, `original fixture (${fixture.name})`);
 
-  // 2) TS -> Haxe via ts2hx.
-  const haxeOutDir = path.join(toolRoot, ".tmp", "roundtrip-fixture-haxe");
-  rmrf(haxeOutDir);
-  fs.mkdirSync(haxeOutDir, { recursive: true });
+    // 2) TS -> Haxe via ts2hx.
+    const haxeOutDir = path.join(toolRoot, ".tmp", `${fixture.name}-haxe`);
+    rmrf(haxeOutDir);
+    fs.mkdirSync(haxeOutDir, { recursive: true });
 
-  const loaded = loadProject(fixtureTsconfig);
-  if (!loaded.ok) {
-    process.stderr.write(`Failed to load fixture project: ${fixtureTsconfig}\n`);
-    for (const d of loaded.diagnostics) process.stderr.write(`${d.messageText}\n`);
-    return 1;
+    const loaded = loadProject(fixtureTsconfig);
+    if (!loaded.ok) {
+      process.stderr.write(`Failed to load fixture project: ${fixtureTsconfig}\n`);
+      for (const d of loaded.diagnostics) process.stderr.write(`${d.messageText}\n`);
+      return 1;
+    }
+
+    emitProjectToHaxe({
+      projectDir: loaded.projectDir,
+      rootDir: loaded.rootDir,
+      program: loaded.program,
+      checker: loaded.checker,
+      sourceFiles: loaded.sourceFiles,
+      outDir: haxeOutDir,
+      basePackage: fixture.basePackage
+    });
+
+    // 3) Haxe -> TS via genes-ts.
+    const tsOutDir = path.join(toolRoot, ".tmp", `${fixture.name}-ts-src`);
+    rmrf(tsOutDir);
+    fs.mkdirSync(tsOutDir, { recursive: true });
+
+    run(
+      haxeBin,
+      [
+        "-lib",
+        "genes-ts",
+        "-cp",
+        haxeOutDir,
+        "-main",
+        `${fixture.basePackage}.Main`,
+        "-js",
+        path.join(tsOutDir, "index.ts"),
+        "-D",
+        "genes.ts"
+      ],
+      repoRoot
+    );
+
+    // 3.5) Guardrails: user modules should not devolve to `any`/`unknown`.
+    const userModulesDir = path.join(tsOutDir, fixture.basePackage);
+    assertNoUnsafeTypes({ repoRoot, absDir: userModulesDir, label: fixture.basePackage });
+
+    // 4) Typecheck + execute the roundtripped TS.
+    const roundtripDist = path.join(toolRoot, ".tmp", `${fixture.name}-ts-dist`);
+    const roundtripTsconfig = path.join(tsOutDir, "tsconfig.roundtrip.json");
+    fs.writeFileSync(
+      roundtripTsconfig,
+      JSON.stringify(
+        {
+          compilerOptions: {
+            target: "ES2022",
+            lib: ["ES2022"],
+            module: "NodeNext",
+            moduleResolution: "NodeNext",
+            strict: true,
+            noEmitOnError: true,
+            outDir: roundtripDist,
+            types: ["node"]
+          },
+          include: ["**/*.ts"]
+        },
+        null,
+        2
+      ) + "\n"
+    );
+
+    rmrf(roundtripDist);
+    fs.mkdirSync(roundtripDist, { recursive: true });
+
+    run("node", [tscBin, "-p", roundtripTsconfig], repoRoot);
+    const roundtripOut = runCapture("node", [path.join(roundtripDist, "index.js")], repoRoot);
+    requireMarker(roundtripOut, fixture.marker, `roundtripped output (${fixture.name})`);
   }
 
-  const basePackage = "ts2hx_roundtrip";
-  emitProjectToHaxe({
-    projectDir: loaded.projectDir,
-    rootDir: loaded.rootDir,
-    program: loaded.program,
-    checker: loaded.checker,
-    sourceFiles: loaded.sourceFiles,
-    outDir: haxeOutDir,
-    basePackage
-  });
-
-  // 3) Haxe -> TS via genes-ts.
-  const tsOutDir = path.join(toolRoot, ".tmp", "roundtrip-fixture-ts-src");
-  rmrf(tsOutDir);
-  fs.mkdirSync(tsOutDir, { recursive: true });
-
-  run(
-    haxeBin,
-    ["-lib", "genes-ts", "-cp", haxeOutDir, "-main", `${basePackage}.Main`, "-js", path.join(tsOutDir, "index.ts"), "-D", "genes.ts"],
-    repoRoot
-  );
-
-  // 3.5) Guardrails: user modules should not devolve to `any`/`unknown`.
-  const userModulesDir = path.join(tsOutDir, basePackage);
-  assertNoUnsafeTypes({ repoRoot, absDir: userModulesDir, label: basePackage });
-
-  // 4) Typecheck + execute the roundtripped TS.
-  const roundtripTsconfig = path.join(toolRoot, ".tmp", "roundtrip-fixture-tsconfig.json");
-  fs.writeFileSync(
-    roundtripTsconfig,
-    JSON.stringify(
-      {
-        compilerOptions: {
-          target: "ES2022",
-          lib: ["ES2022"],
-          module: "NodeNext",
-          moduleResolution: "NodeNext",
-          strict: true,
-          noEmitOnError: true,
-          rootDir: tsOutDir,
-          outDir: path.join(toolRoot, ".tmp", "roundtrip-fixture-ts-dist"),
-          types: ["node"]
-        },
-        include: ["**/*.ts"]
-      },
-      null,
-      2
-    ) + "\n"
-  );
-
-  const roundtripDist = path.join(toolRoot, ".tmp", "roundtrip-fixture-ts-dist");
-  rmrf(roundtripDist);
-  fs.mkdirSync(roundtripDist, { recursive: true });
-
-  run("node", [tscBin, "-p", roundtripTsconfig], repoRoot);
-  const roundtripOut = runCapture("node", [path.join(roundtripDist, "index.js")], repoRoot);
-  requireMarker(roundtripOut, marker, "roundtripped output");
-
-  process.stdout.write("Roundtrip OK\n");
+  process.stdout.write(`Roundtrip OK (${fixtures.length} fixtures)\n`);
   return 0;
 }
 
