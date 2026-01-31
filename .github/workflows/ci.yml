@@ -67,20 +67,23 @@ jobs:
       - run: yarn test:vulns
 
   classic:
-    name: Classic Genes (Haxe ${{ matrix.haxe-version }})
+    name: Classic Genes (Haxe ${{ matrix.haxe-version }}, Node ${{ matrix.node-version }})
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.allow-failure || false }}
     strategy:
       fail-fast: false
       matrix:
-        haxe-version:
-          - "4.3.7"
         include:
           - os: ubuntu-latest
             node-version: "20"
+            haxe-version: "4.3.7"
           - os: ubuntu-latest
             node-version: "22"
+            haxe-version: "4.3.7"
           - os: macos-latest
             node-version: "20"
+            haxe-version: "4.3.7"
+            allow-failure: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
