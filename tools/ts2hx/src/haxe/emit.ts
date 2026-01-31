@@ -103,6 +103,35 @@ function emitType(typeNode: ts.TypeNode | undefined): string {
       const p = typeNode as ts.ParenthesizedTypeNode;
       return emitType(p.type);
     }
+    case ts.SyntaxKind.TypeLiteral: {
+      const lit = typeNode as ts.TypeLiteralNode;
+      if (lit.members.length === 0) return "{}";
+
+      const parts: string[] = [];
+      for (const member of lit.members) {
+        if (ts.isPropertySignature(member) && member.name && ts.isIdentifier(member.name)) {
+          const isOptional = !!member.questionToken;
+          const fieldType = emitType(member.type);
+          parts.push(isOptional ? `@:optional var ${member.name.text}: ${fieldType};` : `var ${member.name.text}: ${fieldType};`);
+          continue;
+        }
+        if (ts.isMethodSignature(member) && member.name && ts.isIdentifier(member.name)) {
+          const isOptional = !!member.questionToken;
+          const params = member.parameters.map((p) => {
+            const id = ts.isIdentifier(p.name) ? p.name.text : "arg";
+            const isParamOptional = !!p.questionToken;
+            const t = emitType(p.type);
+            return `${isParamOptional ? "?" : ""}${id}: ${t}`;
+          });
+          const ret = emitType(member.type);
+          parts.push(`${isOptional ? "@:optional " : ""}function ${member.name.text}(${params.join(", ")}): ${ret};`);
+          continue;
+        }
+        return "Dynamic";
+      }
+
+      return `{ ${parts.join(" ")} }`;
+    }
     default:
       return "Dynamic";
   }

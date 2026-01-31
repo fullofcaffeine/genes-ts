@@ -101,6 +101,13 @@ function main(): number {
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "module-syntax"),
       basePackage: "ts2hx",
       smokeMain: "ts2hx.Main"
+    },
+    {
+      name: "type-literals",
+      tsconfigPath: path.join(toolRoot, "fixtures", "type-literals", "tsconfig.json"),
+      snapshotsDir: path.join(toolRoot, "tests_snapshots", "type-literals"),
+      basePackage: "ts2hx",
+      smokeMain: "ts2hx.Main"
     }
   ];
 

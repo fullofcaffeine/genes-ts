@@ -286,3 +286,14 @@ It is snapshot+smoke covered via `yarn --cwd tools/ts2hx test:snapshots` and inc
 - default exports + default imports,
 - namespace imports (`import * as NS from ...`),
 - re-exports (`export { ... } from ...` and `export * from ...`).
+
+## M10 — Type literal / struct typing fixture
+
+We maintain a small fixture focused on TS “struct-like” typing:
+
+- `tools/ts2hx/fixtures/type-literals/`
+
+It covers:
+- `type Foo = { ... }` object type literals,
+- optional fields (`?:`),
+- object literal expressions matching those types.
