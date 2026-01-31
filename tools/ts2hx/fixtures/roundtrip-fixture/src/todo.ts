@@ -3,11 +3,17 @@ export enum TodoStatus {
   Done = "done"
 }
 
-export type Todo = {
-  id: number;
-  title: string;
-  status: TodoStatus;
-};
+export class Todo {
+  public id: number;
+  public title: string;
+  public status: TodoStatus;
+
+  constructor(id: number, title: string, status: TodoStatus) {
+    this.id = id;
+    this.title = title;
+    this.status = status;
+  }
+}
 
 export class TodoStore {
   private nextId: number;
@@ -22,12 +28,8 @@ export class TodoStore {
     const trimmed = title.trim();
     if (trimmed.length === 0) throw new Error("title required");
 
-    const todo: Todo = {
-      id: this.nextId,
-      title: trimmed,
-      status: TodoStatus.Active
-    };
-    this.nextId++;
+    const todo = new Todo(this.nextId, trimmed, TodoStatus.Active);
+    this.nextId = this.nextId + 1;
     this.todos.push(todo);
     return todo;
   }
@@ -37,22 +39,33 @@ export class TodoStore {
     return this.todos.slice();
   }
 
-  public get(id: number): Todo | null {
-    const found = this.todos.find((t) => t.id === id);
-    return found ?? null;
+  public has(id: number): boolean {
+    for (let i = 0; i < this.todos.length; i = i + 1) {
+      const t = this.todos[i];
+      if (t.id === id) return true;
+    }
+    return false;
   }
 
   public toggle(id: number): Todo {
-    const todo = this.get(id);
-    if (!todo) throw new Error("not found");
-    todo.status = todo.status === TodoStatus.Active ? TodoStatus.Done : TodoStatus.Active;
-    return todo;
+    for (let i = 0; i < this.todos.length; i = i + 1) {
+      const t = this.todos[i];
+      if (t.id === id) {
+        t.status = t.status === TodoStatus.Active ? TodoStatus.Done : TodoStatus.Active;
+        return t;
+      }
+    }
+    throw new Error("not found");
   }
 
   public remove(id: number): boolean {
-    const idx = this.todos.findIndex((t) => t.id === id);
-    if (idx === -1) return false;
-    this.todos.splice(idx, 1);
-    return true;
+    for (let i = 0; i < this.todos.length; i = i + 1) {
+      const t = this.todos[i];
+      if (t.id === id) {
+        this.todos.splice(i, 1);
+        return true;
+      }
+    }
+    return false;
   }
 }

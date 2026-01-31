@@ -80,6 +80,13 @@ function main(): number {
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "classes-enums"),
       basePackage: "ts2hx",
       smokeMain: "ts2hx.Main"
+    },
+    {
+      name: "roundtrip-fixture",
+      tsconfigPath: path.join(toolRoot, "fixtures", "roundtrip-fixture", "tsconfig.json"),
+      snapshotsDir: path.join(toolRoot, "tests_snapshots", "roundtrip-fixture"),
+      basePackage: "ts2hx",
+      smokeMain: "ts2hx.Main"
     }
   ];
 

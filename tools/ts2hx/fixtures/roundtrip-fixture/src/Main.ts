@@ -16,14 +16,22 @@ export function main(): void {
   assertEqual(store.list().length, 2, "list length after add");
 
   store.toggle(1);
-  assert(store.get(1)?.status === TodoStatus.Done, "toggle sets done");
+  const afterToggle1 = store.list();
+  assertEqual(afterToggle1.length, 2, "list length unchanged after toggle");
+  const firstAfterToggle1 = afterToggle1[0];
+  assert(firstAfterToggle1 != null, "first todo exists");
+  assertEqual(firstAfterToggle1.id, 1, "toggle leaves first todo in list");
+  assert(firstAfterToggle1.status === TodoStatus.Done, "toggle sets done");
 
   store.toggle(1);
-  assert(store.get(1)?.status === TodoStatus.Active, "toggle sets active");
+  const afterToggle2 = store.list();
+  const firstAfterToggle2 = afterToggle2[0];
+  assert(firstAfterToggle2 != null, "first todo exists (toggle 2)");
+  assert(firstAfterToggle2.status === TodoStatus.Active, "toggle sets active");
 
   assert(store.remove(2), "remove returns true");
   assertEqual(store.list().length, 1, "list length after remove");
-  assert(store.get(2) === null, "removed todo not found");
+  assert(!store.has(2), "removed todo not found");
 
   let threw = false;
   try {

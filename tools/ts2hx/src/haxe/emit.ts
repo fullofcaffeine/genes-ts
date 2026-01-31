@@ -73,9 +73,26 @@ function emitType(typeNode: ts.TypeNode | undefined): string {
       return "Dynamic";
     case ts.SyntaxKind.TypeReference: {
       const ref = typeNode as ts.TypeReferenceNode;
-      if (ts.isIdentifier(ref.typeName)) return ref.typeName.text;
-      if (ts.isQualifiedName(ref.typeName)) return ref.typeName.right.text;
-      return "Dynamic";
+      const baseName = ts.isIdentifier(ref.typeName)
+        ? ref.typeName.text
+        : ts.isQualifiedName(ref.typeName)
+          ? ref.typeName.right.text
+          : null;
+      if (!baseName) return "Dynamic";
+
+      const typeArgs = ref.typeArguments ?? [];
+      if (typeArgs.length === 0) return baseName;
+
+      const args = typeArgs.map((a) => emitType(a));
+      return `${baseName}<${args.join(", ")}>`;
+    }
+    case ts.SyntaxKind.ArrayType: {
+      const arr = typeNode as ts.ArrayTypeNode;
+      return `Array<${emitType(arr.elementType)}>`;
+    }
+    case ts.SyntaxKind.ParenthesizedType: {
+      const p = typeNode as ts.ParenthesizedTypeNode;
+      return emitType(p.type);
     }
     default:
       return "Dynamic";
@@ -88,6 +105,8 @@ function emitExpression(expr: ts.Expression): string | null {
       return (expr as ts.NumericLiteral).text;
     case ts.SyntaxKind.StringLiteral:
       return JSON.stringify((expr as ts.StringLiteral).text);
+    case ts.SyntaxKind.NoSubstitutionTemplateLiteral:
+      return JSON.stringify((expr as ts.NoSubstitutionTemplateLiteral).text);
     case ts.SyntaxKind.TrueKeyword:
       return "true";
     case ts.SyntaxKind.FalseKeyword:
@@ -102,6 +121,39 @@ function emitExpression(expr: ts.Expression): string | null {
       const inner = emitExpression((expr as ts.ParenthesizedExpression).expression);
       return inner ? `(${inner})` : null;
     }
+    case ts.SyntaxKind.TemplateExpression: {
+      const t = expr as ts.TemplateExpression;
+      const parts: string[] = [];
+
+      // Haxe does not allow `Float + String` in strict typing, but does allow `String + Float`.
+      // Ensure we always start concatenation with a String.
+      if (t.head.text.length === 0) parts.push('""');
+      else parts.push(JSON.stringify(t.head.text));
+
+      for (const span of t.templateSpans) {
+        const value = emitExpression(span.expression);
+        if (!value) return null;
+        parts.push(value);
+
+        const tail = span.literal.text;
+        if (tail.length > 0) parts.push(JSON.stringify(tail));
+      }
+
+      return `(${parts.join(" + ")})`;
+    }
+    case ts.SyntaxKind.ArrayLiteralExpression: {
+      const arr = expr as ts.ArrayLiteralExpression;
+      const items = arr.elements.map(emitExpression);
+      if (items.some((a) => a == null)) return null;
+      return `[${items.join(", ")}]`;
+    }
+    case ts.SyntaxKind.ElementAccessExpression: {
+      const el = expr as ts.ElementAccessExpression;
+      const left = emitExpression(el.expression);
+      const index = el.argumentExpression ? emitExpression(el.argumentExpression) : null;
+      if (!left || !index) return null;
+      return `${left}[${index}]`;
+    }
     case ts.SyntaxKind.PropertyAccessExpression: {
       const access = expr as ts.PropertyAccessExpression;
       const left = emitExpression(access.expression);
@@ -110,8 +162,12 @@ function emitExpression(expr: ts.Expression): string | null {
     }
     case ts.SyntaxKind.NewExpression: {
       const ne = expr as ts.NewExpression;
-      const callee = emitExpression(ne.expression);
+      let callee = emitExpression(ne.expression);
       if (!callee) return null;
+      if (ts.isIdentifier(ne.expression) && ne.expression.text === "Error") {
+        // TS `Error` maps to `js.lib.Error` on the JS target.
+        callee = "js.lib.Error";
+      }
       const args = (ne.arguments ?? []).map(emitExpression);
       if (args.some((a) => a == null)) return null;
       return `new ${callee}(${args.join(", ")})`;
@@ -125,6 +181,12 @@ function emitExpression(expr: ts.Expression): string | null {
       if (op === ts.SyntaxKind.EqualsToken) {
         return `${left} = ${right}`;
       }
+      if (op === ts.SyntaxKind.EqualsEqualsToken || op === ts.SyntaxKind.EqualsEqualsEqualsToken) {
+        return `(${left} == ${right})`;
+      }
+      if (op === ts.SyntaxKind.ExclamationEqualsToken || op === ts.SyntaxKind.ExclamationEqualsEqualsToken) {
+        return `(${left} != ${right})`;
+      }
       if (
         op === ts.SyntaxKind.PlusToken ||
         op === ts.SyntaxKind.MinusToken ||
@@ -134,10 +196,75 @@ function emitExpression(expr: ts.Expression): string | null {
         const opText = ts.tokenToString(op) ?? "+";
         return `(${left} ${opText} ${right})`;
       }
+      if (
+        op === ts.SyntaxKind.LessThanToken ||
+        op === ts.SyntaxKind.LessThanEqualsToken ||
+        op === ts.SyntaxKind.GreaterThanToken ||
+        op === ts.SyntaxKind.GreaterThanEqualsToken
+      ) {
+        const opText = ts.tokenToString(op) ?? "<";
+        return `(${left} ${opText} ${right})`;
+      }
+      if (op === ts.SyntaxKind.AmpersandAmpersandToken || op === ts.SyntaxKind.BarBarToken) {
+        const opText = ts.tokenToString(op) ?? "&&";
+        return `(${left} ${opText} ${right})`;
+      }
+      if (op === ts.SyntaxKind.QuestionQuestionToken) {
+        return `(${left} ?? ${right})`;
+      }
       return null;
+    }
+    case ts.SyntaxKind.PrefixUnaryExpression: {
+      const un = expr as ts.PrefixUnaryExpression;
+      if (un.operator !== ts.SyntaxKind.ExclamationToken) return null;
+      const inner = emitExpression(un.operand);
+      if (!inner) return null;
+      return `!(${inner})`;
+    }
+    case ts.SyntaxKind.ConditionalExpression: {
+      const cond = expr as ts.ConditionalExpression;
+      const test = emitExpression(cond.condition);
+      const whenTrue = emitExpression(cond.whenTrue);
+      const whenFalse = emitExpression(cond.whenFalse);
+      if (!test || !whenTrue || !whenFalse) return null;
+      return `(${test} ? ${whenTrue} : ${whenFalse})`;
     }
     case ts.SyntaxKind.CallExpression: {
       const call = expr as ts.CallExpression;
+
+      // Best-effort builtin mappings for Haxe-for-JS (v0).
+      if (ts.isPropertyAccessExpression(call.expression)) {
+        const access = call.expression;
+        const left = emitExpression(access.expression);
+        if (!left) return null;
+
+        // `JSON.stringify(x)` -> `haxe.Json.stringify(x)`
+        if (access.name.text === "stringify" && ts.isIdentifier(access.expression) && access.expression.text === "JSON") {
+          if (call.arguments.length !== 1) return null;
+          const arg0 = emitExpression(call.arguments[0]);
+          if (!arg0) return null;
+          return `haxe.Json.stringify(${arg0})`;
+        }
+
+        // `str.trim()` -> `StringTools.trim(str)`
+        if (access.name.text === "trim" && call.arguments.length === 0) {
+          return `StringTools.trim(${left})`;
+        }
+
+        // `arr.slice()` -> `arr.slice(0)` (Haxe requires at least the `pos` arg).
+        if (access.name.text === "slice" && call.arguments.length === 0) {
+          return `${left}.slice(0)`;
+        }
+
+        // `console.log(x)` -> `trace(x)`
+        if (access.name.text === "log" && ts.isIdentifier(access.expression) && access.expression.text === "console") {
+          if (call.arguments.length !== 1) return null;
+          const arg0 = emitExpression(call.arguments[0]);
+          if (!arg0) return null;
+          return `trace(${arg0})`;
+        }
+      }
+
       const callee = emitExpression(call.expression);
       if (!callee) return null;
       const args = call.arguments.map(emitExpression);
@@ -153,39 +280,120 @@ function emitStatements(statements: readonly ts.Statement[], indent: string): st
   const out: string[] = [];
 
   for (const stmt of statements) {
-    if (ts.isReturnStatement(stmt)) {
-      if (!stmt.expression) {
-        out.push(`${indent}return;`);
-        continue;
-      }
-      const expr = emitExpression(stmt.expression);
-      if (!expr) return null;
-      out.push(`${indent}return ${expr};`);
-      continue;
-    }
-
-    if (ts.isExpressionStatement(stmt)) {
-      const expr = emitExpression(stmt.expression);
-      if (!expr) return null;
-      out.push(`${indent}${expr};`);
-      continue;
-    }
-
-    if (ts.isVariableStatement(stmt)) {
-      for (const decl of stmt.declarationList.declarations) {
-        if (!ts.isIdentifier(decl.name)) return null;
-        const name = decl.name.text;
-        const init = decl.initializer ? emitExpression(decl.initializer) : null;
-        if (!init) return null;
-        out.push(`${indent}var ${name} = ${init};`);
-      }
-      continue;
-    }
-
-    return null;
+    const emitted = emitStatement(stmt, indent);
+    if (emitted == null) return null;
+    if (emitted.length > 0) out.push(emitted);
   }
 
   return out.join("\n");
+}
+
+function emitStatement(stmt: ts.Statement, indent: string): string | null {
+  if (ts.isBlock(stmt)) {
+    const inner = emitStatements(stmt.statements, indent + "  ");
+    if (inner == null) return null;
+    if (inner.length === 0) return `${indent}{}`;
+    return `${indent}{\n${inner}\n${indent}}`;
+  }
+
+  if (ts.isReturnStatement(stmt)) {
+    if (!stmt.expression) return `${indent}return;`;
+    const expr = emitExpression(stmt.expression);
+    if (!expr) return null;
+    return `${indent}return ${expr};`;
+  }
+
+  if (ts.isExpressionStatement(stmt)) {
+    const expr = emitExpression(stmt.expression);
+    if (!expr) return null;
+    return `${indent}${expr};`;
+  }
+
+  if (ts.isVariableStatement(stmt)) {
+    const decls: string[] = [];
+    for (const decl of stmt.declarationList.declarations) {
+      if (!ts.isIdentifier(decl.name)) return null;
+      const name = decl.name.text;
+      const init = decl.initializer ? emitExpression(decl.initializer) : null;
+      if (!init) return null;
+      decls.push(`${indent}var ${name} = ${init};`);
+    }
+    return decls.join("\n");
+  }
+
+  if (ts.isIfStatement(stmt)) {
+    const cond = emitExpression(stmt.expression);
+    if (!cond) return null;
+    const thenPart = emitStatement(stmt.thenStatement, ts.isBlock(stmt.thenStatement) ? indent : indent + "  ");
+    if (thenPart == null) return null;
+    const thenBlock = ts.isBlock(stmt.thenStatement) ? thenPart : `${indent}{\n${thenPart}\n${indent}}`;
+
+    if (!stmt.elseStatement) return `${indent}if (${cond}) ${thenBlock}`;
+
+    const elsePart = emitStatement(stmt.elseStatement, ts.isBlock(stmt.elseStatement) ? indent : indent + "  ");
+    if (elsePart == null) return null;
+    const elseBlock = ts.isBlock(stmt.elseStatement) ? elsePart : `${indent}{\n${elsePart}\n${indent}}`;
+    return `${indent}if (${cond}) ${thenBlock} else ${elseBlock}`;
+  }
+
+  if (ts.isThrowStatement(stmt)) {
+    const expr = stmt.expression ? emitExpression(stmt.expression) : null;
+    if (!expr) return null;
+    return `${indent}throw ${expr};`;
+  }
+
+  if (ts.isTryStatement(stmt)) {
+    const tryBlock = emitStatement(stmt.tryBlock, indent);
+    if (tryBlock == null) return null;
+    if (!stmt.catchClause) return null;
+    const catchName =
+      stmt.catchClause.variableDeclaration && ts.isIdentifier(stmt.catchClause.variableDeclaration.name)
+        ? stmt.catchClause.variableDeclaration.name.text
+        : "e";
+    const catchBody = emitStatement(stmt.catchClause.block, indent);
+    if (catchBody == null) return null;
+
+    const tryBlockNoIndent = tryBlock.startsWith(indent) ? tryBlock.slice(indent.length) : tryBlock;
+    const catchBodyNoIndent = catchBody.startsWith(indent) ? catchBody.slice(indent.length) : catchBody;
+    return `${indent}try ${tryBlockNoIndent} catch (${catchName}: Dynamic) ${catchBodyNoIndent}`;
+  }
+
+  if (ts.isForStatement(stmt)) {
+    // Best-effort translation to a `while` loop.
+    if (!stmt.initializer || !stmt.condition || !stmt.incrementor) return null;
+
+    const initLines: string[] = [];
+    if (ts.isVariableDeclarationList(stmt.initializer)) {
+      for (const decl of stmt.initializer.declarations) {
+        if (!ts.isIdentifier(decl.name)) return null;
+        const init = decl.initializer ? emitExpression(decl.initializer) : null;
+        if (!init) return null;
+        initLines.push(`${indent}  var ${decl.name.text} = ${init};`);
+      }
+    } else {
+      const init = emitExpression(stmt.initializer);
+      if (!init) return null;
+      initLines.push(`${indent}  ${init};`);
+    }
+
+    const cond = emitExpression(stmt.condition);
+    const inc = emitExpression(stmt.incrementor);
+    if (!cond || !inc) return null;
+
+    const bodyInner = ts.isBlock(stmt.statement)
+      ? emitStatements(stmt.statement.statements, indent + "    ")
+      : emitStatement(stmt.statement, indent + "    ");
+    if (bodyInner == null) return null;
+
+    const whileBody =
+      bodyInner.length === 0
+        ? `${indent}  while (${cond}) {\n${indent}    ${inc};\n${indent}  }`
+        : `${indent}  while (${cond}) {\n${bodyInner}\n${indent}    ${inc};\n${indent}  }`;
+
+    return `${indent}{\n${initLines.join("\n")}\n${whileBody}\n${indent}}`;
+  }
+
+  return null;
 }
 
 function emitFunctionLike(opts: {
