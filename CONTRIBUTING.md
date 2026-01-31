@@ -48,3 +48,7 @@ yarn test:acceptance
 - Keep changes focused and well-tested.
 - Update docs when behavior/flags/output changes.
 - If you add a workaround/exception (e.g. `.osv-scanner.toml`), justify it and time-bound it.
+
+## GitHub Actions note
+
+GitHub may still show a workflow named `.github/workflows/main.yml`. This is a **legacy** CI workflow that existed earlier in the repo history; GitHub keeps it listed because old runs still exist. The active workflows are the ones currently present in `.github/workflows/`.

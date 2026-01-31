@@ -1,4 +1,4 @@
-name: CI
+name: genes-ts CI
 
 on:
   push:
