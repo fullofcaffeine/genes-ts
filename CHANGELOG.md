@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.2.0...v1.3.0) (2026-01-31)
+
+
+### Features
+
+* **ts2hx:** basic statement coverage ([da682ea](https://github.com/fullofcaffeine/genes-ts/commit/da682ea70f8f9c7d8c4b3d95b4fc042b6218d083))
+
 # [1.2.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.1.3...v1.2.0) (2026-01-31)
 
 
