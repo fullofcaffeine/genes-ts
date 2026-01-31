@@ -351,8 +351,26 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
     }
     case ts.SyntaxKind.ObjectLiteralExpression: {
       const obj = expr as ts.ObjectLiteralExpression;
-      const fields: string[] = [];
+      const literalFields: string[] = [];
+      const parts: string[] = [];
+      let sawSpread = false;
+
+      function flushLiteral() {
+        if (literalFields.length === 0) return;
+        parts.push(`{ ${literalFields.join(", ")} }`);
+        literalFields.length = 0;
+      }
+
       for (const prop of obj.properties) {
+        if (ts.isSpreadAssignment(prop)) {
+          sawSpread = true;
+          flushLiteral();
+          const spreadValue = emitExpression(ctx, prop.expression);
+          if (!spreadValue) return null;
+          parts.push(spreadValue);
+          continue;
+        }
+
         if (ts.isPropertyAssignment(prop)) {
           const name =
             ts.isIdentifier(prop.name)
@@ -363,16 +381,61 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
           if (!name) return null;
           const value = emitExpression(ctx, prop.initializer);
           if (!value) return null;
-          fields.push(`${name}: ${value}`);
+          literalFields.push(`${name}: ${value}`);
           continue;
         }
+
         if (ts.isShorthandPropertyAssignment(prop)) {
-          fields.push(`${prop.name.text}: ${prop.name.text}`);
+          const name = prop.name.text;
+          const value = ctx.identifierRewrites.get(name) ?? name;
+          literalFields.push(`${name}: ${value}`);
           continue;
         }
+
+        if (ts.isMethodDeclaration(prop) && prop.name) {
+          const name =
+            ts.isIdentifier(prop.name)
+              ? prop.name.text
+              : ts.isStringLiteral(prop.name)
+                ? prop.name.text
+                : null;
+          if (!name) return null;
+          if (!prop.body) return null;
+
+          const params = prop.parameters.map((p) => {
+            const id = ts.isIdentifier(p.name) ? p.name.text : "arg";
+            const isOptional = !!p.questionToken;
+            const t = emitType(p.type);
+            return `${isOptional ? "?" : ""}${id}: ${t}`;
+          });
+
+          let fn: string | null = null;
+          if (prop.body.statements.length === 1 && ts.isReturnStatement(prop.body.statements[0])) {
+            const ret = prop.body.statements[0] as ts.ReturnStatement;
+            if (!ret.expression) return null;
+            const retExpr = emitExpression(ctx, ret.expression);
+            if (!retExpr) return null;
+            fn = `function(${params.join(", ")}) return ${retExpr}`;
+          } else {
+            const body = emitStatements(ctx, prop.body.statements, "  ");
+            if (body == null) return null;
+            fn = `function(${params.join(", ")}) {\n${body}\n}`;
+          }
+
+          literalFields.push(`${name}: ${fn}`);
+          continue;
+        }
+
         return null;
       }
-      return `{ ${fields.join(", ")} }`;
+
+      if (!sawSpread) return `{ ${literalFields.join(", ")} }`;
+
+      flushLiteral();
+      if (parts.length === 0) return "{}";
+      // `js.lib.Object.assign` returns the target type, so use a `Dynamic` target to avoid
+      // over-constraining the inferred anonymous-structure type (which would break field access).
+      return `js.lib.Object.assign(cast {}, ${parts.join(", ")})`;
     }
     case ts.SyntaxKind.ArrayLiteralExpression: {
       const arr = expr as ts.ArrayLiteralExpression;
