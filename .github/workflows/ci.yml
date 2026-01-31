@@ -19,7 +19,6 @@ permissions:
 
 env:
   NODE_VERSION: "20"
-  NODE_VERSION_NEXT_LTS: "22"
   YARN_VERSION: "1.22.22"
   HAXE_VERSION: "4.3.7"
 
@@ -142,15 +141,19 @@ jobs:
       - run: yarn test:ts2hx
 
   genes-ts-smoke-next-lts:
-    name: genes-ts smoke (Node ${{ env.NODE_VERSION_NEXT_LTS }})
+    name: genes-ts smoke (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["22"]
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION_NEXT_LTS }}
+          node-version: ${{ matrix.node-version }}
           cache: yarn
           cache-dependency-path: yarn.lock
       - run: corepack enable
@@ -160,9 +163,9 @@ jobs:
         with:
           path: |
             ~/haxe
-          key: ${{ runner.os }}-lix-haxe-${{ env.HAXE_VERSION }}-node-${{ env.NODE_VERSION_NEXT_LTS }}-${{ hashFiles('.haxerc', 'haxe_libraries/*.hxml', 'yarn.lock') }}
+          key: ${{ runner.os }}-lix-haxe-${{ env.HAXE_VERSION }}-node-${{ matrix.node-version }}-${{ hashFiles('.haxerc', 'haxe_libraries/*.hxml', 'yarn.lock') }}
           restore-keys: |
-            ${{ runner.os }}-lix-haxe-${{ env.HAXE_VERSION }}-node-${{ env.NODE_VERSION_NEXT_LTS }}-
+            ${{ runner.os }}-lix-haxe-${{ env.HAXE_VERSION }}-node-${{ matrix.node-version }}-
             ${{ runner.os }}-lix-haxe-${{ env.HAXE_VERSION }}-
       - run: yarn install --frozen-lockfile
       - run: yarn lix install haxe ${{ env.HAXE_VERSION }}
