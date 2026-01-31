@@ -1,0 +1,38 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Todoapp: Server (node, TS sources)",
+      "type": "pwa-node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "runtimeArgs": ["--enable-source-maps"],
+      "program": "${workspaceFolder}/examples/todoapp/server/dist/index.js",
+      "env": {
+        "PORT": "8787"
+      },
+      "preLaunchTask": "genes-ts: build todoapp",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"],
+      "outFiles": ["${workspaceFolder}/examples/todoapp/server/dist/**/*.js"]
+    },
+    {
+      "name": "Todoapp: Web (Chrome, TS sources)",
+      "type": "pwa-chrome",
+      "request": "launch",
+      "url": "http://localhost:8787",
+      "webRoot": "${workspaceFolder}/examples/todoapp/web",
+      "preLaunchTask": "genes-ts: build todoapp"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Todoapp: Fullstack (server + web)",
+      "configurations": [
+        "Todoapp: Server (node, TS sources)",
+        "Todoapp: Web (Chrome, TS sources)"
+      ]
+    }
+  ]
+}
+

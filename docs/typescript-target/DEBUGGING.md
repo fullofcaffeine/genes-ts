@@ -9,6 +9,43 @@ genes-ts emits **TypeScript source** as its primary artifact. The recommended de
 
 Note: Automatic JS → TS → Haxe source-map *composition* is not guaranteed in v1 (tracked separately).
 
+---
+
+## VSCode: debug the todoapp server (breakpoints in generated TS)
+
+This repo includes a copy-pastable VSCode setup:
+
+- `.vscode/tasks.json` has a `genes-ts: build todoapp` task.
+- `.vscode/launch.json` has:
+  - `Todoapp: Server (node, TS sources)`
+  - `Todoapp: Web (Chrome, TS sources)`
+  - `Todoapp: Fullstack (server + web)` (compound)
+
+Workflow:
+
+1) Build once (or let VSCode run the preLaunch task):
+
+```bash
+npm run build:example:todoapp
+```
+
+2) Set a breakpoint in one of the generated TS files, for example:
+
+- `examples/todoapp/server/src-gen/todo/server/Main.ts`
+
+Note: `src-gen/` is gitignored and regenerated; it’s the source tree that `tsc`
+produces JS source maps against. The checked-in `dist-ts/**` trees are “intended
+output snapshots” and are not used at runtime.
+
+3) Run the VSCode launch config:
+
+- `Todoapp: Server (node, TS sources)`
+
+This launches:
+
+- `examples/todoapp/server/dist/index.js`
+- with Node `--enable-source-maps`, so stack traces and breakpoints map back to TS.
+
 ## Node debugging (TS sources)
 
 1) Build the example:
@@ -52,4 +89,3 @@ You will generally debug **TS**, not original **Haxe**, because the runtime exec
 - genes-ts provides Haxe → TS maps.
 
 Some tooling can chain maps manually, but an official composition step (JS → Haxe) is tracked as a future milestone.
-

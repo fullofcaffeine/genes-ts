@@ -1,0 +1,13 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "genes-ts: build todoapp",
+      "type": "shell",
+      "command": "yarn build:example:todoapp",
+      "problemMatcher": [],
+      "group": "build"
+    }
+  ]
+}
+
