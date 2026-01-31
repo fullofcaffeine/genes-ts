@@ -65,6 +65,152 @@ type EmitContext = {
   identifierRewrites: Map<string, string>;
 };
 
+type ExternModule = {
+  moduleSpecifier: string;
+  className: string;
+  needsDefault: boolean;
+  namedValues: Set<string>;
+};
+
+function isValidHaxeIdentifier(name: string): boolean {
+  return /^[_a-zA-Z][_a-zA-Z0-9]*$/.test(name);
+}
+
+// Minimal reserved-word protection for extern field names.
+// Keep this list short and add to it when real-world fixtures demand it.
+const HAXE_RESERVED = new Set([
+  "default",
+  "function",
+  "var",
+  "final",
+  "class",
+  "enum",
+  "typedef",
+  "package",
+  "import",
+  "public",
+  "private",
+  "static",
+  "new",
+  "null",
+  "true",
+  "false"
+]);
+
+function externFieldForExportName(exportedName: string): { hxName: string; nativeName: string | null } {
+  if (exportedName === "default") return { hxName: "__default", nativeName: "default" };
+  if (isValidHaxeIdentifier(exportedName) && !HAXE_RESERVED.has(exportedName)) return { hxName: exportedName, nativeName: null };
+
+  const cleaned = exportedName
+    .replace(/^[^_a-zA-Z]+/, "_")
+    .replace(/[^_a-zA-Z0-9]/g, "_");
+  const hxName = cleaned.length > 0 && !HAXE_RESERVED.has(cleaned) ? cleaned : `_${cleaned}`;
+  return { hxName, nativeName: exportedName };
+}
+
+function externModuleNameFromSpecifier(spec: string): string {
+  return toHaxeModuleName(spec.replace(/^@/, "").replace(/[^a-z0-9]+/gi, "_"));
+}
+
+function collectNamespaceMemberAccesses(sf: ts.SourceFile, namespaceImports: Array<{ alias: string; moduleSpecifier: string }>): Map<string, Set<string>> {
+  const aliasToSpec = new Map<string, string>();
+  for (const imp of namespaceImports) aliasToSpec.set(imp.alias, imp.moduleSpecifier);
+
+  const perSpec = new Map<string, Set<string>>();
+  function add(spec: string, name: string) {
+    const existing = perSpec.get(spec) ?? new Set<string>();
+    existing.add(name);
+    perSpec.set(spec, existing);
+  }
+
+  function visit(node: ts.Node) {
+    if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)) {
+      const spec = aliasToSpec.get(node.expression.text);
+      if (spec) add(spec, node.name.text);
+    }
+
+    if (
+      ts.isElementAccessExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.argumentExpression &&
+      ts.isStringLiteral(node.argumentExpression)
+    ) {
+      const spec = aliasToSpec.get(node.expression.text);
+      if (spec) add(spec, node.argumentExpression.text);
+    }
+
+    ts.forEachChild(node, visit);
+  }
+
+  visit(sf);
+  return perSpec;
+}
+
+function buildExternModules(opts: EmitHaxeOptions): Map<string, ExternModule> {
+  const externs = new Map<string, ExternModule>();
+
+  for (const sf of opts.sourceFiles) {
+    const imports = collectImports(sf);
+
+    for (const imp of imports) {
+      if (isRelativeModuleSpecifier(imp.moduleSpecifier)) continue;
+
+      const existing = externs.get(imp.moduleSpecifier);
+      const ex: ExternModule =
+        existing ??
+        ({
+          moduleSpecifier: imp.moduleSpecifier,
+          className: externModuleNameFromSpecifier(imp.moduleSpecifier),
+          needsDefault: false,
+          namedValues: new Set<string>()
+        } as ExternModule);
+
+      if (imp.defaultImport) ex.needsDefault = true;
+      for (const el of imp.named) {
+        const exportedName = el.alias ?? el.name;
+        ex.namedValues.add(exportedName);
+      }
+
+      externs.set(imp.moduleSpecifier, ex);
+    }
+
+    const namespaceImports = imports
+      .filter((i) => !isRelativeModuleSpecifier(i.moduleSpecifier) && i.namespaceImport)
+      .map((i) => ({ alias: i.namespaceImport as string, moduleSpecifier: i.moduleSpecifier }));
+    const accessed = collectNamespaceMemberAccesses(sf, namespaceImports);
+    for (const [spec, names] of accessed.entries()) {
+      const ex = externs.get(spec);
+      if (!ex) continue;
+      for (const n of names) ex.namedValues.add(n);
+    }
+  }
+
+  return externs;
+}
+
+function emitExternModuleFile(opts: EmitHaxeOptions, ex: ExternModule): { filePath: string; content: string } {
+  const externPackage = toHaxePackagePath([opts.basePackage, "extern"]);
+  const basePackageDirs = opts.basePackage.split(".").filter((p) => p.length > 0);
+  const outAbsFile = path.resolve(opts.outDir, path.join(...basePackageDirs, "extern", `${ex.className}.hx`));
+
+  const lines: string[] = [];
+  lines.push(`package ${externPackage};`);
+  lines.push("");
+  lines.push(`@:jsRequire(${JSON.stringify(ex.moduleSpecifier)})`);
+  lines.push(`extern class ${ex.className} {`);
+  if (ex.needsDefault) lines.push(`  @:native("default") static var __default: Dynamic;`);
+  for (const exportName of Array.from(ex.namedValues).sort((a, b) => a.localeCompare(b))) {
+    const f = externFieldForExportName(exportName);
+    if (f.hxName === "__default" && ex.needsDefault) continue;
+    if (f.nativeName) lines.push(`  @:native(${JSON.stringify(f.nativeName)}) static var ${f.hxName}: Dynamic;`);
+    else lines.push(`  static var ${f.hxName}: Dynamic;`);
+  }
+  lines.push(`}`);
+  lines.push("");
+
+  return { filePath: outAbsFile, content: lines.join("\n") };
+}
+
 function emitType(typeNode: ts.TypeNode | undefined): string {
   if (!typeNode) return "Dynamic";
 
@@ -844,35 +990,49 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
   const imports = collectImports(sf);
   const importLines: string[] = [];
   for (const imp of imports) {
-    if (!isRelativeModuleSpecifier(imp.moduleSpecifier)) continue;
+    if (isRelativeModuleSpecifier(imp.moduleSpecifier)) {
+      const target = moduleTargetFromImport(
+        { projectDir: opts.projectDir, rootDir: opts.rootDir, fromFile: absFile, basePackage: opts.basePackage },
+        imp.moduleSpecifier
+      );
 
-    const target = moduleTargetFromImport(
-      { projectDir: opts.projectDir, rootDir: opts.rootDir, fromFile: absFile, basePackage: opts.basePackage },
-      imp.moduleSpecifier
-    );
+      const moduleBase = target.packagePath.length > 0 ? `${target.packagePath}.${target.moduleName}` : target.moduleName;
 
-    const moduleBase = target.packagePath.length > 0 ? `${target.packagePath}.${target.moduleName}` : target.moduleName;
-
-    if (imp.defaultImport) {
-      importLines.push(`import ${moduleBase}.__default as ${imp.defaultImport};`);
-    }
-    if (imp.namespaceImport) {
-      ctx.identifierRewrites.set(imp.namespaceImport, moduleBase);
-    }
-
-    for (const { name, alias } of imp.named) {
-      const effectiveName = alias ?? name;
-      if (isLikelyTypeName(effectiveName)) {
-        const typeImport =
-          effectiveName === target.moduleName
-            ? target.packagePath.length > 0
-              ? `${target.packagePath}.${effectiveName}`
-              : effectiveName
-            : `${moduleBase}.${effectiveName}`;
-        importLines.push(alias ? `import ${typeImport} as ${name};` : `import ${typeImport};`);
-      } else {
-        importLines.push(alias ? `import ${moduleBase}.${effectiveName} as ${name};` : `import ${moduleBase}.${effectiveName};`);
+      if (imp.defaultImport) {
+        importLines.push(`import ${moduleBase}.__default as ${imp.defaultImport};`);
       }
+      if (imp.namespaceImport) {
+        ctx.identifierRewrites.set(imp.namespaceImport, moduleBase);
+      }
+
+      for (const { name, alias } of imp.named) {
+        const effectiveName = alias ?? name;
+        if (isLikelyTypeName(effectiveName)) {
+          const typeImport =
+            effectiveName === target.moduleName
+              ? target.packagePath.length > 0
+                ? `${target.packagePath}.${effectiveName}`
+                : effectiveName
+              : `${moduleBase}.${effectiveName}`;
+          importLines.push(alias ? `import ${typeImport} as ${name};` : `import ${typeImport};`);
+        } else {
+          importLines.push(alias ? `import ${moduleBase}.${effectiveName} as ${name};` : `import ${moduleBase}.${effectiveName};`);
+        }
+      }
+      continue;
+    }
+
+    // Non-relative module specifiers: rewrite identifiers to generated extern modules.
+    const externPackage = toHaxePackagePath([opts.basePackage, "extern"]);
+    const externModuleName = externModuleNameFromSpecifier(imp.moduleSpecifier);
+    const moduleBase = `${externPackage}.${externModuleName}`;
+
+    if (imp.namespaceImport) ctx.identifierRewrites.set(imp.namespaceImport, moduleBase);
+    if (imp.defaultImport) ctx.identifierRewrites.set(imp.defaultImport, `${moduleBase}.__default`);
+    for (const { name, alias } of imp.named) {
+      const exportedName = alias ?? name;
+      const field = exportedName === "default" ? "__default" : exportedName;
+      ctx.identifierRewrites.set(name, `${moduleBase}.${field}`);
     }
   }
 
@@ -1006,6 +1166,14 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
 export function emitProjectToHaxe(opts: EmitHaxeOptions): { writtenFiles: string[] } {
   const writtenFiles: string[] = [];
   fs.mkdirSync(opts.outDir, { recursive: true });
+
+  const externs = buildExternModules(opts);
+  for (const ex of Array.from(externs.values()).sort((a, b) => a.moduleSpecifier.localeCompare(b.moduleSpecifier))) {
+    const emitted = emitExternModuleFile(opts, ex);
+    fs.mkdirSync(path.dirname(emitted.filePath), { recursive: true });
+    fs.writeFileSync(emitted.filePath, emitted.content, "utf8");
+    writtenFiles.push(emitted.filePath);
+  }
 
   for (const sf of opts.sourceFiles.slice().sort((a, b) => a.fileName.localeCompare(b.fileName))) {
     const emitted = emitHaxeSourceFile(opts, sf);

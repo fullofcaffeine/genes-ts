@@ -59,6 +59,7 @@ type Fixture = {
   snapshotsDir: string;
   basePackage: string;
   smokeMain: string | null;
+  smokeRun?: boolean;
 };
 
 function main(): number {
@@ -108,6 +109,16 @@ function main(): number {
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "type-literals"),
       basePackage: "ts2hx",
       smokeMain: "ts2hx.Main"
+    },
+    {
+      name: "non-relative-imports",
+      tsconfigPath: path.join(toolRoot, "fixtures", "non-relative-imports", "tsconfig.json"),
+      snapshotsDir: path.join(toolRoot, "tests_snapshots", "non-relative-imports"),
+      basePackage: "ts2hx",
+      smokeMain: "ts2hx.Main",
+      // Haxe's JS output for `@:jsRequire` uses CommonJS `require()`. The ts2hx tool package is ESM (`type: "module"`),
+      // so `node dist/index.js` would fail at runtime for this fixture. We still compile the emitted Haxe as a smoke test.
+      smokeRun: false
     }
   ];
 
@@ -185,7 +196,7 @@ function main(): number {
       rmrf(distDir);
       fs.mkdirSync(distDir, { recursive: true });
       run(haxeBin, ["-cp", outDir, "-main", fixture.smokeMain, "-js", path.join(distDir, "index.js")], toolRoot);
-      run("node", [path.join(distDir, "index.js")], toolRoot);
+      if (fixture.smokeRun !== false) run("node", [path.join(distDir, "index.js")], toolRoot);
     }
   }
 
