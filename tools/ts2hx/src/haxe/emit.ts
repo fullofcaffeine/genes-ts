@@ -14,10 +14,15 @@ export type EmitHaxeOptions = {
 };
 
 type ImportSpec = {
-  kind: "named";
   moduleSpecifier: string;
+  defaultImport: string | null;
+  namespaceImport: string | null;
   named: Array<{ name: string; alias: string | null }>;
 };
+
+type ExportFromSpec =
+  | { kind: "named"; moduleSpecifier: string; elements: Array<{ exported: string; source: string }> }
+  | { kind: "all"; moduleSpecifier: string };
 
 function isRelativeModuleSpecifier(spec: string): boolean {
   return spec.startsWith("./") || spec.startsWith("../");
@@ -55,6 +60,10 @@ function moduleTargetFromImport(opts: {
 function isLikelyTypeName(name: string): boolean {
   return /^[A-Z]/.test(name);
 }
+
+type EmitContext = {
+  identifierRewrites: Map<string, string>;
+};
 
 function emitType(typeNode: ts.TypeNode | undefined): string {
   if (!typeNode) return "Dynamic";
@@ -99,7 +108,7 @@ function emitType(typeNode: ts.TypeNode | undefined): string {
   }
 }
 
-function emitExpression(expr: ts.Expression): string | null {
+function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
   switch (expr.kind) {
     case ts.SyntaxKind.NumericLiteral:
       return (expr as ts.NumericLiteral).text;
@@ -113,12 +122,14 @@ function emitExpression(expr: ts.Expression): string | null {
       return "false";
     case ts.SyntaxKind.NullKeyword:
       return "null";
-    case ts.SyntaxKind.Identifier:
-      return (expr as ts.Identifier).text;
+    case ts.SyntaxKind.Identifier: {
+      const name = (expr as ts.Identifier).text;
+      return ctx.identifierRewrites.get(name) ?? name;
+    }
     case ts.SyntaxKind.ThisKeyword:
       return "this";
     case ts.SyntaxKind.ParenthesizedExpression: {
-      const inner = emitExpression((expr as ts.ParenthesizedExpression).expression);
+      const inner = emitExpression(ctx, (expr as ts.ParenthesizedExpression).expression);
       return inner ? `(${inner})` : null;
     }
     case ts.SyntaxKind.TemplateExpression: {
@@ -131,7 +142,7 @@ function emitExpression(expr: ts.Expression): string | null {
       else parts.push(JSON.stringify(t.head.text));
 
       for (const span of t.templateSpans) {
-        const value = emitExpression(span.expression);
+        const value = emitExpression(ctx, span.expression);
         if (!value) return null;
         parts.push(value);
 
@@ -142,7 +153,7 @@ function emitExpression(expr: ts.Expression): string | null {
       return `(${parts.join(" + ")})`;
     }
     case ts.SyntaxKind.NonNullExpression: {
-      const inner = emitExpression((expr as ts.NonNullExpression).expression);
+      const inner = emitExpression(ctx, (expr as ts.NonNullExpression).expression);
       return inner ? `(${inner})` : null;
     }
     case ts.SyntaxKind.ArrowFunction: {
@@ -154,12 +165,12 @@ function emitExpression(expr: ts.Expression): string | null {
       });
 
       if (ts.isBlock(fn.body)) {
-        const body = emitStatements(fn.body.statements, "  ");
+        const body = emitStatements(ctx, fn.body.statements, "  ");
         if (body == null) return null;
         return `function(${params.join(", ")}) {\n${body}\n}`;
       }
 
-      const bodyExpr = emitExpression(fn.body);
+      const bodyExpr = emitExpression(ctx, fn.body);
       if (!bodyExpr) return null;
       return `function(${params.join(", ")}) return ${bodyExpr}`;
     }
@@ -175,7 +186,7 @@ function emitExpression(expr: ts.Expression): string | null {
                 ? prop.name.text
                 : null;
           if (!name) return null;
-          const value = emitExpression(prop.initializer);
+          const value = emitExpression(ctx, prop.initializer);
           if (!value) return null;
           fields.push(`${name}: ${value}`);
           continue;
@@ -190,40 +201,40 @@ function emitExpression(expr: ts.Expression): string | null {
     }
     case ts.SyntaxKind.ArrayLiteralExpression: {
       const arr = expr as ts.ArrayLiteralExpression;
-      const items = arr.elements.map(emitExpression);
+      const items = arr.elements.map((e) => emitExpression(ctx, e));
       if (items.some((a) => a == null)) return null;
       return `[${items.join(", ")}]`;
     }
     case ts.SyntaxKind.ElementAccessExpression: {
       const el = expr as ts.ElementAccessExpression;
-      const left = emitExpression(el.expression);
-      const index = el.argumentExpression ? emitExpression(el.argumentExpression) : null;
+      const left = emitExpression(ctx, el.expression);
+      const index = el.argumentExpression ? emitExpression(ctx, el.argumentExpression) : null;
       if (!left || !index) return null;
       return `${left}[${index}]`;
     }
     case ts.SyntaxKind.PropertyAccessExpression: {
       const access = expr as ts.PropertyAccessExpression;
-      const left = emitExpression(access.expression);
+      const left = emitExpression(ctx, access.expression);
       if (!left) return null;
       const hasQuestionDot = "questionDotToken" in access && (access as unknown as { questionDotToken?: unknown }).questionDotToken != null;
       return hasQuestionDot ? `${left}?.${access.name.text}` : `${left}.${access.name.text}`;
     }
     case ts.SyntaxKind.NewExpression: {
       const ne = expr as ts.NewExpression;
-      let callee = emitExpression(ne.expression);
+      let callee = emitExpression(ctx, ne.expression);
       if (!callee) return null;
       if (ts.isIdentifier(ne.expression) && ne.expression.text === "Error") {
         // TS `Error` maps to `js.lib.Error` on the JS target.
         callee = "js.lib.Error";
       }
-      const args = (ne.arguments ?? []).map(emitExpression);
+      const args = (ne.arguments ?? []).map((a) => emitExpression(ctx, a));
       if (args.some((a) => a == null)) return null;
       return `new ${callee}(${args.join(", ")})`;
     }
     case ts.SyntaxKind.BinaryExpression: {
       const bin = expr as ts.BinaryExpression;
-      const left = emitExpression(bin.left);
-      const right = emitExpression(bin.right);
+      const left = emitExpression(ctx, bin.left);
+      const right = emitExpression(ctx, bin.right);
       if (!left || !right) return null;
       const op = bin.operatorToken.kind;
       if (op === ts.SyntaxKind.EqualsToken) {
@@ -265,15 +276,15 @@ function emitExpression(expr: ts.Expression): string | null {
     case ts.SyntaxKind.PrefixUnaryExpression: {
       const un = expr as ts.PrefixUnaryExpression;
       if (un.operator !== ts.SyntaxKind.ExclamationToken) return null;
-      const inner = emitExpression(un.operand);
+      const inner = emitExpression(ctx, un.operand);
       if (!inner) return null;
       return `!(${inner})`;
     }
     case ts.SyntaxKind.ConditionalExpression: {
       const cond = expr as ts.ConditionalExpression;
-      const test = emitExpression(cond.condition);
-      const whenTrue = emitExpression(cond.whenTrue);
-      const whenFalse = emitExpression(cond.whenFalse);
+      const test = emitExpression(ctx, cond.condition);
+      const whenTrue = emitExpression(ctx, cond.whenTrue);
+      const whenFalse = emitExpression(ctx, cond.whenFalse);
       if (!test || !whenTrue || !whenFalse) return null;
       return `(${test} ? ${whenTrue} : ${whenFalse})`;
     }
@@ -283,13 +294,13 @@ function emitExpression(expr: ts.Expression): string | null {
       // Best-effort builtin mappings for Haxe-for-JS (v0).
       if (ts.isPropertyAccessExpression(call.expression)) {
         const access = call.expression;
-        const left = emitExpression(access.expression);
+        const left = emitExpression(ctx, access.expression);
         if (!left) return null;
 
         // `JSON.stringify(x)` -> `haxe.Json.stringify(x)`
         if (access.name.text === "stringify" && ts.isIdentifier(access.expression) && access.expression.text === "JSON") {
           if (call.arguments.length !== 1) return null;
-          const arg0 = emitExpression(call.arguments[0]);
+          const arg0 = emitExpression(ctx, call.arguments[0]);
           if (!arg0) return null;
           return `haxe.Json.stringify(${arg0})`;
         }
@@ -307,15 +318,15 @@ function emitExpression(expr: ts.Expression): string | null {
         // `console.log(x)` -> `trace(x)`
         if (access.name.text === "log" && ts.isIdentifier(access.expression) && access.expression.text === "console") {
           if (call.arguments.length !== 1) return null;
-          const arg0 = emitExpression(call.arguments[0]);
+          const arg0 = emitExpression(ctx, call.arguments[0]);
           if (!arg0) return null;
           return `trace(${arg0})`;
         }
       }
 
-      const callee = emitExpression(call.expression);
+      const callee = emitExpression(ctx, call.expression);
       if (!callee) return null;
-      const args = call.arguments.map(emitExpression);
+      const args = call.arguments.map((a) => emitExpression(ctx, a));
       if (args.some((a) => a == null)) return null;
       return `${callee}(${args.join(", ")})`;
     }
@@ -324,11 +335,11 @@ function emitExpression(expr: ts.Expression): string | null {
   }
 }
 
-function emitStatements(statements: readonly ts.Statement[], indent: string): string | null {
+function emitStatements(ctx: EmitContext, statements: readonly ts.Statement[], indent: string): string | null {
   const out: string[] = [];
 
   for (const stmt of statements) {
-    const emitted = emitStatement(stmt, indent);
+    const emitted = emitStatement(ctx, stmt, indent);
     if (emitted == null) return null;
     if (emitted.length > 0) out.push(emitted);
   }
@@ -336,9 +347,9 @@ function emitStatements(statements: readonly ts.Statement[], indent: string): st
   return out.join("\n");
 }
 
-function emitStatement(stmt: ts.Statement, indent: string): string | null {
+function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): string | null {
   if (ts.isBlock(stmt)) {
-    const inner = emitStatements(stmt.statements, indent + "  ");
+    const inner = emitStatements(ctx, stmt.statements, indent + "  ");
     if (inner == null) return null;
     if (inner.length === 0) return `${indent}{}`;
     return `${indent}{\n${inner}\n${indent}}`;
@@ -346,13 +357,13 @@ function emitStatement(stmt: ts.Statement, indent: string): string | null {
 
   if (ts.isReturnStatement(stmt)) {
     if (!stmt.expression) return `${indent}return;`;
-    const expr = emitExpression(stmt.expression);
+    const expr = emitExpression(ctx, stmt.expression);
     if (!expr) return null;
     return `${indent}return ${expr};`;
   }
 
   if (ts.isExpressionStatement(stmt)) {
-    const expr = emitExpression(stmt.expression);
+    const expr = emitExpression(ctx, stmt.expression);
     if (!expr) return null;
     return `${indent}${expr};`;
   }
@@ -362,7 +373,7 @@ function emitStatement(stmt: ts.Statement, indent: string): string | null {
     for (const decl of stmt.declarationList.declarations) {
       if (!ts.isIdentifier(decl.name)) return null;
       const name = decl.name.text;
-      const init = decl.initializer ? emitExpression(decl.initializer) : null;
+      const init = decl.initializer ? emitExpression(ctx, decl.initializer) : null;
       if (!init) return null;
       const typeSuffix = decl.type ? `: ${emitType(decl.type)}` : "";
       decls.push(`${indent}var ${name}${typeSuffix} = ${init};`);
@@ -371,35 +382,35 @@ function emitStatement(stmt: ts.Statement, indent: string): string | null {
   }
 
   if (ts.isIfStatement(stmt)) {
-    const cond = emitExpression(stmt.expression);
+    const cond = emitExpression(ctx, stmt.expression);
     if (!cond) return null;
-    const thenPart = emitStatement(stmt.thenStatement, ts.isBlock(stmt.thenStatement) ? indent : indent + "  ");
+    const thenPart = emitStatement(ctx, stmt.thenStatement, ts.isBlock(stmt.thenStatement) ? indent : indent + "  ");
     if (thenPart == null) return null;
     const thenBlock = ts.isBlock(stmt.thenStatement) ? thenPart : `${indent}{\n${thenPart}\n${indent}}`;
 
     if (!stmt.elseStatement) return `${indent}if (${cond}) ${thenBlock}`;
 
-    const elsePart = emitStatement(stmt.elseStatement, ts.isBlock(stmt.elseStatement) ? indent : indent + "  ");
+    const elsePart = emitStatement(ctx, stmt.elseStatement, ts.isBlock(stmt.elseStatement) ? indent : indent + "  ");
     if (elsePart == null) return null;
     const elseBlock = ts.isBlock(stmt.elseStatement) ? elsePart : `${indent}{\n${elsePart}\n${indent}}`;
     return `${indent}if (${cond}) ${thenBlock} else ${elseBlock}`;
   }
 
   if (ts.isThrowStatement(stmt)) {
-    const expr = stmt.expression ? emitExpression(stmt.expression) : null;
+    const expr = stmt.expression ? emitExpression(ctx, stmt.expression) : null;
     if (!expr) return null;
     return `${indent}throw ${expr};`;
   }
 
   if (ts.isTryStatement(stmt)) {
-    const tryBlock = emitStatement(stmt.tryBlock, indent);
+    const tryBlock = emitStatement(ctx, stmt.tryBlock, indent);
     if (tryBlock == null) return null;
     if (!stmt.catchClause) return null;
     const catchName =
       stmt.catchClause.variableDeclaration && ts.isIdentifier(stmt.catchClause.variableDeclaration.name)
         ? stmt.catchClause.variableDeclaration.name.text
         : "e";
-    const catchBody = emitStatement(stmt.catchClause.block, indent);
+    const catchBody = emitStatement(ctx, stmt.catchClause.block, indent);
     if (catchBody == null) return null;
 
     const tryBlockNoIndent = tryBlock.startsWith(indent) ? tryBlock.slice(indent.length) : tryBlock;
@@ -415,23 +426,23 @@ function emitStatement(stmt: ts.Statement, indent: string): string | null {
     if (ts.isVariableDeclarationList(stmt.initializer)) {
       for (const decl of stmt.initializer.declarations) {
         if (!ts.isIdentifier(decl.name)) return null;
-        const init = decl.initializer ? emitExpression(decl.initializer) : null;
+        const init = decl.initializer ? emitExpression(ctx, decl.initializer) : null;
         if (!init) return null;
         initLines.push(`${indent}  var ${decl.name.text} = ${init};`);
       }
     } else {
-      const init = emitExpression(stmt.initializer);
+      const init = emitExpression(ctx, stmt.initializer);
       if (!init) return null;
       initLines.push(`${indent}  ${init};`);
     }
 
-    const cond = emitExpression(stmt.condition);
-    const inc = emitExpression(stmt.incrementor);
+    const cond = emitExpression(ctx, stmt.condition);
+    const inc = emitExpression(ctx, stmt.incrementor);
     if (!cond || !inc) return null;
 
     const bodyInner = ts.isBlock(stmt.statement)
-      ? emitStatements(stmt.statement.statements, indent + "    ")
-      : emitStatement(stmt.statement, indent + "    ");
+      ? emitStatements(ctx, stmt.statement.statements, indent + "    ")
+      : emitStatement(ctx, stmt.statement, indent + "    ");
     if (bodyInner == null) return null;
 
     const whileBody =
@@ -448,10 +459,10 @@ function emitStatement(stmt: ts.Statement, indent: string): string | null {
     if (!decl || !ts.isIdentifier(decl.name)) return null;
     const name = decl.name.text;
 
-    const iter = emitExpression(stmt.expression);
+    const iter = emitExpression(ctx, stmt.expression);
     if (!iter) return null;
 
-    const bodyPart = emitStatement(stmt.statement, ts.isBlock(stmt.statement) ? indent : indent + "  ");
+    const bodyPart = emitStatement(ctx, stmt.statement, ts.isBlock(stmt.statement) ? indent : indent + "  ");
     if (bodyPart == null) return null;
     const bodyBlock = ts.isBlock(stmt.statement) ? bodyPart : `${indent}{\n${bodyPart}\n${indent}}`;
     return `${indent}for (${name} in ${iter}) ${bodyBlock}`;
@@ -467,6 +478,7 @@ function emitFunctionLike(opts: {
   body: ts.Block | undefined;
   modifierPrefix: string;
   omitReturnType?: boolean;
+  ctx: EmitContext;
 }): string {
   const params = opts.parameters.map((p) => {
     const id = ts.isIdentifier(p.name) ? p.name.text : "arg";
@@ -480,20 +492,21 @@ function emitFunctionLike(opts: {
 
   let body = `  throw "ts2hx: unsupported";`;
   if (opts.body) {
-    const emitted = emitStatements(opts.body.statements, "  ");
+    const emitted = emitStatements(opts.ctx, opts.body.statements, "  ");
     if (emitted) body = emitted;
   }
 
   return `${opts.modifierPrefix}function ${opts.name}(${params.join(", ")})${returnTypeSuffix} {\n${body}\n}`;
 }
 
-function emitFunction(fn: ts.FunctionDeclaration): string {
+function emitFunction(ctx: EmitContext, fn: ts.FunctionDeclaration): string {
   return emitFunctionLike({
     name: fn.name?.text ?? "anon",
     parameters: fn.parameters,
     returnType: fn.type,
     body: fn.body,
-    modifierPrefix: ""
+    modifierPrefix: "",
+    ctx
   });
 }
 
@@ -596,7 +609,7 @@ function emitEnum(decl: ts.EnumDeclaration): string {
   return lines.join("\n");
 }
 
-function emitClass(decl: ts.ClassDeclaration): string {
+function emitClass(ctx: EmitContext, decl: ts.ClassDeclaration): string {
   const name = decl.name?.text ?? "AnonymousClass";
   const lines: string[] = [];
 
@@ -619,7 +632,8 @@ function emitClass(decl: ts.ClassDeclaration): string {
         returnType: undefined,
         body: member.body,
         modifierPrefix: "  public ",
-        omitReturnType: true
+        omitReturnType: true,
+        ctx
       });
       lines.push(...emitted.split("\n").map((l, i) => (i === 0 ? l : `  ${l}`)));
       continue;
@@ -634,7 +648,8 @@ function emitClass(decl: ts.ClassDeclaration): string {
         parameters: member.parameters,
         returnType: member.type,
         body: member.body,
-        modifierPrefix: `  ${visibility} ${isStatic ? "static " : ""}`
+        modifierPrefix: `  ${visibility} ${isStatic ? "static " : ""}`,
+        ctx
       });
       lines.push(...emitted.split("\n").map((l, i) => (i === 0 ? l : `  ${l}`)));
       continue;
@@ -653,16 +668,123 @@ function collectImports(sf: ts.SourceFile): ImportSpec[] {
     if (!stmt.moduleSpecifier || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
     const moduleSpecifier = stmt.moduleSpecifier.text;
     const clause = stmt.importClause;
-    if (!clause?.namedBindings) continue;
-    if (!ts.isNamedImports(clause.namedBindings)) continue;
-    const named = clause.namedBindings.elements.map((el) => ({
-      name: el.name.text,
-      alias: el.propertyName ? el.propertyName.text : null
-    }));
-    imports.push({ kind: "named", moduleSpecifier, named });
+    if (!clause) continue;
+
+    const defaultImport = clause.name ? clause.name.text : null;
+    let namespaceImport: string | null = null;
+    let named: Array<{ name: string; alias: string | null }> = [];
+
+    if (clause.namedBindings) {
+      if (ts.isNamespaceImport(clause.namedBindings)) {
+        namespaceImport = clause.namedBindings.name.text;
+      } else if (ts.isNamedImports(clause.namedBindings)) {
+        named = clause.namedBindings.elements.map((el) => ({
+          name: el.name.text,
+          alias: el.propertyName ? el.propertyName.text : null
+        }));
+      }
+    }
+
+    imports.push({ moduleSpecifier, defaultImport, namespaceImport, named });
   }
 
   return imports;
+}
+
+function collectExportFroms(sf: ts.SourceFile): ExportFromSpec[] {
+  const exports: ExportFromSpec[] = [];
+
+  for (const stmt of sf.statements) {
+    if (!ts.isExportDeclaration(stmt)) continue;
+    if (!stmt.moduleSpecifier || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
+    const moduleSpecifier = stmt.moduleSpecifier.text;
+
+    if (!stmt.exportClause) {
+      exports.push({ kind: "all", moduleSpecifier });
+      continue;
+    }
+
+    if (!ts.isNamedExports(stmt.exportClause)) continue;
+    const elements = stmt.exportClause.elements.map((el) => ({
+      exported: el.name.text,
+      source: el.propertyName ? el.propertyName.text : el.name.text
+    }));
+    exports.push({ kind: "named", moduleSpecifier, elements });
+  }
+
+  return exports;
+}
+
+type ExportKind = "value" | "type" | "both";
+
+function collectExportKinds(sf: ts.SourceFile): Map<string, ExportKind> {
+  const kinds = new Map<string, ExportKind>();
+
+  function set(name: string, kind: ExportKind) {
+    const prev = kinds.get(name);
+    if (!prev) {
+      kinds.set(name, kind);
+      return;
+    }
+    if (prev === kind) return;
+    kinds.set(name, "both");
+  }
+
+  for (const stmt of sf.statements) {
+    if (ts.isFunctionDeclaration(stmt) && stmt.name) {
+      const isExported = (ts.getCombinedModifierFlags(stmt) & ts.ModifierFlags.Export) !== 0;
+      if (isExported) set(stmt.name.text, "value");
+      continue;
+    }
+    if (ts.isClassDeclaration(stmt) && stmt.name) {
+      const isExported = (ts.getCombinedModifierFlags(stmt) & ts.ModifierFlags.Export) !== 0;
+      if (isExported) set(stmt.name.text, "both");
+      continue;
+    }
+    if (ts.isEnumDeclaration(stmt)) {
+      const isExported = (ts.getCombinedModifierFlags(stmt) & ts.ModifierFlags.Export) !== 0;
+      if (isExported) set(stmt.name.text, "both");
+      continue;
+    }
+    if (ts.isInterfaceDeclaration(stmt)) {
+      const isExported = (ts.getCombinedModifierFlags(stmt) & ts.ModifierFlags.Export) !== 0;
+      if (isExported) set(stmt.name.text, "type");
+      continue;
+    }
+    if (ts.isTypeAliasDeclaration(stmt)) {
+      const isExported = (ts.getCombinedModifierFlags(stmt) & ts.ModifierFlags.Export) !== 0;
+      if (isExported) set(stmt.name.text, "type");
+      continue;
+    }
+    if (ts.isVariableStatement(stmt)) {
+      const isExported = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
+      if (!isExported) continue;
+      for (const decl of stmt.declarationList.declarations) {
+        if (ts.isIdentifier(decl.name)) set(decl.name.text, "value");
+      }
+      continue;
+    }
+  }
+
+  return kinds;
+}
+
+function resolveRelativeSourceFile(program: ts.Program, fromFile: string, moduleSpecifier: string): ts.SourceFile | null {
+  if (!isRelativeModuleSpecifier(moduleSpecifier)) return null;
+  const fromDir = path.dirname(fromFile);
+  const resolvedBase = path.resolve(fromDir, stripTsExtension(moduleSpecifier));
+  const candidates = [
+    resolvedBase,
+    `${resolvedBase}.ts`,
+    `${resolvedBase}.tsx`,
+    `${resolvedBase}.js`,
+    `${resolvedBase}.jsx`
+  ];
+  for (const candidate of candidates) {
+    const sf = program.getSourceFile(candidate);
+    if (sf) return sf;
+  }
+  return null;
 }
 
 function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePath: string; content: string } | null {
@@ -688,7 +810,10 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
   out.push(`package ${packagePath};`);
   out.push("");
 
+  const ctx: EmitContext = { identifierRewrites: new Map() };
+
   const imports = collectImports(sf);
+  const importLines: string[] = [];
   for (const imp of imports) {
     if (!isRelativeModuleSpecifier(imp.moduleSpecifier)) continue;
 
@@ -697,27 +822,87 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
       imp.moduleSpecifier
     );
 
+    const moduleBase = target.packagePath.length > 0 ? `${target.packagePath}.${target.moduleName}` : target.moduleName;
+
+    if (imp.defaultImport) {
+      importLines.push(`import ${moduleBase}.__default as ${imp.defaultImport};`);
+    }
+    if (imp.namespaceImport) {
+      ctx.identifierRewrites.set(imp.namespaceImport, moduleBase);
+    }
+
     for (const { name, alias } of imp.named) {
       const effectiveName = alias ?? name;
       if (isLikelyTypeName(effectiveName)) {
-        const moduleBase = target.packagePath.length > 0 ? `${target.packagePath}.${target.moduleName}` : target.moduleName;
         const typeImport =
           effectiveName === target.moduleName
             ? target.packagePath.length > 0
               ? `${target.packagePath}.${effectiveName}`
               : effectiveName
             : `${moduleBase}.${effectiveName}`;
-        out.push(alias ? `import ${typeImport} as ${name};` : `import ${typeImport};`);
+        importLines.push(alias ? `import ${typeImport} as ${name};` : `import ${typeImport};`);
       } else {
-        const valueImportBase = target.packagePath.length > 0 ? `${target.packagePath}.${target.moduleName}` : target.moduleName;
-        out.push(alias ? `import ${valueImportBase}.${effectiveName} as ${name};` : `import ${valueImportBase}.${effectiveName};`);
+        importLines.push(alias ? `import ${moduleBase}.${effectiveName} as ${name};` : `import ${moduleBase}.${effectiveName};`);
       }
     }
   }
 
-  if (imports.length > 0) out.push("");
+  if (importLines.length > 0) {
+    out.push(...importLines);
+    out.push("");
+  }
+
+  const exportFroms = collectExportFroms(sf);
+  const reexported = new Set<string>();
+  for (const exp of exportFroms) {
+    if (!isRelativeModuleSpecifier(exp.moduleSpecifier)) continue;
+
+    const target = moduleTargetFromImport(
+      { projectDir: opts.projectDir, rootDir: opts.rootDir, fromFile: absFile, basePackage: opts.basePackage },
+      exp.moduleSpecifier
+    );
+    const moduleBase = target.packagePath.length > 0 ? `${target.packagePath}.${target.moduleName}` : target.moduleName;
+    const srcFile = resolveRelativeSourceFile(opts.program, absFile, exp.moduleSpecifier);
+    const kinds = srcFile ? collectExportKinds(srcFile) : null;
+
+    if (exp.kind === "named") {
+      for (const { exported, source } of exp.elements) {
+        const hxSource = source === "default" ? "__default" : source;
+        const ref = `${moduleBase}.${hxSource}`;
+        const kind =
+          hxSource === "__default"
+            ? "value"
+            : (kinds?.get(source) ?? (isLikelyTypeName(exported) ? "type" : "value"));
+        if (kind === "type") out.push(`typedef ${exported} = ${ref};`);
+        else out.push(`final ${exported} = ${ref};`);
+        reexported.add(exported);
+      }
+      out.push("");
+      continue;
+    }
+
+    // export * from "./x"
+    if (!srcFile) return null;
+
+    for (const [name, kind] of collectExportKinds(srcFile).entries()) {
+      if (reexported.has(name)) continue;
+      const ref = `${moduleBase}.${name}`;
+      if (kind === "type") out.push(`typedef ${name} = ${ref};`);
+      else out.push(`final ${name} = ${ref};`);
+      reexported.add(name);
+    }
+    out.push("");
+  }
 
   for (const stmt of sf.statements) {
+    if (ts.isExportAssignment(stmt) && !stmt.isExportEquals) {
+      const expr = emitExpression(ctx, stmt.expression);
+      if (!expr) return null;
+      out.push(`final __default = ${expr};`);
+      out.push("");
+      continue;
+    }
+
     if (ts.isVariableStatement(stmt)) {
       const isExported = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
       if (!isExported) continue;
@@ -726,7 +911,7 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
       for (const decl of stmt.declarationList.declarations) {
         if (!ts.isIdentifier(decl.name)) return null;
         if (!decl.initializer) return null;
-        const init = emitExpression(decl.initializer);
+        const init = emitExpression(ctx, decl.initializer);
         if (!init) return null;
         const typeSuffix = decl.type ? `: ${emitType(decl.type)}` : "";
         out.push(`${declKeyword} ${decl.name.text}${typeSuffix} = ${init};`);
@@ -738,7 +923,12 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
     if (ts.isFunctionDeclaration(stmt)) {
       const isExported = (ts.getCombinedModifierFlags(stmt) & ts.ModifierFlags.Export) !== 0;
       if (!isExported) continue;
-      out.push(emitFunction(stmt));
+      out.push(emitFunction(ctx, stmt));
+      const isDefault = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword) ?? false;
+      if (isDefault) {
+        if (!stmt.name) return null;
+        out.push(`final __default = ${stmt.name.text};`);
+      }
       out.push("");
       continue;
     }
@@ -770,7 +960,12 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
     if (ts.isClassDeclaration(stmt)) {
       const isExported = (ts.getCombinedModifierFlags(stmt) & ts.ModifierFlags.Export) !== 0;
       if (!isExported) continue;
-      out.push(emitClass(stmt));
+      out.push(emitClass(ctx, stmt));
+      const isDefault = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword) ?? false;
+      if (isDefault) {
+        if (!stmt.name) return null;
+        out.push(`final __default = ${stmt.name.text};`);
+      }
       out.push("");
       continue;
     }

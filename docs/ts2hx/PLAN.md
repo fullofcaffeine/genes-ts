@@ -274,3 +274,15 @@ being deterministic and cheap to run in CI:
 
 The roundtrip harness (`yarn --cwd tools/ts2hx test:roundtrip`) runs **both**
 fixtures.
+
+## M9 — Module syntax coverage fixture
+
+We maintain a small fixture focused on module syntax that is common in real TS:
+
+- `tools/ts2hx/fixtures/module-syntax/`
+
+It is snapshot+smoke covered via `yarn --cwd tools/ts2hx test:snapshots` and includes:
+
+- default exports + default imports,
+- namespace imports (`import * as NS from ...`),
+- re-exports (`export { ... } from ...` and `export * from ...`).

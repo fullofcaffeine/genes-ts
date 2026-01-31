@@ -94,6 +94,13 @@ function main(): number {
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "roundtrip-advanced"),
       basePackage: "ts2hx",
       smokeMain: "ts2hx.Main"
+    },
+    {
+      name: "module-syntax",
+      tsconfigPath: path.join(toolRoot, "fixtures", "module-syntax", "tsconfig.json"),
+      snapshotsDir: path.join(toolRoot, "tests_snapshots", "module-syntax"),
+      basePackage: "ts2hx",
+      smokeMain: "ts2hx.Main"
     }
   ];
 
