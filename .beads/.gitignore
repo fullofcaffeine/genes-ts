@@ -1,0 +1,23 @@
+# Beads (bd) ignore rules
+#
+# This repo tracks the roadmap in `.beads/issues.jsonl`, but keeps local runtime state
+# untracked (SQLite database, daemon files, merge artifacts).
+
+*.db
+*.db?*
+*.db-journal
+*.db-wal
+*.db-shm
+
+daemon.lock
+daemon.log
+daemon.pid
+bd.sock
+
+sync_base.jsonl
+sync-state.json
+last-touched
+interactions.jsonl
+!issues.jsonl
+!metadata.json
+!config.yaml

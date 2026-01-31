@@ -1,8 +1,9 @@
 # Agent Instructions
 
-This project uses **bd** (beads) for local issue tracking. Run `bd onboard` to get started.
+This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
 
-Beads state lives under `.beads/` and is intentionally **local-only** in this repo (ignored by git).
+The repo tracks the roadmap in `.beads/issues.jsonl` so a fresh checkout includes the current plan.
+Local runtime state (SQLite DB, daemon logs, etc) remains untracked.
 
 ## Output modes (keep both green)
 

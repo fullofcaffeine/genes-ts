@@ -3,7 +3,11 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - ".beads/**"
   pull_request:
+    paths-ignore:
+      - ".beads/**"
   workflow_dispatch:
 
 concurrency:

@@ -1,0 +1,17 @@
+# Beads Configuration File
+#
+# This repo tracks the roadmap in `.beads/issues.jsonl` on `main` (no sync branch).
+# Keep this file in git so new checkouts have a consistent baseline.
+#
+# Most settings are optional and can be set via `bd config set ...` (stored in the DB).
+
+# Issue prefix for this repository (used by `bd init`)
+# issue-prefix: "genes"
+
+# no-db: false
+# no-daemon: false
+# no-auto-flush: false
+# no-auto-import: false
+
+# NOTE: Do not set `sync-branch` in this repo. There is intentionally no `beads-sync` branch.
+# sync-branch: ""

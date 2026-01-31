@@ -25,5 +25,12 @@
 /tools/ts2hx/.tmp
 /submit.zip
 
-# Beads (issue tracker) local state (repo-local only; do not commit)
-/.beads/
+# Beads (issue tracker)
+# - Track the task plan (`.beads/issues.jsonl`) in git so checkouts include the roadmap.
+# - Ignore local runtime state (SQLite DB, daemon logs, etc).
+/.beads/*
+!/.beads/.gitignore
+!/.beads/README.md
+!/.beads/config.yaml
+!/.beads/metadata.json
+!/.beads/issues.jsonl
