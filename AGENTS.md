@@ -1,14 +1,8 @@
 # Agent Instructions
 
-This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
+This project uses **bd** (beads) for local issue tracking. Run `bd onboard` to get started.
 
-## Beads sync branch (keep `main` clean)
-
-The exported issue database `.beads/issues.jsonl` is **not tracked on `main`** to avoid
-constant “sync” commits. The canonical tracked copy lives on the `beads-sync` branch.
-
-- Normal dev on `main`: use `bd` as usual; the JSONL file may update locally but is ignored.
-- If you want to publish issue updates: switch to the `beads-sync` worktree/branch and push that.
+Beads state lives under `.beads/` and is intentionally **local-only** in this repo (ignored by git).
 
 ## Output modes (keep both green)
 
@@ -77,7 +71,6 @@ bd ready              # Find available work
 bd show <id>          # View issue details
 bd update <id> --status in_progress  # Claim work
 bd close <id>         # Complete work
-bd sync               # Sync with git
 ```
 
 ## Key Commands
