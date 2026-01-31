@@ -194,6 +194,7 @@ Type strictness knobs:
 
 Runtime profile:
 - `-D genes.ts.minimal_runtime` — opt into minimal runtime / no-reflection output.
+  - See `docs/typescript-target/MINIMAL_RUNTIME.md` for the current contract.
 
 JSX/TSX:
 - `-D genes.ts.jsx_classic` — when emitting `.tsx`, also emit `import * as React from "react"` so the output compiles under TypeScript `jsx: "react"` (classic runtime). Default expects `jsx: "react-jsx"`.

@@ -24,6 +24,10 @@ class Main {
     if (Type.resolveEnum(enumKey) != null)
       throw "minimal_runtime should make Type.resolveEnum(...) return null";
 
+    final className = Type.getClassName(MyClass);
+    if (className != classKey)
+      throw 'minimal_runtime should keep Type.getClassName working (got $className)';
+
     trace("ok");
   }
 }

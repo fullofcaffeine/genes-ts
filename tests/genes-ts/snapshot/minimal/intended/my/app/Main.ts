@@ -24,7 +24,11 @@ export class Main {
 		if ((Register.hxEnums()[enumKey] ?? null) != null) {
 			throw Exception.thrown("minimal_runtime should make Type.resolveEnum(...) return null");
 		};
-		console.log("tests/genes-ts/snapshot/minimal/src/my/app/Main.hx:27:","ok");
+		let className: string = MyClass.__name__;
+		if (className != classKey) {
+			throw Exception.thrown("minimal_runtime should keep Type.getClassName working (got " + className + ")");
+		};
+		console.log("tests/genes-ts/snapshot/minimal/src/my/app/Main.hx:31:","ok");
 	}
 	static get __name__(): string {
 		return "my.app.Main"

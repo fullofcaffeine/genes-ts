@@ -17,6 +17,7 @@ feature surface beyond the quick examples in `readme.md`.
 
 - `typescript-target/COMPILER_CONTRACT.md` — user-facing contract (output layout, module/import policy, defines)
 - `typescript-target/TYPING_POLICY.md` — strict typing goals, nullability profiles, and escape-hatch rules
+- `typescript-target/MINIMAL_RUNTIME.md` — what `-D genes.ts.minimal_runtime` changes/breaks
 - `typescript-target/IMPORTS.md` — consuming existing JS/TS/TSX via `genes.ts.Imports`
 - `typescript-target/REACT_HXX.md` — React/TSX authoring in Haxe (`genes.react.JSX`)
 - `typescript-target/ASYNC_AWAIT.md` — `@:async` + `await(...)` macro (native `async`/`await` output)

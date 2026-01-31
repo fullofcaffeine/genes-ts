@@ -13,7 +13,7 @@ export class Std {
 }
 
 ;{
-	String.__name__ = true;
+	String.__name__ = "String";
 	Register.hxClasses()["Array"] = Array;
-	Array.__name__ = true;
+	Array.__name__ = "Array";
 }
