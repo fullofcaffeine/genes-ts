@@ -53,9 +53,29 @@ Then open `http://localhost:8787`.
   - `todo.server.*` — backend (Express JSON API + static hosting)
   - `todo.web.*` — frontend (React Router)
 - `examples/todoapp/web/` — web build inputs/outputs
+  - `src-ts/` — hand-written TS/TSX modules used to demonstrate TS ecosystem interop
   - `build.hxml` emits TSX into `web/src-gen/`
   - `tsconfig.json` typechecks generated TSX
   - `index.html` is copied into `web/dist/`
 - `examples/todoapp/server/` — server build inputs/outputs
   - `build.hxml` emits TS into `server/src-gen/`
   - `tsconfig.json` compiles TS → JS into `server/dist/`
+
+## TS ↔ Haxe interop (explicitly tested)
+
+This example is intentionally set up to demonstrate *both* directions of interop:
+
+1) **Haxe imports TS/TSX**:
+   - `examples/todoapp/web/src-ts/components/PrettyButton.tsx` is a TSX component
+   - imported from Haxe using `genes.ts.Imports`
+
+2) **TS imports generated Haxe output**:
+   - `examples/todoapp/web/src-ts/interop/haxeInterop.ts` imports `TodoText` from
+     `web/src-gen/**` and re-exports a stable function
+   - the UI renders that banner and Playwright asserts it exists
+
+Why the explicit “keep” in Haxe?
+
+Haxe DCE does not know about TS-only imports, so if a Haxe value is *only* referenced
+from TS-authored code, it may be removed from output. The harness keeps the relevant
+symbol explicitly so the interop boundary is stable.

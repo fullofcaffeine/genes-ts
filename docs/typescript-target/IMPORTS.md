@@ -91,3 +91,31 @@ load the real `.js` file.
 - For dotted exports (e.g. `"Dropdown.Menu"`), prefer using the helper from a
   local scope (it handles local aliasing correctly).
 
+---
+
+## TS importing Haxe-generated modules (migration story)
+
+genes-ts is designed so you can gradually port a codebase to “pure TS” over time.
+One important pattern is:
+
+- **TS-authored** modules import and call **Haxe-generated** modules, while
+- the overall app/library still builds with normal TS tooling.
+
+This is especially useful when:
+- you want TS-only code to wrap or adapt a generated Haxe module,
+- you want to expose a stable public API boundary to TS consumers, or
+- you are migrating incrementally (some modules rewritten in TS, others still in Haxe).
+
+The todoapp harness contains a concrete example:
+
+- `examples/todoapp/web/src-ts/interop/haxeInterop.ts` (TS) imports a Haxe-emitted
+  value from `examples/todoapp/web/src-gen/**`
+- Haxe then imports the TS function back via `genes.ts.Imports` and renders the
+  returned banner in the UI
+
+Important DCE note:
+
+Haxe DCE does not see TS-only imports. If a Haxe-emitted value is *only* referenced
+from TS-authored code, it may be removed. In apps/examples, keep such values
+explicitly (e.g. call them once or use `@:keep`) so the interop boundary remains
+stable and deterministic.
