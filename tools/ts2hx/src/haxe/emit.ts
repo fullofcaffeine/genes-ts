@@ -611,10 +611,41 @@ function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): st
     for (const decl of stmt.declarationList.declarations) {
       if (!ts.isIdentifier(decl.name)) return null;
       const name = decl.name.text;
-      const init = decl.initializer ? emitExpression(ctx, decl.initializer) : null;
-      if (!init) return null;
       const typeSuffix = decl.type ? `: ${emitType(decl.type)}` : "";
-      decls.push(`${indent}var ${name}${typeSuffix} = ${init};`);
+
+      if (decl.initializer) {
+        const init = emitExpression(ctx, decl.initializer);
+        if (!init) return null;
+        decls.push(`${indent}var ${name}${typeSuffix} = ${init};`);
+        continue;
+      }
+
+      // TS allows `let x;` (no initializer). Prefer a best-effort default initializer so downstream
+      // statement emission can compile without needing a full definite-assignment analysis.
+      let defaultInit: string | null = null;
+      if (decl.type) {
+        switch (decl.type.kind) {
+          case ts.SyntaxKind.NumberKeyword:
+            defaultInit = "0";
+            break;
+          case ts.SyntaxKind.StringKeyword:
+            defaultInit = JSON.stringify("");
+            break;
+          case ts.SyntaxKind.BooleanKeyword:
+            defaultInit = "false";
+            break;
+          case ts.SyntaxKind.ArrayType:
+            defaultInit = "[]";
+            break;
+          default:
+            defaultInit = "cast null";
+            break;
+        }
+      } else {
+        defaultInit = "null";
+      }
+
+      decls.push(`${indent}var ${name}${typeSuffix} = ${defaultInit};`);
     }
     return decls.join("\n");
   }
@@ -632,6 +663,14 @@ function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): st
     if (elsePart == null) return null;
     const elseBlock = ts.isBlock(stmt.elseStatement) ? elsePart : `${indent}{\n${elsePart}\n${indent}}`;
     return `${indent}if (${cond}) ${thenBlock} else ${elseBlock}`;
+  }
+
+  if (ts.isBreakStatement(stmt)) {
+    return `${indent}break;`;
+  }
+
+  if (ts.isContinueStatement(stmt)) {
+    return `${indent}continue;`;
   }
 
   if (ts.isThrowStatement(stmt)) {
@@ -654,6 +693,86 @@ function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): st
     const tryBlockNoIndent = tryBlock.startsWith(indent) ? tryBlock.slice(indent.length) : tryBlock;
     const catchBodyNoIndent = catchBody.startsWith(indent) ? catchBody.slice(indent.length) : catchBody;
     return `${indent}try ${tryBlockNoIndent} catch (${catchName}: Dynamic) ${catchBodyNoIndent}`;
+  }
+
+  if (ts.isWhileStatement(stmt)) {
+    const cond = emitExpression(ctx, stmt.expression);
+    if (!cond) return null;
+    const bodyPart = emitStatement(ctx, stmt.statement, ts.isBlock(stmt.statement) ? indent : indent + "  ");
+    if (bodyPart == null) return null;
+    const bodyBlock = ts.isBlock(stmt.statement) ? bodyPart : `${indent}{\n${bodyPart}\n${indent}}`;
+    return `${indent}while (${cond}) ${bodyBlock}`;
+  }
+
+  if (ts.isDoStatement(stmt)) {
+    const cond = emitExpression(ctx, stmt.expression);
+    if (!cond) return null;
+    const bodyPart = emitStatement(ctx, stmt.statement, ts.isBlock(stmt.statement) ? indent : indent + "  ");
+    if (bodyPart == null) return null;
+    const bodyBlock = ts.isBlock(stmt.statement) ? bodyPart : `${indent}{\n${bodyPart}\n${indent}}`;
+    return `${indent}do ${bodyBlock} while (${cond});`;
+  }
+
+  if (ts.isSwitchStatement(stmt)) {
+    const expr = emitExpression(ctx, stmt.expression);
+    if (!expr) return null;
+
+    const lines: string[] = [];
+    lines.push(`${indent}switch (${expr}) {`);
+
+    const pendingLabels: string[] = [];
+    function flushCase(labels: string[], statements: readonly ts.Statement[]): boolean {
+      if (labels.length === 0) return true;
+      const caseLabel = labels.join(", ");
+      const trimmed =
+        statements.length > 0 && ts.isBreakStatement(statements[statements.length - 1] as ts.Statement)
+          ? statements.slice(0, -1)
+          : statements;
+      const body = emitStatements(ctx, trimmed, indent + "    ");
+      if (body == null) return false;
+      lines.push(`${indent}  case ${caseLabel}:`);
+      if (body.length === 0) lines.push(`${indent}    {}`);
+      else lines.push(`${indent}    {\n${body}\n${indent}    }`);
+      return true;
+    }
+
+    let defaultStatements: readonly ts.Statement[] | null = null;
+
+    for (const clause of stmt.caseBlock.clauses) {
+      if (ts.isCaseClause(clause)) {
+        const label = emitExpression(ctx, clause.expression);
+        if (!label) return null;
+        pendingLabels.push(label);
+        if (clause.statements.length === 0) continue;
+        if (!flushCase(pendingLabels.splice(0, pendingLabels.length), clause.statements)) return null;
+        continue;
+      }
+
+      // default
+      if (pendingLabels.length > 0) {
+        // A fallthrough chain into default is not representable in Haxe switch without rewriting.
+        // Flush as an empty case block so compilation can continue (best-effort semantics).
+        if (!flushCase(pendingLabels.splice(0, pendingLabels.length), [])) return null;
+      }
+      defaultStatements = clause.statements;
+    }
+
+    if (pendingLabels.length > 0 && !flushCase(pendingLabels.splice(0, pendingLabels.length), [])) return null;
+
+    if (defaultStatements) {
+      const trimmed =
+        defaultStatements.length > 0 && ts.isBreakStatement(defaultStatements[defaultStatements.length - 1] as ts.Statement)
+          ? defaultStatements.slice(0, -1)
+          : defaultStatements;
+      const body = emitStatements(ctx, trimmed, indent + "    ");
+      if (body == null) return null;
+      lines.push(`${indent}  default:`);
+      if (body.length === 0) lines.push(`${indent}    {}`);
+      else lines.push(`${indent}    {\n${body}\n${indent}    }`);
+    }
+
+    lines.push(`${indent}}`);
+    return lines.join("\n");
   }
 
   if (ts.isForStatement(stmt)) {
