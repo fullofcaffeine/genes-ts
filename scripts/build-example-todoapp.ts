@@ -22,18 +22,65 @@ function run(cmd: string, args: ReadonlyArray<string>, opts: ExecFileSyncOptions
   });
 }
 
+type SnapshotSpec = {
+  generatedDir: string;
+  snapshotsDir: string;
+  fileExts: ReadonlyArray<string>;
+};
+
+function assertSnapshots(spec: SnapshotSpec): void {
+  assertDirSnapshots({
+    repoRoot,
+    generatedDir: spec.generatedDir,
+    snapshotsDir: spec.snapshotsDir,
+    fileExts: [...spec.fileExts],
+    updateHint: "UPDATE_SNAPSHOTS=1 yarn build:example:todoapp"
+  });
+}
+
 rmrf("web/src-gen");
 rmrf("web/dist");
 rmrf("server/src-gen");
 rmrf("server/dist");
 
-run("haxe", ["examples/todoapp/web/build.hxml"]);
-assertDirSnapshots({
+// Web: variants first (typecheck + snapshots), then build the default runnable app last.
+
+// Variant: low-level React output (.ts + React.createElement).
+run("haxe", ["examples/todoapp/web/build.lowlevel.hxml"]);
+assertSnapshots({
+  generatedDir: "examples/todoapp/web/src-gen",
+  snapshotsDir: "examples/todoapp/web/dist-ts-lowlevel/src-gen",
+  fileExts: [".ts"]
+});
+assertNoUnsafeTypes({
   repoRoot,
+  generatedDir: "examples/todoapp/web/src-gen/todo",
+  fileExts: [".ts"]
+});
+run("npx", ["-y", "--package", "typescript@5.5.4", "-c", "tsc -p examples/todoapp/web/tsconfig.json"]);
+
+// Variant: minimal runtime profile (still TSX output).
+rmrf("web/src-gen");
+run("haxe", ["examples/todoapp/web/build.minimal.hxml"]);
+assertSnapshots({
+  generatedDir: "examples/todoapp/web/src-gen",
+  snapshotsDir: "examples/todoapp/web/dist-ts-minimal/src-gen",
+  fileExts: [".ts", ".tsx"]
+});
+assertNoUnsafeTypes({
+  repoRoot,
+  generatedDir: "examples/todoapp/web/src-gen/todo",
+  fileExts: [".ts", ".tsx"]
+});
+run("npx", ["-y", "--package", "typescript@5.5.4", "-c", "tsc -p examples/todoapp/web/tsconfig.json"]);
+
+// Default build (runnable + bundled).
+rmrf("web/src-gen");
+run("haxe", ["examples/todoapp/web/build.hxml"]);
+assertSnapshots({
   generatedDir: "examples/todoapp/web/src-gen",
   snapshotsDir: "examples/todoapp/web/dist-ts/src-gen",
-  fileExts: [".ts", ".tsx"],
-  updateHint: "UPDATE_SNAPSHOTS=1 yarn build:example:todoapp"
+  fileExts: [".ts", ".tsx"]
 });
 assertNoUnsafeTypes({
   repoRoot,
@@ -61,13 +108,34 @@ run("npx", [
   ].join(" ")
 ]);
 
-run("haxe", ["examples/todoapp/server/build.hxml"]);
-assertDirSnapshots({
+// Server: minimal runtime is typechecked only (avoid overwriting the runnable build output).
+rmrf("server/src-gen");
+run("haxe", ["examples/todoapp/server/build.minimal.hxml"]);
+assertSnapshots({
+  generatedDir: "examples/todoapp/server/src-gen",
+  snapshotsDir: "examples/todoapp/server/dist-ts-minimal/src-gen",
+  fileExts: [".ts"]
+});
+assertNoUnsafeTypes({
   repoRoot,
+  generatedDir: "examples/todoapp/server/src-gen/todo",
+  fileExts: [".ts"]
+});
+run("npx", [
+  "-y",
+  "--package",
+  "typescript@5.5.4",
+  "-c",
+  "tsc -p examples/todoapp/server/tsconfig.json --noEmit"
+]);
+
+// Default server build (runnable; emits JS + d.ts into server/dist).
+rmrf("server/src-gen");
+run("haxe", ["examples/todoapp/server/build.hxml"]);
+assertSnapshots({
   generatedDir: "examples/todoapp/server/src-gen",
   snapshotsDir: "examples/todoapp/server/dist-ts/src-gen",
-  fileExts: [".ts"],
-  updateHint: "UPDATE_SNAPSHOTS=1 yarn build:example:todoapp"
+  fileExts: [".ts"]
 });
 assertNoUnsafeTypes({
   repoRoot,

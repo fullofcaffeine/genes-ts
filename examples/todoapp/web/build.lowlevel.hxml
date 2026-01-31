@@ -1,0 +1,18 @@
+-lib genes-ts
+
+-cp examples/todoapp/src
+--main todo.web.Main
+
+# Emit TypeScript via genes-ts (still uses -js because we compile on the JS platform)
+# Low-level React output: `.ts` + `React.createElement(...)` (no TSX markup).
+-js examples/todoapp/web/src-gen/index.ts
+-D genes.ts
+
+# Bundler-friendly imports (extensionless)
+-D genes.ts.no_extension
+
+# Enable inline markup rewrite (requires @:jsx_inline_markup on the class)
+-D genes.react.inline_markup
+
+-dce full
+
