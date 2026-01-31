@@ -12,6 +12,7 @@ feature surface beyond the quick examples in `readme.md`.
 - `PACKAGING.md` — how to publish libraries/apps in both output modes
 - `../examples/typescript-target/README.md` — minimal end-to-end Haxe → TS → JS example
 - `../examples/todoapp/` — real fullstack example (React Router + Express)
+- `TROUBLESHOOTING.md` — common failure modes + fixes
 
 ## TypeScript target (genes-ts mode)
 

@@ -11,6 +11,7 @@ Requires **Haxe 4.3.7+**.
 - `docs/README.md` — documentation index (start here)
 - `docs/typescript-target/COMPILER_CONTRACT.md` — TS target contract
 - `docs/typescript-target/TYPING_POLICY.md` — TS typing rules + profiles
+- `docs/TROUBLESHOOTING.md` — common failure modes + fixes
 - `docs/OUTPUT_MODES.md` — TS output vs classic Genes JS output
 - `CONTRIBUTING.md` — contribution guidelines
 
