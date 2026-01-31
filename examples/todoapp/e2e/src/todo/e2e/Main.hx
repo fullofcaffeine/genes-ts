@@ -73,6 +73,7 @@ class Main {
       });
 
       return page.goto(baseUrl + "/")
+        .then(_ -> page.getByText("interop: ts-imports-haxe-ok").waitFor())
         .then(_ -> page.getByPlaceholder("New todo").fill("Buy milk"))
         .then(_ -> page.getByRole("button", {name: "Add"}).click())
         .then(_ -> waitForCount(page.getByText("Buy milk"), 1, 5000))

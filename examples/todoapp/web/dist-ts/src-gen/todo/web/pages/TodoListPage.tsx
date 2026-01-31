@@ -1,14 +1,20 @@
-import type {ReactElement, ReactChild, ChangeEvent} from "../ReactTypes"
+import type {ReactComponent1, ReactElement, ReactChild, ChangeEvent} from "../ReactTypes"
 import {Client} from "../Client"
+import {TodoText} from "../../shared/TodoText"
 import type {Todo} from "../../shared/Todo"
 import {React_Fields_} from "../../extern/React"
 import {Link} from "react-router-dom"
 import {useState, useEffect} from "react"
 import {Register} from "../../../genes/Register"
 import {StringTools} from "../../../StringTools"
+import {interopBanner as __genes_import_interopBanner} from "../../../../src-ts/interop/haxeInterop"
+import __genes_import_PrettyButton from "../../../../src-ts/components/PrettyButton"
 
 export class TodoListPage {
+	declare static PrettyButton: ReactComponent1<PrettyButtonProps>;
+	declare static interopBanner: (() => string);
 	static Component(): ReactElement {
+		let _keepTodoText: string = TodoText.interopBanner();
 		let todosState: [ Todo[], import('react').Dispatch<import('react').SetStateAction<Todo[]>> ] = useState<Todo[]>([]);
 		let todos: Todo[] = (todosState[0] ?? null);
 		let titleState: [ string, import('react').Dispatch<import('react').SetStateAction<string>> ] = useState<string>("");
@@ -94,9 +100,9 @@ export class TodoListPage {
 			let setter: ((arg0: string) => void) = (titleState[1] ?? null);
 			setter(e.target.value);
 		}} style={{"flex": "1", "padding": "8px"}} />;
-		let tmp2: JSX.Element = <button onClick={function () {
+		let tmp2: JSX.Element = <TodoListPage.PrettyButton label="Add" onClick={function () {
 			onAdd();
-		}} style={{"padding": "8px 12px"}}>Add</button>;
+		}} variant="primary" />;
 		let tmp3: JSX.Element = <div style={{"display": "flex", "gap": "8px", "marginBottom": "12px"}}>{tmp1}{tmp2}</div>;
 		let f: ((arg0: Todo) => ReactElement) = renderTodoItem;
 		let result: ReactElement[] = new Array(todos.length);
@@ -106,7 +112,9 @@ export class TodoListPage {
 			let i: number = _g++;
 			result[i] = f(todos[i]);
 		};
-		return <div>{tmp}{errorView}{tmp3}<ul style={{"listStyle": "none", "padding": "0", "margin": "0"}}>{result}</ul></div>;
+		let tmp4: JSX.Element = <ul style={{"listStyle": "none", "padding": "0", "margin": "0"}}>{result}</ul>;
+		let tmp5: string = TodoListPage.interopBanner();
+		return <div>{tmp}{errorView}{tmp3}{tmp4}<p style={{"marginTop": "16px", "color": "#666", "fontSize": "12px"}}>{tmp5}</p></div>;
 	}
 	static get __name__(): string {
 		return "todo.web.pages.TodoListPage"
@@ -116,3 +124,12 @@ export class TodoListPage {
 	}
 }
 Register.setHxClass("todo.web.pages.TodoListPage", TodoListPage);
+
+
+TodoListPage.PrettyButton = __genes_import_PrettyButton
+TodoListPage.interopBanner = __genes_import_interopBanner
+export type PrettyButtonProps = {
+	label: string,
+	onClick: () => void,
+	variant?: 'primary' | 'danger' | null
+}

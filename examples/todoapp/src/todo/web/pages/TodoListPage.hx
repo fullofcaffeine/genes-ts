@@ -1,19 +1,44 @@
 package todo.web.pages;
 
 import genes.react.JSX.*;
+import genes.ts.Imports;
 import todo.extern.React.useEffect;
 import todo.extern.React.useState;
 import todo.extern.ReactRouterDom.Link;
 import todo.shared.Todo;
 import todo.shared.TodoId;
+import todo.shared.TodoText;
 import todo.web.Client;
 import todo.web.ReactTypes.ChangeEvent;
 import todo.web.ReactTypes.ReactChild;
+import todo.web.ReactTypes.ReactComponent1;
 import todo.web.ReactTypes.ReactElement;
 
 @:jsx_inline_markup
 class TodoListPage {
+  /**
+   * TS-authored component imported from Haxe.
+   *
+   * This is the “Haxe imports TS/TSX” direction of the interop story.
+   */
+  static final PrettyButton: ReactComponent1<PrettyButtonProps> =
+    Imports.defaultImport("../../../../src-ts/components/PrettyButton");
+
+  /**
+   * TS-authored function that imports and calls back into a Haxe-emitted value.
+   *
+   * This is the “TS imports Haxe output” direction of the interop story:
+   * `examples/todoapp/web/src-ts/interop/haxeInterop.ts` imports `TodoText` from
+   * generated output and then re-exports a stable banner function.
+   */
+  static final interopBanner: Void->String =
+    Imports.namedImport("../../../../src-ts/interop/haxeInterop", "interopBanner");
+
   public static function Component(): ReactElement {
+    // Keep the Haxe-emitted symbol in the JS/TS output even though it's referenced
+    // “indirectly” from TS-only code (Haxe DCE can't see TS imports).
+    final _keepTodoText = TodoText.interopBanner();
+
     final todosState = useState(([] : Array<Todo>));
     final todos = todosState.value;
 
@@ -97,11 +122,26 @@ class TodoListPage {
           onChange={(e: ChangeEvent) -> titleState.set(e.target.value)}
           style={{flex: "1", padding: "8px"}}
         />
-        <button onClick={() -> onAdd()} style={{padding: "8px 12px"}}>Add</button>
+        <PrettyButton label={"Add"} onClick={() -> onAdd()} variant={PrettyButtonVariant.Primary} />
       </div>
       <ul style={{listStyle: "none", padding: "0", margin: "0"}}>
         {todos.map(renderTodoItem)}
       </ul>
+      <p style={{marginTop: "16px", color: "#666", fontSize: "12px"}}>
+        {interopBanner()}
+      </p>
     </div>;
   }
+}
+
+typedef PrettyButtonProps = {
+  final label: String;
+  final onClick: Void->Void;
+  final ?variant: PrettyButtonVariant;
+}
+
+@:ts.type("'primary' | 'danger'")
+enum abstract PrettyButtonVariant(String) to String {
+  var Primary = "primary";
+  var Danger = "danger";
 }

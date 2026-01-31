@@ -13,6 +13,7 @@ typedef ReactElement = Element;
 // In this app we use text nodes and conditional `null` in a few spots.
 typedef ReactChild = Null<EitherType<ReactElement, String>>;
 typedef ReactComponent = Void->ReactElement;
+typedef ReactComponent1<P> = P->ReactElement;
 
 // Use React's own typing contract for dependency lists (TS-first).
 @:ts.type("import('react').DependencyList")

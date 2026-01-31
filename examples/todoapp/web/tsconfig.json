@@ -12,6 +12,5 @@
     "skipLibCheck": false,
     "jsx": "react-jsx"
   },
-  "include": ["src-gen/**/*.tsx"]
+  "include": ["src-gen/**/*", "src-ts/**/*"]
 }
-
