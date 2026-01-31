@@ -11,6 +11,8 @@
     "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
     "prets2hx": "yarn build",
     "ts2hx": "node dist/cli.js",
-    "test": "yarn build && node dist/test-snapshots.js && node dist/test-roundtrip.js"
+    "test:snapshots": "yarn build && node dist/test-snapshots.js",
+    "test:roundtrip": "yarn build && node dist/test-roundtrip.js",
+    "test": "yarn test:snapshots && yarn test:roundtrip"
   }
 }

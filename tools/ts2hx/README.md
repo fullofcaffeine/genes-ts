@@ -27,5 +27,19 @@ yarn --cwd tools/ts2hx test
 Update snapshots:
 
 ```bash
-UPDATE_SNAPSHOTS=1 yarn --cwd tools/ts2hx test
+UPDATE_SNAPSHOTS=1 yarn --cwd tools/ts2hx test:snapshots
 ```
+
+Roundtrip harness (TS → Haxe → TS → JS parity):
+
+```bash
+yarn --cwd tools/ts2hx test:roundtrip
+```
+
+What `test:roundtrip` does for `fixtures/roundtrip-fixture`:
+
+1) builds and runs the original fixture via `tsc` + `node`,
+2) emits Haxe via ts2hx,
+3) compiles back to TypeScript via genes-ts (`-D genes.ts`),
+4) enforces a typing guardrail (no `any`/`unknown` in the roundtripped user modules),
+5) typechecks and runs the roundtripped output via `tsc` + `node`.

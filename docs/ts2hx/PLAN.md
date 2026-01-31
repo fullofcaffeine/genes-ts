@@ -210,9 +210,13 @@ Files:
 - `src/index.ts` (entrypoint; calls `main()` and exits non-zero on failure)
 - `src/Main.ts` (exports `main(): void` and runs all assertions)
 - `src/todo.ts` (domain model + operations)
-- `src/collections.ts` (small utilities used by the model)
+- `src/assert.ts` (tiny assertion helpers)
 
 The entry should print a stable success marker, e.g. `ROUNDTRIP_OK`.
+
+Implementation:
+- Harness: `tools/ts2hx/src/test-roundtrip.ts` (wired into `yarn --cwd tools/ts2hx test`)
+- Temporary outputs: `tools/ts2hx/.tmp/roundtrip-fixture-*`
 
 ### Required feature surface (initial)
 
