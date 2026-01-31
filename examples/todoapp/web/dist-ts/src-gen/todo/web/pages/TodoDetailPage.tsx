@@ -42,6 +42,8 @@ export class TodoDetailPage {
 			};
 			let trimmed: string = StringTools.trim(title);
 			if (trimmed.length == 0) {
+				let setter: ((arg0: string) => void) = (errorState[1] ?? null);
+				setter("Title is required");
 				return;
 			};
 			Client.updateTodo(Register.unsafeCast<string>(id), {"title": trimmed}).then(function (updated: Todo) {

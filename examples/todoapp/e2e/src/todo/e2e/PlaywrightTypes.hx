@@ -21,6 +21,7 @@ typedef ConsoleMessage = {
   function text(): String;
 }
 
+@:ts.type("import('@playwright/test').Locator")
 typedef Locator = {
   function fill(value: String): Promise<Void>;
   function click(): Promise<Void>;
@@ -29,6 +30,7 @@ typedef Locator = {
   function waitFor(): Promise<Void>;
   function nth(index: Int): Locator;
   function isChecked(): Promise<Bool>;
+  function inputValue(): Promise<String>;
 }
 
 @:ts.type("import('@playwright/test').Page")

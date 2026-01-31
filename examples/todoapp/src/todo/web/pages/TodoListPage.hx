@@ -68,8 +68,10 @@ class TodoListPage {
 
     function onAdd() {
       final trimmed = StringTools.trim(title);
-      if (trimmed.length == 0)
+      if (trimmed.length == 0) {
+        errorState.set("Title is required");
         return;
+      }
       errorState.set("");
       Client.createTodo(trimmed).then(todo -> {
         todosState.set(todos.concat([todo]));

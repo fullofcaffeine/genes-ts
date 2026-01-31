@@ -46,8 +46,10 @@ class TodoDetailPage {
       if (id == null)
         return;
       final trimmed = StringTools.trim(title);
-      if (trimmed.length == 0)
+      if (trimmed.length == 0) {
+        errorState.set("Title is required");
         return;
+      }
       Client.updateTodo(id, {title: trimmed}).then(updated -> {
         todoState.set(updated);
         navigate("/");

@@ -52,7 +52,7 @@ class Main {
   }
 
   static function main() {
-    PW.testPage("todoapp: create, navigate, update, toggle, delete", (page: Page) -> {
+    PW.testPage("todoapp: validation + create, navigate, update, toggle, delete", (page: Page) -> {
       // `js.Node.process/console` in hxnodejs are implemented via `untyped __js__`,
       // which is deprecated and triggers warnings at call sites when inlined.
       // Use an explicit `js.Syntax.code` boundary instead.
@@ -74,6 +74,8 @@ class Main {
 
       return page.goto(baseUrl + "/")
         .then(_ -> page.getByText("interop: ts-imports-haxe-ok").waitFor())
+        .then(_ -> page.getByRole("button", {name: "Add"}).click())
+        .then(_ -> page.getByText("Title is required").waitFor())
         .then(_ -> page.getByPlaceholder("New todo").fill("Buy milk"))
         .then(_ -> page.getByRole("button", {name: "Add"}).click())
         .then(_ -> waitForCount(page.getByText("Buy milk"), 1, 5000))
@@ -98,6 +100,49 @@ class Main {
         .then(_ -> waitForChecked(page.locator('input[type=\"checkbox\"]').nth(0), 5000))
         .then(_ -> page.getByRole("button", {name: "Delete"}).nth(0).click())
         .then(_ -> waitForCount(page.getByText("Buy oat milk"), 0, 5000));
+    });
+
+    PW.testPage("todoapp: deep-link refresh keeps detail state", (page: Page) -> {
+      final nodeProcess: NodeProcess = cast Syntax.code("process");
+      final baseUrl = switch nodeProcess.env.get("BASE_URL") {
+        case null: "http://localhost:8787";
+        case v: v;
+      }
+
+      var detailUrl = "";
+
+      return page.goto(baseUrl + "/")
+        .then(_ -> page.getByPlaceholder("New todo").fill("Deep link todo"))
+        .then(_ -> page.getByRole("button", {name: "Add"}).click())
+        .then(_ -> page.getByText("Deep link todo").waitFor())
+        .then(_ -> page.getByText("Deep link todo").click())
+        .then(_ -> page.waitForURL(new RegExp("/todos/"), {waitUntil: "commit"}))
+        .then(_ -> {
+          detailUrl = page.url();
+          if (detailUrl.indexOf("/todos/") == -1)
+            throw 'Expected /todos/:id URL, got ' + detailUrl;
+        })
+        // Refresh by navigating directly to the same URL again.
+        .then(_ -> page.goto(detailUrl))
+        .then(_ -> page.locator("input").inputValue())
+        .then(value -> {
+          if (value != "Deep link todo")
+            throw 'Expected detail title to persist after deep-link refresh, got ' + value;
+        });
+    });
+
+    PW.testPage("todoapp: invalid deep link shows error and can return home", (page: Page) -> {
+      final nodeProcess: NodeProcess = cast Syntax.code("process");
+      final baseUrl = switch nodeProcess.env.get("BASE_URL") {
+        case null: "http://localhost:8787";
+        case v: v;
+      }
+
+      return page.goto(baseUrl + "/todos/does-not-exist")
+        .then(_ -> page.getByText("Todo not found").waitFor())
+        .then(_ -> page.getByRole("link", {name: "Back"}).click())
+        .then(_ -> page.waitForURL(baseUrl + "/", {waitUntil: "commit"}))
+        .then(_ -> page.getByText("Todoapp").waitFor());
     });
   }
 }

@@ -59,6 +59,8 @@ export class TodoListPage {
 		let onAdd: (() => void) = function () {
 			let trimmed: string = StringTools.trim(title);
 			if (trimmed.length == 0) {
+				let setter: ((arg0: string) => void) = (errorState[1] ?? null);
+				setter("Title is required");
 				return;
 			};
 			let setter: ((arg0: string) => void) = (errorState[1] ?? null);
