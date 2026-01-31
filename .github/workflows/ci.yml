@@ -19,6 +19,7 @@ permissions:
 
 env:
   NODE_VERSION: "20"
+  NODE_VERSION_NEXT_LTS: "22"
   YARN_VERSION: "1.22.22"
   HAXE_VERSION: "4.3.7"
 
@@ -68,17 +69,24 @@ jobs:
 
   classic:
     name: Classic Genes (Haxe ${{ matrix.haxe-version }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         haxe-version:
           - "4.3.7"
+        include:
+          - os: ubuntu-latest
+            node-version: "20"
+          - os: ubuntu-latest
+            node-version: "22"
+          - os: macos-latest
+            node-version: "20"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: ${{ matrix.node-version }}
           cache: yarn
           cache-dependency-path: yarn.lock
       - run: corepack enable
@@ -88,8 +96,9 @@ jobs:
         with:
           path: |
             ~/haxe
-          key: ${{ runner.os }}-lix-haxe-${{ matrix.haxe-version }}-${{ hashFiles('.haxerc', 'haxe_libraries/*.hxml', 'yarn.lock') }}
+          key: ${{ runner.os }}-lix-haxe-${{ matrix.haxe-version }}-node-${{ matrix.node-version }}-${{ hashFiles('.haxerc', 'haxe_libraries/*.hxml', 'yarn.lock') }}
           restore-keys: |
+            ${{ runner.os }}-lix-haxe-${{ matrix.haxe-version }}-node-${{ matrix.node-version }}-
             ${{ runner.os }}-lix-haxe-${{ matrix.haxe-version }}-
       - run: yarn install --frozen-lockfile
       - run: yarn lix install haxe ${{ matrix.haxe-version }}
@@ -129,4 +138,37 @@ jobs:
       - run: yarn test:acceptance
         env:
           SKIP_CLASSIC: "1"
+          SKIP_TS2HX: "1"
       - run: yarn test:ts2hx
+
+  genes-ts-smoke-next-lts:
+    name: genes-ts smoke (Node ${{ env.NODE_VERSION_NEXT_LTS }})
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION_NEXT_LTS }}
+          cache: yarn
+          cache-dependency-path: yarn.lock
+      - run: corepack enable
+      - run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
+      - name: Cache Haxe toolchain (lix)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/haxe
+          key: ${{ runner.os }}-lix-haxe-${{ env.HAXE_VERSION }}-node-${{ env.NODE_VERSION_NEXT_LTS }}-${{ hashFiles('.haxerc', 'haxe_libraries/*.hxml', 'yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-lix-haxe-${{ env.HAXE_VERSION }}-node-${{ env.NODE_VERSION_NEXT_LTS }}-
+            ${{ runner.os }}-lix-haxe-${{ env.HAXE_VERSION }}-
+      - run: yarn install --frozen-lockfile
+      - run: yarn lix install haxe ${{ env.HAXE_VERSION }}
+      - run: yarn lix use haxe ${{ env.HAXE_VERSION }}
+      - run: yarn test:acceptance
+        env:
+          SKIP_CLASSIC: "1"
+          SKIP_TS2HX: "1"
+          SKIP_PLAYWRIGHT: "1"
