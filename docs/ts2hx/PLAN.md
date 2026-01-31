@@ -163,10 +163,10 @@ This mirrors the approach used successfully by `dts2hx` (diff-based stability), 
 
 This work is tracked under:
 
-- Epic: `genes-8uq` (ts2hx experiment)
-- Task: `genes-6my.6` (minimal spike)
+- Epic: `genes-dhg` (ts2hx experiment)
+- Task: `genes-dhg.1` (roundtrip fixture harness)
 
-It should remain isolated from the main genes-ts compiler pipeline.
+It should remain isolated from the main genes-ts compiler pipeline (`src/genes/**`).
 
 Suggested milestone breakdown:
 
@@ -184,3 +184,71 @@ Suggested milestone breakdown:
    - Golden tests + a couple compile+run fixtures.
 7) **M6 — Docs + workflow**
    - Document limitations and intended migration workflow.
+
+---
+
+## M7 — Roundtrip fixture harness (TS→Haxe→TS→JS)
+
+Goal: a medium TS fixture project is:
+
+1) executed in its **original TS** form (compiled by `tsc`),
+2) transpiled to **Haxe** by `ts2hx`,
+3) compiled back to **TypeScript** by **genes-ts** (Haxe→TS),
+4) compiled to **JS** by `tsc`,
+5) executed again; it must still pass.
+
+This is a “migration parity” harness. It is **not** attempting to prove that the
+emitted Haxe is portable to non-JS targets.
+
+### Fixture layout (planned)
+
+Location:
+- `tools/ts2hx/fixtures/roundtrip-fixture/`
+
+Files:
+- `tsconfig.json` (NodeNext)
+- `src/index.ts` (entrypoint; calls `main()` and exits non-zero on failure)
+- `src/Main.ts` (exports `main(): void` and runs all assertions)
+- `src/todo.ts` (domain model + operations)
+- `src/collections.ts` (small utilities used by the model)
+
+The entry should print a stable success marker, e.g. `ROUNDTRIP_OK`.
+
+### Required feature surface (initial)
+
+We intentionally choose a feature set that:
+- is common in real TS,
+- maps well to Haxe-for-JS, and
+- drives ts2hx improvements beyond the existing minimal fixtures.
+
+Types:
+- primitives (`string`, `number`, `boolean`, `void`)
+- arrays (`T[]` and/or `Array<T>`)
+- type references with type args (e.g. `Array<T>`, `Map<K, V>`, small generic helpers)
+- string literal unions (or an `enum`) for status-like modeling
+- object types (interfaces / type aliases with fields)
+
+Expressions/statements:
+- `if` / `throw new Error(...)`
+- array literals, object literals
+- property access, method calls, `new`
+- `===` / `!==` comparisons
+
+Imports/exports:
+- relative imports (`./x`)
+- named exports (no default export required)
+
+Out of scope for the first roundtrip fixture:
+- TSX / JSX
+- async/await and Promises
+- advanced TS type-level features (conditional types, mapped types, declaration merging)
+- decorators / metadata
+
+### Output quality checks
+
+The harness should:
+- run `tsc --noEmit` on the **roundtripped** TS output,
+- and enforce that `any`/`unknown` do not leak into *fixture* modules (allowing
+  them only inside the runtime/stdlib boundary directories).
+
+This is intended to catch “everything became Dynamic” regressions early.
