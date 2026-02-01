@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.4.0...v1.5.0) (2026-02-01)
+
+
+### Features
+
+* **ts2hx:** improved type emission ([5da5ac8](https://github.com/fullofcaffeine/genes-ts/commit/5da5ac874445f4d68be28fafe043c8f1b1b2ee44))
+
 # [1.4.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.3.0...v1.4.0) (2026-02-01)
 
 
