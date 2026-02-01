@@ -64,8 +64,8 @@ genes-ts must keep multiple modes well-defined and tested:
 | C2 (determinism) | intended-vs-generated diffs (`dist-ts/src-gen` vs `src-gen`) | `yarn test:acceptance` / `yarn build:example:todoapp` |
 | C3 (Node runtime) | todoapp server smoke + Playwright runs against it | `yarn test:acceptance` |
 | C3 (browser runtime) | todoapp web bundle + Playwright UI flows | `yarn test:acceptance` |
-| C4 (interop both ways) | todoapp interop fixtures (see PRD milestones) | `genes-705.2` / `genes-705.10` |
-| C5 (profiles) | dedicated genes-ts test runners + todoapp variants | `yarn test:genes-ts:minimal`, `yarn test:genes-ts:tsx`, `genes-705.9` |
+| C4 (interop both ways) | todoapp interop fixtures (see PRD milestones) | `yarn test:acceptance` |
+| C5 (profiles) | dedicated genes-ts test runners + todoapp variants | `yarn test:genes-ts:minimal`, `yarn test:genes-ts:tsx` |
 | baseline | classic Genes JS output | `yarn test` |
 
 Notes:
@@ -75,8 +75,11 @@ Notes:
 
 ---
 
-## Current gaps (tracked work)
+## Current status
 
-- Todoapp interop fixtures (Haxe↔TS): `genes-705.2`
-- Todoapp variants (low-level React, minimal_runtime): `genes-705.9`
-- E2E expansion for routing/errors/interop paths: `genes-705.10`
+The original “prime time” backlog for `genes-705` has been completed and is now
+guarded by the CI gates listed above (`yarn test:ci` is the single-command
+equivalent).
+
+Ongoing work (new features, typing tightening, new fixtures) should be tracked in
+beads (`bd`), not in this document.

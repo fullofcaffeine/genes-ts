@@ -18,7 +18,7 @@ Then optionally:
 
 This leverages the biggest advantage we have: **Haxe’s JS-platform typing + stdlib + semantics are already correct for the runtime we ultimately want (JavaScript).**
 
-## Current status (Jan 25, 2026)
+## Current status (Feb 1, 2026)
 
 genes-ts is already “real” in this repo, not just a design:
 
@@ -43,7 +43,9 @@ genes-ts is already “real” in this repo, not just a design:
 - **Output contract:** TS is the primary artifact; output should be **idiomatic TS** in both code and project/module structure.
   - Packaging: do **both** — emit TS source as the “primary” human-readable artifact, and provide an official build path that produces `dist/` (`.js` + `.d.ts`) for npm consumption.
 - **TypeScript strictness:** **strict by default**, but configurable.
-- **Haxe version:** start with **Haxe 4.3.7** (latest stable Haxe 4.x).
+- **Haxe version:** currently pinned to **Haxe 4.3.7** in CI (latest stable Haxe 4.x in our toolchain).
+  - If you meant “Haxe 4.x latest stable” rather than “Haxe 4.7”, this is that baseline.
+  - If/when a newer stable Haxe 4 becomes available for our stack, we should bump CI + local toolchain together.
 - **Debugging:** first-class Haxe→TS sourcemaps early; TS→JS map composition can be a later milestone.
 - **Interop/idioms:** support Haxe stdlib + reflection conventions by default, while allowing “TS-first” coding via externs/metadata/opt-in behaviors.
 - **Module/import policy:** support both:

@@ -8,6 +8,33 @@ This is a **low-priority, post-1.0 experiment** for genes-ts:
 
 Terminology: this is a **transpiler / migration tool**, not a “reverse compiler”.
 
+## Current status (Feb 1, 2026)
+
+ts2hx has moved beyond “v0 sketch” and now supports a practical subset of modern
+TypeScript for **Haxe-for-JS** compilation, with deterministic golden/snapshot tests.
+
+What’s implemented (best-effort):
+
+- Project loading via `tsconfig.json` (Program + TypeChecker) and deterministic file traversal
+- Import/export coverage (default/named/namespace, local export lists, common re-export forms)
+- Statement + expression coverage for a broad JS/TS subset
+- Destructuring patterns:
+  - variable declarations
+  - destructuring assignments
+  - function/arrow params (defaults + rest)
+- Optional chaining and logical assignment operators (`??=`, `&&=`, `||=`) best-effort
+- Haxe smoke compilation for all fixtures, and node runtime smoke for most fixtures
+
+Important limitations (intentional for now):
+
+- This is still **JS-centric**: some operators are lowered via `js.Syntax.code(...)` for truthiness semantics.
+- Not all TS syntax is accepted yet (TSX is not a core focus unless/until a fixture demands it).
+- Some patterns are supported only in the “high signal” shapes we see in fixtures (e.g. logical assigns currently require identifier LHS).
+
+Tracking:
+
+- The long-term backlog remains under the `genes-dhg` epic (beads).
+
 ## North star (new requirement)
 
 The long-term goal is for `ts2hx` to be able to take **arbitrarily complex real-world
