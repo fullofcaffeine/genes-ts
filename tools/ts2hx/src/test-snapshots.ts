@@ -83,6 +83,17 @@ function main(): number {
       smokeMain: "ts2hx.Main"
     },
     {
+      name: "basic-tsx",
+      tsconfigPath: path.join(toolRoot, "fixtures", "basic-tsx", "tsconfig.json"),
+      snapshotsDir: path.join(toolRoot, "tests_snapshots", "basic-tsx"),
+      basePackage: "ts2hx",
+      smokeMain: "ts2hx.Main",
+      // TSX lowering currently emits `genes.react.internal.Jsx.__jsx` marker calls which
+      // are lowered by genes-ts when emitting TS/TSX, but have no runtime implementation
+      // in classic `haxe -js` output. Compile-smoke only for now.
+      smokeRun: false
+    },
+    {
       name: "roundtrip-fixture",
       tsconfigPath: path.join(toolRoot, "fixtures", "roundtrip-fixture", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "roundtrip-fixture"),

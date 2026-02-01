@@ -566,7 +566,14 @@ function emitType(typeNode: ts.TypeNode | undefined): string {
 
       // Builtin mappings for Haxe-for-JS.
       // TS's global `Promise<T>` maps to `js.lib.Promise<T>` in Haxe.
-      const mappedBase = baseName === "Promise" ? "js.lib.Promise" : baseName === "ReadonlyArray" ? "Array" : baseName;
+      const mappedBase =
+        baseName === "Promise"
+          ? "js.lib.Promise"
+          : baseName === "ReadonlyArray"
+            ? "Array"
+            : baseName === "JSX.Element"
+              ? "genes.react.Element"
+              : baseName;
 
       const typeArgs = ref.typeArguments ?? [];
       if (typeArgs.length === 0) return mappedBase;
@@ -679,6 +686,142 @@ function emitIife(bodyLines: string[]): string {
   return `(function() {\n${bodyLines.join("\n")}\n})()`;
 }
 
+function isIntrinsicJsxTag(tag: string): boolean {
+  if (!tag || tag.length === 0) return false;
+  const first = tag.charCodeAt(0);
+  return (first >= "a".charCodeAt(0) && first <= "z".charCodeAt(0)) || tag.includes("-");
+}
+
+function normalizeJsxText(s: string): string {
+  // Collapse whitespace so indentation/newlines in TSX don't create accidental whitespace-only text nodes.
+  const collapsed = s.replace(/[ \t\r\n]+/g, " ");
+  // Drop whitespace-only nodes, but preserve meaningful boundary spaces by not trimming.
+  if (collapsed.trim().length === 0) return "";
+  return collapsed;
+}
+
+function emitJsxTag(ctx: EmitContext, tagName: ts.JsxTagNameExpression): string | null {
+  if (ts.isIdentifier(tagName)) {
+    const raw = tagName.text;
+    if (isIntrinsicJsxTag(raw)) return JSON.stringify(raw);
+    return emitExpression(ctx, tagName);
+  }
+  if (ts.isJsxNamespacedName(tagName as unknown as ts.Node)) {
+    const ns = (tagName as unknown as ts.JsxNamespacedName).namespace.text;
+    const name = (tagName as unknown as ts.JsxNamespacedName).name.text;
+    const raw = `${ns}:${name}`;
+    return JSON.stringify(raw);
+  }
+  // Best-effort: treat member expressions (`Foo.Bar`) as normal expressions.
+  if (ts.isPropertyAccessExpression(tagName as unknown as ts.Node)) {
+    return emitExpression(ctx, tagName as unknown as ts.Expression);
+  }
+  return null;
+}
+
+function emitJsxProps(ctx: EmitContext, attrs: ts.JsxAttributes): string[] | null {
+  const out: string[] = [];
+  for (const prop of attrs.properties) {
+    if (ts.isJsxAttribute(prop)) {
+      const name = ts.isIdentifier(prop.name)
+        ? prop.name.text
+        : ts.isJsxNamespacedName(prop.name)
+          ? `${prop.name.namespace.text}:${prop.name.name.text}`
+          : null;
+      if (!name) return null;
+      let valueExpr: string | null = null;
+      if (!prop.initializer) {
+        valueExpr = "true";
+      } else if (ts.isStringLiteral(prop.initializer)) {
+        valueExpr = JSON.stringify(prop.initializer.text);
+      } else if (ts.isJsxExpression(prop.initializer)) {
+        const inner = prop.initializer.expression;
+        if (!inner) continue; // `{/* comment */}` / empty expression
+        valueExpr = emitExpression(ctx, inner);
+      } else {
+        return null;
+      }
+      if (!valueExpr) return null;
+      out.push(`{ name: ${JSON.stringify(name)}, value: ${valueExpr} }`);
+      continue;
+    }
+
+    if (ts.isJsxSpreadAttribute(prop)) {
+      const spread = emitExpression(ctx, prop.expression);
+      if (!spread) return null;
+      out.push(`{ spread: ${spread} }`);
+      continue;
+    }
+
+    return null;
+  }
+  return out;
+}
+
+function emitJsxChildren(ctx: EmitContext, children: readonly ts.JsxChild[]): string[] | null {
+  const out: string[] = [];
+  let pendingText: string | null = null;
+
+  function flushText() {
+    if (pendingText == null) return;
+    out.push(JSON.stringify(pendingText));
+    pendingText = null;
+  }
+
+  for (const child of children) {
+    if (ts.isJsxText(child)) {
+      const norm = normalizeJsxText(child.text);
+      if (norm.length === 0) continue;
+      pendingText = pendingText == null ? norm : normalizeJsxText(pendingText + norm);
+      continue;
+    }
+
+    flushText();
+
+    if (ts.isJsxExpression(child)) {
+      const inner = child.expression;
+      if (!inner) continue;
+      const emitted = emitExpression(ctx, inner);
+      if (!emitted) return null;
+      out.push(emitted);
+      continue;
+    }
+
+    // JsxElement / JsxSelfClosingElement / JsxFragment are expressions.
+    const emitted = emitExpression(ctx, child as unknown as ts.Expression);
+    if (!emitted) return null;
+    out.push(emitted);
+  }
+
+  flushText();
+  return out;
+}
+
+function emitJsxRoot(ctx: EmitContext, expr: ts.JsxElement | ts.JsxSelfClosingElement | ts.JsxFragment): string | null {
+  if (ts.isJsxFragment(expr)) {
+    const children = emitJsxChildren(ctx, expr.children);
+    if (!children) return null;
+    return `genes.react.internal.Jsx.__frag([${children.join(", ")}])`;
+  }
+
+  if (ts.isJsxSelfClosingElement(expr)) {
+    const tag = emitJsxTag(ctx, expr.tagName);
+    if (!tag) return null;
+    const props = emitJsxProps(ctx, expr.attributes);
+    if (!props) return null;
+    return `genes.react.internal.Jsx.__jsx(${tag}, [${props.join(", ")}], [])`;
+  }
+
+  // JsxElement
+  const tag = emitJsxTag(ctx, expr.openingElement.tagName);
+  if (!tag) return null;
+  const props = emitJsxProps(ctx, expr.openingElement.attributes);
+  if (!props) return null;
+  const children = emitJsxChildren(ctx, expr.children);
+  if (!children) return null;
+  return `genes.react.internal.Jsx.__jsx(${tag}, [${props.join(", ")}], [${children.join(", ")}])`;
+}
+
 function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
   switch (expr.kind) {
     case ts.SyntaxKind.NumericLiteral:
@@ -699,6 +842,10 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
       if (name === "Promise") return "js.lib.Promise";
       return ctx.identifierRewrites.get(name) ?? name;
     }
+    case ts.SyntaxKind.JsxElement:
+    case ts.SyntaxKind.JsxSelfClosingElement:
+    case ts.SyntaxKind.JsxFragment:
+      return emitJsxRoot(ctx, expr as unknown as ts.JsxElement | ts.JsxSelfClosingElement | ts.JsxFragment);
     case ts.SyntaxKind.ThisKeyword:
       return "this";
     case ts.SyntaxKind.ParenthesizedExpression: {

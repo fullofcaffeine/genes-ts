@@ -1,11 +1,15 @@
 {
   "compilerOptions": {
-    "target": "ES2019",
-    "module": "ESNext",
-    "moduleResolution": "Node",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "jsx": "react",
-    "strict": true
+    "strict": true,
+    "noEmitOnError": true,
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "types": ["node"]
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
 }
-
