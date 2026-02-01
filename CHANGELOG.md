@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.6.0...v1.7.0) (2026-02-01)
+
+
+### Features
+
+* **ts2hx:** default + rest params ([6fe42a0](https://github.com/fullofcaffeine/genes-ts/commit/6fe42a0635f652e6aae0c56507bfe0f66a26fa22))
+
 # [1.6.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.5.0...v1.6.0) (2026-02-01)
 
 
