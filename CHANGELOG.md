@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.3.0...v1.4.0) (2026-02-01)
+
+
+### Features
+
+* **ts2hx:** expression coverage ([a3cbca3](https://github.com/fullofcaffeine/genes-ts/commit/a3cbca3f66fbb2997916148487b7878d21d74d2b))
+
 # [1.3.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.2.0...v1.3.0) (2026-01-31)
 
 

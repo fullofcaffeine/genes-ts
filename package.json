@@ -1,6 +1,6 @@
 {
   "type": "module",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "license": "MIT",
   "scripts": {
     "submit:zip": "bestzip submit.zip src/* haxelib.json readme.md extraParams.hxml",
