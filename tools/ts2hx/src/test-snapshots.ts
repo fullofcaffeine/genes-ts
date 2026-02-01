@@ -125,6 +125,13 @@ function main(): number {
       smokeMain: "ts2hx.Main"
     },
     {
+      name: "expression-coverage",
+      tsconfigPath: path.join(toolRoot, "fixtures", "expression-coverage", "tsconfig.json"),
+      snapshotsDir: path.join(toolRoot, "tests_snapshots", "expression-coverage"),
+      basePackage: "ts2hx",
+      smokeMain: "ts2hx.Main"
+    },
+    {
       name: "object-methods-spreads",
       tsconfigPath: path.join(toolRoot, "fixtures", "object-methods-spreads", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "object-methods-spreads"),

@@ -478,6 +478,15 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
       if (op === ts.SyntaxKind.EqualsToken) {
         return `${left} = ${right}`;
       }
+      if (
+        op === ts.SyntaxKind.PlusEqualsToken ||
+        op === ts.SyntaxKind.MinusEqualsToken ||
+        op === ts.SyntaxKind.AsteriskEqualsToken ||
+        op === ts.SyntaxKind.SlashEqualsToken
+      ) {
+        const opText = ts.tokenToString(op)?.replace("=", "") ?? "+";
+        return `(${left} = (${left} ${opText} ${right}))`;
+      }
       if (op === ts.SyntaxKind.EqualsEqualsToken || op === ts.SyntaxKind.EqualsEqualsEqualsToken) {
         return `(${left} == ${right})`;
       }
@@ -513,10 +522,43 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
     }
     case ts.SyntaxKind.PrefixUnaryExpression: {
       const un = expr as ts.PrefixUnaryExpression;
-      if (un.operator !== ts.SyntaxKind.ExclamationToken) return null;
       const inner = emitExpression(ctx, un.operand);
       if (!inner) return null;
-      return `!(${inner})`;
+      switch (un.operator) {
+        case ts.SyntaxKind.ExclamationToken:
+          return `!(${inner})`;
+        case ts.SyntaxKind.PlusToken:
+          // Haxe has no unary plus operator; best-effort: preserve the operand.
+          // (JS numeric coercion is intentionally not modeled here yet.)
+          return `(${inner})`;
+        case ts.SyntaxKind.MinusToken:
+          return `-(${inner})`;
+        case ts.SyntaxKind.PlusPlusToken:
+          return `++${inner}`;
+        case ts.SyntaxKind.MinusMinusToken:
+          return `--${inner}`;
+        default:
+          return null;
+      }
+    }
+    case ts.SyntaxKind.PostfixUnaryExpression: {
+      const un = expr as ts.PostfixUnaryExpression;
+      const inner = emitExpression(ctx, un.operand);
+      if (!inner) return null;
+      switch (un.operator) {
+        case ts.SyntaxKind.PlusPlusToken:
+          return `${inner}++`;
+        case ts.SyntaxKind.MinusMinusToken:
+          return `${inner}--`;
+        default:
+          return null;
+      }
+    }
+    case ts.SyntaxKind.TypeOfExpression: {
+      const t = expr as ts.TypeOfExpression;
+      const inner = emitExpression(ctx, t.expression);
+      if (!inner) return null;
+      return `js.Syntax.typeof(${inner})`;
     }
     case ts.SyntaxKind.ConditionalExpression: {
       const cond = expr as ts.ConditionalExpression;
