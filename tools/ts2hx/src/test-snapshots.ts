@@ -167,6 +167,13 @@ function main(): number {
       smokeMain: "ts2hx.Main"
     },
     {
+      name: "real-world-v1",
+      tsconfigPath: path.join(toolRoot, "fixtures", "real-world-v1", "tsconfig.json"),
+      snapshotsDir: path.join(toolRoot, "tests_snapshots", "real-world-v1"),
+      basePackage: "ts2hx",
+      smokeMain: "ts2hx.Main"
+    },
+    {
       name: "async-await",
       tsconfigPath: path.join(toolRoot, "fixtures", "async-await", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "async-await"),
