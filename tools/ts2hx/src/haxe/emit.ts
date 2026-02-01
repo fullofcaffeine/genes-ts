@@ -671,6 +671,10 @@ function emitRestElementType(typeNode: ts.TypeNode | undefined): string {
   return emitType(typeNode);
 }
 
+function emitIife(bodyLines: string[]): string {
+  return `(function() {\n${bodyLines.join("\n")}\n})()`;
+}
+
 function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
   switch (expr.kind) {
     case ts.SyntaxKind.NumericLiteral:
@@ -871,14 +875,26 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
       const left = emitExpression(ctx, el.expression);
       const index = el.argumentExpression ? emitExpression(ctx, el.argumentExpression) : null;
       if (!left || !index) return null;
-      return `${left}[${index}]`;
+      const hasQuestionDot = "questionDotToken" in el && (el as unknown as { questionDotToken?: unknown }).questionDotToken != null;
+      if (!hasQuestionDot) return `${left}[${index}]`;
+
+      const tmp = nextTmp(ctx);
+      const idx = nextTmp(ctx, "__ts2hx_idx");
+      return emitIife([
+        `  var ${tmp} = ${left};`,
+        `  var ${idx} = ${index};`,
+        `  return (${tmp} == null ? null : ${tmp}[${idx}]);`
+      ]);
     }
     case ts.SyntaxKind.PropertyAccessExpression: {
       const access = expr as ts.PropertyAccessExpression;
       const left = emitExpression(ctx, access.expression);
       if (!left) return null;
       const hasQuestionDot = "questionDotToken" in access && (access as unknown as { questionDotToken?: unknown }).questionDotToken != null;
-      return hasQuestionDot ? `${left}?.${access.name.text}` : `${left}.${access.name.text}`;
+      if (!hasQuestionDot) return `${left}.${access.name.text}`;
+
+      const tmp = nextTmp(ctx);
+      return emitIife([`  var ${tmp} = ${left};`, `  return (${tmp} == null ? null : ${tmp}.${access.name.text});`]);
     }
     case ts.SyntaxKind.NewExpression: {
       const ne = expr as ts.NewExpression;
@@ -895,6 +911,27 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
     case ts.SyntaxKind.BinaryExpression: {
       const bin = expr as ts.BinaryExpression;
       const op = bin.operatorToken.kind;
+
+      if (
+        op === ts.SyntaxKind.QuestionQuestionEqualsToken ||
+        op === ts.SyntaxKind.AmpersandAmpersandEqualsToken ||
+        op === ts.SyntaxKind.BarBarEqualsToken
+      ) {
+        if (!ts.isIdentifier(bin.left)) return null;
+        const name = bin.left.text;
+        const rhs = emitExpression(ctx, bin.right);
+        if (!rhs) return null;
+
+        if (op === ts.SyntaxKind.QuestionQuestionEqualsToken) {
+          return emitIife([`  if (${name} == null) ${name} = ${rhs};`, `  return ${name};`]);
+        }
+
+        // JS truthiness is not representable in plain Haxe typing, so lower through JS boolean coercion.
+        // Note: this intentionally targets the JS backend (ts2hx is JS-centric for now).
+        const isTruthy = `js.Syntax.code(\"!!{0}\", ${name})`;
+        const cond = op === ts.SyntaxKind.AmpersandAmpersandEqualsToken ? isTruthy : `!(${isTruthy})`;
+        return emitIife([`  if (${cond}) ${name} = ${rhs};`, `  return ${name};`]);
+      }
 
       // Destructuring assignment: `({a, b} = obj)` / `([a, b] = arr)`.
       if (op === ts.SyntaxKind.EqualsToken) {
@@ -1012,6 +1049,65 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
     }
     case ts.SyntaxKind.CallExpression: {
       const call = expr as ts.CallExpression;
+
+      if (ts.isCallChain(call)) {
+        const args = call.arguments.map((a) => emitExpression(ctx, a));
+        if (args.some((a) => a == null)) return null;
+        const argsArray = `cast [${args.join(", ")}]`;
+
+        const callHasQuestionDot =
+          "questionDotToken" in call && (call as unknown as { questionDotToken?: unknown }).questionDotToken != null;
+
+        const calleeNode = call.expression;
+
+        if (ts.isPropertyAccessExpression(calleeNode)) {
+          const recv = emitExpression(ctx, calleeNode.expression);
+          if (!recv) return null;
+
+          const recvTmp = nextTmp(ctx, "__ts2hx_recv");
+          const fnTmp = nextTmp(ctx, "__ts2hx_fn");
+
+          const receiverOptional = ts.isPropertyAccessChain(calleeNode);
+
+          const body: string[] = [];
+          body.push(`  var ${recvTmp} = ${recv};`);
+          if (receiverOptional) body.push(`  if (${recvTmp} == null) return null;`);
+          body.push(`  var ${fnTmp} = ${recvTmp}.${calleeNode.name.text};`);
+          if (callHasQuestionDot) body.push(`  if (${fnTmp} == null) return null;`);
+          body.push(`  return Reflect.callMethod(${recvTmp}, ${fnTmp}, ${argsArray});`);
+          return emitIife(body);
+        }
+
+        if (ts.isElementAccessExpression(calleeNode)) {
+          const recv = emitExpression(ctx, calleeNode.expression);
+          const idxExpr = calleeNode.argumentExpression ? emitExpression(ctx, calleeNode.argumentExpression) : null;
+          if (!recv || !idxExpr) return null;
+
+          const recvTmp = nextTmp(ctx, "__ts2hx_recv");
+          const idxTmp = nextTmp(ctx, "__ts2hx_idx");
+          const fnTmp = nextTmp(ctx, "__ts2hx_fn");
+
+          const receiverOptional = ts.isElementAccessChain(calleeNode);
+
+          const body: string[] = [];
+          body.push(`  var ${recvTmp} = ${recv};`);
+          if (receiverOptional) body.push(`  if (${recvTmp} == null) return null;`);
+          body.push(`  var ${idxTmp} = ${idxExpr};`);
+          body.push(`  var ${fnTmp} = ${recvTmp}[${idxTmp}];`);
+          if (callHasQuestionDot) body.push(`  if (${fnTmp} == null) return null;`);
+          body.push(`  return Reflect.callMethod(${recvTmp}, ${fnTmp}, ${argsArray});`);
+          return emitIife(body);
+        }
+
+        const callee = emitExpression(ctx, calleeNode);
+        if (!callee) return null;
+        const fnTmp = nextTmp(ctx, "__ts2hx_fn");
+        return emitIife([
+          `  var ${fnTmp} = ${callee};`,
+          `  if (${fnTmp} == null) return null;`,
+          `  return ${fnTmp}(${args.join(", ")});`
+        ]);
+      }
 
       // Best-effort builtin mappings for Haxe-for-JS (v0).
       if (ts.isPropertyAccessExpression(call.expression)) {

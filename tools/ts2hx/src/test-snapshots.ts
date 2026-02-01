@@ -160,6 +160,13 @@ function main(): number {
       smokeMain: "ts2hx.Main"
     },
     {
+      name: "optional-chain-assignments",
+      tsconfigPath: path.join(toolRoot, "fixtures", "optional-chain-assignments", "tsconfig.json"),
+      snapshotsDir: path.join(toolRoot, "tests_snapshots", "optional-chain-assignments"),
+      basePackage: "ts2hx",
+      smokeMain: "ts2hx.Main"
+    },
+    {
       name: "non-relative-imports",
       tsconfigPath: path.join(toolRoot, "fixtures", "non-relative-imports", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "non-relative-imports"),

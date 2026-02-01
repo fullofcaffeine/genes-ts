@@ -12,7 +12,10 @@ typedef Config = {
 }
 
 function normalizeBaseUrl(cfg: Config): String {
-  final len = (cfg.baseUrl?.length ?? 0);
+  final len = ((function() {
+  var __ts2hx_tmp0 = cfg.baseUrl;
+  return (__ts2hx_tmp0 == null ? null : __ts2hx_tmp0.length);
+})() ?? 0);
   if ((len == 0))   {
     return "http://localhost";
   }
