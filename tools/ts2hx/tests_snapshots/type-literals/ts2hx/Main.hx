@@ -7,7 +7,7 @@ import ts2hx.Model.makeTodo;
 import ts2hx.Model.Todo;
 
 function main(): Void {
-  var t: Todo = makeTodo(1, "x");
+  final t: Todo = makeTodo(1, "x");
   assertEqual(t.id, 1, "id");
   assertStringEqual(t.title, "x", "title");
   assert((t.done == null), "optional field omitted");

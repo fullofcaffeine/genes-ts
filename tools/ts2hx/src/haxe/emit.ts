@@ -63,7 +63,14 @@ function isLikelyTypeName(name: string): boolean {
 
 type EmitContext = {
   identifierRewrites: Map<string, string>;
+  tmpCounter: number;
 };
+
+function nextTmp(ctx: EmitContext, prefix = "__ts2hx_tmp"): string {
+  const n = ctx.tmpCounter;
+  ctx.tmpCounter++;
+  return `${prefix}${n}`;
+}
 
 type ExternModule = {
   moduleSpecifier: string;
@@ -209,6 +216,312 @@ function emitExternModuleFile(opts: EmitHaxeOptions, ex: ExternModule): { filePa
   lines.push("");
 
   return { filePath: outAbsFile, content: lines.join("\n") };
+}
+
+type BindingMode = "declare" | "assign";
+
+type DeclareKeyword = "var" | "final";
+
+function emitBindingTarget(expr: ts.Expression): string | null {
+  if (ts.isParenthesizedExpression(expr)) return emitBindingTarget(expr.expression);
+  if (ts.isIdentifier(expr)) return expr.text;
+  if (ts.isPropertyAccessExpression(expr)) {
+    const left = emitBindingTarget(expr.expression);
+    if (!left) return null;
+    return `${left}.${expr.name.text}`;
+  }
+  if (ts.isElementAccessExpression(expr)) {
+    const left = emitBindingTarget(expr.expression);
+    if (!left || !expr.argumentExpression || !ts.isStringLiteral(expr.argumentExpression)) return null;
+    return `${left}[${JSON.stringify(expr.argumentExpression.text)}]`;
+  }
+  return null;
+}
+
+function canDotAccessField(name: string): boolean {
+  return isValidHaxeIdentifier(name) && !HAXE_RESERVED.has(name);
+}
+
+function emitDestructureFromBindingName(opts: {
+  ctx: EmitContext;
+  mode: BindingMode;
+  declareKeyword?: DeclareKeyword;
+  name: ts.BindingName;
+  valueExpr: string;
+  indent: string;
+}): string[] | null {
+  const { ctx, mode, name, valueExpr, indent } = opts;
+  const declareKeyword: DeclareKeyword = opts.declareKeyword ?? "var";
+  const out: string[] = [];
+
+  if (ts.isIdentifier(name)) {
+    out.push(
+      mode === "declare"
+        ? `${indent}${declareKeyword} ${name.text} = ${valueExpr};`
+        : `${indent}${name.text} = ${valueExpr};`
+    );
+    return out;
+  }
+
+  if (ts.isObjectBindingPattern(name)) {
+    const takenKeys: string[] = [];
+
+    for (const el of name.elements) {
+      if (el.dotDotDotToken) {
+        if (!ts.isIdentifier(el.name)) return null;
+        const restName = el.name.text;
+        out.push(`${indent}${declareKeyword} ${restName} = js.lib.Object.assign(cast {}, ${valueExpr});`);
+        for (const k of takenKeys) out.push(`${indent}Reflect.deleteField(${restName}, ${JSON.stringify(k)});`);
+        continue;
+      }
+
+      const key =
+        el.propertyName && ts.isIdentifier(el.propertyName)
+          ? el.propertyName.text
+          : el.propertyName && ts.isStringLiteral(el.propertyName)
+            ? el.propertyName.text
+            : ts.isIdentifier(el.name)
+              ? el.name.text
+              : null;
+      if (!key) return null;
+      takenKeys.push(key);
+
+      const access = canDotAccessField(key) ? `${valueExpr}.${key}` : `${valueExpr}[${JSON.stringify(key)}]`;
+
+      const rawTmp = nextTmp(ctx);
+      out.push(`${indent}var ${rawTmp} = ${access};`);
+
+      let effectiveValue = rawTmp;
+      if (el.initializer) {
+        const def = emitExpression(ctx, el.initializer);
+        if (!def) return null;
+        effectiveValue = `(${rawTmp} == null ? ${def} : ${rawTmp})`;
+      }
+
+      const targetName = el.name;
+      if (ts.isIdentifier(targetName)) {
+        out.push(
+          mode === "declare"
+            ? `${indent}${declareKeyword} ${targetName.text} = ${effectiveValue};`
+            : `${indent}${targetName.text} = ${effectiveValue};`
+        );
+      } else {
+        const nestedTmp = nextTmp(ctx);
+        out.push(`${indent}var ${nestedTmp}: Dynamic = ${effectiveValue};`);
+        const nested = emitDestructureFromBindingName({ ctx, mode, declareKeyword, name: targetName, valueExpr: nestedTmp, indent });
+        if (!nested) return null;
+        out.push(...nested);
+      }
+    }
+
+    return out;
+  }
+
+  if (ts.isArrayBindingPattern(name)) {
+    let index = 0;
+    for (const el of name.elements) {
+      if (ts.isOmittedExpression(el)) {
+        index++;
+        continue;
+      }
+
+      if (el.dotDotDotToken) {
+        if (!ts.isIdentifier(el.name)) return null;
+        const restName = el.name.text;
+        out.push(`${indent}${declareKeyword} ${restName} = ${valueExpr}.slice(${index});`);
+        continue;
+      }
+
+      const access = `${valueExpr}[${index}]`;
+      index++;
+
+      const rawTmp = nextTmp(ctx);
+      out.push(`${indent}var ${rawTmp} = ${access};`);
+
+      let effectiveValue = rawTmp;
+      if (el.initializer) {
+        const def = emitExpression(ctx, el.initializer);
+        if (!def) return null;
+        effectiveValue = `(${rawTmp} == null ? ${def} : ${rawTmp})`;
+      }
+
+      if (ts.isIdentifier(el.name)) {
+        out.push(
+          mode === "declare"
+            ? `${indent}${declareKeyword} ${el.name.text} = ${effectiveValue};`
+            : `${indent}${el.name.text} = ${effectiveValue};`
+        );
+      } else {
+        const nestedTmp = nextTmp(ctx);
+        out.push(`${indent}var ${nestedTmp}: Dynamic = ${effectiveValue};`);
+        const nested = emitDestructureFromBindingName({ ctx, mode, declareKeyword, name: el.name, valueExpr: nestedTmp, indent });
+        if (!nested) return null;
+        out.push(...nested);
+      }
+    }
+
+    return out;
+  }
+
+  return null;
+}
+
+function emitDestructureAssignmentFromExpression(opts: {
+  ctx: EmitContext;
+  pattern: ts.Expression;
+  valueExpr: string;
+  indent: string;
+}): string[] | null {
+  const { ctx, pattern, valueExpr, indent } = opts;
+  const out: string[] = [];
+
+  if (ts.isParenthesizedExpression(pattern)) {
+    return emitDestructureAssignmentFromExpression({ ctx, pattern: pattern.expression, valueExpr, indent });
+  }
+
+  if (ts.isObjectLiteralExpression(pattern)) {
+    const takenKeys: string[] = [];
+    for (const prop of pattern.properties) {
+      if (ts.isSpreadAssignment(prop)) {
+        const target = emitBindingTarget(prop.expression);
+        if (!target) return null;
+        out.push(`${indent}${target} = js.lib.Object.assign(cast {}, ${valueExpr});`);
+        for (const k of takenKeys) out.push(`${indent}Reflect.deleteField(${target}, ${JSON.stringify(k)});`);
+        continue;
+      }
+
+      if (ts.isShorthandPropertyAssignment(prop)) {
+        const key = prop.name.text;
+        takenKeys.push(key);
+        const access = canDotAccessField(key) ? `${valueExpr}.${key}` : `${valueExpr}[${JSON.stringify(key)}]`;
+        const rawTmp = nextTmp(ctx);
+        out.push(`${indent}var ${rawTmp} = ${access};`);
+        if (prop.objectAssignmentInitializer) {
+          const def = emitExpression(ctx, prop.objectAssignmentInitializer);
+          if (!def) return null;
+          out.push(`${indent}${key} = (${rawTmp} == null ? ${def} : ${rawTmp});`);
+        } else {
+          out.push(`${indent}${key} = ${rawTmp};`);
+        }
+        continue;
+      }
+
+      if (ts.isPropertyAssignment(prop)) {
+        const key =
+          ts.isIdentifier(prop.name)
+            ? prop.name.text
+            : ts.isStringLiteral(prop.name)
+              ? prop.name.text
+              : null;
+        if (!key) return null;
+        takenKeys.push(key);
+
+        const access = canDotAccessField(key) ? `${valueExpr}.${key}` : `${valueExpr}[${JSON.stringify(key)}]`;
+
+        // Defaults in assignment patterns: `{a: b = 1} = obj` or `{a: {b} = {}} = obj`.
+        if (ts.isBinaryExpression(prop.initializer) && prop.initializer.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+          const rhsTmp = nextTmp(ctx);
+          out.push(`${indent}var ${rhsTmp} = ${access};`);
+          const def = emitExpression(ctx, prop.initializer.right);
+          if (!def) return null;
+          const effectiveValue = `(${rhsTmp} == null ? ${def} : ${rhsTmp})`;
+
+          const left = prop.initializer.left;
+          if (ts.isObjectLiteralExpression(left) || ts.isArrayLiteralExpression(left)) {
+            const nestedTmp = nextTmp(ctx);
+            out.push(`${indent}var ${nestedTmp}: Dynamic = ${effectiveValue};`);
+            const nested = emitDestructureAssignmentFromExpression({ ctx, pattern: left, valueExpr: nestedTmp, indent });
+            if (!nested) return null;
+            out.push(...nested);
+            continue;
+          }
+
+          const target = emitBindingTarget(left);
+          if (!target) return null;
+          out.push(`${indent}${target} = ${effectiveValue};`);
+          continue;
+        }
+
+        if (ts.isObjectLiteralExpression(prop.initializer) || ts.isArrayLiteralExpression(prop.initializer)) {
+          const nestedTmp = nextTmp(ctx);
+          out.push(`${indent}var ${nestedTmp}: Dynamic = ${access};`);
+          const nested = emitDestructureAssignmentFromExpression({ ctx, pattern: prop.initializer, valueExpr: nestedTmp, indent });
+          if (!nested) return null;
+          out.push(...nested);
+          continue;
+        }
+
+        const target = emitBindingTarget(prop.initializer);
+        if (!target) return null;
+        out.push(`${indent}${target} = ${access};`);
+        continue;
+      }
+
+      return null;
+    }
+
+    return out;
+  }
+
+  if (ts.isArrayLiteralExpression(pattern)) {
+    let index = 0;
+    for (const el of pattern.elements) {
+      if (ts.isOmittedExpression(el)) {
+        index++;
+        continue;
+      }
+      if (ts.isSpreadElement(el)) {
+        const target = emitBindingTarget(el.expression);
+        if (!target) return null;
+        out.push(`${indent}${target} = ${valueExpr}.slice(${index});`);
+        continue;
+      }
+
+      const access = `${valueExpr}[${index}]`;
+      index++;
+
+      // Defaults in assignment patterns: `[a = 1] = arr` or `[{a} = {}] = arr`.
+      if (ts.isBinaryExpression(el) && el.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+        const rhsTmp = nextTmp(ctx);
+        out.push(`${indent}var ${rhsTmp} = ${access};`);
+        const def = emitExpression(ctx, el.right);
+        if (!def) return null;
+        const effectiveValue = `(${rhsTmp} == null ? ${def} : ${rhsTmp})`;
+
+        const left = el.left;
+        if (ts.isObjectLiteralExpression(left) || ts.isArrayLiteralExpression(left)) {
+          const nestedTmp = nextTmp(ctx);
+          out.push(`${indent}var ${nestedTmp}: Dynamic = ${effectiveValue};`);
+          const nested = emitDestructureAssignmentFromExpression({ ctx, pattern: left, valueExpr: nestedTmp, indent });
+          if (!nested) return null;
+          out.push(...nested);
+          continue;
+        }
+
+        const target = emitBindingTarget(left);
+        if (!target) return null;
+        out.push(`${indent}${target} = ${effectiveValue};`);
+        continue;
+      }
+
+      if (ts.isObjectLiteralExpression(el) || ts.isArrayLiteralExpression(el)) {
+        const nestedTmp = nextTmp(ctx);
+        out.push(`${indent}var ${nestedTmp}: Dynamic = ${access};`);
+        const nested = emitDestructureAssignmentFromExpression({ ctx, pattern: el, valueExpr: nestedTmp, indent });
+        if (!nested) return null;
+        out.push(...nested);
+        continue;
+      }
+
+      const target = emitBindingTarget(el);
+      if (!target) return null;
+      out.push(`${indent}${target} = ${access};`);
+    }
+
+    return out;
+  }
+
+  return null;
 }
 
 function emitType(typeNode: ts.TypeNode | undefined): string {
@@ -362,6 +675,7 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
       return "null";
     case ts.SyntaxKind.Identifier: {
       const name = (expr as ts.Identifier).text;
+      if (name === "undefined") return "null";
       return ctx.identifierRewrites.get(name) ?? name;
     }
     case ts.SyntaxKind.ThisKeyword:
@@ -396,22 +710,56 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
     }
     case ts.SyntaxKind.ArrowFunction: {
       const fn = expr as ts.ArrowFunction;
-      const params = fn.parameters.map((p) => {
-        const id = ts.isIdentifier(p.name) ? p.name.text : "arg";
-        const t = emitType(p.type);
-        const prefix = p.questionToken ? "?" : "";
-        return p.type ? `${prefix}${id}: ${t}` : `${prefix}${id}`;
+      const prelude: string[] = [];
+      const params = fn.parameters.map((p, index) => {
+        const isRest = !!p.dotDotDotToken;
+        const hasDefault = !!p.initializer;
+        const isOptional = !!p.questionToken || hasDefault;
+
+        const baseType = emitType(p.type);
+        const paramType = isRest ? `haxe.extern.Rest<${baseType}>` : baseType;
+
+        const paramName = ts.isIdentifier(p.name) ? p.name.text : `_p${index}`;
+        const namePrefix = isOptional ? "?" : "";
+        const typeSuffix = p.type || isRest ? `: ${paramType}` : "";
+
+        if (hasDefault) {
+          const def = emitExpression(ctx, p.initializer as ts.Expression);
+          if (!def) return null;
+          prelude.push(`  if (${paramName} == null) ${paramName} = ${def};`);
+        }
+
+        if (!ts.isIdentifier(p.name)) {
+          const srcTmp = nextTmp(ctx);
+          prelude.push(`  var ${srcTmp} = ${paramName};`);
+          const destructured = emitDestructureFromBindingName({
+            ctx,
+            mode: "declare",
+            declareKeyword: "var",
+            name: p.name,
+            valueExpr: srcTmp,
+            indent: "  "
+          });
+          if (!destructured) return null;
+          prelude.push(...destructured);
+        }
+
+        return `${namePrefix}${paramName}${typeSuffix}`;
       });
+      if (params.some((p) => p == null)) return null;
 
       if (ts.isBlock(fn.body)) {
         const body = emitStatements(ctx, fn.body.statements, "  ");
         if (body == null) return null;
-        return `function(${params.join(", ")}) {\n${body}\n}`;
+        const merged = prelude.length > 0 ? (body.length > 0 ? `${prelude.join("\n")}\n${body}` : prelude.join("\n")) : body;
+        return `function(${params.join(", ")}) {\n${merged}\n}`;
       }
 
       const bodyExpr = emitExpression(ctx, fn.body);
       if (!bodyExpr) return null;
-      return `function(${params.join(", ")}) return ${bodyExpr}`;
+      if (prelude.length === 0) return `function(${params.join(", ")}) return ${bodyExpr}`;
+
+      return `function(${params.join(", ")}) {\n${prelude.join("\n")}\n  return ${bodyExpr};\n}`;
     }
     case ts.SyntaxKind.ObjectLiteralExpression: {
       const obj = expr as ts.ObjectLiteralExpression;
@@ -535,10 +883,29 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
     }
     case ts.SyntaxKind.BinaryExpression: {
       const bin = expr as ts.BinaryExpression;
+      const op = bin.operatorToken.kind;
+
+      // Destructuring assignment: `({a, b} = obj)` / `([a, b] = arr)`.
+      if (op === ts.SyntaxKind.EqualsToken) {
+        const rhs = emitExpression(ctx, bin.right);
+        if (!rhs) return null;
+
+        const pattern = ts.isParenthesizedExpression(bin.left) ? bin.left.expression : bin.left;
+        if (ts.isObjectLiteralExpression(pattern) || ts.isArrayLiteralExpression(pattern)) {
+          const tmp = nextTmp(ctx);
+          const body: string[] = [];
+          body.push(`  var ${tmp} = ${rhs};`);
+          const assigns = emitDestructureAssignmentFromExpression({ ctx, pattern, valueExpr: tmp, indent: "  " });
+          if (!assigns) return null;
+          body.push(...assigns);
+          body.push(`  return null;`);
+          return `(function() {\n${body.join("\n")}\n})()`;
+        }
+      }
+
       const left = emitExpression(ctx, bin.left);
       const right = emitExpression(ctx, bin.right);
       if (!left || !right) return null;
-      const op = bin.operatorToken.kind;
       if (op === ts.SyntaxKind.EqualsToken) {
         return `${left} = ${right}`;
       }
@@ -713,45 +1080,65 @@ function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): st
   }
 
   if (ts.isVariableStatement(stmt)) {
+    const keyword = (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0 ? "final" : "var";
     const decls: string[] = [];
     for (const decl of stmt.declarationList.declarations) {
-      if (!ts.isIdentifier(decl.name)) return null;
-      const name = decl.name.text;
-      const typeSuffix = decl.type ? `: ${emitType(decl.type)}` : "";
+      if (ts.isIdentifier(decl.name)) {
+        const name = decl.name.text;
+        const typeSuffix = decl.type ? `: ${emitType(decl.type)}` : "";
 
-      if (decl.initializer) {
-        const init = emitExpression(ctx, decl.initializer);
-        if (!init) return null;
-        decls.push(`${indent}var ${name}${typeSuffix} = ${init};`);
+        if (decl.initializer) {
+          const init = emitExpression(ctx, decl.initializer);
+          if (!init) return null;
+          decls.push(`${indent}${keyword} ${name}${typeSuffix} = ${init};`);
+          continue;
+        }
+
+        // TS allows `let x;` (no initializer). Prefer a best-effort default initializer so downstream
+        // statement emission can compile without needing a full definite-assignment analysis.
+        let defaultInit: string | null = null;
+        if (decl.type) {
+          switch (decl.type.kind) {
+            case ts.SyntaxKind.NumberKeyword:
+              defaultInit = "0";
+              break;
+            case ts.SyntaxKind.StringKeyword:
+              defaultInit = JSON.stringify("");
+              break;
+            case ts.SyntaxKind.BooleanKeyword:
+              defaultInit = "false";
+              break;
+            case ts.SyntaxKind.ArrayType:
+              defaultInit = "[]";
+              break;
+            default:
+              defaultInit = "cast null";
+              break;
+          }
+        } else {
+          defaultInit = "null";
+        }
+
+        decls.push(`${indent}${keyword} ${name}${typeSuffix} = ${defaultInit};`);
         continue;
       }
 
-      // TS allows `let x;` (no initializer). Prefer a best-effort default initializer so downstream
-      // statement emission can compile without needing a full definite-assignment analysis.
-      let defaultInit: string | null = null;
-      if (decl.type) {
-        switch (decl.type.kind) {
-          case ts.SyntaxKind.NumberKeyword:
-            defaultInit = "0";
-            break;
-          case ts.SyntaxKind.StringKeyword:
-            defaultInit = JSON.stringify("");
-            break;
-          case ts.SyntaxKind.BooleanKeyword:
-            defaultInit = "false";
-            break;
-          case ts.SyntaxKind.ArrayType:
-            defaultInit = "[]";
-            break;
-          default:
-            defaultInit = "cast null";
-            break;
-        }
-      } else {
-        defaultInit = "null";
-      }
-
-      decls.push(`${indent}var ${name}${typeSuffix} = ${defaultInit};`);
+      if (!decl.initializer) return null;
+      const init = emitExpression(ctx, decl.initializer);
+      if (!init) return null;
+      const tmp = nextTmp(ctx);
+      const tmpTypeSuffix = decl.type ? `: ${emitType(decl.type)}` : "";
+      decls.push(`${indent}${keyword} ${tmp}${tmpTypeSuffix} = ${init};`);
+      const destructured = emitDestructureFromBindingName({
+        ctx,
+        mode: "declare",
+        declareKeyword: keyword,
+        name: decl.name,
+        valueExpr: tmp,
+        indent
+      });
+      if (!destructured) return null;
+      decls.push(...destructured);
     }
     return decls.join("\n");
   }
@@ -942,13 +1329,46 @@ function emitFunctionLike(opts: {
   modifierPrefix: string;
   omitReturnType?: boolean;
   ctx: EmitContext;
-}): string {
-  const params = opts.parameters.map((p) => {
-    const id = ts.isIdentifier(p.name) ? p.name.text : "arg";
-    const isOptional = !!p.questionToken;
-    const type = emitType(p.type);
-    return `${isOptional ? "?" : ""}${id}: ${type}`;
-  });
+}): string | null {
+  const prelude: string[] = [];
+  const params: string[] = [];
+
+  for (let index = 0; index < opts.parameters.length; index++) {
+    const p = opts.parameters[index] as ts.ParameterDeclaration;
+    const isRest = !!p.dotDotDotToken;
+    const hasDefault = !!p.initializer;
+    const isOptional = !!p.questionToken || hasDefault;
+
+    const baseType = emitType(p.type);
+    const paramType = isRest ? `haxe.extern.Rest<${baseType}>` : baseType;
+
+    const paramName = ts.isIdentifier(p.name) ? p.name.text : `_p${index}`;
+    const namePrefix = isOptional ? "?" : "";
+    const typeSuffix = p.type || isRest ? `: ${paramType}` : "";
+
+    if (hasDefault) {
+      const def = emitExpression(opts.ctx, p.initializer as ts.Expression);
+      if (!def) return null;
+      prelude.push(`  if (${paramName} == null) ${paramName} = ${def};`);
+    }
+
+    if (!ts.isIdentifier(p.name)) {
+      const srcTmp = nextTmp(opts.ctx);
+      prelude.push(`  var ${srcTmp} = ${paramName};`);
+      const destructured = emitDestructureFromBindingName({
+        ctx: opts.ctx,
+        mode: "declare",
+        declareKeyword: "var",
+        name: p.name,
+        valueExpr: srcTmp,
+        indent: "  "
+      });
+      if (!destructured) return null;
+      prelude.push(...destructured);
+    }
+
+    params.push(`${namePrefix}${paramName}${typeSuffix}`);
+  }
 
   const returnType = emitType(opts.returnType);
   const returnTypeSuffix = opts.omitReturnType ? "" : `: ${returnType}`;
@@ -956,13 +1376,14 @@ function emitFunctionLike(opts: {
   let body = `  throw "ts2hx: unsupported";`;
   if (opts.body) {
     const emitted = emitStatements(opts.ctx, opts.body.statements, "  ");
-    if (emitted) body = emitted;
+    if (emitted != null) body = emitted.length > 0 ? emitted : "";
   }
+  if (prelude.length > 0) body = body.length > 0 ? `${prelude.join("\n")}\n${body}` : prelude.join("\n");
 
   return `${opts.modifierPrefix}function ${opts.name}(${params.join(", ")})${returnTypeSuffix} {\n${body}\n}`;
 }
 
-function emitFunction(ctx: EmitContext, fn: ts.FunctionDeclaration): string {
+function emitFunction(ctx: EmitContext, fn: ts.FunctionDeclaration): string | null {
   return emitFunctionLike({
     name: fn.name?.text ?? "anon",
     parameters: fn.parameters,
@@ -1072,7 +1493,7 @@ function emitEnum(decl: ts.EnumDeclaration): string {
   return lines.join("\n");
 }
 
-function emitClass(ctx: EmitContext, decl: ts.ClassDeclaration, forcedName?: string): string {
+function emitClass(ctx: EmitContext, decl: ts.ClassDeclaration, forcedName?: string): string | null {
   const name = forcedName ?? decl.name?.text ?? "AnonymousClass";
   const lines: string[] = [];
 
@@ -1098,6 +1519,7 @@ function emitClass(ctx: EmitContext, decl: ts.ClassDeclaration, forcedName?: str
         omitReturnType: true,
         ctx
       });
+      if (!emitted) return null;
       lines.push(...emitted.split("\n").map((l, i) => (i === 0 ? l : `  ${l}`)));
       continue;
     }
@@ -1114,6 +1536,7 @@ function emitClass(ctx: EmitContext, decl: ts.ClassDeclaration, forcedName?: str
         modifierPrefix: `  ${visibility} ${isStatic ? "static " : ""}`,
         ctx
       });
+      if (!emitted) return null;
       lines.push(...emitted.split("\n").map((l, i) => (i === 0 ? l : `  ${l}`)));
       continue;
     }
@@ -1340,7 +1763,7 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
   out.push(`package ${packagePath};`);
   out.push("");
 
-  const ctx: EmitContext = { identifierRewrites: new Map() };
+  const ctx: EmitContext = { identifierRewrites: new Map(), tmpCounter: 0 };
 
   const imports = collectImports(sf);
   const importLines: string[] = [];
@@ -1519,7 +1942,9 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
 
         out.push(`final __default = ${fn};`);
       } else {
-        out.push(emitFunction(ctx, stmt));
+        const emitted = emitFunction(ctx, stmt);
+        if (!emitted) return null;
+        out.push(emitted);
         if (isDefault) {
           if (!stmt.name) return null;
           out.push(`final __default = ${stmt.name.text};`);
@@ -1564,10 +1989,14 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
 
       if (isDefault && !stmt.name) {
         const generatedName = uniqueTopLevelTypeName("DefaultExport");
-        out.push(emitClass(ctx, stmt, generatedName));
+        const emitted = emitClass(ctx, stmt, generatedName);
+        if (!emitted) return null;
+        out.push(emitted);
         out.push(`final __default = ${generatedName};`);
       } else {
-        out.push(emitClass(ctx, stmt));
+        const emitted = emitClass(ctx, stmt);
+        if (!emitted) return null;
+        out.push(emitted);
         if (isDefault) {
           if (!stmt.name) return null;
           out.push(`final __default = ${stmt.name.text};`);

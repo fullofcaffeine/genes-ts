@@ -10,19 +10,19 @@ import ts2hx.Todo.TodoStatus;
 import ts2hx.Todo.TodoStore;
 
 function main(): Void {
-  var role: Role = "admin";
+  final role: Role = "admin";
   assert((role == "admin"), "role union works");
-  var cfg: Config = { role: role, dryRun: false };
+  final cfg: Config = { role: role, dryRun: false };
   assertStringEqual(normalizeBaseUrl(cfg), "http://localhost", "default base url");
-  var store = new TodoStore();
-  var a = store.add("A", { priority: 10 });
+  final store = new TodoStore();
+  final a = store.add("A", { priority: 10 });
   assertEqual(a.priority, 5, "priority clamped");
-  var b = store.add("B", {  });
+  final b = store.add("B", {  });
   assertEqual(b.priority, 1, "default priority");
-  var activeTitles = store.titlesByStatus(TodoStatus.Active);
+  final activeTitles = store.titlesByStatus(TodoStatus.Active);
   assertEqual(activeTitles.length, 2, "two active titles");
   store.toggle(a.id);
-  var doneTitles = store.titlesByStatus(TodoStatus.Done);
+  final doneTitles = store.titlesByStatus(TodoStatus.Done);
   assertEqual(doneTitles.length, 1, "one done title");
   assertStringEqual((doneTitles[0]), "A", "done title");
   var threw = false;

@@ -14,7 +14,7 @@ class Counter {
     this.value = (this.value + 1);
   }
   public static function example(color: Color): Void {
-    var c = new Counter(color);
+    final c = new Counter(color);
     c.inc();
   }
 }

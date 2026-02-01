@@ -32,12 +32,12 @@ class TodoStore {
     this.todos = [];
   }
   public function add(title: String, opts: CreateTodoOptions): Todo {
-    var trimmed = StringTools.trim(title);
+    final trimmed = StringTools.trim(title);
     if ((trimmed.length == 0))   {
       throw new js.lib.Error("title required");
     }
-    var pr = clamp((opts.priority ?? 1), 1, 5);
-    var todo = new Todo(this.nextId, trimmed, TodoStatus.Active, pr);
+    final pr = clamp((opts.priority ?? 1), 1, 5);
+    final todo = new Todo(this.nextId, trimmed, TodoStatus.Active, pr);
     this.nextId = (this.nextId + 1);
     this.todos.push(todo);
     return todo;
@@ -49,7 +49,7 @@ class TodoStore {
     {
       var i = 0;
       while ((i < this.todos.length)) {
-        var t = this.todos[i];
+        final t = this.todos[i];
         if ((t.id == id))       {
           t.status = ((t.status == TodoStatus.Active) ? TodoStatus.Done : TodoStatus.Active);
           return;
