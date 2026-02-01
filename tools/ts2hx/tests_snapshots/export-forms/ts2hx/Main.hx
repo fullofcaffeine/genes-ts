@@ -7,6 +7,7 @@ function inc(x: Float): Float {
 }
 
 class Foo {
+  public function new() {}
   public static function get(): Float {
     return 123;
   }

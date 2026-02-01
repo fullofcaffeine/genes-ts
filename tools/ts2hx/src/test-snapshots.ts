@@ -153,6 +153,13 @@ function main(): number {
       smokeMain: "ts2hx.Main"
     },
     {
+      name: "params-defaults-rest",
+      tsconfigPath: path.join(toolRoot, "fixtures", "params-defaults-rest", "tsconfig.json"),
+      snapshotsDir: path.join(toolRoot, "tests_snapshots", "params-defaults-rest"),
+      basePackage: "ts2hx",
+      smokeMain: "ts2hx.Main"
+    },
+    {
       name: "non-relative-imports",
       tsconfigPath: path.join(toolRoot, "fixtures", "non-relative-imports", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "non-relative-imports"),

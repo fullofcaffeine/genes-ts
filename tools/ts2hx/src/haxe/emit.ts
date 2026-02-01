@@ -581,8 +581,7 @@ function emitType(typeNode: ts.TypeNode | undefined): string {
     case ts.SyntaxKind.FunctionType: {
       const fn = typeNode as ts.FunctionTypeNode;
       const argTypes = fn.parameters.map((p) => {
-        const t = emitType(p.type);
-        const base = p.dotDotDotToken ? `haxe.extern.Rest<${t}>` : t;
+        const base = p.dotDotDotToken ? `haxe.extern.Rest<${emitRestElementType(p.type)}>` : emitType(p.type);
         return p.questionToken ? `Null<${base}>` : base;
       });
       const ret = emitType(fn.type);
@@ -659,6 +658,19 @@ function emitType(typeNode: ts.TypeNode | undefined): string {
   }
 }
 
+function emitRestElementType(typeNode: ts.TypeNode | undefined): string {
+  if (!typeNode) return "Dynamic";
+  if (ts.isArrayTypeNode(typeNode)) return emitType(typeNode.elementType);
+  if (ts.isTypeReferenceNode(typeNode) && ts.isIdentifier(typeNode.typeName)) {
+    const name = typeNode.typeName.text;
+    if ((name === "Array" || name === "ReadonlyArray") && typeNode.typeArguments && typeNode.typeArguments.length === 1) {
+      return emitType(typeNode.typeArguments[0] as ts.TypeNode);
+    }
+  }
+  // Best-effort fallback: treat the annotation as the element type already.
+  return emitType(typeNode);
+}
+
 function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
   switch (expr.kind) {
     case ts.SyntaxKind.NumericLiteral:
@@ -716,8 +728,7 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
         const hasDefault = !!p.initializer;
         const isOptional = !!p.questionToken || hasDefault;
 
-        const baseType = emitType(p.type);
-        const paramType = isRest ? `haxe.extern.Rest<${baseType}>` : baseType;
+        const paramType = isRest ? `haxe.extern.Rest<${emitRestElementType(p.type)}>` : emitType(p.type);
 
         const paramName = ts.isIdentifier(p.name) ? p.name.text : `_p${index}`;
         const namePrefix = isOptional ? "?" : "";
@@ -1339,8 +1350,7 @@ function emitFunctionLike(opts: {
     const hasDefault = !!p.initializer;
     const isOptional = !!p.questionToken || hasDefault;
 
-    const baseType = emitType(p.type);
-    const paramType = isRest ? `haxe.extern.Rest<${baseType}>` : baseType;
+    const paramType = isRest ? `haxe.extern.Rest<${emitRestElementType(p.type)}>` : emitType(p.type);
 
     const paramName = ts.isIdentifier(p.name) ? p.name.text : `_p${index}`;
     const namePrefix = isOptional ? "?" : "";
@@ -1498,6 +1508,8 @@ function emitClass(ctx: EmitContext, decl: ts.ClassDeclaration, forcedName?: str
   const lines: string[] = [];
 
   lines.push(`class ${name} {`);
+  const ctorInsertAt = lines.length;
+  let sawConstructor = false;
 
   for (const member of decl.members) {
     if (ts.isPropertyDeclaration(member) && member.name && ts.isIdentifier(member.name)) {
@@ -1510,6 +1522,7 @@ function emitClass(ctx: EmitContext, decl: ts.ClassDeclaration, forcedName?: str
     }
 
     if (ts.isConstructorDeclaration(member)) {
+      sawConstructor = true;
       const emitted = emitFunctionLike({
         name: "new",
         parameters: member.parameters,
@@ -1541,6 +1554,10 @@ function emitClass(ctx: EmitContext, decl: ts.ClassDeclaration, forcedName?: str
       continue;
     }
   }
+
+  // TS classes always have a constructor (implicit if none is declared), but Haxe requires an
+  // explicit `new` to allow instantiation.
+  if (!sawConstructor) lines.splice(ctorInsertAt, 0, `  public function new() {}`);
 
   lines.push(`}`);
   return lines.join("\n");
