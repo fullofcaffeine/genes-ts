@@ -35,6 +35,7 @@ feature surface beyond the quick examples in `readme.md`.
 
 - `PRD_TODOAPP_HARNESS.md` — todoapp as prime-time harness + ts2hx roundtrip fixture
 - `PRIME_TIME_CRITERIA.md` — definition of “prime time” + where it’s tested
+- `DOCS_PLAN.md` — docs PRD/roadmap (onboarding + workflows)
 
 ## Experimental
 
