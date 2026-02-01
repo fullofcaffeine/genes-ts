@@ -1,3 +1,10 @@
+# [1.10.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.9.0...v1.10.0) (2026-02-01)
+
+
+### Features
+
+* **ts2hx:** minimal TSX lowering ([f5a21e9](https://github.com/fullofcaffeine/genes-ts/commit/f5a21e96b6e909efa34c9b8afcdf296e791561de))
+
 # [1.9.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.8.0...v1.9.0) (2026-02-01)
 
 
