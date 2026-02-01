@@ -1,3 +1,10 @@
+# [1.8.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.7.0...v1.8.0) (2026-02-01)
+
+
+### Features
+
+* **ts2hx:** optional chaining + logical assigns ([47be458](https://github.com/fullofcaffeine/genes-ts/commit/47be45814adb282ede4c20ef1d310fb4b85b319a))
+
 # [1.7.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.6.0...v1.7.0) (2026-02-01)
 
 
