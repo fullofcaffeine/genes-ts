@@ -564,11 +564,15 @@ function emitType(typeNode: ts.TypeNode | undefined): string {
       const baseName = emitTypeName(ref.typeName);
       if (!baseName) return "Dynamic";
 
+      // Builtin mappings for Haxe-for-JS.
+      // TS's global `Promise<T>` maps to `js.lib.Promise<T>` in Haxe.
+      const mappedBase = baseName === "Promise" ? "js.lib.Promise" : baseName === "ReadonlyArray" ? "Array" : baseName;
+
       const typeArgs = ref.typeArguments ?? [];
-      if (typeArgs.length === 0) return baseName;
+      if (typeArgs.length === 0) return mappedBase;
 
       const args = typeArgs.map((a) => emitType(a));
-      return `${baseName}<${args.join(", ")}>`;
+      return `${mappedBase}<${args.join(", ")}>`;
     }
     case ts.SyntaxKind.ArrayType: {
       const arr = typeNode as ts.ArrayTypeNode;
@@ -692,6 +696,7 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
     case ts.SyntaxKind.Identifier: {
       const name = (expr as ts.Identifier).text;
       if (name === "undefined") return "null";
+      if (name === "Promise") return "js.lib.Promise";
       return ctx.identifierRewrites.get(name) ?? name;
     }
     case ts.SyntaxKind.ThisKeyword:
@@ -726,6 +731,7 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
     }
     case ts.SyntaxKind.ArrowFunction: {
       const fn = expr as ts.ArrowFunction;
+      const isAsync = fn.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword) ?? false;
       const prelude: string[] = [];
       const params = fn.parameters.map((p, index) => {
         const isRest = !!p.dotDotDotToken;
@@ -763,16 +769,23 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
       });
       if (params.some((p) => p == null)) return null;
 
+      const asyncPrefix = isAsync ? "@:async " : "";
+      const asyncReturnTypeSuffix = isAsync ? `: ${emitType(fn.type)}` : "";
+
       if (ts.isBlock(fn.body)) {
         const body = emitStatements(ctx, fn.body.statements, "  ");
         if (body == null) return null;
         const merged = prelude.length > 0 ? (body.length > 0 ? `${prelude.join("\n")}\n${body}` : prelude.join("\n")) : body;
-        return `function(${params.join(", ")}) {\n${merged}\n}`;
+        return `${asyncPrefix}function(${params.join(", ")})${asyncReturnTypeSuffix} {\n${merged}\n}`;
       }
 
       const bodyExpr = emitExpression(ctx, fn.body);
       if (!bodyExpr) return null;
-      if (prelude.length === 0) return `function(${params.join(", ")}) return ${bodyExpr}`;
+      if (!isAsync && prelude.length === 0) return `function(${params.join(", ")}) return ${bodyExpr}`;
+      if (isAsync) {
+        const mergedPrelude = prelude.length > 0 ? `${prelude.join("\n")}\n` : "";
+        return `${asyncPrefix}function(${params.join(", ")})${asyncReturnTypeSuffix} {\n${mergedPrelude}  return ${bodyExpr};\n}`;
+      }
 
       return `function(${params.join(", ")}) {\n${prelude.join("\n")}\n  return ${bodyExpr};\n}`;
     }
@@ -1038,6 +1051,14 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
       const inner = emitExpression(ctx, t.expression);
       if (!inner) return null;
       return `js.Syntax.typeof(${inner})`;
+    }
+    case ts.SyntaxKind.AwaitExpression: {
+      const aw = expr as ts.AwaitExpression;
+      const inner = emitExpression(ctx, aw.expression);
+      if (!inner) return null;
+      // Use the genes-ts async/await sugar macro. This keeps output close to TS,
+      // while remaining valid Haxe-for-JS (macro expands to native `await`).
+      return `genes.js.Async.await(${inner})`;
     }
     case ts.SyntaxKind.ConditionalExpression: {
       const cond = expr as ts.ConditionalExpression;
@@ -1489,6 +1510,65 @@ function emitFunctionLike(opts: {
   return `${opts.modifierPrefix}function ${opts.name}(${params.join(", ")})${returnTypeSuffix} {\n${body}\n}`;
 }
 
+function emitAnonFunctionLike(opts: {
+  parameters: readonly ts.ParameterDeclaration[];
+  returnType: ts.TypeNode | undefined;
+  body: ts.Block | undefined;
+  omitReturnType?: boolean;
+  ctx: EmitContext;
+}): string | null {
+  const prelude: string[] = [];
+  const params: string[] = [];
+
+  for (let index = 0; index < opts.parameters.length; index++) {
+    const p = opts.parameters[index] as ts.ParameterDeclaration;
+    const isRest = !!p.dotDotDotToken;
+    const hasDefault = !!p.initializer;
+    const isOptional = !!p.questionToken || hasDefault;
+
+    const paramType = isRest ? `haxe.extern.Rest<${emitRestElementType(p.type)}>` : emitType(p.type);
+
+    const paramName = ts.isIdentifier(p.name) ? p.name.text : `_p${index}`;
+    const namePrefix = isOptional ? "?" : "";
+    const typeSuffix = p.type || isRest ? `: ${paramType}` : "";
+
+    if (hasDefault) {
+      const def = emitExpression(opts.ctx, p.initializer as ts.Expression);
+      if (!def) return null;
+      prelude.push(`  if (${paramName} == null) ${paramName} = ${def};`);
+    }
+
+    if (!ts.isIdentifier(p.name)) {
+      const srcTmp = nextTmp(opts.ctx);
+      prelude.push(`  var ${srcTmp} = ${paramName};`);
+      const destructured = emitDestructureFromBindingName({
+        ctx: opts.ctx,
+        mode: "declare",
+        declareKeyword: "var",
+        name: p.name,
+        valueExpr: srcTmp,
+        indent: "  "
+      });
+      if (!destructured) return null;
+      prelude.push(...destructured);
+    }
+
+    params.push(`${namePrefix}${paramName}${typeSuffix}`);
+  }
+
+  const returnType = emitType(opts.returnType);
+  const returnTypeSuffix = opts.omitReturnType ? "" : `: ${returnType}`;
+
+  let body = `  throw "ts2hx: unsupported";`;
+  if (opts.body) {
+    const emitted = emitStatements(opts.ctx, opts.body.statements, "  ");
+    if (emitted != null) body = emitted.length > 0 ? emitted : "";
+  }
+  if (prelude.length > 0) body = body.length > 0 ? `${prelude.join("\n")}\n${body}` : prelude.join("\n");
+
+  return `function(${params.join(", ")})${returnTypeSuffix} {\n${body}\n}`;
+}
+
 function emitFunction(ctx: EmitContext, fn: ts.FunctionDeclaration): string | null {
   return emitFunctionLike({
     name: fn.name?.text ?? "anon",
@@ -1636,13 +1716,14 @@ function emitClass(ctx: EmitContext, decl: ts.ClassDeclaration, forcedName?: str
     if (ts.isMethodDeclaration(member) && member.name && ts.isIdentifier(member.name)) {
       const isStatic = member.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword) ?? false;
       const isPrivate = member.modifiers?.some((m) => m.kind === ts.SyntaxKind.PrivateKeyword) ?? false;
+      const isAsync = member.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword) ?? false;
       const visibility = isPrivate ? "private" : "public";
       const emitted = emitFunctionLike({
         name: member.name.text,
         parameters: member.parameters,
         returnType: member.type,
         body: member.body,
-        modifierPrefix: `  ${visibility} ${isStatic ? "static " : ""}`,
+        modifierPrefix: isAsync ? `  @:async\n  ${visibility} ${isStatic ? "static " : ""}` : `  ${visibility} ${isStatic ? "static " : ""}`,
         ctx
       });
       if (!emitted) return null;
@@ -1994,6 +2075,14 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
     return name;
   }
 
+  const asyncHelperFields: string[] = [];
+  let asyncHelperName: string | null = null;
+  function ensureAsyncHelper(): string {
+    if (asyncHelperName) return asyncHelperName;
+    asyncHelperName = uniqueTopLevelTypeName("__Ts2hxAsync");
+    return asyncHelperName;
+  }
+
   for (const stmt of sf.statements) {
     if (ts.isExportAssignment(stmt) && !stmt.isExportEquals) {
       const expr = emitExpression(ctx, stmt.expression);
@@ -2015,10 +2104,22 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
       for (const decl of stmt.declarationList.declarations) {
         if (!ts.isIdentifier(decl.name)) return null;
         if (!decl.initializer) return null;
-        const init = emitExpression(ctx, decl.initializer);
-        if (!init) return null;
         const typeSuffix = decl.type ? `: ${emitType(decl.type)}` : "";
-        out.push(`${declKeyword} ${decl.name.text}${typeSuffix} = ${init};`);
+        const isAsyncInit =
+          (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer)) &&
+          (decl.initializer.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword) ?? false);
+
+        if (isAsyncInit) {
+          const helper = ensureAsyncHelper();
+          const initExpr = emitExpression(ctx, decl.initializer);
+          if (!initExpr) return null;
+          asyncHelperFields.push(`  public static ${declKeyword} ${decl.name.text}${typeSuffix} = ${initExpr};`);
+          out.push(`${declKeyword} ${decl.name.text}${typeSuffix} = ${helper}.${decl.name.text};`);
+        } else {
+          const init = emitExpression(ctx, decl.initializer);
+          if (!init) return null;
+          out.push(`${declKeyword} ${decl.name.text}${typeSuffix} = ${init};`);
+        }
       }
       out.push("");
       continue;
@@ -2030,7 +2131,35 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
       const isLocalExported = !!stmt.name && localExportSources.has(stmt.name.text);
       if (!isExported && !isLocalExported) continue;
 
-      if (isDefault && !stmt.name) {
+      const isAsync = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword) ?? false;
+
+      if (isAsync) {
+        const helper = ensureAsyncHelper();
+        if (isDefault && !stmt.name) {
+          const fnExpr = emitAnonFunctionLike({
+            parameters: stmt.parameters,
+            returnType: stmt.type,
+            body: stmt.body,
+            ctx
+          });
+          if (!fnExpr) return null;
+          asyncHelperFields.push(`  public static final __default = @:async ${fnExpr};`);
+          out.push(`final __default = ${helper}.__default;`);
+        } else {
+          if (!stmt.name) return null;
+          const name = stmt.name.text;
+          const fnExpr = emitAnonFunctionLike({
+            parameters: stmt.parameters,
+            returnType: stmt.type,
+            body: stmt.body,
+            ctx
+          });
+          if (!fnExpr) return null;
+          asyncHelperFields.push(`  public static final ${name} = @:async ${fnExpr};`);
+          out.push(`final ${name} = ${helper}.${name};`);
+          if (isDefault) out.push(`final __default = ${name};`);
+        }
+      } else if (isDefault && !stmt.name) {
         const params = stmt.parameters.map((p) => {
           const id = ts.isIdentifier(p.name) ? p.name.text : "arg";
           const isOptional = !!p.questionToken;
@@ -2118,6 +2247,14 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
       out.push("");
       continue;
     }
+  }
+
+  if (asyncHelperFields.length > 0) {
+    const helper = ensureAsyncHelper();
+    out.push(`private class ${helper} {`);
+    out.push(...asyncHelperFields);
+    out.push(`}`);
+    out.push("");
   }
 
   if (localExports.length > 0) {

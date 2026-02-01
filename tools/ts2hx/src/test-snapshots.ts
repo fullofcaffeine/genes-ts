@@ -167,6 +167,13 @@ function main(): number {
       smokeMain: "ts2hx.Main"
     },
     {
+      name: "async-await",
+      tsconfigPath: path.join(toolRoot, "fixtures", "async-await", "tsconfig.json"),
+      snapshotsDir: path.join(toolRoot, "tests_snapshots", "async-await"),
+      basePackage: "ts2hx",
+      smokeMain: "ts2hx.Main"
+    },
+    {
       name: "non-relative-imports",
       tsconfigPath: path.join(toolRoot, "fixtures", "non-relative-imports", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "non-relative-imports"),
@@ -251,7 +258,25 @@ function main(): number {
     if (fixture.smokeMain) {
       rmrf(distDir);
       fs.mkdirSync(distDir, { recursive: true });
-      run(haxeBin, ["-cp", outDir, "-main", fixture.smokeMain, "-js", path.join(distDir, "index.js")], toolRoot);
+      // Smoke compile the generated Haxe output. We include the repo `src/` on the classpath so fixtures
+      // can use genes-ts macros (e.g. async/await sugar) while still keeping ts2hx as a standalone tool.
+      const genesSrc = path.resolve(toolRoot, "..", "..", "src");
+      run(
+        haxeBin,
+        [
+          "-cp",
+          outDir,
+          "-cp",
+          genesSrc,
+          "--macro",
+          "genes.js.Async.enable()",
+          "-main",
+          fixture.smokeMain,
+          "-js",
+          path.join(distDir, "index.js")
+        ],
+        toolRoot
+      );
       if (fixture.smokeRun !== false) run("node", [path.join(distDir, "index.js")], toolRoot);
     }
   }
