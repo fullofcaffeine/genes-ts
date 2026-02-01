@@ -214,6 +214,26 @@ function emitExternModuleFile(opts: EmitHaxeOptions, ex: ExternModule): { filePa
 function emitType(typeNode: ts.TypeNode | undefined): string {
   if (!typeNode) return "Dynamic";
 
+  function emitTypeName(typeName: ts.EntityName): string | null {
+    if (ts.isIdentifier(typeName)) return typeName.text;
+    if (ts.isQualifiedName(typeName)) {
+      const left = emitTypeName(typeName.left);
+      if (!left) return null;
+      return `${left}.${typeName.right.text}`;
+    }
+    return null;
+  }
+
+  function eitherType(items: string[]): string {
+    const cleaned = items.filter((t) => t !== "Dynamic");
+    if (cleaned.length === 0) return "Dynamic";
+    if (cleaned.length === 1) return cleaned[0] as string;
+
+    let out = `haxe.extern.EitherType<${cleaned[0]}, ${cleaned[1]}>`;
+    for (const next of cleaned.slice(2)) out = `haxe.extern.EitherType<${out}, ${next}>`;
+    return out;
+  }
+
   switch (typeNode.kind) {
     case ts.SyntaxKind.NumberKeyword:
       return "Float";
@@ -228,11 +248,7 @@ function emitType(typeNode: ts.TypeNode | undefined): string {
       return "Dynamic";
     case ts.SyntaxKind.TypeReference: {
       const ref = typeNode as ts.TypeReferenceNode;
-      const baseName = ts.isIdentifier(ref.typeName)
-        ? ref.typeName.text
-        : ts.isQualifiedName(ref.typeName)
-          ? ref.typeName.right.text
-          : null;
+      const baseName = emitTypeName(ref.typeName);
       if (!baseName) return "Dynamic";
 
       const typeArgs = ref.typeArguments ?? [];
@@ -248,6 +264,53 @@ function emitType(typeNode: ts.TypeNode | undefined): string {
     case ts.SyntaxKind.ParenthesizedType: {
       const p = typeNode as ts.ParenthesizedTypeNode;
       return emitType(p.type);
+    }
+    case ts.SyntaxKind.FunctionType: {
+      const fn = typeNode as ts.FunctionTypeNode;
+      const argTypes = fn.parameters.map((p) => {
+        const t = emitType(p.type);
+        const base = p.dotDotDotToken ? `haxe.extern.Rest<${t}>` : t;
+        return p.questionToken ? `Null<${base}>` : base;
+      });
+      const ret = emitType(fn.type);
+      if (argTypes.length === 0) return `Void->${ret}`;
+      return [...argTypes, ret].join("->");
+    }
+    case ts.SyntaxKind.UnionType: {
+      const un = typeNode as ts.UnionTypeNode;
+
+      // Support `T | null | undefined` as `Null<T>` best-effort.
+      const nonNullable = un.types.filter(
+        (t) => t.kind !== ts.SyntaxKind.NullKeyword && t.kind !== ts.SyntaxKind.UndefinedKeyword
+      );
+      const hadNullable = nonNullable.length !== un.types.length;
+
+      // Simple literal unions.
+      const stringLits: string[] = [];
+      const numberLits: string[] = [];
+      let boolOnly = true;
+      for (const t of nonNullable) {
+        if (ts.isLiteralTypeNode(t) && ts.isStringLiteral(t.literal)) {
+          stringLits.push(t.literal.text);
+          boolOnly = false;
+          continue;
+        }
+        if (ts.isLiteralTypeNode(t) && ts.isNumericLiteral(t.literal)) {
+          numberLits.push(t.literal.text);
+          boolOnly = false;
+          continue;
+        }
+        if (t.kind === ts.SyntaxKind.TrueKeyword || t.kind === ts.SyntaxKind.FalseKeyword) continue;
+        boolOnly = false;
+      }
+
+      if (boolOnly && nonNullable.length > 0) return hadNullable ? "Null<Bool>" : "Bool";
+      if (stringLits.length === nonNullable.length && nonNullable.length > 0) return hadNullable ? "Null<String>" : "String";
+      if (numberLits.length === nonNullable.length && nonNullable.length > 0) return hadNullable ? "Null<Float>" : "Float";
+
+      const emitted = nonNullable.map((t) => emitType(t));
+      const core = eitherType(emitted);
+      return hadNullable ? `Null<${core}>` : core;
     }
     case ts.SyntaxKind.TypeLiteral: {
       const lit = typeNode as ts.TypeLiteralNode;
@@ -336,7 +399,8 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
       const params = fn.parameters.map((p) => {
         const id = ts.isIdentifier(p.name) ? p.name.text : "arg";
         const t = emitType(p.type);
-        return p.type ? `${id}: ${t}` : id;
+        const prefix = p.questionToken ? "?" : "";
+        return p.type ? `${prefix}${id}: ${t}` : `${prefix}${id}`;
       });
 
       if (ts.isBlock(fn.body)) {
