@@ -1,3 +1,10 @@
+# [1.9.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.8.0...v1.9.0) (2026-02-01)
+
+
+### Features
+
+* **ts2hx:** async/await support ([5c2287f](https://github.com/fullofcaffeine/genes-ts/commit/5c2287fa6513730f02bd0339ce2e68ff5811227e))
+
 # [1.8.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.7.0...v1.8.0) (2026-02-01)
 
 
