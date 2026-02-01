@@ -1,3 +1,10 @@
+# [1.6.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.5.0...v1.6.0) (2026-02-01)
+
+
+### Features
+
+* **ts2hx:** destructuring patterns ([4c4c072](https://github.com/fullofcaffeine/genes-ts/commit/4c4c07202a0d25f798fc917807510320e11a9e1c))
+
 # [1.5.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.4.0...v1.5.0) (2026-02-01)
 
 
