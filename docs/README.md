@@ -39,3 +39,4 @@ feature surface beyond the quick examples in `readme.md`.
 ## Experimental
 
 - `ts2hx/PLAN.md` — long-term TS/JS → Haxe transpiler experiment (post-1.0)
+- `ts2hx/USAGE.md` — how to use ts2hx alone and with genes-ts

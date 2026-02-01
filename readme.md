@@ -13,6 +13,7 @@ Requires **Haxe 4.3.7+**.
 - `docs/typescript-target/TYPING_POLICY.md` — TS typing rules + profiles
 - `docs/TROUBLESHOOTING.md` — common failure modes + fixes
 - `docs/OUTPUT_MODES.md` — TS output vs classic Genes JS output
+- `docs/ts2hx/USAGE.md` — ts2hx workflows (TS/JS → Haxe) + roundtrip harness
 - `CONTRIBUTING.md` — contribution guidelines
 
 ## Feature highlights
@@ -27,6 +28,7 @@ Requires **Haxe 4.3.7+**.
 - **JS/TS interop helpers** via `genes.ts.Imports` (consume existing TS/TSX easily)
 - **Async/await sugar** (`@:async` + `await(...)`) emitting native `async`/`await`
 - **SOTA harness**: snapshots + `tsc` typecheck + runtime smoke + full todoapp E2E (Playwright)
+- **ts2hx experiment**: TS/JS → Haxe migration tool (standalone or roundtrip TS→Haxe→TS)
 - **Secret scanning** in CI + local (`gitleaks`)
 - **Dependency vulnerability scanning** in CI + local (`osv-scanner`)
 
@@ -165,6 +167,23 @@ See `docs/typescript-target/DEBUGGING.md`.
 
 - `examples/typescript-target/` — TS output contract + examples
 - `examples/todoapp/` — fullstack todoapp (React Router + Express): `npm run build:example:todoapp`
+
+## ts2hx (TS/JS → Haxe, experimental)
+
+ts2hx is an experimental TS/JS → Haxe transpiler intended as a migration tool.
+
+Workflows:
+- **Standalone**: TS/JS → Haxe-for-JS → JS (classic Genes) or TS (genes-ts)
+- **Roundtrip**: TS → Haxe → TS (genes-ts) → JS (tsc) parity harness
+
+Docs:
+- `docs/ts2hx/USAGE.md`
+
+Tests:
+
+```bash
+yarn --cwd tools/ts2hx test
+```
 
 ## Security (secret scanning)
 
