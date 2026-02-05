@@ -1,3 +1,10 @@
+# [1.11.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.10.0...v1.11.0) (2026-02-05)
+
+
+### Features
+
+* **todoapp:** one-command build+run ([d7fb0ec](https://github.com/fullofcaffeine/genes-ts/commit/d7fb0ec08f3fd2e534a110c0858b5b60ab660e70))
+
 # [1.10.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.9.0...v1.10.0) (2026-02-01)
 
 
