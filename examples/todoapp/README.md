@@ -40,11 +40,22 @@ UPDATE_SNAPSHOTS=1 npm run build:example:todoapp
 
 ```bash
 npm install
-npm run build:example:todoapp
-node examples/todoapp/server/dist/index.js
+npm run example:todoapp
 ```
 
 Then open `http://localhost:8787`.
+
+If you only want to build (no server start):
+
+```bash
+npm run build:example:todoapp
+```
+
+If you already built and just want to run the server:
+
+```bash
+npm run example:todoapp:run
+```
 
 ## Layout
 

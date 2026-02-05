@@ -90,7 +90,7 @@ export class Main {
 				return;
 			};
 			if (indexHtml == null) {
-				res.status(404).set("Content-Type", "text/plain; charset=utf-8").send("Todoapp frontend not built. Run: npm run build:example:todoapp");
+				res.status(404).set("Content-Type", "text/plain; charset=utf-8").send("Todoapp frontend not built. Run: npm run example:todoapp");
 				return;
 			};
 			res.set("Content-Type", "text/html; charset=utf-8").send(Register.unsafeCast<string>(indexHtml));
