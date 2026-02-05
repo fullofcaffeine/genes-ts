@@ -9,3 +9,10 @@ ecosystem = "npm"
 vulnerability.ignore = true
 effectiveUntil = 2026-04-30
 reason = "lix is required for Haxe toolchain management in this repo. GHSA-q8xg-8xwf-m598 reports a MITM risk due to accepting http + redirects; upstream currently provides no fixed version. Keep this exception time-bounded and revisit regularly."
+
+[[PackageOverrides]]
+name = "npm"
+ecosystem = "npm"
+vulnerability.ignore = true
+effectiveUntil = 2026-03-31
+reason = "Pulled in transitively via semantic-release (@semantic-release/npm). This repo does not publish to npm and does not ship this dependency; it's only used in CI for GitHub releases + changelog automation. OSV currently reports no fixed version for the flagged advisory, so we allowlist it temporarily while monitoring for upstream updates."
