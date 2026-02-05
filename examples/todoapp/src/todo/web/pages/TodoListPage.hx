@@ -142,6 +142,21 @@ typedef PrettyButtonProps = {
   final ?variant: PrettyButtonVariant;
 }
 
+/**
+ * Narrow string union used by the TS-authored `PrettyButton` component.
+ *
+ * Why:
+ * - In TypeScript this is a literal string union (`'primary' | 'danger'`).
+ * - We want the emitted TS to preserve that exact union so TS consumers get the
+ *   same per-prop UX as hand-written TSX.
+ *
+ * What:
+ * - A Haxe `enum abstract` over `String` representing the allowed variants.
+ *
+ * How:
+ * - `@:ts.type("'primary' | 'danger'")` pins the emitted TS type to the literal
+ *   union instead of expanding to `string`.
+ */
 @:ts.type("'primary' | 'danger'")
 enum abstract PrettyButtonVariant(String) to String {
   var Primary = "primary";

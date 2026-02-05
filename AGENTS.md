@@ -56,6 +56,21 @@ Examples of “advanced” constructs that should be documented when used:
 
 Keep trivial helpers undocumented unless they hide important constraints.
 
+### Required hxdoc for advanced metadata / interop annotations
+
+If you use “advanced” compiler metadata that changes how code is typed/emitted (especially in examples/harness code), add hxdoc that explains:
+
+- **Why** the annotation exists (what breaks or becomes worse without it)
+- **What** the annotation changes in the generated TS/JS output
+- **How** it works mechanically (e.g. what it lowers to / what contract it enforces)
+
+Examples that must be documented when used:
+
+- `@:ts.type(...)` (pins generated TS types to canonical ecosystem types/unions)
+- `@:forward(...)` (controls abstract surface area + ergonomics)
+- `@:native(...)` (binds to runtime identifiers; can change import/emit behavior)
+- `@:jsRequire(...)` (interop boundary + import emission)
+
 ## Generated TS typing policy (no `any` / `unknown`)
 
 - Generated TypeScript should be **idiomatic and strongly typed**.

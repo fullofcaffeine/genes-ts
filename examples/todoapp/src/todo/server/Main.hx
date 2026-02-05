@@ -1,10 +1,7 @@
 package todo.server;
 
-import js.Syntax;
 import js.node.Fs;
 import js.node.Path;
-import js.node.Process;
-import js.node.console.Console;
 import todo.extern.Express;
 import todo.shared.Api;
 import todo.shared.Api.CreateTodoBody;
@@ -14,17 +11,12 @@ import todo.shared.Api.TodoResponse;
 import todo.shared.Api.UpdateTodoBody;
 import todo.shared.TodoId;
 
-@:ts.type("NodeJS.Process")
-@:forward(env, cwd)
-private abstract NodeProcess(Process) from Process to Process {}
-
 class Main {
   static function main() {
-    // `js.Node.process/console` in hxnodejs are implemented via `untyped __js__`,
-    // which is deprecated and triggers warnings at call sites when inlined.
-    // Use an explicit `js.Syntax.code` boundary instead.
-    final nodeProcess: NodeProcess = cast Syntax.code("process");
-    final nodeConsole: Console = cast Syntax.code("console");
+    // Typed access to Node globals without triggering `__js__` deprecation warnings.
+    // See `todo.server.NodeGlobals` for the rationale and details.
+    final nodeProcess = NodeGlobals.process();
+    final nodeConsole = NodeGlobals.console();
 
     final port = parsePort(nodeProcess.env.get("PORT"), 8787);
     final dataPath = switch nodeProcess.env.get("TODOAPP_DATA_PATH") {

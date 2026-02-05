@@ -1,6 +1,5 @@
 package todo.server;
 
-import js.Syntax;
 import js.node.Fs;
 import js.node.console.Console;
 import todo.shared.Api.UpdateTodoBody;
@@ -18,10 +17,8 @@ class Store {
 
   public function new(?dataPath: String) {
     this.dataPath = dataPath;
-    // `js.Node.console` in hxnodejs is implemented via `untyped __js__`, which is
-    // deprecated and triggers warnings at call sites when inlined. Use an
-    // explicit `js.Syntax.code` boundary instead.
-    this.console = cast Syntax.code("console");
+    // Use the warning-free global binding (see `todo.server.NodeGlobals`).
+    this.console = NodeGlobals.console();
     if (dataPath != null)
       load();
   }

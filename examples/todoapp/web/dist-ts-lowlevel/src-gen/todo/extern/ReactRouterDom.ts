@@ -1,5 +1,14 @@
 import {Register} from "../../genes/Register"
 
+/**
+* Params returned by `useParams()`.
+*
+* `useParams()` is typed in TS as:
+* `Readonly<Record<string, string | undefined>>`.
+*
+* We represent it as a dynamic string-keyed map on the Haxe side.
+* In TS output, `@:ts.type` ensures consumers see the correct Router type.
+*/
 export type Params = Readonly<Record<string, string | undefined>>
 
 export class ReactRouterDom_Fields_ {

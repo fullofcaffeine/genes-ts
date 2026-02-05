@@ -5,15 +5,9 @@ import js.Syntax;
 import js.lib.Promise;
 import js.lib.RegExp;
 import js.lib.Error;
-import js.node.Process;
-import js.node.console.Console;
 import todo.e2e.Playwright.PW;
 import todo.e2e.PlaywrightTypes.ConsoleMessage;
 import todo.e2e.PlaywrightTypes.Page;
-
-@:ts.type("NodeJS.Process")
-@:forward(env, cwd)
-private abstract NodeProcess(Process) from Process to Process {}
 
 class Main {
   static function sleep(ms: Int): Promise<Void> {
@@ -48,11 +42,10 @@ class Main {
 
   static function main() {
     PW.testPage("todoapp: validation + create, navigate, update, toggle, delete", @:async function(page: Page): Promise<Void> {
-      // `js.Node.process/console` in hxnodejs are implemented via `untyped __js__`,
-      // which is deprecated and triggers warnings at call sites when inlined.
-      // Use an explicit `js.Syntax.code` boundary instead.
-      final nodeProcess: NodeProcess = cast Syntax.code("process");
-      final nodeConsole: Console = cast Syntax.code("console");
+      // Typed access to Node globals without triggering `__js__` deprecation warnings.
+      // See `todo.e2e.NodeGlobals` for the rationale and the exact warning text.
+      final nodeProcess = NodeGlobals.process();
+      final nodeConsole = NodeGlobals.console();
 
       final baseUrl = switch nodeProcess.env.get("BASE_URL") {
         case null: "http://localhost:8787";
@@ -100,7 +93,7 @@ class Main {
     });
 
     PW.testPage("todoapp: deep-link refresh keeps detail state", @:async function(page: Page): Promise<Void> {
-      final nodeProcess: NodeProcess = cast Syntax.code("process");
+      final nodeProcess = NodeGlobals.process();
       final baseUrl = switch nodeProcess.env.get("BASE_URL") {
         case null: "http://localhost:8787";
         case v: v;
@@ -127,7 +120,7 @@ class Main {
     });
 
     PW.testPage("todoapp: invalid deep link shows error and can return home", @:async function(page: Page): Promise<Void> {
-      final nodeProcess: NodeProcess = cast Syntax.code("process");
+      final nodeProcess = NodeGlobals.process();
       final baseUrl = switch nodeProcess.env.get("BASE_URL") {
         case null: "http://localhost:8787";
         case v: v;

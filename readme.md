@@ -166,7 +166,7 @@ See `docs/typescript-target/DEBUGGING.md`.
 ## Examples
 
 - `examples/typescript-target/` — TS output contract + examples
-- `examples/todoapp/` — fullstack todoapp (React Router + Express): `npm run build:example:todoapp`
+- `examples/todoapp/` — fullstack todoapp (React Router + Express): `npm run example:todoapp`
 
 ## ts2hx (TS/JS → Haxe, experimental)
 
