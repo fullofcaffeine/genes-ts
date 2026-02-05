@@ -15,4 +15,4 @@ name = "npm"
 ecosystem = "npm"
 vulnerability.ignore = true
 effectiveUntil = 2026-03-31
-reason = "Pulled in transitively via semantic-release (@semantic-release/npm). This repo does not publish to npm and does not ship this dependency; it's only used in CI for GitHub releases + changelog automation. OSV currently reports no fixed version for the flagged advisory, so we allowlist it temporarily while monitoring for upstream updates."
+reason = "Pulled in transitively via semantic-release (semantic-release -> @semantic-release/npm -> npm). We do not publish to npm and do not execute the npm CLI as part of our test pipeline; this package is only present in the devDependency tree and is scanned in CI via `yarn test:vulns`. OSV currently reports no fixed version for the flagged advisory (CVE-2026-0775), so we allowlist it temporarily while monitoring for upstream updates."
