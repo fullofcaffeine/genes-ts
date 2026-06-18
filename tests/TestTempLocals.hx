@@ -22,4 +22,14 @@ class TestTempLocals {
     final marked = [for (word in words) word + "!"];
     return assert(marked.join(",") == "1!,2!");
   }
+
+  public function testCatchTempLocal() {
+    final message = try {
+      throw "boom";
+      "missed";
+    } catch (error:haxe.Exception) {
+      error.message;
+    }
+    return assert(message == "boom");
+  }
 }

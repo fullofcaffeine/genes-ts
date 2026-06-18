@@ -35,6 +35,8 @@ class TsModuleEmitter extends JsModuleEmitter {
   var currentClass: Null<ClassType> = null;
   var currentReturnType: Null<Type> = null;
   var currentReturnIsVoidLike: Bool = false;
+  var generatedLocalNames: Map<Int, String> = [];
+  var generatedLocalNameCounts: Map<String, Int> = [];
 
   function typeEmitsAny(t: Type): Bool {
     final fast = switch t {
@@ -71,6 +73,8 @@ class TsModuleEmitter extends JsModuleEmitter {
   public function emitTsModule(module: Module, importExtension: Null<String>) {
     final endTimer = timer('emitTsModule');
     jsxEmitTsx = genes.Genes.outExtension == '.tsx';
+    generatedLocalNames = [];
+    generatedLocalNameCounts = [];
     final usesReactJsxMarkers = moduleUsesReactJsxMarkers(module);
 
     // Merge code + type dependencies so TS signatures can resolve.
@@ -1734,6 +1738,59 @@ class TsModuleEmitter extends JsModuleEmitter {
           for (arg in join(args, write.bind(', ')))
             emitValue(arg);
           write(')');
+      case TFor(v, itExpr, body):
+        final wasInLoop = inLoop;
+        inLoop = true;
+        final localIt = switch itExpr.expr {
+          case TLocal(it):
+            it;
+          default:
+            null;
+        };
+        final tempIt = if (localIt == null) {
+          final id = idCounter;
+          idCounter++;
+          final name = "$it" + id;
+          write('$declare ${name} = ');
+          emitValue(itExpr);
+          writeNewline();
+          name;
+        } else {
+          null;
+        };
+
+        function emitIterator() {
+          if (localIt != null)
+            emitLocalVar(localIt);
+          else
+            emitLocalIdent(tempIt);
+        }
+
+        write('while (');
+        emitIterator();
+        write('.hasNext()) {');
+        increaseIndent();
+        writeNewline();
+        write('$declare ');
+        emitLocalVar(v);
+        write(' = ');
+        emitIterator();
+        write('.next()');
+        writeNewline();
+        emitBlockElement(body);
+        decreaseIndent();
+        writeNewline();
+        write('}');
+        inLoop = wasInLoop;
+      case TTry(etry, [{v: v, expr: ecatch}]):
+        write('try ');
+        emitExpr(etry);
+        write('catch (');
+        emitLocalVar(v);
+        write(') ');
+        emitExpr(ecatch);
+      case TTry(_):
+        throw 'Unhandled try/catch, please report';
       case TFunction(f):
         final inValue = this.inValue;
         final inLoop = this.inLoop;
@@ -1852,8 +1909,20 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   function localVarName(v: TVar): String {
-    final name = isGeneratedTempLocal(v.name) ? '${v.name}_${v.id}' : v.name;
+    final name = isGeneratedTempLocal(v.name) ? generatedLocalVarName(v) : v.name;
     return getLocalIdent(name);
+  }
+
+  function generatedLocalVarName(v: TVar): String {
+    final found = generatedLocalNames.get(v.id);
+    if (found != null)
+      return found;
+
+    final count = generatedLocalNameCounts.exists(v.name) ? generatedLocalNameCounts.get(v.name) : 0;
+    generatedLocalNameCounts.set(v.name, count + 1);
+    final name = count == 0 ? v.name : '${v.name}_${count}';
+    generatedLocalNames.set(v.id, name);
+    return name;
   }
 
   static function isGeneratedTempLocal(name: String): Bool {
