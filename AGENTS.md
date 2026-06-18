@@ -5,16 +5,16 @@ This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get sta
 The repo tracks the roadmap in `.beads/issues.jsonl` so a fresh checkout includes the current plan.
 Local runtime state (SQLite DB, daemon logs, etc) remains untracked.
 
-`../genes-vanilla` is the read-only reference for the original upstream Genes implementation. Use it to compare original ES/JS behavior and architecture, especially for performance-oriented ES6 output, but do not patch it from this repo's OpenCodeHX-driven work. The source of truth for genes-ts/compiler changes is this `../genes` checkout.
+`../genes-vanilla` is the read-only reference for the original upstream Genes implementation. Use it to compare original ES/JS behavior and architecture, especially for performance-oriented ES6 output, but do not patch it from this repo's compiler work. The source of truth for genes-ts/compiler changes is this `../genes` checkout.
 
 ## Compiler Independence
 
-genes-ts is a general-purpose Haxe-to-TypeScript/JavaScript compiler, not an OpenCodeHX-specific transpiler.
+genes-ts is a general-purpose Haxe-to-TypeScript/JavaScript compiler.
 
-- OpenCodeHX work may and should reveal missing compiler features, bad emitted TypeScript, classic JS regressions, typing holes, macro ergonomics gaps, and runtime helper bugs.
-- Fix those issues as generic language/codegen/runtime improvements with small reusable fixtures. Do not add knowledge of OpenCodeHX paths, module names, schemas, DTOs, runtime seams, CLI behavior, or product conventions.
-- If a failing OpenCodeHX case seems to need a compiler special case, first reduce it to the underlying Haxe/JS/TS construct and add that as the compiler test.
-- The shared goal is twofold: make OpenCodeHX the best Haxe-native, future-portable OpenCode port, and make genes-ts the best JS/TS compiler for Haxe. Compiler work only serves that goal when it benefits arbitrary Haxe projects too.
+- Downstream projects may and should reveal missing compiler features, bad emitted TypeScript, classic JS regressions, typing holes, macro ergonomics gaps, and runtime helper bugs.
+- Fix those issues as generic language/codegen/runtime improvements with small reusable fixtures. Do not add knowledge of downstream project paths, module names, schemas, DTOs, runtime seams, CLI behavior, or product conventions.
+- If a downstream case seems to need a compiler special case, first reduce it to the underlying Haxe/JS/TS construct and add that as the compiler test.
+- The goal is to make genes-ts the best JS/TS compiler for Haxe. Compiler work only serves that goal when it benefits arbitrary Haxe projects too.
 
 ## Output modes (keep both green)
 
@@ -131,7 +131,7 @@ npm run build:example:todoapp
 
 **After each completed task**, commit and push the relevant repo before moving on to the next task. If work spans multiple repos, each repo gets its own focused commit and successful push. Do not batch completed tasks into a later session-level push.
 
-For `../genes` specifically, keep the branch current with origin whenever landing compiler work: run `git pull --rebase` before the final push, resolve any upstream drift in the compiler repo itself, then push the focused genes commit. OpenCodeHX work may depend on local `../genes`, so do not leave compiler changes stranded or only documented in the port repo.
+For `../genes` specifically, keep the branch current with origin whenever landing compiler work: run `git pull --rebase` before the final push, resolve any upstream drift in the compiler repo itself, then push the focused genes commit. Downstream work may depend on local `../genes`, so do not leave compiler changes stranded or only documented elsewhere.
 
 **When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
 
