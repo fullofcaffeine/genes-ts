@@ -14,10 +14,8 @@ class Run {
       new TestAbstract(), new TestRequire(), new TestExtendExtern(),
       new TestReactComponent(), new TestImportModule(), new TestCycle(),
       new TestCycle2(), new TestComments(), new TestTsTypes(),
-      new TestTypeOnlyDce(),
-      new TestTsGenerics(), new TestTypeAlias(), new TestSyntax(),
-      new TestAsyncAwait(),
-      new TestImportHelper(),
+      new TestTypeOnlyDce(), new TestTsGenerics(), new TestTypeAlias(),
+      new TestSyntax(), new TestAsyncAwait(), new TestImportHelper(),
       #end
       new TestAsterisk(),
       new TestBind(),
@@ -39,6 +37,7 @@ class Run {
       new TestExpose(),
       new TestStatics(),
       new TestDoWhile(),
+      new TestTempLocals(),
       #if (haxe_ver >= 4.1)
       new TestException(),
       #end

@@ -40,9 +40,11 @@ class TsModuleEmitter extends JsModuleEmitter {
     final fast = switch t {
       case TDynamic(null):
         true;
-      case TInst(_.get() => cl, _) if (cl.module != null && cl.module.startsWith('haxe.macro')):
+      case TInst(_.get() => cl, _)
+        if (cl.module != null && cl.module.startsWith('haxe.macro')):
         true;
-      case TType(_.get() => dt, _) if (dt.module != null && dt.module.startsWith('haxe.macro')):
+      case TType(_.get() => dt, _)
+        if (dt.module != null && dt.module.startsWith('haxe.macro')):
         true;
       default:
         false;
@@ -92,7 +94,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       write(' from ');
       emitString('react');
       writeNewline();
-    } else if (usesReactJsxMarkers && jsxEmitTsx && haxe.macro.Context.defined('genes.ts.jsx_classic')) {
+    } else if (usesReactJsxMarkers && jsxEmitTsx
+      && haxe.macro.Context.defined('genes.ts.jsx_classic')) {
       write('import * as ');
       write(JSX_CLASSIC_REACT_IMPORT);
       write(' from ');
@@ -215,8 +218,7 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   static function isReactJsxMarkerCallee(callee: TypedExpr): Null<String> {
     return switch unwrapExpr(callee).expr {
-      case TField(_,
-        FStatic(_.get() => cl, _.get() => {name: name}))
+      case TField(_, FStatic(_.get() => cl, _.get() => {name: name}))
         if (cl.pack.join('.') == 'genes.react.internal' && cl.name == 'Jsx'
           && (name == '__jsx' || name == '__frag')):
         name;
@@ -268,11 +270,11 @@ class TsModuleEmitter extends JsModuleEmitter {
     final namedGroups: Array<Array<genes.Dependencies.Dependency>> = [];
     for (def in imports)
       switch def.type {
-        case genes.Dependencies.DependencyType.DAsterisk
-          | genes.Dependencies.DependencyType.DDefault:
+        case genes.Dependencies.DependencyType.DAsterisk | genes.Dependencies.DependencyType.DDefault:
           emitTsImport([def], where, extension, typeOnly);
         default:
-          var group = namedGroups.find(group -> group[0].importAttributeType == def.importAttributeType);
+          var group = namedGroups.find(group ->
+            group[0].importAttributeType == def.importAttributeType);
           if (group == null) {
             group = [];
             namedGroups.push(group);
@@ -284,8 +286,8 @@ class TsModuleEmitter extends JsModuleEmitter {
         emitTsImport(named, where, extension, typeOnly);
   }
 
-  function emitTsImport(what: Array<genes.Dependencies.Dependency>, where: String,
-      extension: Null<String>, typeOnly: Bool) {
+  function emitTsImport(what: Array<genes.Dependencies.Dependency>,
+      where: String, extension: Null<String>, typeOnly: Bool) {
     write(typeOnly ? 'import type' : 'import');
     writeSpace();
     switch what {
@@ -392,8 +394,7 @@ class TsModuleEmitter extends JsModuleEmitter {
             write(ctx.typeAccessor(TypeUtil.registerType));
             write('.new]');
             write(').call(this');
-            if (args.length > 0)
-              write(', ');
+            if (args.length > 0) write(', ');
         }
         for (param in join(args, write.bind(', ')))
           emitValue(param);
@@ -459,9 +460,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         }
       }
       final isPlainCall = switch unwrapExpr(e).expr {
-        case TIdent('`trace' | "__resources__" | "__new__" | "__instanceof__"
-          | "__typeof__" | "__strict_eq__" | "__strict_neq__"
-          | "__define_feature__" | "__feature__"):
+        case TIdent('`trace' | "__resources__" | "__new__" | "__instanceof__" | "__typeof__" | "__strict_eq__" | "__strict_neq__" | "__define_feature__" | "__feature__"):
           false;
         case TCall(_, _):
           false;
@@ -493,8 +492,10 @@ class TsModuleEmitter extends JsModuleEmitter {
             // to `never` avoids TS inferring `null` for generic params.
             write(ctx.typeAccessor(TypeUtil.registerType));
             write('.unsafeCast<never>(null)');
-          } else if (expected != null && !typeAllowsNull(expected)
-            && typeAllowsNull(actual.t) && !isTypeParam(expected)) {
+          } else if (expected != null
+            && !typeAllowsNull(expected)
+            && typeAllowsNull(actual.t)
+            && !isTypeParam(expected)) {
             // If the expected type is `any`, a cast is unnecessary and emitting
             // `<any>` would violate the typing policy for user modules.
             if (typeEmitsAny(expected)) {
@@ -520,7 +521,8 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   function emitReactJsxElement(args: Array<TypedExpr>) {
     if (args.length != 3)
-      haxe.macro.Context.error('Invalid JSX marker call', args.length > 0 ? args[0].pos : haxe.macro.Context.currentPos());
+      haxe.macro.Context.error('Invalid JSX marker call',
+        args.length > 0 ? args[0].pos : haxe.macro.Context.currentPos());
 
     final tag = args[0];
     final props = parseJsxProps(args[1]);
@@ -749,11 +751,13 @@ class TsModuleEmitter extends JsModuleEmitter {
     final first = name.charCodeAt(0);
     if (!((first >= 'a'.code && first <= 'z'.code)
       || (first >= 'A'.code && first <= 'Z'.code)
-      || first == '_'.code || first == '$'.code))
+      || first == '_'.code
+      || first == '$'.code))
       return false;
     for (i in 1...name.length) {
       final c = name.charCodeAt(i);
-      if (!((c >= 'a'.code && c <= 'z'.code) || (c >= 'A'.code && c <= 'Z'.code)
+      if (!((c >= 'a'.code && c <= 'z'.code)
+        || (c >= 'A'.code && c <= 'Z'.code)
         || (c >= '0'.code && c <= '9'.code) || c == '_'.code || c == '$'.code))
         return false;
     }
@@ -834,29 +838,29 @@ class TsModuleEmitter extends JsModuleEmitter {
       final ctorField = fields.find(f -> f.kind.equals(Constructor));
       if (ctorField != null)
         switch ctorField.expr {
-	          case {expr: TFunction(f)}:
-	            writeNewline();
-	            emitPos(ctorField.pos);
-	            write('constructor(');
-	            emitTypedFunctionArguments(f, ctorField);
-	            write(') {');
-	            increaseIndent();
-	            writeNewline();
-	            // Haxe constructors are routed through `Register.inherits(...)`
-	            // and `[Register.new]`. The superclass type may have an unrelated
-	            // TS constructor signature, so we silence `super(...)` arity/type
-	            // checks here while keeping the public constructor signature typed.
-	            if (cl.superClass != null) {
-	              write('// @ts-ignore');
-	              writeNewline();
-	            }
-	            write('super(');
-	            emitForwardArgs(f, ctorField);
-	            write(');');
-	            decreaseIndent();
-	            writeNewline();
-	            write('}');
-	          default:
+          case {expr: TFunction(f)}:
+            writeNewline();
+            emitPos(ctorField.pos);
+            write('constructor(');
+            emitTypedFunctionArguments(f, ctorField);
+            write(') {');
+            increaseIndent();
+            writeNewline();
+            // Haxe constructors are routed through `Register.inherits(...)`
+            // and `[Register.new]`. The superclass type may have an unrelated
+            // TS constructor signature, so we silence `super(...)` arity/type
+            // checks here while keeping the public constructor signature typed.
+            if (cl.superClass != null) {
+              write('// @ts-ignore');
+              writeNewline();
+            }
+            write('super(');
+            emitForwardArgs(f, ctorField);
+            write(');');
+            decreaseIndent();
+            writeNewline();
+            write('}');
+          default:
         }
     }
 
@@ -879,23 +883,22 @@ class TsModuleEmitter extends JsModuleEmitter {
           write(': ');
           // Node vs DOM timer handles: `setInterval` return type varies by lib.
           // Model `haxe.Timer.id` as whatever the host `setInterval` returns.
-          if (!field.isStatic && field.name == 'id' && cl.pack.join('.') == 'haxe'
+          if (!field.isStatic
+            && field.name == 'id'
+            && cl.pack.join('.') == 'haxe'
             && cl.name == 'Timer') {
             write('ReturnType<typeof setInterval> | null');
           } else {
             emitFieldTsType(field);
           }
           write(';');
-        case Method
-          #if (haxe_ver >= 4.2) if (!field.isAbstract) #end:
+        case Method #if (haxe_ver >= 4.2) if (!field.isAbstract) #end:
           // Module-level externs (KModuleFields) can be declared as extern
           // functions (no body) with `@:jsRequire`. These appear as static
           // fields on the module fields class, so we declare them as function
           //-typed properties and bind them at runtime in the JS emitter.
-          if (field.expr == null && field.isStatic && field.meta != null
-            #if (haxe_ver >= 4.2)
-            && cl.kind.match(KModuleFields(_))
-            #end
+          if (field.expr == null && field.isStatic && field.meta != null #if (haxe_ver >= 4.2)
+            && cl.kind.match(KModuleFields(_)) #end
           ) {
             final hasJsRequire = switch field.meta.extract(':jsRequire') {
               case [_]: true;
@@ -928,7 +931,8 @@ class TsModuleEmitter extends JsModuleEmitter {
                 writeNewline();
               emitComment(field.doc);
               emitPos(field.pos);
-              final isAsync = field.meta != null && (field.meta.has(':jsAsync') || field.meta.has('jsAsync'));
+              final isAsync = field.meta != null
+                && (field.meta.has(':jsAsync') || field.meta.has('jsAsync'));
               if (field.isStatic) {
                 write('static ');
                 if (isAsync)
@@ -953,7 +957,7 @@ class TsModuleEmitter extends JsModuleEmitter {
               } else {
                 if (isAsync)
                   write('async ');
-              emitMemberName(field.name);
+                emitMemberName(field.name);
               }
 
               emitMethodTypeParams(field);
@@ -976,7 +980,8 @@ class TsModuleEmitter extends JsModuleEmitter {
                 case null: extractStringMeta(field.meta, ':genes.returnType');
                 case v: v;
               }) : null;
-              final isRuntimeUnsafeCast = field.isStatic && field.name == 'unsafeCast'
+              final isRuntimeUnsafeCast = field.isStatic
+                && field.name == 'unsafeCast'
                 && cl.module == 'genes.Register' && cl.name == 'Register';
               if (isRuntimeUnsafeCast) {
                 // `Register.unsafeCast` must be the identity function at runtime.
@@ -995,7 +1000,11 @@ class TsModuleEmitter extends JsModuleEmitter {
                 write('}');
               } else {
                 switch [returnOverride, body.expr] {
-                  case [v, TBlock([])] if (v != null && v != 'any' && v != 'void' && v != 'undefined'):
+                  case [v, TBlock([])]
+                    if (v != null
+                      && v != 'any'
+                      && v != 'void'
+                      && v != 'undefined'):
                     // TS requires a return for non-void declared return types.
                     // Preserve JS runtime behavior by returning `undefined`.
                     write('{');
@@ -1019,8 +1028,7 @@ class TsModuleEmitter extends JsModuleEmitter {
                     currentReturnIsVoidLike = switch returnOverride {
                       case "void" | "Promise<void>":
                         true;
-                      default:
-                        currentReturnType != null && isVoidLike(currentReturnType);
+                      default: currentReturnType != null && isVoidLike(currentReturnType);
                     }
                     emitExpr(body);
                     currentReturnType = prevReturn;
@@ -1090,7 +1098,8 @@ class TsModuleEmitter extends JsModuleEmitter {
 
     // Register class in $hxClasses registry (Genes runtime compatibility).
     final id = cl.pack.concat([TypeUtil.className(cl)]).join('.');
-    if (id != 'genes.Register' && !haxe.macro.Context.defined('genes.ts.minimal_runtime')) {
+    if (id != 'genes.Register'
+      && !haxe.macro.Context.defined('genes.ts.minimal_runtime')) {
       writeNewline();
       write(ctx.typeAccessor(TypeUtil.registerType));
       write('.setHxClass(');
@@ -1196,7 +1205,8 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
   }
 
-  static function collectUsedTypeParamKeys(type: Type, used: Map<String, Bool>) {
+  static function collectUsedTypeParamKeys(type: Type,
+      used: Map<String, Bool>) {
     final followed = haxe.macro.Context.followWithAbstracts(type);
     switch followed {
       case TInst(ref, params):
@@ -1229,8 +1239,8 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
   }
 
-  function emitTypeParamDeclsUnusedNever(params: Array<Type>, withConstraints: Bool,
-      used: Map<String, Bool>, tsxSafe: Bool) {
+  function emitTypeParamDeclsUnusedNever(params: Array<Type>,
+      withConstraints: Bool, used: Map<String, Bool>, tsxSafe: Bool) {
     if (params.length == 0)
       return;
     write('<');
@@ -1264,7 +1274,8 @@ class TsModuleEmitter extends JsModuleEmitter {
     write('>');
   }
 
-  function emitTypeParamDeclsTsxSafe(params: Array<Type>, withConstraints: Bool) {
+  function emitTypeParamDeclsTsxSafe(params: Array<Type>,
+      withConstraints: Bool) {
     if (params.length == 0)
       return;
     write('<');
@@ -1339,7 +1350,7 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   override public function emitVar(v: TVar, eo: Null<TypedExpr>) {
     write('$declare ');
-    emitLocalIdent(v.name);
+    emitLocalVar(v);
     write(': ');
     TypeEmitter.emitType(this, v.t);
     switch (eo) {
@@ -1374,7 +1385,8 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   static function extractTypeArgs(t: Type): Array<Type> {
     return switch t {
-      case TAbstract(_, params) | TType(_, params) | TInst(_, params) | TEnum(_, params):
+      case TAbstract(_, params) | TType(_, params) | TInst(_, params) |
+        TEnum(_, params):
         params;
       case TMono(tref):
         final inner = tref.get();
@@ -1401,8 +1413,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     final unwrapped = unwrapExpr(init);
     return switch unwrapped.expr {
       case TCall(callee, args)
-        if (isUseStateCallee(callee)
-          && args.length == 1):
+        if (isUseStateCallee(callee) && args.length == 1):
         final typeArgs = extractTypeArgs(varType);
         final stateTypeArg = (typeArgs.length == 1) ? typeArgs[0] : null;
         // Avoid leaking explicit `any` type arguments into user modules.
@@ -1466,11 +1477,13 @@ class TsModuleEmitter extends JsModuleEmitter {
     return switch haxe.macro.Context.followWithAbstracts(t) {
       case TAbstract(_.get() => {pack: [], name: "Void"}, _):
         true;
-      case TInst(_.get() => {module: "js.lib.Promise", name: "Promise"}, [inner])
-        | TInst(_.get() => {pack: ["js", "lib"], name: "Promise"}, [inner]):
+      case TInst(_.get() => {module: "js.lib.Promise", name: "Promise"},
+        [inner]) |
+        TInst(_.get() => {pack: ["js", "lib"], name: "Promise"}, [inner]):
         isVoidLike(inner);
-      case TType(_.get() => {module: "js.lib.Promise", name: "Promise"}, [inner])
-        | TType(_.get() => {pack: ["js", "lib"], name: "Promise"}, [inner]):
+      case TType(_.get() => {module: "js.lib.Promise", name: "Promise"},
+        [inner]) |
+        TType(_.get() => {pack: ["js", "lib"], name: "Promise"}, [inner]):
         isVoidLike(inner);
       default:
         false;
@@ -1500,8 +1513,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TCall({
         expr: TField(_,
           FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))
-      }, [{expr: TConst(TString("undefined"))}])
-        if (typeAllowsNull(e.t)):
+      }, [{expr: TConst(TString("undefined"))}]) if (typeAllowsNull(e.t)):
         // See `emitExpr` for rationale.
         write('null');
       case TBinop(op = OpGt | OpGte | OpLt | OpLte, e1, e2)
@@ -1531,11 +1543,12 @@ class TsModuleEmitter extends JsModuleEmitter {
   override public function emitExpr(e: TypedExpr) {
     emitPos(e.pos);
     switch e.expr {
+      case TLocal(v):
+        emitLocalVar(v);
       case TCall({
         expr: TField(_,
           FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))
-      }, [{expr: TConst(TString("undefined"))}])
-        if (typeAllowsNull(e.t)):
+      }, [{expr: TConst(TString("undefined"))}]) if (typeAllowsNull(e.t)):
         // Haxe stdlib sometimes uses `js.Syntax.code("undefined")` in places
         // where `null` is the intended "no value" signal (e.g. `HxOverrides.cca`).
         // Normalize to `null` to keep TS `strictNullChecks` consistent.
@@ -1575,11 +1588,12 @@ class TsModuleEmitter extends JsModuleEmitter {
         writeBinop(op);
         writeSpace();
         final meta = switch f {
-          case FInstance(_, _, cf) | FStatic(_, cf) | FAnon(cf): cf.get().meta;
+          case FInstance(_, _, cf) | FStatic(_, cf) | FAnon(cf): cf.get()
+              .meta;
           default: null;
         }
-        final typeOverride = extractStringMeta(meta, ':ts.type')
-          ?? extractStringMeta(meta, ':genes.type');
+        final typeOverride = extractStringMeta(meta,
+          ':ts.type') ?? extractStringMeta(meta, ':genes.type');
         // If the override is `any`, no cast is required and emitting `<any>`
         // would leak `any` into user modules.
         if (typeOverride == null || typeOverride == 'any') {
@@ -1617,25 +1631,24 @@ class TsModuleEmitter extends JsModuleEmitter {
         writeBinop(op);
         writeSpace();
         emitValue(rhs);
-      case TArray(_, _)
-        if (!inAssignTarget && typeAllowsNull(e.t)):
+      case TArray(_, _) if (!inAssignTarget && typeAllowsNull(e.t)):
         // Haxe generally models missing values as `null` while JS property/index
         // reads can produce `undefined`. Normalize to `null` for TS `strict`.
         write('(');
         super.emitExpr(e);
         write(' ?? null)');
-      case TField(x, f)
-        // If the receiver type is nullable in TS (`T | null`), TS does not
+      case TField(x,
+        f) // If the receiver type is nullable in TS (`T | null`), TS does not
         // reliably narrow property accesses across statements (e.g. `this.pos`).
         // Add a non-null assertion to preserve Haxe semantics under `strict`.
         //
         // Note: skip dynamic-iterator special cases handled by the JS emitter.
         if (typeAllowsNull(x.t)
-          && !(fieldAccessName(f) == "iterator" && genes.util.TypeUtil.isDynamicIterator(x))):
+          && !(fieldAccessName(f) == "iterator"
+            && genes.util.TypeUtil.isDynamicIterator(x))):
         final isOptionalField = !inAssignTarget && switch f {
-          case FAnon(cf) | FInstance(_, _, cf) | FStatic(_, cf):
-            final meta = cf.get().meta;
-            meta != null && meta.has(':optional');
+          case FAnon(cf) | FInstance(_, _, cf) | FStatic(_, cf): final meta = cf.get()
+              .meta; meta != null && meta.has(':optional');
           default:
             false;
         };
@@ -1659,11 +1672,9 @@ class TsModuleEmitter extends JsModuleEmitter {
         }
         if (isOptionalField)
           write(' ?? null)');
-      case TField(_, f)
-        if (!inAssignTarget && switch f {
-          case FAnon(cf) | FInstance(_, _, cf) | FStatic(_, cf):
-            final meta = cf.get().meta;
-            meta != null && meta.has(':optional');
+      case TField(_, f) if (!inAssignTarget && switch f {
+          case FAnon(cf) | FInstance(_, _, cf) | FStatic(_, cf): final meta = cf.get()
+              .meta; meta != null && meta.has(':optional');
           default:
             false;
         }):
@@ -1680,7 +1691,8 @@ class TsModuleEmitter extends JsModuleEmitter {
           case e1:
             final ret = currentReturnType;
             final unwrapped = unwrapExpr(e1);
-            final isNull = isNullConst(unwrapped) || isJsUndefinedConst(unwrapped);
+            final isNull = isNullConst(unwrapped)
+              || isJsUndefinedConst(unwrapped);
             if (currentReturnIsVoidLike && isNull) {
               // Haxe often uses `null` as the implicit return value for `Void`.
               // In TS, `return null` is not valid for `void` / `Promise<void>`.
@@ -1699,24 +1711,29 @@ class TsModuleEmitter extends JsModuleEmitter {
               }
             }
         }
-      case TCall({expr: TField(_, f)}, [])
-        if (switch fieldAccessName(f) { case "shift" | "pop": true; default: false; }):
+      case TCall({expr: TField(_, f)}, []) if (switch fieldAccessName(f) {
+          case "shift" | "pop": true;
+          default: false;
+        }):
         // Normalize JS `undefined` to Haxe `null` for Array#shift/#pop.
         // This keeps TS strict-null types aligned with Haxe semantics.
         write('(');
         super.emitExpr(e);
         write(' ?? null)');
       case TCall(fn = {expr: TCall({expr: TField(_, f)}, _)}, args)
-        if (switch fieldAccessName(f) { case "shift" | "pop": true; default: false; }):
-        // Array#shift/#pop returns `T | undefined` in TS. When the Haxe code
-        // guarantees non-emptiness (e.g. checked `.length > 0`), allow calling
-        // the returned function under `strict`.
-        write('(');
-        emitValue(fn);
-        write('!)(');
-        for (arg in join(args, write.bind(', ')))
-          emitValue(arg);
-        write(')');
+        if (switch fieldAccessName(f) {
+            case "shift" | "pop": true;
+            default: false;
+          }):
+          // Array#shift/#pop returns `T | undefined` in TS. When the Haxe code
+          // guarantees non-emptiness (e.g. checked `.length > 0`), allow calling
+          // the returned function under `strict`.
+          write('(');
+          emitValue(fn);
+          write('!)(');
+          for (arg in join(args, write.bind(', ')))
+            emitValue(arg);
+          write(')');
       case TFunction(f):
         final inValue = this.inValue;
         final inLoop = this.inLoop;
@@ -1726,7 +1743,8 @@ class TsModuleEmitter extends JsModuleEmitter {
           case TFun(_, ret): ret;
           default: null;
         }
-        currentReturnIsVoidLike = currentReturnType != null && isVoidLike(currentReturnType);
+        currentReturnIsVoidLike = currentReturnType != null
+          && isVoidLike(currentReturnType);
         this.inValue = 0;
         this.inLoop = false;
         final args = switch e.t {
@@ -1751,10 +1769,12 @@ class TsModuleEmitter extends JsModuleEmitter {
           if (genes.util.TypeUtil.isRest(t))
             write('...');
           emitLocalIdent(arg.v.name);
-          final omitType = (arg.v.name == '_' || StringTools.startsWith(arg.v.name, '_'))
+          final omitType = (arg.v.name == '_'
+            || StringTools.startsWith(arg.v.name, '_'))
             && typeEmitsAny(t);
           if (!omitType) {
-            final optional = i < args.length && args[i].opt && i > noOptionalUntil;
+            final optional = i < args.length && args[i].opt
+              && i > noOptionalUntil;
             final defaultNull = optional && typeAllowsNull(t);
             if (optional && !defaultNull)
               write('?');
@@ -1794,7 +1814,8 @@ class TsModuleEmitter extends JsModuleEmitter {
         writeBinop(op);
         writeSpace();
         emitOperand(e2);
-      case TBinop(op = OpEq | OpNotEq, e1, e2) if (isNullConst(e1) || isNullConst(e2)):
+      case TBinop(op = OpEq | OpNotEq, e1, e2)
+        if (isNullConst(e1) || isNullConst(e2)):
         emitValueWithPlainNull(e1);
         writeSpace();
         writeBinop(op);
@@ -1802,28 +1823,52 @@ class TsModuleEmitter extends JsModuleEmitter {
         emitValueWithPlainNull(e2);
       case TCall({expr: TField(_, f)}, [{expr: TConst(TString(name))}])
         if (switch f {
-          case FStatic(cl, cf)
-            if (cl.get().module == "genes.Register" && cl.get().name == "Register"
-              && cf.get().name == "global"):
-            true;
-          default:
-            false;
-        }):
-        // Avoid leaking `unknown` from `Register.global()` into user modules for
-        // common reflection registries.
-        switch name {
-          case "$hxEnums":
-            write(ctx.typeAccessor(TypeUtil.registerType));
-            write('.hxEnums()');
-          case "$hxClasses":
-            write(ctx.typeAccessor(TypeUtil.registerType));
-            write('.hxClasses()');
-          default:
-            super.emitExpr(e);
-        }
+            case FStatic(cl, cf)
+              if (cl.get().module == "genes.Register"
+                && cl.get().name == "Register" && cf.get().name == "global"):
+              true;
+            default:
+              false;
+          }):
+          // Avoid leaking `unknown` from `Register.global()` into user modules for
+          // common reflection registries.
+          switch name {
+            case "$hxEnums":
+              write(ctx.typeAccessor(TypeUtil.registerType));
+              write('.hxEnums()');
+            case "$hxClasses":
+              write(ctx.typeAccessor(TypeUtil.registerType));
+              write('.hxClasses()');
+            default:
+              super.emitExpr(e);
+          }
       default:
         super.emitExpr(e);
     }
+  }
+
+  function emitLocalVar(v: TVar) {
+    write(localVarName(v));
+  }
+
+  function localVarName(v: TVar): String {
+    final name = isGeneratedTempLocal(v.name) ? '${v.name}_${v.id}' : v.name;
+    return getLocalIdent(name);
+  }
+
+  static function isGeneratedTempLocal(name: String): Bool {
+    if (name == "_g")
+      return true;
+    if (!StringTools.startsWith(name, "_g"))
+      return false;
+    if (name.length == 2)
+      return true;
+    for (i in 2...name.length) {
+      final code = name.charCodeAt(i);
+      if (code < "0".code || code > "9".code)
+        return false;
+    }
+    return true;
   }
 
   override function emitSwitch(cond: TypedExpr,
@@ -1974,10 +2019,12 @@ class TsModuleEmitter extends JsModuleEmitter {
   function emitTypedFunctionArgumentsWithType(f: TFunc, field: GenesField,
       declaredType: Null<Type>) {
     final effectiveType = declaredType != null ? declaredType : field.type;
-    final cachedSig = (currentClass != null) ? SignatureCache.getSig(currentClass, field.isStatic, field.name) : null;
+    final cachedSig = (currentClass != null) ? SignatureCache.getSig(currentClass,
+      field.isStatic, field.name) : null;
     switch effectiveType {
       case TFun(args, _):
-        final cachedArgs = (cachedSig != null && cachedSig.args.length == args.length) ? cachedSig.args : null;
+        final cachedArgs = (cachedSig != null
+          && cachedSig.args.length == args.length) ? cachedSig.args : null;
         // Handle Haxe optional argument skipping semantics (same as TypeEmitter.emitArgs).
         var noOptionalUntil = -1;
         var hadOptional = true;
@@ -2038,19 +2085,22 @@ class TsModuleEmitter extends JsModuleEmitter {
             write('any[]');
           else
             write('any');
-      }
+        }
       default:
         emitFunctionArguments(f);
     }
   }
 
-  function emitArgTsType(field: GenesField, f: TFunc, index: Int,
-      type: Type, fallbackType: Null<String>) {
+  function emitArgTsType(field: GenesField, f: TFunc, index: Int, type: Type,
+      fallbackType: Null<String>) {
     // TS `strict` enables `useUnknownInCatchVariables`, so catch variables are
     // `unknown`. Avoid emitting `Register.unsafeCast<any>(...)` in user modules
     // by making `haxe.Exception.caught` accept `unknown` in TS.
-    if (currentClass != null && currentClass.module == 'haxe.Exception'
-      && currentClass.name == 'Exception' && field.name == 'caught' && index == 0) {
+    if (currentClass != null
+      && currentClass.module == 'haxe.Exception'
+      && currentClass.name == 'Exception'
+      && field.name == 'caught'
+      && index == 0) {
       write('unknown');
       return;
     }
@@ -2060,17 +2110,23 @@ class TsModuleEmitter extends JsModuleEmitter {
     // In Haxe, `native: Any` can represent arbitrary thrown values. In TS, the
     // closest semantic match is `unknown` (safe top type), not `any`.
     if (currentClass != null) {
-      if (currentClass.module == 'haxe.Exception' && currentClass.name == 'Exception'
-        && field.kind.equals(Constructor) && index == 2) {
+      if (currentClass.module == 'haxe.Exception'
+        && currentClass.name == 'Exception'
+        && field.kind.equals(Constructor)
+        && index == 2) {
         write('unknown | null');
         return;
       }
-      if (currentClass.module == 'haxe.Exception' && currentClass.name == 'Exception'
-        && field.isStatic && field.name == 'thrown' && index == 0) {
+      if (currentClass.module == 'haxe.Exception'
+        && currentClass.name == 'Exception'
+        && field.isStatic
+        && field.name == 'thrown'
+        && index == 0) {
         write('unknown');
         return;
       }
-      if (currentClass.module == 'haxe.ValueException' && currentClass.name == 'ValueException') {
+      if (currentClass.module == 'haxe.ValueException'
+        && currentClass.name == 'ValueException') {
         if (field.kind.equals(Constructor) && index == 0) {
           write('unknown');
           return;
@@ -2117,7 +2173,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       write(returnOverride);
       return;
     }
-    final cachedSig = (currentClass != null) ? SignatureCache.getSig(currentClass, field.isStatic, field.name) : null;
+    final cachedSig = (currentClass != null) ? SignatureCache.getSig(currentClass,
+      field.isStatic, field.name) : null;
     if (cachedSig != null && cachedSig.retTsType != null) {
       write(cachedSig.retTsType);
       return;
@@ -2144,7 +2201,8 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
 
     if (currentClass != null) {
-      if (currentClass.module == 'haxe.Exception' && currentClass.name == 'Exception') {
+      if (currentClass.module == 'haxe.Exception'
+        && currentClass.name == 'Exception') {
         switch field.name {
           case 'native' | '__nativeException':
             write('unknown');
@@ -2152,8 +2210,8 @@ class TsModuleEmitter extends JsModuleEmitter {
           default:
         }
       }
-      if (currentClass.module == 'haxe.ValueException' && currentClass.name == 'ValueException'
-        && field.name == 'value') {
+      if (currentClass.module == 'haxe.ValueException'
+        && currentClass.name == 'ValueException' && field.name == 'value') {
         write('unknown');
         return;
       }
@@ -2165,13 +2223,15 @@ class TsModuleEmitter extends JsModuleEmitter {
     var clForFields = cl;
     try {
       final declaredPath = cl.pack.concat([cl.name]).join('.');
-      final fullName = (declaredPath == cl.module) ? declaredPath : (cl.module + '.' + cl.name);
+      final fullName = (declaredPath == cl.module) ? declaredPath : (cl.module
+        + '.'
+        + cl.name);
       switch haxe.macro.Context.getType(fullName) {
         case TInst(ref, _):
           clForFields = ref.get();
         default:
       }
-    } catch (_: Dynamic) {}
+    } catch (_:Dynamic) {}
 
     writeNewline();
     emitComment(cl.doc);
@@ -2199,8 +2259,8 @@ class TsModuleEmitter extends JsModuleEmitter {
           emitPos(field.pos);
           emitMemberName(field.name);
           write(': ');
-          final typeOverride = extractStringMeta(field.meta, ':ts.type')
-            ?? extractStringMeta(field.meta, ':genes.type');
+          final typeOverride = extractStringMeta(field.meta,
+            ':ts.type') ?? extractStringMeta(field.meta, ':genes.type');
           if (typeOverride != null)
             write(typeOverride);
           else
@@ -2570,7 +2630,8 @@ class TsModuleEmitter extends JsModuleEmitter {
     // idiomatic TS iterator type when we can provide the correct element type.
     //
     // NOTE: These are purely type-level overrides; runtime values come from the DOM.
-    if (def.module == 'js.html.HeadersIterator' && def.name == 'HeadersIterator') {
+    if (def.module == 'js.html.HeadersIterator'
+      && def.name == 'HeadersIterator') {
       writeNewline();
       emitComment(def.doc);
       emitPos(def.pos);
@@ -2580,7 +2641,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       writeNewline();
       return;
     }
-    if (def.module == 'js.html.URLSearchParamsIterator' && def.name == 'URLSearchParamsIterator') {
+    if (def.module == 'js.html.URLSearchParamsIterator'
+      && def.name == 'URLSearchParamsIterator') {
       writeNewline();
       emitComment(def.doc);
       emitPos(def.pos);
@@ -2590,7 +2652,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       writeNewline();
       return;
     }
-    if (def.module == 'js.html.FormDataIterator' && def.name == 'FormDataIterator') {
+    if (def.module == 'js.html.FormDataIterator'
+      && def.name == 'FormDataIterator') {
       writeNewline();
       emitComment(def.doc);
       emitPos(def.pos);

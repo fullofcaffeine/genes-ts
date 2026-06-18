@@ -25,21 +25,21 @@ export class Boot {
 					if (con.__params__) {
 						s = s + "\t";
 						return n + "(" + ((function($this) {var $r0
-							let _g: string[] = [];
+							let _g_29257: string[] = [];
 							{
-								let _g1: number = 0;
-								let _g2: string[] = con.__params__;
+								let _g1_29258: number = 0;
+								let _g2_29259: string[] = con.__params__;
 								while (true) {
-									if (!(_g1 < _g2.length)) {
+									if (!(_g1_29258 < _g2_29259.length)) {
 										break;
 									};
-									let p: string = _g2[_g1];
-									_g1 = _g1 + 1;
-									_g.push(Boot.__string_rec((o[p] ?? null), s));
+									let p: string = _g2_29259[_g1_29258];
+									_g1_29258 = _g1_29258 + 1;
+									_g_29257.push(Boot.__string_rec((o[p] ?? null), s));
 								};
 							};
 
-							$r0 = _g
+							$r0 = _g_29257
 							return $r0})(this)).join(",") + ")";
 					} else {
 						return n;
@@ -48,10 +48,10 @@ export class Boot {
 				if (((o) instanceof Array)) {
 					let str: string = "[";
 					s += "\t";
-					let _g: number = 0;
-					let _g1: number = (o!).length;
-					while (_g < _g1) {
-						let i: number = _g++;
+					let _g_29262: number = 0;
+					let _g1_29263: number = (o!).length;
+					while (_g_29262 < _g1_29263) {
+						let i: number = _g_29262++;
 						str += ((i > 0) ? "," : "") + Boot.__string_rec((o[i] ?? null), s);
 					};
 					str += "]";
