@@ -50,6 +50,14 @@ class Genes {
       pos: pos
     };
   }
+
+  static function dynamicImportAccess(receiver: String, importType: String,
+      name: String): String {
+    return if (Context.defined('genes.ts'))
+      'var $name = ($receiver as $importType).$name';
+    else
+      'var $name = $receiver.$name';
+  }
 #end
 
   macro public static function dynamicImport<T, R>(expr: ExprOf<T->
@@ -101,7 +109,7 @@ class Genes {
           case [module]:
             final setup = [
               for (sub in module.types)
-                macro js.Syntax.code($v{'var ${sub.name} = (module as ${module.importType}).${sub.name}'})
+                macro js.Syntax.code($v{dynamicImportAccess('module', module.importType, sub.name)})
             ];
 
             final list = [for (sub in module.types) macro $v{sub.fullname}];
@@ -120,7 +128,7 @@ class Genes {
 
             for (i in 0...modules.length) {
               for (sub in modules[i].types) {
-                setup.push(macro js.Syntax.code($v{'var ${sub.name} = (modules[$i] as ${modules[i].importType}).${sub.name}'}));
+                setup.push(macro js.Syntax.code($v{dynamicImportAccess('modules[$i]', modules[i].importType, sub.name)}));
                 ignores.push(macro $v{sub.fullname});
               }
             }

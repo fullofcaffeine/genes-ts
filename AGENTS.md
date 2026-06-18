@@ -120,6 +120,8 @@ npm run build:example:todoapp
 
 ## Landing the Plane (Session Completion)
 
+**After each completed task**, commit and push the relevant repo before moving on to the next task. If work spans multiple repos, each repo gets its own focused commit and successful push. Do not batch completed tasks into a later session-level push.
+
 **When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
 
 **MANDATORY WORKFLOW:**
