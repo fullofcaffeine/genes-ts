@@ -5,6 +5,8 @@ This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get sta
 The repo tracks the roadmap in `.beads/issues.jsonl` so a fresh checkout includes the current plan.
 Local runtime state (SQLite DB, daemon logs, etc) remains untracked.
 
+`../genes-vanilla` is the read-only reference for the original upstream Genes implementation. Use it to compare original ES/JS behavior and architecture, especially for performance-oriented ES6 output, but do not patch it from this repo's OpenCodeHX-driven work. The source of truth for genes-ts/compiler changes is this `../genes` checkout.
+
 ## Output modes (keep both green)
 
 genes-ts intentionally supports **two output modes** within the same library:
