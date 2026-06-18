@@ -14,13 +14,20 @@ export class Main {
 	declare static Theme: ThemeFixture;
 	static main(): void {
 		let f: Foo = new Foo(1);
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:17:",f.add(2));
+		let asyncFoo: AsyncFoo = new AsyncFoo();
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:18:",f.add(2));
 		AsyncFoo.demo().then(function (v: number) {
-			console.log("tests/genes-ts/snapshot/basic/src/Main.hx:18:",v);
+			console.log("tests/genes-ts/snapshot/basic/src/Main.hx:19:",v);
 		});
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:19:",Placeholder.demo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:20:",EnumAbstract.demo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:21:",Main.Theme.name + ":" + Main.Theme.accent);
+		asyncFoo.doubleWithAwaitMacro(21).then(function (v: number) {
+			console.log("tests/genes-ts/snapshot/basic/src/Main.hx:20:",v);
+		});
+		asyncFoo.metadataAwaitLocalScope(39).then(function (v: number) {
+			console.log("tests/genes-ts/snapshot/basic/src/Main.hx:21:",v);
+		});
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:22:",Placeholder.demo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:23:",EnumAbstract.demo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:24:",Main.Theme.name + ":" + Main.Theme.accent);
 	}
 	static get __name__(): string {
 		return "Main"

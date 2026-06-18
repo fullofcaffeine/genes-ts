@@ -24,7 +24,7 @@ class TestAsyncAwait {
 
   public function testAsyncAnonFunction() {
     final fn = @:async function(a: Int): JsPromise<Int> {
-      final v = await(JsPromise.resolve(a));
+      final v = @:await JsPromise.resolve(a);
       return v + 1;
     };
 
@@ -48,5 +48,49 @@ class TestAsyncAwait {
       return asserts.done();
     });
   }
-}
 
+  @:async
+  function metadataAwaitAsync(a: Int, b: Int): JsPromise<Int> {
+    final x = @:await JsPromise.resolve(a);
+    final pending = JsPromise.resolve(b);
+    final y = @:await pending;
+    return x + y;
+  }
+
+  @:async
+  function metadataAwaitVoid(flag: Array<Bool>): JsPromise<Void> {
+    @:await JsPromise.resolve(null);
+    flag[0] = true;
+  }
+
+  public function testMetadataAwait() {
+    return Promise.ofJsPromise(metadataAwaitAsync(20, 22)).next(v -> {
+      asserts.assert(v == 42);
+      return asserts.done();
+    });
+  }
+
+  public function testMetadataAwaitVoid() {
+    final flag = [false];
+    return Promise.ofJsPromise(metadataAwaitVoid(flag)).next(_ -> {
+      asserts.assert(flag[0] == true);
+      return asserts.done();
+    });
+  }
+
+  @:async
+  function metadataAwaitLocalScope(a: Int, b: Int): JsPromise<Int> {
+    final px: JsPromise<Int> = JsPromise.resolve(a);
+    final py: JsPromise<Int> = JsPromise.resolve(b);
+    final x = @:await px;
+    final y = @:await py;
+    return x + y;
+  }
+
+  public function testMetadataAwaitLocalScope() {
+    return Promise.ofJsPromise(metadataAwaitLocalScope(21, 21)).next(v -> {
+      asserts.assert(v == 42);
+      return asserts.done();
+    });
+  }
+}

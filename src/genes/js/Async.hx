@@ -19,6 +19,8 @@ using haxe.macro.TypeTools;
  * - Mark functions with `@:async` metadata.
  * - Import the macro `await` function: `import genes.js.Async.await;`
  * - Use `await(promiseExpr)` inside `@:async` functions.
+ * - Or use `@:await promiseExpr` inside `@:async` functions when metadata
+ *   syntax reads closer to the target TypeScript.
  *
  * Notes:
  * - `@:async` functions are rewritten to return `js.lib.Promise<T>` (TS: `Promise<T>`).
@@ -89,6 +91,23 @@ class Async {
   }
 
   public static macro function await(expr: Expr): Expr {
+    return awaitExpression(expr);
+  }
+
+  #if macro
+  /**
+   * Lowers one Promise expression to native JS/TS `await`.
+   *
+   * Why: this is the typed primitive behind `await(promise)`. Metadata-style
+   * `@:await promise` is desugared to a call to this macro later, after the
+   * build macro has returned and method locals are in scope.
+   *
+   * What/How: Haxe still sees a typed expression. The emitted code is
+   * `await <promise>`, check-typed to the Promise element type when possible.
+   * The only Dynamic fallback is the existing js.Syntax boundary for cases
+   * where Haxe cannot materialize a ComplexType from the awaited expression.
+   */
+  static function awaitExpression(expr: Expr): Expr {
     final typed = Context.typeExpr(expr);
     final awaitedType = unwrapPromiseType(typed.t);
     // `js.Syntax.code()` returns `Dynamic`, which cannot be checked to `Void`.
@@ -107,7 +126,6 @@ class Async {
     };
   }
 
-  #if macro
   static function hasAsyncMeta(meta: Metadata): Bool {
     if (meta == null)
       return false;
@@ -175,6 +193,31 @@ class Async {
     }
   }
 
+  static inline function isAwaitMeta(meta: MetadataEntry): Bool {
+    return meta.name == ':await' || meta.name == 'await';
+  }
+
+  /**
+   * Desugars `@:await expr` to the existing `genes.js.Async.await(expr)` macro.
+   *
+   * This must stay syntax-only. Build macros run before method-local typing, so
+   * typing `inner` here would fail for locals introduced in the async function.
+   * The quoted macro call is typed later in the original lexical scope, where
+   * the existing await macro can infer Promise<T> correctly.
+   */
+  static function lowerAwaitMeta(whole: Expr, meta: MetadataEntry, inner: Expr): Expr {
+    if (meta.params.length > 0) {
+      Context.error(
+        '@:await does not take metadata arguments. Use `@:await expr`, `@:await (expr)` with a space, or `await(expr)`.',
+        meta.pos);
+    }
+
+    final operand = processExpression(inner);
+    final out = macro genes.js.Async.await($operand);
+    out.pos = whole.pos;
+    return out;
+  }
+
   static function transformAsyncField(field: Field, fn: Function): Field {
     if (field.name == 'new')
       Context.error('@:async is not supported on constructors', field.pos);
@@ -219,6 +262,8 @@ class Async {
       return expr;
 
     return switch expr.expr {
+      case EMeta(meta, inner) if (meta != null && isAwaitMeta(meta)):
+        lowerAwaitMeta(expr, meta, inner);
       case EMeta(meta, inner) if (meta != null && (meta.name == ':async' || meta.name == 'async')):
         switch inner.expr {
           case EFunction(kind, fn):
