@@ -95,6 +95,11 @@ Examples that must be documented when used:
   - there is no practical alternative.
 - When `any` / `unknown` is used in runtime code, include a short comment explaining **why**.
 
+## TSX / JSX Runtime Policy
+
+- Do not assume JSX types are always global React types. Some automatic runtimes expose `JSX` from their package entrypoint, so compiler fixtures should cover both ambient JSX and explicit `genes.ts.jsx_import_source` imports.
+- TSX output should keep `JSX.Element` annotations readable and type-only. If a runtime needs a namespace import for types, emit `import type {JSX} from "..."` rather than introducing a runtime import.
+
 ## Quick Reference
 
 ```bash

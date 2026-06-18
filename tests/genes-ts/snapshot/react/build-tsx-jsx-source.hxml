@@ -1,0 +1,14 @@
+-lib genes-ts
+
+-cp tests/genes-ts/snapshot/react/src
+--main Main
+
+# TSX automatic runtime with module-scoped JSX namespace import.
+-js tests/genes-ts/snapshot/react/out/tsx-jsx-source/src-gen/index.tsx
+-D genes.ts
+-D genes.ts.jsx_import_source=react
+
+-dce full
+
+# Enable inline markup rewrite (requires `@:jsx_inline_markup` on the class)
+-D genes.react.inline_markup

@@ -125,6 +125,16 @@ class TsModuleEmitter extends JsModuleEmitter {
       emitString('react');
       writeNewline();
     }
+    // Some automatic JSX runtimes expose `JSX` as a module export instead of a
+    // global namespace. In TSX mode this optional import keeps generated
+    // `JSX.Element` annotations resolvable without forcing React globals.
+    final jsxImportSource = haxe.macro.Context.definedValue('genes.ts.jsx_import_source');
+    if (usesReactJsxMarkers && jsxEmitTsx && jsxImportSource != null
+      && jsxImportSource.length > 0) {
+      write('import type {JSX} from ');
+      emitString(jsxImportSource);
+      writeNewline();
+    }
 
     final endImportTimer = timer('emitImports');
     final runtimeNamesByModule: Map<String, Map<String, Bool>> = [];
