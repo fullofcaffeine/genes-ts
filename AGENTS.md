@@ -34,6 +34,8 @@ In **framework + test code** (including the todoapp harness), avoid:
 
 Prefer small, well-typed externs/abstracts and keep any unavoidable JS interop confined to a narrow boundary (e.g. `extern` modules or a single wrapper).
 
+Treat `cast`, especially casts to or from `Dynamic`, as a last-resort boundary. If a cast is unavoidable because Haxe cannot express the runtime operation directly, keep its scope tiny, guard every operation performed through it, return typed values immediately, and add a nearby comment explaining the API limitation and containment.
+
 ## Documentation quality (hxdoc)
 
 For **vital or complex** code (compiler internals, runtime helpers, macros, harness/test infrastructure):
