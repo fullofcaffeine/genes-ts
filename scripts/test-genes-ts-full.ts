@@ -49,6 +49,11 @@ if (!dynamicImportOutput.includes('as typeof import("./ExternalClass.js")')) {
   throw new Error("Genes.dynamicImport did not emit a typed import cast for module reads.");
 }
 
+const reflectOutput = readFileSync(path.join(repoRoot, "tests/genes-ts/full/out/src-gen/Reflect.ts"), "utf8");
+if (/unsafeCast<Rest</.test(reflectOutput)) {
+  throw new Error("Reflect.fields emitted an unresolved Rest<T> cast instead of an array type.");
+}
+
 // Runtime fixtures needed for dynamic `@:jsRequire('../../tests/…')` modules.
 // These must be present both for `tsc` module resolution and for Node at runtime.
 const outRoot = path.join(repoRoot, "tests/genes-ts/full/out");

@@ -501,6 +501,10 @@ class TypeEmitter {
         }
       case TType(_.get() => dt, params):
         switch [dt, params] {
+          case [{pack: ["haxe", "extern"] | ["haxe"], name: "Rest"}, [elemT]]:
+            emitPos(dt.pos);
+            emitType(writer, elemT);
+            write('[]');
           case [{module: "js.node.Fs", name: "FsPath"}, _]:
             // hxnodejs `FsPath` maps to Node's `fs.PathLike`.
             emitPos(dt.pos);

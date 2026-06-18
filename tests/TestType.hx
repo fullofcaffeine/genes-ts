@@ -101,6 +101,13 @@ class TestType {
   public function testGetClass() {
     return assert(Type.getClass(new TestTypeB()) == TestTypeB);
   }
+
+  public function testReflectFields() {
+    final fields = Reflect.fields({alpha: 1, beta: 2});
+    asserts.assert(fields.indexOf("alpha") != -1);
+    asserts.assert(fields.indexOf("beta") != -1);
+    return asserts.done();
+  }
   /*
     Todo:
     getInstanceFields
