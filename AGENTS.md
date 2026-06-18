@@ -131,6 +131,8 @@ npm run build:example:todoapp
 
 **After each completed task**, commit and push the relevant repo before moving on to the next task. If work spans multiple repos, each repo gets its own focused commit and successful push. Do not batch completed tasks into a later session-level push.
 
+For `../genes` specifically, keep the branch current with origin whenever landing compiler work: run `git pull --rebase` before the final push, resolve any upstream drift in the compiler repo itself, then push the focused genes commit. OpenCodeHX work may depend on local `../genes`, so do not leave compiler changes stranded or only documented in the port repo.
+
 **When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
 
 **MANDATORY WORKFLOW:**

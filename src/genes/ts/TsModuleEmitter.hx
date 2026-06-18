@@ -70,6 +70,25 @@ class TsModuleEmitter extends JsModuleEmitter {
     return out.toString() == 'any';
   }
 
+  static function isUndefinableType(t: Type): Bool {
+    return switch t {
+      case TAbstract(_.get() => {module: 'genes.ts.Undefinable', name: 'Undefinable'}, _):
+        true;
+      case TType(_, _):
+        isUndefinableType(haxe.macro.Context.follow(t));
+      case TLazy(f):
+        isUndefinableType(f());
+      default:
+        false;
+    }
+  }
+
+  function shouldNormalizeUndefinedToNull(t: Type): Bool {
+    return typeAllowsNull(t)
+      && !isUndefinableType(t)
+      && (currentReturnType == null || !isUndefinableType(currentReturnType));
+  }
+
   public function emitTsModule(module: Module, importExtension: Null<String>) {
     final endTimer = timer('emitTsModule');
     jsxEmitTsx = genes.Genes.outExtension == '.tsx';
@@ -1517,7 +1536,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TCall({
         expr: TField(_,
           FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))
-      }, [{expr: TConst(TString("undefined"))}]) if (typeAllowsNull(e.t)):
+      }, [{expr: TConst(TString("undefined"))}]) if (shouldNormalizeUndefinedToNull(e.t)):
         // See `emitExpr` for rationale.
         write('null');
       case TBinop(op = OpGt | OpGte | OpLt | OpLte, e1, e2)
@@ -1552,7 +1571,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TCall({
         expr: TField(_,
           FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))
-      }, [{expr: TConst(TString("undefined"))}]) if (typeAllowsNull(e.t)):
+      }, [{expr: TConst(TString("undefined"))}]) if (shouldNormalizeUndefinedToNull(e.t)):
         // Haxe stdlib sometimes uses `js.Syntax.code("undefined")` in places
         // where `null` is the intended "no value" signal (e.g. `HxOverrides.cca`).
         // Normalize to `null` to keep TS `strictNullChecks` consistent.

@@ -2,6 +2,7 @@ import {Register} from "./genes/Register.js"
 import {Placeholder} from "./foo/Placeholder.js"
 import {Foo} from "./foo/Foo.js"
 import {EnumAbstract} from "./foo/EnumAbstract.js"
+import {BoundaryTypes} from "./foo/BoundaryTypes.js"
 import {AsyncFoo} from "./foo/AsyncFoo.js"
 import __genes_import_ThemeFixture from "./resources/theme.json" with { type: "json" }
 
@@ -15,19 +16,20 @@ export class Main {
 	static main(): void {
 		let f: Foo = new Foo(1);
 		let asyncFoo: AsyncFoo = new AsyncFoo();
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:18:",f.add(2));
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:19:",f.add(2));
 		AsyncFoo.demo().then(function (v: number) {
-			console.log("tests/genes-ts/snapshot/basic/src/Main.hx:19:",v);
-		});
-		asyncFoo.doubleWithAwaitMacro(21).then(function (v: number) {
 			console.log("tests/genes-ts/snapshot/basic/src/Main.hx:20:",v);
 		});
-		asyncFoo.metadataAwaitLocalScope(39).then(function (v: number) {
+		asyncFoo.doubleWithAwaitMacro(21).then(function (v: number) {
 			console.log("tests/genes-ts/snapshot/basic/src/Main.hx:21:",v);
 		});
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:22:",Placeholder.demo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:23:",EnumAbstract.demo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:24:",Main.Theme.name + ":" + Main.Theme.accent);
+		asyncFoo.metadataAwaitLocalScope(39).then(function (v: number) {
+			console.log("tests/genes-ts/snapshot/basic/src/Main.hx:22:",v);
+		});
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:23:",BoundaryTypes.demo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:24:",Placeholder.demo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:25:",EnumAbstract.demo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:26:",Main.Theme.name + ":" + Main.Theme.accent);
 	}
 	static get __name__(): string {
 		return "Main"

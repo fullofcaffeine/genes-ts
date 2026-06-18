@@ -1,5 +1,6 @@
 import foo.Foo;
 import foo.AsyncFoo;
+import foo.BoundaryTypes;
 import foo.Placeholder;
 import foo.EnumAbstract;
 import genes.ts.Imports;
@@ -19,6 +20,7 @@ class Main {
     AsyncFoo.demo().then(v -> trace(v));
     asyncFoo.doubleWithAwaitMacro(21).then(v -> trace(v));
     asyncFoo.metadataAwaitLocalScope(39).then(v -> trace(v));
+    trace(BoundaryTypes.demo());
     trace(Placeholder.demo());
     trace(EnumAbstract.demo());
     trace(Theme.name + ":" + Theme.accent);

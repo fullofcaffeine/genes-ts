@@ -6,6 +6,7 @@ export type AssertNoUnsafeTypesOptions = {
   generatedDir: string;
   fileExts: ReadonlyArray<string>;
   ignoreTopLevelDirs?: ReadonlyArray<string>;
+  allowUnsafeTypeFiles?: ReadonlyArray<string>;
 };
 
 type Match = {
@@ -39,11 +40,13 @@ export function assertNoUnsafeTypes({
   repoRoot,
   generatedDir,
   fileExts,
-  ignoreTopLevelDirs = []
+  ignoreTopLevelDirs = [],
+  allowUnsafeTypeFiles = []
 }: AssertNoUnsafeTypesOptions): void {
   const absGeneratedDir = path.join(repoRoot, generatedDir);
   const exts = new Set(fileExts);
   const ignore = new Set(ignoreTopLevelDirs);
+  const allowedFiles = new Set(allowUnsafeTypeFiles.map((file) => file.split(/[\\/]+/).join(path.sep)));
 
   const files: string[] = [];
   collectFiles(absGeneratedDir, exts, files);
@@ -61,6 +64,7 @@ export function assertNoUnsafeTypes({
   for (const absFile of files) {
     const rel = path.relative(absGeneratedDir, absFile);
     if (isIgnored(rel, ignore)) continue;
+    if (allowedFiles.has(rel)) continue;
     const text = readFileSync(absFile, "utf8");
     const lines = text.split(/\r?\n/);
     for (let i = 0; i < lines.length; i++) {
@@ -88,4 +92,3 @@ export function assertNoUnsafeTypes({
     );
   }
 }
-

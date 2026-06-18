@@ -32,7 +32,11 @@ assertNoUnsafeTypes({
   repoRoot,
   generatedDir: "tests/genes-ts/snapshot/basic/out/src-gen",
   fileExts: [".ts"],
-  ignoreTopLevelDirs: ["genes", "haxe", "js", "tink"]
+  ignoreTopLevelDirs: ["genes", "haxe", "js", "tink"],
+  allowUnsafeTypeFiles: [
+    // Dedicated boundary fixture proving genes.ts.Unknown emits TS `unknown`.
+    "foo/BoundaryTypes.ts"
+  ]
 });
 
 // Use a pinned TypeScript version for consistent behavior.
