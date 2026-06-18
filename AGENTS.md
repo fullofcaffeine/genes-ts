@@ -34,6 +34,8 @@ In **framework + test code** (including the todoapp harness), avoid:
 
 Prefer small, well-typed externs/abstracts and keep any unavoidable JS interop confined to a narrow boundary (e.g. `extern` modules or a single wrapper).
 
+Use `Dynamic`, `untyped`, generated `any`, broad `unknown`, and equivalent weak types only as a last resort after confirming there is no practical typed alternative. If one is required, add a nearby comment explaining why the value cannot be typed yet and how the unsafety is contained.
+
 Treat `cast`, especially casts to or from `Dynamic`, as a last-resort boundary. If a cast is unavoidable because Haxe cannot express the runtime operation directly, keep its scope tiny, guard every operation performed through it, return typed values immediately, and add a nearby comment explaining the API limitation and containment.
 
 ## Documentation quality (hxdoc)
