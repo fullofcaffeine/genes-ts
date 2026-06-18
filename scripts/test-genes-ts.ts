@@ -1,5 +1,5 @@
 import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
-import { rmSync } from "node:fs";
+import { cpSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { assertNoUnsafeTypes } from "./typing-policy.js";
@@ -23,6 +23,11 @@ function run(cmd: string, args: ReadonlyArray<string>, opts: ExecFileSyncOptions
 rmrf("tests/genes-ts/snapshot/basic/out");
 
 run("haxe", ["tests/genes-ts/snapshot/basic/build.hxml"]);
+cpSync(
+  path.join(repoRoot, "tests/genes-ts/snapshot/basic/src/resources"),
+  path.join(repoRoot, "tests/genes-ts/snapshot/basic/out/src-gen/resources"),
+  { recursive: true }
+);
 assertNoUnsafeTypes({
   repoRoot,
   generatedDir: "tests/genes-ts/snapshot/basic/out/src-gen",

@@ -7,10 +7,11 @@
     "types": ["node"],
     "declaration": true,
     "sourceMap": true,
+    "resolveJsonModule": true,
     "rootDir": "./out/src-gen",
     "outDir": "./out/dist",
     "verbatimModuleSyntax": true,
     "skipLibCheck": false
   },
-  "include": ["out/src-gen/**/*.ts"]
+  "include": ["out/src-gen/**/*.ts", "out/src-gen/**/*.json"]
 }

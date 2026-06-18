@@ -19,6 +19,7 @@ typedef Dependency = {
   external: Bool,
   path: String,
   ?alias: String,
+  ?importAttributeType: String,
   ?pos: SourcePosition
 }
 
@@ -85,7 +86,8 @@ class Dependencies {
     if (imports.exists(module)) {
       final deps = imports.get(module);
       for (i in deps)
-        if (i.name == dependency.name && i.alias == dependency.alias)
+        if (i.name == dependency.name && i.alias == dependency.alias
+          && i.importAttributeType == dependency.importAttributeType)
           return;
       deps.push(dependency);
       names.push({name: dependency.name, module: module});
@@ -101,6 +103,7 @@ class Dependencies {
       case [{params: [{expr: EConst(CString(alias))}]}]: alias;
       default: null;
     }
+    final importAttributeType = extractImportAttributeType(base.meta);
     if (base.isExtern) {
       switch base.meta.extract(':jsRequire') {
         case [{params: [{expr: EConst(CString(path))}]}]:
@@ -124,6 +127,7 @@ class Dependencies {
             path: path,
             external: true,
             alias: explicitAlias,
+            importAttributeType: importAttributeType,
             pos: base.pos
           }
         case [{params: [{expr: EConst(CString(path))}, {expr: EConst(CString('default'))}]}]:
@@ -133,6 +137,7 @@ class Dependencies {
             path: path,
             external: true,
             alias: explicitAlias,
+            importAttributeType: importAttributeType,
             pos: base.pos
           }
         case [{params: [{expr: EConst(CString(path))}, {expr: EConst(CString(name))}]}]:
@@ -149,6 +154,7 @@ class Dependencies {
               path: path,
               external: true,
               alias: explicitAlias,
+              importAttributeType: importAttributeType,
               pos: base.pos
             }
           }
@@ -160,6 +166,7 @@ class Dependencies {
               path: path,
               external: true,
               alias: explicitAlias,
+              importAttributeType: importAttributeType,
               pos: base.pos
             }
           }
@@ -169,6 +176,7 @@ class Dependencies {
             path: path,
             external: true,
             alias: explicitAlias,
+            importAttributeType: importAttributeType,
             pos: base.pos
           }
         default:
@@ -181,7 +189,30 @@ class Dependencies {
       external: false,
       path: base.module,
       alias: explicitAlias,
+      importAttributeType: importAttributeType,
       pos: base.pos
+    }
+  }
+
+  /**
+   * Reads the internal import-attribute metadata used by genes-ts import emitters.
+   *
+   * Why: TypeScript import attributes, such as `with { type: "json" }`, are a
+   * dependency-level property rather than an expression-level property. Carrying
+   * them through `Dependency` keeps both macro-generated externs and hand-written
+   * `@:jsRequire` bindings on the same deterministic import path.
+   *
+   * What: `@:genes.importAttributeType("json")` lowers to an optional string on
+   * `Dependency`. The TypeScript emitter prints it only for value imports.
+   *
+   * How: callers attach the metadata beside `@:jsRequire`; this helper extracts
+   * the literal value and rejects non-literal shapes by ignoring them, matching
+   * existing metadata extraction conventions in this module.
+   */
+  public static function extractImportAttributeType(meta: MetaAccess): Null<String> {
+    return switch meta.extract(':genes.importAttributeType') {
+      case [{params: [{expr: EConst(CString(value))}]}]: value;
+      default: null;
     }
   }
 

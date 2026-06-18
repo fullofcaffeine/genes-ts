@@ -34,7 +34,29 @@ class Imports {
    */
   public static macro function defaultImport<T>(module: ExprOf<String>,
       ?as: ExprOf<String>): ExprOf<T> {
-    return importImpl(module, Default, null, as);
+    return importImpl(module, Default, null, as, null);
+  }
+
+  /**
+   * Import a module's default export with a TypeScript import attribute.
+   *
+   * Why: NodeNext/Bun/bundler resources such as JSON or file assets often need
+   * `with { type: "..." }` on the generated import. Modeling this in the helper
+   * keeps the import tracked by Genes instead of relying on ad hoc
+   * `js.Syntax.code(...)` strings.
+   *
+   * What: the macro defines a hidden extern with both `@:jsRequire` and
+   * `@:genes.importAttributeType(...)`. The TypeScript emitter turns that metadata
+   * into an import shaped like:
+   *
+   *   import Theme from "./theme.json" with { type: "json" }
+   *
+   * How: both arguments must be string literals so dependency identity, aliasing,
+   * and snapshot output remain deterministic.
+   */
+  public static macro function defaultImportWith<T>(module: ExprOf<String>,
+      importType: ExprOf<String>, ?as: ExprOf<String>): ExprOf<T> {
+    return importImpl(module, Default, null, as, importType);
   }
 
   /**
@@ -45,7 +67,7 @@ class Imports {
    */
   public static macro function namedImport<T>(module: ExprOf<String>,
       exportName: ExprOf<String>, ?as: ExprOf<String>): ExprOf<T> {
-    return importImpl(module, Named, exportName, as);
+    return importImpl(module, Named, exportName, as, null);
   }
 
   /**
@@ -57,16 +79,18 @@ class Imports {
    */
   public static macro function namespaceImport<T>(module: ExprOf<String>,
       ?as: ExprOf<String>): ExprOf<T> {
-    return importImpl(module, Namespace, null, as);
+    return importImpl(module, Namespace, null, as, null);
   }
 
   #if macro
   static function importImpl(moduleExpr: Expr, kind: ImportKind,
-      exportExpr: Null<Expr>, asExpr: Null<Expr>): Expr {
+      exportExpr: Null<Expr>, asExpr: Null<Expr>,
+      importAttributeTypeExpr: Null<Expr>): Expr {
     final pos = moduleExpr.pos;
     final module = expectStringLiteral(moduleExpr, 'module');
     final exportName = exportExpr != null ? expectStringLiteral(exportExpr, 'exportName') : null;
     final explicitAs = optionalStringLiteral(asExpr, 'as');
+    final importAttributeType = optionalStringLiteral(importAttributeTypeExpr, 'importType');
 
     final inMethod = Context.getLocalMethod() != null;
 
@@ -95,6 +119,7 @@ class Imports {
       exportRoot: exportRoot,
       importAlias: importAlias,
       native: native,
+      importAttributeType: importAttributeType,
       pos: pos
     });
 
@@ -230,7 +255,8 @@ class Imports {
       case Named: 'named';
       case Namespace: 'namespace';
     }) + '|' + spec.module + '|' + (spec.exportName != null ? spec.exportName : '')
-      + '|' + spec.importAlias + '|' + (spec.native != null ? spec.native : '');
+      + '|' + spec.importAlias + '|' + (spec.native != null ? spec.native : '')
+      + '|' + (spec.importAttributeType != null ? spec.importAttributeType : '');
 
     final hash = Md5.encode(key).substr(0, 12);
     final pack = ['genes', 'ts', 'imports'];
@@ -281,6 +307,14 @@ class Imports {
       });
     }
 
+    if (spec.importAttributeType != null) {
+      meta.push({
+        name: ':genes.importAttributeType',
+        params: [macro $v{spec.importAttributeType}],
+        pos: spec.pos
+      });
+    }
+
     final def: TypeDefinition = {
       pack: pack,
       name: name,
@@ -311,6 +345,7 @@ private typedef ImportTypeSpec = {
   final exportRoot: Null<String>;
   final importAlias: String;
   final native: Null<String>;
+  final importAttributeType: Null<String>;
   final pos: Position;
 }
 #end

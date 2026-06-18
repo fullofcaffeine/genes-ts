@@ -255,6 +255,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           // Preserve explicit aliases (e.g. `import X in Y;`) but let merged dependency
           // analysis recompute auto-aliases (`Foo__1`, `Foo__2`, ...) deterministically.
           alias: isAutoAlias ? null : dep.alias,
+          importAttributeType: dep.importAttributeType,
           pos: dep.pos
         });
       }
@@ -264,17 +265,23 @@ class TsModuleEmitter extends JsModuleEmitter {
   function emitTsImports(where: String,
       imports: Array<genes.Dependencies.Dependency>, extension: Null<String>,
       typeOnly: Bool) {
-    final named = [];
+    final namedGroups: Array<Array<genes.Dependencies.Dependency>> = [];
     for (def in imports)
       switch def.type {
         case genes.Dependencies.DependencyType.DAsterisk
           | genes.Dependencies.DependencyType.DDefault:
           emitTsImport([def], where, extension, typeOnly);
         default:
-          named.push(def);
+          var group = namedGroups.find(group -> group[0].importAttributeType == def.importAttributeType);
+          if (group == null) {
+            group = [];
+            namedGroups.push(group);
+          }
+          group.push(def);
       }
-    if (named.length > 0)
-      emitTsImport(named, where, extension, typeOnly);
+    for (named in namedGroups)
+      if (named.length > 0)
+        emitTsImport(named, where, extension, typeOnly);
   }
 
   function emitTsImport(what: Array<genes.Dependencies.Dependency>, where: String,
@@ -309,7 +316,26 @@ class TsModuleEmitter extends JsModuleEmitter {
       }
     emitString(if (!isExternal && extension != null) '$where$extension' else
       where);
+    final importAttributeType = commonImportAttributeType(what);
+    if (!typeOnly && importAttributeType != null) {
+      write(' with { type: ');
+      emitString(importAttributeType);
+      write(' }');
+    }
     writeNewline();
+  }
+
+  function commonImportAttributeType(what: Array<genes.Dependencies.Dependency>): Null<String> {
+    var result: Null<String> = null;
+    for (dependency in what) {
+      if (dependency.importAttributeType == null)
+        continue;
+      if (result == null)
+        result = dependency.importAttributeType;
+      else if (result != dependency.importAttributeType)
+        return null;
+    }
+    return result;
   }
 
   function emitTsStatics(checkCycles: (module: String) -> Bool, cl: ClassType,

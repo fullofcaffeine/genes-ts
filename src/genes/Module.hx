@@ -259,6 +259,7 @@ class Module {
               name: field.name,
               path: path,
               external: true,
+              importAttributeType: Dependencies.extractImportAttributeType(field.meta),
               pos: field.pos
             });
           case [{params: [{expr: EConst(CString(path))}, {expr: EConst(CString('default'))}]}]:
@@ -267,6 +268,7 @@ class Module {
               name: field.name,
               path: path,
               external: true,
+              importAttributeType: Dependencies.extractImportAttributeType(field.meta),
               pos: field.pos
             });
           case [{params: [{expr: EConst(CString(path))}, {expr: EConst(CString(name))}]}]:
@@ -275,6 +277,7 @@ class Module {
               name: name,
               path: path,
               external: true,
+              importAttributeType: Dependencies.extractImportAttributeType(field.meta),
               pos: field.pos
             });
           default:
@@ -295,6 +298,7 @@ class Module {
                 name: field.name,
                 path: path,
                 external: true,
+                importAttributeType: Dependencies.extractImportAttributeType(field.meta),
                 pos: field.pos
               });
             case [{
@@ -308,6 +312,7 @@ class Module {
                 name: field.name,
                 path: path,
                 external: true,
+                importAttributeType: Dependencies.extractImportAttributeType(field.meta),
                 pos: field.pos
               });
             case [{
@@ -321,6 +326,7 @@ class Module {
                 name: name,
                 path: path,
                 external: true,
+                importAttributeType: Dependencies.extractImportAttributeType(field.meta),
                 pos: field.pos
               });
             default:

@@ -44,6 +44,24 @@ import genes.ts.Imports;
 final Button = Imports.defaultImport("./components/Button.js");
 ```
 
+### Default import with an import attribute
+
+Some NodeNext/Bun/bundler resources need TypeScript import attributes. Use
+`defaultImportWith` when the generated import must include
+`with { type: "..." }`:
+
+```haxe
+import genes.ts.Imports;
+
+final theme = Imports.defaultImportWith("./theme.json", "json");
+```
+
+This emits an import shaped like:
+
+```ts
+import Theme from "./theme.json" with { type: "json" }
+```
+
 ### Named import
 
 ```haxe
