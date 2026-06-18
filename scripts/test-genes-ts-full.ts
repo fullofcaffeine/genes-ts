@@ -1,5 +1,5 @@
 import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -37,6 +37,17 @@ ensureClassicTestArtifacts();
 rmrf("tests/genes-ts/full/out");
 
 run("haxe", ["tests/genes-ts/full/build.hxml"]);
+
+const dynamicImportOutput = readFileSync(
+  path.join(repoRoot, "tests/genes-ts/full/out/src-gen/tests/TestImportModule.ts"),
+  "utf8"
+);
+if (/function \((module|modules): any/.test(dynamicImportOutput)) {
+  throw new Error("Genes.dynamicImport emitted an unsafe `any` callback parameter.");
+}
+if (!dynamicImportOutput.includes('as typeof import("./ExternalClass.js")')) {
+  throw new Error("Genes.dynamicImport did not emit a typed import cast for module reads.");
+}
 
 // Runtime fixtures needed for dynamic `@:jsRequire('../../tests/…')` modules.
 // These must be present both for `tsc` module resolution and for Node at runtime.
