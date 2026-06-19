@@ -80,9 +80,22 @@ class TypeUtil {
     return native != null ? native : field.name;
   }
 
+  /**
+   * Finds an anonymous-object field visible through the destination type.
+   *
+   * Why: codegen often sees object literals through a destination type rather
+   * than through the literal's own inferred type. Typedefs and Haxe abstracts
+   * over anonymous records can carry field metadata such as `@:native` or
+   * `genes.ts.Undefinable<T>` contracts that the literal expression no longer
+   * exposes on its own.
+   *
+   * How: `followWithAbstracts` peels typedefs and abstract wrappers until an
+   * anonymous record is found. This is contextual metadata lookup only; it does
+   * not change the Haxe type or force arbitrary abstract conversions.
+   */
   public static function anonymousField(type: Type,
       name: String): Null<ClassField> {
-    return switch Context.follow(type) {
+    return switch Context.followWithAbstracts(type) {
       case TAnonymous(_.get() => anon):
         var found: Null<ClassField> = null;
         for (field in anon.fields)

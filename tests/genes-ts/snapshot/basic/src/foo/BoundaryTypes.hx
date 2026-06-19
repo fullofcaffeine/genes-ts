@@ -26,6 +26,18 @@ typedef MaybeFlagRecord = {
   final enabled:Undefinable<Bool>;
 }
 
+typedef MaybeFlagBridgeShape = {
+  final enabled:Undefinable<Bool>;
+}
+
+/**
+ * Fixture for raw TypeScript type overrides on abstracts that still carry a
+ * typed Haxe anonymous shape underneath.
+ */
+@:forward(enabled)
+@:ts.type("{ enabled: boolean | undefined }")
+abstract MaybeFlagBridge(MaybeFlagBridgeShape) from MaybeFlagBridgeShape to MaybeFlagBridgeShape {}
+
 typedef OptionalArrayRecord = {
   @:optional final items:Array<String>;
 }
@@ -93,6 +105,13 @@ class BoundaryTypes {
   }
 
   public static function conditionalFlagRecord(present:Bool):MaybeFlagRecord {
+    final enabled:Null<Bool> = present ? true : null;
+    return {
+      enabled: enabled == null ? Undefinable.absent() : enabled
+    };
+  }
+
+  public static function conditionalFlagBridge(present:Bool):MaybeFlagBridge {
     final enabled:Null<Bool> = present ? true : null;
     return {
       enabled: enabled == null ? Undefinable.absent() : enabled
@@ -186,6 +205,7 @@ class BoundaryTypes {
     final assignedMissing = normalize(assignMissingName().name);
     final assignedChosen = normalize(assignChosenName(false).name);
     final conditionalFlag = conditionalFlagRecord(false).enabled.orNull();
+    final bridgeFlag = conditionalFlagBridge(false).enabled.orNull();
     final optionalMissing = normalize(optionalMissingName().name);
     final optionalDirectMissing = normalize(optionalDirectMissingName().name);
     final guardedPresent = normalize(guardedName("Ada"));
@@ -198,6 +218,6 @@ class BoundaryTypes {
     final optionalLabel = labelOrFallback({label: "typed"});
     final nativeFunction = nativeFunctionSummary(nativeFunctionRecord());
     final nativeArrayFunction = nativeFunctionSummary(nativeFunctionRecords()[0]);
-    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (localMissing == null ? "none" : localMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + (assignedMissing == null ? "none" : assignedMissing) + ":" + (assignedChosen == null ? "none" : assignedChosen) + ":" + (conditionalFlag == null ? "none" : conditionalFlag ? "true" : "false") + ":" + (optionalMissing == null ? "none" : optionalMissing) + ":" + (optionalDirectMissing == null ? "none" : optionalDirectMissing) + ":" + (guardedPresent == null ? "none" : guardedPresent) + ":" + (guardedMissing == null ? "none" : guardedMissing) + ":" + guardedUpper + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel + ":" + nativeFunction + ":" + nativeArrayFunction;
+    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (localMissing == null ? "none" : localMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + (assignedMissing == null ? "none" : assignedMissing) + ":" + (assignedChosen == null ? "none" : assignedChosen) + ":" + (conditionalFlag == null ? "none" : conditionalFlag ? "true" : "false") + ":" + (bridgeFlag == null ? "none" : bridgeFlag ? "true" : "false") + ":" + (optionalMissing == null ? "none" : optionalMissing) + ":" + (optionalDirectMissing == null ? "none" : optionalDirectMissing) + ":" + (guardedPresent == null ? "none" : guardedPresent) + ":" + (guardedMissing == null ? "none" : guardedMissing) + ":" + guardedUpper + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel + ":" + nativeFunction + ":" + nativeArrayFunction;
   }
 }
