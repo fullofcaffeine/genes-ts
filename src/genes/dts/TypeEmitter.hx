@@ -37,6 +37,43 @@ class TypeEmitter {
     return e;
   }
 
+  static function isUndefinableType(t: Type): Bool {
+    return switch Context.follow(t) {
+      case TAbstract(_.get() => {module: 'genes.ts.Undefinable', name: 'Undefinable'}, _):
+        true;
+      case TAbstract(_.get() => {pack: [], name: "Null"}, [inner]) |
+        TType(_.get() => {pack: [], name: "Null"}, [inner]):
+        isUndefinableType(inner);
+      case TLazy(f):
+        isUndefinableType(f());
+      default:
+        false;
+    }
+  }
+
+  /**
+   * Removes Haxe's optional-field `Null<...>` wrapper when the declared field
+   * type is explicitly `genes.ts.Undefinable<T>`.
+   *
+   * Why: a normal `@:optional field:T` can be missing at runtime, and Haxe code
+   * observes that as `null`, so TS declaration output keeps `T | null`. But
+   * `Undefinable<T>` is the opt-in contract for JavaScript `undefined`, not
+   * `null`; adding `| null` lies to strict TypeScript callers and encourages
+   * downstream payloads that many JS APIs reject.
+   */
+  static function stripOptionalUndefinableNull(t: Type): Type {
+    return switch t {
+      case TAbstract(_.get() => {pack: [], name: "Null"}, [inner]) |
+        TType(_.get() => {pack: [], name: "Null"}, [inner])
+          if (isUndefinableType(inner)):
+        inner;
+      case TLazy(f):
+        stripOptionalUndefinableNull(f());
+      default:
+        t;
+    }
+  }
+
   static function unwrapMetaExpr(e: Expr): Expr {
     var cur = e;
     while (cur != null) {
@@ -493,7 +530,10 @@ class TypeEmitter {
                 emitType(writer, param.t);
               write('>');
             }
-            emitType(writer, field.type, false);
+            final fieldType = field.meta.has(':optional')
+              ? stripOptionalUndefinableNull(field.type)
+              : field.type;
+            emitType(writer, fieldType, false);
           }
           writer.decreaseIndent();
           writer.writeNewline();

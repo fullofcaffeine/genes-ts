@@ -10,6 +10,18 @@ typedef MaybeNameRecord = {
   final name: MaybeName;
 }
 
+typedef MutableMaybeNameRecord = {
+  var name: MaybeName;
+}
+
+typedef OptionalMaybeNameRecord = {
+  @:optional var name: MaybeName;
+}
+
+typedef OptionalDirectUndefinableRecord = {
+  @:optional var name: Undefinable<String>;
+}
+
 typedef OptionalArrayRecord = {
   @:optional final items:Array<String>;
 }
@@ -37,8 +49,37 @@ class BoundaryTypes {
     };
   }
 
+  public static function localMissingName():MaybeName {
+    var name:MaybeName = Undefinable.absent();
+    return name;
+  }
+
   public static function chooseName(present:Bool):MaybeName {
     return present ? "Ada" : Undefinable.absent();
+  }
+
+  public static function assignMissingName():MutableMaybeNameRecord {
+    final out:MutableMaybeNameRecord = {name: "Ada"};
+    out.name = Undefinable.absent();
+    return out;
+  }
+
+  public static function assignChosenName(present:Bool):MutableMaybeNameRecord {
+    final out:MutableMaybeNameRecord = {name: Undefinable.absent()};
+    out.name = present ? "Ada" : Undefinable.absent();
+    return out;
+  }
+
+  public static function optionalMissingName():OptionalMaybeNameRecord {
+    final out:OptionalMaybeNameRecord = {};
+    out.name = Undefinable.absent();
+    return out;
+  }
+
+  public static function optionalDirectMissingName():OptionalDirectUndefinableRecord {
+    final out:OptionalDirectUndefinableRecord = {};
+    out.name = Undefinable.absent();
+    return out;
   }
 
   public static function normalize(value:MaybeName):Null<String> {
@@ -72,12 +113,17 @@ class BoundaryTypes {
     final present = normalize(presentName());
     final missing = normalize(missingName());
     final recordMissing = normalize(missingRecord().name);
+    final localMissing = normalize(localMissingName());
     final chosenMissing = normalize(chooseName(false));
+    final assignedMissing = normalize(assignMissingName().name);
+    final assignedChosen = normalize(assignChosenName(false).name);
+    final optionalMissing = normalize(optionalMissingName().name);
+    final optionalDirectMissing = normalize(optionalDirectMissingName().name);
     final payload = record(unknownValue("typed boundary"));
     final payloadStatus = payload.exists("payload") ? "payload" : "missing";
     final optionalCopy = copyOptionalItems({items: ["a", "b"]}).join("");
     final optionalJoin = joinOptionalItems({items: ["c", "d"]});
     final optionalLabel = labelOrFallback({label: "typed"});
-    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel;
+    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (localMissing == null ? "none" : localMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + (assignedMissing == null ? "none" : assignedMissing) + ":" + (assignedChosen == null ? "none" : assignedChosen) + ":" + (optionalMissing == null ? "none" : optionalMissing) + ":" + (optionalDirectMissing == null ? "none" : optionalDirectMissing) + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel;
   }
 }

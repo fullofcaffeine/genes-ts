@@ -81,6 +81,9 @@ class TsModuleEmitter extends JsModuleEmitter {
     return switch t {
       case TAbstract(_.get() => {module: 'genes.ts.Undefinable', name: 'Undefinable'}, _):
         true;
+      case TAbstract(_.get() => {pack: [], name: "Null"}, [inner]) |
+        TType(_.get() => {pack: [], name: "Null"}, [inner]):
+        isUndefinableType(inner);
       case TType(_, _):
         isUndefinableType(haxe.macro.Context.follow(t));
       case TLazy(f):
@@ -1421,16 +1424,16 @@ class TsModuleEmitter extends JsModuleEmitter {
         if (tryEmitReactUseStateCall(v.t, e)) {
           return;
         }
-        if (!narrowedOptionalInit && !typeAllowsNull(emittedType)
-          && typeAllowsNull(e.t)) {
+        if (!narrowedOptionalInit && !isUndefinableType(emittedType)
+          && !typeAllowsNull(emittedType) && typeAllowsNull(e.t)) {
           write(ctx.typeAccessor(TypeUtil.registerType));
           write('.unsafeCast<');
           TypeEmitter.emitType(this, emittedType);
           write('>(');
-          emitValue(e);
+          emitValueWithExpectedType(emittedType, e);
           write(')');
         } else {
-          emitValue(e);
+          emitValueWithExpectedType(emittedType, e);
         }
     }
   }
@@ -1618,6 +1621,22 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
   }
 
+  /**
+   * Emits a value with the type expected by its destination.
+   *
+   * Why: Haxe represents `genes.ts.Undefinable<T>` with a nullable runtime
+   * carrier, while the generated TS contract is deliberately `T | undefined`
+   * rather than `T | null`. Object literals already expose destination field
+   * types; local initializers and assignment right-hand sides need the same
+   * context so `Undefinable.absent()` remains real JavaScript `undefined`.
+   */
+  function emitValueWithExpectedType(expected: Null<Type>, expr: TypedExpr) {
+    final previous = currentExpectedValueType;
+    currentExpectedValueType = expected;
+    emitValue(expr);
+    currentExpectedValueType = previous;
+  }
+
   override public function emitExpr(e: TypedExpr) {
     emitPos(e.pos);
     switch e.expr {
@@ -1677,17 +1696,18 @@ class TsModuleEmitter extends JsModuleEmitter {
         // If the override is `any`, no cast is required and emitting `<any>`
         // would leak `any` into user modules.
         if (typeOverride == null || typeOverride == 'any') {
-          emitValue(rhs);
+          emitValueWithExpectedType(lhs.t, rhs);
         } else {
           write(ctx.typeAccessor(TypeUtil.registerType));
           write('.unsafeCast<');
           write(typeOverride);
           write('>(');
-          emitValue(rhs);
+          emitValueWithExpectedType(lhs.t, rhs);
           write(')');
         }
       case TBinop(op = OpAssign, lhs, rhs)
-        if (!typeAllowsNull(lhs.t) && typeAllowsNull(rhs.t)):
+        if (!isUndefinableType(lhs.t) && !typeAllowsNull(lhs.t)
+          && typeAllowsNull(rhs.t)):
         // Haxe allows assigning nullable values to non-nullable types in many
         // cases. Preserve that behavior under TS `strictNullChecks` by casting.
         inAssignTarget = true;
@@ -1700,7 +1720,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         write('.unsafeCast<');
         TypeEmitter.emitType(this, lhs.t);
         write('>(');
-        emitValue(rhs);
+        emitValueWithExpectedType(lhs.t, rhs);
         write(')');
       case TBinop(op = OpAssign | OpAssignOp(_), lhs, rhs):
         // Avoid optional-field `?? null` rewrites on assignment targets.
@@ -1710,7 +1730,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         writeSpace();
         writeBinop(op);
         writeSpace();
-        emitValue(rhs);
+        emitValueWithExpectedType(lhs.t, rhs);
       case TField(_, f) if (!inAssignTarget && isOptionalField(f)
           && isNarrowedOptionalField(e)):
         emitNarrowedOptionalField(e);
@@ -2188,10 +2208,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       emitPos(field.expr.pos);
       emitString(field.name);
       write(': ');
-      final previous = currentExpectedValueType;
-      currentExpectedValueType = anonymousFieldType(e.t, field.name);
-      emitValue(field.expr);
-      currentExpectedValueType = previous;
+      emitValueWithExpectedType(anonymousFieldType(e.t, field.name),
+        field.expr);
     }
     write('}');
   }
