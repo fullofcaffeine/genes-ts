@@ -25,6 +25,18 @@ genes-ts intentionally supports **two output modes** within the same library:
 
 Both modes should remain well-maintained and share as much implementation as practical.
 
+## Target-Polymorphic Type Helpers
+
+North star: Haxe code that uses genes-provided TypeScript helper abstractions should still be ordinary Haxe code that can compile through both output modes.
+
+- Helpers under packages such as `genes.ts` may expose richer TypeScript surfaces in `-D genes.ts` mode, for example `unknown`, `T | undefined`, import types, type queries, JSX element types, or other TS-only declaration shapes.
+- Those helpers must degrade/erase cleanly in classic Genes JS output. TypeScript-only annotations should disappear, but runtime semantics must remain equivalent plain ES6.
+- ES6 compatibility must not reduce TypeScript quality. The TypeScript emitter should still produce idiomatic, precise, readable TS with the strongest useful type surface the Haxe source can justify.
+- Implement this through maintainable compiler architecture, not scattered target checks. Prefer shared semantic helper models plus target-specific emitters/printers, focused lowering phases, and reusable fixtures over ad hoc string rewrites or downstream-specific branches.
+- A helper is not portable enough if it only works because the TypeScript emitter prints a clever type string. It must have a real Haxe/runtime representation, or an explicitly documented target guard, so classic JS output can run.
+- When adding or changing a `genes.ts` helper, prefer paired fixtures where practical: one proves the rich TypeScript output, and one proves classic JS output still compiles/runs or intentionally reports a documented unsupported construct.
+- If a Haxe program avoids TS-specific helper types entirely, it should compile to either TypeScript or ES6 without source changes. TypeScript output may still be richer because `genes-ts` emits declarations, stricter imports, and TS-native syntax, but plain JS output must remain a first-class target.
+
 ## Type safety (no `untyped` / no `Dynamic`)
 
 In **framework + test code** (including the todoapp harness), avoid:

@@ -48,6 +48,36 @@ Related knobs:
 - If your goal is “Haxe is a better language on top of TS, and we may port to TS later” → use **TypeScript output** (`-D genes.ts`).
 - If your goal is “we keep writing Haxe, but want modern ESM output + excellent `.d.ts`” → use **classic Genes JS output** (omit `-D genes.ts`, keep `-D dts`).
 
+## TypeScript-aware helpers that still run as ES6
+
+The two modes are not meant to force two Haxe codebases. genes-ts should let you write one Haxe source tree and choose the output profile later.
+
+For TypeScript-specific ecosystem concepts, prefer small Haxe helper types instead of raw emitted strings. For example:
+
+```haxe
+import genes.ts.Undefinable;
+import genes.ts.Unknown;
+
+typedef Env = haxe.DynamicAccess<Undefinable<String>>;
+
+final absent = Undefinable.absent();
+final payload = Unknown.fromBoundary(js.Syntax.code("JSON.parse({0})", text));
+```
+
+In TypeScript source output:
+
+- `Undefinable<T>` can emit as `T | undefined`.
+- `Unknown` can emit as TypeScript `unknown`.
+- future helpers can model import types, type queries, JSX element types, or other TS-only declaration shapes.
+
+In classic Genes JS output:
+
+- TypeScript-only annotations erase.
+- helper runtime behavior remains plain JavaScript/ES6.
+- unsupported helpers should fail with a documented target guard instead of producing misleading output.
+
+This portability goal must not reduce TypeScript quality. The TypeScript emitter should still print precise, idiomatic, readable TS. Internally, the compiler should model these helpers with shared semantics and target-specific emitters/printers rather than scattering one-off string rewrites through the codebase.
+
 ## Directory conventions (recommended)
 
 genes-ts writes output wherever you point `-js <path>`. For most projects, these naming conventions

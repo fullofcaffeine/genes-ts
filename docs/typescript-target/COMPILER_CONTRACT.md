@@ -9,6 +9,7 @@ This document specifically describes the **TypeScript source output mode** (enab
 - Emit **idiomatic TypeScript** (both code style and project/module structure).
 - Be **semantically faithful** to Haxe→JS on Haxe 4.3.7.
 - Type-check under a **strict-by-default** TS configuration, while providing pragmatic escape hatches.
+- Keep TypeScript-specific helper abstractions target-polymorphic: they may emit richer TS types in `-D genes.ts` mode, but they must erase or degrade to equivalent runnable ES6 in classic Genes mode without lowering TypeScript output quality.
 - Support two runtime profiles:
   - **Default:** Haxe runtime compatibility (reflection-friendly).
   - **Opt-in:** minimal runtime / “TS-first” mode (less Haxe runtime surface).

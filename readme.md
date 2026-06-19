@@ -22,6 +22,7 @@ Requires **Haxe 4.3.7+**.
   - Haxe → **TypeScript source** (`-D genes.ts`)
   - Haxe → **ESM JavaScript + optional `.d.ts`** (classic Genes mode)
 - **Strict-by-default** TS output (typed, idiomatic, ESM)
+- **Target-polymorphic helper types** such as `genes.ts.Undefinable<T>` and `genes.ts.Unknown`: rich TypeScript when emitting TS, equivalent runnable ES6 when emitting classic JS
 - **React authoring** from Haxe:
   - TSX output (`.tsx`) or low-level `React.createElement(...)` output (`.ts`)
   - optional inline markup (`return <div>...</div>;`)
@@ -96,6 +97,29 @@ Default when `-D genes.ts` is **not** set.
 - Best for:
   - Haxe-first projects that want modern split ESM output
   - keeping the pipeline small/fast while still emitting strong `.d.ts`
+
+## Target-polymorphic helpers
+
+Some JavaScript and TypeScript APIs distinguish shapes that plain Haxe does not model directly. For example, TypeScript often uses `T | undefined`, while Haxe normally reaches for `Null<T>`.
+
+genes-ts handles this with small Haxe helper abstractions instead of asking you to write raw TypeScript strings everywhere:
+
+```haxe
+import genes.ts.Undefinable;
+
+typedef ProcessEnv = haxe.DynamicAccess<Undefinable<String>>;
+
+final missing = Undefinable.absent();
+```
+
+In TypeScript output, `Undefinable<String>` can print as `string | undefined`. In classic Genes JS output, the type annotation disappears but `Undefinable.absent()` still emits the runtime JavaScript value `undefined`.
+
+This is useful because one Haxe source can target both workflows:
+
+- **TypeScript mode** keeps the most precise, idiomatic TS surface possible.
+- **Classic JS mode** erases TS-only annotations while preserving equivalent ES6 runtime behavior.
+
+ES6 support is not a lowest-common-denominator mode. TypeScript output should stay precise and readable; portability is implemented through maintainable compiler architecture and target-specific emitters.
 
 ## React TSX authoring (optional)
 

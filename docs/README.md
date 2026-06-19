@@ -9,6 +9,7 @@ feature surface beyond the quick examples in `readme.md`.
 
 - `../readme.md` — quick start + feature overview
 - `OUTPUT_MODES.md` — TS output vs classic Genes JS output (and when to use each)
+- `OUTPUT_MODES.md#typescript-aware-helpers-that-still-run-as-es6` — how TS-aware helper types erase to runnable ES6 without weakening TS output
 - `PACKAGING.md` — how to publish libraries/apps in both output modes
 - `../examples/typescript-target/README.md` — minimal end-to-end Haxe → TS → JS example
 - `../examples/todoapp/` — real fullstack example (React Router + Express)
