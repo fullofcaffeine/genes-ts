@@ -14,6 +14,10 @@ typedef OptionalArrayRecord = {
   @:optional final items:Array<String>;
 }
 
+typedef OptionalNameRecord = {
+  @:optional final label:String;
+}
+
 class BoundaryTypes {
   public static function unknownValue<T>(value:T):Unknown {
     return Unknown.fromBoundary(value);
@@ -60,6 +64,10 @@ class BoundaryTypes {
     return out.join(",");
   }
 
+  public static function labelOrFallback(record:OptionalNameRecord):String {
+    return record.label == null || record.label == "" ? "fallback" : record.label;
+  }
+
   public static function demo():String {
     final present = normalize(presentName());
     final missing = normalize(missingName());
@@ -69,6 +77,7 @@ class BoundaryTypes {
     final payloadStatus = payload.exists("payload") ? "payload" : "missing";
     final optionalCopy = copyOptionalItems({items: ["a", "b"]}).join("");
     final optionalJoin = joinOptionalItems({items: ["c", "d"]});
-    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin;
+    final optionalLabel = labelOrFallback({label: "typed"});
+    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel;
   }
 }

@@ -19,8 +19,8 @@ using Lambda;
 using haxe.macro.Tools;
 
 typedef OptionalFieldNullCheck = {
-  final key: String;
-  final nonNullOnThen: Bool;
+  final nonNullWhenTrue: Array<String>;
+  final nonNullWhenFalse: Array<String>;
 }
 
 /**
@@ -1611,6 +1611,8 @@ class TsModuleEmitter extends JsModuleEmitter {
           case branch:
             emitOptionalFieldBranch(check, false, () -> emitValue(branch));
         }
+      case TField(_, f) if (isOptionalField(f) && isNarrowedOptionalField(e)):
+        emitNarrowedOptionalField(e);
       default:
         super.emitValue(e);
     }
@@ -1780,7 +1782,10 @@ class TsModuleEmitter extends JsModuleEmitter {
               write('return');
             } else {
               write('return ');
-              if (ret != null && !typeAllowsNull(ret) && typeAllowsNull(e1.t)) {
+              if (ret != null && !typeAllowsNull(ret) && typeAllowsNull(e1.t)
+                  && isNarrowedOptionalField(e1)) {
+                emitValue(e1);
+              } else if (ret != null && !typeAllowsNull(ret) && typeAllowsNull(e1.t)) {
                 write(ctx.typeAccessor(TypeUtil.registerType));
                 write('.unsafeCast<');
                 TypeEmitter.emitType(this, ret);
@@ -2005,25 +2010,57 @@ class TsModuleEmitter extends JsModuleEmitter {
    * `receiver.field != null` loses narrowing because TS sees a fresh property read.
    *
    * What/How: for stable field paths only (`local.field`, `this.field`, and
-   * nested field chains), record direct `== null` / `!= null` checks while
-   * emitting the dominated branch. Matching optional field reads in that branch
-   * emit as `receiver.field!`, preserving the same runtime read while giving TS a
-   * non-null value. Unstable receivers such as calls stay on the conservative
-   * `?? null` path.
+   * nested field chains), record null facts proven by direct `== null` /
+   * `!= null` checks. The facts flow through simple boolean conditions:
+   * `a && b` proves true-branch facts from both sides, while `a || b` proves
+   * false-branch facts from both sides. Matching optional field reads in a
+   * dominated branch emit as `receiver.field!`, preserving the same runtime read
+   * while giving TS a non-null value. Unstable receivers such as calls stay on
+   * the conservative `?? null` path.
    */
   function optionalFieldNullCheck(e: TypedExpr): Null<OptionalFieldNullCheck> {
     return switch unwrapExpr(e).expr {
       case TBinop(op = OpEq | OpNotEq, left, right):
         final leftKey = optionalFieldNarrowKey(left);
         if (leftKey != null && isNullConst(unwrapExpr(right))) {
-          {key: leftKey, nonNullOnThen: op == OpNotEq};
+          op == OpNotEq
+            ? {nonNullWhenTrue: [leftKey], nonNullWhenFalse: []}
+            : {nonNullWhenTrue: [], nonNullWhenFalse: [leftKey]};
         } else {
           final rightKey = optionalFieldNarrowKey(right);
           if (rightKey != null && isNullConst(unwrapExpr(left)))
-            {key: rightKey, nonNullOnThen: op == OpNotEq}
+            op == OpNotEq
+              ? {nonNullWhenTrue: [rightKey], nonNullWhenFalse: []}
+              : {nonNullWhenTrue: [], nonNullWhenFalse: [rightKey]}
           else
             null;
         }
+      case TBinop(OpBoolAnd, left, right):
+        final leftCheck = optionalFieldNullCheck(left);
+        final rightCheck = optionalFieldNullCheck(right);
+        if (leftCheck == null && rightCheck == null)
+          null
+        else
+          {
+            nonNullWhenTrue: uniqueNarrowKeys(
+              concatNarrowKeys(leftCheck == null ? [] : leftCheck.nonNullWhenTrue,
+                rightCheck == null ? [] : rightCheck.nonNullWhenTrue)
+            ),
+            nonNullWhenFalse: []
+          };
+      case TBinop(OpBoolOr, left, right):
+        final leftCheck = optionalFieldNullCheck(left);
+        final rightCheck = optionalFieldNullCheck(right);
+        if (leftCheck == null && rightCheck == null)
+          null
+        else
+          {
+            nonNullWhenTrue: [],
+            nonNullWhenFalse: uniqueNarrowKeys(
+              concatNarrowKeys(leftCheck == null ? [] : leftCheck.nonNullWhenFalse,
+                rightCheck == null ? [] : rightCheck.nonNullWhenFalse)
+            )
+          };
       default:
         null;
     }
@@ -2031,16 +2068,41 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   function emitOptionalFieldBranch(check: Null<OptionalFieldNullCheck>,
       thenBranch: Bool, emit: Void->Void) {
-    final shouldNarrow = check != null
-      && (thenBranch ? check.nonNullOnThen : !check.nonNullOnThen);
-    if (!shouldNarrow) {
+    final keys = check == null ? [] : thenBranch
+      ? check.nonNullWhenTrue
+      : check.nonNullWhenFalse;
+    if (keys.length == 0) {
       emit();
       return;
     }
 
-    narrowedOptionalFieldKeys.push(check.key);
+    for (key in keys)
+      narrowedOptionalFieldKeys.push(key);
     emit();
-    narrowedOptionalFieldKeys.pop();
+    for (_ in keys)
+      narrowedOptionalFieldKeys.pop();
+  }
+
+  static function concatNarrowKeys(left: Array<String>, right: Array<String>): Array<String> {
+    final out = left.copy();
+    for (key in right)
+      out.push(key);
+    return out;
+  }
+
+  static function uniqueNarrowKeys(keys: Array<String>): Array<String> {
+    final out: Array<String> = [];
+    for (key in keys) {
+      var exists = false;
+      for (item in out)
+        if (item == key) {
+          exists = true;
+          break;
+        }
+      if (!exists)
+        out.push(key);
+    }
+    return out;
   }
 
   function isNarrowedOptionalField(e: TypedExpr): Bool {

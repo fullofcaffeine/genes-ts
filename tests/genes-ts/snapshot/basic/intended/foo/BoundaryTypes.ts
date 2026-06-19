@@ -12,6 +12,10 @@ export type OptionalArrayRecord = {
 	items?: string[] | null
 }
 
+export type OptionalNameRecord = {
+	label?: string | null
+}
+
 export class BoundaryTypes {
 	static unknownValue<T>(value: T): unknown {
 		return value;
@@ -60,6 +64,13 @@ export class BoundaryTypes {
 		};
 		return out.join(",");
 	}
+	static labelOrFallback(record: OptionalNameRecord): string {
+		if ((record.label ?? null) == null || (record.label ?? null) == "") {
+			return "fallback";
+		} else {
+			return (record.label!);
+		};
+	}
 	static demo(): string {
 		let present: string | null = BoundaryTypes.normalize(BoundaryTypes.presentName());
 		let missing: string | null = BoundaryTypes.normalize(BoundaryTypes.missingName());
@@ -69,7 +80,8 @@ export class BoundaryTypes {
 		let payloadStatus: string = (Object.prototype.hasOwnProperty.call(payload, "payload")) ? "payload" : "missing";
 		let optionalCopy: string = BoundaryTypes.copyOptionalItems({"items": ["a", "b"]}).join("");
 		let optionalJoin: string = BoundaryTypes.joinOptionalItems({"items": ["c", "d"]});
-		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + ((recordMissing == null) ? "none" : recordMissing) + ":" + ((chosenMissing == null) ? "none" : chosenMissing) + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin;
+		let optionalLabel: string = BoundaryTypes.labelOrFallback({"label": "typed"});
+		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + ((recordMissing == null) ? "none" : recordMissing) + ":" + ((chosenMissing == null) ? "none" : chosenMissing) + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel;
 	}
 	static get __name__(): string {
 		return "foo.BoundaryTypes"
