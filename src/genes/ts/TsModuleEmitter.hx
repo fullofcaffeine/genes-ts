@@ -100,6 +100,15 @@ class TsModuleEmitter extends JsModuleEmitter {
       && (currentReturnType == null || !isUndefinableType(currentReturnType));
   }
 
+  function shouldNormalizeOptionalFieldRead(e: TypedExpr): Bool {
+    final expected = currentExpectedValueType;
+    return expected != null
+      && typeAllowsNull(expected)
+      && !isUndefinableType(expected)
+      && !isUndefinableType(e.t)
+      && !isNarrowedOptionalField(e);
+  }
+
   public function emitTsModule(module: Module, importExtension: Null<String>) {
     final endTimer = timer('emitTsModule');
     jsxEmitTsx = genes.Genes.outExtension == '.tsx';
@@ -1617,6 +1626,9 @@ class TsModuleEmitter extends JsModuleEmitter {
         }
       case TField(_, f) if (isOptionalField(f) && isNarrowedOptionalField(e)):
         emitNarrowedOptionalField(e);
+      case TField(_, f) if (!inAssignTarget && isOptionalField(f)
+          && shouldNormalizeOptionalFieldRead(e)):
+        emitOptionalFieldAsNull(e);
       default:
         super.emitValue(e);
     }
@@ -2247,6 +2259,12 @@ class TsModuleEmitter extends JsModuleEmitter {
       default:
         emitValue(e);
     }
+  }
+
+  function emitOptionalFieldAsNull(e: TypedExpr) {
+    write('(');
+    super.emitExpr(e);
+    write(' ?? null)');
   }
 
   /**
