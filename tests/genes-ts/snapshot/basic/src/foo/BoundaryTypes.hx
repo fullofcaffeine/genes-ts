@@ -10,6 +10,10 @@ typedef MaybeNameRecord = {
   final name: MaybeName;
 }
 
+typedef OptionalArrayRecord = {
+  @:optional final items:Array<String>;
+}
+
 class BoundaryTypes {
   public static function unknownValue<T>(value:T):Unknown {
     return Unknown.fromBoundary(value);
@@ -43,6 +47,19 @@ class BoundaryTypes {
     return out;
   }
 
+  public static function copyOptionalItems(record:OptionalArrayRecord):Array<String> {
+    return record.items == null ? [] : record.items.copy();
+  }
+
+  public static function joinOptionalItems(record:OptionalArrayRecord):String {
+    final out:Array<String> = [];
+    if (record.items != null) {
+      for (item in record.items)
+        out.push(item.toUpperCase());
+    }
+    return out.join(",");
+  }
+
   public static function demo():String {
     final present = normalize(presentName());
     final missing = normalize(missingName());
@@ -50,6 +67,8 @@ class BoundaryTypes {
     final chosenMissing = normalize(chooseName(false));
     final payload = record(unknownValue("typed boundary"));
     final payloadStatus = payload.exists("payload") ? "payload" : "missing";
-    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + payloadStatus;
+    final optionalCopy = copyOptionalItems({items: ["a", "b"]}).join("");
+    final optionalJoin = joinOptionalItems({items: ["c", "d"]});
+    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin;
   }
 }

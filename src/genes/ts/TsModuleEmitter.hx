@@ -18,6 +18,11 @@ using genes.util.TypeUtil;
 using Lambda;
 using haxe.macro.Tools;
 
+typedef OptionalFieldNullCheck = {
+  final key: String;
+  final nonNullOnThen: Bool;
+}
+
 /**
  * Minimal TS module emitter (M1):
  * - Emits `.ts` modules with ESM imports/exports
@@ -38,6 +43,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   var currentExpectedValueType: Null<Type> = null;
   var generatedLocalNames: Map<Int, String> = [];
   var generatedLocalNameCounts: Map<String, Int> = [];
+  var narrowedOptionalFieldKeys: Array<String> = [];
 
   function typeEmitsAny(t: Type): Bool {
     final fast = switch t {
@@ -97,6 +103,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     jsxEmitTsx = genes.Genes.outExtension == '.tsx';
     generatedLocalNames = [];
     generatedLocalNameCounts = [];
+    narrowedOptionalFieldKeys = [];
     final usesReactJsxMarkers = moduleUsesReactJsxMarkers(module);
 
     // Merge code + type dependencies so TS signatures can resolve.
@@ -1385,20 +1392,28 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   override public function emitVar(v: TVar, eo: Null<TypedExpr>) {
+    // Haxe often creates `_g` temporaries while lowering loops. If such a temp
+    // is initialized from an optional field already narrowed by a null guard,
+    // emit the temp as non-null so generated TS matches the guarded branch.
+    final narrowedOptionalInit = eo != null
+      && isGeneratedTempLocal(v.name)
+      && typeAllowsNull(v.t)
+      && isNarrowedOptionalField(eo);
+    final emittedType = narrowedOptionalInit ? stripNull(v.t) : v.t;
     write('$declare ');
     emitLocalVar(v);
     write(': ');
-    TypeEmitter.emitType(this, v.t);
+    TypeEmitter.emitType(this, emittedType);
     switch (eo) {
       case null:
       case {expr: TConst(TNull)}:
-        if (typeAllowsNull(v.t)) {
+        if (typeAllowsNull(emittedType)) {
           write(' = null');
         } else {
           write(' = ');
           write(ctx.typeAccessor(TypeUtil.registerType));
           write('.unsafeCast<');
-          TypeEmitter.emitType(this, v.t);
+          TypeEmitter.emitType(this, emittedType);
           write('>(null)');
         }
       case e:
@@ -1406,10 +1421,11 @@ class TsModuleEmitter extends JsModuleEmitter {
         if (tryEmitReactUseStateCall(v.t, e)) {
           return;
         }
-        if (!typeAllowsNull(v.t) && typeAllowsNull(e.t)) {
+        if (!narrowedOptionalInit && !typeAllowsNull(emittedType)
+          && typeAllowsNull(e.t)) {
           write(ctx.typeAccessor(TypeUtil.registerType));
           write('.unsafeCast<');
-          TypeEmitter.emitType(this, v.t);
+          TypeEmitter.emitType(this, emittedType);
           write('>(');
           emitValue(e);
           write(')');
@@ -1583,6 +1599,18 @@ class TsModuleEmitter extends JsModuleEmitter {
         writeBinop(op);
         writeSpace();
         emitOperand(e2);
+      case TIf(cond, thenExpr, elseExpr):
+        final check = optionalFieldNullCheck(cond);
+        emitValue(cond);
+        write(' ? ');
+        emitOptionalFieldBranch(check, true, () -> emitValue(thenExpr));
+        write(' : ');
+        switch elseExpr {
+          case null:
+            write('null');
+          case branch:
+            emitOptionalFieldBranch(check, false, () -> emitValue(branch));
+        }
       default:
         super.emitValue(e);
     }
@@ -1681,6 +1709,9 @@ class TsModuleEmitter extends JsModuleEmitter {
         writeBinop(op);
         writeSpace();
         emitValue(rhs);
+      case TField(_, f) if (!inAssignTarget && isOptionalField(f)
+          && isNarrowedOptionalField(e)):
+        emitNarrowedOptionalField(e);
       case TArray(_, _) if (!inAssignTarget && typeAllowsNull(e.t)):
         // Haxe generally models missing values as `null` while JS property/index
         // reads can produce `undefined`. Normalize to `null` for TS `strict`.
@@ -1828,6 +1859,23 @@ class TsModuleEmitter extends JsModuleEmitter {
         writeNewline();
         write('}');
         inLoop = wasInLoop;
+      case TIf(cond, thenExpr, elseExpr):
+        final check = optionalFieldNullCheck(cond);
+        write('if ');
+        emitValue(cond);
+        writeSpace();
+        emitOptionalFieldBranch(check, true,
+          () -> emitExpr(TypeUtil.block(thenExpr)));
+        switch elseExpr {
+          case null:
+          case branch:
+            emitPos(branch.pos);
+            write(' else ');
+            emitOptionalFieldBranch(check, false, () -> emitExpr(switch branch.expr {
+              case TIf(_, _, _): branch;
+              case _: TypeUtil.block(branch);
+            }));
+        }
       case TTry(etry, [{v: v, expr: ecatch}]):
         write('try ');
         emitExpr(etry);
@@ -1947,6 +1995,114 @@ class TsModuleEmitter extends JsModuleEmitter {
           }
       default:
         super.emitExpr(e);
+    }
+  }
+
+  /**
+   * Why: optional anonymous fields are normally emitted as `(receiver.field ?? null)`
+   * to translate JavaScript `undefined` into Haxe's `null` convention. In strict
+   * TypeScript, re-emitting that normalized property inside a branch guarded by
+   * `receiver.field != null` loses narrowing because TS sees a fresh property read.
+   *
+   * What/How: for stable field paths only (`local.field`, `this.field`, and
+   * nested field chains), record direct `== null` / `!= null` checks while
+   * emitting the dominated branch. Matching optional field reads in that branch
+   * emit as `receiver.field!`, preserving the same runtime read while giving TS a
+   * non-null value. Unstable receivers such as calls stay on the conservative
+   * `?? null` path.
+   */
+  function optionalFieldNullCheck(e: TypedExpr): Null<OptionalFieldNullCheck> {
+    return switch unwrapExpr(e).expr {
+      case TBinop(op = OpEq | OpNotEq, left, right):
+        final leftKey = optionalFieldNarrowKey(left);
+        if (leftKey != null && isNullConst(unwrapExpr(right))) {
+          {key: leftKey, nonNullOnThen: op == OpNotEq};
+        } else {
+          final rightKey = optionalFieldNarrowKey(right);
+          if (rightKey != null && isNullConst(unwrapExpr(left)))
+            {key: rightKey, nonNullOnThen: op == OpNotEq}
+          else
+            null;
+        }
+      default:
+        null;
+    }
+  }
+
+  function emitOptionalFieldBranch(check: Null<OptionalFieldNullCheck>,
+      thenBranch: Bool, emit: Void->Void) {
+    final shouldNarrow = check != null
+      && (thenBranch ? check.nonNullOnThen : !check.nonNullOnThen);
+    if (!shouldNarrow) {
+      emit();
+      return;
+    }
+
+    narrowedOptionalFieldKeys.push(check.key);
+    emit();
+    narrowedOptionalFieldKeys.pop();
+  }
+
+  function isNarrowedOptionalField(e: TypedExpr): Bool {
+    final key = optionalFieldNarrowKey(e);
+    if (key == null)
+      return false;
+    for (narrowed in narrowedOptionalFieldKeys)
+      if (narrowed == key)
+        return true;
+    return false;
+  }
+
+  function optionalFieldNarrowKey(e: TypedExpr): Null<String> {
+    return switch unwrapExpr(e).expr {
+      case TField(receiver, f) if (isOptionalField(f)):
+        final receiverKey = stableFieldReceiverKey(receiver);
+        final name = fieldAccessName(f);
+        receiverKey != null && name != null ? receiverKey + "." + name : null;
+      default:
+        null;
+    }
+  }
+
+  function stableFieldReceiverKey(e: TypedExpr): Null<String> {
+    return switch unwrapExpr(e).expr {
+      case TLocal(v):
+        'local:${v.id}';
+      case TConst(TThis):
+        'this';
+      case TField(receiver, f):
+        final parent = stableFieldReceiverKey(receiver);
+        final name = fieldAccessName(f);
+        parent != null && name != null ? parent + "." + name : null;
+      default:
+        null;
+    }
+  }
+
+  static function isOptionalField(f: FieldAccess): Bool {
+    return switch f {
+      case FAnon(cf) | FInstance(_, _, cf) | FStatic(_, cf):
+        final meta = cf.get().meta;
+        meta != null && meta.has(':optional');
+      default:
+        false;
+    }
+  }
+
+  function emitNarrowedOptionalField(e: TypedExpr) {
+    switch unwrapExpr(e).expr {
+      case TField(receiver, f):
+        write('(');
+        emitValue(receiver);
+        switch f {
+          case FStatic(_.get() => c, _):
+            emitStaticField(c, TypeUtil.fieldName(f));
+          case FEnum(_), FInstance(_), FAnon(_), FDynamic(_), FClosure(_):
+            emitField(TypeUtil.fieldName(f));
+        }
+        write('!)');
+      default:
+        emitValue(e);
     }
   }
 

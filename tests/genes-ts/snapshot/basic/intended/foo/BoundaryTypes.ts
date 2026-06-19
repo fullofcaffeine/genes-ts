@@ -8,6 +8,10 @@ export type MaybeNameRecord = {
 	name: MaybeName
 }
 
+export type OptionalArrayRecord = {
+	items?: string[] | null
+}
+
 export class BoundaryTypes {
 	static unknownValue<T>(value: T): unknown {
 		return value;
@@ -36,6 +40,26 @@ export class BoundaryTypes {
 		out["payload"] = value;
 		return out;
 	}
+	static copyOptionalItems(record: OptionalArrayRecord): string[] {
+		if ((record.items ?? null) == null) {
+			return [];
+		} else {
+			return (record.items!).slice();
+		};
+	}
+	static joinOptionalItems(record: OptionalArrayRecord): string {
+		let out: string[] = [];
+		if ((record.items ?? null) != null) {
+			let _g: number = 0;
+			let _g1: string[] = (record.items!);
+			while (_g < (_g1!).length) {
+				let item: string = _g1[_g];
+				++_g;
+				out.push(item.toUpperCase());
+			};
+		};
+		return out.join(",");
+	}
 	static demo(): string {
 		let present: string | null = BoundaryTypes.normalize(BoundaryTypes.presentName());
 		let missing: string | null = BoundaryTypes.normalize(BoundaryTypes.missingName());
@@ -43,7 +67,9 @@ export class BoundaryTypes {
 		let chosenMissing: string | null = BoundaryTypes.normalize(BoundaryTypes.chooseName(false));
 		let payload: UnknownRecord = BoundaryTypes.record(BoundaryTypes.unknownValue("typed boundary"));
 		let payloadStatus: string = (Object.prototype.hasOwnProperty.call(payload, "payload")) ? "payload" : "missing";
-		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + ((recordMissing == null) ? "none" : recordMissing) + ":" + ((chosenMissing == null) ? "none" : chosenMissing) + ":" + payloadStatus;
+		let optionalCopy: string = BoundaryTypes.copyOptionalItems({"items": ["a", "b"]}).join("");
+		let optionalJoin: string = BoundaryTypes.joinOptionalItems({"items": ["c", "d"]});
+		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + ((recordMissing == null) ? "none" : recordMissing) + ":" + ((chosenMissing == null) ? "none" : chosenMissing) + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin;
 	}
 	static get __name__(): string {
 		return "foo.BoundaryTypes"
