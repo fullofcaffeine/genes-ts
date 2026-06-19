@@ -1,4 +1,3 @@
-import type {Rest} from "../../haxe/extern/Rest.js"
 import {Register} from "../../genes/Register.js"
 
 export type PathModule = {
@@ -8,11 +7,11 @@ export type PathModule = {
 	extname: (path: string) => string,
 	format: (pathObject: PathObject) => string,
 	isAbsolute: (path: string) => boolean,
-	join: (...paths: Rest<string>) => string,
+	join: (...paths: string[]) => string,
 	normalize: (path: string) => string,
 	parse: (pathString: string) => PathObject,
 	relative: (from: string, to: string) => string,
-	resolve: (...paths: Rest<string>) => string,
+	resolve: (...paths: string[]) => string,
 	sep: string
 }
 

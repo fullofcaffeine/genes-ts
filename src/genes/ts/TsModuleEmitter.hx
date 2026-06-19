@@ -44,6 +44,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   var narrowedNonNullKeys: Array<String> = [];
   var inRawSyntaxTemplate: Bool = false;
   var suppressOptionalFieldNullNormalization: Bool = false;
+  var suppressPromiseResolveNullThenableCast: Bool = false;
 
   function typeEmitsAny(t: Type): Bool {
     final fast = switch t {
@@ -468,7 +469,6 @@ class TsModuleEmitter extends JsModuleEmitter {
       }
       return;
     }
-
     // If a nullable value is passed to a non-nullable parameter, TS `strict`
     // errors even though Haxe commonly allows this (not null-safe by default).
     // Preserve Haxe semantics by inserting an unsafe cast at the call-site.
@@ -495,6 +495,12 @@ class TsModuleEmitter extends JsModuleEmitter {
           case TInst(_.get() => {kind: KTypeParameter(_)}, _): true;
           default: false;
         }
+      inline function isPromiseResolveNullThenable(actual: TypedExpr,
+          expected: Type): Bool {
+        return isJsPromiseResolveCallee(e)
+          && isNullConst(unwrapExpr(actual))
+          && isPromiseThenableType(expected);
+      }
       var needsCasts = false;
       if (isEnumCtorCall && params.exists(p -> isNullConst(unwrapExpr(p))))
         needsCasts = true;
@@ -513,6 +519,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           // guarded value can flow to a non-nullable parameter without an
           // emitter-inserted assertion.
           if (!typeAllowsNull(expected) && typeAllowsNull(actual.t)
+            && !isPromiseResolveNullThenable(actual, expected)
             && !isNarrowedNonNull(actual)) {
             needsCasts = true;
             break;
@@ -555,6 +562,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           } else if (expected != null
             && !typeAllowsNull(expected)
             && typeAllowsNull(actual.t)
+            && !isPromiseResolveNullThenable(actual, expected)
             && !isNarrowedNonNull(actual)
             && !isTypeParam(expected)) {
             // If the expected type is `any`, a cast is unnecessary and emitting
@@ -577,7 +585,20 @@ class TsModuleEmitter extends JsModuleEmitter {
         return;
       }
     }
+    if (isJsPromiseResolveCallee(e)
+      && params.exists(param -> isNullConst(unwrapExpr(param)))) {
+      emitPromiseResolveCall(e, params, inValue);
+    } else {
+      super.emitCall(e, params, inValue);
+    }
+  }
+
+  function emitPromiseResolveCall(e: TypedExpr, params: Array<TypedExpr>,
+      inValue: Bool) {
+    final previous = suppressPromiseResolveNullThenableCast;
+    suppressPromiseResolveNullThenableCast = true;
     super.emitCall(e, params, inValue);
+    suppressPromiseResolveNullThenableCast = previous;
   }
 
   function emitReactJsxElement(args: Array<TypedExpr>) {
@@ -1561,6 +1582,48 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
   }
 
+  /**
+   * Why: Haxe's `js.lib.Promise.resolve(null)` can type through the stdlib
+   * `ThenableStruct<T>` overload, even though native TypeScript accepts the
+   * plain `null` argument and infers the resolved promise type itself.
+   *
+   * What/How: when the only reason to insert a `Promise.resolve(null)` cast is
+   * that Haxe chose one of the stdlib thenable overload shapes
+   * (`js.lib.Thenable<T>`, older `ThenableStruct<T>`, or a union containing
+   * one), let the argument emit directly in that call's emission context. This
+   * keeps generated TS idiomatic (`Promise.resolve(null)`) and avoids leaking
+   * an imported helper alias or `PromiseLike<any>` assertion into user modules.
+   * Ordinary `Thenable<T>` parameters still keep their strict null assertions.
+   */
+  static function isPromiseThenableType(t: Type): Bool {
+    return switch t {
+      case TAbstract(_.get() => {pack: ["js", "lib"], name: "Thenable"}, _):
+        true;
+      case TType(_.get() => {pack: ["js", "lib"], name: "ThenableStruct"}, _):
+        true;
+      case TAbstract(_.get() => {pack: ["haxe", "extern"], name: "EitherType"}, [left, right]):
+        isPromiseThenableType(left) || isPromiseThenableType(right);
+      case TMono(tref):
+        final inner = tref.get();
+        inner != null && isPromiseThenableType(inner);
+      case TType(_, _):
+        isPromiseThenableType(haxe.macro.Context.follow(t));
+      default:
+        false;
+    }
+  }
+
+  static function isJsPromiseResolveCallee(callee: TypedExpr): Bool {
+    return switch unwrapExpr(callee).expr {
+      case TField(_, f = FStatic(_.get() => cl, _)):
+        (cl.module == 'js.lib.Promise'
+          || (cl.pack.join('.') == 'js.lib' && cl.name == 'Promise'))
+          && fieldAccessName(f) == 'resolve';
+      default:
+        false;
+    }
+  }
+
   function typeToString(type: Type): String {
     final buf = new StringBuf();
     final noop = function() {};
@@ -1675,7 +1738,9 @@ class TsModuleEmitter extends JsModuleEmitter {
       }, args) if (emitSyntaxCodeWithTsArgs(args)):
         null;
       case TConst(TNull):
-        if (typeAllowsNull(e.t)) {
+        if (typeAllowsNull(e.t)
+          || (suppressPromiseResolveNullThenableCast
+            && isPromiseThenableType(e.t))) {
           write('null');
         } else {
           write(ctx.typeAccessor(TypeUtil.registerType));
@@ -1690,8 +1755,14 @@ class TsModuleEmitter extends JsModuleEmitter {
         // If the cast target is `any`, emitting `unsafeCast<any>(...)` would
         // leak `any` into user modules. For `any`, the cast is a no-op in TS
         // anyway, so omit it.
-        if (typeEmitsAny(e.t) || (!typeAllowsNull(e.t) && typeAllowsNull(e1.t)
-            && isNarrowedNonNull(e1))) {
+        final nullThenableCast = suppressPromiseResolveNullThenableCast
+          && isNullConst(unwrapExpr(e1))
+          && isPromiseThenableType(e.t);
+        // In the scoped `Promise.resolve(null)` path, TypeScript can choose its
+        // value overload naturally, so Haxe's internal thenable-overload cast
+        // would only make the generated code noisier and harder to import.
+        if (typeEmitsAny(e.t) || nullThenableCast
+          || (!typeAllowsNull(e.t) && typeAllowsNull(e1.t) && isNarrowedNonNull(e1))) {
           emitValue(e1);
         } else {
           write(ctx.typeAccessor(TypeUtil.registerType));

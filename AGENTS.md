@@ -26,6 +26,15 @@ genes-ts intentionally supports **two output modes** within the same library:
 
 Both modes should remain well-maintained and share as much implementation as practical.
 
+## CI Gate Is Mandatory
+
+Full Genes CI must pass before downstream projects rely on a local compiler change.
+
+- A compiler fix is not considered usable by downstream work until the full CI gate succeeds, including classic Genes JS mode, genes-ts TypeScript mode, snapshots, and security/dependency checks.
+- Focused tests are useful while iterating, but they are not enough to unblock downstream port work if full CI is red.
+- If full CI fails, stop downstream work and fix or explicitly resolve the Genes CI failure in this repo first. Do not continue building OpenCodeHX, codex-hxrust-style ports, or other downstream projects on top of an unproven compiler checkout.
+- If a CI failure is external or intentionally allowlisted, document the reason, the owning Bead, and the exact command/output proving the remaining compiler gates are healthy before downstream work resumes.
+
 ## Target-Polymorphic Type Helpers
 
 North star: Haxe code that uses genes-provided TypeScript helper abstractions should still be ordinary Haxe code that can compile through both output modes.
@@ -39,6 +48,8 @@ North star: Haxe code that uses genes-provided TypeScript helper abstractions sh
 - If a Haxe program avoids TS-specific helper types entirely, it should compile to either TypeScript or ES6 without source changes. TypeScript output may still be richer because `genes-ts` emits declarations, stricter imports, and TS-native syntax, but plain JS output must remain a first-class target.
 
 ## Type safety (no `untyped` / no `Dynamic`)
+
+For any Haxe-to-target compiler or framework layer, target compatibility is the floor, not the Haxe API design ceiling. Target-shaped Haxe APIs are fine, and sometimes the right canonical surface, when that shape is intentional: migration ergonomics, interop, differential testing, generated-output inspection, predictable target behavior, or preserving a widely understood host API. When there is no strong target-shaped reason, canonical APIs should default to leveraging Haxe's strengths: types, macros, generated refs, properties, editor completion, and compile-time diagnostics. Keep 1:1 target facades available at runtime/library boundaries and as escape hatches, then prefer semantic Haxe wrappers when they improve readability or safety without changing target behavior. Compiler fixtures should preserve both surfaces where useful: direct target-shaped examples prove compatibility, while Haxe-native wrappers prove the better authoring experience.
 
 In **framework + test code** (including the todoapp harness), avoid:
 

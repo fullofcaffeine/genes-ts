@@ -54,20 +54,20 @@ export class Store extends Register.inherits() {
 			return null;
 		};
 		if ((patch.title ?? null) != null) {
-			(todo!).title = Register.unsafeCast<string>((patch.title ?? null));
+			(todo!).title = (patch.title!);
 		};
 		if ((patch.completed ?? null) != null) {
-			(todo!).completed = Register.unsafeCast<boolean>((patch.completed ?? null));
+			(todo!).completed = (patch.completed!);
 		};
 		(todo!).updatedAt = Store.nowIso();
 		this.save();
 		return todo;
 	}
 	remove(id: string): boolean {
-		let _g: number = 0;
-		let _g1: number = this.todos.length;
-		while (_g < _g1) {
-			let i: number = _g++;
+		let _g_1: number = 0;
+		let _g1_1: number = this.todos.length;
+		while (_g_1 < _g1_1) {
+			let i: number = _g_1++;
 			if (this.todos[i].id == id) {
 				this.todos.splice(i, 1);
 				this.save();
@@ -90,14 +90,14 @@ export class Store extends Register.inherits() {
 			if (arr == null) {
 				return;
 			};
-			let _g: number = 0;
-			while (_g < arr.length) {
-				let t: Todo = arr[_g];
-				++_g;
+			let _g_2: number = 0;
+			while (_g_2 < arr.length) {
+				let t: Todo = arr[_g_2];
+				++_g_2;
 				this.todos.push(t);
 			};
-		}catch (_g) {
-			let e: Exception = Exception.caught(_g);
+		}catch (_g_3) {
+			let e: Exception = Exception.caught(_g_3);
 			this.console.error("Failed to load data:", e);
 		};
 	}
@@ -110,8 +110,8 @@ export class Store extends Register.inherits() {
 				todos: Todo[]
 			} = {"todos": this.todos};
 			Fs.writeFileSync(Register.unsafeCast<import("node:fs").PathLike>(this.dataPath), JSON.stringify(payload, null, "  "), "utf8");
-		}catch (_g) {
-			let e: Exception = Exception.caught(_g);
+		}catch (_g_4) {
+			let e: Exception = Exception.caught(_g_4);
 			this.console.error("Failed to save data:", e);
 		};
 	}

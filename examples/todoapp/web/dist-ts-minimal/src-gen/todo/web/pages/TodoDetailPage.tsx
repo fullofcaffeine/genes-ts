@@ -26,7 +26,7 @@ export class TodoDetailPage {
 				setter("Missing id");
 				return;
 			};
-			Client.getTodo(Register.unsafeCast<string>(id)).then(function (t: Todo) {
+			Client.getTodo(id).then(function (t: Todo) {
 				let setter: ((arg0: Todo | null) => void) = (todoState[1] ?? null);
 				setter(t);
 				let setter1: ((arg0: string) => void) = (titleState[1] ?? null);

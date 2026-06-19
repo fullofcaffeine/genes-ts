@@ -93,7 +93,7 @@ export class Main {
 				res.status(404).set("Content-Type", "text/plain; charset=utf-8").send("Todoapp frontend not built. Run: npm run example:todoapp");
 				return;
 			};
-			res.set("Content-Type", "text/html; charset=utf-8").send(Register.unsafeCast<string>(indexHtml));
+			res.set("Content-Type", "text/html; charset=utf-8").send(indexHtml);
 		});
 		app.listen(port, function () {
 			nodeConsole.log("todoapp listening on http://localhost:" + port);
@@ -103,11 +103,11 @@ export class Main {
 		if (v == null) {
 			return fallback;
 		};
-		let n: number | null = Std.parseInt(Register.unsafeCast<string>(v));
+		let n: number | null = Std.parseInt(v);
 		if (n == null) {
 			return fallback;
 		} else {
-			return Register.unsafeCast<number>(n);
+			return n;
 		};
 	}
 	static get __name__(): string {

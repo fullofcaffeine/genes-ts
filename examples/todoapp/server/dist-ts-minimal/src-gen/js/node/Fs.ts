@@ -45,7 +45,7 @@ export type FsWriteFileOptions = {
 	/**
 	default = 438 (aka 0666 in Octal)
 	*/
-	mode?: any
+	mode?: FsMode | null
 }
 
 /**
@@ -80,7 +80,7 @@ export type FsCreateReadStreamOptions = {
 	/**
 	default: 0666
 	*/
-	mode?: any,
+	mode?: FsMode | null,
 	/**
 	Start of the range of bytes to read
 	*/
@@ -102,7 +102,7 @@ export type FsCreateWriteStreamOptions = {
 	/**
 	default: 0666
 	*/
-	mode?: any,
+	mode?: FsMode | null,
 	/**
 	position to write data the beginning of the file.
 	*/

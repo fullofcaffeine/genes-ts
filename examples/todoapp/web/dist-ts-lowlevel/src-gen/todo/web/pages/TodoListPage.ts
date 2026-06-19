@@ -44,16 +44,16 @@ export class TodoListPage {
 			setter(next);
 		};
 		let removeTodo: ((id: string) => void) = function (id: string) {
-			let _g: Todo[] = [];
-			let _g1: number = 0;
-			while (_g1 < todos.length) {
-				let t: Todo = todos[_g1];
-				++_g1;
+			let _g_1: Todo[] = [];
+			let _g1_1: number = 0;
+			while (_g1_1 < todos.length) {
+				let t: Todo = todos[_g1_1];
+				++_g1_1;
 				if (t.id != id) {
-					_g.push(t);
+					_g_1.push(t);
 				};
 			};
-			let next: Todo[] = _g;
+			let next: Todo[] = _g_1;
 			let setter: ((arg0: Todo[]) => void) = (todosState[1] ?? null);
 			setter(next);
 		};
@@ -109,10 +109,10 @@ export class TodoListPage {
 		let tmp3: JSX.Element = React__genes_jsx.createElement("div", ({style: {"display": "flex", "gap": "8px", "marginBottom": "12px"}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"div"> & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), tmp1, tmp2);
 		let f: ((arg0: Todo) => ReactElement) = renderTodoItem;
 		let result: ReactElement[] = new Array(todos.length);
-		let _g: number = 0;
-		let _g1: number = todos.length;
-		while (_g < _g1) {
-			let i: number = _g++;
+		let _g_2: number = 0;
+		let _g1_2: number = todos.length;
+		while (_g_2 < _g1_2) {
+			let i: number = _g_2++;
 			result[i] = f(todos[i]);
 		};
 		let tmp4: JSX.Element = React__genes_jsx.createElement("ul", ({style: {"listStyle": "none", "padding": "0", "margin": "0"}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"ul"> & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), result);
