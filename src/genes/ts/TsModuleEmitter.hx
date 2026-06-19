@@ -300,6 +300,36 @@ class TsModuleEmitter extends JsModuleEmitter {
     return e;
   }
 
+  static function jsSyntaxCodeTemplate(e: TypedExpr): Null<String> {
+    return switch unwrapExpr(e).expr {
+      case TCall({
+        expr: TField(_,
+          FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))
+      }, args) if (args.length > 1):
+        switch args[0].expr {
+          case TConst(TString(template)):
+            template;
+          default:
+            null;
+        }
+      default:
+        null;
+    }
+  }
+
+  static function receiverNeedsRawSyntaxParens(e: TypedExpr): Bool {
+    final template = jsSyntaxCodeTemplate(e);
+    if (template == null)
+      return false;
+
+    // Raw syntax placeholder templates are emitted as the author wrote them.
+    // When such a template becomes the receiver of `[]` or `.`, TypeScript
+    // precedence would otherwise bind the access to the template's rightmost
+    // operand, e.g. `{0} ?? null[0]`. Parenthesize every non-trivial placeholder
+    // template receiver rather than maintaining a partial TS precedence parser.
+    return StringTools.trim(template) != "{0}";
+  }
+
   static function mergeDepsInto(into: Dependencies, from: Dependencies) {
     for (path => imports in from.imports) {
       for (dep in imports) {
@@ -1641,6 +1671,67 @@ class TsModuleEmitter extends JsModuleEmitter {
     return buf.toString();
   }
 
+  static function addChainedAccessReceiverParens(e: TypedExpr): TypedExpr {
+    function loop(e: TypedExpr): TypedExpr
+      return switch e.expr {
+        case TCast(e1, null) | TMeta(_, e1):
+          loop(e1);
+        case TConst(TInt(_) | TFloat(_)) | TObjectDecl(_):
+          TypeUtil.with(e, TParenthesis(e));
+        case _:
+          e;
+      }
+    return loop(e);
+  }
+
+  function emitTsFieldAccess(field: FieldAccess) {
+    switch field {
+      case FStatic(_.get() => c, _):
+        emitStaticField(c, TypeUtil.fieldName(field));
+      case FEnum(_), FInstance(_), FAnon(_), FDynamic(_), FClosure(_):
+        emitField(TypeUtil.fieldName(field));
+    }
+  }
+
+  function emitChainedAccessReceiver(receiver: TypedExpr,
+      assertNonNull: Bool) {
+    final value = addChainedAccessReceiverParens(receiver);
+    final wrapRawSyntax = receiverNeedsRawSyntaxParens(value);
+
+    if (assertNonNull)
+      write('(');
+    if (wrapRawSyntax)
+      write('(');
+
+    if (assertNonNull) {
+      // The following member/index access asserts the receiver is present, so
+      // suppress TS-only optional-field `?? null` normalization for this inner
+      // value and apply the usual Haxe non-null receiver assertion instead.
+      withoutOptionalFieldNullNormalization(() -> emitValueWithExpectedType(null,
+        value));
+    } else {
+      emitValue(value);
+    }
+
+    if (wrapRawSyntax)
+      write(')');
+    if (assertNonNull)
+      write('!)');
+  }
+
+  function emitArrayAccess(e: TypedExpr, receiver: TypedExpr,
+      index: TypedExpr) {
+    final normalizeResult = !inAssignTarget && typeAllowsNull(e.t);
+    if (normalizeResult)
+      write('(');
+    emitChainedAccessReceiver(receiver, typeAllowsNull(receiver.t));
+    write('[');
+    emitValue(index);
+    write(']');
+    if (normalizeResult)
+      write(' ?? null)');
+  }
+
   override public function emitValue(e: TypedExpr) {
     if (inRawSyntaxTemplate) {
       super.emitValue(e);
@@ -1828,6 +1919,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TField(_, f) if (!inAssignTarget && isOptionalField(f)
           && isNarrowedOptionalField(e)):
         emitNarrowedOptionalField(e);
+      case TArray(receiver, index) if (receiverNeedsRawSyntaxParens(receiver)):
+        emitArrayAccess(e, receiver, index);
       case TArray(_, _) if (!inAssignTarget && typeAllowsNull(e.t)):
         // Haxe generally models missing values as `null` while JS property/index
         // reads can produce `undefined`. Normalize to `null` for TS `strict`.
@@ -1859,19 +1952,21 @@ class TsModuleEmitter extends JsModuleEmitter {
           }
         if (isOptionalField)
           write('(');
-        write('(');
-        // The receiver is guarded by the non-null assertion below, so do not
-        // let an outer nullable expected type rewrite it to `receiver ?? null`.
-        withoutOptionalFieldNullNormalization(() -> emitValueWithExpectedType(null,
-          skip(x)));
-        write('!)');
-        switch f {
-          case FStatic(_.get() => c, _):
-            emitStaticField(c, TypeUtil.fieldName(f));
-          case FEnum(_), FInstance(_), FAnon(_), FDynamic(_), FClosure(_):
-            emitField(TypeUtil.fieldName(f));
-        }
+        emitChainedAccessReceiver(skip(x), true);
+        emitTsFieldAccess(f);
         if (isOptionalField)
+          write(' ?? null)');
+      case TField(x, f)
+        if (receiverNeedsRawSyntaxParens(x)
+          && !(fieldAccessName(f) == "iterator"
+            && genes.util.TypeUtil.isDynamicIterator(x))):
+        final fieldIsOptional = !inAssignTarget
+          && !suppressOptionalFieldNullNormalization && isOptionalField(f);
+        if (fieldIsOptional)
+          write('(');
+        emitChainedAccessReceiver(x, false);
+        emitTsFieldAccess(f);
+        if (fieldIsOptional)
           write(' ?? null)');
       case TField(_, f) if (!inAssignTarget
           && !suppressOptionalFieldNullNormalization && switch f {

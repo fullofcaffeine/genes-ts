@@ -64,6 +64,14 @@ typedef NativeOptionalPayload = {
   final description:Undefinable<String>;
 }
 
+typedef OptionalWarning = {
+  final feature:String;
+}
+
+typedef OptionalWarningsRecord = {
+  final warnings:Undefinable<Array<OptionalWarning>>;
+}
+
 /**
  * Fixture for Haxe-safe aliases over external JavaScript property names.
  *
@@ -280,6 +288,10 @@ class BoundaryTypes {
     return record.fn.description.orNull();
   }
 
+  public static function firstWarningFeature(record:OptionalWarningsRecord):String {
+    return record.warnings.orNull()[0].feature;
+  }
+
   public static function demo():String {
     final present = normalize(presentName());
     final missing = normalize(missingName());
@@ -309,6 +321,7 @@ class BoundaryTypes {
     final nativePushFunction = nativeFunctionSummary(nativeFunctionRecordsViaPush()[0]);
     final nativeChoice = nativeFunctionChoiceObject() == null ? "missing" : "choice";
     final nativeOptional = nativeOptionalDescription(nativeOptionalRecord());
-    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (localMissing == null ? "none" : localMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + (assignedMissing == null ? "none" : assignedMissing) + ":" + (assignedChosen == null ? "none" : assignedChosen) + ":" + (conditionalFlag == null ? "none" : conditionalFlag ? "true" : "false") + ":" + (bridgeFlag == null ? "none" : bridgeFlag ? "true" : "false") + ":" + (optionalMissing == null ? "none" : optionalMissing) + ":" + (optionalDirectMissing == null ? "none" : optionalDirectMissing) + ":" + (guardedPresent == null ? "none" : guardedPresent) + ":" + (guardedMissing == null ? "none" : guardedMissing) + ":" + guardedUpper + ":" + guardedCallValue + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalItemsCall + ":" + optionalLabel + ":" + optionalParamLabel + ":" + optionalNestedParamLabel + ":" + nativeFunction + ":" + nativeArrayFunction + ":" + nativePushFunction + ":" + nativeChoice + ":" + (nativeOptional == null ? "none" : nativeOptional);
+    final warningFeature = firstWarningFeature({warnings: [{feature: "topK"}]});
+    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (localMissing == null ? "none" : localMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + (assignedMissing == null ? "none" : assignedMissing) + ":" + (assignedChosen == null ? "none" : assignedChosen) + ":" + (conditionalFlag == null ? "none" : conditionalFlag ? "true" : "false") + ":" + (bridgeFlag == null ? "none" : bridgeFlag ? "true" : "false") + ":" + (optionalMissing == null ? "none" : optionalMissing) + ":" + (optionalDirectMissing == null ? "none" : optionalDirectMissing) + ":" + (guardedPresent == null ? "none" : guardedPresent) + ":" + (guardedMissing == null ? "none" : guardedMissing) + ":" + guardedUpper + ":" + guardedCallValue + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalItemsCall + ":" + optionalLabel + ":" + optionalParamLabel + ":" + optionalNestedParamLabel + ":" + nativeFunction + ":" + nativeArrayFunction + ":" + nativePushFunction + ":" + nativeChoice + ":" + (nativeOptional == null ? "none" : nativeOptional) + ":" + warningFeature;
   }
 }
