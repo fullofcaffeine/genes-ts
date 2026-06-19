@@ -535,9 +535,42 @@ class ExprEmitter extends Emitter {
       default:
         emitValue(e);
         write('(');
-        for (param in join(params, write.bind(', ')))
-          emitValue(param);
+        emitCallParams(e, params);
         write(')');
+    }
+  }
+
+  /**
+   * Emits call arguments with their typed function-parameter context.
+   *
+   * Why: object literals passed directly to functions or methods can need the
+   * destination parameter type to preserve anonymous-field metadata such as
+   * `@:native("...")`. A common example is `Array<T>.push({ ... })`, where the
+   * literal should be emitted as a `T` even though its own inferred anonymous
+   * type no longer carries the target typedef metadata.
+   *
+   * How: use the callee's typed `TFun` signature as contextual emission state
+   * for each argument. This does not cast or retype the expression; it only
+   * gives object-literal emission access to the destination field contracts.
+   */
+  function emitCallParams(callee: TypedExpr, params: Array<TypedExpr>) {
+    final expected = callParamTypes(callee);
+    for (i in 0...params.length) {
+      if (i > 0)
+        write(', ');
+      final expectedType = i < expected.length ? expected[i] : null;
+      emitValueWithExpectedType(expectedType, params[i]);
+    }
+  }
+
+  function callParamTypes(callee: TypedExpr): Array<Type> {
+    return switch Context.follow(callee.t) {
+      case TFun(args, _):
+        [for (arg in args) arg.t];
+      case TLazy(f):
+        callParamTypes(with(callee, null, f()));
+      default:
+        [];
     }
   }
 

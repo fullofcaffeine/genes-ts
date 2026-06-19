@@ -95,6 +95,10 @@ class TypeUtil {
    */
   public static function anonymousField(type: Type,
       name: String): Null<ClassField> {
+    final eitherField = anonymousEitherField(type, name);
+    if (eitherField != null)
+      return eitherField;
+
     return switch Context.followWithAbstracts(type) {
       case TAnonymous(_.get() => anon):
         var found: Null<ClassField> = null;
@@ -106,6 +110,39 @@ class TypeUtil {
         found;
       case TLazy(f):
         anonymousField(f(), name);
+      default:
+        null;
+    }
+  }
+
+  /**
+   * Finds object-field metadata through a `haxe.extern.EitherType` arm.
+   *
+   * Why: Haxe uses `EitherType<A, B>` for TypeScript-style unions at JS
+   * boundaries. When an object literal is assigned to the object arm, the
+   * literal itself may not carry typedef field metadata such as
+   * `@:native("function")`, while the union destination still does through one
+   * of its parameters.
+   *
+   * What/How: inspect each `EitherType` parameter before `followWithAbstracts`
+   * erases the abstract to `Dynamic`. The first arm that exposes the requested
+   * anonymous field supplies the contextual metadata. This is metadata lookup
+   * only; it does not choose a runtime union representation or add casts.
+   */
+  static function anonymousEitherField(type: Type,
+      name: String): Null<ClassField> {
+    return switch type {
+      case TAbstract(_.get() => {module: 'haxe.extern.EitherType', name: 'EitherType'}, params):
+        for (param in params) {
+          final field = anonymousField(param, name);
+          if (field != null)
+            return field;
+        }
+        null;
+      case TType(_, _):
+        anonymousEitherField(Context.follow(type), name);
+      case TLazy(f):
+        anonymousEitherField(f(), name);
       default:
         null;
     }

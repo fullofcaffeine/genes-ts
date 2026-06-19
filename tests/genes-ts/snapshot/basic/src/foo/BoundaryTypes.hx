@@ -3,6 +3,7 @@ package foo;
 import genes.ts.Undefinable;
 import genes.ts.Unknown;
 import haxe.DynamicAccess;
+import haxe.extern.EitherType;
 
 typedef UnknownRecord = DynamicAccess<Unknown>;
 typedef MaybeName = Undefinable<String>;
@@ -63,6 +64,8 @@ typedef NativeFunctionRecord = {
   @:native("function")
   final fn:NativeFunctionPayload;
 }
+
+typedef NativeFunctionChoice = EitherType<String, NativeFunctionRecord>;
 
 class BoundaryTypes {
   public static function unknownValue<T>(value:T):Unknown {
@@ -192,6 +195,26 @@ class BoundaryTypes {
     ];
   }
 
+  public static function nativeFunctionRecordsViaPush():Array<NativeFunctionRecord> {
+    final out:Array<NativeFunctionRecord> = [];
+    out.push({
+      fn: {
+        name: "push_lookup",
+        arguments: "{\"id\":2}"
+      }
+    });
+    return out;
+  }
+
+  public static function nativeFunctionChoiceObject():NativeFunctionChoice {
+    return {
+      fn: {
+        name: "choice_lookup",
+        arguments: "{\"id\":3}"
+      }
+    };
+  }
+
   public static function nativeFunctionSummary(record:NativeFunctionRecord):String {
     return record.fn.name + ":" + record.fn.arguments;
   }
@@ -218,6 +241,8 @@ class BoundaryTypes {
     final optionalLabel = labelOrFallback({label: "typed"});
     final nativeFunction = nativeFunctionSummary(nativeFunctionRecord());
     final nativeArrayFunction = nativeFunctionSummary(nativeFunctionRecords()[0]);
-    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (localMissing == null ? "none" : localMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + (assignedMissing == null ? "none" : assignedMissing) + ":" + (assignedChosen == null ? "none" : assignedChosen) + ":" + (conditionalFlag == null ? "none" : conditionalFlag ? "true" : "false") + ":" + (bridgeFlag == null ? "none" : bridgeFlag ? "true" : "false") + ":" + (optionalMissing == null ? "none" : optionalMissing) + ":" + (optionalDirectMissing == null ? "none" : optionalDirectMissing) + ":" + (guardedPresent == null ? "none" : guardedPresent) + ":" + (guardedMissing == null ? "none" : guardedMissing) + ":" + guardedUpper + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel + ":" + nativeFunction + ":" + nativeArrayFunction;
+    final nativePushFunction = nativeFunctionSummary(nativeFunctionRecordsViaPush()[0]);
+    final nativeChoice = nativeFunctionChoiceObject() == null ? "missing" : "choice";
+    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (localMissing == null ? "none" : localMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + (assignedMissing == null ? "none" : assignedMissing) + ":" + (assignedChosen == null ? "none" : assignedChosen) + ":" + (conditionalFlag == null ? "none" : conditionalFlag ? "true" : "false") + ":" + (bridgeFlag == null ? "none" : bridgeFlag ? "true" : "false") + ":" + (optionalMissing == null ? "none" : optionalMissing) + ":" + (optionalDirectMissing == null ? "none" : optionalDirectMissing) + ":" + (guardedPresent == null ? "none" : guardedPresent) + ":" + (guardedMissing == null ? "none" : guardedMissing) + ":" + guardedUpper + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel + ":" + nativeFunction + ":" + nativeArrayFunction + ":" + nativePushFunction + ":" + nativeChoice;
   }
 }
