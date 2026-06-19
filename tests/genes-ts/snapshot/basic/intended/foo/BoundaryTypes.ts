@@ -4,6 +4,10 @@ export type UnknownRecord = {[key: string]: unknown}
 
 export type MaybeName = string | undefined
 
+export type MaybeNameRecord = {
+	name: MaybeName
+}
+
 export class BoundaryTypes {
 	static unknownValue<T>(value: T): unknown {
 		return value;
@@ -13,6 +17,16 @@ export class BoundaryTypes {
 	}
 	static presentName(): MaybeName {
 		return "Ada";
+	}
+	static missingRecord(): MaybeNameRecord {
+		return {"name": undefined};
+	}
+	static chooseName(present: boolean): MaybeName {
+		if (present) {
+			return "Ada";
+		} else {
+			return undefined;
+		};
 	}
 	static normalize(value: MaybeName): string | null {
 		return value ?? null;
@@ -25,9 +39,11 @@ export class BoundaryTypes {
 	static demo(): string {
 		let present: string | null = BoundaryTypes.normalize(BoundaryTypes.presentName());
 		let missing: string | null = BoundaryTypes.normalize(BoundaryTypes.missingName());
+		let recordMissing: string | null = BoundaryTypes.normalize(BoundaryTypes.missingRecord().name);
+		let chosenMissing: string | null = BoundaryTypes.normalize(BoundaryTypes.chooseName(false));
 		let payload: UnknownRecord = BoundaryTypes.record(BoundaryTypes.unknownValue("typed boundary"));
 		let payloadStatus: string = (Object.prototype.hasOwnProperty.call(payload, "payload")) ? "payload" : "missing";
-		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + payloadStatus;
+		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + ((recordMissing == null) ? "none" : recordMissing) + ":" + ((chosenMissing == null) ? "none" : chosenMissing) + ":" + payloadStatus;
 	}
 	static get __name__(): string {
 		return "foo.BoundaryTypes"

@@ -6,6 +6,9 @@ import haxe.DynamicAccess;
 
 typedef UnknownRecord = DynamicAccess<Unknown>;
 typedef MaybeName = Undefinable<String>;
+typedef MaybeNameRecord = {
+  final name: MaybeName;
+}
 
 class BoundaryTypes {
   public static function unknownValue<T>(value:T):Unknown {
@@ -18,6 +21,16 @@ class BoundaryTypes {
 
   public static function presentName():MaybeName {
     return "Ada";
+  }
+
+  public static function missingRecord():MaybeNameRecord {
+    return {
+      name: Undefinable.absent()
+    };
+  }
+
+  public static function chooseName(present:Bool):MaybeName {
+    return present ? "Ada" : Undefinable.absent();
   }
 
   public static function normalize(value:MaybeName):Null<String> {
@@ -33,8 +46,10 @@ class BoundaryTypes {
   public static function demo():String {
     final present = normalize(presentName());
     final missing = normalize(missingName());
+    final recordMissing = normalize(missingRecord().name);
+    final chosenMissing = normalize(chooseName(false));
     final payload = record(unknownValue("typed boundary"));
     final payloadStatus = payload.exists("payload") ? "payload" : "missing";
-    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + payloadStatus;
+    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + payloadStatus;
   }
 }

@@ -35,6 +35,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   var currentClass: Null<ClassType> = null;
   var currentReturnType: Null<Type> = null;
   var currentReturnIsVoidLike: Bool = false;
+  var currentExpectedValueType: Null<Type> = null;
   var generatedLocalNames: Map<Int, String> = [];
   var generatedLocalNameCounts: Map<String, Int> = [];
 
@@ -86,6 +87,8 @@ class TsModuleEmitter extends JsModuleEmitter {
   function shouldNormalizeUndefinedToNull(t: Type): Bool {
     return typeAllowsNull(t)
       && !isUndefinableType(t)
+      && (currentExpectedValueType == null
+        || !isUndefinableType(currentExpectedValueType))
       && (currentReturnType == null || !isUndefinableType(currentReturnType));
   }
 
@@ -1483,6 +1486,18 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
   }
 
+  static function anonymousFieldType(t: Type, name: String): Null<Type> {
+    return switch haxe.macro.Context.follow(t) {
+      case TAnonymous(_.get() => anon):
+        final field = anon.fields.find(f -> f.name == name);
+        field == null ? null : field.type;
+      case TLazy(f):
+        anonymousFieldType(f(), name);
+      default:
+        null;
+    }
+  }
+
   static function stripNull(t: Type): Type {
     return switch t {
       case TAbstract(_.get() => {pack: [], name: "Null"}, [inner]):
@@ -1578,6 +1593,8 @@ class TsModuleEmitter extends JsModuleEmitter {
     switch e.expr {
       case TLocal(v):
         emitLocalVar(v);
+      case TObjectDecl(fields):
+        emitObjectDeclWithFieldTypes(e, fields);
       case TCall({
         expr: TField(_,
           FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))
@@ -1931,6 +1948,34 @@ class TsModuleEmitter extends JsModuleEmitter {
       default:
         super.emitExpr(e);
     }
+  }
+
+  /**
+   * Emits object literals while preserving anonymous-field type context.
+   *
+   * Why: Haxe treats most absent JS values as `null`, so genes-ts normally
+   * rewrites `js.Syntax.code("undefined")` to `null` when the expression is
+   * nullable. `genes.ts.Undefinable<T>` is the explicit exception: it means the
+   * public TypeScript contract is `T | undefined`, not `T | null`.
+   *
+   * What/How: object-literal fields carry their expected anonymous field type on
+   * the enclosing object, not always on the field expression itself. While
+   * emitting each field value, record that expected type so the existing
+   * undefined-normalization rule can skip Undefinable fields only.
+   */
+  function emitObjectDeclWithFieldTypes(e: TypedExpr,
+      fields: Array<{name: String, expr: TypedExpr}>) {
+    write('{');
+    for (field in join(fields, write.bind(', '))) {
+      emitPos(field.expr.pos);
+      emitString(field.name);
+      write(': ');
+      final previous = currentExpectedValueType;
+      currentExpectedValueType = anonymousFieldType(e.t, field.name);
+      emitValue(field.expr);
+      currentExpectedValueType = previous;
+    }
+    write('}');
   }
 
   function emitLocalVar(v: TVar) {
