@@ -2294,14 +2294,13 @@ class TsModuleEmitter extends JsModuleEmitter {
    * `record["function"].description ?? null`, not `record.fn.description`.
    *
    * What/How: keep the raw template text as the author wrote it, but replace
-   * numeric `{0}` / `{1}` placeholders by genes' own JS value emitter. While a
-   * placeholder is being emitted, nested virtual emitter calls stay on the raw
-   * JS path too. That is intentionally not the TS value path: raw syntax
-   * templates already own their operator/absence semantics, and adding TS
-   * strict-cast machinery inside placeholders can introduce type-only names into
-   * raw runtime snippets. Calls without placeholder arguments stay on the base
-   * path so special raw forms such as `js.Syntax.code("$global")` keep their
-   * existing behavior.
+   * numeric `{0}` / `{1}` placeholders by genes' own TypeScript value emitter.
+   * The template still owns surrounding syntax such as `await {0}` or
+   * `{0} ?? null`, while placeholder expressions retain TS-specific knowledge:
+   * native anonymous field names, call-argument expected types, type-only
+   * references, and strict-null rewrites. Calls without placeholder arguments
+   * stay on the base path so special raw forms such as `js.Syntax.code("$global")`
+   * keep their existing behavior.
    */
   function emitSyntaxCodeWithTsArgs(args: Array<TypedExpr>): Bool {
     if (args.length <= 1)
@@ -2350,8 +2349,8 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   function emitRawSyntaxTemplateValue(value: TypedExpr) {
     final previous = inRawSyntaxTemplate;
-    inRawSyntaxTemplate = true;
-    super.emitValue(value);
+    inRawSyntaxTemplate = false;
+    emitValue(value);
     inRawSyntaxTemplate = previous;
   }
 

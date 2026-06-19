@@ -1,5 +1,9 @@
 import {Register} from "../genes/Register.js"
 
+export type AsyncOptionalLabelRecord = {
+	label?: string | null
+}
+
 export class AsyncFoo extends Register.inherits() {
 	constructor() {
 		super();
@@ -19,6 +23,12 @@ export class AsyncFoo extends Register.inherits() {
 		let pending: Promise<number> = Promise.resolve(x);
 		let v: number = await pending;
 		return v + 3;
+	}
+	async metadataAwaitOptionalParam(record: AsyncOptionalLabelRecord): Promise<string> {
+		return await AsyncFoo.promiseLabel((record.label ?? null));
+	}
+	static promiseLabel(value: string | null): Promise<string> {
+		return Promise.resolve((value == null) ? "missing" : value);
 	}
 	static demo(): Promise<number> {
 		return new AsyncFoo().plusOneAsync(41);

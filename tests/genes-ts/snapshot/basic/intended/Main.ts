@@ -26,10 +26,13 @@ export class Main {
 		asyncFoo.metadataAwaitLocalScope(39).then(function (v: number) {
 			console.log("tests/genes-ts/snapshot/basic/src/Main.hx:22:",v);
 		});
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:23:",BoundaryTypes.demo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:24:",Placeholder.demo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:25:",EnumAbstract.demo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:26:",Main.Theme.name + ":" + Main.Theme.accent);
+		asyncFoo.metadataAwaitOptionalParam({}).then(function (v: string) {
+			console.log("tests/genes-ts/snapshot/basic/src/Main.hx:23:",v);
+		});
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:24:",BoundaryTypes.demo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:25:",Placeholder.demo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:26:",EnumAbstract.demo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:27:",Main.Theme.name + ":" + Main.Theme.accent);
 	}
 	static get __name__(): string {
 		return "Main"

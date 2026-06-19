@@ -3,6 +3,10 @@ package foo;
 import genes.js.Async.await;
 import js.lib.Promise;
 
+typedef AsyncOptionalLabelRecord = {
+  @:optional final label:String;
+}
+
 class AsyncFoo {
   public function new() {}
 
@@ -23,6 +27,15 @@ class AsyncFoo {
     final pending: Promise<Int> = Promise.resolve(x);
     final v: Int = @:await pending;
     return v + 3;
+  }
+
+  static function promiseLabel(value: Null<String>): Promise<String> {
+    return Promise.resolve(value == null ? "missing" : value);
+  }
+
+  @:async
+  public function metadataAwaitOptionalParam(record: AsyncOptionalLabelRecord): Promise<String> {
+    return @:await promiseLabel(record.label);
   }
 
   public static function demo(): Promise<Int> {
