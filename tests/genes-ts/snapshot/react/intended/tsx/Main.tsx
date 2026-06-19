@@ -76,7 +76,7 @@ export class Main {
 			throw Exception.thrown("Unexpected fragment HTML: " + fragHtml);
 		};
 		let okHandler: (() => void) = function () {
-			console.log("tests/genes-ts/snapshot/react/src/Main.hx:77:","ok");
+			return;
 		};
 		let okClick: JSX.Element = <button onClick={okHandler}>Click</button>;
 		renderToStaticMarkup(okClick);

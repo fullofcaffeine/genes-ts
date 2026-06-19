@@ -10,24 +10,47 @@ import haxe.macro.ExprTools;
 /**
  * InlineMarkup
  *
- * Enables Haxe inline markup (`return <div>...</div>`) as syntax sugar for
- * `genes.react.JSX.jsx("...")` templates.
+ * WHAT
+ * - Enables Haxe inline markup (`return <div>...</div>`) as the preferred
+ *   HHX-style authoring surface for React/TSX output.
+ * - Rewrites parser-produced `@:markup "<div>...</div>"` expressions into
+ *   `genes.react.JSX.jsx("...")`, which then lowers into typed JSX marker calls.
  *
- * Haxe represents inline markup as expression metadata `@:markup` applied to a
- * string constant. The typer errors on `@:markup` unless a macro rewrites it
- * beforehand, so we install a build macro (opt-in via defines).
+ * WHY
+ * - Haxe parses inline markup, but leaves it as `@:markup` metadata wrapped
+ *   around a string payload. The normal typer rejects that expression unless a
+ *   build macro rewrites it first.
+ * - Keeping markup at Haxe expression level lets `{...}` children and attribute
+ *   values become real Haxe expressions, so Haxe and TypeScript both get a
+ *   chance to validate the component/prop surface.
+ *
+ * HOW
+ * - `extraParams.hxml` installs this build macro globally.
+ * - In genes-ts builds (`-D genes.ts`), inline markup is default-on for every
+ *   module and can be disabled with `-D genes.react.no_inline_markup` or
+ *   `@:jsx_no_inline_markup`.
+ * - Outside genes-ts, `@:jsx_inline_markup` remains a narrow opt-in, while
+ *   `-D genes.react.inline_markup_all` keeps the old force-enable escape hatch.
+ *
+ * The explicit `genes.react.JSX.jsx("...")` string macro remains supported for
+ * generated code, migration cases, and fragment roots that Haxe's XML-ish
+ * inline-markup lexer cannot parse directly.
+ *
+ * LIMITATIONS
+ * - Haxe 4 inline markup requires a named XML-like root tag, so React fragment
+ *   roots (`<>...</>`) still need `jsx('<>...</>')` until the authoring syntax
+ *   grows a dedicated fragment form.
  */
 class InlineMarkup {
   public static function enable(): Void {
+    if (Context.defined('genes.react.no_inline_markup'))
+      return;
     Compiler.addGlobalMetadata('',
       '@:build(genes.react.InlineMarkup.build())', true, true, false);
   }
 
   public static macro function build(): Array<Field> {
     final fields = Context.getBuildFields();
-    if (!Context.defined('genes.react.inline_markup')
-      && !Context.defined('genes.react.inline_markup_all'))
-      return fields;
     if (!shouldProcessLocalType())
       return fields;
     for (field in fields)
@@ -36,15 +59,31 @@ class InlineMarkup {
   }
 
   static function shouldProcessLocalType(): Bool {
+    if (Context.defined('genes.react.no_inline_markup'))
+      return false;
+
     if (Context.defined('genes.react.inline_markup_all'))
       return true;
+
     final local = Context.getLocalClass();
     if (local == null)
       return false;
     final cl = local.get();
-    if (cl == null || cl.meta == null)
+    if (cl == null)
       return false;
-    return cl.meta.has(':jsx_inline_markup');
+
+    if (cl.meta != null
+      && (cl.meta.has(':jsx_no_inline_markup') || cl.meta.has('jsx_no_inline_markup')))
+      return false;
+
+    if (Context.defined('genes.ts'))
+      return true;
+
+    if (cl.meta == null)
+      return false;
+
+    return cl.meta.has(':jsx_inline_markup') || cl.meta.has('jsx_inline_markup')
+      || Context.defined('genes.react.inline_markup');
   }
 
   static function rewriteField(field: Field): Void {

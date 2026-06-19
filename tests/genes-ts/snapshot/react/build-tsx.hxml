@@ -8,6 +8,3 @@
 -D genes.ts
 
 -dce full
-
-# Enable inline markup rewrite (requires `@:jsx_inline_markup` on the class)
--D genes.react.inline_markup

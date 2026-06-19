@@ -18,7 +18,6 @@ typedef StatusProps = {
   final children: Element;
 }
 
-@:jsx_inline_markup
 class Main {
   static function main() {
     final title = "Hi";
@@ -34,20 +33,20 @@ class Main {
     if (html != '<div class="root" data-test-id="x">Hi<span>2</span></div>')
       throw 'Unexpected HTML: ' + html;
 
-    final buttonEl = jsx('<Button label={"Save"} />');
+    final buttonEl = <Button label={"Save"} />;
     final buttonHtml = renderToStaticMarkup(buttonEl);
     if (buttonHtml != '<button>Save</button>')
       throw 'Unexpected button HTML: ' + buttonHtml;
 
     // Spread props (intrinsic + component).
     final divProps = {className: "spread", id: "x"};
-    final divWithSpread = jsx('<div {...divProps}>Z</div>');
+    final divWithSpread = <div {...divProps}>Z</div>;
     final divWithSpreadHtml = renderToStaticMarkup(divWithSpread);
     if (divWithSpreadHtml != '<div class="spread" id="x">Z</div>')
       throw 'Unexpected spread HTML: ' + divWithSpreadHtml;
 
     final buttonProps = {label: "Spread"};
-    final buttonSpreadEl = jsx('<Button {...buttonProps} />');
+    final buttonSpreadEl = <Button {...buttonProps} />;
     final buttonSpreadHtml = renderToStaticMarkup(buttonSpreadEl);
     if (buttonSpreadHtml != '<button>Spread</button>')
       throw 'Unexpected spread button HTML: ' + buttonSpreadHtml;
@@ -60,7 +59,7 @@ class Main {
     final count = createSignal("1");
     count.set("2");
     final summary = createMemo(() -> 'items:${count.get()}');
-    final statusEl = jsx('<Status label={"Count"} value={summary()}><span>{count.get()}</span></Status>');
+    final statusEl = <Status label={"Count"} value={summary()}><span>{count.get()}</span></Status>;
     final statusHtml = renderToStaticMarkup(statusEl);
     if (statusHtml != '<section data-label="Count"><strong>items:2</strong><span>2</span></section>')
       throw 'Unexpected status HTML: ' + statusHtml;
@@ -74,25 +73,25 @@ class Main {
     //
     // We can't reference React event types from Haxe without extern boilerplate,
     // but TS will still validate the handler type in the generated output.
-    final okHandler = () -> trace("ok");
-    final okClick = jsx('<button onClick={okHandler}>Click</button>');
+    final okHandler = () -> {};
+    final okClick = <button onClick={okHandler}>Click</button>;
     renderToStaticMarkup(okClick);
 
     final badHandler = "nope";
     js.Syntax.code("// @ts-expect-error");
-    final badClick = jsx('<button onClick={badHandler}>Bad</button>');
+    final badClick = <button onClick={badHandler}>Bad</button>;
     renderToStaticMarkup(badClick);
 
     // Component props typing.
     js.Syntax.code("// @ts-expect-error");
-    final badButton = jsx('<Button label={123} />');
+    final badButton = <Button label={123} />;
     renderToStaticMarkup(badButton);
 
     // Ensure intrinsic element types are enforced (via @types/react):
     // If `JSX.IntrinsicElements["div"]` is missing/any, this line would not error
     // and TypeScript would fail due to an unused expect-error.
     js.Syntax.code("// @ts-expect-error");
-    final bad = jsx('<div href=\"nope\"></div>');
+    final bad = <div href="nope"></div>;
     renderToStaticMarkup(bad);
   }
 }

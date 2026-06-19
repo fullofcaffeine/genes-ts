@@ -77,7 +77,7 @@ export class Main {
 			throw Exception.thrown("Unexpected fragment HTML: " + fragHtml);
 		};
 		let okHandler: (() => void) = function () {
-			console.log("tests/genes-ts/snapshot/react/src/Main.hx:77:","ok");
+			return;
 		};
 		let okClick: JSX.Element = React__genes_jsx.createElement("button", ({onClick: okHandler} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"button"> & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Click");
 		renderToStaticMarkup(okClick);

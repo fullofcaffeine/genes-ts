@@ -97,6 +97,10 @@ Examples that must be documented when used:
 
 ## TSX / JSX Runtime Policy
 
+- Prefer Haxe inline markup (`return <div>...</div>`) as the default HHX/TSX authoring surface in genes-ts fixtures and downstream Haxe UI code. `genes.react.JSX.jsx("...")` remains supported for generated/migration code and parser limitations such as React fragment roots, but new handwritten examples should prove the inline-markup path first.
+- Inline markup must preserve type safety at both levels: Haxe expression splices are parsed as real Haxe expressions, and generated `.tsx` must still let TypeScript validate intrinsic props, component props, children, handlers, and spread props.
+- genes-ts React inline markup is default-on for `-D genes.ts` builds. Use `@:jsx_no_inline_markup` or `-D genes.react.no_inline_markup` only when a module genuinely needs to opt out of Haxe parser-level markup rewriting.
+- HHX should be at least as capable as TSX and should improve UX where Haxe can do better: typed control helpers, domain-specific component facades, macro-derived prop/slot contracts, clearer diagnostics, and safer abstractions are welcome when they still emit idiomatic TSX/JS and remain framework-generic.
 - Do not assume JSX types are always global React types. Some automatic runtimes expose `JSX` from their package entrypoint, so compiler fixtures should cover both ambient JSX and explicit `genes.ts.jsx_import_source` imports.
 - TSX output should keep `JSX.Element` annotations readable and type-only. If a runtime needs a namespace import for types, emit `import type {JSX} from "..."` rather than introducing a runtime import.
 - TSX fixtures should include reactive/accessor-shaped APIs such as signals and memos, imported components with children, spread props, and module imports together. Those patterns expose type/value import planning and JSX child/prop lowering issues earlier than static element-only fixtures.

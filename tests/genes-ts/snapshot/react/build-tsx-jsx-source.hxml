@@ -9,6 +9,3 @@
 -D genes.ts.jsx_import_source=react
 
 -dce full
-
-# Enable inline markup rewrite (requires `@:jsx_inline_markup` on the class)
--D genes.react.inline_markup
