@@ -313,8 +313,9 @@ class ExprEmitter extends Emitter {
         emitCall(e, params, false);
       case TArrayDecl(el):
         write('[');
+        final elementType = arrayElementType(currentExpectedValueType) ?? arrayElementType(e.t);
         for (e in join(el, write.bind(', ')))
-          emitValue(e);
+          emitValueWithExpectedType(elementType, e);
         write(']');
       case TThrow(e):
         write('throw ');

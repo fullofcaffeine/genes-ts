@@ -151,6 +151,17 @@ class BoundaryTypes {
     };
   }
 
+  public static function nativeFunctionRecords():Array<NativeFunctionRecord> {
+    return [
+      {
+        fn: {
+          name: "array_lookup",
+          arguments: "{\"id\":1}"
+        }
+      }
+    ];
+  }
+
   public static function nativeFunctionSummary(record:NativeFunctionRecord):String {
     return record.fn.name + ":" + record.fn.arguments;
   }
@@ -174,6 +185,7 @@ class BoundaryTypes {
     final optionalJoin = joinOptionalItems({items: ["c", "d"]});
     final optionalLabel = labelOrFallback({label: "typed"});
     final nativeFunction = nativeFunctionSummary(nativeFunctionRecord());
-    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (localMissing == null ? "none" : localMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + (assignedMissing == null ? "none" : assignedMissing) + ":" + (assignedChosen == null ? "none" : assignedChosen) + ":" + (optionalMissing == null ? "none" : optionalMissing) + ":" + (optionalDirectMissing == null ? "none" : optionalDirectMissing) + ":" + (guardedPresent == null ? "none" : guardedPresent) + ":" + (guardedMissing == null ? "none" : guardedMissing) + ":" + guardedUpper + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel + ":" + nativeFunction;
+    final nativeArrayFunction = nativeFunctionSummary(nativeFunctionRecords()[0]);
+    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (localMissing == null ? "none" : localMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + (assignedMissing == null ? "none" : assignedMissing) + ":" + (assignedChosen == null ? "none" : assignedChosen) + ":" + (optionalMissing == null ? "none" : optionalMissing) + ":" + (optionalDirectMissing == null ? "none" : optionalDirectMissing) + ":" + (guardedPresent == null ? "none" : guardedPresent) + ":" + (guardedMissing == null ? "none" : guardedMissing) + ":" + guardedUpper + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel + ":" + nativeFunction + ":" + nativeArrayFunction;
   }
 }

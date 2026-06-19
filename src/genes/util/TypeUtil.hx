@@ -109,6 +109,27 @@ class TypeUtil {
     return field == null ? name : classFieldName(field);
   }
 
+  /**
+   * Returns the element type of an array-like destination type.
+   *
+   * Why: object literals nested inside `Array<T>` need the same destination
+   * metadata as direct returns or assignments. Without threading the element
+   * type into each array entry, anonymous-field metadata such as `@:native`
+   * can be lost before the object literal is emitted.
+   */
+  public static function arrayElementType(type: Null<Type>): Null<Type> {
+    if (type == null)
+      return null;
+    return switch Context.followWithAbstracts(type) {
+      case TInst(_.get() => {pack: [], name: 'Array'}, [element]):
+        element;
+      case TLazy(f):
+        arrayElementType(f());
+      default:
+        null;
+    }
+  }
+
   public static function fieldName(f: FieldAccess): String
     return switch f {
       case FAnon(f), FInstance(_, _, f), FStatic(_, f), FClosure(_, f):

@@ -35,6 +35,10 @@ class TestTypedef {
   function nativeFunctionRecord(): NativeFunctionRecord
     return {fn: {value: 2}}
 
+  function nativeFunctionRecords(): Array<NativeFunctionRecord> {
+    return [{fn: {value: 3}}];
+  }
+
   public function testTypedef() {
     asserts.assert(test().test == 1);
     asserts.assert(testB().test == 1);
@@ -42,6 +46,10 @@ class TestTypedef {
     final keys = Reflect.fields(nativeFunctionRecord());
     asserts.assert(keys.indexOf("function") >= 0);
     asserts.assert(keys.indexOf("fn") == -1);
+    asserts.assert(nativeFunctionRecords()[0].fn.value == 3);
+    final arrayKeys = Reflect.fields(nativeFunctionRecords()[0]);
+    asserts.assert(arrayKeys.indexOf("function") >= 0);
+    asserts.assert(arrayKeys.indexOf("fn") == -1);
     return asserts.done();
   }
 }

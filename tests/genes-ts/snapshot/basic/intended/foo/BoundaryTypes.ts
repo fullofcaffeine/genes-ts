@@ -141,6 +141,9 @@ export class BoundaryTypes {
 	static nativeFunctionRecord(): NativeFunctionRecord {
 		return {"function": {"name": "lookup", "arguments": "{}"}};
 	}
+	static nativeFunctionRecords(): NativeFunctionRecord[] {
+		return [{"function": {"name": "array_lookup", "arguments": "{\"id\":1}"}}];
+	}
 	static nativeFunctionSummary(record: NativeFunctionRecord): string {
 		return record["function"].name + ":" + record["function"]["arguments"];
 	}
@@ -163,7 +166,8 @@ export class BoundaryTypes {
 		let optionalJoin: string = BoundaryTypes.joinOptionalItems({"items": ["c", "d"]});
 		let optionalLabel: string = BoundaryTypes.labelOrFallback({"label": "typed"});
 		let nativeFunction: string = BoundaryTypes.nativeFunctionSummary(BoundaryTypes.nativeFunctionRecord());
-		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + ((recordMissing == null) ? "none" : recordMissing) + ":" + ((localMissing == null) ? "none" : localMissing) + ":" + ((chosenMissing == null) ? "none" : chosenMissing) + ":" + ((assignedMissing == null) ? "none" : assignedMissing) + ":" + ((assignedChosen == null) ? "none" : assignedChosen) + ":" + ((optionalMissing == null) ? "none" : optionalMissing) + ":" + ((optionalDirectMissing == null) ? "none" : optionalDirectMissing) + ":" + ((guardedPresent == null) ? "none" : guardedPresent) + ":" + ((guardedMissing == null) ? "none" : guardedMissing) + ":" + guardedUpper + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel + ":" + nativeFunction;
+		let nativeArrayFunction: string = BoundaryTypes.nativeFunctionSummary(BoundaryTypes.nativeFunctionRecords()[0]);
+		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + ((recordMissing == null) ? "none" : recordMissing) + ":" + ((localMissing == null) ? "none" : localMissing) + ":" + ((chosenMissing == null) ? "none" : chosenMissing) + ":" + ((assignedMissing == null) ? "none" : assignedMissing) + ":" + ((assignedChosen == null) ? "none" : assignedChosen) + ":" + ((optionalMissing == null) ? "none" : optionalMissing) + ":" + ((optionalDirectMissing == null) ? "none" : optionalDirectMissing) + ":" + ((guardedPresent == null) ? "none" : guardedPresent) + ":" + ((guardedMissing == null) ? "none" : guardedMissing) + ":" + guardedUpper + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel + ":" + nativeFunction + ":" + nativeArrayFunction;
 	}
 	static get __name__(): string {
 		return "foo.BoundaryTypes"
