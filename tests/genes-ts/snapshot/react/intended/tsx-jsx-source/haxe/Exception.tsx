@@ -90,4 +90,3 @@ Register.seedProtoField(Exception, "__skipStack");
 Register.seedProtoField(Exception, "__nativeException");
 
 Register.seedProtoField(Exception, "__previousException");
-

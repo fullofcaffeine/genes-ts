@@ -1,7 +1,24 @@
 import {renderToStaticMarkup as __genes_import_renderToStaticMarkup} from "react-dom/server"
 import {Exception} from "./haxe/Exception.js"
 import {Register} from "./genes/Register.js"
+import {createSignal as __genes_import_createSignal, createMemo as __genes_import_createMemo} from "./runtime/signals.js"
+import __genes_import_Status from "./components/Status.js"
 import __genes_import_Button from "./components/Button.js"
+
+export type StringAccessor = (() => string)
+
+export type StringSignal = {
+	get: StringAccessor,
+	set: (arg0: string) => void
+}
+
+export type CreateMemo = ((arg0: StringAccessor) => StringAccessor)
+
+export type StatusProps = {
+	children?: JSX.Element | null,
+	label: string,
+	value: string
+}
 
 export class Main {
 	static main(): void {
@@ -38,13 +55,28 @@ export class Main {
 		if (buttonSpreadHtml != "<button>Spread</button>") {
 			throw Exception.thrown("Unexpected spread button HTML: " + buttonSpreadHtml);
 		};
+		let createSignal: ((arg0: string) => StringSignal) = __genes_import_createSignal;
+		let createMemo: CreateMemo = __genes_import_createMemo;
+		let Status: ((arg0: StatusProps) => JSX.Element) = __genes_import_Status;
+		let count: StringSignal = createSignal("1");
+		count.set("2");
+		let summary: StringAccessor = createMemo(function () {
+			return "items:" + count.get();
+		});
+		let statusEl: string = summary();
+		let statusEl1: JSX.Element = <span>{count.get()}</span>;
+		let statusEl2: JSX.Element = <Status label="Count" value={statusEl}>{statusEl1}</Status>;
+		let statusHtml: string = renderToStaticMarkup(statusEl2);
+		if (statusHtml != "<section data-label=\"Count\"><strong>items:2</strong><span>2</span></section>") {
+			throw Exception.thrown("Unexpected status HTML: " + statusHtml);
+		};
 		let frag: JSX.Element = <><span>A</span><span>B</span></>;
 		let fragHtml: string = renderToStaticMarkup(frag);
 		if (fragHtml != "<span>A</span><span>B</span>") {
 			throw Exception.thrown("Unexpected fragment HTML: " + fragHtml);
 		};
 		let okHandler: (() => void) = function () {
-			console.log("tests/genes-ts/snapshot/react/src/Main.hx:48:","ok");
+			console.log("tests/genes-ts/snapshot/react/src/Main.hx:77:","ok");
 		};
 		let okClick: JSX.Element = <button onClick={okHandler}>Click</button>;
 		renderToStaticMarkup(okClick);

@@ -99,6 +99,7 @@ Examples that must be documented when used:
 
 - Do not assume JSX types are always global React types. Some automatic runtimes expose `JSX` from their package entrypoint, so compiler fixtures should cover both ambient JSX and explicit `genes.ts.jsx_import_source` imports.
 - TSX output should keep `JSX.Element` annotations readable and type-only. If a runtime needs a namespace import for types, emit `import type {JSX} from "..."` rather than introducing a runtime import.
+- TSX fixtures should include reactive/accessor-shaped APIs such as signals and memos, imported components with children, spread props, and module imports together. Those patterns expose type/value import planning and JSX child/prop lowering issues earlier than static element-only fixtures.
 
 ## Quick Reference
 

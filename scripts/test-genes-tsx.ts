@@ -1,5 +1,5 @@
 import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
-import { cpSync, mkdirSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { assertNoUnsafeTypes } from "./typing-policy.js";
@@ -26,10 +26,20 @@ function copyTsxFixtures(intoRelDir: string): void {
 
   // Copy required local TSX files into the generated source dir so `tsc`
   // can resolve local TS/TSX imports from genes output.
-  const srcButton = path.join(fixturesDir, "components", "Button.tsx");
-  const destButton = path.join(destDir, "components", "Button.tsx");
-  mkdirSync(path.dirname(destButton), { recursive: true });
-  cpSync(srcButton, destButton);
+  function copyDir(src: string): void {
+    for (const entry of readdirSync(src, { withFileTypes: true })) {
+      const srcPath = path.join(src, entry.name);
+      const destPath = path.join(destDir, path.relative(fixturesDir, srcPath));
+      if (entry.isDirectory()) {
+        copyDir(srcPath);
+      } else if (entry.isFile()) {
+        mkdirSync(path.dirname(destPath), { recursive: true });
+        cpSync(srcPath, destPath);
+      }
+    }
+  }
+
+  copyDir(fixturesDir);
 }
 
 rmrf("tests/genes-ts/snapshot/react/out/tsx");

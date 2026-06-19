@@ -39,4 +39,3 @@ export class ValueException extends (Register.inherits(() => Exception, true) as
 Register.setHxClass("haxe.ValueException", ValueException);
 
 Register.seedProtoField(ValueException, "value");
-

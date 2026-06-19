@@ -2,6 +2,22 @@ import genes.react.JSX.*;
 import genes.react.Element;
 import genes.ts.Imports;
 
+typedef StringAccessor = Void->String;
+
+typedef StringSignal = {
+  final get: StringAccessor;
+  final set: String->Void;
+}
+
+typedef CreateMemo = StringAccessor->StringAccessor;
+
+typedef StatusProps = {
+  final label: String;
+  final value: String;
+  @:optional
+  final children: Element;
+}
+
 @:jsx_inline_markup
 class Main {
   static function main() {
@@ -35,6 +51,19 @@ class Main {
     final buttonSpreadHtml = renderToStaticMarkup(buttonSpreadEl);
     if (buttonSpreadHtml != '<button>Spread</button>')
       throw 'Unexpected spread button HTML: ' + buttonSpreadHtml;
+
+    final createSignal: String->StringSignal = Imports.namedImport("./runtime/signals.js",
+      "createSignal");
+    final createMemo: CreateMemo = Imports.namedImport("./runtime/signals.js", "createMemo");
+    final Status: StatusProps->Element = Imports.defaultImport("./components/Status.js");
+
+    final count = createSignal("1");
+    count.set("2");
+    final summary = createMemo(() -> 'items:${count.get()}');
+    final statusEl = jsx('<Status label={"Count"} value={summary()}><span>{count.get()}</span></Status>');
+    final statusHtml = renderToStaticMarkup(statusEl);
+    if (statusHtml != '<section data-label="Count"><strong>items:2</strong><span>2</span></section>')
+      throw 'Unexpected status HTML: ' + statusHtml;
 
     final frag = jsx('<><span>A</span><span>B</span></>');
     final fragHtml = renderToStaticMarkup(frag);
