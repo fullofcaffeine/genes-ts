@@ -677,15 +677,16 @@ class ExprEmitter extends Emitter {
           assign(el[el.length - 1]);
         });
       case TIf(cond, e, eo):
+        final expected = currentExpectedValueType;
         emitValue(cond);
         write(' ? ');
-        emitValue(e);
+        emitValueWithExpectedType(expected, e);
         write(' : ');
         switch eo {
           case null:
             write('null');
           case e:
-            emitValue(e);
+            emitValueWithExpectedType(expected, e);
         }
       case TSwitch(cond, cases, def):
         asValue(assign -> {
@@ -713,7 +714,8 @@ class ExprEmitter extends Emitter {
    * typed expression, while the destination type still knows field contracts
    * such as `@:native("...")`. Threading expected type context lets both JS and
    * TS emitters preserve external property names for local initializers,
-   * assignments, nested object fields, and returns.
+   * assignments, nested object fields, conditional-expression branches, and
+   * returns.
    *
    * How: this is only contextual emission state. It does not cast or retag the
    * Haxe expression; callees may consult `currentExpectedValueType` when they

@@ -1591,15 +1591,18 @@ class TsModuleEmitter extends JsModuleEmitter {
         emitOperand(e2);
       case TIf(cond, thenExpr, elseExpr):
         final check = nullNarrowCheck(cond);
+        final expected = currentExpectedValueType;
         emitValue(cond);
         write(' ? ');
-        emitNullNarrowedBranch(check, true, () -> emitValue(thenExpr));
+        emitNullNarrowedBranch(check, true,
+          () -> emitValueWithExpectedType(expected, thenExpr));
         write(' : ');
         switch elseExpr {
           case null:
             write('null');
           case branch:
-            emitNullNarrowedBranch(check, false, () -> emitValue(branch));
+            emitNullNarrowedBranch(check, false,
+              () -> emitValueWithExpectedType(expected, branch));
         }
       case TField(_, f) if (isOptionalField(f) && isNarrowedOptionalField(e)):
         emitNarrowedOptionalField(e);

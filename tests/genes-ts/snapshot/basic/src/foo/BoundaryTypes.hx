@@ -22,6 +22,10 @@ typedef OptionalDirectUndefinableRecord = {
   @:optional var name: Undefinable<String>;
 }
 
+typedef MaybeFlagRecord = {
+  final enabled:Undefinable<Bool>;
+}
+
 typedef OptionalArrayRecord = {
   @:optional final items:Array<String>;
 }
@@ -86,6 +90,13 @@ class BoundaryTypes {
     final out:MutableMaybeNameRecord = {name: Undefinable.absent()};
     out.name = present ? "Ada" : Undefinable.absent();
     return out;
+  }
+
+  public static function conditionalFlagRecord(present:Bool):MaybeFlagRecord {
+    final enabled:Null<Bool> = present ? true : null;
+    return {
+      enabled: enabled == null ? Undefinable.absent() : enabled
+    };
   }
 
   public static function optionalMissingName():OptionalMaybeNameRecord {
@@ -174,6 +185,7 @@ class BoundaryTypes {
     final chosenMissing = normalize(chooseName(false));
     final assignedMissing = normalize(assignMissingName().name);
     final assignedChosen = normalize(assignChosenName(false).name);
+    final conditionalFlag = conditionalFlagRecord(false).enabled.orNull();
     final optionalMissing = normalize(optionalMissingName().name);
     final optionalDirectMissing = normalize(optionalDirectMissingName().name);
     final guardedPresent = normalize(guardedName("Ada"));
@@ -186,6 +198,6 @@ class BoundaryTypes {
     final optionalLabel = labelOrFallback({label: "typed"});
     final nativeFunction = nativeFunctionSummary(nativeFunctionRecord());
     final nativeArrayFunction = nativeFunctionSummary(nativeFunctionRecords()[0]);
-    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (localMissing == null ? "none" : localMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + (assignedMissing == null ? "none" : assignedMissing) + ":" + (assignedChosen == null ? "none" : assignedChosen) + ":" + (optionalMissing == null ? "none" : optionalMissing) + ":" + (optionalDirectMissing == null ? "none" : optionalDirectMissing) + ":" + (guardedPresent == null ? "none" : guardedPresent) + ":" + (guardedMissing == null ? "none" : guardedMissing) + ":" + guardedUpper + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel + ":" + nativeFunction + ":" + nativeArrayFunction;
+    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (localMissing == null ? "none" : localMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + (assignedMissing == null ? "none" : assignedMissing) + ":" + (assignedChosen == null ? "none" : assignedChosen) + ":" + (conditionalFlag == null ? "none" : conditionalFlag ? "true" : "false") + ":" + (optionalMissing == null ? "none" : optionalMissing) + ":" + (optionalDirectMissing == null ? "none" : optionalDirectMissing) + ":" + (guardedPresent == null ? "none" : guardedPresent) + ":" + (guardedMissing == null ? "none" : guardedMissing) + ":" + guardedUpper + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel + ":" + nativeFunction + ":" + nativeArrayFunction;
   }
 }

@@ -20,6 +20,10 @@ export type OptionalDirectUndefinableRecord = {
 	name?: string | undefined
 }
 
+export type MaybeFlagRecord = {
+	enabled: boolean | undefined
+}
+
 export type OptionalArrayRecord = {
 	items?: string[] | null
 }
@@ -78,6 +82,10 @@ export class BoundaryTypes {
 		let out: MutableMaybeNameRecord = {"name": undefined};
 		out.name = (present) ? "Ada" : undefined;
 		return out;
+	}
+	static conditionalFlagRecord(present: boolean): MaybeFlagRecord {
+		let enabled: boolean | null = (present) ? true : null;
+		return {"enabled": (enabled == null) ? undefined : enabled};
 	}
 	static optionalMissingName(): OptionalMaybeNameRecord {
 		let out: OptionalMaybeNameRecord = {};
@@ -155,6 +163,7 @@ export class BoundaryTypes {
 		let chosenMissing: string | null = BoundaryTypes.normalize(BoundaryTypes.chooseName(false));
 		let assignedMissing: string | null = BoundaryTypes.normalize(BoundaryTypes.assignMissingName().name);
 		let assignedChosen: string | null = BoundaryTypes.normalize(BoundaryTypes.assignChosenName(false).name);
+		let conditionalFlag: boolean | null = BoundaryTypes.conditionalFlagRecord(false).enabled ?? null;
 		let optionalMissing: string | null = BoundaryTypes.normalize(Register.unsafeCast<MaybeName>((BoundaryTypes.optionalMissingName().name ?? null)));
 		let optionalDirectMissing: string | null = BoundaryTypes.normalize(Register.unsafeCast<MaybeName>((BoundaryTypes.optionalDirectMissingName().name ?? null)));
 		let guardedPresent: string | null = BoundaryTypes.normalize(BoundaryTypes.guardedName("Ada"));
@@ -167,7 +176,7 @@ export class BoundaryTypes {
 		let optionalLabel: string = BoundaryTypes.labelOrFallback({"label": "typed"});
 		let nativeFunction: string = BoundaryTypes.nativeFunctionSummary(BoundaryTypes.nativeFunctionRecord());
 		let nativeArrayFunction: string = BoundaryTypes.nativeFunctionSummary(BoundaryTypes.nativeFunctionRecords()[0]);
-		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + ((recordMissing == null) ? "none" : recordMissing) + ":" + ((localMissing == null) ? "none" : localMissing) + ":" + ((chosenMissing == null) ? "none" : chosenMissing) + ":" + ((assignedMissing == null) ? "none" : assignedMissing) + ":" + ((assignedChosen == null) ? "none" : assignedChosen) + ":" + ((optionalMissing == null) ? "none" : optionalMissing) + ":" + ((optionalDirectMissing == null) ? "none" : optionalDirectMissing) + ":" + ((guardedPresent == null) ? "none" : guardedPresent) + ":" + ((guardedMissing == null) ? "none" : guardedMissing) + ":" + guardedUpper + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel + ":" + nativeFunction + ":" + nativeArrayFunction;
+		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + ((recordMissing == null) ? "none" : recordMissing) + ":" + ((localMissing == null) ? "none" : localMissing) + ":" + ((chosenMissing == null) ? "none" : chosenMissing) + ":" + ((assignedMissing == null) ? "none" : assignedMissing) + ":" + ((assignedChosen == null) ? "none" : assignedChosen) + ":" + ((conditionalFlag == null) ? "none" : (conditionalFlag) ? "true" : "false") + ":" + ((optionalMissing == null) ? "none" : optionalMissing) + ":" + ((optionalDirectMissing == null) ? "none" : optionalDirectMissing) + ":" + ((guardedPresent == null) ? "none" : guardedPresent) + ":" + ((guardedMissing == null) ? "none" : guardedMissing) + ":" + guardedUpper + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel + ":" + nativeFunction + ":" + nativeArrayFunction;
 	}
 	static get __name__(): string {
 		return "foo.BoundaryTypes"
