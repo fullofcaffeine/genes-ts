@@ -169,6 +169,12 @@ class BoundaryTypes {
     return "missing";
   }
 
+  public static function guardedCall(value:Null<String>):String {
+    if (value != null)
+      return consumeName(value);
+    return "missing";
+  }
+
   public static function record(value:Unknown):UnknownRecord {
     final out = new DynamicAccess<Unknown>();
     out.set("payload", value);
@@ -188,12 +194,26 @@ class BoundaryTypes {
     return out.join(",");
   }
 
+  public static function guardedOptionalItemsCall(record:OptionalArrayRecord):String {
+    if (record.items != null)
+      return consumeItems(record.items);
+    return "missing";
+  }
+
   public static function labelOrFallback(record:OptionalNameRecord):String {
     return record.label == null || record.label == "" ? "fallback" : record.label;
   }
 
   public static function nullableLabel(value:Null<String>):String {
     return value == null ? "missing" : value;
+  }
+
+  static function consumeName(value:String):String {
+    return value.toUpperCase();
+  }
+
+  static function consumeItems(value:Array<String>):String {
+    return value.join(",");
   }
 
   public static function optionalLabelViaNullableParam(record:OptionalNameRecord):String {
@@ -275,10 +295,12 @@ class BoundaryTypes {
     final guardedPresent = normalize(guardedName("Ada"));
     final guardedMissing = normalize(guardedName(null));
     final guardedUpper = guardedUpper("ada");
+    final guardedCallValue = guardedCall("ada");
     final payload = record(unknownValue("typed boundary"));
     final payloadStatus = payload.exists("payload") ? "payload" : "missing";
     final optionalCopy = copyOptionalItems({items: ["a", "b"]}).join("");
     final optionalJoin = joinOptionalItems({items: ["c", "d"]});
+    final optionalItemsCall = guardedOptionalItemsCall({items: ["e", "f"]});
     final optionalLabel = labelOrFallback({label: "typed"});
     final optionalParamLabel = optionalLabelViaNullableParam({});
     final optionalNestedParamLabel = optionalNestedLabelViaNullableParam({child: {}});
@@ -287,6 +309,6 @@ class BoundaryTypes {
     final nativePushFunction = nativeFunctionSummary(nativeFunctionRecordsViaPush()[0]);
     final nativeChoice = nativeFunctionChoiceObject() == null ? "missing" : "choice";
     final nativeOptional = nativeOptionalDescription(nativeOptionalRecord());
-    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (localMissing == null ? "none" : localMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + (assignedMissing == null ? "none" : assignedMissing) + ":" + (assignedChosen == null ? "none" : assignedChosen) + ":" + (conditionalFlag == null ? "none" : conditionalFlag ? "true" : "false") + ":" + (bridgeFlag == null ? "none" : bridgeFlag ? "true" : "false") + ":" + (optionalMissing == null ? "none" : optionalMissing) + ":" + (optionalDirectMissing == null ? "none" : optionalDirectMissing) + ":" + (guardedPresent == null ? "none" : guardedPresent) + ":" + (guardedMissing == null ? "none" : guardedMissing) + ":" + guardedUpper + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel + ":" + optionalParamLabel + ":" + optionalNestedParamLabel + ":" + nativeFunction + ":" + nativeArrayFunction + ":" + nativePushFunction + ":" + nativeChoice + ":" + (nativeOptional == null ? "none" : nativeOptional);
+    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (localMissing == null ? "none" : localMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + (assignedMissing == null ? "none" : assignedMissing) + ":" + (assignedChosen == null ? "none" : assignedChosen) + ":" + (conditionalFlag == null ? "none" : conditionalFlag ? "true" : "false") + ":" + (bridgeFlag == null ? "none" : bridgeFlag ? "true" : "false") + ":" + (optionalMissing == null ? "none" : optionalMissing) + ":" + (optionalDirectMissing == null ? "none" : optionalDirectMissing) + ":" + (guardedPresent == null ? "none" : guardedPresent) + ":" + (guardedMissing == null ? "none" : guardedMissing) + ":" + guardedUpper + ":" + guardedCallValue + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalItemsCall + ":" + optionalLabel + ":" + optionalParamLabel + ":" + optionalNestedParamLabel + ":" + nativeFunction + ":" + nativeArrayFunction + ":" + nativePushFunction + ":" + nativeChoice + ":" + (nativeOptional == null ? "none" : nativeOptional);
   }
 }

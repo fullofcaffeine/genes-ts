@@ -140,6 +140,12 @@ export class BoundaryTypes {
 		};
 		return "missing";
 	}
+	static guardedCall(value: string | null): string {
+		if (value != null) {
+			return BoundaryTypes.consumeName(value);
+		};
+		return "missing";
+	}
 	static record(value: unknown): UnknownRecord {
 		let out: {[key: string]: unknown} = {};
 		out["payload"] = value;
@@ -165,6 +171,12 @@ export class BoundaryTypes {
 		};
 		return out.join(",");
 	}
+	static guardedOptionalItemsCall(record: OptionalArrayRecord): string {
+		if ((record.items ?? null) != null) {
+			return BoundaryTypes.consumeItems((record.items!));
+		};
+		return "missing";
+	}
 	static labelOrFallback(record: OptionalNameRecord): string {
 		if ((record.label ?? null) == null || (record.label ?? null) == "") {
 			return "fallback";
@@ -178,6 +190,12 @@ export class BoundaryTypes {
 		} else {
 			return value;
 		};
+	}
+	static consumeName(value: string): string {
+		return value.toUpperCase();
+	}
+	static consumeItems(value: string[]): string {
+		return value.join(",");
 	}
 	static optionalLabelViaNullableParam(record: OptionalNameRecord): string {
 		return BoundaryTypes.nullableLabel((record.label ?? null));
@@ -223,10 +241,12 @@ export class BoundaryTypes {
 		let guardedPresent: string | null = BoundaryTypes.normalize(BoundaryTypes.guardedName("Ada"));
 		let guardedMissing: string | null = BoundaryTypes.normalize(BoundaryTypes.guardedName(null));
 		let guardedUpper: string = BoundaryTypes.guardedUpper("ada");
+		let guardedCallValue: string = BoundaryTypes.guardedCall("ada");
 		let payload: UnknownRecord = BoundaryTypes.record(BoundaryTypes.unknownValue("typed boundary"));
 		let payloadStatus: string = (Object.prototype.hasOwnProperty.call(payload, "payload")) ? "payload" : "missing";
 		let optionalCopy: string = BoundaryTypes.copyOptionalItems({"items": ["a", "b"]}).join("");
 		let optionalJoin: string = BoundaryTypes.joinOptionalItems({"items": ["c", "d"]});
+		let optionalItemsCall: string = BoundaryTypes.guardedOptionalItemsCall({"items": ["e", "f"]});
 		let optionalLabel: string = BoundaryTypes.labelOrFallback({"label": "typed"});
 		let optionalParamLabel: string = BoundaryTypes.optionalLabelViaNullableParam({});
 		let optionalNestedParamLabel: string = BoundaryTypes.optionalNestedLabelViaNullableParam({"child": {}});
@@ -235,7 +255,7 @@ export class BoundaryTypes {
 		let nativePushFunction: string = BoundaryTypes.nativeFunctionSummary(BoundaryTypes.nativeFunctionRecordsViaPush()[0]);
 		let nativeChoice: string = (BoundaryTypes.nativeFunctionChoiceObject() == null) ? "missing" : "choice";
 		let nativeOptional: string | null = BoundaryTypes.nativeOptionalDescription(BoundaryTypes.nativeOptionalRecord());
-		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + ((recordMissing == null) ? "none" : recordMissing) + ":" + ((localMissing == null) ? "none" : localMissing) + ":" + ((chosenMissing == null) ? "none" : chosenMissing) + ":" + ((assignedMissing == null) ? "none" : assignedMissing) + ":" + ((assignedChosen == null) ? "none" : assignedChosen) + ":" + ((conditionalFlag == null) ? "none" : (conditionalFlag) ? "true" : "false") + ":" + ((bridgeFlag == null) ? "none" : (bridgeFlag) ? "true" : "false") + ":" + ((optionalMissing == null) ? "none" : optionalMissing) + ":" + ((optionalDirectMissing == null) ? "none" : optionalDirectMissing) + ":" + ((guardedPresent == null) ? "none" : guardedPresent) + ":" + ((guardedMissing == null) ? "none" : guardedMissing) + ":" + guardedUpper + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel + ":" + optionalParamLabel + ":" + optionalNestedParamLabel + ":" + nativeFunction + ":" + nativeArrayFunction + ":" + nativePushFunction + ":" + nativeChoice + ":" + ((nativeOptional == null) ? "none" : nativeOptional);
+		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + ((recordMissing == null) ? "none" : recordMissing) + ":" + ((localMissing == null) ? "none" : localMissing) + ":" + ((chosenMissing == null) ? "none" : chosenMissing) + ":" + ((assignedMissing == null) ? "none" : assignedMissing) + ":" + ((assignedChosen == null) ? "none" : assignedChosen) + ":" + ((conditionalFlag == null) ? "none" : (conditionalFlag) ? "true" : "false") + ":" + ((bridgeFlag == null) ? "none" : (bridgeFlag) ? "true" : "false") + ":" + ((optionalMissing == null) ? "none" : optionalMissing) + ":" + ((optionalDirectMissing == null) ? "none" : optionalDirectMissing) + ":" + ((guardedPresent == null) ? "none" : guardedPresent) + ":" + ((guardedMissing == null) ? "none" : guardedMissing) + ":" + guardedUpper + ":" + guardedCallValue + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalItemsCall + ":" + optionalLabel + ":" + optionalParamLabel + ":" + optionalNestedParamLabel + ":" + nativeFunction + ":" + nativeArrayFunction + ":" + nativePushFunction + ":" + nativeChoice + ":" + ((nativeOptional == null) ? "none" : nativeOptional);
 	}
 	static get __name__(): string {
 		return "foo.BoundaryTypes"

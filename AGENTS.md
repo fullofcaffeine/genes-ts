@@ -66,6 +66,7 @@ real compiler/codegen pipeline in Haxe.
 - Prefer documenting the *contract* (inputs/outputs/side effects), invariants, and edge cases over restating obvious code.
 - When a decision is non-obvious, document the **tradeoff** (why we chose it and what we rejected).
 - Include examples when it clarifies non-obvious behavior (short snippets are fine).
+- When landing compiler behavior changes, add nearby comments or hxdoc for the exact invariant being protected: why the emitter/macro/runtime helper needs special handling, what Haxe or TypeScript typing fact it relies on, how the generated output should look, and what future changes must not break. Tests prove the behavior; comments preserve the reasoning.
 
 ### Required hxdoc for advanced Haxe features
 

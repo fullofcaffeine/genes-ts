@@ -508,7 +508,12 @@ class TsModuleEmitter extends JsModuleEmitter {
             needsCasts = true;
             break;
           }
-          if (!typeAllowsNull(expected) && typeAllowsNull(actual.t)) {
+          // Reuse the branch-local null facts gathered from the surrounding
+          // condition. TS understands the same direct local/field guard, so a
+          // guarded value can flow to a non-nullable parameter without an
+          // emitter-inserted assertion.
+          if (!typeAllowsNull(expected) && typeAllowsNull(actual.t)
+            && !isNarrowedNonNull(actual)) {
             needsCasts = true;
             break;
           }
@@ -550,6 +555,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           } else if (expected != null
             && !typeAllowsNull(expected)
             && typeAllowsNull(actual.t)
+            && !isNarrowedNonNull(actual)
             && !isTypeParam(expected)) {
             // If the expected type is `any`, a cast is unnecessary and emitting
             // `<any>` would violate the typing policy for user modules.
