@@ -36,6 +36,14 @@ export type OptionalNameRecord = {
 	label?: string | null
 }
 
+export type OptionalNameChild = {
+	label?: string | null
+}
+
+export type OptionalNestedNameRecord = {
+	child?: OptionalNameChild | null
+}
+
 export type NativeFunctionPayload = {
 	arguments: string,
 	name: string
@@ -174,6 +182,9 @@ export class BoundaryTypes {
 	static optionalLabelViaNullableParam(record: OptionalNameRecord): string {
 		return BoundaryTypes.nullableLabel((record.label ?? null));
 	}
+	static optionalNestedLabelViaNullableParam(record: OptionalNestedNameRecord): string {
+		return BoundaryTypes.nullableLabel(((record.child!).label ?? null));
+	}
 	static nativeFunctionRecord(): NativeFunctionRecord {
 		return {"function": {"name": "lookup", "arguments": "{}"}};
 	}
@@ -218,12 +229,13 @@ export class BoundaryTypes {
 		let optionalJoin: string = BoundaryTypes.joinOptionalItems({"items": ["c", "d"]});
 		let optionalLabel: string = BoundaryTypes.labelOrFallback({"label": "typed"});
 		let optionalParamLabel: string = BoundaryTypes.optionalLabelViaNullableParam({});
+		let optionalNestedParamLabel: string = BoundaryTypes.optionalNestedLabelViaNullableParam({"child": {}});
 		let nativeFunction: string = BoundaryTypes.nativeFunctionSummary(BoundaryTypes.nativeFunctionRecord());
 		let nativeArrayFunction: string = BoundaryTypes.nativeFunctionSummary(BoundaryTypes.nativeFunctionRecords()[0]);
 		let nativePushFunction: string = BoundaryTypes.nativeFunctionSummary(BoundaryTypes.nativeFunctionRecordsViaPush()[0]);
 		let nativeChoice: string = (BoundaryTypes.nativeFunctionChoiceObject() == null) ? "missing" : "choice";
 		let nativeOptional: string | null = BoundaryTypes.nativeOptionalDescription(BoundaryTypes.nativeOptionalRecord());
-		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + ((recordMissing == null) ? "none" : recordMissing) + ":" + ((localMissing == null) ? "none" : localMissing) + ":" + ((chosenMissing == null) ? "none" : chosenMissing) + ":" + ((assignedMissing == null) ? "none" : assignedMissing) + ":" + ((assignedChosen == null) ? "none" : assignedChosen) + ":" + ((conditionalFlag == null) ? "none" : (conditionalFlag) ? "true" : "false") + ":" + ((bridgeFlag == null) ? "none" : (bridgeFlag) ? "true" : "false") + ":" + ((optionalMissing == null) ? "none" : optionalMissing) + ":" + ((optionalDirectMissing == null) ? "none" : optionalDirectMissing) + ":" + ((guardedPresent == null) ? "none" : guardedPresent) + ":" + ((guardedMissing == null) ? "none" : guardedMissing) + ":" + guardedUpper + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel + ":" + optionalParamLabel + ":" + nativeFunction + ":" + nativeArrayFunction + ":" + nativePushFunction + ":" + nativeChoice + ":" + ((nativeOptional == null) ? "none" : nativeOptional);
+		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + ((recordMissing == null) ? "none" : recordMissing) + ":" + ((localMissing == null) ? "none" : localMissing) + ":" + ((chosenMissing == null) ? "none" : chosenMissing) + ":" + ((assignedMissing == null) ? "none" : assignedMissing) + ":" + ((assignedChosen == null) ? "none" : assignedChosen) + ":" + ((conditionalFlag == null) ? "none" : (conditionalFlag) ? "true" : "false") + ":" + ((bridgeFlag == null) ? "none" : (bridgeFlag) ? "true" : "false") + ":" + ((optionalMissing == null) ? "none" : optionalMissing) + ":" + ((optionalDirectMissing == null) ? "none" : optionalDirectMissing) + ":" + ((guardedPresent == null) ? "none" : guardedPresent) + ":" + ((guardedMissing == null) ? "none" : guardedMissing) + ":" + guardedUpper + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel + ":" + optionalParamLabel + ":" + optionalNestedParamLabel + ":" + nativeFunction + ":" + nativeArrayFunction + ":" + nativePushFunction + ":" + nativeChoice + ":" + ((nativeOptional == null) ? "none" : nativeOptional);
 	}
 	static get __name__(): string {
 		return "foo.BoundaryTypes"

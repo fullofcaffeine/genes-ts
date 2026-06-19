@@ -47,6 +47,14 @@ typedef OptionalNameRecord = {
   @:optional final label:String;
 }
 
+typedef OptionalNameChild = {
+  @:optional final label:String;
+}
+
+typedef OptionalNestedNameRecord = {
+  @:optional final child:OptionalNameChild;
+}
+
 typedef NativeFunctionPayload = {
   final name:String;
   final arguments:String;
@@ -192,6 +200,10 @@ class BoundaryTypes {
     return nullableLabel(record.label);
   }
 
+  public static function optionalNestedLabelViaNullableParam(record:OptionalNestedNameRecord):String {
+    return nullableLabel(record.child.label);
+  }
+
   public static function nativeFunctionRecord():NativeFunctionRecord {
     return {
       fn: {
@@ -269,11 +281,12 @@ class BoundaryTypes {
     final optionalJoin = joinOptionalItems({items: ["c", "d"]});
     final optionalLabel = labelOrFallback({label: "typed"});
     final optionalParamLabel = optionalLabelViaNullableParam({});
+    final optionalNestedParamLabel = optionalNestedLabelViaNullableParam({child: {}});
     final nativeFunction = nativeFunctionSummary(nativeFunctionRecord());
     final nativeArrayFunction = nativeFunctionSummary(nativeFunctionRecords()[0]);
     final nativePushFunction = nativeFunctionSummary(nativeFunctionRecordsViaPush()[0]);
     final nativeChoice = nativeFunctionChoiceObject() == null ? "missing" : "choice";
     final nativeOptional = nativeOptionalDescription(nativeOptionalRecord());
-    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (localMissing == null ? "none" : localMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + (assignedMissing == null ? "none" : assignedMissing) + ":" + (assignedChosen == null ? "none" : assignedChosen) + ":" + (conditionalFlag == null ? "none" : conditionalFlag ? "true" : "false") + ":" + (bridgeFlag == null ? "none" : bridgeFlag ? "true" : "false") + ":" + (optionalMissing == null ? "none" : optionalMissing) + ":" + (optionalDirectMissing == null ? "none" : optionalDirectMissing) + ":" + (guardedPresent == null ? "none" : guardedPresent) + ":" + (guardedMissing == null ? "none" : guardedMissing) + ":" + guardedUpper + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel + ":" + optionalParamLabel + ":" + nativeFunction + ":" + nativeArrayFunction + ":" + nativePushFunction + ":" + nativeChoice + ":" + (nativeOptional == null ? "none" : nativeOptional);
+    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (localMissing == null ? "none" : localMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + (assignedMissing == null ? "none" : assignedMissing) + ":" + (assignedChosen == null ? "none" : assignedChosen) + ":" + (conditionalFlag == null ? "none" : conditionalFlag ? "true" : "false") + ":" + (bridgeFlag == null ? "none" : bridgeFlag ? "true" : "false") + ":" + (optionalMissing == null ? "none" : optionalMissing) + ":" + (optionalDirectMissing == null ? "none" : optionalDirectMissing) + ":" + (guardedPresent == null ? "none" : guardedPresent) + ":" + (guardedMissing == null ? "none" : guardedMissing) + ":" + guardedUpper + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel + ":" + optionalParamLabel + ":" + optionalNestedParamLabel + ":" + nativeFunction + ":" + nativeArrayFunction + ":" + nativePushFunction + ":" + nativeChoice + ":" + (nativeOptional == null ? "none" : nativeOptional);
   }
 }

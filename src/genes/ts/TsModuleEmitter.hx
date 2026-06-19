@@ -43,6 +43,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   var generatedLocalNameCounts: Map<String, Int> = [];
   var narrowedNonNullKeys: Array<String> = [];
   var inRawSyntaxTemplate: Bool = false;
+  var suppressOptionalFieldNullNormalization: Bool = false;
 
   function typeEmitsAny(t: Type): Bool {
     final fast = switch t {
@@ -1627,6 +1628,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TField(_, f) if (isOptionalField(f) && isNarrowedOptionalField(e)):
         emitNarrowedOptionalField(e);
       case TField(_, f) if (!inAssignTarget && isOptionalField(f)
+          && !suppressOptionalFieldNullNormalization
           && shouldNormalizeOptionalFieldRead(e)):
         emitOptionalFieldAsNull(e);
       default:
@@ -1764,7 +1766,8 @@ class TsModuleEmitter extends JsModuleEmitter {
         if (typeAllowsNull(x.t)
           && !(fieldAccessName(f) == "iterator"
             && genes.util.TypeUtil.isDynamicIterator(x))):
-        final isOptionalField = !inAssignTarget && switch f {
+        final isOptionalField = !inAssignTarget
+          && !suppressOptionalFieldNullNormalization && switch f {
           case FAnon(cf) | FInstance(_, _, cf) | FStatic(_, cf): final meta = cf.get()
               .meta; meta != null && meta.has(':optional');
           default:
@@ -1780,7 +1783,10 @@ class TsModuleEmitter extends JsModuleEmitter {
         if (isOptionalField)
           write('(');
         write('(');
-        emitValue(skip(x));
+        // The receiver is guarded by the non-null assertion below, so do not
+        // let an outer nullable expected type rewrite it to `receiver ?? null`.
+        withoutOptionalFieldNullNormalization(() -> emitValueWithExpectedType(null,
+          skip(x)));
         write('!)');
         switch f {
           case FStatic(_.get() => c, _):
@@ -1790,7 +1796,8 @@ class TsModuleEmitter extends JsModuleEmitter {
         }
         if (isOptionalField)
           write(' ?? null)');
-      case TField(_, f) if (!inAssignTarget && switch f {
+      case TField(_, f) if (!inAssignTarget
+          && !suppressOptionalFieldNullNormalization && switch f {
           case FAnon(cf) | FInstance(_, _, cf) | FStatic(_, cf): final meta = cf.get()
               .meta; meta != null && meta.has(':optional');
           default:
@@ -2262,9 +2269,17 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   function emitOptionalFieldAsNull(e: TypedExpr) {
-    write('(');
-    super.emitExpr(e);
-    write(' ?? null)');
+    // Re-enter TS expression emission so nested receiver rewrites still apply.
+    // The base JS emitter would print `record.child.label ?? null` and skip the
+    // TS-only non-null receiver handling needed for strict null checks.
+    emitExpr(e);
+  }
+
+  function withoutOptionalFieldNullNormalization(emit: Void->Void) {
+    final previous = suppressOptionalFieldNullNormalization;
+    suppressOptionalFieldNullNormalization = true;
+    emit();
+    suppressOptionalFieldNullNormalization = previous;
   }
 
   /**
