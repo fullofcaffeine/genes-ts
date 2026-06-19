@@ -41,6 +41,10 @@ export type NativeFunctionPayload = {
 	name: string
 }
 
+export type NativeOptionalPayload = {
+	description: string | undefined
+}
+
 /**
 * Fixture for Haxe-safe aliases over external JavaScript property names.
 *
@@ -51,6 +55,10 @@ export type NativeFunctionPayload = {
 */
 export type NativeFunctionRecord = {
 	function: NativeFunctionPayload
+}
+
+export type NativeOptionalRecord = {
+	function: NativeOptionalPayload
 }
 
 export type NativeFunctionChoice = string | NativeFunctionRecord
@@ -173,6 +181,12 @@ export class BoundaryTypes {
 	static nativeFunctionSummary(record: NativeFunctionRecord): string {
 		return record["function"].name + ":" + record["function"]["arguments"];
 	}
+	static nativeOptionalRecord(): NativeOptionalRecord {
+		return {"function": {"description": "typed native"}};
+	}
+	static nativeOptionalDescription(record: NativeOptionalRecord): string | null {
+		return record["function"].description ?? null;
+	}
 	static demo(): string {
 		let present: string | null = BoundaryTypes.normalize(BoundaryTypes.presentName());
 		let missing: string | null = BoundaryTypes.normalize(BoundaryTypes.missingName());
@@ -197,7 +211,8 @@ export class BoundaryTypes {
 		let nativeArrayFunction: string = BoundaryTypes.nativeFunctionSummary(BoundaryTypes.nativeFunctionRecords()[0]);
 		let nativePushFunction: string = BoundaryTypes.nativeFunctionSummary(BoundaryTypes.nativeFunctionRecordsViaPush()[0]);
 		let nativeChoice: string = (BoundaryTypes.nativeFunctionChoiceObject() == null) ? "missing" : "choice";
-		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + ((recordMissing == null) ? "none" : recordMissing) + ":" + ((localMissing == null) ? "none" : localMissing) + ":" + ((chosenMissing == null) ? "none" : chosenMissing) + ":" + ((assignedMissing == null) ? "none" : assignedMissing) + ":" + ((assignedChosen == null) ? "none" : assignedChosen) + ":" + ((conditionalFlag == null) ? "none" : (conditionalFlag) ? "true" : "false") + ":" + ((bridgeFlag == null) ? "none" : (bridgeFlag) ? "true" : "false") + ":" + ((optionalMissing == null) ? "none" : optionalMissing) + ":" + ((optionalDirectMissing == null) ? "none" : optionalDirectMissing) + ":" + ((guardedPresent == null) ? "none" : guardedPresent) + ":" + ((guardedMissing == null) ? "none" : guardedMissing) + ":" + guardedUpper + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel + ":" + nativeFunction + ":" + nativeArrayFunction + ":" + nativePushFunction + ":" + nativeChoice;
+		let nativeOptional: string | null = BoundaryTypes.nativeOptionalDescription(BoundaryTypes.nativeOptionalRecord());
+		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + ((recordMissing == null) ? "none" : recordMissing) + ":" + ((localMissing == null) ? "none" : localMissing) + ":" + ((chosenMissing == null) ? "none" : chosenMissing) + ":" + ((assignedMissing == null) ? "none" : assignedMissing) + ":" + ((assignedChosen == null) ? "none" : assignedChosen) + ":" + ((conditionalFlag == null) ? "none" : (conditionalFlag) ? "true" : "false") + ":" + ((bridgeFlag == null) ? "none" : (bridgeFlag) ? "true" : "false") + ":" + ((optionalMissing == null) ? "none" : optionalMissing) + ":" + ((optionalDirectMissing == null) ? "none" : optionalDirectMissing) + ":" + ((guardedPresent == null) ? "none" : guardedPresent) + ":" + ((guardedMissing == null) ? "none" : guardedMissing) + ":" + guardedUpper + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel + ":" + nativeFunction + ":" + nativeArrayFunction + ":" + nativePushFunction + ":" + nativeChoice + ":" + ((nativeOptional == null) ? "none" : nativeOptional);
 	}
 	static get __name__(): string {
 		return "foo.BoundaryTypes"

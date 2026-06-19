@@ -52,6 +52,10 @@ typedef NativeFunctionPayload = {
   final arguments:String;
 }
 
+typedef NativeOptionalPayload = {
+  final description:Undefinable<String>;
+}
+
 /**
  * Fixture for Haxe-safe aliases over external JavaScript property names.
  *
@@ -63,6 +67,11 @@ typedef NativeFunctionPayload = {
 typedef NativeFunctionRecord = {
   @:native("function")
   final fn:NativeFunctionPayload;
+}
+
+typedef NativeOptionalRecord = {
+  @:native("function")
+  final fn:NativeOptionalPayload;
 }
 
 typedef NativeFunctionChoice = EitherType<String, NativeFunctionRecord>;
@@ -219,6 +228,18 @@ class BoundaryTypes {
     return record.fn.name + ":" + record.fn.arguments;
   }
 
+  public static function nativeOptionalRecord():NativeOptionalRecord {
+    return {
+      fn: {
+        description: "typed native"
+      }
+    };
+  }
+
+  public static function nativeOptionalDescription(record:NativeOptionalRecord):Null<String> {
+    return record.fn.description.orNull();
+  }
+
   public static function demo():String {
     final present = normalize(presentName());
     final missing = normalize(missingName());
@@ -243,6 +264,7 @@ class BoundaryTypes {
     final nativeArrayFunction = nativeFunctionSummary(nativeFunctionRecords()[0]);
     final nativePushFunction = nativeFunctionSummary(nativeFunctionRecordsViaPush()[0]);
     final nativeChoice = nativeFunctionChoiceObject() == null ? "missing" : "choice";
-    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (localMissing == null ? "none" : localMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + (assignedMissing == null ? "none" : assignedMissing) + ":" + (assignedChosen == null ? "none" : assignedChosen) + ":" + (conditionalFlag == null ? "none" : conditionalFlag ? "true" : "false") + ":" + (bridgeFlag == null ? "none" : bridgeFlag ? "true" : "false") + ":" + (optionalMissing == null ? "none" : optionalMissing) + ":" + (optionalDirectMissing == null ? "none" : optionalDirectMissing) + ":" + (guardedPresent == null ? "none" : guardedPresent) + ":" + (guardedMissing == null ? "none" : guardedMissing) + ":" + guardedUpper + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel + ":" + nativeFunction + ":" + nativeArrayFunction + ":" + nativePushFunction + ":" + nativeChoice;
+    final nativeOptional = nativeOptionalDescription(nativeOptionalRecord());
+    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (localMissing == null ? "none" : localMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + (assignedMissing == null ? "none" : assignedMissing) + ":" + (assignedChosen == null ? "none" : assignedChosen) + ":" + (conditionalFlag == null ? "none" : conditionalFlag ? "true" : "false") + ":" + (bridgeFlag == null ? "none" : bridgeFlag ? "true" : "false") + ":" + (optionalMissing == null ? "none" : optionalMissing) + ":" + (optionalDirectMissing == null ? "none" : optionalDirectMissing) + ":" + (guardedPresent == null ? "none" : guardedPresent) + ":" + (guardedMissing == null ? "none" : guardedMissing) + ":" + guardedUpper + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel + ":" + nativeFunction + ":" + nativeArrayFunction + ":" + nativePushFunction + ":" + nativeChoice + ":" + (nativeOptional == null ? "none" : nativeOptional);
   }
 }

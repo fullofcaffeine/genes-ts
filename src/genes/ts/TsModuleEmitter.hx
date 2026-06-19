@@ -42,6 +42,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   var generatedLocalNames: Map<Int, String> = [];
   var generatedLocalNameCounts: Map<String, Int> = [];
   var narrowedNonNullKeys: Array<String> = [];
+  var inRawSyntaxTemplate: Bool = false;
 
   function typeEmitsAny(t: Type): Bool {
     final fast = switch t {
@@ -1562,6 +1563,11 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   override public function emitValue(e: TypedExpr) {
+    if (inRawSyntaxTemplate) {
+      super.emitValue(e);
+      return;
+    }
+
     emitPos(e.pos);
     switch e.expr {
       case TCall({
@@ -1570,6 +1576,11 @@ class TsModuleEmitter extends JsModuleEmitter {
       }, [{expr: TConst(TString("undefined"))}]) if (shouldNormalizeUndefinedToNull(e.t)):
         // See `emitExpr` for rationale.
         write('null');
+      case TCall({
+        expr: TField(_,
+          FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))
+      }, args) if (emitSyntaxCodeWithTsArgs(args)):
+        null;
       case TBinop(op = OpGt | OpGte | OpLt | OpLte, e1, e2)
         if ((typeAllowsNull(e1.t) && isNumberLike(e1.t))
           || (typeAllowsNull(e2.t) && isNumberLike(e2.t))):
@@ -1612,6 +1623,11 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   override public function emitExpr(e: TypedExpr) {
+    if (inRawSyntaxTemplate) {
+      super.emitExpr(e);
+      return;
+    }
+
     emitPos(e.pos);
     switch e.expr {
       case TBlock(el):
@@ -1633,6 +1649,11 @@ class TsModuleEmitter extends JsModuleEmitter {
         // where `null` is the intended "no value" signal (e.g. `HxOverrides.cca`).
         // Normalize to `null` to keep TS `strictNullChecks` consistent.
         write('null');
+      case TCall({
+        expr: TField(_,
+          FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))
+      }, args) if (emitSyntaxCodeWithTsArgs(args)):
+        null;
       case TConst(TNull):
         if (typeAllowsNull(e.t)) {
           write('null');
@@ -2226,6 +2247,79 @@ class TsModuleEmitter extends JsModuleEmitter {
       default:
         emitValue(e);
     }
+  }
+
+  /**
+   * Emits `js.Syntax.code("...", args...)` placeholders through genes-ts.
+   *
+   * Why: the base JS emitter delegates the whole syntax expression to Haxe's JS
+   * stringifier. That is fine for plain JS output, but it bypasses TypeScript
+   * emitter knowledge attached to placeholder expressions: native anonymous
+   * field names, type-only references, nullable rewrites, and other TS-specific
+   * expression lowering. For example, `@:native("function") final fn` inside
+   * `js.Syntax.code("{0} ?? null", record.fn.description)` must emit
+   * `record["function"].description ?? null`, not `record.fn.description`.
+   *
+   * What/How: keep the raw template text as the author wrote it, but replace
+   * numeric `{0}` / `{1}` placeholders by genes' own JS value emitter. While a
+   * placeholder is being emitted, nested virtual emitter calls stay on the raw
+   * JS path too. That is intentionally not the TS value path: raw syntax
+   * templates already own their operator/absence semantics, and adding TS
+   * strict-cast machinery inside placeholders can introduce type-only names into
+   * raw runtime snippets. Calls without placeholder arguments stay on the base
+   * path so special raw forms such as `js.Syntax.code("$global")` keep their
+   * existing behavior.
+   */
+  function emitSyntaxCodeWithTsArgs(args: Array<TypedExpr>): Bool {
+    if (args.length <= 1)
+      return false;
+
+    final template = switch args[0].expr {
+      case TConst(TString(value)):
+        value;
+      default:
+        return false;
+    }
+
+    final values = args.slice(1);
+    var i = 0;
+    while (i < template.length) {
+      if (template.charCodeAt(i) == "{".code) {
+        var j = i + 1;
+        var index = 0;
+        var hasDigits = false;
+        while (j < template.length) {
+          final code = template.charCodeAt(j);
+          if (code < "0".code || code > "9".code)
+            break;
+          hasDigits = true;
+          index = index * 10 + (code - "0".code);
+          j++;
+        }
+        if (hasDigits && j < template.length
+            && template.charCodeAt(j) == "}".code) {
+          if (index >= values.length) {
+            haxe.macro.Context.error(
+              'js.Syntax.code placeholder {$index} has no argument',
+              args[0].pos
+            );
+          }
+          emitRawSyntaxTemplateValue(values[index]);
+          i = j + 1;
+          continue;
+        }
+      }
+      write(template.charAt(i));
+      i++;
+    }
+    return true;
+  }
+
+  function emitRawSyntaxTemplateValue(value: TypedExpr) {
+    final previous = inRawSyntaxTemplate;
+    inRawSyntaxTemplate = true;
+    super.emitValue(value);
+    inRawSyntaxTemplate = previous;
   }
 
   /**
