@@ -2261,7 +2261,10 @@ class TsModuleEmitter extends JsModuleEmitter {
       increaseIndent();
       if (!leafStartsWithNewline)
         writeNewline();
+      final previousDeclare = declare;
+      declare = 'let';
       leaf(c.expr);
+      declare = previousDeclare;
       writeNewline();
       write('break;');
       decreaseIndent();
