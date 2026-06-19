@@ -86,6 +86,21 @@ class BoundaryTypes {
     return value.orNull();
   }
 
+  public static function guardedName(value:Null<String>):MaybeName {
+    if (value == null)
+      return Undefinable.absent();
+    final present:String = value;
+    return present;
+  }
+
+  public static function guardedUpper(value:Null<String>):String {
+    if (value != null) {
+      final present:String = value;
+      return present.toUpperCase();
+    }
+    return "missing";
+  }
+
   public static function record(value:Unknown):UnknownRecord {
     final out = new DynamicAccess<Unknown>();
     out.set("payload", value);
@@ -119,11 +134,14 @@ class BoundaryTypes {
     final assignedChosen = normalize(assignChosenName(false).name);
     final optionalMissing = normalize(optionalMissingName().name);
     final optionalDirectMissing = normalize(optionalDirectMissingName().name);
+    final guardedPresent = normalize(guardedName("Ada"));
+    final guardedMissing = normalize(guardedName(null));
+    final guardedUpper = guardedUpper("ada");
     final payload = record(unknownValue("typed boundary"));
     final payloadStatus = payload.exists("payload") ? "payload" : "missing";
     final optionalCopy = copyOptionalItems({items: ["a", "b"]}).join("");
     final optionalJoin = joinOptionalItems({items: ["c", "d"]});
     final optionalLabel = labelOrFallback({label: "typed"});
-    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (localMissing == null ? "none" : localMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + (assignedMissing == null ? "none" : assignedMissing) + ":" + (assignedChosen == null ? "none" : assignedChosen) + ":" + (optionalMissing == null ? "none" : optionalMissing) + ":" + (optionalDirectMissing == null ? "none" : optionalDirectMissing) + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel;
+    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (localMissing == null ? "none" : localMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + (assignedMissing == null ? "none" : assignedMissing) + ":" + (assignedChosen == null ? "none" : assignedChosen) + ":" + (optionalMissing == null ? "none" : optionalMissing) + ":" + (optionalDirectMissing == null ? "none" : optionalDirectMissing) + ":" + (guardedPresent == null ? "none" : guardedPresent) + ":" + (guardedMissing == null ? "none" : guardedMissing) + ":" + guardedUpper + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel;
   }
 }

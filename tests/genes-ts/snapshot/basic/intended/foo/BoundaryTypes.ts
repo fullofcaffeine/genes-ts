@@ -75,6 +75,20 @@ export class BoundaryTypes {
 	static normalize(value: MaybeName): string | null {
 		return value ?? null;
 	}
+	static guardedName(value: string | null): MaybeName {
+		if (value == null) {
+			return undefined;
+		};
+		let present: string = value;
+		return present;
+	}
+	static guardedUpper(value: string | null): string {
+		if (value != null) {
+			let present: string = value;
+			return present.toUpperCase();
+		};
+		return "missing";
+	}
 	static record(value: unknown): UnknownRecord {
 		let out: {[key: string]: unknown} = {};
 		out["payload"] = value;
@@ -117,12 +131,15 @@ export class BoundaryTypes {
 		let assignedChosen: string | null = BoundaryTypes.normalize(BoundaryTypes.assignChosenName(false).name);
 		let optionalMissing: string | null = BoundaryTypes.normalize(Register.unsafeCast<MaybeName>((BoundaryTypes.optionalMissingName().name ?? null)));
 		let optionalDirectMissing: string | null = BoundaryTypes.normalize(Register.unsafeCast<MaybeName>((BoundaryTypes.optionalDirectMissingName().name ?? null)));
+		let guardedPresent: string | null = BoundaryTypes.normalize(BoundaryTypes.guardedName("Ada"));
+		let guardedMissing: string | null = BoundaryTypes.normalize(BoundaryTypes.guardedName(null));
+		let guardedUpper: string = BoundaryTypes.guardedUpper("ada");
 		let payload: UnknownRecord = BoundaryTypes.record(BoundaryTypes.unknownValue("typed boundary"));
 		let payloadStatus: string = (Object.prototype.hasOwnProperty.call(payload, "payload")) ? "payload" : "missing";
 		let optionalCopy: string = BoundaryTypes.copyOptionalItems({"items": ["a", "b"]}).join("");
 		let optionalJoin: string = BoundaryTypes.joinOptionalItems({"items": ["c", "d"]});
 		let optionalLabel: string = BoundaryTypes.labelOrFallback({"label": "typed"});
-		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + ((recordMissing == null) ? "none" : recordMissing) + ":" + ((localMissing == null) ? "none" : localMissing) + ":" + ((chosenMissing == null) ? "none" : chosenMissing) + ":" + ((assignedMissing == null) ? "none" : assignedMissing) + ":" + ((assignedChosen == null) ? "none" : assignedChosen) + ":" + ((optionalMissing == null) ? "none" : optionalMissing) + ":" + ((optionalDirectMissing == null) ? "none" : optionalDirectMissing) + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel;
+		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + ((recordMissing == null) ? "none" : recordMissing) + ":" + ((localMissing == null) ? "none" : localMissing) + ":" + ((chosenMissing == null) ? "none" : chosenMissing) + ":" + ((assignedMissing == null) ? "none" : assignedMissing) + ":" + ((assignedChosen == null) ? "none" : assignedChosen) + ":" + ((optionalMissing == null) ? "none" : optionalMissing) + ":" + ((optionalDirectMissing == null) ? "none" : optionalDirectMissing) + ":" + ((guardedPresent == null) ? "none" : guardedPresent) + ":" + ((guardedMissing == null) ? "none" : guardedMissing) + ":" + guardedUpper + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel;
 	}
 	static get __name__(): string {
 		return "foo.BoundaryTypes"

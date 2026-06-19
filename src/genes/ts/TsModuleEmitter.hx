@@ -18,7 +18,7 @@ using genes.util.TypeUtil;
 using Lambda;
 using haxe.macro.Tools;
 
-typedef OptionalFieldNullCheck = {
+typedef NullNarrowCheck = {
   final nonNullWhenTrue: Array<String>;
   final nonNullWhenFalse: Array<String>;
 }
@@ -43,7 +43,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   var currentExpectedValueType: Null<Type> = null;
   var generatedLocalNames: Map<Int, String> = [];
   var generatedLocalNameCounts: Map<String, Int> = [];
-  var narrowedOptionalFieldKeys: Array<String> = [];
+  var narrowedNonNullKeys: Array<String> = [];
 
   function typeEmitsAny(t: Type): Bool {
     final fast = switch t {
@@ -106,7 +106,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     jsxEmitTsx = genes.Genes.outExtension == '.tsx';
     generatedLocalNames = [];
     generatedLocalNameCounts = [];
-    narrowedOptionalFieldKeys = [];
+    narrowedNonNullKeys = [];
     final usesReactJsxMarkers = moduleUsesReactJsxMarkers(module);
 
     // Merge code + type dependencies so TS signatures can resolve.
@@ -1424,7 +1424,8 @@ class TsModuleEmitter extends JsModuleEmitter {
         if (tryEmitReactUseStateCall(v.t, e)) {
           return;
         }
-        if (!narrowedOptionalInit && !isUndefinableType(emittedType)
+        if (!narrowedOptionalInit && !isNarrowedNonNull(e)
+          && !isUndefinableType(emittedType)
           && !typeAllowsNull(emittedType) && typeAllowsNull(e.t)) {
           write(ctx.typeAccessor(TypeUtil.registerType));
           write('.unsafeCast<');
@@ -1603,16 +1604,16 @@ class TsModuleEmitter extends JsModuleEmitter {
         writeSpace();
         emitOperand(e2);
       case TIf(cond, thenExpr, elseExpr):
-        final check = optionalFieldNullCheck(cond);
+        final check = nullNarrowCheck(cond);
         emitValue(cond);
         write(' ? ');
-        emitOptionalFieldBranch(check, true, () -> emitValue(thenExpr));
+        emitNullNarrowedBranch(check, true, () -> emitValue(thenExpr));
         write(' : ');
         switch elseExpr {
           case null:
             write('null');
           case branch:
-            emitOptionalFieldBranch(check, false, () -> emitValue(branch));
+            emitNullNarrowedBranch(check, false, () -> emitValue(branch));
         }
       case TField(_, f) if (isOptionalField(f) && isNarrowedOptionalField(e)):
         emitNarrowedOptionalField(e);
@@ -1640,6 +1641,13 @@ class TsModuleEmitter extends JsModuleEmitter {
   override public function emitExpr(e: TypedExpr) {
     emitPos(e.pos);
     switch e.expr {
+      case TBlock(el):
+        write('{');
+        increaseIndent();
+        emitNarrowedBlockElements(el);
+        decreaseIndent();
+        writeNewline();
+        write('}');
       case TLocal(v):
         emitLocalVar(v);
       case TObjectDecl(fields):
@@ -1668,7 +1676,8 @@ class TsModuleEmitter extends JsModuleEmitter {
         // If the cast target is `any`, emitting `unsafeCast<any>(...)` would
         // leak `any` into user modules. For `any`, the cast is a no-op in TS
         // anyway, so omit it.
-        if (typeEmitsAny(e.t)) {
+        if (typeEmitsAny(e.t) || (!typeAllowsNull(e.t) && typeAllowsNull(e1.t)
+            && isNarrowedNonNull(e1))) {
           emitValue(e1);
         } else {
           write(ctx.typeAccessor(TypeUtil.registerType));
@@ -1707,7 +1716,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         }
       case TBinop(op = OpAssign, lhs, rhs)
         if (!isUndefinableType(lhs.t) && !typeAllowsNull(lhs.t)
-          && typeAllowsNull(rhs.t)):
+          && typeAllowsNull(rhs.t) && !isNarrowedNonNull(rhs)):
         // Haxe allows assigning nullable values to non-nullable types in many
         // cases. Preserve that behavior under TS `strictNullChecks` by casting.
         inAssignTarget = true;
@@ -1803,7 +1812,7 @@ class TsModuleEmitter extends JsModuleEmitter {
             } else {
               write('return ');
               if (ret != null && !typeAllowsNull(ret) && typeAllowsNull(e1.t)
-                  && isNarrowedOptionalField(e1)) {
+                  && isNarrowedNonNull(e1)) {
                 emitValue(e1);
               } else if (ret != null && !typeAllowsNull(ret) && typeAllowsNull(e1.t)) {
                 write(ctx.typeAccessor(TypeUtil.registerType));
@@ -1885,18 +1894,18 @@ class TsModuleEmitter extends JsModuleEmitter {
         write('}');
         inLoop = wasInLoop;
       case TIf(cond, thenExpr, elseExpr):
-        final check = optionalFieldNullCheck(cond);
+        final check = nullNarrowCheck(cond);
         write('if ');
         emitValue(cond);
         writeSpace();
-        emitOptionalFieldBranch(check, true,
+        emitNullNarrowedBranch(check, true,
           () -> emitExpr(TypeUtil.block(thenExpr)));
         switch elseExpr {
           case null:
           case branch:
             emitPos(branch.pos);
             write(' else ');
-            emitOptionalFieldBranch(check, false, () -> emitExpr(switch branch.expr {
+            emitNullNarrowedBranch(check, false, () -> emitExpr(switch branch.expr {
               case TIf(_, _, _): branch;
               case _: TypeUtil.block(branch);
             }));
@@ -2024,30 +2033,30 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   /**
-   * Why: optional anonymous fields are normally emitted as `(receiver.field ?? null)`
-   * to translate JavaScript `undefined` into Haxe's `null` convention. In strict
-   * TypeScript, re-emitting that normalized property inside a branch guarded by
-   * `receiver.field != null` loses narrowing because TS sees a fresh property read.
+   * Why: nullable Haxe values often lower to TypeScript unions containing
+   * `null`. If Haxe has already proven a stable nullable local or optional
+   * field non-null, emitting `Register.unsafeCast<T>(value)` is noisier than
+   * the TypeScript code a person would write and hides useful flow facts.
    *
-   * What/How: for stable field paths only (`local.field`, `this.field`, and
-   * nested field chains), record null facts proven by direct `== null` /
-   * `!= null` checks. The facts flow through simple boolean conditions:
-   * `a && b` proves true-branch facts from both sides, while `a || b` proves
-   * false-branch facts from both sides. Matching optional field reads in a
-   * dominated branch emit as `receiver.field!`, preserving the same runtime read
-   * while giving TS a non-null value. Unstable receivers such as calls stay on
-   * the conservative `?? null` path.
+   * What/How: for stable locals and stable optional field paths only
+   * (`local`, `local.field`, `this.field`, and nested field chains), record
+   * null facts proven by direct `== null` / `!= null` checks. The facts flow
+   * through simple boolean conditions: `a && b` proves true-branch facts from
+   * both sides, while `a || b` proves false-branch facts from both sides.
+   * Matching locals can then emit directly, and matching optional field reads
+   * emit as `receiver.field!`. Unstable receivers such as calls stay on the
+   * conservative cast / `?? null` paths.
    */
-  function optionalFieldNullCheck(e: TypedExpr): Null<OptionalFieldNullCheck> {
+  function nullNarrowCheck(e: TypedExpr): Null<NullNarrowCheck> {
     return switch unwrapExpr(e).expr {
       case TBinop(op = OpEq | OpNotEq, left, right):
-        final leftKey = optionalFieldNarrowKey(left);
+        final leftKey = nonNullNarrowKey(left);
         if (leftKey != null && isNullConst(unwrapExpr(right))) {
           op == OpNotEq
             ? {nonNullWhenTrue: [leftKey], nonNullWhenFalse: []}
             : {nonNullWhenTrue: [], nonNullWhenFalse: [leftKey]};
         } else {
-          final rightKey = optionalFieldNarrowKey(right);
+          final rightKey = nonNullNarrowKey(right);
           if (rightKey != null && isNullConst(unwrapExpr(left)))
             op == OpNotEq
               ? {nonNullWhenTrue: [rightKey], nonNullWhenFalse: []}
@@ -2056,8 +2065,8 @@ class TsModuleEmitter extends JsModuleEmitter {
             null;
         }
       case TBinop(OpBoolAnd, left, right):
-        final leftCheck = optionalFieldNullCheck(left);
-        final rightCheck = optionalFieldNullCheck(right);
+        final leftCheck = nullNarrowCheck(left);
+        final rightCheck = nullNarrowCheck(right);
         if (leftCheck == null && rightCheck == null)
           null
         else
@@ -2069,8 +2078,8 @@ class TsModuleEmitter extends JsModuleEmitter {
             nonNullWhenFalse: []
           };
       case TBinop(OpBoolOr, left, right):
-        final leftCheck = optionalFieldNullCheck(left);
-        final rightCheck = optionalFieldNullCheck(right);
+        final leftCheck = nullNarrowCheck(left);
+        final rightCheck = nullNarrowCheck(right);
         if (leftCheck == null && rightCheck == null)
           null
         else
@@ -2086,7 +2095,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
   }
 
-  function emitOptionalFieldBranch(check: Null<OptionalFieldNullCheck>,
+  function emitNullNarrowedBranch(check: Null<NullNarrowCheck>,
       thenBranch: Bool, emit: Void->Void) {
     final keys = check == null ? [] : thenBranch
       ? check.nonNullWhenTrue
@@ -2097,10 +2106,48 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
 
     for (key in keys)
-      narrowedOptionalFieldKeys.push(key);
+      narrowedNonNullKeys.push(key);
     emit();
     for (_ in keys)
-      narrowedOptionalFieldKeys.pop();
+      narrowedNonNullKeys.pop();
+  }
+
+  function emitNarrowedBlockElements(elements: Array<TypedExpr>) {
+    var nextKeys: Array<String> = [];
+    for (element in elements) {
+      for (key in nextKeys)
+        narrowedNonNullKeys.push(key);
+      emitBlockElement(element);
+      for (_ in nextKeys)
+        narrowedNonNullKeys.pop();
+      nextKeys = continuationNonNullKeys(element);
+    }
+  }
+
+  function continuationNonNullKeys(e: TypedExpr): Array<String> {
+    return switch unwrapExpr(e).expr {
+      case TIf(cond, thenExpr, null):
+        final check = nullNarrowCheck(cond);
+        check != null && definitelyExits(thenExpr)
+          ? check.nonNullWhenFalse
+          : [];
+      default:
+        [];
+    }
+  }
+
+  static function definitelyExits(e: TypedExpr): Bool {
+    return switch unwrapExpr(e).expr {
+      case TReturn(_) | TThrow(_):
+        true;
+      case TBlock(elements):
+        elements.length > 0 && definitelyExits(elements[elements.length - 1]);
+      case TIf(_, thenExpr, elseExpr):
+        elseExpr != null && definitelyExits(thenExpr)
+          && definitelyExits(elseExpr);
+      default:
+        false;
+    }
   }
 
   static function concatNarrowKeys(left: Array<String>, right: Array<String>): Array<String> {
@@ -2129,10 +2176,30 @@ class TsModuleEmitter extends JsModuleEmitter {
     final key = optionalFieldNarrowKey(e);
     if (key == null)
       return false;
-    for (narrowed in narrowedOptionalFieldKeys)
+    for (narrowed in narrowedNonNullKeys)
       if (narrowed == key)
         return true;
     return false;
+  }
+
+  function isNarrowedNonNull(e: TypedExpr): Bool {
+    final key = nonNullNarrowKey(e);
+    if (key == null)
+      return false;
+    for (narrowed in narrowedNonNullKeys)
+      if (narrowed == key)
+        return true;
+    return false;
+  }
+
+  function nonNullNarrowKey(e: TypedExpr): Null<String> {
+    final unwrapped = unwrapExpr(e);
+    return switch unwrapped.expr {
+      case TLocal(v) if (typeAllowsNull(unwrapped.t)):
+        'local:${v.id}';
+      default:
+        optionalFieldNarrowKey(unwrapped);
+    }
   }
 
   function optionalFieldNarrowKey(e: TypedExpr): Null<String> {

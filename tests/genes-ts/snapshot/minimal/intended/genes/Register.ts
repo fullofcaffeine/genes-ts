@@ -16,7 +16,7 @@ export class Register {
 	static global(name: string): HxRegistry {
 		let existing: HxRegistry | null = (Register.globals[name] ?? null);
 		if (existing != null) {
-			return Register.unsafeCast<HxRegistry>(existing);
+			return existing;
 		};
 		let created: HxRegistry = {};
 		Register.globals[name] = created;
