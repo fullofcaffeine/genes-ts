@@ -679,7 +679,7 @@ class ExprEmitter extends Emitter {
         }
       case TSwitch(cond, cases, def):
         asValue(assign -> {
-          emitSwitch(cond, cases, def, assign);
+          emitSwitch(cond, cases, def, assign, false);
         });
       case TTry(etry, [{v: v, expr: ecatch}]):
         asValue(assign -> {
@@ -698,7 +698,8 @@ class ExprEmitter extends Emitter {
 
   function emitSwitch(cond: TypedExpr,
       cases: Array<{values: Array<TypedExpr>, expr: TypedExpr}>,
-      def: Null<TypedExpr>, leaf: TypedExpr->Void) {
+      def: Null<TypedExpr>, leaf: TypedExpr->Void,
+      ?leafStartsWithNewline: Bool = true) {
     write('switch ');
     emitValue(cond);
     write(' {');

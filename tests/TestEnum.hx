@@ -13,6 +13,22 @@ enum Order {
   Desc;
 }
 
+enum SwitchCollision {
+  Label(value: String);
+  Count(value: Int);
+  Enabled(value: Bool);
+}
+
+enum OtherSwitchCollision {
+  Named(value: String);
+  Ranked(value: Int);
+}
+
+enum OptionalConstructor {
+  Required(value: String);
+  Maybe(value: String, ?label: String);
+}
+
 enum abstract Str(String) to String {
   final A = 'a';
 }
@@ -36,6 +52,32 @@ class TestEnum {
 
   public function testConstructorOrder()
     return assert(Asc.getName().toUpperCase() == 'ASC');
+
+  public function testOptionalConstructorArgument()
+    return switch Maybe("value") {
+      case Maybe(value, label):
+        assert(value == "value" && label == null);
+      case _:
+        assert(false);
+    }
+
+  @:asserts
+  public function testSwitchPatternVariableScopes() {
+    final first = switch Label("alpha") {
+      case Label(value): value;
+      case Count(value): Std.string(value);
+      case Enabled(value): Std.string(value);
+    }
+
+    final second = switch Ranked(2) {
+      case Named(value): value;
+      case Ranked(value): Std.string(value);
+    }
+
+    asserts.assert(first == "alpha");
+    asserts.assert(second == "2");
+    return asserts.done();
+  }
 
   #if (genes.enum_discriminator)
   public function testEnumDiscriminator() {

@@ -14,10 +14,11 @@ export class Boot {
 			t = "object";
 		};
 		switch (t) {
-			case "function":
+			case "function": {
 				return "<function>";
-				break
-			case "object":
+				break;
+			}
+			case "object": {
 				if ((o!).__enum__) {
 					let e: any = Register.hxEnums()[(o!).__enum__];
 					let con: any = e.__constructs__[(o!)._hx_index];
@@ -88,12 +89,15 @@ export class Boot {
 				s = s.substring(1);
 				str += "\n" + s + "}";
 				return str;
-				break
-			case "string":
+				break;
+			}
+			case "string": {
 				return Register.unsafeCast<string>(o);
-				break
-			default:
-			return String(o);
+				break;
+			}
+			default: {
+				return String(o);
+			}
 
 		};
 	}

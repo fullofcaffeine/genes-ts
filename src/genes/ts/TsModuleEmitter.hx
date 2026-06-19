@@ -2234,7 +2234,8 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   override function emitSwitch(cond: TypedExpr,
       cases: Array<{values: Array<TypedExpr>, expr: TypedExpr}>,
-      def: Null<TypedExpr>, leaf: TypedExpr->Void) {
+      def: Null<TypedExpr>, leaf: TypedExpr->Void,
+      ?leafStartsWithNewline: Bool = true) {
     write('switch ');
     emitValue(cond);
     write(' {');
@@ -2253,11 +2254,19 @@ class TsModuleEmitter extends JsModuleEmitter {
             write(':');
         }
       }
+      // TypeScript/JavaScript `case` clauses do not create lexical scopes by
+      // themselves. Wrap each body so Haxe enum-pattern locals with the same
+      // source name can be emitted as normal declarations in sibling cases.
+      write(' {');
       increaseIndent();
+      if (!leafStartsWithNewline)
+        writeNewline();
       leaf(c.expr);
       writeNewline();
-      write('break');
+      write('break;');
       decreaseIndent();
+      writeNewline();
+      write('}');
       writeNewline();
     }
     switch def {
@@ -2269,7 +2278,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         // without changing the successful-path semantics.
         if (cases.exists(c -> hasReturnExpr(c.expr))) {
           emitPos(cond.pos);
-          write('default:');
+          write('default: {');
           increaseIndent();
           writeNewline();
           write('throw ');
@@ -2277,11 +2286,19 @@ class TsModuleEmitter extends JsModuleEmitter {
           write(';');
           decreaseIndent();
           writeNewline();
+          write('}');
+          writeNewline();
         }
       case e:
         emitPos(e.pos);
-        write('default:');
+        write('default: {');
+        increaseIndent();
+        if (!leafStartsWithNewline)
+          writeNewline();
         leaf(e);
+        decreaseIndent();
+        writeNewline();
+        write('}');
         writeNewline();
     }
     decreaseIndent();
@@ -2754,6 +2771,8 @@ class TsModuleEmitter extends JsModuleEmitter {
           write('(');
           for (arg in join(args, write.bind(', '))) {
             emitIdent(arg.name);
+            if (arg.opt)
+              write('?');
             write(': ');
             emitType(arg.t);
           }
