@@ -520,7 +520,7 @@ class TypeEmitter {
             emitPos(field.pos);
             if (field.doc != null)
               writer.emitComment(field.doc);
-            write(field.name);
+            write(TypeUtil.classFieldName(field));
             if (field.meta.has(':optional'))
               write('?');
             write(': ');

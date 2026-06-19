@@ -38,9 +38,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   var jsxEmitTsx: Bool = false;
   var inAssignTarget: Bool = false;
   var currentClass: Null<ClassType> = null;
-  var currentReturnType: Null<Type> = null;
   var currentReturnIsVoidLike: Bool = false;
-  var currentExpectedValueType: Null<Type> = null;
   var generatedLocalNames: Map<Int, String> = [];
   var generatedLocalNameCounts: Map<String, Int> = [];
   var narrowedNonNullKeys: Array<String> = [];
@@ -925,7 +923,7 @@ class TsModuleEmitter extends JsModuleEmitter {
             else
               write('static ');
           }
-          emitMemberName(field.isStatic ? staticName(cl, field) : field.name);
+          emitMemberName(field.isStatic ? staticName(cl, field) : moduleFieldName(field));
           write(': ');
           // Node vs DOM timer handles: `setInterval` return type varies by lib.
           // Model `haxe.Timer.id` as whatever the host `setInterval` returns.
@@ -1003,7 +1001,7 @@ class TsModuleEmitter extends JsModuleEmitter {
               } else {
                 if (isAsync)
                   write('async ');
-                emitMemberName(field.name);
+                emitMemberName(moduleFieldName(field));
               }
 
               emitMethodTypeParams(field);
@@ -1169,7 +1167,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         write('Object.defineProperty(');
         emitIdent(className);
         write('.prototype, ');
-        emitString(field.name);
+        emitString(moduleFieldName(field));
         write(', {');
         increaseIndent();
         if (field.getter) {
@@ -1200,7 +1198,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         write('.seedProtoField(');
         emitIdent(className);
         write(', ');
-        emitString(field.name);
+        emitString(moduleFieldName(field));
         write(');');
         writeNewline();
       }
@@ -1506,18 +1504,6 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
   }
 
-  static function anonymousFieldType(t: Type, name: String): Null<Type> {
-    return switch haxe.macro.Context.follow(t) {
-      case TAnonymous(_.get() => anon):
-        final field = anon.fields.find(f -> f.name == name);
-        field == null ? null : field.type;
-      case TLazy(f):
-        anonymousFieldType(f(), name);
-      default:
-        null;
-    }
-  }
-
   static function stripNull(t: Type): Type {
     return switch t {
       case TAbstract(_.get() => {pack: [], name: "Null"}, [inner]):
@@ -1620,22 +1606,6 @@ class TsModuleEmitter extends JsModuleEmitter {
       default:
         super.emitValue(e);
     }
-  }
-
-  /**
-   * Emits a value with the type expected by its destination.
-   *
-   * Why: Haxe represents `genes.ts.Undefinable<T>` with a nullable runtime
-   * carrier, while the generated TS contract is deliberately `T | undefined`
-   * rather than `T | null`. Object literals already expose destination field
-   * types; local initializers and assignment right-hand sides need the same
-   * context so `Undefinable.absent()` remains real JavaScript `undefined`.
-   */
-  function emitValueWithExpectedType(expected: Null<Type>, expr: TypedExpr) {
-    final previous = currentExpectedValueType;
-    currentExpectedValueType = expected;
-    emitValue(expr);
-    currentExpectedValueType = previous;
   }
 
   override public function emitExpr(e: TypedExpr) {
@@ -1813,16 +1783,16 @@ class TsModuleEmitter extends JsModuleEmitter {
               write('return ');
               if (ret != null && !typeAllowsNull(ret) && typeAllowsNull(e1.t)
                   && isNarrowedNonNull(e1)) {
-                emitValue(e1);
+                emitValueWithExpectedType(ret, e1);
               } else if (ret != null && !typeAllowsNull(ret) && typeAllowsNull(e1.t)) {
                 write(ctx.typeAccessor(TypeUtil.registerType));
                 write('.unsafeCast<');
                 TypeEmitter.emitType(this, ret);
                 write('>(');
-                emitValue(e1);
+                emitValueWithExpectedType(ret, e1);
                 write(')');
               } else {
-                emitValue(e1);
+                emitValueWithExpectedType(ret, e1);
               }
             }
         }
@@ -2271,11 +2241,12 @@ class TsModuleEmitter extends JsModuleEmitter {
   function emitObjectDeclWithFieldTypes(e: TypedExpr,
       fields: Array<{name: String, expr: TypedExpr}>) {
     write('{');
+    final objectType = currentExpectedValueType != null ? currentExpectedValueType : e.t;
     for (field in join(fields, write.bind(', '))) {
       emitPos(field.expr.pos);
-      emitString(field.name);
+      emitString(TypeUtil.anonymousFieldName(objectType, field.name));
       write(': ');
-      emitValueWithExpectedType(anonymousFieldType(e.t, field.name),
+      emitValueWithExpectedType(TypeUtil.anonymousFieldType(objectType, field.name),
         field.expr);
     }
     write('}');
@@ -2414,10 +2385,16 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   static function fieldAccessName(field: FieldAccess): Null<String> {
     return switch field {
-      case FInstance(_, _, cf) | FStatic(_, cf) | FAnon(cf): cf.get().name;
+      case FInstance(_, _, cf) | FStatic(_, cf) | FAnon(cf):
+        TypeUtil.classFieldName(cf.get());
       case FDynamic(name): name;
       default: null;
     }
+  }
+
+  static function moduleFieldName(field: GenesField): String {
+    final native = TypeUtil.nativeName(field.meta);
+    return native != null ? native : field.name;
   }
 
   static function isOverriddenField(field: FieldAccess): Bool {
@@ -2723,7 +2700,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         case FVar(_, _):
           writeNewline();
           emitPos(field.pos);
-          emitMemberName(field.name);
+          emitMemberName(TypeUtil.classFieldName(field));
           write(': ');
           final typeOverride = extractStringMeta(field.meta,
             ':ts.type') ?? extractStringMeta(field.meta, ':genes.type');
@@ -2735,7 +2712,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         case FMethod(_):
           writeNewline();
           emitPos(field.pos);
-          emitMemberName(field.name);
+          emitMemberName(TypeUtil.classFieldName(field));
           if (field.params != null && field.params.length > 0)
             emitTypeParamDecls(field.params.map(p -> p.t), true);
           write('(');

@@ -28,6 +28,23 @@ export type OptionalNameRecord = {
 	label?: string | null
 }
 
+export type NativeFunctionPayload = {
+	arguments: string,
+	name: string
+}
+
+/**
+* Fixture for Haxe-safe aliases over external JavaScript property names.
+*
+* `function` is a TypeScript/JavaScript keyword, so Haxe source uses `fn`.
+* `@:native("function")` requires generated TS types, object literals, and
+* field access to use the runtime property name while Haxe keeps typechecking
+* against the safe alias.
+*/
+export type NativeFunctionRecord = {
+	function: NativeFunctionPayload
+}
+
 export class BoundaryTypes {
 	static unknownValue<T>(value: T): unknown {
 		return value;
@@ -121,6 +138,12 @@ export class BoundaryTypes {
 			return (record.label!);
 		};
 	}
+	static nativeFunctionRecord(): NativeFunctionRecord {
+		return {"function": {"name": "lookup", "arguments": "{}"}};
+	}
+	static nativeFunctionSummary(record: NativeFunctionRecord): string {
+		return record["function"].name + ":" + record["function"]["arguments"];
+	}
 	static demo(): string {
 		let present: string | null = BoundaryTypes.normalize(BoundaryTypes.presentName());
 		let missing: string | null = BoundaryTypes.normalize(BoundaryTypes.missingName());
@@ -139,7 +162,8 @@ export class BoundaryTypes {
 		let optionalCopy: string = BoundaryTypes.copyOptionalItems({"items": ["a", "b"]}).join("");
 		let optionalJoin: string = BoundaryTypes.joinOptionalItems({"items": ["c", "d"]});
 		let optionalLabel: string = BoundaryTypes.labelOrFallback({"label": "typed"});
-		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + ((recordMissing == null) ? "none" : recordMissing) + ":" + ((localMissing == null) ? "none" : localMissing) + ":" + ((chosenMissing == null) ? "none" : chosenMissing) + ":" + ((assignedMissing == null) ? "none" : assignedMissing) + ":" + ((assignedChosen == null) ? "none" : assignedChosen) + ":" + ((optionalMissing == null) ? "none" : optionalMissing) + ":" + ((optionalDirectMissing == null) ? "none" : optionalDirectMissing) + ":" + ((guardedPresent == null) ? "none" : guardedPresent) + ":" + ((guardedMissing == null) ? "none" : guardedMissing) + ":" + guardedUpper + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel;
+		let nativeFunction: string = BoundaryTypes.nativeFunctionSummary(BoundaryTypes.nativeFunctionRecord());
+		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + ((recordMissing == null) ? "none" : recordMissing) + ":" + ((localMissing == null) ? "none" : localMissing) + ":" + ((chosenMissing == null) ? "none" : chosenMissing) + ":" + ((assignedMissing == null) ? "none" : assignedMissing) + ":" + ((assignedChosen == null) ? "none" : assignedChosen) + ":" + ((optionalMissing == null) ? "none" : optionalMissing) + ":" + ((optionalDirectMissing == null) ? "none" : optionalDirectMissing) + ":" + ((guardedPresent == null) ? "none" : guardedPresent) + ":" + ((guardedMissing == null) ? "none" : guardedMissing) + ":" + guardedUpper + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel + ":" + nativeFunction;
 	}
 	static get __name__(): string {
 		return "foo.BoundaryTypes"

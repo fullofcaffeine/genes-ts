@@ -52,10 +52,67 @@ class TypeUtil {
     return loop(e);
   }
 
+  /**
+   * Returns the runtime/member name requested by `@:native`.
+   *
+   * Why: Haxe code often needs a legal Haxe identifier for a field whose
+   * JavaScript shape uses a reserved word or external API spelling, for example
+   * `@:native("function") final fn:...`. The Haxe name must stay available for
+   * typechecking, but emitted JS/TS must use the native property name.
+   *
+   * What/How: only the literal-string metadata form is considered here. Other
+   * metadata shapes are ignored so diagnostics can remain centralized in a
+   * future metadata validation pass rather than scattered through emitters.
+   */
+  public static function nativeName(meta: Null<MetaAccess>): Null<String> {
+    if (meta == null)
+      return null;
+    return switch meta.extract(':native') {
+      case [{params: [{expr: EConst(CString(name))}]}]:
+        name;
+      default:
+        null;
+    }
+  }
+
+  public static function classFieldName(field: ClassField): String {
+    final native = nativeName(field.meta);
+    return native != null ? native : field.name;
+  }
+
+  public static function anonymousField(type: Type,
+      name: String): Null<ClassField> {
+    return switch Context.follow(type) {
+      case TAnonymous(_.get() => anon):
+        var found: Null<ClassField> = null;
+        for (field in anon.fields)
+          if (field.name == name) {
+            found = field;
+            break;
+          }
+        found;
+      case TLazy(f):
+        anonymousField(f(), name);
+      default:
+        null;
+    }
+  }
+
+  public static function anonymousFieldType(type: Type,
+      name: String): Null<Type> {
+    final field = anonymousField(type, name);
+    return field == null ? null : field.type;
+  }
+
+  public static function anonymousFieldName(type: Type, name: String): String {
+    final field = anonymousField(type, name);
+    return field == null ? name : classFieldName(field);
+  }
+
   public static function fieldName(f: FieldAccess): String
     return switch f {
       case FAnon(f), FInstance(_, _, f), FStatic(_, f), FClosure(_, f):
-        f.get().name;
+        classFieldName(f.get());
       case FEnum(_, f): f.name;
       case FDynamic(n): n;
     }

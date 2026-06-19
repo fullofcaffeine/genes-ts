@@ -30,6 +30,24 @@ typedef OptionalNameRecord = {
   @:optional final label:String;
 }
 
+typedef NativeFunctionPayload = {
+  final name:String;
+  final arguments:String;
+}
+
+/**
+ * Fixture for Haxe-safe aliases over external JavaScript property names.
+ *
+ * `function` is a TypeScript/JavaScript keyword, so Haxe source uses `fn`.
+ * `@:native("function")` requires generated TS types, object literals, and
+ * field access to use the runtime property name while Haxe keeps typechecking
+ * against the safe alias.
+ */
+typedef NativeFunctionRecord = {
+  @:native("function")
+  final fn:NativeFunctionPayload;
+}
+
 class BoundaryTypes {
   public static function unknownValue<T>(value:T):Unknown {
     return Unknown.fromBoundary(value);
@@ -124,6 +142,19 @@ class BoundaryTypes {
     return record.label == null || record.label == "" ? "fallback" : record.label;
   }
 
+  public static function nativeFunctionRecord():NativeFunctionRecord {
+    return {
+      fn: {
+        name: "lookup",
+        arguments: "{}"
+      }
+    };
+  }
+
+  public static function nativeFunctionSummary(record:NativeFunctionRecord):String {
+    return record.fn.name + ":" + record.fn.arguments;
+  }
+
   public static function demo():String {
     final present = normalize(presentName());
     final missing = normalize(missingName());
@@ -142,6 +173,7 @@ class BoundaryTypes {
     final optionalCopy = copyOptionalItems({items: ["a", "b"]}).join("");
     final optionalJoin = joinOptionalItems({items: ["c", "d"]});
     final optionalLabel = labelOrFallback({label: "typed"});
-    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (localMissing == null ? "none" : localMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + (assignedMissing == null ? "none" : assignedMissing) + ":" + (assignedChosen == null ? "none" : assignedChosen) + ":" + (optionalMissing == null ? "none" : optionalMissing) + ":" + (optionalDirectMissing == null ? "none" : optionalDirectMissing) + ":" + (guardedPresent == null ? "none" : guardedPresent) + ":" + (guardedMissing == null ? "none" : guardedMissing) + ":" + guardedUpper + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel;
+    final nativeFunction = nativeFunctionSummary(nativeFunctionRecord());
+    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (localMissing == null ? "none" : localMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + (assignedMissing == null ? "none" : assignedMissing) + ":" + (assignedChosen == null ? "none" : assignedChosen) + ":" + (optionalMissing == null ? "none" : optionalMissing) + ":" + (optionalDirectMissing == null ? "none" : optionalDirectMissing) + ":" + (guardedPresent == null ? "none" : guardedPresent) + ":" + (guardedMissing == null ? "none" : guardedMissing) + ":" + guardedUpper + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalLabel + ":" + nativeFunction;
   }
 }

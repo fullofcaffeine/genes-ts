@@ -205,10 +205,20 @@ class ModuleEmitter extends ExprEmitter {
   }
 
   function staticName(cl: ClassType, field: Field)
-    return switch [cl.isExtern, field.name] {
+    return switch TypeUtil.nativeName(field.meta) {
+      case null:
+        switch [cl.isExtern, field.name] {
       case [false, name = 'name' | 'length']: '$' + name;
       default: field.name;
     }
+      case native:
+        native;
+    }
+
+  function memberName(field: Field): String {
+    final native = TypeUtil.nativeName(field.meta);
+    return native != null ? native : field.name;
+  }
 
   function emitStatic(cl: ClassType, field: Field) {
     writeNewline();
@@ -228,7 +238,7 @@ class ModuleEmitter extends ExprEmitter {
     write(', ');
     emitString(staticName(cl, field));
     write(', function () { return ');
-    emitValue(field.expr);
+    emitValueWithExpectedType(field.type, field.expr);
     write(' })');
   }
 
@@ -339,12 +349,12 @@ class ModuleEmitter extends ExprEmitter {
               } else {
                 if (isAsync)
                   write('async ');
-                write(field.name);
+                write(memberName(field));
               }
               write('(');
               emitFunctionArguments(f);
               write(') ');
-              emitExpr(getFunctionBody(f));
+              emitFunctionBody(f);
             default:
           }
         case Property:
@@ -354,7 +364,7 @@ class ModuleEmitter extends ExprEmitter {
             if (field.isStatic)
               write('static ');
             write('get ');
-            write(field.name);
+            write(memberName(field));
             write('() {');
             increaseIndent();
             writeNewline();
@@ -371,7 +381,7 @@ class ModuleEmitter extends ExprEmitter {
             if (field.isStatic)
               write('static ');
             write('set ');
-            write(field.name);
+            write(memberName(field));
             write('(v) {');
             increaseIndent();
             writeNewline();
@@ -446,7 +456,7 @@ class ModuleEmitter extends ExprEmitter {
             emitIdent(TypeUtil.className(cl));
             write('.prototype.');
             emitPos(field.pos);
-            write(field.name);
+            write(memberName(field));
             write(' = null;');
           }
         default:

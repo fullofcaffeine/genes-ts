@@ -105,6 +105,8 @@ class ExprEmitter extends Emitter {
   var idCounter: Int = 0;
   var inLoop: Bool = false;
   var extendsExtern: Option<TypeAccessor> = None;
+  var currentExpectedValueType: Null<Type> = null;
+  var currentReturnType: Null<Type> = null;
 
   var declare = #if (js_es == 6) 'let'; #else 'var'; #end
 
@@ -132,7 +134,12 @@ class ExprEmitter extends Emitter {
         writeSpace();
         writeBinop(op);
         writeSpace();
-        emitValue(e2);
+        switch op {
+          case OpAssign | OpAssignOp(_):
+            emitValueWithExpectedType(e1.t, e2);
+          default:
+            emitValue(e2);
+        }
       case TField(x, f) if (fieldName(f) == "iterator" && isDynamicIterator(x)):
         switch (f) {
           case FStatic(c, cf):
@@ -236,7 +243,7 @@ class ExprEmitter extends Emitter {
         write('async function (');
         emitFunctionArguments(f);
         write(') ');
-        emitExpr(getFunctionBody(f));
+        emitFunctionBody(f);
         this.inValue = inValue;
         this.inLoop = inLoop;
       case TMeta({name: ':loopLabel', params: [{expr: EConst(CInt(n))}]}, e):
@@ -256,7 +263,7 @@ class ExprEmitter extends Emitter {
           case eo:
             emitPos(e.pos);
             write('return ');
-            emitValue(eo);
+            emitValueWithExpectedType(currentReturnType, eo);
         }
       case TBreak:
         if (!inLoop)
@@ -282,7 +289,7 @@ class ExprEmitter extends Emitter {
         write('function (');
         emitFunctionArguments(f);
         write(') ');
-        emitExpr(getFunctionBody(f));
+        emitFunctionBody(f);
         this.inValue = inValue;
         this.inLoop = inLoop;
       case TCall({
@@ -371,11 +378,13 @@ class ExprEmitter extends Emitter {
         this.inLoop = inLoop;
       case TObjectDecl(fields):
         write('{');
+        final objectType = currentExpectedValueType != null ? currentExpectedValueType : e.t;
         for (field in join(fields, write.bind(', '))) {
           emitPos(field.expr.pos);
-          emitString(field.name);
+          emitString(anonymousFieldName(objectType, field.name));
           write(': ');
-          emitValue(field.expr);
+          emitValueWithExpectedType(anonymousFieldType(objectType, field.name),
+            field.expr);
         }
         write('}');
       case TFor(v, it, e):
@@ -696,6 +705,33 @@ class ExprEmitter extends Emitter {
     }
   }
 
+  /**
+   * Emits a value with the type expected by its destination.
+   *
+   * Why: anonymous object literals can lose declaration metadata on their own
+   * typed expression, while the destination type still knows field contracts
+   * such as `@:native("...")`. Threading expected type context lets both JS and
+   * TS emitters preserve external property names for local initializers,
+   * assignments, nested object fields, and returns.
+   *
+   * How: this is only contextual emission state. It does not cast or retag the
+   * Haxe expression; callees may consult `currentExpectedValueType` when they
+   * need destination metadata that is absent from `expr.t`.
+   */
+  function emitValueWithExpectedType(expected: Null<Type>, expr: TypedExpr) {
+    final previous = currentExpectedValueType;
+    currentExpectedValueType = expected;
+    emitValue(expr);
+    currentExpectedValueType = previous;
+  }
+
+  function emitFunctionBody(f: TFunc) {
+    final previous = currentReturnType;
+    currentReturnType = f.t;
+    emitExpr(getFunctionBody(f));
+    currentReturnType = previous;
+  }
+
   function emitSwitch(cond: TypedExpr,
       cases: Array<{values: Array<TypedExpr>, expr: TypedExpr}>,
       def: Null<TypedExpr>, leaf: TypedExpr->Void,
@@ -880,7 +916,7 @@ class ExprEmitter extends Emitter {
       case null:
       case e:
         write(' = ');
-        emitValue(e);
+        emitValueWithExpectedType(v.t, e);
     }
   }
 

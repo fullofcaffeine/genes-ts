@@ -173,7 +173,7 @@ class DefinitionEmitter extends ModuleEmitter {
         case {isStatic: true, isPublic: true}:
           emitPos(field.pos);
           write('export const ');
-          emitIdent(field.name);
+          emitIdent(TypeUtil.nativeName(field.meta) ?? field.name);
           write(': ');
           if (field.tsType != null)
             write(field.tsType);
@@ -227,7 +227,7 @@ class DefinitionEmitter extends ModuleEmitter {
                 write('static ');
               emitPos(field.pos);
               write(if (field.kind.equals(Constructor)) 'constructor' else
-                field.name);
+                TypeUtil.nativeName(field.meta) ?? field.name);
               final tsType = field.meta != null
                 ? (switch field.meta.extract(':ts.type') {
                   case [{params: [{expr: EConst(CString(type))}]}]:
@@ -321,7 +321,7 @@ class DefinitionEmitter extends ModuleEmitter {
             write('static ');
           if (field.getter && !field.setter)
             write('readonly ');
-          write(field.name);
+          write(TypeUtil.nativeName(field.meta) ?? field.name);
           write(': ');
           if (field.tsType != null)
             write(field.tsType);
