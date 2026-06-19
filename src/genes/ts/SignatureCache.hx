@@ -1,6 +1,7 @@
 package genes.ts;
 
 import haxe.macro.Context;
+import haxe.macro.Expr.Position;
 import haxe.macro.Type;
 
 typedef CachedArg = {
@@ -15,8 +16,32 @@ typedef CachedSig = {
 }
 
 #if macro
+/**
+ * Captures declaration-time TypeScript typing facts before Haxe/Genes lowering
+ * follows abstracts into their runtime representation.
+ *
+ * Why: enum abstracts such as DOM string enums are strong Haxe types at the
+ * source boundary, but later typed expression nodes often look like plain
+ * `String`. The TypeScript emitter still needs the source-level contract so it
+ * can print `"a" | "b"` instead of widening locals, fields, and typedef members
+ * back to `string`.
+ *
+ * What: this cache records only narrow facts that the normal emitter already
+ * knows how to print safely: method argument/return literal unions, class field
+ * literal unions, and anonymous typedef field literal unions. It deliberately
+ * does not store arbitrary rendered types, because that would make this cache a
+ * shadow type printer.
+ *
+ * How: `install()` registers an `onAfterTyping` hook. At that point the compiler
+ * has resolved declarations and positions, but later JS/codegen phases have not
+ * erased enum abstracts from every expression. Emitters then consult this cache
+ * by declaration key or source position when Haxe's current expression type has
+ * become too broad for idiomatic strict TypeScript.
+ */
 class SignatureCache {
   @:persistent static var sigs: Map<String, CachedSig> = new Map();
+  @:persistent static var fieldTsTypes: Map<String, String> = new Map();
+  @:persistent static var anonFieldTsTypes: Map<String, String> = new Map();
 
   static inline function classFullName(cl: ClassType): String {
     final declaredPath = cl.pack.concat([cl.name]).join('.');
@@ -28,6 +53,11 @@ class SignatureCache {
     return clFullName + '::' + (isStatic ? 'S:' : 'I:') + fieldName;
   }
 
+  static function posKey(pos: Position): String {
+    final info = Context.getPosInfos(pos);
+    return info.file + ':' + info.min + ':' + info.max;
+  }
+
   static function unlazy(t: Type): Type {
     return switch t {
       case TLazy(f):
@@ -37,10 +67,29 @@ class SignatureCache {
     }
   }
 
-  static function followTypedefs(t: Type): Type {
-    return switch t {
+  static function typeVisitKey(t: Type): Null<String> {
+    return switch unlazy(t) {
+      case TType(_.get() => dt, _):
+        'T:' + dt.module + '.' + dt.name;
+      case TAbstract(_.get() => ab, _):
+        'A:' + ab.module + '.' + ab.name;
+      default:
+        null;
+    }
+  }
+
+  static function followTypedefs(t: Type, ?seen: Map<String, Bool>): Type {
+    if (seen == null)
+      seen = new Map();
+    return switch unlazy(t) {
       case TType(_, _):
-        followTypedefs(Context.follow(t));
+        final key = typeVisitKey(t);
+        if (key != null) {
+          if (seen.exists(key))
+            return t;
+          seen.set(key, true);
+        }
+        followTypedefs(Context.follow(t), seen);
       default:
         t;
     }
@@ -117,6 +166,39 @@ class SignatureCache {
     }
   }
 
+  static function storeFieldType(cl: ClassType, isStatic: Bool,
+      fieldName: String, type: Type): Void {
+    final tsType = enumAbstractLiteralUnionTsType(type);
+    if (tsType != null)
+      fieldTsTypes.set(keyFor(classFullName(cl), isStatic, fieldName), tsType);
+  }
+
+  static function captureAnonFieldTypes(type: Type, ?seen: Map<String, Bool>): Void {
+    if (seen == null)
+      seen = new Map();
+    switch unlazy(type) {
+      case TAbstract(_.get() => {pack: [], name: "Null"}, [inner]) |
+        TType(_.get() => {pack: [], name: "Null"}, [inner]):
+        captureAnonFieldTypes(inner, seen);
+      case TType(_, _):
+        final key = typeVisitKey(type);
+        if (key != null) {
+          if (seen.exists(key))
+            return;
+          seen.set(key, true);
+        }
+        captureAnonFieldTypes(Context.follow(type), seen);
+      case TAnonymous(_.get() => anon):
+        for (field in anon.fields) {
+          final tsType = enumAbstractLiteralUnionTsType(field.type);
+          if (tsType != null)
+            anonFieldTsTypes.set(posKey(field.pos), tsType);
+          captureAnonFieldTypes(field.type, seen);
+        }
+      default:
+    }
+  }
+
   static function captureClass(cl: ClassType): Void {
     switch cl.constructor {
       case null:
@@ -131,6 +213,7 @@ class SignatureCache {
         case FMethod(_):
           storeSig(cl, false, f.name, f.type);
         case FVar(_, _):
+          storeFieldType(cl, false, f.name, f.type);
       }
     }
     for (f in cl.statics.get()) {
@@ -138,6 +221,7 @@ class SignatureCache {
         case FMethod(_):
           storeSig(cl, true, f.name, f.type);
         case FVar(_, _):
+          storeFieldType(cl, true, f.name, f.type);
       }
     }
   }
@@ -145,6 +229,8 @@ class SignatureCache {
   public static function install(): Void {
     // Reset for each compilation.
     sigs = new Map();
+    fieldTsTypes = new Map();
+    anonFieldTsTypes = new Map();
 
     // `onAfterTyping` runs before the JS generator rewrites types (e.g. by
     // following abstracts). Capture declared signatures for TS emission.
@@ -153,6 +239,8 @@ class SignatureCache {
         switch t {
           case TClassDecl(ref):
             captureClass(ref.get());
+          case TTypeDecl(ref):
+            captureAnonFieldTypes(ref.get().type);
           default:
         }
       }
@@ -162,6 +250,15 @@ class SignatureCache {
   public static function getSig(cl: ClassType, isStatic: Bool,
       fieldName: String): Null<CachedSig> {
     return sigs.get(keyFor(classFullName(cl), isStatic, fieldName));
+  }
+
+  public static function getFieldTsType(cl: ClassType, isStatic: Bool,
+      fieldName: String): Null<String> {
+    return fieldTsTypes.get(keyFor(classFullName(cl), isStatic, fieldName));
+  }
+
+  public static function getAnonFieldTsType(pos: Position): Null<String> {
+    return anonFieldTsTypes.get(posKey(pos));
   }
 }
 #end

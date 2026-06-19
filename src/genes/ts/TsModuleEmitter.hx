@@ -1469,10 +1469,11 @@ class TsModuleEmitter extends JsModuleEmitter {
       && typeAllowsNull(v.t)
       && isNarrowedOptionalField(eo);
     final emittedType = narrowedOptionalInit ? stripNull(v.t) : v.t;
+    final emittedTypeOverride = narrowedOptionalInit ? null : localTsTypeOverride(eo);
     write('$declare ');
     emitLocalVar(v);
     write(': ');
-    TypeEmitter.emitType(this, emittedType);
+    emitLocalType(emittedType, emittedTypeOverride);
     switch (eo) {
       case null:
       case {expr: TConst(TNull)}:
@@ -1482,7 +1483,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           write(' = ');
           write(ctx.typeAccessor(TypeUtil.registerType));
           write('.unsafeCast<');
-          TypeEmitter.emitType(this, emittedType);
+          emitLocalType(emittedType, emittedTypeOverride);
           write('>(null)');
         }
       case e:
@@ -1495,7 +1496,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           && !typeAllowsNull(emittedType) && typeAllowsNull(e.t)) {
           write(ctx.typeAccessor(TypeUtil.registerType));
           write('.unsafeCast<');
-          TypeEmitter.emitType(this, emittedType);
+          emitLocalType(emittedType, emittedTypeOverride);
           write('>(');
           emitValueWithExpectedType(emittedType, e);
           write(')');
@@ -1503,6 +1504,91 @@ class TsModuleEmitter extends JsModuleEmitter {
           emitValueWithExpectedType(emittedType, e);
         }
     }
+  }
+
+  /**
+   * Reuses declaration-time TS literal unions for locals whose Haxe expression
+   * type has already widened to the enum abstract's primitive representation.
+   *
+   * Why: Haxe enum abstracts erase to their underlying primitive in many typed
+   * expression positions, so locals such as `final mode: Mode = choose()` or
+   * `final mode: Mode = record.mode` can arrive here as `String` even though the
+   * declaration that produced the value is emitted as `"a" | "b"`. TypeScript
+   * then rejects passing that local to a parameter that still has the literal
+   * union type.
+   *
+   * What: when the initializer is a call to a cached method, a cached class
+   * field read, or an anonymous typedef field read, use the cached TS type for
+   * the local annotation. The expression itself is unchanged, and classic JS
+   * output is unaffected because this logic lives only in the TS emitter.
+   *
+   * How: `SignatureCache` records enum-abstract literal unions during
+   * `onAfterTyping`, before later compiler phases follow abstracts. This helper
+   * bridges that declaration-time fact back into local variable emission.
+   */
+  function localTsTypeOverride(eo: Null<TypedExpr>): Null<String> {
+    return eo == null ? null : cachedInitializerTsType(eo);
+  }
+
+  function cachedInitializerTsType(expr: TypedExpr): Null<String> {
+    return switch expr.expr {
+      case TCall(callee, _):
+        cachedCallableReturnTsType(callee);
+      case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, _):
+        cachedInitializerTsType(inner);
+      default:
+        cachedFieldValueTsType(expr);
+    }
+  }
+
+  function cachedCallableReturnTsType(expr: TypedExpr): Null<String> {
+    return switch expr.expr {
+      case TField(_, FStatic(_.get() => cl, _.get() => field)):
+        final sig = SignatureCache.getSig(cl, true, field.name);
+        sig == null ? null : sig.retTsType;
+      case TField(_, FInstance(_.get() => cl, _, _.get() => field)):
+        final sig = SignatureCache.getSig(cl, false, field.name);
+        sig == null ? null : sig.retTsType;
+      case TField(_, FClosure({c: _.get() => cl}, _.get() => field)):
+        final sig = SignatureCache.getSig(cl, false, field.name);
+        sig == null ? null : sig.retTsType;
+      case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, _):
+        cachedCallableReturnTsType(inner);
+      default:
+        null;
+    }
+  }
+
+  function cachedFieldValueTsType(expr: TypedExpr): Null<String> {
+    return switch expr.expr {
+      case TField(_, FStatic(_.get() => cl, _.get() => field)):
+        switch field.kind {
+          case FVar(_, _):
+            SignatureCache.getFieldTsType(cl, true, field.name);
+          default:
+            null;
+        }
+      case TField(_, FInstance(_.get() => cl, _, _.get() => field)):
+        switch field.kind {
+          case FVar(_, _):
+            SignatureCache.getFieldTsType(cl, false, field.name);
+          default:
+            null;
+        }
+      case TField(_, FAnon(_.get() => field)):
+        SignatureCache.getAnonFieldTsType(field.pos);
+      case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, _):
+        cachedFieldValueTsType(inner);
+      default:
+        null;
+    }
+  }
+
+  function emitLocalType(type: Type, typeOverride: Null<String>): Void {
+    if (typeOverride != null)
+      write(typeOverride);
+    else
+      TypeEmitter.emitType(this, type);
   }
 
   static function extractTypeArgs(t: Type): Array<Type> {
@@ -2941,6 +3027,14 @@ class TsModuleEmitter extends JsModuleEmitter {
   function emitFieldTsType(field: GenesField) {
     if (field.tsType != null) {
       write(field.tsType);
+      return;
+    }
+
+    final cachedFieldType = currentClass == null
+      ? null
+      : SignatureCache.getFieldTsType(currentClass, field.isStatic, field.name);
+    if (cachedFieldType != null) {
+      write(cachedFieldType);
       return;
     }
 

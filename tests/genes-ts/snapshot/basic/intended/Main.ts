@@ -32,7 +32,10 @@ export class Main {
 		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:24:",BoundaryTypes.demo());
 		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:25:",Placeholder.demo());
 		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:26:",EnumAbstract.demo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:27:",Main.Theme.name + ":" + Main.Theme.accent);
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:27:",EnumAbstract.localDemo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:28:",EnumAbstract.fieldLocalDemo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:29:",EnumAbstract.recordDemo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:30:",Main.Theme.name + ":" + Main.Theme.accent);
 	}
 	static get __name__(): string {
 		return "Main"

@@ -16,7 +16,7 @@ export type MediaKeySystemConfiguration = {
 	/**
 	Indicates whether a persistent distinctive identifier is required.
 	*/
-	distinctiveIdentifier?: string | null,
+	distinctiveIdentifier?: "not-allowed" | "optional" | "required" | null,
 	/**
 	Returns a list of supported initialization data type names. An initialization data type is a string indicating the format of the initialization data.
 	*/
@@ -25,7 +25,7 @@ export type MediaKeySystemConfiguration = {
 	/**
 	Indicates whether the ability to persist state is required.
 	*/
-	persistentState?: string | null,
+	persistentState?: "not-allowed" | "optional" | "required" | null,
 	sessionTypes?: string[] | null,
 	/**
 	Returns a list of supported video type and capability pairs.

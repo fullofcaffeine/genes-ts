@@ -5,7 +5,7 @@ export type ContextAttributes = {
 	antialias?: boolean | null,
 	depth?: boolean | null,
 	failIfMajorPerformanceCaveat?: boolean | null,
-	powerPreference?: string | null,
+	powerPreference?: "default" | "high-performance" | "low-power" | null,
 	premultipliedAlpha?: boolean | null,
 	preserveDrawingBuffer?: boolean | null,
 	stencil?: boolean | null

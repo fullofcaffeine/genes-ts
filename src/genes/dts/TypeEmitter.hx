@@ -114,6 +114,12 @@ class TypeEmitter {
   static function enumAbstractLiteralUnion(ab: AbstractType): Null<Array<String>> {
     if (ab == null || ab.impl == null || !ab.meta.has(':enum'))
       return null;
+    // A `from` conversion means arbitrary values of another type may enter the
+    // abstract, so the declared enum constants are documentation/convenience,
+    // not a closed value set. Emitting a TS literal union there would reject
+    // legal Haxe programs such as `enum abstract ErrorCode(Int) from Int`.
+    if (ab.from.length > 0)
+      return null;
 
     inline function fullNameOf(t: AbstractType): String {
       final parts = t.module.split('.');
@@ -533,7 +539,18 @@ class TypeEmitter {
             final fieldType = field.meta.has(':optional')
               ? stripOptionalUndefinableNull(field.type)
               : field.type;
-            emitType(writer, fieldType, false);
+            // Anonymous typedef fields can carry enum abstracts whose typed
+            // expression form later looks like the primitive backing type. In
+            // genes-ts mode, reuse the declaration-time literal union captured
+            // by SignatureCache so type aliases stay as precise as method
+            // signatures and class fields.
+            final cachedFieldType = Context.defined('genes.ts')
+              ? genes.ts.SignatureCache.getAnonFieldTsType(field.pos)
+              : null;
+            if (cachedFieldType != null)
+              write(cachedFieldType);
+            else
+              emitType(writer, fieldType, false);
           }
           writer.decreaseIndent();
           writer.writeNewline();

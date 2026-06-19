@@ -1,6 +1,6 @@
 import {Register} from "../../../genes/Register"
 
 export type OpenDBOptions = {
-	storage?: string | null,
+	storage?: "default" | "persistent" | "temporary" | null,
 	version?: number | null
 }

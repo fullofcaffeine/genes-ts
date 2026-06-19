@@ -1,7 +1,7 @@
 import {Register} from "../../genes/Register"
 
 export type ScrollToOptions = {
-	behavior?: string | null,
+	behavior?: "auto" | "instant" | "smooth" | null,
 	left?: number | null,
 	top?: number | null
 }

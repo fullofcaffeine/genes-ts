@@ -1,6 +1,6 @@
 import {Register} from "../../genes/Register"
 
 export type ConvertCoordinateOptions = {
-	fromBox?: string | null,
-	toBox?: string | null
+	fromBox?: "border" | "content" | "margin" | "padding" | null,
+	toBox?: "border" | "content" | "margin" | "padding" | null
 }

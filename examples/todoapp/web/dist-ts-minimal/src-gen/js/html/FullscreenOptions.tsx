@@ -7,5 +7,5 @@ export type FullscreenOptions = {
 	/**
 	Controls whether or not to show navigation UI while the element is in fullscreen mode.
 	*/
-	navigationUI?: string | null
+	navigationUI?: "auto" | "hide" | "show" | null
 }

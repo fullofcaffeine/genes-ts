@@ -12,13 +12,13 @@ export type NumberFormatOptions = {
 	How to display the currency in currency formatting.
 	The default is `Symbol`.
 	*/
-	currencyDisplay?: string | null,
+	currencyDisplay?: "code" | "name" | "symbol" | null,
 	/**
 	The locale matching algorithm to use.
 	The default is `BestFit`.
 	For information about this option, see the [Intl page](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Intl#Locale_negotiation).
 	*/
-	localeMatcher?: string | null,
+	localeMatcher?: "best fit" | "lookup" | null,
 	/**
 	The maximum number of fraction digits to use.
 	Possible values are from 0 to 20; the default for plain number formatting is the larger of
@@ -55,7 +55,7 @@ export type NumberFormatOptions = {
 	The formatting style to use.
 	The default is `Decimal`.
 	*/
-	style?: string | null,
+	style?: "currency" | "decimal" | "percent" | null,
 	/**
 	Whether to use grouping separators, such as thousands separators or thousand/lakh/crore separators.
 	The default is `true`.
@@ -94,7 +94,7 @@ export type NumberFormatResolvedOption = {
 	The value requested using the Unicode extension key `"nu"` or filled in as a default.
 	*/
 	numberingSystem: string,
-	style: string,
+	style: "currency" | "decimal" | "percent",
 	/**
 	The values provided for these properties in the `options` argument or filled in as defaults.
 	*/
@@ -102,7 +102,7 @@ export type NumberFormatResolvedOption = {
 }
 
 export type NumberFormatPart = {
-	type: string,
+	type: "currency" | "decimal" | "fraction" | "group" | "infinity" | "integer" | "literal" | "minusSign" | "nan" | "percentSign" | "plusSign",
 	value: string
 }
 
@@ -111,5 +111,5 @@ export type NumberFormatSupportedLocalesOfOptions = {
 	The locale matching algorithm to use.
 	The default is `BestFit`.
 	*/
-	localeMatcher?: string | null
+	localeMatcher?: "best fit" | "lookup" | null
 }

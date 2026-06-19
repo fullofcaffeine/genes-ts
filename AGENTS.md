@@ -32,7 +32,7 @@ Full Genes CI must pass before downstream projects rely on a local compiler chan
 
 - A compiler fix is not considered usable by downstream work until the full CI gate succeeds, including classic Genes JS mode, genes-ts TypeScript mode, snapshots, and security/dependency checks.
 - Focused tests are useful while iterating, but they are not enough to unblock downstream port work if full CI is red.
-- If full CI fails, stop downstream work and fix or explicitly resolve the Genes CI failure in this repo first. Do not continue building OpenCodeHX, codex-hxrust-style ports, or other downstream projects on top of an unproven compiler checkout.
+- If full CI fails, stop downstream work and fix or explicitly resolve the Genes CI failure in this repo first. Do not continue building downstream projects on top of an unproven compiler checkout.
 - If a CI failure is external or intentionally allowlisted, document the reason, the owning Bead, and the exact command/output proving the remaining compiler gates are healthy before downstream work resumes.
 
 ## Target-Polymorphic Type Helpers

@@ -15,7 +15,7 @@ export type EffectTiming = {
 	/**
 	Whether the animation runs forwards (`normal`), backwards (`reverse`), switches direction after each iteration (`alternate`), or runs backwards and switches direction after each iteration (`alternate-reverse`). Defaults to `"normal"`.
 	*/
-	direction?: string | null,
+	direction?: "alternate" | "alternate-reverse" | "normal" | "reverse" | null,
 	/**
 	The number of milliseconds each iteration of the animation takes to complete. Defaults to 0. Although this is technically optional, keep in mind that your animation will not run if this value is 0.
 	*/
@@ -31,7 +31,7 @@ export type EffectTiming = {
 	/**
 	Dictates whether the animation's effects should be reflected by the element(s) prior to playing (`"backwards"`), retained after the animation has completed playing (`"forwards"`), or `both`. Defaults to `"none"`.
 	*/
-	fill?: string | null,
+	fill?: "auto" | "backwards" | "both" | "forwards" | "none" | null,
 	/**
 	Describes at what point in the iteration the animation should start. 0.5 would indicate starting halfway through the first iteration for example, and with this value set, an animation with 2 iterations would end halfway through a third iteration. Defaults to 0.0.
 	*/

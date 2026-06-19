@@ -24,6 +24,9 @@ class Main {
     trace(BoundaryTypes.demo());
     trace(Placeholder.demo());
     trace(EnumAbstract.demo());
+    trace(EnumAbstract.localDemo());
+    trace(EnumAbstract.fieldLocalDemo());
+    trace(EnumAbstract.recordDemo());
     trace(Theme.name + ":" + Theme.accent);
   }
 }
