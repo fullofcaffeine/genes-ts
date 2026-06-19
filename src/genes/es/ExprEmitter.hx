@@ -106,7 +106,7 @@ class ExprEmitter extends Emitter {
   var inLoop: Bool = false;
   var extendsExtern: Option<TypeAccessor> = None;
 
-  var declare = #if (js_es == 6) 'let'; #else 'var'; #end
+  var declare = #if (js_es == 6 || genes.ts) 'let'; #else 'var'; #end
 
   public function emitExpr(e: TypedExpr) {
     emitPos(e.pos);
@@ -588,7 +588,7 @@ class ExprEmitter extends Emitter {
     }
     write("(function($this) {");
     increaseIndent();
-    write('var $$r$id');
+    write('$declare $$r$id');
     writeNewline();
     assigner(assign);
     writeNewline();

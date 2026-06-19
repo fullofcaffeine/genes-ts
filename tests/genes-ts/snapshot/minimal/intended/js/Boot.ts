@@ -25,7 +25,7 @@ export class Boot {
 					let n: string = con._hx_name;
 					if (con.__params__) {
 						s = s + "\t";
-						return n + "(" + ((function($this) {var $r0
+						return n + "(" + ((function($this) {let $r0
 							let _g: string[] = [];
 							{
 								let _g1: number = 0;

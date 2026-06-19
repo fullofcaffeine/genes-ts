@@ -1,0 +1,17 @@
+-lib helder.set
+
+-cp src
+-cp tests/genes-ts/no-js-es/src
+--main Main
+
+# Exercise `-D genes.ts` without the library extraParams `js-es=6` define.
+# Downstream dev checkouts can resolve genes-ts this way through haxelib paths.
+-js tests/genes-ts/no-js-es/out/src-gen/index.ts
+-D genes.ts
+
+--macro genes.Generator.use()
+--macro genes.js.Async.enable()
+--macro genes.react.InlineMarkup.enable()
+--macro addMetadata('@:genes.disableNativeAccessors', 'haxe.Exception')
+
+-dce full

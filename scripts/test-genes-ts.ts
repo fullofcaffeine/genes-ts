@@ -1,5 +1,5 @@
 import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
-import { cpSync, rmSync } from "node:fs";
+import { cpSync, readFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { assertNoUnsafeTypes } from "./typing-policy.js";
@@ -50,3 +50,22 @@ run("npx", [
 ]);
 
 run("node", ["tests/genes-ts/snapshot/basic/out/dist/index.js"]);
+
+rmrf("tests/genes-ts/no-js-es/out");
+run("haxe", ["tests/genes-ts/no-js-es/build.hxml"]);
+
+const noJsEsMain = readFileSync(
+  path.join(repoRoot, "tests/genes-ts/no-js-es/out/src-gen/Main.ts"),
+  "utf8"
+);
+if (!noJsEsMain.includes("let value: string") || noJsEsMain.includes("var value:")) {
+  throw new Error("genes.ts mode must emit block-scoped `let` locals without relying on js-es=6");
+}
+
+run("npx", [
+  "-y",
+  "--package",
+  "typescript@5.5.4",
+  "-c",
+  "tsc -p tests/genes-ts/no-js-es/tsconfig.json"
+]);
