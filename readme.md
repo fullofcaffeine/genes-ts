@@ -102,6 +102,16 @@ Default when `-D genes.ts` is **not** set.
 
 Some JavaScript and TypeScript APIs distinguish shapes that plain Haxe does not model directly. For example, TypeScript often uses `T | undefined`, while Haxe normally reaches for `Null<T>`.
 
+The recommended authoring style for JS/TS ecosystem projects is **TS-minded Haxe**: write clear Haxe first, but model real TypeScript/JavaScript boundary contracts precisely when they matter. Use Haxe typedefs, enums, abstracts, externs, and small `genes.ts` helpers instead of broad `Dynamic` or raw emitted TypeScript strings.
+
+Examples of these helpers:
+
+- `genes.ts.Undefinable<T>` for APIs where absence is JavaScript `undefined`, not `null`.
+- `genes.ts.Unknown` for untrusted runtime values that should be decoded or narrowed before application code uses them.
+- `genes.ts.Imports` for typed imports from existing JS/TS/TSX modules without hand-writing fragile import strings at every call site.
+
+They are useful when the JavaScript/TypeScript ecosystem has a real contract that Haxe does not express directly. The helper gives that contract a Haxe name, keeps the unsafety or TS-specific syntax in one maintained place, and lets the compiler choose the right output for each target.
+
 genes-ts handles this with small Haxe helper abstractions instead of asking you to write raw TypeScript strings everywhere.
 
 `Undefinable<T>` means “a `T`, or JavaScript `undefined`.” It exists because many JS/TS APIs use `undefined` to mean “not provided,” while Haxe `Null<T>` naturally maps to `null`. Keeping that distinction matters for strict TypeScript APIs, optional object fields, DOM/Node/npm externs, and config/env maps where `null` and `undefined` are different contracts.
@@ -120,6 +130,8 @@ This is useful because one Haxe source can target both workflows:
 
 - **TypeScript mode** keeps the most precise, idiomatic TS surface possible.
 - **Classic JS mode** erases TS-only annotations while preserving equivalent ES6 runtime behavior.
+
+That means you can write Haxe with TypeScript in mind, compile to rich TypeScript for review and ecosystem interop, or compile to plain ES6 when performance, build simplicity, or runtime constraints make that preferable.
 
 ES6 support is not a lowest-common-denominator mode. TypeScript output should stay precise and readable; portability is implemented through maintainable compiler architecture and target-specific emitters.
 

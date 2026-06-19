@@ -52,9 +52,19 @@ Related knobs:
 
 The two modes are not meant to force two Haxe codebases. genes-ts should let you write one Haxe source tree and choose the output profile later.
 
+For JS/TS ecosystem projects, the recommended authoring model is **TS-minded Haxe**. Write normal Haxe, but keep the TypeScript boundary contracts in mind: use Haxe typedefs, enums, abstracts, externs, and focused `genes.ts` helpers where they make DOM, Node, npm, or generated declaration shapes more precise.
+
 For TypeScript-specific ecosystem concepts, prefer small Haxe helper types instead of raw emitted strings.
 
-`Undefinable<T>` is one of those helpers. It means “a `T`, or JavaScript `undefined`.” That is different from Haxe `Null<T>`/JavaScript `null`: many DOM, Node, npm, and strict TypeScript APIs use `undefined` for “not provided” and reject `null`.
+Current examples:
+
+| Helper | Why it exists | TS output idea | JS output idea |
+| --- | --- | --- | --- |
+| `genes.ts.Undefinable<T>` | Many TS APIs use `undefined` for “not provided” and reject `null`. Haxe `Null<T>` alone cannot express that contract. | `T | undefined` | Runtime value is `T` or real `undefined`. |
+| `genes.ts.Unknown` | Raw JSON, plugin payloads, host APIs, and caught JS values may be untrusted. TS `unknown` is safer than `any` because users must narrow/decode before use. | `unknown` | A contained Haxe abstract over the runtime value. |
+| `genes.ts.Imports` | Existing npm/TS/TSX modules need value, type, default, named, namespace, and attributed imports. Import syntax should be generated consistently instead of scattered as strings. | Idiomatic ESM imports and type imports. | Equivalent ESM imports in classic JS output where applicable. |
+
+`Undefinable<T>` means “a `T`, or JavaScript `undefined`.” That is different from Haxe `Null<T>`/JavaScript `null`: many DOM, Node, npm, and strict TypeScript APIs use `undefined` for “not provided” and reject `null`.
 
 For example:
 
@@ -79,6 +89,8 @@ In classic Genes JS output:
 - TypeScript-only annotations erase.
 - helper runtime behavior remains plain JavaScript/ES6.
 - unsupported helpers should fail with a documented target guard instead of producing misleading output.
+
+In practice, that lets a project compile the same Haxe source to rich, idiomatic TypeScript when it wants reviewable TS or deep ecosystem interop, and to plain ES6 when it wants a simpler/faster runtime pipeline.
 
 This portability goal must not reduce TypeScript quality. The TypeScript emitter should still print precise, idiomatic, readable TS. Internally, the compiler should model these helpers with shared semantics and target-specific emitters/printers rather than scattering one-off string rewrites through the codebase.
 
