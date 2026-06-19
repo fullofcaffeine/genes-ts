@@ -52,7 +52,11 @@ Related knobs:
 
 The two modes are not meant to force two Haxe codebases. genes-ts should let you write one Haxe source tree and choose the output profile later.
 
-For TypeScript-specific ecosystem concepts, prefer small Haxe helper types instead of raw emitted strings. For example:
+For TypeScript-specific ecosystem concepts, prefer small Haxe helper types instead of raw emitted strings.
+
+`Undefinable<T>` is one of those helpers. It means “a `T`, or JavaScript `undefined`.” That is different from Haxe `Null<T>`/JavaScript `null`: many DOM, Node, npm, and strict TypeScript APIs use `undefined` for “not provided” and reject `null`.
+
+For example:
 
 ```haxe
 import genes.ts.Undefinable;

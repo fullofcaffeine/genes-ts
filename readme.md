@@ -102,7 +102,9 @@ Default when `-D genes.ts` is **not** set.
 
 Some JavaScript and TypeScript APIs distinguish shapes that plain Haxe does not model directly. For example, TypeScript often uses `T | undefined`, while Haxe normally reaches for `Null<T>`.
 
-genes-ts handles this with small Haxe helper abstractions instead of asking you to write raw TypeScript strings everywhere:
+genes-ts handles this with small Haxe helper abstractions instead of asking you to write raw TypeScript strings everywhere.
+
+`Undefinable<T>` means “a `T`, or JavaScript `undefined`.” It exists because many JS/TS APIs use `undefined` to mean “not provided,” while Haxe `Null<T>` naturally maps to `null`. Keeping that distinction matters for strict TypeScript APIs, optional object fields, DOM/Node/npm externs, and config/env maps where `null` and `undefined` are different contracts.
 
 ```haxe
 import genes.ts.Undefinable;
