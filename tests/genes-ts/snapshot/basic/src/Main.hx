@@ -3,6 +3,7 @@ import foo.AsyncFoo;
 import foo.BoundaryTypes;
 import foo.Placeholder;
 import foo.EnumAbstract;
+import foo.Narrowing;
 import genes.ts.Imports;
 
 typedef ThemeFixture = {
@@ -27,6 +28,7 @@ class Main {
     trace(EnumAbstract.localDemo());
     trace(EnumAbstract.fieldLocalDemo());
     trace(EnumAbstract.recordDemo());
+    trace(Narrowing.switchExitingNull({value: "present"}));
     trace(Theme.name + ":" + Theme.accent);
   }
 }

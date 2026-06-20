@@ -2431,6 +2431,14 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   function continuationNonNullKeys(e: TypedExpr): Array<String> {
     return switch unwrapExpr(e).expr {
+      case TVar(v, init) if (init != null && isNarrowedNonNull(init)
+          && typeAllowsNull(v.t)):
+        // Haxe can introduce a nullable local while lowering patterns such as
+        // `case value:` in the non-null branch of a nullable switch. The
+        // initializer is already proven non-null by the surrounding branch, so
+        // carry that flow fact to the next statement and avoid emitting a
+        // TypeScript-only identity cast when the local is consumed immediately.
+        ['local:${v.id}'];
       case TIf(cond, thenExpr, null):
         final check = nullNarrowCheck(cond);
         check != null && definitelyExits(thenExpr)
