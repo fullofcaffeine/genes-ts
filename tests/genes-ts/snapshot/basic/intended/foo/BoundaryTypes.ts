@@ -234,6 +234,9 @@ export class BoundaryTypes {
 	static nativeOptionalDescription(record: NativeOptionalRecord): string | null {
 		return record["function"].description ?? null;
 	}
+	static nativeOptionalDescriptionPresent(record: NativeOptionalRecord): boolean {
+		return (record["function"].description ?? null) != null;
+	}
 	static firstWarningFeature(record: OptionalWarningsRecord): string {
 		return ((record.warnings ?? null)!)[0].feature;
 	}
@@ -266,8 +269,9 @@ export class BoundaryTypes {
 		let nativePushFunction: string = BoundaryTypes.nativeFunctionSummary(BoundaryTypes.nativeFunctionRecordsViaPush()[0]);
 		let nativeChoice: string = (BoundaryTypes.nativeFunctionChoiceObject() == null) ? "missing" : "choice";
 		let nativeOptional: string | null = BoundaryTypes.nativeOptionalDescription(BoundaryTypes.nativeOptionalRecord());
+		let nativeOptionalPresent: boolean = BoundaryTypes.nativeOptionalDescriptionPresent(BoundaryTypes.nativeOptionalRecord());
 		let warningFeature: string = BoundaryTypes.firstWarningFeature({"warnings": [{"feature": "topK"}]});
-		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + ((recordMissing == null) ? "none" : recordMissing) + ":" + ((localMissing == null) ? "none" : localMissing) + ":" + ((chosenMissing == null) ? "none" : chosenMissing) + ":" + ((assignedMissing == null) ? "none" : assignedMissing) + ":" + ((assignedChosen == null) ? "none" : assignedChosen) + ":" + ((conditionalFlag == null) ? "none" : (conditionalFlag) ? "true" : "false") + ":" + ((bridgeFlag == null) ? "none" : (bridgeFlag) ? "true" : "false") + ":" + ((optionalMissing == null) ? "none" : optionalMissing) + ":" + ((optionalDirectMissing == null) ? "none" : optionalDirectMissing) + ":" + ((guardedPresent == null) ? "none" : guardedPresent) + ":" + ((guardedMissing == null) ? "none" : guardedMissing) + ":" + guardedUpper + ":" + guardedCallValue + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalItemsCall + ":" + optionalLabel + ":" + optionalParamLabel + ":" + optionalNestedParamLabel + ":" + nativeFunction + ":" + nativeArrayFunction + ":" + nativePushFunction + ":" + nativeChoice + ":" + ((nativeOptional == null) ? "none" : nativeOptional) + ":" + warningFeature;
+		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + ((recordMissing == null) ? "none" : recordMissing) + ":" + ((localMissing == null) ? "none" : localMissing) + ":" + ((chosenMissing == null) ? "none" : chosenMissing) + ":" + ((assignedMissing == null) ? "none" : assignedMissing) + ":" + ((assignedChosen == null) ? "none" : assignedChosen) + ":" + ((conditionalFlag == null) ? "none" : (conditionalFlag) ? "true" : "false") + ":" + ((bridgeFlag == null) ? "none" : (bridgeFlag) ? "true" : "false") + ":" + ((optionalMissing == null) ? "none" : optionalMissing) + ":" + ((optionalDirectMissing == null) ? "none" : optionalDirectMissing) + ":" + ((guardedPresent == null) ? "none" : guardedPresent) + ":" + ((guardedMissing == null) ? "none" : guardedMissing) + ":" + guardedUpper + ":" + guardedCallValue + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalItemsCall + ":" + optionalLabel + ":" + optionalParamLabel + ":" + optionalNestedParamLabel + ":" + nativeFunction + ":" + nativeArrayFunction + ":" + nativePushFunction + ":" + nativeChoice + ":" + ((nativeOptional == null) ? "none" : nativeOptional) + ":" + ((nativeOptionalPresent) ? "present" : "missing") + ":" + warningFeature;
 	}
 	static get __name__(): string {
 		return "foo.BoundaryTypes"

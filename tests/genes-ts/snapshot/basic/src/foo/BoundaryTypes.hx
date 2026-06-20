@@ -288,6 +288,10 @@ class BoundaryTypes {
     return record.fn.description.orNull();
   }
 
+  public static function nativeOptionalDescriptionPresent(record:NativeOptionalRecord):Bool {
+    return record.fn.description.orNull() != null;
+  }
+
   public static function firstWarningFeature(record:OptionalWarningsRecord):String {
     return record.warnings.orNull()[0].feature;
   }
@@ -321,7 +325,8 @@ class BoundaryTypes {
     final nativePushFunction = nativeFunctionSummary(nativeFunctionRecordsViaPush()[0]);
     final nativeChoice = nativeFunctionChoiceObject() == null ? "missing" : "choice";
     final nativeOptional = nativeOptionalDescription(nativeOptionalRecord());
+    final nativeOptionalPresent = nativeOptionalDescriptionPresent(nativeOptionalRecord());
     final warningFeature = firstWarningFeature({warnings: [{feature: "topK"}]});
-    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (localMissing == null ? "none" : localMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + (assignedMissing == null ? "none" : assignedMissing) + ":" + (assignedChosen == null ? "none" : assignedChosen) + ":" + (conditionalFlag == null ? "none" : conditionalFlag ? "true" : "false") + ":" + (bridgeFlag == null ? "none" : bridgeFlag ? "true" : "false") + ":" + (optionalMissing == null ? "none" : optionalMissing) + ":" + (optionalDirectMissing == null ? "none" : optionalDirectMissing) + ":" + (guardedPresent == null ? "none" : guardedPresent) + ":" + (guardedMissing == null ? "none" : guardedMissing) + ":" + guardedUpper + ":" + guardedCallValue + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalItemsCall + ":" + optionalLabel + ":" + optionalParamLabel + ":" + optionalNestedParamLabel + ":" + nativeFunction + ":" + nativeArrayFunction + ":" + nativePushFunction + ":" + nativeChoice + ":" + (nativeOptional == null ? "none" : nativeOptional) + ":" + warningFeature;
+    return (present == null ? "none" : present) + ":" + (missing == null ? "none" : missing) + ":" + (recordMissing == null ? "none" : recordMissing) + ":" + (localMissing == null ? "none" : localMissing) + ":" + (chosenMissing == null ? "none" : chosenMissing) + ":" + (assignedMissing == null ? "none" : assignedMissing) + ":" + (assignedChosen == null ? "none" : assignedChosen) + ":" + (conditionalFlag == null ? "none" : conditionalFlag ? "true" : "false") + ":" + (bridgeFlag == null ? "none" : bridgeFlag ? "true" : "false") + ":" + (optionalMissing == null ? "none" : optionalMissing) + ":" + (optionalDirectMissing == null ? "none" : optionalDirectMissing) + ":" + (guardedPresent == null ? "none" : guardedPresent) + ":" + (guardedMissing == null ? "none" : guardedMissing) + ":" + guardedUpper + ":" + guardedCallValue + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalItemsCall + ":" + optionalLabel + ":" + optionalParamLabel + ":" + optionalNestedParamLabel + ":" + nativeFunction + ":" + nativeArrayFunction + ":" + nativePushFunction + ":" + nativeChoice + ":" + (nativeOptional == null ? "none" : nativeOptional) + ":" + (nativeOptionalPresent ? "present" : "missing") + ":" + warningFeature;
   }
 }

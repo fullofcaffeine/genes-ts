@@ -2888,8 +2888,39 @@ class TsModuleEmitter extends JsModuleEmitter {
     switch e.expr {
       case TConst(TNull):
         write('null');
+      case _ if (comparisonOperandNeedsParens(e)):
+        write('(');
+        emitValue(e);
+        write(')');
       default:
         emitValue(e);
+    }
+  }
+
+  /**
+   * Parenthesizes comparison operands whose emitted TypeScript contains `??`.
+   *
+   * Why: Haxe code often normalizes TypeScript `undefined` to Haxe `null`
+   * through helpers such as `genes.ts.Undefinable<T>.orNull()`, which lowers to
+   * `js.Syntax.code("{0} ?? null", value)`. When that expression is compared
+   * against `null`, TypeScript precedence would parse `value ?? null != null`
+   * as `value ?? (null != null)`. The intended Haxe semantics are
+   * `(value ?? null) != null`.
+   *
+   * What/How: only the null-comparison path calls this helper. It keeps simple
+   * operands untouched, but wraps explicit Haxe null-coalescing expressions and
+   * raw syntax templates that contain `??`, preserving semantics without adding
+   * broad parentheses to ordinary comparisons.
+   */
+  function comparisonOperandNeedsParens(e: TypedExpr): Bool {
+    return switch e.expr {
+      #if (haxe_ver >= 4.3)
+      case TBinop(OpNullCoal, _, _):
+        true;
+      #end
+      default:
+        final template = jsSyntaxCodeTemplate(e);
+        template != null && template.indexOf('??') != -1;
     }
   }
 
