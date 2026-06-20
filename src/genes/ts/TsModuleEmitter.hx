@@ -23,6 +23,12 @@ typedef NullNarrowCheck = {
   final nonNullWhenFalse: Array<String>;
 }
 
+typedef LocalNameScope = {
+  final names: Map<Int, String>;
+  final counts: Map<String, Int>;
+  final parent: Null<LocalNameScope>;
+}
+
 /**
  * Minimal TS module emitter (M1):
  * - Emits `.ts` modules with ESM imports/exports
@@ -41,6 +47,25 @@ class TsModuleEmitter extends JsModuleEmitter {
   var currentReturnIsVoidLike: Bool = false;
   var generatedLocalNames: Map<Int, String> = [];
   var generatedLocalNameCounts: Map<String, Int> = [];
+  /**
+   * Per-emitted-function local naming state.
+   *
+   * Why: Haxe inline expansion can materialize inline parameters as ordinary
+   * typed locals named `key`, `value`, etc. TypeScript `var` declarations are
+   * function-scoped, so two expanded call sites with different Haxe types can
+   * become illegal duplicate TS declarations if they both print `value`.
+   *
+   * What/How: keyed by stable `TVar.id`, this allocator preserves the first
+   * readable source name in each emitted function and suffixes only later
+   * distinct locals with the same source name (`value`, `value_1`, ...).
+   * Function arguments are registered in the same scope so body references and
+   * forwarded constructor calls use the exact emitted argument name. Nested
+   * lexical blocks, such as TS switch-case wrappers, can reuse names while still
+   * looking up outer locals by `TVar.id`.
+   */
+  var scopedLocalNames: Map<Int, String> = [];
+  var scopedLocalNameCounts: Map<String, Int> = [];
+  var scopedLocalParent: Null<LocalNameScope> = null;
   var narrowedNonNullKeys: Array<String> = [];
   var inRawSyntaxTemplate: Bool = false;
   var suppressOptionalFieldNullNormalization: Bool = false;
@@ -116,6 +141,9 @@ class TsModuleEmitter extends JsModuleEmitter {
     jsxEmitTsx = genes.Genes.outExtension == '.tsx';
     generatedLocalNames = [];
     generatedLocalNameCounts = [];
+    scopedLocalNames = [];
+    scopedLocalNameCounts = [];
+    scopedLocalParent = null;
     narrowedNonNullKeys = [];
     final usesReactJsxMarkers = moduleUsesReactJsxMarkers(module);
 
@@ -951,6 +979,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       if (ctorField != null)
         switch ctorField.expr {
           case {expr: TFunction(f)}:
+            final previousLocalScope = pushLocalNameScope();
             writeNewline();
             emitPos(ctorField.pos);
             write('constructor(');
@@ -972,6 +1001,7 @@ class TsModuleEmitter extends JsModuleEmitter {
             decreaseIndent();
             writeNewline();
             write('}');
+            restoreLocalNameScope(previousLocalScope);
           default:
         }
     }
@@ -1038,6 +1068,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           switch field.expr {
             case null:
             case {expr: TFunction(f)}:
+              final previousLocalScope = pushLocalNameScope();
               writeNewline();
               if (field.doc != null)
                 writeNewline();
@@ -1103,7 +1134,7 @@ class TsModuleEmitter extends JsModuleEmitter {
                 writeNewline();
                 write('return ');
                 if (f.args.length > 0)
-                  emitLocalIdent(f.args[0].v.name);
+                  emitLocalVar(f.args[0].v);
                 else
                   write('undefined');
                 write(';');
@@ -1147,6 +1178,7 @@ class TsModuleEmitter extends JsModuleEmitter {
                     currentReturnIsVoidLike = prevVoidLike;
                 }
               }
+              restoreLocalNameScope(previousLocalScope);
             default:
           }
         default:
@@ -2191,6 +2223,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TTry(_):
         throw 'Unhandled try/catch, please report';
       case TFunction(f):
+        final previousLocalScope = pushLocalNameScope();
         final inValue = this.inValue;
         final inLoop = this.inLoop;
         final prevReturn = currentReturnType;
@@ -2224,7 +2257,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           final t = i < args.length ? args[i].t : arg.v.t;
           if (genes.util.TypeUtil.isRest(t))
             write('...');
-          emitLocalIdent(arg.v.name);
+          emitLocalVar(arg.v);
           final omitType = (arg.v.name == '_'
             || StringTools.startsWith(arg.v.name, '_'))
             && typeEmitsAny(t);
@@ -2249,6 +2282,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         this.inLoop = inLoop;
         currentReturnType = prevReturn;
         currentReturnIsVoidLike = prevVoidLike;
+        restoreLocalNameScope(previousLocalScope);
       case TBinop(op = OpGt | OpGte | OpLt | OpLte, e1, e2)
         if ((typeAllowsNull(e1.t) && isNumberLike(e1.t))
           || (typeAllowsNull(e2.t) && isNumberLike(e2.t))):
@@ -2644,8 +2678,45 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   function localVarName(v: TVar): String {
-    final name = isGeneratedTempLocal(v.name) ? generatedLocalVarName(v) : v.name;
+    final name = isGeneratedTempLocal(v.name) ? generatedLocalVarName(v) : scopedLocalVarName(v);
     return getLocalIdent(name);
+  }
+
+  function pushLocalNameScope(?parented: Bool = false): LocalNameScope {
+    final previous: LocalNameScope = {
+      names: scopedLocalNames,
+      counts: scopedLocalNameCounts,
+      parent: scopedLocalParent
+    };
+    scopedLocalNames = [];
+    scopedLocalNameCounts = [];
+    scopedLocalParent = parented ? previous : null;
+    return previous;
+  }
+
+  function restoreLocalNameScope(previous: LocalNameScope) {
+    scopedLocalNames = previous.names;
+    scopedLocalNameCounts = previous.counts;
+    scopedLocalParent = previous.parent;
+  }
+
+  function scopedLocalVarName(v: TVar): String {
+    final found = scopedLocalNames.get(v.id);
+    if (found != null)
+      return found;
+    var parent = scopedLocalParent;
+    while (parent != null) {
+      final found = parent.names.get(v.id);
+      if (found != null)
+        return found;
+      parent = parent.parent;
+    }
+
+    final count = scopedLocalNameCounts.exists(v.name) ? scopedLocalNameCounts.get(v.name) : 0;
+    scopedLocalNameCounts.set(v.name, count + 1);
+    final name = count == 0 ? v.name : '${v.name}_${count}';
+    scopedLocalNames.set(v.id, name);
+    return name;
   }
 
   function generatedLocalVarName(v: TVar): String {
@@ -2705,9 +2776,11 @@ class TsModuleEmitter extends JsModuleEmitter {
       if (!leafStartsWithNewline)
         writeNewline();
       final previousDeclare = declare;
+      final previousLocalScope = pushLocalNameScope(true);
       declare = 'let';
       leaf(c.expr);
       declare = previousDeclare;
+      restoreLocalNameScope(previousLocalScope);
       writeNewline();
       write('break;');
       decreaseIndent();
@@ -2741,7 +2814,9 @@ class TsModuleEmitter extends JsModuleEmitter {
         increaseIndent();
         if (!leafStartsWithNewline)
           writeNewline();
+        final previousLocalScope = pushLocalNameScope(true);
         leaf(e);
+        restoreLocalNameScope(previousLocalScope);
         decreaseIndent();
         writeNewline();
         write('}');
@@ -2833,10 +2908,9 @@ class TsModuleEmitter extends JsModuleEmitter {
           if (i > 0)
             write(', ');
           final arg = args[i];
-          final argName = f.args[i].v.name;
           if (genes.util.TypeUtil.isRest(arg.t))
             write('...');
-          emitLocalIdent(argName);
+          emitLocalVar(f.args[i].v);
         }
       default:
     }
@@ -2872,12 +2946,11 @@ class TsModuleEmitter extends JsModuleEmitter {
         for (i in genes.util.IteratorUtil.joinIt(0...args.length,
           write.bind(', '))) {
           final arg = args[i];
-          final argName = f.args[i].v.name;
           final argType = (i >= 0 && i < f.args.length) ? f.args[i].v.t : arg.t;
           final opt = cachedArgs != null ? cachedArgs[i].opt : arg.opt;
           if (genes.util.TypeUtil.isRest(arg.t))
             write('...');
-          emitLocalIdent(argName);
+          emitLocalVar(f.args[i].v);
           final optional = opt && i > noOptionalUntil;
           final defaultNull = optional
             && (cachedArgs != null ? cachedArgs[i].allowsNull : typeAllowsNull(argType));
@@ -2904,10 +2977,9 @@ class TsModuleEmitter extends JsModuleEmitter {
         for (i in genes.util.IteratorUtil.joinIt(0...args.length,
           write.bind(', '))) {
           final arg = args[i];
-          final argName = f.args[i].v.name;
           if (genes.util.TypeUtil.isRest(arg.t))
             write('...');
-          emitLocalIdent(argName);
+          emitLocalVar(f.args[i].v);
           if (!genes.util.TypeUtil.isRest(arg.t))
             write('?');
           write(': ');

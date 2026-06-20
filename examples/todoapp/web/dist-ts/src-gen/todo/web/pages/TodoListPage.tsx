@@ -63,8 +63,8 @@ export class TodoListPage {
 				setter("Title is required");
 				return;
 			};
-			let setter: ((arg0: string) => void) = (errorState[1] ?? null);
-			setter("");
+			let setter_1: ((arg0: string) => void) = (errorState[1] ?? null);
+			setter_1("");
 			Client.createTodo(trimmed).then(function (todo: Todo) {
 				let next: Todo[] = todos.concat([todo]);
 				let setter: ((arg0: Todo[]) => void) = (todosState[1] ?? null);

@@ -58,8 +58,17 @@ const noJsEsMain = readFileSync(
   path.join(repoRoot, "tests/genes-ts/no-js-es/out/src-gen/Main.ts"),
   "utf8"
 );
-if (!noJsEsMain.includes("let value: string") || noJsEsMain.includes("var value:")) {
+if (!noJsEsMain.includes("let value: string") || noJsEsMain.includes("var value: string")) {
   throw new Error("genes.ts mode must emit block-scoped `let` locals without relying on js-es=6");
+}
+if (!/\bvar value_1:/.test(noJsEsMain)) {
+  throw new Error("inline-expanded same-named locals must be suffixed after the first emitted local");
+}
+const inlineValueNames = [...noJsEsMain.matchAll(/\bvar (value(?:_\d+)?):/g)].map(
+  match => match[1]
+);
+if (inlineValueNames.filter(name => name === "value").length > 1) {
+  throw new Error("inline-expanded same-named locals must not emit duplicate function-scoped `var value` declarations");
 }
 
 run("npx", [

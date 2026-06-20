@@ -42,8 +42,8 @@ export class Main {
 				res.status(404).json(body);
 				return;
 			};
-			let body: TodoResponse = {"todo": todo};
-			res.json(body);
+			let body_1: TodoResponse = {"todo": todo};
+			res.json(body_1);
 		});
 		app.post("/api/todos", function (req: ExpressRequest, res: ExpressResponse) {
 			let body: CreateTodoBody = req.body;

@@ -70,7 +70,7 @@ export class Boot {
 						return s2;
 					};
 				};
-				let str: string = "{\n";
+				let str_1: string = "{\n";
 				s += "\t";
 				let hasp: boolean = (o!).hasOwnProperty != null;
 				let k: string = Register.unsafeCast<string>(null);
@@ -81,14 +81,14 @@ export class Boot {
 				if (k == "prototype" || k == "__class__" || k == "__super__" || k == "__interfaces__" || k == "__properties__") {
 					continue;
 				};
-				if (str.length != 2) {
-					str += ", \n";
+				if (str_1.length != 2) {
+					str_1 += ", \n";
 				};
-				str += s + k + " : " + Boot.__string_rec((o[k] ?? null), s);
+				str_1 += s + k + " : " + Boot.__string_rec((o[k] ?? null), s);
 				};
 				s = s.substring(1);
-				str += "\n" + s + "}";
-				return str;
+				str_1 += "\n" + s + "}";
+				return str_1;
 				break;
 			}
 			case "string": {
