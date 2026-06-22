@@ -1599,7 +1599,67 @@ class TsModuleEmitter extends JsModuleEmitter {
    * bridges that declaration-time fact back into local variable emission.
    */
   function localTsTypeOverride(eo: Null<TypedExpr>): Null<String> {
-    return eo == null ? null : cachedInitializerTsType(eo);
+    if (eo == null)
+      return null;
+    if (isExceptionCaughtUnwrap(eo))
+      return '{} | null | undefined';
+    return cachedInitializerTsType(eo);
+  }
+
+  /**
+   * Detects Haxe's lowered representation of typed catch values.
+   *
+   * Why: source such as `catch (error:MyError)` is lowered by Haxe to one
+   * JavaScript catch variable, then `haxe.Exception.caught(raw).unwrap()` plus
+   * runtime type guards for each typed catch arm. The lowered temporary has
+   * Haxe type `Dynamic`, which would normally emit as TypeScript `any` in the
+   * user module.
+   *
+   * What/How: when a local initializer is exactly the exception unwrap
+   * sequence, annotate the local as `{ } | null | undefined`. That is the
+   * broadest useful TypeScript surface that can still contain primitive throws,
+   * object throws, and nullish throws without spelling `any` or `unknown` in a
+   * user module. TypeScript can then narrow the value with the emitted
+   * `typeof`/`instanceof` checks before assigning it to the typed catch
+   * variable, while arbitrary `Dynamic` values elsewhere keep their normal Haxe
+   * semantics.
+   */
+  static function isExceptionCaughtUnwrap(expr: TypedExpr): Bool {
+    return switch unwrapExpr(expr).expr {
+      case TCall(unwrapCallee, []) if (isExceptionUnwrapCallee(unwrapCallee)):
+        true;
+      default:
+        false;
+    }
+  }
+
+  static function isExceptionUnwrapCallee(callee: TypedExpr): Bool {
+    return switch unwrapExpr(callee).expr {
+      case TField(receiver, field) if (fieldAccessName(field) == 'unwrap'):
+        isExceptionCaughtCall(receiver);
+      default:
+        false;
+    }
+  }
+
+  static function isExceptionCaughtCall(expr: TypedExpr): Bool {
+    return switch unwrapExpr(expr).expr {
+      case TCall(caughtCallee, [_]) if (isExceptionCaughtCallee(caughtCallee)):
+        true;
+      default:
+        false;
+    }
+  }
+
+  static function isExceptionCaughtCallee(callee: TypedExpr): Bool {
+    return switch unwrapExpr(callee).expr {
+      case TField(_,
+        FStatic(_.get() => {module: 'haxe.Exception', name: 'Exception'},
+          _.get() => {name: 'caught'})):
+        true;
+      default:
+        false;
+    }
   }
 
   function cachedInitializerTsType(expr: TypedExpr): Null<String> {

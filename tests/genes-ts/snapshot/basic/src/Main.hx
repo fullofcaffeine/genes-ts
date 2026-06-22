@@ -4,6 +4,7 @@ import foo.BoundaryTypes;
 import foo.Placeholder;
 import foo.EnumAbstract;
 import foo.Narrowing;
+import foo.TypedCatch;
 import genes.ts.Imports;
 
 typedef ThemeFixture = {
@@ -29,6 +30,8 @@ class Main {
     trace(EnumAbstract.fieldLocalDemo());
     trace(EnumAbstract.recordDemo());
     trace(Narrowing.switchExitingNull({value: "present"}));
+    trace(TypedCatch.recover("fixture"));
+    trace(TypedCatch.recover("plain"));
     trace(Theme.name + ":" + Theme.accent);
   }
 }
