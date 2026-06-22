@@ -1,6 +1,7 @@
+import {UnknownNarrow} from "../genes/ts/UnknownNarrow.js"
 import {Register} from "../genes/Register.js"
 
-export type UnknownRecord = {[key: string]: unknown}
+export type UnknownMap = {[key: string]: unknown}
 
 export type MaybeName = string | undefined
 
@@ -154,10 +155,40 @@ export class BoundaryTypes {
 		};
 		return "missing";
 	}
-	static record(value: unknown): UnknownRecord {
+	static record(value: unknown): UnknownMap {
 		let out: {[key: string]: unknown} = {};
 		out["payload"] = value;
 		return out;
+	}
+	static narrowString(value: unknown): string | null {
+		return UnknownNarrow.string(value);
+	}
+	static narrowBool(value: unknown): boolean | null {
+		return UnknownNarrow.bool(value);
+	}
+	static narrowFinite(value: unknown): number | null {
+		return UnknownNarrow.finiteNumber(value);
+	}
+	static narrowInt32(value: unknown): number | null {
+		return UnknownNarrow.int32(value);
+	}
+	static decodeRecordSummary(value: unknown): string {
+		let record: Readonly<Record<string, unknown>> | null = UnknownNarrow.record(value);
+		if (record == null) {
+			return "missing-record";
+		};
+		let name: string | null = UnknownNarrow.string(Object.prototype.hasOwnProperty.call(record, "name") ? record["name"] : undefined);
+		let keys: string = (Object.keys(record)).join(",");
+		let tmp: string = (Object.prototype.hasOwnProperty.call(record, "age")) ? "age" : "no-age";
+		return ((name == null) ? "missing-name" : name) + ":" + tmp + ":" + keys;
+	}
+	static decodeArraySummary(value: unknown): string {
+		let array: readonly unknown[] | null = UnknownNarrow.array(value);
+		if (array == null) {
+			return "missing-array";
+		};
+		let first: string | null | null = (array.length == 0) ? null : UnknownNarrow.string(array[0]);
+		return ((first == null) ? "missing-first" : first) + ":" + ("" + array.length);
 	}
 	static copyOptionalItems(record: OptionalArrayRecord): string[] {
 		if ((record.items ?? null) == null) {
@@ -256,8 +287,16 @@ export class BoundaryTypes {
 		let guardedMissing: string | null = BoundaryTypes.normalize(BoundaryTypes.guardedName(null));
 		let guardedUpper: string = BoundaryTypes.guardedUpper("ada");
 		let guardedCallValue: string = BoundaryTypes.guardedCall("ada");
-		let payload: UnknownRecord = BoundaryTypes.record(BoundaryTypes.unknownValue("typed boundary"));
+		let payload: UnknownMap = BoundaryTypes.record(BoundaryTypes.unknownValue("typed boundary"));
 		let payloadStatus: string = (Object.prototype.hasOwnProperty.call(payload, "payload")) ? "payload" : "missing";
+		let narrowedString: string | null = BoundaryTypes.narrowString(BoundaryTypes.unknownValue("typed"));
+		let narrowedBool: boolean | null = BoundaryTypes.narrowBool(BoundaryTypes.unknownValue(true));
+		let narrowedFinite: number | null = BoundaryTypes.narrowFinite(BoundaryTypes.unknownValue(12.5));
+		let narrowedInt: number | null = BoundaryTypes.narrowInt32(BoundaryTypes.unknownValue(37));
+		let narrowedRecord: string = BoundaryTypes.decodeRecordSummary(BoundaryTypes.unknownValue({"name": "Grace", "age": 37}));
+		let narrowedArray: string = BoundaryTypes.decodeArraySummary(BoundaryTypes.unknownValue(["first", "second"]));
+		let nullStatus: string = (((BoundaryTypes.unknownValue(null)) === null)) ? "null" : "not-null";
+		let undefinedStatus: string = (((undefined) === undefined)) ? "undefined" : "defined";
 		let optionalCopy: string = BoundaryTypes.copyOptionalItems({"items": ["a", "b"]}).join("");
 		let optionalJoin: string = BoundaryTypes.joinOptionalItems({"items": ["c", "d"]});
 		let optionalItemsCall: string = BoundaryTypes.guardedOptionalItemsCall({"items": ["e", "f"]});
@@ -271,7 +310,7 @@ export class BoundaryTypes {
 		let nativeOptional: string | null = BoundaryTypes.nativeOptionalDescription(BoundaryTypes.nativeOptionalRecord());
 		let nativeOptionalPresent: boolean = BoundaryTypes.nativeOptionalDescriptionPresent(BoundaryTypes.nativeOptionalRecord());
 		let warningFeature: string = BoundaryTypes.firstWarningFeature({"warnings": [{"feature": "topK"}]});
-		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + ((recordMissing == null) ? "none" : recordMissing) + ":" + ((localMissing == null) ? "none" : localMissing) + ":" + ((chosenMissing == null) ? "none" : chosenMissing) + ":" + ((assignedMissing == null) ? "none" : assignedMissing) + ":" + ((assignedChosen == null) ? "none" : assignedChosen) + ":" + ((conditionalFlag == null) ? "none" : (conditionalFlag) ? "true" : "false") + ":" + ((bridgeFlag == null) ? "none" : (bridgeFlag) ? "true" : "false") + ":" + ((optionalMissing == null) ? "none" : optionalMissing) + ":" + ((optionalDirectMissing == null) ? "none" : optionalDirectMissing) + ":" + ((guardedPresent == null) ? "none" : guardedPresent) + ":" + ((guardedMissing == null) ? "none" : guardedMissing) + ":" + guardedUpper + ":" + guardedCallValue + ":" + payloadStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalItemsCall + ":" + optionalLabel + ":" + optionalParamLabel + ":" + optionalNestedParamLabel + ":" + nativeFunction + ":" + nativeArrayFunction + ":" + nativePushFunction + ":" + nativeChoice + ":" + ((nativeOptional == null) ? "none" : nativeOptional) + ":" + ((nativeOptionalPresent) ? "present" : "missing") + ":" + warningFeature;
+		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + ((recordMissing == null) ? "none" : recordMissing) + ":" + ((localMissing == null) ? "none" : localMissing) + ":" + ((chosenMissing == null) ? "none" : chosenMissing) + ":" + ((assignedMissing == null) ? "none" : assignedMissing) + ":" + ((assignedChosen == null) ? "none" : assignedChosen) + ":" + ((conditionalFlag == null) ? "none" : (conditionalFlag) ? "true" : "false") + ":" + ((bridgeFlag == null) ? "none" : (bridgeFlag) ? "true" : "false") + ":" + ((optionalMissing == null) ? "none" : optionalMissing) + ":" + ((optionalDirectMissing == null) ? "none" : optionalDirectMissing) + ":" + ((guardedPresent == null) ? "none" : guardedPresent) + ":" + ((guardedMissing == null) ? "none" : guardedMissing) + ":" + guardedUpper + ":" + guardedCallValue + ":" + payloadStatus + ":" + ((narrowedString == null) ? "none" : narrowedString) + ":" + ((narrowedBool == null) ? "none" : (narrowedBool) ? "true" : "false") + ":" + ((narrowedFinite == null) ? "none" : "" + narrowedFinite) + ":" + ((narrowedInt == null) ? "none" : "" + narrowedInt) + ":" + narrowedRecord + ":" + narrowedArray + ":" + nullStatus + ":" + undefinedStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalItemsCall + ":" + optionalLabel + ":" + optionalParamLabel + ":" + optionalNestedParamLabel + ":" + nativeFunction + ":" + nativeArrayFunction + ":" + nativePushFunction + ":" + nativeChoice + ":" + ((nativeOptional == null) ? "none" : nativeOptional) + ":" + ((nativeOptionalPresent) ? "present" : "missing") + ":" + warningFeature;
 	}
 	static get __name__(): string {
 		return "foo.BoundaryTypes"

@@ -12,14 +12,17 @@ abstract Undefinable<T>(Null<T>) from T {
   /**
    * Produces JavaScript `undefined` for optional host values.
    */
-  public static inline function absent<T>():Undefinable<T> {
-    return cast js.Syntax.code("undefined");
+  public static inline function absent<T>(): Undefinable<T> {
+    // Haxe cannot spell JavaScript `undefined` as a normal value, so the raw
+    // syntax is contained here instead of spreading through user code. The
+    // declared return type carries the `T | undefined` contract for genes-ts.
+    return js.Syntax.code("undefined");
   }
 
   /**
    * Converts JavaScript `undefined` absence into Haxe `null`.
    */
-  public inline function orNull():Null<T> {
+  public inline function orNull(): Null<T> {
     return js.Syntax.code("{0} ?? null", this);
   }
 }

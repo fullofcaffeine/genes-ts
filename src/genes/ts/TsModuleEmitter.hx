@@ -47,6 +47,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   var currentReturnIsVoidLike: Bool = false;
   var generatedLocalNames: Map<Int, String> = [];
   var generatedLocalNameCounts: Map<String, Int> = [];
+
   /**
    * Per-emitted-function local naming state.
    *
@@ -64,6 +65,7 @@ class TsModuleEmitter extends JsModuleEmitter {
    * looking up outer locals by `TVar.id`.
    */
   var scopedLocalNames: Map<Int, String> = [];
+
   var scopedLocalNameCounts: Map<String, Int> = [];
   var scopedLocalParent: Null<LocalNameScope> = null;
   var narrowedNonNullKeys: Array<String> = [];
@@ -105,7 +107,10 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   static function isUndefinableType(t: Type): Bool {
     return switch t {
-      case TAbstract(_.get() => {module: 'genes.ts.Undefinable', name: 'Undefinable'}, _):
+      case TAbstract(_.get() => {
+        module: 'genes.ts.Undefinable',
+        name: 'Undefinable'
+      }, _):
         true;
       case TAbstract(_.get() => {pack: [], name: "Null"}, [inner]) |
         TType(_.get() => {pack: [], name: "Null"}, [inner]):
@@ -119,20 +124,52 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
   }
 
+  static function isUnknownBoundaryType(t: Type): Bool {
+    return switch t {
+      case TAbstract(_.get() => {module: 'genes.ts.Unknown', name: 'Unknown'},
+        _):
+        true;
+      case TAbstract(_.get() => {pack: [], name: "Null"}, [inner]) |
+        TType(_.get() => {pack: [], name: "Null"}, [inner]):
+        isUnknownBoundaryType(inner);
+      case TType(_, _):
+        isUnknownBoundaryType(haxe.macro.Context.follow(t));
+      case TLazy(f):
+        isUnknownBoundaryType(f());
+      default:
+        false;
+    }
+  }
+
+  /**
+   * Decides whether a raw JavaScript `undefined` literal should become `null`.
+   *
+   * Why: ordinary Haxe nullable values use `null`, while JavaScript host APIs
+   * often use `undefined`. genes-ts normally normalizes raw
+   * `js.Syntax.code("undefined")` into `null` when the surrounding Haxe type is
+   * nullable, preserving Haxe runtime expectations under TS strict null checks.
+   *
+   * What/How: `genes.ts.Undefinable<T>` and `genes.ts.Unknown` are explicit
+   * boundary contracts where `undefined` is semantically meaningful. For those
+   * types, and for expected/return contexts of those types, keep the real
+   * JavaScript `undefined` value instead of collapsing it to Haxe `null`.
+   */
   function shouldNormalizeUndefinedToNull(t: Type): Bool {
     return typeAllowsNull(t)
       && !isUndefinableType(t)
+      && !isUnknownBoundaryType(t)
       && (currentExpectedValueType == null
-        || !isUndefinableType(currentExpectedValueType))
-      && (currentReturnType == null || !isUndefinableType(currentReturnType));
+        || (!isUndefinableType(currentExpectedValueType)
+          && !isUnknownBoundaryType(currentExpectedValueType)))
+      && (currentReturnType == null
+        || (!isUndefinableType(currentReturnType)
+          && !isUnknownBoundaryType(currentReturnType)));
   }
 
   function shouldNormalizeOptionalFieldRead(e: TypedExpr): Bool {
     final expected = currentExpectedValueType;
-    return expected != null
-      && typeAllowsNull(expected)
-      && !isUndefinableType(expected)
-      && !isUndefinableType(e.t)
+    return expected != null && typeAllowsNull(expected)
+      && !isUndefinableType(expected) && !isUndefinableType(e.t)
       && !isNarrowedOptionalField(e);
   }
 
@@ -180,7 +217,9 @@ class TsModuleEmitter extends JsModuleEmitter {
     // global namespace. In TSX mode this optional import keeps generated
     // `JSX.Element` annotations resolvable without forcing React globals.
     final jsxImportSource = haxe.macro.Context.definedValue('genes.ts.jsx_import_source');
-    if (usesReactJsxMarkers && jsxEmitTsx && jsxImportSource != null
+    if (usesReactJsxMarkers
+      && jsxEmitTsx
+      && jsxImportSource != null
       && jsxImportSource.length > 0) {
       write('import type {JSX} from ');
       emitString(jsxImportSource);
@@ -556,8 +595,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       inline function isPromiseResolveNullThenable(actual: TypedExpr,
           expected: Type): Bool {
         return isJsPromiseResolveCallee(e)
-          && isNullConst(unwrapExpr(actual))
-          && isPromiseThenableType(expected);
+          && isNullConst(unwrapExpr(actual)) && isPromiseThenableType(expected);
       }
       var needsCasts = false;
       if (isEnumCtorCall && params.exists(p -> isNullConst(unwrapExpr(p))))
@@ -576,7 +614,8 @@ class TsModuleEmitter extends JsModuleEmitter {
           // condition. TS understands the same direct local/field guard, so a
           // guarded value can flow to a non-nullable parameter without an
           // emitter-inserted assertion.
-          if (!typeAllowsNull(expected) && typeAllowsNull(actual.t)
+          if (!typeAllowsNull(expected)
+            && typeAllowsNull(actual.t)
             && !isPromiseResolveNullThenable(actual, expected)
             && !isNarrowedNonNull(actual)) {
             needsCasts = true;
@@ -1021,7 +1060,8 @@ class TsModuleEmitter extends JsModuleEmitter {
             else
               write('static ');
           }
-          emitMemberName(field.isStatic ? staticName(cl, field) : moduleFieldName(field));
+          emitMemberName(field.isStatic ? staticName(cl,
+            field) : moduleFieldName(field));
           write(': ');
           // Node vs DOM timer handles: `setInterval` return type varies by lib.
           // Model `haxe.Timer.id` as whatever the host `setInterval` returns.
@@ -1524,8 +1564,8 @@ class TsModuleEmitter extends JsModuleEmitter {
           return;
         }
         if (!narrowedOptionalInit && !isNarrowedNonNull(e)
-          && !isUndefinableType(emittedType)
-          && !typeAllowsNull(emittedType) && typeAllowsNull(e.t)) {
+          && !isUndefinableType(emittedType) && !typeAllowsNull(emittedType)
+          && typeAllowsNull(e.t)) {
           write(ctx.typeAccessor(TypeUtil.registerType));
           write('.unsafeCast<');
           emitLocalType(emittedType, emittedTypeOverride);
@@ -1749,11 +1789,9 @@ class TsModuleEmitter extends JsModuleEmitter {
         true;
       case TType(_.get() => {pack: ["js", "lib"], name: "ThenableStruct"}, _):
         true;
-      case TAbstract(_.get() => {pack: ["haxe", "extern"], name: "EitherType"}, [left, right]):
-        isPromiseThenableType(left) || isPromiseThenableType(right);
-      case TMono(tref):
-        final inner = tref.get();
-        inner != null && isPromiseThenableType(inner);
+      case TAbstract(_.get() => {pack: ["haxe", "extern"], name: "EitherType"},
+        [left, right]): isPromiseThenableType(left) || isPromiseThenableType(right);
+      case TMono(tref): final inner = tref.get(); inner != null && isPromiseThenableType(inner);
       case TType(_, _):
         isPromiseThenableType(haxe.macro.Context.follow(t));
       default:
@@ -1763,10 +1801,8 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   static function isJsPromiseResolveCallee(callee: TypedExpr): Bool {
     return switch unwrapExpr(callee).expr {
-      case TField(_, f = FStatic(_.get() => cl, _)):
-        (cl.module == 'js.lib.Promise'
-          || (cl.pack.join('.') == 'js.lib' && cl.name == 'Promise'))
-          && fieldAccessName(f) == 'resolve';
+      case TField(_, f = FStatic(_.get() => cl, _)): (cl.module == 'js.lib.Promise'
+          || (cl.pack.join('.') == 'js.lib' && cl.name == 'Promise')) && fieldAccessName(f) == 'resolve';
       default:
         false;
     }
@@ -1811,8 +1847,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
   }
 
-  function emitChainedAccessReceiver(receiver: TypedExpr,
-      assertNonNull: Bool) {
+  function emitChainedAccessReceiver(receiver: TypedExpr, assertNonNull: Bool) {
     final value = addChainedAccessReceiverParens(receiver);
     final wrapRawSyntax = receiverNeedsRawSyntaxParens(value);
 
@@ -1825,8 +1860,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       // The following member/index access asserts the receiver is present, so
       // suppress TS-only optional-field `?? null` normalization for this inner
       // value and apply the usual Haxe non-null receiver assertion instead.
-      withoutOptionalFieldNullNormalization(() -> emitValueWithExpectedType(null,
-        value));
+      withoutOptionalFieldNullNormalization(() ->
+        emitValueWithExpectedType(null, value));
     } else {
       emitValue(value);
     }
@@ -1861,7 +1896,9 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TCall({
         expr: TField(_,
           FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))
-      }, [{expr: TConst(TString("undefined"))}]) if (shouldNormalizeUndefinedToNull(e.t)):
+      },
+        [{expr: TConst(TString("undefined"))}])
+        if (shouldNormalizeUndefinedToNull(e.t)):
         // See `emitExpr` for rationale.
         write('null');
       case TCall({
@@ -1905,7 +1942,9 @@ class TsModuleEmitter extends JsModuleEmitter {
         }
       case TField(_, f) if (isOptionalField(f) && isNarrowedOptionalField(e)):
         emitNarrowedOptionalField(e);
-      case TField(_, f) if (!inAssignTarget && isOptionalField(f)
+      case TField(_, f)
+        if (!inAssignTarget
+          && isOptionalField(f)
           && !suppressOptionalFieldNullNormalization
           && shouldNormalizeOptionalFieldRead(e)):
         emitOptionalFieldAsNull(e);
@@ -1936,7 +1975,9 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TCall({
         expr: TField(_,
           FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))
-      }, [{expr: TConst(TString("undefined"))}]) if (shouldNormalizeUndefinedToNull(e.t)):
+      },
+        [{expr: TConst(TString("undefined"))}])
+        if (shouldNormalizeUndefinedToNull(e.t)):
         // Haxe stdlib sometimes uses `js.Syntax.code("undefined")` in places
         // where `null` is the intended "no value" signal (e.g. `HxOverrides.cca`).
         // Normalize to `null` to keep TS `strictNullChecks` consistent.
@@ -1965,13 +2006,13 @@ class TsModuleEmitter extends JsModuleEmitter {
         // leak `any` into user modules. For `any`, the cast is a no-op in TS
         // anyway, so omit it.
         final nullThenableCast = suppressPromiseResolveNullThenableCast
-          && isNullConst(unwrapExpr(e1))
-          && isPromiseThenableType(e.t);
+          && isNullConst(unwrapExpr(e1)) && isPromiseThenableType(e.t);
         // In the scoped `Promise.resolve(null)` path, TypeScript can choose its
         // value overload naturally, so Haxe's internal thenable-overload cast
         // would only make the generated code noisier and harder to import.
         if (typeEmitsAny(e.t) || nullThenableCast
-          || (!typeAllowsNull(e.t) && typeAllowsNull(e1.t) && isNarrowedNonNull(e1))) {
+          || (!typeAllowsNull(e.t) && typeAllowsNull(e1.t)
+            && isNarrowedNonNull(e1))) {
           emitValue(e1);
         } else {
           write(ctx.typeAccessor(TypeUtil.registerType));
@@ -2009,8 +2050,10 @@ class TsModuleEmitter extends JsModuleEmitter {
           write(')');
         }
       case TBinop(op = OpAssign, lhs, rhs)
-        if (!isUndefinableType(lhs.t) && !typeAllowsNull(lhs.t)
-          && typeAllowsNull(rhs.t) && !isNarrowedNonNull(rhs)):
+        if (!isUndefinableType(lhs.t)
+          && !typeAllowsNull(lhs.t)
+          && typeAllowsNull(rhs.t)
+          && !isNarrowedNonNull(rhs)):
         // Haxe allows assigning nullable values to non-nullable types in many
         // cases. Preserve that behavior under TS `strictNullChecks` by casting.
         inAssignTarget = true;
@@ -2034,8 +2077,8 @@ class TsModuleEmitter extends JsModuleEmitter {
         writeBinop(op);
         writeSpace();
         emitValueWithExpectedType(lhs.t, rhs);
-      case TField(_, f) if (!inAssignTarget && isOptionalField(f)
-          && isNarrowedOptionalField(e)):
+      case TField(_, f)
+        if (!inAssignTarget && isOptionalField(f) && isNarrowedOptionalField(e)):
         emitNarrowedOptionalField(e);
       case TArray(receiver, index) if (receiverNeedsRawSyntaxParens(receiver)):
         emitArrayAccess(e, receiver, index);
@@ -2056,11 +2099,11 @@ class TsModuleEmitter extends JsModuleEmitter {
             && genes.util.TypeUtil.isDynamicIterator(x))):
         final isOptionalField = !inAssignTarget
           && !suppressOptionalFieldNullNormalization && switch f {
-          case FAnon(cf) | FInstance(_, _, cf) | FStatic(_, cf): final meta = cf.get()
-              .meta; meta != null && meta.has(':optional');
-          default:
-            false;
-        };
+            case FAnon(cf) | FInstance(_, _, cf) | FStatic(_, cf): final meta = cf.get()
+                .meta; meta != null && meta.has(':optional');
+            default:
+              false;
+          };
         function skip(e: TypedExpr): TypedExpr
           return switch e.expr {
             case TCast(e1, null) | TMeta(_, e1): skip(e1);
@@ -2086,19 +2129,20 @@ class TsModuleEmitter extends JsModuleEmitter {
         emitTsFieldAccess(f);
         if (fieldIsOptional)
           write(' ?? null)');
-      case TField(_, f) if (!inAssignTarget
-          && !suppressOptionalFieldNullNormalization && switch f {
-          case FAnon(cf) | FInstance(_, _, cf) | FStatic(_, cf): final meta = cf.get()
-              .meta; meta != null && meta.has(':optional');
-          default:
-            false;
-        }):
-        // Optional anonymous structure fields may be absent at runtime (`undefined`)
-        // but Haxe treats access as `null` in most contexts. Normalize to `null`
-        // to avoid leaking `undefined` into TS types.
-        write('(');
-        super.emitExpr(e);
-        write(' ?? null)');
+      case TField(_, f)
+        if (!inAssignTarget && !suppressOptionalFieldNullNormalization
+          && switch f {
+            case FAnon(cf) | FInstance(_, _, cf) | FStatic(_, cf): final meta = cf.get()
+                .meta; meta != null && meta.has(':optional');
+            default:
+              false;
+          }):
+          // Optional anonymous structure fields may be absent at runtime (`undefined`)
+          // but Haxe treats access as `null` in most contexts. Normalize to `null`
+          // to avoid leaking `undefined` into TS types.
+          write('(');
+          super.emitExpr(e);
+          write(' ?? null)');
       case TReturn(eo):
         switch eo {
           case null:
@@ -2114,10 +2158,13 @@ class TsModuleEmitter extends JsModuleEmitter {
               write('return');
             } else {
               write('return ');
-              if (ret != null && !typeAllowsNull(ret) && typeAllowsNull(e1.t)
-                  && isNarrowedNonNull(e1)) {
+              if (ret != null
+                && !typeAllowsNull(ret)
+                && typeAllowsNull(e1.t)
+                && isNarrowedNonNull(e1)) {
                 emitValueWithExpectedType(ret, e1);
-              } else if (ret != null && !typeAllowsNull(ret) && typeAllowsNull(e1.t)) {
+              } else if (ret != null && !typeAllowsNull(ret)
+                && typeAllowsNull(e1.t)) {
                 write(ctx.typeAccessor(TypeUtil.registerType));
                 write('.unsafeCast<');
                 TypeEmitter.emitType(this, ret);
@@ -2208,10 +2255,11 @@ class TsModuleEmitter extends JsModuleEmitter {
           case branch:
             emitPos(branch.pos);
             write(' else ');
-            emitNullNarrowedBranch(check, false, () -> emitExpr(switch branch.expr {
-              case TIf(_, _, _): branch;
-              case _: TypeUtil.block(branch);
-            }));
+            emitNullNarrowedBranch(check, false,
+              () -> emitExpr(switch branch.expr {
+                case TIf(_, _, _): branch;
+                case _: TypeUtil.block(branch);
+              }));
         }
       case TTry(etry, [{v: v, expr: ecatch}]):
         write('try ');
@@ -2357,44 +2405,42 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TBinop(op = OpEq | OpNotEq, left, right):
         final leftKey = nonNullNarrowKey(left);
         if (leftKey != null && isNullConst(unwrapExpr(right))) {
-          op == OpNotEq
-            ? {nonNullWhenTrue: [leftKey], nonNullWhenFalse: []}
-            : {nonNullWhenTrue: [], nonNullWhenFalse: [leftKey]};
+          op == OpNotEq ? {
+            nonNullWhenTrue: [leftKey],
+            nonNullWhenFalse: []
+          } : {
+            nonNullWhenTrue: [],
+            nonNullWhenFalse: [leftKey]
+          };
         } else {
           final rightKey = nonNullNarrowKey(right);
           if (rightKey != null && isNullConst(unwrapExpr(left)))
-            op == OpNotEq
-              ? {nonNullWhenTrue: [rightKey], nonNullWhenFalse: []}
-              : {nonNullWhenTrue: [], nonNullWhenFalse: [rightKey]}
+            op == OpNotEq ? {
+              nonNullWhenTrue: [rightKey],
+              nonNullWhenFalse: []
+            } : {
+              nonNullWhenTrue: [],
+              nonNullWhenFalse: [rightKey]
+            }
           else
             null;
         }
       case TBinop(OpBoolAnd, left, right):
         final leftCheck = nullNarrowCheck(left);
         final rightCheck = nullNarrowCheck(right);
-        if (leftCheck == null && rightCheck == null)
-          null
-        else
-          {
-            nonNullWhenTrue: uniqueNarrowKeys(
-              concatNarrowKeys(leftCheck == null ? [] : leftCheck.nonNullWhenTrue,
-                rightCheck == null ? [] : rightCheck.nonNullWhenTrue)
-            ),
-            nonNullWhenFalse: []
-          };
+        if (leftCheck == null && rightCheck == null) null else {
+          nonNullWhenTrue: uniqueNarrowKeys(concatNarrowKeys(leftCheck == null ? [] : leftCheck.nonNullWhenTrue,
+            rightCheck == null ? [] : rightCheck.nonNullWhenTrue)),
+          nonNullWhenFalse: []
+        };
       case TBinop(OpBoolOr, left, right):
         final leftCheck = nullNarrowCheck(left);
         final rightCheck = nullNarrowCheck(right);
-        if (leftCheck == null && rightCheck == null)
-          null
-        else
-          {
-            nonNullWhenTrue: [],
-            nonNullWhenFalse: uniqueNarrowKeys(
-              concatNarrowKeys(leftCheck == null ? [] : leftCheck.nonNullWhenFalse,
-                rightCheck == null ? [] : rightCheck.nonNullWhenFalse)
-            )
-          };
+        if (leftCheck == null && rightCheck == null) null else {
+          nonNullWhenTrue: [],
+          nonNullWhenFalse: uniqueNarrowKeys(concatNarrowKeys(leftCheck == null ? [] : leftCheck.nonNullWhenFalse,
+            rightCheck == null ? [] : rightCheck.nonNullWhenFalse))
+        };
       default:
         null;
     }
@@ -2402,9 +2448,7 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   function emitNullNarrowedBranch(check: Null<NullNarrowCheck>,
       thenBranch: Bool, emit: Void->Void) {
-    final keys = check == null ? [] : thenBranch
-      ? check.nonNullWhenTrue
-      : check.nonNullWhenFalse;
+    final keys = check == null ? [] : thenBranch ? check.nonNullWhenTrue : check.nonNullWhenFalse;
     if (keys.length == 0) {
       emit();
       return;
@@ -2431,19 +2475,15 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   function continuationNonNullKeys(e: TypedExpr): Array<String> {
     return switch unwrapExpr(e).expr {
-      case TVar(v, init) if (init != null && isNarrowedNonNull(init)
-          && typeAllowsNull(v.t)):
+      case TVar(v, init)
+        if (init != null && isNarrowedNonNull(init) && typeAllowsNull(v.t)):
         // Haxe can introduce a nullable local while lowering patterns such as
         // `case value:` in the non-null branch of a nullable switch. The
         // initializer is already proven non-null by the surrounding branch, so
         // carry that flow fact to the next statement and avoid emitting a
         // TypeScript-only identity cast when the local is consumed immediately.
         ['local:${v.id}'];
-      case TIf(cond, thenExpr, null):
-        final check = nullNarrowCheck(cond);
-        check != null && definitelyExits(thenExpr)
-          ? check.nonNullWhenFalse
-          : [];
+      case TIf(cond, thenExpr, null): final check = nullNarrowCheck(cond); check != null && definitelyExits(thenExpr) ? check.nonNullWhenFalse : [];
       default:
         [];
     }
@@ -2453,17 +2493,16 @@ class TsModuleEmitter extends JsModuleEmitter {
     return switch unwrapExpr(e).expr {
       case TReturn(_) | TThrow(_):
         true;
-      case TBlock(elements):
-        elements.length > 0 && definitelyExits(elements[elements.length - 1]);
-      case TIf(_, thenExpr, elseExpr):
-        elseExpr != null && definitelyExits(thenExpr)
-          && definitelyExits(elseExpr);
+      case TBlock(elements): elements.length > 0 && definitelyExits(elements[elements.length
+          - 1]);
+      case TIf(_, thenExpr, elseExpr): elseExpr != null && definitelyExits(thenExpr) && definitelyExits(elseExpr);
       default:
         false;
     }
   }
 
-  static function concatNarrowKeys(left: Array<String>, right: Array<String>): Array<String> {
+  static function concatNarrowKeys(left: Array<String>,
+      right: Array<String>): Array<String> {
     final out = left.copy();
     for (key in right)
       out.push(key);
@@ -2517,10 +2556,7 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   function optionalFieldNarrowKey(e: TypedExpr): Null<String> {
     return switch unwrapExpr(e).expr {
-      case TField(receiver, f) if (isOptionalField(f)):
-        final receiverKey = stableFieldReceiverKey(receiver);
-        final name = fieldAccessName(f);
-        receiverKey != null && name != null ? receiverKey + "." + name : null;
+      case TField(receiver, f) if (isOptionalField(f)): final receiverKey = stableFieldReceiverKey(receiver); final name = fieldAccessName(f); receiverKey != null && name != null ? receiverKey + "." + name : null;
       default:
         null;
     }
@@ -2532,10 +2568,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         'local:${v.id}';
       case TConst(TThis):
         'this';
-      case TField(receiver, f):
-        final parent = stableFieldReceiverKey(receiver);
-        final name = fieldAccessName(f);
-        parent != null && name != null ? parent + "." + name : null;
+      case TField(receiver, f): final parent = stableFieldReceiverKey(receiver); final name = fieldAccessName(f); parent != null && name != null ? parent + "." + name : null;
       default:
         null;
     }
@@ -2543,9 +2576,8 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   static function isOptionalField(f: FieldAccess): Bool {
     return switch f {
-      case FAnon(cf) | FInstance(_, _, cf) | FStatic(_, cf):
-        final meta = cf.get().meta;
-        meta != null && meta.has(':optional');
+      case FAnon(cf) | FInstance(_, _, cf) | FStatic(_, cf): final meta = cf.get()
+          .meta; meta != null && meta.has(':optional');
       default:
         false;
     }
@@ -2629,12 +2661,10 @@ class TsModuleEmitter extends JsModuleEmitter {
           j++;
         }
         if (hasDigits && j < template.length
-            && template.charCodeAt(j) == "}".code) {
+          && template.charCodeAt(j) == "}".code) {
           if (index >= values.length) {
-            haxe.macro.Context.error(
-              'js.Syntax.code placeholder {$index} has no argument',
-              args[0].pos
-            );
+            haxe.macro.Context.error('js.Syntax.code placeholder {$index} has no argument',
+              args[0].pos);
           }
           emitRawSyntaxTemplateValue(values[index]);
           i = j + 1;
@@ -2648,6 +2678,14 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   function emitRawSyntaxTemplateValue(value: TypedExpr) {
+    if (isJsUndefinedConst(value)) {
+      // A raw syntax template argument that is explicitly JavaScript
+      // `undefined` must stay `undefined`. The ordinary nullable-Haxe
+      // normalization to `null` would change nested raw checks such as
+      // `js.Syntax.code("({0}) === undefined", Undefinable.absent())`.
+      write('undefined');
+      return;
+    }
     final previous = inRawSyntaxTemplate;
     inRawSyntaxTemplate = false;
     emitValue(value);
@@ -2675,8 +2713,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       emitPos(field.expr.pos);
       emitString(TypeUtil.anonymousFieldName(objectType, field.name));
       write(': ');
-      emitValueWithExpectedType(TypeUtil.anonymousFieldType(objectType, field.name),
-        field.expr);
+      emitValueWithExpectedType(TypeUtil.anonymousFieldType(objectType,
+        field.name), field.expr);
     }
     write('}');
   }
@@ -2884,7 +2922,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
 
   static inline function isJsUndefinedConst(e: TypedExpr): Bool
-    return switch e.expr {
+    return switch unwrapExpr(e).expr {
       case TCall({
         expr: TField(_,
           FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))
@@ -2926,9 +2964,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TBinop(OpNullCoal, _, _):
         true;
       #end
-      default:
-        final template = jsSyntaxCodeTemplate(e);
-        template != null && template.indexOf('??') != -1;
+      default: final template = jsSyntaxCodeTemplate(e); template != null && template.indexOf('??') != -1;
     }
   }
 
@@ -3141,9 +3177,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       return;
     }
 
-    final cachedFieldType = currentClass == null
-      ? null
-      : SignatureCache.getFieldTsType(currentClass, field.isStatic, field.name);
+    final cachedFieldType = currentClass == null ? null : SignatureCache.getFieldTsType(currentClass,
+      field.isStatic, field.name);
     if (cachedFieldType != null) {
       write(cachedFieldType);
       return;

@@ -62,6 +62,7 @@ Current examples:
 | --- | --- | --- | --- |
 | `genes.ts.Undefinable<T>` | Many TS APIs use `undefined` for “not provided” and reject `null`. Haxe `Null<T>` alone cannot express that contract. | `T | undefined` | Runtime value is `T` or real `undefined`. |
 | `genes.ts.Unknown` | Raw JSON, plugin payloads, host APIs, and caught JS values may be untrusted. TS `unknown` is safer than `any` because users must narrow/decode before use. | `unknown` | A contained Haxe abstract over the runtime value. |
+| `genes.ts.UnknownNarrow`, `UnknownRecord`, `UnknownArray` | Haxe can run JS runtime checks, but it cannot represent TypeScript's control-flow proof that an `unknown` is now a string, record, or array. | Guarded helpers over `unknown`, `Readonly<Record<string, unknown>>`, and `readonly unknown[]`. | The same `typeof`, `Array.isArray`, `Object.keys`, and own-property checks as plain ES6. |
 | `genes.ts.Imports` | Existing npm/TS/TSX modules need value, type, default, named, namespace, and attributed imports. Import syntax should be generated consistently instead of scattered as strings. | Idiomatic ESM imports and type imports. | Equivalent ESM imports in classic JS output where applicable. |
 
 `Undefinable<T>` means “a `T`, or JavaScript `undefined`.” That is different from Haxe `Null<T>`/JavaScript `null`: many DOM, Node, npm, and strict TypeScript APIs use `undefined` for “not provided” and reject `null`.
@@ -71,17 +72,22 @@ For example:
 ```haxe
 import genes.ts.Undefinable;
 import genes.ts.Unknown;
+import genes.ts.UnknownNarrow;
 
 typedef Env = haxe.DynamicAccess<Undefinable<String>>;
 
 final absent = Undefinable.absent();
-final payload = Unknown.fromBoundary(js.Syntax.code("JSON.parse({0})", text));
+final payload = Unknown.fromBoundary(haxe.Json.parse(text));
+
+final record = UnknownNarrow.record(payload);
+final name = record == null ? null : UnknownNarrow.string(record.get("name"));
 ```
 
 In TypeScript source output:
 
 - `Undefinable<T>` can emit as `T | undefined`.
 - `Unknown` can emit as TypeScript `unknown`.
+- `UnknownNarrow.record` can return a read-only record view for checked field decoding.
 - future helpers can model import types, type queries, JSX element types, or other TS-only declaration shapes.
 
 In classic Genes JS output:

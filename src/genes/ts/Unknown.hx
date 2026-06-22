@@ -13,7 +13,10 @@ abstract Unknown(Dynamic) {
   /**
    * Marks a value acquired at an interop/runtime boundary as untrusted.
    */
-  public static inline function fromBoundary<T>(value:T):Unknown {
+  public static inline function fromBoundary<T>(value: T): Unknown {
+    // Haxe has no native `unknown` top type. This cast is intentionally
+    // contained at the boundary marker; callers must narrow through
+    // `UnknownNarrow` or a decoder before using the value.
     return cast value;
   }
 }

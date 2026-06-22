@@ -108,6 +108,7 @@ Examples of these helpers:
 
 - `genes.ts.Undefinable<T>` for APIs where absence is JavaScript `undefined`, not `null`.
 - `genes.ts.Unknown` for untrusted runtime values that should be decoded or narrowed before application code uses them.
+- `genes.ts.UnknownNarrow`, `UnknownRecord`, and `UnknownArray` for guarded reads from untrusted JavaScript values.
 - `genes.ts.Imports` for typed imports from existing JS/TS/TSX modules without hand-writing fragile import strings at every call site.
 
 They are useful when the JavaScript/TypeScript ecosystem has a real contract that Haxe does not express directly. The helper gives that contract a Haxe name, keeps the unsafety or TS-specific syntax in one maintained place, and lets the compiler choose the right output for each target.
@@ -125,6 +126,32 @@ final missing = Undefinable.absent();
 ```
 
 In TypeScript output, `Undefinable<String>` can print as `string | undefined`. In classic Genes JS output, the type annotation disappears but `Undefinable.absent()` still emits the runtime JavaScript value `undefined`.
+
+`Unknown` means “this value crossed a runtime boundary and has not been
+validated yet.” It intentionally does not let application code use the value
+directly. Use `UnknownNarrow` for the first guarded step, then copy validated
+data into normal Haxe records, arrays, maps, enums, or abstracts:
+
+```haxe
+import genes.ts.Unknown;
+import genes.ts.UnknownNarrow;
+
+function decodeName(raw:Unknown):Null<String> {
+  final record = UnknownNarrow.record(raw);
+  if (record == null)
+    return null;
+
+  return UnknownNarrow.string(record.get("name"));
+}
+```
+
+In TypeScript output, `UnknownRecord` is a read-only
+`Readonly<Record<string, unknown>>` view and `UnknownArray` is a
+`readonly unknown[]` view. In classic Genes JS output, those type annotations
+erase while the same runtime checks (`typeof`, `Array.isArray`,
+`Object.keys`, and own-property reads) remain executable ES6. This is useful
+for `JSON.parse`, `fetch().json()`, plugin payloads, host callbacks, caught JS
+values, and other places where the runtime value is real but not yet trusted.
 
 This is useful because one Haxe source can target both workflows:
 

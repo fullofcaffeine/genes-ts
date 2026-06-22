@@ -46,6 +46,7 @@ North star: Haxe code that uses genes-provided TypeScript helper abstractions sh
 - A helper is not portable enough if it only works because the TypeScript emitter prints a clever type string. It must have a real Haxe/runtime representation, or an explicitly documented target guard, so classic JS output can run.
 - When adding or changing a `genes.ts` helper, prefer paired fixtures where practical: one proves the rich TypeScript output, and one proves classic JS output still compiles/runs or intentionally reports a documented unsupported construct.
 - If a Haxe program avoids TS-specific helper types entirely, it should compile to either TypeScript or ES6 without source changes. TypeScript output may still be richer because `genes-ts` emits declarations, stricter imports, and TS-native syntax, but plain JS output must remain a first-class target.
+- Generic boundary primitives belong in `genes.ts` when they model reusable JS/TS semantics Haxe cannot express directly, such as `unknown`, `undefined`, record-like unknown objects, read-only unknown arrays, and guarded narrowing. Keep schema decoding, field defaults, error wording, compatibility policies, and product-specific payload knowledge in downstream libraries/apps or a separate decoder library, not in the compiler.
 
 ## Type safety (no `untyped` / no `Dynamic`)
 
