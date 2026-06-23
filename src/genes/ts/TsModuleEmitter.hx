@@ -2112,6 +2112,10 @@ class TsModuleEmitter extends JsModuleEmitter {
           && !suppressOptionalFieldNullNormalization
           && shouldNormalizeOptionalFieldRead(e)):
         emitOptionalFieldAsNull(e);
+      case TBlock(elements):
+        final previousPreferredLocalNames = pushBlockLocalNamePreferences(elements);
+        super.emitValue(e);
+        preferredLocalNames = previousPreferredLocalNames;
       default:
         super.emitValue(e);
     }
@@ -2669,9 +2673,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   function emitNarrowedBlockElements(elements: Array<TypedExpr>) {
-    final previousPreferredLocalNames = preferredLocalNames;
-    preferredLocalNames = copyLocalNamePreferences(preferredLocalNames);
-    addObjectConstructionLocalNamePreferences(elements);
+    final previousPreferredLocalNames = pushBlockLocalNamePreferences(elements);
     var activeKeys: Array<String> = [];
     for (element in elements) {
       for (key in activeKeys)
@@ -2680,9 +2682,18 @@ class TsModuleEmitter extends JsModuleEmitter {
       for (_ in activeKeys)
         narrowedNonNullKeys.pop();
       activeKeys = removeNarrowKeys(activeKeys, assignedNarrowKeys(element));
-      activeKeys = uniqueNarrowKeys(concatNarrowKeys(activeKeys, continuationNonNullKeys(element)));
+      activeKeys = uniqueNarrowKeys(concatNarrowKeys(activeKeys,
+        continuationNonNullKeys(element)));
     }
     preferredLocalNames = previousPreferredLocalNames;
+  }
+
+  function pushBlockLocalNamePreferences(elements: Array<TypedExpr>): Map<Int, String> {
+    final previousPreferredLocalNames = preferredLocalNames;
+    preferredLocalNames = copyLocalNamePreferences(preferredLocalNames);
+    addObjectConstructionLocalNamePreferences(elements);
+    addTsxElementLocalNamePreferences(elements);
+    return previousPreferredLocalNames;
   }
 
   /**
@@ -2757,6 +2768,116 @@ class TsModuleEmitter extends JsModuleEmitter {
         default:
       }
     }
+  }
+
+  /**
+   * Gives Haxe-lowered TSX child element temporaries readable names.
+   *
+   * Why: inline JSX/TSX markup in value position can be lowered by Haxe into a
+   * sequence of locals named `tmp`, `tmp1`, ... before the final root element
+   * expression. The order-preserving declarations are useful, but the raw temp
+   * names make generated TSX snapshots hard to review.
+   *
+   * What/How: in TSX mode only, if a low-quality local is initialized directly
+   * from a JSX marker and consumed exactly once, prefer a name based on the JSX
+   * tag (`text`, `input`, `fragment`, ...). The declarations stay separate, so
+   * evaluation order remains exactly Haxe's lowered order; only the emitted
+   * TypeScript identifiers change.
+   */
+  function addTsxElementLocalNamePreferences(elements: Array<TypedExpr>) {
+    if (!jsxEmitTsx)
+      return;
+    final uses: Map<Int, Int> = [];
+    for (element in elements)
+      countLocalUses(element, uses);
+    for (element in elements) {
+      switch unwrapExpr(element).expr {
+        case TVar(v, init)
+          if (init != null && isLowQualityTempLocalName(v.name)
+            && (uses.exists(v.id) ? uses.get(v.id) : 0) == 1):
+          final preferred = preferredNameForJsxElementLocal(init);
+          if (preferred != null)
+            preferredLocalNames.set(v.id, preferred);
+        default:
+      }
+    }
+  }
+
+  function preferredNameForJsxElementLocal(e: TypedExpr): Null<String> {
+    return switch unwrapExpr(e).expr {
+      case TCall(callee, args):
+        switch isReactJsxMarkerCallee(callee) {
+          case '__jsx':
+            args.length == 3 ? preferredNameForJsxTag(args[0]) : null;
+          case '__frag':
+            'fragment';
+          case _:
+            null;
+        }
+      default:
+        null;
+    }
+  }
+
+  function preferredNameForJsxTag(tag: TypedExpr): Null<String> {
+    return switch unwrapExpr(tag).expr {
+      case TConst(TString(s)):
+        preferredNameFromJsxTagString(s);
+      case TLocal(v):
+        sanitizePreferredLocalName(v.name);
+      default:
+        null;
+    }
+  }
+
+  function preferredNameFromJsxTagString(tag: String): Null<String> {
+    if (tag == null || tag.length == 0)
+      return null;
+    final parts = tag.split('-');
+    var out = '';
+    for (i in 0...parts.length) {
+      final part = sanitizePreferredLocalName(parts[i]);
+      if (part == null)
+        continue;
+      if (out.length == 0) {
+        out = part;
+      } else {
+        out += part.substr(0, 1).toUpperCase() + part.substr(1);
+      }
+    }
+    return out.length == 0 ? null : out;
+  }
+
+  function sanitizePreferredLocalName(name: String): Null<String> {
+    if (name == null || name.length == 0)
+      return null;
+    final out = new StringBuf();
+    for (i in 0...name.length) {
+      final code = name.charCodeAt(i);
+      final valid = (code >= "a".code && code <= "z".code)
+        || (code >= "A".code && code <= "Z".code)
+        || (i > 0 && code >= "0".code && code <= "9".code)
+        || code == "_".code || code == "$".code;
+      if (valid)
+        out.addChar(code);
+    }
+    final result = out.toString();
+    return result.length == 0 ? null : getLocalIdent(result);
+  }
+
+  static function isLowQualityTempLocalName(name: String): Bool {
+    if (name == "tmp")
+      return true;
+    if (!StringTools.startsWith(name, "tmp"))
+      return false;
+    if (name.length == 3)
+      return true;
+    for (i in 3...name.length) {
+      final code = name.charCodeAt(i);
+      if (code < "0".code || code > "9".code)
+        return false;
+    }
+    return true;
   }
 
   static function copyLocalNamePreferences(source: Map<Int, String>): Map<Int, String> {

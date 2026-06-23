@@ -70,6 +70,14 @@ export class Main {
 		if (statusHtml != "<section data-label=\"Count\"><strong>items:2</strong><span>2</span></section>") {
 			throw Exception.thrown("Unexpected status HTML: " + statusHtml);
 		};
+		let listHtml: string = renderToStaticMarkup(Main.renderChildList("ready", "queued"));
+		if (listHtml != "<div><span>ready</span><strong>queued</strong><button>Save</button><em>done</em><span>ready:1</span><strong>queued:2</strong><span>ready:3</span><strong>queued:4</strong><span>ready:5</span><strong>queued:6</strong><span>ready:7</span><strong>queued:8</strong></div>") {
+			throw Exception.thrown("Unexpected list HTML: " + listHtml);
+		};
+		let loweredHtml: string = renderToStaticMarkup(Main.renderLoweredChildList("ready", "queued"));
+		if (loweredHtml != "<div><span>ready</span><strong>queued</strong><em>done</em><span>ready:1</span><strong>queued:2</strong></div>") {
+			throw Exception.thrown("Unexpected lowered list HTML: " + loweredHtml);
+		};
 		let frag: JSX.Element = <><span>A</span><span>B</span></>;
 		let fragHtml: string = renderToStaticMarkup(frag);
 		if (fragHtml != "<span>A</span><span>B</span>") {
@@ -90,6 +98,20 @@ export class Main {
 		// @ts-expect-error;
 		let bad: JSX.Element = <div href="nope" />;
 		renderToStaticMarkup(bad);
+	}
+	static renderChildList(first: string, second: string): JSX.Element {
+		let Button: ((arg0: {
+			label: string
+		}) => JSX.Element) = __genes_import_Button;
+		return <div><span>{first}</span><strong>{second}</strong><Button label="Save" /><em>done</em><span>{first + ":1"}</span><strong>{second + ":2"}</strong><span>{first + ":3"}</span><strong>{second + ":4"}</strong><span>{first + ":5"}</span><strong>{second + ":6"}</strong><span>{first + ":7"}</span><strong>{second + ":8"}</strong></div>;
+	}
+	static renderLoweredChildList(first: string, second: string): JSX.Element {
+		let span: JSX.Element = <span>{first}</span>;
+		let strong: JSX.Element = <strong>{second}</strong>;
+		let em: JSX.Element = <em>done</em>;
+		let span_1: JSX.Element = <span>{first + ":1"}</span>;
+		let strong_1: JSX.Element = <strong>{second + ":2"}</strong>;
+		return <div>{span}{strong}{em}{span_1}{strong_1}</div>;
 	}
 	static get __name__(): string {
 		return "Main"

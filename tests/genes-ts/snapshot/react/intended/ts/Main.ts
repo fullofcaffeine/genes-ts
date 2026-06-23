@@ -71,6 +71,14 @@ export class Main {
 		if (statusHtml != "<section data-label=\"Count\"><strong>items:2</strong><span>2</span></section>") {
 			throw Exception.thrown("Unexpected status HTML: " + statusHtml);
 		};
+		let listHtml: string = renderToStaticMarkup(Main.renderChildList("ready", "queued"));
+		if (listHtml != "<div><span>ready</span><strong>queued</strong><button>Save</button><em>done</em><span>ready:1</span><strong>queued:2</strong><span>ready:3</span><strong>queued:4</strong><span>ready:5</span><strong>queued:6</strong><span>ready:7</span><strong>queued:8</strong></div>") {
+			throw Exception.thrown("Unexpected list HTML: " + listHtml);
+		};
+		let loweredHtml: string = renderToStaticMarkup(Main.renderLoweredChildList("ready", "queued"));
+		if (loweredHtml != "<div><span>ready</span><strong>queued</strong><em>done</em><span>ready:1</span><strong>queued:2</strong></div>") {
+			throw Exception.thrown("Unexpected lowered list HTML: " + loweredHtml);
+		};
 		let frag: JSX.Element = React__genes_jsx.createElement(React__genes_jsx.Fragment, null, React__genes_jsx.createElement("span", null, "A"), React__genes_jsx.createElement("span", null, "B"));
 		let fragHtml: string = renderToStaticMarkup(frag);
 		if (fragHtml != "<span>A</span><span>B</span>") {
@@ -91,6 +99,20 @@ export class Main {
 		// @ts-expect-error;
 		let bad: JSX.Element = React__genes_jsx.createElement("div", ({href: "nope"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"div"> & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
 		renderToStaticMarkup(bad);
+	}
+	static renderChildList(first: string, second: string): JSX.Element {
+		let Button: ((arg0: {
+			label: string
+		}) => JSX.Element) = __genes_import_Button;
+		return React__genes_jsx.createElement("div", null, React__genes_jsx.createElement("span", null, first), React__genes_jsx.createElement("strong", null, second), React__genes_jsx.createElement(Button, ({label: "Save"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Button> & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))), React__genes_jsx.createElement("em", null, "done"), React__genes_jsx.createElement("span", null, first + ":1"), React__genes_jsx.createElement("strong", null, second + ":2"), React__genes_jsx.createElement("span", null, first + ":3"), React__genes_jsx.createElement("strong", null, second + ":4"), React__genes_jsx.createElement("span", null, first + ":5"), React__genes_jsx.createElement("strong", null, second + ":6"), React__genes_jsx.createElement("span", null, first + ":7"), React__genes_jsx.createElement("strong", null, second + ":8"));
+	}
+	static renderLoweredChildList(first: string, second: string): JSX.Element {
+		let tmp: JSX.Element = React__genes_jsx.createElement("span", null, first);
+		let tmp1: JSX.Element = React__genes_jsx.createElement("strong", null, second);
+		let tmp2: JSX.Element = React__genes_jsx.createElement("em", null, "done");
+		let tmp3: JSX.Element = React__genes_jsx.createElement("span", null, first + ":1");
+		let tmp4: JSX.Element = React__genes_jsx.createElement("strong", null, second + ":2");
+		return React__genes_jsx.createElement("div", null, tmp, tmp1, tmp2, tmp3, tmp4);
 	}
 	static get __name__(): string {
 		return "Main"

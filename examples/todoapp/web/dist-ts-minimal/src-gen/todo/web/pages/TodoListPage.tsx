@@ -97,15 +97,15 @@ export class TodoListPage {
 				});
 			}}> Delete </button></li>;
 		};
-		let tmp: JSX.Element = <h2>Todos</h2>;
-		let tmp1: JSX.Element = <input value={title} placeholder="New todo" onChange={function (e: ChangeEvent) {
+		let h2: JSX.Element = <h2>Todos</h2>;
+		let input: JSX.Element = <input value={title} placeholder="New todo" onChange={function (e: ChangeEvent) {
 			let setter: ((arg0: string) => void) = (titleState[1] ?? null);
 			setter(e.target.value);
 		}} style={{"flex": "1", "padding": "8px"}} />;
 		let tmp2: JSX.Element = <TodoListPage.PrettyButton label="Add" onClick={function () {
 			onAdd();
 		}} variant="primary" />;
-		let tmp3: JSX.Element = <div style={{"display": "flex", "gap": "8px", "marginBottom": "12px"}}>{tmp1}{tmp2}</div>;
+		let div: JSX.Element = <div style={{"display": "flex", "gap": "8px", "marginBottom": "12px"}}>{input}{tmp2}</div>;
 		let f: ((arg0: Todo) => ReactElement) = renderTodoItem;
 		let result: ReactElement[] = new Array(todos.length);
 		let _g_2: number = 0;
@@ -114,9 +114,9 @@ export class TodoListPage {
 			let i: number = _g_2++;
 			result[i] = f(todos[i]);
 		};
-		let tmp4: JSX.Element = <ul style={{"listStyle": "none", "padding": "0", "margin": "0"}}>{result}</ul>;
+		let ul: JSX.Element = <ul style={{"listStyle": "none", "padding": "0", "margin": "0"}}>{result}</ul>;
 		let tmp5: string = TodoListPage.interopBanner();
-		return <div>{tmp}{errorView}{tmp3}{tmp4}<p style={{"marginTop": "16px", "color": "#666", "fontSize": "12px"}}>{tmp5}</p></div>;
+		return <div>{h2}{errorView}{div}{ul}<p style={{"marginTop": "16px", "color": "#666", "fontSize": "12px"}}>{tmp5}</p></div>;
 	}
 	static get __name__(): string {
 		return "todo.web.pages.TodoListPage"
