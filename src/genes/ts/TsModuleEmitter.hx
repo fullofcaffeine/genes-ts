@@ -1591,11 +1591,11 @@ class TsModuleEmitter extends JsModuleEmitter {
         if (typeAllowsNull(emittedType)) {
           write(' = null');
         } else {
-          write(' = ');
-          write(ctx.typeAccessor(TypeUtil.registerType));
-          write('.unsafeCast<');
-          emitLocalType(emittedType, emittedTypeOverride);
-          write('>(null)');
+          // A non-nullable local initialized with `null` is an intentional
+          // Haxe pattern for later assignment, commonly used for mutually
+          // recursive callbacks. TypeScript's non-null assertion keeps the
+          // runtime value as plain `null` without routing through Register.
+          write(' = null!');
         }
       case e:
         write(' = ');

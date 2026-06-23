@@ -73,7 +73,7 @@ export class Boot {
 				let str_1: string = "{\n";
 				s += "\t";
 				let hasp: boolean = o.hasOwnProperty != null;
-				let k: string = Register.unsafeCast<string>(null);
+				let k: string = null!;
 				for( k in o ) {;
 				if (hasp && !o.hasOwnProperty(k)) {
 					continue;

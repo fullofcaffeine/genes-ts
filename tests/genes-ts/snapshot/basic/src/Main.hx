@@ -4,6 +4,7 @@ import foo.BoundaryTypes;
 import foo.Placeholder;
 import foo.EnumAbstract;
 import foo.Narrowing;
+import foo.ServerCallbacks;
 import foo.TypedCatch;
 import genes.ts.Imports;
 
@@ -30,6 +31,12 @@ class Main {
     trace(EnumAbstract.fieldLocalDemo());
     trace(EnumAbstract.recordDemo());
     trace(EnumAbstract.arrayLoopDemo());
+    final server = {
+      off: (event, handler) -> {},
+      closeAllConnections: () -> {}
+    };
+    ServerCallbacks.callbackInitializedLater(server);
+    ServerCallbacks.optionalForwardedMethod(server);
     trace(Narrowing.switchExitingNull({value: "present"}));
     trace(TypedCatch.recover("fixture"));
     trace(TypedCatch.recover("plain"));

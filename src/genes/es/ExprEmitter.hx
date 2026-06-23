@@ -174,13 +174,14 @@ class ExprEmitter extends Emitter {
           print(ctx, ",$arrayPush");
        */
       case TField(x, FClosure(_, _.get() => {name: name})):
-        switch (x.expr) {
+        final receiver = simpleBindReceiver(x);
+        switch (receiver.expr) {
           case TConst(_) | TLocal(_):
             write(ctx.typeAccessor(registerType));
             write('.bind(');
-            emitValue(x);
+            emitValue(receiver);
             write(', ');
-            emitValue(x);
+            emitValue(receiver);
             emitField(name);
             write(')');
           case _:
@@ -943,6 +944,15 @@ class ExprEmitter extends Emitter {
       write('["${name}"]');
     else
       write(name);
+  }
+
+  function simpleBindReceiver(e: TypedExpr): TypedExpr {
+    return switch e.expr {
+      case TMeta(_, e1) | TParenthesis(e1) | TCast(e1, null):
+        simpleBindReceiver(e1);
+      case _:
+        e;
+    }
   }
 
   public function emitVar(v: TVar, eo: Null<TypedExpr>) {
