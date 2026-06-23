@@ -6,7 +6,7 @@ export class Register {
 	declare static readonly ["new"]: unique symbol;
 	declare static readonly init: unique symbol;
 	declare static fid: number;
-	
+
 	/**
 	* Get (or lazily create) a named registry object on `globalThis`.
 	*
@@ -22,7 +22,7 @@ export class Register {
 		Register.globals[name] = created;
 		return created;
 	}
-	
+
 	/**
 	* Register a runtime type in the `$hxClasses` global registry.
 	*
@@ -33,7 +33,7 @@ export class Register {
 		let hxClasses: HxRegistry = Register.global("$hxClasses");
 		hxClasses[id] = value;
 	}
-	
+
 	/**
 	* Register a runtime enum in the `$hxEnums` global registry.
 	*
@@ -44,7 +44,7 @@ export class Register {
 		let hxEnums: HxRegistry = Register.global("$hxEnums");
 		hxEnums[id] = value;
 	}
-	
+
 	/**
 	* Typed view of the `$hxClasses` registry (reflection).
 	*
@@ -54,7 +54,7 @@ export class Register {
 	static hxClasses(): HxClasses {
 		return Register.unsafeCast(Register.global("$hxClasses"));
 	}
-	
+
 	/**
 	* Typed view of the `$hxEnums` registry (reflection).
 	*
@@ -64,7 +64,7 @@ export class Register {
 	static hxEnums(): HxEnums {
 		return Register.unsafeCast(Register.global("$hxEnums"));
 	}
-	
+
 	/**
 	* Ensure an instance field exists on a class prototype for reflection
 	* (`Type.getInstanceFields`, etc) without forcing a TS `any` cast.
@@ -75,7 +75,7 @@ export class Register {
 	static seedProtoField(cls: Function, name: string): void {
 		Object.defineProperty(cls.prototype, name, {"value": null, "writable": true, "enumerable": true, "configurable": true});
 	}
-	
+
 	/**
 	* Unsafe type assertion helper.
 	*
@@ -106,7 +106,7 @@ export class Register {
 			value = v;
 		}});
 	}
-	
+
 	/**
 	* NOTE: This function is intentionally typed as `any` in generated TS.
 	*
@@ -157,7 +157,7 @@ export class Register {
 	static mkIter<T>(a: T[]): Iterator<T> {
 		return new ArrayIterator(a);
 	}
-	
+
 	/**
 	* Create a "synthetic" subclass constructor at runtime.
 	*
@@ -166,7 +166,7 @@ export class Register {
 	* the precise constructor signature of the dynamically-computed superclass.
 	*/
 	static extend(superClass: any): any {
-		
+
       function res() {
         // Prefer the legacy Genes initializer path when present.
         // @ts-ignore
@@ -184,7 +184,7 @@ export class Register {
       return res
     ;
 	}
-	
+
 	/**
 	* Return a base class for `extends` that supports deferred resolution.
 	*
@@ -196,7 +196,7 @@ export class Register {
 		if (defer == null) {
 			defer = false;
 		};
-		
+
       function res() {
         // @ts-ignore
         if (defer && resolve && res[Register.init]) res[Register.init]()
@@ -243,7 +243,7 @@ export class Register {
 	      return res
     ;
 	}
-	
+
 	/**
 	* Bind a method to `this` and cache the closure on the receiver.
 	*
@@ -254,18 +254,18 @@ export class Register {
 		if (m == null) {
 			return null;
 		};
-		if ((m!).__id__ == null) {
-			(m!).__id__ = Register.fid++;
+		if (m.__id__ == null) {
+			m.__id__ = Register.fid++;
 		};
 		let f: any | null = null;
 		if ((o!).hx__closures__ == null) {
 			(o!).hx__closures__ = {};
 		} else {
-			f = ((o!).hx__closures__[(m!).__id__] ?? null);
+			f = ((o!).hx__closures__[m.__id__] ?? null);
 		};
 		if (f == null) {
-			f = (m!).bind(o);
-			(o!).hx__closures__[(m!).__id__] = f;
+			f = m.bind(o);
+			(o!).hx__closures__[m.__id__] = f;
 		};
 		return f;
 	}
@@ -339,4 +339,3 @@ Register.setHxClass("genes._Register.ArrayIterator", ArrayIterator);
 Register.seedProtoField(ArrayIterator, "array");
 
 Register.seedProtoField(ArrayIterator, "current");
-

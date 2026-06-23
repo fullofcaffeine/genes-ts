@@ -2261,7 +2261,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           }
         if (isOptionalField)
           write('(');
-        emitChainedAccessReceiver(skip(x), true);
+        emitChainedAccessReceiver(skip(x), !isNarrowedNonNull(x));
         emitTsFieldAccess(f);
         if (isOptionalField)
           write(' ?? null)');
@@ -2424,6 +2424,8 @@ class TsModuleEmitter extends JsModuleEmitter {
         final inLoop = this.inLoop;
         final prevReturn = currentReturnType;
         final prevVoidLike = currentReturnIsVoidLike;
+        final prevNarrowedNonNullKeys = narrowedNonNullKeys;
+        narrowedNonNullKeys = [];
         currentReturnType = switch e.t {
           case TFun(_, ret): ret;
           default: null;
@@ -2478,6 +2480,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         this.inLoop = inLoop;
         currentReturnType = prevReturn;
         currentReturnIsVoidLike = prevVoidLike;
+        narrowedNonNullKeys = prevNarrowedNonNullKeys;
         restoreLocalNameScope(previousLocalScope);
       case TBinop(op = OpGt | OpGte | OpLt | OpLte, e1, e2)
         if ((typeAllowsNull(e1.t) && isNumberLike(e1.t))
@@ -2543,10 +2546,14 @@ class TsModuleEmitter extends JsModuleEmitter {
    * (`local`, `local.field`, `this.field`, and nested field chains), record
    * null facts proven by direct `== null` / `!= null` checks. The facts flow
    * through simple boolean conditions: `a && b` proves true-branch facts from
-   * both sides, while `a || b` proves false-branch facts from both sides.
-   * Matching locals can then emit directly, and matching optional field reads
-   * emit as `receiver.field!`. Unstable receivers such as calls stay on the
-   * conservative cast / `?? null` paths.
+   * both sides, while `a || b` proves false-branch facts from both sides. An
+   * `if (value == null)` branch that exits with `return`, `throw`, `continue`,
+   * or `break` proves the following same-block statements are in the non-null
+   * path. Those facts intentionally reset at nested function expressions because
+   * TypeScript does not trust captured mutable locals to stay narrowed when a
+   * callback runs later. Matching locals can then emit directly, and matching
+   * optional field reads emit as `receiver.field!`. Unstable receivers such as
+   * calls stay on the conservative cast / `?? null` paths.
    */
   function nullNarrowCheck(e: TypedExpr): Null<NullNarrowCheck> {
     return switch unwrapExpr(e).expr {
@@ -2610,14 +2617,15 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   function emitNarrowedBlockElements(elements: Array<TypedExpr>) {
-    var nextKeys: Array<String> = [];
+    var activeKeys: Array<String> = [];
     for (element in elements) {
-      for (key in nextKeys)
+      for (key in activeKeys)
         narrowedNonNullKeys.push(key);
       emitBlockElement(element);
-      for (_ in nextKeys)
+      for (_ in activeKeys)
         narrowedNonNullKeys.pop();
-      nextKeys = continuationNonNullKeys(element);
+      activeKeys = removeNarrowKeys(activeKeys, assignedNarrowKeys(element));
+      activeKeys = uniqueNarrowKeys(concatNarrowKeys(activeKeys, continuationNonNullKeys(element)));
     }
   }
 
@@ -2637,9 +2645,29 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
   }
 
+  function assignedNarrowKeys(e: TypedExpr): Array<String> {
+    return switch unwrapExpr(e).expr {
+      case TBinop(OpAssign | OpAssignOp(_), lhs, _):
+        final key = nonNullNarrowKey(lhs);
+        key == null ? [] : [key];
+      case TBlock(elements):
+        var keys: Array<String> = [];
+        for (element in elements)
+          keys = concatNarrowKeys(keys, assignedNarrowKeys(element));
+        uniqueNarrowKeys(keys);
+      case TIf(_, thenExpr, elseExpr):
+        var keys = assignedNarrowKeys(thenExpr);
+        if (elseExpr != null)
+          keys = concatNarrowKeys(keys, assignedNarrowKeys(elseExpr));
+        uniqueNarrowKeys(keys);
+      default:
+        [];
+    }
+  }
+
   static function definitelyExits(e: TypedExpr): Bool {
     return switch unwrapExpr(e).expr {
-      case TReturn(_) | TThrow(_):
+      case TReturn(_) | TThrow(_) | TContinue | TBreak:
         true;
       case TBlock(elements): elements.length > 0 && definitelyExits(elements[elements.length
           - 1]);
@@ -2667,6 +2695,24 @@ class TsModuleEmitter extends JsModuleEmitter {
           break;
         }
       if (!exists)
+        out.push(key);
+    }
+    return out;
+  }
+
+  static function removeNarrowKeys(keys: Array<String>,
+      removed: Array<String>): Array<String> {
+    if (removed.length == 0)
+      return keys;
+    final out: Array<String> = [];
+    for (key in keys) {
+      var keep = true;
+      for (item in removed)
+        if (item == key) {
+          keep = false;
+          break;
+        }
+      if (keep)
         out.push(key);
     }
     return out;

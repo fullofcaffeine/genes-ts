@@ -14,14 +14,14 @@ export class ArrayIterator<T> extends Register.inherits() {
 		this.current = 0;
 		this.array = array;
 	}
-	
+
 	/**
 	See `Iterator.hasNext`
 	*/
 	hasNext(): boolean {
 		return this.current < this.array.length;
 	}
-	
+
 	/**
 	See `Iterator.next`
 	*/
@@ -40,4 +40,3 @@ Register.setHxClass("haxe.iterators.ArrayIterator", ArrayIterator);
 Register.seedProtoField(ArrayIterator, "array");
 
 Register.seedProtoField(ArrayIterator, "current");
-

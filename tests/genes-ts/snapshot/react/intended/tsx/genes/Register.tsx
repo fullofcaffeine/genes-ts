@@ -254,18 +254,18 @@ export class Register {
 		if (m == null) {
 			return null;
 		};
-		if ((m!).__id__ == null) {
-			(m!).__id__ = Register.fid++;
+		if (m.__id__ == null) {
+			m.__id__ = Register.fid++;
 		};
 		let f: any | null = null;
 		if ((o!).hx__closures__ == null) {
 			(o!).hx__closures__ = {};
 		} else {
-			f = ((o!).hx__closures__[(m!).__id__] ?? null);
+			f = ((o!).hx__closures__[m.__id__] ?? null);
 		};
 		if (f == null) {
-			f = (m!).bind(o);
-			(o!).hx__closures__[(m!).__id__] = f;
+			f = m.bind(o);
+			(o!).hx__closures__[m.__id__] = f;
 		};
 		return f;
 	}

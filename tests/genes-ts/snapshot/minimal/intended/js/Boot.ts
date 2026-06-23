@@ -10,7 +10,7 @@ export class Boot {
 			return "<...>";
 		};
 		let t: string = typeof(o);
-		if (t == "function" && ((o!).__name__ || (o!).__ename__)) {
+		if (t == "function" && (o.__name__ || o.__ename__)) {
 			t = "object";
 		};
 		switch (t) {
@@ -19,9 +19,9 @@ export class Boot {
 				break;
 			}
 			case "object": {
-				if ((o!).__enum__) {
-					let e: any = Register.hxEnums()[(o!).__enum__];
-					let con: any = e.__constructs__[(o!)._hx_index];
+				if (o.__enum__) {
+					let e: any = Register.hxEnums()[o.__enum__];
+					let con: any = e.__constructs__[o._hx_index];
 					let n: string = con._hx_name;
 					if (con.__params__) {
 						s = s + "\t";
@@ -50,7 +50,7 @@ export class Boot {
 					let str: string = "[";
 					s += "\t";
 					let _g_1: number = 0;
-					let _g1_1: number = (o!).length;
+					let _g1_1: number = o.length;
 					while (_g_1 < _g1_1) {
 						let i: number = _g_1++;
 						str += ((i > 0) ? "," : "") + Boot.__string_rec((o[i] ?? null), s);
@@ -60,22 +60,22 @@ export class Boot {
 				};
 				let tostr: any | null;
 				try {
-					tostr = (o!).toString;
+					tostr = o.toString;
 				}catch (_g_2) {
 					return "???";
 				};
 				if (tostr != null && tostr != Object.toString && typeof(tostr) == "function") {
-					let s2: string = (o!).toString();
+					let s2: string = o.toString();
 					if (s2 != "[object Object]") {
 						return s2;
 					};
 				};
 				let str_1: string = "{\n";
 				s += "\t";
-				let hasp: boolean = (o!).hasOwnProperty != null;
+				let hasp: boolean = o.hasOwnProperty != null;
 				let k: string = Register.unsafeCast<string>(null);
 				for( k in o ) {;
-				if (hasp && !(o!).hasOwnProperty(k)) {
+				if (hasp && !o.hasOwnProperty(k)) {
 					continue;
 				};
 				if (k == "prototype" || k == "__class__" || k == "__super__" || k == "__interfaces__" || k == "__properties__") {
@@ -92,7 +92,7 @@ export class Boot {
 				break;
 			}
 			case "string": {
-				return Register.unsafeCast<string>(o);
+				return o;
 				break;
 			}
 			default: {

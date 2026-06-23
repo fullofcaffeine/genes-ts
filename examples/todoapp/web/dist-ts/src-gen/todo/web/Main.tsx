@@ -11,7 +11,7 @@ export class Main {
 			throw Exception.thrown("Missing #root");
 		};
 		let AppComponent: ReactComponent = App.Component;
-		ReactDomClient.createRoot(Register.unsafeCast<HTMLElement>(el)).render(<AppComponent />);
+		ReactDomClient.createRoot(el).render(<AppComponent />);
 	}
 	static get __name__(): string {
 		return "todo.web.Main"

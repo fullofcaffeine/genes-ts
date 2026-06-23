@@ -202,7 +202,7 @@ export class BoundaryTypes {
 		if ((record.items ?? null) != null) {
 			let _g: number = 0;
 			let _g1: string[] = (record.items!);
-			while (_g < (_g1!).length) {
+			while (_g < _g1.length) {
 				let item: string = _g1[_g];
 				++_g;
 				out.push(item.toUpperCase());

@@ -54,12 +54,12 @@ export class Store extends Register.inherits() {
 			return null;
 		};
 		if ((patch.title ?? null) != null) {
-			(todo!).title = (patch.title!);
+			todo.title = (patch.title!);
 		};
 		if ((patch.completed ?? null) != null) {
-			(todo!).completed = (patch.completed!);
+			todo.completed = (patch.completed!);
 		};
-		(todo!).updatedAt = Store.nowIso();
+		todo.updatedAt = Store.nowIso();
 		this.save();
 		return todo;
 	}

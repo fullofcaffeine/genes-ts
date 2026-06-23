@@ -99,6 +99,17 @@ if (!mapFacadeBlock.includes("named.set(name, Main.namedItem(name))") || !mapFac
 if (mapFacadeBlock.includes(".inst.")) {
   throw new Error("map facade fixture must not expose backing `.inst` access in user modules");
 }
+const mapGetContinueBlock = noJsEsMain.match(/\bstatic mapGetAfterContinue\(ids: string\[\]\): string\[\] \{[\s\S]*?\n\t\}/)?.[0] ?? "";
+if (!mapGetContinueBlock.includes("if (item == null)") || !mapGetContinueBlock.includes("continue;")) {
+  throw new Error("map get narrowing fixture must keep an exiting null guard");
+}
+if (mapGetContinueBlock.includes("Register.unsafeCast") || mapGetContinueBlock.includes("item!")) {
+  throw new Error("null-guarded map get locals should flow without unsafe casts or non-null assertions");
+}
+const closureGuardBlock = noJsEsMain.match(/\bstatic closureAfterOuterGuard\(id: string\): NamedCallback \| null \{[\s\S]*?\n\t\}/)?.[0] ?? "";
+if (!closureGuardBlock.includes("(item!).name")) {
+  throw new Error("outer null guards must not erase receiver assertions inside returned closures");
+}
 if (!/\bmapAfterResultParameter\(result: MessageBatch\): number\[\] \{[\s\S]*\bvar result_1: number\[\]/.test(noJsEsMain)) {
   throw new Error("array-map helper temporaries must be suffixed when an enclosing parameter is named `result`");
 }

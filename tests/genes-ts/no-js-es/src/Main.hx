@@ -17,6 +17,15 @@ typedef MapHolder = {
   final ranked: Map<String, RankedItem>;
 }
 
+typedef NamedSummary = {
+  final id: String;
+  final name: String;
+}
+
+typedef NamedCallback = {
+  final read: () -> String;
+}
+
 typedef MessageBatch = {
   final messages: Array<String>;
 }
@@ -25,6 +34,9 @@ class Main {
   static function main(): Void {
     trace(render(Text("ok")) + ":" + render(Count(2)) + ":" + render(Flag(true)));
     trace(mapSetTemps(["alpha", "beta"]));
+    trace(mapGetAfterContinue(["alpha", "missing"]).join(","));
+    final callback = closureAfterOuterGuard("alpha");
+    trace(callback == null ? "missing" : callback.read());
     trace(inlineValueTemps());
     trace(mapAfterResultParameter({messages: ["one", "three"]}).join(","));
   }
@@ -76,6 +88,46 @@ class Main {
     return {
       named: named,
       ranked: ranked
+    };
+  }
+
+  /**
+   * A null guard whose then branch exits by `continue` proves the local
+   * non-null for the rest of that loop iteration. Generated TS should trust
+   * that flow fact instead of inserting identity casts at call/object boundaries.
+   */
+  static function mapGetAfterContinue(ids: Array<String>): Array<String> {
+    final holder = buildMapHolder(["alpha"]);
+    final out: Array<String> = [];
+    for (id in ids) {
+      final item = holder.named.get(id);
+      if (item == null)
+        continue;
+      final summary: NamedSummary = {
+        id: id,
+        name: item.name
+      };
+      out.push(formatNamedSummary(summary));
+    }
+    return out;
+  }
+
+  static function formatNamedSummary(summary: NamedSummary): String {
+    return summary.id + ":" + summary.name;
+  }
+
+  /**
+   * Outer non-null facts must not leak into returned closures. The callback may
+   * execute later, so generated TS needs its own receiver assertion even though
+   * the surrounding block is narrowed.
+   */
+  static function closureAfterOuterGuard(id: String): Null<NamedCallback> {
+    final holder = buildMapHolder(["alpha"]);
+    final item = holder.named.get(id);
+    if (item == null)
+      return null;
+    return {
+      read: () -> item.name
     };
   }
 

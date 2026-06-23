@@ -47,7 +47,7 @@ export class TodoDetailPage {
 				setter("Title is required");
 				return;
 			};
-			Client.updateTodo(Register.unsafeCast<string>(id), {"title": trimmed}).then(function (updated: Todo) {
+			Client.updateTodo(id, {"title": trimmed}).then(function (updated: Todo) {
 				let setter: ((arg0: Todo | null) => void) = (todoState[1] ?? null);
 				setter(updated);
 				navigate("/");
