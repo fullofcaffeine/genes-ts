@@ -17,10 +17,15 @@ typedef MapHolder = {
   final ranked: Map<String, RankedItem>;
 }
 
+typedef MessageBatch = {
+  final messages: Array<String>;
+}
+
 class Main {
   static function main(): Void {
     trace(render(Text("ok")) + ":" + render(Count(2)) + ":" + render(Flag(true)));
     trace(mapSetTemps(["alpha", "beta"]));
+    trace(mapAfterResultParameter({messages: ["one", "three"]}).join(","));
   }
 
   static function render(input: SwitchValue): String {
@@ -64,5 +69,13 @@ class Main {
 
   static function rankedItem(rank: Int): RankedItem {
     return {rank: rank};
+  }
+
+  static function mapAfterResultParameter(result: MessageBatch): Array<Int> {
+    return result.messages.map(messageLength);
+  }
+
+  static function messageLength(message: String): Int {
+    return message.length;
   }
 }
