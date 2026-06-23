@@ -32,6 +32,7 @@
 
 ### Features
 
+* **ts:** add resource import helpers for text, file, and dynamic WASM assets
 * **ts:** add unknown narrowing primitives ([ed61fe7](https://github.com/fullofcaffeine/genes-ts/commit/ed61fe76afeaa49f6fb46e3d1a0319cfe9514400))
 
 # [1.11.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.10.0...v1.11.0) (2026-02-05)

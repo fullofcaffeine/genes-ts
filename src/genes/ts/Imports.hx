@@ -60,6 +60,65 @@ class Imports {
   }
 
   /**
+   * Import a text-like resource as a string default export.
+   *
+   * Why: many JS/Bun/bundler projects expose `.txt`, `.md`, or similar assets
+   * as default string imports. This helper names that resource contract directly
+   * instead of making Haxe code repeat a generic default-import spell at every
+   * call site.
+   *
+   * What/How: this emits the same tracked default import as `defaultImport`,
+   * typed as `String` on the Haxe side. The target project still owns the
+   * runtime loader or bundler declaration for the imported extension.
+   */
+  public static macro function text(module: ExprOf<String>,
+      ?as: ExprOf<String>): ExprOf<String> {
+    return importImpl(module, Default, null, as, null);
+  }
+
+  /**
+   * Import a file-like asset as a runtime path string.
+   *
+   * Why: Bun and several bundlers support `with { type: "file" }` for assets
+   * where the program needs a path/URL string instead of the file contents.
+   *
+   * What/How: this emits a tracked default import with the TypeScript import
+   * attribute `with { type: "file" }`, typed as `String` in Haxe. The runtime
+   * meaning of the returned string remains the host loader's contract.
+   */
+  public static macro function file(module: ExprOf<String>,
+      ?as: ExprOf<String>): ExprOf<String> {
+    return importImpl(module, Default, null, as, macro "file");
+  }
+
+  /**
+   * Dynamically import a resource with a TypeScript import attribute.
+   *
+   * Why: binary resources such as WASM are often loaded lazily and may not have
+   * ordinary TypeScript module declarations. `import("asset" as string, { with:
+   * { type: "wasm" } })` keeps the specifier visible to Bun/bundlers while
+   * avoiding a TypeScript module-resolution requirement for the raw asset path.
+   *
+   * What: the caller supplies the expected module shape, commonly
+   * `{ default: string }` for loaders that return a path/URL string.
+   *
+   * How: arguments must be string literals so the generated expression remains
+   * deterministic. The macro only constructs the dynamic import expression; it
+   * does not copy, bundle, or interpret the asset.
+   */
+  public static macro function dynamicWith<T>(module: ExprOf<String>,
+      importType: ExprOf<String>): ExprOf<js.lib.Promise<T>> {
+    return dynamicImportImpl(module, importType);
+  }
+
+  /**
+   * Convenience wrapper for `dynamicWith(module, "wasm")`.
+   */
+  public static macro function dynamicWasm<T>(module: ExprOf<String>): ExprOf<js.lib.Promise<T>> {
+    return dynamicImportImpl(module, macro "wasm");
+  }
+
+  /**
    * Import a named export from a module.
    *
    * Example:
@@ -141,6 +200,27 @@ class Imports {
       expr: ECheckType(valueExpr, ct),
       pos: pos
     };
+  }
+
+  static function dynamicImportImpl(moduleExpr: Expr,
+      importAttributeTypeExpr: Expr): Expr {
+    final pos = moduleExpr.pos;
+    final module = expectStringLiteral(moduleExpr, 'module');
+    final importAttributeType = expectStringLiteral(importAttributeTypeExpr, 'importType');
+    final valueExpr: Expr = macro js.Syntax.code($v{'import(${tsStringLiteral(module)} as string, { with: { type: ${tsStringLiteral(importAttributeType)} } })'});
+    final expected = Context.getExpectedType();
+    final ct = expected != null ? expected.toComplexType() : null;
+    if (ct == null)
+      return valueExpr;
+    return {
+      expr: ECheckType(valueExpr, ct),
+      pos: pos
+    };
+  }
+
+  static function tsStringLiteral(value: String): String {
+    final escapedSlash = StringTools.replace(value, '\\', '\\\\');
+    return '"' + StringTools.replace(escapedSlash, '"', '\\"') + '"';
   }
 
   private static function expectStringLiteral(e: Expr, label: String): String {

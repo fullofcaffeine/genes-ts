@@ -62,6 +62,61 @@ This emits an import shaped like:
 import Theme from "./theme.json" with { type: "json" }
 ```
 
+### Resource imports
+
+`Imports.text` names the common bundler/Bun contract where a text resource is a
+default string import:
+
+```haxe
+import genes.ts.Imports;
+
+final prompt = Imports.text("./prompt.txt");
+```
+
+This emits:
+
+```ts
+import Prompt from "./prompt.txt"
+```
+
+`Imports.file` names the path/URL asset contract used by loaders that support
+`with { type: "file" }`:
+
+```haxe
+final soundPath = Imports.file("./pulse.wav");
+```
+
+This emits:
+
+```ts
+import Pulse from "./pulse.wav" with { type: "file" }
+```
+
+For lazy binary assets, use `dynamicWith` or the `dynamicWasm` convenience
+wrapper. The caller supplies the expected module shape:
+
+```haxe
+typedef AssetModule = {
+  @:native("default")
+  final value:String;
+};
+
+final wasm = Imports.dynamicWasm<AssetModule>("./parser.wasm");
+```
+
+This emits a dynamic import shaped like:
+
+```ts
+import("./parser.wasm" as string, { with: { type: "wasm" } })
+```
+
+Resource helpers only generate typed imports. The target app still owns the
+loader, bundler, package export/import map, or ambient declaration that gives a
+particular extension runtime meaning. The compiler fixture
+`tests/genes-ts/snapshot/resource-imports` proves the generated TypeScript shape
+and strict `tsc` compatibility without claiming plain Node can execute arbitrary
+text, file, or WASM imports without a loader.
+
 ### Named import
 
 ```haxe

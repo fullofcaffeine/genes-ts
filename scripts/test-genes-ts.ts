@@ -51,6 +51,28 @@ run("npx", [
 
 run("node", ["tests/genes-ts/snapshot/basic/out/dist/index.js"]);
 
+rmrf("tests/genes-ts/snapshot/resource-imports/out");
+run("haxe", ["tests/genes-ts/snapshot/resource-imports/build.hxml"]);
+cpSync(
+  path.join(repoRoot, "tests/genes-ts/snapshot/resource-imports/src/resources"),
+  path.join(repoRoot, "tests/genes-ts/snapshot/resource-imports/out/src-gen/resources"),
+  { recursive: true }
+);
+assertNoUnsafeTypes({
+  repoRoot,
+  generatedDir: "tests/genes-ts/snapshot/resource-imports/out/src-gen",
+  fileExts: [".ts"],
+  ignoreTopLevelDirs: ["genes", "haxe", "js", "tink"],
+  allowUnsafeTypeFiles: []
+});
+run("npx", [
+  "-y",
+  "--package",
+  "typescript@5.5.4",
+  "-c",
+  "tsc -p tests/genes-ts/snapshot/resource-imports/tsconfig.json"
+]);
+
 rmrf("tests/genes-ts/no-js-es/out");
 run("haxe", ["tests/genes-ts/no-js-es/build.hxml"]);
 

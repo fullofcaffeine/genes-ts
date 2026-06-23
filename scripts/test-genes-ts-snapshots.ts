@@ -37,6 +37,13 @@ const cases: ReadonlyArray<SnapshotCase> = [
     fileExts: [".ts"]
   },
   {
+    name: "resource-imports",
+    buildHxml: "tests/genes-ts/snapshot/resource-imports/build.hxml",
+    outDir: "tests/genes-ts/snapshot/resource-imports/out/src-gen",
+    intendedDir: "tests/genes-ts/snapshot/resource-imports/intended",
+    fileExts: [".ts"]
+  },
+  {
     name: "minimal",
     buildHxml: "tests/genes-ts/snapshot/minimal/build.hxml",
     outDir: "tests/genes-ts/snapshot/minimal/out/src-gen",
