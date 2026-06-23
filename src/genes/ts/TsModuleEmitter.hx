@@ -29,6 +29,11 @@ typedef LocalNameScope = {
   final parent: Null<LocalNameScope>;
 }
 
+typedef ObjectFieldLocalUse = {
+  final local: TVar;
+  final fieldName: String;
+}
+
 /**
  * Minimal TS module emitter (M1):
  * - Emits `.ts` modules with ESM imports/exports
@@ -70,6 +75,7 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   var scopedLocalNameCounts: Map<String, Int> = [];
   var scopedLocalParent: Null<LocalNameScope> = null;
+  var preferredLocalNames: Map<Int, String> = [];
   var localTsTypeOverrides: Map<Int, String> = [];
   var narrowedNonNullKeys: Array<String> = [];
   var inRawSyntaxTemplate: Bool = false;
@@ -2663,6 +2669,9 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   function emitNarrowedBlockElements(elements: Array<TypedExpr>) {
+    final previousPreferredLocalNames = preferredLocalNames;
+    preferredLocalNames = copyLocalNamePreferences(preferredLocalNames);
+    addObjectConstructionLocalNamePreferences(elements);
     var activeKeys: Array<String> = [];
     for (element in elements) {
       for (key in activeKeys)
@@ -2673,6 +2682,150 @@ class TsModuleEmitter extends JsModuleEmitter {
       activeKeys = removeNarrowKeys(activeKeys, assignedNarrowKeys(element));
       activeKeys = uniqueNarrowKeys(concatNarrowKeys(activeKeys, continuationNonNullKeys(element)));
     }
+    preferredLocalNames = previousPreferredLocalNames;
+  }
+
+  /**
+   * Renames Haxe-lowered object-construction temporaries without changing
+   * evaluation order.
+   *
+   * Why: when a typed object literal needs intermediate values, Haxe can lower
+   * source like `final parsed:Record = {...}` into a cluster of locals named
+   * `parsed`, `parsed1`, ..., `parsed9`, where the last local is the object and
+   * the earlier locals are direct field values. Those names are correct but
+   * noisy in generated TypeScript.
+   *
+   * What/How: if a numbered local initialized to an object literal directly
+   * consumes earlier same-prefix locals exactly once, prefer the object field
+   * names for those consumed locals and the shared prefix for the final object
+   * local. The declarations remain separate, preserving Haxe's lowered
+   * evaluation order; only emitted TS identifiers become more meaningful.
+   */
+  function addObjectConstructionLocalNamePreferences(elements: Array<TypedExpr>) {
+    final declarations: Map<Int, TVar> = [];
+    final declarationOrder: Map<Int, Int> = [];
+    final uses: Map<Int, Int> = [];
+
+    for (i in 0...elements.length) {
+      switch unwrapExpr(elements[i]).expr {
+        case TVar(v, _):
+          declarations.set(v.id, v);
+          declarationOrder.set(v.id, i);
+        default:
+      }
+      countLocalUses(elements[i], uses);
+    }
+
+    for (i in 0...elements.length) {
+      switch unwrapExpr(elements[i]).expr {
+        case TVar(objectLocal, init) if (init != null):
+          final objectParts = numberedLocalName(objectLocal.name);
+          if (objectParts == null || objectParts.index == null)
+            continue;
+          switch unwrapExpr(init).expr {
+            case TObjectDecl(fields):
+              var foundFieldTemp = false;
+              final fieldUses: Array<ObjectFieldLocalUse> = [];
+              for (field in fields) {
+                collectObjectFieldLocalUses(field.expr, field.name, fieldUses);
+              }
+              for (fieldUse in fieldUses) {
+                final fieldLocal = fieldUse.local;
+                if (fieldLocal == null)
+                  continue;
+                final fieldParts = numberedLocalName(fieldLocal.name);
+                if (fieldParts == null || fieldParts.prefix != objectParts.prefix)
+                  continue;
+                final fieldIndex = fieldParts.index == null ? 0 : fieldParts.index;
+                if (fieldIndex >= objectParts.index)
+                  continue;
+                if (!declarations.exists(fieldLocal.id)
+                  || declarationOrder.get(fieldLocal.id) >= i)
+                  continue;
+                if ((uses.exists(fieldLocal.id) ? uses.get(fieldLocal.id) : 0) != 1)
+                  continue;
+                final preferred = preferredNameForObjectField(fieldUse.fieldName);
+                if (preferred == null)
+                  continue;
+                preferredLocalNames.set(fieldLocal.id, preferred);
+                foundFieldTemp = true;
+              }
+              if (foundFieldTemp && isValidTsObjectKey(objectParts.prefix))
+                preferredLocalNames.set(objectLocal.id, objectParts.prefix);
+            default:
+          }
+        default:
+      }
+    }
+  }
+
+  static function copyLocalNamePreferences(source: Map<Int, String>): Map<Int, String> {
+    final out: Map<Int, String> = [];
+    for (key in source.keys())
+      out.set(key, source.get(key));
+    return out;
+  }
+
+  static function directLocalValue(e: TypedExpr): Null<TVar> {
+    return switch unwrapExpr(e).expr {
+      case TLocal(v):
+        v;
+      case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, _):
+        directLocalValue(inner);
+      default:
+        null;
+    }
+  }
+
+  static function collectObjectFieldLocalUses(e: TypedExpr, fieldName: String,
+      out: Array<ObjectFieldLocalUse>) {
+    final direct = directLocalValue(e);
+    if (direct != null) {
+      out.push({local: direct, fieldName: fieldName});
+      return;
+    }
+    switch unwrapExpr(e).expr {
+      case TObjectDecl(fields):
+        for (field in fields)
+          collectObjectFieldLocalUses(field.expr, field.name, out);
+      case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, _):
+        collectObjectFieldLocalUses(inner, fieldName, out);
+      default:
+    }
+  }
+
+  static function preferredNameForObjectField(name: String): Null<String> {
+    if (name == null || name.length == 0)
+      return null;
+    final cleaned = name == "function" ? "fn" : name;
+    return isValidTsObjectKey(cleaned) ? cleaned : null;
+  }
+
+  static function numberedLocalName(name: String): Null<{prefix: String, index: Null<Int>}> {
+    if (name == null || name.length == 0)
+      return null;
+    var split = name.length;
+    while (split > 0) {
+      final code = name.charCodeAt(split - 1);
+      if (code < "0".code || code > "9".code)
+        break;
+      split--;
+    }
+    final prefix = name.substr(0, split);
+    if (prefix.length == 0)
+      return null;
+    if (split == name.length)
+      return {prefix: prefix, index: null};
+    return {prefix: prefix, index: Std.parseInt(name.substr(split))};
+  }
+
+  static function countLocalUses(e: TypedExpr, uses: Map<Int, Int>) {
+    switch unwrapExpr(e).expr {
+      case TLocal(v):
+        uses.set(v.id, (uses.exists(v.id) ? uses.get(v.id) : 0) + 1);
+      default:
+    }
+    haxe.macro.TypedExprTools.iter(e, child -> countLocalUses(child, uses));
   }
 
   function continuationNonNullKeys(e: TypedExpr): Array<String> {
@@ -3129,9 +3282,10 @@ class TsModuleEmitter extends JsModuleEmitter {
       parent = parent.parent;
     }
 
-    final count = scopedLocalNameCounts.exists(v.name) ? scopedLocalNameCounts.get(v.name) : 0;
-    scopedLocalNameCounts.set(v.name, count + 1);
-    final name = count == 0 ? v.name : '${v.name}_${count}';
+    final baseName = preferredLocalNames.exists(v.id) ? preferredLocalNames.get(v.id) : v.name;
+    final count = scopedLocalNameCounts.exists(baseName) ? scopedLocalNameCounts.get(baseName) : 0;
+    scopedLocalNameCounts.set(baseName, count + 1);
+    final name = count == 0 ? baseName : '${baseName}_${count}';
     scopedLocalNames.set(v.id, name);
     return name;
   }

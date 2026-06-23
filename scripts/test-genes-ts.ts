@@ -130,6 +130,16 @@ if (!/\bmapAfterResultParameter\(result: MessageBatch\): number\[\] \{[\s\S]*\bv
 if (/\bmapAfterResultParameter\(result: MessageBatch\): number\[\] \{[\s\S]*\bvar result: number\[\]/.test(noJsEsMain)) {
   throw new Error("array-map helper temporaries must not redeclare a `result` parameter");
 }
+const loweredRecordBlock = noJsEsMain.match(/\bstatic loweredRecordConstructionTemps\(id: string\): string \{[\s\S]*?\n\t\}/)?.[0] ?? "";
+if (!loweredRecordBlock.includes("var name: string") || !loweredRecordBlock.includes("var family: string") || !loweredRecordBlock.includes("var flags: RecordFlags")) {
+  throw new Error("lowered record construction temps should use object field names");
+}
+if (/\bvar parsed\d+:/.test(loweredRecordBlock)) {
+  throw new Error("single-use lowered record field temps should not keep parsedN names");
+}
+if (!/\bvar parsed: LargeRecord =/.test(loweredRecordBlock)) {
+  throw new Error("final lowered record object should recover the shared base name");
+}
 
 run("npx", [
   "-y",

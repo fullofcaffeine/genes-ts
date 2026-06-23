@@ -1,7 +1,19 @@
+import haxe.DynamicAccess;
+
 enum SwitchValue {
   Text(value: String);
   Count(value: Int);
   Flag(value: Bool);
+}
+
+abstract RecordID(String) from String to String {
+  public inline function new(value:String) {
+    this = value;
+  }
+
+  public static inline function make(value:String):RecordID {
+    return new RecordID(value);
+  }
 }
 
 typedef NamedItem = {
@@ -30,6 +42,48 @@ typedef MessageBatch = {
   final messages: Array<String>;
 }
 
+typedef RecordApi = {
+  final id: String;
+  final url: String;
+  final npm: String;
+}
+
+typedef RecordFlags = {
+  final enabled: Bool;
+  final cached: Bool;
+  final label: String;
+}
+
+typedef LargeRecord = {
+  final id: RecordID;
+  final name: String;
+  final family: String;
+  final api: RecordApi;
+  final status: String;
+  final flags: RecordFlags;
+  final options: DynamicAccess<Dynamic>;
+  final headers: DynamicAccess<String>;
+  final tags: Array<String>;
+}
+
+typedef RecordApiConfig = {
+  @:optional final api: String;
+  @:optional final npm: String;
+}
+
+typedef RecordConfig = {
+  @:optional final id: String;
+  @:optional final name: String;
+  @:optional final family: String;
+  @:optional final provider: RecordApiConfig;
+  @:optional final status: String;
+  @:optional final enabled: Bool;
+  @:optional final cached: Bool;
+  @:optional final label: String;
+  @:optional final options: DynamicAccess<Dynamic>;
+  @:optional final headers: DynamicAccess<String>;
+}
+
 class Main {
   static function main(): Void {
     trace(render(Text("ok")) + ":" + render(Count(2)) + ":" + render(Flag(true)));
@@ -41,6 +95,8 @@ class Main {
     trace(callback == null ? "missing" : callback.read());
     trace(inlineValueTemps());
     trace(mapAfterResultParameter({messages: ["one", "three"]}).join(","));
+    trace(recordConstructionTemps("alpha", {name: "Alpha"}, null));
+    trace(loweredRecordConstructionTemps("beta"));
   }
 
   static function render(input: SwitchValue): String {
@@ -179,5 +235,111 @@ class Main {
 
   static function messageLength(message: String): Int {
     return message.length;
+  }
+
+  /**
+   * A large typed record assigned to a local and immediately passed to helper
+   * calls should stay readable. Haxe lowers some of these records through
+   * compiler-generated field locals such as `parsed`, `parsed1`, etc.; TS output
+   * should name those single-use generated temps by field when preserving the
+   * separate declarations is necessary for evaluation order.
+   */
+  static function recordConstructionTemps(id: String, data: RecordConfig, existing: Null<LargeRecord>): String {
+    final apiConfig = data.provider;
+    final parsed: LargeRecord = {
+      id: RecordID.make(fallback(data.id, id)),
+      name: fallback(data.name, existing == null ? id : existing.name),
+      family: fallback(data.family, existing == null ? "standard" : existing.family),
+      api: {
+        id: fallback(data.id, existing == null ? id : existing.api.id),
+        url: fallback(apiConfig == null ? null : apiConfig.api, existing == null ? "https://example.invalid" : existing.api.url),
+        npm: fallback(apiConfig == null ? null : apiConfig.npm, existing == null ? "@example/sdk" : existing.api.npm)
+      },
+      status: fallback(data.status, existing == null ? "active" : existing.status),
+      flags: {
+        enabled: boolOr(data.enabled, existing == null ? true : existing.flags.enabled),
+        cached: boolOr(data.cached, existing == null ? false : existing.flags.cached),
+        label: fallback(data.label, existing == null ? "flag" : existing.flags.label)
+      },
+      options: cast mergeOpen(existing == null ? openRecord() : existing.options, data.options),
+      headers: cast mergeOpen(existing == null ? openStringRecord() : existing.headers, data.headers),
+      tags: emptyTags()
+    };
+    return summarizeRecord(copyRecord(parsed, parsed.tags), parsed);
+  }
+
+  /**
+   * Explicitly mirrors Haxe's lowered shape for large typed records: numbered
+   * same-prefix locals feed direct fields of the final object local. Generated
+   * TS should give the field temps meaningful names while preserving these
+   * separate declarations and their evaluation order.
+   */
+  static function loweredRecordConstructionTemps(id: String): String {
+    final parsed = fallback(id, "name");
+    final parsed1 = fallback(null, "standard");
+    final parsed2: RecordFlags = {
+      enabled: boolOr(null, true),
+      cached: boolOr(false, true),
+      label: fallback(id, "flag")
+    };
+    final parsed3 = emptyTags();
+    final parsed4: LargeRecord = {
+      id: RecordID.make(id),
+      name: parsed,
+      family: parsed1,
+      api: {
+        id: id,
+        url: fallback(null, "https://example.invalid"),
+        npm: fallback(null, "@example/sdk")
+      },
+      status: fallback(null, "active"),
+      flags: parsed2,
+      options: openRecord(),
+      headers: openStringRecord(),
+      tags: parsed3
+    };
+    return summarizeRecord(parsed4, parsed4);
+  }
+
+  static function fallback(value: Null<String>, fallbackValue: String): String {
+    return value == null ? fallbackValue : value;
+  }
+
+  static function boolOr(value: Null<Bool>, fallbackValue: Bool): Bool {
+    return value == null ? fallbackValue : value;
+  }
+
+  static function emptyTags(): Array<String> {
+    return [];
+  }
+
+  static function openRecord(): DynamicAccess<Dynamic> {
+    return new DynamicAccess<Dynamic>();
+  }
+
+  static function openStringRecord(): DynamicAccess<String> {
+    return new DynamicAccess<String>();
+  }
+
+  static function mergeOpen(current: Dynamic, next: Dynamic): Dynamic {
+    return current;
+  }
+
+  static function copyRecord(record: LargeRecord, tags: Array<String>): LargeRecord {
+    return {
+      id: record.id,
+      name: record.name,
+      family: record.family,
+      api: record.api,
+      status: record.status,
+      flags: record.flags,
+      options: record.options,
+      headers: record.headers,
+      tags: tags
+    };
+  }
+
+  static function summarizeRecord(left: LargeRecord, right: LargeRecord): String {
+    return left.id + ":" + right.api.npm + ":" + Std.string(left.flags.enabled);
   }
 }
