@@ -35,6 +35,8 @@ class Main {
     trace(render(Text("ok")) + ":" + render(Count(2)) + ":" + render(Flag(true)));
     trace(mapSetTemps(["alpha", "beta"]));
     trace(mapGetAfterContinue(["alpha", "missing"]).join(","));
+    trace(mapGetAfterExists("alpha"));
+    trace(mapGetAfterKeyIteration().join(","));
     final callback = closureAfterOuterGuard("alpha");
     trace(callback == null ? "missing" : callback.read());
     trace(inlineValueTemps());
@@ -114,6 +116,38 @@ class Main {
 
   static function formatNamedSummary(summary: NamedSummary): String {
     return summary.id + ":" + summary.name;
+  }
+
+  /**
+   * `Map.exists(key)` proves a following `Map.get(key)` is non-null when the
+   * map value type itself is non-null. Generated TS should not need an identity
+   * cast at the call boundary.
+   */
+  static function mapGetAfterExists(id: String): String {
+    final holder = buildMapHolder(["alpha"]);
+    if (!holder.named.exists(id))
+      return "missing";
+    return formatNamedSummary({
+      id: id,
+      name: holder.named.get(id).name
+    });
+  }
+
+  /**
+   * Keys yielded from `map.keys()` are known-present for that same stable map.
+   * This guards the common `for (key in map.keys()) consume(map.get(key))`
+   * pattern without changing general absent-key `Map.get` behavior.
+   */
+  static function mapGetAfterKeyIteration(): Array<String> {
+    final holder = buildMapHolder(["alpha", "beta"]);
+    final out: Array<String> = [];
+    for (id in holder.named.keys()) {
+      out.push(formatNamedSummary({
+        id: id,
+        name: holder.named.get(id).name
+      }));
+    }
+    return out;
   }
 
   /**

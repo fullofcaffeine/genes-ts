@@ -20,7 +20,7 @@ export class Main {
 		if (_g == null) {
 			dataPath = Path.join(nodeProcess.cwd(), "examples", "todoapp", "server", "data.json");
 		} else {
-			let v: string | null = _g;
+			let v: string = _g;
 			dataPath = v;
 		};
 		let webDist: string = Path.join(nodeProcess.cwd(), "examples", "todoapp", "web", "dist");

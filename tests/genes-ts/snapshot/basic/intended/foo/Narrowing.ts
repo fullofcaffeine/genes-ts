@@ -21,7 +21,7 @@ export class Narrowing {
 		if (input == null) {
 			return "missing";
 		} else {
-			let payload1: NarrowedPayload | null = input;
+			let payload1: NarrowedPayload = input;
 			payload = payload1;
 		};
 		return payload.value;

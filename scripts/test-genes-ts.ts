@@ -106,6 +106,20 @@ if (!mapGetContinueBlock.includes("if (item == null)") || !mapGetContinueBlock.i
 if (mapGetContinueBlock.includes("Register.unsafeCast") || mapGetContinueBlock.includes("item!")) {
   throw new Error("null-guarded map get locals should flow without unsafe casts or non-null assertions");
 }
+const mapGetExistsBlock = noJsEsMain.match(/\bstatic mapGetAfterExists\(id: string\): string \{[\s\S]*?\n\t\}/)?.[0] ?? "";
+if (!mapGetExistsBlock.includes("named.exists(id)") || !mapGetExistsBlock.includes("named.get(id).name")) {
+  throw new Error("map exists/get fixture must keep the public map facade calls");
+}
+if (mapGetExistsBlock.includes("Register.unsafeCast")) {
+  throw new Error("Map.exists(key) should avoid unsafe casts for a following Map.get(key)");
+}
+const mapGetKeysBlock = noJsEsMain.match(/\bstatic mapGetAfterKeyIteration\(\): string\[\] \{[\s\S]*?\n\t\}/)?.[0] ?? "";
+if (!mapGetKeysBlock.includes("named.keys()") || !/named\.get\(id\d*\)\.name/.test(mapGetKeysBlock)) {
+  throw new Error("map key-iteration fixture must keep keys/get facade calls");
+}
+if (mapGetKeysBlock.includes("Register.unsafeCast")) {
+  throw new Error("keys yielded from Map.keys() should avoid unsafe casts for same-map Map.get(key)");
+}
 const closureGuardBlock = noJsEsMain.match(/\bstatic closureAfterOuterGuard\(id: string\): NamedCallback \| null \{[\s\S]*?\n\t\}/)?.[0] ?? "";
 if (!closureGuardBlock.includes("(item!).name")) {
   throw new Error("outer null guards must not erase receiver assertions inside returned closures");
