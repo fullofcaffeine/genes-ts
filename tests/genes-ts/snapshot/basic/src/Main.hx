@@ -29,6 +29,7 @@ class Main {
     trace(EnumAbstract.localDemo());
     trace(EnumAbstract.fieldLocalDemo());
     trace(EnumAbstract.recordDemo());
+    trace(EnumAbstract.arrayLoopDemo());
     trace(Narrowing.switchExitingNull({value: "present"}));
     trace(TypedCatch.recover("fixture"));
     trace(TypedCatch.recover("plain"));

@@ -51,4 +51,13 @@ class EnumAbstract {
     final nestedCache: RequestCache = records[0].nested.cache;
     return accepts(ClassField) + ":" + accepts(cache) + ":" + accepts(nestedCache);
   }
+
+  public static function arrayLoopDemo(): String {
+    var count = 0;
+    for (cache in [RequestCache.DEFAULT, RequestCache.RELOAD]) {
+      accepts(cache);
+      count++;
+    }
+    return Std.string(count);
+  }
 }

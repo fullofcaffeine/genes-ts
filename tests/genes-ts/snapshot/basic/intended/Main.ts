@@ -37,10 +37,11 @@ export class Main {
 		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:29:",EnumAbstract.localDemo());
 		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:30:",EnumAbstract.fieldLocalDemo());
 		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:31:",EnumAbstract.recordDemo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:32:",Narrowing.switchExitingNull({"value": "present"}));
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:33:",TypedCatch.recover("fixture"));
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:34:",TypedCatch.recover("plain"));
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:35:",Main.Theme.name + ":" + Main.Theme.accent);
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:32:",EnumAbstract.arrayLoopDemo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:33:",Narrowing.switchExitingNull({"value": "present"}));
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:34:",TypedCatch.recover("fixture"));
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:35:",TypedCatch.recover("plain"));
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:36:",Main.Theme.name + ":" + Main.Theme.accent);
 	}
 	static get __name__(): string {
 		return "Main"

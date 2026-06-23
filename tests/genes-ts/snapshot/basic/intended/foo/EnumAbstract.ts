@@ -37,6 +37,20 @@ export class EnumAbstract {
 		let nestedCache: "default" | "force-cache" | "no-cache" | "no-store" | "only-if-cached" | "reload" = records_0.nested.cache;
 		return EnumAbstract.accepts(EnumAbstract.ClassField) + ":" + EnumAbstract.accepts(cache) + ":" + EnumAbstract.accepts(nestedCache);
 	}
+	static arrayLoopDemo(): string {
+		let count: number = 0;
+		let cache: string = "default";
+		EnumAbstract.accepts((cache as "default" | "force-cache" | "no-cache" | "no-store" | "only-if-cached" | "reload"));
+		++count;
+		let cache1: string = "reload";
+		EnumAbstract.accepts((cache1 as "default" | "force-cache" | "no-cache" | "no-store" | "only-if-cached" | "reload"));
+		++count;
+		if (count == null) {
+			return "null";
+		} else {
+			return "" + count;
+		};
+	}
 	static get __name__(): string {
 		return "foo.EnumAbstract"
 	}

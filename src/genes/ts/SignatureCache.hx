@@ -111,7 +111,7 @@ class SignatureCache {
     }
   }
 
-  static function enumAbstractLiteralUnionTsType(t: Type): Null<String> {
+  public static function enumAbstractLiteralUnionTsType(t: Type): Null<String> {
     final normalized = followTypedefs(unlazy(t));
     switch normalized {
       case TAbstract(_.get() => {pack: [], name: "Null"}, [inner]):

@@ -68,6 +68,7 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   var scopedLocalNameCounts: Map<String, Int> = [];
   var scopedLocalParent: Null<LocalNameScope> = null;
+  var localTsTypeOverrides: Map<Int, String> = [];
   var narrowedNonNullKeys: Array<String> = [];
   var inRawSyntaxTemplate: Bool = false;
   var suppressOptionalFieldNullNormalization: Bool = false;
@@ -581,6 +582,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TFun(a, _): a;
       default: null;
     }
+    final cachedArgTsTypes = cachedCallableArgTsTypes(e);
     if (params.length > 0) {
       inline function isUnresolvedMono(t: Type): Bool
         return switch t {
@@ -623,6 +625,17 @@ class TsModuleEmitter extends JsModuleEmitter {
           }
         }
       }
+      if (!needsCasts && cachedArgTsTypes.length > 0) {
+        final max = params.length < cachedArgTsTypes.length ? params.length : cachedArgTsTypes.length;
+        for (i in 0...max) {
+          final expectedTsType = cachedArgTsTypes[i];
+          if (expectedTsType != null && needsEnumAbstractExpectedAssertion(expectedTsType,
+            params[i])) {
+            needsCasts = true;
+            break;
+          }
+        }
+      }
       final isPlainCall = switch unwrapExpr(e).expr {
         case TIdent('`trace' | "__resources__" | "__new__" | "__instanceof__" | "__typeof__" | "__strict_eq__" | "__strict_neq__" | "__define_feature__" | "__feature__"):
           false;
@@ -642,9 +655,17 @@ class TsModuleEmitter extends JsModuleEmitter {
           if (i > 0)
             write(', ');
           final expected = args != null && i < args.length ? args[i].t : null;
+          final expectedTsType = i < cachedArgTsTypes.length ? cachedArgTsTypes[i] : null;
           final actual = params[i];
           final actualUnwrapped = unwrapExpr(actual);
-          if (expected != null && isUnresolvedMono(expected)
+          if (expectedTsType != null && needsEnumAbstractExpectedAssertion(expectedTsType,
+            actual)) {
+            write('(');
+            emitValue(actual);
+            write(' as ');
+            write(expectedTsType);
+            write(')');
+          } else if (expected != null && isUnresolvedMono(expected)
             && isNullConst(unwrapExpr(actual))) {
             // Avoid TS inferring `null` for unconstrained generic params.
             // `never` keeps the call assignable without introducing `any`.
@@ -1542,6 +1563,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       && isNarrowedOptionalField(eo);
     final emittedType = narrowedOptionalInit ? stripNull(v.t) : v.t;
     final emittedTypeOverride = narrowedOptionalInit ? null : localTsTypeOverride(eo);
+    if (emittedTypeOverride != null)
+      localTsTypeOverrides.set(v.id, emittedTypeOverride);
     write('$declare ');
     emitLocalVar(v);
     write(': ');
@@ -1691,6 +1714,24 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
   }
 
+  function cachedCallableArgTsTypes(expr: TypedExpr): Array<Null<String>> {
+    return switch expr.expr {
+      case TField(_, FStatic(_.get() => cl, _.get() => field)):
+        final sig = SignatureCache.getSig(cl, true, field.name);
+        sig == null ? [] : [for (arg in sig.args) arg.tsType];
+      case TField(_, FInstance(_.get() => cl, _, _.get() => field)):
+        final sig = SignatureCache.getSig(cl, false, field.name);
+        sig == null ? [] : [for (arg in sig.args) arg.tsType];
+      case TField(_, FClosure({c: _.get() => cl}, _.get() => field)):
+        final sig = SignatureCache.getSig(cl, false, field.name);
+        sig == null ? [] : [for (arg in sig.args) arg.tsType];
+      case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, _):
+        cachedCallableArgTsTypes(inner);
+      default:
+        [];
+    }
+  }
+
   function cachedFieldValueTsType(expr: TypedExpr): Null<String> {
     return switch expr.expr {
       case TField(_, FStatic(_.get() => cl, _.get() => field)):
@@ -1721,6 +1762,53 @@ class TsModuleEmitter extends JsModuleEmitter {
       write(typeOverride);
     else
       TypeEmitter.emitType(this, type);
+  }
+
+  override function emitValueWithExpectedType(expected: Null<Type>,
+      expr: TypedExpr) {
+    final expectedTsType = expected == null ? null : SignatureCache.enumAbstractLiteralUnionTsType(expected);
+    if (expectedTsType != null && needsEnumAbstractExpectedAssertion(expectedTsType,
+      expr)) {
+      write('(');
+      emitValue(expr);
+      write(' as ');
+      write(expectedTsType);
+      write(')');
+      return;
+    }
+    super.emitValueWithExpectedType(expected, expr);
+  }
+
+  /**
+   * Re-applies closed enum-abstract parameter types after Haxe lowers values to
+   * their primitive runtime representation.
+   *
+   * Haxe can lower `for (id in [A, B]) consume(id)` to locals initialized from
+   * primitive string literals. Those locals are still Haxe-typed as the enum
+   * abstract at the call boundary, but TS only sees `string`. A tiny TS
+   * assertion at the expected-type boundary preserves the source contract
+   * without globally narrowing mutable local declarations.
+   */
+  function needsEnumAbstractExpectedAssertion(expectedTsType: String,
+      expr: TypedExpr): Bool {
+    final unwrapped = unwrapExpr(expr);
+    switch unwrapped.expr {
+      case TConst(TString(_) | TInt(_) | TFloat(_) | TBool(_) | TNull):
+        return false;
+      case TLocal(v):
+        if (localTsTypeOverrides.get(v.id) == expectedTsType)
+          return false;
+      case TCall(callee, _):
+        if (cachedCallableReturnTsType(callee) == expectedTsType)
+          return false;
+      case TField(_, _):
+        if (cachedFieldValueTsType(unwrapped) == expectedTsType)
+          return false;
+      case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, _):
+        return needsEnumAbstractExpectedAssertion(expectedTsType, inner);
+      default:
+    }
+    return true;
   }
 
   static function extractTypeArgs(t: Type): Array<Type> {
