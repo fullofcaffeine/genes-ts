@@ -1,3 +1,39 @@
+# [1.12.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.11.0...v1.12.0) (2026-06-23)
+
+
+### Bug Fixes
+
+* **ci:** restore full genes gate ([5236989](https://github.com/fullofcaffeine/genes-ts/commit/5236989aa6f5acaa6a6d879a2aa1d01f37245ae8))
+* **genes-ts:** parenthesize raw template receivers ([5254f9f](https://github.com/fullofcaffeine/genes-ts/commit/5254f9fc4b405824b8cf406b0201687e0c21e7cd))
+* **ts:** avoid inline local name collisions ([8acd106](https://github.com/fullofcaffeine/genes-ts/commit/8acd1061fb633ea99a2c78c0267cbec436bef6ff))
+* **ts:** elide null-guarded local casts ([b96af41](https://github.com/fullofcaffeine/genes-ts/commit/b96af41741e6ea2b0e36c5a50005e38af4aebeb3))
+* **ts:** emit block-scoped locals without js-es ([b863b7b](https://github.com/fullofcaffeine/genes-ts/commit/b863b7b1b31587c656a9ac030f533c18910eaa27))
+* **ts:** honor native anonymous fields ([72fe8de](https://github.com/fullofcaffeine/genes-ts/commit/72fe8de0ced809cc07f5f9954bae2185697a7c68))
+* **ts:** limit block scoping to switch cases ([08c6623](https://github.com/fullofcaffeine/genes-ts/commit/08c6623983ce333254e19e2917bc5da82173696f))
+* **ts:** narrow optional fields after null guards ([9e5c3a4](https://github.com/fullofcaffeine/genes-ts/commit/9e5c3a4d79d48581d09d8acfe62ac23c403fd3ff))
+* **ts:** narrow optional fields through boolean conditions ([bed8060](https://github.com/fullofcaffeine/genes-ts/commit/bed806092d198f075a62d7da52f1d90b53feb860))
+* **ts:** normalize optional fields for nullable params ([a5b4802](https://github.com/fullofcaffeine/genes-ts/commit/a5b4802ebb38cc25b469bdd92f953799aeaa0786))
+* **ts:** parenthesize nullish null comparisons ([ab86227](https://github.com/fullofcaffeine/genes-ts/commit/ab862272e1813d44393fa5e8bc059a8fb7d67298))
+* **ts:** preserve closed enum abstract unions ([ea54cb1](https://github.com/fullofcaffeine/genes-ts/commit/ea54cb1251877e2f408a56cbfc9d2d4598e526ae))
+* **ts:** preserve narrowed locals from nullable branches ([63d3a42](https://github.com/fullofcaffeine/genes-ts/commit/63d3a42575b222981cc6d1b028e597501d53ff17))
+* **ts:** preserve native fields in syntax templates ([909b9cf](https://github.com/fullofcaffeine/genes-ts/commit/909b9cfae0c8bf917cd93e5644d22c48718a3c51))
+* **ts:** preserve nested optional field emission ([e93a7fa](https://github.com/fullofcaffeine/genes-ts/commit/e93a7fa32b56b1bee21bb8fa4d1bbec4be7a315f))
+* **ts:** preserve raw placeholder call context ([230bbec](https://github.com/fullofcaffeine/genes-ts/commit/230bbecbdd9717e509bc91984bd6b21d179f6ff1))
+* **ts:** preserve undefinable assignment output ([dacd5f8](https://github.com/fullofcaffeine/genes-ts/commit/dacd5f8572adad6c0f194549795ac5be04ffa4b5))
+* **ts:** preserve undefinable object fields ([81d622d](https://github.com/fullofcaffeine/genes-ts/commit/81d622d5e260d084f288e38cdbc345d41cbebb81))
+* **ts:** propagate array element context ([0e722e4](https://github.com/fullofcaffeine/genes-ts/commit/0e722e4ad5cf86a35e81813d8d92eddd20932ad3))
+* **ts:** propagate call argument object context ([5b93d28](https://github.com/fullofcaffeine/genes-ts/commit/5b93d285bbf3325c5647c16863af02c7e7fd1c45))
+* **ts:** propagate ternary expected types ([e6a9d8c](https://github.com/fullofcaffeine/genes-ts/commit/e6a9d8c23b3ed3e415b924aef96173acbc413e61))
+* **ts:** scope enum switch case locals ([4d8c2f9](https://github.com/fullofcaffeine/genes-ts/commit/4d8c2f95f471bb739c5e32d0ada2f927d9dbdf52))
+* **ts:** trust narrowed call arguments ([3b5850e](https://github.com/fullofcaffeine/genes-ts/commit/3b5850e1fe0faf7af9c5fef2ce792b4a3b3f232c))
+* **ts:** use abstract object field context ([5c4adb1](https://github.com/fullofcaffeine/genes-ts/commit/5c4adb14cb397e43eec5eeeba650a94d01ae73fa))
+* type lowered catch temps without any ([e0a30ce](https://github.com/fullofcaffeine/genes-ts/commit/e0a30ce6dbc519babf5236931b7e20faad86e6a0))
+
+
+### Features
+
+* **ts:** add unknown narrowing primitives ([ed61fe7](https://github.com/fullofcaffeine/genes-ts/commit/ed61fe76afeaa49f6fb46e3d1a0319cfe9514400))
+
 # [1.11.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.10.0...v1.11.0) (2026-02-05)
 
 
