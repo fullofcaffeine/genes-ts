@@ -162,10 +162,11 @@ export class Register {
 	* Create a "synthetic" subclass constructor at runtime.
 	*
 	* genes-ts uses this to preserve Genes/Haxe JS inheritance semantics while
-	* breaking module cycles. The return type is `any` because TS cannot express
-	* the precise constructor signature of the dynamically-computed superclass.
+	* breaking module cycles. The return type is a broad constructor shape because
+	* TS cannot express the precise constructor signature of the dynamically-computed
+	* superclass, but declaration output should still avoid helper-base `any`.
 	*/
-	static extend(superClass: any): any {
+	static extend(superClass: any): new (...args: unknown[]) => {} {
 
       function res() {
         // Prefer the legacy Genes initializer path when present.
@@ -181,18 +182,19 @@ export class Register {
         return Reflect.construct(superClass, arguments, new.target)
       }
       Object.setPrototypeOf(res.prototype, superClass.prototype)
-      return res
+      return Register.unsafeCast(res)
     ;
 	}
 
 	/**
 	* Return a base class for `extends` that supports deferred resolution.
 	*
-	* This is a core part of Genes' cycle handling. The return type is `any`
-	* because the actual superclass can be resolved lazily and may have an
-	* arbitrary constructor signature.
+	* This is a core part of Genes' cycle handling. The return type is a broad
+	* constructor shape because the actual superclass can be resolved lazily and
+	* may have an arbitrary constructor signature. Avoiding `any` here keeps
+	* TypeScript declaration output from exposing `declare const *_base: any`.
 	*/
-	static inherits(resolve: any | null = null, defer?: boolean): any {
+	static inherits(resolve: any | null = null, defer?: boolean): new (...args: unknown[]) => {} {
 		if (defer == null) {
 			defer = false;
 		};
@@ -240,7 +242,7 @@ export class Register {
 	          res[Register.init] = undefined
 	        }
 	      }
-	      return res
+	      return Register.unsafeCast(res)
     ;
 	}
 

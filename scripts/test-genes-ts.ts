@@ -1,5 +1,5 @@
 import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
-import { cpSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { assertNoUnsafeTypes } from "./typing-policy.js";
@@ -18,6 +18,29 @@ function run(cmd: string, args: ReadonlyArray<string>, opts: ExecFileSyncOptions
     stdio: "inherit",
     ...opts
   });
+}
+
+function assertNoHelperBaseAny(relDir: string): void {
+  const absDir = path.join(repoRoot, relDir);
+  const offenders: string[] = [];
+  function visit(dir: string): void {
+    for (const name of readdirSync(dir)) {
+      const full = path.join(dir, name);
+      const stat = statSync(full);
+      if (stat.isDirectory()) {
+        visit(full);
+      } else if (name.endsWith(".d.ts")) {
+        const source = readFileSync(full, "utf8");
+        if (/^declare const \w+_base: any;$/m.test(source)) {
+          offenders.push(path.relative(absDir, full));
+        }
+      }
+    }
+  }
+  visit(absDir);
+  if (offenders.length > 0) {
+    throw new Error(`declaration helper bases must not expose any: ${offenders.join(", ")}`);
+  }
 }
 
 rmrf("tests/genes-ts/snapshot/basic/out");
@@ -48,6 +71,7 @@ run("npx", [
   "-c",
   "tsc -p tests/genes-ts/snapshot/basic/tsconfig.json"
 ]);
+assertNoHelperBaseAny("tests/genes-ts/snapshot/basic/out/dist");
 
 run("node", ["tests/genes-ts/snapshot/basic/out/dist/index.js"]);
 
