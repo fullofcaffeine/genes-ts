@@ -35,7 +35,7 @@
     "@types/node": "^20.0.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
-    "bestzip": "^3.0.1",
+    "bestzip": "2.2.1",
     "cross-env": "^10.1.0",
     "express": "^4.22.2",
     "lix": "^16.0.2",
