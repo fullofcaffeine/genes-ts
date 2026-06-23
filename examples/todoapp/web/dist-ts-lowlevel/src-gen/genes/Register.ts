@@ -164,7 +164,18 @@ export class Register {
 	* genes-ts uses this to preserve Genes/Haxe JS inheritance semantics while
 	* breaking module cycles. The return type is a broad constructor shape because
 	* TS cannot express the precise constructor signature of the dynamically-computed
-	* superclass, but declaration output should still avoid helper-base `any`.
+	* superclass.
+	*
+	* Why not just return `any`? TypeScript declaration emit looks at classes such
+	* as `class Child extends Register.extend(parent)` and synthesizes a helper
+	* declaration like `declare const Child_base: ...` in the public `.d.ts`. If
+	* this helper returns `any`, that public declaration becomes `Child_base: any`
+	* and downstream users lose type safety before they even touch their own code.
+	*
+	* `new (...args: unknown[]) => {}` is intentionally broad: it says "this is
+	* some constructor" without claiming we know its exact parameters or instance
+	* fields. That is enough for `extends`, avoids a leaked `any`, and keeps the
+	* one unavoidable assertion contained in this runtime helper.
 	*/
 	static extend(superClass: any): new (...args: unknown[]) => {} {
 
@@ -191,8 +202,14 @@ export class Register {
 	*
 	* This is a core part of Genes' cycle handling. The return type is a broad
 	* constructor shape because the actual superclass can be resolved lazily and
-	* may have an arbitrary constructor signature. Avoiding `any` here keeps
-	* TypeScript declaration output from exposing `declare const *_base: any`.
+	* may have an arbitrary constructor signature.
+	*
+	* The important part is the generated `.d.ts` surface: TypeScript creates
+	* intermediate declarations for dynamic `extends` expressions. If this
+	* function is typed as `any`, those intermediates leak into published
+	* declarations as `declare const *_base: any`. Returning the broad constructor
+	* type instead tells TypeScript "this value is constructable" while still
+	* forcing every real use site to prove anything more specific.
 	*/
 	static inherits(resolve: any | null = null, defer?: boolean): new (...args: unknown[]) => {} {
 		if (defer == null) {

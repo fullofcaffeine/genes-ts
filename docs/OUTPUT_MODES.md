@@ -43,6 +43,37 @@ Characteristics:
 Related knobs:
 - `-D genes.no_extension` for extensionless imports in JS output.
 
+### Performance-oriented ES6 profile
+
+The performance-oriented ES6 profile is the explicit classic Genes path for
+projects that want the same Haxe source to run without a TypeScript compilation
+step:
+
+```hxml
+-lib genes-ts
+-cp src
+--main my.app.Main
+-js dist/index.js
+-D dts
+-D js-es=6
+```
+
+This profile intentionally omits `-D genes.ts`. It should reuse regular Genes'
+split ESM JavaScript behavior, with `../genes-vanilla` as a read-only reference
+when compiler architecture questions arise. Any fixes still land in this repo,
+not in `../genes-vanilla`.
+
+Use this profile when runtime simplicity or compile latency matters more than a
+reviewable generated TypeScript source tree. Do not weaken TypeScript output to
+serve this profile: TS mode remains the default for projects whose generated TS
+is a product surface, while ES6-specific work should have its own fixture or
+smoke gate.
+
+The standing classic gate is `yarn test`, which compiles and runs the existing
+test suite through classic Genes JS output. `genes-cn4` tracks the remaining
+work to add a smaller side-by-side fixture that compares one Haxe source through
+both TS-default and ES6-profile output.
+
 ## Picking a mode
 
 - If your goal is “Haxe is a better language on top of TS, and we may port to TS later” → use **TypeScript output** (`-D genes.ts`).
