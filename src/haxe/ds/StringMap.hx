@@ -18,7 +18,7 @@ extern class StringMap<T> implements haxe.Constraints.IMap<String, T> {
 }
 #else
 class StringMap<T> extends genes.util.EsMap<String, T> implements haxe.Constraints.IMap<String, T> {
-  public inline function copy(): StringMap<T> {
+  public function copy(): StringMap<T> {
     var copied = new StringMap();
     copied.inst = new js.lib.Map(inst);
     return cast copied;

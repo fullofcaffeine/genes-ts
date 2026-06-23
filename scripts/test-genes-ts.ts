@@ -92,6 +92,13 @@ const inlineValueNames = [...noJsEsMain.matchAll(/\bvar (value(?:_\d+)?):/g)].ma
 if (inlineValueNames.filter(name => name === "value").length > 1) {
   throw new Error("inline-expanded same-named locals must not emit duplicate function-scoped `var value` declarations");
 }
+const mapFacadeBlock = noJsEsMain.match(/\bstatic buildMapHolder\(names: string\[\]\): MapHolder \{[\s\S]*?\n\t\}/)?.[0] ?? "";
+if (!mapFacadeBlock.includes("named.set(name, Main.namedItem(name))") || !mapFacadeBlock.includes("ranked.set(\"first\", Main.rankedItem(1))")) {
+  throw new Error("map facade fixture must emit public set calls");
+}
+if (mapFacadeBlock.includes(".inst.")) {
+  throw new Error("map facade fixture must not expose backing `.inst` access in user modules");
+}
 if (!/\bmapAfterResultParameter\(result: MessageBatch\): number\[\] \{[\s\S]*\bvar result_1: number\[\]/.test(noJsEsMain)) {
   throw new Error("array-map helper temporaries must be suffixed when an enclosing parameter is named `result`");
 }

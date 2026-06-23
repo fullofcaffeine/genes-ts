@@ -18,7 +18,7 @@ extern class ObjectMap<K:{}, V> implements haxe.Constraints.IMap<K, V> {
 #else
 class ObjectMap<K:{},
   V> extends genes.util.EsMap<K, V> implements haxe.Constraints.IMap<K, V> {
-  public inline function copy(): ObjectMap<K, V> {
+  public function copy(): ObjectMap<K, V> {
     var copied = new ObjectMap();
     copied.inst = new js.lib.Map(inst);
     return cast copied;

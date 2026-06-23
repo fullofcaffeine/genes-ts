@@ -25,6 +25,7 @@ class Main {
   static function main(): Void {
     trace(render(Text("ok")) + ":" + render(Count(2)) + ":" + render(Flag(true)));
     trace(mapSetTemps(["alpha", "beta"]));
+    trace(inlineValueTemps());
     trace(mapAfterResultParameter({messages: ["one", "three"]}).join(","));
   }
 
@@ -40,13 +41,28 @@ class Main {
   }
 
   /**
-   * Haxe `Map.set` is an inline abstract method whose parameters are named
-   * `key` and `value`. Two value types in one function must not emit duplicate
-   * function-scoped TS `var value` declarations.
+   * Map facade calls should remain visible in generated user modules instead
+   * of expanding to the backing native `Map` field.
    */
   static function mapSetTemps(names: Array<String>): Int {
     final holder = buildMapHolder(names);
     return holder.named.get("alpha").name.length + holder.ranked.get("first").rank;
+  }
+
+  /**
+   * Generic inline helpers can introduce same-named locals with different
+   * concrete types into one emitted TS function. Keep this as the temp-local
+   * regression now that Map facade methods intentionally do not inline.
+   */
+  static function inlineValueTemps(): String {
+    final first = inlineLocalValue(7);
+    final second = inlineLocalValue(true);
+    return '$first:$second';
+  }
+
+  static inline function inlineLocalValue<T>(input: T): T {
+    final value = input;
+    return value;
   }
 
   static function buildMapHolder(names: Array<String>): MapHolder {

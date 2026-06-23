@@ -8,26 +8,30 @@ class EsMap<K, V> {
   public inline function new()
     inst = new Map();
 
-  public inline function set(key: K, value: V): Void
+  /**
+   * Keep the facade methods non-inline so generated TS user modules call the
+   * stable Haxe map API instead of exposing the backing native `Map` field.
+   */
+  public function set(key: K, value: V): Void
     inst.set(key, value);
 
   @:ts.returnType("any")
-  public inline function get(key: K): Null<V>
+  public function get(key: K): Null<V>
     return inst.get(key);
 
-  public inline function remove(key: K): Bool
+  public function remove(key: K): Bool
     return inst.delete(key);
 
-  public inline function exists(key: K): Bool
+  public function exists(key: K): Bool
     return inst.has(key);
 
-  public inline function keys(): Iterator<K>
+  public function keys(): Iterator<K>
     return adaptIterator(inst.keys());
 
-  public inline function iterator(): Iterator<V>
+  public function iterator(): Iterator<V>
     return adaptIterator(inst.values());
 
-  public inline function toString(): String {
+  public function toString(): String {
     return "{" + [for (key in keys()) '$key => ${get(key)}'].join(', ') + "}";
   }
 
