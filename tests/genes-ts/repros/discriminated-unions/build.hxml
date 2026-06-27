@@ -1,0 +1,10 @@
+-lib genes-ts
+
+-cp tests/genes-ts/repros/discriminated-unions/src
+--main Main
+
+-js tests/genes-ts/repros/discriminated-unions/out/src-gen/index.ts
+-D genes.ts
+
+-dce full
+
