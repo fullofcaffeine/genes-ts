@@ -93,4 +93,30 @@ class TestAsyncAwait {
       return asserts.done();
     });
   }
+
+  /**
+   * Why: `@:async` must preserve method-local type parameters when it rewrites
+   * generic functions. Downstream code often wraps critical sections and
+   * resource lifetimes as `Promise<T>` helpers; losing `T` either breaks the
+   * Haxe build or tempts callers toward `Dynamic`/`cast`.
+   *
+   * What/How: this fixture keeps `T` in the declared `Promise<T>` return type,
+   * in the awaited local promise, and in the returned value. The async macro
+   * should rewrite the method without resolving `T` outside the method's type
+   * parameter scope.
+   */
+  @:async
+  function genericIdentity<T>(value: T): JsPromise<T> {
+    final pending: JsPromise<T> = JsPromise.resolve(value);
+    final resolved = @:await pending;
+    return resolved;
+  }
+
+  public function testGenericAsyncMethodTypeParameter() {
+    return Promise.ofJsPromise(genericIdentity("typed")).next(v -> {
+      asserts.assert(v == "typed");
+      return asserts.done();
+    });
+  }
+
 }

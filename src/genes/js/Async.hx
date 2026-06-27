@@ -154,8 +154,9 @@ class Async {
     return out;
   }
 
-  static function isJsPromiseType(t: ComplexType, pos: Position): Bool {
-    final resolved = Context.resolveType(t, pos);
+  static function isJsPromiseType(t: ComplexType, pos: Position,
+      ?params: Array<TypeParamDecl>): Bool {
+    final resolved = Context.resolveType(eraseLocalTypeParams(t, params), pos);
     return switch Context.followWithAbstracts(resolved) {
       case TInst(_.get() => {module: 'js.lib.Promise', name: 'Promise'}, _):
         true;
@@ -172,8 +173,10 @@ class Async {
     });
   }
 
-  static function promiseInnerType(promise: ComplexType, pos: Position): Type {
-    final resolved = Context.resolveType(promise, pos);
+  static function promiseInnerType(promise: ComplexType, pos: Position,
+      ?params: Array<TypeParamDecl>): Type {
+    final resolved = Context.resolveType(eraseLocalTypeParams(promise, params),
+      pos);
     return switch Context.followWithAbstracts(resolved) {
       case TInst(_.get() => {module: 'js.lib.Promise', name: 'Promise'}, [inner]):
         inner;
@@ -190,6 +193,103 @@ class Async {
         true;
       default:
         false;
+    }
+  }
+
+  /**
+   * Preserves generic async signatures while letting the macro inspect Promise
+   * shape outside the method's local type-parameter scope.
+   *
+   * Why: build macros run while rewriting a field declaration. A method-local
+   * parameter such as `function id<T>(v:T): Promise<T>` is valid Haxe, but
+   * `Context.resolveType()` cannot resolve that `T` from the macro helper's
+   * scope. The async transform only needs to know whether the declared return is
+   * a `js.lib.Promise` and whether its inner type is `Void`; it must not erase
+   * or rewrite the actual function signature.
+   *
+   * What/How: before macro-only Promise inspection, replace references to the
+   * current function's local type parameters with `Dynamic` in a copy of the
+   * `ComplexType`. The transformed field still uses the original `ComplexType`
+   * and `fn.params`, so generated Haxe/TS surfaces keep `Promise<T>`.
+   */
+  static function eraseLocalTypeParams(t: ComplexType,
+      ?params: Array<TypeParamDecl>): ComplexType {
+    if (params == null || params.length == 0)
+      return t;
+    final names = new Map<String, Bool>();
+    for (param in params)
+      names.set(param.name, true);
+    return eraseLocalTypeParamRefs(t, names);
+  }
+
+  static function eraseLocalTypeParamRefs(t: ComplexType,
+      names: Map<String, Bool>): ComplexType {
+    return switch t {
+      case TPath(path) if (path.pack.length == 0 && names.exists(path.name)):
+        macro: Dynamic;
+      case TPath(path):
+        TPath({
+          pack: path.pack,
+          name: path.name,
+          sub: path.sub,
+          params: path.params.map(param -> switch param {
+            case TPType(inner): TPType(eraseLocalTypeParamRefs(inner, names));
+            case TPExpr(expr): TPExpr(expr);
+          })
+        });
+      case TFunction(args, ret):
+        TFunction(args.map(arg -> eraseLocalTypeParamRefs(arg, names)),
+          eraseLocalTypeParamRefs(ret, names));
+      case TAnonymous(fields):
+        TAnonymous(fields.map(field -> eraseFieldLocalTypeParams(field, names)));
+      case TParent(inner):
+        TParent(eraseLocalTypeParamRefs(inner, names));
+      case TOptional(inner):
+        TOptional(eraseLocalTypeParamRefs(inner, names));
+      case TNamed(name, inner):
+        TNamed(name, eraseLocalTypeParamRefs(inner, names));
+      case TExtend(paths, fields):
+        TExtend(paths, fields.map(field -> eraseFieldLocalTypeParams(field,
+          names)));
+      case TIntersection(types):
+        TIntersection(types.map(inner -> eraseLocalTypeParamRefs(inner, names)));
+    }
+  }
+
+  static function eraseFieldLocalTypeParams(field: Field,
+      names: Map<String, Bool>): Field {
+    return {
+      name: field.name,
+      doc: field.doc,
+      meta: field.meta,
+      access: field.access,
+      kind: eraseFieldKindLocalTypeParams(field.kind, names),
+      pos: field.pos
+    };
+  }
+
+  static function eraseFieldKindLocalTypeParams(kind: haxe.macro.Expr.FieldType,
+      names: Map<String, Bool>): haxe.macro.Expr.FieldType {
+    return switch kind {
+      case FVar(ct, e):
+        FVar(ct == null ? null : eraseLocalTypeParamRefs(ct, names), e);
+      case FProp(get, set, ct, e):
+        FProp(get, set,
+          ct == null ? null : eraseLocalTypeParamRefs(ct, names), e);
+      case FFun(fn):
+        FFun({
+          args: fn.args.map(arg -> {
+            name: arg.name,
+            opt: arg.opt,
+            type: arg.type == null ? null : eraseLocalTypeParamRefs(arg.type,
+              names),
+            value: arg.value,
+            meta: arg.meta
+          }),
+          ret: fn.ret == null ? null : eraseLocalTypeParamRefs(fn.ret, names),
+          expr: fn.expr,
+          params: fn.params
+        });
     }
   }
 
@@ -225,7 +325,7 @@ class Async {
     final newReturnType = switch fn.ret {
       case null:
         Context.error('@:async functions must declare a return type', field.pos);
-      case ret if (isJsPromiseType(ret, field.pos)):
+      case ret if (isJsPromiseType(ret, field.pos, fn.params)):
         ret;
       case ret:
         toJsPromiseType(ret);
@@ -234,7 +334,8 @@ class Async {
     final fnExpr = fn.expr != null ? processExpression(fn.expr) : null;
     final rewritten = fnExpr != null ? rewriteReturns(fnExpr) : fnExpr;
 
-    final isVoidPromise = isVoidType(promiseInnerType(newReturnType, field.pos));
+    final isVoidPromise = isVoidType(promiseInnerType(newReturnType, field.pos,
+      fn.params));
 
     final ensured = isVoidPromise ? ensureVoidPromiseReturn(rewritten, field.pos) : rewritten;
 
@@ -282,7 +383,7 @@ class Async {
     final newReturnType = switch fn.ret {
       case null:
         Context.error('@:async functions must declare a return type', pos);
-      case ret if (isJsPromiseType(ret, pos)):
+      case ret if (isJsPromiseType(ret, pos, fn.params)):
         ret;
       case ret:
         toJsPromiseType(ret);
@@ -291,7 +392,8 @@ class Async {
     final fnExpr = fn.expr != null ? processExpression(fn.expr) : null;
     final rewritten = fnExpr != null ? rewriteReturns(fnExpr) : fnExpr;
 
-    final isVoidPromise = isVoidType(promiseInnerType(newReturnType, pos));
+    final isVoidPromise = isVoidType(promiseInnerType(newReturnType, pos,
+      fn.params));
     final ensured = isVoidPromise ? ensureVoidPromiseReturn(rewritten, pos) : rewritten;
 
     final newFunc: Function = {
