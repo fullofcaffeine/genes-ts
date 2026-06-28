@@ -249,6 +249,8 @@ class Generator {
     // human-readable name (e.g. `"String"`).
     writer.write('  interface StringConstructor { __name__?: string | boolean }\n');
     writer.write('  interface ArrayConstructor { __name__?: string | boolean }\n');
+    writer.write('  interface DateConstructor { __name__?: string | boolean }\n');
+    writer.write('  interface Date { __class__?: Function }\n');
     // Some Haxe JS externs are generated from Mozilla WebIDL and are not part of
     // TypeScript's standard `lib.dom.d.ts` surface. Provide minimal global types
     // so generated TS can type-check under `skipLibCheck: false`.

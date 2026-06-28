@@ -27,6 +27,7 @@ class Main {
     asyncFoo.metadataAwaitOptionalParam({}).then(v -> trace(v));
     trace(BoundaryTypes.demo());
     trace(Placeholder.demo());
+    trace(Date.now().getTime() > 0);
     trace(EnumAbstract.demo());
     trace(EnumAbstract.localDemo());
     trace(EnumAbstract.fieldLocalDemo());

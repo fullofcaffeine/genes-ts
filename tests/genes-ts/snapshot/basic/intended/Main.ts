@@ -41,12 +41,13 @@ export class Main {
 		});
 		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:28:",BoundaryTypes.demo());
 		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:29:",Placeholder.demo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:30:",EnumAbstract.demo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:31:",EnumAbstract.localDemo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:32:",EnumAbstract.fieldLocalDemo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:33:",EnumAbstract.recordDemo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:34:",EnumAbstract.arrayLoopDemo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:35:",JsonAlias.passthrough({"metadata": null}).metadata);
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:30:",new Date().getTime() > 0);
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:31:",EnumAbstract.demo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:32:",EnumAbstract.localDemo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:33:",EnumAbstract.fieldLocalDemo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:34:",EnumAbstract.recordDemo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:35:",EnumAbstract.arrayLoopDemo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:36:",JsonAlias.passthrough({"metadata": null}).metadata);
 		let server: {
 			closeAllConnections: () => void,
 			off: (event: string, handler: ((arg0: string) => void)) => void
@@ -57,10 +58,10 @@ export class Main {
 		}};
 		ServerCallbacks.callbackInitializedLater(server);
 		ServerCallbacks.optionalForwardedMethod(server);
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:42:",Narrowing.switchExitingNull({"value": "present"}));
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:43:",TypedCatch.recover("fixture"));
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:44:",TypedCatch.recover("plain"));
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:45:",Main.Theme.name + ":" + Main.Theme.accent);
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:43:",Narrowing.switchExitingNull({"value": "present"}));
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:44:",TypedCatch.recover("fixture"));
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:45:",TypedCatch.recover("plain"));
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:46:",Main.Theme.name + ":" + Main.Theme.accent);
 	}
 	static get __name__(): string {
 		return "Main"
