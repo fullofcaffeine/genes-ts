@@ -91,6 +91,8 @@ class Main {
     trace(mapGetAfterContinue(["alpha", "missing"]).join(","));
     trace(mapGetAfterExists("alpha"));
     trace(mapGetAfterKeyIteration().join(","));
+    trace(mapGetDirectAfterExists("alpha").name);
+    trace(mapGetDirectAfterKeyIteration().join(","));
     final callback = closureAfterOuterGuard("alpha");
     trace(callback == null ? "missing" : callback.read());
     trace(inlineValueTemps());
@@ -204,6 +206,33 @@ class Main {
       }));
     }
     return out;
+  }
+
+  /**
+   * The same `Map.exists` fact must work when the `Map.get` result itself flows
+   * into a non-null value position, not only when a field is read from it.
+   */
+  static function mapGetDirectAfterExists(id: String): NamedItem {
+    final holder = buildMapHolder(["alpha"]);
+    if (!holder.named.exists(id))
+      return namedItem("missing");
+    return holder.named.get(id);
+  }
+
+  /**
+   * Iterating `map.keys()` proves direct `map.get(key)` call arguments non-null
+   * for the same stable map/key pair.
+   */
+  static function mapGetDirectAfterKeyIteration(): Array<String> {
+    final holder = buildMapHolder(["alpha", "beta"]);
+    final out: Array<String> = [];
+    for (id in holder.named.keys())
+      out.push(formatNamedItem(holder.named.get(id)));
+    return out;
+  }
+
+  static function formatNamedItem(item: NamedItem): String {
+    return item.name;
   }
 
   /**

@@ -2303,6 +2303,12 @@ class TsModuleEmitter extends JsModuleEmitter {
           FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))
       }, args) if (emitSyntaxCodeWithTsArgs(args)):
         null;
+      case TCall(callee = {expr: TField(target, f)}, params)
+        if (fieldAccessName(f) == "get" && tsIsIMapType(target.t)
+          && isNarrowedNonNull(e)):
+        emitCall(callee, params, true);
+        if (typeAllowsNull(e.t))
+          write('!');
       case TBinop(op = OpGt | OpGte | OpLt | OpLte, e1, e2)
         if ((typeAllowsNull(e1.t) && isNumberLike(e1.t))
           || (typeAllowsNull(e2.t) && isNumberLike(e2.t))):
