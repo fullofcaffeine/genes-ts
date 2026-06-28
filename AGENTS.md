@@ -63,6 +63,8 @@ Prefer small, well-typed externs/abstracts and keep any unavoidable JS interop c
 
 Use `Dynamic`, `untyped`, generated `any`, broad `unknown`, and equivalent weak types only as a last resort after confirming there is no practical typed alternative. If one is required, add a nearby comment explaining why the value cannot be typed yet and how the unsafety is contained.
 
+For JSON-shaped fixtures, runtime helpers, or generated boundary APIs, prefer typed parsers/writers, precise typedefs, generated codecs, or a recursive JSON value algebra before using broad `Unknown`. An `Unknown` wrapper is not a domain model unless it restricts operations, emits a narrower target type, or is immediately paired with a decoder; otherwise document the allowed operations and why a typed model is not practical yet.
+
 Treat `cast`, especially casts to or from `Dynamic`, as a last-resort boundary. If a cast is unavoidable because Haxe cannot express the runtime operation directly, keep its scope tiny, guard every operation performed through it, return typed values immediately, and add a nearby comment explaining the API limitation and containment.
 
 Treat `@:ts.type(...)` / `@:genes.type(...)` as lower-level boundary overrides. Prefer inferred Haxe types and generic compiler/library constructs for recurring semantics. For example, use `@:ts.optional` for TypeScript `field?: T` optional-property contracts instead of hand-writing per-field `@:ts.type("T")` strings when the Haxe field type already expresses `T`. A raw TS type override is appropriate only when the canonical boundary type cannot be expressed cleanly with Haxe types, such as ecosystem import types, readonly projections, unique symbols, or host API signatures.

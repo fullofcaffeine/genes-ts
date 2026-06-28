@@ -248,6 +248,23 @@ class BoundaryTypes {
     };
   }
 
+  public static function tsOptionalFromNullable(?label: String, ?tags: Array<String>, ?kind: OptionalFieldKind): TsOptionalRecord {
+    return {
+      label: label,
+      tags: tags,
+      kind: kind
+    };
+  }
+
+  public static function tsOptionalCopy(record: TsOptionalRecord): TsOptionalRecord {
+    return {
+      label: record.label,
+      tags: record.tags,
+      nested: record.nested,
+      kind: record.kind
+    };
+  }
+
   public static function tsOptionalSummary(record: TsOptionalRecord): String {
     final label = record.label == null ? "missing" : record.label;
     final tagCount = record.tags == null ? 0 : record.tags.length;
@@ -491,6 +508,8 @@ class BoundaryTypes {
     final warningFeature = firstWarningFeature({warnings: [{feature: "topK"}]});
     final fieldOverride = fieldOverrideSummary(fieldOverrideRecord());
     final tsOptional = tsOptionalSummary(tsOptionalRecord());
+    final tsOptionalMissing = tsOptionalSummary(tsOptionalFromNullable());
+    final tsOptionalCopied = tsOptionalSummary(tsOptionalCopy(tsOptionalRecord()));
     return (present == null ? "none" : present)
       + ":"
       + (missing == null ? "none" : missing)
@@ -567,6 +586,10 @@ class BoundaryTypes {
       + ":"
       + fieldOverride
       + ":"
-      + tsOptional;
+      + tsOptional
+      + ":"
+      + tsOptionalMissing
+      + ":"
+      + tsOptionalCopied;
   }
 }

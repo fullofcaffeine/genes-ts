@@ -3355,13 +3355,45 @@ class TsModuleEmitter extends JsModuleEmitter {
     write('{');
     final objectType = currentExpectedValueType != null ? currentExpectedValueType : e.t;
     for (field in join(fields, write.bind(', '))) {
+      final anonymousField = TypeUtil.anonymousField(objectType, field.name);
       emitPos(field.expr.pos);
-      emitString(TypeUtil.anonymousFieldName(objectType, field.name));
+      emitString(anonymousField == null ? field.name : TypeUtil.classFieldName(anonymousField));
       write(': ');
-      emitValueWithExpectedType(TypeUtil.anonymousFieldType(objectType,
+      emitObjectDeclFieldValue(anonymousField, TypeUtil.anonymousFieldType(objectType,
         field.name), field.expr);
     }
     write('}');
+  }
+
+  function emitObjectDeclFieldValue(field: Null<ClassField>,
+      expected: Null<Type>, expr: TypedExpr): Void {
+    if (field != null && field.meta.has(':optional')
+      && field.meta.has(':ts.optional') && mayEmitNull(expr)) {
+      // `@:ts.optional` keeps Haxe source reads nullable, but the generated TS
+      // object-boundary contract is omission/undefined. Normalize only while
+      // emitting that marked field so ordinary Haxe optional fields still use
+      // null as their source-level missing sentinel.
+      write('(');
+      emitValueWithExpectedType(expected, expr);
+      write(' ?? undefined)');
+      return;
+    }
+    emitValueWithExpectedType(expected, expr);
+  }
+
+  static function mayEmitNull(expr: TypedExpr): Bool {
+    return switch expr.expr {
+      case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, _):
+        mayEmitNull(inner);
+      case TConst(TNull):
+        true;
+      case TConst(_):
+        false;
+      case TObjectDecl(_) | TArrayDecl(_) | TFunction(_):
+        false;
+      default:
+        typeAllowsNull(expr.t);
+    }
   }
 
   function emitLocalVar(v: TVar) {
