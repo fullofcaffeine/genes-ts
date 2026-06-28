@@ -30,6 +30,9 @@ export class AsyncFoo extends Register.inherits() {
 	static demo(): Promise<number> {
 		return new AsyncFoo().plusOneAsync(41);
 	}
+	static demoPrivateStaticAsync(): Promise<number> {
+		return __AsyncFoo_privateDoubleAsync(21);
+	}
 	static get __name__(): string {
 		return "foo.AsyncFoo"
 	}
@@ -41,4 +44,9 @@ function __AsyncFoo_promiseLabel(value: string | null): Promise<string> {
 	return Promise.resolve((value == null) ? "missing" : value);
 }
 Register.unsafeCast<{promiseLabel: typeof __AsyncFoo_promiseLabel}>(AsyncFoo).promiseLabel = __AsyncFoo_promiseLabel;
+async function __AsyncFoo_privateDoubleAsync(x: number): Promise<number> {
+	let value: number = await Promise.resolve(x);
+	return value * 2;
+}
+Register.unsafeCast<{privateDoubleAsync: typeof __AsyncFoo_privateDoubleAsync}>(AsyncFoo).privateDoubleAsync = __AsyncFoo_privateDoubleAsync;
 Register.setHxClass("foo.AsyncFoo", AsyncFoo);

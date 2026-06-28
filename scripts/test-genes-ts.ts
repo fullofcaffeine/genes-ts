@@ -76,7 +76,10 @@ const basicFooDts = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/basic/out/dist/foo/Foo.d.ts"),
   "utf8"
 );
-for (const privateName of ["withPrivateOffset", "privateNormalize"]) {
+if (!basicFooDts.includes("withPrivateOffset")) {
+  throw new Error("private instance helpers should remain class-shaped while static helper lowering is enabled");
+}
+for (const privateName of ["privateNormalize"]) {
   if (basicFooDts.includes(privateName)) {
     throw new Error(`private Haxe helper leaked into generated declarations: ${privateName}`);
   }

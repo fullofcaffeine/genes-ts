@@ -23,6 +23,7 @@ class Main {
     trace(f.add(2));
     trace(Foo.normalize("OK"));
     AsyncFoo.demo().then(v -> trace(v));
+    AsyncFoo.demoPrivateStaticAsync().then(v -> trace(v));
     asyncFoo.doubleWithAwaitMacro(21).then(v -> trace(v));
     asyncFoo.metadataAwaitLocalScope(39).then(v -> trace(v));
     asyncFoo.metadataAwaitOptionalParam({}).then(v -> trace(v));

@@ -31,24 +31,27 @@ export class Main {
 		AsyncFoo.demo().then(function (v: number) {
 			console.log("tests/genes-ts/snapshot/basic/src/Main.hx:25:",v);
 		});
-		asyncFoo.doubleWithAwaitMacro(21).then(function (v: number) {
+		AsyncFoo.demoPrivateStaticAsync().then(function (v: number) {
 			console.log("tests/genes-ts/snapshot/basic/src/Main.hx:26:",v);
 		});
-		asyncFoo.metadataAwaitLocalScope(39).then(function (v: number) {
+		asyncFoo.doubleWithAwaitMacro(21).then(function (v: number) {
 			console.log("tests/genes-ts/snapshot/basic/src/Main.hx:27:",v);
 		});
-		asyncFoo.metadataAwaitOptionalParam({}).then(function (v: string) {
+		asyncFoo.metadataAwaitLocalScope(39).then(function (v: number) {
 			console.log("tests/genes-ts/snapshot/basic/src/Main.hx:28:",v);
 		});
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:29:",BoundaryTypes.demo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:30:",Placeholder.demo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:31:",new Date().getTime() > 0);
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:32:",EnumAbstract.demo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:33:",EnumAbstract.localDemo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:34:",EnumAbstract.fieldLocalDemo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:35:",EnumAbstract.recordDemo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:36:",EnumAbstract.arrayLoopDemo());
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:37:",JsonAlias.passthrough({"metadata": null}).metadata);
+		asyncFoo.metadataAwaitOptionalParam({}).then(function (v: string) {
+			console.log("tests/genes-ts/snapshot/basic/src/Main.hx:29:",v);
+		});
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:30:",BoundaryTypes.demo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:31:",Placeholder.demo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:32:",new Date().getTime() > 0);
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:33:",EnumAbstract.demo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:34:",EnumAbstract.localDemo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:35:",EnumAbstract.fieldLocalDemo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:36:",EnumAbstract.recordDemo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:37:",EnumAbstract.arrayLoopDemo());
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:38:",JsonAlias.passthrough({"metadata": null}).metadata);
 		let server: {
 			closeAllConnections: () => void,
 			off: (event: string, handler: ((arg0: string) => void)) => void
@@ -59,10 +62,10 @@ export class Main {
 		}};
 		ServerCallbacks.callbackInitializedLater(server);
 		ServerCallbacks.optionalForwardedMethod(server);
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:44:",Narrowing.switchExitingNull({"value": "present"}));
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:45:",TypedCatch.recover("fixture"));
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:46:",TypedCatch.recover("plain"));
-		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:47:",Main.Theme.name + ":" + Main.Theme.accent);
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:45:",Narrowing.switchExitingNull({"value": "present"}));
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:46:",TypedCatch.recover("fixture"));
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:47:",TypedCatch.recover("plain"));
+		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:48:",Main.Theme.name + ":" + Main.Theme.accent);
 	}
 	static get __name__(): string {
 		return "Main"

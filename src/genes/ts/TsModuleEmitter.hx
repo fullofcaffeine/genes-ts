@@ -1540,7 +1540,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     if (!canLowerPrivateMethods(cl))
       return;
     for (field in fields) {
-      if (field.isPublic || !field.kind.equals(Method))
+      if (field.isPublic || !field.isStatic || !field.kind.equals(Method))
         continue;
       if (isPrivateStaticMain(field))
         continue;
@@ -1556,17 +1556,15 @@ class TsModuleEmitter extends JsModuleEmitter {
             writeNewline();
           emitComment(field.doc);
           emitPos(field.pos);
+          final isAsync = field.meta != null
+            && (field.meta.has(':jsAsync') || field.meta.has('jsAsync'));
+          if (isAsync)
+            write('async ');
           write('function ');
           final helperName = privateMethodHelperName(cl, field.name);
           write(helperName);
           emitMethodTypeParams(field);
           write('(');
-          if (!field.isStatic) {
-            write('this: ');
-            emitIdent(TypeUtil.className(cl));
-            if (f.args.length > 0)
-              write(', ');
-          }
           emitTypedFunctionArguments(f, field);
           write('): ');
           emitReturnTsType(field, f, null);
@@ -1599,8 +1597,6 @@ class TsModuleEmitter extends JsModuleEmitter {
     write(helperName);
     write('}>(');
     emitIdent(TypeUtil.className(cl));
-    if (!field.isStatic)
-      write('.prototype');
     write(')');
     emitField(moduleFieldName(field));
     write(' = ');
@@ -3817,18 +3813,8 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   function privateMethodCall(e: TypedExpr): Null<PrivateMethodCall> {
     return switch unwrapExpr(e).expr {
-      case TField(receiver, FInstance(owner, _, cf)):
-        final ownerType = owner.get();
-        final field = cf.get();
-        if (!canLowerPrivateMethods(ownerType)
-          || field.isPublic
-          || !field.kind.match(FMethod(_)))
-          null;
-        else {
-          owner: ownerType,
-          field: field,
-          receiver: receiver
-        };
+      case TField(_, FInstance(_, _, _)):
+        null;
       case TField(_, FStatic(owner, cf)):
         final ownerType = owner.get();
         final field = cf.get();
@@ -3856,8 +3842,8 @@ class TsModuleEmitter extends JsModuleEmitter {
   static function canLowerPrivateMethods(cl: ClassType): Bool {
     // Keep this opt-in while Genes still supports class-shaped JS output by
     // default. Downstreams that require clean declaration surfaces can lower
-    // private source helpers to unexported module functions without changing
-    // stdlib/js support classes or extern runtime shapes.
+    // private static source helpers to unexported module functions without
+    // changing instance, stdlib/js support, or extern runtime shapes.
     return haxe.macro.Context.defined('genes.ts.lower_private_helpers')
       && !cl.isExtern
       && (cl.pack.length == 0 || (cl.pack[0] != 'haxe' && cl.pack[0] != 'js'));
@@ -3933,6 +3919,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   static function shouldEmitClassMethod(cl: ClassType, field: GenesField): Bool {
     return field.isPublic
       || field.kind.equals(Constructor)
+      || !field.isStatic
       || isPrivateStaticMain(field)
       || !canLowerPrivateMethods(cl);
   }

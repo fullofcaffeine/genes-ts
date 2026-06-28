@@ -10,7 +10,10 @@ export class Foo extends Register.inherits() {
 		this.x = x;
 	}
 	add(y: number): number {
-		return __Foo_withPrivateOffset.call(this, y);
+		return this.withPrivateOffset(y);
+	}
+	withPrivateOffset(y: number): number {
+		return this.x + y;
 	}
 	static normalize(value: string): string {
 		return __Foo_privateNormalize(value);
@@ -22,10 +25,6 @@ export class Foo extends Register.inherits() {
 		return Foo
 	}
 }
-function __Foo_withPrivateOffset(this: Foo, y: number): number {
-	return this.x + y;
-}
-Register.unsafeCast<{withPrivateOffset: typeof __Foo_withPrivateOffset}>(Foo.prototype).withPrivateOffset = __Foo_withPrivateOffset;
 function __Foo_privateNormalize(value: string): string {
 	return value.toLowerCase();
 }

@@ -34,11 +34,21 @@ class AsyncFoo {
   }
 
   @:async
+  static function privateDoubleAsync(x: Int): Promise<Int> {
+    final value = @:await Promise.resolve(x);
+    return value * 2;
+  }
+
+  @:async
   public function metadataAwaitOptionalParam(record: AsyncOptionalLabelRecord): Promise<String> {
     return @:await promiseLabel(record.label);
   }
 
   public static function demo(): Promise<Int> {
     return new AsyncFoo().plusOneAsync(41);
+  }
+
+  public static function demoPrivateStaticAsync(): Promise<Int> {
+    return privateDoubleAsync(21);
   }
 }
