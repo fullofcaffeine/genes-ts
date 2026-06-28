@@ -3,6 +3,7 @@ import foo.AsyncFoo;
 import foo.BoundaryTypes;
 import foo.Placeholder;
 import foo.EnumAbstract;
+import foo.JsonAlias;
 import foo.Narrowing;
 import foo.ServerCallbacks;
 import foo.TypedCatch;
@@ -31,6 +32,7 @@ class Main {
     trace(EnumAbstract.fieldLocalDemo());
     trace(EnumAbstract.recordDemo());
     trace(EnumAbstract.arrayLoopDemo());
+    trace(JsonAlias.passthrough({metadata: cast null}).metadata);
     final server = {
       off: (event, handler) -> {},
       closeAllConnections: () -> {}

@@ -280,6 +280,33 @@ class TypeEmitter {
     return overrideType;
   }
 
+  /**
+   * Returns true when an array element type needs parentheses before `[]`.
+   *
+   * Why: TypeScript parses `A | B[]` as `A | (B[])`, not `(A | B)[]`.
+   * Haxe abstracts such as `genes.ts.JsonValue` may emit a TS union through
+   * `@:ts.type`, so array element rendering must account for raw type
+   * overrides as well as ordinary `Null`/`EitherType` unions.
+   */
+  static function arrayElementNeedsParens(t: Type): Bool {
+    return switch t {
+      case TAbstract(_.get() => {pack: [], name: "Null"}, _) |
+        TType(_.get() => {pack: [], name: "Null"}, _) |
+        TAbstract(_.get() => {pack: ["haxe", "extern"], name: "EitherType"},
+          _):
+        true;
+      case TInst(_.get().meta => meta, _) |
+        TAbstract(_.get().meta => meta, _) |
+        TType(_.get().meta => meta, _):
+        final overrideType = typeOverrideFromMeta(meta);
+        overrideType != null && overrideType.indexOf('|') != -1;
+      case TLazy(f):
+        arrayElementNeedsParens(f());
+      default:
+        false;
+    }
+  }
+
   public static function emitBaseType(writer: TypeWriter, type: BaseType,
       params: Array<Type>, withConstraints = false) {
     final write = writer.write, emitPos = writer.emitPos;
@@ -434,15 +461,7 @@ class TypeEmitter {
             write('>');
           case [{pack: [], name: "Array"}, [elemT]]:
             emitPos(cl.pos);
-            final needsParens = switch elemT {
-              case TAbstract(_.get() => {pack: [], name: "Null"}, _) |
-                TType(_.get() => {pack: [], name: "Null"}, _) |
-                TAbstract(_.get() => {pack: ["haxe", "extern"], name: "EitherType"},
-                  _):
-                true;
-              default: false;
-            }
-            if (needsParens) {
+            if (arrayElementNeedsParens(elemT)) {
               write('(');
               emitType(writer, elemT);
               write(')');
@@ -527,7 +546,12 @@ class TypeEmitter {
             }
           case [{pack: ["haxe", "extern"] | ['haxe'], name: "Rest"}, [t]]:
             emitPos(ab.pos);
-            emitType(writer, t);
+            if (arrayElementNeedsParens(t)) {
+              write('(');
+              emitType(writer, t);
+              write(')');
+            } else
+              emitType(writer, t);
             write('[]');
           case [{pack: ["haxe", "extern"], name: "EitherType"}, [aT, bT]]:
             emitPos(ab.pos);
@@ -605,7 +629,12 @@ class TypeEmitter {
         switch [dt, params] {
           case [{pack: ["haxe", "extern"] | ["haxe"], name: "Rest"}, [elemT]]:
             emitPos(dt.pos);
-            emitType(writer, elemT);
+            if (arrayElementNeedsParens(elemT)) {
+              write('(');
+              emitType(writer, elemT);
+              write(')');
+            } else
+              emitType(writer, elemT);
             write('[]');
           case [{module: "js.node.Fs", name: "FsPath"}, _]:
             // hxnodejs `FsPath` maps to Node's `fs.PathLike`.

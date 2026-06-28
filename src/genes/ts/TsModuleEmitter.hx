@@ -262,6 +262,9 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
     endImportTimer();
 
+    if (moduleUsesJsonTypes(module) || dependenciesUseJsonTypes(deps))
+      emitJsonTypeAliases();
+
     // Keep Genes behavior for js.Lib.global feature.
     final hasRuntimeCode = module.members.exists(m -> switch m {
       case MClass(cl, _, _) if (cl.isInterface): false;
@@ -307,6 +310,148 @@ class TsModuleEmitter extends JsModuleEmitter {
         emitExport(export, module.toPath(export.module), importExtension);
 
     return endTimer();
+  }
+
+  /**
+   * Emits the recursive native JSON type family when a module actually uses it.
+   *
+   * Why: `genes.ts.JsonValue` is represented by ordinary native JS values at
+   * runtime, but strict TypeScript needs the recursive alias family in scope for
+   * signatures and inferred locals. Keeping the aliases module-local avoids a
+   * hidden global declaration while preserving readable handwritten-style TS.
+   */
+  function emitJsonTypeAliases() {
+    writeNewline();
+    write('type JsonPrimitive = null | boolean | number | string');
+    writeNewline();
+    write('type JsonObject = { readonly [key: string]: JsonValue }');
+    writeNewline();
+    write('type JsonArray = readonly JsonValue[]');
+    writeNewline();
+    write('type JsonValue = JsonPrimitive | JsonObject | JsonArray');
+    writeNewline();
+    write('type JsonNonNullValue = Exclude<JsonValue, null>');
+    writeNewline();
+  }
+
+  static function moduleUsesJsonTypes(module: Module): Bool {
+    if (module.module != null && module.module.startsWith('genes.ts.Json'))
+      return true;
+
+    var found = false;
+    function visitType(t: Type) {
+      if (!found && t != null)
+        found = typeUsesJsonTypes(t);
+    }
+    function visitExpr(e: TypedExpr) {
+      if (found || e == null)
+        return;
+      visitType(e.t);
+      switch e.expr {
+        case TVar(v, _):
+          visitType(v.t);
+        case TFunction(f):
+          for (arg in f.args)
+            visitType(arg.v.t);
+          visitType(f.t);
+        default:
+      }
+      e.iter(visitExpr);
+    }
+
+    for (member in module.members) {
+      if (found)
+        break;
+      switch member {
+        case MClass(cl, params, fields):
+          for (param in params)
+            visitType(param);
+          visitType(cl.init == null ? null : cl.init.t);
+          for (field in fields) {
+            visitType(field.type);
+            visitExpr(field.expr);
+            if (found)
+              break;
+          }
+        case MEnum(et, params):
+          for (param in params)
+            visitType(param);
+          for (_ => ctor in et.constructs)
+            visitType(ctor.type);
+        case MType(def, params):
+          for (param in params)
+            visitType(param);
+          visitType(def.type);
+        case MMain(e):
+          visitExpr(e);
+      }
+    }
+    return found;
+  }
+
+  static function dependenciesUseJsonTypes(deps: Dependencies): Bool {
+    for (path => _ in deps.imports) {
+      if (isJsonTypeModule(path))
+        return true;
+    }
+    return false;
+  }
+
+  static function typeUsesJsonTypes(t: Type): Bool {
+    return typeUsesJsonTypesWithSeen(t, []);
+  }
+
+  static function typeUsesJsonTypesWithSeen(t: Type, seen: Map<String, Bool>): Bool {
+    if (t == null)
+      return false;
+    return switch t {
+      case TAbstract(_.get() => abstractType, params):
+        final key = 'abstract:' + abstractType.module + ':' + abstractType.name;
+        if (seen.exists(key))
+          false;
+        else {
+          seen.set(key, true);
+          isJsonTypeModule(abstractType.module)
+            || params.exists(param -> typeUsesJsonTypesWithSeen(param, seen))
+            || typeUsesJsonTypesWithSeen(abstractType.type, seen);
+        }
+      case TInst(_.get() => cl, params):
+        isJsonTypeModule(cl.module)
+          || params.exists(param -> typeUsesJsonTypesWithSeen(param, seen));
+      case TEnum(_.get() => et, params):
+        isJsonTypeModule(et.module)
+          || params.exists(param -> typeUsesJsonTypesWithSeen(param, seen));
+      case TType(_.get() => def, params):
+        final key = 'typedef:' + def.module + ':' + def.name;
+        if (seen.exists(key))
+          false;
+        else {
+          seen.set(key, true);
+          isJsonTypeModule(def.module)
+            || params.exists(param -> typeUsesJsonTypesWithSeen(param, seen))
+            || typeUsesJsonTypesWithSeen(def.type, seen);
+        }
+      case TAnonymous(_.get() => anon):
+        anon.fields.exists(field -> typeUsesJsonTypesWithSeen(field.type, seen));
+      case TFun(args, ret):
+        typeUsesJsonTypesWithSeen(ret, seen)
+          || args.exists(arg -> typeUsesJsonTypesWithSeen(arg.t, seen));
+      case TDynamic(inner):
+        inner != null && typeUsesJsonTypesWithSeen(inner, seen);
+      case TMono(ref):
+        final inner = ref.get();
+        inner != null && typeUsesJsonTypesWithSeen(inner, seen);
+      case TLazy(f):
+        typeUsesJsonTypesWithSeen(f(), seen);
+    }
+  }
+
+  static function isJsonTypeModule(module: String): Bool {
+    return module == 'genes.ts.JsonValue'
+      || module == 'genes.ts.JsonObject'
+      || module == 'genes.ts.JsonArray'
+      || module == 'genes.ts.JsonPrimitive'
+      || module == 'genes.ts.JsonNonNullValue';
   }
 
   static function moduleUsesReactJsxMarkers(module: Module): Bool {

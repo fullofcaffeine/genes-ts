@@ -62,6 +62,7 @@
     "path-to-regexp": "0.1.13",
     "picomatch": "4.0.4",
     "qs": "6.15.2",
+    "@sigstore/core": "3.2.1",
     "tar": "7.5.16"
   },
   "release": {

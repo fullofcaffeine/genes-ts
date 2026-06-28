@@ -54,6 +54,8 @@ For any Haxe-to-target compiler or framework layer, target compatibility is the 
 
 Prefer Haxe module-level functions when behavior is naturally module-scoped and no class identity, inheritance, interface implementation, or runtime export shape requires a class. Avoid unnecessary “shell” classes that only collect `public static` helpers; they add verbosity without improving the generated TypeScript or Haxe authoring experience.
 
+Document every module and class with its purpose once it is more than a trivial DTO/fixture shim. Document functions when their control flow, boundary behavior, type modeling, error policy, or generated-output implications exceed what a reader can infer locally in a few lines. Keep docs useful and concise: explain why the abstraction exists, what contract it preserves, and any important boundary assumptions; do not add noise comments that merely restate names or assignments.
+
 In **framework + test code** (including the todoapp harness), avoid:
 
 - `untyped`
@@ -70,6 +72,12 @@ Treat `cast`, especially casts to or from `Dynamic`, as a last-resort boundary. 
 Treat `@:ts.type(...)` / `@:genes.type(...)` as lower-level boundary overrides. Prefer inferred Haxe types and generic compiler/library constructs for recurring semantics. For example, use `@:ts.optional` for TypeScript `field?: T` optional-property contracts instead of hand-writing per-field `@:ts.type("T")` strings when the Haxe field type already expresses `T`. A raw TS type override is appropriate only when the canonical boundary type cannot be expressed cleanly with Haxe types, such as ecosystem import types, readonly projections, unique symbols, or host API signatures.
 
 ## Documentation quality (hxdoc)
+
+Modules and classes should always have a short hxdoc/comment describing their
+purpose, boundary contract, and why they exist. Document functions once they
+cross a reasonable complexity threshold, especially when they hide validation,
+interop, macros, codegen expectations, runtime assumptions, or non-obvious
+tradeoffs. Prefer concise why/what/how notes over line-by-line narration.
 
 For **vital or complex** code (compiler internals, runtime helpers, macros, harness/test infrastructure):
 
