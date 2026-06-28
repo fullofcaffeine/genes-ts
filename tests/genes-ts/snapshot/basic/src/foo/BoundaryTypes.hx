@@ -77,6 +77,33 @@ typedef OptionalWarningsRecord = {
   final warnings: Undefinable<Array<OptionalWarning>>;
 }
 
+typedef FieldOverrideNested = {
+  final raw: String;
+}
+
+/**
+ * Fixture for canonical TypeScript field contracts on ergonomic Haxe records.
+ *
+ * Why: Haxe optional anonymous fields read as `Null<T>` in source, but many
+ * JavaScript APIs expose omission as `field?: T` rather than `field?: T | null`.
+ * `@:ts.type` on the field lets the source keep normal Haxe `?field: T`
+ * ergonomics while pinning the generated TypeScript contract at the boundary.
+ *
+ * What/How: each field keeps its Haxe type for object literals and normal
+ * Haxe reads. genes-ts uses the metadata only when printing the anonymous
+ * typedef field type in generated TS source and declaration output.
+ */
+typedef FieldOverrideRecord = {
+  @:ts.type("string")
+  final ?label: String;
+  @:ts.type("readonly string[]")
+  final ?tags: Array<String>;
+  @:ts.type("(value: string) => number")
+  final ?parse: String -> Int;
+  @:ts.type("FieldOverrideNested")
+  final ?nested: FieldOverrideNested;
+}
+
 /**
  * Fixture for Haxe-safe aliases over external JavaScript property names.
  *
@@ -161,6 +188,23 @@ class BoundaryTypes {
     final out: OptionalDirectUndefinableRecord = {};
     out.name = Undefinable.absent();
     return out;
+  }
+
+  public static function fieldOverrideRecord(): FieldOverrideRecord {
+    return {
+      label: "Ada",
+      tags: ["compiler", "types"],
+      parse: value -> value.length,
+      nested: {raw: "source"}
+    };
+  }
+
+  public static function fieldOverrideSummary(record: FieldOverrideRecord): String {
+    final label = record.label == null ? "missing" : record.label;
+    final tagCount = record.tags == null ? 0 : record.tags.length;
+    final parsed = record.parse == null ? -1 : record.parse("typed");
+    final nested = record.nested == null ? "missing" : record.nested.raw;
+    return label + ":" + tagCount + ":" + parsed + ":" + nested;
   }
 
   public static function normalize(value: MaybeName): Null<String> {
@@ -391,6 +435,7 @@ class BoundaryTypes {
     final nativeOptional = nativeOptionalDescription(nativeOptionalRecord());
     final nativeOptionalPresent = nativeOptionalDescriptionPresent(nativeOptionalRecord());
     final warningFeature = firstWarningFeature({warnings: [{feature: "topK"}]});
+    final fieldOverride = fieldOverrideSummary(fieldOverrideRecord());
     return (present == null ? "none" : present)
       + ":"
       + (missing == null ? "none" : missing)
@@ -463,6 +508,8 @@ class BoundaryTypes {
       + ":"
       + (nativeOptionalPresent ? "present" : "missing")
       + ":"
-      + warningFeature;
+      + warningFeature
+      + ":"
+      + fieldOverride;
   }
 }

@@ -62,6 +62,29 @@ export type OptionalWarningsRecord = {
 	warnings: OptionalWarning[] | undefined
 }
 
+export type FieldOverrideNested = {
+	raw: string
+}
+
+/**
+* Fixture for canonical TypeScript field contracts on ergonomic Haxe records.
+*
+* Why: Haxe optional anonymous fields read as `Null<T>` in source, but many
+* JavaScript APIs expose omission as `field?: T` rather than `field?: T | null`.
+* `@:ts.type` on the field lets the source keep normal Haxe `?field: T`
+* ergonomics while pinning the generated TypeScript contract at the boundary.
+*
+* What/How: each field keeps its Haxe type for object literals and normal
+* Haxe reads. genes-ts uses the metadata only when printing the anonymous
+* typedef field type in generated TS source and declaration output.
+*/
+export type FieldOverrideRecord = {
+	label?: string,
+	nested?: FieldOverrideNested,
+	parse?: (value: string) => number,
+	tags?: readonly string[]
+}
+
 /**
 * Fixture for Haxe-safe aliases over external JavaScript property names.
 *
@@ -131,6 +154,18 @@ export class BoundaryTypes {
 		let out: OptionalDirectUndefinableRecord = {};
 		out.name = undefined;
 		return out;
+	}
+	static fieldOverrideRecord(): FieldOverrideRecord {
+		return {"label": "Ada", "tags": ["compiler", "types"], "parse": function (value: string) {
+			return value.length;
+		}, "nested": {"raw": "source"}};
+	}
+	static fieldOverrideSummary(record: FieldOverrideRecord): string {
+		let label: string | null = ((record.label ?? null) == null) ? "missing" : (record.label!);
+		let tagCount: number = ((record.tags ?? null) == null) ? 0 : (record.tags!).length;
+		let parsed: number = ((record.parse ?? null) == null) ? -1 : (record.parse!)("typed");
+		let nested: string = ((record.nested ?? null) == null) ? "missing" : (record.nested!).raw;
+		return label + ":" + tagCount + ":" + parsed + ":" + nested;
 	}
 	static normalize(value: MaybeName): string | null {
 		return value ?? null;
@@ -310,7 +345,8 @@ export class BoundaryTypes {
 		let nativeOptional: string | null = BoundaryTypes.nativeOptionalDescription(BoundaryTypes.nativeOptionalRecord());
 		let nativeOptionalPresent: boolean = BoundaryTypes.nativeOptionalDescriptionPresent(BoundaryTypes.nativeOptionalRecord());
 		let warningFeature: string = BoundaryTypes.firstWarningFeature({"warnings": [{"feature": "topK"}]});
-		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + ((recordMissing == null) ? "none" : recordMissing) + ":" + ((localMissing == null) ? "none" : localMissing) + ":" + ((chosenMissing == null) ? "none" : chosenMissing) + ":" + ((assignedMissing == null) ? "none" : assignedMissing) + ":" + ((assignedChosen == null) ? "none" : assignedChosen) + ":" + ((conditionalFlag == null) ? "none" : (conditionalFlag) ? "true" : "false") + ":" + ((bridgeFlag == null) ? "none" : (bridgeFlag) ? "true" : "false") + ":" + ((optionalMissing == null) ? "none" : optionalMissing) + ":" + ((optionalDirectMissing == null) ? "none" : optionalDirectMissing) + ":" + ((guardedPresent == null) ? "none" : guardedPresent) + ":" + ((guardedMissing == null) ? "none" : guardedMissing) + ":" + guardedUpper + ":" + guardedCallValue + ":" + payloadStatus + ":" + ((narrowedString == null) ? "none" : narrowedString) + ":" + ((narrowedBool == null) ? "none" : (narrowedBool) ? "true" : "false") + ":" + ((narrowedFinite == null) ? "none" : "" + narrowedFinite) + ":" + ((narrowedInt == null) ? "none" : "" + narrowedInt) + ":" + narrowedRecord + ":" + narrowedArray + ":" + nullStatus + ":" + undefinedStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalItemsCall + ":" + optionalLabel + ":" + optionalParamLabel + ":" + optionalNestedParamLabel + ":" + nativeFunction + ":" + nativeArrayFunction + ":" + nativePushFunction + ":" + nativeChoice + ":" + ((nativeOptional == null) ? "none" : nativeOptional) + ":" + ((nativeOptionalPresent) ? "present" : "missing") + ":" + warningFeature;
+		let fieldOverride: string = BoundaryTypes.fieldOverrideSummary(BoundaryTypes.fieldOverrideRecord());
+		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + ((recordMissing == null) ? "none" : recordMissing) + ":" + ((localMissing == null) ? "none" : localMissing) + ":" + ((chosenMissing == null) ? "none" : chosenMissing) + ":" + ((assignedMissing == null) ? "none" : assignedMissing) + ":" + ((assignedChosen == null) ? "none" : assignedChosen) + ":" + ((conditionalFlag == null) ? "none" : (conditionalFlag) ? "true" : "false") + ":" + ((bridgeFlag == null) ? "none" : (bridgeFlag) ? "true" : "false") + ":" + ((optionalMissing == null) ? "none" : optionalMissing) + ":" + ((optionalDirectMissing == null) ? "none" : optionalDirectMissing) + ":" + ((guardedPresent == null) ? "none" : guardedPresent) + ":" + ((guardedMissing == null) ? "none" : guardedMissing) + ":" + guardedUpper + ":" + guardedCallValue + ":" + payloadStatus + ":" + ((narrowedString == null) ? "none" : narrowedString) + ":" + ((narrowedBool == null) ? "none" : (narrowedBool) ? "true" : "false") + ":" + ((narrowedFinite == null) ? "none" : "" + narrowedFinite) + ":" + ((narrowedInt == null) ? "none" : "" + narrowedInt) + ":" + narrowedRecord + ":" + narrowedArray + ":" + nullStatus + ":" + undefinedStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalItemsCall + ":" + optionalLabel + ":" + optionalParamLabel + ":" + optionalNestedParamLabel + ":" + nativeFunction + ":" + nativeArrayFunction + ":" + nativePushFunction + ":" + nativeChoice + ":" + ((nativeOptional == null) ? "none" : nativeOptional) + ":" + ((nativeOptionalPresent) ? "present" : "missing") + ":" + warningFeature + ":" + fieldOverride;
 	}
 	static get __name__(): string {
 		return "foo.BoundaryTypes"

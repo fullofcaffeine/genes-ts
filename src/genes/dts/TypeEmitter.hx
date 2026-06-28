@@ -244,6 +244,21 @@ class TypeEmitter {
     }
   }
 
+  static function typeOverrideFromMeta(meta: MetaAccess): Null<String> {
+    final tsOverride = switch meta.extract(':ts.type') {
+      case [{params: [{expr: EConst(CString(type))}]}]: type;
+      default: null;
+    }
+    final genesOverride = switch meta.extract(':genes.type') {
+      case [{params: [{expr: EConst(CString(type))}]}]: type;
+      default: null;
+    }
+    final overrideType = tsOverride != null ? tsOverride : genesOverride;
+    if (overrideType == null && (meta.has(':ts.type') || meta.has(':genes.type')))
+      throw '@:ts.type/@:genes.type needs an expression';
+    return overrideType;
+  }
+
   public static function emitBaseType(writer: TypeWriter, type: BaseType,
       params: Array<Type>, withConstraints = false) {
     final write = writer.write, emitPos = writer.emitPos;
@@ -539,6 +554,12 @@ class TypeEmitter {
             final fieldType = field.meta.has(':optional')
               ? stripOptionalUndefinableNull(field.type)
               : field.type;
+            final fieldTypeOverride = typeOverrideFromMeta(field.meta);
+            if (fieldTypeOverride != null) {
+              emitTypeOverride(writer, fieldTypeOverride,
+                [for (param in field.params) param.t]);
+              continue;
+            }
             // Anonymous typedef fields can carry enum abstracts whose typed
             // expression form later looks like the primitive backing type. In
             // genes-ts mode, reuse the declaration-time literal union captured
