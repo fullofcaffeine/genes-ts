@@ -19,6 +19,7 @@ class Foo {
     return x + y;
   }
 
+  @:genesLowerPrivateHelper
   private static function privateNormalize(value: String): String {
     return value.toLowerCase();
   }

@@ -34,6 +34,7 @@ class AsyncFoo {
   }
 
   @:async
+  @:genesLowerPrivateHelper
   static function privateDoubleAsync(x: Int): Promise<Int> {
     final value = @:await Promise.resolve(x);
     return value * 2;

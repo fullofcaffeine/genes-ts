@@ -8,7 +8,6 @@
 # Downstream dev checkouts can resolve genes-ts this way through haxelib paths.
 -js tests/genes-ts/no-js-es/out/src-gen/index.ts
 -D genes.ts
--D genes.ts.lower_private_helpers
 
 --macro genes.Generator.use()
 --macro genes.js.Async.enable()

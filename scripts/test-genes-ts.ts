@@ -128,48 +128,45 @@ const inlineValueNames = [...noJsEsMain.matchAll(/\bvar (value(?:_\d+)?):/g)].ma
 if (inlineValueNames.filter(name => name === "value").length > 1) {
   throw new Error("inline-expanded same-named locals must not emit duplicate function-scoped `var value` declarations");
 }
-const mapFacadeBlock = noJsEsMain.match(/\bfunction __Main_buildMapHolder\(names: string\[\]\): MapHolder \{[\s\S]*?\n\}/)?.[0] ?? "";
-if (!mapFacadeBlock.includes("named.set(name, __Main_namedItem(name))") || !mapFacadeBlock.includes("ranked.set(\"first\", __Main_rankedItem(1))")) {
+const mapFacadeBlock = noJsEsMain.match(/\bstatic buildMapHolder\(names: string\[\]\): MapHolder \{[\s\S]*?\n\t\}/)?.[0] ?? "";
+if (!mapFacadeBlock.includes("named.set(name, Main.namedItem(name))") || !mapFacadeBlock.includes("ranked.set(\"first\", Main.rankedItem(1))")) {
   throw new Error("map facade fixture must emit public set calls");
 }
 if (mapFacadeBlock.includes(".inst.")) {
   throw new Error("map facade fixture must not expose backing `.inst` access in user modules");
 }
-const mapGetContinueBlock = noJsEsMain.match(/\bfunction __Main_mapGetAfterContinue\(ids: string\[\]\): string\[\] \{[\s\S]*?\n\}/)?.[0] ?? "";
+const mapGetContinueBlock = noJsEsMain.match(/\bstatic mapGetAfterContinue\(ids: string\[\]\): string\[\] \{[\s\S]*?\n\t\}/)?.[0] ?? "";
 if (!mapGetContinueBlock.includes("if (item == null)") || !mapGetContinueBlock.includes("continue;")) {
   throw new Error("map get narrowing fixture must keep an exiting null guard");
 }
 if (mapGetContinueBlock.includes("Register.unsafeCast") || mapGetContinueBlock.includes("item!")) {
   throw new Error("null-guarded map get locals should flow without unsafe casts or non-null assertions");
 }
-const mapGetExistsBlock = noJsEsMain.match(/\bfunction __Main_mapGetAfterExists\(id: string\): string \{[\s\S]*?\n\}/)?.[0] ?? "";
+const mapGetExistsBlock = noJsEsMain.match(/\bstatic mapGetAfterExists\(id: string\): string \{[\s\S]*?\n\t\}/)?.[0] ?? "";
 if (!mapGetExistsBlock.includes("named.exists(id)") || !mapGetExistsBlock.includes("named.get(id).name")) {
   throw new Error("map exists/get fixture must keep the public map facade calls");
 }
 if (mapGetExistsBlock.includes("Register.unsafeCast")) {
   throw new Error("Map.exists(key) should avoid unsafe casts for a following Map.get(key)");
 }
-const mapGetKeysBlock = noJsEsMain.match(/\bfunction __Main_mapGetAfterKeyIteration\(\): string\[\] \{[\s\S]*?\n\}/)?.[0] ?? "";
+const mapGetKeysBlock = noJsEsMain.match(/\bstatic mapGetAfterKeyIteration\(\): string\[\] \{[\s\S]*?\n\t\}/)?.[0] ?? "";
 if (!mapGetKeysBlock.includes("named.keys()") || !/named\.get\(id\d*\)\.name/.test(mapGetKeysBlock)) {
   throw new Error("map key-iteration fixture must keep keys/get facade calls");
 }
 if (mapGetKeysBlock.includes("Register.unsafeCast")) {
   throw new Error("keys yielded from Map.keys() should avoid unsafe casts for same-map Map.get(key)");
 }
-const closureGuardBlock = noJsEsMain.match(/\bfunction __Main_closureAfterOuterGuard\(id: string\): NamedCallback \| null \{[\s\S]*?\n\}/)?.[0] ?? "";
+const closureGuardBlock = noJsEsMain.match(/\bstatic closureAfterOuterGuard\(id: string\): NamedCallback \| null \{[\s\S]*?\n\t\}/)?.[0] ?? "";
 if (!closureGuardBlock.includes("(item!).name")) {
   throw new Error("outer null guards must not erase receiver assertions inside returned closures");
 }
-if (!/\bfunction __Main_mapAfterResultParameter\(result: MessageBatch\): number\[\] \{[\s\S]*\bvar result_1: number\[\]/.test(noJsEsMain)) {
+if (!/\bmapAfterResultParameter\(result: MessageBatch\): number\[\] \{[\s\S]*\bvar result_1: number\[\]/.test(noJsEsMain)) {
   throw new Error("array-map helper temporaries must be suffixed when an enclosing parameter is named `result`");
 }
-if (/\bfunction __Main_mapAfterResultParameter\(result: MessageBatch\): number\[\] \{[\s\S]*\bvar result: number\[\]/.test(noJsEsMain)) {
+if (/\bmapAfterResultParameter\(result: MessageBatch\): number\[\] \{[\s\S]*\bvar result: number\[\]/.test(noJsEsMain)) {
   throw new Error("array-map helper temporaries must not redeclare a `result` parameter");
 }
-if (noJsEsMain.includes("Main.messageLength")) {
-  throw new Error("private static method value references should use lowered helpers");
-}
-const loweredRecordBlock = noJsEsMain.match(/\bfunction __Main_loweredRecordConstructionTemps\(id: string\): string \{[\s\S]*?\n\}/)?.[0] ?? "";
+const loweredRecordBlock = noJsEsMain.match(/\bstatic loweredRecordConstructionTemps\(id: string\): string \{[\s\S]*?\n\t\}/)?.[0] ?? "";
 if (!loweredRecordBlock.includes("var name: string") || !loweredRecordBlock.includes("var family: string") || !loweredRecordBlock.includes("var flags: RecordFlags")) {
   throw new Error("lowered record construction temps should use object field names");
 }

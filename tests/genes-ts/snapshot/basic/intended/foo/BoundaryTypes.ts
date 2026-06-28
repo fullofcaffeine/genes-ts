@@ -204,8 +204,11 @@ export class BoundaryTypes {
 		let tagCount: number = ((record.tags ?? null) == null) ? 0 : (record.tags!).length;
 		let parsed: number = ((record.parse ?? null) == null) ? -1 : (record.parse!)("typed");
 		let nested: string = ((record.nested ?? null) == null) ? "missing" : (record.nested!).raw;
-		let kind: string = ((record.kind ?? null) == null) ? "missing" : __BoundaryTypes_optionalKindLabel((record.kind!));
+		let kind: string = ((record.kind ?? null) == null) ? "missing" : BoundaryTypes.optionalKindLabel((record.kind!));
 		return label + ":" + tagCount + ":" + parsed + ":" + nested + ":" + kind;
+	}
+	static optionalKindLabel(kind: "primary" | "secondary"): string {
+		return kind;
 	}
 	static normalize(value: MaybeName): string | null {
 		return value ?? null;
@@ -226,7 +229,7 @@ export class BoundaryTypes {
 	}
 	static guardedCall(value: string | null): string {
 		if (value != null) {
-			return __BoundaryTypes_consumeName(value);
+			return BoundaryTypes.consumeName(value);
 		};
 		return "missing";
 	}
@@ -287,7 +290,7 @@ export class BoundaryTypes {
 	}
 	static guardedOptionalItemsCall(record: OptionalArrayRecord): string {
 		if ((record.items ?? null) != null) {
-			return __BoundaryTypes_consumeItems((record.items!));
+			return BoundaryTypes.consumeItems((record.items!));
 		};
 		return "missing";
 	}
@@ -304,6 +307,12 @@ export class BoundaryTypes {
 		} else {
 			return value;
 		};
+	}
+	static consumeName(value: string): string {
+		return value.toUpperCase();
+	}
+	static consumeItems(value: string[]): string {
+		return value.join(",");
 	}
 	static optionalLabelViaNullableParam(record: OptionalNameRecord): string {
 		return BoundaryTypes.nullableLabel((record.label ?? null));
@@ -392,16 +401,4 @@ export class BoundaryTypes {
 		return BoundaryTypes
 	}
 }
-function __BoundaryTypes_optionalKindLabel(kind: "primary" | "secondary"): string {
-	return kind;
-}
-Register.unsafeCast<{optionalKindLabel: typeof __BoundaryTypes_optionalKindLabel}>(BoundaryTypes).optionalKindLabel = __BoundaryTypes_optionalKindLabel;
-function __BoundaryTypes_consumeName(value: string): string {
-	return value.toUpperCase();
-}
-Register.unsafeCast<{consumeName: typeof __BoundaryTypes_consumeName}>(BoundaryTypes).consumeName = __BoundaryTypes_consumeName;
-function __BoundaryTypes_consumeItems(value: string[]): string {
-	return value.join(",");
-}
-Register.unsafeCast<{consumeItems: typeof __BoundaryTypes_consumeItems}>(BoundaryTypes).consumeItems = __BoundaryTypes_consumeItems;
 Register.setHxClass("foo.BoundaryTypes", BoundaryTypes);

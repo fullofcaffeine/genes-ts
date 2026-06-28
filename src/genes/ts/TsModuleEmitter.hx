@@ -1540,7 +1540,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     if (!canLowerPrivateMethods(cl))
       return;
     for (field in fields) {
-      if (field.isPublic || !field.isStatic || !field.kind.equals(Method))
+      if (!canLowerPrivateStaticGenesField(cl, field))
         continue;
       if (isPrivateStaticMain(field))
         continue;
@@ -3818,10 +3818,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TField(_, FStatic(owner, cf)):
         final ownerType = owner.get();
         final field = cf.get();
-        if (!canLowerPrivateMethods(ownerType)
-          || field.isPublic
-          || field.name == 'main'
-          || !field.kind.match(FMethod(_)))
+        if (!canLowerPrivateStaticClassField(ownerType, field))
           null;
         else {
           owner: ownerType,
@@ -3841,12 +3838,39 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   static function canLowerPrivateMethods(cl: ClassType): Bool {
     // Keep this opt-in while Genes still supports class-shaped JS output by
-    // default. Downstreams that require clean declaration surfaces can lower
-    // private static source helpers to unexported module functions without
-    // changing instance, stdlib/js support, or extern runtime shapes.
+    // default. Downstreams that require clean declaration surfaces can opt
+    // specific private static source helpers into unexported module functions
+    // without changing broad class, stdlib/js support, or extern runtime
+    // shapes. Instance helper lowering needs separate accessor/generic/method
+    // value coverage before it can be safely enabled.
     return haxe.macro.Context.defined('genes.ts.lower_private_helpers')
       && !cl.isExtern
       && (cl.pack.length == 0 || (cl.pack[0] != 'haxe' && cl.pack[0] != 'js'));
+  }
+
+  static function canLowerPrivateStaticGenesField(cl: ClassType,
+      field: GenesField): Bool {
+    return field.isStatic && canLowerPrivateStaticFieldMeta(cl, field.name,
+      field.isPublic, field.kind.equals(Method), field.meta);
+  }
+
+  static function canLowerPrivateStaticClassField(cl: ClassType,
+      field: ClassField): Bool {
+    return canLowerPrivateStaticFieldMeta(cl, field.name, field.isPublic,
+      field.kind.match(FMethod(_)), field.meta);
+  }
+
+  static function canLowerPrivateStaticFieldMeta(cl: ClassType, name: String,
+      isPublic: Bool, isMethod: Bool, meta: Null<MetaAccess>): Bool {
+    return canLowerPrivateMethods(cl)
+      && !isPublic
+      && name != 'main'
+      && isMethod
+      && meta != null
+      && (meta.has(':genesLowerPrivateHelper')
+        || meta.has('genesLowerPrivateHelper')
+        || meta.has(':genes.lowerPrivateHelper')
+        || meta.has('genes.lowerPrivateHelper'));
   }
 
   function emitPrivateMethodCall(call: PrivateMethodCall,
@@ -3920,7 +3944,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     return field.isPublic
       || field.kind.equals(Constructor)
       || !field.isStatic
-      || isPrivateStaticMain(field)
+      || !canLowerPrivateStaticGenesField(cl, field)
       || !canLowerPrivateMethods(cl);
   }
 

@@ -14,11 +14,14 @@ export class EnumAbstract {
 	static accepts(v: "default" | "force-cache" | "no-cache" | "no-store" | "only-if-cached" | "reload"): "default" | "force-cache" | "no-cache" | "no-store" | "only-if-cached" | "reload" {
 		return v;
 	}
+	static select(): "default" | "force-cache" | "no-cache" | "no-store" | "only-if-cached" | "reload" {
+		return "no-cache";
+	}
 	static demo(): "default" | "force-cache" | "no-cache" | "no-store" | "only-if-cached" | "reload" {
 		return EnumAbstract.accepts("default");
 	}
 	static localDemo(): "default" | "force-cache" | "no-cache" | "no-store" | "only-if-cached" | "reload" {
-		let cache: "default" | "force-cache" | "no-cache" | "no-store" | "only-if-cached" | "reload" = __EnumAbstract_select();
+		let cache: "default" | "force-cache" | "no-cache" | "no-store" | "only-if-cached" | "reload" = EnumAbstract.select();
 		return EnumAbstract.accepts(cache);
 	}
 	static fieldLocalDemo(): "default" | "force-cache" | "no-cache" | "no-store" | "only-if-cached" | "reload" {
@@ -55,10 +58,6 @@ export class EnumAbstract {
 		return EnumAbstract
 	}
 }
-function __EnumAbstract_select(): "default" | "force-cache" | "no-cache" | "no-store" | "only-if-cached" | "reload" {
-	return "no-cache";
-}
-Register.unsafeCast<{select: typeof __EnumAbstract_select}>(EnumAbstract).select = __EnumAbstract_select;
 Register.setHxClass("foo.EnumAbstract", EnumAbstract);
 
 
