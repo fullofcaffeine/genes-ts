@@ -52,6 +52,8 @@ North star: Haxe code that uses genes-provided TypeScript helper abstractions sh
 
 For any Haxe-to-target compiler or framework layer, target compatibility is the floor, not the Haxe API design ceiling. Target-shaped Haxe APIs are fine, and sometimes the right canonical surface, when that shape is intentional: migration ergonomics, interop, differential testing, generated-output inspection, predictable target behavior, or preserving a widely understood host API. When there is no strong target-shaped reason, canonical APIs should default to leveraging Haxe's strengths: types, macros, generated refs, properties, editor completion, and compile-time diagnostics. Keep 1:1 target facades available at runtime/library boundaries and as escape hatches, then prefer semantic Haxe wrappers when they improve readability or safety without changing target behavior. Compiler fixtures should preserve both surfaces where useful: direct target-shaped examples prove compatibility, while Haxe-native wrappers prove the better authoring experience.
 
+Prefer Haxe module-level functions when behavior is naturally module-scoped and no class identity, inheritance, interface implementation, or runtime export shape requires a class. Avoid unnecessary “shell” classes that only collect `public static` helpers; they add verbosity without improving the generated TypeScript or Haxe authoring experience.
+
 In **framework + test code** (including the todoapp harness), avoid:
 
 - `untyped`

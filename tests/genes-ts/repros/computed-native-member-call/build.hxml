@@ -1,0 +1,10 @@
+-lib genes-ts
+
+-cp tests/genes-ts/repros/computed-native-member-call/src
+--main Main
+
+-js tests/genes-ts/repros/computed-native-member-call/out/src-gen/index.ts
+-D genes.ts
+
+-dce full
+

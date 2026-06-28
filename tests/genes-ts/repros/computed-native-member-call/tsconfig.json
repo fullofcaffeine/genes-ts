@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "declaration": true,
+    "outDir": "out/dist",
+    "rootDir": "out/src-gen",
+    "types": []
+  },
+  "include": ["out/src-gen/**/*.ts"]
+}
+
