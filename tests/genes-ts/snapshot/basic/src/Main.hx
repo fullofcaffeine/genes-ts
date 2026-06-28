@@ -21,6 +21,7 @@ class Main {
     final f = new Foo(1);
     final asyncFoo = new AsyncFoo();
     trace(f.add(2));
+    trace(Foo.normalize("OK"));
     AsyncFoo.demo().then(v -> trace(v));
     asyncFoo.doubleWithAwaitMacro(21).then(v -> trace(v));
     asyncFoo.metadataAwaitLocalScope(39).then(v -> trace(v));

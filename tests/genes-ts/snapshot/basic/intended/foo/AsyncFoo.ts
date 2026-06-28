@@ -25,10 +25,7 @@ export class AsyncFoo extends Register.inherits() {
 		return v + 3;
 	}
 	async metadataAwaitOptionalParam(record: AsyncOptionalLabelRecord): Promise<string> {
-		return await AsyncFoo.promiseLabel((record.label ?? null));
-	}
-	static promiseLabel(value: string | null): Promise<string> {
-		return Promise.resolve((value == null) ? "missing" : value);
+		return await __AsyncFoo_promiseLabel((record.label ?? null));
 	}
 	static demo(): Promise<number> {
 		return new AsyncFoo().plusOneAsync(41);
@@ -40,4 +37,8 @@ export class AsyncFoo extends Register.inherits() {
 		return AsyncFoo
 	}
 }
+function __AsyncFoo_promiseLabel(value: string | null): Promise<string> {
+	return Promise.resolve((value == null) ? "missing" : value);
+}
+Register.unsafeCast<{promiseLabel: typeof __AsyncFoo_promiseLabel}>(AsyncFoo).promiseLabel = __AsyncFoo_promiseLabel;
 Register.setHxClass("foo.AsyncFoo", AsyncFoo);

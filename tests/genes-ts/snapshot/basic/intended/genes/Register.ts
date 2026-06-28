@@ -134,7 +134,7 @@ export class Register {
 		} else {
 			let a1: T[] = a;
 			return function () {
-				return Register.mkIter(a1);
+				return __Register_mkIter(a1);
 			};
 		};
 	}
@@ -151,11 +151,8 @@ export class Register {
 				}};
 			};
 		} else {
-			return Register.mkIter(a);
+			return __Register_mkIter(a);
 		};
-	}
-	static mkIter<T>(a: T[]): Iterator<T> {
-		return new ArrayIterator(a);
 	}
 
 	/**
@@ -295,6 +292,10 @@ export class Register {
 		return Register
 	}
 }
+function __Register_mkIter<T>(a: T[]): Iterator<T> {
+	return new ArrayIterator(a);
+}
+Register.unsafeCast<{mkIter: typeof __Register_mkIter}>(Register).mkIter = __Register_mkIter;
 
 Register.$global = globalThis
 Register.globals = {}

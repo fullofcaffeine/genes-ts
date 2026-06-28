@@ -34,6 +34,12 @@ typedef ObjectFieldLocalUse = {
   final fieldName: String;
 }
 
+typedef PrivateMethodCall = {
+  final owner: ClassType;
+  final field: ClassField;
+  final receiver: Null<TypedExpr>;
+}
+
 /**
  * Minimal TS module emitter (M1):
  * - Emits `.ts` modules with ESM imports/exports
@@ -679,6 +685,11 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   override function emitCall(e: TypedExpr, params: Array<TypedExpr>,
       inValue: Bool) {
+    final privateMethod = privateMethodCall(e);
+    if (privateMethod != null) {
+      emitPrivateMethodCall(privateMethod, params);
+      return;
+    }
     switch [e.expr, params] {
       case [TConst(TSuper), args]:
         // Constructors (`new`) are implemented via the `[Register.new]` runtime
@@ -1276,6 +1287,8 @@ class TsModuleEmitter extends JsModuleEmitter {
 
     // Emit methods/ctors with typed args/returns.
     for (field in fields) {
+      if (!shouldEmitClassMethod(cl, field))
+        continue;
       switch field.kind {
         case Constructor | Method
           #if (haxe_ver >= 4.2) if (!field.isAbstract) #end:
@@ -1454,6 +1467,8 @@ class TsModuleEmitter extends JsModuleEmitter {
     writeNewline();
     write('}');
 
+    emitPrivateMethodHelpers(cl, fields);
+
     // Register class in $hxClasses registry (Genes runtime compatibility).
     final id = cl.pack.concat([TypeUtil.className(cl)]).join('.');
     if (id != 'genes.Register'
@@ -1519,6 +1534,78 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
 
     currentClass = prevClass;
+  }
+
+  function emitPrivateMethodHelpers(cl: ClassType, fields: Array<GenesField>) {
+    if (!canLowerPrivateMethods(cl))
+      return;
+    for (field in fields) {
+      if (field.isPublic || !field.kind.equals(Method))
+        continue;
+      if (isPrivateStaticMain(field))
+        continue;
+      #if (haxe_ver >= 4.2)
+      if (field.isAbstract)
+        continue;
+      #end
+      switch field.expr {
+        case {expr: TFunction(f)}:
+          final previousLocalScope = pushLocalNameScope();
+          writeNewline();
+          if (field.doc != null)
+            writeNewline();
+          emitComment(field.doc);
+          emitPos(field.pos);
+          write('function ');
+          final helperName = privateMethodHelperName(cl, field.name);
+          write(helperName);
+          emitMethodTypeParams(field);
+          write('(');
+          if (!field.isStatic) {
+            write('this: ');
+            emitIdent(TypeUtil.className(cl));
+            if (f.args.length > 0)
+              write(', ');
+          }
+          emitTypedFunctionArguments(f, field);
+          write('): ');
+          emitReturnTsType(field, f, null);
+          write(' ');
+          final prevReturn = currentReturnType;
+          final prevVoidLike = currentReturnIsVoidLike;
+          currentReturnType = switch field.type {
+            case TFun(_, ret): ret;
+            default: null;
+          }
+          currentReturnIsVoidLike = currentReturnType != null
+            && isVoidLike(currentReturnType);
+          emitExpr(getFunctionBody(f));
+          currentReturnType = prevReturn;
+          currentReturnIsVoidLike = prevVoidLike;
+          restoreLocalNameScope(previousLocalScope);
+          emitPrivateMethodRuntimeAssignment(cl, field, helperName);
+        default:
+      }
+    }
+  }
+
+  function emitPrivateMethodRuntimeAssignment(cl: ClassType, field: GenesField,
+      helperName: String) {
+    writeNewline();
+    write(ctx.typeAccessor(TypeUtil.registerType));
+    write('.unsafeCast<{');
+    emitMemberName(moduleFieldName(field));
+    write(': typeof ');
+    write(helperName);
+    write('}>(');
+    emitIdent(TypeUtil.className(cl));
+    if (!field.isStatic)
+      write('.prototype');
+    write(')');
+    emitField(moduleFieldName(field));
+    write(' = ');
+    write(helperName);
+    write(';');
   }
 
   function emitMethodTypeParams(field: GenesField) {
@@ -2201,6 +2288,11 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
 
     emitPos(e.pos);
+    final privateMethod = privateMethodCall(e);
+    if (privateMethod != null) {
+      emitPrivateMethodValue(privateMethod);
+      return;
+    }
     switch e.expr {
       case TCall({
         expr: TField(_,
@@ -3721,6 +3813,132 @@ class TsModuleEmitter extends JsModuleEmitter {
       case FDynamic(name): name;
       default: null;
     }
+  }
+
+  function privateMethodCall(e: TypedExpr): Null<PrivateMethodCall> {
+    return switch unwrapExpr(e).expr {
+      case TField(receiver, FInstance(owner, _, cf)):
+        final ownerType = owner.get();
+        final field = cf.get();
+        if (!canLowerPrivateMethods(ownerType)
+          || field.isPublic
+          || !field.kind.match(FMethod(_)))
+          null;
+        else {
+          owner: ownerType,
+          field: field,
+          receiver: receiver
+        };
+      case TField(_, FStatic(owner, cf)):
+        final ownerType = owner.get();
+        final field = cf.get();
+        if (!canLowerPrivateMethods(ownerType)
+          || field.isPublic
+          || field.name == 'main'
+          || !field.kind.match(FMethod(_)))
+          null;
+        else {
+          owner: ownerType,
+          field: field,
+          receiver: null
+        };
+      default:
+        null;
+    }
+  }
+
+  function isCurrentClass(cl: ClassType): Bool {
+    return currentClass != null
+      && cl.module == currentClass.module
+      && cl.name == currentClass.name;
+  }
+
+  static function canLowerPrivateMethods(cl: ClassType): Bool {
+    // Keep this opt-in while Genes still supports class-shaped JS output by
+    // default. Downstreams that require clean declaration surfaces can lower
+    // private source helpers to unexported module functions without changing
+    // stdlib/js support classes or extern runtime shapes.
+    return haxe.macro.Context.defined('genes.ts.lower_private_helpers')
+      && !cl.isExtern
+      && (cl.pack.length == 0 || (cl.pack[0] != 'haxe' && cl.pack[0] != 'js'));
+  }
+
+  function emitPrivateMethodCall(call: PrivateMethodCall,
+      params: Array<TypedExpr>) {
+    if (isCurrentClass(call.owner)) {
+      write(privateMethodHelperName(call.owner, TypeUtil.classFieldName(call.field)));
+      switch call.receiver {
+        case null:
+          write('(');
+          for (param in join(params, write.bind(', ')))
+            emitValue(param);
+          write(')');
+        case receiver:
+          write('.call(');
+          emitValue(receiver);
+          if (params.length > 0)
+            write(', ');
+          for (param in join(params, write.bind(', ')))
+            emitValue(param);
+          write(')');
+      }
+    } else {
+      emitPrivateMethodRuntimeAccess(call);
+      write('(');
+      for (param in join(params, write.bind(', ')))
+        emitValue(param);
+      write(')');
+    }
+  }
+
+  function emitPrivateMethodValue(call: PrivateMethodCall) {
+    if (isCurrentClass(call.owner)) {
+      write(privateMethodHelperName(call.owner, TypeUtil.classFieldName(call.field)));
+      switch call.receiver {
+        case null:
+        case receiver:
+          write('.bind(');
+          emitValue(receiver);
+          write(')');
+      }
+    } else {
+      emitPrivateMethodRuntimeAccess(call);
+    }
+  }
+
+  function emitPrivateMethodRuntimeAccess(call: PrivateMethodCall) {
+    write(ctx.typeAccessor(TypeUtil.registerType));
+    write('.unsafeCast<{');
+    emitMemberName(TypeUtil.classFieldName(call.field));
+    write(': ');
+    emitType(call.field.type);
+    write('}>(');
+    switch call.receiver {
+      case null:
+        write(ctx.typeAccessor((call.owner : BaseType)));
+      case receiver:
+        emitValue(receiver);
+    }
+    write(')');
+    emitField(TypeUtil.classFieldName(call.field));
+  }
+
+  static function privateMethodHelperName(cl: ClassType, fieldName: String): String {
+    return '__'
+      + TypeUtil.className(cl).split('$').join('_')
+      + '_'
+      + fieldName.split('$').join('_');
+  }
+
+  static function shouldEmitClassMethod(cl: ClassType, field: GenesField): Bool {
+    return field.isPublic
+      || field.kind.equals(Constructor)
+      || isPrivateStaticMain(field)
+      || !canLowerPrivateMethods(cl);
+  }
+
+  static function isPrivateStaticMain(field: GenesField): Bool {
+    return field.isStatic && field.name == 'main' && field.kind.equals(Method);
   }
 
   static function moduleFieldName(field: GenesField): String {

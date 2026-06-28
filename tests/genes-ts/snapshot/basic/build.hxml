@@ -6,6 +6,7 @@
 # Emit TypeScript via genes-ts (still uses -js because we compile on the JS platform)
 -js tests/genes-ts/snapshot/basic/out/src-gen/index.ts
 -D genes.ts
+-D genes.ts.lower_private_helpers
 
 # Keep output small and readable
 -dce full

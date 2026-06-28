@@ -8,7 +8,18 @@ class Foo {
   }
 
   public function add(y: Int): Int {
+    return withPrivateOffset(y);
+  }
+
+  public static function normalize(value: String): String {
+    return privateNormalize(value);
+  }
+
+  private function withPrivateOffset(y: Int): Int {
     return x + y;
   }
-}
 
+  private static function privateNormalize(value: String): String {
+    return value.toLowerCase();
+  }
+}
