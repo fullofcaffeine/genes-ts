@@ -74,6 +74,27 @@ class TypeEmitter {
     }
   }
 
+  /**
+   * Removes only the Haxe optional-field null wrapper for fields explicitly
+   * marked with `@:ts.optional`.
+   *
+   * Why: Haxe represents a missing anonymous optional field as `Null<T>` for
+   * source ergonomics, while TypeScript APIs commonly mean omission with
+   * `field?: T` and do not accept `null`. The metadata is an explicit boundary
+   * contract, so unmarked Haxe fields keep the conservative `T | null` output.
+   */
+  static function stripOptionalFieldNull(t: Type): Type {
+    return switch t {
+      case TAbstract(_.get() => {pack: [], name: "Null"}, [inner]) |
+        TType(_.get() => {pack: [], name: "Null"}, [inner]):
+        inner;
+      case TLazy(f):
+        stripOptionalFieldNull(f());
+      default:
+        t;
+    }
+  }
+
   static function unwrapMetaExpr(e: Expr): Expr {
     var cur = e;
     while (cur != null) {
@@ -551,9 +572,12 @@ class TypeEmitter {
                 emitType(writer, param.t);
               write('>');
             }
-            final fieldType = field.meta.has(':optional')
-              ? stripOptionalUndefinableNull(field.type)
-              : field.type;
+            final fieldType = if (field.meta.has(':optional') && field.meta.has(':ts.optional'))
+              stripOptionalFieldNull(field.type)
+            else if (field.meta.has(':optional'))
+              stripOptionalUndefinableNull(field.type)
+            else
+              field.type;
             final fieldTypeOverride = typeOverrideFromMeta(field.meta);
             if (fieldTypeOverride != null) {
               emitTypeOverride(writer, fieldTypeOverride,

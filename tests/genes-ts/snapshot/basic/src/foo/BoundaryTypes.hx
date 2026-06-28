@@ -77,21 +77,52 @@ typedef OptionalWarningsRecord = {
   final warnings: Undefinable<Array<OptionalWarning>>;
 }
 
+enum abstract OptionalFieldKind(String) to String {
+  var Primary = "primary";
+  var Secondary = "secondary";
+}
+
 typedef FieldOverrideNested = {
   final raw: String;
 }
 
 /**
- * Fixture for canonical TypeScript field contracts on ergonomic Haxe records.
+ * Fixture for TS optional-property contracts without changing Haxe field types.
  *
- * Why: Haxe optional anonymous fields read as `Null<T>` in source, but many
- * JavaScript APIs expose omission as `field?: T` rather than `field?: T | null`.
- * `@:ts.type` on the field lets the source keep normal Haxe `?field: T`
- * ergonomics while pinning the generated TypeScript contract at the boundary.
+ * Why: this is the preferred way to model JavaScript DTO fields that are
+ * omitted/undefined at the TypeScript boundary but still read as normal
+ * `Null<T>` from Haxe source. It avoids broad `Undefinable<T>` wrappers and
+ * avoids per-field string type overrides when the Haxe type is already right.
+ *
+ * What/How: `@:ts.optional` only changes anonymous typedef field type emission:
+ * generated TS prints `field?: T`, while object literals and reads keep the
+ * ordinary Haxe optional-field behavior.
+ */
+typedef TsOptionalRecord = {
+  @:ts.optional
+  final ?label: String;
+  @:ts.optional
+  final ?tags: Array<String>;
+  @:ts.optional
+  final ?parse: String -> Int;
+  @:ts.optional
+  final ?nested: FieldOverrideNested;
+  @:ts.optional
+  final ?kind: OptionalFieldKind;
+}
+
+/**
+ * Fixture for boundary-only TypeScript field type overrides.
+ *
+ * Why: most records should rely on inferred Haxe types, or on semantic markers
+ * such as `@:ts.optional` when the mismatch is recurring and well understood.
+ * Field-level `@:ts.type` remains available for lower-level boundaries where
+ * the canonical TypeScript projection cannot be expressed directly in Haxe,
+ * such as readonly arrays, imported ecosystem types, or host function shapes.
  *
  * What/How: each field keeps its Haxe type for object literals and normal
- * Haxe reads. genes-ts uses the metadata only when printing the anonymous
- * typedef field type in generated TS source and declaration output.
+ * Haxe reads. genes-ts uses the metadata only when printing this anonymous
+ * typedef field in generated TS source and declaration output.
  */
 typedef FieldOverrideRecord = {
   @:ts.type("string")
@@ -205,6 +236,29 @@ class BoundaryTypes {
     final parsed = record.parse == null ? -1 : record.parse("typed");
     final nested = record.nested == null ? "missing" : record.nested.raw;
     return label + ":" + tagCount + ":" + parsed + ":" + nested;
+  }
+
+  public static function tsOptionalRecord(): TsOptionalRecord {
+    return {
+      label: "Grace",
+      tags: ["dto", "boundary"],
+      parse: value -> value.length + 1,
+      nested: {raw: "optional"},
+      kind: OptionalFieldKind.Secondary
+    };
+  }
+
+  public static function tsOptionalSummary(record: TsOptionalRecord): String {
+    final label = record.label == null ? "missing" : record.label;
+    final tagCount = record.tags == null ? 0 : record.tags.length;
+    final parsed = record.parse == null ? -1 : record.parse("typed");
+    final nested = record.nested == null ? "missing" : record.nested.raw;
+    final kind = record.kind == null ? "missing" : optionalKindLabel(record.kind);
+    return label + ":" + tagCount + ":" + parsed + ":" + nested + ":" + kind;
+  }
+
+  static function optionalKindLabel(kind: OptionalFieldKind): String {
+    return kind;
   }
 
   public static function normalize(value: MaybeName): Null<String> {
@@ -436,6 +490,7 @@ class BoundaryTypes {
     final nativeOptionalPresent = nativeOptionalDescriptionPresent(nativeOptionalRecord());
     final warningFeature = firstWarningFeature({warnings: [{feature: "topK"}]});
     final fieldOverride = fieldOverrideSummary(fieldOverrideRecord());
+    final tsOptional = tsOptionalSummary(tsOptionalRecord());
     return (present == null ? "none" : present)
       + ":"
       + (missing == null ? "none" : missing)
@@ -510,6 +565,8 @@ class BoundaryTypes {
       + ":"
       + warningFeature
       + ":"
-      + fieldOverride;
+      + fieldOverride
+      + ":"
+      + tsOptional;
   }
 }

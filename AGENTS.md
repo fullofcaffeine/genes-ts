@@ -65,6 +65,8 @@ Use `Dynamic`, `untyped`, generated `any`, broad `unknown`, and equivalent weak 
 
 Treat `cast`, especially casts to or from `Dynamic`, as a last-resort boundary. If a cast is unavoidable because Haxe cannot express the runtime operation directly, keep its scope tiny, guard every operation performed through it, return typed values immediately, and add a nearby comment explaining the API limitation and containment.
 
+Treat `@:ts.type(...)` / `@:genes.type(...)` as lower-level boundary overrides. Prefer inferred Haxe types and generic compiler/library constructs for recurring semantics. For example, use `@:ts.optional` for TypeScript `field?: T` optional-property contracts instead of hand-writing per-field `@:ts.type("T")` strings when the Haxe field type already expresses `T`. A raw TS type override is appropriate only when the canonical boundary type cannot be expressed cleanly with Haxe types, such as ecosystem import types, readonly projections, unique symbols, or host API signatures.
+
 ## Documentation quality (hxdoc)
 
 For **vital or complex** code (compiler internals, runtime helpers, macros, harness/test infrastructure):

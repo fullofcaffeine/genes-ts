@@ -111,6 +111,16 @@ class SignatureCache {
     }
   }
 
+  static function stripOptionalFieldNull(t: Type): Type {
+    return switch unlazy(t) {
+      case TAbstract(_.get() => {pack: [], name: "Null"}, [inner]) |
+        TType(_.get() => {pack: [], name: "Null"}, [inner]):
+        inner;
+      default:
+        t;
+    }
+  }
+
   public static function enumAbstractLiteralUnionTsType(t: Type): Null<String> {
     final normalized = followTypedefs(unlazy(t));
     switch normalized {
@@ -190,7 +200,13 @@ class SignatureCache {
         captureAnonFieldTypes(Context.follow(type), seen);
       case TAnonymous(_.get() => anon):
         for (field in anon.fields) {
-          final tsType = enumAbstractLiteralUnionTsType(field.type);
+          // `@:ts.optional` means TS callers see omission/undefined, not null.
+          // Capture literal unions from that emitted contract so the later
+          // TypeEmitter cache does not reintroduce Haxe's optional-field Null.
+          final fieldType = field.meta.has(':ts.optional')
+            ? stripOptionalFieldNull(field.type)
+            : field.type;
+          final tsType = enumAbstractLiteralUnionTsType(fieldType);
           if (tsType != null)
             anonFieldTsTypes.set(posKey(field.pos), tsType);
           captureAnonFieldTypes(field.type, seen);
