@@ -1,3 +1,10 @@
+# [1.13.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.12.0...v1.13.0) (2026-06-28)
+
+
+### Features
+
+* **ts:** add typed JSON value helpers ([856bc00](https://github.com/fullofcaffeine/genes-ts/commit/856bc007e28f68550c8256313fcc8d4867a7b2f1))
+
 # [1.12.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.11.0...v1.12.0) (2026-06-23)
 
 
