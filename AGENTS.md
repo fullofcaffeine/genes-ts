@@ -134,6 +134,23 @@ Examples that must be documented when used:
   - the behavior is inherently dynamic (reflection registry, prototype mutation, raw JS interop), and
   - there is no practical alternative.
 - When `any` / `unknown` is used in runtime code, include a short comment explaining **why**.
+- Treat Haxe's JS stdlib as the semantic baseline for genes-ts runtime behavior.
+  TypeScript source is the typed emission surface, not a separate runtime target.
+  If Haxe JS boot/runtime code mutates built-ins or relies on metadata such as
+  `__name__`, `__class__`, `__super__`, `__interfaces__`, or enum metadata,
+  model that shape in the TypeScript support emitters before reaching for
+  `js.Syntax.code`, `cast`, `Dynamic`, broad global augmentations, or downstream
+  workarounds.
+- Keep stdlib support layers separate: Haxe source overrides under `src/haxe/**`
+  are for real semantic/runtime incompatibilities; type emitters map Haxe types
+  to TypeScript types; support emitters such as `StdTypesEmitter` describe
+  generated runtime/global shapes and small TS lib gaps. Do not override Haxe
+  stdlib source merely to satisfy a TypeScript declaration hole.
+- Built-in global augmentations must stay narrow and evidence-based. Prefer
+  optional declarations for built-ins that Haxe JS boot/runtime code actually
+  writes or reads, and avoid broad declarations such as `interface Function` or
+  `interface Object` unless a focused fixture proves they are the only sound
+  boundary.
 
 ## TSX / JSX Runtime Policy
 

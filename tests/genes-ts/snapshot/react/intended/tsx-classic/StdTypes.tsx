@@ -1,13 +1,15 @@
 export type Iterator<T> = { hasNext(): boolean; next(): T };
+export type HxRuntimeName = string | boolean;
 export type HxMapKey = string | number | boolean | symbol | object | null;
 export type Iterable<T> = { iterator(): Iterator<T> } | { keys(): Iterator<HxMapKey>; get(k: HxMapKey): T | null } | Array<T>;
 export type KeyValueIterator<K, V> = Iterator<{ key: K; value: V }>;
 export type KeyValueIterable<K, V> = { keyValueIterator(): KeyValueIterator<K, V> };
 export interface ArrayAccess<T> {}
 declare global {
-  interface StringConstructor { __name__?: string | boolean }
-  interface ArrayConstructor { __name__?: string | boolean }
-  interface DateConstructor { __name__?: string | boolean }
+  interface StringConstructor { __name__?: HxRuntimeName }
+  interface String { __class__?: Function }
+  interface ArrayConstructor { __name__?: HxRuntimeName }
+  interface DateConstructor { __name__?: HxRuntimeName }
   interface Date { __class__?: Function }
   interface PositionError { readonly code: number; readonly message: string }
   const PositionError: { readonly PERMISSION_DENIED: 1; readonly POSITION_UNAVAILABLE: 2; readonly TIMEOUT: 3; readonly prototype: PositionError };

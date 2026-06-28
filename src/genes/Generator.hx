@@ -7,6 +7,7 @@ import haxe.macro.Type;
 import haxe.io.Path;
 import genes.es.ModuleEmitter;
 import genes.ts.TsModuleEmitter;
+import genes.ts.StdTypesEmitter;
 import genes.dts.DefinitionEmitter;
 import genes.util.TypeUtil;
 import genes.Module;
@@ -140,7 +141,7 @@ class Generator {
     }
 
     if (tsMode) {
-      emitStdTypes(Path.join([outputDir, 'StdTypes']) + Genes.outExtension);
+      StdTypesEmitter.emit(Path.join([outputDir, 'StdTypes']) + Genes.outExtension);
     }
   }
 
@@ -227,46 +228,6 @@ class Generator {
     #end
     definitionEmitter.finish();
     #end
-  }
-
-  static function emitStdTypes(path: String) {
-    final writer = Writer.bufferedFileWriter(path);
-    writer.write('export type Iterator<T> = { hasNext(): boolean; next(): T };\n');
-    // Map keys in Haxe can be primitives or objects. We avoid `any`/`unknown`
-    // here to keep non-runtime output strongly typed under the typing policy.
-    writer.write('export type HxMapKey = string | number | boolean | symbol | object | null;\n');
-    // Haxe `Iterable<T>` is structural: anything with `iterator(): Iterator<T>`.
-    // Arrays are also valid iterables in Haxe.
-    // In genes-ts we also treat `haxe.Constraints.IMap`-like shapes as iterable
-    // over values (via `keys()` + `get()`), even when DCE removes an explicit
-    // `iterator()` method.
-    writer.write('export type Iterable<T> = { iterator(): Iterator<T> } | { keys(): Iterator<HxMapKey>; get(k: HxMapKey): T | null } | Array<T>;\n');
-    writer.write('export type KeyValueIterator<K, V> = Iterator<{ key: K; value: V }>;\n');
-    writer.write('export type KeyValueIterable<K, V> = { keyValueIterator(): KeyValueIterator<K, V> };\n');
-    writer.write('export interface ArrayAccess<T> {}\n');
-    writer.write('declare global {\n');
-    // Haxe/JS stdlib uses `__name__` both as a marker (`true`) and as a
-    // human-readable name (e.g. `"String"`).
-    writer.write('  interface StringConstructor { __name__?: string | boolean }\n');
-    writer.write('  interface ArrayConstructor { __name__?: string | boolean }\n');
-    writer.write('  interface DateConstructor { __name__?: string | boolean }\n');
-    writer.write('  interface Date { __class__?: Function }\n');
-    // Some Haxe JS externs are generated from Mozilla WebIDL and are not part of
-    // TypeScript's standard `lib.dom.d.ts` surface. Provide minimal global types
-    // so generated TS can type-check under `skipLibCheck: false`.
-    writer.write('  interface PositionError { readonly code: number; readonly message: string }\n');
-    writer.write('  const PositionError: { readonly PERMISSION_DENIED: 1; readonly POSITION_UNAVAILABLE: 2; readonly TIMEOUT: 3; readonly prototype: PositionError };\n');
-    writer.write('  interface FetchObserver { readonly state: \"requesting\" | \"responding\" | \"aborted\" | \"errored\" | \"complete\"; onstatechange: Function; onrequestprogress: Function; onresponseprogress: Function }\n');
-    writer.write('  const FetchObserver: { readonly prototype: FetchObserver };\n');
-    writer.write('}\n');
-    // These value-level stubs exist for compatibility with Haxe reflection-ish
-    // patterns, but they do not carry meaningful runtime values in JS.
-    writer.write('export const Iterator: null = null;\n');
-    writer.write('export const Iterable: null = null;\n');
-    writer.write('export const KeyValueIterator: null = null;\n');
-    writer.write('export const KeyValueIterable: null = null;\n');
-    writer.write('export const ArrayAccess: null = null;\n');
-    writer.close();
   }
 
   #if macro
