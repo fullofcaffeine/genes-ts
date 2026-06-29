@@ -69,10 +69,16 @@ class StdTypesEmitter {
     // Some Haxe JS externs are generated from Mozilla WebIDL and are not part of
     // TypeScript's standard `lib.dom.d.ts` surface. Provide minimal global types
     // so generated TS can type-check under `skipLibCheck: false`.
+    //
+    // Use ambient `var`, not `const`, for value-level globals. Downstream
+    // package consumers can import multiple genes-ts-generated packages in the
+    // same TS program; identical global `var` declarations merge, while
+    // identical global `const` declarations fail with TS2451 duplicate
+    // block-scoped variable errors.
     writer.write('  interface PositionError { readonly code: number; readonly message: string }\n');
-    writer.write('  const PositionError: { readonly PERMISSION_DENIED: 1; readonly POSITION_UNAVAILABLE: 2; readonly TIMEOUT: 3; readonly prototype: PositionError };\n');
+    writer.write('  var PositionError: { readonly PERMISSION_DENIED: 1; readonly POSITION_UNAVAILABLE: 2; readonly TIMEOUT: 3; readonly prototype: PositionError };\n');
     writer.write('  interface FetchObserver { readonly state: "requesting" | "responding" | "aborted" | "errored" | "complete"; onstatechange: Function; onrequestprogress: Function; onresponseprogress: Function }\n');
-    writer.write('  const FetchObserver: { readonly prototype: FetchObserver };\n');
+    writer.write('  var FetchObserver: { readonly prototype: FetchObserver };\n');
   }
 
   function emitValueLevelCompatibilityStubs(): Void {

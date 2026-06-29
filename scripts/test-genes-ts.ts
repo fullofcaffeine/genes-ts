@@ -1,5 +1,5 @@
 import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
-import { cpSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { assertNoUnsafeTypes } from "./typing-policy.js";
@@ -43,6 +43,39 @@ function assertNoHelperBaseAny(relDir: string): void {
   }
 }
 
+function assertStdTypesCanMergeAcrossGeneratedPackages(): void {
+  const relDir = "tests/genes-ts/snapshot/basic/out/stdtypes-package-merge";
+  const absDir = path.join(repoRoot, relDir);
+  rmrf(relDir);
+  mkdirSync(path.join(absDir, "package-a"), { recursive: true });
+  mkdirSync(path.join(absDir, "package-b"), { recursive: true });
+
+  const stdTypesDts = readFileSync(
+    path.join(repoRoot, "tests/genes-ts/snapshot/basic/out/dist/StdTypes.d.ts"),
+    "utf8"
+  );
+  writeFileSync(path.join(absDir, "package-a", "StdTypes.d.ts"), stdTypesDts);
+  writeFileSync(path.join(absDir, "package-b", "StdTypes.d.ts"), stdTypesDts);
+  writeFileSync(
+    path.join(absDir, "consumer.ts"),
+    [
+      'import "./package-a/StdTypes.js";',
+      'import "./package-b/StdTypes.js";',
+      "void PositionError;",
+      "void FetchObserver;",
+      ""
+    ].join("\n")
+  );
+
+  run("npx", [
+    "-y",
+    "--package",
+    "typescript@5.5.4",
+    "-c",
+    `tsc --target ES2022 --module NodeNext --moduleResolution NodeNext --strict --noEmit --skipLibCheck false --typeRoots ${relDir}/empty ${relDir}/consumer.ts`
+  ]);
+}
+
 rmrf("tests/genes-ts/snapshot/basic/out");
 
 run("haxe", ["tests/genes-ts/snapshot/basic/build.hxml"]);
@@ -72,6 +105,7 @@ run("npx", [
   "tsc -p tests/genes-ts/snapshot/basic/tsconfig.json"
 ]);
 assertNoHelperBaseAny("tests/genes-ts/snapshot/basic/out/dist");
+assertStdTypesCanMergeAcrossGeneratedPackages();
 const basicFooDts = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/basic/out/dist/foo/Foo.d.ts"),
   "utf8"
