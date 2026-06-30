@@ -120,6 +120,8 @@ for (const privateName of ["privateNormalize"]) {
 }
 
 run("node", ["tests/genes-ts/snapshot/basic/out/dist/index.js"]);
+run("node", ["tests/genes-ts/repros/computed-native-member-call/check.mjs"]);
+run("node", ["tests/genes-ts/repros/discriminated-unions/check.mjs"]);
 
 rmrf("tests/genes-ts/snapshot/resource-imports/out");
 run("haxe", ["tests/genes-ts/snapshot/resource-imports/build.hxml"]);

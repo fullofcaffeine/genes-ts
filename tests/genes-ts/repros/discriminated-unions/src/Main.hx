@@ -1,10 +1,10 @@
 import haxe.extern.EitherType;
 
-enum abstract TextOnlyRole(String) from String to String {
+enum abstract TextOnlyRole(String) to String {
   var Text = "text";
 }
 
-enum abstract ToolOnlyRole(String) from String to String {
+enum abstract ToolOnlyRole(String) to String {
   var Tool = "tool";
 }
 

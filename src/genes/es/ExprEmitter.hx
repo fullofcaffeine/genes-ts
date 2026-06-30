@@ -933,17 +933,25 @@ class ExprEmitter extends Emitter {
     }
 
   function emitField(name: String) {
-    if (keywords.exists(name))
+    if (isComputedMemberName(name))
+      write(name)
+    else if (keywords.exists(name))
       write('["${name}"]')
     else
       write('.${name}');
   }
 
   public function emitMemberName(name: String) {
-    if (keywords.exists(name))
+    if (isComputedMemberName(name))
+      write(name);
+    else if (keywords.exists(name))
       write('["${name}"]');
     else
       write(name);
+  }
+
+  static function isComputedMemberName(name: String): Bool {
+    return StringTools.startsWith(name, "[") && StringTools.endsWith(name, "]");
   }
 
   function simpleBindReceiver(e: TypedExpr): TypedExpr {

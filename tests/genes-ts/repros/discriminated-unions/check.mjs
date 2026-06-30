@@ -18,6 +18,12 @@ function assertIncludes(source, expected, label) {
   }
 }
 
+function assertNotIncludes(source, unexpected, label) {
+  if (source.includes(unexpected)) {
+    throw new Error(`${label} included unexpected output:\n${unexpected}\n\nActual output:\n${source}`);
+  }
+}
+
 rmSync(path.join(fixtureDir, "out"), { recursive: true, force: true });
 run("haxe", ["tests/genes-ts/repros/discriminated-unions/build.hxml"]);
 run("npx", [
@@ -31,16 +37,14 @@ run("npx", [
 const source = readFileSync(path.join(fixtureDir, "out/src-gen/Main.ts"), "utf8");
 const declarations = readFileSync(path.join(fixtureDir, "out/dist/Main.d.ts"), "utf8");
 
-assertIncludes(source, "export type TextOnlyRole = \"text\"", "source role singleton");
-assertIncludes(source, "export type ToolOnlyRole = \"tool\"", "source role singleton");
 assertIncludes(source, "export type Message = TextMessage | ToolMessage", "source union alias");
-assertIncludes(source, "role: TextOnlyRole", "source discriminant field");
-assertIncludes(source, "role: ToolOnlyRole", "source discriminant field");
+assertIncludes(source, "role: \"text\"", "source discriminant field");
+assertIncludes(source, "role: \"tool\"", "source discriminant field");
+assertNotIncludes(source, "role: string", "source widened discriminant");
 
-assertIncludes(declarations, "export type TextOnlyRole = \"text\";", "declaration role singleton");
-assertIncludes(declarations, "export type ToolOnlyRole = \"tool\";", "declaration role singleton");
 assertIncludes(declarations, "export type Message = TextMessage | ToolMessage;", "declaration union alias");
-assertIncludes(declarations, "role: TextOnlyRole;", "declaration discriminant field");
-assertIncludes(declarations, "role: ToolOnlyRole;", "declaration discriminant field");
+assertIncludes(declarations, "role: \"text\";", "declaration discriminant field");
+assertIncludes(declarations, "role: \"tool\";", "declaration discriminant field");
+assertNotIncludes(declarations, "role: string;", "declaration widened discriminant");
 
 console.log("discriminated-unions-repro-ok");

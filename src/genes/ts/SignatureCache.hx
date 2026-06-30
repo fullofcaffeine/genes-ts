@@ -152,12 +152,21 @@ class SignatureCache {
         };
         genes.dts.TypeEmitter.emitType(writer, normalized);
         final out = buf.toString();
-        // Only accept literal unions; if we couldn't determine values we'll
-        // fall back to normal TypeEmitter emission at generation time.
-        return (out.indexOf('|') > -1) ? out : null;
+        // Only accept literal unions and singleton literals; if we couldn't
+        // determine values we'll fall back to normal TypeEmitter emission at
+        // generation time.
+        return isLiteralTsType(out) ? out : null;
       default:
         return null;
     }
+  }
+
+  static function isLiteralTsType(out: String): Bool {
+    return out.indexOf('|') > -1
+      || StringTools.startsWith(out, '"')
+      || out == 'true'
+      || out == 'false'
+      || ~/^-?[0-9]+(\.[0-9]+)?$/.match(out);
   }
 
   static function storeSig(cl: ClassType, isStatic: Bool, fieldName: String,
