@@ -57,6 +57,13 @@ export class UnknownNarrow {
 	static record(value: unknown): Readonly<Record<string, unknown>> | null {
 		return typeof (value) === "object" && (value) !== null && !Array.isArray(value) ? (value as Readonly<Record<string, unknown>>) : null;
 	}
+
+	/**
+	* Converts only native JavaScript Error instances.
+	*/
+	static nativeError(value: unknown): Error | null {
+		return (value) instanceof Error ? (value) : null;
+	}
 	static get __name__(): string {
 		return "genes.ts.UnknownNarrow"
 	}

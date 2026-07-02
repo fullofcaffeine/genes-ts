@@ -1,5 +1,7 @@
 package genes.ts;
 
+import js.lib.Error;
+
 /**
  * Guarded conversions for values acquired as `genes.ts.Unknown`.
  *
@@ -89,6 +91,13 @@ class UnknownNarrow {
       js.Syntax.code("typeof ({0}) === \"object\" && ({0}) !== null && !Array.isArray({0}) ? ({0}) : null",
       value);
     #end
+  }
+
+  /**
+   * Converts only native JavaScript Error instances.
+   */
+  public static function nativeError(value: Unknown): Null<Error> {
+    return js.Syntax.code("({0}) instanceof Error ? ({0}) : null", value);
   }
 
   /**

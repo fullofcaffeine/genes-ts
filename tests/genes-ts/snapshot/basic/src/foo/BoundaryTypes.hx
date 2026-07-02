@@ -333,6 +333,10 @@ class BoundaryTypes {
     return UnknownNarrow.record(value);
   }
 
+  public static function narrowNativeError(value: Unknown): Null<js.lib.Error> {
+    return UnknownNarrow.nativeError(value);
+  }
+
   public static function decodeRecordSummary(value: Unknown): String {
     final record = UnknownNarrow.record(value);
     if (record == null)
@@ -488,6 +492,7 @@ class BoundaryTypes {
     final narrowedBool = narrowBool(unknownValue(true));
     final narrowedFinite = narrowFinite(unknownValue(12.5));
     final narrowedInt = narrowInt32(unknownValue(37));
+    final narrowedNativeError = narrowNativeError(unknownValue(new js.lib.Error("native")));
     final narrowedRecord = decodeRecordSummary(unknownValue({name: "Grace",
       age: 37}));
     final narrowedArray = decodeArraySummary(unknownValue(["first", "second"]));
@@ -549,6 +554,8 @@ class BoundaryTypes {
       + (narrowedFinite == null ? "none" : "" + narrowedFinite)
       + ":"
       + (narrowedInt == null ? "none" : "" + narrowedInt)
+      + ":"
+      + (narrowedNativeError == null ? "none" : narrowedNativeError.message)
       + ":"
       + narrowedRecord
       + ":"

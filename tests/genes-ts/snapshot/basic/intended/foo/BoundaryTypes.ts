@@ -250,6 +250,9 @@ export class BoundaryTypes {
 	static narrowInt32(value: unknown): number | null {
 		return UnknownNarrow.int32(value);
 	}
+	static narrowNativeError(value: unknown): Error | null {
+		return UnknownNarrow.nativeError(value);
+	}
 	static decodeRecordSummary(value: unknown): string {
 		let record: Readonly<Record<string, unknown>> | null = UnknownNarrow.record(value);
 		if (record == null) {
@@ -371,6 +374,7 @@ export class BoundaryTypes {
 		let narrowedBool: boolean | null = BoundaryTypes.narrowBool(BoundaryTypes.unknownValue(true));
 		let narrowedFinite: number | null = BoundaryTypes.narrowFinite(BoundaryTypes.unknownValue(12.5));
 		let narrowedInt: number | null = BoundaryTypes.narrowInt32(BoundaryTypes.unknownValue(37));
+		let narrowedNativeError: Error | null = BoundaryTypes.narrowNativeError(BoundaryTypes.unknownValue(new Error("native")));
 		let narrowedRecord: string = BoundaryTypes.decodeRecordSummary(BoundaryTypes.unknownValue({"name": "Grace", "age": 37}));
 		let narrowedArray: string = BoundaryTypes.decodeArraySummary(BoundaryTypes.unknownValue(["first", "second"]));
 		let nullStatus: string = (((BoundaryTypes.unknownValue(null)) === null)) ? "null" : "not-null";
@@ -392,7 +396,7 @@ export class BoundaryTypes {
 		let tsOptional: string = BoundaryTypes.tsOptionalSummary(BoundaryTypes.tsOptionalRecord());
 		let tsOptionalMissing: string = BoundaryTypes.tsOptionalSummary(BoundaryTypes.tsOptionalFromNullable());
 		let tsOptionalCopied: string = BoundaryTypes.tsOptionalSummary(BoundaryTypes.tsOptionalCopy(BoundaryTypes.tsOptionalRecord()));
-		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + ((recordMissing == null) ? "none" : recordMissing) + ":" + ((localMissing == null) ? "none" : localMissing) + ":" + ((chosenMissing == null) ? "none" : chosenMissing) + ":" + ((assignedMissing == null) ? "none" : assignedMissing) + ":" + ((assignedChosen == null) ? "none" : assignedChosen) + ":" + ((conditionalFlag == null) ? "none" : (conditionalFlag) ? "true" : "false") + ":" + ((bridgeFlag == null) ? "none" : (bridgeFlag) ? "true" : "false") + ":" + ((optionalMissing == null) ? "none" : optionalMissing) + ":" + ((optionalDirectMissing == null) ? "none" : optionalDirectMissing) + ":" + ((guardedPresent == null) ? "none" : guardedPresent) + ":" + ((guardedMissing == null) ? "none" : guardedMissing) + ":" + guardedUpper + ":" + guardedCallValue + ":" + payloadStatus + ":" + ((narrowedString == null) ? "none" : narrowedString) + ":" + ((narrowedBool == null) ? "none" : (narrowedBool) ? "true" : "false") + ":" + ((narrowedFinite == null) ? "none" : "" + narrowedFinite) + ":" + ((narrowedInt == null) ? "none" : "" + narrowedInt) + ":" + narrowedRecord + ":" + narrowedArray + ":" + nullStatus + ":" + undefinedStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalItemsCall + ":" + optionalLabel + ":" + optionalParamLabel + ":" + optionalNestedParamLabel + ":" + nativeFunction + ":" + nativeArrayFunction + ":" + nativePushFunction + ":" + nativeChoice + ":" + ((nativeOptional == null) ? "none" : nativeOptional) + ":" + ((nativeOptionalPresent) ? "present" : "missing") + ":" + warningFeature + ":" + fieldOverride + ":" + tsOptional + ":" + tsOptionalMissing + ":" + tsOptionalCopied;
+		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + ((recordMissing == null) ? "none" : recordMissing) + ":" + ((localMissing == null) ? "none" : localMissing) + ":" + ((chosenMissing == null) ? "none" : chosenMissing) + ":" + ((assignedMissing == null) ? "none" : assignedMissing) + ":" + ((assignedChosen == null) ? "none" : assignedChosen) + ":" + ((conditionalFlag == null) ? "none" : (conditionalFlag) ? "true" : "false") + ":" + ((bridgeFlag == null) ? "none" : (bridgeFlag) ? "true" : "false") + ":" + ((optionalMissing == null) ? "none" : optionalMissing) + ":" + ((optionalDirectMissing == null) ? "none" : optionalDirectMissing) + ":" + ((guardedPresent == null) ? "none" : guardedPresent) + ":" + ((guardedMissing == null) ? "none" : guardedMissing) + ":" + guardedUpper + ":" + guardedCallValue + ":" + payloadStatus + ":" + ((narrowedString == null) ? "none" : narrowedString) + ":" + ((narrowedBool == null) ? "none" : (narrowedBool) ? "true" : "false") + ":" + ((narrowedFinite == null) ? "none" : "" + narrowedFinite) + ":" + ((narrowedInt == null) ? "none" : "" + narrowedInt) + ":" + ((narrowedNativeError == null) ? "none" : narrowedNativeError.message) + ":" + narrowedRecord + ":" + narrowedArray + ":" + nullStatus + ":" + undefinedStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalItemsCall + ":" + optionalLabel + ":" + optionalParamLabel + ":" + optionalNestedParamLabel + ":" + nativeFunction + ":" + nativeArrayFunction + ":" + nativePushFunction + ":" + nativeChoice + ":" + ((nativeOptional == null) ? "none" : nativeOptional) + ":" + ((nativeOptionalPresent) ? "present" : "missing") + ":" + warningFeature + ":" + fieldOverride + ":" + tsOptional + ":" + tsOptionalMissing + ":" + tsOptionalCopied;
 	}
 	static get __name__(): string {
 		return "foo.BoundaryTypes"
