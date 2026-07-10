@@ -62,6 +62,7 @@ function isLikelyTypeName(name: string): boolean {
 }
 
 type EmitContext = {
+  checker: ts.TypeChecker;
   identifierRewrites: Map<string, string>;
   tmpCounter: number;
 };
@@ -569,6 +570,8 @@ function emitType(typeNode: ts.TypeNode | undefined): string {
       const mappedBase =
         baseName === "Promise"
           ? "js.lib.Promise"
+          : baseName === "RegExp"
+            ? "EReg"
           : baseName === "ReadonlyArray"
             ? "Array"
             : baseName === "JSX.Element"
@@ -667,6 +670,21 @@ function emitType(typeNode: ts.TypeNode | undefined): string {
     default:
       return "Dynamic";
   }
+}
+
+/**
+ * Detects values whose TypeScript contract is the standard `RegExp` interface.
+ *
+ * Why: TypeScript spells matching and replacement as methods on `RegExp` and
+ * `String`, while typed Haxe exposes the same native-JS behavior through
+ * `EReg.match` and `EReg.replace`. Asking the checker keeps this lowering
+ * scope-aware for identifiers instead of guessing from their names.
+ */
+function isRegExpExpression(ctx: EmitContext, expr: ts.Expression): boolean {
+  if (ts.isRegularExpressionLiteral(expr)) return true;
+  const type = ctx.checker.getTypeAtLocation(expr);
+  const symbol = type.aliasSymbol ?? type.getSymbol();
+  return symbol?.getName() === "RegExp" || ctx.checker.typeToString(type) === "RegExp";
 }
 
 function emitRestElementType(typeNode: ts.TypeNode | undefined): string {
@@ -830,6 +848,17 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
       return JSON.stringify((expr as ts.StringLiteral).text);
     case ts.SyntaxKind.NoSubstitutionTemplateLiteral:
       return JSON.stringify((expr as ts.NoSubstitutionTemplateLiteral).text);
+    case ts.SyntaxKind.RegularExpressionLiteral: {
+      const raw = (expr as ts.RegularExpressionLiteral).text;
+      const delimiter = raw.lastIndexOf("/");
+      if (!raw.startsWith("/") || delimiter <= 0) return null;
+      const pattern = raw.slice(1, delimiter);
+      const flags = raw.slice(delimiter + 1);
+      // Constructor form is deliberate: unlike Haxe's `~/.../flags` parser,
+      // it safely preserves JS patterns containing an unescaped slash inside a
+      // character class or Unicode escape sequences for noncharacters.
+      return `new EReg(${JSON.stringify(pattern)}, ${JSON.stringify(flags)})`;
+    }
     case ts.SyntaxKind.TrueKeyword:
       return "true";
     case ts.SyntaxKind.FalseKeyword:
@@ -1282,6 +1311,30 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
         const access = call.expression;
         const left = emitExpression(ctx, access.expression);
         if (!left) return null;
+
+        // `regex.test(value)` -> `regex.match(value)`.
+        if (access.name.text === "test" && isRegExpExpression(ctx, access.expression)) {
+          if (call.arguments.length !== 1) return null;
+          const value = emitExpression(ctx, call.arguments[0]);
+          if (!value) return null;
+          return `(${left}).match(${value})`;
+        }
+
+        // `value.replace(regex, replacement)` -> `regex.replace(value, replacement)`.
+        // EReg's JS implementation calls native String#replace, including global
+        // flags and replacement-string capture semantics.
+        if (
+          access.name.text === "replace" &&
+          call.arguments.length === 2 &&
+          isRegExpExpression(ctx, call.arguments[0] as ts.Expression)
+        ) {
+          const regex = emitExpression(ctx, call.arguments[0] as ts.Expression);
+          const replacement = emitExpression(ctx, call.arguments[1] as ts.Expression);
+          if (!regex || !replacement) return null;
+          // Parentheses are required when the receiver is a regex literal with
+          // flags: without them Haxe can parse `.replace` as part of the literal.
+          return `(${regex}).replace(${left}, ${replacement})`;
+        }
 
         // `JSON.stringify(x)` -> `haxe.Json.stringify(x)`
         if (access.name.text === "stringify" && ts.isIdentifier(access.expression) && access.expression.text === "JSON") {
@@ -2104,7 +2157,7 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
   out.push(`package ${packagePath};`);
   out.push("");
 
-  const ctx: EmitContext = { identifierRewrites: new Map(), tmpCounter: 0 };
+  const ctx: EmitContext = { checker: opts.checker, identifierRewrites: new Map(), tmpCounter: 0 };
 
   const imports = collectImports(sf);
   const importLines: string[] = [];
@@ -2203,7 +2256,6 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
   }
 
   const localExports = collectLocalExports(sf);
-  const localExportSources = new Set(localExports.map((e) => e.source).filter((s) => s !== "default"));
   const localDeclKinds = collectLocalDeclarationKinds(sf);
   const localClassNames = new Set(
     sf.statements
@@ -2240,12 +2292,9 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
     }
 
     if (ts.isVariableStatement(stmt)) {
-      const isExported = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
-      const declNames = stmt.declarationList.declarations
-        .map((d) => (ts.isIdentifier(d.name) ? d.name.text : null))
-        .filter((n): n is string => !!n);
-      const isLocalExported = declNames.some((n) => localExportSources.has(n));
-      if (!isExported && !isLocalExported) continue;
+      // TS module-private declarations can be dependencies of exported code.
+      // Haxe module-level fields retain that source-file ownership boundary, so
+      // preserve them instead of leaving dangling identifiers in exported bodies.
 
       const declKeyword = (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0 ? "final" : "var";
       for (const decl of stmt.declarationList.declarations) {
@@ -2273,10 +2322,8 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
     }
 
     if (ts.isFunctionDeclaration(stmt)) {
-      const isExported = (ts.getCombinedModifierFlags(stmt) & ts.ModifierFlags.Export) !== 0;
       const isDefault = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword) ?? false;
-      const isLocalExported = !!stmt.name && localExportSources.has(stmt.name.text);
-      if (!isExported && !isLocalExported) continue;
+      // Preserve module-private helpers referenced by exported declarations.
 
       const isAsync = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword) ?? false;
 
@@ -2344,38 +2391,25 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
     }
 
     if (ts.isTypeAliasDeclaration(stmt)) {
-      const isExported = (ts.getCombinedModifierFlags(stmt) & ts.ModifierFlags.Export) !== 0;
-      const isLocalExported = localExportSources.has(stmt.name.text);
-      if (!isExported && !isLocalExported) continue;
       out.push(emitTypeAlias(stmt));
       out.push("");
       continue;
     }
 
     if (ts.isInterfaceDeclaration(stmt)) {
-      const isExported = (ts.getCombinedModifierFlags(stmt) & ts.ModifierFlags.Export) !== 0;
-      const isLocalExported = localExportSources.has(stmt.name.text);
-      if (!isExported && !isLocalExported) continue;
       out.push(emitInterface(stmt));
       out.push("");
       continue;
     }
 
     if (ts.isEnumDeclaration(stmt)) {
-      const isExported = (ts.getCombinedModifierFlags(stmt) & ts.ModifierFlags.Export) !== 0;
-      const isLocalExported = localExportSources.has(stmt.name.text);
-      if (!isExported && !isLocalExported) continue;
       out.push(emitEnum(stmt));
       out.push("");
       continue;
     }
 
     if (ts.isClassDeclaration(stmt)) {
-      const isExported = (ts.getCombinedModifierFlags(stmt) & ts.ModifierFlags.Export) !== 0;
       const isDefault = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword) ?? false;
-      const isLocalExported = !!stmt.name && localExportSources.has(stmt.name.text);
-      if (!isExported && !isLocalExported) continue;
-
       if (isDefault && !stmt.name) {
         const generatedName = uniqueTopLevelTypeName("DefaultExport");
         const emitted = emitClass(ctx, stmt, generatedName);

@@ -114,7 +114,8 @@ function main(): number {
   const tscBin = path.join(repoRoot, "node_modules", "typescript", "bin", "tsc");
   const fixtures: Array<{ name: string; marker: string; basePackage: string }> = [
     { name: "roundtrip-fixture", marker: "ROUNDTRIP_OK", basePackage: "ts2hx_roundtrip" },
-    { name: "roundtrip-advanced", marker: "ROUNDTRIP_ADV_OK", basePackage: "ts2hx_roundtrip_adv" }
+    { name: "roundtrip-advanced", marker: "ROUNDTRIP_ADV_OK", basePackage: "ts2hx_roundtrip_adv" },
+    { name: "module-regexp", marker: "MODULE_REGEXP_OK", basePackage: "ts2hx_module_regexp" }
   ];
 
   for (const fixture of fixtures) {

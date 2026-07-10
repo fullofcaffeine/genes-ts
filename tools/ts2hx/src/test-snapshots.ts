@@ -108,6 +108,13 @@ function main(): number {
       smokeMain: "ts2hx.Main"
     },
     {
+      name: "module-regexp",
+      tsconfigPath: path.join(toolRoot, "fixtures", "module-regexp", "tsconfig.json"),
+      snapshotsDir: path.join(toolRoot, "tests_snapshots", "module-regexp"),
+      basePackage: "ts2hx",
+      smokeMain: "ts2hx.Main"
+    },
+    {
       name: "module-syntax",
       tsconfigPath: path.join(toolRoot, "fixtures", "module-syntax", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "module-syntax"),
