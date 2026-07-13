@@ -1136,16 +1136,20 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
 
       // Preserve the common host-capability guard without embedding raw
       // `typeof` syntax in generated Haxe modules.
+      const callableOperand =
+        ts.isTypeOfExpression(bin.left) && ts.isStringLiteral(bin.right) && bin.right.text === "function"
+          ? bin.left.expression
+          : ts.isStringLiteral(bin.left) && bin.left.text === "function" && ts.isTypeOfExpression(bin.right)
+            ? bin.right.expression
+            : null;
       if (
+        callableOperand !== null &&
         (op === ts.SyntaxKind.EqualsEqualsToken ||
           op === ts.SyntaxKind.EqualsEqualsEqualsToken ||
           op === ts.SyntaxKind.ExclamationEqualsToken ||
-          op === ts.SyntaxKind.ExclamationEqualsEqualsToken) &&
-        ts.isTypeOfExpression(bin.left) &&
-        ts.isStringLiteral(bin.right) &&
-        bin.right.text === "function"
+          op === ts.SyntaxKind.ExclamationEqualsEqualsToken)
       ) {
-        const value = emitExpression(ctx, bin.left.expression);
+        const value = emitExpression(ctx, callableOperand);
         if (!value) return null;
         const check = `genes.js.TypeChecks.isFunction(${value})`;
         return op === ts.SyntaxKind.ExclamationEqualsToken || op === ts.SyntaxKind.ExclamationEqualsEqualsToken

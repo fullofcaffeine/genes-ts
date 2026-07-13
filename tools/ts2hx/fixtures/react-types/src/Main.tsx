@@ -35,7 +35,7 @@ export function NestedLinks({
                 <NestedLinks
                   items={item.children}
                   disabled={disabled}
-                  onClick={disabled && typeof onClick === "function" ? onClick : undefined}
+                  onClick={disabled && "function" === typeof onClick ? onClick : undefined}
                   ordered={ordered}
                 />
               </ListTag>
