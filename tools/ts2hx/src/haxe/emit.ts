@@ -15,9 +15,10 @@ export type EmitHaxeOptions = {
 
 type ImportSpec = {
   moduleSpecifier: string;
+  isTypeOnly: boolean;
   defaultImport: string | null;
   namespaceImport: string | null;
-  named: Array<{ name: string; alias: string | null }>;
+  named: Array<{ name: string; alias: string | null; isTypeOnly: boolean }>;
 };
 
 type ExportFromSpec =
@@ -65,6 +66,7 @@ type EmitContext = {
   checker: ts.TypeChecker;
   identifierRewrites: Map<string, string>;
   tmpCounter: number;
+  preserveUndefined: boolean;
 };
 
 function nextTmp(ctx: EmitContext, prefix = "__ts2hx_tmp"): string {
@@ -162,6 +164,7 @@ function buildExternModules(opts: EmitHaxeOptions): Map<string, ExternModule> {
 
     for (const imp of imports) {
       if (isRelativeModuleSpecifier(imp.moduleSpecifier)) continue;
+      if (imp.isTypeOnly) continue;
 
       const existing = externs.get(imp.moduleSpecifier);
       const ex: ExternModule =
@@ -174,7 +177,7 @@ function buildExternModules(opts: EmitHaxeOptions): Map<string, ExternModule> {
         } as ExternModule);
 
       if (imp.defaultImport) ex.needsDefault = true;
-      for (const el of imp.named) {
+      for (const el of imp.named.filter((el) => !el.isTypeOnly)) {
         const exportedName = el.alias ?? el.name;
         ex.namedValues.add(exportedName);
       }
@@ -572,6 +575,8 @@ function emitType(typeNode: ts.TypeNode | undefined): string {
           ? "js.lib.Promise"
           : baseName === "RegExp"
             ? "EReg"
+          : baseName === "HTMLAnchorElement"
+            ? "js.html.AnchorElement"
           : baseName === "ReadonlyArray"
             ? "Array"
             : baseName === "JSX.Element"
@@ -647,7 +652,7 @@ function emitType(typeNode: ts.TypeNode | undefined): string {
         if (ts.isPropertySignature(member) && member.name && ts.isIdentifier(member.name)) {
           const isOptional = !!member.questionToken;
           const fieldType = emitType(member.type);
-          parts.push(isOptional ? `@:optional var ${member.name.text}: ${fieldType};` : `var ${member.name.text}: ${fieldType};`);
+          parts.push(isOptional ? `@:optional @:ts.optional var ${member.name.text}: ${fieldType};` : `var ${member.name.text}: ${fieldType};`);
           continue;
         }
         if (ts.isMethodSignature(member) && member.name && ts.isIdentifier(member.name)) {
@@ -685,6 +690,12 @@ function isRegExpExpression(ctx: EmitContext, expr: ts.Expression): boolean {
   const type = ctx.checker.getTypeAtLocation(expr);
   const symbol = type.aliasSymbol ?? type.getSymbol();
   return symbol?.getName() === "RegExp" || ctx.checker.typeToString(type) === "RegExp";
+}
+
+/** Returns whether the checker identifies an expression as a standard array. */
+function isArrayExpression(ctx: EmitContext, expr: ts.Expression): boolean {
+  const type = ctx.checker.getTypeAtLocation(expr);
+  return ctx.checker.isArrayType(type) || ctx.checker.isTupleType(type);
 }
 
 function emitRestElementType(typeNode: ts.TypeNode | undefined): string {
@@ -755,7 +766,12 @@ function emitJsxProps(ctx: EmitContext, attrs: ts.JsxAttributes): string[] | nul
       } else if (ts.isJsxExpression(prop.initializer)) {
         const inner = prop.initializer.expression;
         if (!inner) continue; // `{/* comment */}` / empty expression
+        const previous = ctx.preserveUndefined;
+        ctx.preserveUndefined = true;
         valueExpr = emitExpression(ctx, inner);
+        ctx.preserveUndefined = previous;
+        if (valueExpr && typeIncludesUndefined(ctx.checker.getTypeAtLocation(inner)))
+          valueExpr = `genes.ts.Undefinable.fromNullable(${valueExpr})`;
       } else {
         return null;
       }
@@ -799,8 +815,15 @@ function emitJsxChildren(ctx: EmitContext, children: readonly ts.JsxChild[]): st
     if (ts.isJsxExpression(child)) {
       const inner = child.expression;
       if (!inner) continue;
-      const emitted = emitExpression(ctx, inner);
+      let emitted = emitExpression(ctx, inner);
       if (!emitted) return null;
+      if (
+        ts.isConditionalExpression(inner) &&
+        ((isJsxExpressionNode(inner.whenTrue) && inner.whenFalse.kind === ts.SyntaxKind.NullKeyword) ||
+          (inner.whenTrue.kind === ts.SyntaxKind.NullKeyword && isJsxExpressionNode(inner.whenFalse)))
+      ) {
+        emitted = `genes.react.Children.nullable(${emitted})`;
+      }
       out.push(emitted);
       continue;
     }
@@ -813,6 +836,16 @@ function emitJsxChildren(ctx: EmitContext, children: readonly ts.JsxChild[]): st
 
   flushText();
   return out;
+}
+
+function isJsxExpressionNode(node: ts.Node): boolean {
+  if (ts.isParenthesizedExpression(node)) return isJsxExpressionNode(node.expression);
+  return ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node) || ts.isJsxFragment(node);
+}
+
+function typeIncludesUndefined(type: ts.Type): boolean {
+  if ((type.getFlags() & ts.TypeFlags.Undefined) !== 0) return true;
+  return type.isUnion() && type.types.some(typeIncludesUndefined);
 }
 
 function emitJsxRoot(ctx: EmitContext, expr: ts.JsxElement | ts.JsxSelfClosingElement | ts.JsxFragment): string | null {
@@ -867,7 +900,7 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
       return "null";
     case ts.SyntaxKind.Identifier: {
       const name = (expr as ts.Identifier).text;
-      if (name === "undefined") return "null";
+      if (name === "undefined") return ctx.preserveUndefined ? "genes.ts.Undefinable.absent()" : "null";
       if (name === "Promise") return "js.lib.Promise";
       return ctx.identifierRewrites.get(name) ?? name;
     }
@@ -1101,6 +1134,25 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
       const bin = expr as ts.BinaryExpression;
       const op = bin.operatorToken.kind;
 
+      // Preserve the common host-capability guard without embedding raw
+      // `typeof` syntax in generated Haxe modules.
+      if (
+        (op === ts.SyntaxKind.EqualsEqualsToken ||
+          op === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+          op === ts.SyntaxKind.ExclamationEqualsToken ||
+          op === ts.SyntaxKind.ExclamationEqualsEqualsToken) &&
+        ts.isTypeOfExpression(bin.left) &&
+        ts.isStringLiteral(bin.right) &&
+        bin.right.text === "function"
+      ) {
+        const value = emitExpression(ctx, bin.left.expression);
+        if (!value) return null;
+        const check = `genes.js.TypeChecks.isFunction(${value})`;
+        return op === ts.SyntaxKind.ExclamationEqualsToken || op === ts.SyntaxKind.ExclamationEqualsEqualsToken
+          ? `!(${check})`
+          : check;
+      }
+
       if (
         op === ts.SyntaxKind.QuestionQuestionEqualsToken ||
         op === ts.SyntaxKind.AmpersandAmpersandEqualsToken ||
@@ -1179,9 +1231,18 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
         const opText = ts.tokenToString(op) ?? "<";
         return `(${left} ${opText} ${right})`;
       }
-      if (op === ts.SyntaxKind.AmpersandAmpersandToken || op === ts.SyntaxKind.BarBarToken) {
-        const opText = ts.tokenToString(op) ?? "&&";
-        return `(${left} ${opText} ${right})`;
+      if (op === ts.SyntaxKind.AmpersandAmpersandToken) {
+        return `(genes.js.Truthiness.isTruthy(${left}) ? ${right} : ${left})`;
+      }
+      if (op === ts.SyntaxKind.BarBarToken) {
+        if (
+          ctx.preserveUndefined &&
+          ts.isIdentifier(bin.right) &&
+          bin.right.text === "undefined"
+        ) {
+          return `(genes.js.Truthiness.isTruthy(${left}) ? genes.ts.Undefinable.fromNullable(${left}) : ${right})`;
+        }
+        return `(genes.js.Truthiness.isTruthy(${left}) ? ${left} : ${right})`;
       }
       if (op === ts.SyntaxKind.QuestionQuestionToken) {
         return `(${left} ?? ${right})`;
@@ -1238,10 +1299,14 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
     }
     case ts.SyntaxKind.ConditionalExpression: {
       const cond = expr as ts.ConditionalExpression;
-      const test = emitExpression(ctx, cond.condition);
+      const test = emitCondition(ctx, cond.condition);
       const whenTrue = emitExpression(ctx, cond.whenTrue);
       const whenFalse = emitExpression(ctx, cond.whenFalse);
       if (!test || !whenTrue || !whenFalse) return null;
+      if (ctx.preserveUndefined && ts.isIdentifier(cond.whenFalse) && cond.whenFalse.text === "undefined")
+        return `(${test} ? genes.ts.Undefinable.fromNullable(${whenTrue}) : ${whenFalse})`;
+      if (ctx.preserveUndefined && ts.isIdentifier(cond.whenTrue) && cond.whenTrue.text === "undefined")
+        return `(${test} ? ${whenTrue} : genes.ts.Undefinable.fromNullable(${whenFalse}))`;
       return `(${test} ? ${whenTrue} : ${whenFalse})`;
     }
     case ts.SyntaxKind.CallExpression: {
@@ -1311,6 +1376,26 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
         const access = call.expression;
         const left = emitExpression(ctx, access.expression);
         if (!left) return null;
+
+        // Haxe's Array callbacks expose only the value, while JavaScript also
+        // supplies the index. Route indexed callbacks through a typed generic
+        // helper so inferred callback parameters remain compileable Haxe.
+        if (
+          (access.name.text === "map" || access.name.text === "forEach") &&
+          call.arguments.length === 1 &&
+          isArrayExpression(ctx, access.expression)
+        ) {
+          const callbackNode = call.arguments[0];
+          if (
+            (ts.isArrowFunction(callbackNode) || ts.isFunctionExpression(callbackNode)) &&
+            callbackNode.parameters.length >= 2
+          ) {
+            const callback = emitExpression(ctx, callbackNode);
+            if (!callback) return null;
+            const helper = access.name.text === "map" ? "mapWithIndex" : "forEachWithIndex";
+            return `genes.js.ArrayCallbacks.${helper}(${left}, ${callback})`;
+          }
+        }
 
         // `regex.test(value)` -> `regex.match(value)`.
         if (access.name.text === "test" && isRegExpExpression(ctx, access.expression)) {
@@ -1384,6 +1469,22 @@ function emitStatements(ctx: EmitContext, statements: readonly ts.Statement[], i
   }
 
   return out.join("\n");
+}
+
+/**
+ * Lowers JavaScript truthiness at control-flow boundaries.
+ *
+ * TypeScript permits strings, arrays, objects, and nullable values in boolean
+ * positions, while Haxe requires `Bool`. Keeping the conversion in the typed
+ * genes runtime helper preserves JavaScript semantics without scattering raw
+ * syntax through generated Haxe modules.
+ */
+function emitCondition(ctx: EmitContext, expr: ts.Expression): string | null {
+  const emitted = emitExpression(ctx, expr);
+  if (!emitted) return null;
+  const flags = ctx.checker.getTypeAtLocation(expr).getFlags();
+  const isBoolean = (flags & (ts.TypeFlags.Boolean | ts.TypeFlags.BooleanLiteral)) !== 0;
+  return isBoolean ? emitted : `genes.js.Truthiness.isTruthy(${emitted})`;
 }
 
 function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): string | null {
@@ -1472,7 +1573,7 @@ function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): st
   }
 
   if (ts.isIfStatement(stmt)) {
-    const cond = emitExpression(ctx, stmt.expression);
+    const cond = emitCondition(ctx, stmt.expression);
     if (!cond) return null;
     const thenPart = emitStatement(ctx, stmt.thenStatement, ts.isBlock(stmt.thenStatement) ? indent : indent + "  ");
     if (thenPart == null) return null;
@@ -1818,7 +1919,7 @@ function emitInterface(decl: ts.InterfaceDeclaration): string {
     if (ts.isPropertySignature(member) && member.name && ts.isIdentifier(member.name)) {
       const isOptional = !!member.questionToken;
       const fieldType = emitType(member.type);
-      if (isOptional) lines.push(`  @:optional var ${member.name.text}: ${fieldType};`);
+      if (isOptional) lines.push(`  @:optional @:ts.optional var ${member.name.text}: ${fieldType};`);
       else lines.push(`  var ${member.name.text}: ${fieldType};`);
       continue;
     }
@@ -1949,10 +2050,11 @@ function collectImports(sf: ts.SourceFile): ImportSpec[] {
     const moduleSpecifier = stmt.moduleSpecifier.text;
     const clause = stmt.importClause;
     if (!clause) continue;
+    const isTypeOnly = clause.isTypeOnly;
 
     const defaultImport = clause.name ? clause.name.text : null;
     let namespaceImport: string | null = null;
-    let named: Array<{ name: string; alias: string | null }> = [];
+    let named: Array<{ name: string; alias: string | null; isTypeOnly: boolean }> = [];
 
     if (clause.namedBindings) {
       if (ts.isNamespaceImport(clause.namedBindings)) {
@@ -1960,12 +2062,13 @@ function collectImports(sf: ts.SourceFile): ImportSpec[] {
       } else if (ts.isNamedImports(clause.namedBindings)) {
         named = clause.namedBindings.elements.map((el) => ({
           name: el.name.text,
-          alias: el.propertyName ? el.propertyName.text : null
+          alias: el.propertyName ? el.propertyName.text : null,
+          isTypeOnly: isTypeOnly || el.isTypeOnly
         }));
       }
     }
 
-    imports.push({ moduleSpecifier, defaultImport, namespaceImport, named });
+    imports.push({ moduleSpecifier, isTypeOnly, defaultImport, namespaceImport, named });
   }
 
   return imports;
@@ -2157,10 +2260,16 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
   out.push(`package ${packagePath};`);
   out.push("");
 
-  const ctx: EmitContext = { checker: opts.checker, identifierRewrites: new Map(), tmpCounter: 0 };
+  const ctx: EmitContext = {
+    checker: opts.checker,
+    identifierRewrites: new Map(),
+    tmpCounter: 0,
+    preserveUndefined: false
+  };
 
   const imports = collectImports(sf);
   const importLines: string[] = [];
+  const externalTypeAliases: string[] = [];
   for (const imp of imports) {
     if (isRelativeModuleSpecifier(imp.moduleSpecifier)) {
       const target = moduleTargetFromImport(
@@ -2199,9 +2308,23 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
     const externModuleName = externModuleNameFromSpecifier(imp.moduleSpecifier);
     const moduleBase = `${externPackage}.${externModuleName}`;
 
+    if (imp.moduleSpecifier === "react") {
+      for (const { name, alias, isTypeOnly } of imp.named) {
+        if (!imp.isTypeOnly && !isTypeOnly) continue;
+        const localName = alias ?? name;
+        if (name === "ReactElement")
+          externalTypeAliases.push(`typedef ${localName} = genes.react.Element;`);
+        else if (name === "MouseEvent")
+          externalTypeAliases.push(`typedef ${localName}<T> = genes.react.MouseEvent<T>;`);
+      }
+    }
+
+    if (imp.isTypeOnly) continue;
+
     if (imp.namespaceImport) ctx.identifierRewrites.set(imp.namespaceImport, moduleBase);
     if (imp.defaultImport) ctx.identifierRewrites.set(imp.defaultImport, `${moduleBase}.__default`);
-    for (const { name, alias } of imp.named) {
+    for (const { name, alias, isTypeOnly } of imp.named) {
+      if (isTypeOnly) continue;
       const exportedName = alias ?? name;
       const field = exportedName === "default" ? "__default" : exportedName;
       ctx.identifierRewrites.set(name, `${moduleBase}.${field}`);
@@ -2210,6 +2333,10 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
 
   if (importLines.length > 0) {
     out.push(...importLines);
+    out.push("");
+  }
+  if (externalTypeAliases.length > 0) {
+    out.push(...externalTypeAliases);
     out.push("");
   }
 

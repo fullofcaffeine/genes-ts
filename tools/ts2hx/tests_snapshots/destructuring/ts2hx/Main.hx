@@ -1,8 +1,8 @@
 package ts2hx;
 
-typedef Nested = { @:optional var c: String; };
+typedef Nested = { @:optional @:ts.optional var c: String; };
 
-typedef Obj = { @:optional var a: Float; @:optional var b: Nested; @:optional var d: Float; @:optional var e: Float; };
+typedef Obj = { @:optional @:ts.optional var a: Float; @:optional @:ts.optional var b: Nested; @:optional @:ts.optional var d: Float; @:optional @:ts.optional var e: Float; };
 
 function main(): Void {
   final obj: Obj = { a: 1, b: { c: "hi" }, d: 4, e: 5 };

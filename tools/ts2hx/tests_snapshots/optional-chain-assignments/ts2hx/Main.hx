@@ -1,6 +1,6 @@
 package ts2hx;
 
-typedef Obj = { @:optional var value: Float; @:optional var nested: { @:optional var n: Float; @:optional var fn: Float->Float; }; };
+typedef Obj = { @:optional @:ts.optional var value: Float; @:optional @:ts.optional var nested: { @:optional @:ts.optional var n: Float; @:optional @:ts.optional var fn: Float->Float; }; };
 
 function main(): Void {
   final obj: Obj = { value: 1, nested: { n: 2, fn: function(x: Float) return (x + 1) } };

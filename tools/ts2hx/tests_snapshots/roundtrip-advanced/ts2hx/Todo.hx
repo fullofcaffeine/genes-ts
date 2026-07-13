@@ -21,7 +21,7 @@ class Todo {
 }
 
 typedef CreateTodoOptions = {
-  @:optional var priority: Float;
+  @:optional @:ts.optional var priority: Float;
 }
 
 class TodoStore {

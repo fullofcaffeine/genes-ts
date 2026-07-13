@@ -8,7 +8,7 @@ enum abstract Role(String) from String to String {
 typedef Config = {
   var role: Role;
   var dryRun: Bool;
-  @:optional var baseUrl: String;
+  @:optional @:ts.optional var baseUrl: String;
 }
 
 function normalizeBaseUrl(cfg: Config): String {

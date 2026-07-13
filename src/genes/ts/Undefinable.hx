@@ -19,6 +19,11 @@ abstract Undefinable<T>(Null<T>) from T {
     return js.Syntax.code("undefined");
   }
 
+  /** Converts a Haxe-nullable host value into a real undefined union. */
+  public static inline function fromNullable<T>(value: Null<T>): Undefinable<T> {
+    return value == null ? absent() : value;
+  }
+
   /**
    * Converts JavaScript `undefined` absence into Haxe `null`.
    */

@@ -60,10 +60,33 @@ type Fixture = {
   basePackage: string;
   smokeMain: string | null;
   smokeRun?: boolean;
+  genesTsRoundtrip?: boolean;
+  requireStrongGeneratedHaxe?: boolean;
 };
+
+function assertStrongGeneratedHaxe(absDir: string, fixtureName: string): void {
+  const forbidden = /\b(?:Dynamic|untyped|Unknown)\b|js\.Syntax|\bcast\b/;
+  for (const rel of walkFiles(absDir).filter((file) => file.endsWith(".hx"))) {
+    const text = fs.readFileSync(path.join(absDir, rel), "utf8");
+    const match = text.split(/\r?\n/).findIndex((line) => forbidden.test(line));
+    if (match >= 0)
+      throw new Error(`${fixtureName}: weak generated Haxe at ${rel}:${match + 1}`);
+  }
+}
+
+function assertStrongGeneratedTypeScript(absDir: string, fixtureName: string): void {
+  const forbidden = /\bas (?:any|unknown)\b|:\s*(?:any|unknown)\b|<\s*(?:any|unknown)\b/;
+  for (const rel of walkFiles(absDir).filter((file) => file.endsWith(".ts") || file.endsWith(".tsx"))) {
+    const text = fs.readFileSync(path.join(absDir, rel), "utf8");
+    const match = text.split(/\r?\n/).findIndex((line) => forbidden.test(line));
+    if (match >= 0)
+      throw new Error(`${fixtureName}: weak generated TypeScript at ${rel}:${match + 1}`);
+  }
+}
 
 function main(): number {
   const toolRoot = path.resolve(path.dirname(process.argv[1] ?? "."), "..");
+  const repoRoot = path.resolve(toolRoot, "..", "..");
   const haxeBin = resolveHaxeBin(toolRoot);
   const update = process.env.UPDATE_SNAPSHOTS === "1";
 
@@ -92,6 +115,18 @@ function main(): number {
       // are lowered by genes-ts when emitting TS/TSX, but have no runtime implementation
       // in classic `haxe -js` output. Compile-smoke only for now.
       smokeRun: false
+    },
+    {
+      name: "react-types",
+      tsconfigPath: path.join(toolRoot, "fixtures", "react-types", "tsconfig.json"),
+      snapshotsDir: path.join(toolRoot, "tests_snapshots", "react-types"),
+      basePackage: "ts2hx",
+      smokeMain: "ts2hx.Main",
+      // JSX markers are compile-time genes-ts IR and intentionally have no
+      // classic JavaScript runtime implementation.
+      smokeRun: false,
+      genesTsRoundtrip: true,
+      requireStrongGeneratedHaxe: true
     },
     {
       name: "roundtrip-fixture",
@@ -236,6 +271,9 @@ function main(): number {
       basePackage: fixture.basePackage
     });
 
+    if (fixture.requireStrongGeneratedHaxe)
+      assertStrongGeneratedHaxe(outDir, fixture.name);
+
     const generatedFiles = walkFiles(outDir).sort((a, b) => a.localeCompare(b));
     const snapshotFiles = walkFiles(fixture.snapshotsDir).sort((a, b) => a.localeCompare(b));
     totalFiles += generatedFiles.length;
@@ -303,6 +341,47 @@ function main(): number {
         toolRoot
       );
       if (fixture.smokeRun !== false) run("node", [path.join(distDir, "index.js")], toolRoot);
+    }
+
+    if (fixture.genesTsRoundtrip && fixture.smokeMain) {
+      const tsxDir = path.join(toolRoot, ".tmp", `${fixture.name}-genes-ts`);
+      rmrf(tsxDir);
+      fs.mkdirSync(tsxDir, { recursive: true });
+      run(
+        haxeBin,
+        [
+          "-lib",
+          "genes-ts",
+          "-cp",
+          outDir,
+          "-main",
+          fixture.smokeMain,
+          "-js",
+          path.join(tsxDir, "index.tsx"),
+          "-D",
+          "genes.ts"
+        ],
+        repoRoot
+      );
+      const roundtripConfig = path.join(tsxDir, "tsconfig.json");
+      fs.writeFileSync(
+        roundtripConfig,
+        `${JSON.stringify({
+          compilerOptions: {
+            target: "ES2022",
+            module: "ES2022",
+            moduleResolution: "Bundler",
+            strict: true,
+            noEmit: true,
+            jsx: "react-jsx",
+            types: ["node", "react", "react-dom"]
+          },
+          include: ["**/*.tsx"]
+        }, null, 2)}\n`
+      );
+      const tscBin = path.resolve(toolRoot, "..", "..", "node_modules", "typescript", "bin", "tsc");
+      run("node", [tscBin, "-p", roundtripConfig], repoRoot);
+      assertStrongGeneratedTypeScript(path.join(tsxDir, fixture.basePackage), fixture.name);
     }
   }
 

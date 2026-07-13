@@ -87,6 +87,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   var inRawSyntaxTemplate: Bool = false;
   var suppressOptionalFieldNullNormalization: Bool = false;
   var suppressPromiseResolveNullThenableCast: Bool = false;
+  var jsxMarkerLocalInitializers: Map<Int, TypedExpr> = [];
 
   function typeEmitsAny(t: Type): Bool {
     final fast = switch t {
@@ -197,7 +198,9 @@ class TsModuleEmitter extends JsModuleEmitter {
     scopedLocalNameCounts = [];
     scopedLocalParent = null;
     narrowedNonNullKeys = [];
+    jsxMarkerLocalInitializers = [];
     final usesReactJsxMarkers = moduleUsesReactJsxMarkers(module);
+    final usesDynamicIntrinsicTag = moduleUsesDynamicIntrinsicJsxTag(module);
 
     // Merge code + type dependencies so TS signatures can resolve.
     final deps = new Dependencies(module, true);
@@ -214,7 +217,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     // - `.ts` mode lowers JSX markers into `React__genes_jsx.createElement(...)`.
     // - `.tsx` mode normally relies on the automatic JSX runtime, but we can opt into
     //   classic runtime (which needs a `React` namespace in scope).
-    if (usesReactJsxMarkers && !jsxEmitTsx) {
+    if (usesReactJsxMarkers && (!jsxEmitTsx || usesDynamicIntrinsicTag)) {
       write('import * as ');
       write(JSX_REACT_IMPORT);
       write(' from ');
@@ -488,6 +491,53 @@ class TsModuleEmitter extends JsModuleEmitter {
       }
     }
     return found;
+  }
+
+  /** Detects runtime string tags that cannot be represented as typed TSX names. */
+  static function moduleUsesDynamicIntrinsicJsxTag(module: Module): Bool {
+    var found = false;
+    function visitExpr(e: TypedExpr) {
+      if (found || e == null)
+        return;
+      switch unwrapExpr(e).expr {
+        case TCall(callee, args)
+          if (isReactJsxMarkerCallee(callee) == '__jsx' && args.length == 3):
+          switch unwrapExpr(args[0]).expr {
+            case TConst(TString(_)):
+            default:
+              if (isStringType(args[0].t)) {
+                found = true;
+                return;
+              }
+          }
+        default:
+      }
+      e.iter(visitExpr);
+    }
+    for (member in module.members) {
+      if (found)
+        break;
+      switch member {
+        case MClass(cl, _, fields):
+          for (field in fields) {
+            visitExpr(field.expr);
+            if (found)
+              break;
+          }
+          visitExpr(cl.init);
+        case MMain(e):
+          visitExpr(e);
+        case _:
+      }
+    }
+    return found;
+  }
+
+  static function isStringType(t: Type): Bool {
+    return switch haxe.macro.Context.follow(t) {
+      case TInst(_.get() => {pack: [], name: 'String'}, _): true;
+      default: false;
+    }
   }
 
   static function isReactJsxMarkerCallExpr(e: TypedExpr): Bool {
@@ -935,7 +985,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   function parseJsxPropEntry(e: TypedExpr): ReactJsxProp {
-    return switch unwrapExpr(e).expr {
+    return switch resolveJsxMarkerLocal(e).expr {
       case TObjectDecl(fields):
         var name: Null<String> = null;
         var value: Null<TypedExpr> = null;
@@ -968,6 +1018,35 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
   }
 
+  /**
+   * Recovers JSX marker literals that Haxe lifted into compiler temporaries.
+   *
+   * Why: deeply nested or heterogeneous marker prop arrays can be normalized by
+   * Haxe into `final tmp = {name: ..., value: ...}` followed by `tmp` in the
+   * array. The marker contract is still structurally valid, but parsing only
+   * direct `TObjectDecl` entries rejects compileable migration-generated Haxe.
+   *
+   * What/How: declarations recorded by `emitVar` are keyed by stable `TVar.id`.
+   * While parsing marker-only data, follow local references back to their
+   * initializer and then apply the ordinary metadata/cast/parenthesis unwrap.
+   * This does not inline runtime user values; it is restricted to the compiler
+   * marker parser and preserves the emitter's normal evaluation order.
+   */
+  function resolveJsxMarkerLocal(e: TypedExpr): TypedExpr {
+    var current = unwrapExpr(e);
+    final seen: Map<Int, Bool> = [];
+    while (true) {
+      switch current.expr {
+        case TLocal(v)
+          if (!seen.exists(v.id) && jsxMarkerLocalInitializers.exists(v.id)):
+          seen.set(v.id, true);
+          current = unwrapExpr(jsxMarkerLocalInitializers.get(v.id));
+        default:
+          return current;
+      }
+    }
+  }
+
   function emitTsxFragment(children: Array<TypedExpr>) {
     write('<>');
     emitTsxChildren(children);
@@ -976,6 +1055,10 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   function emitTsxElement(tag: TypedExpr, props: Array<ReactJsxProp>,
       children: Array<TypedExpr>) {
+    if (isDynamicIntrinsicJsxTag(tag)) {
+      emitDynamicIntrinsicElement(tag, props, children);
+      return;
+    }
     write('<');
     emitTsxTagName(tag);
     emitTsxAttributes(props);
@@ -988,6 +1071,44 @@ class TsModuleEmitter extends JsModuleEmitter {
     write('</');
     emitTsxTagName(tag);
     write('>');
+  }
+
+  function isDynamicIntrinsicJsxTag(tag: TypedExpr): Bool {
+    return switch unwrapExpr(tag).expr {
+      case TConst(TString(_)): false;
+      default: isStringType(tag.t);
+    }
+  }
+
+  /** Emits runtime string tags through React's typed createElement overload. */
+  function emitDynamicIntrinsicElement(tag: TypedExpr,
+      props: Array<ReactJsxProp>, children: Array<TypedExpr>) {
+    write(JSX_REACT_IMPORT);
+    write('.createElement(');
+    emitValue(tag);
+    write(', ');
+    if (props.length == 0) {
+      write('null');
+    } else {
+      write('{');
+      for (prop in join(props, write.bind(', '))) {
+        switch prop {
+          case Spread(e):
+            write('...');
+            emitValue(e);
+          case Normal(name, value):
+            emitObjectKey(name);
+            write(': ');
+            emitValue(value);
+        }
+      }
+      write('}');
+    }
+    for (child in children) {
+      write(', ');
+      emitValue(child);
+    }
+    write(')');
   }
 
   function emitTsxTagName(tag: TypedExpr) {
@@ -1790,6 +1911,8 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   override public function emitVar(v: TVar, eo: Null<TypedExpr>) {
+    if (eo != null)
+      jsxMarkerLocalInitializers.set(v.id, eo);
     // Haxe often creates `_g` temporaries while lowering loops. If such a temp
     // is initialized from an optional field already narrowed by a null guard,
     // emit the temp as non-null so generated TS matches the guarded branch.
