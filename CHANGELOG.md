@@ -1,3 +1,10 @@
+# [1.23.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.22.0...v1.23.0) (2026-07-15)
+
+
+### Features
+
+* add side-effect import helpers ([a1125d1](https://github.com/fullofcaffeine/genes-ts/commit/a1125d19a5f4ac7bc7d418c9df412e5a4b9b3c2a))
+
 # [1.22.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.21.0...v1.22.0) (2026-07-15)
 
 
