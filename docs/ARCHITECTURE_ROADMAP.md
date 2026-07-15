@@ -83,7 +83,7 @@ The audit also required two qualifications:
 | Native map absence | Missing `EsMap` entries normalize to Haxe `null`; an explicitly stored JS `undefined` remains distinguishable. | Runtime plus negative type fixture |
 | Secondary extern type ownership | A secondary type can reuse its owning module's `@:jsRequire` identity. | Focused extern fixture |
 | Native-global extern ownership | A secondary extern with explicit `@:native` identity never inherits an unrelated sibling `@:jsRequire`; metadata-free secondary package types still reuse their owner. | Four-oracle mixed-global/package fixture plus pinned OpenCodeHX rerun |
-| Fail-closed ts2hx | Strict mode diagnoses currently classified unsupported root files/top-level statements and publishes no partial tree; assisted output carries explicit losses and a manifest. Remaining semantic approximations are not declared lossless. | API/CLI/transaction tests and 53 snapshots |
+| Fail-closed ts2hx | Strict mode diagnoses currently classified unsupported root files/top-level statements and publishes no partial tree; assisted output carries explicit losses and a manifest. Remaining semantic approximations are not declared lossless. | API/CLI/transaction tests and 48 reviewed snapshot files |
 | Semantic exported-surface policy | Exported TS and classic declaration roots are checked through the TypeScript TypeChecker for explicit/inferred/imported weak types and unapproved index signatures; intentional boundaries require exact owned provenance. | Policy fixtures, TS/classic `IMap`, basic user modules, JSX negative consumers, and aggregate CI |
 | Shared public-surface facts | TS implementation interfaces and classic declarations consume one immutable pre-DCE model for visibility, applied inheritance, generics, overload identity, typedef bodies, and classified compiler-generated support members. | Generic/overload fixture, strict TS and classic declaration consumers, and dual-mode runtime assertions |
 | Reusable-library profile | Explicit `@:genes.library` roots retain one transitive public runtime/type graph before DCE; default application output remains compact and classic mode requires matched declarations. | Default/library/TS builds, strict negative consumer on TS 5/6/7, abstract-owner assertions, and paired Node runtimes |
@@ -290,11 +290,14 @@ The source of truth is Beads epic `genes-09r`.
 ### P2: mature migration and ecosystem workflows
 
 1. **`genes-09r.7` — ts2hx minimal semantic IR and differential support
-   matrix (landed).** Schema-v2 support/provenance manifests now grade 14 exact
-   contracts across original TS, translated classic JS, and translated
-   genes-ts output. Four unsupported contracts fail closed without publishing
-   partial output; printers no longer own support decisions for migrated
-   undefined/default/evaluation/control-flow/module categories.
+   matrix (landed).** Schema-v2 support/provenance manifests now grade 15 supported semantic rows
+   across original TS, translated classic JS, and
+   translated genes-ts output. The matrix retains 3 unsupported rows, while the
+   strict companion fixture owns 4 exercised fail-closed variants because a
+   supported feature can still reject a narrower form such as labeled switch
+   continue. No failure publishes partial output; printers no longer own
+   support decisions for migrated undefined/default/evaluation/control-flow/
+   module categories.
 2. **`genes-09r.8` — dts2hx bridge (landed).** dts2hx 0.34.0 and its TS5.9 API
    are pinned beside the genes TS6 adapter. Shared local packages cover an ESM
    root, typed subpath, conditional exports, and class-shaped CommonJS

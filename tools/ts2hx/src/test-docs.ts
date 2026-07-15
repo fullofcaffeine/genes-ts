@@ -77,6 +77,7 @@ function main(): void {
   const limitationsPath = path.join(docsRoot, "ts2hx", "LIMITATIONS.md");
   const portabilityPath = path.join(docsRoot, "ts2hx", "PORTABILITY.md");
   const architecturePath = path.join(docsRoot, "ARCHITECTURE.md");
+  const architectureRoadmapPath = path.join(docsRoot, "ARCHITECTURE_ROADMAP.md");
   const docsIndexPath = path.join(docsRoot, "README.md");
   const topWorkflowsPath = path.join(docsRoot, "WORKFLOWS.md");
   const toolReadmePath = path.join(toolRoot, "README.md");
@@ -87,6 +88,7 @@ function main(): void {
     limitationsPath,
     portabilityPath,
     architecturePath,
+    architectureRoadmapPath,
     docsIndexPath,
     topWorkflowsPath,
     toolReadmePath
@@ -96,6 +98,7 @@ function main(): void {
 
   const usage = read(usagePath);
   const limitations = read(limitationsPath);
+  const architectureRoadmap = read(architectureRoadmapPath);
   const docsIndex = read(docsIndexPath);
   const topWorkflows = read(topWorkflowsPath);
   const toolReadme = read(toolReadmePath);
@@ -136,6 +139,10 @@ function main(): void {
     usage.includes(`current snapshot is ${snapshotFiles.length} generated files`),
     `USAGE.md snapshot-file count is stale; expected ${snapshotFiles.length}.`
   );
+  assert(
+    architectureRoadmap.includes(`${snapshotFiles.length} reviewed snapshot files`),
+    `ARCHITECTURE_ROADMAP.md snapshot-file count is stale; expected ${snapshotFiles.length}.`
+  );
 
   for (const feature of SEMANTIC_SUPPORT_MATRIX)
     assert(limitations.includes(`\`${feature.id}\``), `LIMITATIONS.md omits semantic feature ${feature.id}.`);
@@ -154,6 +161,12 @@ function main(): void {
     limitations.includes(`${supportedCount} supported rows`) && limitations.includes(`${unsupportedCount} unsupported rows`),
     "LIMITATIONS.md semantic support counts are stale."
   );
+  assert(
+    architectureRoadmap.includes(`${supportedCount} supported semantic rows`)
+      && architectureRoadmap.includes(`${unsupportedCount} unsupported rows`)
+      && architectureRoadmap.includes(`${failClosedCount} exercised fail-closed variants`),
+    "ARCHITECTURE_ROADMAP.md semantic evidence counts are stale."
+  );
 
   const help = spawnSync(process.execPath, [path.join(toolRoot, "dist", "cli.js"), "--help"], {
     cwd: repoRoot,
@@ -169,6 +182,7 @@ function main(): void {
 
   for (const markdown of [
     architecturePath,
+    architectureRoadmapPath,
     topWorkflowsPath,
     workflowsPath,
     limitationsPath,
