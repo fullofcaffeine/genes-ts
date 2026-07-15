@@ -1,3 +1,10 @@
+# [1.25.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.24.0...v1.25.0) (2026-07-15)
+
+
+### Features
+
+* lower converted side-effect imports ([1f3bf35](https://github.com/fullofcaffeine/genes-ts/commit/1f3bf35ed63c18428f3ddcc15cbf3b94773f116a))
+
 # [1.24.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.23.0...v1.24.0) (2026-07-15)
 
 
