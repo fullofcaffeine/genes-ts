@@ -47,5 +47,7 @@ feature surface beyond the quick examples in `readme.md`.
 ## Experimental
 
 - `ts2hx/PLAN.md` — long-term strict-subset migration and assisted-scaffolding experiment
-- `ts2hx/USAGE.md` — how to use ts2hx alone and with genes-ts
+- `ts2hx/WORKFLOWS.md` — standalone, mixed-codebase, assisted, and semantic-differential migration loops
+- `ts2hx/USAGE.md` — CLI, manifests, exit codes, current fixtures, and test commands
+- `ts2hx/LIMITATIONS.md` — exact support/evidence boundary for semantics, TSX, async, types, and modules
 - `ts2hx/PORTABILITY.md` — future non-JS portability grades and refactoring checklist

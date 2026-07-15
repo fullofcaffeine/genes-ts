@@ -15,6 +15,7 @@
     "test:roundtrip": "yarn build && node dist/test-roundtrip.js",
     "test:semantic-diff": "yarn build && node dist/test-semantic-diff.js",
     "test:strict-diagnostics": "yarn build && node dist/test-strict-diagnostics.js",
-    "test": "yarn test:snapshots && yarn test:roundtrip && yarn test:semantic-diff && yarn test:strict-diagnostics"
+    "test:docs": "yarn build && node dist/test-docs.js",
+    "test": "yarn test:docs && yarn test:snapshots && yarn test:roundtrip && yarn test:semantic-diff && yarn test:strict-diagnostics"
   }
 }

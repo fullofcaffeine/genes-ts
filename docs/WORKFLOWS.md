@@ -231,7 +231,10 @@ or JavaScript construct.
 Use ts2hx when migrating TypeScript or JavaScript *implementation source* into
 Haxe while JavaScript remains the first runtime target. It is experimental and
 fail-closed: strict success covers only the support manifest emitted for that
-run.
+run. The dedicated [`ts2hx/WORKFLOWS.md`](ts2hx/WORKFLOWS.md) expands this
+overview into an inventory, transaction, bootstrap, differential, and CI loop;
+read [`ts2hx/LIMITATIONS.md`](ts2hx/LIMITATIONS.md) before selecting a source
+slice.
 
 Build the tool and translate a project:
 
