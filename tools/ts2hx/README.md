@@ -9,6 +9,8 @@ its output is not production-ready merely because the generated Haxe compiles.
 - Usage: `docs/ts2hx/USAGE.md`
 - Limitations: `docs/ts2hx/LIMITATIONS.md`
 - Future portability: `docs/ts2hx/PORTABILITY.md`
+- Contributor architecture and fixture guide:
+  [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md#contributing-a-ts2hx-fixture)
 - Status: strict failure contract plus a bounded supported subset; not production-ready
 
 ## What is it for?
@@ -146,3 +148,19 @@ semantic claim; the harness invokes the translated Haxe `Main` directly. A
 roundtrip pass therefore proves only the exercised, supported feature subset.
 
 See `docs/ts2hx/USAGE.md` for more detailed workflows and how to apply this to a real codebase.
+
+## Contributing a fixture
+
+Create the input under `fixtures/<name>/src/` with a `tsconfig.json`, then add an
+explicit fixture record to `src/test-snapshots.ts`. Run the snapshot gate first:
+
+```bash
+yarn test:snapshots
+```
+
+Inspect the generated Haxe and manifest before using
+`UPDATE_SNAPSHOTS=1 yarn test:snapshots`. A snapshot proves output shape only;
+add the case to `test:roundtrip`, `test:semantic-diff`, or
+`test:strict-diagnostics` when claiming execution, semantic parity, or precise
+fail-closed behavior. The complete routing and support-ID rules are in the
+[`docs/ARCHITECTURE.md` contributor section](../../docs/ARCHITECTURE.md#contributing-a-ts2hx-fixture).

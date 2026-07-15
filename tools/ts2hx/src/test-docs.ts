@@ -76,6 +76,7 @@ function main(): void {
   const workflowsPath = path.join(docsRoot, "ts2hx", "WORKFLOWS.md");
   const limitationsPath = path.join(docsRoot, "ts2hx", "LIMITATIONS.md");
   const portabilityPath = path.join(docsRoot, "ts2hx", "PORTABILITY.md");
+  const architecturePath = path.join(docsRoot, "ARCHITECTURE.md");
   const docsIndexPath = path.join(docsRoot, "README.md");
   const topWorkflowsPath = path.join(docsRoot, "WORKFLOWS.md");
   const toolReadmePath = path.join(toolRoot, "README.md");
@@ -85,6 +86,7 @@ function main(): void {
     workflowsPath,
     limitationsPath,
     portabilityPath,
+    architecturePath,
     docsIndexPath,
     topWorkflowsPath,
     toolReadmePath
@@ -100,10 +102,15 @@ function main(): void {
 
   for (const name of ["WORKFLOWS.md", "USAGE.md", "LIMITATIONS.md", "PORTABILITY.md"])
     assert(docsIndex.includes(`ts2hx/${name}`), `docs/README.md does not index ts2hx/${name}.`);
+  assert(docsIndex.includes("ARCHITECTURE.md"), "docs/README.md does not index the contributor architecture guide.");
   assert(topWorkflows.includes("ts2hx/WORKFLOWS.md"), "Top-level workflow guide does not route to ts2hx workflows.");
   assert(topWorkflows.includes("ts2hx/LIMITATIONS.md"), "Top-level workflow guide does not route to ts2hx limitations.");
   for (const name of ["WORKFLOWS.md", "USAGE.md", "LIMITATIONS.md", "PORTABILITY.md"])
     assert(toolReadme.includes(`docs/ts2hx/${name}`), `tools/ts2hx/README.md does not route to ${name}.`);
+  assert(
+    toolReadme.includes("docs/ARCHITECTURE.md#contributing-a-ts2hx-fixture"),
+    "tools/ts2hx/README.md does not route contributors to the architecture fixture guide."
+  );
 
   const fixtureRoot = path.join(toolRoot, "fixtures");
   const fixtures = fs.readdirSync(fixtureRoot, { withFileTypes: true })
@@ -159,7 +166,15 @@ function main(): void {
   for (const command of ["--help", "--version"])
     assert(usage.includes(command), `USAGE.md does not document CLI command ${command}.`);
 
-  for (const markdown of [topWorkflowsPath, workflowsPath, limitationsPath, usagePath, portabilityPath])
+  for (const markdown of [
+    architecturePath,
+    topWorkflowsPath,
+    workflowsPath,
+    limitationsPath,
+    usagePath,
+    portabilityPath,
+    toolReadmePath
+  ])
     validateLocalLinks(markdown);
 
   process.stdout.write(

@@ -9,6 +9,7 @@ feature surface beyond the quick examples in `readme.md`.
 
 - `../readme.md` — quick start + feature overview
 - `WORKFLOWS.md` — choose Haxe → TS, Haxe → JS, TS → Haxe, or the roundtrip migration path
+- `ARCHITECTURE.md` — compiler pipeline, ownership boundaries, fixtures, snapshots, and contributor map
 - `OUTPUT_MODES.md` — TS output vs classic Genes JS output (and when to use each)
 - `OUTPUT_MODES.md#performance-oriented-es6-profile` — the explicit ES6 profile and planned comparison fixture
 - `OUTPUT_MODES.md#reusable-library-profile` — opt-in matched runtime and declaration surfaces for packages
@@ -31,6 +32,7 @@ feature surface beyond the quick examples in `readme.md`.
 
 ## Testing + CI
 
+- `ARCHITECTURE.md#compiler-fixture-guide` — where each compiler/ts2hx test belongs
 - `TESTING_STRATEGY.md` — compiler harnesses, todoapp E2E, and “one command” gates
 - `COMPATIBILITY_REPORT.md` — generated, deterministic evidence inventory with exact scope and counts
 - `TOOLCHAINS.md` — centralized TypeScript, Haxe, and Node compatibility lanes

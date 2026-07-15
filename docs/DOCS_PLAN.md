@@ -101,7 +101,7 @@ Both directions must be covered:
    - “Why do we commit generated outputs in examples/tests?”
    - “Where can `Dynamic`/`any` appear and why?”
 
-3) `docs/ARCHITECTURE.md` (NEW)
+3) `docs/ARCHITECTURE.md` (LANDED)
    - Repo map: genes-ts compiler vs ts2hx tool vs todoapp harness
    - Where to add tests, where to add fixtures
    - Contracts and invariants (determinism, import specifiers, output dirs)

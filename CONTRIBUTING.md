@@ -12,6 +12,17 @@ Thanks for helping improve **genes-ts**.
   - Avoid emitting `any` / `unknown` in generated user TypeScript.
 - Document vital/complex code with **hxdoc** (Why / What / How).
 
+## Architecture and fixture ownership
+
+Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) before changing compiler
+semantics or ts2hx lowering. It maps the shared TS/classic pipeline to its source
+owners and explains which snapshot, type-negative, runtime, package-shape,
+dual-output, or semantic-differential harness must prove a change.
+
+Snapshots are shape evidence, not semantic evidence. Add a behavior to the
+smallest owning fixture, inspect the generated diff, and run its runtime or type
+contract before the full CI gate.
+
 ## Setup
 
 Prereqs:

@@ -23,6 +23,7 @@ boundary and planned shared architecture.
 
 - `docs/README.md` — documentation index (start here)
 - `docs/WORKFLOWS.md` — choose an end-to-end Haxe/TS/JS or ts2hx workflow
+- `docs/ARCHITECTURE.md` — compiler pipeline, ownership boundaries, and contributor fixture guide
 - `docs/typescript-target/COMPILER_CONTRACT.md` — TS target contract
 - `docs/typescript-target/TYPING_POLICY.md` — TS typing rules + profiles
 - `docs/typescript-target/INTEROP.md` — Haxe ↔ TypeScript interop cookbook
