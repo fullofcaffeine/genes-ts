@@ -11,7 +11,68 @@ export type EmitHaxeOptions = {
   sourceFiles: ts.SourceFile[];
   outDir: string;
   basePackage: string;
+  /** Translation policy. Strict JS semantics are the default. */
+  mode?: TranslationMode;
+  /** Replace the prior output tree instead of preserving unrelated files. */
+  cleanOutDir?: boolean;
 };
+
+export type TranslationMode = "strict-js" | "assisted";
+
+export type TranslationDiagnostic = {
+  id: string;
+  severity: "error" | "loss";
+  mode: TranslationMode;
+  source: {
+    file: string;
+    start: number;
+    end: number;
+    line: number;
+    column: number;
+  };
+  syntaxKind: string;
+  semanticCategory: "file" | "module" | "declaration" | "control-flow" | "expression";
+  message: string;
+  support: "unsupported";
+  portableGrade: "unknown";
+  outputFile: string | null;
+  remediation: string;
+};
+
+export type TranslationFileDisposition = {
+  sourceFile: string;
+  status: "emitted" | "declaration-only" | "unsupported";
+  outputFile: string | null;
+  diagnosticIds: string[];
+};
+
+export type TranslationManifest = {
+  schemaVersion: 1;
+  mode: TranslationMode;
+  status: "success" | "failed" | "assisted";
+  basePackage: string;
+  plannedFiles: string[];
+  files: TranslationFileDisposition[];
+  diagnostics: TranslationDiagnostic[];
+};
+
+export type EmitHaxeResult = {
+  status: TranslationManifest["status"];
+  writtenFiles: string[];
+  diagnostics: TranslationDiagnostic[];
+  dispositions: TranslationFileDisposition[];
+  manifest: TranslationManifest;
+};
+
+type EmittedFile = {
+  filePath: string;
+  content: string;
+};
+
+type SourceEmitOutcome =
+  | { kind: "emitted"; emitted: EmittedFile }
+  | { kind: "declaration-only" }
+  | { kind: "unsupported"; emitted: EmittedFile | null; diagnostics: TranslationDiagnostic[] };
 
 type ImportSpec = {
   moduleSpecifier: string;
@@ -1805,11 +1866,10 @@ function emitFunctionLike(opts: {
   const returnType = emitType(opts.returnType);
   const returnTypeSuffix = opts.omitReturnType ? "" : `: ${returnType}`;
 
-  let body = `  throw "ts2hx: unsupported";`;
-  if (opts.body) {
-    const emitted = emitStatements(opts.ctx, opts.body.statements, "  ");
-    if (emitted != null) body = emitted.length > 0 ? emitted : "";
-  }
+  if (!opts.body) return null;
+  const emittedBody = emitStatements(opts.ctx, opts.body.statements, "  ");
+  if (emittedBody == null) return null;
+  let body = emittedBody.length > 0 ? emittedBody : "";
   if (prelude.length > 0) body = body.length > 0 ? `${prelude.join("\n")}\n${body}` : prelude.join("\n");
 
   return `${opts.modifierPrefix}function ${opts.name}(${params.join(", ")})${returnTypeSuffix} {\n${body}\n}`;
@@ -1864,11 +1924,10 @@ function emitAnonFunctionLike(opts: {
   const returnType = emitType(opts.returnType);
   const returnTypeSuffix = opts.omitReturnType ? "" : `: ${returnType}`;
 
-  let body = `  throw "ts2hx: unsupported";`;
-  if (opts.body) {
-    const emitted = emitStatements(opts.ctx, opts.body.statements, "  ");
-    if (emitted != null) body = emitted.length > 0 ? emitted : "";
-  }
+  if (!opts.body) return null;
+  const emittedBody = emitStatements(opts.ctx, opts.body.statements, "  ");
+  if (emittedBody == null) return null;
+  let body = emittedBody.length > 0 ? emittedBody : "";
   if (prelude.length > 0) body = body.length > 0 ? `${prelude.join("\n")}\n${body}` : prelude.join("\n");
 
   return `function(${params.join(", ")})${returnTypeSuffix} {\n${body}\n}`;
@@ -2241,11 +2300,65 @@ function resolveRelativeSourceFile(program: ts.Program, fromFile: string, module
   return null;
 }
 
-function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePath: string; content: string } | null {
+function portablePath(filePath: string): string {
+  return filePath.split(path.sep).join("/");
+}
+
+function translationDiagnostic(opts: EmitHaxeOptions, sf: ts.SourceFile, node: ts.Node, details: {
+  id: string;
+  category: TranslationDiagnostic["semanticCategory"];
+  message: string;
+  outputFile: string | null;
+}): TranslationDiagnostic {
+  const start = node.getStart(sf, false);
+  const end = node.getEnd();
+  const position = sf.getLineAndCharacterOfPosition(start);
+  return {
+    id: details.id,
+    severity: (opts.mode ?? "strict-js") === "assisted" ? "loss" : "error",
+    mode: opts.mode ?? "strict-js",
+    source: {
+      file: portablePath(path.relative(opts.rootDir, sf.fileName)),
+      start,
+      end,
+      line: position.line + 1,
+      column: position.character + 1
+    },
+    syntaxKind: ts.SyntaxKind[node.kind] ?? `SyntaxKind(${node.kind})`,
+    semanticCategory: details.category,
+    message: details.message,
+    support: "unsupported",
+    portableGrade: "unknown",
+    outputFile: details.outputFile,
+    remediation: "Refactor the construct or rerun with --mode assisted to produce explicitly lossy scaffolding."
+  };
+}
+
+/**
+ * Converts one source file without mutating the output tree.
+ *
+ * Every input receives an explicit disposition. Unsupported lowering returns a
+ * diagnostic tied to the nearest top-level source node plus optional assisted
+ * scaffolding; callers decide whether that scaffold may be committed. This
+ * separation is the fail-closed boundary that prevents a printer-level `null`
+ * from silently becoming a successful project conversion.
+ */
+function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): SourceEmitOutcome {
   const absFile = sf.fileName;
-  if (absFile.endsWith(".d.ts")) return null;
+  if (absFile.endsWith(".d.ts")) return { kind: "declaration-only" };
   if (!(absFile.endsWith(".ts") || absFile.endsWith(".tsx") || absFile.endsWith(".js") || absFile.endsWith(".jsx"))) {
-    return null;
+    return {
+      kind: "unsupported",
+      emitted: null,
+      diagnostics: [
+        translationDiagnostic(opts, sf, sf, {
+          id: "TS2HX-FILE-KIND-001",
+          category: "file",
+          message: `Unsupported source-file extension: ${path.extname(absFile) || "(none)"}.`,
+          outputFile: null
+        })
+      ]
+    };
   }
 
   const relToRoot = path.relative(opts.rootDir, absFile);
@@ -2256,6 +2369,7 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
   const basePackageDirs = opts.basePackage.split(".").filter((p) => p.length > 0);
   const outRelFile = path.join(...basePackageDirs, relDir, `${moduleName}.hx`);
   const outAbsFile = path.resolve(opts.outDir, outRelFile);
+  const portableOutFile = portablePath(outRelFile);
 
   const packageSegments = relDir === "." ? [] : relDir.split(path.sep).filter((p) => p.length > 0);
   const packagePath = toHaxePackagePath([opts.basePackage, ...packageSegments]);
@@ -2263,6 +2377,35 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
   const out: string[] = [];
   out.push(`package ${packagePath};`);
   out.push("");
+  const fileDiagnostics: TranslationDiagnostic[] = [];
+
+  function recordUnsupported(node: ts.Node, message: string,
+      category: TranslationDiagnostic["semanticCategory"] = "declaration"): TranslationDiagnostic {
+    const diagnostic = translationDiagnostic(opts, sf, node, {
+      id: "TS2HX-UNSUPPORTED-LOWERING-001",
+      category,
+      message,
+      outputFile: portableOutFile
+    });
+    if (out[out.length - 1] !== "")
+      out.push("");
+    out.push(
+      `// ${diagnostic.id}: assisted output omitted ${diagnostic.syntaxKind} at ` +
+      `${diagnostic.source.file}:${diagnostic.source.line}:${diagnostic.source.column}.`
+    );
+    fileDiagnostics.push(diagnostic);
+    return diagnostic;
+  }
+
+  function unsupported(node: ts.Node, message: string,
+      category: TranslationDiagnostic["semanticCategory"] = "declaration"): SourceEmitOutcome {
+    recordUnsupported(node, message, category);
+    return {
+      kind: "unsupported",
+      emitted: { filePath: outAbsFile, content: out.join("\n").trimEnd() + "\n" },
+      diagnostics: fileDiagnostics
+    };
+  }
 
   const ctx: EmitContext = {
     checker: opts.checker,
@@ -2374,7 +2517,19 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
     }
 
     // export * from "./x"
-    if (!srcFile) return null;
+    if (!srcFile) {
+      const exportNode = sf.statements.find((stmt) =>
+        ts.isExportDeclaration(stmt)
+        && stmt.moduleSpecifier !== undefined
+        && ts.isStringLiteral(stmt.moduleSpecifier)
+        && stmt.moduleSpecifier.text === exp.moduleSpecifier
+      ) ?? sf;
+      return unsupported(
+        exportNode,
+        `Cannot resolve re-exported source module ${JSON.stringify(exp.moduleSpecifier)}.`,
+        "module"
+      );
+    }
 
     for (const [name, kind] of collectExportKinds(srcFile).entries()) {
       if (reexported.has(name)) continue;
@@ -2416,7 +2571,8 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
   for (const stmt of sf.statements) {
     if (ts.isExportAssignment(stmt) && !stmt.isExportEquals) {
       const expr = emitExpression(ctx, stmt.expression);
-      if (!expr) return null;
+      if (!expr)
+        return unsupported(stmt, "Default export expression cannot be preserved.", "expression");
       out.push(`final __default = ${expr};`);
       out.push("");
       continue;
@@ -2429,8 +2585,10 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
 
       const declKeyword = (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0 ? "final" : "var";
       for (const decl of stmt.declarationList.declarations) {
-        if (!ts.isIdentifier(decl.name)) return null;
-        if (!decl.initializer) return null;
+        if (!ts.isIdentifier(decl.name))
+          return unsupported(stmt, "Top-level destructuring declarations are not supported.");
+        if (!decl.initializer)
+          return unsupported(stmt, "Uninitialized top-level declarations are not supported.");
         const typeSuffix = decl.type ? `: ${emitType(decl.type)}` : "";
         const isAsyncInit =
           (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer)) &&
@@ -2439,12 +2597,14 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
         if (isAsyncInit) {
           const helper = ensureAsyncHelper();
           const initExpr = emitExpression(ctx, decl.initializer);
-          if (!initExpr) return null;
+          if (!initExpr)
+            return unsupported(stmt, "Async top-level initializer cannot be preserved.", "expression");
           asyncHelperFields.push(`  public static ${declKeyword} ${decl.name.text}${typeSuffix} = ${initExpr};`);
           out.push(`${declKeyword} ${decl.name.text}${typeSuffix} = ${helper}.${decl.name.text};`);
         } else {
           const init = emitExpression(ctx, decl.initializer);
-          if (!init) return null;
+          if (!init)
+            return unsupported(stmt, "Top-level initializer cannot be preserved.", "expression");
           out.push(`${declKeyword} ${decl.name.text}${typeSuffix} = ${init};`);
         }
       }
@@ -2467,11 +2627,13 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
             body: stmt.body,
             ctx
           });
-          if (!fnExpr) return null;
+          if (!fnExpr)
+            return unsupported(stmt, "Anonymous default async function cannot be preserved.");
           asyncHelperFields.push(`  public static final __default = @:async ${fnExpr};`);
           out.push(`final __default = ${helper}.__default;`);
         } else {
-          if (!stmt.name) return null;
+          if (!stmt.name)
+            return unsupported(stmt, "Async function declaration has no usable name.");
           const name = stmt.name.text;
           const fnExpr = emitAnonFunctionLike({
             parameters: stmt.parameters,
@@ -2479,7 +2641,8 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
             body: stmt.body,
             ctx
           });
-          if (!fnExpr) return null;
+          if (!fnExpr)
+            return unsupported(stmt, "Async function body cannot be preserved.", "control-flow");
           asyncHelperFields.push(`  public static final ${name} = @:async ${fnExpr};`);
           out.push(`final ${name} = ${helper}.${name};`);
           if (isDefault) out.push(`final __default = ${name};`);
@@ -2495,25 +2658,30 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
         let fn: string | null = null;
         if (stmt.body && stmt.body.statements.length === 1 && ts.isReturnStatement(stmt.body.statements[0])) {
           const ret = stmt.body.statements[0] as ts.ReturnStatement;
-          if (!ret.expression) return null;
+          if (!ret.expression)
+            return unsupported(stmt, "Default function's bare return cannot be preserved.", "control-flow");
           const retExpr = emitExpression(ctx, ret.expression);
-          if (!retExpr) return null;
+          if (!retExpr)
+            return unsupported(stmt, "Default function return expression cannot be preserved.", "expression");
           fn = `function(${params.join(", ")}) return ${retExpr}`;
         } else if (stmt.body) {
           const body = emitStatements(ctx, stmt.body.statements, "  ");
-          if (body == null) return null;
+          if (body == null)
+            return unsupported(stmt, "Default function control flow cannot be preserved.", "control-flow");
           fn = `function(${params.join(", ")}) {\n${body}\n}`;
         } else {
-          return null;
+          return unsupported(stmt, "Ambient default function has no implementation.");
         }
 
         out.push(`final __default = ${fn};`);
       } else {
         const emitted = emitFunction(ctx, stmt);
-        if (!emitted) return null;
+        if (!emitted)
+          return unsupported(stmt, "Function signature or body cannot be preserved.", "control-flow");
         out.push(emitted);
         if (isDefault) {
-          if (!stmt.name) return null;
+          if (!stmt.name)
+            return unsupported(stmt, "Default function declaration has no usable name.");
           out.push(`final __default = ${stmt.name.text};`);
         }
       }
@@ -2544,21 +2712,35 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
       if (isDefault && !stmt.name) {
         const generatedName = uniqueTopLevelTypeName("DefaultExport");
         const emitted = emitClass(ctx, stmt, generatedName);
-        if (!emitted) return null;
+        if (!emitted)
+          return unsupported(stmt, "Anonymous default class cannot be preserved.");
         out.push(emitted);
         out.push(`final __default = ${generatedName};`);
       } else {
         const emitted = emitClass(ctx, stmt);
-        if (!emitted) return null;
+        if (!emitted)
+          return unsupported(stmt, "Class declaration cannot be preserved.");
         out.push(emitted);
         if (isDefault) {
-          if (!stmt.name) return null;
+          if (!stmt.name)
+            return unsupported(stmt, "Default class declaration has no usable name.");
           out.push(`final __default = ${stmt.name.text};`);
         }
       }
       out.push("");
       continue;
     }
+
+    // Import/export declarations were already converted into Haxe imports,
+    // aliases, or re-exports above. Empty statements are semantically inert.
+    if (ts.isImportDeclaration(stmt) || ts.isExportDeclaration(stmt) || ts.isEmptyStatement(stmt))
+      continue;
+
+    recordUnsupported(
+      stmt,
+      `Unsupported top-level ${ts.SyntaxKind[stmt.kind] ?? `SyntaxKind(${stmt.kind})`} would otherwise be omitted.`,
+      ts.isExpressionStatement(stmt) ? "expression" : "module"
+    );
   }
 
   if (asyncHelperFields.length > 0) {
@@ -2601,28 +2783,161 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): { filePat
     }
   }
 
-  return { filePath: outAbsFile, content: out.join("\n").trimEnd() + "\n" };
+  const emitted = { filePath: outAbsFile, content: out.join("\n").trimEnd() + "\n" };
+  return fileDiagnostics.length > 0
+    ? { kind: "unsupported", emitted, diagnostics: fileDiagnostics }
+    : { kind: "emitted", emitted };
 }
 
-export function emitProjectToHaxe(opts: EmitHaxeOptions): { writtenFiles: string[] } {
-  const writtenFiles: string[] = [];
-  fs.mkdirSync(opts.outDir, { recursive: true });
+let outputTransactionId = 0;
+
+function removeTree(absPath: string): void {
+  if (fs.existsSync(absPath))
+    fs.rmSync(absPath, { recursive: true, force: true });
+}
+
+/**
+ * Commits a complete generated tree with a same-directory rename transaction.
+ *
+ * Planning and rendering happen before this function is called. Files are first
+ * written to a sibling staging directory; the prior tree is moved to a backup,
+ * the stage is renamed into place, and any failed swap restores the backup.
+ * Thus strict translation failures and mid-write exceptions cannot leave a mix
+ * of stale and newly generated modules behind.
+ */
+function commitOutputTree(opts: EmitHaxeOptions, files: EmittedFile[]): string[] {
+  const outDir = path.resolve(opts.outDir);
+  const parent = path.dirname(outDir);
+  const name = path.basename(outDir);
+  const transaction = `${process.pid}-${outputTransactionId++}`;
+  const stageDir = path.join(parent, `.${name}.ts2hx-stage-${transaction}`);
+  const backupDir = path.join(parent, `.${name}.ts2hx-backup-${transaction}`);
+
+  removeTree(stageDir);
+  removeTree(backupDir);
+  fs.mkdirSync(parent, { recursive: true });
+
+  try {
+    if (!opts.cleanOutDir && fs.existsSync(outDir))
+      fs.cpSync(outDir, stageDir, { recursive: true });
+    else
+      fs.mkdirSync(stageDir, { recursive: true });
+
+    for (const emitted of files) {
+      const relative = path.relative(outDir, emitted.filePath);
+      if (relative.startsWith("..") || path.isAbsolute(relative))
+        throw new Error(`Refusing to emit outside output directory: ${emitted.filePath}`);
+      const stagedPath = path.join(stageDir, relative);
+      fs.mkdirSync(path.dirname(stagedPath), { recursive: true });
+      fs.writeFileSync(stagedPath, emitted.content, "utf8");
+    }
+
+    const hadPriorTree = fs.existsSync(outDir);
+    if (hadPriorTree)
+      fs.renameSync(outDir, backupDir);
+    try {
+      fs.renameSync(stageDir, outDir);
+    } catch (error) {
+      if (hadPriorTree && fs.existsSync(backupDir))
+        fs.renameSync(backupDir, outDir);
+      throw error;
+    }
+    removeTree(backupDir);
+  } catch (error) {
+    removeTree(stageDir);
+    if (!fs.existsSync(outDir) && fs.existsSync(backupDir))
+      fs.renameSync(backupDir, outDir);
+    throw error;
+  }
+
+  return files.map((emitted) => path.resolve(emitted.filePath));
+}
+
+function compareDiagnostics(a: TranslationDiagnostic, b: TranslationDiagnostic): number {
+  return a.source.file.localeCompare(b.source.file)
+    || a.source.start - b.source.start
+    || a.id.localeCompare(b.id);
+}
+
+/**
+ * Plans, validates, and transactionally emits a TypeScript project as Haxe.
+ *
+ * Strict mode is fail closed: any unsupported file or declaration produces a
+ * deterministic manifest, writes no files, and preserves the previous output
+ * tree byte-for-byte. Assisted mode may commit partial scaffolding, but every
+ * loss is marked in both the generated source and `ts2hx-manifest.json`.
+ */
+export function emitProjectToHaxe(rawOpts: EmitHaxeOptions): EmitHaxeResult {
+  const opts: EmitHaxeOptions = { ...rawOpts, mode: rawOpts.mode ?? "strict-js" };
+  const mode = opts.mode ?? "strict-js";
+  const files: EmittedFile[] = [];
+  const diagnostics: TranslationDiagnostic[] = [];
+  const dispositions: TranslationFileDisposition[] = [];
 
   const externs = buildExternModules(opts);
-  for (const ex of Array.from(externs.values()).sort((a, b) => a.moduleSpecifier.localeCompare(b.moduleSpecifier))) {
-    const emitted = emitExternModuleFile(opts, ex);
-    fs.mkdirSync(path.dirname(emitted.filePath), { recursive: true });
-    fs.writeFileSync(emitted.filePath, emitted.content, "utf8");
-    writtenFiles.push(emitted.filePath);
-  }
+  for (const ex of Array.from(externs.values()).sort((a, b) => a.moduleSpecifier.localeCompare(b.moduleSpecifier)))
+    files.push(emitExternModuleFile(opts, ex));
 
   for (const sf of opts.sourceFiles.slice().sort((a, b) => a.fileName.localeCompare(b.fileName))) {
-    const emitted = emitHaxeSourceFile(opts, sf);
-    if (!emitted) continue;
-    fs.mkdirSync(path.dirname(emitted.filePath), { recursive: true });
-    fs.writeFileSync(emitted.filePath, emitted.content, "utf8");
-    writtenFiles.push(emitted.filePath);
+    const outcome = emitHaxeSourceFile(opts, sf);
+    const sourceFile = portablePath(path.relative(opts.rootDir, sf.fileName));
+    if (outcome.kind === "declaration-only") {
+      dispositions.push({ sourceFile, status: "declaration-only", outputFile: null, diagnosticIds: [] });
+      continue;
+    }
+    if (outcome.kind === "emitted") {
+      files.push(outcome.emitted);
+      dispositions.push({
+        sourceFile,
+        status: "emitted",
+        outputFile: portablePath(path.relative(opts.outDir, outcome.emitted.filePath)),
+        diagnosticIds: []
+      });
+      continue;
+    }
+
+    diagnostics.push(...outcome.diagnostics);
+    if (mode === "assisted" && outcome.emitted)
+      files.push(outcome.emitted);
+    dispositions.push({
+      sourceFile,
+      status: "unsupported",
+      outputFile: outcome.emitted
+        ? portablePath(path.relative(opts.outDir, outcome.emitted.filePath))
+        : null,
+      diagnosticIds: Array.from(new Set(outcome.diagnostics.map((diagnostic) => diagnostic.id))).sort()
+    });
   }
 
-  return { writtenFiles };
+  diagnostics.sort(compareDiagnostics);
+  dispositions.sort((a, b) => a.sourceFile.localeCompare(b.sourceFile));
+  const status: TranslationManifest["status"] = diagnostics.length === 0
+    ? "success"
+    : mode === "assisted" ? "assisted" : "failed";
+  const plannedFiles = files
+    .map((emitted) => portablePath(path.relative(opts.outDir, emitted.filePath)))
+    .sort((a, b) => a.localeCompare(b));
+  const manifest: TranslationManifest = {
+    schemaVersion: 1,
+    mode,
+    status,
+    basePackage: opts.basePackage,
+    plannedFiles,
+    files: dispositions,
+    diagnostics
+  };
+
+  if (status === "failed") {
+    return { status, writtenFiles: [], diagnostics, dispositions, manifest };
+  }
+
+  if (status === "assisted") {
+    files.push({
+      filePath: path.join(opts.outDir, "ts2hx-manifest.json"),
+      content: `${JSON.stringify(manifest, null, 2)}\n`
+    });
+  }
+
+  const writtenFiles = commitOutputTree(opts, files);
+  return { status, writtenFiles, diagnostics, dispositions, manifest };
 }

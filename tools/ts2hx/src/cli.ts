@@ -3,7 +3,12 @@
 import fs from "fs";
 import path from "path";
 import ts from "typescript";
-import { emitProjectToHaxe } from "./haxe/emit.js";
+import {
+  emitProjectToHaxe,
+  type TranslationDiagnostic,
+  type TranslationManifest,
+  type TranslationMode
+} from "./haxe/emit.js";
 import { loadProject } from "./project.js";
 
 type CliCommand =
@@ -17,6 +22,9 @@ type CliCommand =
       outDir: string | null;
       basePackage: string;
       cleanOutDir: boolean;
+      mode: TranslationMode;
+      allowLoss: boolean;
+      diagnosticsJson: string | null;
     };
 
 function readPackageJsonVersion(argv1: string | undefined): string {
@@ -50,7 +58,10 @@ Options:
   --diagnostics         Print TypeScript diagnostics (sorted)
   --out, -o             Emit Haxe into this directory
   --base-package        Haxe base package for generated modules (default: ts2hx)
-  --clean               Delete output dir contents before emitting
+  --mode                 strict-js (default) or assisted
+  --allow-loss           Map assisted-loss exit 3 to 0 (manifest remains lossy)
+  --diagnostics-json     Write the deterministic translation manifest to a JSON file
+  --clean                Replace output dir contents transactionally
 `);
 }
 
@@ -71,6 +82,9 @@ function parseArgs(argv: string[]): CliCommand | { kind: "error"; message: strin
   let outDir: string | null = null;
   let basePackage = "ts2hx";
   let cleanOutDir = false;
+  let mode: TranslationMode = "strict-js";
+  let allowLoss = false;
+  let diagnosticsJson: string | null = null;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] ?? "";
@@ -95,6 +109,25 @@ function parseArgs(argv: string[]): CliCommand | { kind: "error"; message: strin
       i++;
       continue;
     }
+    if (arg === "--mode") {
+      const next = args[i + 1];
+      if (next !== "strict-js" && next !== "assisted")
+        return { kind: "error", message: "--mode must be strict-js or assisted." };
+      mode = next;
+      i++;
+      continue;
+    }
+    if (arg === "--allow-loss") {
+      allowLoss = true;
+      continue;
+    }
+    if (arg === "--diagnostics-json") {
+      const next = args[i + 1];
+      if (!next) return { kind: "error", message: "Missing value for --diagnostics-json." };
+      diagnosticsJson = next;
+      i++;
+      continue;
+    }
     if (arg === "--clean") {
       cleanOutDir = true;
       continue;
@@ -110,7 +143,21 @@ function parseArgs(argv: string[]): CliCommand | { kind: "error"; message: strin
     return { kind: "error", message: `Unknown arg: ${arg}` };
   }
 
-  return { kind: "run", projectPath, listFiles, showDiagnostics, outDir, basePackage, cleanOutDir };
+  if (allowLoss && mode !== "assisted")
+    return { kind: "error", message: "--allow-loss requires --mode assisted." };
+
+  return {
+    kind: "run",
+    projectPath,
+    listFiles,
+    showDiagnostics,
+    outDir,
+    basePackage,
+    cleanOutDir,
+    mode,
+    allowLoss,
+    diagnosticsJson
+  };
 }
 
 function formatDiagnostic(projectDir: string, diag: ts.Diagnostic): string {
@@ -123,17 +170,14 @@ function formatDiagnostic(projectDir: string, diag: ts.Diagnostic): string {
   return message;
 }
 
-function rmrf(absPath: string): void {
-  if (!fs.existsSync(absPath)) return;
-  const stat = fs.lstatSync(absPath);
-  if (stat.isDirectory()) {
-    for (const entry of fs.readdirSync(absPath)) {
-      rmrf(path.join(absPath, entry));
-    }
-    fs.rmdirSync(absPath);
-  } else {
-    fs.unlinkSync(absPath);
-  }
+function formatTranslationDiagnostic(diag: TranslationDiagnostic): string {
+  return `${diag.source.file}:${diag.source.line}:${diag.source.column} - ${diag.id}: ${diag.message}`;
+}
+
+function writeManifest(filePath: string, manifest: TranslationManifest): void {
+  const absolute = path.resolve(filePath);
+  fs.mkdirSync(path.dirname(absolute), { recursive: true });
+  fs.writeFileSync(absolute, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 }
 
 function inspectProject(opts: {
@@ -143,6 +187,9 @@ function inspectProject(opts: {
   outDir: string | null;
   basePackage: string;
   cleanOutDir: boolean;
+  mode: TranslationMode;
+  allowLoss: boolean;
+  diagnosticsJson: string | null;
 }): number {
   const loaded = loadProject(opts.projectPath);
   if (!loaded.ok) {
@@ -151,7 +198,7 @@ function inspectProject(opts: {
       .sort((a, b) => (a.code ?? 0) - (b.code ?? 0))
       .map((e) => formatDiagnostic(loaded.projectDir, e));
     process.stderr.write(`${errors.join("\n")}\n`);
-    return 1;
+    return 2;
   }
 
   if (opts.showDiagnostics) {
@@ -182,9 +229,6 @@ function inspectProject(opts: {
 
   if (opts.outDir) {
     const outAbsDir = path.resolve(opts.outDir);
-    if (opts.cleanOutDir) {
-      rmrf(outAbsDir);
-    }
     const emitted = emitProjectToHaxe({
       projectDir: loaded.projectDir,
       rootDir: loaded.rootDir,
@@ -192,9 +236,23 @@ function inspectProject(opts: {
       checker: loaded.checker,
       sourceFiles: loaded.sourceFiles,
       outDir: outAbsDir,
-      basePackage: opts.basePackage
+      basePackage: opts.basePackage,
+      mode: opts.mode,
+      cleanOutDir: opts.cleanOutDir
     });
-    process.stderr.write(`Wrote ${emitted.writtenFiles.length} Haxe module(s) to ${outAbsDir}\n`);
+    if (opts.diagnosticsJson)
+      writeManifest(opts.diagnosticsJson, emitted.manifest);
+    for (const diagnostic of emitted.diagnostics)
+      process.stderr.write(`${formatTranslationDiagnostic(diagnostic)}\n`);
+
+    if (emitted.status === "failed") {
+      process.stderr.write("Translation failed closed; the previous output tree was not modified.\n");
+      return 1;
+    }
+
+    process.stderr.write(`Wrote ${emitted.writtenFiles.length} file(s) to ${outAbsDir}\n`);
+    if (emitted.status === "assisted")
+      return opts.allowLoss ? 0 : 3;
   }
 
   return 0;
@@ -216,10 +274,16 @@ export function main(argv: string[]): number {
 
   if (parsed.kind === "error") {
     process.stderr.write(`${parsed.message}\n`);
-    return 1;
+    return 2;
   }
 
-  return inspectProject(parsed);
+  try {
+    return inspectProject(parsed);
+  } catch (error) {
+    const message = error instanceof Error ? error.stack ?? error.message : String(error);
+    process.stderr.write(`ts2hx internal failure: ${message}\n`);
+    return 2;
+  }
 }
 
 process.exitCode = main(process.argv);

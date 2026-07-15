@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "mode": "assisted",
+  "status": "assisted",
+  "basePackage": "ts2hx",
+  "plannedFiles": [
+    "ts2hx/Assert.hx",
+    "ts2hx/Index.hx",
+    "ts2hx/Main.hx",
+    "ts2hx/Todo.hx"
+  ],
+  "files": [
+    {
+      "sourceFile": "assert.ts",
+      "status": "emitted",
+      "outputFile": "ts2hx/Assert.hx",
+      "diagnosticIds": []
+    },
+    {
+      "sourceFile": "index.ts",
+      "status": "unsupported",
+      "outputFile": "ts2hx/Index.hx",
+      "diagnosticIds": [
+        "TS2HX-UNSUPPORTED-LOWERING-001"
+      ]
+    },
+    {
+      "sourceFile": "Main.ts",
+      "status": "emitted",
+      "outputFile": "ts2hx/Main.hx",
+      "diagnosticIds": []
+    },
+    {
+      "sourceFile": "todo.ts",
+      "status": "emitted",
+      "outputFile": "ts2hx/Todo.hx",
+      "diagnosticIds": []
+    }
+  ],
+  "diagnostics": [
+    {
+      "id": "TS2HX-UNSUPPORTED-LOWERING-001",
+      "severity": "loss",
+      "mode": "assisted",
+      "source": {
+        "file": "index.ts",
+        "start": 35,
+        "end": 42,
+        "line": 3,
+        "column": 1
+      },
+      "syntaxKind": "ExpressionStatement",
+      "semanticCategory": "expression",
+      "message": "Unsupported top-level ExpressionStatement would otherwise be omitted.",
+      "support": "unsupported",
+      "portableGrade": "unknown",
+      "outputFile": "ts2hx/Index.hx",
+      "remediation": "Refactor the construct or rerun with --mode assisted to produce explicitly lossy scaffolding."
+    }
+  ]
+}

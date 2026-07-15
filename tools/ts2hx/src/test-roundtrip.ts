@@ -142,15 +142,26 @@ function main(): number {
       return 1;
     }
 
-    emitProjectToHaxe({
+    const translation = emitProjectToHaxe({
       projectDir: loaded.projectDir,
       rootDir: loaded.rootDir,
       program: loaded.program,
       checker: loaded.checker,
       sourceFiles: loaded.sourceFiles,
       outDir: haxeOutDir,
-      basePackage: fixture.basePackage
+      basePackage: fixture.basePackage,
+      mode: "assisted",
+      cleanOutDir: true
     });
+    const unsupported = translation.dispositions
+      .filter((item) => item.status === "unsupported")
+      .map((item) => item.sourceFile);
+    if (translation.status !== "assisted" || unsupported.length !== 1 || unsupported[0] !== "index.ts") {
+      throw new Error(
+        `${fixture.name}: roundtrip must acknowledge exactly the unsupported index.ts entry call; ` +
+        `got status=${translation.status}, files=${JSON.stringify(unsupported)}.`
+      );
+    }
 
     // 3) Haxe -> TS via genes-ts.
     const tsOutDir = path.join(toolRoot, ".tmp", `${fixture.name}-ts-src`);

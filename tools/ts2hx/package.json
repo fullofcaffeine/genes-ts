@@ -13,6 +13,7 @@
     "ts2hx": "node dist/cli.js",
     "test:snapshots": "yarn build && node dist/test-snapshots.js",
     "test:roundtrip": "yarn build && node dist/test-roundtrip.js",
-    "test": "yarn test:snapshots && yarn test:roundtrip"
+    "test:strict-diagnostics": "yarn build && node dist/test-strict-diagnostics.js",
+    "test": "yarn test:snapshots && yarn test:roundtrip && yarn test:strict-diagnostics"
   }
 }

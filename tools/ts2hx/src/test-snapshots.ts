@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { execFileSync } from "child_process";
-import { emitProjectToHaxe } from "./haxe/emit.js";
+import { emitProjectToHaxe, type TranslationMode } from "./haxe/emit.js";
 import { loadProject } from "./project.js";
 
 function resolveHaxeBin(toolRoot: string): string {
@@ -62,6 +62,8 @@ type Fixture = {
   smokeRun?: boolean;
   genesTsRoundtrip?: boolean;
   requireStrongGeneratedHaxe?: boolean;
+  translationMode?: TranslationMode;
+  expectedUnsupportedFiles?: string[];
 };
 
 function assertStrongGeneratedHaxe(absDir: string, fixtureName: string): void {
@@ -133,35 +135,45 @@ function main(): number {
       tsconfigPath: path.join(toolRoot, "fixtures", "roundtrip-fixture", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "roundtrip-fixture"),
       basePackage: "ts2hx",
-      smokeMain: "ts2hx.Main"
+      smokeMain: "ts2hx.Main",
+      translationMode: "assisted",
+      expectedUnsupportedFiles: ["index.ts"]
     },
     {
       name: "roundtrip-advanced",
       tsconfigPath: path.join(toolRoot, "fixtures", "roundtrip-advanced", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "roundtrip-advanced"),
       basePackage: "ts2hx",
-      smokeMain: "ts2hx.Main"
+      smokeMain: "ts2hx.Main",
+      translationMode: "assisted",
+      expectedUnsupportedFiles: ["index.ts"]
     },
     {
       name: "module-regexp",
       tsconfigPath: path.join(toolRoot, "fixtures", "module-regexp", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "module-regexp"),
       basePackage: "ts2hx",
-      smokeMain: "ts2hx.Main"
+      smokeMain: "ts2hx.Main",
+      translationMode: "assisted",
+      expectedUnsupportedFiles: ["index.ts"]
     },
     {
       name: "module-syntax",
       tsconfigPath: path.join(toolRoot, "fixtures", "module-syntax", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "module-syntax"),
       basePackage: "ts2hx",
-      smokeMain: "ts2hx.Main"
+      smokeMain: "ts2hx.Main",
+      translationMode: "assisted",
+      expectedUnsupportedFiles: ["index.ts"]
     },
     {
       name: "type-literals",
       tsconfigPath: path.join(toolRoot, "fixtures", "type-literals", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "type-literals"),
       basePackage: "ts2hx",
-      smokeMain: "ts2hx.Main"
+      smokeMain: "ts2hx.Main",
+      translationMode: "assisted",
+      expectedUnsupportedFiles: ["index.ts"]
     },
     {
       name: "export-forms",
@@ -261,15 +273,32 @@ function main(): number {
       return 1;
     }
 
-    emitProjectToHaxe({
+    const translation = emitProjectToHaxe({
       projectDir: loaded.projectDir,
       rootDir: loaded.rootDir,
       program: loaded.program,
       checker: loaded.checker,
       sourceFiles: loaded.sourceFiles,
       outDir,
-      basePackage: fixture.basePackage
+      basePackage: fixture.basePackage,
+      mode: fixture.translationMode ?? "strict-js",
+      cleanOutDir: true
     });
+
+    const expectedUnsupported = (fixture.expectedUnsupportedFiles ?? []).slice().sort();
+    const actualUnsupported = translation.dispositions
+      .filter((item) => item.status === "unsupported")
+      .map((item) => item.sourceFile)
+      .sort();
+    if (JSON.stringify(actualUnsupported) !== JSON.stringify(expectedUnsupported)) {
+      throw new Error(
+        `${fixture.name}: unsupported-file inventory changed; expected ` +
+        `${JSON.stringify(expectedUnsupported)}, got ${JSON.stringify(actualUnsupported)}`
+      );
+    }
+    const expectedStatus = expectedUnsupported.length > 0 ? "assisted" : "success";
+    if (translation.status !== expectedStatus)
+      throw new Error(`${fixture.name}: expected ${expectedStatus} translation, got ${translation.status}.`);
 
     if (fixture.requireStrongGeneratedHaxe)
       assertStrongGeneratedHaxe(outDir, fixture.name);

@@ -1,10 +1,12 @@
 # ts2hx (experimental)
 
-ts2hx is a **post-1.0 experiment**: a TS/JS → Haxe transpiler intended as a migration tool.
+ts2hx is an **experimental inventory and migration-scaffolding tool** for
+TypeScript/JavaScript → Haxe. It is not a lossless source-to-source compiler and
+its output is not production-ready merely because the generated Haxe compiles.
 
 - Plan: `docs/ts2hx/PLAN.md`
 - Usage: `docs/ts2hx/USAGE.md`
-- Status: minimal working spike (fixtures + snapshots), not production-ready
+- Status: strict failure contract plus a bounded supported subset; not production-ready
 
 ## What is it for?
 
@@ -15,7 +17,27 @@ ts2hx is useful when you want **Haxe as a migration layer**:
   - **Haxe → TypeScript** via genes-ts (to finish a “pure TS” port), or
   - **Haxe → other targets** later after the codebase is made more portable
 
-Think of it as a *transpiler/migration tool*, not a general-purpose “compile TS to every language” compiler.
+Use it to inventory a migration, translate the subset it can prove, and identify
+the remaining source with stable diagnostics. Do not use it as a general-purpose
+“compile TS to every language” compiler.
+
+## Translation modes
+
+- `strict-js` (default) requires every input file and top-level statement to
+  receive an explicit disposition. A construct the current emitter identifies
+  as unsupported exits `1`, writes no partial output, and preserves the prior
+  output tree.
+- `assisted` emits reviewable partial scaffolding. Every omitted statement has a
+  `TS2HX-*` marker and `ts2hx-manifest.json` records the loss. The command exits
+  `3`, or `0` only when `--allow-loss` is explicit.
+
+`strict-portable` is a future contract, not a current CLI mode. Current output
+may depend on the Haxe JS target and genes runtime helpers.
+
+Important: exit `0` currently means “no detected unsupported construct,” not
+proven semantic equivalence. Some supported-looking lowerings still approximate
+JavaScript behavior; the risk categories below and in `docs/ts2hx/USAGE.md`
+remain subject to differential tests and the planned semantic IR.
 
 ## How ts2hx fits with genes-ts
 
@@ -43,7 +65,22 @@ Quick try (emit Haxe):
 node tools/ts2hx/dist/cli.js --project tools/ts2hx/fixtures/minimal-codegen/tsconfig.json --out /tmp/ts2hx-out --clean
 ```
 
-Tests (snapshots + Haxe JS smoke):
+For an intentionally partial scaffold:
+
+```bash
+node tools/ts2hx/dist/cli.js \
+  --project tools/ts2hx/fixtures/unsupported-top-level/tsconfig.json \
+  --out /tmp/ts2hx-assisted \
+  --clean \
+  --mode assisted
+```
+
+Exit codes are `0` for no detected translation loss, `1` for unsupported/lossy translation,
+`2` for CLI/configuration/internal failure, and `3` for assisted output with
+recorded losses. `--diagnostics-json <file>` writes the same deterministic
+manifest even when strict mode refuses to touch the output directory.
+
+Tests (snapshots, Haxe JS smoke, differential roundtrips, and strict failure/transaction checks):
 
 ```bash
 yarn --cwd tools/ts2hx test
@@ -68,18 +105,24 @@ Update snapshots:
 UPDATE_SNAPSHOTS=1 yarn --cwd tools/ts2hx test:snapshots
 ```
 
-Roundtrip harness (TS → Haxe → TS → JS parity):
+Roundtrip harness (TS → Haxe → TS → JS differential smoke):
 
 ```bash
 yarn --cwd tools/ts2hx test:roundtrip
 ```
 
-What `test:roundtrip` does for `fixtures/roundtrip-fixture`:
+What `test:roundtrip` does for selected supported modules:
 
 1) builds and runs the original fixture via `tsc` + `node`,
 2) emits Haxe via ts2hx,
 3) compiles back to TypeScript via genes-ts (`-D genes.ts`),
 4) enforces a typing guardrail (no `any`/`unknown` in the roundtripped user modules),
 5) typechecks and runs the roundtripped output via `tsc` + `node`.
+
+The five fixture `index.ts` files contain top-level `main()` calls that Haxe
+cannot represent as module initialization today. They are deliberately emitted
+in assisted mode, snapshotted with loss markers/manifests, and excluded from the
+semantic claim; the harness invokes the translated Haxe `Main` directly. A
+roundtrip pass therefore proves only the exercised, supported feature subset.
 
 See `docs/ts2hx/USAGE.md` for more detailed workflows and how to apply this to a real codebase.
