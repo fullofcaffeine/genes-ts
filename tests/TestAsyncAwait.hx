@@ -95,6 +95,27 @@ class TestAsyncAwait {
   }
 
   /**
+   * Why: JavaScript member access binds more tightly than `await`. Losing the
+   * awaited expression's boundary would read `length` from the Promise and
+   * await `undefined`, rather than reading it from the resolved array.
+   *
+   * What/How: keep property access directly on a metadata-style await so both
+   * emitters must preserve `(await promise).length`; the runtime assertion is
+   * the semantic oracle and catches output that merely parses successfully.
+   */
+  @:async
+  function awaitedArrayLength(): JsPromise<Int> {
+    return (@:await JsPromise.resolve([10, 20, 30])).length;
+  }
+
+  public function testAwaitedPropertyAccess() {
+    return Promise.ofJsPromise(awaitedArrayLength()).next(length -> {
+      asserts.assert(length == 3);
+      return asserts.done();
+    });
+  }
+
+  /**
    * Why: `@:async` must preserve method-local type parameters when it rewrites
    * generic functions. Downstream code often wraps critical sections and
    * resource lifetimes as `Promise<T>` helpers; losing `T` either breaks the

@@ -160,6 +160,24 @@ class ExprEmitter extends Emitter {
     namePlan = NamePlan.build(module, tempPlan, profile, jsxEmitTsx);
   }
 
+  /**
+   * Emits a value that will immediately receive property or index access.
+   *
+   * Raw syntax templates are opaque expressions, so their internal operators
+   * cannot safely participate in the surrounding access precedence. The shared
+   * `TypeUtil` fact wraps non-identity templates as one semantic value while
+   * retaining the classic emitter's existing object-literal protection.
+   */
+  function emitAccessReceiver(receiver: TypedExpr): Void {
+    final value = addObjectdeclParens(receiver);
+    final wrapRawSyntax = rawSyntaxReceiverNeedsParens(value);
+    if (wrapRawSyntax)
+      write('(');
+    emitValue(value);
+    if (wrapRawSyntax)
+      write(')');
+  }
+
   public function emitExpr(e: TypedExpr) {
     emitPos(e.pos);
     switch e.expr {
@@ -168,7 +186,7 @@ class ExprEmitter extends Emitter {
       case TLocal(v):
         emitLocalVar(v);
       case TArray(e1, e2):
-        emitValue(addObjectdeclParens(e1));
+        emitAccessReceiver(e1);
         write('[');
         emitValue(e2);
         write(']');
@@ -273,7 +291,7 @@ class ExprEmitter extends Emitter {
                 TParenthesis(e));
             case _: e;
           }
-        emitValue(skip(x));
+        emitAccessReceiver(skip(x));
         switch f {
           case FStatic(_.get() => c, _):
             emitStaticField(c, fieldName(f));

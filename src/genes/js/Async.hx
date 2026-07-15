@@ -102,10 +102,14 @@ class Async {
    * `@:await promise` is desugared to a call to this macro later, after the
    * build macro has returned and method locals are in scope.
    *
-   * What/How: Haxe still sees a typed expression. The emitted code is
+   * What/How: Haxe still sees a typed expression. The emitted primitive is
    * `await <promise>`, check-typed to the Promise element type when possible.
-   * The only Dynamic fallback is the existing js.Syntax boundary for cases
-   * where Haxe cannot materialize a ComplexType from the awaited expression.
+   * Because the primitive is carried through `js.Syntax.code`, both emitters'
+   * shared raw-syntax receiver rule must add an expression boundary when the
+   * result is followed by member/index access: `(await promise).field`, never
+   * `await promise.field`. The only Dynamic fallback is the existing
+   * js.Syntax boundary for cases where Haxe cannot materialize a ComplexType
+   * from the awaited expression.
    */
   static function awaitExpression(expr: Expr): Expr {
     final typed = Context.typeExpr(expr);

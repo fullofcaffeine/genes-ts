@@ -53,6 +53,63 @@ class TypeUtil {
   }
 
   /**
+   * Extracts the literal placeholder template from `js.Syntax.code`.
+   *
+   * Why: raw syntax is intentionally opaque to the Haxe typed AST, but a
+   * printer still needs one conservative precedence fact when the expression
+   * becomes the receiver of `.` or `[]`. Keeping extraction here gives the TS
+   * and classic JS emitters the same answer instead of target-specific string
+   * heuristics.
+   *
+   * What/How: unwrap only typed nodes with no independent runtime meaning
+   * (metadata, implicit casts, and parentheses), then accept a literal template
+   * with at least one placeholder argument. Calls such as
+   * `js.Syntax.code("$global")` remain opaque special forms and return `null`.
+   */
+  public static function rawSyntaxCodeTemplate(e: TypedExpr): Null<String> {
+    function unwrap(value: TypedExpr): TypedExpr
+      return switch value.expr {
+        case TMeta(_, inner) | TCast(inner, null) | TParenthesis(inner):
+          unwrap(inner);
+        default:
+          value;
+      }
+
+    return switch unwrap(e).expr {
+      case TCall({
+        expr: TField(_,
+          FStatic(_.get() => {module: 'js.Syntax'},
+            _.get() => {name: 'code'}))
+      }, args) if (args.length > 1):
+        switch args[0].expr {
+          case TConst(TString(template)):
+            template;
+          default:
+            null;
+        }
+      default:
+        null;
+    }
+  }
+
+  /**
+   * Reports whether a raw-syntax expression needs receiver parentheses.
+   *
+   * Why: property/index access binds into the rightmost operand of templates
+   * such as `await {0}` or `{0} ?? null`. Emitting either template directly as
+   * a receiver changes runtime meaning even though the generated file parses.
+   *
+   * What/How: the identity template `{0}` is the only placeholder form whose
+   * precedence is exactly its argument's and can use normal emitter rules.
+   * Every other recognized template is wrapped as a unit. This deliberately
+   * avoids maintaining an incomplete JavaScript/TypeScript precedence parser.
+   */
+  public static function rawSyntaxReceiverNeedsParens(e: TypedExpr): Bool {
+    final template = rawSyntaxCodeTemplate(e);
+    return template != null && StringTools.trim(template) != "{0}";
+  }
+
+  /**
    * Returns the runtime/member name requested by `@:native`.
    *
    * Why: Haxe code often needs a legal Haxe identifier for a field whose

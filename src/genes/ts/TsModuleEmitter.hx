@@ -282,36 +282,6 @@ class TsModuleEmitter extends JsModuleEmitter {
     return e;
   }
 
-  static function jsSyntaxCodeTemplate(e: TypedExpr): Null<String> {
-    return switch unwrapExpr(e).expr {
-      case TCall({
-        expr: TField(_,
-          FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))
-      }, args) if (args.length > 1):
-        switch args[0].expr {
-          case TConst(TString(template)):
-            template;
-          default:
-            null;
-        }
-      default:
-        null;
-    }
-  }
-
-  static function receiverNeedsRawSyntaxParens(e: TypedExpr): Bool {
-    final template = jsSyntaxCodeTemplate(e);
-    if (template == null)
-      return false;
-
-    // Raw syntax placeholder templates are emitted as the author wrote them.
-    // When such a template becomes the receiver of `[]` or `.`, TypeScript
-    // precedence would otherwise bind the access to the template's rightmost
-    // operand, e.g. `{0} ?? null[0]`. Parenthesize every non-trivial placeholder
-    // template receiver rather than maintaining a partial TS precedence parser.
-    return StringTools.trim(template) != "{0}";
-  }
-
   static function mergeDepsInto(into: Dependencies, from: Dependencies) {
     for (path => imports in from.imports) {
       for (dep in imports) {
@@ -2320,7 +2290,7 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   function emitChainedAccessReceiver(receiver: TypedExpr, assertNonNull: Bool) {
     final value = addChainedAccessReceiverParens(receiver);
-    final wrapRawSyntax = receiverNeedsRawSyntaxParens(value);
+    final wrapRawSyntax = TypeUtil.rawSyntaxReceiverNeedsParens(value);
 
     if (assertNonNull)
       write('(');
@@ -2597,7 +2567,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TField(_, f)
         if (!inAssignTarget && isOptionalField(f) && isNarrowedOptionalField(e)):
         emitNarrowedOptionalField(e);
-      case TArray(receiver, index) if (receiverNeedsRawSyntaxParens(receiver)):
+      case TArray(receiver, index) if (TypeUtil.rawSyntaxReceiverNeedsParens(receiver)):
         emitArrayAccess(e, receiver, index);
       case TArray(_, _) if (!inAssignTarget && typeAllowsNull(e.t)):
         // Haxe generally models missing values as `null` while JS property/index
@@ -2631,7 +2601,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         if (normalizeOptionalField)
           write(' ?? null)');
       case TField(x, f)
-        if (receiverNeedsRawSyntaxParens(x)
+        if (TypeUtil.rawSyntaxReceiverNeedsParens(x)
           && !(fieldAccessName(f) == "iterator"
             && genes.util.TypeUtil.isDynamicIterator(x))):
         final normalizeOptionalField = !inAssignTarget
@@ -3826,7 +3796,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TBinop(OpNullCoal, _, _):
         true;
       #end
-      default: final template = jsSyntaxCodeTemplate(e); template != null && template.indexOf('??') != -1;
+      default: final template = TypeUtil.rawSyntaxCodeTemplate(e); template != null && template.indexOf('??') != -1;
     }
   }
 
