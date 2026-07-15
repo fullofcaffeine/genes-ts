@@ -90,7 +90,7 @@
       "repository": "fullofcaffeine/opencodehx",
       "remote": "https://github.com/fullofcaffeine/opencodehx.git",
       "branch": "main",
-      "revision": "8ac36be1d4dbbb58fe5edc7e04cea2392c8f1176",
+      "revision": "26c09de81241efb0b7a36ed4e2dcc15def4e4445",
       "checkout": "opencodehx",
       "compilerCheckout": "genes",
       "maturity": "wip",
@@ -138,6 +138,12 @@
           "class": "runtime-smoke",
           "executable": "npm",
           "args": ["run", "smoke"]
+        },
+        {
+          "id": "classic-esm-application",
+          "class": "runtime-smoke",
+          "executable": "npm",
+          "args": ["run", "test:classic-profile"]
         }
       ],
       "knownObservations": [],
@@ -146,11 +152,6 @@
           "id": "opencode-full-upstream-parity",
           "status": "not-claimed",
           "reason": "The port remains WIP and does not claim complete upstream OpenCode behavior."
-        },
-        {
-          "id": "opencode-classic-esm-application-profile",
-          "status": "not-yet-curated",
-          "reason": "OpenCodeHX currently owns strict TypeScript output; classic application output awaits its own downstream profile."
         },
         {
           "id": "opencode-live-package-network",

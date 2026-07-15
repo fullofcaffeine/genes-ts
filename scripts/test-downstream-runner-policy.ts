@@ -19,6 +19,16 @@ assert.equal(
   undefined,
   "a repaired downstream must not retain a stale expected-failure allowance"
 );
+const openCodeClassic = openCode.commands.find(
+  (command) => command.id === "classic-esm-application"
+);
+assert.ok(openCodeClassic, "the pinned OpenCodeHX classic application profile must remain curated");
+assert.deepEqual(openCodeClassic.args, ["run", "test:classic-profile"]);
+assert.equal(
+  openCode.unsupported.some((entry) => entry.id === "opencode-classic-esm-application-profile"),
+  false,
+  "a passing classic application profile must not remain listed as unsupported"
+);
 
 // Keep exception-policy coverage independent of current downstream health. A
 // real pinned exception must satisfy the manifest's ownership checks as well;
@@ -130,4 +140,4 @@ assert.deepEqual(summarizeDownstreamRun(["baseline-drift", "failed"]), {
   compilerObservation: "downstream-failure-unclassified"
 });
 
-console.log("downstream-runner-policy:ok (18 fail-closed contracts)");
+console.log("downstream-runner-policy:ok (21 fail-closed contracts)");

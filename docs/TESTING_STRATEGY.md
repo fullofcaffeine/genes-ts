@@ -106,12 +106,16 @@ ordered TypeScript diagnostic headline set match exactly; the runner then
 continues later independent policy/unit/smoke stages. A missing, changed, or
 additional diagnostic remains unclassified. A downstream failure becomes a
 blocking compiler defect only after a generic reduced fixture lands here.
+The OpenCodeHX contract exercises both its primary strict TypeScript build and
+its same-source classic ESM application/declaration/runtime profile; this is
+downstream pressure evidence, not a claim of complete OpenCode parity.
 
 ```bash
 yarn report:compatibility --write # intentionally regenerate evidence docs
 yarn test:compatibility-report    # check report + pinned contracts
 yarn test:downstream:contracts    # validate pins/commands without execution
 yarn test:downstream:curated --execute --id pimono-hx # stable Node lane; isolated CI
+yarn test:downstream:curated --execute --id opencodehx # includes strict TS and classic ESM
 yarn test:downstream:curated --execute --allow-host-network --id pimono-hx # explicit local network-policy override
 ```
 

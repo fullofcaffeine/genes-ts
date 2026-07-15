@@ -33,7 +33,7 @@ This is an evidence contract, not a cached CI-success badge. `blocking` and `non
 | Package-shape interoperability | dts2hx declaration entrypoints | 3 | `blocking` |
 | Package-shape interoperability | dts2hx package roots | 2 | `blocking` |
 | Downstream pressure tests | Pinned downstream repositories | 2 | `nonblocking-nightly` |
-| Downstream pressure tests | Explicit unsupported/nonblocking full-app areas | 5 | `nonblocking-nightly` |
+| Downstream pressure tests | Explicit unsupported/nonblocking full-app areas | 4 | `nonblocking-nightly` |
 | Downstream pressure tests | Known pinned compiler/downstream observations | 0 | `nonblocking-nightly` |
 
 ## Toolchain contract
@@ -224,7 +224,7 @@ These jobs are deliberately nonblocking and require the centralized stable Node 
 | Profile | Revision | Curated commands | Pinned baseline | Disposition |
 | --- | --- | ---: | --- | --- |
 | PiMonoHX curated compiler contract | [`c8025aa12a6a`](https://github.com/fullofcaffeine/pimono-hx/commit/c8025aa12a6a9a3901aadb63c097a5df66e03d33) | 8 | `passing` | `nonblocking-nightly` |
-| OpenCodeHX curated compiler contract | [`8ac36be1d4db`](https://github.com/fullofcaffeine/opencodehx/commit/8ac36be1d4dbbb58fe5edc7e04cea2392c8f1176) | 7 | `passing` | `nonblocking-nightly` |
+| OpenCodeHX curated compiler contract | [`26c09de81241`](https://github.com/fullofcaffeine/opencodehx/commit/26c09de81241efb0b7a36ed4e2dcc15def4e4445) | 8 | `passing` | `nonblocking-nightly` |
 
 ## Known pinned-contract observations
 
@@ -241,7 +241,6 @@ None.
 ### OpenCodeHX curated compiler contract
 
 - `opencode-full-upstream-parity` — **not-claimed**: The port remains WIP and does not claim complete upstream OpenCode behavior.
-- `opencode-classic-esm-application-profile` — **not-yet-curated**: OpenCodeHX currently owns strict TypeScript output; classic application output awaits its own downstream profile.
 - `opencode-live-package-network` — **excluded-from-curated**: Live package-manager and external provider effects are outside the no-network compiler contract.
 
 ## Promotion boundary

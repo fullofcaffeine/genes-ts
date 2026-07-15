@@ -322,9 +322,10 @@ The source of truth is Beads epic `genes-09r`.
    generic secondary-native-extern defect fixed by `genes-09r.14`; a pinned
    rerun then isolated a separately owned downstream type-model failure. That
    boundary is now validated in OpenCodeHX itself, and the repinned curated
-   profile passes strict TypeScript plus its independent policy/unit/smoke
-   stages. The runner still verifies the centralized Node lane before touching
-   a checkout; its synthetic policy fixture proves that any future reviewed
+   profile passes strict TypeScript plus independent policy/unit/smoke stages
+   and the same-source classic ESM declaration/runtime application profile.
+   The runner still verifies the centralized Node lane before touching a
+   checkout; its synthetic policy fixture proves that any future reviewed
    exception requires the exact exit code and complete ordered TypeScript
    diagnostic set, while baseline drift or any additional error fails closed.
 5. **`genes-09r.12` — reusable-library retention overlay (landed).** Explicit

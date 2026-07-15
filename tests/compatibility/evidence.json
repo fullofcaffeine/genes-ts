@@ -400,7 +400,7 @@
           "path": "tests/compatibility/downstream-contracts.json",
           "pointer": ["profiles"],
           "child": "unsupported",
-          "expected": 5
+          "expected": 4
         },
         {
           "id": "known-pinned-observations",
