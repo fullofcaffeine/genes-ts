@@ -5,7 +5,6 @@
     "moduleResolution": "NodeNext",
     "strict": true,
     "types": ["node"],
-    "baseUrl": ".",
     "paths": {
       "react": ["./shims/react.d.ts"],
       "react-dom/server": ["./shims/react-dom-server.d.ts"]

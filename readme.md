@@ -6,9 +6,11 @@ source (`.ts` / `.tsx`) or classic Genes ESM JavaScript from the same library.
 
 This repo started as a fork of **Genes** (benmerckx/genes). It intentionally supports **two output modes** (selected by a define) so you can pick the best workflow per project.
 
-The blocking toolchain currently pins **Haxe 4.3.7**. Newer Haxe compatibility
-is established by explicit matrix lanes rather than assumed from the version
-number; that matrix is tracked by `genes-09r.4`.
+The blocking toolchain pins **Haxe 4.3.7**. Generated output is checked against
+TypeScript 5.5, 6, and 7; compiler-API tools use the TS6 compatibility bridge,
+and Haxe 5 preview is a visible non-blocking signal. The exact machine-readable
+contract lives in `config/toolchains.json` and is explained in
+`docs/TOOLCHAINS.md`.
 
 The compiler is production-capable for controlled, tested project profiles.
 Its classic JavaScript runtime path is the more mature surface; TypeScript
@@ -25,6 +27,7 @@ boundary and planned shared architecture.
 - `docs/TROUBLESHOOTING.md` — common failure modes + fixes
 - `docs/OUTPUT_MODES.md` — TS output vs classic Genes JS output
 - `docs/ARCHITECTURE_ROADMAP.md` — readiness boundary and shared TS/JS architecture roadmap
+- `docs/TOOLCHAINS.md` — blocking and preview Haxe/Node/TypeScript lanes
 - `docs/ts2hx/USAGE.md` — ts2hx workflows (TS/JS → Haxe) + roundtrip harness
 - `CONTRIBUTING.md` — contribution guidelines
 
@@ -317,6 +320,8 @@ Classic Genes mode (JS output) also supports:
 - `npm test` (Genes baseline tests)
 - `npm run test:acceptance` (compiler + todoapp acceptance gate)
 - `npm run test:ci` (CI-equivalent local run; includes secret scan)
+- `npm run test:matrix:api` (TS6 Program/TypeChecker bridge)
+- `npm run test:matrix:generated` (curated generated output on TS5/TS6/TS7)
 - `npm run test:genes-ts`
 - `npm run test:genes-ts:minimal`
 - `npm run test:genes-ts:full`

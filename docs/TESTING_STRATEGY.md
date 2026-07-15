@@ -77,6 +77,17 @@ To mirror the CI split locally (classic tests + acceptance without rerunning cla
 npm run test:ci
 ```
 
+Toolchain compatibility is split by responsibility:
+
+```bash
+yarn test:matrix:generated  # curated emitted TS/.d.ts on TS5, TS6, and TS7
+yarn test:matrix:api        # semantic gates and ts2hx on the TS6 Program API
+```
+
+The full CI gate includes the API lane; aggregate generated-output runners own
+the three-compiler matrix internally. See `TOOLCHAINS.md` for exact versions,
+scope, and the non-blocking Haxe preview job.
+
 ## Security scanning
 
 Secrets scanning is part of the standard gates:

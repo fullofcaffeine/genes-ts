@@ -70,8 +70,9 @@ The audit also required two qualifications:
    does not ship the historical programmatic API; the compatibility package
    supplies `tsc6` and re-exports the TS6 API. Haxe lists 4.3.7 as stable and
    5.0.0-preview.1 as a preview. These are valid matrix inputs, but repository
-   support must still be established by executable gates (`genes-09r.4`), not
-   frozen around prose observed on one date.
+   support is now established only within the executable scopes landed by
+   `genes-09r.4` and documented in `TOOLCHAINS.md`, never by prose observed on
+   one date.
 
 ## Landed P0 corrections
 
@@ -225,9 +226,13 @@ The source of truth is Beads epic `genes-09r`.
    stable semantic transcript plus bounded DCE/import/declaration/resource/map
    facts, never byte identity. Its ownership manifest assigns JSX and exact
    source-map/budget expansion to `.5` and `.6` respectively.
-6. **`genes-09r.4` — centralized TypeScript/Haxe toolchain lanes.** Separate
-   generated-output `tsc` compatibility from Program/TypeChecker API
-   compatibility and derive all pins from one manifest.
+6. **`genes-09r.4` — centralized TypeScript/Haxe toolchain lanes (landed).**
+   `config/toolchains.json` now owns TS5 output-floor, TS6 API/output, TS7
+   output-only, stable Haxe/Node, and non-blocking Haxe-preview pins. Curated
+   generated projects compile on all TS lanes; semantic harnesses and ts2hx
+   import the TS6 Program API through explicit adapters. Scripts, CI, release,
+   package aliases, `.haxerc`, and obsolete tsconfig policy are checked for
+   drift by `yarn test:versions`.
 7. **`genes-6za` plus package-shape fixtures.** Close CommonJS `export =`
    constructor/type identity and exercise ESM, CJS, subpaths, conditional
    exports, and type/value namespaces.

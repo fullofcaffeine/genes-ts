@@ -5,7 +5,6 @@
     "moduleResolution": "NodeNext",
     "strict": true,
     "types": ["node"],
-    "baseUrl": ".",
     "paths": {
       "mime": ["./shims/mime.d.cts"]
     },

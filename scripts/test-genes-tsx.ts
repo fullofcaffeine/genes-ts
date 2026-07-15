@@ -3,6 +3,7 @@ import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { assertNoUnsafeTypes } from "./typing-policy.js";
+import { runGeneratedTypeScriptMatrix } from "./toolchains.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -72,13 +73,9 @@ assertNoUnsafeTypes({
   ignoreTopLevelDirs: ["genes", "haxe", "js", "tink", "components"]
 });
 assertJsxNegativeConsumer("tests/genes-ts/snapshot/react/out/tsx/src-gen/Main.tsx");
-run("npx", [
-  "-y",
-  "--package",
-  "typescript@5.5.4",
-  "-c",
-  "tsc -p tests/genes-ts/snapshot/react/tsconfig.tsx.json"
-]);
+runGeneratedTypeScriptMatrix(
+  "tests/genes-ts/snapshot/react/tsconfig.tsx.json"
+);
 run("node", ["tests/genes-ts/snapshot/react/out/tsx/dist/index.js"]);
 
 run("haxe", ["tests/genes-ts/snapshot/react/build-tsx-jsx-source.hxml"]);
@@ -90,13 +87,9 @@ assertNoUnsafeTypes({
   ignoreTopLevelDirs: ["genes", "haxe", "js", "tink", "components"]
 });
 assertJsxNegativeConsumer("tests/genes-ts/snapshot/react/out/tsx-jsx-source/src-gen/Main.tsx");
-run("npx", [
-  "-y",
-  "--package",
-  "typescript@5.5.4",
-  "-c",
-  "tsc -p tests/genes-ts/snapshot/react/tsconfig.tsx-jsx-source.json"
-]);
+runGeneratedTypeScriptMatrix(
+  "tests/genes-ts/snapshot/react/tsconfig.tsx-jsx-source.json"
+);
 run("node", ["tests/genes-ts/snapshot/react/out/tsx-jsx-source/dist/index.js"]);
 
 rmrf("tests/genes-ts/snapshot/react/out/tsx-classic");
@@ -109,13 +102,9 @@ assertNoUnsafeTypes({
   ignoreTopLevelDirs: ["genes", "haxe", "js", "tink", "components"]
 });
 assertJsxNegativeConsumer("tests/genes-ts/snapshot/react/out/tsx-classic/src-gen/Main.tsx");
-run("npx", [
-  "-y",
-  "--package",
-  "typescript@5.5.4",
-  "-c",
-  "tsc -p tests/genes-ts/snapshot/react/tsconfig.tsx.classic.json"
-]);
+runGeneratedTypeScriptMatrix(
+  "tests/genes-ts/snapshot/react/tsconfig.tsx.classic.json"
+);
 run("node", ["tests/genes-ts/snapshot/react/out/tsx-classic/dist/index.js"]);
 
 run("haxe", ["tests/genes-ts/snapshot/react/build-ts.hxml"]);
@@ -127,11 +116,7 @@ assertNoUnsafeTypes({
   ignoreTopLevelDirs: ["genes", "haxe", "js", "tink", "components"]
 });
 assertJsxNegativeConsumer("tests/genes-ts/snapshot/react/out/ts/src-gen/Main.ts");
-run("npx", [
-  "-y",
-  "--package",
-  "typescript@5.5.4",
-  "-c",
-  "tsc -p tests/genes-ts/snapshot/react/tsconfig.ts.json"
-]);
+runGeneratedTypeScriptMatrix(
+  "tests/genes-ts/snapshot/react/tsconfig.ts.json"
+);
 run("node", ["tests/genes-ts/snapshot/react/out/ts/dist/index.js"]);

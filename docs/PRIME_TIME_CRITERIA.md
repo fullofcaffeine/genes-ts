@@ -80,9 +80,11 @@ gates are tracked by `genes-09r.6`.
   compiler-API tools are tested separately from `tsc` output compatibility.
 - Stable Haxe is blocking and Haxe preview is a separately labeled signal.
 
-The centralized toolchain matrix is tracked by `genes-09r.4`. Until it lands,
-the versions pinned by the repository tests are the supported evidence, not an
-open-ended compatibility promise.
+The centralized matrix has landed in `genes-09r.4`. TS5.5 is the generated-code
+floor, TS6 is both an output lane and the Program/TypeChecker bridge, and TS7 is
+an output-only lane. Haxe 4.3.7 remains blocking; Haxe 5 preview is explicitly
+non-blocking. `docs/TOOLCHAINS.md` defines the bounded ownership of each lane;
+none of them implies compatibility beyond the projects assigned to it.
 
 ### R6 — Migration tools fail closed
 
@@ -107,6 +109,8 @@ support matrix remain `genes-09r.7`.
 | Strict classic declaration consumer | `yarn test:classic:dts` | Exercised `.d.ts` nullability and closed interfaces under strict flags | Every declaration in arbitrary programs is sound |
 | Exact nullish matrix | `yarn test:genes-ts:full`, `yarn test:classic:dts`, and `yarn test` | Shared null/undefined/omission contracts agree across TS declarations and both runtime modes | Every host API has already been classified |
 | Same-source differential corpus | `yarn test:dual-output` | The checked source has identical TS/classic/standard-Haxe behavior, strict classic declarations, bounded output shape, and pinned vanilla core evidence | Universal parity, JSX, every npm package shape, or exact source-map accuracy |
+| Generated toolchain matrix | `yarn test:matrix:generated` | Full, React, dual-output, and classic-declaration projects remain accepted by TS5/TS6/TS7 | Every arbitrary generated project or future TypeScript release |
+| Compiler-API bridge | `yarn test:matrix:api` | Semantic gates and ts2hx build and execute against the TS6 Program API | A TypeScript 7 Program API, which does not exist in this toolchain contract |
 | Lexical typing policy | Included by TS runners | Selected literal unsafe forms are absent outside its exclusions | Inferred/imported `any`, broad structural holes, or semantic nullish mismatches |
 | Snapshots | `yarn test:genes-ts:snapshots` | Expected deterministic shape for current cases | Runtime or type soundness by itself |
 | Todoapp acceptance | `yarn test:acceptance` | A real Node/browser integration profile | General compiler completeness |

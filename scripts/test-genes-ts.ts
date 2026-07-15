@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { assertExportedSurfacePolicy } from "./exported-surface-policy.js";
 import { assertNoUnsafeTypes } from "./typing-policy.js";
+import { runTypeScript } from "./toolchains.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -68,12 +69,15 @@ function assertStdTypesCanMergeAcrossGeneratedPackages(): void {
     ].join("\n")
   );
 
-  run("npx", [
-    "-y",
-    "--package",
-    "typescript@5.5.4",
-    "-c",
-    `tsc --target ES2022 --module NodeNext --moduleResolution NodeNext --strict --noEmit --skipLibCheck false --typeRoots ${relDir}/empty ${relDir}/consumer.ts`
+  runTypeScript("legacyFloor", [
+    "--target", "ES2022",
+    "--module", "NodeNext",
+    "--moduleResolution", "NodeNext",
+    "--strict",
+    "--noEmit",
+    "--skipLibCheck", "false",
+    "--typeRoots", `${relDir}/empty`,
+    `${relDir}/consumer.ts`
   ]);
 }
 
@@ -106,14 +110,9 @@ assertExportedSurfacePolicy({
   boundaryManifestPath: "tests/typing-policy/exported-surface-boundaries.json"
 });
 
-// Use a pinned TypeScript version for consistent behavior.
-// Note: `npx typescript@X tsc -p ...` is ambiguous in some npm versions.
-run("npx", [
-  "-y",
-  "--package",
-  "typescript@5.5.4",
-  "-c",
-  "tsc -p tests/genes-ts/snapshot/basic/tsconfig.json"
+runTypeScript("legacyFloor", [
+  "-p",
+  "tests/genes-ts/snapshot/basic/tsconfig.json"
 ]);
 assertNoHelperBaseAny("tests/genes-ts/snapshot/basic/out/dist");
 assertStdTypesCanMergeAcrossGeneratedPackages();
@@ -148,12 +147,9 @@ assertNoUnsafeTypes({
   ignoreTopLevelDirs: ["genes", "haxe", "js", "tink"],
   allowUnsafeTypeFiles: []
 });
-run("npx", [
-  "-y",
-  "--package",
-  "typescript@5.5.4",
-  "-c",
-  "tsc -p tests/genes-ts/snapshot/resource-imports/tsconfig.json"
+runTypeScript("legacyFloor", [
+  "-p",
+  "tests/genes-ts/snapshot/resource-imports/tsconfig.json"
 ]);
 
 rmrf("tests/genes-ts/no-js-es/out");
@@ -238,10 +234,7 @@ if (!/\bvar parsed: LargeRecord =/.test(loweredRecordBlock)) {
   throw new Error("final lowered record object should recover the shared base name");
 }
 
-run("npx", [
-  "-y",
-  "--package",
-  "typescript@5.5.4",
-  "-c",
-  "tsc -p tests/genes-ts/no-js-es/tsconfig.json"
+runTypeScript("legacyFloor", [
+  "-p",
+  "tests/genes-ts/no-js-es/tsconfig.json"
 ]);

@@ -28,6 +28,10 @@ This document specifically describes the **TypeScript source output mode** (enab
 - Treating successful TypeScript compilation alone as proof that every exported
   interface, imported type, declaration, or npm package shape is precise.
 
+Haxe 5 preview runs as a non-blocking early-warning job; it is not a support
+claim and does not change the Haxe 4.3.7 user contract. TypeScript output and
+compiler-API lanes are defined separately in `../TOOLCHAINS.md`.
+
 ## How users invoke the compiler (Haxe 4.3.7)
 
 This target runs under the Haxe **JS platform** and is enabled via a define.

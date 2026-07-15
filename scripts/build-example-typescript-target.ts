@@ -2,6 +2,7 @@ import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { runTypeScript } from "./toolchains.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -44,8 +45,9 @@ run(
   { cwd: repoRoot }
 );
 
-// Use a pinned TypeScript version for consistent behavior.
-run("npx", ["-y", "--package", "typescript@5.5.4", "-c", "tsc -p tsconfig.node-next.json"]);
+runTypeScript("legacyFloor", [
+  "-p",
+  "examples/typescript-target/tsconfig.node-next.json"
+]);
 
 run("node", ["dist/index.js"]);
-

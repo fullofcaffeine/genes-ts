@@ -3,6 +3,7 @@ import { existsSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { assertExportedSurfacePolicy } from "./exported-surface-policy.js";
+import { runGeneratedTypeScriptMatrix } from "./toolchains.js";
 
 /**
  * Strictly consumes classic Genes declarations as an external TypeScript user.
@@ -68,10 +69,4 @@ assertExportedSurfacePolicy({
   scope: "classic-dts-imap"
 });
 
-run("npx", [
-  "-y",
-  "--package",
-  "typescript@5.5.4",
-  "-c",
-  "tsc -p tests/classic-dts/tsconfig.json"
-]);
+runGeneratedTypeScriptMatrix("tests/classic-dts/tsconfig.json", { emit: false });

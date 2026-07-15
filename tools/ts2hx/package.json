@@ -8,7 +8,7 @@
     "ts2hx": "./dist/cli.js"
   },
   "scripts": {
-    "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
+    "build": "node ../../scripts/run-typescript.mjs apiBridge -p tsconfig.json",
     "prets2hx": "yarn build",
     "ts2hx": "node dist/cli.js",
     "test:snapshots": "yarn build && node dist/test-snapshots.js",

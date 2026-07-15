@@ -3,6 +3,7 @@ import path from "path";
 import { execFileSync } from "child_process";
 import { emitProjectToHaxe } from "./haxe/emit.js";
 import { loadProject } from "./project.js";
+import { runTypeScriptApiBridge } from "./toolchains.js";
 
 function resolveHaxeBin(toolRoot: string): string {
   const env = process.env.HAXE_BIN;
@@ -111,7 +112,6 @@ function main(): number {
   const repoRoot = path.resolve(toolRoot, "..", "..");
   const haxeBin = resolveHaxeBin(toolRoot);
 
-  const tscBin = path.join(repoRoot, "node_modules", "typescript", "bin", "tsc");
   const fixtures: Array<{ name: string; marker: string; basePackage: string }> = [
     { name: "roundtrip-fixture", marker: "ROUNDTRIP_OK", basePackage: "ts2hx_roundtrip" },
     { name: "roundtrip-advanced", marker: "ROUNDTRIP_ADV_OK", basePackage: "ts2hx_roundtrip_adv" },
@@ -126,7 +126,10 @@ function main(): number {
     const origDist = path.join(toolRoot, ".tmp", `${fixture.name}-orig-dist`);
     rmrf(origDist);
     fs.mkdirSync(origDist, { recursive: true });
-    run("node", [tscBin, "-p", fixtureTsconfig, "--outDir", origDist], repoRoot);
+    runTypeScriptApiBridge(
+      repoRoot,
+      ["-p", fixtureTsconfig, "--outDir", origDist]
+    );
     const origOut = runCapture("node", [path.join(origDist, "index.js")], repoRoot);
     requireMarker(origOut, fixture.marker, `original fixture (${fixture.name})`);
 
@@ -216,7 +219,7 @@ function main(): number {
     rmrf(roundtripDist);
     fs.mkdirSync(roundtripDist, { recursive: true });
 
-    run("node", [tscBin, "-p", roundtripTsconfig], repoRoot);
+    runTypeScriptApiBridge(repoRoot, ["-p", roundtripTsconfig]);
     const roundtripOut = runCapture("node", [path.join(roundtripDist, "index.js")], repoRoot);
     requireMarker(roundtripOut, fixture.marker, `roundtripped output (${fixture.name})`);
   }

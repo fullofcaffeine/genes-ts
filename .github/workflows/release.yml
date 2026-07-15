@@ -15,9 +15,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  NODE_VERSION: "20"
   YARN_VERSION: "1.22.22"
-  HAXE_VERSION: "4.3.7"
 
 jobs:
   release:
@@ -33,9 +31,11 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - id: toolchains
+        run: node scripts/emit-toolchain-outputs.mjs
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: ${{ steps.toolchains.outputs.node-stable }}
           cache: yarn
           cache-dependency-path: yarn.lock
       - run: corepack enable
@@ -45,12 +45,12 @@ jobs:
         with:
           path: |
             ~/haxe
-          key: ${{ runner.os }}-lix-haxe-${{ env.HAXE_VERSION }}-${{ hashFiles('.haxerc', 'haxe_libraries/*.hxml', 'yarn.lock') }}
+          key: ${{ runner.os }}-lix-haxe-${{ steps.toolchains.outputs.haxe-stable }}-${{ hashFiles('.haxerc', 'haxe_libraries/*.hxml', 'yarn.lock') }}
           restore-keys: |
-            ${{ runner.os }}-lix-haxe-${{ env.HAXE_VERSION }}-
+            ${{ runner.os }}-lix-haxe-${{ steps.toolchains.outputs.haxe-stable }}-
       - run: yarn install --frozen-lockfile
-      - run: yarn lix install haxe ${{ env.HAXE_VERSION }}
-      - run: yarn lix use haxe ${{ env.HAXE_VERSION }}
+      - run: yarn lix install haxe ${{ steps.toolchains.outputs.haxe-stable }}
+      - run: yarn lix use haxe ${{ steps.toolchains.outputs.haxe-stable }}
       - run: yarn test:ci
       - run: yarn build:scripts
       - name: Configure git author

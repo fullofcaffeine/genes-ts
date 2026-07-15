@@ -3,6 +3,7 @@ import path from "path";
 import { execFileSync } from "child_process";
 import { emitProjectToHaxe, type TranslationMode } from "./haxe/emit.js";
 import { loadProject } from "./project.js";
+import { runTypeScriptApiBridge } from "./toolchains.js";
 
 function resolveHaxeBin(toolRoot: string): string {
   const env = process.env.HAXE_BIN;
@@ -408,8 +409,7 @@ function main(): number {
           include: ["**/*.tsx"]
         }, null, 2)}\n`
       );
-      const tscBin = path.resolve(toolRoot, "..", "..", "node_modules", "typescript", "bin", "tsc");
-      run("node", [tscBin, "-p", roundtripConfig], repoRoot);
+      runTypeScriptApiBridge(repoRoot, ["-p", roundtripConfig]);
       assertStrongGeneratedTypeScript(path.join(tsxDir, fixture.basePackage), fixture.name);
     }
   }

@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { runGeneratedTypeScriptMatrix } from "./toolchains.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -186,17 +187,11 @@ ok(requiredStringArray(vanillaUnknown, "acceptedDivergences").length >= 3);
 rmSync(path.join(fixtureRoot, "out"), { recursive: true, force: true });
 
 run("haxe", ["tests/output-modes/build-ts.hxml"]);
-run("node", [
-  "node_modules/typescript/bin/tsc",
-  "-p",
-  "tests/output-modes/tsconfig.generated.json"
-]);
+runGeneratedTypeScriptMatrix("tests/output-modes/tsconfig.generated.json");
 run("haxe", ["tests/output-modes/build-classic.hxml"]);
-run("node", [
-  "node_modules/typescript/bin/tsc",
-  "-p",
-  "tests/output-modes/tsconfig.consumer.json"
-]);
+runGeneratedTypeScriptMatrix("tests/output-modes/tsconfig.consumer.json", {
+  emit: false
+});
 run("haxe", ["tests/output-modes/build-standard.hxml"]);
 
 const tsTrace = parseJsonLine(
@@ -266,6 +261,10 @@ const resourceTs = readFileSync(
   path.join(fixtureRoot, "out/ts/src-gen/haxe/Resource.ts"),
   "utf8"
 );
+const bytesTs = readFileSync(
+  path.join(fixtureRoot, "out/ts/src-gen/haxe/io/Bytes.ts"),
+  "utf8"
+);
 const stdTypesTs = readFileSync(
   path.join(fixtureRoot, "out/ts/src-gen/StdTypes.ts"),
   "utf8"
@@ -274,6 +273,7 @@ ok(tsCore.includes('from "node:path"'));
 ok(classicCore.includes('from "node:path"'));
 ok(tsApi.includes('import type {DualTypeOnly}'));
 ok(resourceTs.includes("str?: string"));
+ok(bytesTs.includes("(buf.buffer as ArrayBuffer)"));
 ok(stdTypesTs.includes("interface Uint8Array { bufferValue?: ArrayBuffer }"));
 ok(stdTypesTs.includes("interface ArrayBuffer { hxBytes?: object; bytes?: Uint8Array }"));
 

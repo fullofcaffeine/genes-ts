@@ -3,6 +3,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } fr
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { assertExportedSurfacePolicy } from "./exported-surface-policy.js";
+import { runGeneratedTypeScriptMatrix } from "./toolchains.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -189,15 +190,9 @@ cpSync(path.join(repoRoot, "tests/genes-ts/full/tests"), path.join(outRoot, "tes
   recursive: true
 });
 
-// Use a pinned TypeScript version for consistent behavior.
-run("npx", ["-y", "--package", "typescript@5.5.4", "-c", "tsc -p tests/genes-ts/full/tsconfig.json"]);
-
-run("npx", [
-  "-y",
-  "--package",
-  "typescript@5.5.4",
-  "-c",
-  "tsc -p tests/genes-ts/full/tsconfig.nullish.json"
-]);
+runGeneratedTypeScriptMatrix("tests/genes-ts/full/tsconfig.json");
+runGeneratedTypeScriptMatrix("tests/genes-ts/full/tsconfig.nullish.json", {
+  emit: false
+});
 
 run("node", ["tests/genes-ts/full/out/dist/index.js"]);

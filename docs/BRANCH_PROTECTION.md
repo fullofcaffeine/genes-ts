@@ -13,10 +13,15 @@ From GitHub Actions:
 
 - `Secrets (gitleaks)`
 - `Vulnerabilities (OSV)`
-- `Classic Genes (Haxe 4.3.7)`
+- `Classic Genes (stable, ubuntu-latest)`
+- `Classic Genes (nextLts, ubuntu-latest)`
 - `genes-ts (TS output + todoapp E2E)`
 - `Analyze (JavaScript)` (CodeQL)
 
 Optional (PR-only):
 
 - `Dependency Review`
+
+Do not require `Haxe preview (non-blocking)` or the macOS classic signal. Their
+workflow-level `continue-on-error` policy is intentional. Exact versions come
+from `config/toolchains.json`; see `TOOLCHAINS.md`.

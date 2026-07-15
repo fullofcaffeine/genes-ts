@@ -3,6 +3,7 @@ import { rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { assertNoUnsafeTypes } from "./typing-policy.js";
+import { runTypeScript } from "./toolchains.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -30,13 +31,9 @@ assertNoUnsafeTypes({
   ignoreTopLevelDirs: ["genes", "haxe", "js", "tink"]
 });
 
-// Use a pinned TypeScript version for consistent behavior.
-run("npx", [
-  "-y",
-  "--package",
-  "typescript@5.5.4",
-  "-c",
-  "tsc -p tests/genes-ts/snapshot/minimal/tsconfig.json"
+runTypeScript("legacyFloor", [
+  "-p",
+  "tests/genes-ts/snapshot/minimal/tsconfig.json"
 ]);
 
 run("node", ["tests/genes-ts/snapshot/minimal/out/dist/index.js"]);

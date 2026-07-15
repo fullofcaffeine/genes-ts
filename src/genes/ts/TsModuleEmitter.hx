@@ -2828,6 +2828,13 @@ class TsModuleEmitter extends JsModuleEmitter {
             emitNullNarrowedBranch(check, false,
               () -> emitValueWithExpectedType(expected, branch));
         }
+      case TField(_, field)
+        if (StdlibTypeOverrides.needsArrayBufferAssertion(e.t, field)):
+        // Haxe's 4.3.7 extern guarantees ArrayBuffer here; TS6+ widens an
+        // unparameterized typed array's property to ArrayBufferLike.
+        write('(');
+        super.emitValue(e);
+        write(' as ArrayBuffer)');
       case TField(_, f) if (isOptionalField(f) && isNarrowedOptionalField(e)):
         emitNarrowedOptionalField(e);
       case TField(_, f)

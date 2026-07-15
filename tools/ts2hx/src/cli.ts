@@ -2,7 +2,7 @@
 
 import fs from "fs";
 import path from "path";
-import ts from "typescript";
+import ts from "./typescript-api.js";
 import {
   emitProjectToHaxe,
   type TranslationDiagnostic,

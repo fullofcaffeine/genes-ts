@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { runLegacyTypeScript } from "../toolchains.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const fixtureDir = path.dirname(__filename);
@@ -20,12 +21,9 @@ function assertIncludes(source, expected, label) {
 
 rmSync(path.join(fixtureDir, "out"), { recursive: true, force: true });
 run("haxe", ["tests/genes-ts/repros/computed-native-member-call/build.hxml"]);
-run("npx", [
-  "-y",
-  "--package",
-  "typescript@5.5.4",
-  "-c",
-  "tsc -p tests/genes-ts/repros/computed-native-member-call/tsconfig.json"
+runLegacyTypeScript([
+  "-p",
+  "tests/genes-ts/repros/computed-native-member-call/tsconfig.json"
 ]);
 
 const source = readFileSync(path.join(fixtureDir, "out/src-gen/Main.ts"), "utf8");
@@ -36,4 +34,3 @@ assertIncludes(source, "stream[Symbol.asyncIterator]().next()", "computed method
 assertIncludes(declarations, "[Symbol.asyncIterator](): AsyncIterator<number>;", "computed declaration method");
 
 console.log("computed-native-member-call-repro-ok");
-

@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "node": {
+    "stable": "20",
+    "nextLts": "22"
+  },
+  "haxe": {
+    "stable": "4.3.7",
+    "preview": "5.0.0-preview.1"
+  },
+  "typescript": {
+    "legacyFloor": {
+      "dependency": "@typescript/legacy",
+      "package": "typescript",
+      "version": "5.5.4",
+      "binary": "bin/tsc",
+      "contract": "generated-output"
+    },
+    "apiBridge": {
+      "dependency": "typescript",
+      "package": "@typescript/typescript6",
+      "version": "6.0.2",
+      "binary": "bin/tsc6",
+      "contract": "program-api-and-generated-output"
+    },
+    "current": {
+      "dependency": "@typescript/native",
+      "package": "typescript",
+      "version": "7.0.2",
+      "binary": "bin/tsc",
+      "contract": "generated-output-only"
+    }
+  }
+}

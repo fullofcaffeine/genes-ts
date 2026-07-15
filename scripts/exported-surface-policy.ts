@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import ts from "typescript";
+import ts from "./typescript-api.js";
 
 export type ExportedSurfaceFindingKind = "any" | "unknown" | "string-index" | "number-index";
 
@@ -53,6 +53,7 @@ interface ExportRoot {
 }
 
 interface AuditContext {
+  readonly program: ts.Program;
   readonly checker: ts.TypeChecker;
   readonly repoRoot: string;
   readonly isIncluded: (sourceFile: ts.SourceFile) => boolean;
@@ -87,6 +88,7 @@ export function auditExportedSurfaces(options: ExportedSurfaceAuditOptions): Rea
   const isIncluded = createSourceMatcher(repoRoot, options.includePaths);
   const findings: ExportedSurfaceFinding[] = [];
   const context: AuditContext = {
+    program,
     checker,
     repoRoot,
     isIncluded,
@@ -279,9 +281,13 @@ function visitType(context: AuditContext, type: ts.Type, surfacePath: string, ro
     if ((type.flags & ts.TypeFlags.Object) !== 0) {
       const objectType = type as ts.ObjectType;
       if ((objectType.objectFlags & ts.ObjectFlags.Reference) !== 0) {
+        const reference = objectType as ts.TypeReference;
         context.checker
-          .getTypeArguments(objectType as ts.TypeReference)
-          .forEach((argument, index) => visitType(context, argument, `${surfacePath}.typeArg[${index}]`, root));
+          .getTypeArguments(reference)
+          .forEach((argument, index) => {
+            if (isDefaultLibraryWeakDefault(context, reference, argument, index)) return;
+            visitType(context, argument, `${surfacePath}.typeArg[${index}]`, root);
+          });
       }
     }
 
@@ -373,6 +379,40 @@ function visitType(context: AuditContext, type: ts.Type, surfacePath: string, ro
   } finally {
     context.activeTypes.delete(type);
   }
+}
+
+/**
+ * Ignores only implicit weak defaults owned by TypeScript's built-in library.
+ *
+ * Why: TS6 resolves `IterableIterator<string>` to three arguments whose two
+ * omitted iterator protocol slots default to `any`. Treating those resolved
+ * defaults as emitted API would make every standard iterator fail the genes
+ * policy even though generated syntax supplied only the precise `string`.
+ *
+ * What/How: suppress an `any`/`unknown` argument only when the corresponding
+ * type parameter belongs to a default-library source file and declares the
+ * same weak default. An explicit `IterableIterator<string, any>` remains
+ * visible through syntax traversal, while `Promise<any>` and imported user
+ * declarations remain semantic findings because they do not meet this rule.
+ */
+function isDefaultLibraryWeakDefault(
+  context: AuditContext,
+  reference: ts.TypeReference,
+  argument: ts.Type,
+  index: number
+): boolean {
+  const weakFlag = argument.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown);
+  if (weakFlag === 0) return false;
+  const parameter = reference.target.typeParameters?.[index];
+  if (parameter === undefined) return false;
+  const defaultType = context.checker.getDefaultFromTypeParameter(parameter);
+  if (defaultType === undefined
+    || (defaultType.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) !== weakFlag) {
+    return false;
+  }
+  return (parameter.symbol?.declarations ?? []).some(declaration =>
+    context.program.isSourceFileDefaultLibrary(declaration.getSourceFile())
+  );
 }
 
 function shouldExpandLocalStructure(context: AuditContext, type: ts.Type): boolean {

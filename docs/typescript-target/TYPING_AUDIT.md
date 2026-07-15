@@ -123,8 +123,8 @@ precedence as well as the semantic classification.
 
 1. `genes-09r.5`: broaden JSX negative coverage across intrinsic props,
    components, children, spread props, and imported JSX namespaces.
-2. `genes-09r.4`: separate emitted-code compatibility lanes from
-   TypeScript-compiler-API compatibility and centralize toolchain versions.
+2. `genes-09r.6`: add exact source-map, deterministic-tree, and output-budget
+   evidence without weakening the now-landed TS5/TS6/TS7 matrix.
 3. Extract the next shared type-projection seam only when a concrete mapping
    change would otherwise duplicate semantic choices between the printer and
    `TypeReferenceCollector`.

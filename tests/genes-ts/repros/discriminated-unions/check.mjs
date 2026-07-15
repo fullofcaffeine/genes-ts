@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { runLegacyTypeScript } from "../toolchains.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const fixtureDir = path.dirname(__filename);
@@ -26,12 +27,9 @@ function assertNotIncludes(source, unexpected, label) {
 
 rmSync(path.join(fixtureDir, "out"), { recursive: true, force: true });
 run("haxe", ["tests/genes-ts/repros/discriminated-unions/build.hxml"]);
-run("npx", [
-  "-y",
-  "--package",
-  "typescript@5.5.4",
-  "-c",
-  "tsc -p tests/genes-ts/repros/discriminated-unions/tsconfig.json"
+runLegacyTypeScript([
+  "-p",
+  "tests/genes-ts/repros/discriminated-unions/tsconfig.json"
 ]);
 
 const source = readFileSync(path.join(fixtureDir, "out/src-gen/Main.ts"), "utf8");
