@@ -1,10 +1,21 @@
 # genes-ts
 
-**genes-ts** is a **Haxe → TypeScript** compiler that runs on the Haxe **JS platform** and emits **split ESM TypeScript source** (`.ts` / `.tsx`).
+**genes-ts** is a general-purpose **Haxe → TypeScript / JavaScript** compiler
+that runs on the Haxe **JS platform**. It emits either split ESM TypeScript
+source (`.ts` / `.tsx`) or classic Genes ESM JavaScript from the same library.
 
 This repo started as a fork of **Genes** (benmerckx/genes). It intentionally supports **two output modes** (selected by a define) so you can pick the best workflow per project.
 
-Requires **Haxe 4.3.7+**.
+The blocking toolchain currently pins **Haxe 4.3.7**. Newer Haxe compatibility
+is established by explicit matrix lanes rather than assumed from the version
+number; that matrix is tracked by `genes-09r.4`.
+
+The compiler is production-capable for controlled, tested project profiles.
+Its classic JavaScript runtime path is the more mature surface; TypeScript
+implementation output, classic declarations, npm package shapes, and
+same-source dual-output behavior have explicit compatibility gates and a
+remaining roadmap. See `docs/ARCHITECTURE_ROADMAP.md` for the precise readiness
+boundary and planned shared architecture.
 
 ## Documentation
 
@@ -13,6 +24,7 @@ Requires **Haxe 4.3.7+**.
 - `docs/typescript-target/TYPING_POLICY.md` — TS typing rules + profiles
 - `docs/TROUBLESHOOTING.md` — common failure modes + fixes
 - `docs/OUTPUT_MODES.md` — TS output vs classic Genes JS output
+- `docs/ARCHITECTURE_ROADMAP.md` — readiness boundary and shared TS/JS architecture roadmap
 - `docs/ts2hx/USAGE.md` — ts2hx workflows (TS/JS → Haxe) + roundtrip harness
 - `CONTRIBUTING.md` — contribution guidelines
 
@@ -21,15 +33,15 @@ Requires **Haxe 4.3.7+**.
 - **Two output modes** in one library:
   - Haxe → **TypeScript source** (`-D genes.ts`)
   - Haxe → **ESM JavaScript + optional `.d.ts`** (classic Genes mode)
-- **Strict-by-default** TS output (typed, idiomatic, ESM)
-- **Target-polymorphic helper types** such as `genes.ts.Undefinable<T>` and `genes.ts.Unknown`: rich TypeScript when emitting TS, equivalent runnable ES6 when emitting classic JS
+- **Strict TS builds** for the supported fixtures, with closed generated interfaces and negative consumer checks
+- **Target-polymorphic helper types** such as `genes.ts.Undefinable<T>` and `genes.ts.Unknown`: rich TypeScript in TS mode and paired runtime behavior in classic JS for the exercised helpers
 - **React authoring** from Haxe:
   - TSX output (`.tsx`) or low-level `React.createElement(...)` output (`.ts`)
-  - optional inline markup (`return <div>...</div>;`)
+  - inline markup (`return <div>...</div>;`), default-on in TypeScript mode
 - **JS/TS interop helpers** via `genes.ts.Imports` (consume existing TS/TSX easily)
 - **Async/await sugar** (`@:async` + `await(...)`) emitting native `async`/`await`
-- **SOTA harness**: snapshots + `tsc` typecheck + runtime smoke + full todoapp E2E (Playwright)
-- **ts2hx experiment**: TS/JS → Haxe migration tool (standalone or roundtrip TS→Haxe→TS)
+- **Layered harness**: snapshots, strict `tsc`, negative type consumers, runtime smoke, classic JS assertions, and todoapp E2E (Playwright)
+- **ts2hx experiment**: fail-closed TS/JS → Haxe subset migration plus explicitly lossy assisted scaffolding
 - **Secret scanning** in CI + local (`gitleaks`)
 - **Dependency vulnerability scanning** in CI + local (`osv-scanner`)
 
@@ -96,7 +108,12 @@ Default when `-D genes.ts` is **not** set.
 - No TS compiler required (useful when TS compilation is a net negative)
 - Best for:
   - Haxe-first projects that want modern split ESM output
-  - keeping the pipeline small/fast while still emitting strong `.d.ts`
+  - keeping the runtime pipeline small and fast
+
+Classic `.d.ts` generation now preserves `Null<T>` precisely and has a strict
+external-consumer gate. Treat declarations as a bounded, improving surface
+until the semantic exported-type audit in `genes-09r.1` covers inferred and
+imported unsafety as well as literal `any` tokens.
 
 ## Target-polymorphic helpers
 
@@ -153,16 +170,21 @@ erase while the same runtime checks (`typeof`, `Array.isArray`,
 for `JSON.parse`, `fetch().json()`, plugin payloads, host callbacks, caught JS
 values, and other places where the runtime value is real but not yet trusted.
 
-This is useful because one Haxe source can target both workflows:
+This is useful because one Haxe source is designed to target both workflows:
 
-- **TypeScript mode** keeps the most precise, idiomatic TS surface possible.
-- **Classic JS mode** erases TS-only annotations while preserving equivalent ES6 runtime behavior.
+- **TypeScript mode** keeps a precise, idiomatic TS surface for the exercised contracts.
+- **Classic JS mode** erases TS-only annotations while preserving the paired helpers' tested ES6 runtime behavior.
 
-That means you can write Haxe with TypeScript in mind, compile to rich TypeScript for review and ecosystem interop, or compile to plain ES6 when performance, build simplicity, or runtime constraints make that preferable.
+That means you can write Haxe with TypeScript in mind, compile to rich
+TypeScript for review and ecosystem interop, or compile to plain ES6 when
+performance, build simplicity, or runtime constraints make that preferable.
+Comprehensive equivalence across runtime behavior, declarations, JSX,
+resources, DCE, and source maps remains experimental until the authoritative
+same-source corpus tracked by `genes-cn4` lands.
 
 ES6 support is not a lowest-common-denominator mode. TypeScript output should stay precise and readable; portability is implemented through maintainable compiler architecture and target-specific emitters.
 
-## React TSX authoring (optional)
+## React TSX authoring
 
 genes-ts includes a compile-time JSX-ish macro that lowers to React nodes:
 
@@ -176,11 +198,16 @@ TSX vs low-level mode:
 - Emit `.tsx` (idiomatic TSX): set your `-js` output to `.../index.tsx`
 - Emit `.ts` (low-level): set your `-js` output to `.../index.ts`
 
-Inline markup is opt-in (rewrite `@:markup "<...>"` → `JSX.jsx("<...>")`):
-- `-D genes.react.inline_markup`
-- `@:jsx_inline_markup` on the class (or `-D genes.react.inline_markup_all`)
+Inline markup rewriting is default-on in `-D genes.ts` builds. Disable it for a
+build with `-D genes.react.no_inline_markup`, or for one class with
+`@:jsx_no_inline_markup`. Outside TypeScript mode, `@:jsx_inline_markup`,
+`-D genes.react.inline_markup`, and `-D genes.react.inline_markup_all` are
+explicit opt-ins to the parser rewrite only.
 
-Note: React TSX authoring is designed for `-D genes.ts` builds (TypeScript output). Classic Genes JS output does not currently lower JSX markers.
+React JSX lowering is currently a TypeScript-output capability. Classic Genes
+JS output does not lower the resulting JSX markers, so JSX-bearing source is
+not yet part of the honest same-source dual-output subset. `genes-09r.5` tracks
+a target-neutral JSX intent and explicit classic capability policy.
 
 See `docs/typescript-target/REACT_HXX.md`.
 
@@ -203,7 +230,8 @@ See `docs/typescript-target/ASYNC_AWAIT.md`.
 
 ## Importing existing JS/TS/TSX
 
-Use `genes.ts.Imports` for ergonomic imports that work in both output modes:
+Use `genes.ts.Imports` for ergonomic imports whose supported forms have paired
+TS/classic lowering:
 
 ```haxe
 import genes.ts.Imports;
@@ -235,11 +263,14 @@ See `docs/typescript-target/DEBUGGING.md`.
 
 ## ts2hx (TS/JS → Haxe, experimental)
 
-ts2hx is an experimental TS/JS → Haxe transpiler intended as a migration tool.
+ts2hx is an experimental TS/JS → Haxe subset translator and migration
+scaffolder. Strict mode fails closed for constructs the translator knows it
+cannot preserve; assisted mode records explicit losses. Exit success is not a
+blanket semantic-equivalence certificate.
 
 Workflows:
-- **Standalone**: TS/JS → Haxe-for-JS → JS (classic Genes) or TS (genes-ts)
-- **Roundtrip**: TS → Haxe → TS (genes-ts) → JS (tsc) parity harness
+- **Standalone**: supported TS/JS subset → Haxe-for-JS → JS (classic Genes) or TS (genes-ts)
+- **Roundtrip**: selected TS → Haxe → TS (genes-ts) → JS (tsc) differential harness
 
 Docs:
 - `docs/ts2hx/USAGE.md`
@@ -270,8 +301,10 @@ See `docs/SECURITY.md`.
 - `-D genes.ts.jsx_classic` — when emitting `.tsx`, also emit `import * as React from "react"` so the output compiles under TypeScript `jsx: "react"` (classic runtime). Default expects `jsx: "react-jsx"`.
 
 React/markup:
-- `-D genes.react.inline_markup` — enable inline markup rewrite (scoped; requires `@:jsx_inline_markup` on classes).
-- `-D genes.react.inline_markup_all` — enable inline markup rewrite globally.
+- `-D genes.react.no_inline_markup` — disable the default inline-markup rewrite.
+- `@:jsx_no_inline_markup` — disable inline markup for one class.
+- `-D genes.react.inline_markup` / `@:jsx_inline_markup` — opt in outside `-D genes.ts`.
+- `-D genes.react.inline_markup_all` — force-enable inline markup globally.
 
 Classic Genes mode (JS output) also supports:
 - `-D dts` — emit `.d.ts` alongside the generated `.js`.

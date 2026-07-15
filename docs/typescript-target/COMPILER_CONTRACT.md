@@ -8,8 +8,14 @@ This document specifically describes the **TypeScript source output mode** (enab
 
 - Emit **idiomatic TypeScript** (both code style and project/module structure).
 - Be **semantically faithful** to Haxe→JS on Haxe 4.3.7.
-- Type-check under a **strict-by-default** TS configuration, while providing pragmatic escape hatches.
-- Keep TypeScript-specific helper abstractions target-polymorphic: they may emit richer TS types in `-D genes.ts` mode, but they must erase or degrade to equivalent runnable ES6 in classic Genes mode without lowering TypeScript output quality.
+- Type-check the declared supported profiles under a strict TS configuration,
+  while keeping escape hatches narrow and auditable. A passing `tsc` build is
+  one evidence layer, not a blanket public-surface soundness proof.
+- Keep TypeScript-specific helper abstractions target-polymorphic: they may emit
+  richer TS types in `-D genes.ts` mode, but must have a tested classic erasure,
+  runtime lowering, or explicit target guard without lowering TypeScript output
+  quality. Comprehensive same-source equivalence is tracked separately by
+  `genes-cn4`.
 - Support two runtime profiles:
   - **Default:** Haxe runtime compatibility (reflection-friendly).
   - **Opt-in:** minimal runtime / “TS-first” mode (less Haxe runtime surface).
@@ -19,6 +25,8 @@ This document specifically describes the **TypeScript source output mode** (enab
 
 - Haxe 5 `--custom-target`. Haxe 4.3.7 first.
 - Guaranteed Haxe→TS→JS sourcemap composition. (We will ship Haxe→TS maps early; composition is a later milestone.)
+- Treating successful TypeScript compilation alone as proof that every exported
+  interface, imported type, declaration, or npm package shape is precise.
 
 ## How users invoke the compiler (Haxe 4.3.7)
 
@@ -138,8 +146,11 @@ This is intended for bundler workflows and TS `moduleResolution: "Bundler"`.
 
 ## TS strictness
 
-- **Default:** `strict: true`
-- Still configurable by the consuming project or by future compiler “profiles”.
+- **Supported/recommended profile:** `strict: true`; repository fixtures use
+  strict TypeScript configurations.
+- The consuming project owns `tsconfig.json`. Compiling under looser settings
+  does not change the compiler's type-emission contract, while a passing strict
+  build still proves only the public/consumer cases the project exercises.
 
 ## `Dynamic` mapping
 

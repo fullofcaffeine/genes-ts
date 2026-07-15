@@ -6,6 +6,12 @@ genes-ts aims to generate **idiomatic, strongly typed TypeScript** as the
 This document defines the typing goals, the supported profiles, and the rules
 for when we permit escape hatches like `any`.
 
+It is a normative policy, not a claim that a green `tsc` build proves every
+generated public surface sound. Current evidence includes closed-interface
+negative consumers and a strict classic declaration consumer. The semantic
+export audit tracked by `genes-09r.1` will additionally detect inferred and
+imported unsafe types that a source-text scan cannot see.
+
 ## Goals
 
 1) **Generated TS should look like real TS**
@@ -101,8 +107,12 @@ the underlying type.
 
 ### `Dynamic`
 
-- Default: `Dynamic` → `any` (because it is literally “dynamic” in Haxe).
+- Legacy default: `Dynamic` → `any`, matching the explicitly dynamic Haxe
+  source contract.
 - Optional: `Dynamic` → `unknown` via `-D genes.ts.dynamic_unknown`.
+- New framework, fixture, and public API code should prefer typed externs,
+  abstracts, JSON algebras, or decoders. `Dynamic` is a boundary escape hatch,
+  not the normal way to make generated TypeScript compile.
 
 ## Escape hatches (`any` / `unknown`)
 
@@ -127,6 +137,28 @@ Example:
 // genes-ts: any is required here because $hxClasses is a dynamic registry
 // populated at runtime with heterogeneous values (constructors, enums, etc).
 ```
+
+## How the policy is enforced
+
+No single gate is treated as proof of type soundness:
+
+1. **Strict `tsc` builds** validate generated syntax, module resolution, and the
+   assignments exercised by positive fixtures.
+2. **Negative consumers** use `@ts-expect-error`; if an interface opens or a
+   result becomes `any`, the now-unused directive fails the build.
+3. **The lexical typing scan** cheaply rejects selected literal `any`/`unknown`
+   forms outside its documented runtime/stdlib exclusions.
+4. **The classic declaration consumer** installs the generated declarations as
+   an external package and compiles with `skipLibCheck: false` and strict
+   nullability/indexing options.
+5. **The semantic exported-surface audit** (`genes-09r.1`, open) will walk
+   exported symbols through the TypeScript Compiler API and report inferred or
+   imported `any`, unjustified `unknown`, and unapproved index signatures.
+
+Passing only the first or third layer must not be described as proof that the
+public API is strongly typed. Any approved dynamic boundary should eventually
+carry a stable ID, owner, reason, and provenance rather than relying on a broad
+directory exclusion.
 
 ## Non-goals
 

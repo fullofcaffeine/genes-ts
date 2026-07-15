@@ -35,11 +35,13 @@ feature surface beyond the quick examples in `readme.md`.
 
 ## Product / planning
 
-- `PRD_TODOAPP_HARNESS.md` — todoapp as prime-time harness + ts2hx roundtrip fixture
-- `PRIME_TIME_CRITERIA.md` — definition of “prime time” + where it’s tested
+- `PRD_TODOAPP_HARNESS.md` — historical todoapp integration-harness + ts2hx roundtrip PRD
+- `PRIME_TIME_CRITERIA.md` — bounded-readiness criteria and evidence map (historical filename)
+- `ARCHITECTURE_ROADMAP.md` — audit disposition, shared TS/JS architecture, and dependency-ordered roadmap
 - `DOCS_PLAN.md` — docs PRD/roadmap (onboarding + workflows)
 
 ## Experimental
 
-- `ts2hx/PLAN.md` — long-term TS/JS → Haxe transpiler experiment (post-1.0)
+- `ts2hx/PLAN.md` — long-term strict-subset migration and assisted-scaffolding experiment
 - `ts2hx/USAGE.md` — how to use ts2hx alone and with genes-ts
+- `ts2hx/PORTABILITY.md` — future non-JS portability grades and refactoring checklist

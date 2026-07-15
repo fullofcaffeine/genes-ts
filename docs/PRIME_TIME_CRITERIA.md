@@ -1,85 +1,120 @@
-# genes-ts “prime time” criteria (and where we test it)
+# genes-ts bounded-readiness criteria
 
-This document defines what we mean by **“prime time”** for genes-ts and maps each
-criterion to concrete tests/harnesses in this repo.
+This file keeps its historical name so existing links remain stable. It now
+defines the evidence required before genes-ts can make a broad "prime-time"
+claim. The current truthful position is **production-capable for controlled,
+tested profiles**, not universal readiness.
 
-This is the “definition of done” for the `genes-705` epic and complements
-`docs/PRD_TODOAPP_HARNESS.md`.
+The original `genes-705` backlog established a substantial compiler and
+harness. Passing that backlog did not prove every exported type, npm package
+shape, or same-source TS/JS behavior. The architecture and evidence roadmap is
+tracked by epic `genes-09r` and documented in `ARCHITECTURE_ROADMAP.md`.
 
----
+## Readiness dimensions
 
-## Criteria
+### R1 — Closed, precise public TypeScript surfaces
 
-### C1 — Idiomatic, strongly-typed TS/TSX output
+- Ordinary Haxe interfaces expose their complete public contract and reject
+  unknown members.
+- Exported types do not acquire inferred or imported `any`/unjustified
+  `unknown` through compiler fallbacks.
+- Null, undefined, optional, and absent values remain distinct where their
+  Haxe/JavaScript contracts differ.
 
-genes-ts emits TypeScript that:
+Closed-interface emission and its negative consumer have landed. A
+TypeScript-Compiler-API exported-surface audit and broader negative matrix are
+still tracked by `genes-09r.1`; the reusable public-surface model is
+`genes-09r.10`, and shared nullish modeling is `genes-09r.2`.
 
-- is **idiomatic** (module structure, naming, TSX output where appropriate)
-- is **strongly typed** and does not degrade into “JS in `.ts` files”
-- avoids `any`/`unknown` in user code as a rule (runtime boundary only)
-- keeps strict nullability semantics coherent under `tsc --strict`
+### R2 — Runtime correctness in both output modes
 
-### C2 — Deterministic, diff-friendly output
+- The classic Genes ESM suite remains blocking.
+- TS output type-checks and executes representative Node/browser workloads.
+- One authoritative source corpus emits TS, classic JS, and classic
+  declarations, then compares stable semantic traces rather than source-byte
+  identity.
 
-Given the same inputs, genes-ts output should be stable across runs:
+The existing mode-specific suites are substantial. The authoritative paired
+corpus is still open as `genes-cn4`, so broad dual-output equivalence remains
+experimental.
 
-- stable file layout
-- stable import ordering/specifiers
-- stable formatting where it affects diffs
+### R3 — Honest declaration and ecosystem interop
 
-### C3 — Runtime correctness (Node + browser)
+- Classic `.d.ts` is compiled by a strict external consumer with
+  `skipLibCheck: false`.
+- ESM, CommonJS `export =`, type/value namespace, secondary extern types,
+  subpaths, and conditional exports have focused package-shape fixtures.
+- dts2hx ingestion and genes-ts emission share fixture contracts rather than
+  hidden implementation coupling.
 
-Generated output must:
+Precise classic `Null<T>` and the strict declaration consumer have landed.
+CommonJS `export =` remains `genes-6za`; the cross-tool bridge is
+`genes-09r.8`.
 
-- typecheck under `tsc --noEmit` (and compile when needed)
-- run correctly in Node (server)
-- run correctly in the browser (web bundle)
+### R4 — Deterministic, diagnosable output
 
-### C4 — Practical TS ecosystem interop (both directions)
+- Repeated clean builds have identical normalized tree hashes.
+- Representative generated tokens and runtime stack frames map to exact Haxe
+  source positions.
+- Bytes, tokens, temporary declarations, module counts, and imports have
+  reviewed budgets.
+- Unsupported target capabilities fail with stable source-positioned
+  diagnostics rather than being silently ignored.
 
-genes-ts must support:
+Snapshot stability exists today. Exact source-map, determinism, and budget
+gates are tracked by `genes-09r.6`.
 
-- **Haxe importing TS/TSX** (typed, ergonomic)
-- **TS importing generated Haxe modules** (typed, ergonomic)
+### R5 — Explicit profiles and supported toolchains
 
-This is core to the “Haxe now → TS later” migration story.
+- `ts-strict`, `classic-esm`, and `classic-dts` consume shared semantic facts
+  while retaining target-specific syntax policy.
+- Generated output is tested on declared TypeScript compatibility lanes;
+  compiler-API tools are tested separately from `tsc` output compatibility.
+- Stable Haxe is blocking and Haxe preview is a separately labeled signal.
 
-### C5 — Profiles / knobs (portable vs TS-first)
+The centralized toolchain matrix is tracked by `genes-09r.4`. Until it lands,
+the versions pinned by the repository tests are the supported evidence, not an
+open-ended compatibility promise.
 
-genes-ts must keep multiple modes well-defined and tested:
+### R6 — Migration tools fail closed
 
-- TS output vs classic Genes JS output (baseline stays green)
-- reflection-friendly runtime vs `-D genes.ts.minimal_runtime`
-- TSX vs low-level React output mode
-- import specifier policy (`.js` vs extensionless), where relevant
+- ts2hx strict mode never silently omits a root file or unsupported top-level
+  statement.
+- Assisted output records every known loss and cannot be mistaken for strict
+  success.
+- Semantic support is demonstrated by original-TS versus translated-Haxe
+  differential fixtures, not by compilation alone.
 
----
+Structured diagnostics, transactional output, strict/assisted dispositions,
+and exit codes have landed. The minimal semantic IR and wider differential
+support matrix remain `genes-09r.7`.
 
-## Coverage map (tests/harnesses)
+## Evidence map
 
-| Criterion | Where it’s exercised | Gate / command |
-| --- | --- | --- |
-| C1 (typed TS) | compiler snapshot fixtures + todoapp strict typecheck | `yarn test:genes-ts:snapshots`, `yarn build:example:todoapp` |
-| C1 (no unsafe types) | typing policy scan over todoapp-generated modules | `yarn build:example:todoapp` (runs `typing-policy` check) |
-| C2 (determinism) | intended-vs-generated diffs (`dist-ts/src-gen` vs `src-gen`) | `yarn test:acceptance` / `yarn build:example:todoapp` |
-| C3 (Node runtime) | todoapp server smoke + Playwright runs against it | `yarn test:acceptance` |
-| C3 (browser runtime) | todoapp web bundle + Playwright UI flows | `yarn test:acceptance` |
-| C4 (interop both ways) | todoapp interop fixtures (see PRD milestones) | `yarn test:acceptance` |
-| C5 (profiles) | dedicated genes-ts test runners + todoapp variants | `yarn test:genes-ts:minimal`, `yarn test:genes-ts:tsx` |
-| baseline | classic Genes JS output | `yarn test` |
+| Evidence | Current gate | What it proves | What it does not prove |
+| --- | --- | --- | --- |
+| Classic JS assertions | `yarn test` | Exercised classic runtime semantics | Declaration precision or complete dual-output parity |
+| TS aggregate fixtures | `yarn test:genes-ts` and profile runners | Generated syntax/imports plus exercised runtime behavior | All public surfaces are precise merely because `tsc` passes |
+| Closed-interface negative consumer | `yarn test:genes-ts:full` | Unknown ordinary interface members are rejected | All inferred/imported exported types avoid unsafe fallbacks |
+| Strict classic declaration consumer | `yarn test:classic:dts` | Exercised `.d.ts` nullability and closed interfaces under strict flags | Every declaration in arbitrary programs is sound |
+| Lexical typing policy | Included by TS runners | Selected literal unsafe forms are absent outside its exclusions | Inferred/imported `any`, broad structural holes, or semantic nullish mismatches |
+| Snapshots | `yarn test:genes-ts:snapshots` | Expected deterministic shape for current cases | Runtime or type soundness by itself |
+| Todoapp acceptance | `yarn test:acceptance` | A real Node/browser integration profile | General compiler completeness |
+| Full repository gate | `yarn test:ci` | All current blocking layers agree at the pinned revisions | Future toolchains, arbitrary npm packages, or unsupported syntax |
 
-Notes:
+## Current disposition
 
-- “One command” CI gate: `yarn test:ci` (local == CI).
-- Todoapp’s snapshot contract is documented in `examples/todoapp/README.md`.
+- **Controlled downstream use:** go with pinned revisions and the relevant
+  strict/runtime/declaration gates.
+- **Broad public prime-time or universal type-safety claim:** not yet.
+- **Classic runtime:** first-class and the more mature runtime surface.
+- **Classic declarations:** bounded and improving, assessed separately from JS
+  runtime readiness.
+- **Same-source dual output:** supported for selected tested subsets; general
+  parity remains experimental.
+- **ts2hx:** useful as strict subset migration and assisted scaffolding, not a
+  lossless TypeScript-to-Haxe compiler.
 
----
-
-## Current status
-
-The original “prime time” backlog for `genes-705` has been completed and is now
-guarded by the CI gates listed above (`yarn test:ci` is the single-command
-equivalent).
-
-Ongoing work (new features, typing tightening, new fixtures) should be tracked in
-beads (`bd`), not in this document.
+Every newly discovered downstream defect should first become a minimized,
+generic compiler fixture. PiMonoHX and OpenCodeHX are pressure-test harnesses,
+not sources of product-specific compiler branches.

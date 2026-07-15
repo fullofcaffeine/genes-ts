@@ -6,6 +6,7 @@ its output is not production-ready merely because the generated Haxe compiles.
 
 - Plan: `docs/ts2hx/PLAN.md`
 - Usage: `docs/ts2hx/USAGE.md`
+- Future portability: `docs/ts2hx/PORTABILITY.md`
 - Status: strict failure contract plus a bounded supported subset; not production-ready
 
 ## What is it for?

@@ -4,6 +4,22 @@ genes-ts supports **two output modes** within the same library (`-lib genes-ts`)
 
 The mode is selected by the presence of `-D genes.ts`.
 
+## Readiness by surface
+
+The two modes are first-class compiler paths, but their evidence is not
+identical:
+
+| Surface | Current disposition | Tested boundary |
+| --- | --- | --- |
+| TypeScript implementation source | Bounded-ready | Strict ESM/NodeNext and React profiles represented by repository fixtures, with closed-interface negative consumers and runtime checks. |
+| Classic ESM JavaScript runtime | Bounded-ready and the more mature runtime path | The blocking classic assertion suite on the pinned Haxe/Node profile. |
+| Classic `.d.ts` | Bounded and improving | Precise `Null<T>` plus a strict external consumer; a semantic exported-type audit is still open as `genes-09r.1`. |
+| Same-source dual output | Experimental as a general guarantee | Selected helpers have paired coverage; the authoritative runtime/declaration/resource/JSX/DCE corpus is tracked by `genes-cn4`. |
+
+Passing `tsc` proves that the exercised generated program is accepted. It does
+not by itself prove that every exported type is complete or precise. The
+negative and semantic export gates are therefore separate product evidence.
+
 ## 1) TypeScript source output (recommended for “Haxe → TS” migration)
 
 Enable with:
@@ -27,6 +43,8 @@ Related knobs:
 
 React authoring:
 - `genes.react.JSX.jsx(...)` + inline markup are intended for this mode (see `docs/typescript-target/REACT_HXX.md`).
+- Inline markup is default-on in this mode; JSX markers are not currently
+  lowered by the classic printer.
 
 Typing:
 - See `docs/typescript-target/TYPING_POLICY.md`.
@@ -77,11 +95,18 @@ both TS-default and ES6-profile output.
 ## Picking a mode
 
 - If your goal is “Haxe is a better language on top of TS, and we may port to TS later” → use **TypeScript output** (`-D genes.ts`).
-- If your goal is “we keep writing Haxe, but want modern ESM output + excellent `.d.ts`” → use **classic Genes JS output** (omit `-D genes.ts`, keep `-D dts`).
+- If your goal is “we keep writing Haxe, but want modern ESM output plus
+  reviewed declarations” → use **classic Genes JS output** (omit
+  `-D genes.ts`, keep `-D dts`). The JS runtime and declaration readiness are
+  intentionally assessed separately.
 
 ## TypeScript-aware helpers that still run as ES6
 
-The two modes are not meant to force two Haxe codebases. genes-ts should let you write one Haxe source tree and choose the output profile later.
+The two modes are not meant to force two Haxe codebases. Ordinary Haxe that
+does not use TS-specific helper types should compile through either profile,
+and helper abstractions should declare an honest lowering or target guard.
+Selected helpers already have paired coverage; comprehensive same-source
+equivalence remains an explicit test objective rather than a blanket claim.
 
 For JS/TS ecosystem projects, the recommended authoring model is **TS-minded Haxe**. Write normal Haxe, but keep the TypeScript boundary contracts in mind: use Haxe typedefs, enums, abstracts, externs, and focused `genes.ts` helpers where they make DOM, Node, npm, or generated declaration shapes more precise.
 
@@ -127,7 +152,12 @@ In classic Genes JS output:
 - helper runtime behavior remains plain JavaScript/ES6.
 - unsupported helpers should fail with a documented target guard instead of producing misleading output.
 
-In practice, that lets a project compile the same Haxe source to rich, idiomatic TypeScript when it wants reviewable TS or deep ecosystem interop, and to plain ES6 when it wants a simpler/faster runtime pipeline.
+In the currently exercised subset, that lets a project compile the same Haxe
+source to rich, idiomatic TypeScript when it wants reviewable TS or deep
+ecosystem interop, and to plain ES6 when it wants a simpler/faster runtime
+pipeline. Code using JSX is presently TS-output-only; classic JSX behavior will
+become either an explicit lowering or a source-positioned capability error
+under `genes-09r.5`.
 
 This portability goal must not reduce TypeScript quality. The TypeScript emitter should still print precise, idiomatic, readable TS. Internally, the compiler should model these helpers with shared semantics and target-specific emitters/printers rather than scattering one-off string rewrites through the codebase.
 

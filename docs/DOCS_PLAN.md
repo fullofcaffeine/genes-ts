@@ -130,7 +130,7 @@ Both directions must be covered:
    - Async/await strategy and constraints
    - Known gaps: what to expect, how to contribute fixtures
 
-8) `docs/ts2hx/PORTABILITY.md` (NEW, future-facing)
+8) `docs/ts2hx/PORTABILITY.md` (LANDED, future-facing)
    - What “TS → other targets” really means in practice
    - How to structure adapter layers
    - Refactoring checklist to move from JS-centric to portable subset
@@ -167,4 +167,3 @@ Both directions must be covered:
 ## Beads tracking
 
 Implementation tasks are tracked in beads under an epic (see `bd list`).
-

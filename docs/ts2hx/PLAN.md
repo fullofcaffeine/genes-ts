@@ -1,4 +1,4 @@
-# ts2hx: TS/JS → Haxe transpiler (post-1.0 experiment)
+# ts2hx: TS/JS → Haxe migration/scaffolding experiment
 
 This is a **low-priority, post-1.0 experiment** for genes-ts:
 
@@ -6,14 +6,16 @@ This is a **low-priority, post-1.0 experiment** for genes-ts:
 - Output: **Haxe source** that can compile (initially) to **JavaScript** via genes-ts (or classic Genes)
 - Primary goal: make it **easier to port TS/JS projects into Haxe**, so later work can target other Haxe backends (or be refactored toward other ecosystems) with less manual rewrite.
 
-Terminology: this is a **transpiler / migration tool**, not a “reverse compiler”.
+Terminology: this is a **subset translator and migration tool**, not a reverse
+compiler or a lossless general TypeScript-to-Haxe compiler.
 
-## Current status (Feb 1, 2026)
+## Current status (July 14, 2026)
 
-ts2hx has moved beyond “v0 sketch” and now supports a practical subset of modern
-TypeScript for **Haxe-for-JS** compilation, with deterministic golden/snapshot tests.
+ts2hx supports a practical subset of modern TypeScript for **Haxe-for-JS**
+compilation, with deterministic golden/snapshot tests and selected runtime
+differentials.
 
-What’s implemented (best-effort):
+What is implemented:
 
 - Project loading via `tsconfig.json` (Program + TypeChecker) and deterministic file traversal
 - Import/export coverage (default/named/namespace, local export lists, common re-export forms)
@@ -24,33 +26,54 @@ What’s implemented (best-effort):
   - function/arrow params (defaults + rest)
 - Optional chaining and logical assignment operators (`??=`, `&&=`, `||=`) best-effort
 - Haxe smoke compilation for all fixtures, and node runtime smoke for most fixtures
+- A default `strict-js` mode with structured, source-positioned diagnostics,
+  transactional output, and nonzero status for known unsupported source files
+  or top-level statements
+- An `assisted` mode whose incomplete output carries explicit loss markers and
+  a deterministic `ts2hx-manifest.json`
 
-Important limitations (intentional for now):
+Important limitations:
 
 - This is still **JS-centric**: some operators are lowered via `js.Syntax.code(...)` for truthiness semantics.
 - Not all TS syntax is accepted yet (TSX is not a core focus unless/until a fixture demands it).
 - Some patterns are supported only in the “high signal” shapes we see in fixtures (e.g. logical assigns currently require identifier LHS).
+- Exit `0` means no currently diagnosed unsupported construct. It does not prove
+  semantic equivalence for categories that still use direct approximating
+  lowering, including undefined/default arguments, uninitialized values,
+  coercion, `continue`, switch fallthrough, `this`/prototypes, exceptions, and
+  async scheduling.
 
 Tracking:
 
-- The long-term backlog remains under the `genes-dhg` epic (beads).
+- Existing implementation history remains under `genes-dhg`; fail-closed
+  semantic IR and differential work is tracked by `genes-09r.7`.
 
-## North star (new requirement)
+## North star
 
-The long-term goal is for `ts2hx` to be able to take **arbitrarily complex real-world
-TypeScript projects** and produce **Haxe** that:
+The long-term goal is to give every source item in a real-world TypeScript
+project an explicit, machine-readable disposition:
 
-- **Compiles** (initially) for the **JS platform** (genes-ts or classic Genes)
-- Is **behaviorally equivalent** enough to unblock migration
-- Uses **best-effort typing** (fall back only when required)
+- supported losslessly under a declared strict contract;
+- supported on JS through a named, recorded runtime helper;
+- emitted only as explicitly incomplete assisted scaffolding; or
+- rejected with a stable source-positioned diagnostic.
 
-Important nuance: “support all TS” should be interpreted as:
-- **All TS syntax / module shapes** are accepted without the tool crashing.
-- If a construct can’t be expressed cleanly in Haxe, the tool may emit:
-  - narrow `Dynamic`/`Any`-style escape hatches at the boundary,
-  - small generated `extern` stubs, and/or
-  - targeted `js.Syntax.code(...)` wrappers (kept rare and well-isolated),
-  so the overall project still compiles and runs.
+"Accepting" a project means complete inventory without crashes or silent
+omission; it does not mean fabricating executable output for unsupported
+semantics. Strict mode may use narrow named helpers only when the helper has a
+tested semantic contract. Dynamic fallbacks, generated extern approximations,
+and raw syntax that lose information belong in assisted output unless their
+behavior has been explicitly supported and differentially tested.
+
+The planned contracts are:
+
+- **`strict-js`**: preserve the declared supported TypeScript/JavaScript subset
+  on Haxe's JS target, including named JS-specific helpers recorded in the
+  manifest;
+- **`strict-portable`**: future subset that avoids JS-only runtime semantics and
+  carries a portability grade; it is not implemented today;
+- **`assisted`**: reviewable inventory/scaffolding with explicit losses and no
+  executable-parity claim.
 
 ---
 
@@ -67,11 +90,14 @@ In practice, “compile TS to other languages” is harder than “compile Haxe 
   - The type system is extremely expressive and structural (unions/intersections/conditional types/declaration merging), which often does not map cleanly to nominal/other target languages without a runtime and/or a restricted subset.
 
 Implication for ts2hx:
-- We should treat this primarily as a **migration tool** (TS/JS → Haxe-for-JS), not as “TS → portable Haxe for all targets”.
-- A realistic path to “support all TS” is:
-  - prioritize **JS behavioral equivalence**,
-  - accept that some portions may translate into “less-idiomatic” Haxe initially,
-  - provide clear escape hatches rather than blocking on perfect modeling.
+- Treat it primarily as a **migration tool** (TS/JS → Haxe-for-JS), not as
+  “TS → portable Haxe for all targets”.
+- Demonstrate JS behavioral equivalence feature by feature with differential
+  traces.
+- Prefer an honest diagnostic to compiling Haxe whose runtime behavior is only
+  an undocumented approximation.
+- Explore portable Haxe later through explicit grades and cross-target tests;
+  see `PORTABILITY.md`.
 
 ---
 
@@ -101,9 +127,11 @@ Implication for ts2hx:
 
 ### v1+ goals (long-term)
 
-- **Full TS project acceptance**: parse + type-check + emit for “real” TS projects (including TSX).
+- **Full project inventory**: parse and type-check real TS projects (including
+  TSX) and give every reachable item a deterministic support disposition.
 - **Import/export completeness**: handle all module syntaxes/re-exports encountered in the wild.
-- **Statement/expression completeness**: cover the full TS/JS statement and expression set.
+- **Statement/expression completeness**: either preserve a statement/expression
+  under the selected strict mode or report why it is unsupported.
 - **Type coverage**: best-effort mapping for advanced TS types (unions, intersections, generics, mapped/conditional types, declaration merging), with explicit fallbacks when required.
 - **Interop strategy** for “unrepresentable” JS patterns (prototype mutation, dynamic property bags, `Proxy`, etc.) that still compiles for JS via tightly scoped escape hatches.
 
@@ -136,6 +164,27 @@ Cons:
 Alternative: implement in Haxe (compile to Node), like `haxiomic/dts2hx`.
 - This can make sharing utilities easier and keeps everything “in Haxe”, but it requires maintaining TS compiler API externs which change frequently.
 
+### Add a minimal semantic IR, not a TypeScript AST clone
+
+The current direct AST-to-string emitter remains useful for already safe,
+simple forms. Migrate only categories that currently lose semantics into a
+small validated representation:
+
+- values: `Undefined`, `Null`, `AbsentParameter`, and `Uninitialized`;
+- expressions: `EvalSequence`, `TempBinding`, `Read`, `Write`, `Call`,
+  `Construct`, `Coerce`, and `Truthiness`;
+- control flow: `If`, `Loop` with an explicit `continueStep`, `Switch` with
+  fallthrough, `Try`/`catch`/`finally`, `Return`, and `Throw`;
+- modules: value, type-only, side-effect, default, `export =`, and merged
+  namespace identities;
+- provenance/support data on every normalized node.
+
+The translator decides support and produces diagnostics before printing. The
+printer renders only validated IR and must not invent defaults, silently drop
+statements, or insert generic "unsupported" throws. Migrate one risk category
+at a time behind snapshots and TypeScript-versus-Haxe runtime traces. This work
+is `genes-09r.7`.
+
 ### Output strategy (important constraint)
 
 Target **Haxe-for-JS** first:
@@ -167,9 +216,10 @@ When a type can’t be expressed:
 
 ---
 
-## Testing strategy (SOTA, cheap, deterministic)
+## Testing strategy (layered and deterministic)
 
-Primary testing tool: **golden/snapshot tests** over emitted Haxe.
+Snapshots over emitted Haxe are a shape/determinism layer, not the semantic
+oracle.
 
 Recommended harness:
 - `fixtures/` directory containing small TS/TSX inputs (each fixture is its own mini-project).
@@ -178,11 +228,18 @@ Recommended harness:
   2) normalizes output (line endings, paths, maybe formatting),
   3) diffs against committed snapshots.
 
-Add a small number of integration checks:
-- compile emitted Haxe to JS (genes-ts) for at least a couple fixtures
-- execute a tiny runtime smoke test (node) for those fixtures
+Integration layers must additionally:
 
-This mirrors the approach used successfully by `dts2hx` (diff-based stability), but adapted to our “source-to-source” context.
+- compile supported output through Haxe/genes-ts;
+- compare stable runtime traces from original TypeScript with translated
+  Haxe-to-JS for every feature declared supported;
+- assert that strict failures publish no partial output tree;
+- verify one disposition record for every root source file;
+- keep assisted losses machine-readable and visibly marked in generated files.
+
+This retains the useful dts2hx-style diff stability while recognizing that
+implementation-source translation needs semantic differentials that declaration
+conversion does not.
 
 ---
 

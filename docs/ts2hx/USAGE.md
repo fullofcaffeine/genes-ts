@@ -12,8 +12,10 @@ It is designed to help with **migration**:
   - move toward other Haxe targets later, after manual portability refactors.
 
 It is not a lossless TypeScript-to-Haxe compiler. Current success is meaningful
-only in strict mode; assisted output is explicitly incomplete and must be
-reviewed. Portable non-JS Haxe is a later exploration, not a current guarantee.
+only inside the declared strict subset; assisted output is explicitly
+incomplete and must be reviewed. Portable non-JS Haxe is a later exploration,
+not a current guarantee; see `PORTABILITY.md` for proposed grades and the
+required adapter/refactoring checklist.
 
 ## Build the tool
 

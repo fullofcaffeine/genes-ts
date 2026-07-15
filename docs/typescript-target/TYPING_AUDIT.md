@@ -1,58 +1,95 @@
-# TypeScript Typing Audit (genes-ts)
+# TypeScript typing audit (genes-ts)
 
-This document tracks where `any` / `unknown` / “stringly” typing appears in **generated**
-TypeScript output and why, with the goal of producing **idiomatic, strongly typed TS**
-that is still faithful to Haxe semantics.
+This document records the current typing evidence and remaining threat model for
+generated TypeScript. It distinguishes intended policy from demonstrated
+coverage; a green `tsc` run is necessary but not sufficient evidence of a sound
+public API.
 
 ## Scope
 
-- **User modules** (your app code): should not emit `any` / `unknown` unless the Haxe
-  types were inherently dynamic and there is no practical alternative.
-- **Runtime boundary** (`genes/*`): limited, justified `any` / `unknown` is acceptable
-  for reflection/interop registry plumbing.
-- **Stdlib / externs** (`haxe/*`, `js/*`, `sys/*`): prefer specific TS types, but some
-  `any` may be unavoidable due to Haxe/JS semantics (we aim to minimize it).
+- **User modules:** should not export `any` or unjustified `unknown` unless the
+  Haxe source deliberately declares a dynamic foreign boundary.
+- **Runtime boundary (`genes/*`):** narrow, documented unsafety is acceptable
+  for heterogeneous registries, prototype mutation, and raw JS interop.
+- **Stdlib/extern output (`haxe/*`, `js/*`, `sys/*`):** should model the Haxe JS
+  runtime and host libraries precisely. Broad directory exclusions are not a
+  substitute for semantic inspection.
+- **Classic declarations:** are a separate public product surface and must be
+  tested as an external strict TypeScript consumer.
 
-## Current categories (as of 2026-01-25)
+## Verified improvements as of 2026-07-14
 
-### 1) Runtime boundary (expected)
+### Closed interface surfaces
 
-Examples:
+Ordinary generated interfaces no longer receive an unconditional
+`[key: string]: any` signature. Public interface members are captured before
+DCE removes implementation details, and the full fixture includes a negative
+consumer that requires an unknown member access to fail.
 
-- `src-gen/genes/Register.ts*`: uses `unknown` for global registry storage and exposes
-  narrow helper APIs (`unsafeCast<T>`, etc) to avoid leaking `any` into user modules.
+This closes the concrete `IMap` masking defect. It does not yet replace every
+public-surface collection path with one shared semantic model.
 
-This is intentionally the *only* place where “unsafe casts” should concentrate.
+### Precise classic nullability
 
-### 2) Iterator protocol bridging (improved)
+Classic `.d.ts` emission again represents Haxe `Null<T>` as a nullable union
+instead of `any`. A strict external consumer checks nullable `IMap.get`, closed
+interfaces, `skipLibCheck: false`, exact optional properties, and unchecked
+index access.
 
-Haxe std defines `js.lib.IteratorStep<T>` as a structural record, but TypeScript has an
-idiomatic builtin type: `IteratorResult<T, TReturn>`.
+### Native map absence
 
-- Change: map `IteratorStep<T>` to `IteratorResult<T, undefined>` (instead of `any`)
-  to keep generated output strongly typed while still matching common JS iterator
-  behavior (iterator “return” value is usually unused / `undefined`).
+`genes.util.EsMap.get` now exposes `Null<V>` and normalizes a missing native
+`Map` entry to Haxe `null`, while preserving a deliberately stored JavaScript
+`undefined`. Runtime and negative type tests protect both cases.
 
-### 3) Stdlib reflection / stringification (remaining)
+### Iterator protocol bridging
 
-Some Haxe std runtime helpers (e.g. `js.Boot` stringification / exception formatting)
-are inherently dynamic. These may still require `any` in the stdlib portion of the
-generated output.
+Haxe's iterator-step structure maps to TypeScript's
+`IteratorResult<T, undefined>` where that is the actual runtime contract,
+rather than using a broad return type.
 
-The policy is:
+## Remaining ingress paths
 
-- keep these `any`s confined to stdlib/runtime,
-- avoid them in user modules, and
-- tighten them when we can prove a better type without breaking semantics.
+1. **Inferred or imported `any`:** a lexical scan cannot see an unsafe type
+   acquired from another generated declaration or import.
+2. **Unjustified structural openness:** an index signature using `unknown`
+   would still mask member mistakes even though it contains no `any` token.
+3. **Metadata overrides:** `@:ts.type`, `@:genes.type`, import metadata, and
+   extern package shapes can bypass ordinary Haxe type mapping.
+4. **Runtime/stdlib exclusions:** reflection and boot code need narrow unsafe
+   operations, but those operations must not escape into user exports.
+5. **Null/undefined/optional distinctions:** local fixes exist, but the compiler
+   does not yet consume one shared `NullishContract` in every printer.
+6. **Declaration-only reachability:** classic declarations and TS implementation
+   types do not yet consume an explicit declaration dependency graph.
+
+## Evidence layers
+
+| Layer | Current evidence | Blind spot |
+| --- | --- | --- |
+| Strict positive compilation | Basic, minimal, full, TSX, snapshots, and todoapp profiles | `any` is assignable in both directions and can make invalid code pass. |
+| Negative consumers | Closed interfaces, classic nullable declarations, React prop snapshots | The matrix is not yet exhaustive across all exported/imported types. |
+| Lexical unsafe-type scan | Selected generated user files | Inference, aliases, imports, declaration merging, and excluded directories. |
+| Runtime assertions | Map absence/undefined, iterator and general compiler fixtures | Public declaration precision not observed at runtime. |
+| Semantic export inspection | Not yet landed (`genes-09r.1`) | This is the missing machine-readable view of transitive exported types. |
 
 ## Next tightening targets
 
-In priority order:
+1. `genes-09r.1`: use the TypeScript Compiler API to recursively audit exported
+   symbols for `TypeFlags.Any`, unjustified `Unknown`, and unapproved index
+   signatures; extend `@ts-expect-error` consumers for known ingress paths.
+2. `genes-09r.10`: replace target-local public member collection with a shared
+   `PublicSurface` consumed by TS implementation interfaces and classic
+   declarations.
+3. `genes-09r.2`: introduce a shared nullish vocabulary for Haxe `Null<T>`,
+   native `undefined`, optional properties, absent parameters, and boundary
+   unknowns.
+4. `genes-09r.3`: make runtime, type-only, and declaration-only dependencies
+   explicit so a type printer cannot silently change reachability.
+5. `genes-09r.5`: broaden JSX negative coverage across intrinsic props,
+   components, children, spread props, and imported JSX namespaces.
 
-1. **Iterator-related helpers** (verify all `IteratorResult<*, any>` became `undefined`).
-2. **Exceptions** (`haxe.Exception`, `haxe.ValueException`): reduce `any` where possible
-   by modeling payloads as `unknown` only in runtime boundary helpers (or as generics
-   where Haxe exposes types).
-3. **Extern-heavy DOM types**: prefer literal unions / specific DOM interfaces when Haxe
-   type info is available (already partially supported via `@:enum abstract` literal unions).
-
+The desired end state is an allowlisted boundary manifest with a stable ID,
+owner, reason, and source provenance for every public dynamic escape hatch.
+Runtime internals may remain dynamic where JavaScript semantics require it;
+normal user APIs may not become dynamic merely to make code generation easier.

@@ -1,11 +1,18 @@
-# PRD: Todoapp as Prime-Time Harness (genes-ts) + ts2hx Roundtrip Fixture
+# PRD: Todoapp Product-Readiness Harness + ts2hx Roundtrip Fixture
 
 Date: 2026-01-30  
 Owner: genes-ts
 
+Status note (2026-07-14): this is a historical harness PRD. A passing flagship
+application is strong integration evidence for its pinned profile, not proof of
+general compiler readiness. The current bounded-readiness definition and
+remaining evidence layers live in `PRIME_TIME_CRITERIA.md` and
+`ARCHITECTURE_ROADMAP.md`.
+
 ## Summary
 
-Make `examples/todoapp/` the primary “real world” harness that proves genes-ts is production-ready by exercising:
+Make `examples/todoapp/` the primary real-world integration harness for its
+controlled profile by exercising:
 
 1) **Haxe → TypeScript** compilation (TS + TSX), strict typechecking, and runtime correctness.  
 2) **Interop in both directions**:
@@ -14,16 +21,17 @@ Make `examples/todoapp/` the primary “real world” harness that proves genes-
 3) Optional **profiles**:
    - default runtime (reflection-friendly)
    - `-D genes.ts.minimal_runtime` (“TS-first / no reflection”)
-4) A **state-of-the-art test harness**:
+4) A **layered test harness**:
    - output snapshots (intended vs out)
    - strict `tsc --noEmit`
    - runtime smoke tests (Node/server)
    - Playwright E2E for the web app
 
-In parallel, make `tools/ts2hx/` prove feasibility via one **roundtrip fixture**:
+In parallel, make `tools/ts2hx/` provide bounded feasibility evidence via one
+**roundtrip fixture**:
 
 > Pure TS → Haxe (ts2hx) → TS (genes-ts) → JS (tsc/bundler)  
-…with tests that validate behavior is preserved.
+…with tests that validate the behavior exercised by that fixture is preserved.
 
 This PRD is intentionally implementation-agnostic but includes concrete acceptance criteria and a milestone breakdown suitable for beads tasks.
 
@@ -31,7 +39,7 @@ This PRD is intentionally implementation-agnostic but includes concrete acceptan
 
 ## Goals (what success looks like)
 
-### G1 — “Prime time” evidence via one flagship app
+### G1 — Product-readiness evidence via one flagship app
 
 `examples/todoapp/` becomes the canonical demonstration that genes-ts:
 
@@ -54,7 +62,7 @@ The todoapp harness should catch regressions in:
 
 One medium-complexity TS fixture is roundtripped through ts2hx + genes-ts and:
 
-- keeps the same test outputs (behavior)
+- keeps the same exercised test outputs (bounded differential behavior)
 - remains strongly typed after roundtrip (best-effort)
 - stays fast enough for CI
 
@@ -248,7 +256,7 @@ CI should run a single command that performs:
 
 ### M0 — Definition
 
-- Define “prime time” criteria specific to genes-ts (typing, determinism, DX).
+- Define bounded-readiness criteria specific to genes-ts (typing, determinism, DX).
 - Decide the exact list of compiler features the todoapp must exercise.
 - Record the criteria + test mapping in `docs/PRIME_TIME_CRITERIA.md`.
 
