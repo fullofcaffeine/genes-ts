@@ -47,6 +47,7 @@ feature surface beyond the quick examples in `readme.md`.
 - `ARCHITECTURE_ROADMAP.md` — audit disposition, shared TS/JS architecture, and dependency-ordered roadmap
 - `DOCS_PLAN.md` — docs PRD/roadmap (onboarding + workflows)
 - `prompts/GPT_5_6_SIDE_EFFECT_IMPORT_ARCHITECTURE.md` — focused evidence packet for resolving ordered ESM side-effect imports before implementation
+- `prompts/GPT_5_6_SIDE_EFFECT_IMPORT_ARCHITECTURE_RESPONSE.md` — reviewed semantic model, supported boundary, experiments, and incremental landing contract
 
 ## Experimental
 
