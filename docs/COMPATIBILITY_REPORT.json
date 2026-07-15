@@ -214,8 +214,8 @@
           "kind": "tracked-files",
           "path": "tools/ts2hx/fixtures",
           "match": "^semantic-(diff|unsupported)/src/.*\\.ts$",
-          "expected": 17,
-          "count": 17
+          "expected": 21,
+          "count": 21
         }
       ],
       "proves": "Named traces preserve evaluation order and runtime behavior across the listed Haxe/TypeScript oracles, while named unsupported ts2hx semantics fail closed.",
