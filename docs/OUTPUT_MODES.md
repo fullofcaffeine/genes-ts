@@ -91,7 +91,10 @@ smoke gate.
 The standing classic gate is `yarn test`. The smaller authoritative side-by-side
 gate is `yarn test:dual-output`; its source, expected semantic transcript,
 bounded shape snapshot, vanilla baseline, and profile ownership manifest live
-under `tests/output-modes/`.
+under `tests/output-modes/`. That command also runs `yarn test:output-quality`:
+two clean compiler trees must hash identically after documented source-map path
+normalization, representative TS/classic tokens and stack stages map exactly,
+and checked-in module/temp/import plus byte/token budgets must hold.
 
 ## Picking a mode
 

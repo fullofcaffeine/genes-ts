@@ -44,7 +44,7 @@ boundary and planned shared architecture.
   - equivalent React-compatible `createElement(...)` lowering in classic JS
 - **JS/TS interop helpers** via `genes.ts.Imports` (consume existing TS/TSX easily)
 - **Async/await sugar** (`@:async` + `await(...)`) emitting native `async`/`await`
-- **Layered harness**: snapshots, strict `tsc`, negative type consumers, runtime smoke, classic JS assertions, and todoapp E2E (Playwright)
+- **Layered harness**: snapshots, strict `tsc`, negative type consumers, runtime smoke, classic JS assertions, exact source-map/determinism/output-budget evidence, and todoapp E2E (Playwright)
 - **ts2hx experiment**: fail-closed TS/JS → Haxe subset migration plus explicitly lossy assisted scaffolding
 - **Secret scanning** in CI + local (`gitleaks`)
 - **Dependency vulnerability scanning** in CI + local (`osv-scanner`)

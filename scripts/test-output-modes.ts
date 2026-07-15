@@ -139,6 +139,18 @@ function assertProfileOwnership(manifestUnknown: unknown): void {
     "tests/genes-ts/snapshot/react/src/DualJsxMain.hx"
   );
   strictEqual(jsx.gate, "yarn test:genes-ts:tsx");
+
+  const outputQuality = requiredRecord(capabilities, "exactSourceMapsAndBudgets");
+  strictEqual(outputQuality.owner, "genes-09r.6");
+  strictEqual(
+    outputQuality.status,
+    "exact-token-stack-determinism-and-budget-gated"
+  );
+  strictEqual(
+    outputQuality.manifest,
+    "tests/output-modes/output-quality.json"
+  );
+  strictEqual(outputQuality.gate, "yarn test:output-quality");
 }
 
 function assertSourceMap(

@@ -37,6 +37,18 @@ What these cover:
 - **Strict TS typecheck**: `tsc -p ...` on generated TS/TSX.
 - **Runtime smoke**: execute compiled JS under Node.
 
+The authoritative same-source and output-quality layers are separately
+available:
+
+```bash
+yarn test:dual-output    # semantic TS/classic/standard-Haxe/vanilla evidence
+yarn test:output-quality # exact maps, clean hashes, and reviewed budgets
+```
+
+The quality manifest measures the bounded dual corpus. It uses exact module,
+temporary, and import baselines plus 5% byte/token ceilings; it is not a
+whole-language performance benchmark.
+
 ## Todoapp example
 
 ### What we test

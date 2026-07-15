@@ -1,0 +1,158 @@
+{
+  "schemaVersion": 1,
+  "trees": [
+    {
+      "id": "ts-source",
+      "root": "tests/output-modes/out/ts/src-gen",
+      "suffixes": [".ts", ".map"]
+    },
+    {
+      "id": "classic-source-and-declarations",
+      "root": "tests/output-modes/out/classic",
+      "suffixes": [".js", ".d.ts", ".map"]
+    }
+  ],
+  "profiles": {
+    "ts-strict": {
+      "root": "tests/output-modes/out/ts/src-gen/dual",
+      "includeSuffix": ".ts",
+      "excludeSuffix": ".d.ts",
+      "noTempFiles": ["Main.ts"],
+      "budget": {
+        "baseline": {
+          "modules": 7,
+          "bytes": 11924,
+          "tokens": 1949,
+          "temporaryDeclarations": 8,
+          "valueImports": 21,
+          "typeImports": 4
+        },
+        "maximum": {
+          "bytes": 12521,
+          "tokens": 2047,
+          "temporaryDeclarations": 8,
+          "valueImports": 21,
+          "typeImports": 4
+        },
+        "review": {
+          "id": "GTS-BUDGET-BASELINE-001",
+          "reason": "Initial exact dual-output quality baseline for the shared TS/classic architecture audit."
+        }
+      }
+    },
+    "classic-esm": {
+      "root": "tests/output-modes/out/classic/dual",
+      "includeSuffix": ".js",
+      "noTempFiles": ["Main.js"],
+      "budget": {
+        "baseline": {
+          "modules": 6,
+          "bytes": 9187,
+          "tokens": 1462,
+          "temporaryDeclarations": 8,
+          "valueImports": 20,
+          "typeImports": 0
+        },
+        "maximum": {
+          "bytes": 9647,
+          "tokens": 1536,
+          "temporaryDeclarations": 8,
+          "valueImports": 20,
+          "typeImports": 0
+        },
+        "review": {
+          "id": "GTS-BUDGET-BASELINE-001",
+          "reason": "Initial exact dual-output quality baseline for the shared TS/classic architecture audit."
+        }
+      }
+    },
+    "classic-dts": {
+      "root": "tests/output-modes/out/classic/dual",
+      "includeSuffix": ".d.ts",
+      "noTempFiles": [],
+      "budget": {
+        "baseline": {
+          "modules": 7,
+          "bytes": 4678,
+          "tokens": 259,
+          "temporaryDeclarations": 0,
+          "valueImports": 1,
+          "typeImports": 0
+        },
+        "maximum": {
+          "bytes": 4912,
+          "tokens": 272,
+          "temporaryDeclarations": 0,
+          "valueImports": 1,
+          "typeImports": 0
+        },
+        "review": {
+          "id": "GTS-BUDGET-BASELINE-001",
+          "reason": "Initial exact dual-output quality baseline for the shared TS/classic architecture audit."
+        }
+      }
+    }
+  },
+  "exactMappings": [
+    {
+      "profile": "ts-strict",
+      "generated": "tests/output-modes/out/ts/src-gen/dual/CoreScenario.ts",
+      "needle": "events.push(\"class:\"",
+      "source": "tests/output-modes/src/dual/CoreScenario.hx",
+      "line": 30,
+      "column": 4
+    },
+    {
+      "profile": "ts-strict",
+      "generated": "tests/output-modes/out/ts/src-gen/dual/CoreScenario.ts",
+      "needle": "throw new Exception(\"boom\")",
+      "source": "tests/output-modes/src/dual/CoreScenario.hx",
+      "line": 50,
+      "column": 6
+    },
+    {
+      "profile": "ts-strict",
+      "generated": "tests/output-modes/out/ts/src-gen/dual/CoreScenario.ts",
+      "needle": "let result: number = base[index]",
+      "source": "tests/output-modes/src/dual/CoreScenario.hx",
+      "line": 75,
+      "column": 4
+    },
+    {
+      "profile": "classic-esm",
+      "generated": "tests/output-modes/out/classic/dual/CoreScenario.js",
+      "needle": "events.push(\"class:\"",
+      "source": "tests/output-modes/src/dual/CoreScenario.hx",
+      "line": 30,
+      "column": 4
+    },
+    {
+      "profile": "classic-esm",
+      "generated": "tests/output-modes/out/classic/dual/CoreScenario.js",
+      "needle": "throw new Exception(\"boom\")",
+      "source": "tests/output-modes/src/dual/CoreScenario.hx",
+      "line": 50,
+      "column": 6
+    },
+    {
+      "profile": "classic-esm",
+      "generated": "tests/output-modes/out/classic/dual/CoreScenario.js",
+      "needle": "let result = base[index]",
+      "source": "tests/output-modes/src/dual/CoreScenario.hx",
+      "line": 75,
+      "column": 4
+    }
+  ],
+  "stackProbe": {
+    "exportName": "Main",
+    "method": "sourceMapProbe",
+    "message": "GENES_SOURCE_MAP_PROBE",
+    "source": "tests/output-modes/src/dual/Main.hx",
+    "line": 26,
+    "column": 10,
+    "classicModule": "tests/output-modes/out/classic/dual/Main.js",
+    "tsModule": "tests/output-modes/out/ts/dist/dual/Main.js",
+    "tsGenerated": "tests/output-modes/out/ts/src-gen/dual/Main.ts",
+    "tsNeedle": "throw new Error(\"GENES_SOURCE_MAP_PROBE\")"
+  }
+}

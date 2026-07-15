@@ -225,8 +225,8 @@ The source of truth is Beads epic `genes-09r`.
    generic Haxe tree now runs through TS, classic JS/declarations, and standard
    Haxe JS, with a pinned/live vanilla-compatible core. The gate compares a
    stable semantic transcript plus bounded DCE/import/declaration/resource/map
-   facts, never byte identity. Its ownership manifest assigns JSX and exact
-   source-map/budget expansion to `.5` and `.6` respectively.
+   facts, never byte identity. Its ownership manifest routes JSX and exact
+   source-map/budget evidence to the now-landed `.5` and `.6` gates.
 6. **`genes-09r.4` — centralized TypeScript/Haxe toolchain lanes (landed).**
    `config/toolchains.json` now owns TS5 output-floor, TS6 API/output, TS7
    output-only, stable Haxe/Node, and non-blocking Haxe-preview pins. Curated
@@ -244,9 +244,14 @@ The source of truth is Beads epic `genes-09r`.
    Classic output lowers through a planned React-compatible runtime import;
    disabled capabilities fail before output. Four negative JSX surfaces and an
    identical-source TSX/classic rendered-HTML differential are blocking QA.
-9. **`genes-09r.6` — exact source maps, determinism, and output budgets.**
-   Depends on the stable dual corpus; check token positions, mapped stack
-   frames, clean-tree hashes, module/temp/import counts, and reviewed variance.
+9. **`genes-09r.6` — exact source maps, determinism, and output budgets
+   (landed).** Six representative TS/classic tokens resolve to exact Haxe
+   positions. A direct classic stack and the two separately owned TS runtime /
+   Genes map stages are executable checks. Two clean compiler trees receive
+   identical normalized hashes, while a checked-in manifest owns exact module,
+   temporary, and import baselines plus 5% byte/token ceilings. The harness
+   canonicalizes only machine roots and formatting-neutral map JSON facts; it
+   does not erase code, mappings, source order, or artifact layout.
 
 ### P2: mature migration and ecosystem workflows
 

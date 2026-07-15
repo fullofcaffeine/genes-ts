@@ -9,6 +9,12 @@ genes-ts emits **TypeScript source** as its primary artifact. The recommended de
 
 Note: Automatic JS → TS → Haxe source-map *composition* is not guaranteed in v1 (tracked separately).
 
+The repository does verify both links on a bounded fixture. Run
+`yarn test:output-quality` to check exact Haxe → TS/classic token mappings, a
+direct classic JS → Haxe Node stack, and a TS-compiled JS → generated-TS stack
+whose separate Genes map resolves to the same Haxe token. This is QA evidence,
+not an automatic composition step in application builds.
+
 ---
 
 ## VSCode: debug the todoapp server (breakpoints in generated TS)

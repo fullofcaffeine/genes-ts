@@ -57,8 +57,11 @@
       "contract": "Shared JsxPlan intent emits TSX/typed createElement or classic React-compatible createElement; disabled required runtimes fail before output."
     },
     "exactSourceMapsAndBudgets": {
-      "status": "shape-only-here",
-      "owner": "genes-09r.6"
+      "status": "exact-token-stack-determinism-and-budget-gated",
+      "owner": "genes-09r.6",
+      "manifest": "tests/output-modes/output-quality.json",
+      "gate": "yarn test:output-quality",
+      "contract": "Two clean TS/classic compiler trees hash identically after documented path normalization; exact tokens and executable stacks resolve through their owned source-map stages; module/temp/import growth and output-size ceilings require reviewed manifest changes."
     }
   }
 }

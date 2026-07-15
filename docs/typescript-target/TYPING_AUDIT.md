@@ -121,8 +121,9 @@ precedence as well as the semantic classification.
 
 ## Next tightening targets
 
-1. `genes-09r.6`: add exact source-map, deterministic-tree, and output-budget
-   evidence without weakening the now-landed TS5/TS6/TS7 matrix.
+1. Keep the landed exact source-map, deterministic-tree, and output-budget
+   evidence green without weakening the TS5/TS6/TS7 matrix. Budget growth must
+   carry a reviewed manifest entry rather than a silent snapshot refresh.
 2. Extend JSX negatives only from reduced generic failures (for example a new
    imported namespace or component-identity shape); the shared intent and core
    event/component/intrinsic/child matrix have landed under `genes-09r.5`.
