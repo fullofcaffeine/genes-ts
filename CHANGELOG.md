@@ -1,3 +1,10 @@
+# [1.18.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.17.0...v1.18.0) (2026-07-15)
+
+
+### Features
+
+* **qa:** publish compatibility evidence contracts ([a2fc754](https://github.com/fullofcaffeine/genes-ts/commit/a2fc75404ec8be405f1315ddafa9d7ea5486c9be))
+
 # [1.17.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.16.0...v1.17.0) (2026-07-15)
 
 
