@@ -1,0 +1,178 @@
+{
+  "schemaVersion": 1,
+  "contract": "genes-ts-curated-downstream-v1",
+  "policy": {
+    "ciDisposition": "nonblocking-nightly",
+    "network": "OS-level network isolation after dependency bootstrap; loopback remains available for local fixture servers.",
+    "failureOwnership": "A failing downstream command is unclassified. It becomes a compiler failure only after reduction to a generic genes fixture.",
+    "fullApplications": "Full evolving WIP application suites remain nonblocking release/manual evidence."
+  },
+  "profiles": [
+    {
+      "id": "pimono-hx",
+      "label": "PiMonoHX curated compiler contract",
+      "repository": "fullofcaffeine/pimono-hx",
+      "remote": "https://github.com/fullofcaffeine/pimono-hx.git",
+      "branch": "master",
+      "revision": "c8025aa12a6a9a3901aadb63c097a5df66e03d33",
+      "checkout": "pimono-hx",
+      "compilerCheckout": "genes",
+      "maturity": "wip",
+      "disposition": "nonblocking-nightly",
+      "baseline": "passing",
+      "commands": [
+        {
+          "id": "clean",
+          "class": "prepare",
+          "executable": "npm",
+          "args": ["run", "clean"]
+        },
+        {
+          "id": "haxe-to-typescript",
+          "class": "compile",
+          "executable": "haxe",
+          "args": ["hxml/all.hxml"]
+        },
+        {
+          "id": "strict-typescript",
+          "class": "typecheck",
+          "executable": "npm",
+          "args": ["run", "build:ts"]
+        },
+        {
+          "id": "generated-output-policy",
+          "class": "typing-policy",
+          "executable": "npm",
+          "args": ["run", "check:generated-policy"]
+        },
+        {
+          "id": "esm-import-policy",
+          "class": "module-policy",
+          "executable": "npm",
+          "args": ["run", "check:esm"]
+        },
+        {
+          "id": "typed-boundaries",
+          "class": "typing-policy",
+          "executable": "npm",
+          "args": ["run", "typed-boundary:scan"]
+        },
+        {
+          "id": "unit-contracts",
+          "class": "runtime-smoke",
+          "executable": "npm",
+          "args": ["run", "test:unit"]
+        },
+        {
+          "id": "generated-cli",
+          "class": "runtime-smoke",
+          "executable": "npm",
+          "args": ["run", "smoke:cli"]
+        }
+      ],
+      "knownObservations": [],
+      "unsupported": [
+        {
+          "id": "pimono-full-upstream-parity",
+          "status": "not-claimed",
+          "reason": "The port remains WIP and does not claim complete upstream Pi behavior."
+        },
+        {
+          "id": "pimono-live-provider-network",
+          "status": "excluded-from-curated",
+          "reason": "Live providers, OAuth, credentials, and external network effects are outside the no-network compiler contract."
+        }
+      ]
+    },
+    {
+      "id": "opencodehx",
+      "label": "OpenCodeHX curated compiler contract",
+      "repository": "fullofcaffeine/opencodehx",
+      "remote": "https://github.com/fullofcaffeine/opencodehx.git",
+      "branch": "main",
+      "revision": "66ae8f7119536142f34a23bf9fefcb238a4e2ce2",
+      "checkout": "opencodehx",
+      "compilerCheckout": "genes",
+      "maturity": "wip",
+      "disposition": "nonblocking-nightly",
+      "baseline": "known-failure",
+      "commands": [
+        {
+          "id": "clean",
+          "class": "prepare",
+          "executable": "npm",
+          "args": ["run", "clean"]
+        },
+        {
+          "id": "haxe-to-typescript",
+          "class": "compile",
+          "executable": "npm",
+          "args": ["run", "build:haxe"]
+        },
+        {
+          "id": "copy-resources",
+          "class": "prepare",
+          "executable": "npm",
+          "args": ["run", "copy:resources"]
+        },
+        {
+          "id": "strict-typescript",
+          "class": "typecheck",
+          "executable": "npm",
+          "args": ["run", "typecheck"]
+        },
+        {
+          "id": "typed-boundaries",
+          "class": "typing-policy",
+          "executable": "npm",
+          "args": ["run", "typed-boundary:scan"]
+        },
+        {
+          "id": "haxe-unit-contracts",
+          "class": "runtime-smoke",
+          "executable": "npm",
+          "args": ["run", "test:haxe:unit"]
+        },
+        {
+          "id": "local-cli-smoke",
+          "class": "runtime-smoke",
+          "executable": "npm",
+          "args": ["run", "smoke"]
+        }
+      ],
+      "knownObservations": [
+        {
+          "id": "opencode-global-native-secondary-extern-import",
+          "owner": "compiler",
+          "status": "open",
+          "tracking": "genes-09r.14",
+          "summary": "A @:native global secondary extern inherits an unrelated sibling @:jsRequire package import and becomes a non-constructable namespace."
+        },
+        {
+          "id": "opencode-optional-stream-discriminants",
+          "owner": "downstream",
+          "status": "open",
+          "tracking": "pinned downstream source model",
+          "summary": "The downstream stream-part facade models tool-call identifiers as optional strings but passes them to required enum constructor arguments without a guard."
+        }
+      ],
+      "unsupported": [
+        {
+          "id": "opencode-full-upstream-parity",
+          "status": "not-claimed",
+          "reason": "The port remains WIP and does not claim complete upstream OpenCode behavior."
+        },
+        {
+          "id": "opencode-classic-esm-application-profile",
+          "status": "not-yet-curated",
+          "reason": "OpenCodeHX currently owns strict TypeScript output; classic application output awaits its own downstream profile."
+        },
+        {
+          "id": "opencode-live-package-network",
+          "status": "excluded-from-curated",
+          "reason": "Live package-manager and external provider effects are outside the no-network compiler contract."
+        }
+      ]
+    }
+  ]
+}

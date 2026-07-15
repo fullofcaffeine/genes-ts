@@ -1,0 +1,244 @@
+# genes-ts Compatibility Evidence
+
+This file is generated deterministically by `yarn report:compatibility --write`.
+
+## Reading this report
+
+genes-ts supports controlled Haxe-to-TypeScript and classic ESM JavaScript profiles. This evidence inventory maps bounded claims to exact gates; it is not a blanket certification of arbitrary Haxe or npm programs.
+
+This is an evidence contract, not a cached CI-success badge. `blocking` and `nonblocking-nightly` describe enforcement; current run results remain in CI. Compile, typing, semantic, snapshot, smoke, package, and downstream evidence are intentionally not merged into one score.
+
+## Coverage counts
+
+| Evidence class | Metric | Exact count | Disposition |
+| --- | --- | ---: | --- |
+| Compile inventory | Classic Haxe test modules | 46 | `blocking` |
+| Compile inventory | Generated TypeScript snapshot profiles | 7 | `blocking` |
+| Compile inventory | Examples with TS and classic profiles | 2 | `blocking` |
+| Strict public typing | Strict positive/negative consumer sources | 6 | `blocking` |
+| Strict public typing | Explicitly owned exported-surface boundaries | 6 | `blocking` |
+| Semantic differential | Same-source Haxe modules | 10 | `blocking` |
+| Semantic differential | TS/classic/declaration and JS oracle profiles | 5 | `blocking` |
+| Semantic differential | Stable dual-output runtime trace events | 17 | `blocking` |
+| Semantic differential | ts2hx supported and fail-closed semantic input modules | 8 | `blocking` |
+| Snapshot stability | genes-ts snapshot profiles | 7 | `blocking` |
+| Snapshot stability | ts2hx reviewed snapshot files | 48 | `blocking` |
+| Runtime smoke and E2E | Same-source dual-profile examples | 2 | `blocking` |
+| Runtime smoke and E2E | Todoapp browser journeys run in each profile | 3 | `blocking` |
+| Toolchain compatibility | Pinned TypeScript lanes | 3 | `blocking` |
+| Toolchain compatibility | Pinned Haxe lanes | 2 | `blocking` |
+| Toolchain compatibility | Pinned Node lanes | 2 | `blocking` |
+| Package-shape interoperability | Local package-shape fixtures | 3 | `blocking` |
+| Package-shape interoperability | dts2hx declaration entrypoints | 3 | `blocking` |
+| Package-shape interoperability | dts2hx package roots | 2 | `blocking` |
+| Downstream pressure tests | Pinned downstream repositories | 2 | `nonblocking-nightly` |
+| Downstream pressure tests | Explicit unsupported/nonblocking full-app areas | 5 | `nonblocking-nightly` |
+| Downstream pressure tests | Known pinned compiler/downstream observations | 2 | `nonblocking-nightly` |
+
+## Toolchain contract
+
+| Surface | Lane | Pin | Contract |
+| --- | --- | --- | --- |
+| Node | stable | 20 | blocking runtime lane |
+| Node | next LTS | 22 | blocking runtime lane |
+| Haxe | stable | 4.3.7 | blocking compiler lane |
+| Haxe | preview | 5.0.0-preview.1 | nonblocking early warning |
+| TypeScript | legacyFloor | 5.5.4 | generated-output |
+| TypeScript | apiBridge | 6.0.2 | program-api-and-generated-output |
+| TypeScript | current | 7.0.2 | generated-output-only |
+| dts2hx | declaration ingestion | 0.34.0 / TS 5.9.3 / [ccc944540e04](https://github.com/haxiomic/dts2hx/commit/ccc944540e04ed1e41383533a3b7b9ac6ee80208) | declaration-ingestion |
+
+## Compile inventory
+
+Sources and declared profiles compile under their owned gates; compilation alone is not semantic or public-type proof.
+
+### Classic JavaScript and TypeScript output inventory
+
+- Disposition: `blocking`
+- Scope: Classic Genes runtime tests, generated TypeScript snapshot profiles, and every checked-in example in both first-class output profiles.
+- Proves: The enumerated compiler fixtures and examples compile under their owned TS/classic profiles.
+- Does not prove: Compilation does not prove closed public types, runtime equivalence, or arbitrary ecosystem compatibility.
+- Evidence:
+  - [`test.hxml`](../test.hxml)
+  - [`scripts/test-acceptance.ts`](../scripts/test-acceptance.ts)
+  - [`scripts/test-examples.ts`](../scripts/test-examples.ts)
+  - [`tests/genes-ts/snapshot`](../tests/genes-ts/snapshot)
+  - [`examples/profiles.json`](../examples/profiles.json)
+- Gates:
+  - `yarn test`
+  - `yarn test:acceptance`
+
+## Strict public typing
+
+Positive consumers compile and selected invalid consumers are rejected without broad public any/unknown/index signatures.
+
+### Closed exported surfaces and strict declaration consumers
+
+- Disposition: `blocking`
+- Scope: Generated TS exports, ordinary interfaces, explicit foreign boundaries, classic declarations, and strict external consumers.
+- Proves: Selected exported APIs are semantically audited and strict consumers reject the named unsafe programs.
+- Does not prove: The audit cannot infer soundness for untested raw metadata or every third-party declaration package.
+- Evidence:
+  - [`scripts/exported-surface-policy.ts`](../scripts/exported-surface-policy.ts)
+  - [`scripts/test-exported-surface-policy.ts`](../scripts/test-exported-surface-policy.ts)
+  - [`scripts/test-classic-dts.ts`](../scripts/test-classic-dts.ts)
+  - [`tests/typing-policy/exported-surface-boundaries.json`](../tests/typing-policy/exported-surface-boundaries.json)
+  - [`tests/typing-policy/semantic`](../tests/typing-policy/semantic)
+  - [`tests/classic-dts/consumer.ts`](../tests/classic-dts/consumer.ts)
+  - [`tests/output-modes/consumer.ts`](../tests/output-modes/consumer.ts)
+- Gates:
+  - `yarn test:types:exports`
+  - `yarn test:classic:dts`
+  - `yarn test:dual-output`
+
+## Semantic differential
+
+Named runtime traces agree across the explicitly listed oracles; the result applies only to those contracts.
+
+### Same-source compiler and ts2hx semantic differentials
+
+- Disposition: `blocking`
+- Scope: Haxe-to-TS/classic evaluation traces plus ts2hx strict-js contracts against original TypeScript.
+- Proves: Named traces preserve evaluation order and runtime behavior across the listed Haxe/TypeScript oracles, while named unsupported ts2hx semantics fail closed.
+- Does not prove: The curated traces are not a language-wide proof or a promise of portable ts2hx output on non-JS targets.
+- Evidence:
+  - [`tests/output-modes/profile-ownership.json`](../tests/output-modes/profile-ownership.json)
+  - [`tests/output-modes/expected-trace.json`](../tests/output-modes/expected-trace.json)
+  - [`tests/output-modes/src`](../tests/output-modes/src)
+  - [`scripts/test-output-modes.ts`](../scripts/test-output-modes.ts)
+  - [`tools/ts2hx/fixtures/semantic-diff`](../tools/ts2hx/fixtures/semantic-diff)
+  - [`tools/ts2hx/fixtures/semantic-unsupported`](../tools/ts2hx/fixtures/semantic-unsupported)
+  - [`tools/ts2hx/src/test-semantic-diff.ts`](../tools/ts2hx/src/test-semantic-diff.ts)
+- Gates:
+  - `yarn test:dual-output`
+  - `yarn --cwd tools/ts2hx test:semantic-diff`
+
+## Snapshot stability
+
+Generated source shape is deterministic relative to reviewed snapshots; snapshots do not establish semantics by themselves.
+
+### Reviewed genes-ts and ts2hx snapshots
+
+- Disposition: `blocking`
+- Scope: Generated TypeScript/TSX and supported ts2hx Haxe source shapes.
+- Proves: The exact generated forms remain stable unless reviewers intentionally update their baselines.
+- Does not prove: A stable snapshot can preserve a bug; semantic and typing gates remain authoritative.
+- Evidence:
+  - [`scripts/test-genes-ts-snapshots.ts`](../scripts/test-genes-ts-snapshots.ts)
+  - [`tests/genes-ts/snapshot`](../tests/genes-ts/snapshot)
+  - [`tools/ts2hx/src/test-snapshots.ts`](../tools/ts2hx/src/test-snapshots.ts)
+  - [`tools/ts2hx/tests_snapshots`](../tools/ts2hx/tests_snapshots)
+- Gates:
+  - `yarn test:genes-ts:snapshots`
+  - `yarn --cwd tools/ts2hx test:snapshots`
+
+## Runtime smoke and E2E
+
+Named application journeys execute in selected profiles; smoke success is not general semantic parity.
+
+### Same-source examples and todoapp browser E2E
+
+- Disposition: `blocking`
+- Scope: The minimal example and fullstack todoapp compile from one Haxe source tree through TS and classic ESM profiles.
+- Proves: Both outputs build and execute the same selected application workflows, including validation, CRUD, navigation, and deep links.
+- Does not prove: Two green examples do not imply whole-ecosystem or framework-independent parity.
+- Evidence:
+  - [`examples/profiles.json`](../examples/profiles.json)
+  - [`examples/typescript-target/src`](../examples/typescript-target/src)
+  - [`examples/todoapp/src`](../examples/todoapp/src)
+  - [`examples/todoapp/e2e/src/todo/e2e/Main.hx`](../examples/todoapp/e2e/src/todo/e2e/Main.hx)
+  - [`scripts/test-examples.ts`](../scripts/test-examples.ts)
+  - [`scripts/qa-todoapp.ts`](../scripts/qa-todoapp.ts)
+- Gates:
+  - `yarn test:examples --playwright`
+
+## Toolchain compatibility
+
+Generated output and programmatic compiler APIs are checked on separately owned, pinned lanes.
+
+### Pinned generated-output and compiler-API lanes
+
+- Disposition: `blocking`
+- Scope: Stable/current Node, stable/preview Haxe, TS5/TS6/TS7 generated output, the TS6 program API, and dts2hx's TS5.9 converter API.
+- Proves: Generated code and API consumers are checked against their explicitly different compatibility contracts.
+- Does not prove: The Haxe preview lane is nonblocking, and TS7 generated-output success does not imply a TS7 programmatic API.
+- Evidence:
+  - [`config/toolchains.json`](../config/toolchains.json)
+  - [`scripts/toolchains.ts`](../scripts/toolchains.ts)
+  - [`scripts/test-typescript-api-lane.ts`](../scripts/test-typescript-api-lane.ts)
+  - [`docs/TOOLCHAINS.md`](../docs/TOOLCHAINS.md)
+  - [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
+- Gates:
+  - `yarn test:versions`
+  - `yarn test:matrix:generated`
+  - `yarn test:matrix:api`
+
+## Package-shape interoperability
+
+Named ESM, subpath, conditional-export, CommonJS, and declaration-ingestion fixtures work under their tested resolution modes.
+
+### ESM/CommonJS/subpath/declaration-ingestion package shapes
+
+- Disposition: `blocking`
+- Scope: Manual externs and deterministic dts2hx-generated externs consumed through TS and classic Genes profiles.
+- Proves: The named package and import forms resolve, type-check, and execute through the tested profiles without weak generated extern types.
+- Does not prove: Three synthetic packages do not cover every package.json condition, declaration merge, bundler, or host environment.
+- Evidence:
+  - [`scripts/test-package-shapes.ts`](../scripts/test-package-shapes.ts)
+  - [`scripts/dts2hx-bridge.ts`](../scripts/dts2hx-bridge.ts)
+  - [`tests/genes-ts/package-shapes/packages`](../tests/genes-ts/package-shapes/packages)
+  - [`tests/genes-ts/package-shapes/dts2hx/manifest.json`](../tests/genes-ts/package-shapes/dts2hx/manifest.json)
+- Gates:
+  - `yarn test:interop:module-shapes`
+
+## Downstream pressure tests
+
+Pinned WIP consumers provide nonblocking integration evidence; failures are not compiler defects until reduced to a generic compiler fixture.
+
+### Pinned PiMonoHX and OpenCodeHX pressure tests
+
+- Disposition: `nonblocking-nightly`
+- Scope: Pinned, network-isolated build/typecheck/local-smoke subsets from two WIP application ports.
+- Proves: Exact downstream revisions can be reproduced as integration pressure tests without making product-specific compiler branches.
+- Does not prove: A downstream failure is unclassified until minimized, and a downstream pass is smoke evidence rather than compiler semantic proof.
+- Evidence:
+  - [`tests/compatibility/downstream-contracts.json`](../tests/compatibility/downstream-contracts.json)
+  - [`scripts/downstream-contracts.ts`](../scripts/downstream-contracts.ts)
+  - [`scripts/test-downstream-contracts.ts`](../scripts/test-downstream-contracts.ts)
+  - [`.github/workflows/downstream.yml`](../.github/workflows/downstream.yml)
+- Gates:
+  - `yarn test:downstream:contracts`
+  - `yarn test:downstream:curated --execute`
+
+## Pinned downstream revisions
+
+These jobs are deliberately nonblocking. Their JSON result artifacts keep the compiler candidate observation, downstream command statuses, and unsupported areas separate.
+
+| Profile | Revision | Curated commands | Pinned baseline | Disposition |
+| --- | --- | ---: | --- | --- |
+| PiMonoHX curated compiler contract | [`c8025aa12a6a`](https://github.com/fullofcaffeine/pimono-hx/commit/c8025aa12a6a9a3901aadb63c097a5df66e03d33) | 8 | `passing` | `nonblocking-nightly` |
+| OpenCodeHX curated compiler contract | [`66ae8f711953`](https://github.com/fullofcaffeine/opencodehx/commit/66ae8f7119536142f34a23bf9fefcb238a4e2ce2) | 7 | `known-failure` | `nonblocking-nightly` |
+
+## Known pinned-contract observations
+
+| Profile | Owner | Tracking | Observation |
+| --- | --- | --- | --- |
+| opencodehx | `compiler` | `genes-09r.14` | A @:native global secondary extern inherits an unrelated sibling @:jsRequire package import and becomes a non-constructable namespace. |
+| opencodehx | `downstream` | `pinned downstream source model` | The downstream stream-part facade models tool-call identifiers as optional strings but passes them to required enum constructor arguments without a guard. |
+
+## Explicit downstream exclusions
+
+### PiMonoHX curated compiler contract
+
+- `pimono-full-upstream-parity` — **not-claimed**: The port remains WIP and does not claim complete upstream Pi behavior.
+- `pimono-live-provider-network` — **excluded-from-curated**: Live providers, OAuth, credentials, and external network effects are outside the no-network compiler contract.
+
+### OpenCodeHX curated compiler contract
+
+- `opencode-full-upstream-parity` — **not-claimed**: The port remains WIP and does not claim complete upstream OpenCode behavior.
+- `opencode-classic-esm-application-profile` — **not-yet-curated**: OpenCodeHX currently owns strict TypeScript output; classic application output awaits its own downstream profile.
+- `opencode-live-package-network` — **excluded-from-curated**: Live package-manager and external provider effects are outside the no-network compiler contract.
+
+## Promotion boundary
+
+A passing downstream smoke cannot promote a compiler claim. A downstream failure cannot block core work as a compiler defect until the underlying Haxe/JS/TS construct is minimized into this repository and assigned to the appropriate blocking evidence class.

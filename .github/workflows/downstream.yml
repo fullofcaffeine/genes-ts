@@ -1,0 +1,99 @@
+name: Downstream QA (nonblocking)
+
+on:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: downstream-qa-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  YARN_VERSION: "1.22.22"
+
+jobs:
+  curated:
+    name: ${{ matrix.profile }} pinned no-network contract
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [pimono-hx, opencodehx]
+    steps:
+      - name: Check out compiler candidate
+        uses: actions/checkout@v4
+        with:
+          path: genes
+          fetch-depth: 0
+
+      - id: toolchains
+        run: node genes/scripts/emit-toolchain-outputs.mjs
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.toolchains.outputs.node-stable }}
+          cache: yarn
+          cache-dependency-path: genes/yarn.lock
+
+      - run: corepack enable
+      - run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
+      - run: yarn --cwd genes install --frozen-lockfile
+      - run: yarn --cwd genes build:scripts
+
+      - id: contract
+        run: >-
+          node genes/scripts/dist/test-downstream-contracts.js
+          --emit-github-outputs ${{ matrix.profile }}
+
+      - name: Check out pinned downstream revision
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.contract.outputs.repository }}
+          ref: ${{ steps.contract.outputs.revision }}
+          path: ${{ steps.contract.outputs.checkout }}
+
+      - name: Bootstrap pinned downstream dependencies
+        working-directory: ${{ steps.contract.outputs.checkout }}
+        run: |
+          npm ci
+          npx lix download
+
+      - name: Install stable Haxe
+        run: |
+          yarn --cwd genes lix install haxe ${{ steps.toolchains.outputs.haxe-stable }}
+          yarn --cwd genes lix use haxe ${{ steps.toolchains.outputs.haxe-stable }}
+
+      - name: Run curated contract in an isolated network namespace
+        env:
+          PROFILE_ID: ${{ matrix.profile }}
+          DOWNSTREAM_CHECKOUT: ${{ steps.contract.outputs.checkout }}
+        run: |
+          runner_user="$(id -un)"
+          sudo unshare --net bash -c '
+            set -euo pipefail
+            ip link set lo up
+            exec sudo -u "$1" env \
+              HOME="$2" \
+              PATH="$3" \
+              PROFILE_ID="$4" \
+              DOWNSTREAM_CHECKOUT="$5" \
+              GENES_NETWORK_ISOLATED=1 \
+              node genes/scripts/dist/test-downstream-contracts.js \
+                --execute \
+                --id "$4" \
+                --repo "$4=$5" \
+                --output "genes/downstream-results-$4.json"
+          ' bash "$runner_user" "$HOME" "$PATH" "$PROFILE_ID" "$DOWNSTREAM_CHECKOUT"
+
+      - name: Upload separated compiler/downstream/unsupported results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: downstream-${{ matrix.profile }}-results
+          path: genes/downstream-results-${{ matrix.profile }}.json
+          if-no-files-found: warn

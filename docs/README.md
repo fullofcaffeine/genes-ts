@@ -29,6 +29,7 @@ feature surface beyond the quick examples in `readme.md`.
 ## Testing + CI
 
 - `TESTING_STRATEGY.md` — compiler harnesses, todoapp E2E, and “one command” gates
+- `COMPATIBILITY_REPORT.md` — generated, deterministic evidence inventory with exact scope and counts
 - `TOOLCHAINS.md` — centralized TypeScript, Haxe, and Node compatibility lanes
 - `SECURITY.md` — local + CI secret scanning (gitleaks)
 - `BRANCH_PROTECTION.md` — recommended GitHub branch protection / required checks

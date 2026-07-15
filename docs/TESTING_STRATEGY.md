@@ -66,6 +66,30 @@ compares two clean generated extern trees to a checked-in manifest, rejects
 weak generated types, compiles strict negative consumers on TS 5/6/7, and runs
 the same Haxe source through TS and classic ESM.
 
+### Compatibility evidence and downstream pressure tests
+
+`yarn test:compatibility-report` checks the generated
+`COMPATIBILITY_REPORT.md`/`.json` pair against repository-owned evidence. The
+report deliberately keeps compile inventory, strict typing, semantic
+differentials, snapshots, smoke/E2E, toolchains, package shapes, and downstream
+pressure tests in separate buckets. Exact counts are recomputed from tracked
+fixtures and validated manifests; intentional coverage changes must update the
+evidence manifest and regenerate the report.
+
+PiMonoHX and OpenCodeHX are pinned, nonblocking nightly pressure tests. Their
+curated commands run only after dependency bootstrap and inside an OS network
+namespace with external networking disabled. Result artifacts keep compiler
+observations, downstream command results, known owners, and unsupported areas
+separate. A downstream failure becomes a blocking compiler defect only after a
+generic reduced fixture lands here.
+
+```bash
+yarn report:compatibility --write # intentionally regenerate evidence docs
+yarn test:compatibility-report    # check report + pinned contracts
+yarn test:downstream:contracts    # validate pins/commands without execution
+yarn test:downstream:curated --execute --id pimono-hx # isolated CI; local runs require an explicit network-policy flag
+```
+
 ## Example matrix and todoapp
 
 ### What we test
@@ -126,8 +150,10 @@ yarn test:matrix:api        # semantic gates and ts2hx on the TS6 Program API
 ```
 
 The full CI gate includes the API lane; aggregate generated-output runners own
-the three-compiler matrix internally. See `TOOLCHAINS.md` for exact versions,
-scope, and the non-blocking Haxe preview job.
+the three-compiler matrix internally. It also checks that the deterministic
+compatibility report and downstream contracts are current. See
+`TOOLCHAINS.md` for exact versions, scope, and the non-blocking Haxe preview
+job.
 
 ## Security scanning
 

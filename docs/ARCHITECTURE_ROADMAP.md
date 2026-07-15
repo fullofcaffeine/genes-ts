@@ -293,10 +293,16 @@ The source of truth is Beads epic `genes-09r`.
    semantic temporary/name allocation. The four-oracle evaluation trace,
    no-`js-es` collision fixture, two-clean-build hash, exact source maps, and
    zero-growth/no-temp budgets form the switching evidence.
-4. **`genes-09r.9` — generated compatibility evidence and downstream QA.**
-   Depends on the preceding evidence layers; publish compile, strict typing,
-   semantic differential, snapshot, toolchain, package, and downstream results
-   as separate categories.
+4. **`genes-09r.9` — generated compatibility evidence and downstream QA
+   (landed).** A deterministic JSON/Markdown report now publishes exact compile,
+   strict-typing, semantic-differential, snapshot, smoke, toolchain,
+   package-shape, and downstream counts as separate evidence classes. Metric
+   drift fails closed. PiMonoHX and OpenCodeHX are full-revision-pinned nightly
+   contracts whose curated commands execute after bootstrap in an isolated
+   network namespace; compiler observations, downstream results, known owners,
+   and unsupported areas remain distinct. The current OpenCodeHX pin records a
+   generic secondary-extern import defect as `genes-09r.14`, rather than hiding
+   it or introducing downstream knowledge into the compiler.
 
 ## Vanilla compatibility policy
 

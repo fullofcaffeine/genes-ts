@@ -1,0 +1,720 @@
+{
+  "schemaVersion": 1,
+  "contract": "genes-ts-compatibility-evidence",
+  "statement": "genes-ts supports controlled Haxe-to-TypeScript and classic ESM JavaScript profiles. This evidence inventory maps bounded claims to exact gates; it is not a blanket certification of arbitrary Haxe or npm programs.",
+  "statusSemantics": {
+    "blocking": "The named gate is required by core CI/release.",
+    "nonblockingNightly": "The named pressure test reports evidence without blocking core changes.",
+    "liveResultLocation": "GitHub Actions; this deterministic file is not a cached run log."
+  },
+  "classes": [
+    {
+      "id": "compile_inventory",
+      "label": "Compile inventory",
+      "meaning": "Sources and declared profiles compile under their owned gates; compilation alone is not semantic or public-type proof."
+    },
+    {
+      "id": "strict_public_typing",
+      "label": "Strict public typing",
+      "meaning": "Positive consumers compile and selected invalid consumers are rejected without broad public any/unknown/index signatures."
+    },
+    {
+      "id": "semantic_differential",
+      "label": "Semantic differential",
+      "meaning": "Named runtime traces agree across the explicitly listed oracles; the result applies only to those contracts."
+    },
+    {
+      "id": "snapshot",
+      "label": "Snapshot stability",
+      "meaning": "Generated source shape is deterministic relative to reviewed snapshots; snapshots do not establish semantics by themselves."
+    },
+    {
+      "id": "smoke",
+      "label": "Runtime smoke and E2E",
+      "meaning": "Named application journeys execute in selected profiles; smoke success is not general semantic parity."
+    },
+    {
+      "id": "toolchain",
+      "label": "Toolchain compatibility",
+      "meaning": "Generated output and programmatic compiler APIs are checked on separately owned, pinned lanes."
+    },
+    {
+      "id": "package_shape",
+      "label": "Package-shape interoperability",
+      "meaning": "Named ESM, subpath, conditional-export, CommonJS, and declaration-ingestion fixtures work under their tested resolution modes."
+    },
+    {
+      "id": "downstream",
+      "label": "Downstream pressure tests",
+      "meaning": "Pinned WIP consumers provide nonblocking integration evidence; failures are not compiler defects until reduced to a generic compiler fixture."
+    }
+  ],
+  "buckets": [
+    {
+      "id": "compiler-output-inventory",
+      "class": "compile_inventory",
+      "label": "Classic JavaScript and TypeScript output inventory",
+      "disposition": "blocking",
+      "scope": "Classic Genes runtime tests, generated TypeScript snapshot profiles, and every checked-in example in both first-class output profiles.",
+      "evidence": [
+        "test.hxml",
+        "scripts/test-acceptance.ts",
+        "scripts/test-examples.ts",
+        "tests/genes-ts/snapshot",
+        "examples/profiles.json"
+      ],
+      "commands": [
+        "yarn test",
+        "yarn test:acceptance"
+      ],
+      "metrics": [
+        {
+          "id": "classic-test-modules",
+          "label": "Classic Haxe test modules",
+          "kind": "tracked-files",
+          "path": "tests",
+          "match": "^Test[^/]*\\.hx$",
+          "expected": 46,
+          "count": 46
+        },
+        {
+          "id": "genes-ts-snapshot-profiles",
+          "label": "Generated TypeScript snapshot profiles",
+          "kind": "source-pattern",
+          "path": "scripts/test-genes-ts-snapshots.ts",
+          "match": "\\n\\s*name:\\s*\"",
+          "expected": 7,
+          "count": 7
+        },
+        {
+          "id": "checked-in-examples",
+          "label": "Examples with TS and classic profiles",
+          "kind": "json-object-keys",
+          "path": "examples/profiles.json",
+          "pointer": [
+            "examples"
+          ],
+          "expected": 2,
+          "count": 2
+        }
+      ],
+      "proves": "The enumerated compiler fixtures and examples compile under their owned TS/classic profiles.",
+      "doesNotProve": "Compilation does not prove closed public types, runtime equivalence, or arbitrary ecosystem compatibility."
+    },
+    {
+      "id": "public-type-safety",
+      "class": "strict_public_typing",
+      "label": "Closed exported surfaces and strict declaration consumers",
+      "disposition": "blocking",
+      "scope": "Generated TS exports, ordinary interfaces, explicit foreign boundaries, classic declarations, and strict external consumers.",
+      "evidence": [
+        "scripts/exported-surface-policy.ts",
+        "scripts/test-exported-surface-policy.ts",
+        "scripts/test-classic-dts.ts",
+        "tests/typing-policy/exported-surface-boundaries.json",
+        "tests/typing-policy/semantic",
+        "tests/classic-dts/consumer.ts",
+        "tests/output-modes/consumer.ts"
+      ],
+      "commands": [
+        "yarn test:types:exports",
+        "yarn test:classic:dts",
+        "yarn test:dual-output"
+      ],
+      "metrics": [
+        {
+          "id": "strict-consumer-sources",
+          "label": "Strict positive/negative consumer sources",
+          "kind": "tracked-files",
+          "path": "tests",
+          "match": "^(typing-policy/semantic/[^/]+|classic-dts/consumer|output-modes/consumer)\\.ts$",
+          "expected": 6,
+          "count": 6
+        },
+        {
+          "id": "owned-unsafe-boundaries",
+          "label": "Explicitly owned exported-surface boundaries",
+          "kind": "json-array",
+          "path": "tests/typing-policy/exported-surface-boundaries.json",
+          "pointer": [
+            "boundaries"
+          ],
+          "expected": 6,
+          "count": 6
+        }
+      ],
+      "proves": "Selected exported APIs are semantically audited and strict consumers reject the named unsafe programs.",
+      "doesNotProve": "The audit cannot infer soundness for untested raw metadata or every third-party declaration package."
+    },
+    {
+      "id": "runtime-semantic-differentials",
+      "class": "semantic_differential",
+      "label": "Same-source compiler and ts2hx semantic differentials",
+      "disposition": "blocking",
+      "scope": "Haxe-to-TS/classic evaluation traces plus ts2hx strict-js contracts against original TypeScript.",
+      "evidence": [
+        "tests/output-modes/profile-ownership.json",
+        "tests/output-modes/expected-trace.json",
+        "tests/output-modes/src",
+        "scripts/test-output-modes.ts",
+        "tools/ts2hx/fixtures/semantic-diff",
+        "tools/ts2hx/fixtures/semantic-unsupported",
+        "tools/ts2hx/src/test-semantic-diff.ts"
+      ],
+      "commands": [
+        "yarn test:dual-output",
+        "yarn --cwd tools/ts2hx test:semantic-diff"
+      ],
+      "metrics": [
+        {
+          "id": "dual-output-source-modules",
+          "label": "Same-source Haxe modules",
+          "kind": "tracked-files",
+          "path": "tests/output-modes/src",
+          "match": "\\.hx$",
+          "expected": 10,
+          "count": 10
+        },
+        {
+          "id": "dual-output-oracles-and-profiles",
+          "label": "TS/classic/declaration and JS oracle profiles",
+          "kind": "json-array",
+          "path": "tests/output-modes/profile-ownership.json",
+          "pointer": [
+            "profiles"
+          ],
+          "expected": 5,
+          "count": 5
+        },
+        {
+          "id": "dual-output-trace-events",
+          "label": "Stable dual-output runtime trace events",
+          "kind": "json-array-total",
+          "path": "tests/output-modes/expected-trace.json",
+          "pointer": [],
+          "expected": 17,
+          "count": 17
+        },
+        {
+          "id": "ts2hx-semantic-input-modules",
+          "label": "ts2hx supported and fail-closed semantic input modules",
+          "kind": "tracked-files",
+          "path": "tools/ts2hx/fixtures",
+          "match": "^semantic-(diff|unsupported)/src/.*\\.ts$",
+          "expected": 8,
+          "count": 8
+        }
+      ],
+      "proves": "Named traces preserve evaluation order and runtime behavior across the listed Haxe/TypeScript oracles, while named unsupported ts2hx semantics fail closed.",
+      "doesNotProve": "The curated traces are not a language-wide proof or a promise of portable ts2hx output on non-JS targets."
+    },
+    {
+      "id": "reviewed-generated-shape",
+      "class": "snapshot",
+      "label": "Reviewed genes-ts and ts2hx snapshots",
+      "disposition": "blocking",
+      "scope": "Generated TypeScript/TSX and supported ts2hx Haxe source shapes.",
+      "evidence": [
+        "scripts/test-genes-ts-snapshots.ts",
+        "tests/genes-ts/snapshot",
+        "tools/ts2hx/src/test-snapshots.ts",
+        "tools/ts2hx/tests_snapshots"
+      ],
+      "commands": [
+        "yarn test:genes-ts:snapshots",
+        "yarn --cwd tools/ts2hx test:snapshots"
+      ],
+      "metrics": [
+        {
+          "id": "genes-ts-snapshot-profiles",
+          "label": "genes-ts snapshot profiles",
+          "kind": "source-pattern",
+          "path": "scripts/test-genes-ts-snapshots.ts",
+          "match": "\\n\\s*name:\\s*\"",
+          "expected": 7,
+          "count": 7
+        },
+        {
+          "id": "ts2hx-snapshot-files",
+          "label": "ts2hx reviewed snapshot files",
+          "kind": "tracked-files",
+          "path": "tools/ts2hx/tests_snapshots",
+          "match": ".*",
+          "expected": 48,
+          "count": 48
+        }
+      ],
+      "proves": "The exact generated forms remain stable unless reviewers intentionally update their baselines.",
+      "doesNotProve": "A stable snapshot can preserve a bug; semantic and typing gates remain authoritative."
+    },
+    {
+      "id": "same-source-example-smoke",
+      "class": "smoke",
+      "label": "Same-source examples and todoapp browser E2E",
+      "disposition": "blocking",
+      "scope": "The minimal example and fullstack todoapp compile from one Haxe source tree through TS and classic ESM profiles.",
+      "evidence": [
+        "examples/profiles.json",
+        "examples/typescript-target/src",
+        "examples/todoapp/src",
+        "examples/todoapp/e2e/src/todo/e2e/Main.hx",
+        "scripts/test-examples.ts",
+        "scripts/qa-todoapp.ts"
+      ],
+      "commands": [
+        "yarn test:examples --playwright"
+      ],
+      "metrics": [
+        {
+          "id": "dual-profile-examples",
+          "label": "Same-source dual-profile examples",
+          "kind": "json-object-keys",
+          "path": "examples/profiles.json",
+          "pointer": [
+            "examples"
+          ],
+          "expected": 2,
+          "count": 2
+        },
+        {
+          "id": "todoapp-browser-journeys",
+          "label": "Todoapp browser journeys run in each profile",
+          "kind": "source-pattern",
+          "path": "examples/todoapp/e2e/src/todo/e2e/Main.hx",
+          "match": "PW\\.testPage\\(",
+          "expected": 3,
+          "count": 3
+        }
+      ],
+      "proves": "Both outputs build and execute the same selected application workflows, including validation, CRUD, navigation, and deep links.",
+      "doesNotProve": "Two green examples do not imply whole-ecosystem or framework-independent parity."
+    },
+    {
+      "id": "pinned-toolchain-lanes",
+      "class": "toolchain",
+      "label": "Pinned generated-output and compiler-API lanes",
+      "disposition": "blocking",
+      "scope": "Stable/current Node, stable/preview Haxe, TS5/TS6/TS7 generated output, the TS6 program API, and dts2hx's TS5.9 converter API.",
+      "evidence": [
+        "config/toolchains.json",
+        "scripts/toolchains.ts",
+        "scripts/test-typescript-api-lane.ts",
+        "docs/TOOLCHAINS.md",
+        ".github/workflows/ci.yml"
+      ],
+      "commands": [
+        "yarn test:versions",
+        "yarn test:matrix:generated",
+        "yarn test:matrix:api"
+      ],
+      "metrics": [
+        {
+          "id": "typescript-lanes",
+          "label": "Pinned TypeScript lanes",
+          "kind": "json-object-keys",
+          "path": "config/toolchains.json",
+          "pointer": [
+            "typescript"
+          ],
+          "expected": 3,
+          "count": 3
+        },
+        {
+          "id": "haxe-lanes",
+          "label": "Pinned Haxe lanes",
+          "kind": "json-object-keys",
+          "path": "config/toolchains.json",
+          "pointer": [
+            "haxe"
+          ],
+          "expected": 2,
+          "count": 2
+        },
+        {
+          "id": "node-lanes",
+          "label": "Pinned Node lanes",
+          "kind": "json-object-keys",
+          "path": "config/toolchains.json",
+          "pointer": [
+            "node"
+          ],
+          "expected": 2,
+          "count": 2
+        }
+      ],
+      "proves": "Generated code and API consumers are checked against their explicitly different compatibility contracts.",
+      "doesNotProve": "The Haxe preview lane is nonblocking, and TS7 generated-output success does not imply a TS7 programmatic API."
+    },
+    {
+      "id": "npm-package-shapes",
+      "class": "package_shape",
+      "label": "ESM/CommonJS/subpath/declaration-ingestion package shapes",
+      "disposition": "blocking",
+      "scope": "Manual externs and deterministic dts2hx-generated externs consumed through TS and classic Genes profiles.",
+      "evidence": [
+        "scripts/test-package-shapes.ts",
+        "scripts/dts2hx-bridge.ts",
+        "tests/genes-ts/package-shapes/packages",
+        "tests/genes-ts/package-shapes/dts2hx/manifest.json"
+      ],
+      "commands": [
+        "yarn test:interop:module-shapes"
+      ],
+      "metrics": [
+        {
+          "id": "fixture-packages",
+          "label": "Local package-shape fixtures",
+          "kind": "tracked-files",
+          "path": "tests/genes-ts/package-shapes/packages",
+          "match": "^[^/]+/package\\.json$",
+          "expected": 3,
+          "count": 3
+        },
+        {
+          "id": "dts2hx-entrypoints",
+          "label": "dts2hx declaration entrypoints",
+          "kind": "json-array",
+          "path": "tests/genes-ts/package-shapes/dts2hx/manifest.json",
+          "pointer": [
+            "invocation",
+            "entryPoints"
+          ],
+          "expected": 3,
+          "count": 3
+        },
+        {
+          "id": "dts2hx-packages",
+          "label": "dts2hx package roots",
+          "kind": "json-array",
+          "path": "tests/genes-ts/package-shapes/dts2hx/manifest.json",
+          "pointer": [
+            "packages"
+          ],
+          "expected": 2,
+          "count": 2
+        }
+      ],
+      "proves": "The named package and import forms resolve, type-check, and execute through the tested profiles without weak generated extern types.",
+      "doesNotProve": "Three synthetic packages do not cover every package.json condition, declaration merge, bundler, or host environment."
+    },
+    {
+      "id": "curated-downstream-contracts",
+      "class": "downstream",
+      "label": "Pinned PiMonoHX and OpenCodeHX pressure tests",
+      "disposition": "nonblocking-nightly",
+      "scope": "Pinned, network-isolated build/typecheck/local-smoke subsets from two WIP application ports.",
+      "evidence": [
+        "tests/compatibility/downstream-contracts.json",
+        "scripts/downstream-contracts.ts",
+        "scripts/test-downstream-contracts.ts",
+        ".github/workflows/downstream.yml"
+      ],
+      "commands": [
+        "yarn test:downstream:contracts",
+        "yarn test:downstream:curated --execute"
+      ],
+      "metrics": [
+        {
+          "id": "pinned-downstream-profiles",
+          "label": "Pinned downstream repositories",
+          "kind": "json-array",
+          "path": "tests/compatibility/downstream-contracts.json",
+          "pointer": [
+            "profiles"
+          ],
+          "expected": 2,
+          "count": 2
+        },
+        {
+          "id": "explicit-downstream-exclusions",
+          "label": "Explicit unsupported/nonblocking full-app areas",
+          "kind": "json-array-total",
+          "path": "tests/compatibility/downstream-contracts.json",
+          "pointer": [
+            "profiles"
+          ],
+          "child": "unsupported",
+          "expected": 5,
+          "count": 5
+        },
+        {
+          "id": "known-pinned-observations",
+          "label": "Known pinned compiler/downstream observations",
+          "kind": "json-array-total",
+          "path": "tests/compatibility/downstream-contracts.json",
+          "pointer": [
+            "profiles"
+          ],
+          "child": "knownObservations",
+          "expected": 2,
+          "count": 2
+        }
+      ],
+      "proves": "Exact downstream revisions can be reproduced as integration pressure tests without making product-specific compiler branches.",
+      "doesNotProve": "A downstream failure is unclassified until minimized, and a downstream pass is smoke evidence rather than compiler semantic proof."
+    }
+  ],
+  "toolchains": {
+    "schemaVersion": 1,
+    "node": {
+      "stable": "20",
+      "nextLts": "22"
+    },
+    "haxe": {
+      "stable": "4.3.7",
+      "preview": "5.0.0-preview.1"
+    },
+    "typescript": {
+      "legacyFloor": {
+        "dependency": "@typescript/legacy",
+        "package": "typescript",
+        "version": "5.5.4",
+        "binary": "bin/tsc",
+        "contract": "generated-output"
+      },
+      "apiBridge": {
+        "dependency": "typescript",
+        "package": "@typescript/typescript6",
+        "version": "6.0.2",
+        "binary": "bin/tsc6",
+        "contract": "program-api-and-generated-output"
+      },
+      "current": {
+        "dependency": "@typescript/native",
+        "package": "typescript",
+        "version": "7.0.2",
+        "binary": "bin/tsc",
+        "contract": "generated-output-only"
+      }
+    },
+    "dts2hx": {
+      "dependency": "dts2hx",
+      "version": "0.34.0",
+      "typescriptVersion": "5.9.3",
+      "sourceAuditRevision": "ccc944540e04ed1e41383533a3b7b9ac6ee80208",
+      "contract": "declaration-ingestion"
+    }
+  },
+  "downstream": {
+    "schemaVersion": 1,
+    "contract": "genes-ts-curated-downstream-v1",
+    "policy": {
+      "ciDisposition": "nonblocking-nightly",
+      "network": "OS-level network isolation after dependency bootstrap; loopback remains available for local fixture servers.",
+      "failureOwnership": "A failing downstream command is unclassified. It becomes a compiler failure only after reduction to a generic genes fixture.",
+      "fullApplications": "Full evolving WIP application suites remain nonblocking release/manual evidence."
+    },
+    "profiles": [
+      {
+        "id": "pimono-hx",
+        "label": "PiMonoHX curated compiler contract",
+        "repository": "fullofcaffeine/pimono-hx",
+        "remote": "https://github.com/fullofcaffeine/pimono-hx.git",
+        "branch": "master",
+        "revision": "c8025aa12a6a9a3901aadb63c097a5df66e03d33",
+        "checkout": "pimono-hx",
+        "compilerCheckout": "genes",
+        "maturity": "wip",
+        "disposition": "nonblocking-nightly",
+        "baseline": "passing",
+        "commands": [
+          {
+            "id": "clean",
+            "class": "prepare",
+            "executable": "npm",
+            "args": [
+              "run",
+              "clean"
+            ]
+          },
+          {
+            "id": "haxe-to-typescript",
+            "class": "compile",
+            "executable": "haxe",
+            "args": [
+              "hxml/all.hxml"
+            ]
+          },
+          {
+            "id": "strict-typescript",
+            "class": "typecheck",
+            "executable": "npm",
+            "args": [
+              "run",
+              "build:ts"
+            ]
+          },
+          {
+            "id": "generated-output-policy",
+            "class": "typing-policy",
+            "executable": "npm",
+            "args": [
+              "run",
+              "check:generated-policy"
+            ]
+          },
+          {
+            "id": "esm-import-policy",
+            "class": "module-policy",
+            "executable": "npm",
+            "args": [
+              "run",
+              "check:esm"
+            ]
+          },
+          {
+            "id": "typed-boundaries",
+            "class": "typing-policy",
+            "executable": "npm",
+            "args": [
+              "run",
+              "typed-boundary:scan"
+            ]
+          },
+          {
+            "id": "unit-contracts",
+            "class": "runtime-smoke",
+            "executable": "npm",
+            "args": [
+              "run",
+              "test:unit"
+            ]
+          },
+          {
+            "id": "generated-cli",
+            "class": "runtime-smoke",
+            "executable": "npm",
+            "args": [
+              "run",
+              "smoke:cli"
+            ]
+          }
+        ],
+        "knownObservations": [],
+        "unsupported": [
+          {
+            "id": "pimono-full-upstream-parity",
+            "status": "not-claimed",
+            "reason": "The port remains WIP and does not claim complete upstream Pi behavior."
+          },
+          {
+            "id": "pimono-live-provider-network",
+            "status": "excluded-from-curated",
+            "reason": "Live providers, OAuth, credentials, and external network effects are outside the no-network compiler contract."
+          }
+        ]
+      },
+      {
+        "id": "opencodehx",
+        "label": "OpenCodeHX curated compiler contract",
+        "repository": "fullofcaffeine/opencodehx",
+        "remote": "https://github.com/fullofcaffeine/opencodehx.git",
+        "branch": "main",
+        "revision": "66ae8f7119536142f34a23bf9fefcb238a4e2ce2",
+        "checkout": "opencodehx",
+        "compilerCheckout": "genes",
+        "maturity": "wip",
+        "disposition": "nonblocking-nightly",
+        "baseline": "known-failure",
+        "commands": [
+          {
+            "id": "clean",
+            "class": "prepare",
+            "executable": "npm",
+            "args": [
+              "run",
+              "clean"
+            ]
+          },
+          {
+            "id": "haxe-to-typescript",
+            "class": "compile",
+            "executable": "npm",
+            "args": [
+              "run",
+              "build:haxe"
+            ]
+          },
+          {
+            "id": "copy-resources",
+            "class": "prepare",
+            "executable": "npm",
+            "args": [
+              "run",
+              "copy:resources"
+            ]
+          },
+          {
+            "id": "strict-typescript",
+            "class": "typecheck",
+            "executable": "npm",
+            "args": [
+              "run",
+              "typecheck"
+            ]
+          },
+          {
+            "id": "typed-boundaries",
+            "class": "typing-policy",
+            "executable": "npm",
+            "args": [
+              "run",
+              "typed-boundary:scan"
+            ]
+          },
+          {
+            "id": "haxe-unit-contracts",
+            "class": "runtime-smoke",
+            "executable": "npm",
+            "args": [
+              "run",
+              "test:haxe:unit"
+            ]
+          },
+          {
+            "id": "local-cli-smoke",
+            "class": "runtime-smoke",
+            "executable": "npm",
+            "args": [
+              "run",
+              "smoke"
+            ]
+          }
+        ],
+        "knownObservations": [
+          {
+            "id": "opencode-global-native-secondary-extern-import",
+            "owner": "compiler",
+            "status": "open",
+            "tracking": "genes-09r.14",
+            "summary": "A @:native global secondary extern inherits an unrelated sibling @:jsRequire package import and becomes a non-constructable namespace."
+          },
+          {
+            "id": "opencode-optional-stream-discriminants",
+            "owner": "downstream",
+            "status": "open",
+            "tracking": "pinned downstream source model",
+            "summary": "The downstream stream-part facade models tool-call identifiers as optional strings but passes them to required enum constructor arguments without a guard."
+          }
+        ],
+        "unsupported": [
+          {
+            "id": "opencode-full-upstream-parity",
+            "status": "not-claimed",
+            "reason": "The port remains WIP and does not claim complete upstream OpenCode behavior."
+          },
+          {
+            "id": "opencode-classic-esm-application-profile",
+            "status": "not-yet-curated",
+            "reason": "OpenCodeHX currently owns strict TypeScript output; classic application output awaits its own downstream profile."
+          },
+          {
+            "id": "opencode-live-package-network",
+            "status": "excluded-from-curated",
+            "reason": "Live package-manager and external provider effects are outside the no-network compiler contract."
+          }
+        ]
+      }
+    ]
+  }
+}

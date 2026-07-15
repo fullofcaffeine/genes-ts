@@ -8,7 +8,9 @@ tested profiles**, not universal readiness.
 The original `genes-705` backlog established a substantial compiler and
 harness. Passing that backlog did not prove every exported type, npm package
 shape, or same-source TS/JS behavior. The architecture and evidence roadmap is
-tracked by epic `genes-09r` and documented in `ARCHITECTURE_ROADMAP.md`.
+tracked by epic `genes-09r` and documented in `ARCHITECTURE_ROADMAP.md`. The
+generated `COMPATIBILITY_REPORT.md` is the exact, deterministic inventory of
+the evidence currently owned by this repository; it is not a cached CI badge.
 
 ## Readiness dimensions
 
@@ -110,8 +112,9 @@ none of them implies compatibility beyond the projects assigned to it.
   differential fixtures, not by compilation alone.
 
 Structured diagnostics, transactional output, strict/assisted dispositions,
-and exit codes have landed. The minimal semantic IR and wider differential
-support matrix remain `genes-09r.7`.
+exit codes, the minimal semantic IR, and the supported/fail-closed differential
+matrix have landed in `genes-09r.7`. This proves only the declared semantic
+contracts; it does not make ts2hx a lossless general TypeScript translator.
 
 ## Evidence map
 
@@ -130,6 +133,8 @@ support matrix remain `genes-09r.7`.
 | Snapshots | `yarn test:genes-ts:snapshots` | Expected deterministic shape for current cases | Runtime or type soundness by itself |
 | Todoapp acceptance | `yarn test:acceptance` | A real Node/browser integration profile | General compiler completeness |
 | Complete example matrix | `yarn test:examples` | Every checked-in example has TS/classic ownership; the minimal runtime transcript and fullstack API behavior match, with optional identical browser journeys | Arbitrary applications or universal same-source parity |
+| Generated compatibility evidence | `yarn test:compatibility-report` | Exact fixture counts, pins, scopes, and non-claims remain synchronized across eight separate evidence classes | Current CI success or a single aggregate readiness score |
+| Pinned downstream pressure tests | Nightly `yarn test:downstream:curated --execute` | Exact PiMonoHX/OpenCodeHX revisions build/typecheck/smoke within their declared no-network subsets | Full application parity, automatic compiler ownership, or a blocking core result |
 | Full repository gate | `yarn test:ci` | All current blocking layers agree at the pinned revisions | Future toolchains, arbitrary npm packages, or unsupported syntax |
 
 ## Current disposition
