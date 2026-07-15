@@ -15,6 +15,7 @@ identical:
 | Classic ESM JavaScript runtime | Bounded-ready and the more mature runtime path | The blocking classic assertion suite on the pinned Haxe/Node profile. |
 | Classic `.d.ts` | Bounded and improving | Precise `Null<T>`, a semantic exported-surface audit, and strict external consumers. Complex package shapes remain separate work. |
 | Same-source dual output | Bounded-ready for the checked corpora; experimental as a general guarantee | `yarn test:dual-output` covers the target-neutral core, `yarn test:genes-ts:tsx` owns focused JSX semantics, and `yarn test:examples` runs the minimal and fullstack applications through both profiles. |
+| Reusable-library profile | Bounded-ready for explicitly marked classes | `yarn test:library-profile` proves inactive/default DCE, retained TS and classic implementations, matched strict `.d.ts`, signature-reachable classes, and generic abstract helper ownership. |
 
 Passing `tsc` proves that the exercised generated program is accepted. It does
 not by itself prove that every exported type is complete or precise. The
@@ -102,6 +103,43 @@ in `examples/profiles.json`, emits the same source as `ts-strict` and
 `classic-esm`, consumes classic declarations on TS 5/6/7, and runs both todoapp
 servers through the same API checks. `yarn test:examples --playwright` repeats
 the same browser journeys against TS-compiled and direct-classic runtimes.
+
+### Reusable-library profile
+
+Application output and library output have different DCE contracts. An
+application may remove a public method that no compiled Haxe expression calls;
+a JavaScript package cannot, because its callers live outside the Haxe build.
+Use the explicit library overlay for package entry points:
+
+```haxe
+/** Public package facade retained only by the reusable-library profile. */
+@:genes.library
+class PublicApi {
+  public function new() {}
+  public function greet(name:String):String return 'Hello $name';
+}
+```
+
+```hxml
+-D genes.library
+-D dts # required for classic JS; omit only when also using -D genes.ts
+--macro include('my.library') # ensure otherwise-unreferenced API modules are typed
+```
+
+The marker is intentionally inert without `-D genes.library`. When active, the
+compiler captures the selected class before DCE, retains its complete public
+runtime surface, recursively retains concrete types named by that surface, and
+adds a root ESM re-export. Private helpers remain private and survive only when
+a retained method body calls them. Abstract receiver helpers own their required
+method generics; true abstract statics do not acquire meaningless owner type
+parameters.
+
+In classic mode, the define fails before output unless `-D dts` is present,
+because this profile promises matched JavaScript and declarations. In
+TypeScript mode, the emitted implementation source is itself the typed public
+surface. `yarn test:library-profile` builds the same inert source as default
+classic, library classic, and library TypeScript, type-checks both surfaces on
+TS 5/6/7, and executes both retained runtimes.
 
 ## Picking a mode
 

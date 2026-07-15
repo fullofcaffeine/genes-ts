@@ -1,0 +1,8 @@
+-lib genes-ts
+-cp tests/library-profile/src
+-main library_profile.Main
+-js tests/library-profile/out/missing-root/index.js
+-D dts
+-D genes.library
+-D js-es=6
+-dce full

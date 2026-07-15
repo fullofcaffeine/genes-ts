@@ -118,9 +118,15 @@ Default when `-D genes.ts` is **not** set.
   - keeping the runtime pipeline small and fast
 
 Classic `.d.ts` generation now preserves `Null<T>` precisely and has a strict
-external-consumer gate. Treat declarations as a bounded, improving surface
-until the semantic exported-type audit in `genes-09r.1` covers inferred and
-imported unsafety as well as literal `any` tokens.
+external-consumer plus semantic exported-type gate. Treat declarations as a
+bounded surface: the checked fixtures cover inferred/imported weakness as well
+as literal unsafe types, but do not certify arbitrary raw metadata or packages.
+
+For reusable packages, `-D genes.library` plus `@:genes.library` opts selected
+classes into matched public retention. Classic output requires `-D dts`; the
+same source can also emit TypeScript with `-D genes.ts`. Without the library
+define, the marker is inert and ordinary application DCE remains compact. See
+`docs/OUTPUT_MODES.md#reusable-library-profile`.
 
 ## Target-polymorphic helpers
 
@@ -336,6 +342,8 @@ See `docs/SECURITY.md`.
 - `-D genes.ts.no_null_union` — erase `Null<T>` → `T | null` unions in TS output (recommended when compiling with `strictNullChecks: false`).
 - `-D genes.ts.dynamic_unknown` — map `Dynamic` to `unknown` instead of `any` (opt-in stricter interop).
 - `-D genes.ts.minimal_runtime` — opt into minimal runtime / no-reflection output.
+- `-D genes.library` — retain `@:genes.library` public roots and their
+  signature-reachable public graph. Classic output also requires `-D dts`.
 - `-D genes.ts.jsx_classic` — when emitting `.tsx`, also emit `import * as React from "react"` so the output compiles under TypeScript `jsx: "react"` (classic runtime). Default expects `jsx: "react-jsx"`.
 
 React/markup:
@@ -359,6 +367,7 @@ Classic Genes mode (JS output) also supports:
 - `npm run test:matrix:api` (TS6 Program/TypeChecker bridge)
 - `npm run test:matrix:generated` (curated generated output on TS5/TS6/TS7)
 - `npm run test:interop:module-shapes` (strict npm declaration/runtime shapes)
+- `npm run test:library-profile` (default DCE vs matched TS/classic library APIs)
 - `npm run test:genes-ts`
 - `npm run test:genes-ts:minimal`
 - `npm run test:genes-ts:full`

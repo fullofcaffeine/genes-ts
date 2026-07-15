@@ -61,6 +61,9 @@ evidence; those measurements remain corpus-scoped.
 
 Precise classic `Null<T>` and the strict declaration consumer have landed.
 Declaration-only type aliases are retained without producing classic JS files.
+The reusable-library overlay now retains explicitly marked public class graphs
+before DCE and requires matched declarations in classic mode; its inactive
+marker separately proves ordinary application output remains compact.
 The CommonJS `export =` constructor/value split now has a blocking
 `@:ts.instanceType` fixture across TS 5/6/7 and both Genes runtime profiles.
 Haxe 4.3.7's historical `PositionError` and `FetchObserver` WebIDL names now
@@ -124,6 +127,7 @@ contracts; it does not make ts2hx a lossless general TypeScript translator.
 | TS aggregate fixtures | `yarn test:genes-ts` and profile runners | Generated syntax/imports plus exercised runtime behavior | All public surfaces are precise merely because `tsc` passes |
 | Closed-interface negative consumer | `yarn test:genes-ts:full` | Unknown ordinary interface members are rejected | All inferred/imported exported types avoid unsafe fallbacks |
 | Strict classic declaration consumer | `yarn test:classic:dts` | Exercised `.d.ts` nullability and closed interfaces under strict flags | Every declaration in arbitrary programs is sound |
+| Reusable-library surface | `yarn test:library-profile` | One explicitly marked API has matched runnable TS/classic implementations and strict declarations while default DCE omits it | Every unmarked class, arbitrary metadata boundary, or package publication layout |
 | Exact nullish matrix | `yarn test:genes-ts:full`, `yarn test:classic:dts`, and `yarn test` | Shared null/undefined/omission contracts agree across TS declarations and both runtime modes | Every host API has already been classified |
 | Same-source differential corpus | `yarn test:dual-output` | The checked source has identical TS/classic/standard-Haxe behavior, strict classic declarations, bounded output shape, exact representative mapping/budget evidence, and pinned vanilla core evidence | Universal parity, JSX, every npm package shape, or automatic multi-stage map composition |
 | Output quality | `yarn test:output-quality` | Two clean bounded compiler trees are normalized-deterministic; selected TS/classic tokens and stack stages resolve exactly; checked module/temp/import and 5% size/token ceilings hold | Every generated token, performance, or automatic JS → Haxe map composition |

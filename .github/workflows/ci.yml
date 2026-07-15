@@ -147,6 +147,7 @@ jobs:
       - run: yarn test:ts2hx
       - run: yarn test:matrix:api
       - run: yarn test:classic:dts
+      - run: yarn test:library-profile
 
   genes-ts-smoke-next-lts:
     name: genes-ts smoke (Node next LTS)

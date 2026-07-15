@@ -15,8 +15,9 @@ This is an evidence contract, not a cached CI-success badge. `blocking` and `non
 | Compile inventory | Classic Haxe test modules | 46 | `blocking` |
 | Compile inventory | Generated TypeScript snapshot profiles | 7 | `blocking` |
 | Compile inventory | Examples with TS and classic profiles | 2 | `blocking` |
-| Strict public typing | Strict positive/negative consumer sources | 6 | `blocking` |
+| Strict public typing | Strict positive/negative consumer sources | 7 | `blocking` |
 | Strict public typing | Explicitly owned exported-surface boundaries | 6 | `blocking` |
+| Strict public typing | Reusable-library same-source Haxe modules | 4 | `blocking` |
 | Semantic differential | Same-source Haxe modules | 11 | `blocking` |
 | Semantic differential | TS/classic/declaration and JS oracle profiles | 5 | `blocking` |
 | Semantic differential | Stable dual-output runtime trace events | 18 | `blocking` |
@@ -76,20 +77,24 @@ Positive consumers compile and selected invalid consumers are rejected without b
 
 - Disposition: `blocking`
 - Scope: Generated TS exports, ordinary interfaces, explicit foreign boundaries, classic declarations, and strict external consumers.
-- Proves: Selected exported APIs are semantically audited and strict consumers reject the named unsafe programs.
+- Proves: Selected exported APIs are semantically audited, strict consumers reject the named unsafe programs, and one opt-in library graph has matched retained TS/classic runtime and declaration surfaces.
 - Does not prove: The audit cannot infer soundness for untested raw metadata or every third-party declaration package.
 - Evidence:
   - [`scripts/exported-surface-policy.ts`](../scripts/exported-surface-policy.ts)
   - [`scripts/test-exported-surface-policy.ts`](../scripts/test-exported-surface-policy.ts)
   - [`scripts/test-classic-dts.ts`](../scripts/test-classic-dts.ts)
+  - [`scripts/test-library-profile.ts`](../scripts/test-library-profile.ts)
   - [`tests/typing-policy/exported-surface-boundaries.json`](../tests/typing-policy/exported-surface-boundaries.json)
   - [`tests/typing-policy/semantic`](../tests/typing-policy/semantic)
   - [`tests/classic-dts/consumer.ts`](../tests/classic-dts/consumer.ts)
   - [`tests/output-modes/consumer.ts`](../tests/output-modes/consumer.ts)
+  - [`tests/library-profile/consumer.ts`](../tests/library-profile/consumer.ts)
+  - [`tests/library-profile/src`](../tests/library-profile/src)
 - Gates:
   - `yarn test:types:exports`
   - `yarn test:classic:dts`
   - `yarn test:dual-output`
+  - `yarn test:library-profile`
 
 ## Semantic differential
 

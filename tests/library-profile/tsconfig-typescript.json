@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": false,
+    "exactOptionalPropertyTypes": true,
+    "types": [],
+    "rootDir": "./out/typescript/src-gen",
+    "outDir": "./out/typescript/dist"
+  },
+  "include": ["out/typescript/src-gen/**/*.ts"]
+}

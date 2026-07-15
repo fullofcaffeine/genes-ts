@@ -101,15 +101,19 @@
         "scripts/exported-surface-policy.ts",
         "scripts/test-exported-surface-policy.ts",
         "scripts/test-classic-dts.ts",
+        "scripts/test-library-profile.ts",
         "tests/typing-policy/exported-surface-boundaries.json",
         "tests/typing-policy/semantic",
         "tests/classic-dts/consumer.ts",
-        "tests/output-modes/consumer.ts"
+        "tests/output-modes/consumer.ts",
+        "tests/library-profile/consumer.ts",
+        "tests/library-profile/src"
       ],
       "commands": [
         "yarn test:types:exports",
         "yarn test:classic:dts",
-        "yarn test:dual-output"
+        "yarn test:dual-output",
+        "yarn test:library-profile"
       ],
       "metrics": [
         {
@@ -117,8 +121,8 @@
           "label": "Strict positive/negative consumer sources",
           "kind": "tracked-files",
           "path": "tests",
-          "match": "^(typing-policy/semantic/[^/]+|classic-dts/consumer|output-modes/consumer)\\.ts$",
-          "expected": 6
+          "match": "^(typing-policy/semantic/[^/]+|classic-dts/consumer|output-modes/consumer|library-profile/consumer)\\.ts$",
+          "expected": 7
         },
         {
           "id": "owned-unsafe-boundaries",
@@ -127,9 +131,17 @@
           "path": "tests/typing-policy/exported-surface-boundaries.json",
           "pointer": ["boundaries"],
           "expected": 6
+        },
+        {
+          "id": "reusable-library-source-modules",
+          "label": "Reusable-library same-source Haxe modules",
+          "kind": "tracked-files",
+          "path": "tests/library-profile/src",
+          "match": "\\.hx$",
+          "expected": 4
         }
       ],
-      "proves": "Selected exported APIs are semantically audited and strict consumers reject the named unsafe programs.",
+      "proves": "Selected exported APIs are semantically audited, strict consumers reject the named unsafe programs, and one opt-in library graph has matched retained TS/classic runtime and declaration surfaces.",
       "doesNotProve": "The audit cannot infer soundness for untested raw metadata or every third-party declaration package."
     },
     {

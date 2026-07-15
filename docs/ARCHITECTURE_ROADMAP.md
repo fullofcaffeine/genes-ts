@@ -86,6 +86,7 @@ The audit also required two qualifications:
 | Fail-closed ts2hx | Strict mode diagnoses currently classified unsupported root files/top-level statements and publishes no partial tree; assisted output carries explicit losses and a manifest. Remaining semantic approximations are not declared lossless. | API/CLI/transaction tests and 53 snapshots |
 | Semantic exported-surface policy | Exported TS and classic declaration roots are checked through the TypeScript TypeChecker for explicit/inferred/imported weak types and unapproved index signatures; intentional boundaries require exact owned provenance. | Policy fixtures, TS/classic `IMap`, basic user modules, JSX negative consumers, and aggregate CI |
 | Shared public-surface facts | TS implementation interfaces and classic declarations consume one immutable pre-DCE model for visibility, applied inheritance, generics, overload identity, typedef bodies, and classified compiler-generated support members. | Generic/overload fixture, strict TS and classic declaration consumers, and dual-mode runtime assertions |
+| Reusable-library profile | Explicit `@:genes.library` roots retain one transitive public runtime/type graph before DCE; default application output remains compact and classic mode requires matched declarations. | Default/library/TS builds, strict negative consumer on TS 5/6/7, abstract-owner assertions, and paired Node runtimes |
 | Shared nullish facts | TS implementation, classic JS behavior checks, and both declaration paths consume one immutable classification for Haxe `Null<T>`, explicit `undefined`, property/parameter omission, native-map absence, and iterator completion. | Exact optional-property negative consumers plus paired TS/classic runtime traces |
 | Shared dependency facts | Runtime values, TS implementation types, and declaration-only references are immutable typed edges with source provenance; emitters project them through one alias/import allocator. | Shadow parity on full TS and classic trees, type/declaration-only DCE fixtures, strict consumers, and aggregate CI |
 | Shared host declaration gaps | Haxe WebIDL names absent from TypeScript's DOM library are defined once and projected into TS-source and classic declaration support modules. | Generic DOM extern fixture plus strict classic consumer on TS 5/6/7 |
@@ -172,15 +173,20 @@ Implementation files are emitted before declaration-only expansion, so a type
 needed solely by `.d.ts` cannot broaden classic JS DCE. Type aliases demonstrate
 that invariant with a declaration file and no JS file or orphan JS source map.
 
-Classic class declarations deliberately intersect `PublicSurface` with the
-post-DCE runtime member inventory. This is a soundness boundary, not unfinished
-graph work: declaring a stripped method would promise a JavaScript value that
-does not exist. Interfaces and type aliases can remain declaration-only because
-they erase at runtime. The future reusable-library profile tracked by
-`genes-09r.12` may retain a complete public class surface in both JS and
-declarations, but it must explicitly retain the matching runtime members and
-model abstract-instance APIs; declaration reachability alone cannot make that
-promise true.
+Classic application declarations deliberately intersect `PublicSurface` with
+the post-DCE runtime member inventory. This remains a soundness boundary:
+declaring a stripped method would promise a JavaScript value that does not
+exist. Interfaces and type aliases can remain declaration-only because they
+erase at runtime.
+
+The landed `genes-09r.12` reusable-library overlay changes retention, not that
+declaration rule. `@:genes.library` roots are captured and retained before DCE,
+along with concrete declarations reached through public signatures. Their
+post-DCE inventory is therefore complete in both classic JS/`.d.ts` and TS
+implementation output. `PublicMemberOwnership` distinguishes abstract receiver
+and constructor helpers from true statics so owner generics appear only where
+the erased runtime helper actually needs them. With no `-D genes.library`, the
+marker is inert and default application output is byte-shape compact.
 
 ### Capability profiles
 
@@ -190,6 +196,9 @@ promise true.
   must erase/lower or produce a planning diagnostic.
 - `classic-dts`: strict-consumer-safe public declarations derived from shared
   public/nullish facts, with no implementation-only runtime surface.
+- `genes.library`: an opt-in retention overlay for selected reusable class
+  roots. Classic output requires `classic-dts`; TS output carries its type
+  surface directly. It does not create a separate emitter.
 
 Profiles are contracts consumed by one planner, not separate backends allowed to
 drift semantically.
@@ -312,6 +321,14 @@ The source of truth is Beads epic `genes-09r`.
    and unsupported areas remain distinct. Its first OpenCodeHX run exposed the
    generic secondary-native-extern defect fixed by `genes-09r.14`; a pinned
    rerun now reaches only the separately owned downstream type-model failure.
+5. **`genes-09r.12` — reusable-library retention overlay (landed).** Explicit
+   `@:genes.library` classes now root one pre-DCE transitive public graph shared
+   by TS implementation output and classic JS/declarations. The inactive marker
+   proves default application DCE remains compact; classic activation without
+   `-D dts` fails before output. A signature-only class and generic abstract
+   receiver/true-static pair verify matched runtime/types and correct generic
+   ownership across TS 5/6/7 plus both Node runtimes.
+
 ## Vanilla compatibility policy
 
 `../genes-vanilla` is read-only. Standard Haxe JS behavior is the primary

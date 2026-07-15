@@ -16,6 +16,31 @@ enum abstract PublicSurfaceKind(Int) {
 }
 
 /**
+ * Classifies the source ownership of a public member independently of runtime
+ * storage.
+ *
+ * Why: Haxe lowers every abstract member into a static field on a synthetic
+ * `KAbstractImpl` class. Treating that storage detail as source-level ownership
+ * either leaks an abstract owner's type parameters onto true static methods or
+ * omits them from receiver helpers, producing weak or illegal TypeScript.
+ *
+ * What: ordinary instance/static members remain distinct, while abstract
+ * receiver helpers and abstract constructors retain their erased-runtime
+ * identity. All four forms may still print as static implementation methods;
+ * this fact controls generic ownership rather than target spelling.
+ *
+ * How: `PublicSurface.ownershipFor` recognizes the synthetic `_new` helper and
+ * the leading `this` argument Haxe adds to abstract instance methods. The fact
+ * is captured before DCE and reused by TS source plus classic declarations.
+ */
+enum abstract PublicMemberOwnership(Int) {
+  var Instance;
+  var Static;
+  var AbstractInstance;
+  var AbstractConstructor;
+}
+
+/**
  * An immutable use of a parent class or interface in a public declaration.
  *
  * Why: inheritance is part of the exported type contract, and its applied type
@@ -89,6 +114,7 @@ class PublicMember {
   public final doc: Null<String>;
   public final isStatic: Bool;
   public final isConstructor: Bool;
+  public final ownership: PublicMemberOwnership;
   public final isFinal: Bool;
   public final isCompilerGenerated: Bool;
   #if (haxe_ver >= 4.2)
@@ -112,7 +138,7 @@ class PublicMember {
   public function new(name: String, type: Type, kind: FieldKind,
       meta: MetaAccess, expr: Null<TypedExpr>, pos: Position,
       doc: Null<String>, isStatic: Bool, isConstructor: Bool, isFinal: Bool,
-      isCompilerGenerated: Bool,
+      isCompilerGenerated: Bool, ownership: PublicMemberOwnership,
       #if (haxe_ver >= 4.2) isAbstract: Bool, #end
       parameters: Array<TypeParameter>, overloads: Array<PublicMember>) {
     this.name = name;
@@ -124,6 +150,7 @@ class PublicMember {
     this.doc = doc;
     this.isStatic = isStatic;
     this.isConstructor = isConstructor;
+    this.ownership = ownership;
     this.isFinal = isFinal;
     this.isCompilerGenerated = isCompilerGenerated;
     #if (haxe_ver >= 4.2)
@@ -134,16 +161,21 @@ class PublicMember {
   }
 
   public static function capture(field: ClassField, isStatic: Bool,
-      isConstructor = false, captureOverloads = true): PublicMember {
+      isConstructor = false, captureOverloads = true,
+      ?ownership: PublicMemberOwnership): PublicMember {
+    final resolvedOwnership = ownership == null
+      ? (isStatic ? Static : Instance)
+      : ownership;
     final capturedOverloads = captureOverloads
       ? [
           for (signature in field.overloads.get())
-            capture(signature, isStatic, isConstructor, false)
+            capture(signature, isStatic, isConstructor, false,
+              resolvedOwnership)
         ]
       : [];
     return new PublicMember(field.name, field.type, field.kind, field.meta,
       field.expr(), field.pos, field.doc, isStatic, isConstructor,
-      field.isFinal, field.meta.has(':compilerGenerated'),
+      field.isFinal, field.meta.has(':compilerGenerated'), resolvedOwnership,
       #if (haxe_ver >= 4.2) field.isAbstract, #end
       field.params, capturedOverloads);
   }
@@ -153,7 +185,7 @@ class PublicMember {
     return new PublicMember(name,
       type.applyTypeParameters(ownerParameters, concreteTypes), kind, meta,
       expr, pos, doc, isStatic, isConstructor, isFinal,
-      isCompilerGenerated,
+      isCompilerGenerated, ownership,
       #if (haxe_ver >= 4.2) isAbstract, #end
       parameterValues, [
         for (signature in overloadValues)
@@ -191,8 +223,9 @@ class PublicMember {
  * How: `install` registers one deterministic `onAfterTyping` pass. Captured
  * arrays stay private and every concrete instantiation returns new values with
  * owner parameters substituted through `TypeTools.applyTypeParameters`.
- * TypeScript mode separately retains interface implementations for runtime;
- * classic JS DCE is never broadened by this declaration model.
+ * TypeScript mode separately retains interface implementations for runtime.
+ * Classic application DCE is never broadened by this declaration model; the
+ * explicit reusable-library profile may consume it to retain selected APIs.
  */
 class PublicSurface {
   @:persistent static var surfaces: Map<String, PublicSurface> = new Map();
@@ -277,16 +310,20 @@ class PublicSurface {
       case null:
         null;
       case ctor if (ctor.get().isPublic):
-        PublicMember.capture(ctor.get(), false, true);
+        PublicMember.capture(ctor.get(), false, true, true, Instance);
       case _:
         null;
     };
     return new PublicSurface(cl.isInterface ? Interface : Class, cl, [
       for (field in cl.fields.get())
-        if (field.isPublic) PublicMember.capture(field, false)
+        if (field.isPublic)
+          PublicMember.capture(field, false, false, true,
+            ownershipFor(cl, field, false))
     ], [
       for (field in cl.statics.get())
-        if (field.isPublic) PublicMember.capture(field, true)
+        if (field.isPublic)
+          PublicMember.capture(field, true, false, true,
+            ownershipFor(cl, field, true))
     ], constructor, switch cl.superClass {
       case null: null;
       case parent: new PublicTypeUse(parent.t, parent.params);
@@ -298,6 +335,36 @@ class PublicSurface {
 
   static function captureTypedef(def: DefType): PublicSurface {
     return new PublicSurface(Typedef, def, [], [], null, null, [], def.type);
+  }
+
+  /**
+   * Recovers source ownership from Haxe's typed abstract implementation shape.
+   *
+   * A normal static remains `Static`. On `KAbstractImpl`, `_new` represents the
+   * abstract constructor and a leading argument named `this` represents the
+   * erased receiver of an abstract instance member. This check deliberately
+   * uses typed function arguments instead of generated target identifiers, so
+   * later name allocation cannot change semantic ownership.
+   */
+  public static function ownershipFor(cl: ClassType, field: ClassField,
+      isStatic: Bool): PublicMemberOwnership {
+    if (!isStatic)
+      return Instance;
+    return switch cl.kind {
+      case KAbstractImpl(_):
+        if (field.name == '_new')
+          AbstractConstructor;
+        else switch field.type {
+          case TFun(arguments, _) if (arguments.length > 0
+            && (arguments[0].name == 'this'
+              || arguments[0].name == '$' + 'this')):
+            AbstractInstance;
+          default:
+            Static;
+        }
+      default:
+        Static;
+    };
   }
 
   static function captureTypes(types: Array<ModuleType>): Void {
@@ -382,6 +449,7 @@ class PublicSurface {
     surfaces = new Map();
     Context.onAfterTyping(types -> {
       captureTypes(types);
+      LibraryProfile.retain(types);
       if (Context.defined('genes.ts')) {
         for (type in types) {
           switch type {

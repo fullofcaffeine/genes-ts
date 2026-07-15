@@ -58,7 +58,7 @@ class Generator {
         #end
         default:
           final base = TypeUtil.typeToBaseType(type);
-          if (base.meta.has(':expose'))
+          if (base.meta.has(':expose') || LibraryProfile.isRoot(base))
             export({
               name: base.name,
               pos: base.pos,
@@ -347,9 +347,11 @@ class Generator {
   public static function use() {
     #if !genes.disable
     if (Context.defined('js')) {
+      LibraryProfile.validate();
       // TypeScript implementation output and classic declaration output both
       // need source-level signatures captured before runtime-oriented DCE.
-      if (Context.defined('genes.ts') || Context.defined('dts')) {
+      if (Context.defined('genes.ts') || Context.defined('dts')
+        || LibraryProfile.isEnabled()) {
         genes.PublicSurface.install();
         genes.ts.SignatureCache.install();
       }

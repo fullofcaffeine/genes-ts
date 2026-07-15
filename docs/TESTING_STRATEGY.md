@@ -45,6 +45,7 @@ available:
 yarn test:dual-output    # semantic TS/classic/standard-Haxe/vanilla evidence
 yarn test:output-quality # exact maps, clean hashes, and reviewed budgets
 yarn test:interop:module-shapes # npm declaration/runtime import contracts
+yarn test:library-profile # default DCE vs matched TS/classic library surfaces
 ```
 
 The quality manifest measures the bounded dual corpus. It uses exact module,
@@ -65,6 +66,13 @@ subpaths, conditional `import`/`require` exports, and a class-shaped CommonJS
 compares two clean generated extern trees to a checked-in manifest, rejects
 weak generated types, compiles strict negative consumers on TS 5/6/7, and runs
 the same Haxe source through TS and classic ESM.
+
+The reusable-library gate starts from an API that no Haxe expression calls.
+Default classic output must omit it. `-D genes.library` must instead retain the
+marked facade, signature-only classes, and required abstract runtime helpers in
+both classic JS/`.d.ts` and TypeScript implementation output. Strict consumers
+reject private or nonexistent members, both runtimes execute, and classic mode
+without `-D dts` must fail before publishing output.
 
 ### Compatibility evidence and downstream pressure tests
 

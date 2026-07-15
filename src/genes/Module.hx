@@ -10,6 +10,7 @@ import genes.DependencyPlan.DependencyEdgeKind;
 import genes.util.Timer.timer;
 import genes.TypeAccessor;
 import genes.PublicSurface.PublicMember;
+import genes.PublicSurface.PublicMemberOwnership;
 
 using StringTools;
 using haxe.macro.TypedExprTools;
@@ -273,7 +274,9 @@ class Module {
     }
     function paramsFor(member: PublicMember): Array<TypeParameter> {
       final params = switch cl.kind {
-        case KAbstractImpl(_.get().params => params) if (member.isStatic):
+        case KAbstractImpl(_.get().params => params)
+          if (member.ownership == AbstractInstance
+            || member.ownership == AbstractConstructor):
           params.copy();
         default:
           [];
@@ -452,7 +455,12 @@ class Module {
         isPublic: field.isPublic,
         params: {
           final params = switch cl.kind {
-            case KAbstractImpl(_.get().params => params): params;
+            case KAbstractImpl(_.get().params => params)
+              if (PublicSurface.ownershipFor(cl, field, true)
+                == AbstractInstance
+                || PublicSurface.ownershipFor(cl, field, true)
+                  == AbstractConstructor):
+              params.copy();
             default: [];
           }
           for (param in field.params) {
@@ -471,7 +479,7 @@ class Module {
         overloads: [
           for (signature in field.overloads.get())
             fieldFromPublicMember(PublicMember.capture(signature, true,
-              false, false))
+              false, false, PublicSurface.ownershipFor(cl, signature, true)))
         ]
       });
     }
