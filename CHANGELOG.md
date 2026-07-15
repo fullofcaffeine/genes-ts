@@ -1,3 +1,10 @@
+# [1.19.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.18.1...v1.19.0) (2026-07-15)
+
+
+### Features
+
+* **library:** retain matched public surfaces ([0d4001a](https://github.com/fullofcaffeine/genes-ts/commit/0d4001ac1604c0fb8439a02dae7c472ecd2b6ce7))
+
 ## [1.18.1](https://github.com/fullofcaffeine/genes-ts/compare/v1.18.0...v1.18.1) (2026-07-15)
 
 
