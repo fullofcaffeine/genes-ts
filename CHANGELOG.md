@@ -1,3 +1,10 @@
+# [1.15.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.14.1...v1.15.0) (2026-07-15)
+
+
+### Features
+
+* prove examples across TS and classic JS ([c3462c5](https://github.com/fullofcaffeine/genes-ts/commit/c3462c50cc30209c097dfaba5531097c971d8a65))
+
 ## [1.14.1](https://github.com/fullofcaffeine/genes-ts/compare/v1.14.0...v1.14.1) (2026-07-15)
 
 
