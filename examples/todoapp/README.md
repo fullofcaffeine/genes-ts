@@ -103,4 +103,7 @@ second large checked-in source tree.
 
 Haxe DCE cannot see symbols referenced only by authored TS, so the source keeps
 that narrow interop export explicitly. This is a general module-boundary fact,
-not a todoapp-specific compiler exception.
+not a todoapp-specific compiler exception. The
+[bidirectional interop cookbook](../../docs/typescript-target/INTEROP.md)
+extracts this example into reusable import, extern, DCE, packaging, and
+dual-output recipes.

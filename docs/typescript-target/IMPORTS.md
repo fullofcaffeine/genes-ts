@@ -6,6 +6,11 @@ genes-ts aims to make it easy to consume existing JS/TS/TSX libraries while:
   - genes-ts TypeScript output (`-D genes.ts`)
   - classic Genes JS output (default)
 
+This page is the import-helper and extern reference. For complete recipes in
+both directions—including TypeScript consuming generated Haxe modules, DCE,
+classic declarations, and same-source verification—read the
+[TypeScript ↔ Haxe interop cookbook](INTEROP.md).
+
 There are two supported approaches:
 
 1) Standard Haxe interop (`@:jsRequire(...)` externs)
@@ -249,6 +254,10 @@ load the real `.js` file.
 ---
 
 ## TS importing Haxe-generated modules (migration story)
+
+The [interop cookbook](INTEROP.md#direction-2-typescript-consumes-haxe-output)
+is the authoritative workflow for this direction. The summary below records
+the original todoapp migration pattern.
 
 genes-ts is designed so you can gradually port a codebase to “pure TS” over time.
 One important pattern is:

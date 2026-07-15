@@ -25,6 +25,7 @@ boundary and planned shared architecture.
 - `docs/WORKFLOWS.md` — choose an end-to-end Haxe/TS/JS or ts2hx workflow
 - `docs/typescript-target/COMPILER_CONTRACT.md` — TS target contract
 - `docs/typescript-target/TYPING_POLICY.md` — TS typing rules + profiles
+- `docs/typescript-target/INTEROP.md` — Haxe ↔ TypeScript interop cookbook
 - `docs/typescript-target/IMPORTS.md` — handwritten and dts2hx-generated npm interop
 - `docs/TROUBLESHOOTING.md` — common failure modes + fixes
 - `docs/OUTPUT_MODES.md` — TS output vs classic Genes JS output
@@ -259,11 +260,14 @@ TS/classic lowering:
 ```haxe
 import genes.ts.Imports;
 
-final Path = Imports.namespaceImport("node:path");
-final Button = Imports.defaultImport("./components/Button.js");
+final join:(a:String, b:String)->String =
+  Imports.namedImport("node:path", "join");
 ```
 
-See `docs/typescript-target/IMPORTS.md`.
+The expected Haxe type is required: `Imports` generates a tracked ESM binding,
+while strict TypeScript checks that boundary against the real module. See the
+bidirectional `docs/typescript-target/INTEROP.md` cookbook and the complete
+`docs/typescript-target/IMPORTS.md` helper reference.
 
 ## Typing + strictness
 

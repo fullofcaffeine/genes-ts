@@ -112,7 +112,7 @@ Both directions must be covered:
    - `tsc` setup, `tsconfig` essentials, ESM notes
    - bundler expectations (Vite/webpack/esbuild) and import specifier policy
 
-5) `docs/typescript-target/INTEROP.md` (NEW)
+5) `docs/typescript-target/INTEROP.md` (LANDED)
    - Haxe → TS output consumed by TS projects
    - TS/TSX consumed from Haxe (via `genes.ts.Imports`)
    - Recommended patterns for externs, module boundaries, and typed wrappers

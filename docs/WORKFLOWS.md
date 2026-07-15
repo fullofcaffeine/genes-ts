@@ -16,7 +16,7 @@ repository and run from its root unless a section says otherwise.
 | One Haxe application | A choice of either output without source forks | [One source, both outputs](#one-source-both-outputs) |
 | TypeScript/JavaScript implementation source | Haxe that will continue to run on JavaScript | [TypeScript → Haxe → JavaScript](#typescript--haxe--javascript) |
 | TypeScript implementation source | Haxe as an intermediate migration layer, then generated TS again | [TypeScript → Haxe → TypeScript](#typescript--haxe--typescript) |
-| npm `.d.ts` declarations | Haxe externs for an existing package | Use the [dts2hx bridge](typescript-target/IMPORTS.md#generating-externs-from-npm-declarations-with-dts2hx), not ts2hx |
+| npm `.d.ts` declarations | Haxe externs for an existing package | Use the [dts2hx workflow](typescript-target/INTEROP.md#generate-package-externs-with-dts2hx), not ts2hx |
 | TypeScript implementation source | Portable Haxe for a non-JS target | Start with the [portability checklist](ts2hx/PORTABILITY.md); automatic portability is not currently promised |
 
 The short rule is:
@@ -341,7 +341,9 @@ compiler or translation issue.
 | Publish Haxe output as a library | `@:genes.library`, `-D genes.library`, and matched declarations | Assuming Haxe DCE can see future JS callers |
 | Explore a future non-JS target | Adapter boundaries plus the portability checklist | Assuming strict-js output is portable Haxe |
 
-For bidirectional module examples, read
+For bidirectional module recipes, DCE rules, and classic declaration consumers,
+read the [`typescript-target/INTEROP.md`](typescript-target/INTEROP.md)
+cookbook. The complete helper/extern reference remains
 [`typescript-target/IMPORTS.md`](typescript-target/IMPORTS.md). For packaging
 layouts, exports, and declaration placement, read [`PACKAGING.md`](PACKAGING.md).
 
