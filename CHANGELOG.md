@@ -1,3 +1,10 @@
+# [1.14.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.13.2...v1.14.0) (2026-07-15)
+
+
+### Features
+
+* share JSX intent across TS and classic JS ([759dbf3](https://github.com/fullofcaffeine/genes-ts/commit/759dbf35ddbd20eee54fc685e1adc2589bf6eacd))
+
 ## [1.13.2](https://github.com/fullofcaffeine/genes-ts/compare/v1.13.1...v1.13.2) (2026-07-15)
 
 
