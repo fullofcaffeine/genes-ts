@@ -211,4 +211,8 @@ Run:
 yarn --cwd tools/ts2hx test
 ```
 
-This is also executed as part of `npm run test:acceptance` unless `SKIP_TS2HX=1` is set.
+This is also executed as part of `npm run test:acceptance` unless
+`SKIP_TS2HX=1` is set. The aggregate `yarn test:ci` uses that flag for its
+acceptance phase and immediately runs the dedicated `test:ts2hx` command, so
+the full suite has one clearly attributed ts2hx owner instead of executing it
+twice. Standalone acceptance remains complete by default.

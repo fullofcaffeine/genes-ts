@@ -26,7 +26,7 @@
     "test:vulns": "yarn build:scripts && node scripts/dist/osv-scan.js",
     "test:acceptance": "yarn build:scripts && node scripts/dist/test-acceptance.js",
     "test:ts2hx": "yarn --cwd tools/ts2hx test",
-    "test:ci": "yarn test:secrets && yarn test:vulns && yarn test:versions && yarn test:compatibility-report && yarn test:matrix:api && yarn test:types:exports && yarn test && yarn test:classic:dts && yarn test:library-profile && cross-env SKIP_CLASSIC=1 yarn test:acceptance && yarn test:ts2hx",
+    "test:ci": "yarn test:secrets && yarn test:vulns && yarn test:versions && yarn test:compatibility-report && yarn test:matrix:api && yarn test:types:exports && yarn test && yarn test:classic:dts && yarn test:library-profile && cross-env SKIP_CLASSIC=1 SKIP_TS2HX=1 yarn test:acceptance && yarn test:ts2hx",
     "test:genes-ts": "yarn build:scripts && node scripts/dist/test-genes-ts.js",
     "test:genes-ts:snapshots": "yarn build:scripts && node scripts/dist/test-genes-ts-snapshots.js",
     "test:genes-ts:sourcemaps": "yarn build:scripts && node scripts/dist/test-genes-ts-sourcemaps.js",
