@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
@@ -7,6 +7,16 @@ import {
   type DownstreamCommand,
   type DownstreamProfile
 } from "./downstream-contracts.js";
+import {
+  assertDownstreamNodeVersion,
+  classifyDownstreamCommand,
+  summarizeDownstreamRun,
+  type DownstreamCommandStatus,
+  type DownstreamProfileStatus
+} from "./downstream-runner-policy.js";
+import { toolchains } from "./toolchains.js";
+
+const maximumCapturedCommandBytes = 16 * 1024 * 1024;
 
 interface Options {
   readonly execute: boolean;
@@ -20,16 +30,23 @@ interface Options {
 interface CommandResult {
   readonly id: string;
   readonly class: DownstreamCommand["class"];
-  readonly status: "passed" | "failed" | "skipped";
+  readonly status: DownstreamCommandStatus | "skipped";
   readonly exitCode: number | null;
+  readonly observation?: string;
 }
 
 interface ProfileResult {
   readonly id: string;
   readonly repository: string;
   readonly revision: string;
-  readonly status: "passed" | "failed";
+  readonly status: DownstreamProfileStatus;
   readonly commands: ReadonlyArray<CommandResult>;
+}
+
+interface CapturedCommandResult {
+  readonly exitCode: number | null;
+  readonly output: string;
+  readonly complete: boolean;
 }
 
 function parseOptions(argv: ReadonlyArray<string>): Options {
@@ -148,38 +165,104 @@ function isolatedEnvironment(): NodeJS.ProcessEnv {
   return environment;
 }
 
-function runProfile(profile: DownstreamProfile, checkoutPath: string): ProfileResult {
+/**
+ * Runs one pinned command while preserving terminal output and bounded evidence.
+ *
+ * Why: exact known-failure classification needs stdout/stderr, but buffering an
+ * untrusted or runaway downstream process without a limit could exhaust the QA
+ * runner. Inherited stdin remains available for normal child-process behavior.
+ *
+ * What/How: stream both output channels to the parent immediately and retain at
+ * most 16 MiB in event order. Classification fails closed when that bound is
+ * exceeded because the complete diagnostic set is no longer provable.
+ */
+function runCommand(
+  command: DownstreamCommand,
+  checkoutPath: string
+): Promise<CapturedCommandResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command.executable, [...command.args], {
+      cwd: checkoutPath,
+      env: isolatedEnvironment(),
+      stdio: ["inherit", "pipe", "pipe"]
+    });
+    const chunks: Buffer[] = [];
+    let capturedBytes = 0;
+    let complete = true;
+
+    const consume = (chunk: Buffer, target: NodeJS.WriteStream): void => {
+      target.write(chunk);
+      if (capturedBytes >= maximumCapturedCommandBytes) {
+        complete = false;
+        return;
+      }
+      const remaining = maximumCapturedCommandBytes - capturedBytes;
+      const retained = chunk.byteLength <= remaining ? chunk : chunk.subarray(0, remaining);
+      chunks.push(retained);
+      capturedBytes += retained.byteLength;
+      if (retained.byteLength !== chunk.byteLength) complete = false;
+    };
+
+    child.stdout.on("data", (chunk: Buffer) => consume(chunk, process.stdout));
+    child.stderr.on("data", (chunk: Buffer) => consume(chunk, process.stderr));
+    child.once("error", reject);
+    child.once("close", (exitCode) => {
+      resolve({
+        exitCode,
+        output: Buffer.concat(chunks, capturedBytes).toString("utf8"),
+        complete
+      });
+    });
+  });
+}
+
+async function runProfile(
+  profile: DownstreamProfile,
+  checkoutPath: string
+): Promise<ProfileResult> {
   verifyCheckout(profile, checkoutPath);
   const results: CommandResult[] = [];
-  let failed = false;
+  let hardFailure = false;
+  let baselineDrift = false;
+  let matchedKnownFailure = false;
   for (const command of profile.commands) {
-    if (failed) {
+    if (hardFailure) {
       results.push({ id: command.id, class: command.class, status: "skipped", exitCode: null });
       continue;
     }
     process.stdout.write(
       `[downstream:${profile.id}] ${command.id}: ${command.executable} ${command.args.join(" ")}\n`
     );
-    const result = spawnSync(command.executable, [...command.args], {
-      cwd: checkoutPath,
-      env: isolatedEnvironment(),
-      stdio: "inherit"
-    });
-    const exitCode = result.status;
-    if (result.error) throw result.error;
-    if (exitCode !== 0) failed = true;
+    const result = await runCommand(command, checkoutPath);
+    const classification = classifyDownstreamCommand(
+      command,
+      result.exitCode,
+      result.output,
+      result.complete
+    );
+    if (classification.status === "failed") hardFailure = true;
+    if (classification.status === "unexpected-pass") baselineDrift = true;
+    if (classification.status === "expected-failure") matchedKnownFailure = true;
     results.push({
       id: command.id,
       class: command.class,
-      status: exitCode === 0 ? "passed" : "failed",
-      exitCode
+      status: classification.status,
+      exitCode: result.exitCode,
+      ...(classification.observation ? { observation: classification.observation } : {})
     });
   }
+  const status: ProfileResult["status"] = hardFailure
+    ? "failed"
+    : baselineDrift
+      ? "baseline-drift"
+      : matchedKnownFailure
+        ? "known-failure"
+        : "passed";
   return {
     id: profile.id,
     repository: profile.repository,
     revision: profile.revision,
-    status: failed ? "failed" : "passed",
+    status,
     commands: results
   };
 }
@@ -196,9 +279,12 @@ function runProfile(profile: DownstreamProfile, checkoutPath: string): ProfileRe
  * and deliberately unsupported application areas in separate JSON sections.
  *
  * How: commands execute without a shell, with credentials/proxies removed. A
- * failure remains `unclassified` until a generic genes fixture reproduces it.
+ * machine-verifiable downstream-owned known failure may continue the remaining
+ * profile stages; every other failure remains `unclassified` until a generic
+ * genes fixture reproduces it. The centralized Node lane is checked before any
+ * command can clean or otherwise mutate the pinned checkout.
  */
-function main(): void {
+async function main(): Promise<void> {
   const options = parseOptions(process.argv.slice(2));
   const contract = loadDownstreamContracts();
   if (options.githubOutputId) {
@@ -218,27 +304,29 @@ function main(): void {
       "Downstream execution requires GENES_NETWORK_ISOLATED=1 or explicit --allow-host-network"
     );
   }
+  assertDownstreamNodeVersion(toolchains.node.stable, process.versions.node);
   if (options.allowHostNetwork) {
     process.stderr.write(
       "warning: executing downstream contracts without OS network isolation (local maintainer override)\n"
     );
   }
 
-  const results = profiles.map((profile) => {
+  const results: ProfileResult[] = [];
+  for (const profile of profiles) {
     const configured = options.repoPaths.get(profile.id);
     const checkoutPath = configured
       ? path.resolve(configured)
       : path.resolve(downstreamRepoRoot, "..", profile.checkout);
-    return runProfile(profile, checkoutPath);
-  });
-  const failed = results.some((result) => result.status === "failed");
+    results.push(await runProfile(profile, checkoutPath));
+  }
+  const summary = summarizeDownstreamRun(results.map((result) => result.status));
   const compilerRevision = git(downstreamRepoRoot, ["rev-parse", "HEAD"]);
   const output = {
     schemaVersion: 1,
     contract: contract.contract,
     compiler: {
       revision: compilerRevision,
-      observation: failed ? "downstream-failure-unclassified" : "passed-curated-integration"
+      observation: summary.compilerObservation
     },
     downstream: results,
     knownObservations: profiles.flatMap((profile) =>
@@ -251,7 +339,11 @@ function main(): void {
   const serialized = `${JSON.stringify(output, null, 2)}\n`;
   if (options.outputPath) writeFileSync(path.resolve(options.outputPath), serialized);
   else process.stdout.write(serialized);
-  if (failed) process.exitCode = 1;
+  if (summary.failed) process.exitCode = 1;
 }
 
-main();
+void main().catch((error: unknown) => {
+  const message = error instanceof Error ? error.stack ?? error.message : String(error);
+  process.stderr.write(`${message}\n`);
+  process.exitCode = 1;
+});

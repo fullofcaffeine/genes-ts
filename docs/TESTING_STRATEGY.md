@@ -95,14 +95,21 @@ PiMonoHX and OpenCodeHX are pinned, nonblocking nightly pressure tests. Their
 curated commands run only after dependency bootstrap and inside an OS network
 namespace with external networking disabled. Result artifacts keep compiler
 observations, downstream command results, known owners, and unsupported areas
-separate. A downstream failure becomes a blocking compiler defect only after a
-generic reduced fixture lands here.
+separate. Execution requires the stable Node major from `config/toolchains.json`
+before even the downstream clean step, preventing native-addon ABI drift from
+looking like a compiler or application failure. A reviewed downstream-owned
+known failure is accepted only when its pinned command, exit code, and complete
+ordered TypeScript diagnostic headline set match exactly; the runner then
+continues later independent policy/unit/smoke stages. A missing, changed, or
+additional diagnostic remains unclassified. A downstream failure becomes a
+blocking compiler defect only after a generic reduced fixture lands here.
 
 ```bash
 yarn report:compatibility --write # intentionally regenerate evidence docs
 yarn test:compatibility-report    # check report + pinned contracts
 yarn test:downstream:contracts    # validate pins/commands without execution
-yarn test:downstream:curated --execute --id pimono-hx # isolated CI; local runs require an explicit network-policy flag
+yarn test:downstream:curated --execute --id pimono-hx # stable Node lane; isolated CI
+yarn test:downstream:curated --execute --allow-host-network --id pimono-hx # explicit local network-policy override
 ```
 
 ## Example matrix and todoapp

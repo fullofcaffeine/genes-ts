@@ -139,7 +139,7 @@ contracts; it does not make ts2hx a lossless general TypeScript translator.
 | Todoapp acceptance | `yarn test:acceptance` | A real Node/browser integration profile | General compiler completeness |
 | Complete example matrix | `yarn test:examples` | Every checked-in example has TS/classic ownership; the minimal runtime transcript and fullstack API behavior match, with optional identical browser journeys | Arbitrary applications or universal same-source parity |
 | Generated compatibility evidence | `yarn test:compatibility-report` | Exact fixture counts, pins, scopes, and non-claims remain synchronized across eight separate evidence classes | Current CI success or a single aggregate readiness score |
-| Pinned downstream pressure tests | Nightly `yarn test:downstream:curated --execute` | Exact PiMonoHX/OpenCodeHX revisions build/typecheck/smoke within their declared no-network subsets | Full application parity, automatic compiler ownership, or a blocking core result |
+| Pinned downstream pressure tests | Nightly `yarn test:downstream:curated --execute` | Exact PiMonoHX/OpenCodeHX revisions run on the stable Node lane; reviewed downstream failures require exact diagnostic evidence while later independent stages continue | Full application parity, automatic compiler ownership, or a blocking core result |
 | Full repository gate | `yarn test:ci` | All current blocking layers agree at the pinned revisions | Future toolchains, arbitrary npm packages, or unsupported syntax |
 
 ## Current disposition

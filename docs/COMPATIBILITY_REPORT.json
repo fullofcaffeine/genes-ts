@@ -419,6 +419,8 @@
       "evidence": [
         "tests/compatibility/downstream-contracts.json",
         "scripts/downstream-contracts.ts",
+        "scripts/downstream-runner-policy.ts",
+        "scripts/test-downstream-runner-policy.ts",
         "scripts/test-downstream-contracts.ts",
         ".github/workflows/downstream.yml"
       ],
@@ -463,8 +465,8 @@
           "count": 1
         }
       ],
-      "proves": "Exact downstream revisions can be reproduced as integration pressure tests without making product-specific compiler branches.",
-      "doesNotProve": "A downstream failure is unclassified until minimized, and a downstream pass is smoke evidence rather than compiler semantic proof."
+      "proves": "Exact downstream revisions run under the centralized stable Node lane; reviewed downstream-owned failures require exact command, exit-code, and TypeScript diagnostic evidence while independent later stages continue.",
+      "doesNotProve": "A matched downstream-owned exception is not a compiler correctness proof; every unmatched failure remains unclassified until minimized, and a downstream pass is smoke evidence rather than semantic parity."
     }
   ],
   "toolchains": {
@@ -514,7 +516,7 @@
     "policy": {
       "ciDisposition": "nonblocking-nightly",
       "network": "OS-level network isolation after dependency bootstrap; loopback remains available for local fixture servers.",
-      "failureOwnership": "A failing downstream command is unclassified. It becomes a compiler failure only after reduction to a generic genes fixture.",
+      "failureOwnership": "A reviewed downstream-owned failure is recognized only by its exact pinned command, exit code, and complete TypeScript diagnostic set. Every mismatch remains unclassified, and no failure becomes a compiler defect until reduced to a generic genes fixture.",
       "fullApplications": "Full evolving WIP application suites remain nonblocking release/manual evidence."
     },
     "profiles": [
@@ -664,7 +666,16 @@
             "args": [
               "run",
               "typecheck"
-            ]
+            ],
+            "expectedFailure": {
+              "observation": "opencode-optional-stream-discriminants",
+              "exitCode": 2,
+              "matcher": "typescript-diagnostics",
+              "diagnostics": [
+                "src-gen/opencodehx/provider/AiSdkProvider.ts(239,45): error TS2345: Argument of type 'string | null' is not assignable to parameter of type 'string'.",
+                "src-gen/opencodehx/provider/AiSdkProvider.ts(243,47): error TS2345: Argument of type 'string | null' is not assignable to parameter of type 'string'."
+              ]
+            }
           },
           {
             "id": "typed-boundaries",

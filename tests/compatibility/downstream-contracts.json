@@ -4,7 +4,7 @@
   "policy": {
     "ciDisposition": "nonblocking-nightly",
     "network": "OS-level network isolation after dependency bootstrap; loopback remains available for local fixture servers.",
-    "failureOwnership": "A failing downstream command is unclassified. It becomes a compiler failure only after reduction to a generic genes fixture.",
+    "failureOwnership": "A reviewed downstream-owned failure is recognized only by its exact pinned command, exit code, and complete TypeScript diagnostic set. Every mismatch remains unclassified, and no failure becomes a compiler defect until reduced to a generic genes fixture.",
     "fullApplications": "Full evolving WIP application suites remain nonblocking release/manual evidence."
   },
   "profiles": [
@@ -119,7 +119,16 @@
           "id": "strict-typescript",
           "class": "typecheck",
           "executable": "npm",
-          "args": ["run", "typecheck"]
+          "args": ["run", "typecheck"],
+          "expectedFailure": {
+            "observation": "opencode-optional-stream-discriminants",
+            "exitCode": 2,
+            "matcher": "typescript-diagnostics",
+            "diagnostics": [
+              "src-gen/opencodehx/provider/AiSdkProvider.ts(239,45): error TS2345: Argument of type 'string | null' is not assignable to parameter of type 'string'.",
+              "src-gen/opencodehx/provider/AiSdkProvider.ts(243,47): error TS2345: Argument of type 'string | null' is not assignable to parameter of type 'string'."
+            ]
+          }
         },
         {
           "id": "typed-boundaries",

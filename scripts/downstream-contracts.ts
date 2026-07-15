@@ -15,6 +15,32 @@ export interface DownstreamCommand {
   readonly class: DownstreamCommandClass;
   readonly executable: string;
   readonly args: ReadonlyArray<string>;
+  readonly expectedFailure?: DownstreamExpectedFailure;
+}
+
+/**
+ * Describes one fail-closed exception in a pinned downstream profile.
+ *
+ * Why: a WIP application may own a known type error, but treating every
+ * nonzero exit as equivalent either hides new regressions or makes the nightly
+ * contract permanently red. A prose observation alone cannot distinguish the
+ * pinned defect from a different failure.
+ *
+ * What: the command must exit with the exact code and emit exactly these
+ * TypeScript diagnostic headline lines. Incidental npm banners and indented
+ * diagnostic detail are deliberately ignored; added, removed, or changed
+ * TypeScript errors are not.
+ *
+ * How: the executor captures output while replaying it to the terminal, extracts
+ * TypeScript error headlines, and compares the ordered array byte-for-byte.
+ * The referenced observation must be downstream-owned so compiler defects can
+ * never be converted into an accepted baseline exception.
+ */
+export interface DownstreamExpectedFailure {
+  readonly observation: string;
+  readonly exitCode: number;
+  readonly matcher: "typescript-diagnostics";
+  readonly diagnostics: ReadonlyArray<string>;
 }
 
 export interface DownstreamExclusion {
@@ -138,11 +164,51 @@ function parseCommand(value: unknown, label: string): DownstreamCommand {
     }
   }
 
+  const expectedFailure =
+    input.expectedFailure === undefined
+      ? undefined
+      : parseExpectedFailure(input.expectedFailure, `${label}.expectedFailure`);
+
   return {
     id,
     class: className as DownstreamCommandClass,
     executable,
-    args
+    args,
+    ...(expectedFailure ? { expectedFailure } : {})
+  };
+}
+
+function parseExpectedFailure(value: unknown, label: string): DownstreamExpectedFailure {
+  const input = record(value, label);
+  if (input.matcher !== "typescript-diagnostics") {
+    throw new Error(`${label}.matcher must be typescript-diagnostics`);
+  }
+  if (
+    typeof input.exitCode !== "number" ||
+    !Number.isInteger(input.exitCode) ||
+    input.exitCode <= 0
+  ) {
+    throw new Error(`${label}.exitCode must be a positive integer`);
+  }
+  const diagnostics = stringArray(input.diagnostics, `${label}.diagnostics`);
+  if (diagnostics.length === 0) {
+    throw new Error(`${label}.diagnostics must not be empty`);
+  }
+  if (new Set(diagnostics).size !== diagnostics.length) {
+    throw new Error(`${label}.diagnostics must not contain duplicates`);
+  }
+  for (const [index, diagnostic] of diagnostics.entries()) {
+    if (!/^.+\(\d+,\d+\): error TS\d+: .+$/.test(diagnostic)) {
+      throw new Error(
+        `${label}.diagnostics[${index}] must be a complete TypeScript diagnostic headline`
+      );
+    }
+  }
+  return {
+    observation: nonEmptyString(input.observation, `${label}.observation`),
+    exitCode: Number(input.exitCode),
+    matcher: "typescript-diagnostics",
+    diagnostics
   };
 }
 
@@ -228,6 +294,38 @@ function parseProfile(value: unknown, index: number): DownstreamProfile {
   }
   if ((baseline === "passing") !== (knownObservations.length === 0)) {
     throw new Error(`${label}.baseline and knownObservations disagree`);
+  }
+
+  const observationById = new Map(knownObservations.map((entry) => [entry.id, entry]));
+  const referencedObservations = new Set<string>();
+  for (const command of commands) {
+    const expected = command.expectedFailure;
+    if (!expected) continue;
+    if (command.class !== "typecheck") {
+      throw new Error(
+        `${label}.commands.${command.id}.expectedFailure currently supports only typecheck commands`
+      );
+    }
+    const observation = observationById.get(expected.observation);
+    if (!observation) {
+      throw new Error(
+        `${label}.commands.${command.id}.expectedFailure references unknown observation ${expected.observation}`
+      );
+    }
+    if (observation.owner !== "downstream") {
+      throw new Error(
+        `${label}.commands.${command.id}.expectedFailure must reference a downstream-owned observation`
+      );
+    }
+    if (referencedObservations.has(observation.id)) {
+      throw new Error(`${label} references observation ${observation.id} more than once`);
+    }
+    referencedObservations.add(observation.id);
+  }
+  for (const observation of knownObservations) {
+    if (!referencedObservations.has(observation.id)) {
+      throw new Error(`${label}.knownObservations.${observation.id} has no expected failure command`);
+    }
   }
 
   const commandClassesSeen = new Set(commands.map((command) => command.class));

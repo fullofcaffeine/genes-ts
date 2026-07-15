@@ -204,11 +204,13 @@ Pinned WIP consumers provide nonblocking integration evidence; failures are not 
 
 - Disposition: `nonblocking-nightly`
 - Scope: Pinned, network-isolated build/typecheck/local-smoke subsets from two WIP application ports.
-- Proves: Exact downstream revisions can be reproduced as integration pressure tests without making product-specific compiler branches.
-- Does not prove: A downstream failure is unclassified until minimized, and a downstream pass is smoke evidence rather than compiler semantic proof.
+- Proves: Exact downstream revisions run under the centralized stable Node lane; reviewed downstream-owned failures require exact command, exit-code, and TypeScript diagnostic evidence while independent later stages continue.
+- Does not prove: A matched downstream-owned exception is not a compiler correctness proof; every unmatched failure remains unclassified until minimized, and a downstream pass is smoke evidence rather than semantic parity.
 - Evidence:
   - [`tests/compatibility/downstream-contracts.json`](../tests/compatibility/downstream-contracts.json)
   - [`scripts/downstream-contracts.ts`](../scripts/downstream-contracts.ts)
+  - [`scripts/downstream-runner-policy.ts`](../scripts/downstream-runner-policy.ts)
+  - [`scripts/test-downstream-runner-policy.ts`](../scripts/test-downstream-runner-policy.ts)
   - [`scripts/test-downstream-contracts.ts`](../scripts/test-downstream-contracts.ts)
   - [`.github/workflows/downstream.yml`](../.github/workflows/downstream.yml)
 - Gates:
@@ -217,7 +219,7 @@ Pinned WIP consumers provide nonblocking integration evidence; failures are not 
 
 ## Pinned downstream revisions
 
-These jobs are deliberately nonblocking. Their JSON result artifacts keep the compiler candidate observation, downstream command statuses, and unsupported areas separate.
+These jobs are deliberately nonblocking and require the centralized stable Node lane before touching a checkout. Their JSON result artifacts keep the compiler candidate observation, downstream command statuses, and unsupported areas separate. A reviewed downstream-owned failure is recognized only by an exact pinned command, exit code, and complete TypeScript diagnostic set; every mismatch fails closed.
 
 | Profile | Revision | Curated commands | Pinned baseline | Disposition |
 | --- | --- | ---: | --- | --- |
@@ -245,4 +247,4 @@ These jobs are deliberately nonblocking. Their JSON result artifacts keep the co
 
 ## Promotion boundary
 
-A passing downstream smoke cannot promote a compiler claim. A downstream failure cannot block core work as a compiler defect until the underlying Haxe/JS/TS construct is minimized into this repository and assigned to the appropriate blocking evidence class.
+A passing downstream smoke or matched downstream-owned exception cannot promote a compiler claim. An unmatched downstream failure cannot block core work as a compiler defect until the underlying Haxe/JS/TS construct is minimized into this repository and assigned to the appropriate blocking evidence class.

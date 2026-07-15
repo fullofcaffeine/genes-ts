@@ -375,6 +375,8 @@
       "evidence": [
         "tests/compatibility/downstream-contracts.json",
         "scripts/downstream-contracts.ts",
+        "scripts/downstream-runner-policy.ts",
+        "scripts/test-downstream-runner-policy.ts",
         "scripts/test-downstream-contracts.ts",
         ".github/workflows/downstream.yml"
       ],
@@ -410,8 +412,8 @@
           "expected": 1
         }
       ],
-      "proves": "Exact downstream revisions can be reproduced as integration pressure tests without making product-specific compiler branches.",
-      "doesNotProve": "A downstream failure is unclassified until minimized, and a downstream pass is smoke evidence rather than compiler semantic proof."
+      "proves": "Exact downstream revisions run under the centralized stable Node lane; reviewed downstream-owned failures require exact command, exit-code, and TypeScript diagnostic evidence while independent later stages continue.",
+      "doesNotProve": "A matched downstream-owned exception is not a compiler correctness proof; every unmatched failure remains unclassified until minimized, and a downstream pass is smoke evidence rather than semantic parity."
     }
   ]
 }

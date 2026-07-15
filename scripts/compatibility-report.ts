@@ -381,7 +381,7 @@ function renderMarkdown(report: ReturnType<typeof createReport>): string {
     "",
     "## Pinned downstream revisions",
     "",
-    "These jobs are deliberately nonblocking. Their JSON result artifacts keep the compiler candidate observation, downstream command statuses, and unsupported areas separate.",
+    "These jobs are deliberately nonblocking and require the centralized stable Node lane before touching a checkout. Their JSON result artifacts keep the compiler candidate observation, downstream command statuses, and unsupported areas separate. A reviewed downstream-owned failure is recognized only by an exact pinned command, exit code, and complete TypeScript diagnostic set; every mismatch fails closed.",
     "",
     "| Profile | Revision | Curated commands | Pinned baseline | Disposition |",
     "| --- | --- | ---: | --- | --- |"
@@ -414,7 +414,7 @@ function renderMarkdown(report: ReturnType<typeof createReport>): string {
   lines.push(
     "## Promotion boundary",
     "",
-    "A passing downstream smoke cannot promote a compiler claim. A downstream failure cannot block core work as a compiler defect until the underlying Haxe/JS/TS construct is minimized into this repository and assigned to the appropriate blocking evidence class.",
+    "A passing downstream smoke or matched downstream-owned exception cannot promote a compiler claim. An unmatched downstream failure cannot block core work as a compiler defect until the underlying Haxe/JS/TS construct is minimized into this repository and assigned to the appropriate blocking evidence class.",
     ""
   );
   return lines.join("\n");
