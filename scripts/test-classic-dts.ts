@@ -1,4 +1,5 @@
 import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
+import { existsSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { assertExportedSurfacePolicy } from "./exported-surface-policy.js";
@@ -25,9 +26,36 @@ function run(cmd: string, args: ReadonlyArray<string>, opts: ExecFileSyncOptions
   });
 }
 
+const declarationOnlyJs = path.join(
+  repoRoot,
+  "bin/tests/typeonly/DeclarationOnlyShape.js"
+);
+const declarationOnlyDts = path.join(
+  repoRoot,
+  "bin/tests/typeonly/DeclarationOnlyShape.d.ts"
+);
+const declarationOnlyJsMap = `${declarationOnlyJs}.map`;
+
+// Remove stale artifacts before the build. The declaration-only dependency is
+// expected to gain a `.d.ts` through DependencyPlan without broadening classic
+// runtime DCE and recreating its `.js` implementation.
+rmSync(declarationOnlyJs, { force: true });
+rmSync(declarationOnlyJsMap, { force: true });
+rmSync(declarationOnlyDts, { force: true });
+
 // Always rebuild: accepting a stale declaration tree would make the negative
 // consumer pass or fail independently of the compiler revision under test.
 run("haxe", ["test.hxml"]);
+
+if (!existsSync(declarationOnlyDts)) {
+  throw new Error("Declaration-only DCE dependency did not receive a .d.ts module.");
+}
+if (existsSync(declarationOnlyJs)) {
+  throw new Error("Declaration-only reachability incorrectly broadened classic JS DCE.");
+}
+if (existsSync(declarationOnlyJsMap)) {
+  throw new Error("Declaration-only reachability emitted an orphan classic JS source map.");
+}
 
 assertExportedSurfacePolicy({
   repoRoot,

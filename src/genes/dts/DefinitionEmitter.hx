@@ -12,7 +12,7 @@ import genes.NullishContract;
 
 class DefinitionEmitter extends ModuleEmitter {
   public function emitDefinition(module: Module) {
-    final dependencies = module.typeDependencies;
+    final dependencies = module.declarationDependencies;
     final endTimer = timer('emitDefinition');
     ctx.typeAccessor = dependencies.typeAccessor;
     if (haxe.macro.Context.defined('genes.dts_banner')) {
@@ -29,11 +29,11 @@ class DefinitionEmitter extends ModuleEmitter {
           emitModuleStatics(cl, fields);
         #end
         case MClass(cl, params, fields):
-          // Declaration output consumes the shared public API facts. Interface
-          // contracts are complete; class members are intersected with the
-          // emitted runtime inventory until the declaration-only DependencyPlan
-          // can retain their referenced types independently. Private runtime
-          // fields never enter this declaration plan.
+          // Interface contracts are type-only and consume the complete shared
+          // surface. Class declarations intersect it with emitted runtime
+          // members: promising a DCE-stripped method in `.d.ts` would be
+          // unsound even though DependencyPlan could retain its parameter types.
+          // Private runtime fields never enter the consumer declaration.
           final publicSurface = PublicSurface.forClass(cl);
           emitClassDefinition(cl, publicSurface, params,
             Module.fieldsOf(cl, publicSurface, params, false,

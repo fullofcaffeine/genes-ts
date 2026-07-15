@@ -1,6 +1,7 @@
 package tests;
 
 import tink.unit.Assert.*;
+import tests.typeonly.DeclarationOnlyShape;
 import tests.typeonly.TypeOnlyHelper;
 
 class TypeOnlyApi {
@@ -11,6 +12,10 @@ class TypeOnlyApi {
   public function getHelper(): TypeOnlyHelper {
     return null;
   }
+
+  public function getShape(): DeclarationOnlyShape {
+    return {label: "declaration-only"};
+  }
 }
 
 class TestTypeOnlyDce {
@@ -19,6 +24,6 @@ class TestTypeOnlyDce {
   public function testTypeOnlyDce() {
     final api = new TypeOnlyApi();
     api.getHelper();
-    return assert(api != null);
+    return assert(api.getShape().label == "declaration-only");
   }
 }

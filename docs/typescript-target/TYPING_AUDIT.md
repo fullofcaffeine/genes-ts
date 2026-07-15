@@ -26,8 +26,8 @@ Ordinary generated interfaces no longer receive an unconditional
 DCE removes implementation details, and the full fixture includes a negative
 consumer that requires an unknown member access to fail.
 
-This closes the concrete `IMap` masking defect. It does not yet replace every
-dependency/reachability path with an explicit graph.
+This closes the concrete `IMap` masking defect. Runtime, TS type, and classic
+declaration reachability now flow through the explicit graph described below.
 
 ### Shared public-surface planning
 
@@ -41,8 +41,24 @@ interfaces, overload identity, and exclusion of private runtime helpers.
 TS implementation interfaces intentionally retain classified Haxe accessor
 support methods when emitted class bodies call them directly; classic consumer
 declarations suppress those implementation details. Classic class declarations
-currently intersect the shared surface with runtime-retained members until the
-declaration-only dependency graph can retain referenced types independently.
+intersect the shared surface with runtime-retained members because declaring a
+DCE-stripped class value would be unsound. Interfaces and type aliases can be
+declaration-only; the future full-library profile tracked by `genes-09r.12`
+must retain both the public JS members and their declarations together.
+
+### Explicit dependency planning
+
+`DependencyPlan` classifies ordered edges as runtime values, runtime side
+effects, TS implementation types, or declaration-only types. Each edge keeps a
+compiler-owned declaration ref plus a stable rule ID and source span. The plan
+was compared against the existing full TS and classic import trees before the
+legacy sink-printer traversal was removed.
+
+Emitters still use `Dependencies` for package import forms and collision-safe
+aliases, but reachability no longer depends on target text. Internal failures
+are source-positioned diagnostics rather than a silent `Context.getType` catch.
+Declaration expansion runs after executable files, and a paired typedef fixture
+proves classic output creates `.d.ts` without a JS file or orphan JS source map.
 
 ### Precise classic nullability
 
@@ -89,9 +105,9 @@ precedence as well as the semantic classification.
    extern package shapes can bypass ordinary Haxe type mapping.
 4. **Runtime/stdlib exclusions:** reflection and boot code need narrow unsafe
    operations, but those operations must not escape into user exports.
-5. **Declaration-only reachability:** classic class declarations still require
-   the runtime-member intersection described above; TS implementation types do
-   not yet consume an explicit declaration dependency graph either.
+5. **Projection drift:** adding a new target type spelling must update the typed
+   reference collector; focused graph fixtures and output snapshots guard this,
+   but the mapping is not yet a single general type-projection IR.
 
 ## Evidence layers
 
@@ -105,12 +121,13 @@ precedence as well as the semantic classification.
 
 ## Next tightening targets
 
-1. `genes-09r.3`: make runtime, type-only, and declaration-only dependencies
-   explicit so a type printer cannot silently change reachability.
-2. `genes-09r.5`: broaden JSX negative coverage across intrinsic props,
+1. `genes-09r.5`: broaden JSX negative coverage across intrinsic props,
    components, children, spread props, and imported JSX namespaces.
-3. `genes-09r.4`: separate emitted-code compatibility lanes from
+2. `genes-09r.4`: separate emitted-code compatibility lanes from
    TypeScript-compiler-API compatibility and centralize toolchain versions.
+3. Extract the next shared type-projection seam only when a concrete mapping
+   change would otherwise duplicate semantic choices between the printer and
+   `TypeReferenceCollector`.
 
 The desired end state is an allowlisted boundary manifest with a stable ID,
 owner, reason, and source provenance for every public dynamic escape hatch.

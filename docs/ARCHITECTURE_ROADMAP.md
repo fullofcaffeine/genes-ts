@@ -85,12 +85,14 @@ The audit also required two qualifications:
 | Semantic exported-surface policy | Exported TS and classic declaration roots are checked through the TypeScript TypeChecker for explicit/inferred/imported weak types and unapproved index signatures; intentional boundaries require exact owned provenance. | Policy fixtures, TS/classic `IMap`, basic user modules, JSX negative consumers, and aggregate CI |
 | Shared public-surface facts | TS implementation interfaces and classic declarations consume one immutable pre-DCE model for visibility, applied inheritance, generics, overload identity, typedef bodies, and classified compiler-generated support members. | Generic/overload fixture, strict TS and classic declaration consumers, and dual-mode runtime assertions |
 | Shared nullish facts | TS implementation, classic JS behavior checks, and both declaration paths consume one immutable classification for Haxe `Null<T>`, explicit `undefined`, property/parameter omission, native-map absence, and iterator completion. | Exact optional-property negative consumers plus paired TS/classic runtime traces |
+| Shared dependency facts | Runtime values, TS implementation types, and declaration-only references are immutable typed edges with source provenance; emitters project them through one alias/import allocator. | Shadow parity on full TS and classic trees, type/declaration-only DCE fixtures, strict consumers, and aggregate CI |
 | Product wording | Readiness, JSX, declaration, and migration claims are separated by evidence class. | This document and linked mode/policy docs |
 
 These are focused fixes, not proof that the complete semantic architecture
 already exists. `PublicSurface` owns declaration facts and `NullishContract`
-owns absence semantics, while dependency reachability, expression lowering,
-names/temporaries, and JSX intent remain the separately ordered seams below.
+owns absence semantics, and `DependencyPlan` owns reachability. Expression
+lowering, names/temporaries, and JSX intent remain the separately ordered seams
+below.
 
 ## Incremental target architecture
 
@@ -147,8 +149,8 @@ silently redefine Haxe runtime semantics.
 
 ### Dependency plan
 
-The current `Dependencies` import machinery should be extended rather than
-discarded. Its eventual immutable edge needs:
+The existing `Dependencies` import machinery is retained as the alias/package
+projection layer. `DependencyPlan` now records immutable edges containing:
 
 ```text
 from module, destination module/package, symbol,
@@ -157,17 +159,22 @@ import form: Named | Default | Namespace | ExportEquals | Global,
 source span + rule ID
 ```
 
-Graph validation must ensure every referenced non-global symbol has an edge,
-type/declaration edges never introduce runtime side effects, and unresolved
-Haxe types become diagnostics. The current no-op type-printer discovery and
-silent lookup catch should remain only until the shadow graph proves parity.
+Graph expansion consumes the retained `ModuleType` directly. Non-global edges
+without a materializable declaration are source-positioned errors; no import
+string is reparsed with `Context.getType`, and no failed lookup is swallowed.
+Implementation files are emitted before declaration-only expansion, so a type
+needed solely by `.d.ts` cannot broaden classic JS DCE. Type aliases demonstrate
+that invariant with a declaration file and no JS file or orphan JS source map.
 
-Until that graph lands, classic class declarations intersect `PublicSurface`
-with the post-DCE runtime member inventory. This prevents a declaration-only
-member—especially an abstract implementation artifact—from naming a type whose
-module was never planned, while interfaces remain complete. `genes-09r.3` must
-remove that boundary by planning declaration reachability and abstract-instance
-surface representation explicitly; it must not broaden classic runtime DCE.
+Classic class declarations deliberately intersect `PublicSurface` with the
+post-DCE runtime member inventory. This is a soundness boundary, not unfinished
+graph work: declaring a stripped method would promise a JavaScript value that
+does not exist. Interfaces and type aliases can remain declaration-only because
+they erase at runtime. The future reusable-library profile tracked by
+`genes-09r.12` may retain a complete public class surface in both JS and
+declarations, but it must explicitly retain the matching runtime members and
+model abstract-instance APIs; declaration reachability alone cannot make that
+promise true.
 
 ### Capability profiles
 
@@ -206,9 +213,12 @@ The source of truth is Beads epic `genes-09r`.
    `noUncheckedIndexedAccess`. The TS type printer also groups function-valued
    optional projections so `((...) => T) | undefined` cannot become a function
    returning `T | undefined`.
-4. **`genes-09r.3` — runtime/type/declaration `DependencyPlan`.** Depends on
-   `.1` and `.10`; first run in shadow/compare mode, then replace printer-driven
-   discovery and silent lookup failure.
+4. **`genes-09r.3` — runtime/type/declaration `DependencyPlan` (landed).** The
+   explicit graph matched the prior full TS and classic import trees in shadow
+   mode, then replaced sink-printer discovery and string-based type lookup.
+   Runtime/type/declaration projections share import allocation, internal
+   failures are source-positioned, and declaration expansion runs only after
+   executable output so classic DCE cannot be broadened accidentally.
 5. **`genes-cn4` — authoritative same-source dual-output corpus.** Compile one
    generic Haxe tree through TS, classic JS, and classic declarations; compare
    stable runtime traces and bounded output facts, not byte identity.

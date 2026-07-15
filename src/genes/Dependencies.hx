@@ -24,6 +24,26 @@ typedef Dependency = {
   ?pos: SourcePosition
 }
 
+/**
+ * One unresolved import request derived from a typed Haxe declaration.
+ *
+ * Why: import spelling and module reachability used to be coupled through
+ * `Dependencies.add`: callers received only the eventual string import and the
+ * generator later attempted to reconstruct a Haxe type with `Context.getType`.
+ * Keeping the original `ModuleType` beside the import request lets
+ * `DependencyPlan` grow type/declaration graphs from compiler-owned refs and
+ * report invalid edges deterministically.
+ *
+ * What/How: `dependency` is the pre-alias import request and `referencedType`
+ * is the compiler-owned declaration that supplies it. Host/runtime imports are
+ * added directly as plan edges because they have no Haxe declaration.
+ * `Dependencies.push` still owns collision-safe alias allocation.
+ */
+typedef DependencyRequest = {
+  final dependency: Dependency;
+  final referencedType: ModuleType;
+}
+
 private typedef ModuleName = String;
 
 class Dependencies {
@@ -240,29 +260,54 @@ class Dependencies {
     }
   }
 
-  public function add(type: ModuleType) {
+  /**
+   * Resolves a typed declaration into import requests without mutating an
+   * import table.
+   *
+   * This preserves Genes' existing extern, secondary-module, and local typedef
+   * alias rules while allowing an immutable dependency graph to classify the
+   * edge before aliases are allocated for a particular emission profile.
+   */
+  public static function requests(module: Module,
+      type: ModuleType): Array<DependencyRequest> {
     switch type {
       case TClassDecl((_.get() : BaseType) => base) |
         TEnumDecl((_.get() : BaseType) => base) |
         TTypeDecl((_.get() : BaseType) => base):
         final dependency = makeDependency(base);
         if (dependency == null)
-          return;
+          return [];
         if (dependency.path != module.module)
-          return push(dependency.path, dependency);
+          return [{dependency: dependency, referencedType: type}];
         switch type {
           case TTypeDecl(_.get() => t)
             if (module.getMember(TypeUtil.baseTypeName(base)) == null):
             // import X in Y;
             final x = TypeUtil.typeToBaseType(t.type);
             if (x == null)
-              return;
+              return [];
             final y = makeDependency(x);
+            if (y == null)
+              return [];
+            final referencedType = TypeUtil.typeToModuleType(t.type);
+            if (referencedType == null)
+              return [];
             y.alias = dependency.name;
-            push(y.path, y);
+            return [{
+              dependency: y,
+              referencedType: referencedType
+            }];
           default:
         }
       default:
+    }
+    return [];
+  }
+
+  public function add(type: ModuleType) {
+    for (request in requests(module, type)) {
+      final dependency = request.dependency;
+      push(dependency.path, dependency);
     }
   }
 

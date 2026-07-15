@@ -6,8 +6,7 @@ import haxe.macro.Expr;
 import helder.Set;
 import genes.util.TypeUtil;
 import genes.Dependencies;
-import genes.util.TypeUtil;
-import genes.dts.TypeEmitter;
+import genes.DependencyPlan.DependencyEdgeKind;
 import genes.util.Timer.timer;
 import genes.TypeAccessor;
 import genes.PublicSurface.PublicMember;
@@ -65,7 +64,9 @@ class Module {
   public final path: String;
   public final members: Array<Member> = [];
   public final expose: Array<ModuleExport> = [];
+  public var dependencyPlan(get, null): DependencyPlan;
   public var typeDependencies(get, null): Dependencies;
+  public var declarationDependencies(get, null): Dependencies;
   public var codeDependencies(get, null): Dependencies;
 
   final context: ModuleContext;
@@ -79,36 +80,86 @@ class Module {
       this.expose = expose;
     path = module.split('.').join('/');
     final endTimer = timer('members');
-    for (type in types)
+    addTypes(types);
+    if (main != null)
+      members.push(MMain(main));
+    endTimer();
+  }
+
+  function get_dependencyPlan(): DependencyPlan {
+    if (dependencyPlan == null)
+      dependencyPlan = DependencyPlanBuilder.build(this);
+    return dependencyPlan;
+  }
+
+  /**
+   * Adds declarations reached after Haxe's runtime-oriented DCE.
+   *
+   * Why: TS annotations and `.d.ts` surfaces can name types absent from
+   * `JSGenApi.types`. The dependency graph retains their compiler refs, so the
+   * generator can materialize them without reparsing an import string through
+   * `Context.getType`.
+   *
+   * What/How: declarations are deduplicated by emitted member identity and use
+   * the same member construction as initial runtime types. Any cached graph or
+   * import projection is invalidated. Callers emit implementation files before
+   * declaration-only expansion, preserving classic JS DCE.
+   */
+  public function addTypes(types: Array<Type>): Bool {
+    var changed = false;
+    for (type in types) {
+      final base = TypeUtil.typeToBaseType(type);
+      if (base != null && (getMember(base.name) != null
+        || getMember(TypeUtil.baseTypeName(base)) != null))
+        continue;
       switch type {
-        case TEnum(_.get() => et, params):
-          members.push(MEnum(et, params));
-        case TInst(_.get() => cl, params):
-          members.push(MClass(cl, params, fieldsOf(cl)));
-        case TType(_.get() => tt, params):
-          function addIfConcrete(t: BaseType) {
-            final name = TypeUtil.baseTypeFullName(t);
-            if (context.concrete.indexOf(name) > -1)
-              members.push(MType(tt, params));
+        case TEnum(_.get() => enumType, params):
+          final name = TypeUtil.baseTypeFullName(enumType);
+          if (context.concrete.indexOf(name) == -1)
+            context.concrete.push(name);
+          members.push(MEnum(enumType, params));
+          changed = true;
+        case TInst(_.get() => classType, params):
+          final name = TypeUtil.baseTypeFullName(classType);
+          if (context.concrete.indexOf(name) == -1)
+            context.concrete.push(name);
+          members.push(MClass(classType, params, fieldsOf(classType)));
+          changed = true;
+        case TType(_.get() => definition, params):
+          function addIfConcrete(concreteType: BaseType): Void {
+            final name = TypeUtil.baseTypeFullName(concreteType);
+            if (context.concrete.indexOf(name) > -1) {
+              members.push(MType(definition, params));
+              changed = true;
+            }
           }
-          switch Context.followWithAbstracts(tt.type) {
-            case TEnum(_.get() => t, _): addIfConcrete(t);
-            case TInst(t = _.get() => {
+          switch Context.followWithAbstracts(definition.type) {
+            case TEnum(_.get() => followed, _):
+              addIfConcrete(followed);
+            case TInst(ref = _.get() => {
               kind: KNormal
               #if (haxe_ver >= 4.2)
               | KModuleFields(_)
               #end
               | KGeneric | KGenericInstance(_, _) | KAbstractImpl(_)
             }, _):
-              addIfConcrete(t.get());
-            default: members.push(MType(tt, params));
+              addIfConcrete(ref.get());
+            default:
+              members.push(MType(definition, params));
+              changed = true;
           }
         default:
-          throw 'assert';
+          throw 'DependencyPlan attempted to materialize a non-module type';
       }
-    if (main != null)
-      members.push(MMain(main));
-    endTimer();
+    }
+    if (changed) {
+      dependencyPlan = null;
+      typeDependencies = null;
+      declarationDependencies = null;
+      codeDependencies = null;
+      cycleCache.clear();
+    }
+    return changed;
   }
 
   public function toPath(from: String) {
@@ -148,259 +199,24 @@ class Module {
     }
   }
 
-  function get_typeDependencies() {
-    if (typeDependencies != null)
-      return typeDependencies;
-    final endTimer = timer('typeDependencies');
-    final dependencies = new Dependencies(this, false);
-    final tsMode = Context.defined('genes.ts');
-    final declarationMode = Context.defined('dts');
-    final noop = function() {}
-    final writer = {
-      write: function(code: String) {},
-      writeNewline: noop,
-      increaseIndent: noop,
-      decreaseIndent: noop,
-      emitComment: function(comment: String) {},
-      emitPos: function(pos) {},
-      includeType: function(type: Type) {
-        dependencies.add(TypeUtil.typeToModuleType(type));
-      },
-      typeAccessor: dependencies.typeAccessor
-    }
-    function addBaseType(type: BaseType, params: Array<Type>)
-      TypeEmitter.emitBaseType(writer, type, params, true);
-    function addType(type: Type)
-      TypeEmitter.emitType(writer, type);
-    function addParams(params: Array<Type>)
-      TypeEmitter.emitParams(writer, params, true);
-    function addExprLocalTypes(e: TypedExpr) {
-      if (e == null)
-        return;
-      switch e.expr {
-        case TVar(v, _):
-          addType(v.t);
-        case TFunction(f):
-          for (arg in f.args)
-            addType(arg.v.t);
-        default:
-      }
-      e.iter(addExprLocalTypes);
-    }
-    for (member in members) {
-      switch member {
-        case MClass(cl, params, fields):
-          addParams(params);
-          final publicSurface = (tsMode || declarationMode)
-            ? PublicSurface.forClass(cl)
-            : null;
-          final publicInterfaces = publicSurface == null
-            ? [for (parent in cl.interfaces)
-                new genes.PublicSurface.PublicTypeUse(parent.t, parent.params)]
-            : publicSurface.interfacesFor(params);
-          switch publicInterfaces {
-            case null | []:
-            case v:
-              for (i in v) {
-                dependencies.add(TClassDecl(i.type));
-                addBaseType(i.type.get(), i.copyArguments());
-              }
-          }
-          final publicSuperClass = publicSurface == null
-            ? (switch cl.superClass {
-                case null: null;
-                case parent: new genes.PublicSurface.PublicTypeUse(parent.t,
-                  parent.params);
-              })
-            : publicSurface.superClassFor(params);
-          switch publicSuperClass {
-            case null:
-            case parent:
-              dependencies.add(TClassDecl(parent.type));
-              addBaseType(parent.type.get(), parent.copyArguments());
-          }
-          // Dependency discovery consumes exactly the same source-level API
-          // facts as declaration-like emitters. Interfaces use their complete
-          // surface. Class declarations currently intersect it with runtime
-          // reachability until DependencyPlan can retain declaration-only type
-          // edges without pulling implementation modules into classic JS.
-          final signatureFields = publicSurface != null
-            && (declarationMode || cl.isInterface)
-            ? fieldsOf(cl, publicSurface, params, tsMode && cl.isInterface,
-              declarationMode && !cl.isInterface ? fields : null)
-            : fields;
-          function addSignatureField(field: Field): Void {
-            if (field.tsType != null)
-              return;
-            addParams(field.params.map(parameter -> parameter.t));
-            addType(field.type);
-            for (signature in field.overloads)
-              addSignatureField(signature);
-          }
-          for (field in signatureFields)
-            addSignatureField(field);
-          if (tsMode) {
-            for (field in fields)
-              addExprLocalTypes(field.expr);
-            addExprLocalTypes(cl.init);
-          }
-        case MEnum(et, params):
-          addParams(params);
-          for (c in et.constructs) {
-            addParams(c.params.map(p -> p.t));
-            switch c.type {
-              case TFun(args, ret):
-                for (arg in args) {
-                  addType(arg.t);
-                }
-              default:
-            }
-          }
-        case MMain(expr):
-          addType(expr.t);
-          if (tsMode)
-            addExprLocalTypes(expr);
-        case MType(def, params):
-          addParams(params);
-          addType(def.type);
-        default:
-      }
-    }
-    endTimer();
-    return typeDependencies = dependencies;
+  function get_typeDependencies(): Dependencies {
+    if (typeDependencies == null)
+      typeDependencies = dependencyPlan.dependencies(this, [TypeOnly]);
+    return typeDependencies;
   }
 
-  function get_codeDependencies() {
-    if (codeDependencies != null)
-      return codeDependencies;
-    final endTimer = timer('codeDependencies');
-    final dependencies = new Dependencies(this);
-    #if (haxe_ver >= 4.2)
-    function addModuleFieldRequires(cl: ClassType, fields: Array<Field>) {
-      if (!cl.kind.match(KModuleFields(_)))
-        return;
-      for (field in fields) {
-        if (!field.isStatic || field.meta == null)
-          continue;
-        switch field.meta.extract(':jsRequire') {
-          case [{params: [{expr: EConst(CString(path))}]}]:
-            // Mirror Dependencies.makeDependency behavior for types:
-            // single-arg jsRequire implies default import (or wildcard import, but
-            // fields can't be wildcard-imported reliably).
-            dependencies.push(path, {
-              type: DependencyType.DDefault,
-              name: field.name,
-              path: path,
-              external: true,
-              importAttributeType: Dependencies.extractImportAttributeType(field.meta),
-              pos: field.pos
-            });
-          case [{params: [{expr: EConst(CString(path))}, {expr: EConst(CString('default'))}]}]:
-            dependencies.push(path, {
-              type: DependencyType.DDefault,
-              name: field.name,
-              path: path,
-              external: true,
-              importAttributeType: Dependencies.extractImportAttributeType(field.meta),
-              pos: field.pos
-            });
-          case [{params: [{expr: EConst(CString(path))}, {expr: EConst(CString(name))}]}]:
-            dependencies.push(path, {
-              type: DependencyType.DName,
-              name: name,
-              path: path,
-              external: true,
-              importAttributeType: Dependencies.extractImportAttributeType(field.meta),
-              pos: field.pos
-            });
-          default:
-        }
-      }
-    }
-    #end
-    function addJsRequireFromExpr(e: TypedExpr) {
-      if (e == null)
-        return;
-      switch e.expr {
-        case TField(_,
-          FStatic(_, _.get() => field)):
-          switch field.meta.extract(':jsRequire') {
-            case [{params: [{expr: EConst(CString(path))}]}]:
-              dependencies.push(path, {
-                type: DependencyType.DDefault,
-                name: field.name,
-                path: path,
-                external: true,
-                importAttributeType: Dependencies.extractImportAttributeType(field.meta),
-                pos: field.pos
-              });
-            case [{
-              params: [
-                {expr: EConst(CString(path))},
-                {expr: EConst(CString('default'))}
-              ]
-            }]:
-              dependencies.push(path, {
-                type: DependencyType.DDefault,
-                name: field.name,
-                path: path,
-                external: true,
-                importAttributeType: Dependencies.extractImportAttributeType(field.meta),
-                pos: field.pos
-              });
-            case [{
-              params: [
-                {expr: EConst(CString(path))},
-                {expr: EConst(CString(name))}
-              ]
-            }]:
-              dependencies.push(path, {
-                type: DependencyType.DName,
-                name: name,
-                path: path,
-                external: true,
-                importAttributeType: Dependencies.extractImportAttributeType(field.meta),
-                pos: field.pos
-              });
-            default:
-          }
-        default:
-      }
-      e.iter(addJsRequireFromExpr);
-    }
-    function addFromExpr(e: TypedExpr) {
-      addJsRequireFromExpr(e);
-      for (type in TypeUtil.typesInExpr(e))
-        dependencies.add(type);
-    }
-    for (member in members) {
-      switch member {
-        case MClass(cl, _, fields):
-          switch cl.interfaces {
-            case null | []:
-            case v:
-              for (i in v)
-                dependencies.add(TClassDecl(i.t));
-          }
-          switch cl.superClass {
-            case null:
-            case {t: t}: dependencies.add(TClassDecl(t));
-          }
-          #if (haxe_ver >= 4.2)
-          addModuleFieldRequires(cl, fields);
-          #end
-          for (field in fields)
-            addFromExpr(field.expr);
-          addFromExpr(cl.init);
-        case MMain(expr):
-          addFromExpr(expr);
-        default:
-      }
-    }
-    if (module != 'genes.Register')
-      dependencies.add(TypeUtil.registerType);
-    endTimer();
-    return codeDependencies = dependencies;
+  function get_declarationDependencies(): Dependencies {
+    if (declarationDependencies == null)
+      declarationDependencies = dependencyPlan.dependencies(this,
+        [DeclarationOnly]);
+    return declarationDependencies;
+  }
+
+  function get_codeDependencies(): Dependencies {
+    if (codeDependencies == null)
+      codeDependencies = dependencyPlan.dependencies(this,
+        [RuntimeValue, RuntimeSideEffect], true);
+    return codeDependencies;
   }
 
   public function getMember(name: String) {
@@ -426,11 +242,10 @@ class Module {
    * With no surface, runtime emitters receive Haxe's post-DCE fields. Passing a
    * `PublicSurface` instead maps its pre-DCE, public-only members (including
    * overload identity) into the existing emitter record without coupling the
-   * semantic model to target formatting. `retainedFields` can constrain class
-   * declarations to the modules/members in the current runtime graph until the
-   * declaration-only `DependencyPlan` owns independent reachability; interfaces
-   * deliberately remain complete. Classic JS therefore stays compact while TS
-   * interfaces and `.d.ts` consume the same API facts.
+   * semantic model to target formatting. `retainedFields` constrains class
+   * declarations to members present in emitted JS, while interfaces deliberately
+   * remain complete because they erase at runtime. DependencyPlan independently
+   * retains every type named by those surfaces without broadening classic JS.
    */
   public static function fieldsOf(cl: ClassType,
       ?publicSurface: PublicSurface, ?surfaceParams: Array<Type>,

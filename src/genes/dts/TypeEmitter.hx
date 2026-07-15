@@ -76,7 +76,21 @@ class TypeEmitter {
     }
   }
 
-  static function enumAbstractLiteralUnion(ab: AbstractType): Null<Array<String>> {
+  /**
+   * Returns the closed TypeScript literal projection of an enum abstract.
+   *
+   * Why: both the type printer and `DependencyPlan` must agree on whether an
+   * enum abstract is represented by its backing Haxe type. A closed literal
+   * union has no backing-type dependency, while an open (`from`) abstract does.
+   * Keeping that semantic choice here prevents dependency discovery from
+   * reverse-engineering emitted text or forcing the printer through a sink.
+   *
+   * What/How: constants are read from the typed implementation (force-loading
+   * the declaration when necessary), deduplicated, and sorted. `null` means the
+   * abstract is not a closed literal set and callers must project its backing
+   * type instead.
+   */
+  public static function enumAbstractLiteralUnion(ab: AbstractType): Null<Array<String>> {
     if (ab == null || ab.impl == null || !ab.meta.has(':enum'))
       return null;
     // A `from` conversion means arbitrary values of another type may enter the

@@ -11,6 +11,7 @@ import genes.ts.StdTypesEmitter;
 import genes.dts.DefinitionEmitter;
 import genes.util.TypeUtil;
 import genes.Module;
+import genes.DependencyPlan.DependencyEdgeKind;
 
 using Lambda;
 using StringTools;
@@ -92,57 +93,142 @@ class Generator {
     }
     final tsMode = Context.defined('genes.ts');
 
-    // TS output needs all type-reachable modules to exist on disk, even if Haxe DCE
-    // would normally strip them from runtime output (type-only reachability).
-    //
-    // Until we have a dedicated "type graph" emission mode (M6), we conservatively
-    // include any missing modules referenced by type dependencies so `tsc` can
-    // resolve imports under `-dce full`.
-    if (tsMode) {
-      final pending = [for (k in modules.keys()) k];
-      var i = 0;
-      while (i < pending.length) {
-        final moduleName = pending[i++];
-        final m = modules.get(moduleName);
-        if (m == null)
-          continue;
-        for (path => imports in m.typeDependencies.imports) {
-          if (imports.length == 0)
+    final initialNames = [for (name in modules.keys()) name];
+    initialNames.sort(Reflect.compare);
+
+    /**
+     * Expands one output profile from compiler-owned dependency refs.
+     *
+     * The queue may revisit a module when a same-module declaration is added:
+     * its immutable plan is rebuilt and can reveal more edges. External/package
+     * imports and target globals remain leaves. Any internal edge without a
+     * typed declaration is a compiler diagnostic—there is no string-to-type
+     * lookup or silent catch on this path.
+     */
+    function expandReachability(roots: Array<String>,
+        kinds: Array<DependencyEdgeKind>, profile: String): Map<String, Bool> {
+      final reachable = new Map<String, Bool>();
+      final pending: Array<String> = [];
+      function enqueue(name: String): Void {
+        if (reachable.exists(name))
+          return;
+        reachable.set(name, true);
+        pending.push(name);
+      }
+      final sortedRoots = roots.copy();
+      sortedRoots.sort(Reflect.compare);
+      for (root in sortedRoots)
+        enqueue(root);
+
+      var index = 0;
+      while (index < pending.length) {
+        final moduleName = pending[index++];
+        final sourceModule = modules.get(moduleName);
+        if (sourceModule == null)
+          Context.error('Genes DependencyPlan ($profile): missing source module '
+            + moduleName, Context.currentPos());
+
+        final edges = sourceModule.dependencyPlan.edges;
+        for (edge in edges) {
+          if (!DependencyPlan.containsKind(kinds, edge.kind))
             continue;
-          if (imports[0].external)
+          if (edge.importSpec != null && edge.importSpec.external)
             continue;
-          // `StdTypes` is generated as a special TS-only file.
-          if (path == 'StdTypes')
+          final referencedType = edge.referencedType;
+          if (referencedType == null) {
+            if (edge.importSpec != null)
+              Context.error('Genes DependencyPlan ($profile) has an internal '
+                + 'import without a typed declaration '
+                + '[${edge.provenance.rule}]',
+                edge.provenance.sourcePosition);
             continue;
-          if (modules.exists(path))
-            continue;
-          final types: Array<Type> = [];
-          for (dep in imports) {
-            final fullName = {
-              final parts = path.split('.');
-              final last = parts[parts.length - 1];
-              (last == dep.name) ? path : (path + '.' + dep.name);
-            };
-            try {
-              types.push(Context.getType(fullName));
-            } catch (_: Dynamic) {}
           }
-          if (types.length > 0) {
-            addModule(path, types);
-            pending.push(path);
+
+          switch referencedType {
+            case TAbstract(_):
+              // Abstracts erase/project through their backing type and never own
+              // an emitted module member.
+              continue;
+            case TClassDecl(_.get() => {kind: KTypeParameter(_)}):
+              continue;
+            default:
           }
+          final base = DependencyPlan.moduleTypeBase(referencedType);
+          if (base.isExtern || base.module == 'StdTypes')
+            continue;
+          if (base.module == null || base.module.length == 0)
+            Context.error('Genes DependencyPlan ($profile) cannot resolve '
+              + '${base.name} to an output module '
+              + '[${edge.provenance.rule}]',
+              edge.provenance.sourcePosition);
+
+          var target = modules.get(base.module);
+          var changed = false;
+          if (target == null) {
+            addModule(base.module,
+              [DependencyPlan.moduleTypeToType(referencedType)]);
+            target = modules.get(base.module);
+            changed = true;
+          } else {
+            changed = target.addTypes(
+              [DependencyPlan.moduleTypeToType(referencedType)]);
+          }
+
+          final hasMember = target.getMember(base.name) != null
+            || target.getMember(TypeUtil.baseTypeName(base)) != null;
+          if (!hasMember)
+            Context.error('Genes DependencyPlan ($profile) retained '
+              + '${TypeUtil.baseTypeFullName(base)} but could not materialize '
+              + 'its emitted declaration [${edge.provenance.rule}]',
+              edge.provenance.sourcePosition);
+
+          if (!reachable.exists(base.module))
+            enqueue(base.module);
+          else if (changed)
+            pending.push(base.module);
         }
       }
+      return reachable;
     }
 
-    for (module in modules) {
-      if (tsMode || needsGen(module))
-        generateModule(api, module);
+    final implementationRoots = if (tsMode)
+      initialNames
+    else
+      [for (name in initialNames)
+        if (needsGen(modules.get(name))) name];
+    final implementationKinds = if (tsMode)
+      [RuntimeValue, RuntimeSideEffect, TypeOnly]
+    else
+      [RuntimeValue, RuntimeSideEffect];
+    final implementationReachable = expandReachability(implementationRoots,
+      implementationKinds, tsMode ? 'ts-strict' : 'classic-esm');
+    final implementationNames = [
+      for (name in implementationReachable.keys()) name
+    ];
+    implementationNames.sort(Reflect.compare);
+    for (name in implementationNames) {
+      final module = modules.get(name);
+      if (tsMode || hasClassicImplementation(module))
+        generateImplementation(api, module);
     }
 
-    if (tsMode) {
-      StdTypesEmitter.emit(Path.join([outputDir, 'StdTypes']) + Genes.outExtension);
-    }
+    if (tsMode)
+      StdTypesEmitter.emit(Path.join([outputDir, 'StdTypes'])
+        + Genes.outExtension);
+
+    #if dts
+    // Declaration expansion happens after executable output is complete. A
+    // declaration-only type can therefore never broaden classic JS DCE or alter
+    // a TS implementation module merely by being reachable from public types.
+    final declarationReachable = expandReachability(implementationNames,
+      [DeclarationOnly], 'classic-dts');
+    final declarationNames = [
+      for (name in declarationReachable.keys()) name
+    ];
+    declarationNames.sort(Reflect.compare);
+    for (name in declarationNames)
+      generateDefinition(api, modules.get(name));
+    #end
   }
 
   static function needsGen(module: Module) {
@@ -161,6 +247,16 @@ class Generator {
           return true;
       }
     }
+    return false;
+  }
+
+  /** Mirrors classic `ModuleEmitter`'s type-erasure file boundary. */
+  static function hasClassicImplementation(module: Module): Bool {
+    if (module.expose.length > 0)
+      return true;
+    for (member in module.members)
+      if (!member.match(MType(_, _)))
+        return true;
     return false;
   }
 
@@ -196,10 +292,9 @@ class Generator {
     return modules;
   }
 
-  static function generateModule(api: JSGenApi, module: Module) {
+  static function generateImplementation(api: JSGenApi, module: Module) {
     final outputDir = Path.directory(api.outputFile);
     final path = Path.join([outputDir, module.path]) + Genes.outExtension;
-    final definition = [Path.join([outputDir, module.path]), 'd.ts'].join('.');
     final ctx = module.createContext(api);
     final moduleEmitter = switch haxe.macro.Context.defined('genes.ts') {
       case true:
@@ -219,7 +314,13 @@ class Generator {
     moduleEmitter.emitSourceMap(path + '.map', true);
     #end
     moduleEmitter.finish();
-    #if dts
+  }
+
+  #if dts
+  static function generateDefinition(api: JSGenApi, module: Module) {
+    final outputDir = Path.directory(api.outputFile);
+    final definition = [Path.join([outputDir, module.path]), 'd.ts'].join('.');
+    final ctx = module.createContext(api);
     final definitionEmitter = new DefinitionEmitter(ctx,
       Writer.bufferedFileWriter(definition));
     definitionEmitter.emitDefinition(module);
@@ -227,8 +328,8 @@ class Generator {
     definitionEmitter.emitSourceMap(definition + '.map', true);
     #end
     definitionEmitter.finish();
-    #end
   }
+  #end
 
   #if macro
   public static function use() {

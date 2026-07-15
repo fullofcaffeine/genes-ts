@@ -39,6 +39,13 @@ rmrf("tests/genes-ts/full/out");
 
 run("haxe", ["tests/genes-ts/full/build.hxml"]);
 
+if (!existsSync(path.join(
+  repoRoot,
+  "tests/genes-ts/full/out/src-gen/tests/typeonly/TypeOnlyHelper.ts"
+))) {
+  throw new Error("Type-only DCE dependency was not retained in TS output.");
+}
+
 // A closed generated interface must expose the complete declaration-time Haxe
 // contract while rejecting arbitrary members. Successful `tsc` alone would not
 // prove this if the emitter reintroduced a catch-all index signature.

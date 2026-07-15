@@ -8,8 +8,10 @@ import {
   NullishMatrix,
   type NullishMatrixShape
 } from "../../bin/tests/nullish/NullishMatrix.js";
+import type { DeclarationOnlyShape } from "../../bin/tests/typeonly/DeclarationOnlyShape.js";
 
 declare const map: IMap<string, number>;
+declare const declarationOnlyShape: DeclarationOnlyShape;
 
 const maybe: number | null = map.get("present");
 map.set("present", 1);
@@ -84,6 +86,7 @@ const invalidOrdinaryOptional: NullishMatrixShape = { ...requiredNullish, ordina
 NullishMatrix.optionalUndefined(null);
 
 void maybe;
+void declarationOnlyShape;
 void definitely;
 void inherited;
 void own;

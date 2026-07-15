@@ -26,7 +26,9 @@ the reusable `PublicSurface` model, and shared `NullishContract` planning have
 landed. Exact optional-property consumers and paired runtime traces distinguish
 null, undefined, omission, ordinary optional values, optional parameters, map
 absence, and iterator completion. The negative matrix remains deliberately
-fixture-scoped; the explicit declaration dependency graph is `genes-09r.3`.
+fixture-scoped. The explicit runtime/type/declaration `DependencyPlan` has also
+landed: it retains compiler-owned refs and source provenance, and no longer
+discovers reachability by printing types into a sink.
 
 ### R2 — Runtime correctness in both output modes
 
@@ -50,6 +52,7 @@ experimental.
   hidden implementation coupling.
 
 Precise classic `Null<T>` and the strict declaration consumer have landed.
+Declaration-only type aliases are retained without producing classic JS files.
 CommonJS `export =` remains `genes-6za`; the cross-tool bridge is
 `genes-09r.8`.
 
