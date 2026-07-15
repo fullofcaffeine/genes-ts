@@ -185,8 +185,8 @@
           "kind": "tracked-files",
           "path": "tests/output-modes/src",
           "match": "\\.hx$",
-          "expected": 11,
-          "count": 11
+          "expected": 12,
+          "count": 12
         },
         {
           "id": "dual-output-oracles-and-profiles",

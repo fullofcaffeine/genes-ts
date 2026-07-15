@@ -21,22 +21,22 @@
       "budget": {
         "baseline": {
           "modules": 7,
-          "bytes": 12385,
-          "tokens": 2038,
+          "bytes": 13649,
+          "tokens": 2154,
           "temporaryDeclarations": 8,
           "valueImports": 23,
           "typeImports": 4
         },
         "maximum": {
-          "bytes": 13005,
-          "tokens": 2140,
+          "bytes": 14332,
+          "tokens": 2262,
           "temporaryDeclarations": 8,
           "valueImports": 23,
           "typeImports": 4
         },
         "review": {
-          "id": "GTS-BUDGET-BASELINE-003",
-          "reason": "Reviewed one JSON value import and guard event for the paired TS/classic import-attribute runtime regression fixture."
+          "id": "GTS-BUDGET-BASELINE-004",
+          "reason": "Reviewed one retained recursive-JSON boundary that proves the shared TS/classic declaration alias contract without changing imports, modules, or temporaries."
         }
       }
     },
@@ -47,22 +47,22 @@
       "budget": {
         "baseline": {
           "modules": 6,
-          "bytes": 9585,
-          "tokens": 1531,
+          "bytes": 10261,
+          "tokens": 1541,
           "temporaryDeclarations": 8,
           "valueImports": 22,
           "typeImports": 0
         },
         "maximum": {
-          "bytes": 10065,
-          "tokens": 1608,
+          "bytes": 10775,
+          "tokens": 1619,
           "temporaryDeclarations": 8,
           "valueImports": 22,
           "typeImports": 0
         },
         "review": {
-          "id": "GTS-BUDGET-BASELINE-003",
-          "reason": "Reviewed one JSON value import and guard event for the paired TS/classic import-attribute runtime regression fixture."
+          "id": "GTS-BUDGET-BASELINE-004",
+          "reason": "Reviewed one retained recursive-JSON boundary that proves the shared TS/classic declaration alias contract without changing imports, modules, or temporaries."
         }
       }
     },
@@ -73,22 +73,22 @@
       "budget": {
         "baseline": {
           "modules": 7,
-          "bytes": 4678,
-          "tokens": 259,
+          "bytes": 5921,
+          "tokens": 370,
           "temporaryDeclarations": 0,
           "valueImports": 1,
           "typeImports": 0
         },
         "maximum": {
-          "bytes": 4912,
-          "tokens": 272,
+          "bytes": 6218,
+          "tokens": 389,
           "temporaryDeclarations": 0,
           "valueImports": 1,
           "typeImports": 0
         },
         "review": {
-          "id": "GTS-BUDGET-BASELINE-001",
-          "reason": "Initial exact dual-output quality baseline for the shared TS/classic architecture audit."
+          "id": "GTS-BUDGET-BASELINE-004",
+          "reason": "Reviewed one retained recursive-JSON boundary and its module-local aliases, proving classic declarations remain self-contained under strict consumption."
         }
       }
     }

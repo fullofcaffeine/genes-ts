@@ -18,7 +18,7 @@ This is an evidence contract, not a cached CI-success badge. `blocking` and `non
 | Strict public typing | Strict positive/negative consumer sources | 7 | `blocking` |
 | Strict public typing | Explicitly owned exported-surface boundaries | 6 | `blocking` |
 | Strict public typing | Reusable-library same-source Haxe modules | 4 | `blocking` |
-| Semantic differential | Same-source Haxe modules | 11 | `blocking` |
+| Semantic differential | Same-source Haxe modules | 12 | `blocking` |
 | Semantic differential | TS/classic/declaration and JS oracle profiles | 5 | `blocking` |
 | Semantic differential | Stable dual-output runtime trace events | 19 | `blocking` |
 | Semantic differential | ts2hx supported and fail-closed semantic input modules | 8 | `blocking` |

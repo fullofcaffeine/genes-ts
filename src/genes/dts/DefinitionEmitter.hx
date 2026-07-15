@@ -10,6 +10,7 @@ import genes.util.Timer.timer;
 import genes.PublicSurface;
 import genes.NullishContract;
 import genes.StdTypesSupport;
+import genes.JsonTypeSupport;
 
 class DefinitionEmitter extends ModuleEmitter {
   public function emitDefinition(module: Module) {
@@ -23,6 +24,17 @@ class DefinitionEmitter extends ModuleEmitter {
     for (path => imports in dependencies.imports)
       emitImports(if (imports[0].external) path else module.toPath(path),
         imports, Genes.outExtension);
+    // `genes.ts.Json*` helpers erase at runtime but their strong declaration
+    // projection names one recursive alias family. Emit it in classic `.d.ts`
+    // modules from the same semantic plan consumed by TS source output.
+    if (JsonTypeSupport.moduleUsesJsonTypes(module)
+      || JsonTypeSupport.dependenciesUseJsonTypes(dependencies)) {
+      writeNewline();
+      JsonTypeSupport.emitAliases(line -> {
+        write(line);
+        writeNewline();
+      });
+    }
     for (member in module.members)
       switch member {
         #if (haxe_ver >= 4.2)
@@ -216,7 +228,16 @@ class DefinitionEmitter extends ModuleEmitter {
         write(' extends ');
         emitBaseType(parent.type.get(), parent.copyArguments());
     }
-    switch publicSurface.interfacesFor(params) {
+    final declaredInterfaces = publicSurface.interfacesFor(params);
+    final emittedInterfaces = cl.isInterface
+      ? declaredInterfaces
+      : [
+          for (contract in declaredInterfaces)
+            if (PublicSurface.runtimeSatisfiesInterface(cl,
+              contract.type.get()))
+              contract
+        ];
+    switch emittedInterfaces {
       case null | []:
       case interfaces:
         if (cl.isInterface)

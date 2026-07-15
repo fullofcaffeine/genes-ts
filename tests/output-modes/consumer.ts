@@ -1,5 +1,6 @@
 import { DualApi, type DualReport } from "./out/classic/dual/DualApi.js";
 import type { DualTypeOnly } from "./out/classic/dual/DualTypeOnly.js";
+import type { StringMap } from "./out/classic/haxe/ds/StringMap.js";
 
 const report = DualApi.summarize(["Ada"]);
 const count: number = report.count;
@@ -15,6 +16,9 @@ const validWithLabel: DualReport = {
   label: "reviewed"
 };
 declare const typeOnly: DualTypeOnly;
+declare const compactMap: StringMap<number>;
+const compactMapValue: number | null = compactMap.get("present");
+const jsonValue = DualApi.jsonIdentity({ nested: ["value", 1, true, null] });
 
 // @ts-expect-error nullable Haxe results must be narrowed by consumers.
 const invalidFirst: string = report.first;
@@ -32,6 +36,8 @@ const invalidOrdinaryOptional: DualReport = {
 };
 // @ts-expect-error the declaration surface stays closed and typo-safe.
 DualApi.nonexistent();
+// @ts-expect-error functions are not native JSON values.
+DualApi.jsonIdentity(() => "not-json");
 
 void count;
 void first;
@@ -39,6 +45,8 @@ void missing;
 void validWithLabel;
 void validUndefinedLabel;
 void typeOnly;
+void compactMapValue;
+void jsonValue;
 void invalidFirst;
 void invalidMissing;
 void invalidOrdinaryOptional;

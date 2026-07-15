@@ -354,6 +354,18 @@ const tsApi = readFileSync(
   path.join(fixtureRoot, "out/ts/src-gen/dual/DualApi.ts"),
   "utf8"
 );
+const classicApiDeclaration = readFileSync(
+  path.join(fixtureRoot, "out/classic/dual/DualApi.d.ts"),
+  "utf8"
+);
+const classicMapDeclaration = readFileSync(
+  path.join(fixtureRoot, "out/classic/haxe/ds/StringMap.d.ts"),
+  "utf8"
+);
+const classicMapRuntime = readFileSync(
+  path.join(fixtureRoot, "out/classic/haxe/ds/StringMap.js"),
+  "utf8"
+);
 const resourceTs = readFileSync(
   path.join(fixtureRoot, "out/ts/src-gen/haxe/Resource.ts"),
   "utf8"
@@ -369,6 +381,19 @@ const stdTypesTs = readFileSync(
 ok(tsCore.includes('from "node:path"'));
 ok(classicCore.includes('from "node:path"'));
 ok(tsApi.includes('import type {DualTypeOnly}'));
+for (const generated of [tsApi, classicApiDeclaration]) {
+  ok(generated.includes("type JsonPrimitive = null | boolean | number | string"));
+  ok(generated.includes("type JsonValue = JsonPrimitive | JsonObject | JsonArray"));
+  ok(generated.includes("jsonIdentity(value: JsonPrimitive | JsonObject | JsonArray)"));
+}
+ok(
+  !classicMapDeclaration.includes("implements IMap"),
+  "classic application declarations must not promise a DCE-stripped interface"
+);
+ok(
+  !classicMapRuntime.includes("copy("),
+  "declaration coherence must not broaden compact classic application JS"
+);
 ok(resourceTs.includes("str?: string"));
 ok(bytesTs.includes("(buf.buffer as ArrayBuffer)"));
 ok(stdTypesTs.includes("interface Uint8Array { bufferValue?: ArrayBuffer }"));

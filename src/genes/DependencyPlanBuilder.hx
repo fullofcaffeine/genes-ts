@@ -264,10 +264,18 @@ class DependencyPlanBuilder {
             cl.pos);
           final publicSurface = PublicSurface.forClass(cl);
           for (parent in publicSurface.interfacesFor(params)) {
-            addReference(kind, TClassDecl(parent.type), '$kind.interface',
-              cl.pos);
-            collector.collectParams(parent.copyArguments(), true,
-              '$kind.interface-arguments', cl.pos);
+            // Classic declarations omit an interface clause when application
+            // DCE stripped part of its runtime contract. Keep dependency
+            // planning aligned so that honest omission does not leave a
+            // declaration-only import with no consumer.
+            if (kind != DeclarationOnly || cl.isInterface
+              || PublicSurface.runtimeSatisfiesInterface(cl,
+                parent.type.get())) {
+              addReference(kind, TClassDecl(parent.type), '$kind.interface',
+                cl.pos);
+              collector.collectParams(parent.copyArguments(), true,
+                '$kind.interface-arguments', cl.pos);
+            }
           }
           switch publicSurface.superClassFor(params) {
             case null:

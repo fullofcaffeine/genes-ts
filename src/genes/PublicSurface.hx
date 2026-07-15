@@ -411,6 +411,49 @@ class PublicSurface {
   }
 
   /**
+   * Tests whether a post-DCE class hierarchy still implements an interface.
+   *
+   * Why: application DCE is allowed to remove public Haxe methods that no
+   * compiled code calls. A classic `.d.ts` must describe that compact runtime,
+   * so retaining `implements SomeInterface` after one of its methods vanished
+   * is both a TypeScript declaration error and a false promise to consumers.
+   * The opt-in `genes.library` profile remains the way to retain a complete
+   * externally callable surface.
+   *
+   * What: every instance member required by the interface and its parents must
+   * still exist on the class or one of its emitted superclasses. Property
+   * accessors count as runtime requirements when Haxe lowers the contract
+   * through `get_`/`set_` methods.
+   *
+   * How: this runs after Haxe DCE, over compiler-owned `ClassType.fields`, and
+   * compares Haxe declaration identities rather than target strings. It is a
+   * conservative semantic gate: when completeness cannot be proven, classic
+   * declarations omit only the interface clause; runtime metadata and compact
+   * JavaScript remain unchanged.
+   */
+  public static function runtimeSatisfiesInterface(cl: ClassType,
+      iface: ClassType): Bool {
+    final required = new Map<String, Bool>();
+    collectInterfaceFieldNames(iface, required, new Map());
+
+    final available = new Map<String, Bool>();
+    var current: Null<ClassType> = cl;
+    while (current != null) {
+      for (field in current.fields.get())
+        available.set(field.name, true);
+      current = switch current.superClass {
+        case null: null;
+        case parent: parent.t.get();
+      };
+    }
+
+    for (name => _ in required)
+      if (!available.exists(name))
+        return false;
+    return true;
+  }
+
+  /**
    * Retains the runtime methods required by a closed interface contract.
    *
    * Why: generated TS interfaces remain complete after DCE, so their concrete
