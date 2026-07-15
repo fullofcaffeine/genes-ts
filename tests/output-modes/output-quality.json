@@ -21,22 +21,22 @@
       "budget": {
         "baseline": {
           "modules": 7,
-          "bytes": 12242,
-          "tokens": 2017,
+          "bytes": 12385,
+          "tokens": 2038,
           "temporaryDeclarations": 8,
-          "valueImports": 22,
+          "valueImports": 23,
           "typeImports": 4
         },
         "maximum": {
-          "bytes": 12855,
-          "tokens": 2118,
+          "bytes": 13005,
+          "tokens": 2140,
           "temporaryDeclarations": 8,
-          "valueImports": 22,
+          "valueImports": 23,
           "typeImports": 4
         },
         "review": {
-          "id": "GTS-BUDGET-BASELINE-002",
-          "reason": "Reviewed growth for the mixed host-global and package-import ownership regression fixture."
+          "id": "GTS-BUDGET-BASELINE-003",
+          "reason": "Reviewed one JSON value import and guard event for the paired TS/classic import-attribute runtime regression fixture."
         }
       }
     },
@@ -47,22 +47,22 @@
       "budget": {
         "baseline": {
           "modules": 6,
-          "bytes": 9442,
-          "tokens": 1510,
+          "bytes": 9585,
+          "tokens": 1531,
           "temporaryDeclarations": 8,
-          "valueImports": 21,
+          "valueImports": 22,
           "typeImports": 0
         },
         "maximum": {
-          "bytes": 9915,
-          "tokens": 1586,
+          "bytes": 10065,
+          "tokens": 1608,
           "temporaryDeclarations": 8,
-          "valueImports": 21,
+          "valueImports": 22,
           "typeImports": 0
         },
         "review": {
-          "id": "GTS-BUDGET-BASELINE-002",
-          "reason": "Reviewed growth for the mixed host-global and package-import ownership regression fixture."
+          "id": "GTS-BUDGET-BASELINE-003",
+          "reason": "Reviewed one JSON value import and guard event for the paired TS/classic import-attribute runtime regression fixture."
         }
       }
     },

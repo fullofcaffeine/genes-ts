@@ -80,7 +80,7 @@ class ModuleEmitter extends ExprEmitter {
 
   function emitImports(module: String, imports: Array<Dependency>,
       ?extension: String) {
-    final named = [];
+    final named:Array<Dependency> = [];
     for (def in imports)
       switch def.type {
         case DAsterisk | DDefault:
@@ -88,8 +88,8 @@ class ModuleEmitter extends ExprEmitter {
         default:
           named.push(def);
       }
-    if (named.length > 0)
-      emitImport(named, module, extension);
+    for (group in Dependencies.groupByImportAttribute(named))
+      emitImport(group, module, extension);
   }
 
   function emitImport(what: Array<Dependency>, where: String,
@@ -128,6 +128,12 @@ class ModuleEmitter extends ExprEmitter {
     emitString(if (!isExternal && extension != null) '$where$extension' else
       where);
     #end
+    final importAttributeType = Dependencies.commonImportAttributeType(what);
+    if (importAttributeType != null) {
+      write(' with { type: ');
+      emitString(importAttributeType);
+      write(' }');
+    }
     writeNewline();
   }
 

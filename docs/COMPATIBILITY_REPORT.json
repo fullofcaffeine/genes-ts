@@ -205,8 +205,8 @@
           "kind": "json-array-total",
           "path": "tests/output-modes/expected-trace.json",
           "pointer": [],
-          "expected": 18,
-          "count": 18
+          "expected": 19,
+          "count": 19
         },
         {
           "id": "ts2hx-semantic-input-modules",

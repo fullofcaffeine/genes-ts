@@ -470,23 +470,16 @@ class TsModuleEmitter extends JsModuleEmitter {
   function emitTsImports(where: String,
       imports: Array<genes.Dependencies.Dependency>, extension: Null<String>,
       typeOnly: Bool) {
-    final namedGroups: Array<Array<genes.Dependencies.Dependency>> = [];
+    final named:Array<genes.Dependencies.Dependency> = [];
     for (def in imports)
       switch def.type {
         case genes.Dependencies.DependencyType.DAsterisk | genes.Dependencies.DependencyType.DDefault:
           emitTsImport([def], where, extension, typeOnly);
         default:
-          var group = namedGroups.find(group ->
-            group[0].importAttributeType == def.importAttributeType);
-          if (group == null) {
-            group = [];
-            namedGroups.push(group);
-          }
-          group.push(def);
+          named.push(def);
       }
-    for (named in namedGroups)
-      if (named.length > 0)
-        emitTsImport(named, where, extension, typeOnly);
+    for (group in Dependencies.groupByImportAttribute(named))
+      emitTsImport(group, where, extension, typeOnly);
   }
 
   function emitTsImport(what: Array<genes.Dependencies.Dependency>,
@@ -521,26 +514,13 @@ class TsModuleEmitter extends JsModuleEmitter {
       }
     emitString(if (!isExternal && extension != null) '$where$extension' else
       where);
-    final importAttributeType = commonImportAttributeType(what);
+    final importAttributeType = Dependencies.commonImportAttributeType(what);
     if (!typeOnly && importAttributeType != null) {
       write(' with { type: ');
       emitString(importAttributeType);
       write(' }');
     }
     writeNewline();
-  }
-
-  function commonImportAttributeType(what: Array<genes.Dependencies.Dependency>): Null<String> {
-    var result: Null<String> = null;
-    for (dependency in what) {
-      if (dependency.importAttributeType == null)
-        continue;
-      if (result == null)
-        result = dependency.importAttributeType;
-      else if (result != dependency.importAttributeType)
-        return null;
-    }
-    return result;
   }
 
   function emitTsStatics(checkCycles: (module: String) -> Bool, cl: ClassType,

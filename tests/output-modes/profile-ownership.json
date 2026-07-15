@@ -70,6 +70,14 @@
       "namePlan": "src/genes/NamePlan.hx",
       "gate": "yarn test:dual-output",
       "contract": "TempPlan owns iterator and expression-result bindings; NamePlan owns TVar-based collision/readability names. TS and classic printers consume immutable lookups while semantic traces, clean tree hashes, collision fixtures, and no-temp budgets guard the projections."
+    },
+    "importAttributes": {
+      "status": "paired-static-json-runtime",
+      "owner": "genes-6cb",
+      "source": "tests/output-modes/src/dual/DualProfileResource.hx",
+      "resource": "tests/output-modes/resources/profile.json",
+      "gate": "yarn test:dual-output",
+      "contract": "Dependency planning retains the import attribute independently of printer syntax; TS and classic ESM both emit the JSON loader contract and execute the same checked-in module on supported Node releases."
     }
   }
 }

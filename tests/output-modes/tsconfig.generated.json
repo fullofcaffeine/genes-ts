@@ -10,6 +10,7 @@
     "sourceMap": true,
     "rootDir": "./out/ts/src-gen",
     "outDir": "./out/ts/dist",
+    "resolveJsonModule": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": false
   },

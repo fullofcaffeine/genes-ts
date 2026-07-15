@@ -1,7 +1,9 @@
 import { deepStrictEqual, ok, strictEqual } from "node:assert";
 import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import {
+  copyFileSync,
   existsSync,
+  mkdirSync,
   readFileSync,
   readdirSync,
   rmSync
@@ -34,6 +36,27 @@ function capture(cmd: string, args: ReadonlyArray<string>): string {
     cwd: repoRoot,
     encoding: "utf8"
   });
+}
+
+/**
+ * Stages the same JSON module beside one generated profile.
+ *
+ * Why: the compiler owns import spelling, while the application build owns
+ * resource placement. Keeping that split explicit lets this corpus execute the
+ * exact same Haxe import through TypeScript and classic ESM without teaching
+ * either emitter about fixture paths.
+ *
+ * What/How: copy the checked-in JSON module to the profile root before its
+ * type-check/runtime stage. The Haxe module imports it from `../resources`, so
+ * both generated directory layouts resolve the identical specifier.
+ */
+function stageProfileResource(relativeRoot: string): void {
+  const targetDirectory = path.join(repoRoot, relativeRoot, "resources");
+  mkdirSync(targetDirectory, { recursive: true });
+  copyFileSync(
+    path.join(fixtureRoot, "resources/profile.json"),
+    path.join(targetDirectory, "profile.json")
+  );
 }
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -158,6 +181,19 @@ function assertProfileOwnership(manifestUnknown: unknown): void {
   strictEqual(loweringPlans.tempPlan, "src/genes/TempPlan.hx");
   strictEqual(loweringPlans.namePlan, "src/genes/NamePlan.hx");
   strictEqual(loweringPlans.gate, "yarn test:dual-output");
+
+  const importAttributes = requiredRecord(capabilities, "importAttributes");
+  strictEqual(importAttributes.owner, "genes-6cb");
+  strictEqual(importAttributes.status, "paired-static-json-runtime");
+  strictEqual(
+    importAttributes.source,
+    "tests/output-modes/src/dual/DualProfileResource.hx"
+  );
+  strictEqual(
+    importAttributes.resource,
+    "tests/output-modes/resources/profile.json"
+  );
+  strictEqual(importAttributes.gate, "yarn test:dual-output");
 }
 
 function assertSourceMap(
@@ -211,8 +247,10 @@ ok(requiredStringArray(vanillaUnknown, "acceptedDivergences").length >= 3);
 rmSync(path.join(fixtureRoot, "out"), { recursive: true, force: true });
 
 run("haxe", ["tests/output-modes/build-ts.hxml"]);
+stageProfileResource("tests/output-modes/out/ts/src-gen");
 runGeneratedTypeScriptMatrix("tests/output-modes/tsconfig.generated.json");
 run("haxe", ["tests/output-modes/build-classic.hxml"]);
+stageProfileResource("tests/output-modes/out/classic");
 runGeneratedTypeScriptMatrix("tests/output-modes/tsconfig.consumer.json", {
   emit: false
 });
@@ -244,6 +282,12 @@ for (const [profile, relativePath] of [
   ok(
     generated.includes('MixedNativeImportOwner.basename("/dual/portable.txt")'),
     `${profile} redirected the package owner through a secondary alias`
+  );
+  ok(
+    generated.includes(
+      'from "../resources/profile.json" with { type: "json" }'
+    ),
+    `${profile} dropped the JSON import attribute`
   );
 }
 

@@ -3,6 +3,7 @@
 --main dual.Main
 -js tests/output-modes/out/classic/index.js
 -D dts
+-D dual_import_attributes
 -D no-deprecation-warnings
 -D js-es=6
 -dce full

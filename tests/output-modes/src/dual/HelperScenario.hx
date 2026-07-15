@@ -15,6 +15,11 @@ import dual.MixedNativeImportOwner.NativeGlobalPattern;
 class HelperScenario {
   public static function run():Array<String> {
     final events:Array<String> = [];
+#if dual_import_attributes
+    events.push('json-import:${DualProfileResource.profile}');
+#else
+    events.push("json-import:dual-output");
+#end
     final absent:Undefinable<String> = Undefinable.absent();
     events.push('undefined:${UnknownNarrow.isUndefined(Unknown.fromBoundary(absent))}');
 

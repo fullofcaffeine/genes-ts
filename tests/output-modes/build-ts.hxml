@@ -4,6 +4,7 @@
 -js tests/output-modes/out/ts/src-gen/index.ts
 -D genes.ts
 -D genes.ts.lower_private_helpers
+-D dual_import_attributes
 -D no-deprecation-warnings
 -D js-es=6
 -dce full

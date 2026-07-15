@@ -119,6 +119,59 @@ class Dependencies {
   }
 
   /**
+   * Groups bindings that can legally share one ESM import declaration.
+   *
+   * Why: an import attribute belongs to the whole declaration, not to one
+   * named binding. Merging bindings with different attribute contracts either
+   * drops runtime semantics or assigns the wrong loader contract to a sibling.
+   *
+   * What: dependencies with the same optional import-attribute type share a
+   * deterministic group; first appearance controls group and member order.
+   *
+   * How: TS and classic printers call this after separating default/namespace
+   * bindings, which already require their own declarations. Keeping grouping
+   * here makes the target printers responsible only for syntax.
+   */
+  public static function groupByImportAttribute(imports: Array<Dependency>): Array<Array<Dependency>> {
+    final groups:Array<Array<Dependency>> = [];
+    for (dependency in imports) {
+      var group:Null<Array<Dependency>> = null;
+      for (candidate in groups)
+        if (candidate[0].importAttributeType == dependency.importAttributeType) {
+          group = candidate;
+          break;
+        }
+      if (group == null) {
+        group = [];
+        groups.push(group);
+      }
+      group.push(dependency);
+    }
+    return groups;
+  }
+
+  /**
+   * Returns the loader attribute shared by one already-grouped declaration.
+   *
+   * A null result means ordinary ESM. A mixed non-null group is an internal
+   * invariant violation: fail closed instead of silently dropping one loader
+   * contract. Callers should form groups with `groupByImportAttribute`, whose
+   * exact comparison prevents that state.
+   */
+  public static function commonImportAttributeType(imports: Array<Dependency>): Null<String> {
+    var result:Null<String> = null;
+    for (dependency in imports) {
+      if (dependency.importAttributeType == null)
+        continue;
+      if (result == null)
+        result = dependency.importAttributeType;
+      else if (result != dependency.importAttributeType)
+        throw 'Cannot combine import attributes "${result}" and "${dependency.importAttributeType}" in one declaration.';
+    }
+    return result;
+  }
+
+  /**
    * Projects one typed Haxe declaration into its JavaScript module binding.
    *
    * Why: Haxe modules may contain several extern declarations, but sharing a

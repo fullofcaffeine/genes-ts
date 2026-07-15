@@ -15,6 +15,11 @@ then runs bounded shape and output-quality evidence: DCE, import kind,
 declaration reachability, exact representative mappings, clean-build hashes,
 and reviewed budgets.
 
+The paired profiles also load `resources/profile.json` through an explicit ESM
+import attribute. This is a runtime contract, not a source snapshot: both the
+generated TypeScript and classic JavaScript must retain
+`with { type: "json" }`, and Node must execute the imported value successfully.
+
 ## Profiles and oracles
 
 | Profile | Build product | Gate |

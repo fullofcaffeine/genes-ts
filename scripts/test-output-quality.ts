@@ -2,7 +2,9 @@ import { deepStrictEqual, ok, strictEqual } from "node:assert";
 import { execFileSync, spawnSync, type ExecFileSyncOptions } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  copyFileSync,
   existsSync,
+  mkdirSync,
   readFileSync,
   readdirSync,
   rmSync,
@@ -182,13 +184,25 @@ function cleanCompilerOutputs(): void {
 function buildCompilerOutputs(): BuildTiming {
   const tsStart = performance.now();
   run("haxe", ["tests/output-modes/build-ts.hxml"]);
+  stageProfileResource("out/ts/src-gen");
   const classicStart = performance.now();
   run("haxe", ["tests/output-modes/build-classic.hxml"]);
+  stageProfileResource("out/classic");
   const finished = performance.now();
   return {
     tsMilliseconds: classicStart - tsStart,
     classicMilliseconds: finished - classicStart
   };
+}
+
+/** Stages the fixture-owned JSON module beside one generated profile. */
+function stageProfileResource(relativeRoot: string): void {
+  const targetDirectory = path.join(fixtureRoot, relativeRoot, "resources");
+  mkdirSync(targetDirectory, { recursive: true });
+  copyFileSync(
+    path.join(fixtureRoot, "resources/profile.json"),
+    path.join(targetDirectory, "profile.json")
+  );
 }
 
 function listFilesRecursive(root: string): string[] {
