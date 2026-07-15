@@ -161,7 +161,7 @@ type ConvertedRuntimeTargetPlan = {
 
 type RuntimeImportInventory = {
   sourceFile: ts.SourceFile;
-  imports: readonly ts.ImportDeclaration[];
+  runtimeImports: readonly ts.ImportDeclaration[];
   bareImports: readonly ts.ImportDeclaration[];
 };
 
@@ -3024,11 +3024,15 @@ function convertedRuntimeComponents(
  * a relative request names converted code, a build-owned runtime file, or a
  * missing dependency.
  *
- * What: files containing at least one bare import receive an ordered request
- * plan covering every runtime import declaration in that file. Package and
- * manifest-owned relative requests become external marker calls. Converted
- * requests use either a real local binding or a deterministic target marker,
- * while binding-free converted cycles remain source-positioned failures.
+ * What: every file in the converted runtime closure of a bare import receives
+ * an ordered request plan. This includes bound-only transitive modules: their
+ * Haxe expressions can read imported values in a different order from the
+ * TypeScript declarations, but ESM initialization must continue to follow
+ * declaration source order. Unrelated projects containing only bound imports
+ * remain ordinary Haxe and preserve their existing standard-Haxe behavior.
+ * Package and manifest-owned relative requests become external marker calls.
+ * Converted requests use either a real local binding or a deterministic target
+ * marker, while binding-free converted cycles remain source-positioned failures.
  *
  * How: the plan is built against the exact configured conversion set and an
  * optional hash-verified staging manifest. Resource bytes are read now but are
@@ -3053,8 +3057,9 @@ function buildProjectRuntimeImportPlan(opts: EmitHaxeOptions): ProjectRuntimeImp
         ts.isImportDeclaration(statement)
         && ts.isStringLiteral(statement.moduleSpecifier)
     );
+    const runtimeImports = imports.filter(isRuntimeImport);
     const bareImports = imports.filter((statement) => !statement.importClause);
-    inventories.push({ sourceFile, imports, bareImports });
+    inventories.push({ sourceFile, runtimeImports, bareImports });
 
     const sourceKey = path.resolve(sourceFile.fileName);
     for (const statement of imports) {
@@ -3072,13 +3077,34 @@ function buildProjectRuntimeImportPlan(opts: EmitHaxeOptions): ProjectRuntimeImp
     }
   }
 
+  // A bare request makes its whole converted dependency closure participate in
+  // ESM evaluation. Carry order through every descendant, including modules
+  // that contain only bindings and would otherwise be reordered by value use.
+  // Do not add Genes-only carriers to unrelated bound-only translations: those
+  // remain valid ordinary Haxe and retain their established snapshot/runtime
+  // contract under the standard Haxe JavaScript generator.
+  const orderedPlanSourcePaths = new Set<string>();
+  const orderedPlanQueue = inventories
+    .filter((inventory) => inventory.bareImports.length > 0)
+    .map((inventory) => path.resolve(inventory.sourceFile.fileName))
+    .sort((a, b) => a.localeCompare(b));
+  for (let index = 0; index < orderedPlanQueue.length; index++) {
+    const sourcePath = orderedPlanQueue[index];
+    if (sourcePath === undefined || orderedPlanSourcePaths.has(sourcePath)) continue;
+    orderedPlanSourcePaths.add(sourcePath);
+    for (const targetPath of Array.from(convertedGraph.get(sourcePath) ?? [])
+      .sort((a, b) => a.localeCompare(b))) {
+      if (!orderedPlanSourcePaths.has(targetPath)) orderedPlanQueue.push(targetPath);
+    }
+  }
+
   const cyclicBindingFreeStatements = new Set<ts.ImportDeclaration>();
   const targetSourcePaths = new Set<string>();
   const convertedComponents = convertedRuntimeComponents(convertedGraph);
   for (const inventory of inventories) {
-    if (inventory.bareImports.length === 0) continue;
     const sourceKey = path.resolve(inventory.sourceFile.fileName);
-    for (const statement of inventory.imports) {
+    if (!orderedPlanSourcePaths.has(sourceKey)) continue;
+    for (const statement of inventory.runtimeImports) {
       const edge = convertedEdgeByStatement.get(statement);
       if (!edge || runtimeBindingAnchor(statement) !== null) continue;
       const attribute = parseImportAttribute(statement);
@@ -3106,8 +3132,9 @@ function buildProjectRuntimeImportPlan(opts: EmitHaxeOptions): ProjectRuntimeImp
     });
   }
 
-  for (const { sourceFile, imports, bareImports } of inventories) {
-    if (bareImports.length === 0) continue;
+  for (const { sourceFile, runtimeImports, bareImports } of inventories) {
+    if (runtimeImports.length === 0
+      || !orderedPlanSourcePaths.has(path.resolve(sourceFile.fileName))) continue;
 
     const sourcePath = portablePath(path.relative(opts.rootDir, sourceFile.fileName));
     const requests: RuntimeImportRequest[] = [];
@@ -3124,8 +3151,7 @@ function buildProjectRuntimeImportPlan(opts: EmitHaxeOptions): ProjectRuntimeImp
       }
     }
 
-    for (const statement of imports) {
-      if (!isRuntimeImport(statement)) continue;
+    for (const statement of runtimeImports) {
       const moduleSpecifier = (statement.moduleSpecifier as ts.StringLiteral).text;
       const attribute = parseImportAttribute(statement);
       if (!attribute.ok) {

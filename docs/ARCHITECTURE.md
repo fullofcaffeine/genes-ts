@@ -252,11 +252,15 @@ output tree on failure. Assisted mode may create scaffolding only when every
 loss has a stable `TS2HX-*` marker and manifest record. Printers may not turn an
 unsupported construct into a silent omission or behavior-changing default.
 For a source file with a supported bare import, a project prepass inventories
-every runtime import declaration in source order. The generated Haxe contains
+every runtime import declaration in source order across that file's converted
+runtime dependency closure. Each runtime-importing file in the closure receives
 one kept `@:genes.compilerInternal` carrier whose typed marker calls survive
 full DCE, become ordered Genes module requests, and disappear from both final
-profiles and declarations. Maps remain lookup structures; neither ts2hx nor a
-Genes printer may reconstruct request order from grouped bindings.
+profiles and declarations. This includes bound-only descendants: Haxe value-use
+order is not allowed to replace their TypeScript import-declaration order.
+Unrelated translations containing only bound imports remain ordinary Haxe and
+retain their standard-Haxe behavior. Maps remain lookup structures; neither
+ts2hx nor a Genes printer may reconstruct request order from grouped bindings.
 An acyclic binding-free request to converted code targets a deterministic
 compiler-internal field in the generated Haxe module. That typed anchor makes
 the target visible; explicit `@:keep` metadata retains its translated top-level

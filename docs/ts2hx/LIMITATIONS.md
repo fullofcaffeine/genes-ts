@@ -106,8 +106,10 @@ Important consequences:
 - authored `main()` calls in five snapshot fixture `index.ts` files are
   deliberately assisted losses;
 - the three roundtrip fixtures invoke the translated Haxe `Main` explicitly;
-- supported bare imports become compiler-owned request carriers; arbitrary
-  executable top-level statements still fail strict mode;
+- supported bare imports become compiler-owned request carriers, and converted
+  runtime descendants receive carriers so bound-import declaration order is
+  not replaced by Haxe value-use order; arbitrary executable top-level
+  statements still fail strict mode;
 - uninitialized top-level variables and top-level destructuring declarations
   are unsupported;
 - async function-valued top-level variables are unsupported; use an async

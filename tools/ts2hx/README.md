@@ -132,9 +132,11 @@ JSON event traces must be byte-equivalent after extraction. It also checks that
 prototype mutation, labeled switch-continue, finally outer transfer, and six
 unsupported side-effect-import variants diagnose precisely without changing
 the prior output tree. Bare packages and hash-pinned external relative runtime
-files execute in source order through both Genes profiles. Unlabelled
-switch-continue and unary-plus numeric coercion are exercised as supported
-contracts.
+files execute in source order through both Genes profiles. A converted
+bound-only descendant deliberately reads its bindings in reverse order to
+prove that its original import declarations still control initialization.
+Unlabelled switch-continue and unary-plus numeric coercion are exercised as
+supported contracts.
 
 What `test:roundtrip` does for selected supported modules:
 

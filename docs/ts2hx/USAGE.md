@@ -173,7 +173,8 @@ Additional evidence-only fixtures:
 
 - `semantic-diff`: 16 supported semantic contracts executed as original TS,
   classic Genes JS, and genes-ts→JS, including the reduced ordered
-  `state`/`first`/`second` converted-module initialization proof;
+  `state`/`first`/`second` converted-module initialization proof and a
+  transitive bound-only target that reads its imports in reverse order;
 - `semantic-unsupported`: 9 feature-specific strict failures with source
   provenance and unchanged prior output;
 - `unsupported-top-level`: generic unknown-statement diagnostics, assisted loss

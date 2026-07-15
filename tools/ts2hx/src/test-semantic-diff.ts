@@ -214,7 +214,10 @@ function main(): void {
     originalOutput.converted,
     "original converted-relative TypeScript"
   );
-  assert(originalConvertedTrace === "first,second", "original converted fixture has the wrong source order.");
+  assert(
+    originalConvertedTrace === "first,second|bound-first,bound-second",
+    "original converted fixture has the wrong source order."
+  );
   assertSideEffectOrder(originalOutput.semantic, "original TypeScript");
 
   const loaded = loadProject(fixtureConfig);
@@ -318,6 +321,10 @@ function main(): void {
   );
   const convertedHaxeDir = path.join(haxeSourceDir, "ts2hx_semantic", "converted");
   const convertedMainHaxe = fs.readFileSync(path.join(convertedHaxeDir, "ConvertedMain.hx"), "utf8");
+  const transitiveBoundTargetHaxe = fs.readFileSync(
+    path.join(convertedHaxeDir, "TransitiveBoundTarget.hx"),
+    "utf8"
+  );
   const firstHaxe = fs.readFileSync(path.join(convertedHaxeDir, "First.hx"), "utf8");
   const secondHaxe = fs.readFileSync(path.join(convertedHaxeDir, "Second.hx"), "utf8");
   const firstMarker = firstHaxe.match(/final (__ts2hx_init_[a-f0-9]{10}(?:_[0-9]+)?) = true;/)?.[1];
@@ -349,6 +356,18 @@ function main(): void {
   assert(
     !convertedMainHaxe.includes('"./first.js"') && !convertedMainHaxe.includes('"./second.js"'),
     "converted request carrier preserved a deleted original JavaScript path."
+  );
+  const transitiveFirstAnchor = "SideEffectImportMarker.internal(first)";
+  const transitiveSecondAnchor = "SideEffectImportMarker.internal(second)";
+  assert(
+    transitiveBoundTargetHaxe.indexOf(transitiveFirstAnchor) >= 0
+      && transitiveBoundTargetHaxe.indexOf(transitiveSecondAnchor)
+        > transitiveBoundTargetHaxe.indexOf(transitiveFirstAnchor),
+    "bound-only transitive carrier lost TypeScript import-declaration order."
+  );
+  assert(
+    transitiveBoundTargetHaxe.includes('("" + second + ":" + first)'),
+    "transitive fixture no longer reads bindings in the order that exposes the dependency-order bug."
   );
   const stagedResource = path.join(
     haxeSourceDir,
@@ -511,6 +530,37 @@ function main(): void {
     assert(occurrenceCount(source, "./First.js") === 1, `${label}: duplicate First request was not coalesced.`);
     assert(!source.includes("./first.js"), `${label}: original converted JavaScript path leaked.`);
     assert(!source.includes("__ts2hx_init_"), `${label}: target marker leaked into generated output.`);
+    assert(!source.includes("__ts2hx_requests"), `${label}: request carrier leaked into generated output.`);
+    assert(!source.includes("SideEffectImportMarker"), `${label}: compiler marker leaked into generated output.`);
+  }
+  const classicTransitiveBoundTarget = fs.readFileSync(
+    path.join(
+      tmpRoot,
+      "classic-converted",
+      "ts2hx_semantic",
+      "converted",
+      "TransitiveBoundTarget.js"
+    ),
+    "utf8"
+  );
+  const genesTsTransitiveBoundTarget = fs.readFileSync(
+    path.join(
+      tmpRoot,
+      "genes-ts-converted-source",
+      "ts2hx_semantic",
+      "converted",
+      "TransitiveBoundTarget.ts"
+    ),
+    "utf8"
+  );
+  for (const [label, source] of [
+    ["classic transitive bound-only", classicTransitiveBoundTarget],
+    ["genes-ts transitive bound-only", genesTsTransitiveBoundTarget]
+  ] as const) {
+    const firstRequest = source.indexOf("./TransitiveBoundFirst.js");
+    const secondRequest = source.indexOf("./TransitiveBoundSecond.js");
+    assert(firstRequest >= 0, `${label}: generated module lost the first bound request.`);
+    assert(secondRequest > firstRequest, `${label}: value-use order replaced import-declaration order.`);
     assert(!source.includes("__ts2hx_requests"), `${label}: request carrier leaked into generated output.`);
     assert(!source.includes("SideEffectImportMarker"), `${label}: compiler marker leaked into generated output.`);
   }
