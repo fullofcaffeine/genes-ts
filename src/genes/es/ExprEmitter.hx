@@ -178,6 +178,88 @@ class ExprEmitter extends Emitter {
       write(')');
   }
 
+  /**
+   * Emits a literal `js.Syntax.code` template through Genes-owned expressions.
+   *
+   * Why: delegating the entire raw-syntax call to Haxe's stock JS printer also
+   * delegates each `{n}` argument. That printer uses flat internal names for
+   * Haxe module-level fields, while Genes emits ESM imports and accesses those
+   * fields through their imported module container. Mixing the two name plans
+   * produces valid-looking output with an undefined identifier at runtime.
+   *
+   * What/How: the author still owns every non-placeholder byte of the literal
+   * template. Numeric placeholders are expanded with this emitter's ordinary
+   * value path, preserving dependency aliases, module-field access, temporary
+   * names, and target-specific expression rules. The TypeScript emitter
+   * overrides only `emitRawSyntaxTemplateValue` for its explicit-undefined
+   * boundary; parsing and accessor ownership remain shared by both profiles.
+   * Non-literal or argument-free forms return `false` so established special
+   * cases such as `js.Syntax.code("$global")` stay on the stock fallback path.
+   */
+  public function emitSyntaxCodeWithArgs(args: Array<TypedExpr>): Bool {
+    if (args.length <= 1)
+      return false;
+
+    final template = switch args[0].expr {
+      case TConst(TString(value)):
+        value;
+      default:
+        return false;
+    }
+
+    final values = args.slice(1);
+    var i = 0;
+    while (i < template.length) {
+      if (template.charCodeAt(i) == "{".code) {
+        var j = i + 1;
+        var index = 0;
+        var hasDigits = false;
+        while (j < template.length) {
+          final code = template.charCodeAt(j);
+          if (code < "0".code || code > "9".code)
+            break;
+          hasDigits = true;
+          index = index * 10 + (code - "0".code);
+          j++;
+        }
+        if (hasDigits && j < template.length
+          && template.charCodeAt(j) == "}".code) {
+          if (index >= values.length) {
+            CompilerDiagnostic.fail('js.Syntax.code placeholder {$index} has no argument',
+              args[0].pos);
+          }
+          emitRawSyntaxTemplateValue(values[index]);
+          i = j + 1;
+          continue;
+        }
+      }
+      write(template.charAt(i));
+      i++;
+    }
+    return true;
+  }
+
+  /**
+   * Emits one raw-template placeholder using the active target's value rules.
+   *
+   * Classic JavaScript needs no special boundary behavior. TypeScript extends
+   * this hook to retain literal JavaScript `undefined` instead of applying its
+   * ordinary Haxe-null normalization while inside a raw syntax contract.
+   */
+  public function emitRawSyntaxTemplateValue(value: TypedExpr): Void {
+    emitValue(value);
+  }
+
+  /** Emits one null-comparison operand with its hidden nullish syntax grouped. */
+  function emitNullComparisonOperand(value: TypedExpr): Void {
+    final wrap = nullComparisonOperandNeedsParens(value);
+    if (wrap)
+      write('(');
+    emitValue(value);
+    if (wrap)
+      write(')');
+  }
+
   public function emitExpr(e: TypedExpr) {
     emitPos(e.pos);
     switch e.expr {
@@ -197,6 +279,13 @@ class ExprEmitter extends Emitter {
         writeBinop(op);
         writeSpace();
         emitValue(e2);
+      case TBinop(op = OpEq | OpNotEq, e1, e2)
+        if (isNullConstant(e1) || isNullConstant(e2)):
+        emitNullComparisonOperand(e1);
+        writeSpace();
+        writeBinop(op);
+        writeSpace();
+        emitNullComparisonOperand(e2);
       case TBinop(op, e1, e2):
         emitValue(e1);
         writeSpace();
@@ -370,7 +459,10 @@ class ExprEmitter extends Emitter {
       case TCall({
         expr: TField(_,
           FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))
-      }, _) | TCall({expr: TIdent('__js__')}, _):
+      }, args):
+        if (!emitSyntaxCodeWithArgs(args))
+          write(ctx.expr(e));
+      case TCall({expr: TIdent('__js__')}, _):
         write(ctx.expr(e));
       case TCall({
         expr: TField(_,
@@ -831,7 +923,10 @@ class ExprEmitter extends Emitter {
       case TCall({
         expr: TField(_,
           FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))
-      }, _) | TCall({expr: TIdent('__js__')}, _):
+      }, args):
+        if (!emitSyntaxCodeWithArgs(args))
+          write(ctx.value(e));
+      case TCall({expr: TIdent('__js__')}, _):
         write(ctx.value(e));
       case TCall({
         expr: TField(_,

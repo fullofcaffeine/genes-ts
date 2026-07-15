@@ -54,4 +54,21 @@ class TestUnknownNarrowing {
     asserts.assert(UnknownNarrow.isUndefined(Unknown.fromBoundary(Undefinable.absent())));
     return asserts.done();
   }
+
+  /**
+   * Protects nullish normalization when it is immediately compared with null.
+   *
+   * `orNull()` emits `{0} ?? null`; both targets must group that hidden operator
+   * before `!= null`, otherwise a present object becomes the comparison result
+   * instead of the boolean promised by Haxe's typed expression.
+   */
+  public function testOrNullComparisonPrecedence() {
+    final present:Undefinable<{project:String}> = {project: "genes"};
+    final absent:Undefinable<{project:String}> = Undefinable.absent();
+    final hasPresent:Bool = present.orNull() != null;
+    final hasAbsent:Bool = absent.orNull() != null;
+    asserts.assert(hasPresent == true);
+    asserts.assert(hasAbsent == false);
+    return asserts.done();
+  }
 }

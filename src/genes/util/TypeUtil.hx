@@ -110,6 +110,52 @@ class TypeUtil {
   }
 
   /**
+   * Reports whether a null-comparison operand emits a hidden `??` expression.
+   *
+   * Why: Haxe sees helpers such as `Undefinable<T>.orNull()` as one typed value,
+   * but the helper lowers through `js.Syntax.code("{0} ?? null", value)`. Without
+   * an explicit boundary, JavaScript parses `value ?? null != null` as
+   * `value ?? (null != null)`, returning a present object instead of `true`.
+   * This is a shared runtime fact, not a TypeScript typechecking concern.
+   *
+   * What/How: recognize explicit Haxe null-coalescing and literal raw templates
+   * containing the nullish operator. Both output profiles use this conservative
+   * fact only when either side of `==`/`!=` is null, avoiding a full parser for
+   * user-owned raw JavaScript while preserving the intended Haxe comparison.
+   */
+  public static function nullComparisonOperandNeedsParens(e: TypedExpr): Bool {
+    function unwrap(value: TypedExpr): TypedExpr
+      return switch value.expr {
+        case TMeta(_, inner) | TCast(inner, null) | TParenthesis(inner):
+          unwrap(inner);
+        default:
+          value;
+      }
+
+    return switch unwrap(e).expr {
+      #if (haxe_ver >= 4.3)
+      case TBinop(OpNullCoal, _, _):
+        true;
+      #end
+      default:
+        final template = rawSyntaxCodeTemplate(e);
+        template != null && template.indexOf('??') != -1;
+    }
+  }
+
+  /** Returns whether an expression is a null literal after inert wrappers. */
+  public static function isNullConstant(e: TypedExpr): Bool {
+    return switch e.expr {
+      case TMeta(_, inner) | TCast(inner, null) | TParenthesis(inner):
+        isNullConstant(inner);
+      case TConst(TNull):
+        true;
+      default:
+        false;
+    }
+  }
+
+  /**
    * Returns the runtime/member name requested by `@:native`.
    *
    * Why: Haxe code often needs a legal Haxe identifier for a field whose

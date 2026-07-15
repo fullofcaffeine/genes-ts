@@ -3,6 +3,7 @@ package tests;
 import genes.js.Async.await;
 import js.lib.Promise as JsPromise;
 import tink.core.Promise;
+import tests.AsyncAwaitHelper.resolveModuleValue;
 
 @:asserts
 class TestAsyncAwait {
@@ -111,6 +112,27 @@ class TestAsyncAwait {
   public function testAwaitedPropertyAccess() {
     return Promise.ofJsPromise(awaitedArrayLength()).next(length -> {
       asserts.assert(length == 3);
+      return asserts.done();
+    });
+  }
+
+  /**
+   * Why: `await` is implemented as a raw JavaScript syntax template. Its
+   * placeholder must still use Genes' ESM accessor for a cross-module Haxe
+   * function; Haxe's stock flat identifier is not defined in split modules.
+   *
+   * What/How: call a real module-level helper directly inside metadata-style
+   * await. The runtime assertion catches a missing import/accessor even when
+   * the generated source itself remains syntactically valid.
+   */
+  @:async
+  function awaitModuleLevelFunction(): JsPromise<Int> {
+    return @:await resolveModuleValue(42);
+  }
+
+  public function testAwaitModuleLevelFunctionAccessor() {
+    return Promise.ofJsPromise(awaitModuleLevelFunction()).next(value -> {
+      asserts.assert(value == 42);
       return asserts.done();
     });
   }

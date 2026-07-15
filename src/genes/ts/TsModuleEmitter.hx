@@ -2350,7 +2350,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TCall({
         expr: TField(_,
           FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))
-      }, args) if (emitSyntaxCodeWithTsArgs(args)):
+      }, args) if (emitSyntaxCodeWithArgs(args)):
         null;
       case TCall(callee = {expr: TField(target, f)}, params)
         if (fieldAccessName(f) == "get" && tsIsIMapType(target.t)
@@ -2472,7 +2472,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TCall({
         expr: TField(_,
           FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))
-      }, args) if (emitSyntaxCodeWithTsArgs(args)):
+      }, args) if (emitSyntaxCodeWithArgs(args)):
         null;
       case TConst(TNull):
         if (typeAllowsNull(e.t)
@@ -3334,69 +3334,14 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   /**
-   * Emits `js.Syntax.code("...", args...)` placeholders through genes-ts.
+   * Preserves explicit JavaScript `undefined` inside a shared raw template.
    *
-   * Why: the base JS emitter delegates the whole syntax expression to Haxe's JS
-   * stringifier. That is fine for plain JS output, but it bypasses TypeScript
-   * emitter knowledge attached to placeholder expressions: native anonymous
-   * field names, type-only references, nullable rewrites, and other TS-specific
-   * expression lowering. For example, `@:native("function") final fn` inside
-   * `js.Syntax.code("{0} ?? null", record.fn.description)` must emit
-   * `record["function"].description ?? null`, not `record.fn.description`.
-   *
-   * What/How: keep the raw template text as the author wrote it, but replace
-   * numeric `{0}` / `{1}` placeholders by genes' own TypeScript value emitter.
-   * The template still owns surrounding syntax such as `await {0}` or
-   * `{0} ?? null`, while placeholder expressions retain TS-specific knowledge:
-   * native anonymous field names, call-argument expected types, type-only
-   * references, and strict-null rewrites. Calls without placeholder arguments
-   * stay on the base path so special raw forms such as `js.Syntax.code("$global")`
-   * keep their existing behavior.
+   * The base emitter owns placeholder parsing and resolves every other value
+   * through the active target. Only genes-ts needs this override: its ordinary
+   * nullable-Haxe path can normalize `undefined` to `null`, while raw syntax is
+   * an explicit host-language boundary whose spelling must remain unchanged.
    */
-  function emitSyntaxCodeWithTsArgs(args: Array<TypedExpr>): Bool {
-    if (args.length <= 1)
-      return false;
-
-    final template = switch args[0].expr {
-      case TConst(TString(value)):
-        value;
-      default:
-        return false;
-    }
-
-    final values = args.slice(1);
-    var i = 0;
-    while (i < template.length) {
-      if (template.charCodeAt(i) == "{".code) {
-        var j = i + 1;
-        var index = 0;
-        var hasDigits = false;
-        while (j < template.length) {
-          final code = template.charCodeAt(j);
-          if (code < "0".code || code > "9".code)
-            break;
-          hasDigits = true;
-          index = index * 10 + (code - "0".code);
-          j++;
-        }
-        if (hasDigits && j < template.length
-          && template.charCodeAt(j) == "}".code) {
-          if (index >= values.length) {
-            CompilerDiagnostic.fail('js.Syntax.code placeholder {$index} has no argument',
-              args[0].pos);
-          }
-          emitRawSyntaxTemplateValue(values[index]);
-          i = j + 1;
-          continue;
-        }
-      }
-      write(template.charAt(i));
-      i++;
-    }
-    return true;
-  }
-
-  function emitRawSyntaxTemplateValue(value: TypedExpr) {
+  override public function emitRawSyntaxTemplateValue(value: TypedExpr): Void {
     if (isJsUndefinedConst(value)) {
       // A raw syntax template argument that is explicitly JavaScript
       // `undefined` must stay `undefined`. The ordinary nullable-Haxe
@@ -3766,37 +3711,12 @@ class TsModuleEmitter extends JsModuleEmitter {
     switch e.expr {
       case TConst(TNull):
         write('null');
-      case _ if (comparisonOperandNeedsParens(e)):
+      case _ if (TypeUtil.nullComparisonOperandNeedsParens(e)):
         write('(');
         emitValue(e);
         write(')');
       default:
         emitValue(e);
-    }
-  }
-
-  /**
-   * Parenthesizes comparison operands whose emitted TypeScript contains `??`.
-   *
-   * Why: Haxe code often normalizes TypeScript `undefined` to Haxe `null`
-   * through helpers such as `genes.ts.Undefinable<T>.orNull()`, which lowers to
-   * `js.Syntax.code("{0} ?? null", value)`. When that expression is compared
-   * against `null`, TypeScript precedence would parse `value ?? null != null`
-   * as `value ?? (null != null)`. The intended Haxe semantics are
-   * `(value ?? null) != null`.
-   *
-   * What/How: only the null-comparison path calls this helper. It keeps simple
-   * operands untouched, but wraps explicit Haxe null-coalescing expressions and
-   * raw syntax templates that contain `??`, preserving semantics without adding
-   * broad parentheses to ordinary comparisons.
-   */
-  function comparisonOperandNeedsParens(e: TypedExpr): Bool {
-    return switch e.expr {
-      #if (haxe_ver >= 4.3)
-      case TBinop(OpNullCoal, _, _):
-        true;
-      #end
-      default: final template = TypeUtil.rawSyntaxCodeTemplate(e); template != null && template.indexOf('??') != -1;
     }
   }
 
