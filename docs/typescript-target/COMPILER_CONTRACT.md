@@ -14,8 +14,8 @@ This document specifically describes the **TypeScript source output mode** (enab
 - Keep TypeScript-specific helper abstractions target-polymorphic: they may emit
   richer TS types in `-D genes.ts` mode, but must have a tested classic erasure,
   runtime lowering, or explicit target guard without lowering TypeScript output
-  quality. Comprehensive same-source equivalence is tracked separately by
-  `genes-cn4`.
+  quality. The bounded same-source contract is exercised by
+  `yarn test:dual-output`; passing it does not imply universal equivalence.
 - Support two runtime profiles:
   - **Default:** Haxe runtime compatibility (reflection-friendly).
   - **Opt-in:** minimal runtime / “TS-first” mode (less Haxe runtime surface).

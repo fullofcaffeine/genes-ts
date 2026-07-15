@@ -1,0 +1,11 @@
+-lib genes-ts
+-cp tests/output-modes/src
+--main dual.Main
+-js tests/output-modes/out/ts/src-gen/index.ts
+-D genes.ts
+-D genes.ts.lower_private_helpers
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
+-debug
+-resource tests/output-modes/resources/message.txt@dual.message

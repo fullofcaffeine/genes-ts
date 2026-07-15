@@ -1,0 +1,23 @@
+{
+  "core": [
+    "class:alpha",
+    "interface:ALPHA",
+    "enum:Careful(audit)",
+    "null:true",
+    "map:true:alpha,beta:2",
+    "iterator:6",
+    "exception:boom",
+    "evaluation:receiver>index>rhs:3",
+    "switch:two",
+    "import:dual/mode",
+    "resource:portable-resource",
+    "reflection:dual.Box"
+  ],
+  "helpers": [
+    "undefined:true",
+    "unknown-record:Ada",
+    "unknown-array:2",
+    "api:2:Ada:true",
+    "type-only:true"
+  ]
+}

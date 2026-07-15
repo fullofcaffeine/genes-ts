@@ -13,8 +13,8 @@ identical:
 | --- | --- | --- |
 | TypeScript implementation source | Bounded-ready | Strict ESM/NodeNext and React profiles represented by repository fixtures, with closed-interface negative consumers and runtime checks. |
 | Classic ESM JavaScript runtime | Bounded-ready and the more mature runtime path | The blocking classic assertion suite on the pinned Haxe/Node profile. |
-| Classic `.d.ts` | Bounded and improving | Precise `Null<T>` plus a strict external consumer; a semantic exported-type audit is still open as `genes-09r.1`. |
-| Same-source dual output | Experimental as a general guarantee | Selected helpers have paired coverage; the authoritative runtime/declaration/resource/JSX/DCE corpus is tracked by `genes-cn4`. |
+| Classic `.d.ts` | Bounded and improving | Precise `Null<T>`, a semantic exported-surface audit, and strict external consumers. Complex package shapes remain separate work. |
+| Same-source dual output | Bounded-ready for the checked corpus; experimental as a general guarantee | `yarn test:dual-output` runs identical source through TS, classic JS/declarations, and standard Haxe JS, with a pinned/live vanilla core comparison. JSX capability policy remains `genes-09r.5`. |
 
 Passing `tsc` proves that the exercised generated program is accepted. It does
 not by itself prove that every exported type is complete or precise. The
@@ -87,10 +87,10 @@ serve this profile: TS mode remains the default for projects whose generated TS
 is a product surface, while ES6-specific work should have its own fixture or
 smoke gate.
 
-The standing classic gate is `yarn test`, which compiles and runs the existing
-test suite through classic Genes JS output. `genes-cn4` tracks the remaining
-work to add a smaller side-by-side fixture that compares one Haxe source through
-both TS-default and ES6-profile output.
+The standing classic gate is `yarn test`. The smaller authoritative side-by-side
+gate is `yarn test:dual-output`; its source, expected semantic transcript,
+bounded shape snapshot, vanilla baseline, and profile ownership manifest live
+under `tests/output-modes/`.
 
 ## Picking a mode
 
@@ -105,8 +105,10 @@ both TS-default and ES6-profile output.
 The two modes are not meant to force two Haxe codebases. Ordinary Haxe that
 does not use TS-specific helper types should compile through either profile,
 and helper abstractions should declare an honest lowering or target guard.
-Selected helpers already have paired coverage; comprehensive same-source
-equivalence remains an explicit test objective rather than a blanket claim.
+`Undefinable`, immediate `Unknown` narrowing, and ordinary Haxe runtime seams
+now have one authoritative paired corpus. That evidence remains bounded: JSX,
+complex package shapes, and unrepresented language constructs are not implied
+by the passing transcript.
 
 For JS/TS ecosystem projects, the recommended authoring model is **TS-minded Haxe**. Write normal Haxe, but keep the TypeScript boundary contracts in mind: use Haxe typedefs, enums, abstracts, externs, and focused `genes.ts` helpers where they make DOM, Node, npm, or generated declaration shapes more precise.
 

@@ -63,6 +63,12 @@ class StdTypesEmitter {
     writer.write('  interface ArrayConstructor { __name__?: HxRuntimeName }\n');
     writer.write('  interface DateConstructor { __name__?: HxRuntimeName }\n');
     writer.write('  interface Date { __class__?: Function }\n');
+    // `haxe.io.Bytes` caches Haxe wrappers and byte views directly on the
+    // native buffers it owns. These optional properties describe exactly the
+    // three writes in Haxe 4.3.7's JS stdlib; they are not general index
+    // signatures and do not make unrelated built-in members legal.
+    writer.write('  interface Uint8Array { bufferValue?: ArrayBuffer }\n');
+    writer.write('  interface ArrayBuffer { hxBytes?: object; bytes?: Uint8Array }\n');
   }
 
   function emitWebIdlGaps(): Void {

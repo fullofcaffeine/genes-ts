@@ -4,6 +4,7 @@
 /tests/genes-ts/**/out
 /tests/genes-ts/**/src-gen*
 /tests/genes-ts/**/dist*
+/tests/output-modes/out
 /examples/typescript-target/src-gen
 /examples/typescript-target/dist
 /examples/todoapp/web/src-gen

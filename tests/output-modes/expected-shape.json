@@ -1,0 +1,38 @@
+{
+  "tsModules": [
+    "dual/ConsoleOutput.ts",
+    "dual/CoreScenario.ts",
+    "dual/CoreTypes.ts",
+    "dual/DualApi.ts",
+    "dual/DualTypeOnly.ts",
+    "dual/HelperScenario.ts",
+    "dual/Main.ts"
+  ],
+  "classicModules": [
+    "dual/ConsoleOutput.js",
+    "dual/CoreScenario.js",
+    "dual/CoreTypes.js",
+    "dual/DualApi.js",
+    "dual/HelperScenario.js",
+    "dual/Main.js"
+  ],
+  "classicDeclarations": [
+    "dual/ConsoleOutput.d.ts",
+    "dual/CoreScenario.d.ts",
+    "dual/CoreTypes.d.ts",
+    "dual/DualApi.d.ts",
+    "dual/DualTypeOnly.d.ts",
+    "dual/HelperScenario.d.ts",
+    "dual/Main.d.ts"
+  ],
+  "vanillaModules": [
+    "dual/ConsoleOutput.js",
+    "dual/CoreScenario.js",
+    "dual/CoreTypes.js",
+    "dual/VanillaMain.js"
+  ],
+  "standardArtifacts": [
+    "index.cjs",
+    "index.cjs.map"
+  ]
+}

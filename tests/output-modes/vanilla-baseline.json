@@ -1,0 +1,34 @@
+{
+  "commit": "069b0de27cf8a035a630d7326d385e7580cdd3dc",
+  "core": [
+    "class:alpha",
+    "interface:ALPHA",
+    "enum:Careful(audit)",
+    "null:true",
+    "map:true:alpha,beta:2",
+    "iterator:6",
+    "exception:boom",
+    "evaluation:receiver>index>rhs:3",
+    "switch:two",
+    "import:dual/mode",
+    "resource:portable-resource",
+    "reflection:dual.Box"
+  ],
+  "modules": [
+    "dual/ConsoleOutput.js",
+    "dual/CoreScenario.js",
+    "dual/CoreTypes.js",
+    "dual/VanillaMain.js"
+  ],
+  "acceptedDivergences": [
+    "Current classic Genes encapsulates class-registry access through Register.hxClasses(); vanilla writes through Register.global directly.",
+    "Current classic Genes retains native haxe.ds.StringMap output for this case; vanilla routes the same semantics through genes.util.EsMap.",
+    "Source formatting and helper selection are bounded shape evidence only; runtime traces, not byte identity, are authoritative."
+  ],
+  "shapeFacts": {
+    "currentRegistry": "Register.hxClasses()",
+    "vanillaRegistry": "Register.global(\"$hxClasses\")",
+    "currentMapImport": "/haxe/ds/StringMap.js",
+    "vanillaMapImport": "/genes/util/EsMap.js"
+  }
+}

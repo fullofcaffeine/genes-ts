@@ -178,9 +178,11 @@ This is useful because one Haxe source is designed to target both workflows:
 That means you can write Haxe with TypeScript in mind, compile to rich
 TypeScript for review and ecosystem interop, or compile to plain ES6 when
 performance, build simplicity, or runtime constraints make that preferable.
-Comprehensive equivalence across runtime behavior, declarations, JSX,
-resources, DCE, and source maps remains experimental until the authoritative
-same-source corpus tracked by `genes-cn4` lands.
+The authoritative `yarn test:dual-output` corpus now proves the checked runtime,
+declaration, resource, DCE, import, reflection, and source-map-shape contracts
+across TS, classic, standard Haxe JS, and a vanilla-compatible core. General
+equivalence—especially JSX and constructs outside that corpus—remains
+experimental.
 
 ES6 support is not a lowest-common-denominator mode. TypeScript output should stay precise and readable; portability is implemented through maintainable compiler architecture and target-specific emitters.
 

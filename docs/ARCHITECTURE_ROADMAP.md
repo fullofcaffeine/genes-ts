@@ -30,8 +30,8 @@ interesting, but it is not a current product promise.
 > JavaScript compiler for controlled, tested project profiles. The classic
 > runtime is the more mature path. TypeScript implementation output and classic
 > declarations have strict positive, negative, and semantic exported-surface
-> gates, while broad npm module shapes and comprehensive same-source parity
-> remain active roadmap work. ts2hx is an experimental strict-subset migration and
+> gates, while broad npm module shapes and same-source behavior beyond the
+> authoritative bounded corpus remain active roadmap work. ts2hx is an experimental strict-subset migration and
 > assisted-scaffolding tool, not a lossless TypeScript-to-Haxe compiler.
 
 Do not replace this with unqualified claims of universal type safety, strong
@@ -219,9 +219,12 @@ The source of truth is Beads epic `genes-09r`.
    Runtime/type/declaration projections share import allocation, internal
    failures are source-positioned, and declaration expansion runs only after
    executable output so classic DCE cannot be broadened accidentally.
-5. **`genes-cn4` — authoritative same-source dual-output corpus.** Compile one
-   generic Haxe tree through TS, classic JS, and classic declarations; compare
-   stable runtime traces and bounded output facts, not byte identity.
+5. **`genes-cn4` — authoritative same-source dual-output corpus (landed).** One
+   generic Haxe tree now runs through TS, classic JS/declarations, and standard
+   Haxe JS, with a pinned/live vanilla-compatible core. The gate compares a
+   stable semantic transcript plus bounded DCE/import/declaration/resource/map
+   facts, never byte identity. Its ownership manifest assigns JSX and exact
+   source-map/budget expansion to `.5` and `.6` respectively.
 6. **`genes-09r.4` — centralized TypeScript/Haxe toolchain lanes.** Separate
    generated-output `tsc` compatibility from Program/TypeChecker API
    compatibility and derive all pins from one manifest.

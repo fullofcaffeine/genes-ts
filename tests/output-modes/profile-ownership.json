@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "sourceRoot": "tests/output-modes/src",
+  "profiles": [
+    {
+      "id": "ts-strict",
+      "build": "tests/output-modes/build-ts.hxml",
+      "typecheck": "tests/output-modes/tsconfig.generated.json",
+      "runtime": "tests/output-modes/out/ts/dist/index.js",
+      "snapshot": "tests/output-modes/expected-shape.json",
+      "sourceMaps": "shape"
+    },
+    {
+      "id": "classic-esm",
+      "build": "tests/output-modes/build-classic.hxml",
+      "typecheck": "tests/output-modes/tsconfig.consumer.json",
+      "runtime": "tests/output-modes/out/classic/index.js",
+      "snapshot": "tests/output-modes/expected-shape.json",
+      "sourceMaps": "shape"
+    },
+    {
+      "id": "classic-dts",
+      "build": "tests/output-modes/build-classic.hxml",
+      "typecheck": "tests/output-modes/tsconfig.consumer.json",
+      "runtime": "tests/output-modes/out/classic/index.js",
+      "snapshot": "tests/output-modes/expected-shape.json",
+      "sourceMaps": "shape"
+    },
+    {
+      "id": "standard-haxe-js-oracle",
+      "build": "tests/output-modes/build-standard.hxml",
+      "typecheck": "not-applicable-runtime-oracle",
+      "runtime": "tests/output-modes/out/standard/index.cjs",
+      "snapshot": "tests/output-modes/expected-shape.json",
+      "sourceMaps": "shape"
+    },
+    {
+      "id": "vanilla-genes-core-oracle",
+      "build": "tests/output-modes/build-vanilla.hxml",
+      "typecheck": "not-applicable-secondary-oracle",
+      "runtime": "tests/output-modes/out/vanilla/index.js",
+      "snapshot": "tests/output-modes/expected-shape.json",
+      "sourceMaps": "shape"
+    }
+  ],
+  "semanticOracle": {
+    "expected": "tests/output-modes/expected-trace.json",
+    "primary": "standard-haxe-js-oracle",
+    "secondary": "vanilla-genes-core-oracle"
+  },
+  "capabilities": {
+    "jsx": {
+      "status": "excluded-until-capability-policy",
+      "owner": "genes-09r.5",
+      "contract": "Classic JSX must gain an explicit lowering or a stable source-positioned pre-output diagnostic."
+    },
+    "exactSourceMapsAndBudgets": {
+      "status": "shape-only-here",
+      "owner": "genes-09r.6"
+    }
+  }
+}

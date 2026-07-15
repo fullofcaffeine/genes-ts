@@ -1,0 +1,12 @@
+-lib helder.set
+-cp ../genes-vanilla/src
+-cp tests/output-modes/src
+--main dual.VanillaMain
+-js tests/output-modes/out/vanilla/index.js
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
+-debug
+-resource tests/output-modes/resources/message.txt@dual.message
+--macro genes.Generator.use()
+--macro addMetadata('@:genes.disableNativeAccessors', 'haxe.Exception')

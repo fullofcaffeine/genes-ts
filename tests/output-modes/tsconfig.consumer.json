@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "types": [],
+    "noEmit": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": false
+  },
+  "include": ["consumer.ts"]
+}

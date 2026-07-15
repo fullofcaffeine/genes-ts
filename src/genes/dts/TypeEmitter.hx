@@ -581,7 +581,9 @@ class TypeEmitter {
             if (field.doc != null)
               writer.emitComment(field.doc);
             write(TypeUtil.classFieldName(field));
-            if (field.meta.has(':optional'))
+            if (field.meta.has(':optional')
+              || genes.ts.StdlibTypeOverrides.isOptionalAnonymousField(anon,
+                field))
               write('?');
             write(': ');
             if (field.params.length > 0) {
