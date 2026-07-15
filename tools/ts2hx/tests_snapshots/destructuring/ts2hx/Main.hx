@@ -23,7 +23,7 @@ function main(): Void {
   ((function() {
   var __ts2hx_tmp7 = obj;
   x = __ts2hx_tmp7.a;
-  return null;
+  return __ts2hx_tmp7;
 })());
   var y = "missing";
   ((function() {
@@ -31,7 +31,7 @@ function main(): Void {
   var __ts2hx_tmp9 = __ts2hx_tmp8.b;
   var __ts2hx_tmp10: Dynamic = (__ts2hx_tmp9 == null ? {  } : __ts2hx_tmp9);
   y = __ts2hx_tmp10.c;
-  return null;
+  return __ts2hx_tmp8;
 })());
   final arr = [10, 20, 30, 40];
   final __ts2hx_tmp11 = arr;
@@ -44,11 +44,11 @@ function main(): Void {
   ((function() {
   var __ts2hx_tmp14 = arr;
   second = __ts2hx_tmp14[1];
-  return null;
+  return __ts2hx_tmp14;
 })());
-  final take = function(?_p0: Obj) {
-  if (_p0 == null) _p0 = {  };
-  var __ts2hx_tmp15 = _p0;
+  final take = function(?_p0: genes.ts.Undefinable<Obj>) {
+  if (genes.ts.Undefinable.isAbsent(_p0)) _p0 = {  };
+  var __ts2hx_tmp15 = _p0.assumePresent();
   var __ts2hx_tmp16 = __ts2hx_tmp15.a;
   var a = (__ts2hx_tmp16 == null ? 7 : __ts2hx_tmp16);
   var __ts2hx_tmp17 = __ts2hx_tmp15.b;

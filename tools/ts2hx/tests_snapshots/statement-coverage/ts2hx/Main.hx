@@ -1,8 +1,8 @@
 package ts2hx;
 
 function main(): Void {
-  var x: Float = 0;
-  var flag: Bool = false;
+  var x: Float;
+  var flag: Bool;
   x = 0;
   flag = false;
   while ((x < 3))   {
@@ -13,19 +13,29 @@ function main(): Void {
     y = (y + 1);
   } while ((y < 2));
   var label = "";
-  switch (y) {
-    case 0:
-      {
-      label = "zero";
+  {
+    var __ts2hx_switch_value0 = y;
+    var __ts2hx_switch_state1 = -1;
+    if (__ts2hx_switch_state1 == -1 && genes.js.Equality.strict(__ts2hx_switch_value0, 0)) __ts2hx_switch_state1 = 0;
+    if (__ts2hx_switch_state1 == -1 && genes.js.Equality.strict(__ts2hx_switch_value0, 1)) __ts2hx_switch_state1 = 1;
+    if (__ts2hx_switch_state1 == -1 && genes.js.Equality.strict(__ts2hx_switch_value0, 2)) __ts2hx_switch_state1 = 2;
+    if (__ts2hx_switch_state1 == -1) __ts2hx_switch_state1 = 3;
+    if (__ts2hx_switch_state1 >= 0) do {
+      if (__ts2hx_switch_state1 <= 0) {
+        label = "zero";
+        break;
       }
-    case 1, 2:
-      {
-      label = "small";
+      if (__ts2hx_switch_state1 <= 1) {
       }
-    default:
-      {
-      label = "other";
+      if (__ts2hx_switch_state1 <= 2) {
+        label = "small";
+        break;
       }
+      if (__ts2hx_switch_state1 <= 3) {
+        label = "other";
+        break;
+      }
+    } while (false);
   }
   var acc = 0;
   var i = 0;

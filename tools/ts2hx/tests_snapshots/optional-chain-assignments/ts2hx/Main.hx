@@ -3,8 +3,8 @@ package ts2hx;
 typedef Obj = { @:optional @:ts.optional var value: Float; @:optional @:ts.optional var nested: { @:optional @:ts.optional var n: Float; @:optional @:ts.optional var fn: Float->Float; }; };
 
 function main(): Void {
-  final obj: Obj = { value: 1, nested: { n: 2, fn: function(x: Float) return (x + 1) } };
-  final nil: Obj = null;
+  final obj: Null<Obj> = { value: 1, nested: { n: 2, fn: function(x: Float) return (x + 1) } };
+  final nil: Null<Obj> = null;
   trace((function() {
   var __ts2hx_tmp0 = obj;
   return (__ts2hx_tmp0 == null ? null : __ts2hx_tmp0.value);
@@ -44,43 +44,63 @@ function main(): Void {
   if (__ts2hx_fn10 == null) return null;
   return Reflect.callMethod(__ts2hx_recv9, __ts2hx_fn10, cast [2]);
 })());
-  final f: Float->Float = function(x: Float) return (x * 2);
+  final f: Null<Float->Float> = function(x: Float) return (x * 2);
   trace((function() {
   var __ts2hx_fn11 = f;
   if (__ts2hx_fn11 == null) return null;
   return __ts2hx_fn11(3);
 })());
-  final g: Float->Float = null;
+  final g: Null<Float->Float> = null;
   trace((function() {
   var __ts2hx_fn12 = g;
   if (__ts2hx_fn12 == null) return null;
   return __ts2hx_fn12(3);
 })());
-  var v: Float = null;
+  var v: Null<Float> = null;
   (function() {
-  if (v == null) v = 10;
-  return v;
+  var __ts2hx_current13 = v;
+  if (__ts2hx_current13 == null) {
+    __ts2hx_current13 = 10;
+    v = __ts2hx_current13;
+  }
+  return __ts2hx_current13;
 })();
   trace(v);
   (function() {
-  if (v == null) v = 11;
-  return v;
+  var __ts2hx_current14 = v;
+  if (__ts2hx_current14 == null) {
+    __ts2hx_current14 = 11;
+    v = __ts2hx_current14;
+  }
+  return __ts2hx_current14;
 })();
   trace(v);
-  var b: Bool = null;
+  var b: Null<Bool> = null;
   (function() {
-  if (b == null) b = true;
-  return b;
+  var __ts2hx_current15 = b;
+  if (__ts2hx_current15 == null) {
+    __ts2hx_current15 = true;
+    b = __ts2hx_current15;
+  }
+  return __ts2hx_current15;
 })();
   trace(b);
   (function() {
-  if (js.Syntax.code("!!{0}", b)) b = false;
-  return b;
+  var __ts2hx_current16 = b;
+  if (genes.js.Truthiness.isTruthy(__ts2hx_current16)) {
+    __ts2hx_current16 = false;
+    b = __ts2hx_current16;
+  }
+  return __ts2hx_current16;
 })();
   trace(b);
   (function() {
-  if (!(js.Syntax.code("!!{0}", b))) b = true;
-  return b;
+  var __ts2hx_current17 = b;
+  if (!(genes.js.Truthiness.isTruthy(__ts2hx_current17))) {
+    __ts2hx_current17 = true;
+    b = __ts2hx_current17;
+  }
+  return __ts2hx_current17;
 })();
   trace(b);
 }

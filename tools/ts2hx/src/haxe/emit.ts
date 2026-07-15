@@ -2,6 +2,20 @@ import fs from "fs";
 import path from "path";
 import ts from "../typescript-api.js";
 import { toHaxeModuleName, toHaxePackagePath } from "../util.js";
+import {
+  SemanticRecorder,
+  isPrototypeMutationTarget,
+  planAssignmentTarget,
+  planCondition,
+  planForLoop,
+  planLocalDeclaration,
+  planParameter,
+  planSwitch,
+  planTry,
+  type PortabilityGrade,
+  type SemanticFeatureDisposition,
+  type SemanticFeatureId
+} from "../semantic/ir.js";
 
 export type EmitHaxeOptions = {
   projectDir: string;
@@ -34,7 +48,7 @@ export type TranslationDiagnostic = {
   semanticCategory: "file" | "module" | "declaration" | "control-flow" | "expression";
   message: string;
   support: "unsupported";
-  portableGrade: "unknown";
+  portableGrade: PortabilityGrade;
   outputFile: string | null;
   remediation: string;
 };
@@ -47,13 +61,15 @@ export type TranslationFileDisposition = {
 };
 
 export type TranslationManifest = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   mode: TranslationMode;
   status: "success" | "failed" | "assisted";
   basePackage: string;
   plannedFiles: string[];
   files: TranslationFileDisposition[];
   diagnostics: TranslationDiagnostic[];
+  /** Complete support catalog plus source occurrences observed in this run. */
+  features: SemanticFeatureDisposition[];
 };
 
 export type EmitHaxeResult = {
@@ -127,8 +143,59 @@ type EmitContext = {
   checker: ts.TypeChecker;
   identifierRewrites: Map<string, string>;
   tmpCounter: number;
-  preserveUndefined: boolean;
+  sourceFile: ts.SourceFile;
+  sourceFilePath: string;
+  semanticRecorder: SemanticRecorder;
+  semanticFailures: SemanticFailure[];
+  /** Scoped textual substitutions introduced by normalized expression plans. */
+  expressionRewrites: Map<string, string>;
+  /** Increment expressions to execute before a continue at each loop depth. */
+  continueSteps: Array<string | null>;
 };
+
+type SemanticFailure = {
+  featureId: SemanticFeatureId;
+  node: ts.Node;
+  message: string;
+  category: TranslationDiagnostic["semanticCategory"];
+};
+
+function recordSemantic(ctx: EmitContext, featureId: SemanticFeatureId, node: ts.Node): void {
+  ctx.semanticRecorder.record(featureId, ctx.sourceFilePath, ctx.sourceFile, node);
+}
+
+function rejectSemantic(
+  ctx: EmitContext,
+  featureId: SemanticFeatureId,
+  node: ts.Node,
+  message: string,
+  category: TranslationDiagnostic["semanticCategory"]
+): null {
+  recordSemantic(ctx, featureId, node);
+  ctx.semanticFailures.push({ featureId, node, message, category });
+  return null;
+}
+
+function expressionKey(ctx: EmitContext, expression: ts.Expression): string {
+  return expression.getText(ctx.sourceFile);
+}
+
+function withExpressionRewrite<T>(
+  ctx: EmitContext,
+  source: ts.Expression,
+  replacement: string,
+  emit: () => T
+): T {
+  const key = expressionKey(ctx, source);
+  const prior = ctx.expressionRewrites.get(key);
+  ctx.expressionRewrites.set(key, replacement);
+  try {
+    return emit();
+  } finally {
+    if (prior === undefined) ctx.expressionRewrites.delete(key);
+    else ctx.expressionRewrites.set(key, prior);
+  }
+}
 
 function nextTmp(ctx: EmitContext, prefix = "__ts2hx_tmp"): string {
   const n = ctx.tmpCounter;
@@ -621,6 +688,10 @@ function emitType(typeNode: ts.TypeNode | undefined): string {
       return "Bool";
     case ts.SyntaxKind.VoidKeyword:
       return "Void";
+    case ts.SyntaxKind.UndefinedKeyword:
+      return "genes.ts.Undefinable<Any>";
+    case ts.SyntaxKind.NullKeyword:
+      return "Null<Any>";
     case ts.SyntaxKind.AnyKeyword:
     case ts.SyntaxKind.UnknownKeyword:
       return "Dynamic";
@@ -671,11 +742,28 @@ function emitType(typeNode: ts.TypeNode | undefined): string {
     case ts.SyntaxKind.UnionType: {
       const un = typeNode as ts.UnionTypeNode;
 
-      // Support `T | null | undefined` as `Null<T>` best-effort.
+      function isNullType(item: ts.TypeNode): boolean {
+        return item.kind === ts.SyntaxKind.NullKeyword
+          || (ts.isLiteralTypeNode(item) && item.literal.kind === ts.SyntaxKind.NullKeyword);
+      }
+
+      function isUndefinedType(item: ts.TypeNode): boolean {
+        return item.kind === ts.SyntaxKind.UndefinedKeyword;
+      }
+
+      // Keep JavaScript undefined separate from Haxe null. Undefinable is a
+      // real target-polymorphic Haxe abstraction, so this remains valid in both
+      // genes-ts and classic Genes output instead of relying on a TS type string.
+      const hadNull = un.types.some(isNullType);
+      const hadUndefined = un.types.some(isUndefinedType);
       const nonNullable = un.types.filter(
-        (t) => t.kind !== ts.SyntaxKind.NullKeyword && t.kind !== ts.SyntaxKind.UndefinedKeyword
+        (t) => !isNullType(t) && !isUndefinedType(t)
       );
-      const hadNullable = nonNullable.length !== un.types.length;
+
+      function applyNullish(core: string): string {
+        const nullable = hadNull ? `Null<${core}>` : core;
+        return hadUndefined ? `genes.ts.Undefinable<${nullable}>` : nullable;
+      }
 
       // Simple literal unions.
       const stringLits: string[] = [];
@@ -696,13 +784,13 @@ function emitType(typeNode: ts.TypeNode | undefined): string {
         boolOnly = false;
       }
 
-      if (boolOnly && nonNullable.length > 0) return hadNullable ? "Null<Bool>" : "Bool";
-      if (stringLits.length === nonNullable.length && nonNullable.length > 0) return hadNullable ? "Null<String>" : "String";
-      if (numberLits.length === nonNullable.length && nonNullable.length > 0) return hadNullable ? "Null<Float>" : "Float";
+      if (boolOnly && nonNullable.length > 0) return applyNullish("Bool");
+      if (stringLits.length === nonNullable.length && nonNullable.length > 0) return applyNullish("String");
+      if (numberLits.length === nonNullable.length && nonNullable.length > 0) return applyNullish("Float");
 
       const emitted = nonNullable.map((t) => emitType(t));
       const core = eitherType(emitted);
-      return hadNullable ? `Null<${core}>` : core;
+      return applyNullish(core);
     }
     case ts.SyntaxKind.TypeLiteral: {
       const lit = typeNode as ts.TypeLiteralNode;
@@ -772,6 +860,99 @@ function emitRestElementType(typeNode: ts.TypeNode | undefined): string {
   return emitType(typeNode);
 }
 
+type EmittedParameterList = {
+  parameters: string[];
+  prelude: string[];
+  bodyRewrites: Map<string, string>;
+};
+
+function withIdentifierRewrites<T>(
+  ctx: EmitContext,
+  rewrites: Map<string, string>,
+  emit: () => T
+): T {
+  const prior = new Map<string, string | null>();
+  for (const [name, replacement] of rewrites) {
+    prior.set(name, ctx.identifierRewrites.get(name) ?? null);
+    ctx.identifierRewrites.set(name, replacement);
+  }
+  try {
+    return emit();
+  } finally {
+    for (const [name, replacement] of prior) {
+      if (replacement === null) ctx.identifierRewrites.delete(name);
+      else ctx.identifierRewrites.set(name, replacement);
+    }
+  }
+}
+
+/**
+ * Renders parameters from normalized absence/default plans.
+ *
+ * The semantic plan owns the important decision: TypeScript defaults test
+ * exact `undefined`. This renderer only spells that decision with the typed
+ * `Undefinable.isAbsent` boundary and handles binding-pattern setup.
+ */
+function emitParameters(
+  ctx: EmitContext,
+  sourceParameters: readonly ts.ParameterDeclaration[],
+  indent: string
+): EmittedParameterList | null {
+  const parameters: string[] = [];
+  const prelude: string[] = [];
+  const bodyRewrites = new Map<string, string>();
+
+  for (let index = 0; index < sourceParameters.length; index++) {
+    const plan = planParameter(sourceParameters[index] as ts.ParameterDeclaration, index);
+    const parameter = plan.parameter;
+    const baseParameterType = plan.isRest
+      ? `haxe.extern.Rest<${emitRestElementType(parameter.type)}>`
+      : emitType(parameter.type);
+    const parameterType = plan.defaultValue
+      ? `genes.ts.Undefinable<${baseParameterType}>`
+      : baseParameterType;
+    const namePrefix = plan.isOptional ? "?" : "";
+    const typeSuffix = parameter.type || plan.isRest ? `: ${parameterType}` : "";
+
+    if (plan.defaultValue) {
+      recordSemantic(ctx, "parameters.undefined-default", parameter);
+      const defaultValue = withIdentifierRewrites(
+        ctx,
+        bodyRewrites,
+        () => emitExpression(ctx, plan.defaultValue as ts.Expression)
+      );
+      if (!defaultValue) return null;
+      prelude.push(
+        `${indent}if (genes.ts.Undefinable.isAbsent(${plan.name})) ${plan.name} = ${defaultValue};`
+      );
+    }
+
+    if (!ts.isIdentifier(parameter.name)) {
+      const sourceTemp = nextTmp(ctx);
+      const sourceValue = plan.defaultValue ? `${plan.name}.assumePresent()` : plan.name;
+      prelude.push(`${indent}var ${sourceTemp} = ${sourceValue};`);
+      const destructured = emitDestructureFromBindingName({
+        ctx,
+        mode: "declare",
+        declareKeyword: "var",
+        name: parameter.name,
+        valueExpr: sourceTemp,
+        indent
+      });
+      if (!destructured) return null;
+      prelude.push(...destructured);
+    } else if (plan.defaultValue) {
+      const normalized = nextTmp(ctx, `__ts2hx_${plan.name}_value`);
+      prelude.push(`${indent}var ${normalized}: ${baseParameterType} = ${plan.name}.assumePresent();`);
+      bodyRewrites.set(plan.name, normalized);
+    }
+
+    parameters.push(`${namePrefix}${plan.name}${typeSuffix}`);
+  }
+
+  return { parameters, prelude, bodyRewrites };
+}
+
 function emitIife(bodyLines: string[]): string {
   return `(function() {\n${bodyLines.join("\n")}\n})()`;
 }
@@ -827,10 +1008,7 @@ function emitJsxProps(ctx: EmitContext, attrs: ts.JsxAttributes): string[] | nul
       } else if (ts.isJsxExpression(prop.initializer)) {
         const inner = prop.initializer.expression;
         if (!inner) continue; // `{/* comment */}` / empty expression
-        const previous = ctx.preserveUndefined;
-        ctx.preserveUndefined = true;
         valueExpr = emitExpression(ctx, inner);
-        ctx.preserveUndefined = previous;
         if (valueExpr && typeIncludesUndefined(ctx.checker.getTypeAtLocation(inner)))
           valueExpr = `genes.ts.Undefinable.fromNullable(${valueExpr})`;
       } else {
@@ -934,7 +1112,99 @@ function emitJsxRoot(ctx: EmitContext, expr: ts.JsxElement | ts.JsxSelfClosingEl
   return `genes.react.internal.Jsx.__jsx(${tag}, [${props.join(", ")}], [${children.join(", ")}])`;
 }
 
+type EmittedLValue = {
+  setup: string[];
+  read: string;
+  target: string;
+};
+
+/** Renders a validated lvalue while making receiver/key evaluation explicit. */
+function emitAssignmentTarget(ctx: EmitContext, expression: ts.Expression): EmittedLValue | null {
+  const plan = planAssignmentTarget(expression);
+  if (plan.kind === "identifier") {
+    return { setup: [], read: plan.identifier.text, target: plan.identifier.text };
+  }
+
+  if (plan.kind === "property") {
+    const receiver = emitExpression(ctx, plan.receiver);
+    if (!receiver) return null;
+    const receiverTemp = nextTmp(ctx, "__ts2hx_recv");
+    const target = `${receiverTemp}.${plan.property.text}`;
+    return { setup: [`  var ${receiverTemp} = ${receiver};`], read: target, target };
+  }
+
+  if (plan.kind === "element") {
+    const receiver = emitExpression(ctx, plan.receiver);
+    const key = emitExpression(ctx, plan.key);
+    if (!receiver || !key) return null;
+    const receiverTemp = nextTmp(ctx, "__ts2hx_recv");
+    const keyTemp = nextTmp(ctx, "__ts2hx_key");
+    const target = `${receiverTemp}[${keyTemp}]`;
+    return {
+      setup: [`  var ${receiverTemp} = ${receiver};`, `  var ${keyTemp} = ${key};`],
+      read: target,
+      target
+    };
+  }
+
+  return null;
+}
+
+function emitCompoundAssignment(
+  ctx: EmitContext,
+  expression: ts.BinaryExpression,
+  operatorText: string
+): string | null {
+  const lvalue = emitAssignmentTarget(ctx, expression.left);
+  if (!lvalue) return null;
+  const right = emitExpression(ctx, expression.right);
+  if (!right) return null;
+  recordSemantic(ctx, "evaluation.compound-assignment", expression);
+
+  const oldValue = nextTmp(ctx, "__ts2hx_old");
+  const rightValue = nextTmp(ctx, "__ts2hx_rhs");
+  return emitIife([
+    ...lvalue.setup,
+    `  var ${oldValue} = ${lvalue.read};`,
+    `  var ${rightValue} = ${right};`,
+    `  return ${lvalue.target} = (${oldValue} ${operatorText} ${rightValue});`
+  ]);
+}
+
+function emitLogicalAssignment(ctx: EmitContext, expression: ts.BinaryExpression): string | null {
+  const lvalue = emitAssignmentTarget(ctx, expression.left);
+  if (!lvalue) return null;
+  const right = emitExpression(ctx, expression.right);
+  if (!right) return null;
+  recordSemantic(ctx, "evaluation.compound-assignment", expression);
+
+  const current = nextTmp(ctx, "__ts2hx_current");
+  let condition: string;
+  if (expression.operatorToken.kind === ts.SyntaxKind.QuestionQuestionEqualsToken) {
+    condition = `${current} == null`;
+  } else {
+    recordSemantic(ctx, "coercion.truthiness", expression.left);
+    const truthy = `genes.js.Truthiness.isTruthy(${current})`;
+    condition = expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandEqualsToken
+      ? truthy
+      : `!(${truthy})`;
+  }
+
+  return emitIife([
+    ...lvalue.setup,
+    `  var ${current} = ${lvalue.read};`,
+    `  if (${condition}) {`,
+    `    ${current} = ${right};`,
+    `    ${lvalue.target} = ${current};`,
+    "  }",
+    `  return ${current};`
+  ]);
+}
+
 function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
+  const normalizedRewrite = ctx.expressionRewrites.get(expressionKey(ctx, expr));
+  if (normalizedRewrite !== undefined) return normalizedRewrite;
+
   switch (expr.kind) {
     case ts.SyntaxKind.NumericLiteral:
       return (expr as ts.NumericLiteral).text;
@@ -961,7 +1231,10 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
       return "null";
     case ts.SyntaxKind.Identifier: {
       const name = (expr as ts.Identifier).text;
-      if (name === "undefined") return ctx.preserveUndefined ? "genes.ts.Undefinable.absent()" : "null";
+      if (name === "undefined") {
+        recordSemantic(ctx, "values.explicit-undefined", expr);
+        return "genes.ts.Undefinable.absent()";
+      }
       if (name === "Promise") return "js.lib.Promise";
       return ctx.identifierRewrites.get(name) ?? name;
     }
@@ -970,6 +1243,7 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
     case ts.SyntaxKind.JsxFragment:
       return emitJsxRoot(ctx, expr as unknown as ts.JsxElement | ts.JsxSelfClosingElement | ts.JsxFragment);
     case ts.SyntaxKind.ThisKeyword:
+      recordSemantic(ctx, "this.class-and-lexical-arrow", expr);
       return "this";
     case ts.SyntaxKind.ParenthesizedExpression: {
       const inner = emitExpression(ctx, (expr as ts.ParenthesizedExpression).expression);
@@ -1002,54 +1276,29 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
     case ts.SyntaxKind.ArrowFunction: {
       const fn = expr as ts.ArrowFunction;
       const isAsync = fn.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword) ?? false;
-      const prelude: string[] = [];
-      const params = fn.parameters.map((p, index) => {
-        const isRest = !!p.dotDotDotToken;
-        const hasDefault = !!p.initializer;
-        const isOptional = !!p.questionToken || hasDefault;
-
-        const paramType = isRest ? `haxe.extern.Rest<${emitRestElementType(p.type)}>` : emitType(p.type);
-
-        const paramName = ts.isIdentifier(p.name) ? p.name.text : `_p${index}`;
-        const namePrefix = isOptional ? "?" : "";
-        const typeSuffix = p.type || isRest ? `: ${paramType}` : "";
-
-        if (hasDefault) {
-          const def = emitExpression(ctx, p.initializer as ts.Expression);
-          if (!def) return null;
-          prelude.push(`  if (${paramName} == null) ${paramName} = ${def};`);
-        }
-
-        if (!ts.isIdentifier(p.name)) {
-          const srcTmp = nextTmp(ctx);
-          prelude.push(`  var ${srcTmp} = ${paramName};`);
-          const destructured = emitDestructureFromBindingName({
-            ctx,
-            mode: "declare",
-            declareKeyword: "var",
-            name: p.name,
-            valueExpr: srcTmp,
-            indent: "  "
-          });
-          if (!destructured) return null;
-          prelude.push(...destructured);
-        }
-
-        return `${namePrefix}${paramName}${typeSuffix}`;
-      });
-      if (params.some((p) => p == null)) return null;
+      if (isAsync) recordSemantic(ctx, "async.await", fn);
+      const emittedParameters = emitParameters(ctx, fn.parameters, "  ");
+      if (!emittedParameters) return null;
+      const params = emittedParameters.parameters;
+      const prelude = emittedParameters.prelude;
+      const bodyRewrites = emittedParameters.bodyRewrites;
 
       const asyncPrefix = isAsync ? "@:async " : "";
       const asyncReturnTypeSuffix = isAsync ? `: ${emitType(fn.type)}` : "";
+      const fnBody = fn.body;
 
-      if (ts.isBlock(fn.body)) {
-        const body = emitStatements(ctx, fn.body.statements, "  ");
+      if (ts.isBlock(fnBody)) {
+        const body = withIdentifierRewrites(
+          ctx,
+          bodyRewrites,
+          () => emitStatements(ctx, fnBody.statements, "  ")
+        );
         if (body == null) return null;
         const merged = prelude.length > 0 ? (body.length > 0 ? `${prelude.join("\n")}\n${body}` : prelude.join("\n")) : body;
         return `${asyncPrefix}function(${params.join(", ")})${asyncReturnTypeSuffix} {\n${merged}\n}`;
       }
 
-      const bodyExpr = emitExpression(ctx, fn.body);
+      const bodyExpr = withIdentifierRewrites(ctx, bodyRewrites, () => emitExpression(ctx, fnBody));
       if (!bodyExpr) return null;
       if (!isAsync && prelude.length === 0) return `function(${params.join(", ")}) return ${bodyExpr}`;
       if (isAsync) {
@@ -1195,6 +1444,26 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
       const bin = expr as ts.BinaryExpression;
       const op = bin.operatorToken.kind;
 
+      if (
+        isPrototypeMutationTarget(bin.left)
+        && (op === ts.SyntaxKind.EqualsToken
+          || op === ts.SyntaxKind.PlusEqualsToken
+          || op === ts.SyntaxKind.MinusEqualsToken
+          || op === ts.SyntaxKind.AsteriskEqualsToken
+          || op === ts.SyntaxKind.SlashEqualsToken
+          || op === ts.SyntaxKind.QuestionQuestionEqualsToken
+          || op === ts.SyntaxKind.AmpersandAmpersandEqualsToken
+          || op === ts.SyntaxKind.BarBarEqualsToken)
+      ) {
+        return rejectSemantic(
+          ctx,
+          "prototypes.dynamic-mutation",
+          bin,
+          "Dynamic prototype mutation is not representable as strict typed Haxe.",
+          "expression"
+        );
+      }
+
       // Preserve the common host-capability guard without embedding raw
       // `typeof` syntax in generated Haxe modules.
       const callableOperand =
@@ -1212,10 +1481,30 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
       ) {
         const value = emitExpression(ctx, callableOperand);
         if (!value) return null;
+        if (op === ts.SyntaxKind.EqualsEqualsEqualsToken || op === ts.SyntaxKind.ExclamationEqualsEqualsToken)
+          recordSemantic(ctx, "coercion.strict-equality", bin);
         const check = `genes.js.TypeChecks.isFunction(${value})`;
         return op === ts.SyntaxKind.ExclamationEqualsToken || op === ts.SyntaxKind.ExclamationEqualsEqualsToken
           ? `!(${check})`
           : check;
+      }
+
+      const exactUndefinedOperand =
+        ts.isIdentifier(bin.right) && bin.right.text === "undefined"
+          ? { value: bin.left, undefinedNode: bin.right }
+          : ts.isIdentifier(bin.left) && bin.left.text === "undefined"
+            ? { value: bin.right, undefinedNode: bin.left }
+            : null;
+      if (
+        exactUndefinedOperand
+        && (op === ts.SyntaxKind.EqualsEqualsEqualsToken || op === ts.SyntaxKind.ExclamationEqualsEqualsToken)
+      ) {
+        const value = emitExpression(ctx, exactUndefinedOperand.value);
+        if (!value) return null;
+        recordSemantic(ctx, "values.explicit-undefined", exactUndefinedOperand.undefinedNode);
+        recordSemantic(ctx, "coercion.strict-equality", bin);
+        const check = `genes.ts.Undefinable.isAbsent(${value})`;
+        return op === ts.SyntaxKind.ExclamationEqualsEqualsToken ? `!(${check})` : check;
       }
 
       if (
@@ -1223,20 +1512,7 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
         op === ts.SyntaxKind.AmpersandAmpersandEqualsToken ||
         op === ts.SyntaxKind.BarBarEqualsToken
       ) {
-        if (!ts.isIdentifier(bin.left)) return null;
-        const name = bin.left.text;
-        const rhs = emitExpression(ctx, bin.right);
-        if (!rhs) return null;
-
-        if (op === ts.SyntaxKind.QuestionQuestionEqualsToken) {
-          return emitIife([`  if (${name} == null) ${name} = ${rhs};`, `  return ${name};`]);
-        }
-
-        // JS truthiness is not representable in plain Haxe typing, so lower through JS boolean coercion.
-        // Note: this intentionally targets the JS backend (ts2hx is JS-centric for now).
-        const isTruthy = `js.Syntax.code(\"!!{0}\", ${name})`;
-        const cond = op === ts.SyntaxKind.AmpersandAmpersandEqualsToken ? isTruthy : `!(${isTruthy})`;
-        return emitIife([`  if (${cond}) ${name} = ${rhs};`, `  return ${name};`]);
+        return emitLogicalAssignment(ctx, bin);
       }
 
       // Destructuring assignment: `({a, b} = obj)` / `([a, b] = arr)`.
@@ -1252,9 +1528,20 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
           const assigns = emitDestructureAssignmentFromExpression({ ctx, pattern, valueExpr: tmp, indent: "  " });
           if (!assigns) return null;
           body.push(...assigns);
-          body.push(`  return null;`);
+          body.push(`  return ${tmp};`);
+          recordSemantic(ctx, "evaluation.compound-assignment", bin);
           return `(function() {\n${body.join("\n")}\n})()`;
         }
+      }
+
+      if (
+        op === ts.SyntaxKind.PlusEqualsToken ||
+        op === ts.SyntaxKind.MinusEqualsToken ||
+        op === ts.SyntaxKind.AsteriskEqualsToken ||
+        op === ts.SyntaxKind.SlashEqualsToken
+      ) {
+        const operatorText = ts.tokenToString(op)?.replace("=", "") ?? "+";
+        return emitCompoundAssignment(ctx, bin, operatorText);
       }
 
       const left = emitExpression(ctx, bin.left);
@@ -1263,19 +1550,18 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
       if (op === ts.SyntaxKind.EqualsToken) {
         return `${left} = ${right}`;
       }
-      if (
-        op === ts.SyntaxKind.PlusEqualsToken ||
-        op === ts.SyntaxKind.MinusEqualsToken ||
-        op === ts.SyntaxKind.AsteriskEqualsToken ||
-        op === ts.SyntaxKind.SlashEqualsToken
-      ) {
-        const opText = ts.tokenToString(op)?.replace("=", "") ?? "+";
-        return `(${left} = (${left} ${opText} ${right}))`;
+      if (op === ts.SyntaxKind.EqualsEqualsEqualsToken) {
+        recordSemantic(ctx, "coercion.strict-equality", bin);
+        return `genes.js.Equality.strict(${left}, ${right})`;
       }
-      if (op === ts.SyntaxKind.EqualsEqualsToken || op === ts.SyntaxKind.EqualsEqualsEqualsToken) {
+      if (op === ts.SyntaxKind.EqualsEqualsToken) {
         return `(${left} == ${right})`;
       }
-      if (op === ts.SyntaxKind.ExclamationEqualsToken || op === ts.SyntaxKind.ExclamationEqualsEqualsToken) {
+      if (op === ts.SyntaxKind.ExclamationEqualsEqualsToken) {
+        recordSemantic(ctx, "coercion.strict-equality", bin);
+        return `!(genes.js.Equality.strict(${left}, ${right}))`;
+      }
+      if (op === ts.SyntaxKind.ExclamationEqualsToken) {
         return `(${left} != ${right})`;
       }
       if (
@@ -1297,11 +1583,12 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
         return `(${left} ${opText} ${right})`;
       }
       if (op === ts.SyntaxKind.AmpersandAmpersandToken) {
+        recordSemantic(ctx, "coercion.truthiness", bin.left);
         return `(genes.js.Truthiness.isTruthy(${left}) ? ${right} : ${left})`;
       }
       if (op === ts.SyntaxKind.BarBarToken) {
+        recordSemantic(ctx, "coercion.truthiness", bin.left);
         if (
-          ctx.preserveUndefined &&
           ts.isIdentifier(bin.right) &&
           bin.right.text === "undefined"
         ) {
@@ -1316,21 +1603,34 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
     }
     case ts.SyntaxKind.PrefixUnaryExpression: {
       const un = expr as ts.PrefixUnaryExpression;
-      const inner = emitExpression(ctx, un.operand);
-      if (!inner) return null;
       switch (un.operator) {
-        case ts.SyntaxKind.ExclamationToken:
-          return `!(${inner})`;
+        case ts.SyntaxKind.ExclamationToken: {
+          const condition = emitCondition(ctx, un.operand);
+          return condition ? `!(${condition})` : null;
+        }
         case ts.SyntaxKind.PlusToken:
-          // Haxe has no unary plus operator; best-effort: preserve the operand.
-          // (JS numeric coercion is intentionally not modeled here yet.)
-          return `(${inner})`;
-        case ts.SyntaxKind.MinusToken:
+          return rejectSemantic(
+            ctx,
+            "coercion.unary-plus",
+            un,
+            "Unary plus performs JavaScript numeric coercion and is not supported losslessly.",
+            "expression"
+          );
+        case ts.SyntaxKind.MinusToken: {
+          const inner = emitExpression(ctx, un.operand);
+          if (!inner) return null;
           return `-(${inner})`;
-        case ts.SyntaxKind.PlusPlusToken:
+        }
+        case ts.SyntaxKind.PlusPlusToken: {
+          const inner = emitExpression(ctx, un.operand);
+          if (!inner) return null;
           return `++${inner}`;
-        case ts.SyntaxKind.MinusMinusToken:
+        }
+        case ts.SyntaxKind.MinusMinusToken: {
+          const inner = emitExpression(ctx, un.operand);
+          if (!inner) return null;
           return `--${inner}`;
+        }
         default:
           return null;
       }
@@ -1358,19 +1658,39 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
       const aw = expr as ts.AwaitExpression;
       const inner = emitExpression(ctx, aw.expression);
       if (!inner) return null;
+      recordSemantic(ctx, "async.await", aw);
       // Use the genes-ts async/await sugar macro. This keeps output close to TS,
       // while remaining valid Haxe-for-JS (macro expands to native `await`).
       return `genes.js.Async.await(${inner})`;
     }
     case ts.SyntaxKind.ConditionalExpression: {
       const cond = expr as ts.ConditionalExpression;
+      const conditionPlan = planCondition(ctx.checker, cond.condition);
+      if (conditionPlan.coercion === "nullish-object") {
+        const conditionValue = emitExpression(ctx, cond.condition);
+        if (!conditionValue) return null;
+        recordSemantic(ctx, "coercion.truthiness", cond.condition);
+        const conditionTemp = nextTmp(ctx, "__ts2hx_condition");
+        const whenTrue = withExpressionRewrite(
+          ctx,
+          cond.condition,
+          `genes.ts.Present.require(${conditionTemp})`,
+          () => emitExpression(ctx, cond.whenTrue)
+        );
+        const whenFalse = emitExpression(ctx, cond.whenFalse);
+        if (!whenTrue || !whenFalse) return null;
+        return emitIife([
+          `  var ${conditionTemp} = ${conditionValue};`,
+          `  return (${conditionTemp} != null ? ${whenTrue} : ${whenFalse});`
+        ]);
+      }
       const test = emitCondition(ctx, cond.condition);
       const whenTrue = emitExpression(ctx, cond.whenTrue);
       const whenFalse = emitExpression(ctx, cond.whenFalse);
       if (!test || !whenTrue || !whenFalse) return null;
-      if (ctx.preserveUndefined && ts.isIdentifier(cond.whenFalse) && cond.whenFalse.text === "undefined")
+      if (ts.isIdentifier(cond.whenFalse) && cond.whenFalse.text === "undefined")
         return `(${test} ? genes.ts.Undefinable.fromNullable(${whenTrue}) : ${whenFalse})`;
-      if (ctx.preserveUndefined && ts.isIdentifier(cond.whenTrue) && cond.whenTrue.text === "undefined")
+      if (ts.isIdentifier(cond.whenTrue) && cond.whenTrue.text === "undefined")
         return `(${test} ? ${whenTrue} : genes.ts.Undefinable.fromNullable(${whenFalse}))`;
       return `(${test} ? ${whenTrue} : ${whenFalse})`;
     }
@@ -1545,11 +1865,28 @@ function emitStatements(ctx: EmitContext, statements: readonly ts.Statement[], i
  * syntax through generated Haxe modules.
  */
 function emitCondition(ctx: EmitContext, expr: ts.Expression): string | null {
-  const emitted = emitExpression(ctx, expr);
+  const plan = planCondition(ctx.checker, expr);
+  const emitted = emitExpression(ctx, plan.expression);
   if (!emitted) return null;
-  const flags = ctx.checker.getTypeAtLocation(expr).getFlags();
-  const isBoolean = (flags & (ts.TypeFlags.Boolean | ts.TypeFlags.BooleanLiteral)) !== 0;
-  return isBoolean ? emitted : `genes.js.Truthiness.isTruthy(${emitted})`;
+  if (plan.coercion === "boolean") return emitted;
+  recordSemantic(ctx, "coercion.truthiness", expr);
+  if (plan.coercion === "nullish-object") return `(${emitted} != null)`;
+  return `genes.js.Truthiness.isTruthy(${emitted})`;
+}
+
+function emitDirectTryCatch(ctx: EmitContext, stmt: ts.TryStatement, indent: string): string | null {
+  if (!stmt.catchClause) return null;
+  const tryBlock = emitStatement(ctx, stmt.tryBlock, indent);
+  if (tryBlock == null) return null;
+  const catchName =
+    stmt.catchClause.variableDeclaration && ts.isIdentifier(stmt.catchClause.variableDeclaration.name)
+      ? stmt.catchClause.variableDeclaration.name.text
+      : "e";
+  const catchBody = emitStatement(ctx, stmt.catchClause.block, indent);
+  if (catchBody == null) return null;
+  const tryBlockNoIndent = tryBlock.startsWith(indent) ? tryBlock.slice(indent.length) : tryBlock;
+  const catchBodyNoIndent = catchBody.startsWith(indent) ? catchBody.slice(indent.length) : catchBody;
+  return `${indent}try ${tryBlockNoIndent} catch (${catchName}: Any) ${catchBodyNoIndent}`;
 }
 
 function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): string | null {
@@ -1581,39 +1918,35 @@ function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): st
         const name = decl.name.text;
         const typeSuffix = decl.type ? `: ${emitType(decl.type)}` : "";
 
-        if (decl.initializer) {
-          const init = emitExpression(ctx, decl.initializer);
+        const plan = planLocalDeclaration(decl);
+        if (plan.kind === "initialized") {
+          const init = emitExpression(ctx, plan.initializer);
           if (!init) return null;
           decls.push(`${indent}${keyword} ${name}${typeSuffix} = ${init};`);
           continue;
         }
 
-        // TS allows `let x;` (no initializer). Prefer a best-effort default initializer so downstream
-        // statement emission can compile without needing a full definite-assignment analysis.
-        let defaultInit: string | null = null;
-        if (decl.type) {
-          switch (decl.type.kind) {
-            case ts.SyntaxKind.NumberKeyword:
-              defaultInit = "0";
-              break;
-            case ts.SyntaxKind.StringKeyword:
-              defaultInit = JSON.stringify("");
-              break;
-            case ts.SyntaxKind.BooleanKeyword:
-              defaultInit = "false";
-              break;
-            case ts.SyntaxKind.ArrayType:
-              defaultInit = "[]";
-              break;
-            default:
-              defaultInit = "cast null";
-              break;
-          }
-        } else {
-          defaultInit = "null";
+        if (plan.kind === "unsupported-inferred-uninitialized") {
+          return rejectSemantic(
+            ctx,
+            "locals.uninitialized",
+            decl,
+            "An uninitialized local needs an explicit source type; ts2hx will not invent a Dynamic/default value.",
+            "declaration"
+          );
         }
 
-        decls.push(`${indent}${keyword} ${name}${typeSuffix} = ${defaultInit};`);
+        recordSemantic(ctx, "locals.uninitialized", decl);
+        // Haxe and JavaScript both support a declaration without an initializer.
+        // If the declared source type explicitly admits undefined, initialize
+        // with the real host value so Haxe's own definite-assignment check does
+        // not force a fabricated number/string/null. Otherwise leave the local
+        // uninitialized and retain the source checker's assignment proof.
+        const emittedType = emitType(plan.explicitType);
+        const initializer = emittedType.startsWith("genes.ts.Undefinable<")
+          ? " = genes.ts.Undefinable.absent()"
+          : "";
+        decls.push(`${indent}${keyword} ${name}: ${emittedType}${initializer};`);
         continue;
       }
 
@@ -1653,11 +1986,16 @@ function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): st
   }
 
   if (ts.isBreakStatement(stmt)) {
+    if (stmt.label) return null;
     return `${indent}break;`;
   }
 
   if (ts.isContinueStatement(stmt)) {
-    return `${indent}continue;`;
+    if (stmt.label) return null;
+    const continueStep = ctx.continueSteps[ctx.continueSteps.length - 1] ?? null;
+    return continueStep
+      ? `${indent}${continueStep};\n${indent}continue;`
+      : `${indent}continue;`;
   }
 
   if (ts.isThrowStatement(stmt)) {
@@ -1667,126 +2005,146 @@ function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): st
   }
 
   if (ts.isTryStatement(stmt)) {
-    const tryBlock = emitStatement(ctx, stmt.tryBlock, indent);
-    if (tryBlock == null) return null;
-    if (!stmt.catchClause) return null;
-    const catchName =
-      stmt.catchClause.variableDeclaration && ts.isIdentifier(stmt.catchClause.variableDeclaration.name)
-        ? stmt.catchClause.variableDeclaration.name.text
-        : "e";
-    const catchBody = emitStatement(ctx, stmt.catchClause.block, indent);
-    if (catchBody == null) return null;
+    const plan = planTry(stmt);
+    if (plan.strategy === "unsupported-outer-transfer") {
+      return rejectSemantic(
+        ctx,
+        "exceptions.finally-outer-transfer",
+        stmt,
+        "A return, break, or continue crossing finally requires completion-record lowering.",
+        "control-flow"
+      );
+    }
 
-    const tryBlockNoIndent = tryBlock.startsWith(indent) ? tryBlock.slice(indent.length) : tryBlock;
-    const catchBodyNoIndent = catchBody.startsWith(indent) ? catchBody.slice(indent.length) : catchBody;
-    return `${indent}try ${tryBlockNoIndent} catch (${catchName}: Dynamic) ${catchBodyNoIndent}`;
+    if (plan.strategy === "direct-catch") {
+      recordSemantic(ctx, "exceptions.try-catch", stmt);
+      return emitDirectTryCatch(ctx, stmt, indent);
+    }
+
+    recordSemantic(ctx, "exceptions.finally", stmt);
+    if (stmt.catchClause) recordSemantic(ctx, "exceptions.try-catch", stmt.catchClause);
+    const bodyIndent = indent + "    ";
+    let protectedBody: string | null;
+    if (stmt.catchClause) {
+      protectedBody = emitDirectTryCatch(ctx, stmt, bodyIndent);
+    } else {
+      protectedBody = emitStatements(ctx, stmt.tryBlock.statements, bodyIndent);
+    }
+    if (protectedBody == null || !stmt.finallyBlock) return null;
+    const finalizerBody = emitStatements(ctx, stmt.finallyBlock.statements, bodyIndent);
+    if (finalizerBody == null) return null;
+    return [
+      `${indent}genes.js.TryFinally.run(`,
+      `${indent}  function() {`,
+      protectedBody,
+      `${indent}  },`,
+      `${indent}  function() {`,
+      finalizerBody,
+      `${indent}  }`,
+      `${indent});`
+    ].filter((line) => line.length > 0).join("\n");
   }
 
   if (ts.isWhileStatement(stmt)) {
-    const cond = emitExpression(ctx, stmt.expression);
+    const cond = emitCondition(ctx, stmt.expression);
     if (!cond) return null;
+    ctx.continueSteps.push(null);
     const bodyPart = emitStatement(ctx, stmt.statement, ts.isBlock(stmt.statement) ? indent : indent + "  ");
+    ctx.continueSteps.pop();
     if (bodyPart == null) return null;
     const bodyBlock = ts.isBlock(stmt.statement) ? bodyPart : `${indent}{\n${bodyPart}\n${indent}}`;
     return `${indent}while (${cond}) ${bodyBlock}`;
   }
 
   if (ts.isDoStatement(stmt)) {
-    const cond = emitExpression(ctx, stmt.expression);
+    const cond = emitCondition(ctx, stmt.expression);
     if (!cond) return null;
+    ctx.continueSteps.push(null);
     const bodyPart = emitStatement(ctx, stmt.statement, ts.isBlock(stmt.statement) ? indent : indent + "  ");
+    ctx.continueSteps.pop();
     if (bodyPart == null) return null;
     const bodyBlock = ts.isBlock(stmt.statement) ? bodyPart : `${indent}{\n${bodyPart}\n${indent}}`;
     return `${indent}do ${bodyBlock} while (${cond});`;
   }
 
   if (ts.isSwitchStatement(stmt)) {
-    const expr = emitExpression(ctx, stmt.expression);
-    if (!expr) return null;
-
-    const lines: string[] = [];
-    lines.push(`${indent}switch (${expr}) {`);
-
-    const pendingLabels: string[] = [];
-    function flushCase(labels: string[], statements: readonly ts.Statement[]): boolean {
-      if (labels.length === 0) return true;
-      const caseLabel = labels.join(", ");
-      const trimmed =
-        statements.length > 0 && ts.isBreakStatement(statements[statements.length - 1] as ts.Statement)
-          ? statements.slice(0, -1)
-          : statements;
-      const body = emitStatements(ctx, trimmed, indent + "    ");
-      if (body == null) return false;
-      lines.push(`${indent}  case ${caseLabel}:`);
-      if (body.length === 0) lines.push(`${indent}    {}`);
-      else lines.push(`${indent}    {\n${body}\n${indent}    }`);
-      return true;
+    const plan = planSwitch(stmt);
+    if (plan.hasContinue) {
+      return rejectSemantic(
+        ctx,
+        "switch.continue",
+        stmt,
+        "Continue from inside a switch cannot yet target its enclosing loop losslessly.",
+        "control-flow"
+      );
     }
 
-    let defaultStatements: readonly ts.Statement[] | null = null;
+    const discriminant = emitExpression(ctx, plan.discriminant);
+    if (!discriminant) return null;
+    recordSemantic(ctx, "switch.fallthrough", stmt);
+    recordSemantic(ctx, "coercion.strict-equality", stmt);
+    const valueTemp = nextTmp(ctx, "__ts2hx_switch_value");
+    const stateTemp = nextTmp(ctx, "__ts2hx_switch_state");
+    const lines: string[] = [
+      `${indent}{`,
+      `${indent}  var ${valueTemp} = ${discriminant};`,
+      `${indent}  var ${stateTemp} = -1;`
+    ];
 
-    for (const clause of stmt.caseBlock.clauses) {
-      if (ts.isCaseClause(clause)) {
-        const label = emitExpression(ctx, clause.expression);
-        if (!label) return null;
-        pendingLabels.push(label);
-        if (clause.statements.length === 0) continue;
-        if (!flushCase(pendingLabels.splice(0, pendingLabels.length), clause.statements)) return null;
-        continue;
-      }
-
-      // default
-      if (pendingLabels.length > 0) {
-        // A fallthrough chain into default is not representable in Haxe switch without rewriting.
-        // Flush as an empty case block so compilation can continue (best-effort semantics).
-        if (!flushCase(pendingLabels.splice(0, pendingLabels.length), [])) return null;
-      }
-      defaultStatements = clause.statements;
+    // JavaScript evaluates case expressions in source order and stops after
+    // the first match. Default is selected only after every case misses.
+    for (const clause of plan.clauses) {
+      if (!clause.label) continue;
+      const label = emitExpression(ctx, clause.label);
+      if (!label) return null;
+      lines.push(
+        `${indent}  if (${stateTemp} == -1 && genes.js.Equality.strict(${valueTemp}, ${label})) ${stateTemp} = ${clause.index};`
+      );
     }
+    if (plan.defaultIndex !== null)
+      lines.push(`${indent}  if (${stateTemp} == -1) ${stateTemp} = ${plan.defaultIndex};`);
 
-    if (pendingLabels.length > 0 && !flushCase(pendingLabels.splice(0, pendingLabels.length), [])) return null;
-
-    if (defaultStatements) {
-      const trimmed =
-        defaultStatements.length > 0 && ts.isBreakStatement(defaultStatements[defaultStatements.length - 1] as ts.Statement)
-          ? defaultStatements.slice(0, -1)
-          : defaultStatements;
-      const body = emitStatements(ctx, trimmed, indent + "    ");
+    lines.push(`${indent}  if (${stateTemp} >= 0) do {`);
+    for (const clause of plan.clauses) {
+      const body = emitStatements(ctx, clause.statements, indent + "      ");
       if (body == null) return null;
-      lines.push(`${indent}  default:`);
-      if (body.length === 0) lines.push(`${indent}    {}`);
-      else lines.push(`${indent}    {\n${body}\n${indent}    }`);
+      lines.push(`${indent}    if (${stateTemp} <= ${clause.index}) {`);
+      if (body.length > 0) lines.push(body);
+      lines.push(`${indent}    }`);
     }
-
+    lines.push(`${indent}  } while (false);`);
     lines.push(`${indent}}`);
     return lines.join("\n");
   }
 
   if (ts.isForStatement(stmt)) {
-    // Best-effort translation to a `while` loop.
-    if (!stmt.initializer || !stmt.condition || !stmt.incrementor) return null;
+    const plan = planForLoop(stmt);
+    if (!plan) return null;
+    recordSemantic(ctx, "loops.for-continue-step", stmt);
 
     const initLines: string[] = [];
-    if (ts.isVariableDeclarationList(stmt.initializer)) {
-      for (const decl of stmt.initializer.declarations) {
+    if (ts.isVariableDeclarationList(plan.initializer)) {
+      for (const decl of plan.initializer.declarations) {
         if (!ts.isIdentifier(decl.name)) return null;
         const init = decl.initializer ? emitExpression(ctx, decl.initializer) : null;
         if (!init) return null;
         initLines.push(`${indent}  var ${decl.name.text} = ${init};`);
       }
     } else {
-      const init = emitExpression(ctx, stmt.initializer);
+      const init = emitExpression(ctx, plan.initializer);
       if (!init) return null;
       initLines.push(`${indent}  ${init};`);
     }
 
-    const cond = emitExpression(ctx, stmt.condition);
-    const inc = emitExpression(ctx, stmt.incrementor);
+    const cond = emitCondition(ctx, plan.condition);
+    const inc = emitExpression(ctx, plan.continueStep);
     if (!cond || !inc) return null;
 
+    ctx.continueSteps.push(inc);
     const bodyInner = ts.isBlock(stmt.statement)
       ? emitStatements(ctx, stmt.statement.statements, indent + "    ")
       : emitStatement(ctx, stmt.statement, indent + "    ");
+    ctx.continueSteps.pop();
     if (bodyInner == null) return null;
 
     const whileBody =
@@ -1806,7 +2164,9 @@ function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): st
     const iter = emitExpression(ctx, stmt.expression);
     if (!iter) return null;
 
+    ctx.continueSteps.push(null);
     const bodyPart = emitStatement(ctx, stmt.statement, ts.isBlock(stmt.statement) ? indent : indent + "  ");
+    ctx.continueSteps.pop();
     if (bodyPart == null) return null;
     const bodyBlock = ts.isBlock(stmt.statement) ? bodyPart : `${indent}{\n${bodyPart}\n${indent}}`;
     return `${indent}for (${name} in ${iter}) ${bodyBlock}`;
@@ -1824,50 +2184,20 @@ function emitFunctionLike(opts: {
   omitReturnType?: boolean;
   ctx: EmitContext;
 }): string | null {
-  const prelude: string[] = [];
-  const params: string[] = [];
-
-  for (let index = 0; index < opts.parameters.length; index++) {
-    const p = opts.parameters[index] as ts.ParameterDeclaration;
-    const isRest = !!p.dotDotDotToken;
-    const hasDefault = !!p.initializer;
-    const isOptional = !!p.questionToken || hasDefault;
-
-    const paramType = isRest ? `haxe.extern.Rest<${emitRestElementType(p.type)}>` : emitType(p.type);
-
-    const paramName = ts.isIdentifier(p.name) ? p.name.text : `_p${index}`;
-    const namePrefix = isOptional ? "?" : "";
-    const typeSuffix = p.type || isRest ? `: ${paramType}` : "";
-
-    if (hasDefault) {
-      const def = emitExpression(opts.ctx, p.initializer as ts.Expression);
-      if (!def) return null;
-      prelude.push(`  if (${paramName} == null) ${paramName} = ${def};`);
-    }
-
-    if (!ts.isIdentifier(p.name)) {
-      const srcTmp = nextTmp(opts.ctx);
-      prelude.push(`  var ${srcTmp} = ${paramName};`);
-      const destructured = emitDestructureFromBindingName({
-        ctx: opts.ctx,
-        mode: "declare",
-        declareKeyword: "var",
-        name: p.name,
-        valueExpr: srcTmp,
-        indent: "  "
-      });
-      if (!destructured) return null;
-      prelude.push(...destructured);
-    }
-
-    params.push(`${namePrefix}${paramName}${typeSuffix}`);
-  }
+  const emittedParameters = emitParameters(opts.ctx, opts.parameters, "  ");
+  if (!emittedParameters) return null;
+  const params = emittedParameters.parameters;
+  const prelude = emittedParameters.prelude;
 
   const returnType = emitType(opts.returnType);
   const returnTypeSuffix = opts.omitReturnType ? "" : `: ${returnType}`;
 
   if (!opts.body) return null;
-  const emittedBody = emitStatements(opts.ctx, opts.body.statements, "  ");
+  const emittedBody = withIdentifierRewrites(
+    opts.ctx,
+    emittedParameters.bodyRewrites,
+    () => emitStatements(opts.ctx, opts.body?.statements ?? [], "  ")
+  );
   if (emittedBody == null) return null;
   let body = emittedBody.length > 0 ? emittedBody : "";
   if (prelude.length > 0) body = body.length > 0 ? `${prelude.join("\n")}\n${body}` : prelude.join("\n");
@@ -1882,50 +2212,20 @@ function emitAnonFunctionLike(opts: {
   omitReturnType?: boolean;
   ctx: EmitContext;
 }): string | null {
-  const prelude: string[] = [];
-  const params: string[] = [];
-
-  for (let index = 0; index < opts.parameters.length; index++) {
-    const p = opts.parameters[index] as ts.ParameterDeclaration;
-    const isRest = !!p.dotDotDotToken;
-    const hasDefault = !!p.initializer;
-    const isOptional = !!p.questionToken || hasDefault;
-
-    const paramType = isRest ? `haxe.extern.Rest<${emitRestElementType(p.type)}>` : emitType(p.type);
-
-    const paramName = ts.isIdentifier(p.name) ? p.name.text : `_p${index}`;
-    const namePrefix = isOptional ? "?" : "";
-    const typeSuffix = p.type || isRest ? `: ${paramType}` : "";
-
-    if (hasDefault) {
-      const def = emitExpression(opts.ctx, p.initializer as ts.Expression);
-      if (!def) return null;
-      prelude.push(`  if (${paramName} == null) ${paramName} = ${def};`);
-    }
-
-    if (!ts.isIdentifier(p.name)) {
-      const srcTmp = nextTmp(opts.ctx);
-      prelude.push(`  var ${srcTmp} = ${paramName};`);
-      const destructured = emitDestructureFromBindingName({
-        ctx: opts.ctx,
-        mode: "declare",
-        declareKeyword: "var",
-        name: p.name,
-        valueExpr: srcTmp,
-        indent: "  "
-      });
-      if (!destructured) return null;
-      prelude.push(...destructured);
-    }
-
-    params.push(`${namePrefix}${paramName}${typeSuffix}`);
-  }
+  const emittedParameters = emitParameters(opts.ctx, opts.parameters, "  ");
+  if (!emittedParameters) return null;
+  const params = emittedParameters.parameters;
+  const prelude = emittedParameters.prelude;
 
   const returnType = emitType(opts.returnType);
   const returnTypeSuffix = opts.omitReturnType ? "" : `: ${returnType}`;
 
   if (!opts.body) return null;
-  const emittedBody = emitStatements(opts.ctx, opts.body.statements, "  ");
+  const emittedBody = withIdentifierRewrites(
+    opts.ctx,
+    emittedParameters.bodyRewrites,
+    () => emitStatements(opts.ctx, opts.body?.statements ?? [], "  ")
+  );
   if (emittedBody == null) return null;
   let body = emittedBody.length > 0 ? emittedBody : "";
   if (prelude.length > 0) body = body.length > 0 ? `${prelude.join("\n")}\n${body}` : prelude.join("\n");
@@ -1942,6 +2242,41 @@ function emitFunction(ctx: EmitContext, fn: ts.FunctionDeclaration): string | nu
     modifierPrefix: "",
     ctx
   });
+}
+
+/**
+ * Emits a call-time forwarding function for a static async helper.
+ *
+ * Reading a helper's static function into a module-level `final` can run before
+ * Haxe initializes that static field, producing an undefined callable. A
+ * wrapper preserves the source function identity at the module surface while
+ * deferring the helper lookup until invocation. Default handling remains in
+ * the validated helper body and is not duplicated here.
+ */
+function emitAsyncForwarder(opts: {
+  name: string;
+  helperName: string;
+  helperField: string;
+  parameters: readonly ts.ParameterDeclaration[];
+  returnType: ts.TypeNode | undefined;
+}): string | null {
+  const parameters: string[] = [];
+  const argumentsList: string[] = [];
+  for (let index = 0; index < opts.parameters.length; index++) {
+    const plan = planParameter(opts.parameters[index] as ts.ParameterDeclaration, index);
+    if (plan.isRest) return null;
+    const baseType = emitType(plan.parameter.type);
+    const parameterType = plan.defaultValue
+      ? `genes.ts.Undefinable<${baseType}>`
+      : baseType;
+    parameters.push(`${plan.isOptional ? "?" : ""}${plan.name}: ${parameterType}`);
+    argumentsList.push(plan.name);
+  }
+  return [
+    `function ${opts.name}(${parameters.join(", ")}): ${emitType(opts.returnType)} {`,
+    `  return ${opts.helperName}.${opts.helperField}(${argumentsList.join(", ")});`,
+    "}"
+  ].join("\n");
 }
 
 function emitTypeAlias(decl: ts.TypeAliasDeclaration): string {
@@ -2081,6 +2416,7 @@ function emitClass(ctx: EmitContext, decl: ts.ClassDeclaration, forcedName?: str
       const isStatic = member.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword) ?? false;
       const isPrivate = member.modifiers?.some((m) => m.kind === ts.SyntaxKind.PrivateKeyword) ?? false;
       const isAsync = member.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword) ?? false;
+      if (isAsync) recordSemantic(ctx, "async.await", member);
       const visibility = isPrivate ? "private" : "public";
       const emitted = emitFunctionLike({
         name: member.name.text,
@@ -2309,6 +2645,7 @@ function translationDiagnostic(opts: EmitHaxeOptions, sf: ts.SourceFile, node: t
   category: TranslationDiagnostic["semanticCategory"];
   message: string;
   outputFile: string | null;
+  portableGrade?: PortabilityGrade;
 }): TranslationDiagnostic {
   const start = node.getStart(sf, false);
   const end = node.getEnd();
@@ -2328,7 +2665,7 @@ function translationDiagnostic(opts: EmitHaxeOptions, sf: ts.SourceFile, node: t
     semanticCategory: details.category,
     message: details.message,
     support: "unsupported",
-    portableGrade: "unknown",
+    portableGrade: details.portableGrade ?? "U",
     outputFile: details.outputFile,
     remediation: "Refactor the construct or rerun with --mode assisted to produce explicitly lossy scaffolding."
   };
@@ -2343,7 +2680,11 @@ function translationDiagnostic(opts: EmitHaxeOptions, sf: ts.SourceFile, node: t
  * separation is the fail-closed boundary that prevents a printer-level `null`
  * from silently becoming a successful project conversion.
  */
-function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): SourceEmitOutcome {
+function emitHaxeSourceFile(
+  opts: EmitHaxeOptions,
+  sf: ts.SourceFile,
+  semanticRecorder: SemanticRecorder
+): SourceEmitOutcome {
   const absFile = sf.fileName;
   if (absFile.endsWith(".d.ts")) return { kind: "declaration-only" };
   if (!(absFile.endsWith(".ts") || absFile.endsWith(".tsx") || absFile.endsWith(".js") || absFile.endsWith(".jsx"))) {
@@ -2380,9 +2721,10 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): SourceEmi
   const fileDiagnostics: TranslationDiagnostic[] = [];
 
   function recordUnsupported(node: ts.Node, message: string,
-      category: TranslationDiagnostic["semanticCategory"] = "declaration"): TranslationDiagnostic {
+      category: TranslationDiagnostic["semanticCategory"] = "declaration",
+      id = "TS2HX-UNSUPPORTED-LOWERING-001"): TranslationDiagnostic {
     const diagnostic = translationDiagnostic(opts, sf, node, {
-      id: "TS2HX-UNSUPPORTED-LOWERING-001",
+      id,
       category,
       message,
       outputFile: portableOutFile
@@ -2399,7 +2741,8 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): SourceEmi
 
   function unsupported(node: ts.Node, message: string,
       category: TranslationDiagnostic["semanticCategory"] = "declaration"): SourceEmitOutcome {
-    recordUnsupported(node, message, category);
+    if (ctx.semanticFailures.length > 0) recordSemanticFailures();
+    else recordUnsupported(node, message, category);
     return {
       kind: "unsupported",
       emitted: { filePath: outAbsFile, content: out.join("\n").trimEnd() + "\n" },
@@ -2411,8 +2754,40 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): SourceEmi
     checker: opts.checker,
     identifierRewrites: new Map(),
     tmpCounter: 0,
-    preserveUndefined: false
+    sourceFile: sf,
+    sourceFilePath: portablePath(path.relative(opts.rootDir, sf.fileName)),
+    semanticRecorder,
+    semanticFailures: [],
+    expressionRewrites: new Map(),
+    continueSteps: []
   };
+
+  function recordSemanticFailures(): void {
+    for (const failure of ctx.semanticFailures) {
+      const id = `TS2HX-${failure.featureId.toUpperCase().replace(/[^A-Z0-9]+/g, "-")}-001`;
+      recordUnsupported(failure.node, failure.message, failure.category, id);
+    }
+    ctx.semanticFailures.length = 0;
+  }
+
+  for (const statement of sf.statements) {
+    if (ts.isImportDeclaration(statement)) {
+      if (!statement.importClause) {
+        recordSemantic(ctx, "modules.side-effect-import", statement);
+        recordUnsupported(
+          statement,
+          "A bare side-effect import has no explicit Haxe module-initialization edge and cannot be dropped.",
+          "module",
+          "TS2HX-MODULES-SIDE-EFFECT-IMPORT-001"
+        );
+      } else {
+        recordSemantic(ctx, "modules.esm-bindings", statement);
+      }
+      continue;
+    }
+    if (ts.isExportDeclaration(statement) || ts.isExportAssignment(statement))
+      recordSemantic(ctx, "modules.esm-bindings", statement);
+  }
 
   const imports = collectImports(sf);
   const importLines: string[] = [];
@@ -2595,12 +2970,11 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): SourceEmi
           (decl.initializer.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword) ?? false);
 
         if (isAsyncInit) {
-          const helper = ensureAsyncHelper();
-          const initExpr = emitExpression(ctx, decl.initializer);
-          if (!initExpr)
-            return unsupported(stmt, "Async top-level initializer cannot be preserved.", "expression");
-          asyncHelperFields.push(`  public static ${declKeyword} ${decl.name.text}${typeSuffix} = ${initExpr};`);
-          out.push(`${declKeyword} ${decl.name.text}${typeSuffix} = ${helper}.${decl.name.text};`);
+          return unsupported(
+            stmt,
+            "Async function-valued variables need call-time forwarding and are not yet supported; use a function declaration.",
+            "declaration"
+          );
         } else {
           const init = emitExpression(ctx, decl.initializer);
           if (!init)
@@ -2619,6 +2993,7 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): SourceEmi
       const isAsync = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword) ?? false;
 
       if (isAsync) {
+        recordSemantic(ctx, "async.await", stmt);
         const helper = ensureAsyncHelper();
         if (isDefault && !stmt.name) {
           const fnExpr = emitAnonFunctionLike({
@@ -2630,7 +3005,16 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): SourceEmi
           if (!fnExpr)
             return unsupported(stmt, "Anonymous default async function cannot be preserved.");
           asyncHelperFields.push(`  public static final __default = @:async ${fnExpr};`);
-          out.push(`final __default = ${helper}.__default;`);
+          const forwarder = emitAsyncForwarder({
+            name: "__default",
+            helperName: helper,
+            helperField: "__default",
+            parameters: stmt.parameters,
+            returnType: stmt.type
+          });
+          if (!forwarder)
+            return unsupported(stmt, "Anonymous default async forwarding signature cannot be preserved.");
+          out.push(forwarder);
         } else {
           if (!stmt.name)
             return unsupported(stmt, "Async function declaration has no usable name.");
@@ -2644,7 +3028,16 @@ function emitHaxeSourceFile(opts: EmitHaxeOptions, sf: ts.SourceFile): SourceEmi
           if (!fnExpr)
             return unsupported(stmt, "Async function body cannot be preserved.", "control-flow");
           asyncHelperFields.push(`  public static final ${name} = @:async ${fnExpr};`);
-          out.push(`final ${name} = ${helper}.${name};`);
+          const forwarder = emitAsyncForwarder({
+            name,
+            helperName: helper,
+            helperField: name,
+            parameters: stmt.parameters,
+            returnType: stmt.type
+          });
+          if (!forwarder)
+            return unsupported(stmt, "Async forwarding signature cannot be preserved.");
+          out.push(forwarder);
           if (isDefault) out.push(`final __default = ${name};`);
         }
       } else if (isDefault && !stmt.name) {
@@ -2873,13 +3266,14 @@ export function emitProjectToHaxe(rawOpts: EmitHaxeOptions): EmitHaxeResult {
   const files: EmittedFile[] = [];
   const diagnostics: TranslationDiagnostic[] = [];
   const dispositions: TranslationFileDisposition[] = [];
+  const semanticRecorder = new SemanticRecorder();
 
   const externs = buildExternModules(opts);
   for (const ex of Array.from(externs.values()).sort((a, b) => a.moduleSpecifier.localeCompare(b.moduleSpecifier)))
     files.push(emitExternModuleFile(opts, ex));
 
   for (const sf of opts.sourceFiles.slice().sort((a, b) => a.fileName.localeCompare(b.fileName))) {
-    const outcome = emitHaxeSourceFile(opts, sf);
+    const outcome = emitHaxeSourceFile(opts, sf, semanticRecorder);
     const sourceFile = portablePath(path.relative(opts.rootDir, sf.fileName));
     if (outcome.kind === "declaration-only") {
       dispositions.push({ sourceFile, status: "declaration-only", outputFile: null, diagnosticIds: [] });
@@ -2918,25 +3312,27 @@ export function emitProjectToHaxe(rawOpts: EmitHaxeOptions): EmitHaxeResult {
     .map((emitted) => portablePath(path.relative(opts.outDir, emitted.filePath)))
     .sort((a, b) => a.localeCompare(b));
   const manifest: TranslationManifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     mode,
     status,
     basePackage: opts.basePackage,
     plannedFiles,
     files: dispositions,
-    diagnostics
+    diagnostics,
+    features: semanticRecorder.dispositions()
   };
 
   if (status === "failed") {
     return { status, writtenFiles: [], diagnostics, dispositions, manifest };
   }
 
-  if (status === "assisted") {
-    files.push({
-      filePath: path.join(opts.outDir, "ts2hx-manifest.json"),
-      content: `${JSON.stringify(manifest, null, 2)}\n`
-    });
-  }
+  // A successful translation still needs evidence of which semantic contracts
+  // it exercised. Keep the manifest beside every committed output tree; strict
+  // failures remain transactional and are returned/written only on request.
+  files.push({
+    filePath: path.join(opts.outDir, "ts2hx-manifest.json"),
+    content: `${JSON.stringify(manifest, null, 2)}\n`
+  });
 
   const writtenFiles = commitOutputTree(opts, files);
   return { status, writtenFiles, diagnostics, dispositions, manifest };

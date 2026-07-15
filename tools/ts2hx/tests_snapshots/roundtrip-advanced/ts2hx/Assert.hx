@@ -7,13 +7,13 @@ function assert(condition: Bool, message: String): Void {
 }
 
 function assertEqual(actual: Float, expected: Float, label: String): Void {
-  if ((actual != expected))   {
+  if (!(genes.js.Equality.strict(actual, expected)))   {
     throw new js.lib.Error(("" + label + ": expected " + expected + ", got " + actual));
   }
 }
 
 function assertStringEqual(actual: String, expected: String, label: String): Void {
-  if ((actual != expected))   {
+  if (!(genes.js.Equality.strict(actual, expected)))   {
     throw new js.lib.Error(("" + label + ": expected " + haxe.Json.stringify(expected) + ", got " + haxe.Json.stringify(actual)));
   }
 }

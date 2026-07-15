@@ -13,8 +13,9 @@ refactor before claiming another target.
 - A future `strict-portable` mode may accept a smaller subset, but only
   cross-target compile/runtime tests can promote that subset.
 
-The implementation work for strict portability and semantic grading is tracked
-by `genes-09r.7`.
+Every current translation manifest carries these grades per semantic feature.
+The future `strict-portable` mode still requires cross-target execution before
+it can become a CLI contract.
 
 ## Proposed module grades
 

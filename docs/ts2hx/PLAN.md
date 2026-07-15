@@ -31,22 +31,30 @@ What is implemented:
   or top-level statements
 - An `assisted` mode whose incomplete output carries explicit loss markers and
   a deterministic `ts2hx-manifest.json`
+- A minimal semantic plan for exact undefined/default absence, typed
+  uninitialized locals, truthiness, lvalue evaluation order, `for` continuation
+  steps, switch fallthrough, bounded finally completion, and feature provenance
+- A schema-v2 manifest that records the complete support/portability matrix for
+  successful and assisted runs
+- An exact original-TS versus classic-JS versus genes-ts-JS event differential
+  for thirteen supported contracts, plus five feature-specific fail-closed cases
 
 Important limitations:
 
-- This is still **JS-centric**: some operators are lowered via `js.Syntax.code(...)` for truthiness semantics.
+- This is still **JS-centric**: undefined, truthiness, finally, and async use
+  named genes helpers with J1 grades.
 - Not all TS syntax is accepted yet (TSX is not a core focus unless/until a fixture demands it).
 - Some patterns are supported only in the “high signal” shapes we see in fixtures (e.g. logical assigns currently require identifier LHS).
-- Exit `0` means no currently diagnosed unsupported construct. It does not prove
-  semantic equivalence for categories that still use direct approximating
-  lowering, including undefined/default arguments, uninitialized values,
-  coercion, `continue`, switch fallthrough, `this`/prototypes, exceptions, and
-  async scheduling.
+- Exit `0` means the encountered constructs fit the declared matrix; it does
+  not prove arbitrary TypeScript semantics. Unary-plus coercion, dynamic
+  prototype mutation, switch-to-outer-loop continue, outer completion through
+  finally, and side-effect-only imports intentionally reject today. Other
+  unmodeled syntax still requires a focused contract before promotion.
 
 Tracking:
 
-- Existing implementation history remains under `genes-dhg`; fail-closed
-  semantic IR and differential work is tracked by `genes-09r.7`.
+- Existing implementation history remains under `genes-dhg`; the first
+  fail-closed semantic IR/differential milestone landed under `genes-09r.7`.
 
 ## North star
 

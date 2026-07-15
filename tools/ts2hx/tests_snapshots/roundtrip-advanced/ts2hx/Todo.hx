@@ -33,7 +33,7 @@ class TodoStore {
   }
   public function add(title: String, opts: CreateTodoOptions): Todo {
     final trimmed = StringTools.trim(title);
-    if ((trimmed.length == 0))   {
+    if (genes.js.Equality.strict(trimmed.length, 0))   {
       throw new js.lib.Error("title required");
     }
     final pr = clamp((opts.priority ?? 1), 1, 5);
@@ -50,8 +50,8 @@ class TodoStore {
       var i = 0;
       while ((i < this.todos.length)) {
         final t = this.todos[i];
-        if ((t.id == id))       {
-          t.status = ((t.status == TodoStatus.Active) ? TodoStatus.Done : TodoStatus.Active);
+        if (genes.js.Equality.strict(t.id, id))       {
+          t.status = (genes.js.Equality.strict(t.status, TodoStatus.Active) ? TodoStatus.Done : TodoStatus.Active);
           return;
         }
         i = (i + 1);
@@ -60,6 +60,6 @@ class TodoStore {
     throw new js.lib.Error(("not found: " + id));
   }
   public function titlesByStatus(status: TodoStatus): Array<String> {
-    return this.todos.filter(function(t) return (t.status == status)).map(function(t) return t.title);
+    return this.todos.filter(function(t) return genes.js.Equality.strict(t.status, status)).map(function(t) return t.title);
   }
 }

@@ -11,7 +11,7 @@ import ts2hx.Todo.TodoStore;
 
 function main(): Void {
   final role: Role = "admin";
-  assert((role == "admin"), "role union works");
+  assert(genes.js.Equality.strict(role, "admin"), "role union works");
   final cfg: Config = { role: role, dryRun: false };
   assertStringEqual(normalizeBaseUrl(cfg), "http://localhost", "default base url");
   final store = new TodoStore();
@@ -28,7 +28,7 @@ function main(): Void {
   var threw = false;
   try {
     store.toggle(999);
-  } catch (e: Dynamic) {
+  } catch (e: Any) {
     threw = true;
   }
   assert(threw, "toggle missing throws");

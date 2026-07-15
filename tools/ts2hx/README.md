@@ -35,10 +35,11 @@ the remaining source with stable diagnostics. Do not use it as a general-purpose
 `strict-portable` is a future contract, not a current CLI mode. Current output
 may depend on the Haxe JS target and genes runtime helpers.
 
-Important: exit `0` currently means “no detected unsupported construct,” not
-proven semantic equivalence. Some supported-looking lowerings still approximate
-JavaScript behavior; the risk categories below and in `docs/ts2hx/USAGE.md`
-remain subject to differential tests and the planned semantic IR.
+Important: exit `0` applies only to the declared subset, not arbitrary
+TypeScript. Semantic decisions for the high-risk subset are normalized before
+printing and recorded in a schema-v2 support manifest. The exact
+`test:semantic-diff` trace is the runtime evidence for those contracts; syntax
+outside the matrix must either gain its own evidence or fail closed.
 
 ## How ts2hx fits with genes-ts
 
@@ -81,7 +82,8 @@ Exit codes are `0` for no detected translation loss, `1` for unsupported/lossy t
 recorded losses. `--diagnostics-json <file>` writes the same deterministic
 manifest even when strict mode refuses to touch the output directory.
 
-Tests (snapshots, Haxe JS smoke, differential roundtrips, and strict failure/transaction checks):
+Tests (snapshots, Haxe JS smoke, exact three-runtime semantic differentials,
+roundtrips, and strict failure/transaction checks):
 
 ```bash
 yarn --cwd tools/ts2hx test
@@ -99,6 +101,8 @@ Current fixtures:
 - `fixtures/statement-coverage/` (while/do-while/switch + break/continue + var-without-init)
 - `fixtures/expression-coverage/` (unary ops, ternary, typeof, compound assignments, ++/--)
 - `fixtures/type-emission/` (qualified names, unions, function types)
+- `fixtures/semantic-diff/` (exact defaults/undefined/truthiness/order/control-flow/this/async/module trace)
+- `fixtures/semantic-unsupported/` (feature-specific strict rejection and provenance)
 
 Update snapshots:
 
@@ -111,6 +115,19 @@ Roundtrip harness (TS → Haxe → TS → JS differential smoke):
 ```bash
 yarn --cwd tools/ts2hx test:roundtrip
 ```
+
+Authoritative supported-subset semantic matrix:
+
+```bash
+yarn --cwd tools/ts2hx test:semantic-diff
+```
+
+This runs the same fixture as original TypeScript, ts2hx → Haxe → classic
+Genes JavaScript, and ts2hx → Haxe → genes-ts TypeScript → JavaScript. The
+JSON event traces must be byte-equivalent after extraction. It also checks that
+unsupported unary plus, prototype mutation, switch-continue, finally outer
+transfer, and side-effect imports diagnose precisely without changing the
+prior output tree.
 
 What `test:roundtrip` does for selected supported modules:
 

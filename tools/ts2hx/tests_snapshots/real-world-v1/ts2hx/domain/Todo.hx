@@ -16,7 +16,7 @@ function withStatus(todo: Todo, status: TodoStatus): Todo {
 }
 
 function isDone(todo: Todo): Bool {
-  return (todo.status == "done");
+  return genes.js.Equality.strict(todo.status, "done");
 }
 
 function summary(todo: Todo): String {

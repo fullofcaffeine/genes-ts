@@ -25,7 +25,7 @@ class TodoStore {
   }
   public function add(title: String): Todo {
     final trimmed = StringTools.trim(title);
-    if ((trimmed.length == 0))   {
+    if (genes.js.Equality.strict(trimmed.length, 0))   {
       throw new js.lib.Error("title required");
     }
     final todo = new Todo(this.nextId, trimmed, TodoStatus.Active);
@@ -41,7 +41,7 @@ class TodoStore {
       var i = 0;
       while ((i < this.todos.length)) {
         final t = this.todos[i];
-        if ((t.id == id))       {
+        if (genes.js.Equality.strict(t.id, id))       {
           return true;
         }
         i = (i + 1);
@@ -54,8 +54,8 @@ class TodoStore {
       var i = 0;
       while ((i < this.todos.length)) {
         final t = this.todos[i];
-        if ((t.id == id))       {
-          t.status = ((t.status == TodoStatus.Active) ? TodoStatus.Done : TodoStatus.Active);
+        if (genes.js.Equality.strict(t.id, id))       {
+          t.status = (genes.js.Equality.strict(t.status, TodoStatus.Active) ? TodoStatus.Done : TodoStatus.Active);
           return t;
         }
         i = (i + 1);
@@ -68,7 +68,7 @@ class TodoStore {
       var i = 0;
       while ((i < this.todos.length)) {
         final t = this.todos[i];
-        if ((t.id == id))       {
+        if (genes.js.Equality.strict(t.id, id))       {
           this.todos.splice(i, 1);
           return true;
         }

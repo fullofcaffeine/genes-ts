@@ -304,8 +304,15 @@ function main(): number {
     if (fixture.requireStrongGeneratedHaxe)
       assertStrongGeneratedHaxe(outDir, fixture.name);
 
-    const generatedFiles = walkFiles(outDir).sort((a, b) => a.localeCompare(b));
-    const snapshotFiles = walkFiles(fixture.snapshotsDir).sort((a, b) => a.localeCompare(b));
+    // The semantic manifest is asserted structurally by test-semantic-diff.
+    // Keeping one copy per syntax fixture would duplicate a large global
+    // support matrix and turn harmless provenance additions into snapshot churn.
+    const generatedFiles = walkFiles(outDir)
+      .filter((file) => file !== "ts2hx-manifest.json")
+      .sort((a, b) => a.localeCompare(b));
+    const snapshotFiles = walkFiles(fixture.snapshotsDir)
+      .filter((file) => file !== "ts2hx-manifest.json")
+      .sort((a, b) => a.localeCompare(b));
     totalFiles += generatedFiles.length;
 
     if (update) {

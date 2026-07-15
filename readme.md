@@ -289,6 +289,11 @@ scaffolder. Strict mode fails closed for constructs the translator knows it
 cannot preserve; assisted mode records explicit losses. Exit success is not a
 blanket semantic-equivalence certificate.
 
+Its schema-v2 manifest grades the exercised semantic features, and
+`test:semantic-diff` requires the same event trace from original TypeScript,
+translated classic JavaScript, and translated genes-ts output. This is bounded
+subset evidence—not a claim that arbitrary TypeScript can be translated.
+
 Workflows:
 - **Standalone**: supported TS/JS subset → Haxe-for-JS → JS (classic Genes) or TS (genes-ts)
 - **Roundtrip**: selected TS → Haxe → TS (genes-ts) → JS (tsc) differential harness

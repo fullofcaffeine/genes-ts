@@ -47,10 +47,11 @@ to be preservable, ts2hx returns exit `1`, emits a source-positioned `TS2HX-*`
 diagnostic, and leaves the existing output directory unchanged—even with
 `--clean`.
 
-This is an honest failure boundary, not yet a losslessness proof. Exit `0`
-means the current emitter did not identify an unsupported construct; semantic
-approximations still require the differential tests and future semantic IR
-described below.
+This is an honest failure boundary, not a whole-language losslessness proof.
+Exit `0` means every encountered construct is inside a currently validated
+strict subset. Each successful output tree now includes a schema-v2
+`ts2hx-manifest.json` with the complete support matrix, source occurrences, and
+P0/J1/U portability grades.
 
 ```bash
 node tools/ts2hx/dist/cli.js \
@@ -61,8 +62,9 @@ node tools/ts2hx/dist/cli.js \
 ```
 
 `assisted` mode is for inventory and scaffolding. It writes explicit loss
-markers and `ts2hx-manifest.json`, then exits `3` so automation cannot mistake a
-partial scaffold for a lossless conversion:
+markers into incomplete modules and records the losses in the same manifest,
+then exits `3` so automation cannot mistake a partial scaffold for a lossless
+conversion:
 
 ```bash
 node tools/ts2hx/dist/cli.js \
@@ -107,6 +109,14 @@ features exercised by those fixtures, not a whole-program parity certificate.
 Their top-level `index.ts` entry calls are acknowledged assisted losses; the
 harness invokes the translated Haxe `Main` directly.
 
+The stronger semantic harness is `test:semantic-diff`. It compares one stable
+event trace across the original TypeScript, translated Haxe compiled through
+classic Genes JavaScript, and translated Haxe compiled through genes-ts then
+`tsc`. It currently exercises exact undefined/default behavior, uninitialized
+values, truthiness, compound-assignment order, `for`/`continue`, switch
+strict matching/fallthrough/default placement, try/catch/finally, class and lexical-arrow
+`this`, async ordering, and local ESM bindings.
+
 ## Non-relative imports (npm / node:* / react)
 
 ts2hx supports non-relative imports by generating small **extern modules** under:
@@ -120,11 +130,13 @@ Important limitation:
 - The `tools/ts2hx` package is ESM (`type: "module"`).
 - Therefore, fixtures that require non-relative imports are **compile-smoked** but not `node`-executed in snapshot tests.
 
-Other important limitations are recorded in each run manifest. Known semantic
-risk areas include omitted/default arguments versus explicit `null`, JavaScript
-truthiness/coercion, uninitialized values, loop `continue` lowering, switch
-fallthrough, `this`/prototype behavior, exception/finally ordering, module
-merging, and async scheduling. Do not infer support from syntax-only output.
+Other important limitations are recorded in each run manifest. Strict mode now
+rejects, among other cases, unary-plus numeric coercion, dynamic prototype
+mutation, `continue` from a switch to an enclosing loop, outer
+return/break/continue completion through `finally`, and bare side-effect
+imports. Dynamic module merging, broader prototype behavior, async
+function-valued variables, and unmodeled syntax remain outside the proven
+subset. Do not infer support from syntax-only output.
 
 ## Testing
 
@@ -132,6 +144,12 @@ Run all ts2hx tests:
 
 ```bash
 yarn --cwd tools/ts2hx test
+```
+
+Run only the exact three-runtime semantic matrix:
+
+```bash
+yarn --cwd tools/ts2hx test:semantic-diff
 ```
 
 Update snapshots:

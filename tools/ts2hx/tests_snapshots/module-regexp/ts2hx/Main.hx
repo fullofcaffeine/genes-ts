@@ -3,7 +3,7 @@ package ts2hx;
 final INVALID_ATTRIBUTE_NAME: EReg = new EReg("[<>]", "");
 
 function assertEqual(actual: String, expected: String, label: String): Void {
-  if ((actual != expected))   {
+  if (!(genes.js.Equality.strict(actual, expected)))   {
     throw new js.lib.Error(("" + label + ": expected " + expected + ", got " + actual));
   }
 }

@@ -4,7 +4,9 @@ import ts2hx.services.TodoService.seedTodos;
 import ts2hx.services.TodoService.completeFirst;
 import ts2hx.domain.Todo.isDone;
 
-final run = __Ts2hxAsync.run;
+function run(): js.lib.Promise<Float> {
+  return __Ts2hxAsync.run();
+}
 
 function main(): Void {
   run().then(function(n) return trace(("REAL_WORLD_V1_OK:" + n)));

@@ -13,7 +13,9 @@ export function main(): void {
   const t = typeof label;
 
   const n = -x;
-  const p = +x;
+  // Unary plus is intentionally rejected until numeric-coercion IR exists;
+  // this general expression fixture keeps exercising the supported identity.
+  const p = x;
   const not = !false;
 
   console.log(x);
@@ -26,4 +28,3 @@ export function main(): void {
   console.log(p);
   console.log(not);
 }
-

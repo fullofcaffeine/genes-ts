@@ -16,7 +16,7 @@ function normalizeBaseUrl(cfg: Config): String {
   var __ts2hx_tmp0 = cfg.baseUrl;
   return (__ts2hx_tmp0 == null ? null : __ts2hx_tmp0.length);
 })() ?? 0);
-  if ((len == 0))   {
+  if (genes.js.Equality.strict(len, 0))   {
     return "http://localhost";
   }
   return (cfg.baseUrl);

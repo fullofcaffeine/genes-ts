@@ -1,8 +1,12 @@
 package ts2hx;
 
-final plusOne = __Ts2hxAsync.plusOne;
+function plusOne(x: Float): js.lib.Promise<Float> {
+  return __Ts2hxAsync.plusOne(x);
+}
 
-final run = __Ts2hxAsync.run;
+function run(): js.lib.Promise<Float> {
+  return __Ts2hxAsync.run();
+}
 
 function main(): Void {
   run().then(function(v: Float) return trace(v));
@@ -17,7 +21,7 @@ private class __Ts2hxAsync {
   try {
     final out = genes.js.Async.await(plusOne(1));
     return out;
-  } catch (_e: Dynamic) {
+  } catch (_e: Any) {
     return -(1);
   }
 };

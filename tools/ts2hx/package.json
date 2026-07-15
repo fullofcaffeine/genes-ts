@@ -13,7 +13,8 @@
     "ts2hx": "node dist/cli.js",
     "test:snapshots": "yarn build && node dist/test-snapshots.js",
     "test:roundtrip": "yarn build && node dist/test-roundtrip.js",
+    "test:semantic-diff": "yarn build && node dist/test-semantic-diff.js",
     "test:strict-diagnostics": "yarn build && node dist/test-strict-diagnostics.js",
-    "test": "yarn test:snapshots && yarn test:roundtrip && yarn test:strict-diagnostics"
+    "test": "yarn test:snapshots && yarn test:roundtrip && yarn test:semantic-diff && yarn test:strict-diagnostics"
   }
 }

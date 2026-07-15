@@ -5,9 +5,13 @@ import ts2hx.domain.Todo;
 import ts2hx.domain.Todo.createTodo;
 import ts2hx.domain.Todo.withStatus;
 
-final seedTodos = __Ts2hxAsync.seedTodos;
+function seedTodos(): js.lib.Promise<Array<Todo>> {
+  return __Ts2hxAsync.seedTodos();
+}
 
-final completeFirst = __Ts2hxAsync.completeFirst;
+function completeFirst(todos: Array<Todo>): js.lib.Promise<Array<Todo>> {
+  return __Ts2hxAsync.completeFirst(todos);
+}
 
 private class __Ts2hxAsync {
   public static final seedTodos = @:async function(): js.lib.Promise<Array<Todo>> {
@@ -18,14 +22,14 @@ private class __Ts2hxAsync {
 };
   public static final completeFirst = @:async function(todos: Array<Todo>): js.lib.Promise<Array<Todo>> {
   try {
-    if ((todos.length == 0))     {
+    if (genes.js.Equality.strict(todos.length, 0))     {
       throw "empty";
     }
     final first = todos[0];
     final done = withStatus(first, "done");
     final rest = todos.slice(1);
     return genes.js.Async.await(js.lib.Promise.resolve([done].concat(rest)));
-  } catch (_e: Dynamic) {
+  } catch (_e: Any) {
     return [];
   }
 };
