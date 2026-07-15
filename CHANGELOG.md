@@ -1,3 +1,10 @@
+# [1.17.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.16.0...v1.17.0) (2026-07-15)
+
+
+### Features
+
+* **interop:** add deterministic dts2hx bridge ([2ca8f3e](https://github.com/fullofcaffeine/genes-ts/commit/2ca8f3e023fa07265071dcb1c77787215cc89516))
+
 # [1.16.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.15.0...v1.16.0) (2026-07-15)
 
 
