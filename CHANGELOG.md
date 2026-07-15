@@ -1,3 +1,10 @@
+## [1.18.1](https://github.com/fullofcaffeine/genes-ts/compare/v1.18.0...v1.18.1) (2026-07-15)
+
+
+### Bug Fixes
+
+* **imports:** keep native globals independent ([286f2e3](https://github.com/fullofcaffeine/genes-ts/commit/286f2e3bfa2b07287a1072dc7cb102ee112e9556))
+
 # [1.18.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.17.0...v1.18.0) (2026-07-15)
 
 
