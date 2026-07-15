@@ -8,9 +8,9 @@ for when we permit escape hatches like `any`.
 
 It is a normative policy, not a claim that a green `tsc` build proves every
 generated public surface sound. Current evidence includes closed-interface
-negative consumers and a strict classic declaration consumer. The semantic
-export audit tracked by `genes-09r.1` will additionally detect inferred and
-imported unsafe types that a source-text scan cannot see.
+negative consumers, a strict classic declaration consumer, and a semantic
+export audit that detects inferred and imported unsafe types a source-text scan
+cannot see.
 
 ## Goals
 
@@ -151,14 +151,17 @@ No single gate is treated as proof of type soundness:
 4. **The classic declaration consumer** installs the generated declarations as
    an external package and compiles with `skipLibCheck: false` and strict
    nullability/indexing options.
-5. **The semantic exported-surface audit** (`genes-09r.1`, open) will walk
-   exported symbols through the TypeScript Compiler API and report inferred or
-   imported `any`, unjustified `unknown`, and unapproved index signatures.
+5. **The semantic exported-surface audit** walks exported symbols through the
+   TypeScript Compiler API and reports explicit, inferred, or imported `any`,
+   unjustified `unknown`, and unapproved string/number index signatures. It is
+   exercised independently and against generated TS plus classic declarations.
 
 Passing only the first or third layer must not be described as proof that the
-public API is strongly typed. Any approved dynamic boundary should eventually
-carry a stable ID, owner, reason, and provenance rather than relying on a broad
-directory exclusion.
+public API is strongly typed. Approved dynamic boundaries live in
+`tests/typing-policy/exported-surface-boundaries.json` and require a stable ID,
+scope, exact exported root, owner, reason, and source provenance. Active entries
+that match nothing fail as stale, and entries that overlap fail as ambiguous;
+broad directory exemptions are intentionally unsupported.
 
 ## Non-goals
 

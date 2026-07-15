@@ -29,9 +29,9 @@ interesting, but it is not a current product promise.
 > genes-ts is a production-capable Haxe-to-TypeScript and classic ESM
 > JavaScript compiler for controlled, tested project profiles. The classic
 > runtime is the more mature path. TypeScript implementation output and classic
-> declarations have strict positive and negative gates, while semantic export
-> auditing, broad npm module shapes, and comprehensive same-source parity remain
-> active roadmap work. ts2hx is an experimental strict-subset migration and
+> declarations have strict positive, negative, and semantic exported-surface
+> gates, while broad npm module shapes and comprehensive same-source parity
+> remain active roadmap work. ts2hx is an experimental strict-subset migration and
 > assisted-scaffolding tool, not a lossless TypeScript-to-Haxe compiler.
 
 Do not replace this with unqualified claims of universal type safety, strong
@@ -82,6 +82,7 @@ The audit also required two qualifications:
 | Native map absence | Missing `EsMap` entries normalize to Haxe `null`; an explicitly stored JS `undefined` remains distinguishable. | Runtime plus negative type fixture |
 | Secondary extern type ownership | A secondary type can reuse its owning module's `@:jsRequire` identity. | Focused extern fixture |
 | Fail-closed ts2hx | Strict mode diagnoses currently classified unsupported root files/top-level statements and publishes no partial tree; assisted output carries explicit losses and a manifest. Remaining semantic approximations are not declared lossless. | API/CLI/transaction tests and 53 snapshots |
+| Semantic exported-surface policy | Exported TS and classic declaration roots are checked through the TypeScript TypeChecker for explicit/inferred/imported weak types and unapproved index signatures; intentional boundaries require exact owned provenance. | Policy fixtures, TS/classic `IMap`, basic user modules, JSX negative consumers, and aggregate CI |
 | Product wording | Readiness, JSX, declaration, and migration claims are separated by evidence class. | This document and linked mode/policy docs |
 
 These are focused fixes, not proof that the final shared semantic model already
@@ -176,10 +177,12 @@ The source of truth is Beads epic `genes-09r`.
 
 ### P1: establish semantic facts and authoritative evidence
 
-1. **`genes-09r.1` — semantic exported-surface and negative type gates.** Walk
-   exported symbols with the TypeScript Compiler API; detect inferred/imported
-   `any`, unjustified `unknown`, and unapproved index signatures. This is the
-   evidence foundation for later shared planning.
+1. **`genes-09r.1` — semantic exported-surface and negative type gates
+   (landed).** Exported symbols are walked with the TypeScript Compiler API;
+   explicit/inferred/imported `any`, unjustified `unknown`, and unapproved index
+   signatures fail CI. Exact boundary entries carry stable ownership and source
+   provenance and fail when stale or ambiguous. This is the evidence foundation
+   for later shared planning.
 2. **`genes-09r.10` — shared `PublicSurface`.** Build on the landed pre-DCE
    interface fix and make TS interfaces plus classic declarations consume one
    immutable model for visibility, inheritance, overload identity, and generic

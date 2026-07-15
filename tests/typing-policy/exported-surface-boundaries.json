@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "boundaries": [
+    {
+      "id": "GTS-BOUNDARY-POLICY-FOREIGN-VALUE",
+      "scope": "policy-fixture",
+      "owner": "compiler-typing",
+      "reason": "Proves an explicitly owned opaque host value can cross the semantic audit.",
+      "source": "tests/typing-policy/semantic/boundary.ts",
+      "match": {
+        "file": "tests/typing-policy/semantic/boundary.ts",
+        "export": "ForeignValue",
+        "kinds": ["unknown"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-POLICY-FOREIGN-RECORD",
+      "scope": "policy-fixture",
+      "owner": "compiler-typing",
+      "reason": "Proves an explicitly indexable opaque host record can be allowlisted without opening ordinary interfaces.",
+      "source": "tests/typing-policy/semantic/boundary.ts",
+      "match": {
+        "file": "tests/typing-policy/semantic/boundary.ts",
+        "export": "ForeignRecord",
+        "kinds": ["unknown", "string-index"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-BASIC-UNKNOWN-MAP",
+      "scope": "genes-ts-basic",
+      "owner": "genes.ts.Unknown",
+      "reason": "DynamicAccess<Unknown> intentionally models an explicitly indexable foreign object; ordinary interfaces remain closed.",
+      "source": "tests/genes-ts/snapshot/basic/src/foo/BoundaryTypes.hx",
+      "match": {
+        "file": "tests/genes-ts/snapshot/basic/out/src-gen/foo/BoundaryTypes.ts",
+        "export": "UnknownMap",
+        "kinds": ["unknown", "string-index"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-BASIC-UNKNOWN-API",
+      "scope": "genes-ts-basic",
+      "owner": "genes.ts.Unknown",
+      "reason": "BoundaryTypes deliberately exercises reusable unknown narrowing helpers and returns typed values immediately after guards.",
+      "source": "tests/genes-ts/snapshot/basic/src/foo/BoundaryTypes.hx",
+      "match": {
+        "file": "tests/genes-ts/snapshot/basic/out/src-gen/foo/BoundaryTypes.ts",
+        "export": "BoundaryTypes",
+        "kinds": ["unknown", "string-index"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-BASIC-JSON-OBJECT",
+      "scope": "genes-ts-basic",
+      "owner": "genes.ts.JsonValue",
+      "reason": "Recursive JSON objects are intentionally string-indexed while every value remains within the closed JsonValue algebra.",
+      "source": "tests/genes-ts/snapshot/basic/src/foo/JsonAlias.hx",
+      "match": {
+        "file": "tests/genes-ts/snapshot/basic/out/src-gen/foo/JsonAlias.ts",
+        "export": "JsonAliasEnvelope",
+        "kinds": ["string-index"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-BASIC-JSON-CLASS-API",
+      "scope": "genes-ts-basic",
+      "owner": "genes.ts.JsonValue",
+      "reason": "JsonAlias deliberately carries the recursive JsonValue object boundary through its typed passthrough signature.",
+      "source": "tests/genes-ts/snapshot/basic/src/foo/JsonAlias.hx",
+      "match": {
+        "file": "tests/genes-ts/snapshot/basic/out/src-gen/foo/JsonAlias.ts",
+        "export": "JsonAlias",
+        "kinds": ["string-index"]
+      }
+    }
+  ]
+}

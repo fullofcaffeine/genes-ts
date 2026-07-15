@@ -2,6 +2,7 @@ import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { assertExportedSurfacePolicy } from "./exported-surface-policy.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -64,6 +65,16 @@ writeFileSync(
     ""
   ].join("\n")
 );
+
+// The external negative consumer proves invalid access is rejected. The
+// semantic audit separately proves that neither `any` nor an index signature
+// can mask that API even when a future fixture stops touching a member.
+assertExportedSurfacePolicy({
+  repoRoot,
+  tsconfigPath: "tests/genes-ts/full/tsconfig.json",
+  includePaths: ["tests/genes-ts/full/out/src-gen/haxe/Constraints.ts"],
+  scope: "genes-ts-full-imap"
+});
 
 const dynamicImportOutput = readFileSync(
   path.join(repoRoot, "tests/genes-ts/full/out/src-gen/tests/TestImportModule.ts"),

@@ -1,6 +1,7 @@
 import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { assertExportedSurfacePolicy } from "./exported-surface-policy.js";
 
 /**
  * Strictly consumes classic Genes declarations as an external TypeScript user.
@@ -27,6 +28,13 @@ function run(cmd: string, args: ReadonlyArray<string>, opts: ExecFileSyncOptions
 // Always rebuild: accepting a stale declaration tree would make the negative
 // consumer pass or fail independently of the compiler revision under test.
 run("haxe", ["test.hxml"]);
+
+assertExportedSurfacePolicy({
+  repoRoot,
+  tsconfigPath: "tests/classic-dts/tsconfig.json",
+  includePaths: ["bin/haxe/Constraints.d.ts"],
+  scope: "classic-dts-imap"
+});
 
 run("npx", [
   "-y",

@@ -1,5 +1,5 @@
 import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
-import { cpSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { assertNoUnsafeTypes } from "./typing-policy.js";
@@ -42,6 +42,22 @@ function copyTsxFixtures(intoRelDir: string): void {
   copyDir(fixturesDir);
 }
 
+/**
+ * Keeps the React fixture genuinely negative, not merely type-checking.
+ *
+ * Each directive must suppress a real TypeScript error: a bad intrinsic event
+ * handler, a bad component prop, and an invalid intrinsic attribute. TypeScript
+ * reports unused `@ts-expect-error` directives, so the following `tsc` run
+ * fails if any generated JSX surface widens enough to accept those operations.
+ */
+function assertJsxNegativeConsumer(relFile: string): void {
+  const source = readFileSync(path.join(repoRoot, relFile), "utf8");
+  const directiveCount = source.match(/@ts-expect-error/g)?.length ?? 0;
+  if (directiveCount !== 3) {
+    throw new Error(`${relFile} must emit exactly three JSX negative-consumer directives; got ${directiveCount}.`);
+  }
+}
+
 rmrf("tests/genes-ts/snapshot/react/out/tsx");
 rmrf("tests/genes-ts/snapshot/react/out/tsx-jsx-source");
 rmrf("tests/genes-ts/snapshot/react/out/tsx-classic");
@@ -55,6 +71,7 @@ assertNoUnsafeTypes({
   fileExts: [".ts", ".tsx"],
   ignoreTopLevelDirs: ["genes", "haxe", "js", "tink", "components"]
 });
+assertJsxNegativeConsumer("tests/genes-ts/snapshot/react/out/tsx/src-gen/Main.tsx");
 run("npx", [
   "-y",
   "--package",
@@ -72,6 +89,7 @@ assertNoUnsafeTypes({
   fileExts: [".ts", ".tsx"],
   ignoreTopLevelDirs: ["genes", "haxe", "js", "tink", "components"]
 });
+assertJsxNegativeConsumer("tests/genes-ts/snapshot/react/out/tsx-jsx-source/src-gen/Main.tsx");
 run("npx", [
   "-y",
   "--package",
@@ -90,6 +108,7 @@ assertNoUnsafeTypes({
   fileExts: [".ts", ".tsx"],
   ignoreTopLevelDirs: ["genes", "haxe", "js", "tink", "components"]
 });
+assertJsxNegativeConsumer("tests/genes-ts/snapshot/react/out/tsx-classic/src-gen/Main.tsx");
 run("npx", [
   "-y",
   "--package",
@@ -107,6 +126,7 @@ assertNoUnsafeTypes({
   fileExts: [".ts", ".tsx"],
   ignoreTopLevelDirs: ["genes", "haxe", "js", "tink", "components"]
 });
+assertJsxNegativeConsumer("tests/genes-ts/snapshot/react/out/ts/src-gen/Main.ts");
 run("npx", [
   "-y",
   "--package",

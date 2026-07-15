@@ -2,6 +2,7 @@ import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { assertExportedSurfacePolicy } from "./exported-surface-policy.js";
 import { assertNoUnsafeTypes } from "./typing-policy.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -93,6 +94,16 @@ assertNoUnsafeTypes({
     // Dedicated boundary fixture proving genes.ts.Unknown emits TS `unknown`.
     "foo/BoundaryTypes.ts"
   ]
+});
+assertExportedSurfacePolicy({
+  repoRoot,
+  tsconfigPath: "tests/genes-ts/snapshot/basic/tsconfig.json",
+  includePaths: [
+    "tests/genes-ts/snapshot/basic/out/src-gen/Main.ts",
+    "tests/genes-ts/snapshot/basic/out/src-gen/foo"
+  ],
+  scope: "genes-ts-basic",
+  boundaryManifestPath: "tests/typing-policy/exported-surface-boundaries.json"
 });
 
 // Use a pinned TypeScript version for consistent behavior.
