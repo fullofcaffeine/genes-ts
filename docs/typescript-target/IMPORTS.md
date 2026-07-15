@@ -78,6 +78,38 @@ an unsupported package shape cannot silently widen or change meaning. The
 blocking `yarn test:interop:module-shapes` fixture type-checks the same source on
 TS 5, TS 6, and TS 7, then executes both TS and classic Genes output.
 
+### Generating externs from npm declarations with dts2hx
+
+Use dts2hx for package `.d.ts` ingestion; ts2hx serves the separate and much
+more constrained implementation-source migration workflow. A normal modular
+package can be generated into a class path or haxelib wrapper:
+
+```bash
+npx dts2hx package-name --modular
+```
+
+The resulting `@:jsRequire` externs are ordinary Haxe APIs. genes-ts converts
+their value imports to typed TypeScript imports, while classic Genes erases the
+types and emits the equivalent ESM runtime imports. Haxe 5's dts2hx
+`@:js.import` mode is a separate preview capability; the stable Haxe 4.3
+contract remains `@:jsRequire` plus Genes ESM emission.
+
+The repository pins a reproducible bridge rather than embedding dts2hx's
+converter. `yarn test:interop:module-shapes` resolves shared local packages
+through both tools' TypeScript API seams, generates externs twice, compares a
+checked-in hash manifest, forbids generated `Dynamic`/`Any`, and exercises:
+
+- an ESM root with named values and types;
+- a typed package subpath;
+- conditional `types` / `import` / `require` exports; and
+- a class-shaped CommonJS `export =` constructor.
+
+dts2hx 0.34.0 does not completely merge the constructed instance surface of a
+`const` plus namespace `export =` declaration. Keep that uncommon shape as a
+small precise handwritten extern using `@:ts.instanceType`; do not patch the
+generated file with `Dynamic`. The bridge manifest records this limitation so
+a future dts2hx improvement can replace the manual boundary deliberately.
+
 ## 2) `genes.ts.Imports` (macro-based helper)
 
 `genes.ts.Imports` generates hidden `@:jsRequire` externs and returns a typed

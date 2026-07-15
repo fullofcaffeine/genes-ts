@@ -129,6 +129,48 @@ for (const laneName of generatedOutputLanes) {
   }
 }
 
+ensureSemver(toolchains.dts2hx.version);
+ensureSemver(toolchains.dts2hx.typescriptVersion);
+const dts2hxSpec = asString(
+  devDependencies[toolchains.dts2hx.dependency],
+  `devDependencies.${toolchains.dts2hx.dependency}`
+);
+if (dts2hxSpec !== toolchains.dts2hx.version) {
+  throw new Error(
+    `dts2hx dependency mismatch: manifest=${toolchains.dts2hx.version}, `
+      + `package.json=${dts2hxSpec}`
+  );
+}
+const installedDts2hxVersion = asString(
+  dependencyPackageJson(toolchains.dts2hx.dependency).version,
+  "dts2hx installed version"
+);
+if (installedDts2hxVersion !== toolchains.dts2hx.version) {
+  throw new Error(
+    `dts2hx install mismatch: manifest=${toolchains.dts2hx.version}, `
+      + `installed=${installedDts2hxVersion}`
+  );
+}
+const dts2hxTypescriptPackage = readJson(
+  path.join(
+    "node_modules",
+    toolchains.dts2hx.dependency,
+    "node_modules",
+    "typescript",
+    "package.json"
+  )
+);
+const installedDts2hxTypescript = asString(
+  dts2hxTypescriptPackage.version,
+  "dts2hx TypeScript installed version"
+);
+if (installedDts2hxTypescript !== toolchains.dts2hx.typescriptVersion) {
+  throw new Error(
+    `dts2hx TypeScript mismatch: manifest=${toolchains.dts2hx.typescriptVersion}, `
+      + `installed=${installedDts2hxTypescript}`
+  );
+}
+
 ensureSemver(toolchains.haxe.stable);
 ensureSemver(toolchains.haxe.preview);
 const haxerc = readJson(".haxerc");
@@ -158,5 +200,6 @@ assertModernTsconfigs();
 
 process.stdout.write(
   `versions:ok package=${pkgVersion} haxe=${toolchains.haxe.stable} `
-    + `typescript=${generatedOutputLanes.map(name => `${name}:${toolchains.typescript[name].version}`).join(",")}\n`
+    + `typescript=${generatedOutputLanes.map(name => `${name}:${toolchains.typescript[name].version}`).join(",")} `
+    + `dts2hx=${toolchains.dts2hx.version}/ts${toolchains.dts2hx.typescriptVersion}\n`
 );

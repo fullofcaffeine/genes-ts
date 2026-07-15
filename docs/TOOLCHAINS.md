@@ -12,6 +12,7 @@ commands or workflow matrices.
 | TypeScript | `legacyFloor` | 5.5.4 | Generated TS/TSX and declaration compatibility floor |
 | TypeScript | `apiBridge` | 6.0.2 package | Generated output plus the JavaScript `Program`/`TypeChecker` API used by semantic gates and ts2hx |
 | TypeScript | `current` | 7.0.2 | Generated TS/TSX and declaration compatibility only |
+| dts2hx | declaration ingestion | 0.34.0 with TypeScript 5.9.3 | Deterministic `.d.ts` → Haxe extern bridge; exact source-audit revision is in the manifest |
 | Haxe | `stable` | 4.3.7 | Blocking compiler/runtime contract for classic JS and TS output |
 | Haxe | `preview` | 5.0.0-preview.1 | Visible, non-blocking early-warning lane |
 | Node | `stable` / `nextLts` | 20 / 22 | Blocking stable lane plus a reduced next-LTS smoke lane |
@@ -34,6 +35,12 @@ Only `scripts/typescript-api.ts` and `tools/ts2hx/src/typescript-api.ts` import
 the bridge directly. Semantic output policy and ts2hx import those adapters,
 which keeps a future post-TS7 API migration isolated from compiler emitters.
 TS7 is never presented as a `Program` API provider.
+
+dts2hx keeps its own pinned TypeScript 5.9 converter dependency because its
+conversion implementation is independent from genes and ts2hx. The
+package-shape harness resolves the same entrypoints through the genes TS6 API
+adapter, then through dts2hx. This creates a versioned boundary without forcing
+both tools onto one internal compiler API.
 
 ## Test ownership
 
@@ -67,6 +74,7 @@ not a support promise.
    lane and reduced fixture rather than silently dropping the lane.
 
 `yarn test:versions` verifies package aliases and installed versions, the
-stable `.haxerc`, modern tsconfig assumptions, adapter-only API imports, and
-workflow manifest consumption. It also rejects reintroduced hard-coded
-TypeScript versions in test runners.
+stable `.haxerc`, the dts2hx package and embedded TypeScript version, modern
+tsconfig assumptions, adapter-only API imports, and workflow manifest
+consumption. It also rejects reintroduced hard-coded TypeScript versions in
+test runners.

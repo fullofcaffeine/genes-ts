@@ -51,10 +51,13 @@ The quality manifest measures the bounded dual corpus. It uses exact module,
 temporary, and import baselines plus 5% byte/token ceilings; it is not a
 whole-language performance benchmark.
 
-The package-shape gate currently covers a local CommonJS `export =`
-constructor whose value/type namespaces differ. It compiles strict negative
-consumers on TS 5/6/7 and runs the same Haxe source through TS and classic ESM;
-future package forms should extend that generic fixture matrix.
+The package-shape gate covers a precise manual CommonJS `export =`
+const-plus-namespace constructor and a dts2hx-generated bridge for ESM,
+subpaths, conditional `import`/`require` exports, and a class-shaped CommonJS
+`export =`. It resolves declarations through TS6 and dts2hx's pinned TS5.9 API,
+compares two clean generated extern trees to a checked-in manifest, rejects
+weak generated types, compiles strict negative consumers on TS 5/6/7, and runs
+the same Haxe source through TS and classic ESM.
 
 ## Example matrix and todoapp
 

@@ -63,8 +63,11 @@ The CommonJS `export =` constructor/value split now has a blocking
 `@:ts.instanceType` fixture across TS 5/6/7 and both Genes runtime profiles.
 Haxe 4.3.7's historical `PositionError` and `FetchObserver` WebIDL names now
 come from one shared TS/classic support contract with a generic strict-consumer
-regression. The broader cross-tool package matrix and dts2hx bridge remain
-`genes-09r.8`.
+regression. The dts2hx bridge now adds deterministic generated externs for an
+ESM root, typed subpath, conditional exports, and class-shaped CommonJS
+`export =`, with explicit tool/input/output hashes and known-loss metadata.
+This remains a curated local package matrix, not a blanket guarantee for every
+npm declaration pattern.
 
 ### R4 — Deterministic, diagnosable output
 

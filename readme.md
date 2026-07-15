@@ -24,6 +24,7 @@ boundary and planned shared architecture.
 - `docs/README.md` — documentation index (start here)
 - `docs/typescript-target/COMPILER_CONTRACT.md` — TS target contract
 - `docs/typescript-target/TYPING_POLICY.md` — TS typing rules + profiles
+- `docs/typescript-target/IMPORTS.md` — handwritten and dts2hx-generated npm interop
 - `docs/TROUBLESHOOTING.md` — common failure modes + fixes
 - `docs/OUTPUT_MODES.md` — TS output vs classic Genes JS output
 - `docs/ARCHITECTURE_ROADMAP.md` — readiness boundary and shared TS/JS architecture roadmap
@@ -43,6 +44,8 @@ boundary and planned shared architecture.
   - inline markup (`return <div>...</div>;`), default-on in TypeScript mode
   - equivalent React-compatible `createElement(...)` lowering in classic JS
 - **JS/TS interop helpers** via `genes.ts.Imports` (consume existing TS/TSX easily)
+- **npm declaration ingestion** via a pinned, deterministic dts2hx bridge whose
+  externs are exercised through both TS and classic JS output
 - **Async/await sugar** (`@:async` + `await(...)`) emitting native `async`/`await`
 - **Layered harness**: snapshots, strict `tsc`, negative type consumers, runtime smoke, classic JS assertions, exact source-map/determinism/output-budget evidence, and todoapp E2E (Playwright)
 - **ts2hx experiment**: fail-closed TS/JS → Haxe subset migration plus explicitly lossy assisted scaffolding
@@ -281,6 +284,15 @@ See `docs/typescript-target/DEBUGGING.md`.
 both `ts-strict` and `classic-esm`, strictly checks their public type surfaces,
 and runs both todoapp APIs. Add `--playwright` to execute the same browser
 journeys against each runtime profile.
+
+## dts2hx (.d.ts → Haxe externs)
+
+dts2hx is the declaration-ingestion partner for npm packages. Its generated
+externs remain ordinary Haxe APIs: genes-ts emits their precise TypeScript
+imports, while classic Genes emits equivalent ESM JavaScript and declarations.
+The blocking package-shape gate pins dts2hx 0.34.0, generates twice, forbids
+weak generated types, and covers ESM, a typed subpath, conditional exports, and
+class-shaped CommonJS `export =`. See `docs/typescript-target/IMPORTS.md`.
 
 ## ts2hx (TS/JS → Haxe, experimental)
 

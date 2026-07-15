@@ -24,6 +24,13 @@ export interface ToolchainManifest {
     readonly preview: string;
   };
   readonly typescript: Readonly<Record<TypeScriptLaneName, TypeScriptLane>>;
+  readonly dts2hx: {
+    readonly dependency: string;
+    readonly version: string;
+    readonly typescriptVersion: string;
+    readonly sourceAuditRevision: string;
+    readonly contract: "declaration-ingestion";
+  };
 }
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -54,6 +61,33 @@ function readLane(value: unknown, label: string): TypeScriptLane {
   };
 }
 
+function readDts2hx(value: unknown): ToolchainManifest["dts2hx"] {
+  if (typeof value !== "object" || value === null) {
+    throw new Error("Expected dts2hx to be an object");
+  }
+  const contract = value as Record<string, unknown>;
+  if (contract.contract !== "declaration-ingestion") {
+    throw new Error(`Unsupported dts2hx.contract: ${String(contract.contract)}`);
+  }
+  const sourceAuditRevision = nonEmptyString(
+    contract.sourceAuditRevision,
+    "dts2hx.sourceAuditRevision"
+  );
+  if (!/^[0-9a-f]{40}$/.test(sourceAuditRevision)) {
+    throw new Error("dts2hx.sourceAuditRevision must be a full Git revision");
+  }
+  return {
+    dependency: nonEmptyString(contract.dependency, "dts2hx.dependency"),
+    version: nonEmptyString(contract.version, "dts2hx.version"),
+    typescriptVersion: nonEmptyString(
+      contract.typescriptVersion,
+      "dts2hx.typescriptVersion"
+    ),
+    sourceAuditRevision,
+    contract: "declaration-ingestion"
+  };
+}
+
 /**
  * Loads the single compiler/toolchain contract used by local runners and CI.
  *
@@ -80,8 +114,11 @@ export function loadToolchains(): ToolchainManifest {
   const node = root.node as Record<string, unknown> | undefined;
   const haxe = root.haxe as Record<string, unknown> | undefined;
   const typescript = root.typescript as Record<string, unknown> | undefined;
-  if (!node || !haxe || !typescript) {
-    throw new Error("config/toolchains.json must define node, haxe, and typescript");
+  const dts2hx = root.dts2hx;
+  if (!node || !haxe || !typescript || !dts2hx) {
+    throw new Error(
+      "config/toolchains.json must define node, haxe, typescript, and dts2hx"
+    );
   }
   return {
     schemaVersion: 1,
@@ -97,7 +134,8 @@ export function loadToolchains(): ToolchainManifest {
       legacyFloor: readLane(typescript.legacyFloor, "typescript.legacyFloor"),
       apiBridge: readLane(typescript.apiBridge, "typescript.apiBridge"),
       current: readLane(typescript.current, "typescript.current")
-    }
+    },
+    dts2hx: readDts2hx(dts2hx)
   };
 }
 

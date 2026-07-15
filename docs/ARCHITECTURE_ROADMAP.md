@@ -241,8 +241,9 @@ The source of truth is Beads epic `genes-09r`.
    constructed instance without raw type strings or runtime changes. A local
    const-plus-namespace package type-checks with strict NodeNext on TS 5/6/7,
    rejects invalid consumer members, and executes identical TS/classic runtime
-   transcripts. Broader named/namespace, subpath, and conditional-export
-   dimensions remain part of the `genes-09r.8` dts2hx bridge matrix.
+   transcripts. The landed `genes-09r.8` bridge now adds generated ESM,
+   subpath, conditional-export, and class-shaped `export =` contracts while
+   retaining this precise manual boundary for const-plus-namespace declarations.
 8. **`genes-09r.5` — target-neutral `JsxPlan` (landed).** Typed marker intent
    now captures tags/components, ordered props/children, fragments, lifted
    Haxe locals with exact-once evaluation paths, source provenance, and an
@@ -270,12 +271,16 @@ The source of truth is Beads epic `genes-09r`.
 ### P2: mature migration and ecosystem workflows
 
 1. **`genes-09r.7` — ts2hx minimal semantic IR and differential support
-   matrix.** Preserve `Undefined`, `Null`, `AbsentParameter`, and
-   `Uninitialized`; model evaluation sequences and high-risk control flow; keep
-   support decisions out of the printer.
-2. **`genes-09r.8` — dts2hx bridge.** Depends on the toolchain matrix and
-   `genes-6za`; share package-shape fixtures and reproducible manifests rather
-   than embedding one emitter inside the other.
+   matrix (landed).** Schema-v2 support/provenance manifests now grade 13 exact
+   contracts across original TS, translated classic JS, and translated
+   genes-ts output. Five unsupported contracts fail closed without publishing
+   partial output; printers no longer own support decisions for migrated
+   undefined/default/evaluation/control-flow/module categories.
+2. **`genes-09r.8` — dts2hx bridge (landed).** dts2hx 0.34.0 and its TS5.9 API
+   are pinned beside the genes TS6 adapter. Shared local packages cover an ESM
+   root, typed subpath, conditional exports, and class-shaped CommonJS
+   `export =`; two clean extern generations must match a versioned manifest,
+   contain no weak types, and drive identical strict-TS/classic transcripts.
 3. **`genes-09r.11` — `TempPlan`, `NamePlan`, and lightweight expression
    lowering.** Depends on the output-budget baseline; migrate only constructs
    whose evaluation order or target shape must survive multiple passes.
@@ -330,10 +335,12 @@ roundtrips are valuable. Its contract is now:
 - future `strict-portable`: only a declared portable Haxe subset, backed by
   cross-target evidence rather than source appearance.
 
-dts2hx remains the declaration-ingestion foundation. Integration should share
-package fixtures, versioned manifests, and a narrow compiler-API adapter—not a
-combined code generator. genes-ts remains responsible for the final TS/classic
-import form of generated or handwritten Haxe externs.
+dts2hx remains the declaration-ingestion foundation. The landed bridge shares
+package fixtures, versioned manifests, and a narrow compiler-API resolution
+contract—not a combined code generator. dts2hx keeps its pinned TypeScript
+converter API; genes tooling keeps the repository TS6 adapter; both resolve the
+same versioned entrypoints. genes-ts remains responsible for the final
+TS/classic import form of generated or handwritten Haxe externs.
 
 ## Downstream QA policy
 

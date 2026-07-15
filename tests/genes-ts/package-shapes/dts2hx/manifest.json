@@ -1,0 +1,134 @@
+{
+  "schemaVersion": 1,
+  "generator": {
+    "package": "dts2hx",
+    "version": "0.34.0",
+    "distribution": "locked npm tarball",
+    "sourceAuditRevision": "ccc944540e04ed1e41383533a3b7b9ac6ee80208",
+    "typescriptVersion": "5.9.3"
+  },
+  "haxe": {
+    "testedVersion": "4.3.7",
+    "minimumGeneratedExternVersion": "4.3"
+  },
+  "invocation": {
+    "entryPoints": [
+      "genes-dts2hx-esm-fixture",
+      "genes-dts2hx-esm-fixture/feature",
+      "genes-dts2hx-cjs-fixture"
+    ],
+    "moduleResolution": "NodeNext",
+    "modular": true,
+    "skipDependencies": true,
+    "libraryWrapper": false
+  },
+  "resolutionAdapters": [
+    "genes TypeScript 6 API seam",
+    "dts2hx TypeScript 5.9 converter API"
+  ],
+  "packages": [
+    {
+      "name": "genes-dts2hx-esm-fixture",
+      "version": "1.0.0"
+    },
+    {
+      "name": "genes-dts2hx-cjs-fixture",
+      "version": "1.0.0"
+    }
+  ],
+  "inputs": {
+    "treeSha256": "f92c620d9e3da6d4f999e2f812de503e1b7fc399f7116c64dbf1b070a0842059",
+    "files": [
+      {
+        "path": "genes-dts2hx-esm-fixture/feature.cjs",
+        "sha256": "c072d06e10cb76d9c6af8c5b176fadc6ddc9e7276af8d4c0744c43c60086d516"
+      },
+      {
+        "path": "genes-dts2hx-esm-fixture/feature.d.ts",
+        "sha256": "60a10d3c573429bc3d99f7cfff062ab6ba1f1e2d8d292aa504dff6f49e5f3214"
+      },
+      {
+        "path": "genes-dts2hx-esm-fixture/feature.js",
+        "sha256": "3d776fca32f508a22f3facd9c5fec3ac40f64cbb5285af18501908f9de72c4f6"
+      },
+      {
+        "path": "genes-dts2hx-esm-fixture/index.cjs",
+        "sha256": "4f1dbc86487ae55337de0dd5daa70f851de252544a8def1e07816792923fb1b6"
+      },
+      {
+        "path": "genes-dts2hx-esm-fixture/index.d.ts",
+        "sha256": "d6c578371c3692bc5f83b054cadf7b8052a2c52c195835dcab3dc3be2782803d"
+      },
+      {
+        "path": "genes-dts2hx-esm-fixture/index.js",
+        "sha256": "8ce5672415510f11ff5ae30a7f5da93748215993da286cb3f78dc5420fc0fb3e"
+      },
+      {
+        "path": "genes-dts2hx-esm-fixture/package.json",
+        "sha256": "9d796bf11a79b04633236e2ce8e6c55b980e3e29b0c8633590075b238dc9945f"
+      },
+      {
+        "path": "genes-dts2hx-cjs-fixture/index.cjs",
+        "sha256": "d7f15fd31cee9f3cc141f12af92f3ae77cf9b415c65a276cd08963d70562fa31"
+      },
+      {
+        "path": "genes-dts2hx-cjs-fixture/index.d.ts",
+        "sha256": "ad52c761bbf40c15a9ffd5ea3203f7b0849da0667ffdeb1011c108f75429accf"
+      },
+      {
+        "path": "genes-dts2hx-cjs-fixture/package.json",
+        "sha256": "83879f725cfb1bffa233ac712bd8ca23663b4798a73cd014045ad51883b255d9"
+      }
+    ]
+  },
+  "generatedExterns": {
+    "treeSha256": "454015b62079784ba46ca80390886378c6c7c8ea3be8167505f13503d347edf2",
+    "files": [
+      {
+        "path": "GenesDts2hxCjsFixture.hx",
+        "sha256": "f12c999135c424a53259681cf7769ff8fe2939d68b0a03b45758cd1417a6876b"
+      },
+      {
+        "path": "GenesDts2hxEsmFixture.hx",
+        "sha256": "f049e8d66ac9b17ffc58809e7d3e9b41bbb20f0e66fa1763a21d14fd8f57e0d2"
+      },
+      {
+        "path": "genes_dts2hx_esm_fixture/Feature.hx",
+        "sha256": "4936e13f2a8e006d890f1e5690739dd2a2097a6cf7b7d8e676a1ec54f1db5169"
+      },
+      {
+        "path": "genes_dts2hx_esm_fixture/FeatureModule.hx",
+        "sha256": "d7e5d27a04324660cfd31f86a600414be27e056c58725815124d47af8248f4a3"
+      },
+      {
+        "path": "genes_dts2hx_esm_fixture/Formatter.hx",
+        "sha256": "1071dda0f116b51867615aa792692216022324d7fcb21f644606c8a8421eb6fd"
+      }
+    ]
+  },
+  "lossPolicy": {
+    "weakGeneratedTypes": "forbidden",
+    "diagnostics": "fail closed"
+  },
+  "knownLosses": [
+    {
+      "id": "DTS2HX-CONST-NAMESPACE-EXPORT-EQUALS",
+      "disposition": "precise manual extern fixture retained",
+      "detail": "dts2hx 0.34.0 does not merge a const-plus-namespace Instance surface into the constructed Haxe class; the separate genes-export-equals-fixture covers that shape without Dynamic"
+    }
+  ],
+  "capabilitiesNotExercised": [
+    {
+      "id": "DTS2HX-HAXE5-JS-IMPORT",
+      "detail": "@:js.import generation is reserved for the nonblocking Haxe 5 lane; the stable Haxe 4.3 bridge uses @:jsRequire and genes emits ESM"
+    }
+  ],
+  "runtimeConditions": [
+    "import through generated genes TS and classic ESM",
+    "require through direct CommonJS root and subpath smoke"
+  ],
+  "profiles": [
+    "genes-ts ts-strict",
+    "classic genes ESM plus declarations"
+  ]
+}

@@ -13,6 +13,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { runDts2hxBridge } from "./dts2hx-bridge.js";
 import { assertExportedSurfacePolicy } from "./exported-surface-policy.js";
 import { runGeneratedTypeScriptMatrix } from "./toolchains.js";
 
@@ -207,4 +208,9 @@ deepStrictEqual(
   expectedTranscript
 );
 
-console.log("Package-shape interop checks passed (CommonJS export-equals constructor).");
+runDts2hxBridge({ repoRoot, fixtureRoot });
+
+console.log(
+  "Package-shape interop checks passed " +
+  "(manual const/namespace CJS + dts2hx ESM/subpath/conditional/CJS bridge)."
+);

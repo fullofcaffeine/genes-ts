@@ -1,0 +1,11 @@
+-lib genes-ts
+-lib hxnodejs
+-cp tests/genes-ts/package-shapes/dts2hx/src
+-cp tests/genes-ts/package-shapes/dts2hx/out/externs-a
+--main dts2hx_shapes.Main
+-js tests/genes-ts/package-shapes/dts2hx/out/ts/src-gen/index.ts
+-D genes.ts
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
+-debug

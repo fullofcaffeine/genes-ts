@@ -30,5 +30,12 @@
       "binary": "bin/tsc",
       "contract": "generated-output-only"
     }
+  },
+  "dts2hx": {
+    "dependency": "dts2hx",
+    "version": "0.34.0",
+    "typescriptVersion": "5.9.3",
+    "sourceAuditRevision": "ccc944540e04ed1e41383533a3b7b9ac6ee80208",
+    "contract": "declaration-ingestion"
   }
 }

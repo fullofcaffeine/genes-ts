@@ -51,10 +51,19 @@ This is intentionally larger/noisier than the snapshot cases and focuses on comp
 ## Package-shape interop
 
 `tests/genes-ts/package-shapes/` owns small, local npm packages whose declaration
-and runtime module shapes must agree. The current blocking fixture models a
-CommonJS `export =` constructor represented as a `const` plus merged namespace.
-It proves `@:ts.instanceType` field and return surfaces under strict NodeNext on
-TS 5/6/7, negative consumer typing, and identical TS/classic runtime behavior.
+and runtime module shapes must agree. The blocking matrix contains two layers:
+
+- a precise handwritten extern for the difficult CommonJS `export =`
+  const-plus-namespace constructor shape; and
+- dts2hx-generated externs for an ESM root, typed package subpath, conditional
+  `import`/`require` exports, and a class-shaped CommonJS `export =` package.
+
+The dts2hx layer pins dts2hx 0.34.0 and its TypeScript 5.9.3 API, resolves the
+same entrypoints through the repository's TS6 adapter, generates twice, and
+compares the complete extern trees with `dts2hx/manifest.json`. It rejects
+converter diagnostics and generated `Dynamic`/`Any`, then compiles one Haxe
+consumer through strict TS and classic ESM/declarations on TS 5/6/7. Both
+profiles must produce an identical runtime transcript.
 
 Run it directly with:
 
