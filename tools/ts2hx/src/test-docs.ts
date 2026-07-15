@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { spawnSync } from "child_process";
-import { SEMANTIC_SUPPORT_MATRIX } from "./semantic/ir.js";
+import { SEMANTIC_FAIL_CLOSED_CASES, SEMANTIC_SUPPORT_MATRIX } from "./semantic/ir.js";
 
 function assert(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -141,13 +141,14 @@ function main(): void {
     assert(limitations.includes(`\`${feature.id}\``), `LIMITATIONS.md omits semantic feature ${feature.id}.`);
   const supportedCount = SEMANTIC_SUPPORT_MATRIX.filter((feature) => feature.support !== "unsupported").length;
   const unsupportedCount = SEMANTIC_SUPPORT_MATRIX.length - supportedCount;
+  const failClosedCount = SEMANTIC_FAIL_CLOSED_CASES.length;
   assert(
     usage.includes(`${supportedCount} supported semantic contracts`),
     `USAGE.md supported semantic count is stale; expected ${supportedCount}.`
   );
   assert(
-    usage.includes(`${unsupportedCount} feature-specific strict failures`),
-    `USAGE.md unsupported semantic count is stale; expected ${unsupportedCount}.`
+    usage.includes(`${failClosedCount} feature-specific strict failures`),
+    `USAGE.md fail-closed semantic count is stale; expected ${failClosedCount}.`
   );
   assert(
     limitations.includes(`${supportedCount} supported rows`) && limitations.includes(`${unsupportedCount} unsupported rows`),

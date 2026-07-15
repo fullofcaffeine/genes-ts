@@ -151,6 +151,8 @@ type EmitContext = {
   expressionRewrites: Map<string, string>;
   /** Increment expressions to execute before a continue at each loop depth. */
   continueSteps: Array<string | null>;
+  /** Escapes the synthetic do/while used to preserve switch break semantics. */
+  switchContinueTransfers: Array<{ flag: string; loopDepth: number }>;
 };
 
 type SemanticFailure = {
@@ -1887,7 +1889,40 @@ function emitDirectTryCatch(ctx: EmitContext, stmt: ts.TryStatement, indent: str
   return `${indent}try ${tryBlockNoIndent} catch (${catchName}: Any) ${catchBodyNoIndent}`;
 }
 
+/**
+ * Emits a continue for the real loop represented by the current semantic plan.
+ *
+ * A lowered switch uses `do ... while (false)` so source `break` has a concrete
+ * target. A source `continue` must not target that synthetic loop. While switch
+ * clauses are rendered, this function instead records the transfer and breaks
+ * the synthetic loop. Once outside it, the same function either propagates
+ * through an enclosing synthetic switch or performs the real loop continue,
+ * including a lowered for-loop increment exactly once.
+ */
+function emitContinue(ctx: EmitContext, indent: string): string {
+  const loopDepth = ctx.continueSteps.length;
+  const switchTransfer = ctx.switchContinueTransfers
+    .slice()
+    .reverse()
+    .find((transfer) => transfer.loopDepth === loopDepth);
+  if (switchTransfer)
+    return `${indent}${switchTransfer.flag} = true;\n${indent}break;`;
+
+  const continueStep = ctx.continueSteps[loopDepth - 1] ?? null;
+  return continueStep
+    ? `${indent}${continueStep};\n${indent}continue;`
+    : `${indent}continue;`;
+}
+
 function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): string | null {
+  if (ts.isLabeledStatement(stmt)) {
+    // An unused statement label has no runtime effect. Any labeled break or
+    // continue remains visible in the nested statement and therefore either
+    // receives its feature-specific strict diagnostic or fails the containing
+    // lowering; the label is never silently treated as an unlabelled transfer.
+    return emitStatement(ctx, stmt.statement, indent);
+  }
+
   if (ts.isBlock(stmt)) {
     const inner = emitStatements(ctx, stmt.statements, indent + "  ");
     if (inner == null) return null;
@@ -1990,10 +2025,7 @@ function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): st
 
   if (ts.isContinueStatement(stmt)) {
     if (stmt.label) return null;
-    const continueStep = ctx.continueSteps[ctx.continueSteps.length - 1] ?? null;
-    return continueStep
-      ? `${indent}${continueStep};\n${indent}continue;`
-      : `${indent}continue;`;
+    return emitContinue(ctx, indent);
   }
 
   if (ts.isThrowStatement(stmt)) {
@@ -2067,12 +2099,21 @@ function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): st
 
   if (ts.isSwitchStatement(stmt)) {
     const plan = planSwitch(stmt);
-    if (plan.hasContinue) {
+    if (plan.continuePlan.kind === "unsupported-labeled") {
       return rejectSemantic(
         ctx,
         "switch.continue",
-        stmt,
-        "Continue from inside a switch cannot yet target its enclosing loop losslessly.",
+        plan.continuePlan.statement,
+        "Labeled continue from inside a switch is not represented by the strict subset.",
+        "control-flow"
+      );
+    }
+    if (plan.continuePlan.kind === "outer-loop" && ctx.continueSteps.length === 0) {
+      return rejectSemantic(
+        ctx,
+        "switch.continue",
+        plan.continuePlan.statement,
+        "Continue from inside a switch has no enclosing loop target.",
         "control-flow"
       );
     }
@@ -2083,11 +2124,18 @@ function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): st
     recordSemantic(ctx, "coercion.strict-equality", stmt);
     const valueTemp = nextTmp(ctx, "__ts2hx_switch_value");
     const stateTemp = nextTmp(ctx, "__ts2hx_switch_state");
+    const continueFlag = plan.continuePlan.kind === "outer-loop"
+      ? nextTmp(ctx, "__ts2hx_switch_continue")
+      : null;
     const lines: string[] = [
       `${indent}{`,
       `${indent}  var ${valueTemp} = ${discriminant};`,
       `${indent}  var ${stateTemp} = -1;`
     ];
+    if (continueFlag && plan.continuePlan.kind === "outer-loop") {
+      recordSemantic(ctx, "switch.continue", plan.continuePlan.statement);
+      lines.push(`${indent}  var ${continueFlag} = false;`);
+    }
 
     // JavaScript evaluates case expressions in source order and stops after
     // the first match. Default is selected only after every case misses.
@@ -2103,14 +2151,25 @@ function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): st
       lines.push(`${indent}  if (${stateTemp} == -1) ${stateTemp} = ${plan.defaultIndex};`);
 
     lines.push(`${indent}  if (${stateTemp} >= 0) do {`);
+    if (continueFlag)
+      ctx.switchContinueTransfers.push({ flag: continueFlag, loopDepth: ctx.continueSteps.length });
     for (const clause of plan.clauses) {
       const body = emitStatements(ctx, clause.statements, indent + "      ");
-      if (body == null) return null;
+      if (body == null) {
+        if (continueFlag) ctx.switchContinueTransfers.pop();
+        return null;
+      }
       lines.push(`${indent}    if (${stateTemp} <= ${clause.index}) {`);
       if (body.length > 0) lines.push(body);
       lines.push(`${indent}    }`);
     }
+    if (continueFlag) ctx.switchContinueTransfers.pop();
     lines.push(`${indent}  } while (false);`);
+    if (continueFlag) {
+      lines.push(`${indent}  if (${continueFlag}) {`);
+      lines.push(emitContinue(ctx, indent + "    "));
+      lines.push(`${indent}  }`);
+    }
     lines.push(`${indent}}`);
     return lines.join("\n");
   }
@@ -2757,7 +2816,8 @@ function emitHaxeSourceFile(
     semanticRecorder,
     semanticFailures: [],
     expressionRewrites: new Map(),
-    continueSteps: []
+    continueSteps: [],
+    switchContinueTransfers: []
   };
 
   function recordSemanticFailures(): void {

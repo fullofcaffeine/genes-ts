@@ -168,7 +168,7 @@ through standard Haxe JS. Explicit exceptions:
 
 Additional evidence-only fixtures:
 
-- `semantic-diff`: 14 supported semantic contracts executed as original TS,
+- `semantic-diff`: 15 supported semantic contracts executed as original TS,
   classic Genes JS, and genes-ts→JS;
 - `semantic-unsupported`: 4 feature-specific strict failures with source
   provenance and unchanged prior output;
@@ -215,9 +215,10 @@ The semantic differential is the stronger behavior gate. It requires matching
 event traces for explicit undefined, parameter defaults, uninitialized locals,
 truthiness, strict equality, unary-plus numeric coercion, compound-assignment
 order, `for`/`continue`, switch fallthrough/default placement,
-try/catch/finally, class and lexical arrow `this`, async/await ordering, and ESM
-bindings. It also proves switch continue, outer completion through finally,
-dynamic prototype mutation, and side-effect imports fail closed.
+unlabelled switch-to-loop `continue`, try/catch/finally, class and lexical arrow
+`this`, async/await ordering, and ESM bindings. It also proves labeled switch
+continue, outer completion through finally, dynamic prototype mutation, and
+side-effect imports fail closed.
 
 Update snapshots only after reviewing the semantic reason for every change:
 

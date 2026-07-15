@@ -4,7 +4,11 @@ import { execFileSync } from "child_process";
 import { pathToFileURL } from "url";
 import { emitProjectToHaxe } from "./haxe/emit.js";
 import { loadProject } from "./project.js";
-import { SEMANTIC_SUPPORT_MATRIX, type SemanticFeatureId } from "./semantic/ir.js";
+import {
+  SEMANTIC_FAIL_CLOSED_CASES,
+  SEMANTIC_SUPPORT_MATRIX,
+  type SemanticFeatureId
+} from "./semantic/ir.js";
 import { runTypeScriptApiBridge } from "./toolchains.js";
 
 const TRACE_MARKER = "SEMANTIC_TRACE:";
@@ -189,6 +193,7 @@ function main(): void {
     "evaluation.compound-assignment",
     "loops.for-continue-step",
     "switch.fallthrough",
+    "switch.continue",
     "exceptions.try-catch",
     "exceptions.finally",
     "this.class-and-lexical-arrow",
@@ -268,26 +273,21 @@ function main(): void {
     fs.readFileSync(path.join(unsupportedOutput, "sentinel.txt"), "utf8") === "prior-tree\n",
     "unsupported semantic project modified the prior output tree."
   );
-  const expectedDiagnosticIds = [
-    "TS2HX-EXCEPTIONS-FINALLY-OUTER-TRANSFER-001",
-    "TS2HX-MODULES-SIDE-EFFECT-IMPORT-001",
-    "TS2HX-PROTOTYPES-DYNAMIC-MUTATION-001",
-    "TS2HX-SWITCH-CONTINUE-001"
-  ].sort();
+  const expectedDiagnosticIds = SEMANTIC_FAIL_CLOSED_CASES
+    .map((failure) => failure.diagnosticId)
+    .sort();
   const diagnosticIds = rejected.diagnostics.map((diagnostic) => diagnostic.id).sort();
   assert(
     JSON.stringify(diagnosticIds) === JSON.stringify(expectedDiagnosticIds),
     `unsupported semantic diagnostics changed: ${JSON.stringify(diagnosticIds)}.`
   );
-  for (const featureId of [
-    "exceptions.finally-outer-transfer",
-    "modules.side-effect-import",
-    "prototypes.dynamic-mutation",
-    "switch.continue"
-  ] as SemanticFeatureId[]) {
-    const feature = rejected.manifest.features.find((entry) => entry.id === featureId);
-    assert(feature?.support === "unsupported", `${featureId}: support grade is not unsupported.`);
-    assert((feature?.occurrences.length ?? 0) > 0, `${featureId}: rejection has no source provenance.`);
+  for (const failure of SEMANTIC_FAIL_CLOSED_CASES) {
+    const feature = rejected.manifest.features.find((entry) => entry.id === failure.featureId);
+    assert(feature !== undefined, `${failure.featureId}: missing fail-closed feature contract.`);
+    assert(
+      feature.occurrences.length > 0,
+      `${failure.featureId}: ${failure.variant} has no source provenance.`
+    );
   }
 
   process.stdout.write(

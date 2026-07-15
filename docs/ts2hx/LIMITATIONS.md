@@ -36,7 +36,7 @@ evidence.
 | Haxe compile smoke | Generated Haxe parses and types on the exercised JS profile. | Runtime behavior or non-JS portability. |
 | Runtime smoke | A selected generated entry executes and prints its marker. | Edge cases or behavioral equivalence with the original TypeScript. |
 | Roundtrip smoke | Original TS and Haxe→genes-ts→TS execute selected common workflows; guarded user modules avoid `any`/`unknown`. | Whole-program parity; the three fixtures explicitly exclude one unsupported top-level entry file each. |
-| Semantic differential | The original TS, classic Genes JS, and genes-ts→JS event traces match for 14 declared contracts. | Syntax/categories outside those contracts. |
+| Semantic differential | The original TS, classic Genes JS, and genes-ts→JS event traces match for 15 declared contracts. | Syntax/categories outside those contracts. |
 | Strict diagnostics/transaction test | Unsupported source receives stable spans/IDs and cannot leave a partial output tree. | That the unsupported feature has been implemented. |
 
 ## Current semantic support matrix
@@ -60,7 +60,7 @@ Grades describe the emitted Haxe contract:
 | `evaluation.compound-assignment` | supported / P0 | Identifier/property/element targets preserve receiver, key, prior-value, and RHS order. Other lvalues are outside the contract. |
 | `loops.for-continue-step` | supported / P0 | Lowered `for` loops execute their increment before continuing; labeled continue is unsupported. |
 | `switch.fallthrough` | supported / P0 | A normalized state machine preserves case search, default placement, fallthrough, and break. |
-| `switch.continue` | unsupported / U | Continue from a switch to an enclosing loop is rejected. |
+| `switch.continue` | supported / P0 | Unlabelled continue propagates through lowered nested switches to the real enclosing `while`/`for`; a lowered `for` step runs exactly once. Labeled continue is rejected. |
 | `exceptions.try-catch` | supported / P0 | Ordinary catch and propagation are exercised. |
 | `exceptions.finally` | helper / J1 | Ordering/propagation is preserved when completion remains inside the modeled region. |
 | `exceptions.finally-outer-transfer` | unsupported / U | Return, break, or continue crossing the protected region is rejected. |
@@ -70,9 +70,12 @@ Grades describe the emitted Haxe contract:
 | `modules.esm-bindings` | supported / J1 | Covers the exercised ESM value/type binding and re-export subset. |
 | `modules.side-effect-import` | unsupported / U | Bare side-effect imports are rejected because no Haxe initialization edge exists. |
 
-The semantic harness currently requires exactly the 14 supported rows to occur
-and the 4 unsupported rows to fail with feature-specific diagnostics. This
-table does not turn other syntax accepted by snapshots into semantic evidence.
+The semantic harness currently requires exactly the 15 supported rows to occur.
+The matrix contains 3 unsupported rows, while the strict companion fixture owns
+4 feature-specific failures: the three unsupported contracts plus labeled
+switch continue, a deliberately rejected variant of an otherwise supported
+contract. This table does not turn other syntax accepted by snapshots into
+semantic evidence.
 
 ## Project and file inventory
 
@@ -161,8 +164,9 @@ Snapshots exercise conditionals, loops, switch, break/continue, try/catch, and
 finally. Exact differentials own only the matrix rows above.
 
 - labeled control transfer is not generally supported;
-- switch fallthrough is modeled, but switch-to-enclosing-loop `continue` is
-  rejected;
+- switch fallthrough and unlabelled switch-to-enclosing-loop `continue` are
+  modeled, including nested switches and lowered `for` steps; labeled continue
+  is rejected;
 - `finally` cannot yet carry a return/break/continue completion across an outer
   function or loop boundary;
 - unsupported statement kinds receive a source-positioned diagnostic rather

@@ -131,15 +131,15 @@ export const SEMANTIC_SUPPORT_MATRIX: readonly SemanticFeatureContract[] = [
     support: "supported",
     portableGrade: "P0",
     summary: "Preserves case search, default position, fallthrough, and break with a normalized state machine.",
-    limitation: "A switch containing continue is rejected until enclosing-loop transfer is represented explicitly."
+    limitation: null
   },
   {
     id: "switch.continue",
     category: "control-flow",
-    support: "unsupported",
-    portableGrade: "U",
-    summary: "Continue from a switch to an enclosing loop is not yet represented.",
-    limitation: "Refactor the switch or wait for explicit labeled control-transfer IR."
+    support: "supported",
+    portableGrade: "P0",
+    summary: "Propagates unlabelled continue from a lowered switch to its real enclosing loop.",
+    limitation: "Labeled continue remains unsupported."
   },
   {
     id: "exceptions.try-catch",
@@ -204,6 +204,52 @@ export const SEMANTIC_SUPPORT_MATRIX: readonly SemanticFeatureContract[] = [
     portableGrade: "U",
     summary: "Bare side-effect imports have no explicit Haxe initialization edge yet.",
     limitation: "Strict mode rejects them instead of silently dropping their effects."
+  }
+];
+
+export type SemanticFailClosedCase = {
+  featureId: SemanticFeatureId;
+  diagnosticId: string;
+  variant: string;
+};
+
+/**
+ * Canonical lossy variants exercised by the strict semantic fixture.
+ *
+ * Why: a supported feature may still reject a narrower variant, such as a
+ * labeled continue. Counting only unsupported feature rows would therefore
+ * understate the fail-closed evidence, while counting diagnostics directly in
+ * tests would leave public documentation vulnerable to stale hard-coded
+ * numbers.
+ *
+ * What: each entry links one stable diagnostic to the semantic contract whose
+ * boundary it proves. This is evidence inventory, not an exhaustive catalog of
+ * every syntax error the translator can report.
+ *
+ * How: the three-runtime differential test derives its expected diagnostics
+ * from this table, and the documentation gate derives the advertised strict
+ * failure count from the same owner.
+ */
+export const SEMANTIC_FAIL_CLOSED_CASES: readonly SemanticFailClosedCase[] = [
+  {
+    featureId: "exceptions.finally-outer-transfer",
+    diagnosticId: "TS2HX-EXCEPTIONS-FINALLY-OUTER-TRANSFER-001",
+    variant: "outer completion crossing finally"
+  },
+  {
+    featureId: "modules.side-effect-import",
+    diagnosticId: "TS2HX-MODULES-SIDE-EFFECT-IMPORT-001",
+    variant: "bare side-effect import without an initialization edge"
+  },
+  {
+    featureId: "prototypes.dynamic-mutation",
+    diagnosticId: "TS2HX-PROTOTYPES-DYNAMIC-MUTATION-001",
+    variant: "dynamic prototype mutation"
+  },
+  {
+    featureId: "switch.continue",
+    diagnosticId: "TS2HX-SWITCH-CONTINUE-001",
+    variant: "labeled continue from a switch"
   }
 ];
 
@@ -380,28 +426,67 @@ export type SwitchClausePlan = {
   statements: readonly ts.Statement[];
 };
 
+/**
+ * Describes the control transfer a lowered switch must preserve.
+ *
+ * Why: Haxe has no JavaScript-style switch fallthrough, so the emitter renders
+ * a switch as a state machine inside a synthetic `do/while(false)`. A plain
+ * emitted `continue` would target that synthetic loop instead of the source
+ * loop and silently change behavior.
+ *
+ * What: `outer-loop` identifies the first unlabelled continue that escapes the
+ * switch; `unsupported-labeled` retains the exact source node for a stable
+ * diagnostic; `none` permits the simpler state machine.
+ *
+ * How: the emitter turns `outer-loop` into an explicit flag/break transfer and
+ * propagates it through any enclosing lowered switches before continuing the
+ * real loop. The source node also owns manifest provenance.
+ */
+export type SwitchContinuePlan =
+  | { kind: "none" }
+  | { kind: "outer-loop"; statement: ts.ContinueStatement }
+  | { kind: "unsupported-labeled"; statement: ts.ContinueStatement };
+
 export type SwitchPlan = {
   statement: ts.SwitchStatement;
   discriminant: ts.Expression;
   clauses: SwitchClausePlan[];
   defaultIndex: number | null;
-  hasContinue: boolean;
+  continuePlan: SwitchContinuePlan;
 };
 
-function hasContinueEscapingSwitch(root: ts.Node): boolean {
-  let found = false;
+/**
+ * Classifies continue statements that would escape a switch in JavaScript.
+ *
+ * Why: merely searching for `continue` is incorrect. A continue inside a real
+ * nested loop belongs to that loop, while one inside a nested switch still
+ * targets the surrounding real loop. Function/class bodies are separate
+ * control-flow regions and must not affect their containing switch.
+ *
+ * What: the walk returns one representative source node and the strongest
+ * required disposition. Any labeled continue makes the switch fail closed;
+ * otherwise an unlabelled continue at real-loop depth zero requests transfer.
+ *
+ * How: iteration statements increment `loopDepth`; nested switches deliberately
+ * do not. Traversal stops at function/class boundaries and after finding an
+ * unsupported labeled variant. Rendering details remain in the emitter.
+ */
+function planContinueEscapingSwitch(root: ts.Node): SwitchContinuePlan {
+  let plan: SwitchContinuePlan = { kind: "none" };
   function visit(node: ts.Node, loopDepth: number): void {
-    if (found) return;
+    if (plan.kind === "unsupported-labeled") return;
     if (node !== root && (ts.isFunctionLike(node) || ts.isClassLike(node))) return;
     if (ts.isContinueStatement(node)) {
-      if (node.label || loopDepth === 0) found = true;
+      if (node.label) plan = { kind: "unsupported-labeled", statement: node };
+      else if (loopDepth === 0 && plan.kind === "none")
+        plan = { kind: "outer-loop", statement: node };
       return;
     }
     const nextLoopDepth = ts.isIterationStatement(node, false) ? loopDepth + 1 : loopDepth;
     ts.forEachChild(node, (child) => visit(child, nextLoopDepth));
   }
   visit(root, 0);
-  return found;
+  return plan;
 }
 
 function hasTransferEscapingCallback(root: ts.Node): boolean {
@@ -447,7 +532,7 @@ export function planSwitch(statement: ts.SwitchStatement): SwitchPlan {
     discriminant: statement.expression,
     clauses,
     defaultIndex: defaultClause?.index ?? null,
-    hasContinue: hasContinueEscapingSwitch(statement.caseBlock)
+    continuePlan: planContinueEscapingSwitch(statement.caseBlock)
   };
 }
 

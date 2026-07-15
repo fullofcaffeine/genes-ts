@@ -53,6 +53,110 @@ function switchCase(value: number): number {
   return value;
 }
 
+function whileSwitchContinue(): string {
+  const seen: string[] = [];
+  let index = 0;
+  while (index < 4) {
+    index += 1;
+    switch (index) {
+      case 1:
+        seen.push("direct:1");
+        continue;
+      case 2:
+        if (index === 2) {
+          seen.push("conditional:2");
+          continue;
+        }
+        seen.push("unreachable");
+        break;
+      case 3:
+        seen.push("fallthrough:3");
+      default:
+        seen.push(`case-end:${index}`);
+        break;
+    }
+    seen.push(`body:${index}`);
+  }
+  return seen.join(",");
+}
+
+let switchForSteps = 0;
+let switchForIndex = 0;
+
+function advanceSwitchFor(): void {
+  switchForSteps += 1;
+  switchForIndex += 1;
+}
+
+function forSwitchContinue(): string {
+  const seen: string[] = [];
+  switchForSteps = 0;
+  for (switchForIndex = 0; switchForIndex < 4; advanceSwitchFor()) {
+    switch (switchForIndex) {
+      case 0:
+        seen.push("continue:0");
+        continue;
+      case 2:
+        if (switchForIndex === 2) continue;
+        break;
+      default:
+        break;
+    }
+    seen.push(`body:${switchForIndex}`);
+  }
+  return `${seen.join(",")}|steps:${switchForSteps}`;
+}
+
+function nestedLoopSwitchContinue(): string {
+  const seen: string[] = [];
+  let outer = 0;
+  while (outer < 2) {
+    outer += 1;
+    switch (outer) {
+      case 1:
+        for (let inner = 0; inner < 3; inner++) {
+          if (inner === 1) continue;
+          seen.push(`inner:${inner}`);
+        }
+        seen.push("nested-done");
+        break;
+      case 2:
+        seen.push("outer-continue");
+        continue;
+    }
+    seen.push(`outer-body:${outer}`);
+  }
+  return seen.join(",");
+}
+
+function nestedSwitchContinue(): string {
+  const seen: string[] = [];
+  let index = 0;
+  while (index < 3) {
+    index += 1;
+    switch (index) {
+      case 1:
+        switch (index) {
+          case 1:
+            seen.push("inner-continue");
+            continue;
+          default:
+            break;
+        }
+        seen.push("unreachable");
+        break;
+      case 2:
+        seen.push("outer:2");
+        break;
+      default:
+        seen.push(`outer:${index}`);
+        break;
+    }
+    seen.push(`body:${index}`);
+  }
+  return seen.join(",");
+}
+
 class Counter {
   private value: number;
 
@@ -112,6 +216,11 @@ export function main(): void {
     if (i === 1) continue;
     events.push(`loop:${i}`);
   }
+
+  events.push(`switch-continue:while:${whileSwitchContinue()}`);
+  events.push(`switch-continue:for:${forSwitchContinue()}`);
+  events.push(`switch-continue:nested-loop:${nestedLoopSwitchContinue()}`);
+  events.push(`switch-continue:nested-switch:${nestedSwitchContinue()}`);
 
   const firstSwitch: number = 2;
   switch (firstSwitch) {
