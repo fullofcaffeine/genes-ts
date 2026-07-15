@@ -1,92 +1,106 @@
-# genes-ts — fullstack todoapp example
+# genes-ts fullstack dual-output todoapp
 
-This example is a small **frontend + backend** Todo app written in **Haxe**, compiled to **TypeScript/TSX** with genes-ts, and then built with standard TS tooling.
+This React Router + Express app is written once in Haxe and exercised through
+both first-class compiler profiles:
 
-Goals:
-- demonstrate `-D genes.ts` output (both Node and browser)
-- demonstrate React Router authoring from Haxe (`.tsx` output)
-- show practical extern usage (`@:jsRequire`) for JS/TS ecosystem libraries
-- share Haxe types between frontend and backend
+1. `ts-strict`: Haxe → TypeScript/TSX → JavaScript;
+2. `classic-esm`: the same Haxe → modern ESM JavaScript directly, plus strict
+   `.d.ts` declarations.
 
-## Committed generated output
+It is the real-world proof that genes-ts enriches Haxe for the TypeScript
+ecosystem without turning the source into a TypeScript-only dialect. It is
+still a bounded integration harness, not a claim that every Haxe/JS program is
+already equivalent across both profiles.
 
-This example checks in the **intended** generated TypeScript output:
+## Build and run
 
-- `examples/todoapp/web/dist-ts/src-gen`
-- `examples/todoapp/server/dist-ts/src-gen`
-
-During development, the build generates into `examples/todoapp/{web,server}/src-gen` (gitignored)
-and the build/test pipeline compares it against the committed `dist-ts/src-gen`.
-
-Why `dist-ts/`?
-
-- It provides a stable, browsable “what genes-ts emits” source tree next to a real app.
-- It’s useful as an audit trail when changing the compiler (diffs are obvious).
-- It helps the long-term goal of TS-only porting: the TS project structure is already present.
-
-What `dist-ts/` is not:
-
-- It is **not** the runtime build output. Runtime artifacts still go to `dist/`:
-  - `examples/todoapp/web/dist/**` (bundled browser assets)
-  - `examples/todoapp/server/dist/**` (Node `.js` + `.d.ts`)
-
-Update the committed output after a compiler change:
+From the repository root:
 
 ```bash
-UPDATE_SNAPSHOTS=1 npm run build:example:todoapp
+# TypeScript/TSX profile
+yarn example:todoapp
+
+# Classic ESM profile (no TypeScript implementation compilation)
+yarn example:todoapp:classic
 ```
 
-## Build + run (from repo root)
+Both servers default to `http://localhost:8787`. Build without starting a
+server with `yarn build:example:todoapp` or
+`yarn build:example:todoapp:classic`; use the matching `:run` command after a
+build.
+
+Run the complete example matrix with:
 
 ```bash
-npm install
-npm run example:todoapp
+yarn test:examples                 # both profiles, API/runtime smoke
+yarn test:examples --playwright    # both profiles, same browser journeys
 ```
 
-Then open `http://localhost:8787`.
+## Graceful TS → JS degradation
 
-If you only want to build (no server start):
+The web and server profiles point at the identical `examples/todoapp/src/`
+tree. There are no profile-specific Haxe forks.
+
+| Source concept | `ts-strict` projection | `classic-esm` projection |
+| --- | --- | --- |
+| Haxe inline markup / shared JSX intent | idiomatic TSX | `React.createElement(...)` calls |
+| `genes.ts.Imports` | typed value/type-aware ESM imports | ordinary runtime ESM imports |
+| `@:ts.type(...)` boundary metadata | precise ecosystem types in TS/declarations | erased from JS; retained only where useful in `.d.ts` |
+| Haxe classes, DTOs, nullability, runtime helpers | typed TS source | equivalent executable ES2022 and reviewed declarations |
+
+The classic build bundles the generated web entry together with the same
+authored TS/TSX ecosystem modules used by the TS profile. This is intentional:
+classic mode removes the generated-TypeScript stage; it does not forbid an
+application from consuming existing npm or TS-authored modules through its
+normal bundler.
+
+## What the harness verifies
+
+- React Router rendering and inline-markup lowering;
+- Express CRUD API behavior and static asset hosting;
+- Haxe → authored TS/TSX imports via `genes.ts.Imports`;
+- authored TS → generated Haxe module imports;
+- strict generated TS and classic `.d.ts` consumers on TS 5.5, 6, and 7;
+- absence of unsafe user-module types at the checked boundaries;
+- exact same API and Playwright journeys against both runtime profiles.
+
+`examples/profiles.json` owns the repository-wide example inventory. Adding a
+new immediate directory under `examples/` without declaring and testing both
+profiles fails `yarn test:examples`.
+
+## Generated output and snapshots
+
+The canonical TS profiles check in their intended generated source:
+
+- `web/dist-ts/src-gen/` and `server/dist-ts/src-gen/` (default);
+- `web/dist-ts-minimal/`, `web/dist-ts-lowlevel/`, and
+  `server/dist-ts-minimal/` (bounded variants).
+
+Ephemeral build trees are gitignored:
+
+- TS: `web/src-gen`, `server/src-gen`, `web/dist`, `server/dist`;
+- classic: `web/classic-src-gen`, `server/classic-src-gen`,
+  `web/classic-dist`.
+
+Update reviewed TS snapshots only after inspecting the compiler change:
 
 ```bash
-npm run build:example:todoapp
+UPDATE_SNAPSHOTS=1 yarn build:example:todoapp
 ```
 
-If you already built and just want to run the server:
+Classic output uses bounded semantic and shape checks instead of duplicating a
+second large checked-in source tree.
 
-```bash
-npm run example:todoapp:run
-```
+## Source layout and interop
 
-## Layout
+- `src/todo.shared.*` — domain and API payload types shared by web/server;
+- `src/todo.web.*` — React Router UI authored in Haxe;
+- `src/todo.server.*` — Express API and persistence authored in Haxe;
+- `web/src-ts/components/PrettyButton.tsx` — authored TSX imported by Haxe;
+- `web/src-ts/interop/haxeInterop.ts` — authored TS importing generated Haxe;
+- `web/build*.hxml`, `server/build*.hxml` — explicit compiler profiles;
+- `e2e/src/` — Playwright specs authored in Haxe and compiled through genes-ts.
 
-- `examples/todoapp/src/` — Haxe sources
-  - `todo.shared.*` — shared types (Todo, API payloads)
-  - `todo.server.*` — backend (Express JSON API + static hosting)
-  - `todo.web.*` — frontend (React Router)
-- `examples/todoapp/web/` — web build inputs/outputs
-  - `src-ts/` — hand-written TS/TSX modules used to demonstrate TS ecosystem interop
-  - `build.hxml` emits TSX into `web/src-gen/`
-  - `tsconfig.json` typechecks generated TSX
-  - `index.html` is copied into `web/dist/`
-- `examples/todoapp/server/` — server build inputs/outputs
-  - `build.hxml` emits TS into `server/src-gen/`
-  - `tsconfig.json` compiles TS → JS into `server/dist/`
-
-## TS ↔ Haxe interop (explicitly tested)
-
-This example is intentionally set up to demonstrate *both* directions of interop:
-
-1) **Haxe imports TS/TSX**:
-   - `examples/todoapp/web/src-ts/components/PrettyButton.tsx` is a TSX component
-   - imported from Haxe using `genes.ts.Imports`
-
-2) **TS imports generated Haxe output**:
-   - `examples/todoapp/web/src-ts/interop/haxeInterop.ts` imports `TodoText` from
-     `web/src-gen/**` and re-exports a stable function
-   - the UI renders that banner and Playwright asserts it exists
-
-Why the explicit “keep” in Haxe?
-
-Haxe DCE does not know about TS-only imports, so if a Haxe value is *only* referenced
-from TS-authored code, it may be removed from output. The harness keeps the relevant
-symbol explicitly so the interop boundary is stable.
+Haxe DCE cannot see symbols referenced only by authored TS, so the source keeps
+that narrow interop export explicitly. This is a general module-boundary fact,
+not a todoapp-specific compiler exception.

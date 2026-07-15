@@ -271,8 +271,16 @@ See `docs/typescript-target/DEBUGGING.md`.
 
 ## Examples
 
-- `examples/typescript-target/` — TS output contract + examples
-- `examples/todoapp/` — fullstack todoapp (React Router + Express): `npm run example:todoapp`
+- `examples/typescript-target/` — minimal same-source TS/classic executable
+  differential: `yarn build:example:genes-ts`
+- `examples/todoapp/` — the same React Router + Express Haxe application as
+  TypeScript/TSX (`yarn example:todoapp`) or direct classic ESM JavaScript
+  (`yarn example:todoapp:classic`)
+
+`yarn test:examples` owns every immediate directory under `examples/`, builds
+both `ts-strict` and `classic-esm`, strictly checks their public type surfaces,
+and runs both todoapp APIs. Add `--playwright` to execute the same browser
+journeys against each runtime profile.
 
 ## ts2hx (TS/JS → Haxe, experimental)
 
@@ -340,6 +348,7 @@ Classic Genes mode (JS output) also supports:
 - `npm run test:genes-ts:tsx`
 - `npm run test:genes-ts:snapshots` (or `UPDATE_SNAPSHOTS=1 npm run test:genes-ts:snapshots`)
 - `npm run test:genes-ts:sourcemaps`
+- `npm run test:examples` (every checked-in example under TS and classic JS)
 - `npm run test:todoapp` (todoapp API smoke)
 - `npm run test:todoapp:e2e` (todoapp API + Playwright E2E; Playwright specs are authored in Haxe)
 

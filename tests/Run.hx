@@ -18,6 +18,7 @@ class Run {
       new TestSyntax(), new TestAsyncAwait(), new TestImportHelper(),
       new TestUnknownNarrowing(), new TestJsonValue(),
       new TestPublicSurface(), new TestNullishContract(),
+      new TestWebIdlSupport(),
       #end
       new TestAsterisk(),
       new TestBind(),

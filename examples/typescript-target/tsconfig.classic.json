@@ -5,13 +5,11 @@
     "moduleResolution": "NodeNext",
     "types": ["node"],
     "strict": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "rootDir": "./src-gen",
-    "outDir": "./dist",
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
     "verbatimModuleSyntax": true,
-    "skipLibCheck": false
+    "skipLibCheck": false,
+    "noEmit": true
   },
-  "include": ["src-gen/**/*.ts"]
+  "include": ["classic-consumer.ts", "classic-src-gen/**/*.d.ts"]
 }

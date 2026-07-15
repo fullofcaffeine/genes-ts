@@ -1,0 +1,15 @@
+-lib genes-ts
+
+-cp examples/todoapp/src
+--main todo.web.Main
+
+# Emit modern classic Genes ESM JavaScript from the same Haxe UI source used by
+# build.hxml. Shared JSX intent lowers to React.createElement, so no TSX syntax
+# or compiler-only marker survives at runtime.
+-js examples/todoapp/web/classic-src-gen/index.js
+-D genes.react.inline_markup
+-D js-es=6
+-D dts
+
+-dce full
+-debug

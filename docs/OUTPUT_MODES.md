@@ -14,7 +14,7 @@ identical:
 | TypeScript implementation source | Bounded-ready | Strict ESM/NodeNext and React profiles represented by repository fixtures, with closed-interface negative consumers and runtime checks. |
 | Classic ESM JavaScript runtime | Bounded-ready and the more mature runtime path | The blocking classic assertion suite on the pinned Haxe/Node profile. |
 | Classic `.d.ts` | Bounded and improving | Precise `Null<T>`, a semantic exported-surface audit, and strict external consumers. Complex package shapes remain separate work. |
-| Same-source dual output | Bounded-ready for the checked corpora; experimental as a general guarantee | `yarn test:dual-output` covers the target-neutral core and `yarn test:genes-ts:tsx` adds identical-source TSX/classic React runtime evidence. |
+| Same-source dual output | Bounded-ready for the checked corpora; experimental as a general guarantee | `yarn test:dual-output` covers the target-neutral core, `yarn test:genes-ts:tsx` owns focused JSX semantics, and `yarn test:examples` runs the minimal and fullstack applications through both profiles. |
 
 Passing `tsc` proves that the exercised generated program is accepted. It does
 not by itself prove that every exported type is complete or precise. The
@@ -96,6 +96,13 @@ two clean compiler trees must hash identically after documented source-map path
 normalization, representative TS/classic tokens and stack stages map exactly,
 and checked-in module/temp/import plus byte/token budgets must hold.
 
+The checked-in application profiles provide a separate integration layer.
+`yarn test:examples` requires every immediate `examples/` directory to appear
+in `examples/profiles.json`, emits the same source as `ts-strict` and
+`classic-esm`, consumes classic declarations on TS 5/6/7, and runs both todoapp
+servers through the same API checks. `yarn test:examples --playwright` repeats
+the same browser journeys against TS-compiled and direct-classic runtimes.
+
 ## Picking a mode
 
 - If your goal is “Haxe is a better language on top of TS, and we may port to TS later” → use **TypeScript output** (`-D genes.ts`).
@@ -126,6 +133,11 @@ Current examples:
 | `genes.ts.Unknown` | Raw JSON, plugin payloads, host APIs, and caught JS values may be untrusted. TS `unknown` is safer than `any` because users must narrow/decode before use. | `unknown` | A contained Haxe abstract over the runtime value. |
 | `genes.ts.UnknownNarrow`, `UnknownRecord`, `UnknownArray` | Haxe can run JS runtime checks, but it cannot represent TypeScript's control-flow proof that an `unknown` is now a string, record, or array. | Guarded helpers over `unknown`, `Readonly<Record<string, unknown>>`, and `readonly unknown[]`. | The same `typeof`, `Array.isArray`, `Object.keys`, and own-property checks as plain ES6. |
 | `genes.ts.Imports` | Existing npm/TS/TSX modules need value, type, default, named, namespace, and attributed imports. Import syntax should be generated consistently instead of scattered as strings. | Idiomatic ESM imports and type imports. | Equivalent ESM imports in classic JS output where applicable. |
+
+The fullstack example deliberately combines these rules: inline markup becomes
+TSX in `ts-strict` and planned `createElement` calls in `classic-esm`; raw TS
+type metadata enriches TS/declarations but disappears from executable classic
+JS; authored npm/TS modules remain ordinary bundler inputs in either profile.
 
 `Undefinable<T>` means “a `T`, or JavaScript `undefined`.” That is different from Haxe `Null<T>`/JavaScript `null`: many DOM, Node, npm, and strict TypeScript APIs use `undefined` for “not provided” and reject `null`.
 

@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "types": ["node", "react", "react-dom"],
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": false,
+    "noEmit": true
+  },
+  "include": [
+    "classic-consumer.ts",
+    "web/classic-src-gen/**/*.d.ts",
+    "server/classic-src-gen/**/*.d.ts",
+    "server/shims/**/*.d.ts",
+    "server/shims/**/*.d.cts"
+  ]
+}

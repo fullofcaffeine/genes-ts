@@ -1,6 +1,7 @@
 package genes.ts;
 
 import genes.Writer;
+import genes.StdTypesSupport;
 
 /**
  * Emits the TypeScript support module shared by generated genes-ts output.
@@ -81,10 +82,7 @@ class StdTypesEmitter {
     // same TS program; identical global `var` declarations merge, while
     // identical global `const` declarations fail with TS2451 duplicate
     // block-scoped variable errors.
-    writer.write('  interface PositionError { readonly code: number; readonly message: string }\n');
-    writer.write('  var PositionError: { readonly PERMISSION_DENIED: 1; readonly POSITION_UNAVAILABLE: 2; readonly TIMEOUT: 3; readonly prototype: PositionError };\n');
-    writer.write('  interface FetchObserver { readonly state: "requesting" | "responding" | "aborted" | "errored" | "complete"; onstatechange: Function; onrequestprogress: Function; onresponseprogress: Function }\n');
-    writer.write('  var FetchObserver: { readonly prototype: FetchObserver };\n');
+    StdTypesSupport.emitWebIdlGaps(writer);
   }
 
   function emitValueLevelCompatibilityStubs(): Void {

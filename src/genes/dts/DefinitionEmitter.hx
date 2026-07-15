@@ -9,6 +9,7 @@ import genes.dts.TypeEmitter;
 import genes.util.Timer.timer;
 import genes.PublicSurface;
 import genes.NullishContract;
+import genes.StdTypesSupport;
 
 class DefinitionEmitter extends ModuleEmitter {
   public function emitDefinition(module: Module) {
@@ -46,6 +47,11 @@ class DefinitionEmitter extends ModuleEmitter {
       }
     for (export in module.expose)
       emitExport(export, module.toPath(export.module), Genes.outExtension);
+    // Haxe's structural StdTypes module is the one declaration artifact every
+    // full classic output tree owns. Append shared host-library gaps here so
+    // classic `.d.ts` and TS-source output consume the same WebIDL contract.
+    if (module.module == 'StdTypes')
+      StdTypesSupport.emitClassicGlobalBlock(writer);
     endTimer();
   }
 

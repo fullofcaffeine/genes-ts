@@ -40,7 +40,11 @@ if (!skipTs2hx) {
 
 if (!skipTodoapp) {
   run("node", [
-    "scripts/dist/qa-todoapp.js",
+    "scripts/dist/test-examples.js",
     ...(skipPlaywright ? [] : ["--playwright"])
   ]);
+} else {
+  // The small example remains a cheap dual-output contract even when callers
+  // intentionally skip the fullstack server/browser harness.
+  run("node", ["scripts/dist/test-examples.js", "--skip-todoapp"]);
 }

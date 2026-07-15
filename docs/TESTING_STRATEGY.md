@@ -2,7 +2,8 @@
 
 genes-ts has two major things to keep reliable:
 1) the **compiler** (classic Genes JS mode and `-D genes.ts` mode)
-2) the **fullstack todoapp example** (a realistic devx + tooling integration gate)
+2) **every checked-in example in both output profiles**, including the
+   fullstack todoapp as a realistic tooling/integration gate
 
 This repo follows the **testing trophy**:
 - **Lots of fast deterministic tests** (snapshots + typecheck)
@@ -55,20 +56,32 @@ constructor whose value/type namespaces differ. It compiles strict negative
 consumers on TS 5/6/7 and runs the same Haxe source through TS and classic ESM;
 future package forms should extend that generic fixture matrix.
 
-## Todoapp example
+## Example matrix and todoapp
 
 ### What we test
 
-The todoapp is validated via:
-- a **QA sentinel** (build + start server + API smoke + log capture + teardown)
-- optional **Playwright E2E** (user journeys in a real browser)
+`examples/profiles.json` enumerates every immediate example directory and owns
+its `ts-strict` and `classic-esm` commands. The aggregate runner rejects an
+unowned directory, runs the minimal example as an exact runtime differential,
+and validates the todoapp with:
+
+- isolated TS and classic web/server builds from the same Haxe source;
+- strict TS implementation and classic declaration consumers on TS 5/6/7;
+- a QA sentinel (server + API smoke + log capture + teardown) per profile;
+- optional identical Playwright journeys per profile.
 
 Run:
 
 ```bash
+npm run test:examples         # all examples, both profiles, runtime/API smoke
+npm run test:examples -- --playwright # add browser parity for both profiles
 npm run test:todoapp          # API smoke only
 npm run test:todoapp:e2e      # API smoke + Playwright
 ```
+
+The legacy todoapp commands default to `ts-strict`; use
+`node scripts/dist/qa-todoapp.js --profile classic` for a focused classic run.
+The aggregate example command is the authoritative dual-profile owner.
 
 ### Playwright tests authored in Haxe
 

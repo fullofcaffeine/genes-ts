@@ -1,10 +1,10 @@
 -lib genes-ts
--cp src
+-cp examples/typescript-target/src
 --main my.app.Main
 
 # NOTE: Still uses -js because we compile on the JS platform (Haxe 4.3.7).
 # The output path determines the output directory and the entry module name.
--js src-gen/index.ts
+-js examples/typescript-target/src-gen/index.ts
 
 # Enable TypeScript emission
 -D genes.ts

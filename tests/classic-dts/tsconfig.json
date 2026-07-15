@@ -10,5 +10,5 @@
     "noUncheckedIndexedAccess": true,
     "types": []
   },
-  "include": ["consumer.ts"]
+  "include": ["consumer.ts", "../../bin/StdTypes.d.ts"]
 }

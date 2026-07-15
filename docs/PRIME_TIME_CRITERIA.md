@@ -61,7 +61,10 @@ Precise classic `Null<T>` and the strict declaration consumer have landed.
 Declaration-only type aliases are retained without producing classic JS files.
 The CommonJS `export =` constructor/value split now has a blocking
 `@:ts.instanceType` fixture across TS 5/6/7 and both Genes runtime profiles.
-The broader cross-tool package matrix and dts2hx bridge remain `genes-09r.8`.
+Haxe 4.3.7's historical `PositionError` and `FetchObserver` WebIDL names now
+come from one shared TS/classic support contract with a generic strict-consumer
+regression. The broader cross-tool package matrix and dts2hx bridge remain
+`genes-09r.8`.
 
 ### R4 — Deterministic, diagnosable output
 
@@ -123,6 +126,7 @@ support matrix remain `genes-09r.7`.
 | Lexical typing policy | Included by TS runners | Selected literal unsafe forms are absent outside its exclusions | Inferred/imported `any`, broad structural holes, or semantic nullish mismatches |
 | Snapshots | `yarn test:genes-ts:snapshots` | Expected deterministic shape for current cases | Runtime or type soundness by itself |
 | Todoapp acceptance | `yarn test:acceptance` | A real Node/browser integration profile | General compiler completeness |
+| Complete example matrix | `yarn test:examples` | Every checked-in example has TS/classic ownership; the minimal runtime transcript and fullstack API behavior match, with optional identical browser journeys | Arbitrary applications or universal same-source parity |
 | Full repository gate | `yarn test:ci` | All current blocking layers agree at the pinned revisions | Future toolchains, arbitrary npm packages, or unsupported syntax |
 
 ## Current disposition

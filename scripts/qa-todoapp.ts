@@ -103,8 +103,8 @@ function killProcessTree(child: ChildProcess | null): void {
 function usage(): void {
   console.log(
     [
-      "Usage: yarn test:todoapp [--skip-build] [--playwright]",
-      "   or: node scripts/dist/qa-todoapp.js [--skip-build] [--playwright]",
+      "Usage: yarn test:todoapp [--profile ts|classic] [--skip-build] [--playwright]",
+      "   or: node scripts/dist/qa-todoapp.js [--profile ts|classic] [--skip-build] [--playwright]",
       "",
       "Env:",
       "  QA_TIMEOUT_MS=30000      Health timeout (default 30000)",
@@ -115,11 +115,21 @@ function usage(): void {
   );
 }
 
-const args = new Set(process.argv.slice(2));
+type TodoappProfile = "ts" | "classic";
+
+const rawArgs = process.argv.slice(2);
+const args = new Set(rawArgs);
 if (args.has("--help") || args.has("-h")) {
   usage();
   process.exit(0);
 }
+
+const profileIndex = rawArgs.indexOf("--profile");
+const profileValue = profileIndex >= 0 ? rawArgs[profileIndex + 1] : "ts";
+if (profileValue !== "ts" && profileValue !== "classic") {
+  throw new Error("--profile must be ts or classic");
+}
+const profile: TodoappProfile = profileValue;
 
 if (typeof fetch !== "function") {
   throw new Error("Node 18+ required (global fetch missing).");
@@ -127,6 +137,7 @@ if (typeof fetch !== "function") {
 
 const skipBuild = args.has("--skip-build") || process.env.QA_SKIP_BUILD === "1";
 const withPlaywright = args.has("--playwright") || process.env.QA_PLAYWRIGHT === "1";
+const skipPlaywrightInstall = args.has("--skip-playwright-install");
 const timeoutMs = Number.parseInt(process.env.QA_TIMEOUT_MS ?? "30000", 10);
 
 const tmpRoot = mkdtempSync(path.join(os.tmpdir(), "genes-ts-todoapp-"));
@@ -141,21 +152,37 @@ let serverLog = "";
 
 try {
   if (!skipBuild) {
-    run("node", ["scripts/dist/build-example-todoapp.js"]);
+    run("node", [
+      profile === "ts"
+        ? "scripts/dist/build-example-todoapp.js"
+        : "scripts/dist/build-example-todoapp-classic.js"
+    ]);
   }
+
+  const webDist = path.join(
+    exampleRoot,
+    "web",
+    profile === "ts" ? "dist" : "classic-dist"
+  );
+  const serverEntry = path.join(
+    exampleRoot,
+    "server",
+    profile === "ts" ? "dist/index.js" : "classic-src-gen/index.js"
+  );
 
   const spawnOpts: SpawnOptions = {
     cwd: repoRoot,
     env: {
       ...process.env,
       PORT: String(port),
-      TODOAPP_DATA_PATH: dataPath
+      TODOAPP_DATA_PATH: dataPath,
+      TODOAPP_WEB_DIST: webDist
     },
     stdio: ["ignore", "pipe", "pipe"],
     detached: process.platform !== "win32"
   };
 
-  server = spawn("node", [path.join(exampleRoot, "server", "dist", "index.js")], spawnOpts);
+  server = spawn("node", [serverEntry], spawnOpts);
 
   server.stdout?.on("data", (buf: Buffer) => {
     serverLog += buf.toString("utf8");
@@ -211,17 +238,19 @@ try {
   if (withPlaywright) {
     run("node", ["scripts/dist/build-todoapp-e2e.js"]);
 
-    const pwInstallArgs = ["install"];
-    if (process.env.CI) pwInstallArgs.push("--with-deps");
-    pwInstallArgs.push("chromium");
-    run("npx", ["playwright", ...pwInstallArgs]);
+    if (!skipPlaywrightInstall) {
+      const pwInstallArgs = ["install"];
+      if (process.env.CI) pwInstallArgs.push("--with-deps");
+      pwInstallArgs.push("chromium");
+      run("npx", ["playwright", ...pwInstallArgs]);
+    }
 
     run("npx", ["playwright", "test", "-c", "examples/todoapp/e2e/playwright.config.ts"], {
       env: { ...process.env, BASE_URL: baseUrl }
     });
   }
 
-  console.log(`ok (${baseUrl})`);
+  console.log(`ok (${profile}, ${baseUrl})`);
 } catch (err) {
   if (serverLog.length) {
     console.error("\n--- todoapp server log (tail) ---\n");
@@ -253,4 +282,3 @@ try {
 
   rmSync(tmpRoot, { recursive: true, force: true });
 }
-

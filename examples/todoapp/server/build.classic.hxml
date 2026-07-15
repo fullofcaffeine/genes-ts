@@ -1,0 +1,14 @@
+-lib genes-ts
+-lib hxnodejs
+
+-cp examples/todoapp/src
+--main todo.server.Main
+
+# Emit runnable modern ESM and strict-consumer declarations from the same Haxe
+# server source as the genes.ts profile.
+-js examples/todoapp/server/classic-src-gen/index.js
+-D js-es=6
+-D dts
+
+-dce full
+-debug

@@ -23,7 +23,14 @@ export class Main {
 			let v: string = _g;
 			dataPath = v;
 		};
-		let webDist: string = Path.join(nodeProcess.cwd(), "examples", "todoapp", "web", "dist");
+		let webDist: string;
+		let _g1: string | null = (nodeProcess.env["TODOAPP_WEB_DIST"] ?? null);
+		if (_g1 == null) {
+			webDist = Path.join(nodeProcess.cwd(), "examples", "todoapp", "web", "dist");
+		} else {
+			let configured: string = _g1;
+			webDist = Path.resolve(configured);
+		};
 		let store: Store = new Store(dataPath);
 		let app: ExpressApp = Express();
 		app.use(Express.json());

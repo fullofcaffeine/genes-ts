@@ -1,8 +1,10 @@
+import { doesNotMatch, match, strictEqual } from "node:assert";
 import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
-import { rmSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { runTypeScript } from "./toolchains.js";
+import { assertExportedSurfacePolicy } from "./exported-surface-policy.js";
+import { runGeneratedTypeScriptMatrix } from "./toolchains.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,32 +24,63 @@ function run(cmd: string, args: ReadonlyArray<string>, opts: ExecFileSyncOptions
   });
 }
 
+function capture(cmd: string, args: ReadonlyArray<string>, cwd: string): string {
+  return execFileSync(cmd, [...args], { cwd, encoding: "utf8" }).trim();
+}
+
 rmrf("src-gen");
 rmrf("dist");
+rmrf("classic-src-gen");
 
-// Run Haxe from the repo root so `-lib genes-ts` resolves its `extraParams.hxml`
-// include correctly (the in-repo `haxe_libraries/genes-ts.hxml` uses a relative
-// include).
-run(
-  "haxe",
-  [
-    "-lib",
-    "genes-ts",
-    "-cp",
-    "examples/typescript-target/src",
-    "--main",
-    "my.app.Main",
-    "-js",
-    "examples/typescript-target/src-gen/index.ts",
-    "-D",
-    "genes.ts"
-  ],
-  { cwd: repoRoot }
+// Haxe must run from the repository root so the in-repo genes-ts haxelib can
+// resolve `extraParams.hxml`. The checked-in profiles therefore use explicit
+// repo-relative paths and remain the authoritative build contract.
+run("haxe", ["examples/typescript-target/build.hxml"], { cwd: repoRoot });
+
+runGeneratedTypeScriptMatrix(
+  "examples/typescript-target/tsconfig.node-next.json"
 );
 
-runTypeScript("legacyFloor", [
-  "-p",
-  "examples/typescript-target/tsconfig.node-next.json"
-]);
+const tsOutput = capture("node", ["dist/index.js"], exampleRoot);
 
-run("node", ["dist/index.js"]);
+// Build the identical Haxe source through classic Genes. This deliberately
+// avoids `-D genes.ts`: the comparison proves that TypeScript annotations are a
+// richer projection, not a requirement for executing the program as ESM JS.
+run("haxe", ["examples/typescript-target/build.classic.hxml"], {
+  cwd: repoRoot
+});
+
+runGeneratedTypeScriptMatrix(
+  "examples/typescript-target/tsconfig.classic.json",
+  { emit: false }
+);
+assertExportedSurfacePolicy({
+  repoRoot,
+  tsconfigPath: "examples/typescript-target/tsconfig.classic.json",
+  includePaths: [
+    "examples/typescript-target/classic-src-gen/my/app/Greeter.d.ts"
+  ],
+  scope: "example-typescript-target-classic"
+});
+
+const classicOutput = capture(
+  "node",
+  ["classic-src-gen/index.js"],
+  exampleRoot
+);
+match(tsOutput, /Hello, World$/);
+strictEqual(classicOutput, tsOutput);
+
+const generatedTs = readFileSync(
+  path.join(exampleRoot, "src-gen/my/app/Main.ts"),
+  "utf8"
+);
+const generatedClassic = readFileSync(
+  path.join(exampleRoot, "classic-src-gen/my/app/Main.js"),
+  "utf8"
+);
+match(generatedTs, /let g: Greeter = new Greeter/);
+match(generatedClassic, /let g = new Greeter/);
+doesNotMatch(generatedClassic, /let g: Greeter/);
+
+console.log("typescript-target example passed (ts-strict + classic-esm).");

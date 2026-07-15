@@ -87,6 +87,8 @@ The audit also required two qualifications:
 | Shared public-surface facts | TS implementation interfaces and classic declarations consume one immutable pre-DCE model for visibility, applied inheritance, generics, overload identity, typedef bodies, and classified compiler-generated support members. | Generic/overload fixture, strict TS and classic declaration consumers, and dual-mode runtime assertions |
 | Shared nullish facts | TS implementation, classic JS behavior checks, and both declaration paths consume one immutable classification for Haxe `Null<T>`, explicit `undefined`, property/parameter omission, native-map absence, and iterator completion. | Exact optional-property negative consumers plus paired TS/classic runtime traces |
 | Shared dependency facts | Runtime values, TS implementation types, and declaration-only references are immutable typed edges with source provenance; emitters project them through one alias/import allocator. | Shadow parity on full TS and classic trees, type/declaration-only DCE fixtures, strict consumers, and aggregate CI |
+| Shared host declaration gaps | Haxe WebIDL names absent from TypeScript's DOM library are defined once and projected into TS-source and classic declaration support modules. | Generic DOM extern fixture plus strict classic consumer on TS 5/6/7 |
+| Dual-profile examples | Every checked-in example declares `ts-strict` and `classic-esm`; the todoapp web/server share one Haxe tree and execute the same API/browser journeys. | `yarn test:examples` and the `examples/profiles.json` ownership manifest |
 | Product wording | Readiness, JSX, declaration, and migration claims are separated by evidence class. | This document and linked mode/policy docs |
 
 These are focused fixes, not proof that the complete semantic architecture
@@ -256,6 +258,14 @@ The source of truth is Beads epic `genes-09r`.
    temporary, and import baselines plus 5% byte/token ceilings. The harness
    canonicalizes only machine roots and formatting-neutral map JSON facts; it
    does not erase code, mappings, source order, or artifact layout.
+10. **`genes-09r.13` — complete dual-profile example ownership (landed).**
+   `examples/profiles.json` rejects unowned examples. The minimal program emits
+   both annotated TS and erased ESM from one Haxe tree and compares exact
+   transcripts. The React/Express todoapp now has isolated TS and classic
+   web/server profiles, TS5/6/7 implementation/declaration consumers, and the
+   same API plus Playwright journeys. Classic `.d.ts` also consumes the shared
+   narrow WebIDL-gap contract used by TS source support; no todoapp shim or
+   `skipLibCheck` relaxation was introduced.
 
 ### P2: mature migration and ecosystem workflows
 

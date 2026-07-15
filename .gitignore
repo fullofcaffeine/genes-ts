@@ -7,10 +7,14 @@
 /tests/output-modes/out
 /examples/typescript-target/src-gen
 /examples/typescript-target/dist
+/examples/typescript-target/classic-src-gen
 /examples/todoapp/web/src-gen
 /examples/todoapp/web/dist
+/examples/todoapp/web/classic-src-gen
+/examples/todoapp/web/classic-dist
 /examples/todoapp/server/src-gen
 /examples/todoapp/server/dist
+/examples/todoapp/server/classic-src-gen
 /examples/todoapp/server/data.json
 /examples/todoapp/e2e/src-gen
 /examples/todoapp/e2e/dist

@@ -1,0 +1,12 @@
+-lib genes-ts
+-cp examples/typescript-target/src
+--main my.app.Main
+
+# Emit modern classic Genes ESM JavaScript from the same Haxe source as
+# build.hxml. TypeScript-only annotations are erased while runtime behavior and
+# optional declarations remain owned by this explicit profile.
+-js examples/typescript-target/classic-src-gen/index.js
+-D js-es=6
+-D dts
+
+-dce full

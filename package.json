@@ -29,9 +29,13 @@
     "test:genes-ts:full": "yarn build:scripts && node scripts/dist/test-genes-ts-full.js",
     "build:example:genes-ts": "yarn build:scripts && node scripts/dist/build-example-typescript-target.js",
     "build:example:todoapp": "yarn build:scripts && node scripts/dist/build-example-todoapp.js",
+    "build:example:todoapp:classic": "yarn build:scripts && node scripts/dist/build-example-todoapp-classic.js",
     "example:todoapp": "yarn build:example:todoapp && node examples/todoapp/server/dist/index.js",
     "example:todoapp:run": "node examples/todoapp/server/dist/index.js",
+    "example:todoapp:classic": "yarn build:example:todoapp:classic && cross-env TODOAPP_WEB_DIST=examples/todoapp/web/classic-dist node examples/todoapp/server/classic-src-gen/index.js",
+    "example:todoapp:classic:run": "cross-env TODOAPP_WEB_DIST=examples/todoapp/web/classic-dist node examples/todoapp/server/classic-src-gen/index.js",
     "build:todoapp:e2e": "yarn build:scripts && node scripts/dist/build-todoapp-e2e.js",
+    "test:examples": "yarn build:scripts && node scripts/dist/test-examples.js",
     "test:todoapp": "yarn build:scripts && node scripts/dist/qa-todoapp.js",
     "test:todoapp:e2e": "yarn build:scripts && node scripts/dist/qa-todoapp.js --playwright",
     "postinstall": "lix download"

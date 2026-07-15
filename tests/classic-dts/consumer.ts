@@ -9,9 +9,11 @@ import {
   type NullishMatrixShape
 } from "../../bin/tests/nullish/NullishMatrix.js";
 import type { DeclarationOnlyShape } from "../../bin/tests/typeonly/DeclarationOnlyShape.js";
+import type { WebIdlGapSurface } from "../../bin/tests/webidl/WebIdlGapSurface.js";
 
 declare const map: IMap<string, number>;
 declare const declarationOnlyShape: DeclarationOnlyShape;
+declare const webIdl: WebIdlGapSurface;
 
 const maybe: number | null = map.get("present");
 map.set("present", 1);
@@ -28,6 +30,23 @@ map.clear();
 // error becomes unused and TypeScript fails the test.
 // @ts-expect-error Null<V> must not be assignable directly to V.
 const definitely: number = map.get("missing");
+
+// Haxe 4.3.7's DOM externs use historical WebIDL globals absent from
+// TypeScript's lib.dom. The generated StdTypes declaration supplies precise,
+// merge-safe compatibility contracts for both values and instances.
+webIdl.geolocation.getCurrentPosition(
+  (position) => void position.coords,
+  (error) => void error.message
+);
+const observerHandler: (observer: FetchObserver) => void =
+  webIdl.observer.handleEvent;
+const observerState:
+  | "requesting"
+  | "responding"
+  | "aborted"
+  | "errored"
+  | "complete" = FetchObserver.prototype.state;
+const permissionDenied: 1 = PositionError.PERMISSION_DENIED;
 
 // Classic declaration interfaces should remain closed as well.
 // @ts-expect-error Unknown members are not part of haxe.Constraints.IMap.
@@ -87,7 +106,11 @@ NullishMatrix.optionalUndefined(null);
 
 void maybe;
 void declarationOnlyShape;
+void webIdl;
 void definitely;
+void observerHandler;
+void observerState;
+void permissionDenied;
 void inherited;
 void own;
 void convertedNumber;

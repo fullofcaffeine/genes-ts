@@ -27,8 +27,15 @@ class Main {
         v;
     }
 
-    final webDist = Path.join(nodeProcess.cwd(), "examples", "todoapp", "web",
-      "dist");
+    // Both compiler profiles use this source. The environment override keeps
+    // generated trees isolated during differential QA while preserving the
+    // ordinary default path used by `npm run example:todoapp`.
+    final webDist = switch nodeProcess.env.get("TODOAPP_WEB_DIST") {
+      case null:
+        Path.join(nodeProcess.cwd(), "examples", "todoapp", "web", "dist");
+      case configured:
+        Path.resolve(configured);
+    }
 
     final store = new Store(dataPath);
 

@@ -4,7 +4,10 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { assertDirSnapshots } from "./snapshots.js";
 import { assertNoUnsafeTypes } from "./typing-policy.js";
-import { runTypeScript } from "./toolchains.js";
+import {
+  runGeneratedTypeScriptMatrix,
+  runTypeScript
+} from "./toolchains.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -88,7 +91,7 @@ assertNoUnsafeTypes({
   generatedDir: "examples/todoapp/web/src-gen/todo",
   fileExts: [".ts", ".tsx"]
 });
-runTypeScript("legacyFloor", ["-p", "examples/todoapp/web/tsconfig.json"]);
+runGeneratedTypeScriptMatrix("examples/todoapp/web/tsconfig.json");
 
 mkdirSync(path.join(exampleRoot, "web", "dist", "assets"), { recursive: true });
 copyFileSync(path.join(exampleRoot, "web", "index.html"), path.join(exampleRoot, "web", "dist", "index.html"));
@@ -141,4 +144,4 @@ assertNoUnsafeTypes({
   generatedDir: "examples/todoapp/server/src-gen/todo",
   fileExts: [".ts"]
 });
-runTypeScript("legacyFloor", ["-p", "examples/todoapp/server/tsconfig.json"]);
+runGeneratedTypeScriptMatrix("examples/todoapp/server/tsconfig.json");
