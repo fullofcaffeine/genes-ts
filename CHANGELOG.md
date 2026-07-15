@@ -1,3 +1,10 @@
+## [1.13.1](https://github.com/fullofcaffeine/genes-ts/compare/v1.13.0...v1.13.1) (2026-07-15)
+
+
+### Bug Fixes
+
+* close critical compiler type-safety gaps ([ca97d4e](https://github.com/fullofcaffeine/genes-ts/commit/ca97d4e93a8679a65df2c18ca789abbf3748ce89))
+
 # [1.13.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.12.0...v1.13.0) (2026-06-28)
 
 
