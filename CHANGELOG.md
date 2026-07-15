@@ -1,3 +1,10 @@
+## [1.20.2](https://github.com/fullofcaffeine/genes-ts/compare/v1.20.1...v1.20.2) (2026-07-15)
+
+
+### Bug Fixes
+
+* preserve raw syntax receiver precedence ([52b7915](https://github.com/fullofcaffeine/genes-ts/commit/52b79154f317cab5fb706cdf8037b6b2c9cb8039))
+
 ## [1.20.1](https://github.com/fullofcaffeine/genes-ts/compare/v1.20.0...v1.20.1) (2026-07-15)
 
 
