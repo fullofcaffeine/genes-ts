@@ -170,7 +170,27 @@ Current examples:
 | `genes.ts.Undefinable<T>` | Many TS APIs use `undefined` for “not provided” and reject `null`. Haxe `Null<T>` alone cannot express that contract. | `T | undefined` | Runtime value is `T` or real `undefined`. |
 | `genes.ts.Unknown` | Raw JSON, plugin payloads, host APIs, and caught JS values may be untrusted. TS `unknown` is safer than `any` because users must narrow/decode before use. | `unknown` | A contained Haxe abstract over the runtime value. |
 | `genes.ts.UnknownNarrow`, `UnknownRecord`, `UnknownArray` | Haxe can run JS runtime checks, but it cannot represent TypeScript's control-flow proof that an `unknown` is now a string, record, or array. | Guarded helpers over `unknown`, `Readonly<Record<string, unknown>>`, and `readonly unknown[]`. | The same `typeof`, `Array.isArray`, `Object.keys`, and own-property checks as plain ES6. |
-| `genes.ts.Imports` | Existing npm/TS/TSX modules need value, type, default, named, namespace, and attributed imports. Import syntax should be generated consistently instead of scattered as strings. | Idiomatic ESM imports and type imports. | Equivalent ESM imports in classic JS output where applicable. |
+| `genes.ts.Imports` | Existing npm/TS/TSX modules need value, type, default, named, namespace, attributed, and binding-free side-effect imports. Import syntax should be generated consistently instead of scattered as strings. | Idiomatic ESM imports and type imports. | Equivalent ESM imports in classic JS output where applicable. |
+
+A binding-free request is authored as a direct class initializer statement:
+
+```haxe
+import genes.ts.Imports;
+
+class Main {
+  static function __init__():Void {
+    Imports.sideEffect("./runtime/setup.js");
+    Imports.sideEffectWith("./runtime/config.json", "json");
+  }
+}
+```
+
+Both Genes profiles emit ordered bare ESM declarations; no fake imported value
+or declaration member is created. Specifiers and optional `type` attributes
+must be non-empty literals, and calls must be direct outer statements of
+`static __init__`. Standard Haxe (`genes.disable`) and non-JS targets fail with
+`GENES-SIDE-EFFECT-IMPORT-TARGET-001` because silently erasing required module
+initialization would be incorrect.
 
 The fullstack example deliberately combines these rules: inline markup becomes
 TSX in `ts-strict` and planned `createElement` calls in `classic-esm`; raw TS

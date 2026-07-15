@@ -60,6 +60,10 @@ class DceProbe {
     final markerOrder:Array<String> = [];
     collectMarkers(main.init, markerOrder);
     final expected = [
+      'external:./runtime/First.js:none',
+      'external:./runtime/config.json:json',
+      'external:./runtime/Second.js:none',
+      'external:./runtime/First.js:none',
       'internal:First.__ts2hxInit',
       'internal:Second.__ts2hxInit',
       'internal:First.__ts2hxInit'

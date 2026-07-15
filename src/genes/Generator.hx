@@ -428,6 +428,7 @@ class Generator {
   public static function use() {
     #if !genes.disable
     if (Context.defined('js')) {
+      Compiler.define(CompilerInternal.GENERATOR_ACTIVE_DEFINE);
       isolateCompilerOutput();
       LibraryProfile.validate();
       // TypeScript implementation output and classic declaration output both

@@ -1,17 +1,23 @@
 package sideeffectevidence;
 
 import genes.internal.SideEffectImportMarker;
+import genes.ts.Imports;
 
-/** Executes the marker-retained initialization evidence in both Genes modes. */
+/** Executes typed public and compiler-internal requests in both Genes modes. */
 class Main {
   /**
-   * Carries three effectful typed markers through full Haxe DCE.
+   * Carries public helpers and compiler-internal markers through full Haxe DCE.
    *
-   * The compile-time probe checks this exact typed encounter order. Genes then
-   * erases the calls, while the internal references keep `First` and `Second`
-   * reachable and ordered as ordinary dependencies for this evidence step.
+   * The first four calls prove the literal-only authoring API, import
+   * attributes, and duplicate coalescing. The final three calls preserve the
+   * converted-module DCE evidence. Genes erases every marker after recording
+   * their ordered module requests.
    */
   static function __init__():Void {
+    Imports.sideEffect("./runtime/First.js");
+    Imports.sideEffectWith("./runtime/config.json", "json");
+    Imports.sideEffect("./runtime/Second.js");
+    Imports.sideEffect("./runtime/First.js");
     SideEffectImportMarker.internal(First.__ts2hxInit);
     SideEffectImportMarker.internal(Second.__ts2hxInit);
     SideEffectImportMarker.internal(First.__ts2hxInit);

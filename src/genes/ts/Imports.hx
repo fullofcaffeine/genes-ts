@@ -91,6 +91,9 @@ class Imports {
     return importImpl(module, Default, null, as, macro "file");
   }
 
+  // Keep the JS Promise signature out of non-JS target typing so the portable
+  // side-effect helper below can report its own explicit target diagnostic.
+  #if (js || macro)
   /**
    * Dynamically import a resource with a TypeScript import attribute.
    *
@@ -117,6 +120,7 @@ class Imports {
   public static macro function dynamicWasm<T>(module: ExprOf<String>): ExprOf<js.lib.Promise<T>> {
     return dynamicImportImpl(module, macro "wasm");
   }
+  #end
 
   /**
    * Import a named export from a module.
@@ -141,7 +145,77 @@ class Imports {
     return importImpl(module, Namespace, null, as, null);
   }
 
+  /**
+   * Requests a module for its initialization effects without importing a value.
+   *
+   * Why: Haxe has no binding-free ESM import expression. A fake default or
+   * namespace binding would assume an export shape and could leak a value into
+   * generated APIs, while raw target syntax would bypass dependency planning,
+   * source maps, extension policy, and the shared TS/classic architecture.
+   *
+   * What: in either Genes output profile this direct initializer statement
+   * becomes `import "module"`. Repeated identical requests execute once at the
+   * first request position, following ESM module identity semantics.
+   *
+   * How: the macro accepts one non-empty string literal and expands to a typed,
+   * effectful compiler marker. Haxe retains that call through full DCE; Genes
+   * consumes it into the ordered dependency plan and erases the call from
+   * implementation and declaration output. It is valid only as a direct outer
+   * statement of `static function __init__():Void` while the Genes JS generator
+   * is active. Unsupported targets fail explicitly instead of dropping module
+   * initialization.
+   */
+  public static macro function sideEffect(module: ExprOf<String>): ExprOf<Void> {
+    return sideEffectImpl(module, null);
+  }
+
+  /**
+   * Requests side-effect initialization with one ESM `type` attribute.
+   *
+   * Why/What: resource loaders may distinguish requests such as JSON by the
+   * declaration-wide `with { type: "json" }` contract. The attribute is part of
+   * request identity and therefore cannot be reconstructed safely by a printer.
+   *
+   * How: both arguments must be non-empty literals. The typed marker carries
+   * those immutable facts into the same ordered plan used by `sideEffect`; no
+   * target-language string, imported token, `Dynamic`, or `untyped` boundary is
+   * introduced.
+   */
+  public static macro function sideEffectWith(module: ExprOf<String>,
+      importType: ExprOf<String>): ExprOf<Void> {
+    return sideEffectImpl(module, importType);
+  }
+
   #if macro
+  static function sideEffectImpl(moduleExpr: Expr,
+      importAttributeTypeExpr: Null<Expr>): Expr {
+    final callPos = Context.currentPos();
+    if (!Context.defined('js')
+      || !Context.defined(genes.CompilerInternal.GENERATOR_ACTIVE_DEFINE)) {
+      Context.error(
+        'GENES-SIDE-EFFECT-IMPORT-TARGET-001: Imports.sideEffect requires the active Genes JS generator',
+        callPos);
+    }
+    if (Context.getLocalMethod() != '__init__') {
+      Context.error(
+        'GENES-SIDE-EFFECT-IMPORT-CONTEXT-001: Imports.sideEffect must be a direct outer statement of static function __init__()',
+        callPos);
+    }
+
+    final module = expectSideEffectLiteral(moduleExpr,
+      'GENES-SIDE-EFFECT-IMPORT-LITERAL-001: module specifier must be a non-empty string literal');
+    final importAttributeType = if (importAttributeTypeExpr == null)
+      null
+    else
+      expectSideEffectLiteral(importAttributeTypeExpr,
+        'GENES-SIDE-EFFECT-IMPORT-ATTRIBUTE-001: import attribute type must be a non-empty string literal');
+    final attributeExpr: Expr = importAttributeType == null
+      ? macro null
+      : macro $v{importAttributeType};
+    return macro @:pos(callPos) genes.internal.SideEffectImportMarker.external(
+      $v{module}, $attributeExpr);
+  }
+
   static function importImpl(moduleExpr: Expr, kind: ImportKind,
       exportExpr: Null<Expr>, asExpr: Null<Expr>,
       importAttributeTypeExpr: Null<Expr>): Expr {
@@ -229,6 +303,16 @@ class Imports {
         s;
       default:
         Context.error('Import helper expects `$label` to be a string literal', e.pos);
+    }
+  }
+
+  private static function expectSideEffectLiteral(e: Expr,
+      diagnostic: String): String {
+    return switch e.expr {
+      case EConst(CString(value, _)) if (value.length > 0):
+        value;
+      default:
+        Context.error(diagnostic, e.pos);
     }
   }
 

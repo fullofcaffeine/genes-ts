@@ -29,6 +29,22 @@ typedef SideEffectImportMarkerCall = {
  * boundary; the metadata alone does not create a dependency edge.
  */
 class CompilerInternal {
+  /**
+   * Compilation-local proof that the Genes JS generator is installed.
+   *
+   * Why: target-polymorphic helpers must not silently erase required runtime
+   * semantics when callers compile with standard Haxe, `genes.disable`, or a
+   * non-JS target. Checking only public mode defines cannot establish that the
+   * custom generator which consumes their typed markers is actually active.
+   *
+   * What/How: `Generator.use()` defines this compiler-private capability only
+   * inside its JS and non-disabled installation branch. Haxe compiler defines
+   * belong to one compilation, so compile-server reuse cannot leak an active
+   * state into the next build. Helpers may read it, but programs must not use
+   * it as a configurable feature flag.
+   */
+  public static inline final GENERATOR_ACTIVE_DEFINE = 'genes.generator.active';
+
   public static inline final FIELD_METADATA = ':genes.compilerInternal';
   public static inline final SIDE_EFFECT_MARKER_MODULE = 'genes.internal.SideEffectImportMarker';
 

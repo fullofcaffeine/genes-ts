@@ -123,6 +123,40 @@ expression referencing the imported value.
 This keeps import generation compatible with Genes’ dependency tracking in both
 output modes.
 
+### Binding-free side-effect import
+
+Use `sideEffect` when a module must run during ESM initialization but no value
+is imported. Because ESM declarations are statically hoisted, the helper is
+valid only as a direct outer statement of `static function __init__():Void`:
+
+```haxe
+import genes.ts.Imports;
+
+class Main {
+  static function __init__():Void {
+    Imports.sideEffect("./runtime/setup.js");
+    Imports.sideEffectWith("./runtime/config.json", "json");
+  }
+}
+```
+
+Both Genes profiles preserve request order and emit:
+
+```ts
+import "./runtime/setup.js"
+import "./runtime/config.json" with { type: "json" }
+```
+
+Equal requests coalesce at their first occurrence, and a normal value import of
+the same request identity satisfies that slot without a redundant bare import.
+The module and optional attribute must be non-empty string literals. Conditional
+or call-time use fails with `GENES-SIDE-EFFECT-IMPORT-CONTEXT-001`; standard
+Haxe (`genes.disable`) and non-JS targets fail with
+`GENES-SIDE-EFFECT-IMPORT-TARGET-001`. The helper never falls back to
+`require()` or silent erasure because neither preserves ESM initialization
+semantics. The host application still owns package resolution and external
+resource staging.
+
 ### Default import
 
 ```haxe

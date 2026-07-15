@@ -308,6 +308,15 @@ Raw `@:ts.type`, `@:genes.type`, `Dynamic`, `untyped`, and casts are boundary
 tools, not recurring semantic models. Prefer a reusable typed abstraction and a
 small compiler plan when Haxe cannot express a host contract directly.
 
+`Imports.sideEffect(...)` is the reference flow for a helper with no runtime
+value. Its macro first proves that the Genes JS generator is active, validates
+literal arguments and `static __init__` context, then emits an effectful typed
+marker. Full Haxe DCE retains the marker; `DependencyPlanBuilder` consumes it
+into an ordered `RuntimeSideEffect` request; both implementation printers erase
+the call and render the same binding-free ESM declaration; declaration
+reachability never sees it. Nested use and inactive targets fail at the Haxe
+source position before a partial output tree can be published.
+
 ## Gate escalation
 
 During development, run the smallest owner first. Before a compiler or ts2hx

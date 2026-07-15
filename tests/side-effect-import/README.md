@@ -37,6 +37,12 @@ stage executes classic ESM and generated strict TypeScript.
   request is deduplicated. Classic declarations contain none of those requests.
 - A later `String` binding satisfies an earlier gamma request and retains the
   allocator's collision-safe `String__1` alias in both printers.
+- `Imports.sideEffect(...)` and `sideEffectWith(...)` survive full DCE as typed
+  `Void` statements, preserve their source order, coalesce an equal duplicate,
+  and execute external JavaScript/JSON requests in TS and classic output.
+- The attributed bare JSON declaration type-checks in every pinned TypeScript
+  lane, while helper misuse reports stable literal, context, and target
+  diagnostics without publishing a partial Genes output tree.
 
-This is not public side-effect-import support. It is the executable prerequisite
-for the ordered request model and helper producer.
+The converted-relative marker remains compiler-internal; the direct external
+helper is the public Haxe authoring surface proven by this fixture.
