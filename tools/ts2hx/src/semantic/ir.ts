@@ -202,8 +202,8 @@ export const SEMANTIC_SUPPORT_MATRIX: readonly SemanticFeatureContract[] = [
     category: "modules",
     support: "supported-with-helper",
     portableGrade: "J1",
-    summary: "Preserves source-ordered package and manifest-owned external-relative runtime requests.",
-    limitation: "Binding-free converted relatives, unresolved or unconverted sources, unmanifested runtime files, unsupported attributes, and files with runtime re-exports remain strict failures."
+    summary: "Preserves source-ordered package, manifest-owned external-relative, and acyclic converted-relative runtime requests.",
+    limitation: "Converted side-effect cycles, unresolved or unconverted sources, unmanifested runtime files, unsupported attributes, and files with runtime re-exports remain strict failures."
   }
 ];
 
@@ -243,8 +243,8 @@ export const SEMANTIC_FAIL_CLOSED_CASES: readonly SemanticFailClosedCase[] = [
   },
   {
     featureId: "modules.side-effect-import",
-    diagnosticId: "TS2HX-MODULES-SIDE-EFFECT-IMPORT-CONVERTED-RELATIVE-001",
-    variant: "binding-free converted-relative import pending a retention marker"
+    diagnosticId: "TS2HX-MODULES-SIDE-EFFECT-IMPORT-CONVERTED-CYCLE-001",
+    variant: "binding-free converted-relative import cycle"
   },
   {
     featureId: "modules.side-effect-import",

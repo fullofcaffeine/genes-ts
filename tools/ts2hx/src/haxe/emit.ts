@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { createHash } from "crypto";
 import ts from "../typescript-api.js";
 import { toHaxeModuleName, toHaxePackagePath } from "../util.js";
 import {
@@ -135,6 +136,11 @@ type RuntimeImportRequest =
       kind: "internal-binding";
       statement: ts.ImportDeclaration;
       anchor: string;
+    }
+  | {
+      kind: "internal-target";
+      statement: ts.ImportDeclaration;
+      anchor: string;
     };
 
 type RuntimeImportProblem = {
@@ -148,8 +154,24 @@ type SourceRuntimeImportPlan = {
   problems: readonly RuntimeImportProblem[];
 };
 
+type ConvertedRuntimeTargetPlan = {
+  /** Collision-free module field consumed by the Genes dependency planner. */
+  markerName: string;
+};
+
+type RuntimeImportInventory = {
+  sourceFile: ts.SourceFile;
+  imports: readonly ts.ImportDeclaration[];
+  bareImports: readonly ts.ImportDeclaration[];
+};
+
+type ConvertedRuntimeEdge = {
+  targetFile: ts.SourceFile;
+};
+
 type ProjectRuntimeImportPlan = {
   bySourceFile: ReadonlyMap<string, SourceRuntimeImportPlan>;
+  targetBySourceFile: ReadonlyMap<string, ConvertedRuntimeTargetPlan>;
   stagedFiles: readonly EmittedFile[];
   dispositions: readonly RuntimeModuleDisposition[];
 };
@@ -2873,6 +2895,128 @@ function problem(
 }
 
 /**
+ * Allocates the semantic-only field that makes one converted module typeable.
+ *
+ * Why: a bare relative import has no Haxe value binding for DCE to retain, but
+ * Genes needs a compiler-owned static field reference in order to recover the
+ * generated module identity from the typed AST.
+ *
+ * What: the base name is a stable hash of the normalized source path. A local
+ * declaration/import collision receives the first deterministic numeric
+ * suffix. The name is shared by the target emitter and every importing carrier
+ * in this immutable project plan.
+ *
+ * How: the emitted field is marked `@:keep` and
+ * `@:genes.compilerInternal`. Haxe therefore types the target before Genes
+ * consumes the reference, while all implementation and declaration printers
+ * erase the field. The hash is an identifier aid only; request identity remains
+ * the compiler-owned Haxe module type.
+ */
+function convertedTargetMarkerName(opts: EmitHaxeOptions, sourceFile: ts.SourceFile): string {
+  const sourcePath = portablePath(path.relative(opts.rootDir, sourceFile.fileName));
+  const hash = createHash("sha256").update(sourcePath).digest("hex").slice(0, 10);
+  const base = `__ts2hx_init_${hash}`;
+  const usedNames = new Set(collectLocalDeclarationKinds(sourceFile).keys());
+  for (const imp of collectImports(sourceFile)) {
+    if (imp.defaultImport) usedNames.add(imp.defaultImport);
+    if (imp.namespaceImport) usedNames.add(imp.namespaceImport);
+    for (const named of imp.named) usedNames.add(named.name);
+  }
+  if (sourceFile.statements.some((statement) =>
+    ts.isExportAssignment(statement) && !statement.isExportEquals
+  )) usedNames.add("__default");
+
+  let markerName = base;
+  let suffix = 2;
+  while (usedNames.has(markerName)) {
+    markerName = `${base}_${suffix}`;
+    suffix++;
+  }
+  return markerName;
+}
+
+/**
+ * Classifies the converted runtime graph into strongly connected components.
+ *
+ * Why: a binding-free edge is safe in the first supported increment only when
+ * it is outside every converted request cycle. Re-running reachability from
+ * each bare occurrence would make planning quadratic on large migrations.
+ *
+ * What: the endpoints of an existing edge participate in a cycle when they
+ * have the same returned component number (including a self-edge). Component
+ * numbers are internal; only equality is semantic.
+ *
+ * How: iterative Kosaraju passes avoid JavaScript call-stack limits. Sorted
+ * nodes and neighbors make the plan deterministic even though component IDs do
+ * not reach emitted source or diagnostics.
+ */
+function convertedRuntimeComponents(
+  graph: ReadonlyMap<string, ReadonlySet<string>>
+): ReadonlyMap<string, number> {
+  const nodes = new Set<string>();
+  for (const [source, targets] of graph) {
+    nodes.add(source);
+    for (const target of targets) nodes.add(target);
+  }
+  const orderedNodes = Array.from(nodes).sort((a, b) => a.localeCompare(b));
+  const forward = new Map<string, readonly string[]>();
+  const reverse = new Map<string, string[]>();
+  for (const node of orderedNodes) {
+    forward.set(node, Array.from(graph.get(node) ?? []).sort((a, b) => a.localeCompare(b)));
+    reverse.set(node, []);
+  }
+  for (const [source, targets] of forward) {
+    for (const target of targets) reverse.get(target)?.push(source);
+  }
+  for (const sources of reverse.values()) sources.sort((a, b) => a.localeCompare(b));
+
+  const visited = new Set<string>();
+  const finishOrder: string[] = [];
+  for (const start of orderedNodes) {
+    if (visited.has(start)) continue;
+    visited.add(start);
+    const stack: Array<{ node: string; neighbors: readonly string[]; nextIndex: number }> = [
+      { node: start, neighbors: forward.get(start) ?? [], nextIndex: 0 }
+    ];
+    while (stack.length > 0) {
+      const frame = stack[stack.length - 1];
+      if (!frame) break;
+      const next = frame.neighbors[frame.nextIndex];
+      if (next !== undefined) {
+        frame.nextIndex++;
+        if (!visited.has(next)) {
+          visited.add(next);
+          stack.push({ node: next, neighbors: forward.get(next) ?? [], nextIndex: 0 });
+        }
+        continue;
+      }
+      stack.pop();
+      finishOrder.push(frame.node);
+    }
+  }
+
+  const componentByNode = new Map<string, number>();
+  let component = 0;
+  for (let index = finishOrder.length - 1; index >= 0; index--) {
+    const start = finishOrder[index];
+    if (start === undefined || componentByNode.has(start)) continue;
+    const stack = [start];
+    componentByNode.set(start, component);
+    while (stack.length > 0) {
+      const current = stack.pop();
+      if (!current) continue;
+      for (const predecessor of reverse.get(current) ?? []) {
+        if (componentByNode.has(predecessor)) continue;
+        componentByNode.set(predecessor, component);
+        stack.push(predecessor);
+      }
+    }
+    component++;
+  }
+  return componentByNode;
+}
+
+/**
  * Builds one immutable runtime-import sequence before any source file prints.
  *
  * Why: per-file binding collection drops bare declarations and cannot preserve
@@ -2882,9 +3026,9 @@ function problem(
  *
  * What: files containing at least one bare import receive an ordered request
  * plan covering every runtime import declaration in that file. Package and
- * manifest-owned relative requests become external marker calls; converted
- * bound requests use a real local binding as their typed retention anchor.
- * Ambiguous variants remain source-positioned failures.
+ * manifest-owned relative requests become external marker calls. Converted
+ * requests use either a real local binding or a deterministic target marker,
+ * while binding-free converted cycles remain source-positioned failures.
  *
  * How: the plan is built against the exact configured conversion set and an
  * optional hash-verified staging manifest. Resource bytes are read now but are
@@ -2894,17 +3038,75 @@ function buildProjectRuntimeImportPlan(opts: EmitHaxeOptions): ProjectRuntimeImp
   const manifest: RuntimeModuleManifestPlan | null = opts.runtimeModulesManifest
     ? loadRuntimeModuleManifest(opts.runtimeModulesManifest)
     : null;
-  const conversionSet = new Set(opts.sourceFiles.map((sourceFile) => path.resolve(sourceFile.fileName)));
+  const sortedSourceFiles = opts.sourceFiles.slice().sort((a, b) => a.fileName.localeCompare(b.fileName));
+  const conversionSet = new Set(sortedSourceFiles.map((sourceFile) => path.resolve(sourceFile.fileName)));
   const bySourceFile = new Map<string, SourceRuntimeImportPlan>();
+  const targetBySourceFile = new Map<string, ConvertedRuntimeTargetPlan>();
   const usedManifestEntries = new Set<RuntimeModuleManifestEntry>();
+  const inventories: RuntimeImportInventory[] = [];
+  const convertedEdgeByStatement = new Map<ts.ImportDeclaration, ConvertedRuntimeEdge>();
+  const convertedGraph = new Map<string, Set<string>>();
 
-  for (const sourceFile of opts.sourceFiles.slice().sort((a, b) => a.fileName.localeCompare(b.fileName))) {
+  for (const sourceFile of sortedSourceFiles) {
     const imports = sourceFile.statements.filter(
       (statement): statement is ts.ImportDeclaration =>
         ts.isImportDeclaration(statement)
         && ts.isStringLiteral(statement.moduleSpecifier)
     );
     const bareImports = imports.filter((statement) => !statement.importClause);
+    inventories.push({ sourceFile, imports, bareImports });
+
+    const sourceKey = path.resolve(sourceFile.fileName);
+    for (const statement of imports) {
+      if (!isRuntimeImport(statement)) continue;
+      const moduleSpecifier = (statement.moduleSpecifier as ts.StringLiteral).text;
+      if (!isRelativeModuleSpecifier(moduleSpecifier)) continue;
+      const targetFile = resolveRelativeSourceFile(opts.program, sourceFile.fileName, moduleSpecifier);
+      if (!targetFile || !conversionSet.has(path.resolve(targetFile.fileName))) continue;
+
+      const targetKey = path.resolve(targetFile.fileName);
+      convertedEdgeByStatement.set(statement, { targetFile });
+      const targets = convertedGraph.get(sourceKey) ?? new Set<string>();
+      targets.add(targetKey);
+      convertedGraph.set(sourceKey, targets);
+    }
+  }
+
+  const cyclicBindingFreeStatements = new Set<ts.ImportDeclaration>();
+  const targetSourcePaths = new Set<string>();
+  const convertedComponents = convertedRuntimeComponents(convertedGraph);
+  for (const inventory of inventories) {
+    if (inventory.bareImports.length === 0) continue;
+    const sourceKey = path.resolve(inventory.sourceFile.fileName);
+    for (const statement of inventory.imports) {
+      const edge = convertedEdgeByStatement.get(statement);
+      if (!edge || runtimeBindingAnchor(statement) !== null) continue;
+      const attribute = parseImportAttribute(statement);
+      if (!attribute.ok || attribute.importType !== null) continue;
+
+      const targetKey = path.resolve(edge.targetFile.fileName);
+      const sourceComponent = convertedComponents.get(sourceKey);
+      const targetComponent = convertedComponents.get(targetKey);
+      if (sourceComponent !== undefined && sourceComponent === targetComponent) {
+        cyclicBindingFreeStatements.add(statement);
+      } else {
+        targetSourcePaths.add(targetKey);
+      }
+    }
+  }
+
+  for (const targetPath of Array.from(targetSourcePaths).sort((a, b) => a.localeCompare(b))) {
+    const targetFile = sortedSourceFiles.find(
+      (sourceFile) => path.resolve(sourceFile.fileName) === targetPath
+    );
+    if (!targetFile)
+      throw new Error(`Converted side-effect target left the conversion set: ${targetPath}.`);
+    targetBySourceFile.set(targetPath, {
+      markerName: convertedTargetMarkerName(opts, targetFile)
+    });
+  }
+
+  for (const { sourceFile, imports, bareImports } of inventories) {
     if (bareImports.length === 0) continue;
 
     const sourcePath = portablePath(path.relative(opts.rootDir, sourceFile.fileName));
@@ -2966,11 +3168,37 @@ function buildProjectRuntimeImportPlan(opts: EmitHaxeOptions): ProjectRuntimeImp
         }
         const anchor = runtimeBindingAnchor(statement);
         if (!anchor) {
-          problems.push(problem(
+          if (cyclicBindingFreeStatements.has(statement)) {
+            problems.push(problem(
+              statement,
+              "TS2HX-MODULES-SIDE-EFFECT-IMPORT-CONVERTED-CYCLE-001",
+              "A binding-free converted-relative request participates in a runtime import cycle whose ESM initialization semantics are not yet proven."
+            ));
+            continue;
+          }
+          const edge = convertedEdgeByStatement.get(statement);
+          const targetPlan = edge
+            ? targetBySourceFile.get(path.resolve(edge.targetFile.fileName))
+            : null;
+          if (!edge || !targetPlan)
+            throw new Error(`Converted side-effect target was not planned for ${sourceFile.fileName}.`);
+          const target = moduleTargetFromImport(
+            {
+              projectDir: opts.projectDir,
+              rootDir: opts.rootDir,
+              fromFile: sourceFile.fileName,
+              basePackage: opts.basePackage
+            },
+            moduleSpecifier
+          );
+          const moduleBase = target.packagePath.length > 0
+            ? `${target.packagePath}.${target.moduleName}`
+            : target.moduleName;
+          requests.push({
+            kind: "internal-target",
             statement,
-            "TS2HX-MODULES-SIDE-EFFECT-IMPORT-CONVERTED-RELATIVE-001",
-            "A binding-free converted-relative request needs a compiler-internal target retention marker."
-          ));
+            anchor: `${moduleBase}.${targetPlan.markerName}`
+          });
           continue;
         }
         requests.push({ kind: "internal-binding", statement, anchor });
@@ -3084,6 +3312,7 @@ function buildProjectRuntimeImportPlan(opts: EmitHaxeOptions): ProjectRuntimeImp
 
   return {
     bySourceFile,
+    targetBySourceFile,
     stagedFiles: Array.from(stagedByPath.values(), (value) => value.file)
       .sort((a, b) => a.filePath.localeCompare(b.filePath)),
     dispositions
@@ -3103,7 +3332,8 @@ function emitHaxeSourceFile(
   opts: EmitHaxeOptions,
   sf: ts.SourceFile,
   semanticRecorder: SemanticRecorder,
-  runtimeImportPlan: SourceRuntimeImportPlan | null
+  runtimeImportPlan: SourceRuntimeImportPlan | null,
+  runtimeTargetPlan: ConvertedRuntimeTargetPlan | null
 ): SourceEmitOutcome {
   const absFile = sf.fileName;
   if (absFile.endsWith(".d.ts")) return { kind: "declaration-only" };
@@ -3286,6 +3516,19 @@ function emitHaxeSourceFile(
     out.push("");
   }
 
+  if (runtimeTargetPlan) {
+    out.push("/**");
+    out.push(" * Compiler-internal converted-module retention target.");
+    out.push(" * Importing request carriers type this field under full Haxe DCE; Genes");
+    out.push(" * resolves its module identity and erases the field from all outputs.");
+    out.push(" */");
+    out.push("@:keep");
+    out.push("@:noCompletion");
+    out.push("@:genes.compilerInternal");
+    out.push(`final ${runtimeTargetPlan.markerName} = true;`);
+    out.push("");
+  }
+
   if (runtimeImportPlan && runtimeImportPlan.requests.length > 0) {
     const usedNames = new Set(collectLocalDeclarationKinds(sf).keys());
     for (const imp of imports) {
@@ -3410,6 +3653,7 @@ function emitHaxeSourceFile(
       const expr = emitExpression(ctx, stmt.expression);
       if (!expr)
         return unsupported(stmt, "Default export expression cannot be preserved.", "expression");
+      if (runtimeTargetPlan) out.push("@:keep");
       out.push(`final __default = ${expr};`);
       out.push("");
       continue;
@@ -3441,6 +3685,11 @@ function emitHaxeSourceFile(
           const init = emitExpression(ctx, decl.initializer);
           if (!init)
             return unsupported(stmt, "Top-level initializer cannot be preserved.", "expression");
+          // A target marker types this Haxe module but a pure read from that
+          // marker does not retain sibling fields under `-dce full`. Explicitly
+          // keep translated initializers because they are the supported
+          // top-level statements whose evaluation a bare ESM request observes.
+          if (runtimeTargetPlan) out.push("@:keep");
           out.push(`${declKeyword} ${decl.name.text}${typeSuffix} = ${init};`);
         }
       }
@@ -3742,7 +3991,8 @@ export function emitProjectToHaxe(rawOpts: EmitHaxeOptions): EmitHaxeResult {
       opts,
       sf,
       semanticRecorder,
-      runtimeImportProjectPlan.bySourceFile.get(path.resolve(sf.fileName)) ?? null
+      runtimeImportProjectPlan.bySourceFile.get(path.resolve(sf.fileName)) ?? null,
+      runtimeImportProjectPlan.targetBySourceFile.get(path.resolve(sf.fileName)) ?? null
     );
     const sourceFile = portablePath(path.relative(opts.rootDir, sf.fileName));
     if (outcome.kind === "declaration-only") {

@@ -12,6 +12,7 @@ import {
 import { runTypeScriptApiBridge } from "./toolchains.js";
 
 const TRACE_MARKER = "SEMANTIC_TRACE:";
+const CONVERTED_TRACE_MARKER = "CONVERTED_TRACE:";
 
 function assert(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -53,6 +54,16 @@ function semanticTrace(output: string, label: string): string {
   return JSON.stringify(parsed);
 }
 
+function convertedTrace(output: string, label: string): string {
+  const marker = output.indexOf(CONVERTED_TRACE_MARKER);
+  assert(marker >= 0, `${label}: no ${CONVERTED_TRACE_MARKER} marker in output:\n${output}`);
+  return output.slice(marker + CONVERTED_TRACE_MARKER.length).split(/\r?\n/, 1)[0]?.trim() ?? "";
+}
+
+function occurrenceCount(source: string, needle: string): number {
+  return source.split(needle).length - 1;
+}
+
 function assertSideEffectOrder(output: string, label: string): void {
   const packageEffect = output.indexOf("TS2HX_SIDE_EFFECT:package");
   const supportEffect = output.indexOf("TS2HX_SIDE_EFFECT:support");
@@ -79,7 +90,7 @@ function compileOriginalTypeScript(opts: {
   fixtureDir: string;
   fixtureConfig: string;
   outputDir: string;
-}): string {
+}): { semantic: string; converted: string } {
   resetDir(opts.outputDir);
   runTypeScriptApiBridge(opts.repoRoot, ["-p", opts.fixtureConfig, "--outDir", opts.outputDir]);
   const packageTarget = path.join(opts.outputDir, "node_modules", "@ts2hx", "semantic-effect");
@@ -89,12 +100,21 @@ function compileOriginalTypeScript(opts: {
   fs.mkdirSync(path.dirname(resourceTarget), { recursive: true });
   fs.copyFileSync(path.join(opts.fixtureDir, "runtime", "after-support.mjs"), resourceTarget);
   fs.copyFileSync(path.join(opts.fixtureDir, "src", "runtime", "config.json"), path.join(opts.outputDir, "runtime", "config.json"));
-  const entry = pathToFileURL(path.join(opts.outputDir, "Main.js")).href;
-  return capture(
+  const semanticEntry = pathToFileURL(path.join(opts.outputDir, "Main.js")).href;
+  const semantic = capture(
     process.execPath,
-    ["--input-type=module", "-e", `import(${JSON.stringify(entry)}).then((module) => module.main())`],
+    ["--input-type=module", "-e", `import(${JSON.stringify(semanticEntry)}).then((module) => module.main())`],
     opts.repoRoot
   );
+  const convertedEntry = pathToFileURL(
+    path.join(opts.outputDir, "converted", "ConvertedMain.js")
+  ).href;
+  const converted = capture(
+    process.execPath,
+    ["--input-type=module", "-e", `import(${JSON.stringify(convertedEntry)}).then((module) => module.main())`],
+    opts.repoRoot
+  );
+  return { semantic, converted };
 }
 
 function compileClassicHaxe(opts: {
@@ -102,6 +122,7 @@ function compileClassicHaxe(opts: {
   repoRoot: string;
   haxeSourceDir: string;
   outputFile: string;
+  mainClass: string;
   fixtureDir: string;
   stagedRuntimeDir: string;
 }): string {
@@ -111,7 +132,7 @@ function compileClassicHaxe(opts: {
     "-cp", opts.haxeSourceDir,
     "--macro", "genes.js.Async.enable()",
     "-dce", "full",
-    "-main", "ts2hx_semantic.Main",
+    "-main", opts.mainClass,
     "-js", opts.outputFile
   ], opts.repoRoot);
   installNodeRuntime(opts.fixtureDir, path.dirname(opts.outputFile), opts.stagedRuntimeDir);
@@ -124,6 +145,7 @@ function compileGenesTypeScript(opts: {
   haxeSourceDir: string;
   sourceDir: string;
   distDir: string;
+  mainClass: string;
   fixtureDir: string;
   stagedRuntimeDir: string;
 }): string {
@@ -132,7 +154,7 @@ function compileGenesTypeScript(opts: {
   run(opts.haxeBin, [
     "-lib", "genes-ts",
     "-cp", opts.haxeSourceDir,
-    "-main", "ts2hx_semantic.Main",
+    "-main", opts.mainClass,
     "-js", path.join(opts.sourceDir, "index.ts"),
     "-D", "genes.ts",
     "-dce", "full"
@@ -187,8 +209,13 @@ function main(): void {
     fixtureConfig,
     outputDir: path.join(tmpRoot, "original")
   });
-  const originalTrace = semanticTrace(originalOutput, "original TypeScript");
-  assertSideEffectOrder(originalOutput, "original TypeScript");
+  const originalTrace = semanticTrace(originalOutput.semantic, "original TypeScript");
+  const originalConvertedTrace = convertedTrace(
+    originalOutput.converted,
+    "original converted-relative TypeScript"
+  );
+  assert(originalConvertedTrace === "first,second", "original converted fixture has the wrong source order.");
+  assertSideEffectOrder(originalOutput.semantic, "original TypeScript");
 
   const loaded = loadProject(fixtureConfig);
   if (!loaded.ok)
@@ -289,6 +316,40 @@ function main(): void {
       && translatedMain.includes("SideEffectImportMarker.external(\"./runtime/config.json\", \"json\")"),
     "translated Haxe did not preserve the complete ordered runtime-import sequence."
   );
+  const convertedHaxeDir = path.join(haxeSourceDir, "ts2hx_semantic", "converted");
+  const convertedMainHaxe = fs.readFileSync(path.join(convertedHaxeDir, "ConvertedMain.hx"), "utf8");
+  const firstHaxe = fs.readFileSync(path.join(convertedHaxeDir, "First.hx"), "utf8");
+  const secondHaxe = fs.readFileSync(path.join(convertedHaxeDir, "Second.hx"), "utf8");
+  const firstMarker = firstHaxe.match(/final (__ts2hx_init_[a-f0-9]{10}(?:_[0-9]+)?) = true;/)?.[1];
+  const secondMarker = secondHaxe.match(/final (__ts2hx_init_[a-f0-9]{10}(?:_[0-9]+)?) = true;/)?.[1];
+  assert(firstMarker !== undefined, "converted First target did not receive a deterministic marker.");
+  assert(secondMarker !== undefined, "converted Second target did not receive a deterministic marker.");
+  assert(
+    firstMarker === "__ts2hx_init_380351706d_2",
+    "converted target marker did not avoid the user-owned stable base name deterministically."
+  );
+  assert(
+    firstHaxe.includes("@:keep\nfinal initialized = events.push(\"first\");")
+      && secondHaxe.includes("@:keep\nfinal initialized = events.push(\"second\");"),
+    "converted target initializers are not explicitly retained through full Haxe DCE."
+  );
+  const firstAnchor = `SideEffectImportMarker.internal(ts2hx_semantic.converted.First.${firstMarker})`;
+  const secondAnchor = `SideEffectImportMarker.internal(ts2hx_semantic.converted.Second.${secondMarker})`;
+  const stateAnchor = "SideEffectImportMarker.internal(events)";
+  assert(
+    convertedMainHaxe.indexOf(firstAnchor) >= 0
+      && convertedMainHaxe.indexOf(secondAnchor) > convertedMainHaxe.indexOf(firstAnchor)
+      && convertedMainHaxe.indexOf(stateAnchor) > convertedMainHaxe.indexOf(secondAnchor),
+    "converted request carrier lost the source-ordered First, Second, State sequence."
+  );
+  assert(
+    occurrenceCount(convertedMainHaxe, firstAnchor) === 2,
+    "converted duplicate request provenance was lost before Genes projection."
+  );
+  assert(
+    !convertedMainHaxe.includes('"./first.js"') && !convertedMainHaxe.includes('"./second.js"'),
+    "converted request carrier preserved a deleted original JavaScript path."
+  );
   const stagedResource = path.join(
     haxeSourceDir,
     "ts2hx_semantic",
@@ -367,6 +428,7 @@ function main(): void {
     repoRoot,
     haxeSourceDir,
     outputFile: path.join(tmpRoot, "classic", "index.js"),
+    mainClass: "ts2hx_semantic.Main",
     fixtureDir,
     stagedRuntimeDir
   });
@@ -376,6 +438,26 @@ function main(): void {
     haxeSourceDir,
     sourceDir: path.join(tmpRoot, "genes-ts-source"),
     distDir: path.join(tmpRoot, "genes-ts-dist"),
+    mainClass: "ts2hx_semantic.Main",
+    fixtureDir,
+    stagedRuntimeDir
+  });
+  const classicConvertedOutput = compileClassicHaxe({
+    haxeBin,
+    repoRoot,
+    haxeSourceDir,
+    outputFile: path.join(tmpRoot, "classic-converted", "index.js"),
+    mainClass: "ts2hx_semantic.converted.ConvertedMain",
+    fixtureDir,
+    stagedRuntimeDir
+  });
+  const genesTsConvertedOutput = compileGenesTypeScript({
+    haxeBin,
+    repoRoot,
+    haxeSourceDir,
+    sourceDir: path.join(tmpRoot, "genes-ts-converted-source"),
+    distDir: path.join(tmpRoot, "genes-ts-converted-dist"),
+    mainClass: "ts2hx_semantic.converted.ConvertedMain",
     fixtureDir,
     stagedRuntimeDir
   });
@@ -408,6 +490,30 @@ function main(): void {
     assert(!source.includes("SideEffectImportMarker"), `${label}: compiler marker leaked into generated output.`);
     assert(!source.includes("__ts2hx_requests"), `${label}: request carrier leaked into generated output.`);
   }
+  const classicConvertedMain = fs.readFileSync(
+    path.join(tmpRoot, "classic-converted", "ts2hx_semantic", "converted", "ConvertedMain.js"),
+    "utf8"
+  );
+  const genesTsConvertedMain = fs.readFileSync(
+    path.join(tmpRoot, "genes-ts-converted-source", "ts2hx_semantic", "converted", "ConvertedMain.ts"),
+    "utf8"
+  );
+  for (const [label, source] of [
+    ["classic converted", classicConvertedMain],
+    ["genes-ts converted", genesTsConvertedMain]
+  ] as const) {
+    const firstRequest = source.indexOf("./First.js");
+    const secondRequest = source.indexOf("./Second.js");
+    const stateRequest = source.indexOf("./State.js");
+    assert(firstRequest >= 0, `${label}: generated module lost the bare First request.`);
+    assert(secondRequest > firstRequest, `${label}: generated Second request moved before First.`);
+    assert(stateRequest > secondRequest, `${label}: generated bound State request moved before Second.`);
+    assert(occurrenceCount(source, "./First.js") === 1, `${label}: duplicate First request was not coalesced.`);
+    assert(!source.includes("./first.js"), `${label}: original converted JavaScript path leaked.`);
+    assert(!source.includes("__ts2hx_init_"), `${label}: target marker leaked into generated output.`);
+    assert(!source.includes("__ts2hx_requests"), `${label}: request carrier leaked into generated output.`);
+    assert(!source.includes("SideEffectImportMarker"), `${label}: compiler marker leaked into generated output.`);
+  }
   assertSideEffectOrder(classicOutput, "translated classic Genes JavaScript");
   assertSideEffectOrder(genesTsOutput, "translated genes-ts output");
   assert(
@@ -417,6 +523,16 @@ function main(): void {
   assert(
     semanticTrace(genesTsOutput, "translated genes-ts output") === originalTrace,
     "genes-ts translated trace differs from original TypeScript."
+  );
+  assert(
+    convertedTrace(classicConvertedOutput, "translated classic converted-relative output")
+      === originalConvertedTrace,
+    "classic converted-relative initialization differs from original TypeScript."
+  );
+  assert(
+    convertedTrace(genesTsConvertedOutput, "translated genes-ts converted-relative output")
+      === originalConvertedTrace,
+    "genes-ts converted-relative initialization differs from original TypeScript."
   );
 
   const unsupportedConfig = path.join(toolRoot, "fixtures", "semantic-unsupported", "tsconfig.json");

@@ -32,9 +32,11 @@ until the intended targets have run the same semantic fixture.
 
 `modules.side-effect-import` is J1 even though its generated Haxe carrier is
 typed: the Genes JS/TS compiler consumes that carrier, and the final behavior
-depends on ESM package/resource loading. Package installation and copying any
-manifest-staged relative asset beside final JavaScript remain explicit host
-build responsibilities.
+depends on ESM package/resource/generated-module loading. Converted targets use
+compiler-internal typed anchors and retained initializers, but those facts do
+not make their final ESM initialization portable to a non-JS Haxe backend.
+Package installation and copying any manifest-staged relative asset beside
+final JavaScript remain explicit host build responsibilities.
 
 ## Adapter layers
 

@@ -172,7 +172,8 @@ through standard Haxe JS. Explicit exceptions:
 Additional evidence-only fixtures:
 
 - `semantic-diff`: 16 supported semantic contracts executed as original TS,
-  classic Genes JS, and genes-ts→JS;
+  classic Genes JS, and genes-ts→JS, including the reduced ordered
+  `state`/`first`/`second` converted-module initialization proof;
 - `semantic-unsupported`: 9 feature-specific strict failures with source
   provenance and unchanged prior output;
 - `unsupported-top-level`: generic unknown-statement diagnostics, assisted loss
@@ -223,7 +224,9 @@ unlabelled switch-to-loop `continue`, try/catch/finally, class and lexical arrow
 continue, outer completion through finally, and dynamic prototype mutation fail
 closed. Its module transcript additionally proves a bare package request, a
 bound converted request, and a manifest-staged relative request execute in
-source order in all three runtimes.
+source order in all three runtimes. A reduced converted-module transcript
+separately proves `first,second` initialization order, duplicate-request
+coalescing, full-DCE retention, and compiler-marker erasure.
 
 ## External relative runtime modules
 
@@ -254,12 +257,15 @@ same transaction as generated Haxe. The named `owner` must copy that staged
 asset to the identical module-relative location in both final Genes output
 trees. npm/package installation remains the host build's responsibility.
 
-The current strict boundary supports bare packages and manifest-owned external
-relative files, including one non-empty literal `type` attribute when the
-source and manifest agree. Binding-free converted relatives land separately. Unresolved
-relatives, code outside the configured conversion set, unmanifested runtime
-files, unsupported attributes, and a file combining a bare import with a
-runtime re-export receive stable source-positioned diagnostics.
+The current strict boundary supports bare packages, manifest-owned external
+relative files, and acyclic converted-relative modules. One non-empty literal
+`type` attribute is supported for external requests when source and manifest
+agree. Converted requests use generated Haxe module identities and
+compiler-internal DCE anchors rather than preserving original `.js` paths.
+Converted cycles, unresolved relatives, code outside the configured conversion
+set, unmanifested runtime files, unsupported attributes, and a file combining a
+bare import with a runtime re-export receive stable source-positioned
+diagnostics.
 
 Update snapshots only after reviewing the semantic reason for every change:
 

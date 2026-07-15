@@ -88,7 +88,7 @@ The audit also required two qualifications:
 | Shared public-surface facts | TS implementation interfaces and classic declarations consume one immutable pre-DCE model for visibility, applied inheritance, generics, overload identity, typedef bodies, and classified compiler-generated support members. | Generic/overload fixture, strict TS and classic declaration consumers, and dual-mode runtime assertions |
 | Reusable-library profile | Explicit `@:genes.library` roots retain one transitive public runtime/type graph before DCE; default application output remains compact and classic mode requires matched declarations. | Default/library/TS builds, strict negative consumer on TS 5/6/7, abstract-owner assertions, and paired Node runtimes |
 | Shared nullish facts | TS implementation, classic JS behavior checks, and both declaration paths consume one immutable classification for Haxe `Null<T>`, explicit `undefined`, property/parameter omission, native-map absence, and iterator completion. | Exact optional-property negative consumers plus paired TS/classic runtime traces |
-| Shared dependency facts | Runtime values, TS implementation types, and declaration-only references are immutable typed edges with source provenance; emitters project them through one alias/import allocator. | Shadow parity on full TS and classic trees, type/declaration-only DCE fixtures, strict consumers, and aggregate CI |
+| Shared dependency facts | Runtime values, runtime side effects, TS implementation types, and declaration-only references are immutable typed edges with source provenance; emitters project ordered runtime requests through one alias/import allocator. | Shadow parity on full TS and classic trees, side-effect ordering/attribute fixtures, type/declaration-only DCE fixtures, strict consumers, and aggregate CI |
 | Shared host declaration gaps | Haxe WebIDL names absent from TypeScript's DOM library are defined once and projected into TS-source and classic declaration support modules. | Generic DOM extern fixture plus strict classic consumer on TS 5/6/7 |
 | Dual-profile examples | Every checked-in example declares `ts-strict` and `classic-esm`; the todoapp web/server share one Haxe tree and execute the same API/browser journeys. | `yarn test:examples` and the `examples/profiles.json` ownership manifest |
 | Product wording | Readiness, JSX, declaration, and migration claims are separated by evidence class. | This document and linked mode/policy docs |
@@ -295,9 +295,11 @@ The source of truth is Beads epic `genes-09r`.
    translated genes-ts output. The matrix retains 2 unsupported rows, while the
    strict companion fixture owns 9 exercised fail-closed variants because a
    supported feature can still reject a narrower form such as labeled switch
-   continue. No failure publishes partial output; printers no longer own
-   support decisions for migrated undefined/default/evaluation/control-flow/
-   module categories.
+   continue. The module row includes acyclic converted-relative initialization
+   through compiler-internal DCE anchors, while converted cycles remain one of
+   those strict variants. No failure publishes partial output; printers no
+   longer own support decisions for migrated undefined/default/evaluation/
+   control-flow/module categories.
 2. **`genes-09r.8` — dts2hx bridge (landed).** dts2hx 0.34.0 and its TS5.9 API
    are pinned beside the genes TS6 adapter. Shared local packages cover an ESM
    root, typed subpath, conditional exports, and class-shaped CommonJS

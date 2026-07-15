@@ -68,7 +68,7 @@ Grades describe the emitted Haxe contract:
 | `prototypes.dynamic-mutation` | unsupported / U | Prototype mutation requires an explicit boundary/refactor. |
 | `async.await` | helper / J1 | Uses `genes.js.Async` and the JavaScript Promise/microtask contract. |
 | `modules.esm-bindings` | supported / J1 | Covers the exercised ESM value/type binding and re-export subset. |
-| `modules.side-effect-import` | helper / J1 | Preserves source-ordered bare packages and manifest-owned external relative runtime files. Binding-free converted relatives and the strict variants below remain unsupported. |
+| `modules.side-effect-import` | helper / J1 | Preserves source-ordered bare packages, manifest-owned external relative runtime files, and acyclic converted-relative initialization. Converted cycles and the strict variants below remain unsupported. |
 
 The semantic harness currently requires exactly the 16 supported rows to occur.
 The matrix contains 2 unsupported rows, while the strict companion fixture owns
@@ -235,8 +235,8 @@ non-relative import generates a small `<basePackage>.extern.*` module using
   adapter layer;
 - bare package requests are J1; relative runtime files require a hash-pinned
   staging manifest and explicit final-build copy ownership;
-- binding-free converted relatives, unresolved relatives, source code outside
-  the conversion set, unmanifested runtime files, unsupported attributes, and
+- converted side-effect cycles, unresolved relatives, source code outside the
+  conversion set, unmanifested runtime files, unsupported attributes, and
   bare-import/runtime-re-export interleaving fail closed;
 - a compile-only extern is not evidence that runtime module identity or loading
   order is correct.

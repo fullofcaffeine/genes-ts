@@ -1,1 +1,3 @@
-export const initialized = true;
+import { value } from "./sideEffect.js";
+
+export const initialized = value === 1;

@@ -257,6 +257,13 @@ one kept `@:genes.compilerInternal` carrier whose typed marker calls survive
 full DCE, become ordered Genes module requests, and disappear from both final
 profiles and declarations. Maps remain lookup structures; neither ts2hx nor a
 Genes printer may reconstruct request order from grouped bindings.
+An acyclic binding-free request to converted code targets a deterministic
+compiler-internal field in the generated Haxe module. That typed anchor makes
+the target visible; explicit `@:keep` metadata retains its translated top-level
+initializers; Genes then erases both anchor and carrier. A binding-free edge in
+a converted request cycle fails with
+`TS2HX-MODULES-SIDE-EFFECT-IMPORT-CONVERTED-CYCLE-001` until ESM cycle/TDZ parity
+has separate runtime evidence.
 
 ### Contributing a ts2hx fixture
 
