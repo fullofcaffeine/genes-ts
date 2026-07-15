@@ -18,6 +18,7 @@
     "unknown-record:Ada",
     "unknown-array:2",
     "api:2:Ada:true",
-    "type-only:true"
+    "type-only:true",
+    "native-global:true:portable.txt"
   ]
 }

@@ -17,9 +17,9 @@ This is an evidence contract, not a cached CI-success badge. `blocking` and `non
 | Compile inventory | Examples with TS and classic profiles | 2 | `blocking` |
 | Strict public typing | Strict positive/negative consumer sources | 6 | `blocking` |
 | Strict public typing | Explicitly owned exported-surface boundaries | 6 | `blocking` |
-| Semantic differential | Same-source Haxe modules | 10 | `blocking` |
+| Semantic differential | Same-source Haxe modules | 11 | `blocking` |
 | Semantic differential | TS/classic/declaration and JS oracle profiles | 5 | `blocking` |
-| Semantic differential | Stable dual-output runtime trace events | 17 | `blocking` |
+| Semantic differential | Stable dual-output runtime trace events | 18 | `blocking` |
 | Semantic differential | ts2hx supported and fail-closed semantic input modules | 8 | `blocking` |
 | Snapshot stability | genes-ts snapshot profiles | 7 | `blocking` |
 | Snapshot stability | ts2hx reviewed snapshot files | 48 | `blocking` |
@@ -33,7 +33,7 @@ This is an evidence contract, not a cached CI-success badge. `blocking` and `non
 | Package-shape interoperability | dts2hx package roots | 2 | `blocking` |
 | Downstream pressure tests | Pinned downstream repositories | 2 | `nonblocking-nightly` |
 | Downstream pressure tests | Explicit unsupported/nonblocking full-app areas | 5 | `nonblocking-nightly` |
-| Downstream pressure tests | Known pinned compiler/downstream observations | 2 | `nonblocking-nightly` |
+| Downstream pressure tests | Known pinned compiler/downstream observations | 1 | `nonblocking-nightly` |
 
 ## Toolchain contract
 
@@ -223,7 +223,6 @@ These jobs are deliberately nonblocking. Their JSON result artifacts keep the co
 
 | Profile | Owner | Tracking | Observation |
 | --- | --- | --- | --- |
-| opencodehx | `compiler` | `genes-09r.14` | A @:native global secondary extern inherits an unrelated sibling @:jsRequire package import and becomes a non-constructable namespace. |
 | opencodehx | `downstream` | `pinned downstream source model` | The downstream stream-part facade models tool-call identifiers as optional strings but passes them to required enum constructor arguments without a guard. |
 
 ## Explicit downstream exclusions

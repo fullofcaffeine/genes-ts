@@ -218,6 +218,35 @@ runGeneratedTypeScriptMatrix("tests/output-modes/tsconfig.consumer.json", {
 });
 run("haxe", ["tests/output-modes/build-standard.hxml"]);
 
+// A secondary `@:native` host global and its Haxe module's primary
+// `@:jsRequire` value have independent dependency identities. One accidental
+// package alias used to shadow `RegExp` and then redirect the legitimate path
+// call through that alias as well. Both printers consume the same dependency
+// plan, so assert the complete import/use shape in both generated profiles.
+for (const [profile, relativePath] of [
+  ["ts-strict", "tests/output-modes/out/ts/src-gen/dual/HelperScenario.ts"],
+  ["classic-esm", "tests/output-modes/out/classic/dual/HelperScenario.js"]
+] as const) {
+  const generated = readFileSync(path.join(repoRoot, relativePath), "utf8");
+  strictEqual(
+    generated.match(/from "node:path"/g)?.length ?? 0,
+    1,
+    `${profile} must emit exactly the real package import`
+  );
+  ok(
+    generated.includes('import * as MixedNativeImportOwner from "node:path"'),
+    `${profile} lost the primary extern package binding`
+  );
+  ok(
+    generated.includes('new RegExp("^portable$")'),
+    `${profile} did not retain the explicit host-global constructor`
+  );
+  ok(
+    generated.includes('MixedNativeImportOwner.basename("/dual/portable.txt")'),
+    `${profile} redirected the package owner through a secondary alias`
+  );
+}
+
 const tsTrace = parseJsonLine(
   capture("node", ["tests/output-modes/out/ts/dist/index.js"]),
   "ts-strict"

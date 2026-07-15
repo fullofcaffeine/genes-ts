@@ -21,22 +21,22 @@
       "budget": {
         "baseline": {
           "modules": 7,
-          "bytes": 11924,
-          "tokens": 1949,
+          "bytes": 12242,
+          "tokens": 2017,
           "temporaryDeclarations": 8,
-          "valueImports": 21,
+          "valueImports": 22,
           "typeImports": 4
         },
         "maximum": {
-          "bytes": 12521,
-          "tokens": 2047,
+          "bytes": 12855,
+          "tokens": 2118,
           "temporaryDeclarations": 8,
-          "valueImports": 21,
+          "valueImports": 22,
           "typeImports": 4
         },
         "review": {
-          "id": "GTS-BUDGET-BASELINE-001",
-          "reason": "Initial exact dual-output quality baseline for the shared TS/classic architecture audit."
+          "id": "GTS-BUDGET-BASELINE-002",
+          "reason": "Reviewed growth for the mixed host-global and package-import ownership regression fixture."
         }
       }
     },
@@ -47,22 +47,22 @@
       "budget": {
         "baseline": {
           "modules": 6,
-          "bytes": 9187,
-          "tokens": 1462,
+          "bytes": 9442,
+          "tokens": 1510,
           "temporaryDeclarations": 8,
-          "valueImports": 20,
+          "valueImports": 21,
           "typeImports": 0
         },
         "maximum": {
-          "bytes": 9647,
-          "tokens": 1536,
+          "bytes": 9915,
+          "tokens": 1586,
           "temporaryDeclarations": 8,
-          "valueImports": 20,
+          "valueImports": 21,
           "typeImports": 0
         },
         "review": {
-          "id": "GTS-BUDGET-BASELINE-001",
-          "reason": "Initial exact dual-output quality baseline for the shared TS/classic architecture audit."
+          "id": "GTS-BUDGET-BASELINE-002",
+          "reason": "Reviewed growth for the mixed host-global and package-import ownership regression fixture."
         }
       }
     },

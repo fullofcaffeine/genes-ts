@@ -158,7 +158,7 @@
           "kind": "tracked-files",
           "path": "tests/output-modes/src",
           "match": "\\.hx$",
-          "expected": 10
+          "expected": 11
         },
         {
           "id": "dual-output-oracles-and-profiles",
@@ -174,7 +174,7 @@
           "kind": "json-array-total",
           "path": "tests/output-modes/expected-trace.json",
           "pointer": [],
-          "expected": 17
+          "expected": 18
         },
         {
           "id": "ts2hx-semantic-input-modules",
@@ -395,7 +395,7 @@
           "path": "tests/compatibility/downstream-contracts.json",
           "pointer": ["profiles"],
           "child": "knownObservations",
-          "expected": 2
+          "expected": 1
         }
       ],
       "proves": "Exact downstream revisions can be reproduced as integration pressure tests without making product-specific compiler branches.",

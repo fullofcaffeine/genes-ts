@@ -142,13 +142,6 @@
       ],
       "knownObservations": [
         {
-          "id": "opencode-global-native-secondary-extern-import",
-          "owner": "compiler",
-          "status": "open",
-          "tracking": "genes-09r.14",
-          "summary": "A @:native global secondary extern inherits an unrelated sibling @:jsRequire package import and becomes a non-constructable namespace."
-        },
-        {
           "id": "opencode-optional-stream-discriminants",
           "owner": "downstream",
           "status": "open",

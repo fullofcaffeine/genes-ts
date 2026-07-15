@@ -82,6 +82,7 @@ The audit also required two qualifications:
 | Classic `Null<T>` declarations | Classic `.d.ts` uses a nullable union rather than `any`. | Strict external declaration consumer with `skipLibCheck: false` |
 | Native map absence | Missing `EsMap` entries normalize to Haxe `null`; an explicitly stored JS `undefined` remains distinguishable. | Runtime plus negative type fixture |
 | Secondary extern type ownership | A secondary type can reuse its owning module's `@:jsRequire` identity. | Focused extern fixture |
+| Native-global extern ownership | A secondary extern with explicit `@:native` identity never inherits an unrelated sibling `@:jsRequire`; metadata-free secondary package types still reuse their owner. | Four-oracle mixed-global/package fixture plus pinned OpenCodeHX rerun |
 | Fail-closed ts2hx | Strict mode diagnoses currently classified unsupported root files/top-level statements and publishes no partial tree; assisted output carries explicit losses and a manifest. Remaining semantic approximations are not declared lossless. | API/CLI/transaction tests and 53 snapshots |
 | Semantic exported-surface policy | Exported TS and classic declaration roots are checked through the TypeScript TypeChecker for explicit/inferred/imported weak types and unapproved index signatures; intentional boundaries require exact owned provenance. | Policy fixtures, TS/classic `IMap`, basic user modules, JSX negative consumers, and aggregate CI |
 | Shared public-surface facts | TS implementation interfaces and classic declarations consume one immutable pre-DCE model for visibility, applied inheritance, generics, overload identity, typedef bodies, and classified compiler-generated support members. | Generic/overload fixture, strict TS and classic declaration consumers, and dual-mode runtime assertions |
@@ -268,6 +269,14 @@ The source of truth is Beads epic `genes-09r`.
    same API plus Playwright journeys. Classic `.d.ts` also consumes the shared
    narrow WebIDL-gap contract used by TS source support; no todoapp shim or
    `skipLibCheck` relaxation was introduced.
+11. **`genes-09r.14` — independent native-global secondary externs
+   (landed).** Explicit `@:native` metadata is a complete host/global runtime
+   identity and can no longer inherit a primary type's unrelated package edge
+   merely because both declarations share one Haxe module. Metadata-free
+   secondary externs retain the existing package-owner fallback. One reduced
+   fixture runs through TS, classic Genes, standard Haxe JS, and live vanilla;
+   generated TS/classic source asserts the global constructor and legitimate
+   package import remain distinct.
 
 ### P2: mature migration and ecosystem workflows
 
@@ -300,10 +309,9 @@ The source of truth is Beads epic `genes-09r`.
    drift fails closed. PiMonoHX and OpenCodeHX are full-revision-pinned nightly
    contracts whose curated commands execute after bootstrap in an isolated
    network namespace; compiler observations, downstream results, known owners,
-   and unsupported areas remain distinct. The current OpenCodeHX pin records a
-   generic secondary-extern import defect as `genes-09r.14`, rather than hiding
-   it or introducing downstream knowledge into the compiler.
-
+   and unsupported areas remain distinct. Its first OpenCodeHX run exposed the
+   generic secondary-native-extern defect fixed by `genes-09r.14`; a pinned
+   rerun now reaches only the separately owned downstream type-model failure.
 ## Vanilla compatibility policy
 
 `../genes-vanilla` is read-only. Standard Haxe JS behavior is the primary

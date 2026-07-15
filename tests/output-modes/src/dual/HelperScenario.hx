@@ -3,6 +3,7 @@ package dual;
 import genes.ts.Undefinable;
 import genes.ts.Unknown;
 import genes.ts.UnknownNarrow;
+import dual.MixedNativeImportOwner.NativeGlobalPattern;
 
 /**
  * Exercises genes-ts helper abstractions through both current output modes.
@@ -28,6 +29,10 @@ class HelperScenario {
     final report = DualApi.summarize(["Ada", "Grace"]);
     events.push('api:${report.count}:${report.first}:${UnknownNarrow.isUndefined(Unknown.fromBoundary(report.missing))}');
     events.push('type-only:${DualApi.typeOnly() == null}');
+
+    final pattern = new NativeGlobalPattern("^portable$");
+    final fileName = MixedNativeImportOwner.basename("/dual/portable.txt");
+    events.push('native-global:${pattern.test("portable")}:$fileName');
     return events;
   }
 }

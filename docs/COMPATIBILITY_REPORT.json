@@ -172,8 +172,8 @@
           "kind": "tracked-files",
           "path": "tests/output-modes/src",
           "match": "\\.hx$",
-          "expected": 10,
-          "count": 10
+          "expected": 11,
+          "count": 11
         },
         {
           "id": "dual-output-oracles-and-profiles",
@@ -192,8 +192,8 @@
           "kind": "json-array-total",
           "path": "tests/output-modes/expected-trace.json",
           "pointer": [],
-          "expected": 17,
-          "count": 17
+          "expected": 18,
+          "count": 18
         },
         {
           "id": "ts2hx-semantic-input-modules",
@@ -446,8 +446,8 @@
             "profiles"
           ],
           "child": "knownObservations",
-          "expected": 2,
-          "count": 2
+          "expected": 1,
+          "count": 1
         }
       ],
       "proves": "Exact downstream revisions can be reproduced as integration pressure tests without making product-specific compiler branches.",
@@ -682,13 +682,6 @@
           }
         ],
         "knownObservations": [
-          {
-            "id": "opencode-global-native-secondary-extern-import",
-            "owner": "compiler",
-            "status": "open",
-            "tracking": "genes-09r.14",
-            "summary": "A @:native global secondary extern inherits an unrelated sibling @:jsRequire package import and becomes a non-constructable namespace."
-          },
           {
             "id": "opencode-optional-stream-discriminants",
             "owner": "downstream",

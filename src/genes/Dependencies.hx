@@ -118,6 +118,25 @@ class Dependencies {
     }
   }
 
+  /**
+   * Projects one typed Haxe declaration into its JavaScript module binding.
+   *
+   * Why: Haxe modules may contain several extern declarations, but sharing a
+   * `.hx` file does not necessarily mean sharing a JavaScript package export.
+   * Import ownership must follow metadata/runtime identity or a host global can
+   * be shadowed by an unrelated sibling package.
+   *
+   * What: a declaration's own `@:jsRequire` is authoritative. An explicit
+   * `@:native` without `@:jsRequire` is an independent host/global path and has
+   * no package dependency. Only metadata-free secondary externs may reuse the
+   * primary module type's package binding, which preserves declaration-only
+   * module shapes such as Node's `Readable.IReadable`.
+   *
+   * How: resolve direct import forms first, then inspect the primary Haxe
+   * module owner only for secondary externs with no explicit native identity.
+   * The returned request remains target-neutral; TS and classic printers share
+   * the later alias/import projection.
+   */
   public static function makeDependency(base: BaseType): Dependency {
     final name = TypeUtil.baseTypeName(base);
     final explicitAlias = switch base.meta.extract(':genes.importAlias') {
@@ -209,6 +228,13 @@ class Dependencies {
           // without inventing a runtime dependency or downstream workaround.
           final declaredPath = base.pack.concat([base.name]).join('.');
           if (declaredPath != base.module) {
+            // An explicit native path is already the complete runtime identity.
+            // Standard Haxe does not infer a package dependency from physical
+            // `.hx` co-location, so Genes must not do so either. This keeps host
+            // globals independent while metadata-free secondary externs can
+            // still reuse the primary module export below.
+            if (TypeUtil.nativeName(base.meta) != null)
+              return null;
             final moduleName = base.module.split('.').pop();
             for (moduleType in Context.getModule(base.module)) {
               switch moduleType {
