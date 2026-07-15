@@ -1,3 +1,10 @@
+## [1.13.2](https://github.com/fullofcaffeine/genes-ts/compare/v1.13.1...v1.13.2) (2026-07-15)
+
+
+### Bug Fixes
+
+* **ts2hx:** fail closed on unsupported source ([154c980](https://github.com/fullofcaffeine/genes-ts/commit/154c980da26d9e11515594a8ccb7c3089fcaf917))
+
 ## [1.13.1](https://github.com/fullofcaffeine/genes-ts/compare/v1.13.0...v1.13.1) (2026-07-15)
 
 
