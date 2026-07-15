@@ -1,3 +1,10 @@
+# [1.20.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.19.0...v1.20.0) (2026-07-15)
+
+
+### Features
+
+* publish compiler output transactionally ([bc56934](https://github.com/fullofcaffeine/genes-ts/commit/bc56934e37fa9b389f5eb25f85faeac28923d7ad))
+
 # [1.19.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.18.1...v1.19.0) (2026-07-15)
 
 
