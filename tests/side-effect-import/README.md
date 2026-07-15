@@ -25,10 +25,18 @@ stage executes classic ESM and generated strict TypeScript.
 - `@:genes.compilerInternal` fields remain available to dependency planning but
   are absent from TS, classic JS, `.d.ts`, and source-map artifacts. Typed marker
   calls are erased by the shared expression boundary.
-- The typed marker order is `First -> Second`, but the legacy path-keyed import
-  projection prints `Second -> First` in both profiles. The evidence test
-  deliberately expects the pre-fix `second,first` transcript; the ordered
-  request task must flip it to `first,second`.
+- The typed marker order is `First -> Second`, and the shared ordered request
+  projection preserves the `first,second` runtime transcript in both profiles.
+- Internal marker tokens produce binding-free imports; neither the token nor a
+  fake named/default/namespace binding appears in generated artifacts.
+- Repeated A/B/A requests coalesce by first occurrence, and a later real A
+  binding satisfies its first request slot without adding a redundant bare
+  import.
+- External A(json)/B/A(file)/B requests preserve all three distinct slots in
+  that order, proving attributes are part of request identity while the equal B
+  request is deduplicated. Classic declarations contain none of those requests.
+- A later `String` binding satisfies an earlier gamma request and retains the
+  allocator's collision-safe `String__1` alias in both printers.
 
 This is not public side-effect-import support. It is the executable prerequisite
 for the ordered request model and helper producer.

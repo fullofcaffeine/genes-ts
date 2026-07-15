@@ -65,6 +65,55 @@ class DependencyImport {
   }
 }
 
+/**
+ * Identifies one ESM module request independently from imported bindings.
+ *
+ * Why: `import "setup"` requests and evaluates a module without introducing a
+ * local name. Modeling that declaration as `DName`, `DDefault`, or `DAsterisk`
+ * would invent an export contract and make alias allocation responsible for a
+ * fact that has no binding.
+ *
+ * What: request identity is the target kind, path, and optional loader
+ * attribute. Internal paths are Haxe module identities; external paths are
+ * literal runtime specifiers. `pos` supplies source-map provenance but is not
+ * part of identity.
+ *
+ * How: `DependencyPlan.projectImplementation` coalesces equal requests at
+ * their first runtime edge. Printers project internal paths through their
+ * profile extension policy and leave external specifiers unchanged.
+ */
+class DependencyModuleRequest {
+  public final external: Bool;
+  public final path: String;
+  public final importAttributeType: Null<String>;
+  public final pos: Null<SourcePosition>;
+
+  public function new(external: Bool, path: String,
+      importAttributeType: Null<String>, pos: Null<SourcePosition>) {
+    this.external = external;
+    this.path = path;
+    this.importAttributeType = importAttributeType;
+    this.pos = pos;
+  }
+
+  public static function fromImport(importSpec: DependencyImport): DependencyModuleRequest {
+    return new DependencyModuleRequest(importSpec.external, importSpec.path,
+      importSpec.importAttributeType, importSpec.pos);
+  }
+
+  /** Attribute-aware identity comparison; positions deliberately do not count. */
+  public function equals(other: DependencyModuleRequest): Bool {
+    return external == other.external && path == other.path
+      && importAttributeType == other.importAttributeType;
+  }
+}
+
+/** Separates a real imported binding from a binding-free module request. */
+enum DependencyImportSpec {
+  Bound(importSpec: DependencyImport);
+  SideEffect(request: DependencyModuleRequest);
+}
+
 /** Stable evidence explaining which compiler rule created an edge. */
 class DependencyProvenance {
   public final rule: String;
@@ -97,17 +146,80 @@ class DependencyProvenance {
 class DependencyEdge {
   public final kind: DependencyEdgeKind;
   public final referencedType: Null<ModuleType>;
-  public final importSpec: Null<DependencyImport>;
+  public final importSpec: Null<DependencyImportSpec>;
   public final provenance: DependencyProvenance;
 
   public function new(kind: DependencyEdgeKind,
-      referencedType: Null<ModuleType>, importSpec: Null<DependencyImport>,
+      referencedType: Null<ModuleType>, importSpec: Null<DependencyImportSpec>,
       provenance: DependencyProvenance) {
     this.kind = kind;
     this.referencedType = referencedType;
     this.importSpec = importSpec;
     this.provenance = provenance;
   }
+}
+
+/**
+ * One ordered implementation declaration request after alias allocation.
+ *
+ * An empty `bindings` array prints as `import "specifier"`. A non-empty array
+ * prints the existing default/namespace/named forms and thereby satisfies the
+ * same module request without a redundant bare declaration.
+ */
+class ModuleRequestPlan {
+  public final request: DependencyModuleRequest;
+  public final bindings: ReadOnlyArray<Dependency>;
+  public final firstProvenance: DependencyProvenance;
+
+  public function new(request: DependencyModuleRequest,
+      bindings: Array<Dependency>, firstProvenance: DependencyProvenance) {
+    this.request = request;
+    this.bindings = bindings.copy();
+    this.firstProvenance = firstProvenance;
+  }
+}
+
+/** One implementation import declaration and whether TypeScript erases it. */
+class ImportDeclarationPlan {
+  public final requestPlan: ModuleRequestPlan;
+  public final typeOnly: Bool;
+
+  public function new(requestPlan: ModuleRequestPlan, typeOnly: Bool) {
+    this.requestPlan = requestPlan;
+    this.typeOnly = typeOnly;
+  }
+}
+
+/**
+ * Concrete import projection shared by classic JS and TypeScript emitters.
+ *
+ * `bindings` remains the lookup surface used by expression/type printers.
+ * `runtimeRequests` is the only implementation runtime-declaration order.
+ * `typeOnlyRequests` is deterministic TS-only syntax and never creates a
+ * runtime request. `declarations` combines those arrays in the exact order the
+ * TypeScript printer consumes. Every array is copied before exposure.
+ */
+class DependencyProjection {
+  public final bindings: Dependencies;
+  public final runtimeRequests: ReadOnlyArray<ModuleRequestPlan>;
+  public final typeOnlyRequests: ReadOnlyArray<ModuleRequestPlan>;
+  public final declarations: ReadOnlyArray<ImportDeclarationPlan>;
+
+  public function new(bindings: Dependencies,
+      runtimeRequests: Array<ModuleRequestPlan>,
+      typeOnlyRequests: Array<ModuleRequestPlan>,
+      declarations: Array<ImportDeclarationPlan>) {
+    this.bindings = bindings;
+    this.runtimeRequests = runtimeRequests.copy();
+    this.typeOnlyRequests = typeOnlyRequests.copy();
+    this.declarations = declarations.copy();
+  }
+}
+
+private typedef MutableModuleRequestPlan = {
+  final request: DependencyModuleRequest;
+  final bindings: Array<Dependency>;
+  final firstProvenance: DependencyProvenance;
 }
 
 /**
@@ -124,10 +236,12 @@ class DependencyEdge {
  * reachability.
  *
  * How: `DependencyPlanBuilder` extracts facts from typed Haxe declarations and
- * expressions. Printers request a kind projection, which is routed through the
- * established collision-safe `Dependencies.push` implementation. The edge
- * array is defensively copied and exposed read-only; a plan never changes after
- * construction, making traversal and output deterministic for one compilation.
+ * expressions. Implementation printers consume an explicit ordered request
+ * projection routed through the established collision-safe alias allocator.
+ * The edge array is defensively copied and exposed read-only, making traversal
+ * and output deterministic for one compilation. A narrow bound-only
+ * compatibility projection preserves established output ordering until a real
+ * side-effect edge makes semantic request order observable.
  */
 class DependencyPlan {
   final edgeValues: Array<DependencyEdge>;
@@ -149,10 +263,169 @@ class DependencyPlan {
     for (edge in edgeValues) {
       if (!containsKind(kinds, edge.kind) || edge.importSpec == null)
         continue;
-      final dependency = edge.importSpec.copyForProjection();
-      dependencies.push(dependency.path, dependency);
+      switch edge.importSpec {
+        case Bound(importSpec):
+          final dependency = importSpec.copyForProjection();
+          dependencies.pushAndGet(dependency.path, dependency,
+            edge.provenance.sourcePosition);
+        case SideEffect(_):
+      }
     }
     return dependencies;
+  }
+
+  /**
+   * Projects runtime edges and optional TS-only bindings in stable edge order.
+   *
+   * Why: grouping first by `Map<path, bindings>` cannot represent interleaved
+   * requests such as A(attribute x), B, A(attribute y). ESM initialization
+   * order must be a semantic plan rather than an incidental map iteration.
+   *
+   * What: runtime value and side-effect edges share ordered request slots.
+   * Equal request identities coalesce at first occurrence; a later binding is
+   * attached to that first slot. Type-only bindings use the same alias allocator
+   * but remain in a separate, erasing declaration array.
+   *
+   * How: every bound edge receives the canonical object returned by
+   * `Dependencies.pushAndGet`. Runtime attachment removes an equivalent
+   * type-only attachment, so a real value import always wins. This method is the
+   * sole implementation-order projection consumed by both output profiles.
+   */
+  public function projectImplementation(module: Module,
+      includeTypes: Bool): DependencyProjection {
+    final bindings = new Dependencies(module, true);
+    final runtimePlans: Array<MutableModuleRequestPlan> = [];
+    final typePlans: Array<MutableModuleRequestPlan> = [];
+    var hasRuntimeSideEffect = false;
+
+    function findOrAdd(plans: Array<MutableModuleRequestPlan>,
+        request: DependencyModuleRequest,
+        provenance: DependencyProvenance): MutableModuleRequestPlan {
+      for (plan in plans)
+        if (plan.request.equals(request))
+          return plan;
+      final plan: MutableModuleRequestPlan = {
+        request: request,
+        bindings: [],
+        firstProvenance: provenance
+      };
+      plans.push(plan);
+      return plan;
+    }
+
+    function sameBinding(left: Dependency, right: Dependency): Bool {
+      return left.external == right.external && left.path == right.path
+        && left.name == right.name
+        && left.alias == right.alias
+        && left.importAttributeType == right.importAttributeType;
+    }
+
+    function attach(plan: MutableModuleRequestPlan,
+        binding: Dependency): Void {
+      for (existing in plan.bindings)
+        if (sameBinding(existing, binding))
+          return;
+      plan.bindings.push(binding);
+    }
+
+    function removeTypeOnlyBinding(binding: Dependency): Void {
+      for (plan in typePlans) {
+        var index = plan.bindings.length - 1;
+        while (index >= 0) {
+          if (sameBinding(plan.bindings[index], binding))
+            plan.bindings.splice(index, 1);
+          index--;
+        }
+      }
+    }
+
+    for (edge in edgeValues) {
+      final runtimeEdge = edge.kind == RuntimeValue
+        || edge.kind == RuntimeSideEffect;
+      final typeEdge = includeTypes && edge.kind == TypeOnly;
+      if ((!runtimeEdge && !typeEdge) || edge.importSpec == null)
+        continue;
+
+      switch edge.importSpec {
+        case SideEffect(request):
+          if (runtimeEdge) {
+            hasRuntimeSideEffect = true;
+            findOrAdd(runtimePlans, request, edge.provenance);
+          }
+
+        case Bound(importSpec):
+          final dependency = importSpec.copyForProjection();
+          final canonical = bindings.pushAndGet(dependency.path, dependency,
+            edge.provenance.sourcePosition);
+          final request = DependencyModuleRequest.fromImport(importSpec);
+          if (runtimeEdge) {
+            removeTypeOnlyBinding(canonical);
+            attach(findOrAdd(runtimePlans, request, edge.provenance),
+              canonical);
+          } else {
+            var runtimeOwnsBinding = false;
+            for (plan in runtimePlans)
+              for (runtimeBinding in plan.bindings)
+                if (sameBinding(runtimeBinding, canonical)) {
+                  runtimeOwnsBinding = true;
+                  break;
+                }
+            if (!runtimeOwnsBinding)
+              attach(findOrAdd(typePlans, request, edge.provenance), canonical);
+          }
+      }
+    }
+
+    function freeze(plans: Array<MutableModuleRequestPlan>,
+        omitEmpty: Bool): Array<ModuleRequestPlan> {
+      final result: Array<ModuleRequestPlan> = [];
+      for (plan in plans) {
+        if (omitEmpty && plan.bindings.length == 0)
+          continue;
+        result.push(new ModuleRequestPlan(plan.request, plan.bindings,
+          plan.firstProvenance));
+      }
+      return result;
+    }
+
+    var frozenRuntime = freeze(runtimePlans, false);
+    var frozenTypes = freeze(typePlans, true);
+    final declarations: Array<ImportDeclarationPlan> = [];
+
+    if (!hasRuntimeSideEffect) {
+      /**
+       * Existing bound-only modules have no Haxe source-level ESM declaration
+       * order to preserve, but their checked-in trees expose the historical
+       * StringMap spelling order. Freeze that order into the array here—not in
+       * either printer—so the semantic refactor is byte-stable. Modules with a
+       * side-effect edge never enter this compatibility path: their edge order
+       * is observable initialization behavior and remains authoritative.
+       */
+      final legacyRuntime: Array<ModuleRequestPlan> = [];
+      final legacyTypes: Array<ModuleRequestPlan> = [];
+      for (path => _ in bindings.imports) {
+        for (plan in frozenRuntime)
+          if (plan.request.path == path) {
+            legacyRuntime.push(plan);
+            declarations.push(new ImportDeclarationPlan(plan, false));
+          }
+        for (plan in frozenTypes)
+          if (plan.request.path == path) {
+            legacyTypes.push(plan);
+            declarations.push(new ImportDeclarationPlan(plan, true));
+          }
+      }
+      frozenRuntime = legacyRuntime;
+      frozenTypes = legacyTypes;
+    } else {
+      for (plan in frozenRuntime)
+        declarations.push(new ImportDeclarationPlan(plan, false));
+      for (plan in frozenTypes)
+        declarations.push(new ImportDeclarationPlan(plan, true));
+    }
+
+    return new DependencyProjection(bindings, frozenRuntime, frozenTypes,
+      declarations);
   }
 
   /**

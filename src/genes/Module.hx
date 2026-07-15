@@ -7,6 +7,7 @@ import helder.Set;
 import genes.util.TypeUtil;
 import genes.Dependencies;
 import genes.DependencyPlan.DependencyEdgeKind;
+import genes.DependencyPlan.DependencyProjection;
 import genes.util.Timer.timer;
 import genes.TypeAccessor;
 import genes.PublicSurface.PublicMember;
@@ -70,6 +71,8 @@ class Module {
   public var typeDependencies(get, null): Dependencies;
   public var declarationDependencies(get, null): Dependencies;
   public var codeDependencies(get, null): Dependencies;
+  public var runtimeProjection(get, null): DependencyProjection;
+  public var implementationProjection(get, null): DependencyProjection;
 
   final context: ModuleContext;
   final cycleCache = new Map<String, Bool>();
@@ -166,6 +169,8 @@ class Module {
       typeDependencies = null;
       declarationDependencies = null;
       codeDependencies = null;
+      runtimeProjection = null;
+      implementationProjection = null;
       cycleCache.clear();
     }
     return changed;
@@ -194,7 +199,11 @@ class Module {
       case null:
         return false;
       case v:
-        for (dependency in v.codeDependencies.imports.keys()) {
+        for (requestPlan in v.runtimeProjection.runtimeRequests) {
+          final request = requestPlan.request;
+          if (request.external)
+            continue;
+          final dependency = request.path;
           if (seen.exists(dependency)) {
             if (dependency == module)
               return true;
@@ -223,9 +232,23 @@ class Module {
 
   function get_codeDependencies(): Dependencies {
     if (codeDependencies == null)
-      codeDependencies = dependencyPlan.dependencies(this,
-        [RuntimeValue, RuntimeSideEffect], true);
+      codeDependencies = runtimeProjection.bindings;
     return codeDependencies;
+  }
+
+  /** Runtime-only ordered requests shared by cycle analysis and classic ESM. */
+  function get_runtimeProjection(): DependencyProjection {
+    if (runtimeProjection == null)
+      runtimeProjection = dependencyPlan.projectImplementation(this, false);
+    return runtimeProjection;
+  }
+
+  /** Runtime plus erasing TS-only bindings from one canonical alias allocator. */
+  function get_implementationProjection(): DependencyProjection {
+    if (implementationProjection == null)
+      implementationProjection = dependencyPlan.projectImplementation(this,
+        Context.defined('genes.ts'));
+    return implementationProjection;
   }
 
   public function getMember(name: String) {

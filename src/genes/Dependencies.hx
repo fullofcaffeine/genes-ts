@@ -80,8 +80,26 @@ class Dependencies {
       }
   }
 
-  public function push(module: String, dependency: Dependency) {
-    final key = module + '.' + dependency.name;
+  /**
+   * Allocates or reuses the canonical binding for one immutable plan edge.
+   *
+   * Why: ordered request slots and expression type access must reference the
+   * same collision-resolved local identifier. A `Void` push API forced callers
+   * to reconstruct that binding from a path-grouped map and thereby lost the
+   * original declaration order.
+   *
+   * What/How: preserve the existing alias and duplicate rules, but return the
+   * inserted or matching object. Binding the same local identifier through two
+   * different import attributes is rejected because ESM attributes belong to
+   * the declaration and two such bindings would redeclare one local name.
+   */
+  public function pushAndGet(module: String, dependency: Dependency,
+      ?position: haxe.macro.Expr.Position): Dependency {
+    // Internal module identities and external literal specifiers are distinct
+    // ESM requests even when their strings happen to match.
+    final bindingOwner = (dependency.external ? 'external:' : 'internal:')
+      + module;
+    final key = bindingOwner + '.' + dependency.name;
     inline function alias(key: String, name: String) {
       return aliases[key] = name
         + '__'
@@ -96,7 +114,8 @@ class Dependencies {
           dependency.alias = alias(key, dependency.name);
         } else
           for (named in names) {
-            if (named.module != module && named.name == dependency.name) {
+            if (named.module != bindingOwner
+              && named.name == dependency.name) {
               dependency.alias = alias(key, named.name);
               break;
             }
@@ -106,16 +125,30 @@ class Dependencies {
     }
     if (imports.exists(module)) {
       final deps = imports.get(module);
-      for (i in deps)
-        if (i.name == dependency.name && i.alias == dependency.alias
-          && i.importAttributeType == dependency.importAttributeType)
-          return;
+      for (i in deps) {
+        if (i.external != dependency.external
+          || i.name != dependency.name || i.alias != dependency.alias)
+          continue;
+        if (i.importAttributeType == dependency.importAttributeType)
+          return i;
+        CompilerDiagnostic.fail(
+          'GENES-IMPORT-ATTRIBUTE-BINDING-001: local import "'
+          + (dependency.alias == null ? dependency.name : dependency.alias)
+          + '" cannot use multiple module-request attributes',
+          position == null ? Context.currentPos() : position);
+      }
       deps.push(dependency);
-      names.push({name: dependency.name, module: module});
+      names.push({name: dependency.name, module: bindingOwner});
     } else {
       imports.set(module, [dependency]);
-      names.push({name: dependency.name, module: module});
+      names.push({name: dependency.name, module: bindingOwner});
     }
+    return dependency;
+  }
+
+  /** Compatibility wrapper for lookup-only/declaration projections. */
+  public function push(module: String, dependency: Dependency): Void {
+    pushAndGet(module, dependency);
   }
 
   /**

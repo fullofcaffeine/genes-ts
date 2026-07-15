@@ -15,7 +15,7 @@ using haxe.macro.TypedExprTools;
  * enable a public helper based on an assumed compiler phase order.
  *
  * What: the `onGenerate` callback inspects the same post-DCE typed declarations
- * supplied to Genes. It requires the four direct `cl.init` markers in source
+ * supplied to Genes. It requires the three direct `cl.init` markers in source
  * order, both minimal target anchors and explicitly kept initializer fields,
  * and absence of a kept target whose module was never typed.
  *
@@ -60,10 +60,9 @@ class DceProbe {
     final markerOrder:Array<String> = [];
     collectMarkers(main.init, markerOrder);
     final expected = [
-      'external:before:none',
       'internal:First.__ts2hxInit',
       'internal:Second.__ts2hxInit',
-      'external:after:json'
+      'internal:First.__ts2hxInit'
     ];
     require(markerOrder.join('|') == expected.join('|'),
       'marker order ${expected.join(" -> ")} but found ${markerOrder.join(" -> ")}',

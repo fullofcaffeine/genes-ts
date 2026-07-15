@@ -5,6 +5,8 @@ class First {
   @:keep
   public static final initialized:Int = Events.values.push("first");
 
+  public static final sentinel:Int = 0;
+
   /**
    * Proves a public typed anchor can retain initialization without becoming API.
    *

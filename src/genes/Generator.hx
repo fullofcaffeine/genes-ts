@@ -13,6 +13,7 @@ import genes.dts.DefinitionEmitter;
 import genes.util.TypeUtil;
 import genes.Module;
 import genes.DependencyPlan.DependencyEdgeKind;
+import genes.DependencyPlan.DependencyImportSpec;
 import genes.JsxPlan.JsxCapabilityPolicy;
 import sys.FileSystem;
 
@@ -188,8 +189,13 @@ class Generator {
         for (edge in edges) {
           if (!DependencyPlan.containsKind(kinds, edge.kind))
             continue;
-          if (edge.importSpec != null && edge.importSpec.external)
-            continue;
+          switch edge.importSpec {
+            case Bound(importSpec) if (importSpec.external):
+              continue;
+            case SideEffect(request) if (request.external):
+              continue;
+            default:
+          }
           final referencedType = edge.referencedType;
           if (referencedType == null) {
             if (edge.importSpec != null)

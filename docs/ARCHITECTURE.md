@@ -71,8 +71,8 @@ depend on formatting.
 | Module/member inventory | `src/genes/Module.hx` | Presents one emitter-facing module view and materializes declaration-only members without changing the runtime graph. |
 | Public API facts | `src/genes/PublicSurface.hx` | Captures visibility, inheritance, generics, overload identity, and complete closed interface members before DCE. |
 | Null, undefined, and optionality | `src/genes/NullishContract.hx` | Keeps Haxe `Null<T>`, native `undefined`, optional fields, absent parameters, and unknown boundaries distinct. |
-| Dependency graphs | `src/genes/DependencyPlan.hx`, `DependencyPlanBuilder.hx` | Records runtime-value, runtime-side-effect, type-only, and declaration-only edges with provenance. |
-| Concrete import spelling | `src/genes/Dependencies.hx` | Projects dependency facts into named/default/namespace/type-only/package imports for an output profile. |
+| Dependency graphs and module-request order | `src/genes/DependencyPlan.hx`, `DependencyPlanBuilder.hx` | Records runtime-value, runtime-side-effect, type-only, and declaration-only edges with provenance; projects runtime requests by external/path/attribute identity into one ordered plan. |
+| Import bindings and aliases | `src/genes/Dependencies.hx` | Allocates canonical named/default/namespace bindings and collision-safe local aliases. A binding-free request never invents a dependency name. |
 | JSX intent and capability | `src/genes/JsxPlan.hx` | Represents markup before choosing TSX, `createElement`, classic lowering, or an unsupported diagnostic. |
 | Names and required temporaries | `src/genes/NamePlan.hx`, `TempPlan.hx` | Preserves scopes and evaluation order while creating only necessary generated names. |
 | Reusable-library retention | `src/genes/LibraryProfile.hx` | Opts public package APIs into matched TS/classic/declaration surfaces without making every build library-shaped. |
@@ -93,7 +93,8 @@ The shared layer decides what a Haxe program means:
 - runtime class, interface, enum, and reflection identity;
 - null, undefined, missing, and optional contracts;
 - runtime, type-only, and declaration reachability;
-- symbol identity, collision-free names, JSX intent, and source spans.
+- symbol identity, ordered runtime module requests, collision-free names, JSX
+  intent, and source spans.
 
 An output profile decides how those facts are spelled:
 
@@ -115,6 +116,10 @@ capability diagnostic in classic mode.
 - Runtime, type-only, and declaration-only edges remain distinct. A type import
   must not introduce a runtime side effect; a declaration-only type must not
   broaden classic DCE.
+- Runtime module-request order is an explicit immutable array keyed by
+  internal/external identity, path, and optional loader attribute. Printers do
+  not infer evaluation order from a path-grouped map. Equal requests coalesce
+  at first occurrence, and a real binding can satisfy an earlier bare request.
 - Public generated TypeScript is closed and precise. Broad `any`, `unknown`, or
   catch-all index signatures require a named, documented foreign boundary.
 - Capability and dependency errors that planning can identify are diagnosed

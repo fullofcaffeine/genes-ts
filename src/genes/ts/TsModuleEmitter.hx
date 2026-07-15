@@ -14,6 +14,7 @@ import genes.util.TypeUtil;
 import genes.PublicSurface;
 import genes.PublicSurface.PublicMember;
 import genes.NullishContract;
+import genes.DependencyPlan.DependencyModuleRequest;
 import genes.NullishContract.NullishMissingValue;
 import genes.NamePlan.NamePlanProfile;
 import genes.TempPlan.LoweredForIterator;
@@ -150,10 +151,10 @@ class TsModuleEmitter extends JsModuleEmitter {
     final jsxCapability = JsxCapabilityPolicy.current();
     final usesReactJsxMarkers = jsxPlan.hasIntents;
 
-    // Merge code + type dependencies so TS signatures can resolve.
-    final deps = new Dependencies(module, true);
-    mergeDepsInto(deps, module.codeDependencies);
-    mergeDepsInto(deps, module.typeDependencies);
+    // Runtime and type-only bindings share one collision-safe allocator, while
+    // only the ordered runtime request array controls ESM evaluation order.
+    final projection = module.implementationProjection;
+    final deps = projection.bindings;
     ctx.typeAccessor = deps.typeAccessor;
     configureJsx(jsxPlan, jsxCapability, deps);
 
@@ -176,29 +177,16 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
 
     final endImportTimer = timer('emitImports');
-    final runtimeNamesByModule: Map<String, Map<String, Bool>> = [];
-    for (path => imports in module.codeDependencies.imports) {
-      final names: Map<String, Bool> = [];
-      for (dep in imports)
-        names.set(dep.name, true);
-      runtimeNamesByModule.set(path, names);
-    }
-
-    for (path => imports in deps.imports) {
-      final runtimeNames = runtimeNamesByModule.get(path);
-      final valueImports = [];
-      final typeImports = [];
-      for (dep in imports) {
-        if (runtimeNames != null && runtimeNames.exists(dep.name))
-          valueImports.push(dep);
-        else
-          typeImports.push(dep);
-      }
-      final rel = if (imports[0].external) path else module.toPath(path);
-      if (valueImports.length > 0)
-        emitTsImports(rel, valueImports, importExtension, false);
-      if (typeImports.length > 0)
-        emitTsImports(rel, typeImports, importExtension, true);
+    for (declaration in projection.declarations) {
+      final requestPlan = declaration.requestPlan;
+      final request = requestPlan.request;
+      final where = request.external ? request.path : module.toPath(request.path);
+      if (!declaration.typeOnly && requestPlan.bindings.length == 0)
+        emitTsSideEffectImport(request, where, importExtension);
+      else
+        emitTsImports(where,
+          [for (binding in requestPlan.bindings) binding], importExtension,
+          declaration.typeOnly);
     }
     endImportTimer();
 
@@ -284,26 +272,6 @@ class TsModuleEmitter extends JsModuleEmitter {
     return e;
   }
 
-  static function mergeDepsInto(into: Dependencies, from: Dependencies) {
-    for (path => imports in from.imports) {
-      for (dep in imports) {
-        final isAutoAlias = dep.alias != null && dep.alias.length > 3
-          && dep.alias.startsWith(dep.name + "__");
-        into.push(path, {
-          type: dep.type,
-          name: dep.name,
-          external: dep.external,
-          path: dep.path,
-          // Preserve explicit aliases (e.g. `import X in Y;`) but let merged dependency
-          // analysis recompute auto-aliases (`Foo__1`, `Foo__2`, ...) deterministically.
-          alias: isAutoAlias ? null : dep.alias,
-          importAttributeType: dep.importAttributeType,
-          pos: dep.pos
-        });
-      }
-    }
-  }
-
   function emitTsImports(where: String,
       imports: Array<genes.Dependencies.Dependency>, extension: Null<String>,
       typeOnly: Bool) {
@@ -317,6 +285,22 @@ class TsModuleEmitter extends JsModuleEmitter {
       }
     for (group in Dependencies.groupByImportAttribute(named))
       emitTsImport(group, where, extension, typeOnly);
+  }
+
+  /** Emits a bare ESM request from the shared runtime-order projection. */
+  function emitTsSideEffectImport(request: DependencyModuleRequest,
+      where: String, extension: Null<String>): Void {
+    write('import');
+    writeSpace();
+    emitPos(request.pos);
+    emitString(if (!request.external && extension != null)
+      '$where$extension' else where);
+    if (request.importAttributeType != null) {
+      write(' with { type: ');
+      emitString(request.importAttributeType);
+      write(' }');
+    }
+    writeNewline();
   }
 
   function emitTsImport(what: Array<genes.Dependencies.Dependency>,

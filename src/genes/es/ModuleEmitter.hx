@@ -9,13 +9,15 @@ import genes.util.TypeUtil.*;
 import genes.util.Timer.timer;
 import genes.JsxPlan.JsxCapabilityPolicy;
 import genes.NamePlan.NamePlanProfile;
+import genes.DependencyPlan.DependencyModuleRequest;
 
 using genes.util.TypeUtil;
 using Lambda;
 
 class ModuleEmitter extends ExprEmitter {
   public function emitModule(module: Module, ?extension: String) {
-    final dependencies = module.codeDependencies;
+    final projection = module.runtimeProjection;
+    final dependencies = projection.bindings;
     final endTimer = timer('emitModule');
     configureLowering(module, ClassicStable);
     ctx.typeAccessor = dependencies.typeAccessor;
@@ -28,9 +30,15 @@ class ModuleEmitter extends ExprEmitter {
       writeNewline();
     }
     var endImportTimer = timer('emitImports');
-    for (path => imports in dependencies.imports)
-      emitImports(if (imports[0].external) path else module.toPath(path),
-        imports, extension);
+    for (requestPlan in projection.runtimeRequests) {
+      final request = requestPlan.request;
+      final where = request.external ? request.path : module.toPath(request.path);
+      if (requestPlan.bindings.length == 0)
+        emitSideEffectImport(request, where, extension);
+      else
+        emitImports(where, [for (binding in requestPlan.bindings) binding],
+          extension);
+    }
     endImportTimer();
     if (module.module != 'genes.Register' && ctx.hasFeature('js.Lib.global')) {
       writeNewline();
@@ -91,6 +99,26 @@ class ModuleEmitter extends ExprEmitter {
       }
     for (group in Dependencies.groupByImportAttribute(named))
       emitImport(group, module, extension);
+  }
+
+  /** Prints the binding-free form of one already-ordered runtime request. */
+  function emitSideEffectImport(request: DependencyModuleRequest,
+      where: String, ?extension: String): Void {
+    write('import');
+    writeSpace();
+    emitPos(request.pos);
+    #if genes.no_extension
+    emitString(where);
+    #else
+    emitString(if (!request.external && extension != null)
+      '$where$extension' else where);
+    #end
+    if (request.importAttributeType != null) {
+      write(' with { type: ');
+      emitString(request.importAttributeType);
+      write(' }');
+    }
+    writeNewline();
   }
 
   function emitImport(what: Array<Dependency>, where: String,

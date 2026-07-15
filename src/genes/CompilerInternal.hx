@@ -3,6 +3,11 @@ package genes;
 import haxe.macro.Type.MetaAccess;
 import haxe.macro.Type.TypedExpr;
 
+typedef SideEffectImportMarkerCall = {
+  final method: String;
+  final arguments: Array<TypedExpr>;
+}
+
 /**
  * Defines the narrow typed-AST boundary used by compiler-owned carrier values.
  *
@@ -40,18 +45,25 @@ class CompilerInternal {
    * erasure but does not itself decide request identity, order, or reachability.
    */
   public static function isSideEffectImportMarkerCall(expression:TypedExpr):Bool {
+    return sideEffectImportMarkerCall(expression) != null;
+  }
+
+  /** Returns the exact marker member and typed arguments, or null. */
+  public static function sideEffectImportMarkerCall(
+      expression: TypedExpr): Null<SideEffectImportMarkerCall> {
     if (expression == null)
-      return false;
+      return null;
     return switch expression.expr {
       case TMeta(_, inner) | TParenthesis(inner) | TCast(inner, null):
-        isSideEffectImportMarkerCall(inner);
+        sideEffectImportMarkerCall(inner);
       case TCall({
         expr: TField(_, FStatic(_.get() => owner, _.get() => field))
-      }, _):
-        owner.module == SIDE_EFFECT_MARKER_MODULE
-          && (field.name == 'external' || field.name == 'internal');
+      }, arguments)
+        if (owner.module == SIDE_EFFECT_MARKER_MODULE
+          && (field.name == 'external' || field.name == 'internal')):
+        {method: field.name, arguments: arguments};
       default:
-        false;
+        null;
     }
   }
 }

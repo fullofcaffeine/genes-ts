@@ -11,6 +11,8 @@ import genes.Dependencies.DependencyType;
 import genes.DependencyPlan.DependencyEdge;
 import genes.DependencyPlan.DependencyEdgeKind;
 import genes.DependencyPlan.DependencyImport;
+import genes.DependencyPlan.DependencyImportSpec;
+import genes.DependencyPlan.DependencyModuleRequest;
 import genes.DependencyPlan.DependencyProvenance;
 import genes.Module.Field;
 import genes.JsxPlan.JsxCapabilityPolicy;
@@ -64,26 +66,31 @@ class DependencyPlanBuilder {
       return;
     }
     for (request in requests) {
-      addEdge(kind, request.referencedType, request.dependency, rule, pos);
+      addEdge(kind, request.referencedType,
+        Bound(new DependencyImport(request.dependency)), rule, pos);
     }
   }
 
   function addImport(kind: DependencyEdgeKind, dependency: Dependency,
       rule: String, pos: Position): Void {
-    addEdge(kind, null, dependency, rule, pos);
+    addEdge(kind, null, Bound(new DependencyImport(dependency)), rule, pos);
   }
 
   function addEdge(kind: DependencyEdgeKind,
-      referencedType: Null<ModuleType>, dependency: Null<Dependency>,
+      referencedType: Null<ModuleType>, importSpec: Null<DependencyImportSpec>,
       rule: String, pos: Position): Void {
     // Keep the typed traversal's stable encounter order, including repeated
     // references. `Dependencies.push` owns import de-duplication and its alias
     // allocator historically observes those encounters when same-named symbols
     // from multiple modules collide. The graph is therefore an ordered
     // multigraph; reachability queries de-duplicate only their returned types.
-    edges.push(new DependencyEdge(kind, referencedType,
-      dependency == null ? null : new DependencyImport(dependency),
+    edges.push(new DependencyEdge(kind, referencedType, importSpec,
       new DependencyProvenance(rule, pos)));
+  }
+
+  function addSideEffect(referencedType: Null<ModuleType>,
+      request: DependencyModuleRequest, rule: String, pos: Position): Void {
+    addEdge(RuntimeSideEffect, referencedType, SideEffect(request), rule, pos);
   }
 
   function collectRuntimeEdges(): Void {
@@ -190,13 +197,151 @@ class DependencyPlanBuilder {
       expression.iter(addJsRequireFromExpr);
     }
 
-    function addFromExpr(expression: TypedExpr): Void {
+    function unwrap(expression: TypedExpr): TypedExpr {
+      var current = expression;
+      while (current != null) {
+        switch current.expr {
+          case TMeta(_, inner) | TParenthesis(inner) | TCast(inner, null):
+            current = inner;
+          default:
+            return current;
+        }
+      }
+      return expression;
+    }
+
+    function literalString(expression: TypedExpr, diagnostic: String): String {
+      return switch unwrap(expression).expr {
+        case TConst(TString(value)) if (value.length > 0): value;
+        default: CompilerDiagnostic.fail(diagnostic, expression.pos);
+      }
+    }
+
+    function optionalLiteralString(expression: TypedExpr): Null<String> {
+      return switch unwrap(expression).expr {
+        case TConst(TNull): null;
+        case TConst(TString(value)) if (value.length > 0): value;
+        default:
+          CompilerDiagnostic.fail(
+            'GENES-SIDE-EFFECT-IMPORT-ATTRIBUTE-001: import attribute type must be a non-empty string literal or null',
+            expression.pos);
+      }
+    }
+
+    /**
+     * Consumes a typed marker without traversing its owner or retention token.
+     *
+     * The internal token is evidence that made the target visible to Haxe DCE;
+     * it is not an imported value. Resolving its static owner to an immutable
+     * module request here prevents the ordinary expression walker from
+     * manufacturing a named binding for that token.
+     */
+    function addMarker(expression: TypedExpr): Void {
+      final marker = CompilerInternal.sideEffectImportMarkerCall(expression);
+      if (marker == null)
+        return;
+      switch marker.method {
+        case 'external':
+          if (marker.arguments.length != 2)
+            CompilerDiagnostic.fail(
+              'GENES-SIDE-EFFECT-IMPORT-INTERNAL-001: external marker requires a specifier and attribute',
+              expression.pos);
+          final path = literalString(marker.arguments[0],
+            'GENES-SIDE-EFFECT-IMPORT-LITERAL-001: module specifier must be a non-empty string literal');
+          final attribute = optionalLiteralString(marker.arguments[1]);
+          addSideEffect(null, new DependencyModuleRequest(true, path,
+            attribute, expression.pos), 'runtime.side-effect.external',
+            expression.pos);
+
+        case 'internal':
+          if (marker.arguments.length != 1)
+            CompilerDiagnostic.fail(
+              'GENES-SIDE-EFFECT-IMPORT-INTERNAL-001: internal marker requires one typed target token',
+              expression.pos);
+          final argument = unwrap(marker.arguments[0]);
+          final targetType = switch argument.expr {
+            case TField({expr: TTypeExpr(type)}, FStatic(_, _)): type;
+            default:
+              CompilerDiagnostic.fail(
+                'GENES-SIDE-EFFECT-IMPORT-INTERNAL-001: internal marker target must be a static typed module token',
+                argument.pos);
+          }
+          final requests = Dependencies.requests(module, targetType);
+          if (requests.length != 1 || requests[0].dependency.external)
+            CompilerDiagnostic.fail(
+              'GENES-SIDE-EFFECT-IMPORT-INTERNAL-001: internal marker target must resolve to one generated module',
+              argument.pos);
+          final target = requests[0];
+          final dependency = new DependencyImport(target.dependency);
+          addSideEffect(target.referencedType,
+            new DependencyModuleRequest(false, dependency.path,
+              dependency.importAttributeType, expression.pos),
+            'runtime.side-effect.internal', expression.pos);
+
+        default:
+          CompilerDiagnostic.fail(
+            'GENES-SIDE-EFFECT-IMPORT-INTERNAL-001: unknown compiler marker',
+            expression.pos);
+      }
+    }
+
+    function containsMarker(expression: TypedExpr): Bool {
+      if (expression == null)
+        return false;
+      if (CompilerInternal.isSideEffectImportMarkerCall(expression))
+        return true;
+      var found = false;
+      expression.iter(child -> {
+        if (!found && containsMarker(child))
+          found = true;
+      });
+      return found;
+    }
+
+    function addOrdinaryExpression(expression: TypedExpr): Void {
       if (expression == null)
         return;
       addJsRequireFromExpr(expression);
       for (type in TypeUtil.typesInExpr(expression))
         addReference(RuntimeValue, type, 'runtime.typed-expression',
           expression.pos);
+    }
+
+    /**
+     * Accepts markers only as direct outer statements of compiler-owned
+     * carriers or a class initializer. ESM requests are statically hoisted, so
+     * accepting a conditional, loop, nested function, or call-time marker
+     * would claim runtime control flow that import declarations cannot honor.
+     */
+    function addFromExpr(expression: TypedExpr,
+        allowDirectMarkers = false): Void {
+      if (expression == null)
+        return;
+      if (!allowDirectMarkers) {
+        if (containsMarker(expression))
+          CompilerDiagnostic.fail(
+            'GENES-SIDE-EFFECT-IMPORT-CONTEXT-001: compiler marker must be a direct static-initialization statement',
+            expression.pos);
+        addOrdinaryExpression(expression);
+        return;
+      }
+
+      final outer = unwrap(expression);
+      final statements = switch outer.expr {
+        case TBlock(elements): elements;
+        default: [outer];
+      }
+      for (statement in statements) {
+        if (CompilerInternal.isSideEffectImportMarkerCall(statement)) {
+          addMarker(statement);
+          continue;
+        }
+        if (containsMarker(statement))
+          CompilerDiagnostic.fail(
+            'GENES-SIDE-EFFECT-IMPORT-CONTEXT-001: compiler marker must be a direct static-initialization statement',
+            statement.pos);
+        addOrdinaryExpression(statement);
+      }
     }
 
     for (member in module.members) {
@@ -215,8 +360,8 @@ class DependencyPlanBuilder {
           addModuleFieldRequires(cl, fields);
           #end
           for (field in fields)
-            addFromExpr(field.expr);
-          addFromExpr(cl.init);
+            addFromExpr(field.expr, CompilerInternal.isField(field.meta));
+          addFromExpr(cl.init, true);
         case MMain(expression):
           addFromExpr(expression);
         default:
