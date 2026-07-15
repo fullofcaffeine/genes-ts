@@ -43,6 +43,14 @@ The identical `dual.Main` source covers:
 - embedded Haxe resources, strict resource/Bytes runtime support typing, DCE,
   source-map linkage, and a retained no-temp/stack-probe entry point.
 
+`TempPlan` and `NamePlan` are the shared pre-emission owners for these lowering
+facts. The four-oracle evaluation trace protects ordering, the two-clean-build
+hash protects deterministic names, `output-quality.json` rejects new synthetic
+temporaries (including any temp in the retained `Main` entry point), and the
+focused no-`js-es` fixture rejects colliding inline-expanded TS locals. The
+printers select syntax only; they do not allocate iterator/result bindings or
+discover `TVar` names while writing source.
+
 The live vanilla comparison intentionally runs only the target-neutral core:
 vanilla predates `genes.ts` helper abstractions. Its pinned baseline records
 accepted registry and map-helper divergences; byte identity is never an oracle.

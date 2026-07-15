@@ -51,6 +51,13 @@ The quality manifest measures the bounded dual corpus. It uses exact module,
 temporary, and import baselines plus 5% byte/token ceilings; it is not a
 whole-language performance benchmark.
 
+The dual/output-quality pair also owns the pre-emission lowering-plan contract:
+`TempPlan` supplies iterator and expression-result bindings to both printers,
+and `NamePlan` supplies deterministic local names by `TVar.id`. Runtime traces
+cover receiver/index/RHS order, clean-tree hashes cover naming determinism, the
+no-temp entry point rejects needless declarations, and the main genes-ts suite
+keeps inline-expanded collision and record/TSX readability cases focused.
+
 The package-shape gate covers a precise manual CommonJS `export =`
 const-plus-namespace constructor and a dts2hx-generated bridge for ESM,
 subpaths, conditional `import`/`require` exports, and a class-shaped CommonJS

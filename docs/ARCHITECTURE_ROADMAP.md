@@ -92,10 +92,11 @@ The audit also required two qualifications:
 | Product wording | Readiness, JSX, declaration, and migration claims are separated by evidence class. | This document and linked mode/policy docs |
 
 These are focused fixes, not proof that the complete semantic architecture
-already exists. `PublicSurface` owns declaration facts and `NullishContract`
-owns absence semantics, and `DependencyPlan` owns reachability. Expression
-lowering, names/temporaries, and JSX intent remain the separately ordered seams
-below.
+already exists. `PublicSurface` owns declaration facts, `NullishContract` owns
+absence semantics, `DependencyPlan` owns reachability, `JsxPlan` owns markup
+intent, and `TempPlan`/`NamePlan` now own the first deliberately small lowering
+slice. Additional expression normalization should be added only when a concrete
+construct needs to survive more than one pass; there is still no universal IR.
 
 ## Incremental target architecture
 
@@ -282,8 +283,16 @@ The source of truth is Beads epic `genes-09r`.
    `export =`; two clean extern generations must match a versioned manifest,
    contain no weak types, and drive identical strict-TS/classic transcripts.
 3. **`genes-09r.11` — `TempPlan`, `NamePlan`, and lightweight expression
-   lowering.** Depends on the output-budget baseline; migrate only constructs
-   whose evaluation order or target shape must survive multiple passes.
+   lowering (landed).** `TempPlan` classifies Haxe-generated locals and owns the
+   iterator-reuse and expression-result-IIFE bindings before output begins.
+   `NamePlan` computes deterministic `TVar.id` projections per function:
+   classic preserves upstream-compatible spelling while TS adds collision-safe
+   suffixes and reviewed record/TSX readability preferences. The only normalized
+   nodes are `LoweredForStatement` and `LoweredValueExpression`; the typed Haxe
+   AST remains authoritative. Both printers now perform lookup rather than
+   semantic temporary/name allocation. The four-oracle evaluation trace,
+   no-`js-es` collision fixture, two-clean-build hash, exact source maps, and
+   zero-growth/no-temp budgets form the switching evidence.
 4. **`genes-09r.9` — generated compatibility evidence and downstream QA.**
    Depends on the preceding evidence layers; publish compile, strict typing,
    semantic differential, snapshot, toolchain, package, and downstream results

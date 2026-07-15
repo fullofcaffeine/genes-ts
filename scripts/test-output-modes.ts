@@ -151,6 +151,13 @@ function assertProfileOwnership(manifestUnknown: unknown): void {
     "tests/output-modes/output-quality.json"
   );
   strictEqual(outputQuality.gate, "yarn test:output-quality");
+
+  const loweringPlans = requiredRecord(capabilities, "loweringPlans");
+  strictEqual(loweringPlans.owner, "genes-09r.11");
+  strictEqual(loweringPlans.status, "shared-precomputed-and-budget-gated");
+  strictEqual(loweringPlans.tempPlan, "src/genes/TempPlan.hx");
+  strictEqual(loweringPlans.namePlan, "src/genes/NamePlan.hx");
+  strictEqual(loweringPlans.gate, "yarn test:dual-output");
 }
 
 function assertSourceMap(

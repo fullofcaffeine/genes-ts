@@ -7,6 +7,11 @@ import haxe.ds.Option;
 import helder.Set;
 import genes.TypeAccessor;
 import genes.Dependencies;
+import genes.Module;
+import genes.NamePlan;
+import genes.NamePlan.NamePlanProfile;
+import genes.TempPlan;
+import genes.TempPlan.LoweredForIterator;
 import genes.NullishContract;
 import genes.JsxPlan;
 import genes.JsxPlan.JsxCapabilityPolicy;
@@ -110,14 +115,15 @@ class ExprEmitter extends Emitter {
   ]);
 
   var indent: Int = 0;
-  var inValue: Int = 0;
-  var idCounter: Int = 0;
+  var valueIifeDepth: Int = 0;
   var inLoop: Bool = false;
   var extendsExtern: Option<TypeAccessor> = None;
   var currentExpectedValueType: Null<Type> = null;
   var currentReturnType: Null<Type> = null;
   var jsxPlan: Null<JsxPlan> = null;
   var jsxRuntimeBinding: Null<String> = null;
+  var namePlan: Null<NamePlan> = null;
+  var tempPlan: Null<TempPlan> = null;
 
   var declare = #if (js_es == 6) 'let'; #else 'var'; #end
 
@@ -135,13 +141,31 @@ class ExprEmitter extends Emitter {
     jsxRuntimeBinding = capability.resolveRuntimeBinding(dependencies, plan);
   }
 
+  /**
+   * Installs target-neutral temporary facts and the selected naming projection.
+   *
+   * Why: local allocation used to happen while expressions were being printed,
+   * so formatting order could alter later identifiers and TS/classic could make
+   * independent iterator-temporary decisions.
+   *
+   * What/How: `TempPlan` first captures semantic reuse and Haxe-generated local
+   * identity. `NamePlan` then precomputes the profile spelling for every TVar.
+   * Expression emission performs lookup only. TypeScript requests collision-
+   * safe readable names; classic Genes preserves its vanilla-compatible names.
+   */
+  public function configureLowering(module: Module, profile: NamePlanProfile,
+      jsxEmitTsx = false): Void {
+    tempPlan = TempPlan.build(module);
+    namePlan = NamePlan.build(module, tempPlan, profile, jsxEmitTsx);
+  }
+
   public function emitExpr(e: TypedExpr) {
     emitPos(e.pos);
     switch e.expr {
       case TConst(c):
         emitConstant(c);
       case TLocal(v):
-        emitLocalIdent(v.name);
+        emitLocalVar(v);
       case TArray(e1, e2):
         emitValue(addObjectdeclParens(e1));
         write('[');
@@ -262,15 +286,15 @@ class ExprEmitter extends Emitter {
         emitValue(e1);
         write(')');
       case TMeta({name: name}, {expr: TFunction(f)}) if (name == ':jsAsync' || name == 'jsAsync'):
-        final inValue = this.inValue;
+        final valueIifeDepth = this.valueIifeDepth;
         final inLoop = this.inLoop;
-        this.inValue = 0;
+        this.valueIifeDepth = 0;
         this.inLoop = false;
         write('async function (');
         emitFunctionArguments(f);
         write(') ');
         emitFunctionBody(f);
-        this.inValue = inValue;
+        this.valueIifeDepth = valueIifeDepth;
         this.inLoop = inLoop;
       case TMeta({name: ':loopLabel', params: [{expr: EConst(CInt(n))}]}, e):
         switch (e.expr) {
@@ -308,15 +332,15 @@ class ExprEmitter extends Emitter {
         writeNewline();
         write('}');
       case TFunction(f):
-        final inValue = this.inValue;
+        final valueIifeDepth = this.valueIifeDepth;
         final inLoop = this.inLoop;
-        this.inValue = 0;
+        this.valueIifeDepth = 0;
         this.inLoop = false;
         write('function (');
         emitFunctionArguments(f);
         write(') ');
         emitFunctionBody(f);
-        this.inValue = inValue;
+        this.valueIifeDepth = valueIifeDepth;
         this.inLoop = inLoop;
       case TCall({
         expr: TField(_,
@@ -414,32 +438,31 @@ class ExprEmitter extends Emitter {
             field.expr);
         }
         write('}');
-      case TFor(v, it, e):
+      case TFor(_, _, _):
         final inLoop = this.inLoop;
         this.inLoop = true;
-        final it = switch it.expr {
-          case TLocal(v): v.name;
-          case _:
-            final id = idCounter;
-            idCounter++;
-            final name = "$it" + id;
-            write('$declare ${name} = ');
-            emitValue(it);
+        final lowered = requireTempPlan().loweredFor(e);
+        final iteratorName = switch lowered.iterator {
+          case ExistingIterator(local):
+            localName(local);
+          case TemporaryIterator(temp):
+            write('$declare ${getLocalIdent(temp.name)} = ');
+            emitValue(temp.initializer);
             writeNewline();
-            name;
-        }
+            getLocalIdent(temp.name);
+        };
         write('while (');
-        emitLocalIdent(it);
+        write(iteratorName);
         write('.hasNext()) {');
         increaseIndent();
         writeNewline();
         write('$declare ');
-        emitLocalIdent(v.name);
+        emitLocalVar(lowered.variable);
         write(' = ');
-        emitLocalIdent(it);
+        write(iteratorName);
         write('.next()');
         writeNewline();
-        emitBlockElement(e);
+        emitBlockElement(lowered.body);
         decreaseIndent();
         writeNewline();
         write('}');
@@ -448,7 +471,7 @@ class ExprEmitter extends Emitter {
         write('try ');
         emitExpr(etry);
         write('catch (');
-        emitLocalIdent(v.name);
+        emitLocalVar(v);
         write(') ');
         emitExpr(ecatch);
       case TTry(_):
@@ -478,7 +501,7 @@ class ExprEmitter extends Emitter {
     for (arg in join(f.args, write.bind(', '))) {
       if (isRest(arg.v.t))
         write('...');
-      emitLocalIdent(arg.v.name);
+      emitLocalVar(arg.v);
 
       /* see getFunctionBody() and https://github.com/benmerckx/genes/issues/54 */
       // if (arg.value != null) {
@@ -754,25 +777,27 @@ class ExprEmitter extends Emitter {
         throw 'Unknown js.Syntax method "$method"';
     }
 
-  function asValue(assigner: (assign: TypedExpr->Void)->Void) {
-    final inValue = this.inValue;
+  function asValue(expression: TypedExpr,
+      assigner: (assign: TypedExpr->Void)->Void) {
+    final result = requireTempPlan().loweredValue(expression).result;
+    final valueIifeDepth = this.valueIifeDepth;
     final inLoop = this.inLoop;
-    final id = this.inValue++;
+    this.valueIifeDepth++;
     this.inLoop = false;
     function assign(e: TypedExpr) {
-      write('$$r$id = ');
+      write('${result.name} = ');
       emitValue(e);
     }
     write("(function($this) {");
     increaseIndent();
-    write('var $$r$id');
+    write('var ${result.name}');
     writeNewline();
     assigner(assign);
     writeNewline();
-    write('return $$r$id');
+    write('return ${result.name}');
     decreaseIndent();
     write('})');
-    this.inValue = inValue;
+    this.valueIifeDepth = valueIifeDepth;
     this.inLoop = inLoop;
     write('(');
     emitThis();
@@ -817,15 +842,15 @@ class ExprEmitter extends Emitter {
         spr(ctx, (ctx.type_accessor(t)));
         spr(ctx, ")"); */
       case TVar(_), TFor(_, _, _), TWhile(_, _, _), TThrow(_):
-        asValue(assign -> assign(e));
+        asValue(e, assign -> assign(e));
       case TBlock([]): // Todo: hm?
         write('null');
       case TBlock([e]):
         emitValue(e);
       case TBlock(el):
-        asValue(assign -> {
-          for (e in el.slice(0, el.length - 1)) {
-            emitExpr(e);
+        asValue(e, assign -> {
+          for (element in el.slice(0, el.length - 1)) {
+            emitExpr(element);
             write(';');
             writeNewline();
           }
@@ -845,15 +870,15 @@ class ExprEmitter extends Emitter {
             emitValueWithExpectedType(expected, e);
         }
       case TSwitch(cond, cases, def):
-        asValue(assign -> {
+        asValue(e, assign -> {
           emitSwitch(cond, cases, def, assign, false);
         });
       case TTry(etry, [{v: v, expr: ecatch}]):
-        asValue(assign -> {
+        asValue(e, assign -> {
           write('try {');
           assign(block(etry));
           write('} catch (');
-          emitLocalIdent(v.name);
+          emitLocalVar(v);
           write(') {');
           assign(block(ecatch));
           write(') {');
@@ -952,7 +977,7 @@ class ExprEmitter extends Emitter {
     }
 
   function emitThis() {
-    if (inValue == 0)
+    if (valueIifeDepth == 0)
       write('this')
     else
       write("$this");
@@ -1047,6 +1072,29 @@ class ExprEmitter extends Emitter {
     write(getLocalIdent(name));
   }
 
+  /** Returns the escaped spelling selected before source emission begins. */
+  function localName(local: TVar): String {
+    final raw = requireNamePlan().nameFor(local);
+    return getLocalIdent(raw);
+  }
+
+  /** Emits a typed local by stable `TVar.id`, never by encounter-order text. */
+  function emitLocalVar(local: TVar): Void {
+    write(localName(local));
+  }
+
+  function requireTempPlan(): TempPlan {
+    if (tempPlan != null)
+      return tempPlan;
+    throw '[GTS-TEMP-PLAN-002] Expression emission began before configureLowering.';
+  }
+
+  function requireNamePlan(): NamePlan {
+    if (namePlan != null)
+      return namePlan;
+    throw '[GTS-NAME-PLAN-002] Expression emission began before configureLowering.';
+  }
+
   function emitStaticField(c: ClassType, s: String)
     return switch s {
       case 'length' | 'name' if (!c.isExtern || c.meta.has(':hxGen')):
@@ -1087,7 +1135,7 @@ class ExprEmitter extends Emitter {
 
   public function emitVar(v: TVar, eo: Null<TypedExpr>) {
     write('$declare ');
-    emitLocalIdent(v.name);
+    emitLocalVar(v);
     switch (eo) {
       case null:
       case e:
@@ -1207,7 +1255,7 @@ class ExprEmitter extends Emitter {
               case null | {expr: TConst(TNull)}:
                 continue;
               case value:
-                final ident = with(value, TIdent(getLocalIdent(arg.v.name)));
+                final ident = with(value, TIdent(localName(arg.v)));
                 {
                   t: value.t,
                   pos: value.pos,

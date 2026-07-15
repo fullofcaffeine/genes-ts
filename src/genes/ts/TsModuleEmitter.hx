@@ -13,6 +13,8 @@ import genes.PublicSurface;
 import genes.PublicSurface.PublicMember;
 import genes.NullishContract;
 import genes.NullishContract.NullishMissingValue;
+import genes.NamePlan.NamePlanProfile;
+import genes.TempPlan.LoweredForIterator;
 import genes.JsxPlan;
 import genes.JsxPlan.JsxCapabilityPolicy;
 import genes.JsxPlan.JsxIntent;
@@ -34,17 +36,6 @@ typedef NullNarrowCheck = {
   final nonNullWhenFalse: Array<String>;
 }
 
-typedef LocalNameScope = {
-  final names: Map<Int, String>;
-  final counts: Map<String, Int>;
-  final parent: Null<LocalNameScope>;
-}
-
-typedef ObjectFieldLocalUse = {
-  final local: TVar;
-  final fieldName: String;
-}
-
 typedef PrivateMethodCall = {
   final owner: ClassType;
   final field: ClassField;
@@ -64,32 +55,8 @@ class TsModuleEmitter extends JsModuleEmitter {
   var inAssignTarget: Bool = false;
   var currentClass: Null<ClassType> = null;
   var currentReturnIsVoidLike: Bool = false;
-  var generatedLocalNames: Map<Int, String> = [];
-  var generatedLocalNameCounts: Map<String, Int> = [];
   var mapKeyIteratorOrigins: Map<Int, String> = [];
   var mapKeyLocalOrigins: Map<Int, String> = [];
-
-  /**
-   * Per-emitted-function local naming state.
-   *
-   * Why: Haxe inline expansion can materialize inline parameters as ordinary
-   * typed locals named `key`, `value`, etc. TypeScript `var` declarations are
-   * function-scoped, so two expanded call sites with different Haxe types can
-   * become illegal duplicate TS declarations if they both print `value`.
-   *
-   * What/How: keyed by stable `TVar.id`, this allocator preserves the first
-   * readable source name in each emitted function and suffixes only later
-   * distinct locals with the same source name (`value`, `value_1`, ...).
-   * Function arguments are registered in the same scope so body references and
-   * forwarded constructor calls use the exact emitted argument name. Nested
-   * lexical blocks, such as TS switch-case wrappers, can reuse names while still
-   * looking up outer locals by `TVar.id`.
-   */
-  var scopedLocalNames: Map<Int, String> = [];
-
-  var scopedLocalNameCounts: Map<String, Int> = [];
-  var scopedLocalParent: Null<LocalNameScope> = null;
-  var preferredLocalNames: Map<Int, String> = [];
   var localTsTypeOverrides: Map<Int, String> = [];
   var narrowedNonNullKeys: Array<String> = [];
   var inRawSyntaxTemplate: Bool = false;
@@ -174,11 +141,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   public function emitTsModule(module: Module, importExtension: Null<String>) {
     final endTimer = timer('emitTsModule');
     jsxEmitTsx = genes.Genes.outExtension == '.tsx';
-    generatedLocalNames = [];
-    generatedLocalNameCounts = [];
-    scopedLocalNames = [];
-    scopedLocalNameCounts = [];
-    scopedLocalParent = null;
+    configureLowering(module, TypeScriptReadable, jsxEmitTsx);
     narrowedNonNullKeys = [];
     final jsxPlan = module.jsxPlan;
     final jsxCapability = JsxCapabilityPolicy.current();
@@ -1202,7 +1165,6 @@ class TsModuleEmitter extends JsModuleEmitter {
       if (ctorField != null)
         switch ctorField.expr {
           case {expr: TFunction(f)}:
-            final previousLocalScope = pushLocalNameScope();
             writeNewline();
             emitPos(ctorField.pos);
             write('constructor(');
@@ -1224,7 +1186,6 @@ class TsModuleEmitter extends JsModuleEmitter {
             decreaseIndent();
             writeNewline();
             write('}');
-            restoreLocalNameScope(previousLocalScope);
           default:
         }
     }
@@ -1298,7 +1259,6 @@ class TsModuleEmitter extends JsModuleEmitter {
           switch field.expr {
             case null:
             case {expr: TFunction(f)}:
-              final previousLocalScope = pushLocalNameScope();
               writeNewline();
               if (field.doc != null)
                 writeNewline();
@@ -1419,7 +1379,6 @@ class TsModuleEmitter extends JsModuleEmitter {
                     currentReturnIsVoidLike = prevVoidLike;
                 }
               }
-              restoreLocalNameScope(previousLocalScope);
             default:
           }
         default:
@@ -1574,7 +1533,6 @@ class TsModuleEmitter extends JsModuleEmitter {
       #end
       switch field.expr {
         case {expr: TFunction(f)}:
-          final previousLocalScope = pushLocalNameScope();
           writeNewline();
           if (field.doc != null)
             writeNewline();
@@ -1604,7 +1562,6 @@ class TsModuleEmitter extends JsModuleEmitter {
           emitExpr(getFunctionBody(f));
           currentReturnType = prevReturn;
           currentReturnIsVoidLike = prevVoidLike;
-          restoreLocalNameScope(previousLocalScope);
           emitPrivateMethodRuntimeAssignment(cl, field, helperName);
         default:
       }
@@ -2095,7 +2052,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     // is initialized from an optional field already narrowed by a null guard,
     // emit the temp as non-null so generated TS matches the guarded branch.
     final narrowedOptionalInit = eo != null
-      && isGeneratedTempLocal(v.name)
+      && requireTempPlan().tempForLocal(v) != null
       && typeAllowsNull(v.t)
       && isNarrowedOptionalField(eo);
     final narrowedNonNullInit = eo != null && typeAllowsNull(v.t)
@@ -2642,10 +2599,8 @@ class TsModuleEmitter extends JsModuleEmitter {
           && !suppressOptionalFieldNullNormalization
           && shouldNormalizeOptionalFieldRead(e)):
         emitOptionalFieldAsNull(e);
-      case TBlock(elements):
-        final previousPreferredLocalNames = pushBlockLocalNamePreferences(elements);
+      case TBlock(_):
         super.emitValue(e);
-        preferredLocalNames = previousPreferredLocalNames;
       default:
         super.emitValue(e);
     }
@@ -2913,26 +2868,24 @@ class TsModuleEmitter extends JsModuleEmitter {
         emitCall(callee, params, true);
         if (typeAllowsNull(e.t))
           write('!');
-      case TFor(v, itExpr, body):
+      case TFor(_, _, _):
         final wasInLoop = inLoop;
         inLoop = true;
-        final localIt = switch itExpr.expr {
-          case TLocal(it):
-            it;
-          default:
-            null;
-        };
-        final tempIt = if (localIt == null) {
-          final id = idCounter;
-          idCounter++;
-          final name = "$it" + id;
-          write('$declare ${name} = ');
-          emitValue(itExpr);
-          writeNewline();
-          name;
-        } else {
-          null;
-        };
+        final lowered = requireTempPlan().loweredFor(e);
+        final v = lowered.variable;
+        final itExpr = lowered.iteratorExpression;
+        final body = lowered.body;
+        var localIt: Null<TVar> = null;
+        var tempIt: Null<String> = null;
+        switch lowered.iterator {
+          case ExistingIterator(iteratorLocal):
+            localIt = iteratorLocal;
+          case TemporaryIterator(temp):
+            tempIt = temp.name;
+            write('$declare ${getLocalIdent(temp.name)} = ');
+            emitValue(temp.initializer);
+            writeNewline();
+        }
 
         function emitIterator() {
           if (localIt != null)
@@ -3001,8 +2954,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TTry(_):
         throw 'Unhandled try/catch, please report';
       case TFunction(f):
-        final previousLocalScope = pushLocalNameScope();
-        final inValue = this.inValue;
+        final valueIifeDepth = this.valueIifeDepth;
         final inLoop = this.inLoop;
         final prevReturn = currentReturnType;
         final prevVoidLike = currentReturnIsVoidLike;
@@ -3014,7 +2966,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         }
         currentReturnIsVoidLike = currentReturnType != null
           && isVoidLike(currentReturnType);
-        this.inValue = 0;
+        this.valueIifeDepth = 0;
         this.inLoop = false;
         final args = switch e.t {
           case TFun(args, _): args;
@@ -3058,12 +3010,11 @@ class TsModuleEmitter extends JsModuleEmitter {
         // under `strict` in downstream code (e.g. tink.*).
         write(') ');
         emitExpr(getFunctionBody(f));
-        this.inValue = inValue;
+        this.valueIifeDepth = valueIifeDepth;
         this.inLoop = inLoop;
         currentReturnType = prevReturn;
         currentReturnIsVoidLike = prevVoidLike;
         narrowedNonNullKeys = prevNarrowedNonNullKeys;
-        restoreLocalNameScope(previousLocalScope);
       case TBinop(op = OpGt | OpGte | OpLt | OpLte, e1, e2)
         if ((typeAllowsNull(e1.t) && isNumberLike(e1.t))
           || (typeAllowsNull(e2.t) && isNumberLike(e2.t))):
@@ -3213,7 +3164,6 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   function emitNarrowedBlockElements(elements: Array<TypedExpr>) {
-    final previousPreferredLocalNames = pushBlockLocalNamePreferences(elements);
     var activeKeys: Array<String> = [];
     for (element in elements) {
       for (key in activeKeys)
@@ -3225,268 +3175,6 @@ class TsModuleEmitter extends JsModuleEmitter {
       activeKeys = uniqueNarrowKeys(concatNarrowKeys(activeKeys,
         continuationNonNullKeys(element)));
     }
-    preferredLocalNames = previousPreferredLocalNames;
-  }
-
-  function pushBlockLocalNamePreferences(elements: Array<TypedExpr>): Map<Int, String> {
-    final previousPreferredLocalNames = preferredLocalNames;
-    preferredLocalNames = copyLocalNamePreferences(preferredLocalNames);
-    addObjectConstructionLocalNamePreferences(elements);
-    addTsxElementLocalNamePreferences(elements);
-    return previousPreferredLocalNames;
-  }
-
-  /**
-   * Renames Haxe-lowered object-construction temporaries without changing
-   * evaluation order.
-   *
-   * Why: when a typed object literal needs intermediate values, Haxe can lower
-   * source like `final parsed:Record = {...}` into a cluster of locals named
-   * `parsed`, `parsed1`, ..., `parsed9`, where the last local is the object and
-   * the earlier locals are direct field values. Those names are correct but
-   * noisy in generated TypeScript.
-   *
-   * What/How: if a numbered local initialized to an object literal directly
-   * consumes earlier same-prefix locals exactly once, prefer the object field
-   * names for those consumed locals and the shared prefix for the final object
-   * local. The declarations remain separate, preserving Haxe's lowered
-   * evaluation order; only emitted TS identifiers become more meaningful.
-   */
-  function addObjectConstructionLocalNamePreferences(elements: Array<TypedExpr>) {
-    final declarations: Map<Int, TVar> = [];
-    final declarationOrder: Map<Int, Int> = [];
-    final uses: Map<Int, Int> = [];
-
-    for (i in 0...elements.length) {
-      switch unwrapExpr(elements[i]).expr {
-        case TVar(v, _):
-          declarations.set(v.id, v);
-          declarationOrder.set(v.id, i);
-        default:
-      }
-      countLocalUses(elements[i], uses);
-    }
-
-    for (i in 0...elements.length) {
-      switch unwrapExpr(elements[i]).expr {
-        case TVar(objectLocal, init) if (init != null):
-          final objectParts = numberedLocalName(objectLocal.name);
-          if (objectParts == null || objectParts.index == null)
-            continue;
-          switch unwrapExpr(init).expr {
-            case TObjectDecl(fields):
-              var foundFieldTemp = false;
-              final fieldUses: Array<ObjectFieldLocalUse> = [];
-              for (field in fields) {
-                collectObjectFieldLocalUses(field.expr, field.name, fieldUses);
-              }
-              for (fieldUse in fieldUses) {
-                final fieldLocal = fieldUse.local;
-                if (fieldLocal == null)
-                  continue;
-                final fieldParts = numberedLocalName(fieldLocal.name);
-                if (fieldParts == null || fieldParts.prefix != objectParts.prefix)
-                  continue;
-                final fieldIndex = fieldParts.index == null ? 0 : fieldParts.index;
-                if (fieldIndex >= objectParts.index)
-                  continue;
-                if (!declarations.exists(fieldLocal.id)
-                  || declarationOrder.get(fieldLocal.id) >= i)
-                  continue;
-                if ((uses.exists(fieldLocal.id) ? uses.get(fieldLocal.id) : 0) != 1)
-                  continue;
-                final preferred = preferredNameForObjectField(fieldUse.fieldName);
-                if (preferred == null)
-                  continue;
-                preferredLocalNames.set(fieldLocal.id, preferred);
-                foundFieldTemp = true;
-              }
-              if (foundFieldTemp && isValidTsObjectKey(objectParts.prefix))
-                preferredLocalNames.set(objectLocal.id, objectParts.prefix);
-            default:
-          }
-        default:
-      }
-    }
-  }
-
-  /**
-   * Gives Haxe-lowered TSX child element temporaries readable names.
-   *
-   * Why: inline JSX/TSX markup in value position can be lowered by Haxe into a
-   * sequence of locals named `tmp`, `tmp1`, ... before the final root element
-   * expression. The order-preserving declarations are useful, but the raw temp
-   * names make generated TSX snapshots hard to review.
-   *
-   * What/How: in TSX mode only, if a low-quality local is initialized directly
-   * from a JSX marker and consumed exactly once, prefer a name based on the JSX
-   * tag (`text`, `input`, `fragment`, ...). The declarations stay separate, so
-   * evaluation order remains exactly Haxe's lowered order; only the emitted
-   * TypeScript identifiers change.
-   */
-  function addTsxElementLocalNamePreferences(elements: Array<TypedExpr>) {
-    if (!jsxEmitTsx)
-      return;
-    final uses: Map<Int, Int> = [];
-    for (element in elements)
-      countLocalUses(element, uses);
-    for (element in elements) {
-      switch unwrapExpr(element).expr {
-        case TVar(v, init)
-          if (init != null && isLowQualityTempLocalName(v.name)
-            && (uses.exists(v.id) ? uses.get(v.id) : 0) == 1):
-          final preferred = preferredNameForJsxElementLocal(init);
-          if (preferred != null)
-            preferredLocalNames.set(v.id, preferred);
-        default:
-      }
-    }
-  }
-
-  function preferredNameForJsxElementLocal(e: TypedExpr): Null<String> {
-    return switch unwrapExpr(e).expr {
-      case TCall(callee, args):
-        switch isReactJsxMarkerCallee(callee) {
-          case '__jsx':
-            args.length == 3 ? preferredNameForJsxTag(args[0]) : null;
-          case '__frag':
-            'fragment';
-          case _:
-            null;
-        }
-      default:
-        null;
-    }
-  }
-
-  function preferredNameForJsxTag(tag: TypedExpr): Null<String> {
-    return switch unwrapExpr(tag).expr {
-      case TConst(TString(s)):
-        preferredNameFromJsxTagString(s);
-      case TLocal(v):
-        sanitizePreferredLocalName(v.name);
-      default:
-        null;
-    }
-  }
-
-  function preferredNameFromJsxTagString(tag: String): Null<String> {
-    if (tag == null || tag.length == 0)
-      return null;
-    final parts = tag.split('-');
-    var out = '';
-    for (i in 0...parts.length) {
-      final part = sanitizePreferredLocalName(parts[i]);
-      if (part == null)
-        continue;
-      if (out.length == 0) {
-        out = part;
-      } else {
-        out += part.substr(0, 1).toUpperCase() + part.substr(1);
-      }
-    }
-    return out.length == 0 ? null : out;
-  }
-
-  function sanitizePreferredLocalName(name: String): Null<String> {
-    if (name == null || name.length == 0)
-      return null;
-    final out = new StringBuf();
-    for (i in 0...name.length) {
-      final code = name.charCodeAt(i);
-      final valid = (code >= "a".code && code <= "z".code)
-        || (code >= "A".code && code <= "Z".code)
-        || (i > 0 && code >= "0".code && code <= "9".code)
-        || code == "_".code || code == "$".code;
-      if (valid)
-        out.addChar(code);
-    }
-    final result = out.toString();
-    return result.length == 0 ? null : getLocalIdent(result);
-  }
-
-  static function isLowQualityTempLocalName(name: String): Bool {
-    if (name == "tmp")
-      return true;
-    if (!StringTools.startsWith(name, "tmp"))
-      return false;
-    if (name.length == 3)
-      return true;
-    for (i in 3...name.length) {
-      final code = name.charCodeAt(i);
-      if (code < "0".code || code > "9".code)
-        return false;
-    }
-    return true;
-  }
-
-  static function copyLocalNamePreferences(source: Map<Int, String>): Map<Int, String> {
-    final out: Map<Int, String> = [];
-    for (key in source.keys())
-      out.set(key, source.get(key));
-    return out;
-  }
-
-  static function directLocalValue(e: TypedExpr): Null<TVar> {
-    return switch unwrapExpr(e).expr {
-      case TLocal(v):
-        v;
-      case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, _):
-        directLocalValue(inner);
-      default:
-        null;
-    }
-  }
-
-  static function collectObjectFieldLocalUses(e: TypedExpr, fieldName: String,
-      out: Array<ObjectFieldLocalUse>) {
-    final direct = directLocalValue(e);
-    if (direct != null) {
-      out.push({local: direct, fieldName: fieldName});
-      return;
-    }
-    switch unwrapExpr(e).expr {
-      case TObjectDecl(fields):
-        for (field in fields)
-          collectObjectFieldLocalUses(field.expr, field.name, out);
-      case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, _):
-        collectObjectFieldLocalUses(inner, fieldName, out);
-      default:
-    }
-  }
-
-  static function preferredNameForObjectField(name: String): Null<String> {
-    if (name == null || name.length == 0)
-      return null;
-    final cleaned = name == "function" ? "fn" : name;
-    return isValidTsObjectKey(cleaned) ? cleaned : null;
-  }
-
-  static function numberedLocalName(name: String): Null<{prefix: String, index: Null<Int>}> {
-    if (name == null || name.length == 0)
-      return null;
-    var split = name.length;
-    while (split > 0) {
-      final code = name.charCodeAt(split - 1);
-      if (code < "0".code || code > "9".code)
-        break;
-      split--;
-    }
-    final prefix = name.substr(0, split);
-    if (prefix.length == 0)
-      return null;
-    if (split == name.length)
-      return {prefix: prefix, index: null};
-    return {prefix: prefix, index: Std.parseInt(name.substr(split))};
-  }
-
-  static function countLocalUses(e: TypedExpr, uses: Map<Int, Int>) {
-    switch unwrapExpr(e).expr {
-      case TLocal(v):
-        uses.set(v.id, (uses.exists(v.id) ? uses.get(v.id) : 0) + 1);
-      default:
-    }
-    haxe.macro.TypedExprTools.iter(e, child -> countLocalUses(child, uses));
   }
 
   function continuationNonNullKeys(e: TypedExpr): Array<String> {
@@ -3983,80 +3671,6 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
   }
 
-  function emitLocalVar(v: TVar) {
-    write(localVarName(v));
-  }
-
-  function localVarName(v: TVar): String {
-    final name = isGeneratedTempLocal(v.name) ? generatedLocalVarName(v) : scopedLocalVarName(v);
-    return getLocalIdent(name);
-  }
-
-  function pushLocalNameScope(?parented: Bool = false): LocalNameScope {
-    final previous: LocalNameScope = {
-      names: scopedLocalNames,
-      counts: scopedLocalNameCounts,
-      parent: scopedLocalParent
-    };
-    scopedLocalNames = [];
-    scopedLocalNameCounts = [];
-    scopedLocalParent = parented ? previous : null;
-    return previous;
-  }
-
-  function restoreLocalNameScope(previous: LocalNameScope) {
-    scopedLocalNames = previous.names;
-    scopedLocalNameCounts = previous.counts;
-    scopedLocalParent = previous.parent;
-  }
-
-  function scopedLocalVarName(v: TVar): String {
-    final found = scopedLocalNames.get(v.id);
-    if (found != null)
-      return found;
-    var parent = scopedLocalParent;
-    while (parent != null) {
-      final found = parent.names.get(v.id);
-      if (found != null)
-        return found;
-      parent = parent.parent;
-    }
-
-    final baseName = preferredLocalNames.exists(v.id) ? preferredLocalNames.get(v.id) : v.name;
-    final count = scopedLocalNameCounts.exists(baseName) ? scopedLocalNameCounts.get(baseName) : 0;
-    scopedLocalNameCounts.set(baseName, count + 1);
-    final name = count == 0 ? baseName : '${baseName}_${count}';
-    scopedLocalNames.set(v.id, name);
-    return name;
-  }
-
-  function generatedLocalVarName(v: TVar): String {
-    final found = generatedLocalNames.get(v.id);
-    if (found != null)
-      return found;
-
-    final count = generatedLocalNameCounts.exists(v.name) ? generatedLocalNameCounts.get(v.name) : 0;
-    generatedLocalNameCounts.set(v.name, count + 1);
-    final name = count == 0 ? v.name : '${v.name}_${count}';
-    generatedLocalNames.set(v.id, name);
-    return name;
-  }
-
-  static function isGeneratedTempLocal(name: String): Bool {
-    if (name == "_g")
-      return true;
-    if (!StringTools.startsWith(name, "_g"))
-      return false;
-    if (name.length == 2)
-      return true;
-    for (i in 2...name.length) {
-      final code = name.charCodeAt(i);
-      if (code < "0".code || code > "9".code)
-        return false;
-    }
-    return true;
-  }
-
   override function emitSwitch(cond: TypedExpr,
       cases: Array<{values: Array<TypedExpr>, expr: TypedExpr}>,
       def: Null<TypedExpr>, leaf: TypedExpr->Void,
@@ -4080,18 +3694,16 @@ class TsModuleEmitter extends JsModuleEmitter {
         }
       }
       // TypeScript/JavaScript `case` clauses do not create lexical scopes by
-      // themselves. Wrap each body so Haxe enum-pattern locals with the same
-      // source name can be emitted as normal declarations in sibling cases.
+      // themselves. Wrap each body; NamePlan models these exact child scopes so
+      // sibling enum-pattern locals may reuse their source spelling safely.
       write(' {');
       increaseIndent();
       if (!leafStartsWithNewline)
         writeNewline();
       final previousDeclare = declare;
-      final previousLocalScope = pushLocalNameScope(true);
       declare = 'let';
       leaf(c.expr);
       declare = previousDeclare;
-      restoreLocalNameScope(previousLocalScope);
       writeNewline();
       write('break;');
       decreaseIndent();
@@ -4125,9 +3737,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         increaseIndent();
         if (!leafStartsWithNewline)
           writeNewline();
-        final previousLocalScope = pushLocalNameScope(true);
         leaf(e);
-        restoreLocalNameScope(previousLocalScope);
         decreaseIndent();
         writeNewline();
         write('}');
