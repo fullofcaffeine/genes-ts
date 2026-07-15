@@ -1,3 +1,10 @@
+# [1.24.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.23.0...v1.24.0) (2026-07-15)
+
+
+### Features
+
+* lower external ts2hx side-effect imports ([8a92f1a](https://github.com/fullofcaffeine/genes-ts/commit/8a92f1a49a297e1577aa80a14090795477197fcd))
+
 # [1.23.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.22.0...v1.23.0) (2026-07-15)
 
 
