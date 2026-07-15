@@ -1,3 +1,10 @@
+# [1.22.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.21.0...v1.22.0) (2026-07-15)
+
+
+### Features
+
+* order runtime module requests ([749e7f7](https://github.com/fullofcaffeine/genes-ts/commit/749e7f7aeb8072a10b53457a8b647ba4b4254b9a))
+
 # [1.21.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.20.2...v1.21.0) (2026-07-15)
 
 
