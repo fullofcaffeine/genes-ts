@@ -22,6 +22,7 @@ boundary and planned shared architecture.
 ## Documentation
 
 - `docs/README.md` — documentation index (start here)
+- `docs/WORKFLOWS.md` — choose an end-to-end Haxe/TS/JS or ts2hx workflow
 - `docs/typescript-target/COMPILER_CONTRACT.md` — TS target contract
 - `docs/typescript-target/TYPING_POLICY.md` — TS typing rules + profiles
 - `docs/typescript-target/IMPORTS.md` — handwritten and dts2hx-generated npm interop

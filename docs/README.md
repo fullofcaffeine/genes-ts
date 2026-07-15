@@ -8,6 +8,7 @@ feature surface beyond the quick examples in `readme.md`.
 ## Getting started
 
 - `../readme.md` — quick start + feature overview
+- `WORKFLOWS.md` — choose Haxe → TS, Haxe → JS, TS → Haxe, or the roundtrip migration path
 - `OUTPUT_MODES.md` — TS output vs classic Genes JS output (and when to use each)
 - `OUTPUT_MODES.md#performance-oriented-es6-profile` — the explicit ES6 profile and planned comparison fixture
 - `OUTPUT_MODES.md#reusable-library-profile` — opt-in matched runtime and declaration surfaces for packages
