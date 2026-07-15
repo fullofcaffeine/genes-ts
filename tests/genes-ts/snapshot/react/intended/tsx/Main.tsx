@@ -98,6 +98,11 @@ export class Main {
 		// @ts-expect-error;
 		let bad: JSX.Element = <div href="nope" />;
 		renderToStaticMarkup(bad);
+		let invalidChild: {
+			label: string
+		} = {"label": "not-a-react-child"};
+		// @ts-expect-error;
+		let badChild: JSX.Element = <div>{invalidChild}</div>;
 	}
 	static renderChildList(first: string, second: string): JSX.Element {
 		let Button: ((arg0: {

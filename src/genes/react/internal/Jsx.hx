@@ -3,12 +3,13 @@ package genes.react.internal;
 import genes.react.Element;
 
 /**
- * Internal marker API for genes-ts JSX/TSX emission.
+ * Internal target-neutral marker API for Genes JSX/TSX emission.
  *
- * These are intentionally `extern` so they do not generate runtime output or imports.
- * The TypeScript emitter recognizes calls to these and prints either TSX markup
- * (when generating `.tsx`) or low-level `React.createElement(...)` calls (when
- * generating `.ts`).
+ * These are intentionally `extern` so they do not generate runtime output or
+ * imports. `JsxPlan` recognizes their typed calls before printing and preserves
+ * tag, ordered props, and children. TypeScript prints TSX or typed
+ * `React.createElement(...)`; classic Genes prints equivalent plain JavaScript
+ * runtime calls. The marker itself never leaks into generated source.
  */
 extern class Jsx {
   public static function __jsx(tag: Dynamic, props: Array<Dynamic>,

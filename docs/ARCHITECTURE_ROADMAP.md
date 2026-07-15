@@ -45,7 +45,7 @@ The audit's central diagnosis was sound:
 - compiler and harness maturity are real, but the previous product wording
   overgeneralized from positive `tsc` and runtime fixtures;
 - public surface collection, nullish semantics, dependency reachability, and
-  JSX intent are the highest-value shared seams;
+  JSX intent were the highest-value shared seams and are now explicit plans;
 - a lightweight normalized expression layer is justified only where evaluation
   order or target syntax requires shape to survive multiple passes;
 - ts2hx's TypeScript Program/TypeChecker front end is worth keeping, while
@@ -110,7 +110,8 @@ Haxe typed AST
   -> lightweight normalized nodes where shape matters
        LoweredExpr / LoweredStmt
        TempPlan / NamePlan
-       JsxIntent
+       JsxPlan {tag, component, ordered props, children, evaluation origin,
+                capability}
   -> immutable ModulePlan + EmissionProfile
   -> small ordered lowering passes
   -> TS source printer | classic JS printer | declaration printer
@@ -236,9 +237,13 @@ The source of truth is Beads epic `genes-09r`.
 7. **`genes-6za` plus package-shape fixtures.** Close CommonJS `export =`
    constructor/type identity and exercise ESM, CJS, subpaths, conditional
    exports, and type/value namespaces.
-8. **`genes-09r.5` — target-neutral `JsxIntent`.** Depends on `genes-cn4`;
-   preserve marker compatibility while introducing explicit TSX, `.ts`, and
-   classic capability decisions plus broader negative props/children checks.
+8. **`genes-09r.5` — target-neutral `JsxPlan` (landed).** Typed marker intent
+   now captures tags/components, ordered props/children, fragments, lifted
+   Haxe locals with exact-once evaluation paths, source provenance, and an
+   explicit TSX/`.ts`/classic profile.
+   Classic output lowers through a planned React-compatible runtime import;
+   disabled capabilities fail before output. Four negative JSX surfaces and an
+   identical-source TSX/classic rendered-HTML differential are blocking QA.
 9. **`genes-09r.6` — exact source maps, determinism, and output budgets.**
    Depends on the stable dual corpus; check token positions, mapped stack
    frames, clean-tree hashes, module/temp/import counts, and reviewed variance.

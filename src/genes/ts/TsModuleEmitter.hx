@@ -13,6 +13,13 @@ import genes.PublicSurface;
 import genes.PublicSurface.PublicMember;
 import genes.NullishContract;
 import genes.NullishContract.NullishMissingValue;
+import genes.JsxPlan;
+import genes.JsxPlan.JsxCapabilityPolicy;
+import genes.JsxPlan.JsxIntent;
+import genes.JsxPlan.JsxChildIntent;
+import genes.JsxPlan.JsxPropIntent;
+import genes.JsxPlan.JsxTagIntent;
+import genes.JsxPlan.JsxValueSource;
 import haxe.ds.Option;
 import haxe.macro.Expr;
 import haxe.macro.Type;
@@ -53,9 +60,6 @@ typedef PrivateMethodCall = {
  * This is intentionally incomplete. Expression coverage and richer typing land in later milestones.
  */
 class TsModuleEmitter extends JsModuleEmitter {
-  static final JSX_REACT_IMPORT = 'React__genes_jsx';
-  static final JSX_CLASSIC_REACT_IMPORT = 'React';
-
   var jsxEmitTsx: Bool = false;
   var inAssignTarget: Bool = false;
   var currentClass: Null<ClassType> = null;
@@ -91,7 +95,6 @@ class TsModuleEmitter extends JsModuleEmitter {
   var inRawSyntaxTemplate: Bool = false;
   var suppressOptionalFieldNullNormalization: Bool = false;
   var suppressPromiseResolveNullThenableCast: Bool = false;
-  var jsxMarkerLocalInitializers: Map<Int, TypedExpr> = [];
 
   function typeEmitsAny(t: Type): Bool {
     final fast = switch t {
@@ -177,39 +180,22 @@ class TsModuleEmitter extends JsModuleEmitter {
     scopedLocalNameCounts = [];
     scopedLocalParent = null;
     narrowedNonNullKeys = [];
-    jsxMarkerLocalInitializers = [];
-    final usesReactJsxMarkers = moduleUsesReactJsxMarkers(module);
-    final usesDynamicIntrinsicTag = moduleUsesDynamicIntrinsicJsxTag(module);
+    final jsxPlan = module.jsxPlan;
+    final jsxCapability = JsxCapabilityPolicy.current();
+    final usesReactJsxMarkers = jsxPlan.hasIntents;
 
     // Merge code + type dependencies so TS signatures can resolve.
     final deps = new Dependencies(module, true);
     mergeDepsInto(deps, module.codeDependencies);
     mergeDepsInto(deps, module.typeDependencies);
     ctx.typeAccessor = deps.typeAccessor;
+    configureJsx(jsxPlan, jsxCapability, deps);
 
     if (haxe.macro.Context.defined('genes.banner')) {
       write(haxe.macro.Context.definedValue('genes.banner'));
       writeNewline();
     }
 
-    // Ensure React is in scope for JSX output:
-    // - `.ts` mode lowers JSX markers into `React__genes_jsx.createElement(...)`.
-    // - `.tsx` mode normally relies on the automatic JSX runtime, but we can opt into
-    //   classic runtime (which needs a `React` namespace in scope).
-    if (usesReactJsxMarkers && (!jsxEmitTsx || usesDynamicIntrinsicTag)) {
-      write('import * as ');
-      write(JSX_REACT_IMPORT);
-      write(' from ');
-      emitString('react');
-      writeNewline();
-    } else if (usesReactJsxMarkers && jsxEmitTsx
-      && haxe.macro.Context.defined('genes.ts.jsx_classic')) {
-      write('import * as ');
-      write(JSX_CLASSIC_REACT_IMPORT);
-      write(' from ');
-      emitString('react');
-      writeNewline();
-    }
     // Some automatic JSX runtimes expose `JSX` as a module export instead of a
     // global namespace. In TSX mode this optional import keeps generated
     // `JSX.Element` annotations resolvable without forcing React globals.
@@ -442,101 +428,12 @@ class TsModuleEmitter extends JsModuleEmitter {
       || module == 'genes.ts.JsonNonNullValue';
   }
 
-  static function moduleUsesReactJsxMarkers(module: Module): Bool {
-    var found = false;
-    function visitExpr(e: TypedExpr) {
-      if (found || e == null)
-        return;
-      if (isReactJsxMarkerCallExpr(e)) {
-        found = true;
-        return;
-      }
-      e.iter(visitExpr);
-    }
-    for (member in module.members) {
-      if (found)
-        break;
-      switch member {
-        case MClass(cl, _, fields):
-          for (field in fields) {
-            visitExpr(field.expr);
-            if (found)
-              break;
-          }
-          visitExpr(cl.init);
-        case MMain(e):
-          visitExpr(e);
-        case _:
-      }
-    }
-    return found;
-  }
-
-  /** Detects runtime string tags that cannot be represented as typed TSX names. */
-  static function moduleUsesDynamicIntrinsicJsxTag(module: Module): Bool {
-    var found = false;
-    function visitExpr(e: TypedExpr) {
-      if (found || e == null)
-        return;
-      switch unwrapExpr(e).expr {
-        case TCall(callee, args)
-          if (isReactJsxMarkerCallee(callee) == '__jsx' && args.length == 3):
-          switch unwrapExpr(args[0]).expr {
-            case TConst(TString(_)):
-            default:
-              if (isStringType(args[0].t)) {
-                found = true;
-                return;
-              }
-          }
-        default:
-      }
-      e.iter(visitExpr);
-    }
-    for (member in module.members) {
-      if (found)
-        break;
-      switch member {
-        case MClass(cl, _, fields):
-          for (field in fields) {
-            visitExpr(field.expr);
-            if (found)
-              break;
-          }
-          visitExpr(cl.init);
-        case MMain(e):
-          visitExpr(e);
-        case _:
-      }
-    }
-    return found;
-  }
-
-  static function isStringType(t: Type): Bool {
-    return switch haxe.macro.Context.follow(t) {
-      case TInst(_.get() => {pack: [], name: 'String'}, _): true;
-      default: false;
-    }
-  }
-
   static function isReactJsxMarkerCallExpr(e: TypedExpr): Bool {
-    return switch unwrapExpr(e).expr {
-      case TCall(callee, _):
-        isReactJsxMarkerCallee(callee) != null;
-      default:
-        false;
-    }
+    return JsxPlan.isMarkerCallExpression(e);
   }
 
   static function isReactJsxMarkerCallee(callee: TypedExpr): Null<String> {
-    return switch unwrapExpr(callee).expr {
-      case TField(_, FStatic(_.get() => cl, _.get() => {name: name}))
-        if (cl.pack.join('.') == 'genes.react.internal' && cl.name == 'Jsx'
-          && (name == '__jsx' || name == '__frag')):
-        name;
-      default:
-        null;
-    }
+    return JsxPlan.markerName(callee);
   }
 
   static function unwrapExpr(e: TypedExpr): TypedExpr {
@@ -714,6 +611,8 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   override function emitCall(e: TypedExpr, params: Array<TypedExpr>,
       inValue: Bool) {
+    if (emitPlannedJsxCall(e, params))
+      return;
     final privateMethod = privateMethodCall(e);
     if (privateMethod != null) {
       emitPrivateMethodCall(privateMethod, params);
@@ -748,17 +647,6 @@ class TsModuleEmitter extends JsModuleEmitter {
         write(')');
         return;
       default:
-    }
-    final marker = isReactJsxMarkerCallee(e);
-    if (marker != null) {
-      switch marker {
-        case '__jsx':
-          emitReactJsxElement(params);
-        case '__frag':
-          emitReactJsxFragment(params);
-        default:
-      }
-      return;
     }
     final expectedEnumParams = expectedEnumCallParams(e,
       currentExpectedValueType);
@@ -1010,131 +898,36 @@ class TsModuleEmitter extends JsModuleEmitter {
     suppressPromiseResolveNullThenableCast = previous;
   }
 
-  function emitReactJsxElement(args: Array<TypedExpr>) {
-    if (args.length != 3)
-      haxe.macro.Context.error('Invalid JSX marker call',
-        args.length > 0 ? args[0].pos : haxe.macro.Context.currentPos());
-
-    final tag = args[0];
-    final props = parseJsxProps(args[1]);
-    final children = parseJsxChildren(args[2]);
-
-    if (jsxEmitTsx)
-      emitTsxElement(tag, props, children);
-    else
-      emitCreateElement(tag, props, children);
-  }
-
-  function emitReactJsxFragment(args: Array<TypedExpr>) {
-    if (args.length != 1)
-      haxe.macro.Context.error('Invalid JSX fragment marker call',
-        args.length > 0 ? args[0].pos : haxe.macro.Context.currentPos());
-
-    final children = parseJsxChildren(args[0]);
-    if (jsxEmitTsx)
-      emitTsxFragment(children);
-    else
-      emitCreateElementFragment(children);
-  }
-
-  function parseJsxChildren(e: TypedExpr): Array<TypedExpr> {
-    return switch unwrapExpr(e).expr {
-      case TArrayDecl(el):
-        el;
-      case TConst(TNull):
-        [];
-      default:
-        haxe.macro.Context.error('Invalid JSX marker children; expected an array literal',
-          e.pos);
+  /** Chooses TSX spelling or typed createElement spelling for shared intent. */
+  override function emitJsxIntent(intent: JsxIntent): Void {
+    switch intent {
+      case ElementIntent(tag, props, children, _):
+        if (jsxEmitTsx)
+          emitTsxElement(tag, props, children);
+        else
+          emitCreateElement(requireJsxRuntimeBinding(intent), tag, props,
+            children);
+      case FragmentIntent(children, _):
+        if (jsxEmitTsx)
+          emitTsxFragment(children);
+        else
+          emitCreateElementFragment(requireJsxRuntimeBinding(intent), children);
     }
   }
 
-  function parseJsxProps(e: TypedExpr): Array<ReactJsxProp> {
-    return switch unwrapExpr(e).expr {
-      case TArrayDecl(el):
-        el.map(parseJsxPropEntry);
-      case TConst(TNull):
-        [];
-      default:
-        haxe.macro.Context.error('Invalid JSX marker props; expected an array literal',
-          e.pos);
-    }
-  }
-
-  function parseJsxPropEntry(e: TypedExpr): ReactJsxProp {
-    return switch resolveJsxMarkerLocal(e).expr {
-      case TObjectDecl(fields):
-        var name: Null<String> = null;
-        var value: Null<TypedExpr> = null;
-        var spread: Null<TypedExpr> = null;
-        for (f in fields) {
-          switch f.name {
-            case 'name':
-              switch unwrapExpr(f.expr).expr {
-                case TConst(TString(s)):
-                  name = s;
-                default:
-                  haxe.macro.Context.error('JSX prop entry `name` must be a string literal',
-                    f.expr.pos);
-              }
-            case 'value':
-              value = f.expr;
-            case 'spread':
-              spread = f.expr;
-            case _:
-          }
-        }
-        if (spread != null)
-          return Spread(spread);
-        if (name == null || value == null)
-          haxe.macro.Context.error('Invalid JSX prop entry', e.pos);
-        return Normal(name, value);
-      default:
-        haxe.macro.Context.error('Invalid JSX prop entry; expected an object literal',
-          e.pos);
-    }
-  }
-
-  /**
-   * Recovers JSX marker literals that Haxe lifted into compiler temporaries.
-   *
-   * Why: deeply nested or heterogeneous marker prop arrays can be normalized by
-   * Haxe into `final tmp = {name: ..., value: ...}` followed by `tmp` in the
-   * array. The marker contract is still structurally valid, but parsing only
-   * direct `TObjectDecl` entries rejects compileable migration-generated Haxe.
-   *
-   * What/How: declarations recorded by `emitVar` are keyed by stable `TVar.id`.
-   * While parsing marker-only data, follow local references back to their
-   * initializer and then apply the ordinary metadata/cast/parenthesis unwrap.
-   * This does not inline runtime user values; it is restricted to the compiler
-   * marker parser and preserves the emitter's normal evaluation order.
-   */
-  function resolveJsxMarkerLocal(e: TypedExpr): TypedExpr {
-    var current = unwrapExpr(e);
-    final seen: Map<Int, Bool> = [];
-    while (true) {
-      switch current.expr {
-        case TLocal(v)
-          if (!seen.exists(v.id) && jsxMarkerLocalInitializers.exists(v.id)):
-          seen.set(v.id, true);
-          current = unwrapExpr(jsxMarkerLocalInitializers.get(v.id));
-        default:
-          return current;
-      }
-    }
-  }
-
-  function emitTsxFragment(children: Array<TypedExpr>) {
+  function emitTsxFragment(children: Array<JsxChildIntent>) {
     write('<>');
     emitTsxChildren(children);
     write('</>');
   }
 
-  function emitTsxElement(tag: TypedExpr, props: Array<ReactJsxProp>,
-      children: Array<TypedExpr>) {
-    if (isDynamicIntrinsicJsxTag(tag)) {
-      emitDynamicIntrinsicElement(tag, props, children);
-      return;
+  function emitTsxElement(tag: JsxTagIntent, props: Array<JsxPropIntent>,
+      children: Array<JsxChildIntent>) {
+    switch tag {
+      case DynamicIntrinsicTag(_):
+        emitDynamicIntrinsicElement(tag, props, children);
+        return;
+      default:
     }
     write('<');
     emitTsxTagName(tag);
@@ -1150,19 +943,17 @@ class TsModuleEmitter extends JsModuleEmitter {
     write('>');
   }
 
-  function isDynamicIntrinsicJsxTag(tag: TypedExpr): Bool {
-    return switch unwrapExpr(tag).expr {
-      case TConst(TString(_)): false;
-      default: isStringType(tag.t);
-    }
-  }
-
   /** Emits runtime string tags through React's typed createElement overload. */
-  function emitDynamicIntrinsicElement(tag: TypedExpr,
-      props: Array<ReactJsxProp>, children: Array<TypedExpr>) {
-    write(JSX_REACT_IMPORT);
+  function emitDynamicIntrinsicElement(tag: JsxTagIntent,
+      props: Array<JsxPropIntent>, children: Array<JsxChildIntent>) {
+    final runtime = jsxRuntimeBinding;
+    if (runtime == null)
+      haxe.macro.Context.error('[GTS-JSX-CAPABILITY-005] Dynamic intrinsic '
+        + 'tag has no planned JSX runtime namespace.',
+        JsxPlan.tagExpression(tag).pos);
+    write(runtime);
     write('.createElement(');
-    emitValue(tag);
+    emitValue(JsxPlan.tagExpression(tag));
     write(', ');
     if (props.length == 0) {
       write('null');
@@ -1170,102 +961,112 @@ class TsModuleEmitter extends JsModuleEmitter {
       write('{');
       for (prop in join(props, write.bind(', '))) {
         switch prop {
-          case Spread(e):
+          case SpreadProp(e, source):
             write('...');
-            emitValue(e);
-          case Normal(name, value):
+            emitJsxValue(e, source);
+          case NamedProp(name, value, source):
             emitObjectKey(name);
             write(': ');
-            emitValue(value);
+            emitJsxValue(value, source);
         }
       }
       write('}');
     }
     for (child in children) {
       write(', ');
-      emitValue(child);
+      emitJsxChildValue(child);
     }
     write(')');
   }
 
-  function emitTsxTagName(tag: TypedExpr) {
-    switch unwrapExpr(tag).expr {
-      case TConst(TString(s)):
-        write(s);
-      default:
-        emitValue(tag);
+  function emitTsxTagName(tag: JsxTagIntent) {
+    switch tag {
+      case IntrinsicTag(name, _):
+        write(name);
+      case ComponentTag(expression):
+        emitValue(expression);
+      case DynamicIntrinsicTag(expression):
+        haxe.macro.Context.error('[GTS-JSX-CAPABILITY-006] Dynamic intrinsic '
+          + 'tag reached TSX tag-name printing instead of createElement.',
+          expression.pos);
     }
   }
 
-  function emitTsxAttributes(props: Array<ReactJsxProp>) {
+  function emitTsxAttributes(props: Array<JsxPropIntent>) {
     for (p in props) {
       switch p {
-        case Spread(e):
+        case SpreadProp(e, source):
           write(' {...');
-          emitValue(e);
+          emitJsxValue(e, source);
           write('}');
-        case Normal(name, value):
+        case NamedProp(name, value, source):
           write(' ');
           write(name);
-          switch unwrapExpr(value).expr {
-            case TConst(TBool(true)):
+          switch [source, unwrapExpr(value).expr] {
+            case [DirectValue, TConst(TBool(true))]:
               // Boolean attribute shorthand.
-            case TConst(TString(s)):
+            case [DirectValue, TConst(TString(s))]:
               write('=');
               emitString(s);
             default:
               write('={');
-              emitValue(value);
+              emitJsxValue(value, source);
               write('}');
           }
       }
     }
   }
 
-  function emitTsxChildren(children: Array<TypedExpr>) {
+  function emitTsxChildren(children: Array<JsxChildIntent>) {
     for (child in children) {
-      if (isReactJsxMarkerCallExpr(child)) {
-        emitValue(child);
-        continue;
-      }
-      switch unwrapExpr(child).expr {
-        case TConst(TString(s)):
-          write(s);
-        default:
-          write('{');
-          emitValue(child);
-          write('}');
+      switch child {
+        case ChildIntent(expression, source):
+          if (source.match(DirectValue)
+            && isReactJsxMarkerCallExpr(expression)) {
+            emitValue(expression);
+            continue;
+          }
+          switch [source, unwrapExpr(expression).expr] {
+            case [DirectValue, TConst(TString(value))]:
+              write(value);
+            default:
+              write('{');
+              emitJsxValue(expression, source);
+              write('}');
+          }
       }
     }
   }
 
-  function emitCreateElement(tag: TypedExpr, props: Array<ReactJsxProp>,
-      children: Array<TypedExpr>) {
-    write(JSX_REACT_IMPORT);
+  function emitCreateElement(runtime: String, tag: JsxTagIntent,
+      props: Array<JsxPropIntent>, children: Array<JsxChildIntent>) {
+    write(runtime);
     write('.createElement(');
-    emitValue(tag);
+    emitValue(JsxPlan.tagExpression(tag));
     write(', ');
-    emitCreateElementProps(tag, props);
+    emitCreateElementProps(runtime, tag, props);
     for (child in children) {
       write(', ');
-      emitValue(child);
+      emitJsxChildValue(child);
     }
     write(')');
   }
 
-  function emitCreateElementFragment(children: Array<TypedExpr>) {
-    write(JSX_REACT_IMPORT);
+  function emitCreateElementFragment(runtime: String,
+      children: Array<JsxChildIntent>) {
+    write(runtime);
     write('.createElement(');
-    write(JSX_REACT_IMPORT);
+    write(runtime);
     write('.Fragment, null');
     for (child in children) {
       write(', ');
-      emitValue(child);
+      emitJsxChildValue(child);
     }
     write(')');
   }
 
-  function emitCreateElementProps(tag: TypedExpr, props: Array<ReactJsxProp>) {
+  function emitCreateElementProps(runtime: String, tag: JsxTagIntent,
+      props: Array<JsxPropIntent>) {
     if (props.length == 0) {
       write('null');
       return;
@@ -1274,19 +1075,19 @@ class TsModuleEmitter extends JsModuleEmitter {
     write('{');
     for (p in join(props, write.bind(', '))) {
       switch p {
-        case Spread(e):
+        case SpreadProp(e, source):
           write('...');
-          emitValue(e);
-        case Normal(name, value):
+          emitJsxValue(e, source);
+        case NamedProp(name, value, source):
           emitObjectKey(name);
           write(': ');
-          emitValue(value);
+          emitJsxValue(value, source);
       }
     }
     write('}');
     write(' satisfies ');
     write('(');
-    write(JSX_REACT_IMPORT);
+    write(runtime);
     write('.ComponentPropsWithoutRef<');
     emitComponentPropsTypeArgForTag(tag);
     write('>');
@@ -1326,13 +1127,13 @@ class TsModuleEmitter extends JsModuleEmitter {
     return true;
   }
 
-  function emitComponentPropsTypeArgForTag(tag: TypedExpr) {
-    switch unwrapExpr(tag).expr {
-      case TConst(TString(s)):
-        emitString(s);
-      default:
+  function emitComponentPropsTypeArgForTag(tag: JsxTagIntent) {
+    switch tag {
+      case IntrinsicTag(name, _):
+        emitString(name);
+      case DynamicIntrinsicTag(expression) | ComponentTag(expression):
         write('typeof ');
-        emitValue(tag);
+        emitValue(expression);
     }
   }
 
@@ -2290,8 +2091,6 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   override public function emitVar(v: TVar, eo: Null<TypedExpr>) {
-    if (eo != null)
-      jsxMarkerLocalInitializers.set(v.id, eo);
     // Haxe often creates `_g` temporaries while lowering loops. If such a temp
     // is initialized from an optional field already narrowed by a null guard,
     // emit the temp as non-null so generated TS matches the guarded branch.
@@ -5341,9 +5140,4 @@ class TsModuleEmitter extends JsModuleEmitter {
       default: null;
     }
   }
-}
-
-private enum ReactJsxProp {
-  Normal(name: String, value: TypedExpr);
-  Spread(expr: TypedExpr);
 }

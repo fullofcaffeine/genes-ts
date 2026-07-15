@@ -1,4 +1,4 @@
-# React / TSX authoring in Haxe (genes-ts)
+# React / TSX authoring in Haxe (Genes TS and classic JS)
 
 genes-ts includes a **compile-time JSX/HXX macro** so you can write TSX-like
 markup in Haxe and get **idiomatic, type-checked TS/TSX output**.
@@ -7,15 +7,18 @@ Key properties:
 - **Compile-time only** (no runtime template engine)
 - `{ ... }` interpolations are **real Haxe expressions** (typed by Haxe)
 - Resulting output is type-checked by **TypeScript** against React typings
+- The same validated marker intent lowers to React-compatible runtime calls in
+  classic Genes JavaScript
 
 ## Requirements
 
-- Use **TypeScript output mode**: `-D genes.ts`
-  - Classic Genes JS output does **not** currently lower JSX markers. Inline
-    markup can be parsed outside TS mode when explicitly enabled, but the
-    resulting marker calls are not a supported classic output contract.
-- Install React + typings in your consuming project:
-  - `react`, `react-dom`, `@types/react`, `@types/react-dom`
+- TypeScript source profiles use `-D genes.ts`; classic ESM omits it.
+- Install `react` and `react-dom` for runtime execution.
+- TypeScript source profiles also need `@types/react` and `@types/react-dom`.
+- Classic inline markup is opt-in with `@:jsx_inline_markup`,
+  `-D genes.react.inline_markup`, or `-D genes.react.inline_markup_all`.
+  The explicit `jsx("...")` macro already creates marker intent without that
+  parser-level opt-in.
 
 ## Two output styles: `.tsx` vs `.ts`
 
@@ -84,9 +87,9 @@ class by default. Disable it globally with
 
 Outside TypeScript mode, the parser rewrite remains opt-in. Use
 `@:jsx_inline_markup` for one class, `-D genes.react.inline_markup` for the
-legacy scoped switch, or `-D genes.react.inline_markup_all` globally. These
-flags do not make classic Genes lower JSX markers; they only control the Haxe
-markup rewrite.
+scoped switch, or `-D genes.react.inline_markup_all` globally. Once rewritten,
+classic Genes consumes the same `JsxPlan` and emits React-compatible
+`createElement`/`Fragment` calls; no marker extern remains at runtime.
 
 Example of the narrow opt-in outside TS mode:
 
@@ -106,13 +109,18 @@ need fragment roots (`<>...</>`) or tags that aren’t valid XML names.
 
 | Profile | Authoring input | Current lowering contract |
 | --- | --- | --- |
-| TSX (`.tsx`, `-D genes.ts`) | Inline markup or `jsx("...")` | Emits JSX/TSX and lets the configured JSX type namespace validate it. |
-| TS (`.ts`, `-D genes.ts`) | Inline markup or `jsx("...")` | Lowers to `React.createElement(...)`. |
-| Classic Genes JS | Ordinary non-JSX Haxe | First-class runtime path. JSX marker lowering is currently unsupported. |
+| TSX automatic (`.tsx`, `-D genes.ts`) | Inline markup or `jsx("...")` | Emits JSX/TSX; TypeScript validates tags/props/children. Runtime string tags use the planned factory namespace. |
+| TSX classic (`.tsx`, plus `-D genes.ts.jsx_classic`) | Inline markup or `jsx("...")` | Emits JSX/TSX plus the required `React` namespace import. |
+| TS (`.ts`, `-D genes.ts`) | Inline markup or `jsx("...")` | Lowers to typed `React.createElement(...)`, including `satisfies` prop checks. |
+| Classic Genes JS | `jsx("...")`, or opted-in inline markup | Lowers the same ordered intent to plain React-compatible `createElement(...)`/`Fragment` calls. |
 
-`genes-09r.5` tracks a target-neutral `JsxIntent` and an explicit capability
-decision for classic output. Until that lands, JSX-bearing modules are outside
-the general same-source dual-output promise.
+`src/genes/JsxPlan.hx` owns marker recognition, tags/components, ordered
+named/spread props, children, fragments, source provenance, and capability
+selection before either printer runs. It also distinguishes a direct value
+from a Haxe-lifted marker local, so property and child side effects are read
+from their evaluated path instead of executing twice. The identical-source fixture
+`DualJsxMain.hx` renders through TSX and classic JS under
+`yarn test:genes-ts:tsx` and compares the resulting HTML transcript.
 
 ## TSX runtime: automatic vs classic
 
@@ -124,6 +132,18 @@ If your project uses classic runtime (`jsx: "react"`), add:
 
 This makes genes-ts emit `import * as React from "react"` in `.tsx` modules that
 use JSX markers.
+
+Direct createElement profiles use a namespace module selected by:
+
+```hxml
+# Default is react; another module must expose compatible runtime and TS types.
+-D genes.react.jsx_runtime_module=react
+```
+
+`-D genes.react.jsx_runtime_module=none` explicitly disables that capability.
+If a module needs direct runtime calls (classic JS, `.ts`, or a dynamic string
+tag in automatic TSX), compilation fails with `GTS-JSX-CAPABILITY-001` at the
+original Haxe markup position before generated files are committed.
 
 ## Return type: `genes.react.Element`
 
@@ -185,7 +205,9 @@ If the generated TS becomes “too loose” (e.g. `any` leaks), TypeScript will 
 erroring and then fail due to an unused `@ts-expect-error` directive — which is
 exactly what we want for regression protection.
 
-The React snapshot profiles currently include negative prop checks. The broader
-matrix for intrinsic props, required component props, child types, spread
-props, and component identity remains part of `genes-09r.5`; a passing positive
-TSX build alone is not evidence that all JSX surfaces are closed.
+The React profiles include negative checks for event handlers, component prop
+types, invalid intrinsic attributes, and invalid child records across TSX and
+typed createElement output. Positive spread/component/reactive examples and
+the same-source classic differential run beside them. This is strong evidence
+for those cases, not a claim that every framework-specific JSX namespace or
+component identity pattern is covered.

@@ -15,7 +15,8 @@ class JSX {
    *   return jsx('<div className={x}>Hello</div>');
    *
    * Output is a call tree using `genes.react.internal.Jsx.__jsx/__frag` which
-   * the genes-ts emitter lowers into either TSX or `React.createElement(...)`.
+   * shared `JsxPlan` semantics lower into TSX or `React.createElement(...)` in
+   * TypeScript mode and equivalent runtime calls in classic Genes JS.
    */
   public static macro function jsx(template: Expr): Expr {
     final pos = template.pos;
@@ -39,8 +40,27 @@ class JSX {
         macro genes.react.internal.Jsx.__frag([$a{nodes.map(parser.childToExpr)}]);
     }
 
-    return rootExpr;
+    return applyTemplatePosition(rootExpr, pos);
   }
+
+  #if macro
+  /**
+   * Preserves the authoring location on the synthetic marker protocol.
+   *
+   * Reification assigns positions from this macro implementation to synthetic
+   * calls and literals. `JsxPlan` reports capability/marker diagnostics before
+   * printing, so every generated protocol node must instead point at the
+   * original inline-markup or `jsx("...")` expression. Embedded expressions
+   * remain typed normally; only their diagnostic/source-map origin is aligned
+   * with the template that owns them.
+   */
+  static function applyTemplatePosition(expression: Expr,
+      pos: Position): Expr {
+    expression.pos = pos;
+    return ExprTools.map(expression, child ->
+      applyTemplatePosition(child, pos));
+  }
+  #end
 }
 
 #if macro

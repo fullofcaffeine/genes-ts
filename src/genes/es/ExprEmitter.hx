@@ -6,7 +6,15 @@ import haxe.macro.Type;
 import haxe.ds.Option;
 import helder.Set;
 import genes.TypeAccessor;
+import genes.Dependencies;
 import genes.NullishContract;
+import genes.JsxPlan;
+import genes.JsxPlan.JsxCapabilityPolicy;
+import genes.JsxPlan.JsxIntent;
+import genes.JsxPlan.JsxChildIntent;
+import genes.JsxPlan.JsxPropIntent;
+import genes.JsxPlan.JsxValueAccess;
+import genes.JsxPlan.JsxValueSource;
 import genes.util.TypeUtil.*;
 import genes.util.IteratorUtil.*;
 
@@ -108,8 +116,24 @@ class ExprEmitter extends Emitter {
   var extendsExtern: Option<TypeAccessor> = None;
   var currentExpectedValueType: Null<Type> = null;
   var currentReturnType: Null<Type> = null;
+  var jsxPlan: Null<JsxPlan> = null;
+  var jsxRuntimeBinding: Null<String> = null;
 
   var declare = #if (js_es == 6) 'let'; #else 'var'; #end
+
+  /**
+   * Installs the immutable JSX facts and their profile-specific capability.
+   *
+   * Module emitters call this once before printing imports. The semantic plan
+   * is shared; only `emitJsxIntent` is target-polymorphic. Resolving the runtime
+   * name through `Dependencies` ensures the expression printer uses the exact
+   * namespace alias that the import printer selected after collision handling.
+   */
+  public function configureJsx(plan: JsxPlan,
+      capability: JsxCapabilityPolicy, dependencies: Dependencies): Void {
+    jsxPlan = plan;
+    jsxRuntimeBinding = capability.resolveRuntimeBinding(dependencies, plan);
+  }
 
   public function emitExpr(e: TypedExpr) {
     emitPos(e.pos);
@@ -465,6 +489,8 @@ class ExprEmitter extends Emitter {
   }
 
   function emitCall(e: TypedExpr, params: Array<TypedExpr>, inValue: Bool) {
+    if (emitPlannedJsxCall(e, params))
+      return;
     emitPos(e.pos);
     switch [e.expr, params] {
       case [TIdent('`trace'), [e, info]]:
@@ -540,6 +566,112 @@ class ExprEmitter extends Emitter {
         emitCallParams(e, params);
         write(')');
     }
+  }
+
+  /** Emits one marker call through the shared semantic plan when applicable. */
+  function emitPlannedJsxCall(callee: TypedExpr,
+      arguments: Array<TypedExpr>): Bool {
+    if (jsxPlan == null)
+      return false;
+    final intent = jsxPlan.intentForCall(callee, arguments);
+    if (intent == null)
+      return false;
+    emitJsxIntent(intent);
+    return true;
+  }
+
+  /**
+   * Classic JavaScript lowering for target-neutral JSX intent.
+   *
+   * Both classic JS and plain `.ts` ultimately use the same React-compatible
+   * runtime contract. The TypeScript emitter overrides this hook only to add
+   * TSX syntax and compile-time prop checking; evaluation order and runtime
+   * calls remain identical to this baseline.
+   */
+  function emitJsxIntent(intent: JsxIntent): Void {
+    final runtime = requireJsxRuntimeBinding(intent);
+    switch intent {
+      case ElementIntent(tag, props, children, pos):
+        emitPos(pos);
+        write(runtime);
+        write('.createElement(');
+        emitValue(JsxPlan.tagExpression(tag));
+        write(', ');
+        emitClassicJsxProps(props);
+        for (child in children) {
+          write(', ');
+          emitJsxChildValue(child);
+        }
+        write(')');
+      case FragmentIntent(children, pos):
+        emitPos(pos);
+        write(runtime);
+        write('.createElement(');
+        write(runtime);
+        write('.Fragment, null');
+        for (child in children) {
+          write(', ');
+          emitJsxChildValue(child);
+        }
+        write(')');
+    }
+  }
+
+  function emitClassicJsxProps(props: Array<JsxPropIntent>): Void {
+    if (props.length == 0) {
+      write('null');
+      return;
+    }
+    write('{');
+    for (prop in join(props, write.bind(', '))) {
+      switch prop {
+        case NamedProp(name, value, source):
+          emitString(name);
+          write(': ');
+          emitJsxValue(value, source);
+        case SpreadProp(expression, source):
+          write('...');
+          emitJsxValue(expression, source);
+      }
+    }
+    write('}');
+  }
+
+  function emitJsxChildValue(child: JsxChildIntent): Void {
+    switch child {
+      case ChildIntent(expression, source):
+        emitJsxValue(expression, source);
+    }
+  }
+
+  /** Emits an expression once, or reads the local path that already holds it. */
+  function emitJsxValue(expression: TypedExpr, source: JsxValueSource): Void {
+    switch source {
+      case DirectValue:
+        emitValue(expression);
+      case RuntimeValuePath(root, path):
+        emitValue(root);
+        for (access in path) {
+          switch access {
+            case JsxArrayIndex(index):
+              write('[$index]');
+            case JsxObjectField(name):
+              emitField(name);
+          }
+        }
+    }
+  }
+
+  function requireJsxRuntimeBinding(intent: JsxIntent): String {
+    if (jsxRuntimeBinding != null)
+      return jsxRuntimeBinding;
+    final pos = switch intent {
+      case ElementIntent(_, _, _, found) | FragmentIntent(_, found): found;
+    }
+    Context.error('[GTS-JSX-CAPABILITY-004] JSX intent reached the expression '
+      + 'printer without a runtime namespace. This is a compiler planning error.',
+      pos);
+    throw 'Unreachable after Context.error';
   }
 
   /**

@@ -133,7 +133,12 @@ function assertProfileOwnership(manifestUnknown: unknown): void {
   const capabilities = requiredRecord(manifestUnknown, "capabilities");
   const jsx = requiredRecord(capabilities, "jsx");
   strictEqual(jsx.owner, "genes-09r.5");
-  strictEqual(jsx.status, "excluded-until-capability-policy");
+  strictEqual(jsx.status, "supported-react-compatible-runtime");
+  strictEqual(
+    jsx.source,
+    "tests/genes-ts/snapshot/react/src/DualJsxMain.hx"
+  );
+  strictEqual(jsx.gate, "yarn test:genes-ts:tsx");
 }
 
 function assertSourceMap(

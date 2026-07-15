@@ -43,7 +43,9 @@ through TS, classic JS/declarations, and standard Haxe JS, with a pinned/live
 vanilla-compatible core. It covers stable semantic traces, strict declaration
 consumption, DCE/type-only shape, ESM imports, resources, reflection, and
 source-map linkage. This is bounded evidence, not broad language equivalence;
-JSX capability policy and exact source-map/budget work remain explicit owners.
+JSX now has a separate identical-source TSX/classic runtime differential and
+fail-closed capability policy. Exact source-map/budget work remains the next
+explicit owner.
 
 ### R3 — Honest declaration and ecosystem interop
 

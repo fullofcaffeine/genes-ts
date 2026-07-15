@@ -1,0 +1,11 @@
+-lib genes-ts
+
+-cp tests/genes-ts/snapshot/react/src
+--main DualJsxMain
+
+# Classic JS opts into inline-markup parsing, then JsxPlan lowers to React calls.
+-js tests/genes-ts/snapshot/react/out/dual-classic/index.js
+-D genes.react.inline_markup
+-D js-es=6
+
+-dce full

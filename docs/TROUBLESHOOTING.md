@@ -64,6 +64,18 @@ TypeScript config matters:
 - if you need classic runtime (`jsx: "react"`), compile with:
   - `-D genes.ts.jsx_classic`
 
+Classic Genes JS lowers the same JSX markers to React-compatible runtime calls.
+Inline markup remains an explicit parser opt-in outside TS mode:
+
+- `-D genes.react.inline_markup`, or `@:jsx_inline_markup` on one class
+- the runtime namespace defaults to `react`
+- override it with `-D genes.react.jsx_runtime_module=<compatible-module>`
+
+If you intentionally set `genes.react.jsx_runtime_module=none`, any profile
+that needs `createElement` fails with `GTS-JSX-CAPABILITY-001` at the Haxe
+markup source position. This is a capability diagnostic, not a missing-import
+or runtime-marker bug.
+
 See `docs/typescript-target/REACT_HXX.md`.
 
 ## “TypeScript says `@ts-expect-error` is unused in snapshots”

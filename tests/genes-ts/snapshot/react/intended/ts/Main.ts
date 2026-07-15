@@ -1,5 +1,5 @@
-import * as React__genes_jsx from "react"
 import {renderToStaticMarkup as __genes_import_renderToStaticMarkup} from "react-dom/server"
+import * as React__genes_jsx from "react"
 import {Exception} from "./haxe/Exception.js"
 import {Register} from "./genes/Register.js"
 import {createSignal as __genes_import_createSignal, createMemo as __genes_import_createMemo} from "./runtime/signals.js"
@@ -99,6 +99,11 @@ export class Main {
 		// @ts-expect-error;
 		let bad: JSX.Element = React__genes_jsx.createElement("div", ({href: "nope"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"div"> & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
 		renderToStaticMarkup(bad);
+		let invalidChild: {
+			label: string
+		} = {"label": "not-a-react-child"};
+		// @ts-expect-error;
+		let badChild: JSX.Element = React__genes_jsx.createElement("div", null, invalidChild);
 	}
 	static renderChildList(first: string, second: string): JSX.Element {
 		let Button: ((arg0: {

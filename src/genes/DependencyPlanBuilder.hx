@@ -13,6 +13,7 @@ import genes.DependencyPlan.DependencyEdgeKind;
 import genes.DependencyPlan.DependencyImport;
 import genes.DependencyPlan.DependencyProvenance;
 import genes.Module.Field;
+import genes.JsxPlan.JsxCapabilityPolicy;
 import genes.util.TypeUtil;
 
 using haxe.macro.TypedExprTools;
@@ -24,9 +25,10 @@ using haxe.macro.TypedExprTools;
  * have different reachability rules. Combining them in a mutable import table
  * either keeps dead JS or drops types required by strict TypeScript consumers.
  *
- * What: this builder walks executable expressions for runtime edges and uses
- * `PublicSurface` plus `TypeReferenceCollector` for type/declaration edges. It
- * records the originating `ModuleType` before import aliases are allocated.
+ * What: this builder walks executable expressions for runtime edges, adds
+ * explicit capability-owned host edges such as the planned JSX factory, and
+ * uses `PublicSurface` plus `TypeReferenceCollector` for type/declaration
+ * edges. It records the originating `ModuleType` before aliases are allocated.
  *
  * How: all mutation is private to a single build. Edges form an ordered
  * multigraph in stable member/expression order, then freeze in `DependencyPlan`.
@@ -85,6 +87,19 @@ class DependencyPlanBuilder {
   }
 
   function collectRuntimeEdges(): Void {
+    final jsxPlan = module.jsxPlan;
+    final jsxCapability = JsxCapabilityPolicy.current();
+    jsxCapability.validate(jsxPlan);
+    if (jsxCapability.requiresRuntimeNamespace(jsxPlan)) {
+      addImport(RuntimeValue, {
+        type: DependencyType.DAsterisk,
+        name: jsxCapability.runtimeBindingName,
+        path: jsxCapability.runtimeModule,
+        external: true,
+        pos: jsxPlan.firstPosition
+      }, JsxCapabilityPolicy.RUNTIME_IMPORT_RULE, jsxPlan.firstPosition);
+    }
+
     #if (haxe_ver >= 4.2)
     function addModuleFieldRequires(cl: ClassType,
         fields: Array<Field>): Void {

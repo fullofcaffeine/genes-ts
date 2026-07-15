@@ -101,6 +101,15 @@ class Main {
     js.Syntax.code("// @ts-expect-error");
     final bad = <div href="nope"></div>;
     renderToStaticMarkup(bad);
+
+    // Child typing must remain closed as well: an arbitrary record is not a
+    // ReactNode in either TSX or typed createElement output.
+    final invalidChild = {label: "not-a-react-child"};
+    js.Syntax.code("// @ts-expect-error");
+    final badChild = <div>{invalidChild}</div>;
+    // Constructing the element is enough for TypeScript to validate children;
+    // rendering this intentionally invalid value would turn a negative compile
+    // fixture into an expected runtime exception.
   }
 
   static function renderChildList(first:String, second:String):Element {

@@ -7,6 +7,7 @@ import haxe.macro.Type;
 import genes.util.IteratorUtil.*;
 import genes.util.TypeUtil.*;
 import genes.util.Timer.timer;
+import genes.JsxPlan.JsxCapabilityPolicy;
 
 using genes.util.TypeUtil;
 using Lambda;
@@ -16,6 +17,7 @@ class ModuleEmitter extends ExprEmitter {
     final dependencies = module.codeDependencies;
     final endTimer = timer('emitModule');
     ctx.typeAccessor = dependencies.typeAccessor;
+    configureJsx(module.jsxPlan, JsxCapabilityPolicy.current(), dependencies);
     final typed = module.members.filter(m -> m.match(MType(_, _)));
     if (typed.length == module.members.length && module.expose.length == 0)
       return endTimer();

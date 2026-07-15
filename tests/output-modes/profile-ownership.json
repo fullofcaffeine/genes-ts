@@ -50,9 +50,11 @@
   },
   "capabilities": {
     "jsx": {
-      "status": "excluded-until-capability-policy",
+      "status": "supported-react-compatible-runtime",
       "owner": "genes-09r.5",
-      "contract": "Classic JSX must gain an explicit lowering or a stable source-positioned pre-output diagnostic."
+      "source": "tests/genes-ts/snapshot/react/src/DualJsxMain.hx",
+      "gate": "yarn test:genes-ts:tsx",
+      "contract": "Shared JsxPlan intent emits TSX/typed createElement or classic React-compatible createElement; disabled required runtimes fail before output."
     },
     "exactSourceMapsAndBudgets": {
       "status": "shape-only-here",

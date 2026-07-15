@@ -1,5 +1,5 @@
-import * as React from "react"
 import {renderToStaticMarkup as __genes_import_renderToStaticMarkup} from "react-dom/server"
+import * as React from "react"
 import {Exception} from "./haxe/Exception.js"
 import {Register} from "./genes/Register.js"
 import {createSignal as __genes_import_createSignal, createMemo as __genes_import_createMemo} from "./runtime/signals.js"
@@ -99,6 +99,11 @@ export class Main {
 		// @ts-expect-error;
 		let bad: JSX.Element = <div href="nope" />;
 		renderToStaticMarkup(bad);
+		let invalidChild: {
+			label: string
+		} = {"label": "not-a-react-child"};
+		// @ts-expect-error;
+		let badChild: JSX.Element = <div>{invalidChild}</div>;
 	}
 	static renderChildList(first: string, second: string): JSX.Element {
 		let Button: ((arg0: {

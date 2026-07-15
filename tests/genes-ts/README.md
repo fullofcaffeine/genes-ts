@@ -18,11 +18,17 @@ UPDATE_SNAPSHOTS=1 yarn test:genes-ts:snapshots
 
 ### React variants
 
-`tests/genes-ts/snapshot/react/` keeps three variants side-by-side:
+`tests/genes-ts/snapshot/react/` keeps four TypeScript variants side-by-side:
 
 - `out/tsx` vs `intended/tsx` — idiomatic `.tsx` output
-- `out/tsx-classic` vs `intended/tsx-classic` — TSX lowered to classic `React.createElement`
+- `out/tsx-jsx-source` vs `intended/tsx-jsx-source` — TSX with an explicit imported JSX type namespace
+- `out/tsx-classic` vs `intended/tsx-classic` — TSX source compiled with TypeScript's classic React JSX runtime
 - `out/ts` vs `intended/ts` — low-level `.ts` output (no TSX)
+
+The same directory also owns `DualJsxMain.hx`, which is compiled from one Haxe
+source to TSX and classic Genes ESM. The React gate compares rendered runtime
+transcripts and verifies that disabling a required JSX runtime fails before
+emitting files.
 
 ### todoapp output
 

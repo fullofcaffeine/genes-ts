@@ -64,6 +64,7 @@ class Module {
   public final path: String;
   public final members: Array<Member> = [];
   public final expose: Array<ModuleExport> = [];
+  public var jsxPlan(get, null): JsxPlan;
   public var dependencyPlan(get, null): DependencyPlan;
   public var typeDependencies(get, null): Dependencies;
   public var declarationDependencies(get, null): Dependencies;
@@ -90,6 +91,12 @@ class Module {
     if (dependencyPlan == null)
       dependencyPlan = DependencyPlanBuilder.build(this);
     return dependencyPlan;
+  }
+
+  function get_jsxPlan(): JsxPlan {
+    if (jsxPlan == null)
+      jsxPlan = JsxPlan.build(this);
+    return jsxPlan;
   }
 
   /**
@@ -153,6 +160,7 @@ class Module {
       }
     }
     if (changed) {
+      jsxPlan = null;
       dependencyPlan = null;
       typeDependencies = null;
       declarationDependencies = null;

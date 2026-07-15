@@ -1,7 +1,7 @@
-import * as React__genes_jsx from "react"
 import type {ReactComponent} from "./ReactTypes"
 import {App} from "./App"
 import * as ReactDomClient from "react-dom/client"
+import * as React__genes_jsx from "react"
 import {Exception} from "../../haxe/Exception"
 import {Register} from "../../genes/Register"
 

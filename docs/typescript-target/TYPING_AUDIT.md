@@ -114,17 +114,18 @@ precedence as well as the semantic classification.
 | Layer | Current evidence | Blind spot |
 | --- | --- | --- |
 | Strict positive compilation | Basic, minimal, full, TSX, snapshots, and todoapp profiles | `any` is assignable in both directions and can make invalid code pass. |
-| Negative consumers | Closed interfaces, classic nullable declarations, React prop snapshots | The matrix is not yet exhaustive across all exported/imported types. |
+| Negative consumers | Closed interfaces, classic nullable declarations, and React event/component/intrinsic/child cases | The matrix is not exhaustive across all exported/imported or framework-specific JSX types. |
 | Lexical unsafe-type scan | Selected generated user files | Inference, aliases, imports, declaration merging, and excluded directories. |
 | Runtime assertions | Map absence/undefined, iterator and general compiler fixtures | Public declaration precision not observed at runtime. |
 | Semantic export inspection | TypeChecker audit of generated TS and classic declarations with exact boundary provenance | Coverage is fixture-scoped and does not replace dependency planning. |
 
 ## Next tightening targets
 
-1. `genes-09r.5`: broaden JSX negative coverage across intrinsic props,
-   components, children, spread props, and imported JSX namespaces.
-2. `genes-09r.6`: add exact source-map, deterministic-tree, and output-budget
+1. `genes-09r.6`: add exact source-map, deterministic-tree, and output-budget
    evidence without weakening the now-landed TS5/TS6/TS7 matrix.
+2. Extend JSX negatives only from reduced generic failures (for example a new
+   imported namespace or component-identity shape); the shared intent and core
+   event/component/intrinsic/child matrix have landed under `genes-09r.5`.
 3. Extract the next shared type-projection seam only when a concrete mapping
    change would otherwise duplicate semantic choices between the printer and
    `TypeReferenceCollector`.

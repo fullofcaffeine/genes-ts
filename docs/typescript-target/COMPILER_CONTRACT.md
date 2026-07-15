@@ -214,6 +214,9 @@ Runtime profile:
 
 JSX/TSX:
 - `-D genes.ts.jsx_classic` — when emitting `.tsx`, also emit `import * as React from "react"` so the output compiles under TypeScript `jsx: "react"` (classic runtime). Default expects `jsx: "react-jsx"`.
+- `-D genes.react.jsx_runtime_module=<module>` — select the React-compatible
+  namespace used by `.ts`, dynamic TSX tags, and classic JS JSX lowering
+  (default `react`). `none` makes those capabilities fail before output.
 
 Async/await sugar:
 - `@:async` + `await(...)` are available via `genes.js.Async` (see `ASYNC_AWAIT.md`).

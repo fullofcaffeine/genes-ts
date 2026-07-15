@@ -44,11 +44,13 @@ The live vanilla comparison intentionally runs only the target-neutral core:
 vanilla predates `genes.ts` helper abstractions. Its pinned baseline records
 accepted registry and map-helper divergences; byte identity is never an oracle.
 
-## Deliberate exclusions
+## Deliberate exclusions and supplementary owners
 
-- JSX is owned by `genes-09r.5`: classic mode must gain either a configured
-  lowering or a stable source-positioned capability diagnostic before JSX can
-  join this shared corpus.
+- JSX is intentionally exercised by the smaller identical-source React fixture
+  at `tests/genes-ts/snapshot/react/src/DualJsxMain.hx`. Its TSX/classic runtime
+  differential, negative TS consumers, and fail-closed capability diagnostic
+  run under `yarn test:genes-ts:tsx`; they do not require the standard-Haxe or
+  vanilla oracles used by this target-neutral core.
 - Exact token mappings, mapped thrown stacks, deterministic tree hashes, and
   output budgets are owned by `genes-09r.6`. This fixture checks source-map
   linkage and source membership only.

@@ -12,6 +12,7 @@ import genes.dts.DefinitionEmitter;
 import genes.util.TypeUtil;
 import genes.Module;
 import genes.DependencyPlan.DependencyEdgeKind;
+import genes.JsxPlan.JsxCapabilityPolicy;
 
 using Lambda;
 using StringTools;
@@ -206,6 +207,17 @@ class Generator {
       for (name in implementationReachable.keys()) name
     ];
     implementationNames.sort(Reflect.compare);
+    final jsxCapability = JsxCapabilityPolicy.current();
+    // Validate every reachable module before an emitter opens its buffered
+    // writer. Capability failures therefore cannot leave a mixed output tree.
+    for (name in implementationNames) {
+      final module = modules.get(name);
+      jsxCapability.validate(module.jsxPlan);
+      // Resolve the edge here as well as in emitters so alias/capability
+      // failures are diagnosed before any module writer is opened.
+      jsxCapability.resolveRuntimeBinding(module.codeDependencies,
+        module.jsxPlan);
+    }
     for (name in implementationNames) {
       final module = modules.get(name);
       if (tsMode || hasClassicImplementation(module))

@@ -1,0 +1,12 @@
+-lib genes-ts
+
+-cp tests/genes-ts/snapshot/react/src
+--main DualJsxMain
+
+# Proves unsupported capability fails before committing any output files.
+-js tests/genes-ts/snapshot/react/out/dual-disabled/index.js
+-D genes.react.inline_markup
+-D genes.react.jsx_runtime_module=none
+-D js-es=6
+
+-dce full

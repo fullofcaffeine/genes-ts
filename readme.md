@@ -41,6 +41,7 @@ boundary and planned shared architecture.
 - **React authoring** from Haxe:
   - TSX output (`.tsx`) or low-level `React.createElement(...)` output (`.ts`)
   - inline markup (`return <div>...</div>;`), default-on in TypeScript mode
+  - equivalent React-compatible `createElement(...)` lowering in classic JS
 - **JS/TS interop helpers** via `genes.ts.Imports` (consume existing TS/TSX easily)
 - **Async/await sugar** (`@:async` + `await(...)`) emitting native `async`/`await`
 - **Layered harness**: snapshots, strict `tsc`, negative type consumers, runtime smoke, classic JS assertions, and todoapp E2E (Playwright)
@@ -184,8 +185,9 @@ performance, build simplicity, or runtime constraints make that preferable.
 The authoritative `yarn test:dual-output` corpus now proves the checked runtime,
 declaration, resource, DCE, import, reflection, and source-map-shape contracts
 across TS, classic, standard Haxe JS, and a vanilla-compatible core. General
-equivalence—especially JSX and constructs outside that corpus—remains
-experimental.
+equivalence outside that corpus remains experimental. JSX has its own
+same-source TSX/classic runtime differential under the React gate; it does not
+turn either bounded corpus into a universal language-parity claim.
 
 ES6 support is not a lowest-common-denominator mode. TypeScript output should stay precise and readable; portability is implemented through maintainable compiler architecture and target-specific emitters.
 
@@ -207,12 +209,16 @@ Inline markup rewriting is default-on in `-D genes.ts` builds. Disable it for a
 build with `-D genes.react.no_inline_markup`, or for one class with
 `@:jsx_no_inline_markup`. Outside TypeScript mode, `@:jsx_inline_markup`,
 `-D genes.react.inline_markup`, and `-D genes.react.inline_markup_all` are
-explicit opt-ins to the parser rewrite only.
+explicit opt-ins to the parser rewrite. Shared `JsxPlan` semantics then lower
+the same tag, ordered props, fragment, and children intent to React-compatible
+`createElement(...)` calls in classic Genes JS. `yarn test:genes-ts:tsx`
+executes one identical Haxe source through TSX and classic output and compares
+its rendered HTML.
 
-React JSX lowering is currently a TypeScript-output capability. Classic Genes
-JS output does not lower the resulting JSX markers, so JSX-bearing source is
-not yet part of the honest same-source dual-output subset. `genes-09r.5` tracks
-a target-neutral JSX intent and explicit classic capability policy.
+The runtime namespace defaults to `react`. Set
+`-D genes.react.jsx_runtime_module=<module>` for a compatible factory module,
+or `=none` to reject profiles that require runtime calls with a stable,
+source-positioned capability diagnostic before files are emitted.
 
 See `docs/typescript-target/REACT_HXX.md`.
 
@@ -310,6 +316,9 @@ React/markup:
 - `@:jsx_no_inline_markup` — disable inline markup for one class.
 - `-D genes.react.inline_markup` / `@:jsx_inline_markup` — opt in outside `-D genes.ts`.
 - `-D genes.react.inline_markup_all` — force-enable inline markup globally.
+- `-D genes.react.jsx_runtime_module=<module>` — namespace exposing compatible
+  `createElement` and `Fragment` runtime/type contracts (default: `react`);
+  `none` explicitly disables profiles that require the namespace.
 
 Classic Genes mode (JS output) also supports:
 - `-D dts` — emit `.d.ts` alongside the generated `.js`.

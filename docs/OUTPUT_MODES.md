@@ -14,7 +14,7 @@ identical:
 | TypeScript implementation source | Bounded-ready | Strict ESM/NodeNext and React profiles represented by repository fixtures, with closed-interface negative consumers and runtime checks. |
 | Classic ESM JavaScript runtime | Bounded-ready and the more mature runtime path | The blocking classic assertion suite on the pinned Haxe/Node profile. |
 | Classic `.d.ts` | Bounded and improving | Precise `Null<T>`, a semantic exported-surface audit, and strict external consumers. Complex package shapes remain separate work. |
-| Same-source dual output | Bounded-ready for the checked corpus; experimental as a general guarantee | `yarn test:dual-output` runs identical source through TS, classic JS/declarations, and standard Haxe JS, with a pinned/live vanilla core comparison. JSX capability policy remains `genes-09r.5`. |
+| Same-source dual output | Bounded-ready for the checked corpora; experimental as a general guarantee | `yarn test:dual-output` covers the target-neutral core and `yarn test:genes-ts:tsx` adds identical-source TSX/classic React runtime evidence. |
 
 Passing `tsc` proves that the exercised generated program is accepted. It does
 not by itself prove that every exported type is complete or precise. The
@@ -42,9 +42,10 @@ Related knobs:
 - `-D genes.ts.minimal_runtime` for a “TS-first / no-reflection” profile.
 
 React authoring:
-- `genes.react.JSX.jsx(...)` + inline markup are intended for this mode (see `docs/typescript-target/REACT_HXX.md`).
-- Inline markup is default-on in this mode; JSX markers are not currently
-  lowered by the classic printer.
+- `genes.react.JSX.jsx(...)` + inline markup emit TSX or typed createElement
+  source in this mode (see `docs/typescript-target/REACT_HXX.md`).
+- Inline markup is default-on; the same shared JSX intent can also lower in
+  classic mode when its parser rewrite is explicitly enabled.
 
 Typing:
 - See `docs/typescript-target/TYPING_POLICY.md`.
@@ -106,9 +107,9 @@ The two modes are not meant to force two Haxe codebases. Ordinary Haxe that
 does not use TS-specific helper types should compile through either profile,
 and helper abstractions should declare an honest lowering or target guard.
 `Undefinable`, immediate `Unknown` narrowing, and ordinary Haxe runtime seams
-now have one authoritative paired corpus. That evidence remains bounded: JSX,
-complex package shapes, and unrepresented language constructs are not implied
-by the passing transcript.
+now have one authoritative paired corpus. That evidence remains bounded. JSX
+is owned by a separate same-source React differential; complex package shapes
+and unrepresented language constructs are not implied by either transcript.
 
 For JS/TS ecosystem projects, the recommended authoring model is **TS-minded Haxe**. Write normal Haxe, but keep the TypeScript boundary contracts in mind: use Haxe typedefs, enums, abstracts, externs, and focused `genes.ts` helpers where they make DOM, Node, npm, or generated declaration shapes more precise.
 
@@ -157,9 +158,10 @@ In classic Genes JS output:
 In the currently exercised subset, that lets a project compile the same Haxe
 source to rich, idiomatic TypeScript when it wants reviewable TS or deep
 ecosystem interop, and to plain ES6 when it wants a simpler/faster runtime
-pipeline. Code using JSX is presently TS-output-only; classic JSX behavior will
-become either an explicit lowering or a source-positioned capability error
-under `genes-09r.5`.
+pipeline. JSX marker intent is shared: TypeScript selects TSX or typed
+createElement syntax, while classic JS selects equivalent React-compatible
+runtime calls. Disabling a required runtime namespace is a source-positioned,
+pre-output capability error rather than marker leakage.
 
 This portability goal must not reduce TypeScript quality. The TypeScript emitter should still print precise, idiomatic, readable TS. Internally, the compiler should model these helpers with shared semantics and target-specific emitters/printers rather than scattering one-off string rewrites through the codebase.
 

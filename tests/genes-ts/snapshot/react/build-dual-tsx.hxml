@@ -1,0 +1,10 @@
+-lib genes-ts
+
+-cp tests/genes-ts/snapshot/react/src
+--main DualJsxMain
+
+# Same source as classic mode; TSX keeps static intent as markup.
+-js tests/genes-ts/snapshot/react/out/dual-tsx/src-gen/index.tsx
+-D genes.ts
+
+-dce full
