@@ -1,3 +1,10 @@
+# [1.16.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.15.0...v1.16.0) (2026-07-15)
+
+
+### Features
+
+* **ts2hx:** add semantic IR and differential matrix ([efa981a](https://github.com/fullofcaffeine/genes-ts/commit/efa981a9737d03f25078c52dbcb9745358aa403e))
+
 # [1.15.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.14.1...v1.15.0) (2026-07-15)
 
 
