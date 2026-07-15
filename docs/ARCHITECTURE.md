@@ -34,7 +34,10 @@ where multiple emitters or passes need the same semantic decision.
 
 ## Compilation sequence
 
-1. `extraParams.hxml` installs `genes.Generator.use()` as the JS generator.
+1. `extraParams.hxml` installs `genes.Generator.use()` as the JS generator and
+   redirects Haxe's compiler-owned output slot to a private sentinel. The
+   user-visible `-js` path belongs exclusively to the Genes transaction, so
+   Haxe cannot delete a previously good entry file after a generator error.
 2. Before Haxe DCE can erase source-level API information, `PublicSurface` and
    `genes.ts.SignatureCache` capture the facts needed by TS interfaces and
    declarations.
@@ -43,15 +46,16 @@ where multiple emitters or passes need the same semantic decision.
 4. Runtime, type-only, and declaration-only reachability are expanded without
    treating all three graphs as interchangeable.
 5. Target capabilities known during planning, including JSX policy, are
-   validated before an output writer is opened. Each emitter buffers a complete
-   file before writing it, so a printer failure cannot leave a half-written
-   module.
+   validated before output publication. Each emitter registers a complete file
+   in a private stage; source maps use the same path.
 6. `Generator` chooses `TsModuleEmitter` or classic `ModuleEmitter` for the
    implementation graph.
 7. If requested, `DefinitionEmitter` emits the declaration graph. Declaration
    reachability may include public types removed from runtime output; it must
    not broaden classic JavaScript DCE.
-8. `Writer` and `SourceMapGenerator` finish deterministic files and mappings.
+8. `OutputTransaction` stages the complete tree, snapshots every destination it
+   will mutate, publishes the ownership manifest last, removes only stale
+   manifest-owned paths, and rolls the whole mutation set back on failure.
 
 This ordering is a correctness contract. In particular, moving declaration
 expansion before implementation emission can accidentally retain runtime
@@ -63,6 +67,7 @@ depend on formatting.
 | Concern | Primary owner | Contract |
 |---|---|---|
 | Generator lifecycle and profile selection | `src/genes/Generator.hx` | Orchestrates typed input, reachability, validation, implementation emission, and declarations. |
+| Generation diagnostics | `src/genes/CompilerDiagnostic.hx` | Throws source-positioned Haxe macro errors through normal stack unwinding so staged output is cleaned before diagnostics escape. |
 | Module/member inventory | `src/genes/Module.hx` | Presents one emitter-facing module view and materializes declaration-only members without changing the runtime graph. |
 | Public API facts | `src/genes/PublicSurface.hx` | Captures visibility, inheritance, generics, overload identity, and complete closed interface members before DCE. |
 | Null, undefined, and optionality | `src/genes/NullishContract.hx` | Keeps Haxe `Null<T>`, native `undefined`, optional fields, absent parameters, and unknown boundaries distinct. |
@@ -77,7 +82,7 @@ depend on formatting.
 | Declaration syntax | `src/genes/dts/DefinitionEmitter.hx`, `TypeEmitter.hx` | Prints public declarations from the same API/nullish facts; it does not infer API semantics independently. |
 | JS runtime and stdlib support | `src/genes/Register.hx`, `src/genes/js/**`, `src/haxe/**` | Implements real Haxe-on-JS behavior shared by both profiles. Haxe overrides are for runtime incompatibilities, not TS declaration gaps. |
 | TypeScript host/global support | `src/genes/StdTypesSupport.hx`, `src/genes/ts/StdTypesEmitter.hx` | Describes runtime-written metadata and narrow TypeScript lib augmentations. |
-| File output and mappings | `src/genes/Writer.hx`, `SourceMapGenerator.hx` | Owns deterministic writes and source provenance. |
+| File output and mappings | `src/genes/OutputTransaction.hx`, `Writer.hx`, `SourceMapGenerator.hx` | Buffers complete artifacts, publishes an ownership-scoped tree transaction, removes stale owned files, rolls back failures, and preserves source provenance. |
 
 ## Shared semantics and profile-specific syntax
 
@@ -113,9 +118,12 @@ capability diagnostic in classic mode.
 - Public generated TypeScript is closed and precise. Broad `any`, `unknown`, or
   catch-all index signatures require a named, documented foreign boundary.
 - Capability and dependency errors that planning can identify are diagnosed
-  before committing output. Writers buffer individual files. Whole-tree
-  transactionality is not yet a blanket compiler guarantee, so harnesses clean
-  their generated directory before building and tests must catch stale files.
+  before committing output. A failed TS, classic JS, declaration, support-file,
+  or source-map emission leaves the prior owned tree byte-identical. Successful
+  builds remove stale manifest-owned paths and preserve unrelated files.
+- Diagnostics reachable during planning/emission use `CompilerDiagnostic`, not
+  an uncatchable macro-host abort, so transaction cleanup is an invariant of
+  every compiler failure path.
 - Output is deterministic. ESM specifiers, module paths, names, resources,
   source maps, and generated file ownership are deliberate contracts.
 - Compiler fixes are generic Haxe/JS/TS fixes. Downstream product paths, DTOs,
@@ -162,6 +170,7 @@ layer when a change affects more than one contract.
 | ESM/CommonJS/package import shape | `tests/genes-ts/package-shapes/` | `yarn test:interop:module-shapes` |
 | Source-map contract | Existing source-map fixture | `yarn test:genes-ts:sourcemaps` |
 | Determinism, size, modules, or temporaries | Curated compiler fixtures | `yarn test:output-quality` |
+| Transactional publication and stale ownership | `tests/output-transaction/` | `yarn test:output-transaction` |
 | User-facing end-to-end workflow | An immediate child of `examples/` plus `examples/profiles.json` | `yarn test:examples --playwright` |
 | Full product integration | `examples/todoapp/` | `yarn test:todoapp:e2e` |
 

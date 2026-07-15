@@ -2,7 +2,6 @@ package genes;
 
 #if macro
 import haxe.ds.ObjectMap;
-import haxe.macro.Context;
 import haxe.macro.Expr.Position;
 import haxe.macro.Type;
 
@@ -163,9 +162,9 @@ class TempPlan {
     final lowered = loweredFors.get(expression);
     if (lowered != null)
       return lowered;
-    Context.error('[GTS-TEMP-PLAN-001] A typed for-loop reached emission '
+    return CompilerDiagnostic.fail(
+      '[GTS-TEMP-PLAN-001] A typed for-loop reached emission '
       + 'without a shared TempPlan entry.', expression.pos);
-    throw 'Unreachable after Context.error';
   }
 
   /** Returns the preplanned IIFE result binding for a statement used as a value. */
@@ -173,9 +172,9 @@ class TempPlan {
     final lowered = loweredValues.get(expression);
     if (lowered != null)
       return lowered;
-    Context.error('[GTS-TEMP-PLAN-003] An expression-valued statement reached '
-      + 'emission without a shared TempPlan entry.', expression.pos);
-    throw 'Unreachable after Context.error';
+    return CompilerDiagnostic.fail(
+      '[GTS-TEMP-PLAN-003] An expression-valued statement reached emission '
+      + 'without a shared TempPlan entry.', expression.pos);
   }
 }
 

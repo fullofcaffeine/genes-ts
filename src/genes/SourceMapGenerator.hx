@@ -132,6 +132,16 @@ class SourceMapGenerator {
     final dir = Path.directory(path);
     if (!FileSystem.exists(dir))
       FileSystem.createDirectory(dir);
-    File.saveContent(path, Json.stringify(toJSON(path, withSources)));
+    File.saveContent(path, serialize(path, withSources));
   }
+
+  /**
+   * Serializes a complete deterministic map without choosing file ownership.
+   *
+   * `Emitter` uses this separation to place maps in the same output transaction
+   * as generated source. `write()` remains the compatibility path for callers
+   * that intentionally own an individual file outside compiler orchestration.
+   */
+  public function serialize(path: String, withSources: Bool): String
+    return Json.stringify(toJSON(path, withSources));
 }

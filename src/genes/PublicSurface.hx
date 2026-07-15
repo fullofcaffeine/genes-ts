@@ -485,7 +485,7 @@ class PublicSurface {
 
   function validateConcreteTypes(concreteTypes: Array<Type>): Void {
     if (parameterValues.length != concreteTypes.length) {
-      Context.error('PublicSurface generic arity mismatch for $module.$name: '
+      CompilerDiagnostic.fail('PublicSurface generic arity mismatch for $module.$name: '
         + 'expected ${parameterValues.length}, received ${concreteTypes.length}',
         pos);
     }
@@ -538,8 +538,8 @@ class PublicSurface {
   public function aliasTypeFor(concreteTypes: Array<Type>): Type {
     validateConcreteTypes(concreteTypes);
     if (aliasTypeValue == null) {
-      Context.error('PublicSurface $module.$name is not a typedef', pos);
-      return aliasTypeValue;
+      return CompilerDiagnostic.fail(
+        'PublicSurface $module.$name is not a typedef', pos);
     }
     return aliasTypeValue.applyTypeParameters(parameterValues, concreteTypes);
   }

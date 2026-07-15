@@ -252,7 +252,8 @@ class TypeReferenceCollector {
       pos: Position): Void {
     final template = typeOverride(meta);
     if (template == null) {
-      Context.error('@:ts.type/@:genes.type needs a string expression', pos);
+      CompilerDiagnostic.fail(
+        '@:ts.type/@:genes.type needs a string expression', pos);
       return;
     }
     var index = 0;

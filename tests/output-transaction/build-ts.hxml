@@ -1,0 +1,10 @@
+-lib genes-ts
+-cp tests/output-transaction/src
+--main transaction.Main
+-js tests/output-transaction/out/ts/index.ts
+-D genes.ts
+-D genes.unchanged_no_rewrite
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
+-debug

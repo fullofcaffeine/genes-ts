@@ -358,6 +358,12 @@ Adopt the ideas, not their frameworks:
 - semantic differential oracles and evidence reports;
 - capability profiles and fail-closed source-positioned diagnostics.
 
+Compiler output transactionality is now implemented by `genes-yzz`: bounded
+per-file buffers close into a same-filesystem private stage, a per-entrypoint
+manifest owns stale cleanup, and catchable generation diagnostics guarantee
+rollback/cleanup before Haxe sees the error. The remaining list is still a
+cross-compiler design vocabulary, not a mandate to copy sibling frameworks.
+
 Explicitly reject a Reflaxe port, target-specific runtime copying, giant pass
 catalogs, separate TS/classic engines, and a universal IR built before the five
 current seams justify it.

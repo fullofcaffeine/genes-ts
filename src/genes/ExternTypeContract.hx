@@ -1,7 +1,6 @@
 package genes;
 
 import genes.Dependencies.DependencyType;
-import haxe.macro.Context;
 import haxe.macro.Type;
 
 /**
@@ -47,33 +46,35 @@ class ExternTypeContract {
     switch type.meta.extract(INSTANCE_TYPE_META) {
       case [{params: []}]:
       default:
-        Context.error('@:ts.instanceType does not take arguments', type.pos);
+        CompilerDiagnostic.fail('@:ts.instanceType does not take arguments',
+          type.pos);
     }
 
     if (!type.isExtern) {
-      Context.error('@:ts.instanceType is only valid on extern types', type.pos);
+      CompilerDiagnostic.fail('@:ts.instanceType is only valid on extern types',
+        type.pos);
       return;
     }
     if (type.meta.has(':ts.type') || type.meta.has(':genes.type')) {
-      Context.error('@:ts.instanceType cannot be combined with a raw type override',
-        type.pos);
+      CompilerDiagnostic.fail(
+        '@:ts.instanceType cannot be combined with a raw type override', type.pos);
       return;
     }
     if (params.length > 0) {
-      Context.error('@:ts.instanceType does not yet support generic extern types',
-        type.pos);
+      CompilerDiagnostic.fail(
+        '@:ts.instanceType does not yet support generic extern types', type.pos);
       return;
     }
 
     final dependency = Dependencies.makeDependency(type);
     if (dependency == null || !dependency.external) {
-      Context.error('@:ts.instanceType requires an external @:jsRequire binding',
-        type.pos);
+      CompilerDiagnostic.fail(
+        '@:ts.instanceType requires an external @:jsRequire binding', type.pos);
       return;
     }
     if (dependency.type == DAsterisk) {
-      Context.error('@:ts.instanceType requires a default or named constructor import, not a namespace import',
-        type.pos);
+      CompilerDiagnostic.fail('@:ts.instanceType requires a default or named '
+        + 'constructor import, not a namespace import', type.pos);
     }
   }
 }

@@ -42,13 +42,29 @@ class Emitter {
     writer.write(data);
   }
 
-  public function emitSourceMap(path: String, withSources = false) {
+  /**
+   * Finalizes this emitter's source-map reference and complete map artifact.
+   *
+   * Why: maps describe the exact buffered output and must be published or
+   * rolled back with that output; writing them directly used to let maps drift
+   * from implementation/declaration files after later compiler failures.
+   *
+   * What/How: append the relative `sourceMappingURL` before the writer closes,
+   * then either register serialized map text with the active transaction or
+   * retain the direct-write fallback for standalone emitter callers.
+   */
+  public function emitSourceMap(path: String, withSources = false,
+      ?outputTransaction: OutputTransaction) {
     if (writer.isEmpty())
       return;
     final endTimer = timer('emitSourceMap');
     final output = Path.withoutDirectory(path);
     write('\n//# sourceMappingURL=$output');
-    sourceMap.write(path, withSources);
+    if (outputTransaction == null)
+      sourceMap.write(path, withSources);
+    else
+      outputTransaction.writeContent(path,
+        sourceMap.serialize(path, withSources));
     endTimer();
   }
 

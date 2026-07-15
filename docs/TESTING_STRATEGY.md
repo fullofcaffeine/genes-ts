@@ -44,6 +44,7 @@ available:
 ```bash
 yarn test:dual-output    # semantic TS/classic/standard-Haxe/vanilla evidence
 yarn test:output-quality # exact maps, clean hashes, and reviewed budgets
+yarn test:output-transaction # failure atomicity and stale-file ownership
 yarn test:interop:module-shapes # npm declaration/runtime import contracts
 yarn test:library-profile # default DCE vs matched TS/classic library surfaces
 ```
@@ -51,6 +52,12 @@ yarn test:library-profile # default DCE vs matched TS/classic library surfaces
 The quality manifest measures the bounded dual corpus. It uses exact module,
 temporary, and import baselines plus 5% byte/token ceilings; it is not a
 whole-language performance benchmark.
+
+The transaction harness deliberately fails after complete private staging
+and again after a real filesystem rename. For both TS and classic JS with
+declarations/maps, it requires the prior tree to remain byte-identical, then
+proves a successful build removes only stale manifest-owned modules, preserves
+a colocated user asset, and reproduces the same clean-tree hashes.
 
 The dual/output-quality pair also owns the pre-emission lowering-plan contract:
 `TempPlan` supplies iterator and expression-result bindings to both printers,

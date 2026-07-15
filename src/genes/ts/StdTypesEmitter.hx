@@ -14,8 +14,19 @@ import genes.StdTypesSupport;
 class StdTypesEmitter {
   final writer: Writer;
 
-  public static function emit(path: String): Void {
-    final emitter = new StdTypesEmitter(Writer.bufferedFileWriter(path));
+  /**
+   * Emits the one canonical TypeScript support module for a compilation.
+   *
+   * The optional transaction keeps standalone tests/backward-compatible callers
+   * working while `Generator` stages this support file beside modules, maps,
+   * and declarations. No ordinary typed `StdTypes` module may own this path.
+   */
+  public static function emit(path: String,
+      ?outputTransaction: OutputTransaction): Void {
+    final writer = outputTransaction == null
+      ? Writer.bufferedFileWriter(path)
+      : outputTransaction.writer(path);
+    final emitter = new StdTypesEmitter(writer);
     emitter.emitModule();
   }
 

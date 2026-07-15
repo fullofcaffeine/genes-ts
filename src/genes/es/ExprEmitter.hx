@@ -6,6 +6,7 @@ import haxe.macro.Type;
 import haxe.ds.Option;
 import helder.Set;
 import genes.TypeAccessor;
+import genes.CompilerDiagnostic;
 import genes.Dependencies;
 import genes.Module;
 import genes.NamePlan;
@@ -691,10 +692,10 @@ class ExprEmitter extends Emitter {
     final pos = switch intent {
       case ElementIntent(_, _, _, found) | FragmentIntent(_, found): found;
     }
-    Context.error('[GTS-JSX-CAPABILITY-004] JSX intent reached the expression '
+    return CompilerDiagnostic.fail(
+      '[GTS-JSX-CAPABILITY-004] JSX intent reached the expression '
       + 'printer without a runtime namespace. This is a compiler planning error.',
       pos);
-    throw 'Unreachable after Context.error';
   }
 
   /**

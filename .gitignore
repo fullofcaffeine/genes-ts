@@ -5,6 +5,7 @@
 /tests/genes-ts/**/src-gen*
 /tests/genes-ts/**/dist*
 /tests/output-modes/out
+/tests/output-transaction/out
 /tests/library-profile/out
 /examples/typescript-target/src-gen
 /examples/typescript-target/dist

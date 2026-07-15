@@ -148,7 +148,7 @@ class JsxCapabilityPolicy {
   public function validate(plan: JsxPlan): Void {
     if (!requiresRuntimeNamespace(plan) || runtimeModule != null)
       return;
-    Context.error('[GTS-JSX-CAPABILITY-001] JSX profile `${profile}` requires '
+    CompilerDiagnostic.fail('[GTS-JSX-CAPABILITY-001] JSX profile `${profile}` requires '
       + 'a React-compatible namespace exposing createElement and Fragment. '
       + 'Remove `-D genes.react.jsx_runtime_module=none` or configure that '
       + 'define with a compatible module specifier.', plan.firstPosition);
@@ -177,7 +177,7 @@ class JsxCapabilityPolicy {
               ? dependency.name
               : dependency.alias;
             if (profile == TsxClassic && binding != CLASSIC_TSX_BINDING) {
-              Context.error('[GTS-JSX-CAPABILITY-003] Classic TSX requires the '
+              CompilerDiagnostic.fail('[GTS-JSX-CAPABILITY-003] Classic TSX requires the '
                 + '`React` namespace, but that identifier collides in this '
                 + 'module. Use the automatic JSX runtime or rename the '
                 + 'conflicting Haxe declaration/import.', plan.firstPosition);
@@ -187,10 +187,10 @@ class JsxCapabilityPolicy {
         }
       }
     }
-    Context.error('[GTS-JSX-CAPABILITY-002] JSX runtime dependency was not '
+    return CompilerDiagnostic.fail(
+      '[GTS-JSX-CAPABILITY-002] JSX runtime dependency was not '
       + 'projected for profile `${profile}`. This is a compiler planning error.',
       plan.firstPosition);
-    throw 'Unreachable after Context.error';
   }
 }
 
@@ -501,7 +501,6 @@ class JsxPlan {
 
   static function markerError<T>(id: String, message: String,
       pos: Position): T {
-    Context.error('[$id] $message.', pos);
-    throw 'Unreachable after Context.error';
+    return CompilerDiagnostic.fail('[$id] $message.', pos);
   }
 }

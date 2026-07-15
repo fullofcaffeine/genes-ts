@@ -1,6 +1,7 @@
 package genes.ts;
 
 import genes.Dependencies;
+import genes.CompilerDiagnostic;
 import genes.Module;
 import genes.TypeAccessor;
 import genes.Module.Field as GenesField;
@@ -911,7 +912,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       props: Array<JsxPropIntent>, children: Array<JsxChildIntent>) {
     final runtime = jsxRuntimeBinding;
     if (runtime == null)
-      haxe.macro.Context.error('[GTS-JSX-CAPABILITY-005] Dynamic intrinsic '
+      CompilerDiagnostic.fail('[GTS-JSX-CAPABILITY-005] Dynamic intrinsic '
         + 'tag has no planned JSX runtime namespace.',
         JsxPlan.tagExpression(tag).pos);
     write(runtime);
@@ -949,7 +950,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       case ComponentTag(expression):
         emitValue(expression);
       case DynamicIntrinsicTag(expression):
-        haxe.macro.Context.error('[GTS-JSX-CAPABILITY-006] Dynamic intrinsic '
+        CompilerDiagnostic.fail('[GTS-JSX-CAPABILITY-006] Dynamic intrinsic '
           + 'tag reached TSX tag-name printing instead of createElement.',
           expression.pos);
     }
@@ -3566,7 +3567,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         if (hasDigits && j < template.length
           && template.charCodeAt(j) == "}".code) {
           if (index >= values.length) {
-            haxe.macro.Context.error('js.Syntax.code placeholder {$index} has no argument',
+            CompilerDiagnostic.fail('js.Syntax.code placeholder {$index} has no argument',
               args[0].pos);
           }
           emitRawSyntaxTemplateValue(values[index]);

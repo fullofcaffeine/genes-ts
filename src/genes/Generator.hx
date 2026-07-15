@@ -4,6 +4,7 @@ import haxe.macro.JSGenApi;
 import haxe.macro.Compiler;
 import haxe.macro.Context;
 import haxe.macro.Type;
+import haxe.crypto.Sha256;
 import haxe.io.Path;
 import genes.es.ModuleEmitter;
 import genes.ts.TsModuleEmitter;
@@ -13,18 +14,72 @@ import genes.util.TypeUtil;
 import genes.Module;
 import genes.DependencyPlan.DependencyEdgeKind;
 import genes.JsxPlan.JsxCapabilityPolicy;
+import sys.FileSystem;
 
 using Lambda;
 using StringTools;
 
+/**
+ * Orchestrates the shared Haxe-to-TypeScript/classic-JavaScript pipeline.
+ *
+ * Why: both output profiles must consume the same typed modules, semantic
+ * plans, reachability, diagnostics, and publication contract or they will
+ * silently diverge as language coverage grows.
+ *
+ * What: this class installs the custom JS generator, isolates Haxe's own output
+ * cleanup, constructs module graphs, validates target capabilities, selects
+ * profile printers, and commits implementation/declaration artifacts together.
+ *
+ * How: Haxe's typed AST remains authoritative; narrow immutable plans feed
+ * target-specific emitters, and `OutputTransaction` is the only public
+ * filesystem owner. Generation diagnostics must use `CompilerDiagnostic` so
+ * stack unwinding always crosses the transaction cleanup boundary.
+ */
 class Generator {
   @:persistent static var generation = 0;
+  static var configuredOutputFile: Null<String>;
+  static var compilerSentinelFile: Null<String>;
 
   static function generate(api: JSGenApi) {
+    final outputFile = configuredOutputFile == null
+      ? api.outputFile
+      : configuredOutputFile;
+    final output = Path.withoutExtension(Path.withoutDirectory(outputFile));
+    final outputDir = Path.directory(outputFile);
+    final outputTransaction = new OutputTransaction(outputDir, output);
+
+    try {
+      removeCompilerSentinel();
+      generateTransactional(api, outputFile, output, outputTransaction);
+    } catch (error:haxe.Exception) {
+      try {
+        outputTransaction.abort();
+        removeCompilerSentinel();
+      } catch (rollbackError:haxe.Exception) {
+        throw new haxe.Exception('Genes failed to restore compiler output after '
+          + '"${error.message}": ${rollbackError.message}', rollbackError);
+      }
+      throw error;
+    }
+    removeCompilerSentinel();
+  }
+
+  /**
+   * Plans and emits one compilation entirely into a private transaction.
+   *
+   * Why: the outer `generate()` isolates Haxe's compiler-owned output sentinel.
+   * Keeping all semantic work here guarantees every diagnostic, not only
+   * printer failures, crosses the same rollback boundary.
+   *
+   * What/How: typed modules, reachability, capability checks, implementation
+   * files, declarations, source maps, and TS support files are accumulated in
+   * `outputTransaction`; public output changes only at the final commit.
+   */
+  static function generateTransactional(api: JSGenApi, outputFile: String,
+      output: String, outputTransaction: OutputTransaction): Void {
     final toGenerate = typesPerModule(api.types);
-    final output = Path.withoutExtension(Path.withoutDirectory(api.outputFile));
-    final extension = Path.extension(api.outputFile);
-    final outputDir = Path.directory(api.outputFile);
+    final extension = Path.extension(outputFile);
+    final outputDir = Path.directory(outputFile);
     Genes.outExtension = extension.length > 0 ? '.$extension' : extension;
     final modules = new Map();
     final expose: Map<String, ModuleExport> = new Map();
@@ -33,7 +88,7 @@ class Generator {
       if (expose.exists(export.name)) {
         final duplicate = expose.get(export.name);
         Context.warning('Trying to @:expose ${export.name} ...', export.pos);
-        Context.error('... but there\'s already an export by that name',
+        CompilerDiagnostic.fail('... but there\'s already an export by that name',
           duplicate.pos);
       }
       expose.set(export.name, export);
@@ -88,7 +143,7 @@ class Generator {
 
     for (module => types in toGenerate) {
       if (module.toLowerCase() == output.toLowerCase())
-        Context.error('Genes: Module name "${module}" is the same as the output file name "${output}".',
+        CompilerDiagnostic.fail('Genes: Module name "${module}" is the same as the output file name "${output}".',
           Context.currentPos());
       addModule(module, types);
     }
@@ -126,7 +181,7 @@ class Generator {
         final moduleName = pending[index++];
         final sourceModule = modules.get(moduleName);
         if (sourceModule == null)
-          Context.error('Genes DependencyPlan ($profile): missing source module '
+          CompilerDiagnostic.fail('Genes DependencyPlan ($profile): missing source module '
             + moduleName, Context.currentPos());
 
         final edges = sourceModule.dependencyPlan.edges;
@@ -138,7 +193,7 @@ class Generator {
           final referencedType = edge.referencedType;
           if (referencedType == null) {
             if (edge.importSpec != null)
-              Context.error('Genes DependencyPlan ($profile) has an internal '
+              CompilerDiagnostic.fail('Genes DependencyPlan ($profile) has an internal '
                 + 'import without a typed declaration '
                 + '[${edge.provenance.rule}]',
                 edge.provenance.sourcePosition);
@@ -158,7 +213,7 @@ class Generator {
           if (base.isExtern || base.module == 'StdTypes')
             continue;
           if (base.module == null || base.module.length == 0)
-            Context.error('Genes DependencyPlan ($profile) cannot resolve '
+            CompilerDiagnostic.fail('Genes DependencyPlan ($profile) cannot resolve '
               + '${base.name} to an output module '
               + '[${edge.provenance.rule}]',
               edge.provenance.sourcePosition);
@@ -178,7 +233,7 @@ class Generator {
           final hasMember = target.getMember(base.name) != null
             || target.getMember(TypeUtil.baseTypeName(base)) != null;
           if (!hasMember)
-            Context.error('Genes DependencyPlan ($profile) retained '
+            CompilerDiagnostic.fail('Genes DependencyPlan ($profile) retained '
               + '${TypeUtil.baseTypeFullName(base)} but could not materialize '
               + 'its emitted declaration [${edge.provenance.rule}]',
               edge.provenance.sourcePosition);
@@ -220,13 +275,21 @@ class Generator {
     }
     for (name in implementationNames) {
       final module = modules.get(name);
+      // `StdTypesEmitter` owns the canonical TS support module. The ordinary
+      // typed module used to be emitted first and then overwritten, leaving an
+      // orphan source map for text that no longer existed.
+      if (tsMode && module.path == 'StdTypes')
+        continue;
       if (tsMode || hasClassicImplementation(module))
-        generateImplementation(api, module);
+        generateImplementation(api, module, outputDir, outputTransaction);
     }
 
-    if (tsMode)
-      StdTypesEmitter.emit(Path.join([outputDir, 'StdTypes'])
-        + Genes.outExtension);
+    if (tsMode) {
+      final stdTypesPath = Path.join([outputDir, 'StdTypes'])
+        + Genes.outExtension;
+      outputTransaction.retire(stdTypesPath + '.map');
+      StdTypesEmitter.emit(stdTypesPath, outputTransaction);
+    }
 
     #if dts
     // Declaration expansion happens after executable output is complete. A
@@ -239,8 +302,19 @@ class Generator {
     ];
     declarationNames.sort(Reflect.compare);
     for (name in declarationNames)
-      generateDefinition(api, modules.get(name));
+      generateDefinition(api, modules.get(name), outputDir,
+        outputTransaction);
     #end
+
+    // Private fault injection for the transaction harness. Every emitter has
+    // completed, so the old per-file architecture would already have exposed
+    // a mixed tree here; the transaction must still have touched nothing.
+    #if genes.output_transaction_test_fail_before_commit
+    CompilerDiagnostic.fail(
+      'Genes output transaction test failure before publication',
+      Context.currentPos());
+    #end
+    outputTransaction.commit();
   }
 
   static function needsGen(module: Module) {
@@ -304,8 +378,8 @@ class Generator {
     return modules;
   }
 
-  static function generateImplementation(api: JSGenApi, module: Module) {
-    final outputDir = Path.directory(api.outputFile);
+  static function generateImplementation(api: JSGenApi, module: Module,
+      outputDir: String, outputTransaction: OutputTransaction) {
     final path = Path.join([outputDir, module.path]) + Genes.outExtension;
     final ctx = module.createContext(api);
     final moduleEmitter = switch haxe.macro.Context.defined('genes.ts') {
@@ -313,31 +387,32 @@ class Generator {
         final importExtension = if (haxe.macro.Context.defined('genes.ts.no_extension')
           || haxe.macro.Context.defined('genes.no_extension')) null else '.js';
         final emitter = new TsModuleEmitter(ctx,
-          Writer.bufferedFileWriter(path));
+          outputTransaction.writer(path));
         emitter.emitTsModule(module, importExtension);
         emitter;
       case false:
         final emitter = new ModuleEmitter(ctx,
-          Writer.bufferedFileWriter(path));
+          outputTransaction.writer(path));
         emitter.emitModule(module, Genes.outExtension);
         emitter;
     }
     #if (debug || js_source_map)
-    moduleEmitter.emitSourceMap(path + '.map', true);
+    moduleEmitter.emitSourceMap(path + '.map', true, outputTransaction);
     #end
     moduleEmitter.finish();
   }
 
   #if dts
-  static function generateDefinition(api: JSGenApi, module: Module) {
-    final outputDir = Path.directory(api.outputFile);
+  static function generateDefinition(api: JSGenApi, module: Module,
+      outputDir: String, outputTransaction: OutputTransaction) {
     final definition = [Path.join([outputDir, module.path]), 'd.ts'].join('.');
     final ctx = module.createContext(api);
     final definitionEmitter = new DefinitionEmitter(ctx,
-      Writer.bufferedFileWriter(definition));
+      outputTransaction.writer(definition));
     definitionEmitter.emitDefinition(module);
     #if (debug || js_source_map)
-    definitionEmitter.emitSourceMap(definition + '.map', true);
+    definitionEmitter.emitSourceMap(definition + '.map', true,
+      outputTransaction);
     #end
     definitionEmitter.finish();
   }
@@ -347,6 +422,7 @@ class Generator {
   public static function use() {
     #if !genes.disable
     if (Context.defined('js')) {
+      isolateCompilerOutput();
       LibraryProfile.validate();
       // TypeScript implementation output and classic declaration output both
       // need source-level signatures captured before runtime-oriented DCE.
@@ -374,9 +450,66 @@ class Generator {
           }
         }
       });
+      Context.onAfterGenerate(removeCompilerSentinel);
       Compiler.setCustomJSGenerator(Generator.generate);
     }
     #end
   }
   #end
+
+  /**
+   * Redirects Haxe's compiler-owned output slot away from the public tree.
+   *
+   * Why: Haxe may remove the configured `-js` path after a custom generator
+   * reports an error. No restoration performed inside that callback can be
+   * late enough to survive the compiler's cleanup.
+   *
+   * What: Genes remembers the user path and gives Haxe a deterministic private
+   * sentinel in the system temporary directory. The custom generator publishes
+   * only to the remembered path through `OutputTransaction`.
+   *
+   * How: the sentinel key hashes the absolute destination, so independent
+   * outputs do not collide while concurrent writers to the same destination
+   * retain the same unavoidable serialization requirement. Repeated `use()`
+   * calls in one compilation recognize the already-installed sentinel.
+   */
+  static function isolateCompilerOutput(): Void {
+    final output = Compiler.getOutput();
+    if (output == null || output.length == 0)
+      return;
+
+    if (compilerSentinelFile != null && output == compilerSentinelFile)
+      return;
+
+    configuredOutputFile = output;
+    final temporaryRoot = switch Sys.getEnv('TMPDIR') {
+      case null | '':
+        switch Sys.getEnv('TEMP') {
+          case null | '': '.';
+          case value: value;
+        }
+      case value: value;
+    }
+    final key = Sha256.encode(absolutePath(output)).substr(0, 20);
+    compilerSentinelFile = Path.join([
+      temporaryRoot,
+      'genes-haxe-output-$key.tmp'
+    ]);
+    Compiler.setOutput(compilerSentinelFile);
+  }
+
+  /** Removes only the private file path installed by `isolateCompilerOutput`. */
+  static function removeCompilerSentinel(): Void {
+    final path = compilerSentinelFile;
+    if (path == null || !FileSystem.exists(path))
+      return;
+    if (FileSystem.isDirectory(path))
+      throw new haxe.Exception(
+        'Genes compiler output sentinel is a directory: $path');
+    FileSystem.deleteFile(path);
+  }
+
+  static function absolutePath(path: String): String {
+    return Path.normalize(FileSystem.absolutePath(path)).replace('\\', '/');
+  }
 }
