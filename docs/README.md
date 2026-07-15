@@ -46,6 +46,7 @@ feature surface beyond the quick examples in `readme.md`.
 - `PRIME_TIME_CRITERIA.md` — bounded-readiness criteria and evidence map (historical filename)
 - `ARCHITECTURE_ROADMAP.md` — audit disposition, shared TS/JS architecture, and dependency-ordered roadmap
 - `DOCS_PLAN.md` — docs PRD/roadmap (onboarding + workflows)
+- `prompts/GPT_5_6_SIDE_EFFECT_IMPORT_ARCHITECTURE.md` — focused evidence packet for resolving ordered ESM side-effect imports before implementation
 
 ## Experimental
 
