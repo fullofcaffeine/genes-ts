@@ -1,3 +1,11 @@
+# [1.21.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.20.2...v1.21.0) (2026-07-15)
+
+
+### Features
+
+* **ts2hx:** preserve switch continue transfers ([becfc4a](https://github.com/fullofcaffeine/genes-ts/commit/becfc4ab38790ec1f2f2474cbe41931d53a8d327))
+* **ts2hx:** preserve unary plus coercion ([07d513c](https://github.com/fullofcaffeine/genes-ts/commit/07d513c83d08284e5228f82c7d0677449ae2ace3))
+
 ## [1.20.2](https://github.com/fullofcaffeine/genes-ts/compare/v1.20.1...v1.20.2) (2026-07-15)
 
 
