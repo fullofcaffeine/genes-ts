@@ -1,3 +1,10 @@
+## [1.14.1](https://github.com/fullofcaffeine/genes-ts/compare/v1.14.0...v1.14.1) (2026-07-15)
+
+
+### Bug Fixes
+
+* type CommonJS export-equals constructor instances ([63244d1](https://github.com/fullofcaffeine/genes-ts/commit/63244d18cfacc607f1f6bc364f638185b9da0b0f))
+
 # [1.14.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.13.2...v1.14.0) (2026-07-15)
 
 
