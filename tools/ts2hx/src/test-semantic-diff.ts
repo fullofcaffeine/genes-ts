@@ -185,6 +185,7 @@ function main(): void {
     "locals.uninitialized",
     "coercion.truthiness",
     "coercion.strict-equality",
+    "coercion.unary-plus",
     "evaluation.compound-assignment",
     "loops.for-continue-step",
     "switch.fallthrough",
@@ -202,6 +203,14 @@ function main(): void {
     JSON.stringify(exercised) === JSON.stringify(expectedFeatures.slice().sort()),
     `semantic feature inventory changed: ${JSON.stringify(exercised)}.`
   );
+  const translatedMain = fs.readFileSync(
+    path.join(haxeSourceDir, "ts2hx_semantic", "Main.hx"),
+    "utf8"
+  );
+  assert(
+    translatedMain.includes("genes.js.Coercion.toNumber("),
+    "unary plus did not lower through the named typed coercion boundary."
+  );
 
   const classicOutput = compileClassicHaxe({
     haxeBin,
@@ -216,6 +225,14 @@ function main(): void {
     sourceDir: path.join(tmpRoot, "genes-ts-source"),
     distDir: path.join(tmpRoot, "genes-ts-dist")
   });
+  assert(
+    !fs.existsSync(path.join(tmpRoot, "genes-ts-source", "genes", "js", "Coercion.ts")),
+    "the macro-only coercion abstract leaked an empty runtime TypeScript module."
+  );
+  assert(
+    !fs.readFileSync(path.join(tmpRoot, "classic.js"), "utf8").includes("genes_js_Coercion"),
+    "the macro-only coercion abstract leaked an empty runtime JavaScript helper."
+  );
   assert(
     semanticTrace(classicOutput, "translated classic JavaScript") === originalTrace,
     "classic translated trace differs from original TypeScript."
@@ -252,7 +269,6 @@ function main(): void {
     "unsupported semantic project modified the prior output tree."
   );
   const expectedDiagnosticIds = [
-    "TS2HX-COERCION-UNARY-PLUS-001",
     "TS2HX-EXCEPTIONS-FINALLY-OUTER-TRANSFER-001",
     "TS2HX-MODULES-SIDE-EFFECT-IMPORT-001",
     "TS2HX-PROTOTYPES-DYNAMIC-MUTATION-001",
@@ -264,7 +280,6 @@ function main(): void {
     `unsupported semantic diagnostics changed: ${JSON.stringify(diagnosticIds)}.`
   );
   for (const featureId of [
-    "coercion.unary-plus",
     "exceptions.finally-outer-transfer",
     "modules.side-effect-import",
     "prototypes.dynamic-mutation",

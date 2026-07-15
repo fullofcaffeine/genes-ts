@@ -290,9 +290,9 @@ The source of truth is Beads epic `genes-09r`.
 ### P2: mature migration and ecosystem workflows
 
 1. **`genes-09r.7` — ts2hx minimal semantic IR and differential support
-   matrix (landed).** Schema-v2 support/provenance manifests now grade 13 exact
+   matrix (landed).** Schema-v2 support/provenance manifests now grade 14 exact
    contracts across original TS, translated classic JS, and translated
-   genes-ts output. Five unsupported contracts fail closed without publishing
+   genes-ts output. Four unsupported contracts fail closed without publishing
    partial output; printers no longer own support decisions for migrated
    undefined/default/evaluation/control-flow/module categories.
 2. **`genes-09r.8` — dts2hx bridge (landed).** dts2hx 0.34.0 and its TS5.9 API

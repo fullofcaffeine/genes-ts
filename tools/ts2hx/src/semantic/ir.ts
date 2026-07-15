@@ -104,10 +104,10 @@ export const SEMANTIC_SUPPORT_MATRIX: readonly SemanticFeatureContract[] = [
   {
     id: "coercion.unary-plus",
     category: "coercion",
-    support: "unsupported",
-    portableGrade: "U",
-    summary: "JavaScript numeric coercion through unary plus is not yet lowered.",
-    limitation: "Strict modes reject unary plus instead of returning the operand unchanged."
+    support: "supported-with-helper",
+    portableGrade: "J1",
+    summary: "Preserves JavaScript unary-plus numeric coercion through a typed genes helper.",
+    limitation: null
   },
   {
     id: "evaluation.compound-assignment",

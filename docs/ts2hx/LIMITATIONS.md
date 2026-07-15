@@ -36,7 +36,7 @@ evidence.
 | Haxe compile smoke | Generated Haxe parses and types on the exercised JS profile. | Runtime behavior or non-JS portability. |
 | Runtime smoke | A selected generated entry executes and prints its marker. | Edge cases or behavioral equivalence with the original TypeScript. |
 | Roundtrip smoke | Original TS and Haxe→genes-ts→TS execute selected common workflows; guarded user modules avoid `any`/`unknown`. | Whole-program parity; the three fixtures explicitly exclude one unsupported top-level entry file each. |
-| Semantic differential | The original TS, classic Genes JS, and genes-ts→JS event traces match for 13 declared contracts. | Syntax/categories outside those contracts. |
+| Semantic differential | The original TS, classic Genes JS, and genes-ts→JS event traces match for 14 declared contracts. | Syntax/categories outside those contracts. |
 | Strict diagnostics/transaction test | Unsupported source receives stable spans/IDs and cannot leave a partial output tree. | That the unsupported feature has been implemented. |
 
 ## Current semantic support matrix
@@ -56,7 +56,7 @@ Grades describe the emitted Haxe contract:
 | `locals.uninitialized` | helper / J1 | Requires an explicit source type; inferred uninitialized locals are rejected. |
 | `coercion.truthiness` | helper / J1 | Uses JavaScript Boolean coercion for supported conditions/logical expressions. |
 | `coercion.strict-equality` | helper / J1 | Preserves strict equality and switch identity. |
-| `coercion.unary-plus` | unsupported / U | Numeric coercion via unary `+` is rejected. |
+| `coercion.unary-plus` | helper / J1 | A typed `genes.js.Coercion` boundary expands to native unary `+` in both JS output profiles. |
 | `evaluation.compound-assignment` | supported / P0 | Identifier/property/element targets preserve receiver, key, prior-value, and RHS order. Other lvalues are outside the contract. |
 | `loops.for-continue-step` | supported / P0 | Lowered `for` loops execute their increment before continuing; labeled continue is unsupported. |
 | `switch.fallthrough` | supported / P0 | A normalized state machine preserves case search, default placement, fallthrough, and break. |
@@ -70,8 +70,8 @@ Grades describe the emitted Haxe contract:
 | `modules.esm-bindings` | supported / J1 | Covers the exercised ESM value/type binding and re-export subset. |
 | `modules.side-effect-import` | unsupported / U | Bare side-effect imports are rejected because no Haxe initialization edge exists. |
 
-The semantic harness currently requires exactly the 13 supported rows to occur
-and the 5 unsupported rows to fail with feature-specific diagnostics. This
+The semantic harness currently requires exactly the 14 supported rows to occur
+and the 4 unsupported rows to fail with feature-specific diagnostics. This
 table does not turn other syntax accepted by snapshots into semantic evidence.
 
 ## Project and file inventory
@@ -145,7 +145,8 @@ destructuring helpers, spreads, regex handling, and JSX intent.
 Only behaviors represented in the semantic matrix have exact three-runtime
 evidence. In particular:
 
-- unary plus is rejected rather than approximated;
+- unary plus uses the named JS-semantic `genes.js.Coercion` helper and retains
+  native empty/whitespace/invalid-string behavior;
 - unsupported compound-assignment lvalues fail instead of duplicating receiver
   or key side effects;
 - JavaScript truthiness and strict equality are JS-specific helper contracts;

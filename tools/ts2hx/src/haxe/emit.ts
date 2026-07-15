@@ -1608,14 +1608,12 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
           const condition = emitCondition(ctx, un.operand);
           return condition ? `!(${condition})` : null;
         }
-        case ts.SyntaxKind.PlusToken:
-          return rejectSemantic(
-            ctx,
-            "coercion.unary-plus",
-            un,
-            "Unary plus performs JavaScript numeric coercion and is not supported losslessly.",
-            "expression"
-          );
+        case ts.SyntaxKind.PlusToken: {
+          const inner = emitExpression(ctx, un.operand);
+          if (!inner) return null;
+          recordSemantic(ctx, "coercion.unary-plus", un);
+          return `genes.js.Coercion.toNumber(${inner})`;
+        }
         case ts.SyntaxKind.MinusToken: {
           const inner = emitExpression(ctx, un.operand);
           if (!inner) return null;

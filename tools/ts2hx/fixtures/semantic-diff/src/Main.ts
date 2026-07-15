@@ -17,6 +17,17 @@ function truthyNumber(value: number): string {
   return "falsy";
 }
 
+function numericString(value: string): number {
+  return +value;
+}
+
+let coercionReads = 0;
+
+function nextNumericString(value: string): string {
+  coercionReads += 1;
+  return value;
+}
+
 function nullableObject(value: { name: string } | null): string {
   return value ? value.name : "missing";
 }
@@ -86,6 +97,13 @@ export function main(): void {
   events.push(`truthy:number-one:${truthyNumber(1)}`);
   events.push(`truthy:object:${nullableObject({ name: "present" })}`);
   events.push(`truthy:object-null:${nullableObject(null)}`);
+
+  events.push(`unary-plus:numeric:${numericString("42.5")}`);
+  events.push(`unary-plus:empty:${numericString("")}`);
+  events.push(`unary-plus:whitespace:${numericString("  ")}`);
+  events.push(`unary-plus:invalid:${numericString("not-a-number")}`);
+  events.push(`unary-plus:signed:${numericString("-7.25")}`);
+  events.push(`unary-plus:once:${+nextNumericString("3")}:${coercionReads}`);
 
   const assignmentResult = getBox().value += assignmentRhs();
   events.push(`assign:result:${assignmentResult}:${box.value}`);
