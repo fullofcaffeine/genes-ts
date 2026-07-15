@@ -125,8 +125,11 @@ yarn test:downstream:curated --execute --allow-host-network --id pimono-hx # exp
 
 `examples/profiles.json` enumerates every immediate example directory and owns
 its `ts-strict` and `classic-esm` commands. The aggregate runner rejects an
-unowned directory, runs the minimal example as an exact runtime differential,
-and validates the todoapp with:
+unowned directory, validates every structured command before execution, and
+invokes each profile directly without a shell. Identical build commands are
+deduplicated, but every declared runtime contract still executes. The runner
+uses the minimal example as an exact runtime differential and validates the
+todoapp with:
 
 - isolated TS and classic web/server builds from the same Haxe source;
 - strict TS implementation and classic declaration consumers on TS 5/6/7;

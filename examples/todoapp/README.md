@@ -64,9 +64,11 @@ normal bundler.
 - absence of unsafe user-module types at the checked boundaries;
 - exact same API and Playwright journeys against both runtime profiles.
 
-`examples/profiles.json` owns the repository-wide example inventory. Adding a
-new immediate directory under `examples/` without declaring and testing both
-profiles fails `yarn test:examples`.
+`examples/profiles.json` owns the repository-wide example inventory and the
+structured build/runtime/browser command for each profile. The aggregate
+runner executes those records directly without a shell. Adding a new immediate
+directory under `examples/` without declaring and testing both profiles fails
+`yarn test:examples`.
 
 ## Generated output and snapshots
 

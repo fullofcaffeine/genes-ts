@@ -1,18 +1,59 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "examples": {
     "todoapp": {
       "sourceRoots": ["examples/todoapp/src"],
       "profiles": {
         "ts-strict": {
-          "build": "yarn build:example:todoapp",
-          "runtime": "node scripts/dist/qa-todoapp.js --profile ts",
-          "playwright": "node scripts/dist/qa-todoapp.js --profile ts --playwright"
+          "build": {
+            "command": "node",
+            "args": ["scripts/dist/build-example-todoapp.js"]
+          },
+          "runtime": {
+            "command": "node",
+            "args": [
+              "scripts/dist/qa-todoapp.js",
+              "--profile",
+              "ts",
+              "--skip-build"
+            ]
+          },
+          "playwright": {
+            "command": "node",
+            "args": [
+              "scripts/dist/qa-todoapp.js",
+              "--profile",
+              "ts",
+              "--skip-build",
+              "--playwright"
+            ]
+          }
         },
         "classic-esm": {
-          "build": "yarn build:example:todoapp:classic",
-          "runtime": "node scripts/dist/qa-todoapp.js --profile classic",
-          "playwright": "node scripts/dist/qa-todoapp.js --profile classic --playwright"
+          "build": {
+            "command": "node",
+            "args": ["scripts/dist/build-example-todoapp-classic.js"]
+          },
+          "runtime": {
+            "command": "node",
+            "args": [
+              "scripts/dist/qa-todoapp.js",
+              "--profile",
+              "classic",
+              "--skip-build"
+            ]
+          },
+          "playwright": {
+            "command": "node",
+            "args": [
+              "scripts/dist/qa-todoapp.js",
+              "--profile",
+              "classic",
+              "--skip-build",
+              "--playwright",
+              "--skip-playwright-install"
+            ]
+          }
         }
       }
     },
@@ -20,12 +61,24 @@
       "sourceRoots": ["examples/typescript-target/src"],
       "profiles": {
         "ts-strict": {
-          "build": "yarn build:example:genes-ts",
-          "runtime": "examples/typescript-target/dist/index.js"
+          "build": {
+            "command": "node",
+            "args": ["scripts/dist/build-example-typescript-target.js"]
+          },
+          "runtime": {
+            "command": "node",
+            "args": ["examples/typescript-target/dist/index.js"]
+          }
         },
         "classic-esm": {
-          "build": "yarn build:example:genes-ts",
-          "runtime": "examples/typescript-target/classic-src-gen/index.js"
+          "build": {
+            "command": "node",
+            "args": ["scripts/dist/build-example-typescript-target.js"]
+          },
+          "runtime": {
+            "command": "node",
+            "args": ["examples/typescript-target/classic-src-gen/index.js"]
+          }
         }
       }
     }
