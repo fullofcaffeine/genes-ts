@@ -239,6 +239,23 @@ class Module {
     return null;
   }
 
+  /**
+   * Projects semantic fields to the implementation/declaration output surface.
+   *
+   * Why: `@:genes.compilerInternal` carriers must survive Haxe typing and DCE so
+   * `DependencyPlanBuilder` can inspect their expressions, but emitting them
+   * would create a fake runtime/public value. Filtering inside `fieldsOf` would
+   * be too early because that is also the semantic inventory.
+   *
+   * What/How: return a stable copy without compiler-internal fields. Both
+   * implementation emitters and the declaration emitter call this at the last
+   * shared field boundary, after dependency planning has consumed the original
+   * ordered array.
+   */
+  public static function emittableFields(fields:Array<Field>):Array<Field> {
+    return fields.filter(field -> !CompilerInternal.isField(field.meta));
+  }
+
   static function hasExternSuper(s: ClassType)
     return switch s.superClass {
       case null: s.isExtern;

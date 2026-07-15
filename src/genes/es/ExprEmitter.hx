@@ -7,6 +7,7 @@ import haxe.ds.Option;
 import helder.Set;
 import genes.TypeAccessor;
 import genes.CompilerDiagnostic;
+import genes.CompilerInternal;
 import genes.Dependencies;
 import genes.Module;
 import genes.NamePlan;
@@ -261,6 +262,8 @@ class ExprEmitter extends Emitter {
   }
 
   public function emitExpr(e: TypedExpr) {
+    if (CompilerInternal.isSideEffectImportMarkerCall(e))
+      return;
     emitPos(e.pos);
     switch e.expr {
       case TConst(c):
@@ -915,7 +918,13 @@ class ExprEmitter extends Emitter {
     write(')');
   }
 
-  function emitValue(e: TypedExpr) {
+  function emitValue(e: TypedExpr):Void {
+    if (CompilerInternal.isSideEffectImportMarkerCall(e)) {
+      CompilerDiagnostic.fail(
+        'GENES-SIDE-EFFECT-IMPORT-CONTEXT-001: compiler marker must be a direct statement',
+        e.pos);
+      return;
+    }
     emitPos(e.pos);
     switch e.expr {
       case TMeta(_, e1):
@@ -1098,6 +1107,8 @@ class ExprEmitter extends Emitter {
   }
 
   function emitBlockElement(e: TypedExpr, after = false) {
+    if (CompilerInternal.isSideEffectImportMarkerCall(e))
+      return;
     emitPos(e.pos);
     switch e.expr {
       case TBlock(el):

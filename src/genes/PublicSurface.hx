@@ -316,12 +316,12 @@ class PublicSurface {
     };
     return new PublicSurface(cl.isInterface ? Interface : Class, cl, [
       for (field in cl.fields.get())
-        if (field.isPublic)
+        if (field.isPublic && !CompilerInternal.isField(field.meta))
           PublicMember.capture(field, false, false, true,
             ownershipFor(cl, field, false))
     ], [
       for (field in cl.statics.get())
-        if (field.isPublic)
+        if (field.isPublic && !CompilerInternal.isField(field.meta))
           PublicMember.capture(field, true, false, true,
             ownershipFor(cl, field, true))
     ], constructor, switch cl.superClass {

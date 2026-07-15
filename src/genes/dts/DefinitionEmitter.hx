@@ -39,7 +39,7 @@ class DefinitionEmitter extends ModuleEmitter {
       switch member {
         #if (haxe_ver >= 4.2)
         case MClass(cl = {kind: KModuleFields(_)}, _, fields):
-          emitModuleStatics(cl, fields);
+          emitModuleStatics(cl, Module.emittableFields(fields));
         #end
         case MClass(cl, params, fields):
           // Interface contracts are type-only and consume the complete shared
@@ -50,7 +50,7 @@ class DefinitionEmitter extends ModuleEmitter {
           final publicSurface = PublicSurface.forClass(cl);
           emitClassDefinition(cl, publicSurface, params,
             Module.fieldsOf(cl, publicSurface, params, false,
-              cl.isInterface ? null : fields));
+              cl.isInterface ? null : Module.emittableFields(fields)));
         case MEnum(et, params):
           emitEnumDefinition(et, params);
         case MType(def, params):

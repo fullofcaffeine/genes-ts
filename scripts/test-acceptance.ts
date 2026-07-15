@@ -34,6 +34,7 @@ run("node", ["scripts/dist/test-genes-ts-snapshots.js"]);
 run("node", ["scripts/dist/test-output-modes.js"]);
 run("node", ["scripts/dist/test-output-quality.js"]);
 run("node", ["scripts/dist/test-output-transaction.js"]);
+run("node", ["scripts/dist/test-side-effect-import-evidence.js"]);
 
 if (!skipTs2hx) {
   run("yarn", ["--cwd", "tools/ts2hx", "test"]);

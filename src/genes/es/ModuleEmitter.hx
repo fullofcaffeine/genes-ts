@@ -44,11 +44,12 @@ class ModuleEmitter extends ExprEmitter {
         case MClass(cl, _, fields) if (cl.isInterface):
           emitInterface(cl);
         case MClass(cl, _, fields):
+          final emittableFields = Module.emittableFields(fields);
           final endClassTimer = timer('emitClass');
-          emitClass(module.isCyclic, cl, fields);
+          emitClass(module.isCyclic, cl, emittableFields);
           endClassTimer();
           var endStaticsTimer = timer('emitStatics');
-          emitStatics(module.isCyclic, cl, fields);
+          emitStatics(module.isCyclic, cl, emittableFields);
           endStaticsTimer();
           emitInit(cl);
         case MEnum(et, _):

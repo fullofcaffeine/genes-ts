@@ -1,0 +1,10 @@
+-lib genes-ts
+-cp tests/side-effect-import/src
+--main sideeffectevidence.Main
+-js tests/side-effect-import/out/classic/index.js
+-D dts
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
+-debug
+--macro sideeffectevidence.DceProbe.install()

@@ -17,7 +17,8 @@ Adopt a hybrid of the first two candidates:
   the TypeScript and classic JavaScript emitters;
 - lower external package/resource helpers directly to binding-free requests;
 - lower a relative ts2hx import of converted source to the generated Haxe
-  module identity through a typed, compiler-internal DCE retention anchor.
+  module identity through a typed, compiler-internal module token plus targeted
+  retention metadata on observable initialized declarations.
 
 Reject the fake namespace/default-binding candidate. It assumes an export
 shape, creates a value that does not exist in the source contract, and does not
@@ -178,11 +179,13 @@ The first sound support boundary is:
 
 For converted modules, a kept compiler-internal request carrier records the
 original import sequence. A real imported runtime binding may anchor an ordered
-request. A deterministic target marker is generated only for converted targets
-that otherwise have no value anchor. That marker retains the target's
-observable top-level runtime declarations through Haxe DCE, is consumed by the
-dependency builder, and must be absent from TS, JS, `.d.ts`, public-surface
-capture, and source maps.
+request. A deterministic target token is generated only for converted targets
+that otherwise have no value anchor. The token makes that module reachable;
+observable initialized declarations in such a target receive targeted
+`@:keep`, because the local Haxe 4.3.7 experiment proved that a pure
+`{ initialized; true; }` token read is optimized away before Genes runs. The
+token is consumed by the dependency builder and must be absent from TS, JS,
+`.d.ts`, public-surface capture, and source maps.
 
 The original relative `.js` spelling is never emitted for converted source.
 External relative resources require a manifest that owns runtime spelling and
@@ -193,9 +196,9 @@ may record a loss but makes no executable-equivalence claim.
 
 1. Compile a direct helper under `-dce full` in both Genes profiles and prove
    its typed marker reaches dependency planning in stable `cl.init` order.
-2. Compile the reduced `state/first/second/main` project and prove a kept target
-   marker retains the required initializers, produces `first,second`, and leaks
-   no marker into implementation or declarations.
+2. Compile the reduced `state/first/second/main` project and prove a minimal
+   typed target token plus targeted initializer retention survives DCE and
+   leaks no compiler-internal field into implementation or declarations.
 3. Make the ts2hx semantic differential install the classic Genes generator
    explicitly and use `-dce full` before treating it as three-profile evidence.
 4. Keep converted cycles fail-closed until observable values, TDZ/errors, and
@@ -204,6 +207,14 @@ may record a loss but makes no executable-equivalence claim.
    the same ordered module-request plan.
 6. Run import-attribute syntax through all pinned TypeScript lanes and both
    runtime profiles rather than extrapolating from bound-import coverage.
+
+The first two experiments now have executable evidence under
+`tests/side-effect-import`: marker encounter order is `First -> Second`, a
+completely unreferenced target remains outside the typed graph, targeted
+initializer `@:keep` is required, and the existing map projection demonstrably
+reverses runtime order to `second,first`. Producing `first,second` is therefore
+an acceptance condition of the ordered projection task, not an assumed Haxe
+fact.
 
 ## Test and landing sequence
 

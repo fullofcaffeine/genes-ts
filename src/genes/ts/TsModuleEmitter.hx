@@ -2,6 +2,7 @@ package genes.ts;
 
 import genes.Dependencies;
 import genes.CompilerDiagnostic;
+import genes.CompilerInternal;
 import genes.Module;
 import genes.TypeAccessor;
 import genes.Module.Field as GenesField;
@@ -230,11 +231,12 @@ class TsModuleEmitter extends JsModuleEmitter {
         case MClass(cl, params, _) if (cl.isInterface):
           emitTsInterface(cl, params);
         case MClass(cl, _, fields):
+          final emittableFields = Module.emittableFields(fields);
           final endClassTimer = timer('emitClass');
-          emitTsClass(module.isCyclic, cl, fields);
+          emitTsClass(module.isCyclic, cl, emittableFields);
           endClassTimer();
           final endStaticsTimer = timer('emitStatics');
-          emitTsStatics(module.isCyclic, cl, fields);
+          emitTsStatics(module.isCyclic, cl, emittableFields);
           endStaticsTimer();
           emitInit(cl);
         case MEnum(et, _):
@@ -2423,6 +2425,8 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   override public function emitExpr(e: TypedExpr) {
+    if (CompilerInternal.isSideEffectImportMarkerCall(e))
+      return;
     if (inRawSyntaxTemplate) {
       super.emitExpr(e);
       return;
