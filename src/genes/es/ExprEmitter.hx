@@ -671,17 +671,6 @@ class ExprEmitter extends Emitter {
         write('(');
         emitCall(callee, params, true);
         write(' ?? null)');
-      case TCall(callee, params)
-        if (Context.defined('genes.ts') && switch callee.expr {
-          case TField(target, f):
-            fieldName(f) == "get" && isIMapType(target.t);
-          default: false;
-        }):
-        // Haxe allows assigning `Null<V>` results to `V` in many contexts on JS.
-        // Keep TS strict-null typing happy by casting away the nullable union.
-        write('(');
-        emitCall(callee, params, true);
-        write('!)');
       case TCall(e, params):
         emitCall(e, params, true);
       case TReturn(_) | TBreak | TContinue:
@@ -1059,16 +1048,6 @@ class ExprEmitter extends Emitter {
         write('.global(');
         emitString(name);
         write(')');
-    }
-  }
-
-  static function isIMapType(t: Type): Bool {
-    return switch Context.follow(t) {
-      case TInst(ref, _):
-        final cl = ref.get();
-        cl.module == "haxe.Constraints" && cl.name == "IMap";
-      default:
-        false;
     }
   }
 

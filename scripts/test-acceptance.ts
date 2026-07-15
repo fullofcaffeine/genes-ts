@@ -21,6 +21,7 @@ const skipTs2hx = process.env.SKIP_TS2HX === "1";
 
 if (!skipClassic) {
   run("npm", ["test"]);
+  run("node", ["scripts/dist/test-classic-dts.js"]);
 }
 
 run("node", ["scripts/dist/test-genes-ts.js"]);

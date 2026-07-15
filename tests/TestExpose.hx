@@ -29,7 +29,9 @@ class TestExpose {
     asserts.assert(source.indexOf('export {b} from "./tests/TestExpose.js"') > -1);
     #end
     final source = sys.io.File.getContent('bin/tests.d.ts');
-    asserts.assert(source.indexOf('export {Hello} from "./tests/TestExpose"') > -1);
+    // NodeNext resolves declaration re-exports through the runtime `.js`
+    // specifier, just like the corresponding classic ESM module.
+    asserts.assert(source.indexOf('export {Hello} from "./tests/TestExpose.js"') > -1);
     return asserts.done();
   }
 }

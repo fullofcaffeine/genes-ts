@@ -155,7 +155,7 @@ export class Register {
 		};
 	}
 	static mkIter<T>(a: T[]): Iterator<T> {
-		return new ArrayIterator(a);
+		return new ArrayIterator<T>(a);
 	}
 
 	/**

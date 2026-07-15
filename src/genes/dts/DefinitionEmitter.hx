@@ -19,7 +19,7 @@ class DefinitionEmitter extends ModuleEmitter {
     }
     for (path => imports in dependencies.imports)
       emitImports(if (imports[0].external) path else module.toPath(path),
-        imports);
+        imports, Genes.outExtension);
     for (member in module.members)
       switch member {
         #if (haxe_ver >= 4.2)
@@ -27,7 +27,13 @@ class DefinitionEmitter extends ModuleEmitter {
           emitModuleStatics(cl, fields);
         #end
         case MClass(cl, params, fields):
-          emitClassDefinition(cl, params, fields);
+          // Runtime DCE must not shrink a public declaration interface. The
+          // cache is populated before DCE but is used only for declarations;
+          // classic JavaScript still receives the compact runtime field list.
+          final declaredFields = genes.ts.SignatureCache.getPublicInterfaceFields(cl);
+          emitClassDefinition(cl, params, declaredFields == null
+            ? fields
+            : Module.fieldsOf(cl, declaredFields));
         case MEnum(et, params):
           emitEnumDefinition(et, params);
         case MType(def, params):
@@ -35,7 +41,7 @@ class DefinitionEmitter extends ModuleEmitter {
         default:
       }
     for (export in module.expose)
-      emitExport(export, module.toPath(export.module));
+      emitExport(export, module.toPath(export.module), Genes.outExtension);
     endTimer();
   }
 

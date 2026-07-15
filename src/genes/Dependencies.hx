@@ -6,6 +6,7 @@ import haxe.macro.Type;
 import genes.Module;
 import genes.TypeAccessor;
 import genes.SourceMapGenerator;
+import haxe.macro.Context;
 
 enum DependencyType {
   DName;
@@ -180,6 +181,29 @@ class Dependencies {
             pos: base.pos
           }
         default:
+          // Secondary externs often live beside a runtime owner in one Haxe
+          // module without repeating its `@:jsRequire`, for example
+          // `js.node.stream.Readable.IReadable`. They still denote the owner's
+          // package export in generated TypeScript. Reuse that owner import and
+          // alias it to the secondary Haxe name so signatures remain resolvable
+          // without inventing a runtime dependency or downstream workaround.
+          final declaredPath = base.pack.concat([base.name]).join('.');
+          if (declaredPath != base.module) {
+            final moduleName = base.module.split('.').pop();
+            for (moduleType in Context.getModule(base.module)) {
+              switch moduleType {
+                case TInst((_.get() : BaseType) => owner, _)
+                  if (owner.name == moduleName
+                    && owner.meta.has(':jsRequire')):
+                  final dependency = makeDependency(owner);
+                  if (dependency != null) {
+                    dependency.alias = explicitAlias != null ? explicitAlias : name;
+                    return dependency;
+                  }
+                default:
+              }
+            }
+          }
           return null;
       }
     }
@@ -251,7 +275,7 @@ class Dependencies {
         final deps = imports.get(module);
         if (deps != null)
           for (i in deps)
-            if (i.name == name)
+            if (i.name == name || i.alias == name)
               return if (i.alias != null) i.alias else i.name;
         return name;
     }

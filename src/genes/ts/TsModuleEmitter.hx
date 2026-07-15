@@ -781,6 +781,50 @@ class TsModuleEmitter extends JsModuleEmitter {
       }
       return;
     }
+    final expectedEnumParams = expectedEnumCallParams(e,
+      currentExpectedValueType);
+    if (expectedEnumParams != null
+      && !params.exists(param -> isNullConst(unwrapExpr(param)))) {
+      // A Haxe enum constructor is a generic function in emitted TS. TypeScript
+      // normally infers its parameters from the payload only, which loses type
+      // arguments that occur solely in the destination (for example the error
+      // parameter of `Outcome.Success`). Reapply the destination enum arguments
+      // so the constructor result honors the typed Haxe expression.
+      emitValue(e);
+      TypeEmitter.emitParams(this, expectedEnumParams, false);
+      write('(');
+      final enumArgs = expectedEnumConstructorArgTypes(e,
+        expectedEnumParams);
+      for (i in 0...params.length) {
+        if (i > 0)
+          write(', ');
+        final expectedArg = i < enumArgs.length ? enumArgs[i] : null;
+        final actual = params[i];
+        final expectedParamKey = expectedArg == null ? null : typeParamKey(expectedArg);
+        final actualParamKey = typeParamKey(actual.t);
+        final castSource = explicitErasedCastSource(actual);
+        final erasedGenericCast = expectedParamKey != null
+          && castSource != null
+          && typeParamKey(castSource.t) != expectedParamKey;
+        if (expectedArg != null && expectedParamKey != null
+          && (expectedParamKey != actualParamKey || erasedGenericCast)) {
+          // Haxe can erase an explicit cast to a generic enum payload before
+          // custom generation. The destination enum instantiation is still
+          // authoritative, so contain that assertion at the constructor call.
+          write(ctx.typeAccessor(TypeUtil.registerType));
+          write('.unsafeCast<');
+          TypeEmitter.emitType(this, expectedArg);
+          write('>(');
+          emitValueWithExpectedType(expectedArg,
+            castSource == null ? actual : castSource);
+          write(')');
+        } else {
+          emitValueWithExpectedType(expectedArg, actual);
+        }
+      }
+      write(')');
+      return;
+    }
     // If a nullable value is passed to a non-nullable parameter, TS `strict`
     // errors even though Haxe commonly allows this (not null-safe by default).
     // Preserve Haxe semantics by inserting an unsafe cast at the call-site.
@@ -922,6 +966,60 @@ class TsModuleEmitter extends JsModuleEmitter {
       emitPromiseResolveCall(e, params, inValue);
     } else {
       super.emitCall(e, params, inValue);
+    }
+  }
+
+  static function expectedEnumCallParams(callee: TypedExpr,
+      expected: Null<Type>): Null<Array<Type>> {
+    if (expected == null)
+      return null;
+    final enumRef = switch unwrapExpr(callee).expr {
+      case TField(_, FEnum(ref, _)): ref;
+      default: return null;
+    };
+    function find(type: Type): Null<Array<Type>>
+      return switch type {
+        case TEnum(ref, params)
+          if (ref.get().module == enumRef.get().module
+            && ref.get().name == enumRef.get().name):
+          params;
+        case TAbstract(_.get() => {pack: [], name: 'Null'}, [inner]) |
+          TType(_.get() => {pack: [], name: 'Null'}, [inner]):
+          find(inner);
+        case TType(_, _):
+          find(haxe.macro.Context.follow(type));
+        case TLazy(resolve):
+          find(resolve());
+        default:
+          null;
+      };
+    return find(expected);
+  }
+
+  static function expectedEnumConstructorArgTypes(callee: TypedExpr,
+      enumParams: Array<Type>): Array<Type> {
+    return switch unwrapExpr(callee).expr {
+      case TField(_, FEnum(enumRef, fieldRef)):
+        final enumType = enumRef.get();
+        final declaredField = enumType.constructs.get(fieldRef.name);
+        final fieldType = declaredField.type.applyTypeParameters(enumType.params,
+          enumParams);
+        switch fieldType {
+          case TFun(args, _): [for (arg in args) arg.t];
+          case _: [];
+        }
+      default:
+        [];
+    }
+  }
+
+  static function explicitErasedCastSource(expr: TypedExpr): Null<TypedExpr> {
+    return switch expr.expr {
+      case TCast(inner, null): inner;
+      case TMeta(_, inner) | TParenthesis(inner):
+        explicitErasedCastSource(inner);
+      default:
+        null;
     }
   }
 
@@ -1622,16 +1720,26 @@ class TsModuleEmitter extends JsModuleEmitter {
         increaseIndent();
         if (field.getter) {
           writeNewline();
-          write('get: function (this: ');
+          write('get: function ');
+          if (cl.params.length > 0)
+            emitTypeParamDecls(cl.params.map(param -> param.t), true);
+          write('(this: ');
           emitIdent(className);
+          if (cl.params.length > 0)
+            TypeEmitter.emitParams(this, cl.params.map(param -> param.t), false);
           write(') { return this.get_');
           write(field.name);
           write('(); },');
         }
         if (field.setter) {
           writeNewline();
-          write('set: function (this: ');
+          write('set: function ');
+          if (cl.params.length > 0)
+            emitTypeParamDecls(cl.params.map(param -> param.t), true);
+          write('(this: ');
           emitIdent(className);
+          if (cl.params.length > 0)
+            TypeEmitter.emitParams(this, cl.params.map(param -> param.t), false);
           write(', v: ');
           emitFieldTsType(field);
           write(') { this.set_');
@@ -1767,10 +1875,28 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
   }
 
+  /**
+   * Collects generic parameters referenced by a public callable signature.
+   *
+   * Why: recursive anonymous types can point back to themselves. Public-surface
+   * retention makes more such signatures visible than runtime DCE normally
+   * leaves behind, so an unguarded walk can overflow before emission begins.
+   *
+   * What/How: the type-parameter result remains name-based, while anonymous
+   * type refs are tracked by object identity for the duration of one signature
+   * walk. Re-visiting a ref contributes no new generic parameters and is safe
+   * to stop; sibling fields still share the same visited set.
+   */
   static function collectUsedTypeParamKeys(type: Type,
-      used: Map<String, Bool>) {
-    final followed = haxe.macro.Context.followWithAbstracts(type);
-    switch followed {
+      used: Map<String, Bool>,
+      ?seenAnonymous: haxe.ds.ObjectMap<Ref<AnonType>, Bool>) {
+    if (seenAnonymous == null)
+      seenAnonymous = new haxe.ds.ObjectMap();
+    // Do not call `followWithAbstracts` here. For this question, generic
+    // arguments already expose every referenced type parameter, while following
+    // recursive abstracts/typedefs can manufacture an unbounded structural
+    // expansion before the anonymous-ref guard gets a chance to run.
+    switch type {
       case TInst(ref, params):
         final cl = ref.get();
         switch cl.kind {
@@ -1779,24 +1905,27 @@ class TsModuleEmitter extends JsModuleEmitter {
           default:
         }
         for (p in params)
-          collectUsedTypeParamKeys(p, used);
+          collectUsedTypeParamKeys(p, used, seenAnonymous);
       case TEnum(_, params) | TType(_, params) | TAbstract(_, params):
         for (p in params)
-          collectUsedTypeParamKeys(p, used);
+          collectUsedTypeParamKeys(p, used, seenAnonymous);
       case TFun(args, ret):
         for (a in args)
-          collectUsedTypeParamKeys(a.t, used);
-        collectUsedTypeParamKeys(ret, used);
+          collectUsedTypeParamKeys(a.t, used, seenAnonymous);
+        collectUsedTypeParamKeys(ret, used, seenAnonymous);
       case TAnonymous(a):
+        if (seenAnonymous.exists(a))
+          return;
+        seenAnonymous.set(a, true);
         for (f in a.get().fields)
-          collectUsedTypeParamKeys(f.type, used);
+          collectUsedTypeParamKeys(f.type, used, seenAnonymous);
       case TDynamic(t):
         if (t != null)
-          collectUsedTypeParamKeys(t, used);
+          collectUsedTypeParamKeys(t, used, seenAnonymous);
       case TMono(r):
         final inner = r.get();
         if (inner != null)
-          collectUsedTypeParamKeys(inner, used);
+          collectUsedTypeParamKeys(inner, used, seenAnonymous);
       default:
     }
   }
@@ -2430,8 +2559,18 @@ class TsModuleEmitter extends JsModuleEmitter {
         if (fieldAccessName(f) == "get" && tsIsIMapType(target.t)
           && isNarrowedNonNull(e)):
         emitCall(callee, params, true);
-        if (typeAllowsNull(e.t))
-          write('!');
+        write('!');
+      case TCall(callee = {expr: TField(target, f)}, params)
+        if (fieldAccessName(f) == "get" && tsIsIMapType(target.t)
+          && currentExpectedValueType != null
+          && !typeAllowsNull(currentExpectedValueType)
+          && !isUndefinableType(currentExpectedValueType)):
+        // Haxe's non-null-safe type system can place `Null<V>` into a proven or
+        // otherwise non-null destination. Preserve that typed-AST decision as
+        // a local TS assertion while leaving unconstrained Map.get reads
+        // honestly nullable at the public boundary.
+        emitCall(callee, params, true);
+        write('!');
       case TBinop(op = OpGt | OpGte | OpLt | OpLte, e1, e2)
         if ((typeAllowsNull(e1.t) && isNumberLike(e1.t))
           || (typeAllowsNull(e2.t) && isNumberLike(e2.t))):
@@ -2502,6 +2641,24 @@ class TsModuleEmitter extends JsModuleEmitter {
         emitLocalVar(v);
       case TObjectDecl(fields):
         emitObjectDeclWithFieldTypes(e, fields);
+      case TNew(c, params, values)
+        if (params.length > 0 && params.exists(typeUsesTypeParameter)):
+        // Constructor inference cannot recover outer method/class parameters
+        // from a polymorphic function argument (`new LazyFunc(Empty.make)` is a
+        // common example). The typed AST already contains the exact
+        // instantiation, so print it only when it references an in-scope type
+        // parameter and inference would otherwise be lossy.
+        write(switch c.get().constructor {
+          case null: 'new ';
+          case _.get() => ctor if (ctor.meta.has(':selfCall')): '';
+          default: 'new ';
+        });
+        write(ctx.typeAccessor(TClassDecl(c)));
+        TypeEmitter.emitParams(this, params, false);
+        write('(');
+        for (value in join(values, write.bind(', ')))
+          emitValue(value);
+        write(')');
       case TCall({
         expr: TField(_,
           FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))
@@ -3740,7 +3897,23 @@ class TsModuleEmitter extends JsModuleEmitter {
       write(' ?? undefined)');
       return;
     }
+    if (expected != null && !typeAllowsNull(expected)
+      && typeAllowsNull(expr.t) && !isNarrowedNonNull(expr)) {
+      // Haxe is not null-safe by default and can intentionally place a nullable
+      // value into a non-null anonymous field. Preserve the runtime value while
+      // making that typed-AST decision explicit to strict TypeScript.
+      write('(');
+      emitValueWithExpectedType(expected, expr);
+      write(')!');
+      return;
+    }
     emitValueWithExpectedType(expected, expr);
+  }
+
+  static function typeUsesTypeParameter(type: Type): Bool {
+    final used = new Map<String, Bool>();
+    collectUsedTypeParamKeys(type, used);
+    return used.keys().hasNext();
   }
 
   static function mayEmitNull(expr: TypedExpr): Bool {
@@ -4415,7 +4588,14 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
     write(' {');
     increaseIndent();
-    for (field in clForFields.fields.get()) {
+    // Prefer the declaration-time surface captured before runtime DCE. A
+    // TypeScript interface is a public compile-time contract, so it must not be
+    // trimmed merely because the current Haxe program does not call a member.
+    final declaredFields = SignatureCache.getPublicInterfaceFields(cl);
+    final interfaceFields = declaredFields == null
+      ? clForFields.fields.get()
+      : declaredFields;
+    for (field in interfaceFields) {
       if (!field.isPublic)
         continue;
       switch field.kind {
@@ -4444,8 +4624,6 @@ class TsModuleEmitter extends JsModuleEmitter {
           write(';');
       }
     }
-    writeNewline();
-    write('[key: string]: any;');
     decreaseIndent();
     writeNewline();
     write('}');

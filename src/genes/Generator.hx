@@ -234,7 +234,9 @@ class Generator {
   public static function use() {
     #if !genes.disable
     if (Context.defined('js')) {
-      if (Context.defined('genes.ts')) {
+      // TypeScript implementation output and classic declaration output both
+      // need source-level signatures captured before runtime-oriented DCE.
+      if (Context.defined('genes.ts') || Context.defined('dts')) {
         genes.ts.SignatureCache.install();
       }
       Compiler.include('genes.Register');

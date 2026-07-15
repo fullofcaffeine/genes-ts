@@ -15,9 +15,24 @@ class EsMap<K, V> {
   public function set(key: K, value: V): Void
     inst.set(key, value);
 
-  @:ts.returnType("any")
-  public function get(key: K): Null<V>
-    return inst.get(key);
+  /**
+   * Reads a value while preserving Haxe's `Null<V>` absence contract.
+   *
+   * Why: native `Map.get` returns `V | undefined`, while Haxe exposes
+   * `Null<V>` and genes-ts renders that as `V | null`. Normalizing only missing
+   * keys keeps both output modes honest without erasing a deliberately stored
+   * `undefined` value.
+   *
+   * How: `Map.has` proves presence at runtime, but neither Haxe nor TypeScript
+   * carries that correlation into the following generic `Map.get`.
+   * `Register.unsafeCast` is the compiler runtime's typed identity boundary;
+   * using it here confines the assertion and immediately returns `Null<V>`.
+   */
+  public function get(key: K): Null<V> {
+    if (!inst.has(key))
+      return null;
+    return Register.unsafeCast(inst.get(key));
+  }
 
   public function remove(key: K): Bool
     return inst.delete(key);

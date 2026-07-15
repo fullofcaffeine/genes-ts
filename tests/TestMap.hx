@@ -1,5 +1,8 @@
 package tests;
 
+import genes.ts.Unknown;
+import genes.ts.UnknownNarrow;
+import genes.ts.Undefinable;
 import tink.unit.Assert.*;
 
 @:asserts
@@ -78,5 +81,21 @@ class TestMap {
     map.set('test', true);
     final test = Lambda.array(map);
     return assert(test[0]);
+  }
+
+  /**
+   * Map absence is Haxe `null`, while a deliberately stored JavaScript
+   * `undefined` remains a present value distinguishable through `exists`.
+   */
+  public function nullishBoundary() {
+    final map = new Map<String, Undefinable<String>>();
+    map.set('present-undefined', Undefinable.absent());
+
+    asserts.assert(js.Syntax.strictEq(map.get('missing'), null));
+    asserts.assert(map.exists('present-undefined'));
+    asserts.assert(UnknownNarrow.isUndefined(
+      Unknown.fromBoundary(map.get('present-undefined'))));
+
+    return asserts.done();
   }
 }

@@ -1,5 +1,5 @@
 import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -38,6 +38,33 @@ rmrf("tests/genes-ts/full/out");
 
 run("haxe", ["tests/genes-ts/full/build.hxml"]);
 
+// A closed generated interface must expose the complete declaration-time Haxe
+// contract while rejecting arbitrary members. Successful `tsc` alone would not
+// prove this if the emitter reintroduced a catch-all index signature.
+writeFileSync(
+  path.join(repoRoot, "tests/genes-ts/full/out/src-gen/InterfaceSurfaceConsumer.ts"),
+  [
+    'import type {IMap} from "./haxe/Constraints.js";',
+    "declare const map: IMap<string, number>;",
+    'map.set("one", 1);',
+    'const maybe: number | null = map.get("one");',
+    'const exists: boolean = map.exists("one");',
+    'const removed: boolean = map.remove("one");',
+    "const keys = map.keys();",
+    "const values = map.iterator();",
+    "const entries = map.keyValueIterator();",
+    "const copied: IMap<string, number> = map.copy();",
+    "const rendered: string = map.toString();",
+    "map.clear();",
+    "void maybe; void exists; void removed; void keys; void values;",
+    "void entries; void copied; void rendered;",
+    "// @ts-expect-error ordinary Haxe interfaces are closed contracts",
+    "map.nonexistentMember();",
+    "export {};",
+    ""
+  ].join("\n")
+);
+
 const dynamicImportOutput = readFileSync(
   path.join(repoRoot, "tests/genes-ts/full/out/src-gen/tests/TestImportModule.ts"),
   "utf8"
@@ -52,6 +79,18 @@ if (!dynamicImportOutput.includes('as typeof import("./ExternalClass.js")')) {
 const reflectOutput = readFileSync(path.join(repoRoot, "tests/genes-ts/full/out/src-gen/Reflect.ts"), "utf8");
 if (/unsafeCast<Rest</.test(reflectOutput)) {
   throw new Error("Reflect.fields emitted an unresolved Rest<T> cast instead of an array type.");
+}
+
+// `IReadable` is a secondary extern declared in the same Haxe module as the
+// `@:jsRequire("stream", "Readable")` owner. Its use in a signature must reuse
+// that package export as a type-only alias instead of becoming an unresolved
+// bare identifier (the generic form of genes-ast).
+const wrappedReadableOutput = readFileSync(
+  path.join(repoRoot, "tests/genes-ts/full/out/src-gen/tink/streams/nodejs/WrappedReadable.ts"),
+  "utf8"
+);
+if (!wrappedReadableOutput.includes('import type {Readable as IReadable} from "stream"')) {
+  throw new Error("Secondary extern signature type did not reuse its module owner's package import.");
 }
 
 // Runtime fixtures needed for dynamic `@:jsRequire('../../tests/…')` modules.

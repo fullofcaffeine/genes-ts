@@ -28,20 +28,27 @@ typedef CachedSig = {
  *
  * What: this cache records only narrow facts that the normal emitter already
  * knows how to print safely: method argument/return literal unions, class field
- * literal unions, and anonymous typedef field literal unions. It deliberately
- * does not store arbitrary rendered types, because that would make this cache a
- * shadow type printer.
+ * literal unions, anonymous typedef field literal unions, and the declared
+ * public fields of interfaces. In TypeScript implementation mode it also marks
+ * interface contracts and their concrete implementations as DCE roots. In
+ * classic declaration mode it leaves runtime DCE untouched and supplies the
+ * captured fields only to the declaration emitter. It deliberately does not
+ * store arbitrary rendered types, because that would make this cache a shadow
+ * type printer.
  *
  * How: `install()` registers an `onAfterTyping` hook. At that point the compiler
  * has resolved declarations and positions, but later JS/codegen phases have not
- * erased enum abstracts from every expression. Emitters then consult this cache
- * by declaration key or source position when Haxe's current expression type has
- * become too broad for idiomatic strict TypeScript.
+ * erased enum abstracts from every expression or removed unused public fields
+ * through DCE. Emitters then consult this cache by declaration key or source
+ * position when Haxe's generator-time view has become too broad or too small
+ * for idiomatic strict TypeScript.
  */
 class SignatureCache {
   @:persistent static var sigs: Map<String, CachedSig> = new Map();
   @:persistent static var fieldTsTypes: Map<String, String> = new Map();
   @:persistent static var anonFieldTsTypes: Map<String, String> = new Map();
+  @:persistent static var publicInterfaceFields: Map<String,
+    Array<ClassField>> = new Map();
 
   static inline function classFullName(cl: ClassType): String {
     final declaredPath = cl.pack.concat([cl.name]).join('.');
@@ -225,6 +232,16 @@ class SignatureCache {
   }
 
   static function captureClass(cl: ClassType): Void {
+    if (cl.isInterface) {
+      // Hold the declared ClassField values themselves rather than rendered
+      // strings. Their typed signatures remain authoritative, while the copied
+      // array is insulated from the later DCE mutation of `cl.fields`.
+      publicInterfaceFields.set(classFullName(cl), [
+        for (field in cl.fields.get())
+          if (field.isPublic) field
+      ]);
+    }
+
     switch cl.constructor {
       case null:
       case ctor:
@@ -251,15 +268,83 @@ class SignatureCache {
     }
   }
 
+  static inline function keepField(field: ClassField): Void {
+    if (!field.meta.has(':keep'))
+      field.meta.add(':keep', [], field.pos);
+  }
+
+  static function collectInterfaceFieldNames(iface: ClassType,
+      names: Map<String, Bool>, seen: Map<String, Bool>): Void {
+    final key = classFullName(iface);
+    if (seen.exists(key))
+      return;
+    seen.set(key, true);
+    for (field in iface.fields.get()) {
+      if (field.isPublic)
+        names.set(field.name, true);
+    }
+    for (parent in iface.interfaces)
+      collectInterfaceFieldNames(parent.t.get(), names, seen);
+  }
+
+  /**
+   * Retains a closed interface contract and the methods that implement it.
+   *
+   * Why: Haxe DCE is driven by calls in the Haxe program, whereas emitted
+   * TypeScript interfaces are consumed after Haxe compilation. Keeping only the
+   * reached members either makes the interface incomplete or forces an unsafe
+   * catch-all index signature. Conversely, keeping every public field in every
+   * typed module pulls compiler/macro-only APIs into runtime output and defeats
+   * useful DCE.
+   *
+   * What/How: for concrete classes that nominally implement an interface,
+   * matching fields are retained on the class or the superclass that actually
+   * owns them. The interface declarations themselves are captured separately,
+   * not marked `@:keep`: retaining a type used by no emitted module would add
+   * unjustified declaration/runtime-marker modules to every output. Retained
+   * method bodies let normal Haxe DCE keep their private runtime dependencies.
+   * This is deliberately an incremental public-surface plan; an explicit
+   * dependency graph can later generalize retention for exported classes.
+   */
+  static function retainInterfaceContract(cl: ClassType): Void {
+    if (cl.isInterface)
+      return;
+    if (cl.interfaces.length == 0)
+      return;
+
+    final names = new Map<String, Bool>();
+    final seen = new Map<String, Bool>();
+    for (iface in cl.interfaces)
+      collectInterfaceFieldNames(iface.t.get(), names, seen);
+
+    var current: Null<ClassType> = cl;
+    while (current != null) {
+      for (field in current.fields.get()) {
+        // A public Haxe property may satisfy an interface through a private
+        // generated accessor such as `get_disposed`. Match the contractual
+        // field name regardless of the accessor's source visibility.
+        if (names.exists(field.name))
+          keepField(field);
+      }
+      current = switch current.superClass {
+        case null: null;
+        case parent: parent.t.get();
+      };
+    }
+  }
+
   public static function install(): Void {
     // Reset for each compilation.
     sigs = new Map();
     fieldTsTypes = new Map();
     anonFieldTsTypes = new Map();
+    publicInterfaceFields = new Map();
 
     // `onAfterTyping` runs before the JS generator rewrites types (e.g. by
     // following abstracts). Capture declared signatures for TS emission.
     Context.onAfterTyping(types -> {
+      // Capture source-level facts first, before retention metadata can affect
+      // later compiler phases or ordering among declarations.
       for (t in types) {
         switch t {
           case TClassDecl(ref):
@@ -267,6 +352,15 @@ class SignatureCache {
           case TTypeDecl(ref):
             captureAnonFieldTypes(ref.get().type);
           default:
+        }
+      }
+      if (Context.defined('genes.ts')) {
+        for (t in types) {
+          switch t {
+            case TClassDecl(ref):
+              retainInterfaceContract(ref.get());
+            default:
+          }
         }
       }
     });
@@ -284,6 +378,24 @@ class SignatureCache {
 
   public static function getAnonFieldTsType(pos: Position): Null<String> {
     return anonFieldTsTypes.get(posKey(pos));
+  }
+
+  /**
+   * Returns the complete declared public surface of an interface.
+   *
+   * Why: Haxe DCE is runtime-oriented and can remove interface members that
+   * generated TypeScript consumers still need for type checking. Reopening the
+   * interface with `[key: string]: any` hides that loss and makes arbitrary
+   * member access legal.
+   *
+   * What/How: `onAfterTyping` captures the typed `ClassField` values before
+   * DCE mutates the class field array. The emitter receives a fresh array so it
+   * cannot mutate persistent compiler state. Inherited interface members remain
+   * represented by TypeScript `extends`; this returns declared members only.
+   */
+  public static function getPublicInterfaceFields(cl: ClassType): Null<Array<ClassField>> {
+    final fields = publicInterfaceFields.get(classFullName(cl));
+    return fields == null ? null : fields.copy();
   }
 }
 #end

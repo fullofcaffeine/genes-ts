@@ -522,27 +522,25 @@ class TypeEmitter {
             // - Default: `Null<T>` becomes `T | null` (works with strictNullChecks: true).
             // - Optional: `-D genes.ts.no_null_union` erases `Null<T>` to `T` (for
             //   strictNullChecks: false projects).
-            if (Context.defined('genes.ts')) {
-              if (Context.defined('genes.ts.no_null_union')) {
-                emitType(writer, realT);
-              } else {
-                final needsParens = switch realT {
-                  case TFun(_, _): true;
-                  default: false;
-                }
-                if (needsParens) {
-                  write('(');
-                  emitType(writer, realT);
-                  write(')');
-                } else {
-                  emitType(writer, realT);
-                }
-                write(' | null');
-              }
+            if (Context.defined('genes.ts')
+              && Context.defined('genes.ts.no_null_union')) {
+              emitType(writer, realT);
             } else {
-              // Classic Genes `.d.ts` mode historically used `any` here to avoid
-              // strict-nullness incompatibilities for Haxe 4.x projects.
-              write('any');
+              // Both implementation TS and classic declarations expose the
+              // real Haxe `Null<T>` contract. Classic Genes originally emitted
+              // a nullable union; weakening it to `any` hides consumer bugs.
+              final needsParens = switch realT {
+                case TFun(_, _): true;
+                default: false;
+              }
+              if (needsParens) {
+                write('(');
+                emitType(writer, realT);
+                write(')');
+              } else {
+                emitType(writer, realT);
+              }
+              write(' | null');
             }
           case [{pack: ["haxe", "extern"] | ['haxe'], name: "Rest"}, [t]]:
             emitPos(ab.pos);
@@ -657,25 +655,22 @@ class TypeEmitter {
             emitPos(dt.pos);
             write('any');
           case [{pack: [], name: "Null"}, [realT]]: // Haxe 3.x
-            if (Context.defined('genes.ts')) {
-              if (Context.defined('genes.ts.no_null_union')) {
-                emitType(writer, realT);
-              } else {
-                final needsParens = switch realT {
-                  case TFun(_, _): true;
-                  default: false;
-                }
-                if (needsParens) {
-                  write('(');
-                  emitType(writer, realT);
-                  write(')');
-                } else {
-                  emitType(writer, realT);
-                }
-                write(' | null');
-              }
+            if (Context.defined('genes.ts')
+              && Context.defined('genes.ts.no_null_union')) {
+              emitType(writer, realT);
             } else {
-              write('any');
+              final needsParens = switch realT {
+                case TFun(_, _): true;
+                default: false;
+              }
+              if (needsParens) {
+                write('(');
+                emitType(writer, realT);
+                write(')');
+              } else {
+                emitType(writer, realT);
+              }
+              write(' | null');
             }
           case [{module: "js.lib.Iterator", name: "Iterator"}, [elemT]]:
             emitPos(dt.pos);

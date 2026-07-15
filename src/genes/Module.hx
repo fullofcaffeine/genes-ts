@@ -200,7 +200,19 @@ class Module {
             case null:
             case {t: t}: dependencies.add(TClassDecl(t));
           }
-          for (field in fields) {
+          // Type imports must be planned from the same pre-DCE interface
+          // surface that TS and classic declaration printers consume. Using
+          // only runtime fields can produce a complete interface whose newly
+          // visible member types (for example KeyValueIterator) were never
+          // imported.
+          final declaredInterfaceFields = (tsMode || Context.defined('dts'))
+            && cl.isInterface
+            ? genes.ts.SignatureCache.getPublicInterfaceFields(cl)
+            : null;
+          final signatureFields = declaredInterfaceFields == null
+            ? fields
+            : fieldsOf(cl, declaredInterfaceFields);
+          for (field in signatureFields) {
             if (field.tsType != null)
               continue;
             addParams(field.params.map(p -> p.t));
@@ -387,7 +399,17 @@ class Module {
       case {t: _.get() => v}: hasExternSuper(v);
     }
 
-  public static function fieldsOf(cl: ClassType) {
+  /**
+   * Builds the emitter-facing field records for a typed class.
+   *
+   * The optional instance-field list lets declaration emitters use the
+   * pre-DCE interface surface captured by `SignatureCache` while runtime
+   * emitters continue to consume Haxe's post-DCE fields. This keeps classic JS
+   * output compact without trimming the separate TypeScript declaration
+   * contract.
+   */
+  public static function fieldsOf(cl: ClassType,
+      ?declaredInstanceFields: Array<ClassField>) {
     final fields: Array<Field> = [];
     final classDisableNativeAccessors = haxe.macro.Context.defined('genes.disable_native_accessors')
       || cl.meta.has(':genes.disableNativeAccessors');
@@ -414,7 +436,10 @@ class Module {
           tsType: null
         });
     }
-    for (field in cl.fields.get()) {
+    final instanceFields = declaredInstanceFields == null
+      ? cl.fields.get()
+      : declaredInstanceFields;
+    for (field in instanceFields) {
       final isVar = field.meta.has(':isVar');
       final disableNativeAccessors = field.meta.has(':genes.disableNativeAccessors')
         || classDisableNativeAccessors;
