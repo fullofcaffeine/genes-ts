@@ -1,3 +1,11 @@
+## [1.20.1](https://github.com/fullofcaffeine/genes-ts/compare/v1.20.0...v1.20.1) (2026-07-15)
+
+
+### Bug Fixes
+
+* keep classic declarations self-contained ([11db3f9](https://github.com/fullofcaffeine/genes-ts/commit/11db3f925435eb16dbb08c8b3f029caf4c87edc3))
+* preserve classic ESM import attributes ([41d84dd](https://github.com/fullofcaffeine/genes-ts/commit/41d84ddf79928d98c578e6fb97fdee48c0b8f27f))
+
 # [1.20.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.19.0...v1.20.0) (2026-07-15)
 
 
