@@ -234,9 +234,13 @@ The source of truth is Beads epic `genes-09r`.
    import the TS6 Program API through explicit adapters. Scripts, CI, release,
    package aliases, `.haxerc`, and obsolete tsconfig policy are checked for
    drift by `yarn test:versions`.
-7. **`genes-6za` plus package-shape fixtures.** Close CommonJS `export =`
-   constructor/type identity and exercise ESM, CJS, subpaths, conditional
-   exports, and type/value namespaces.
+7. **`genes-6za` — CommonJS `export =` constructor identity (landed).**
+   `@:ts.instanceType` now distinguishes an imported constructor value from its
+   constructed instance without raw type strings or runtime changes. A local
+   const-plus-namespace package type-checks with strict NodeNext on TS 5/6/7,
+   rejects invalid consumer members, and executes identical TS/classic runtime
+   transcripts. Broader named/namespace, subpath, and conditional-export
+   dimensions remain part of the `genes-09r.8` dts2hx bridge matrix.
 8. **`genes-09r.5` — target-neutral `JsxPlan` (landed).** Typed marker intent
    now captures tags/components, ordered props/children, fragments, lifted
    Haxe locals with exact-once evaluation paths, source provenance, and an

@@ -68,8 +68,10 @@ accepted registry and map-helper divergences; byte identity is never an oracle.
   Module/temp/import growth requires a new review ID and rationale.
 - The two clean Haxe compile durations are printed as report-only evidence.
   They have no threshold until repeated CI data establishes a noise envelope.
-- CommonJS `export =`, conditional exports, and package subpaths remain in the
-  package-shape interop roadmap; the corpus exercises an ESM host import.
+- CommonJS `export =` constructor identity is owned by the separate blocking
+  `yarn test:interop:module-shapes` gate. Conditional exports beyond that local
+  root entry and package subpaths remain in the broader interop roadmap; this
+  corpus exercises an ESM host import.
 
 These exclusions prevent one passing fixture from being presented as universal
 compiler equivalence.

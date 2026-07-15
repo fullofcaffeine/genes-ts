@@ -59,8 +59,9 @@ evidence; those measurements remain corpus-scoped.
 
 Precise classic `Null<T>` and the strict declaration consumer have landed.
 Declaration-only type aliases are retained without producing classic JS files.
-CommonJS `export =` remains `genes-6za`; the cross-tool bridge is
-`genes-09r.8`.
+The CommonJS `export =` constructor/value split now has a blocking
+`@:ts.instanceType` fixture across TS 5/6/7 and both Genes runtime profiles.
+The broader cross-tool package matrix and dts2hx bridge remain `genes-09r.8`.
 
 ### R4 — Deterministic, diagnosable output
 

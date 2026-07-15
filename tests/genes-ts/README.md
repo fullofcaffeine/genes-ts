@@ -47,3 +47,21 @@ The build (`yarn build:example:todoapp`) regenerates `examples/todoapp/{web,serv
 - executes the compiled JS test runner with Node
 
 This is intentionally larger/noisier than the snapshot cases and focuses on compatibility.
+
+## Package-shape interop
+
+`tests/genes-ts/package-shapes/` owns small, local npm packages whose declaration
+and runtime module shapes must agree. The current blocking fixture models a
+CommonJS `export =` constructor represented as a `const` plus merged namespace.
+It proves `@:ts.instanceType` field and return surfaces under strict NodeNext on
+TS 5/6/7, negative consumer typing, and identical TS/classic runtime behavior.
+
+Run it directly with:
+
+```bash
+yarn test:interop:module-shapes
+```
+
+Keep these fixtures package-generic. Downstream package failures should be
+reduced to the relevant ESM/CommonJS/type-value/subpath construct here rather
+than introducing product or dependency names into the compiler.

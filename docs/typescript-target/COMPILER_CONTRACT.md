@@ -226,6 +226,10 @@ Async/await sugar:
 TS-specific overrides:
 - `@:ts.type("...")` — override a type in emitted TS types (fields/typedefs/type params/etc.).
 - `@:ts.returnType("...")` — override a function return type in emitted TS.
+- `@:ts.instanceType` — on a non-generic `@:jsRequire` extern constructor,
+  project instance type positions as `InstanceType<typeof ImportedValue>` while
+  leaving value imports and both runtime profiles unchanged. This is the
+  explicit CommonJS `export =` const-plus-namespace contract; see `IMPORTS.md`.
 
 Compatibility aliases (optional):
 - `@:genes.type` and `@:genes.returnType` are supported as aliases for the TS metadata above.

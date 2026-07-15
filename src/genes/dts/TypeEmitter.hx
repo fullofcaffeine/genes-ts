@@ -1,6 +1,7 @@
 package genes.dts;
 
 import genes.SourceMapGenerator;
+import genes.ExternTypeContract;
 import genes.NullishContract;
 import genes.NullishContract.NullishMissingValue;
 import haxe.macro.Type;
@@ -351,6 +352,17 @@ class TypeEmitter {
       case TType(_.get() => {name: "RegroupStatus" | "RegroupResult", pos: pos}, _):
         emitPos(pos);
         write('any');
+      case TInst(ref = _.get() => cl, params)
+        if (ExternTypeContract.usesImportedInstanceType(cl)):
+        // The semantic classifier owns when this projection is valid. The type
+        // printer owns only TypeScript spelling and uses the resolved accessor
+        // so collision aliases stay consistent with constructor expressions.
+        ExternTypeContract.validateImportedInstanceType(cl, params);
+        includeType(TInst(ref, params));
+        emitPos(cl.pos);
+        write('InstanceType<typeof ');
+        write(writer.typeAccessor(cl));
+        write('>');
       case TInst(_.get().meta => meta, params)
         if (meta.has(':ts.type') || meta.has(':genes.type')):
         final tsOverride = switch meta.extract(':ts.type') {

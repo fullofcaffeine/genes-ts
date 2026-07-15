@@ -1,0 +1,13 @@
+{
+  "name": "genes-export-equals-fixture",
+  "version": "1.0.0",
+  "type": "commonjs",
+  "main": "./index.cjs",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.cjs"
+    }
+  }
+}

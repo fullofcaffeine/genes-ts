@@ -28,6 +28,56 @@ Cons:
 - more boilerplate when you just want a single import in a local scope
 - harder to keep import names stable/diff-friendly across refactors
 
+### CommonJS `export =` constructor instances
+
+Some `@types` packages describe a callable or constructable CommonJS export as
+a value plus a merged namespace rather than as a TypeScript class:
+
+```ts
+declare namespace Database {
+  interface Instance { close(): void }
+  interface Constructor { new(path: string): Instance }
+}
+declare const Database: Database.Constructor;
+export = Database;
+```
+
+The normal Haxe extern remains class-shaped because that is the useful
+authoring and runtime contract. Add `@:ts.instanceType` when the imported value
+does not itself occupy TypeScript's type namespace:
+
+```haxe
+/**
+ * CommonJS constructor value whose `@types` package exposes instances through
+ * its construct signature instead of a class declaration.
+ */
+@:jsRequire("database-package")
+@:ts.instanceType
+extern class Database {
+  public function new(path:String);
+  public function close():Void;
+}
+```
+
+Constructor expressions still emit against the ordinary default import. Type
+positions in generated TypeScript and classic `.d.ts` instead use the resolved
+import alias:
+
+```ts
+import Database from "database-package"
+
+declare db: InstanceType<typeof Database>
+```
+
+This annotation is explicit because `@:jsRequire("package")` may also point to
+a genuine class export, where the direct `Database` type is already correct.
+The current contract accepts non-generic extern classes bound to default or
+named `@:jsRequire` values. It rejects namespace imports, generic applications,
+arguments, and combinations with raw `@:ts.type` / `@:genes.type` overrides so
+an unsupported package shape cannot silently widen or change meaning. The
+blocking `yarn test:interop:module-shapes` fixture type-checks the same source on
+TS 5, TS 6, and TS 7, then executes both TS and classic Genes output.
+
 ## 2) `genes.ts.Imports` (macro-based helper)
 
 `genes.ts.Imports` generates hidden `@:jsRequire` externs and returns a typed

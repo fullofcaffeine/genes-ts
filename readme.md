@@ -131,6 +131,8 @@ Examples of these helpers:
 - `genes.ts.Unknown` for untrusted runtime values that should be decoded or narrowed before application code uses them.
 - `genes.ts.UnknownNarrow`, `UnknownRecord`, and `UnknownArray` for guarded reads from untrusted JavaScript values.
 - `genes.ts.Imports` for typed imports from existing JS/TS/TSX modules without hand-writing fragile import strings at every call site.
+- `@:ts.instanceType` for CommonJS `export =` constructor values whose `@types`
+  declaration exposes the constructed instance through a merged namespace.
 
 They are useful when the JavaScript/TypeScript ecosystem has a real contract that Haxe does not express directly. The helper gives that contract a Haxe name, keeps the unsafety or TS-specific syntax in one maintained place, and lets the compiler choose the right output for each target.
 
@@ -331,6 +333,7 @@ Classic Genes mode (JS output) also supports:
 - `npm run test:ci` (CI-equivalent local run; includes secret scan)
 - `npm run test:matrix:api` (TS6 Program/TypeChecker bridge)
 - `npm run test:matrix:generated` (curated generated output on TS5/TS6/TS7)
+- `npm run test:interop:module-shapes` (strict npm declaration/runtime shapes)
 - `npm run test:genes-ts`
 - `npm run test:genes-ts:minimal`
 - `npm run test:genes-ts:full`

@@ -43,11 +43,17 @@ available:
 ```bash
 yarn test:dual-output    # semantic TS/classic/standard-Haxe/vanilla evidence
 yarn test:output-quality # exact maps, clean hashes, and reviewed budgets
+yarn test:interop:module-shapes # npm declaration/runtime import contracts
 ```
 
 The quality manifest measures the bounded dual corpus. It uses exact module,
 temporary, and import baselines plus 5% byte/token ceilings; it is not a
 whole-language performance benchmark.
+
+The package-shape gate currently covers a local CommonJS `export =`
+constructor whose value/type namespaces differ. It compiles strict negative
+consumers on TS 5/6/7 and runs the same Haxe source through TS and classic ESM;
+future package forms should extend that generic fixture matrix.
 
 ## Todoapp example
 
