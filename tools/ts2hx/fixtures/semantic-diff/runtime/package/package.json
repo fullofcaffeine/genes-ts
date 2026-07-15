@@ -1,0 +1,6 @@
+{
+  "name": "@ts2hx/semantic-effect",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": "./index.mjs"
+}

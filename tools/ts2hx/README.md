@@ -129,10 +129,12 @@ yarn --cwd tools/ts2hx test:semantic-diff
 This runs the same fixture as original TypeScript, ts2hx → Haxe → classic
 Genes JavaScript, and ts2hx → Haxe → genes-ts TypeScript → JavaScript. The
 JSON event traces must be byte-equivalent after extraction. It also checks that
-prototype mutation, labeled switch-continue, finally outer transfer, and
-side-effect imports diagnose precisely without changing the prior output tree.
-Unlabelled switch-continue and unary-plus numeric coercion are exercised as
-supported contracts.
+prototype mutation, labeled switch-continue, finally outer transfer, and six
+unsupported side-effect-import variants diagnose precisely without changing
+the prior output tree. Bare packages and hash-pinned external relative runtime
+files execute in source order through both Genes profiles. Unlabelled
+switch-continue and unary-plus numeric coercion are exercised as supported
+contracts.
 
 What `test:roundtrip` does for selected supported modules:
 

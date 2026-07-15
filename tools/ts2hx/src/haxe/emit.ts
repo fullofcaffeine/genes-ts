@@ -16,6 +16,12 @@ import {
   type SemanticFeatureDisposition,
   type SemanticFeatureId
 } from "../semantic/ir.js";
+import {
+  loadRuntimeModuleManifest,
+  runtimeModuleRequestKey,
+  type RuntimeModuleManifestEntry,
+  type RuntimeModuleManifestPlan
+} from "./runtime-modules.js";
 
 export type EmitHaxeOptions = {
   projectDir: string;
@@ -29,6 +35,8 @@ export type EmitHaxeOptions = {
   mode?: TranslationMode;
   /** Replace the prior output tree instead of preserving unrelated files. */
   cleanOutDir?: boolean;
+  /** Optional hash-pinned ownership plan for external relative runtime files. */
+  runtimeModulesManifest?: string;
 };
 
 export type TranslationMode = "strict-js" | "assisted";
@@ -60,6 +68,17 @@ export type TranslationFileDisposition = {
   diagnosticIds: string[];
 };
 
+export type RuntimeModuleDisposition = {
+  importer: string;
+  specifier: string;
+  runtimeSpecifier: string;
+  importType: string | null;
+  source: string;
+  stagedFile: string;
+  owner: string;
+  sha256: string;
+};
+
 export type TranslationManifest = {
   schemaVersion: 2;
   mode: TranslationMode;
@@ -68,6 +87,8 @@ export type TranslationManifest = {
   plannedFiles: string[];
   files: TranslationFileDisposition[];
   diagnostics: TranslationDiagnostic[];
+  /** Hash-pinned external relative modules staged by this transaction. */
+  runtimeModules: RuntimeModuleDisposition[];
   /** Complete support catalog plus source occurrences observed in this run. */
   features: SemanticFeatureDisposition[];
 };
@@ -82,7 +103,7 @@ export type EmitHaxeResult = {
 
 type EmittedFile = {
   filePath: string;
-  content: string;
+  content: string | Uint8Array;
 };
 
 type SourceEmitOutcome =
@@ -101,6 +122,37 @@ type ImportSpec = {
 type ExportFromSpec =
   | { kind: "named"; moduleSpecifier: string; elements: Array<{ exported: string; source: string }> }
   | { kind: "all"; moduleSpecifier: string };
+
+type RuntimeImportRequest =
+  | {
+      kind: "external";
+      statement: ts.ImportDeclaration;
+      runtimeSpecifier: string;
+      importType: string | null;
+      manifestEntry: RuntimeModuleManifestEntry | null;
+    }
+  | {
+      kind: "internal-binding";
+      statement: ts.ImportDeclaration;
+      anchor: string;
+    };
+
+type RuntimeImportProblem = {
+  statement: ts.ImportDeclaration;
+  id: string;
+  message: string;
+};
+
+type SourceRuntimeImportPlan = {
+  requests: readonly RuntimeImportRequest[];
+  problems: readonly RuntimeImportProblem[];
+};
+
+type ProjectRuntimeImportPlan = {
+  bySourceFile: ReadonlyMap<string, SourceRuntimeImportPlan>;
+  stagedFiles: readonly EmittedFile[];
+  dispositions: readonly RuntimeModuleDisposition[];
+};
 
 function isRelativeModuleSpecifier(spec: string): boolean {
   return spec.startsWith("./") || spec.startsWith("../");
@@ -2728,6 +2780,316 @@ function translationDiagnostic(opts: EmitHaxeOptions, sf: ts.SourceFile, node: t
   };
 }
 
+type ParsedImportAttribute =
+  | { ok: true; importType: string | null }
+  | { ok: false; message: string };
+
+function parseImportAttribute(statement: ts.ImportDeclaration): ParsedImportAttribute {
+  const attributes = statement.attributes;
+  if (!attributes) return { ok: true, importType: null };
+  if (attributes.elements.length !== 1)
+    return { ok: false, message: "Only one literal ESM import attribute named type is supported." };
+
+  const attribute = attributes.elements[0];
+  if (!attribute)
+    return { ok: false, message: "The ESM import attribute could not be read." };
+  const name = ts.isIdentifier(attribute.name) || ts.isStringLiteral(attribute.name)
+    ? attribute.name.text
+    : "";
+  if (name !== "type" || !ts.isStringLiteral(attribute.value) || attribute.value.text.length === 0)
+    return { ok: false, message: "Only a non-empty literal type import attribute is supported." };
+  return { ok: true, importType: attribute.value.text };
+}
+
+function isRuntimeImport(statement: ts.ImportDeclaration): boolean {
+  const clause = statement.importClause;
+  if (!clause) return true;
+  if (clause.isTypeOnly) return false;
+  if (clause.name) return true;
+  const bindings = clause.namedBindings;
+  if (!bindings) return true;
+  if (ts.isNamespaceImport(bindings)) return true;
+  if (bindings.elements.length === 0) return true;
+  return bindings.elements.some((element) => !element.isTypeOnly);
+}
+
+function runtimeBindingAnchor(statement: ts.ImportDeclaration): string | null {
+  const clause = statement.importClause;
+  if (!clause || clause.isTypeOnly) return null;
+  if (clause.name) return clause.name.text;
+  const bindings = clause.namedBindings;
+  if (!bindings || ts.isNamespaceImport(bindings)) return null;
+  const valueBinding = bindings.elements.find((element) => !element.isTypeOnly);
+  return valueBinding?.name.text ?? null;
+}
+
+function hasRuntimeReexport(sourceFile: ts.SourceFile): boolean {
+  return sourceFile.statements.some((statement) => {
+    if (!ts.isExportDeclaration(statement) || !statement.moduleSpecifier || statement.isTypeOnly)
+      return false;
+    if (!statement.exportClause) return true;
+    if (!ts.isNamedExports(statement.exportClause)) return false;
+    return statement.exportClause.elements.some((element) => !element.isTypeOnly);
+  });
+}
+
+function relativeDiskCandidates(fromFile: string, moduleSpecifier: string): string[] {
+  const resolvedBase = path.resolve(path.dirname(fromFile), stripTsExtension(moduleSpecifier));
+  return [
+    resolvedBase,
+    `${resolvedBase}.ts`,
+    `${resolvedBase}.tsx`,
+    `${resolvedBase}.js`,
+    `${resolvedBase}.jsx`
+  ];
+}
+
+function resolveRelativeDiskFile(fromFile: string, moduleSpecifier: string): string | null {
+  for (const candidate of relativeDiskCandidates(fromFile, moduleSpecifier)) {
+    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
+  }
+  return null;
+}
+
+function isConvertibleSourcePath(filePath: string): boolean {
+  return /\.(d\.)?(tsx?|jsx?)$/i.test(filePath);
+}
+
+function sourceOutputRelativeFile(opts: EmitHaxeOptions, sourceFile: ts.SourceFile): string {
+  const relative = path.relative(opts.rootDir, sourceFile.fileName);
+  const directory = path.dirname(relative);
+  const fileBase = path.basename(relative).replace(/\.(d\.)?(tsx?|jsx?)$/i, "");
+  const moduleName = toHaxeModuleName(fileBase);
+  const basePackageDirs = opts.basePackage.split(".").filter((part) => part.length > 0);
+  return path.join(...basePackageDirs, directory, `${moduleName}.hx`);
+}
+
+function problem(
+  statement: ts.ImportDeclaration,
+  id: string,
+  message: string
+): RuntimeImportProblem {
+  return { statement, id, message };
+}
+
+/**
+ * Builds one immutable runtime-import sequence before any source file prints.
+ *
+ * Why: per-file binding collection drops bare declarations and cannot preserve
+ * their order relative to bound imports. It also cannot safely decide whether
+ * a relative request names converted code, a build-owned runtime file, or a
+ * missing dependency.
+ *
+ * What: files containing at least one bare import receive an ordered request
+ * plan covering every runtime import declaration in that file. Package and
+ * manifest-owned relative requests become external marker calls; converted
+ * bound requests use a real local binding as their typed retention anchor.
+ * Ambiguous variants remain source-positioned failures.
+ *
+ * How: the plan is built against the exact configured conversion set and an
+ * optional hash-verified staging manifest. Resource bytes are read now but are
+ * committed only after every source file has been validated.
+ */
+function buildProjectRuntimeImportPlan(opts: EmitHaxeOptions): ProjectRuntimeImportPlan {
+  const manifest: RuntimeModuleManifestPlan | null = opts.runtimeModulesManifest
+    ? loadRuntimeModuleManifest(opts.runtimeModulesManifest)
+    : null;
+  const conversionSet = new Set(opts.sourceFiles.map((sourceFile) => path.resolve(sourceFile.fileName)));
+  const bySourceFile = new Map<string, SourceRuntimeImportPlan>();
+  const usedManifestEntries = new Set<RuntimeModuleManifestEntry>();
+
+  for (const sourceFile of opts.sourceFiles.slice().sort((a, b) => a.fileName.localeCompare(b.fileName))) {
+    const imports = sourceFile.statements.filter(
+      (statement): statement is ts.ImportDeclaration =>
+        ts.isImportDeclaration(statement)
+        && ts.isStringLiteral(statement.moduleSpecifier)
+    );
+    const bareImports = imports.filter((statement) => !statement.importClause);
+    if (bareImports.length === 0) continue;
+
+    const sourcePath = portablePath(path.relative(opts.rootDir, sourceFile.fileName));
+    const requests: RuntimeImportRequest[] = [];
+    const problems: RuntimeImportProblem[] = [];
+
+    if (hasRuntimeReexport(sourceFile)) {
+      const first = bareImports[0];
+      if (first) {
+        problems.push(problem(
+          first,
+          "TS2HX-MODULES-SIDE-EFFECT-IMPORT-REEXPORT-ORDER-001",
+          "A file containing a bare import and a runtime re-export needs one shared ordered ESM declaration plan."
+        ));
+      }
+    }
+
+    for (const statement of imports) {
+      if (!isRuntimeImport(statement)) continue;
+      const moduleSpecifier = (statement.moduleSpecifier as ts.StringLiteral).text;
+      const attribute = parseImportAttribute(statement);
+      if (!attribute.ok) {
+        problems.push(problem(
+          statement,
+          "TS2HX-MODULES-SIDE-EFFECT-IMPORT-ATTRIBUTE-001",
+          attribute.message
+        ));
+        continue;
+      }
+
+      if (!isRelativeModuleSpecifier(moduleSpecifier)) {
+        if (statement.importClause && attribute.importType !== null) {
+          problems.push(problem(
+            statement,
+            "TS2HX-MODULES-SIDE-EFFECT-IMPORT-ATTRIBUTE-001",
+            "A bound package import with attributes is outside the current request/binding coalescing contract."
+          ));
+          continue;
+        }
+        requests.push({
+          kind: "external",
+          statement,
+          runtimeSpecifier: moduleSpecifier,
+          importType: attribute.importType,
+          manifestEntry: null
+        });
+        continue;
+      }
+
+      const resolvedSource = resolveRelativeSourceFile(opts.program, sourceFile.fileName, moduleSpecifier);
+      if (resolvedSource && conversionSet.has(path.resolve(resolvedSource.fileName))) {
+        if (attribute.importType !== null) {
+          problems.push(problem(
+            statement,
+            "TS2HX-MODULES-SIDE-EFFECT-IMPORT-ATTRIBUTE-001",
+            "An import attribute cannot be preserved when a relative source is converted to a generated Haxe module."
+          ));
+          continue;
+        }
+        const anchor = runtimeBindingAnchor(statement);
+        if (!anchor) {
+          problems.push(problem(
+            statement,
+            "TS2HX-MODULES-SIDE-EFFECT-IMPORT-CONVERTED-RELATIVE-001",
+            "A binding-free converted-relative request needs a compiler-internal target retention marker."
+          ));
+          continue;
+        }
+        requests.push({ kind: "internal-binding", statement, anchor });
+        continue;
+      }
+
+      const diskFile = resolveRelativeDiskFile(sourceFile.fileName, moduleSpecifier);
+      if (
+        (resolvedSource && isConvertibleSourcePath(resolvedSource.fileName))
+        || (diskFile && isConvertibleSourcePath(diskFile))
+      ) {
+        problems.push(problem(
+          statement,
+          "TS2HX-MODULES-SIDE-EFFECT-IMPORT-UNCONVERTED-SOURCE-001",
+          `Relative source ${JSON.stringify(moduleSpecifier)} is not a member of the configured conversion set.`
+        ));
+        continue;
+      }
+
+      const manifestEntry = manifest?.byRequest.get(runtimeModuleRequestKey(sourcePath, moduleSpecifier)) ?? null;
+      if (manifestEntry) {
+        if (statement.importClause) {
+          problems.push(problem(
+            statement,
+            "TS2HX-MODULES-SIDE-EFFECT-IMPORT-EXTERNAL-RELATIVE-001",
+            "The current runtime-module manifest preserves binding-free relative requests only."
+          ));
+          continue;
+        }
+        if (attribute.importType !== manifestEntry.importType) {
+          problems.push(problem(
+            statement,
+            "TS2HX-MODULES-SIDE-EFFECT-IMPORT-ATTRIBUTE-001",
+            "The source import attribute must exactly match the runtime-module manifest entry."
+          ));
+          continue;
+        }
+        usedManifestEntries.add(manifestEntry);
+        requests.push({
+          kind: "external",
+          statement,
+          runtimeSpecifier: manifestEntry.runtimeSpecifier,
+          importType: manifestEntry.importType,
+          manifestEntry
+        });
+        continue;
+      }
+
+      if (diskFile) {
+        problems.push(problem(
+          statement,
+          "TS2HX-MODULES-SIDE-EFFECT-IMPORT-EXTERNAL-RELATIVE-001",
+          `External relative runtime file ${JSON.stringify(moduleSpecifier)} requires a hash-pinned runtime-module manifest entry.`
+        ));
+      } else {
+        problems.push(problem(
+          statement,
+          "TS2HX-MODULES-SIDE-EFFECT-IMPORT-UNRESOLVED-001",
+          `Relative side-effect import ${JSON.stringify(moduleSpecifier)} cannot be resolved.`
+        ));
+      }
+    }
+
+    bySourceFile.set(path.resolve(sourceFile.fileName), { requests, problems });
+  }
+
+  const stagedByPath = new Map<string, { hash: string; file: EmittedFile }>();
+  const dispositions: RuntimeModuleDisposition[] = [];
+  for (const entry of Array.from(usedManifestEntries).sort((a, b) =>
+    a.importer.localeCompare(b.importer) || a.specifier.localeCompare(b.specifier)
+  )) {
+    const importer = opts.sourceFiles.find(
+      (sourceFile) => portablePath(path.relative(opts.rootDir, sourceFile.fileName)) === entry.importer
+    );
+    if (!importer)
+      throw new Error(`Runtime-module manifest importer is not in the conversion set: ${entry.importer}.`);
+
+    const importerOutput = portablePath(sourceOutputRelativeFile(opts, importer));
+    const importerDirectory = path.posix.dirname(importerOutput);
+    const runtimeTarget = path.posix.normalize(path.posix.join(importerDirectory, entry.runtimeSpecifier));
+    const stagedTarget = path.posix.normalize(path.posix.join(importerDirectory, entry.stagedPath));
+    if (runtimeTarget !== stagedTarget)
+      throw new Error(
+        `Runtime-module staging mismatch for ${entry.importer} ${entry.specifier}: ` +
+        `${entry.runtimeSpecifier} resolves to ${runtimeTarget}, not ${stagedTarget}.`
+      );
+    if (stagedTarget === ".." || stagedTarget.startsWith("../") || path.posix.isAbsolute(stagedTarget))
+      throw new Error(`Runtime-module staged path escapes the output tree: ${stagedTarget}.`);
+
+    const filePath = path.resolve(opts.outDir, ...stagedTarget.split("/"));
+    const prior = stagedByPath.get(stagedTarget);
+    if (prior && prior.hash !== entry.sha256)
+      throw new Error(`Runtime modules with different hashes target the same staged file: ${stagedTarget}.`);
+    if (!prior) {
+      stagedByPath.set(stagedTarget, {
+        hash: entry.sha256,
+        file: { filePath, content: fs.readFileSync(entry.sourceFile) }
+      });
+    }
+    dispositions.push({
+      importer: entry.importer,
+      specifier: entry.specifier,
+      runtimeSpecifier: entry.runtimeSpecifier,
+      importType: entry.importType,
+      source: entry.source,
+      stagedFile: stagedTarget,
+      owner: entry.owner,
+      sha256: entry.sha256
+    });
+  }
+
+  return {
+    bySourceFile,
+    stagedFiles: Array.from(stagedByPath.values(), (value) => value.file)
+      .sort((a, b) => a.filePath.localeCompare(b.filePath)),
+    dispositions
+  };
+}
+
 /**
  * Converts one source file without mutating the output tree.
  *
@@ -2740,7 +3102,8 @@ function translationDiagnostic(opts: EmitHaxeOptions, sf: ts.SourceFile, node: t
 function emitHaxeSourceFile(
   opts: EmitHaxeOptions,
   sf: ts.SourceFile,
-  semanticRecorder: SemanticRecorder
+  semanticRecorder: SemanticRecorder,
+  runtimeImportPlan: SourceRuntimeImportPlan | null
 ): SourceEmitOutcome {
   const absFile = sf.fileName;
   if (absFile.endsWith(".d.ts")) return { kind: "declaration-only" };
@@ -2832,12 +3195,6 @@ function emitHaxeSourceFile(
     if (ts.isImportDeclaration(statement)) {
       if (!statement.importClause) {
         recordSemantic(ctx, "modules.side-effect-import", statement);
-        recordUnsupported(
-          statement,
-          "A bare side-effect import has no explicit Haxe module-initialization edge and cannot be dropped.",
-          "module",
-          "TS2HX-MODULES-SIDE-EFFECT-IMPORT-001"
-        );
       } else {
         recordSemantic(ctx, "modules.esm-bindings", statement);
       }
@@ -2845,6 +3202,15 @@ function emitHaxeSourceFile(
     }
     if (ts.isExportDeclaration(statement) || ts.isExportAssignment(statement))
       recordSemantic(ctx, "modules.esm-bindings", statement);
+  }
+
+  for (const runtimeProblem of runtimeImportPlan?.problems ?? []) {
+    recordUnsupported(
+      runtimeProblem.statement,
+      runtimeProblem.message,
+      "module",
+      runtimeProblem.id
+    );
   }
 
   const imports = collectImports(sf);
@@ -2917,6 +3283,44 @@ function emitHaxeSourceFile(
   }
   if (externalTypeAliases.length > 0) {
     out.push(...externalTypeAliases);
+    out.push("");
+  }
+
+  if (runtimeImportPlan && runtimeImportPlan.requests.length > 0) {
+    const usedNames = new Set(collectLocalDeclarationKinds(sf).keys());
+    for (const imp of imports) {
+      if (imp.defaultImport) usedNames.add(imp.defaultImport);
+      if (imp.namespaceImport) usedNames.add(imp.namespaceImport);
+      for (const named of imp.named) usedNames.add(named.name);
+    }
+    let carrierName = "__ts2hx_requests";
+    let suffix = 2;
+    while (usedNames.has(carrierName)) {
+      carrierName = `__ts2hx_requests${suffix}`;
+      suffix++;
+    }
+
+    out.push("/**");
+    out.push(" * Compiler-internal ordered ESM request carrier.");
+    out.push(" * @:keep retains typed anchors through full Haxe DCE; the Genes planner");
+    out.push(" * consumes every marker and erases this field from JS, TS, and declarations.");
+    out.push(" */");
+    out.push("@:keep");
+    out.push("@:noCompletion");
+    out.push("@:genes.compilerInternal");
+    out.push(`final ${carrierName} = {`);
+    for (const request of runtimeImportPlan.requests) {
+      if (request.kind === "external") {
+        const attribute = request.importType === null ? "null" : JSON.stringify(request.importType);
+        out.push(
+          `  genes.internal.SideEffectImportMarker.external(${JSON.stringify(request.runtimeSpecifier)}, ${attribute});`
+        );
+      } else {
+        out.push(`  genes.internal.SideEffectImportMarker.internal(${request.anchor});`);
+      }
+    }
+    out.push("  true;");
+    out.push("};");
     out.push("");
   }
 
@@ -3280,7 +3684,7 @@ function commitOutputTree(opts: EmitHaxeOptions, files: EmittedFile[]): string[]
         throw new Error(`Refusing to emit outside output directory: ${emitted.filePath}`);
       const stagedPath = path.join(stageDir, relative);
       fs.mkdirSync(path.dirname(stagedPath), { recursive: true });
-      fs.writeFileSync(stagedPath, emitted.content, "utf8");
+      fs.writeFileSync(stagedPath, emitted.content);
     }
 
     const hadPriorTree = fs.existsSync(outDir);
@@ -3325,13 +3729,21 @@ export function emitProjectToHaxe(rawOpts: EmitHaxeOptions): EmitHaxeResult {
   const diagnostics: TranslationDiagnostic[] = [];
   const dispositions: TranslationFileDisposition[] = [];
   const semanticRecorder = new SemanticRecorder();
+  const runtimeImportProjectPlan = buildProjectRuntimeImportPlan(opts);
+
+  files.push(...runtimeImportProjectPlan.stagedFiles);
 
   const externs = buildExternModules(opts);
   for (const ex of Array.from(externs.values()).sort((a, b) => a.moduleSpecifier.localeCompare(b.moduleSpecifier)))
     files.push(emitExternModuleFile(opts, ex));
 
   for (const sf of opts.sourceFiles.slice().sort((a, b) => a.fileName.localeCompare(b.fileName))) {
-    const outcome = emitHaxeSourceFile(opts, sf, semanticRecorder);
+    const outcome = emitHaxeSourceFile(
+      opts,
+      sf,
+      semanticRecorder,
+      runtimeImportProjectPlan.bySourceFile.get(path.resolve(sf.fileName)) ?? null
+    );
     const sourceFile = portablePath(path.relative(opts.rootDir, sf.fileName));
     if (outcome.kind === "declaration-only") {
       dispositions.push({ sourceFile, status: "declaration-only", outputFile: null, diagnosticIds: [] });
@@ -3377,6 +3789,7 @@ export function emitProjectToHaxe(rawOpts: EmitHaxeOptions): EmitHaxeResult {
     plannedFiles,
     files: dispositions,
     diagnostics,
+    runtimeModules: runtimeImportProjectPlan.dispositions.slice(),
     features: semanticRecorder.dispositions()
   };
 

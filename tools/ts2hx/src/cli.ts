@@ -25,6 +25,7 @@ type CliCommand =
       mode: TranslationMode;
       allowLoss: boolean;
       diagnosticsJson: string | null;
+      runtimeModulesManifest: string | null;
     };
 
 function readPackageJsonVersion(argv1: string | undefined): string {
@@ -61,6 +62,7 @@ Options:
   --mode                 strict-js (default) or assisted
   --allow-loss           Map assisted-loss exit 3 to 0 (manifest remains lossy)
   --diagnostics-json     Write the deterministic translation manifest to a JSON file
+  --runtime-modules      Hash-pinned manifest for staged relative runtime modules
   --clean                Replace output dir contents transactionally
 `);
 }
@@ -85,6 +87,7 @@ function parseArgs(argv: string[]): CliCommand | { kind: "error"; message: strin
   let mode: TranslationMode = "strict-js";
   let allowLoss = false;
   let diagnosticsJson: string | null = null;
+  let runtimeModulesManifest: string | null = null;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] ?? "";
@@ -128,6 +131,13 @@ function parseArgs(argv: string[]): CliCommand | { kind: "error"; message: strin
       i++;
       continue;
     }
+    if (arg === "--runtime-modules") {
+      const next = args[i + 1];
+      if (!next) return { kind: "error", message: "Missing value for --runtime-modules." };
+      runtimeModulesManifest = next;
+      i++;
+      continue;
+    }
     if (arg === "--clean") {
       cleanOutDir = true;
       continue;
@@ -156,7 +166,8 @@ function parseArgs(argv: string[]): CliCommand | { kind: "error"; message: strin
     cleanOutDir,
     mode,
     allowLoss,
-    diagnosticsJson
+    diagnosticsJson,
+    runtimeModulesManifest
   };
 }
 
@@ -190,6 +201,7 @@ function inspectProject(opts: {
   mode: TranslationMode;
   allowLoss: boolean;
   diagnosticsJson: string | null;
+  runtimeModulesManifest: string | null;
 }): number {
   const loaded = loadProject(opts.projectPath);
   if (!loaded.ok) {
@@ -238,7 +250,8 @@ function inspectProject(opts: {
       outDir: outAbsDir,
       basePackage: opts.basePackage,
       mode: opts.mode,
-      cleanOutDir: opts.cleanOutDir
+      cleanOutDir: opts.cleanOutDir,
+      runtimeModulesManifest: opts.runtimeModulesManifest ?? undefined
     });
     if (opts.diagnosticsJson)
       writeManifest(opts.diagnosticsJson, emitted.manifest);

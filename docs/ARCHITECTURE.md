@@ -244,12 +244,19 @@ tsconfig + TypeScript source
 | `src/typescript-api.ts` | Isolates the TypeScript 6 compiler-API bridge from tool logic. |
 | `src/semantic/ir.ts` | Owns stable semantic feature IDs, support grades, and the deliberately small normalized model. |
 | `src/haxe/emit.ts` | Translates validated constructs, records source provenance, and stages output. Unsupported input must not disappear. |
+| `src/haxe/runtime-modules.ts` | Validates hash-pinned external-relative runtime ownership before emission; staged bytes share the Haxe output transaction, while the named build owner copies them beside final JS. |
 | `src/cli.ts` | Owns strict/assisted modes, exit codes, human diagnostics, and deterministic JSON output. |
 
 Strict mode succeeds only for the supported subset and preserves the previous
 output tree on failure. Assisted mode may create scaffolding only when every
 loss has a stable `TS2HX-*` marker and manifest record. Printers may not turn an
 unsupported construct into a silent omission or behavior-changing default.
+For a source file with a supported bare import, a project prepass inventories
+every runtime import declaration in source order. The generated Haxe contains
+one kept `@:genes.compilerInternal` carrier whose typed marker calls survive
+full DCE, become ordered Genes module requests, and disappear from both final
+profiles and declarations. Maps remain lookup structures; neither ts2hx nor a
+Genes printer may reconstruct request order from grouped bindings.
 
 ### Contributing a ts2hx fixture
 

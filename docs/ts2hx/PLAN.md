@@ -37,7 +37,7 @@ What is implemented:
 - A schema-v2 manifest that records the complete support/portability matrix for
   successful and assisted runs
 - An exact original-TS versus classic-JS versus genes-ts-JS event differential
-  for fifteen supported contracts, plus four feature-specific fail-closed cases
+  for sixteen supported contracts, plus nine feature-specific fail-closed cases
 
 Important limitations:
 
@@ -47,8 +47,9 @@ Important limitations:
 - Some patterns are supported only in the “high signal” shapes we see in fixtures (e.g. logical assigns currently require identifier LHS).
 - Exit `0` means the encountered constructs fit the declared matrix; it does
   not prove arbitrary TypeScript semantics. Dynamic prototype mutation,
-  labeled switch continue, outer completion through finally, and
-  side-effect-only imports intentionally reject today. Other
+  labeled switch continue and outer completion through finally intentionally
+  reject today. Side-effect imports support packages and manifest-owned runtime
+  files while ambiguous relative/attribute/re-export variants fail closed. Other
   unmodeled syntax still requires a focused contract before promotion.
 
 Tracking:

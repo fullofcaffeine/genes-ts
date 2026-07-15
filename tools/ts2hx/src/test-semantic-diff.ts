@@ -53,13 +53,42 @@ function semanticTrace(output: string, label: string): string {
   return JSON.stringify(parsed);
 }
 
+function assertSideEffectOrder(output: string, label: string): void {
+  const packageEffect = output.indexOf("TS2HX_SIDE_EFFECT:package");
+  const supportEffect = output.indexOf("TS2HX_SIDE_EFFECT:support");
+  const resourceEffect = output.indexOf("TS2HX_SIDE_EFFECT:resource");
+  const semanticTrace = output.indexOf(TRACE_MARKER);
+  assert(packageEffect >= 0, `${label}: package side effect did not run.`);
+  assert(supportEffect > packageEffect, `${label}: bound Support request did not follow the package request.`);
+  assert(resourceEffect > supportEffect, `${label}: staged resource did not follow the bound Support request.`);
+  assert(semanticTrace > resourceEffect, `${label}: Main ran before its ordered runtime requests completed.`);
+}
+
+function installNodeRuntime(fixtureDir: string, outputDir: string, stagedRuntimeDir: string): void {
+  const packageTarget = path.join(outputDir, "node_modules", "@ts2hx", "semantic-effect");
+  fs.mkdirSync(path.dirname(packageTarget), { recursive: true });
+  fs.cpSync(path.join(fixtureDir, "runtime", "package"), packageTarget, { recursive: true });
+
+  const runtimeTarget = path.join(outputDir, "ts2hx_semantic", "runtime");
+  fs.mkdirSync(path.dirname(runtimeTarget), { recursive: true });
+  fs.cpSync(stagedRuntimeDir, runtimeTarget, { recursive: true });
+}
+
 function compileOriginalTypeScript(opts: {
   repoRoot: string;
+  fixtureDir: string;
   fixtureConfig: string;
   outputDir: string;
 }): string {
   resetDir(opts.outputDir);
   runTypeScriptApiBridge(opts.repoRoot, ["-p", opts.fixtureConfig, "--outDir", opts.outputDir]);
+  const packageTarget = path.join(opts.outputDir, "node_modules", "@ts2hx", "semantic-effect");
+  fs.mkdirSync(path.dirname(packageTarget), { recursive: true });
+  fs.cpSync(path.join(opts.fixtureDir, "runtime", "package"), packageTarget, { recursive: true });
+  const resourceTarget = path.join(opts.outputDir, "runtime", "after-support.mjs");
+  fs.mkdirSync(path.dirname(resourceTarget), { recursive: true });
+  fs.copyFileSync(path.join(opts.fixtureDir, "runtime", "after-support.mjs"), resourceTarget);
+  fs.copyFileSync(path.join(opts.fixtureDir, "src", "runtime", "config.json"), path.join(opts.outputDir, "runtime", "config.json"));
   const entry = pathToFileURL(path.join(opts.outputDir, "Main.js")).href;
   return capture(
     process.execPath,
@@ -73,14 +102,19 @@ function compileClassicHaxe(opts: {
   repoRoot: string;
   haxeSourceDir: string;
   outputFile: string;
+  fixtureDir: string;
+  stagedRuntimeDir: string;
 }): string {
+  resetDir(path.dirname(opts.outputFile));
   run(opts.haxeBin, [
+    "-lib", "genes-ts",
     "-cp", opts.haxeSourceDir,
-    "-cp", path.join(opts.repoRoot, "src"),
     "--macro", "genes.js.Async.enable()",
+    "-dce", "full",
     "-main", "ts2hx_semantic.Main",
     "-js", opts.outputFile
   ], opts.repoRoot);
+  installNodeRuntime(opts.fixtureDir, path.dirname(opts.outputFile), opts.stagedRuntimeDir);
   return capture(process.execPath, [opts.outputFile], opts.repoRoot);
 }
 
@@ -90,6 +124,8 @@ function compileGenesTypeScript(opts: {
   haxeSourceDir: string;
   sourceDir: string;
   distDir: string;
+  fixtureDir: string;
+  stagedRuntimeDir: string;
 }): string {
   resetDir(opts.sourceDir);
   resetDir(opts.distDir);
@@ -98,7 +134,8 @@ function compileGenesTypeScript(opts: {
     "-cp", opts.haxeSourceDir,
     "-main", "ts2hx_semantic.Main",
     "-js", path.join(opts.sourceDir, "index.ts"),
-    "-D", "genes.ts"
+    "-D", "genes.ts",
+    "-dce", "full"
   ], opts.repoRoot);
 
   const tsconfig = path.join(opts.sourceDir, "tsconfig.semantic.json");
@@ -107,6 +144,7 @@ function compileGenesTypeScript(opts: {
       target: "ES2022",
       module: "NodeNext",
       moduleResolution: "NodeNext",
+      resolveJsonModule: true,
       strict: true,
       noEmitOnError: true,
       outDir: opts.distDir,
@@ -114,7 +152,9 @@ function compileGenesTypeScript(opts: {
     },
     include: ["**/*.ts"]
   }, null, 2)}\n`, "utf8");
+  installNodeRuntime(opts.fixtureDir, opts.sourceDir, opts.stagedRuntimeDir);
   runTypeScriptApiBridge(opts.repoRoot, ["-p", tsconfig]);
+  installNodeRuntime(opts.fixtureDir, opts.distDir, opts.stagedRuntimeDir);
   return capture(process.execPath, [path.join(opts.distDir, "index.js")], opts.repoRoot);
 }
 
@@ -143,10 +183,12 @@ function main(): void {
 
   const originalOutput = compileOriginalTypeScript({
     repoRoot,
+    fixtureDir,
     fixtureConfig,
     outputDir: path.join(tmpRoot, "original")
   });
   const originalTrace = semanticTrace(originalOutput, "original TypeScript");
+  assertSideEffectOrder(originalOutput, "original TypeScript");
 
   const loaded = loadProject(fixtureConfig);
   if (!loaded.ok)
@@ -161,11 +203,34 @@ function main(): void {
     outDir: haxeSourceDir,
     basePackage: "ts2hx_semantic",
     mode: "strict-js",
-    cleanOutDir: true
+    cleanOutDir: true,
+    runtimeModulesManifest: path.join(fixtureDir, "runtime-modules.json")
   });
   assert(translation.status === "success", `semantic-diff translation status was ${translation.status}.`);
   assert(translation.diagnostics.length === 0, "semantic-diff unexpectedly produced translation diagnostics.");
   assert(translation.manifest.schemaVersion === 2, "semantic manifest schema is not version 2.");
+  assert(translation.manifest.runtimeModules.length === 2, "semantic manifest lost its staged runtime modules.");
+  assert(
+    translation.manifest.runtimeModules[0]?.stagedFile
+      === "ts2hx_semantic/runtime/after-support.mjs",
+    "semantic manifest recorded the wrong staged runtime path."
+  );
+  const translationAgain = emitProjectToHaxe({
+    projectDir: loaded.projectDir,
+    rootDir: loaded.rootDir,
+    program: loaded.program,
+    checker: loaded.checker,
+    sourceFiles: loaded.sourceFiles,
+    outDir: haxeSourceDir,
+    basePackage: "ts2hx_semantic",
+    mode: "strict-js",
+    cleanOutDir: true,
+    runtimeModulesManifest: path.join(fixtureDir, "runtime-modules.json")
+  });
+  assert(
+    JSON.stringify(translationAgain.manifest) === JSON.stringify(translation.manifest),
+    "runtime-module planning changed across two clean translations."
+  );
   assert(
     translation.manifest.features.length === SEMANTIC_SUPPORT_MATRIX.length,
     "semantic manifest does not contain the complete support matrix."
@@ -198,7 +263,8 @@ function main(): void {
     "exceptions.finally",
     "this.class-and-lexical-arrow",
     "async.await",
-    "modules.esm-bindings"
+    "modules.esm-bindings",
+    "modules.side-effect-import"
   ];
   const exercised = translation.manifest.features
     .filter((feature) => feature.occurrences.length > 0)
@@ -216,28 +282,134 @@ function main(): void {
     translatedMain.includes("genes.js.Coercion.toNumber("),
     "unary plus did not lower through the named typed coercion boundary."
   );
+  assert(
+    translatedMain.includes("SideEffectImportMarker.external(\"@ts2hx/semantic-effect\", null)")
+      && translatedMain.includes("SideEffectImportMarker.internal(moduleLabel)")
+      && translatedMain.includes("SideEffectImportMarker.external(\"./runtime/after-support.mjs\", null)")
+      && translatedMain.includes("SideEffectImportMarker.external(\"./runtime/config.json\", \"json\")"),
+    "translated Haxe did not preserve the complete ordered runtime-import sequence."
+  );
+  const stagedResource = path.join(
+    haxeSourceDir,
+    "ts2hx_semantic",
+    "runtime",
+    "after-support.mjs"
+  );
+  assert(fs.existsSync(stagedResource), "runtime-module transaction did not stage the owned resource.");
+  const stagedRuntimeDir = path.dirname(stagedResource);
+  assert(
+    fs.existsSync(path.join(stagedRuntimeDir, "config.json")),
+    "runtime-module transaction did not stage the attributed JSON resource."
+  );
+
+  const cliOutput = path.join(tmpRoot, "runtime-modules-cli");
+  run(process.execPath, [
+    path.join(toolRoot, "dist", "cli.js"),
+    "--project", fixtureConfig,
+    "--out", cliOutput,
+    "--base-package", "ts2hx_semantic",
+    "--runtime-modules", path.join(fixtureDir, "runtime-modules.json"),
+    "--clean"
+  ], repoRoot);
+  assert(
+    fs.existsSync(path.join(cliOutput, "ts2hx_semantic", "runtime", "after-support.mjs")),
+    "--runtime-modules did not stage the CLI-owned runtime file."
+  );
+
+  const invalidManifestRoot = path.join(tmpRoot, "invalid-runtime-manifest");
+  resetDir(invalidManifestRoot);
+  fs.mkdirSync(path.join(invalidManifestRoot, "runtime"), { recursive: true });
+  fs.copyFileSync(
+    path.join(fixtureDir, "runtime", "after-support.mjs"),
+    path.join(invalidManifestRoot, "runtime", "after-support.mjs")
+  );
+  const invalidManifest = path.join(invalidManifestRoot, "runtime-modules.json");
+  fs.writeFileSync(invalidManifest, `${JSON.stringify({
+    schemaVersion: 1,
+    modules: [{
+      importer: "Main.ts",
+      specifier: "./runtime/after-support.mjs",
+      runtimeSpecifier: "./runtime/after-support.mjs",
+      source: "runtime/after-support.mjs",
+      stagedPath: "./runtime/after-support.mjs",
+      owner: "invalid-hash-test",
+      sha256: "0".repeat(64)
+    }]
+  }, null, 2)}\n`, "utf8");
+  const invalidOutput = path.join(tmpRoot, "invalid-runtime-output");
+  resetDir(invalidOutput);
+  fs.writeFileSync(path.join(invalidOutput, "sentinel.txt"), "hash-prior\n", "utf8");
+  let rejectedHash = false;
+  try {
+    emitProjectToHaxe({
+      projectDir: loaded.projectDir,
+      rootDir: loaded.rootDir,
+      program: loaded.program,
+      checker: loaded.checker,
+      sourceFiles: loaded.sourceFiles,
+      outDir: invalidOutput,
+      basePackage: "ts2hx_semantic",
+      mode: "strict-js",
+      cleanOutDir: true,
+      runtimeModulesManifest: invalidManifest
+    });
+  } catch (error) {
+    rejectedHash = error instanceof Error && error.message.includes("sha256 does not match");
+  }
+  assert(rejectedHash, "runtime-module manifest accepted stale source bytes.");
+  assert(
+    fs.readFileSync(path.join(invalidOutput, "sentinel.txt"), "utf8") === "hash-prior\n",
+    "runtime-module manifest validation modified the prior output tree."
+  );
 
   const classicOutput = compileClassicHaxe({
     haxeBin,
     repoRoot,
     haxeSourceDir,
-    outputFile: path.join(tmpRoot, "classic.js")
+    outputFile: path.join(tmpRoot, "classic", "index.js"),
+    fixtureDir,
+    stagedRuntimeDir
   });
   const genesTsOutput = compileGenesTypeScript({
     haxeBin,
     repoRoot,
     haxeSourceDir,
     sourceDir: path.join(tmpRoot, "genes-ts-source"),
-    distDir: path.join(tmpRoot, "genes-ts-dist")
+    distDir: path.join(tmpRoot, "genes-ts-dist"),
+    fixtureDir,
+    stagedRuntimeDir
   });
   assert(
     !fs.existsSync(path.join(tmpRoot, "genes-ts-source", "genes", "js", "Coercion.ts")),
     "the macro-only coercion abstract leaked an empty runtime TypeScript module."
   );
   assert(
-    !fs.readFileSync(path.join(tmpRoot, "classic.js"), "utf8").includes("genes_js_Coercion"),
+    !fs.readFileSync(path.join(tmpRoot, "classic", "index.js"), "utf8").includes("genes_js_Coercion"),
     "the macro-only coercion abstract leaked an empty runtime JavaScript helper."
   );
+  const classicMain = fs.readFileSync(
+    path.join(tmpRoot, "classic", "ts2hx_semantic", "Main.js"),
+    "utf8"
+  );
+  const genesTsMain = fs.readFileSync(
+    path.join(tmpRoot, "genes-ts-source", "ts2hx_semantic", "Main.ts"),
+    "utf8"
+  );
+  for (const [label, source] of [["classic", classicMain], ["genes-ts", genesTsMain]] as const) {
+    const packageRequest = source.indexOf("@ts2hx/semantic-effect");
+    const supportRequest = source.indexOf("./Support.js");
+    const resourceRequest = source.indexOf("./runtime/after-support.mjs");
+    const attributedRequest = source.indexOf("./runtime/config.json");
+    assert(packageRequest >= 0, `${label}: generated module lost the package request.`);
+    assert(supportRequest > packageRequest, `${label}: generated bound request moved before the package request.`);
+    assert(resourceRequest > supportRequest, `${label}: generated resource request moved before Support.`);
+    assert(attributedRequest > resourceRequest, `${label}: generated attributed request moved before the resource.`);
+    assert(source.includes('type: "json"'), `${label}: generated JSON request lost its import attribute.`);
+    assert(!source.includes("SideEffectImportMarker"), `${label}: compiler marker leaked into generated output.`);
+    assert(!source.includes("__ts2hx_requests"), `${label}: request carrier leaked into generated output.`);
+  }
+  assertSideEffectOrder(classicOutput, "translated classic Genes JavaScript");
+  assertSideEffectOrder(genesTsOutput, "translated genes-ts output");
   assert(
     semanticTrace(classicOutput, "translated classic JavaScript") === originalTrace,
     "classic translated trace differs from original TypeScript."
@@ -289,6 +461,30 @@ function main(): void {
       `${failure.featureId}: ${failure.variant} has no source provenance.`
     );
   }
+
+  const assistedOutput = path.join(tmpRoot, "unsupported-assisted");
+  const assisted = emitProjectToHaxe({
+    projectDir: unsupportedProject.projectDir,
+    rootDir: unsupportedProject.rootDir,
+    program: unsupportedProject.program,
+    checker: unsupportedProject.checker,
+    sourceFiles: unsupportedProject.sourceFiles,
+    outDir: assistedOutput,
+    basePackage: "ts2hx_unsupported",
+    mode: "assisted",
+    cleanOutDir: true
+  });
+  assert(assisted.status === "assisted", "side-effect boundary losses did not mark assisted output.");
+  assert(
+    JSON.stringify(assisted.diagnostics.map((diagnostic) => diagnostic.id).sort())
+      === JSON.stringify(expectedDiagnosticIds),
+    "assisted side-effect diagnostics diverged from strict mode."
+  );
+  assert(
+    fs.readFileSync(path.join(assistedOutput, "ts2hx-manifest.json"), "utf8")
+      .includes('"status": "assisted"'),
+    "assisted side-effect losses were not committed with their manifest."
+  );
 
   process.stdout.write(
     `Semantic differential OK (${expectedFeatures.length} exercised contracts, ${expectedDiagnosticIds.length} fail-closed contracts, 3 runtimes)\n`

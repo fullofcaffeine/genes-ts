@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "modules": [
+    {
+      "importer": "Main.ts",
+      "specifier": "./runtime/after-support.mjs",
+      "runtimeSpecifier": "./runtime/after-support.mjs",
+      "source": "runtime/after-support.mjs",
+      "stagedPath": "./runtime/after-support.mjs",
+      "owner": "tools/ts2hx semantic differential",
+      "sha256": "b5324b7f64114e85dd6bc0addcae5df250fbda6167a6210f9ca113c96691d6ad"
+    },
+    {
+      "importer": "Main.ts",
+      "specifier": "./runtime/config.json",
+      "runtimeSpecifier": "./runtime/config.json",
+      "source": "src/runtime/config.json",
+      "stagedPath": "./runtime/config.json",
+      "owner": "tools/ts2hx semantic differential",
+      "sha256": "f30451831a19cd7ebb193de9a147554458dfad6ba950a99f621bdb4c2dd79fbb",
+      "importType": "json"
+    }
+  ]
+}

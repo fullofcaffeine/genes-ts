@@ -104,6 +104,7 @@ files[]            emitted | declaration-only | unsupported
 diagnostics[]      stable ID, source span, syntax kind, category, remediation
 features[]         complete semantic catalog plus occurrences in this run
 plannedFiles[]     deterministic output inventory
+runtimeModules[]   staged runtime file identity, hash, owner, and destination
 ```
 
 Exit `0` is a subset claim, not a replacement for runtime comparison. The
@@ -124,9 +125,10 @@ the generated `src-generated/ts2hx-manifest.json` into review or CI evidence.
 
 TypeScript permits executable top-level statements. Haxe modules are not a
 lossless home for arbitrary module initialization, so strict mode rejects
-unmodeled calls and side-effect imports. Move application startup into an
-explicit exported function before translation or add a reviewed Haxe entry
-point after it:
+unmodeled calls. Supported bare package imports and manifest-owned relative
+runtime files become compiler-owned ESM requests; other top-level startup must
+move into an explicit exported function before translation or a reviewed Haxe
+entry point after it:
 
 ```haxe
 package app;

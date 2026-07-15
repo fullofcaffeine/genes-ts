@@ -200,10 +200,10 @@ export const SEMANTIC_SUPPORT_MATRIX: readonly SemanticFeatureContract[] = [
   {
     id: "modules.side-effect-import",
     category: "modules",
-    support: "unsupported",
-    portableGrade: "U",
-    summary: "Bare side-effect imports have no explicit Haxe initialization edge yet.",
-    limitation: "Strict mode rejects them instead of silently dropping their effects."
+    support: "supported-with-helper",
+    portableGrade: "J1",
+    summary: "Preserves source-ordered package and manifest-owned external-relative runtime requests.",
+    limitation: "Binding-free converted relatives, unresolved or unconverted sources, unmanifested runtime files, unsupported attributes, and files with runtime re-exports remain strict failures."
   }
 ];
 
@@ -238,8 +238,33 @@ export const SEMANTIC_FAIL_CLOSED_CASES: readonly SemanticFailClosedCase[] = [
   },
   {
     featureId: "modules.side-effect-import",
-    diagnosticId: "TS2HX-MODULES-SIDE-EFFECT-IMPORT-001",
-    variant: "bare side-effect import without an initialization edge"
+    diagnosticId: "TS2HX-MODULES-SIDE-EFFECT-IMPORT-ATTRIBUTE-001",
+    variant: "unsupported import attribute shape"
+  },
+  {
+    featureId: "modules.side-effect-import",
+    diagnosticId: "TS2HX-MODULES-SIDE-EFFECT-IMPORT-CONVERTED-RELATIVE-001",
+    variant: "binding-free converted-relative import pending a retention marker"
+  },
+  {
+    featureId: "modules.side-effect-import",
+    diagnosticId: "TS2HX-MODULES-SIDE-EFFECT-IMPORT-EXTERNAL-RELATIVE-001",
+    variant: "external relative runtime file without a staging manifest"
+  },
+  {
+    featureId: "modules.side-effect-import",
+    diagnosticId: "TS2HX-MODULES-SIDE-EFFECT-IMPORT-REEXPORT-ORDER-001",
+    variant: "bare import interleaved with a runtime re-export"
+  },
+  {
+    featureId: "modules.side-effect-import",
+    diagnosticId: "TS2HX-MODULES-SIDE-EFFECT-IMPORT-UNCONVERTED-SOURCE-001",
+    variant: "relative source outside the conversion set"
+  },
+  {
+    featureId: "modules.side-effect-import",
+    diagnosticId: "TS2HX-MODULES-SIDE-EFFECT-IMPORT-UNRESOLVED-001",
+    variant: "unresolved relative runtime request"
   },
   {
     featureId: "prototypes.dynamic-mutation",

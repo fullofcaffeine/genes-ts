@@ -68,13 +68,13 @@ Grades describe the emitted Haxe contract:
 | `prototypes.dynamic-mutation` | unsupported / U | Prototype mutation requires an explicit boundary/refactor. |
 | `async.await` | helper / J1 | Uses `genes.js.Async` and the JavaScript Promise/microtask contract. |
 | `modules.esm-bindings` | supported / J1 | Covers the exercised ESM value/type binding and re-export subset. |
-| `modules.side-effect-import` | unsupported / U | Bare side-effect imports are rejected because no Haxe initialization edge exists. |
+| `modules.side-effect-import` | helper / J1 | Preserves source-ordered bare packages and manifest-owned external relative runtime files. Binding-free converted relatives and the strict variants below remain unsupported. |
 
-The semantic harness currently requires exactly the 15 supported rows to occur.
-The matrix contains 3 unsupported rows, while the strict companion fixture owns
-4 feature-specific failures: the three unsupported contracts plus labeled
-switch continue, a deliberately rejected variant of an otherwise supported
-contract. This table does not turn other syntax accepted by snapshots into
+The semantic harness currently requires exactly the 16 supported rows to occur.
+The matrix contains 2 unsupported rows, while the strict companion fixture owns
+9 feature-specific failures: outer finally transfer, dynamic prototype
+mutation, labeled switch continue, and six side-effect-import boundary
+variants. This table does not turn other syntax accepted by snapshots into
 semantic evidence.
 
 ## Project and file inventory
@@ -106,7 +106,8 @@ Important consequences:
 - authored `main()` calls in five snapshot fixture `index.ts` files are
   deliberately assisted losses;
 - the three roundtrip fixtures invoke the translated Haxe `Main` explicitly;
-- bare side-effect imports fail strict mode;
+- supported bare imports become compiler-owned request carriers; arbitrary
+  executable top-level statements still fail strict mode;
 - uninitialized top-level variables and top-level destructuring declarations
   are unsupported;
 - async function-valued top-level variables are unsupported; use an async
@@ -232,7 +233,11 @@ non-relative import generates a small `<basePackage>.extern.*` module using
   runtime contract;
 - Node/browser globals and npm packages keep translated code in the JS-specific
   adapter layer;
-- bare side-effect imports are rejected;
+- bare package requests are J1; relative runtime files require a hash-pinned
+  staging manifest and explicit final-build copy ownership;
+- binding-free converted relatives, unresolved relatives, source code outside
+  the conversion set, unmanifested runtime files, unsupported attributes, and
+  bare-import/runtime-re-export interleaving fail closed;
 - a compile-only extern is not evidence that runtime module identity or loading
   order is correct.
 

@@ -290,10 +290,10 @@ The source of truth is Beads epic `genes-09r`.
 ### P2: mature migration and ecosystem workflows
 
 1. **`genes-09r.7` — ts2hx minimal semantic IR and differential support
-   matrix (landed).** Schema-v2 support/provenance manifests now grade 15 supported semantic rows
+   matrix (landed).** Schema-v2 support/provenance manifests now grade 16 supported semantic rows
    across original TS, translated classic JS, and
-   translated genes-ts output. The matrix retains 3 unsupported rows, while the
-   strict companion fixture owns 4 exercised fail-closed variants because a
+   translated genes-ts output. The matrix retains 2 unsupported rows, while the
+   strict companion fixture owns 9 exercised fail-closed variants because a
    supported feature can still reject a narrower form such as labeled switch
    continue. No failure publishes partial output; printers no longer own
    support decisions for migrated undefined/default/evaluation/control-flow/

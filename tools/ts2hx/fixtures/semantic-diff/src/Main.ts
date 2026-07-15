@@ -1,4 +1,7 @@
+import "@ts2hx/semantic-effect";
 import { moduleLabel, moduleValue } from "./support.js";
+import "./runtime/after-support.mjs";
+import "./runtime/config.json" with { type: "json" };
 
 const events: string[] = [];
 

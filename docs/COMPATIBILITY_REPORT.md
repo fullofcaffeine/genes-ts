@@ -21,7 +21,7 @@ This is an evidence contract, not a cached CI-success badge. `blocking` and `non
 | Semantic differential | Same-source Haxe modules | 12 | `blocking` |
 | Semantic differential | TS/classic/declaration and JS oracle profiles | 5 | `blocking` |
 | Semantic differential | Stable dual-output runtime trace events | 19 | `blocking` |
-| Semantic differential | ts2hx supported and fail-closed semantic input modules | 7 | `blocking` |
+| Semantic differential | ts2hx supported and fail-closed semantic input modules | 13 | `blocking` |
 | Snapshot stability | genes-ts snapshot profiles | 7 | `blocking` |
 | Snapshot stability | ts2hx reviewed snapshot files | 48 | `blocking` |
 | Runtime smoke and E2E | Same-source dual-profile examples | 2 | `blocking` |

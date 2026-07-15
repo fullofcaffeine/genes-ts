@@ -39,6 +39,7 @@ Current options:
 --mode                strict-js (default) or assisted
 --allow-loss          Map assisted exit 3 to 0; manifest stays assisted
 --diagnostics-json    Write the complete deterministic manifest to another path
+--runtime-modules     Hash-pinned staging manifest for relative runtime files
 --clean               Transactionally replace, rather than overlay, the output
 ```
 
@@ -135,6 +136,8 @@ The stable top-level fields are:
   configured source file;
 - `diagnostics`: stable `TS2HX-*` ID, severity, source span, syntax kind,
   semantic category, support grade, output file, and remediation;
+- `runtimeModules`: build owner, source hash, original/emitted specifier, import
+  attribute, and staged destination for every external relative runtime file;
 - `features`: the complete semantic support matrix with source occurrences for
   the current run.
 
@@ -168,9 +171,9 @@ through standard Haxe JS. Explicit exceptions:
 
 Additional evidence-only fixtures:
 
-- `semantic-diff`: 15 supported semantic contracts executed as original TS,
+- `semantic-diff`: 16 supported semantic contracts executed as original TS,
   classic Genes JS, and genes-ts→JS;
-- `semantic-unsupported`: 4 feature-specific strict failures with source
+- `semantic-unsupported`: 9 feature-specific strict failures with source
   provenance and unchanged prior output;
 - `unsupported-top-level`: generic unknown-statement diagnostics, assisted loss
   markers, CLI exit codes, and transactional writes.
@@ -217,8 +220,46 @@ truthiness, strict equality, unary-plus numeric coercion, compound-assignment
 order, `for`/`continue`, switch fallthrough/default placement,
 unlabelled switch-to-loop `continue`, try/catch/finally, class and lexical arrow
 `this`, async/await ordering, and ESM bindings. It also proves labeled switch
-continue, outer completion through finally, dynamic prototype mutation, and
-side-effect imports fail closed.
+continue, outer completion through finally, and dynamic prototype mutation fail
+closed. Its module transcript additionally proves a bare package request, a
+bound converted request, and a manifest-staged relative request execute in
+source order in all three runtimes.
+
+## External relative runtime modules
+
+Bare package specifiers are preserved as JavaScript-host J1 requests. A
+relative file that is intentionally not translated requires
+`--runtime-modules <manifest.json>`; ts2hx never guesses that a missing or
+excluded source file should remain executable. The input manifest is schema v1:
+
+```json
+{
+  "schemaVersion": 1,
+  "modules": [{
+    "importer": "Main.ts",
+    "specifier": "./runtime/setup.mjs",
+    "runtimeSpecifier": "./runtime/setup.mjs",
+    "source": "runtime/setup.mjs",
+    "stagedPath": "./runtime/setup.mjs",
+    "owner": "app runtime-assets build",
+    "sha256": "<64 lowercase hex characters>"
+  }]
+}
+```
+
+`importer` is relative to the migration tsconfig's `rootDir`; `source` is
+relative to the manifest; and `stagedPath` is relative to the generated
+importing Haxe module. The source bytes are hash-checked and copied inside the
+same transaction as generated Haxe. The named `owner` must copy that staged
+asset to the identical module-relative location in both final Genes output
+trees. npm/package installation remains the host build's responsibility.
+
+The current strict boundary supports bare packages and manifest-owned external
+relative files, including one non-empty literal `type` attribute when the
+source and manifest agree. Binding-free converted relatives land separately. Unresolved
+relatives, code outside the configured conversion set, unmanifested runtime
+files, unsupported attributes, and a file combining a bare import with a
+runtime re-export receive stable source-positioned diagnostics.
 
 Update snapshots only after reviewing the semantic reason for every change:
 

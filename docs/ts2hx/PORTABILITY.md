@@ -30,6 +30,12 @@ it can become a CLI contract.
 These are evidence labels, not promises. P0 does not mean "works everywhere"
 until the intended targets have run the same semantic fixture.
 
+`modules.side-effect-import` is J1 even though its generated Haxe carrier is
+typed: the Genes JS/TS compiler consumes that carrier, and the final behavior
+depends on ESM package/resource loading. Package installation and copying any
+manifest-staged relative asset beside final JavaScript remain explicit host
+build responsibilities.
+
 ## Adapter layers
 
 A portable application should isolate translated code behind explicit layers:
