@@ -10,8 +10,33 @@ import {
 const contract = loadDownstreamContracts();
 const openCode = contract.profiles.find((profile) => profile.id === "opencodehx");
 assert.ok(openCode, "the pinned OpenCodeHX profile must exist");
-const expectedCommand = openCode.commands.find((command) => command.id === "strict-typescript");
-assert.ok(expectedCommand?.expectedFailure, "the known OpenCodeHX typecheck must be executable evidence");
+assert.equal(openCode.baseline, "passing", "the repaired OpenCodeHX pin must have a passing baseline");
+assert.deepEqual(openCode.knownObservations, [], "the repaired OpenCodeHX pin must have no accepted failure");
+const openCodeTypecheck = openCode.commands.find((command) => command.id === "strict-typescript");
+assert.ok(openCodeTypecheck, "the pinned OpenCodeHX strict typecheck must remain curated");
+assert.equal(
+  openCodeTypecheck.expectedFailure,
+  undefined,
+  "a repaired downstream must not retain a stale expected-failure allowance"
+);
+
+// Keep exception-policy coverage independent of current downstream health. A
+// real pinned exception must satisfy the manifest's ownership checks as well;
+// this synthetic command isolates exact diagnostic classification behavior.
+const expectedCommand = {
+  id: "synthetic-known-type-error",
+  class: "typecheck",
+  executable: "tsc",
+  args: ["-p", "tsconfig.json"],
+  expectedFailure: {
+    observation: "synthetic-downstream-type-model",
+    exitCode: 2,
+    matcher: "typescript-diagnostics",
+    diagnostics: [
+      "src-gen/Fixture.ts(7,11): error TS2322: Type 'string | null' is not assignable to type 'string'."
+    ]
+  }
+} satisfies DownstreamCommand;
 
 const expectedOutput = `${expectedCommand.expectedFailure.diagnostics.join("\n")}\n`;
 assert.deepEqual(typescriptDiagnosticHeadlines(`npm banner\n${expectedOutput}  Type detail\n`), [
@@ -46,7 +71,7 @@ assert.equal(
   classifyDownstreamCommand(
     expectedCommand,
     expectedCommand.expectedFailure.exitCode,
-    expectedOutput.replace("(239,45)", "(240,45)"),
+    expectedOutput.replace("(7,11)", "(8,11)"),
     true
   ).status,
   "failed",
@@ -105,4 +130,4 @@ assert.deepEqual(summarizeDownstreamRun(["baseline-drift", "failed"]), {
   compilerObservation: "downstream-failure-unclassified"
 });
 
-console.log("downstream-runner-policy:ok (15 fail-closed contracts)");
+console.log("downstream-runner-policy:ok (18 fail-closed contracts)");

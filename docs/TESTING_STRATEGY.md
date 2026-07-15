@@ -95,10 +95,13 @@ PiMonoHX and OpenCodeHX are pinned, nonblocking nightly pressure tests. Their
 curated commands run only after dependency bootstrap and inside an OS network
 namespace with external networking disabled. Result artifacts keep compiler
 observations, downstream command results, known owners, and unsupported areas
-separate. Execution requires the stable Node major from `config/toolchains.json`
-before even the downstream clean step, preventing native-addon ABI drift from
-looking like a compiler or application failure. A reviewed downstream-owned
-known failure is accepted only when its pinned command, exit code, and complete
+separate. Both current pinned profiles have passing baselines; exception-policy
+coverage uses a synthetic diagnostic fixture so a repaired downstream never
+needs to retain a stale allowance. Execution requires the stable Node major
+from `config/toolchains.json` before even the downstream clean step, preventing
+native-addon ABI drift from looking like a compiler or application failure. A
+reviewed downstream-owned known failure is accepted only when its pinned
+command, exit code, and complete
 ordered TypeScript diagnostic headline set match exactly; the runner then
 continues later independent policy/unit/smoke stages. A missing, changed, or
 additional diagnostic remains unclassified. A downstream failure becomes a

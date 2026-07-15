@@ -409,7 +409,7 @@
           "path": "tests/compatibility/downstream-contracts.json",
           "pointer": ["profiles"],
           "child": "knownObservations",
-          "expected": 1
+          "expected": 0
         }
       ],
       "proves": "Exact downstream revisions run under the centralized stable Node lane; reviewed downstream-owned failures require exact command, exit-code, and TypeScript diagnostic evidence while independent later stages continue.",

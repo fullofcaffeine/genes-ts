@@ -461,8 +461,8 @@
             "profiles"
           ],
           "child": "knownObservations",
-          "expected": 1,
-          "count": 1
+          "expected": 0,
+          "count": 0
         }
       ],
       "proves": "Exact downstream revisions run under the centralized stable Node lane; reviewed downstream-owned failures require exact command, exit-code, and TypeScript diagnostic evidence while independent later stages continue.",
@@ -625,12 +625,12 @@
         "repository": "fullofcaffeine/opencodehx",
         "remote": "https://github.com/fullofcaffeine/opencodehx.git",
         "branch": "main",
-        "revision": "66ae8f7119536142f34a23bf9fefcb238a4e2ce2",
+        "revision": "8ac36be1d4dbbb58fe5edc7e04cea2392c8f1176",
         "checkout": "opencodehx",
         "compilerCheckout": "genes",
         "maturity": "wip",
         "disposition": "nonblocking-nightly",
-        "baseline": "known-failure",
+        "baseline": "passing",
         "commands": [
           {
             "id": "clean",
@@ -666,16 +666,7 @@
             "args": [
               "run",
               "typecheck"
-            ],
-            "expectedFailure": {
-              "observation": "opencode-optional-stream-discriminants",
-              "exitCode": 2,
-              "matcher": "typescript-diagnostics",
-              "diagnostics": [
-                "src-gen/opencodehx/provider/AiSdkProvider.ts(239,45): error TS2345: Argument of type 'string | null' is not assignable to parameter of type 'string'.",
-                "src-gen/opencodehx/provider/AiSdkProvider.ts(243,47): error TS2345: Argument of type 'string | null' is not assignable to parameter of type 'string'."
-              ]
-            }
+            ]
           },
           {
             "id": "typed-boundaries",
@@ -705,15 +696,7 @@
             ]
           }
         ],
-        "knownObservations": [
-          {
-            "id": "opencode-optional-stream-discriminants",
-            "owner": "downstream",
-            "status": "open",
-            "tracking": "pinned downstream source model",
-            "summary": "The downstream stream-part facade models tool-call identifiers as optional strings but passes them to required enum constructor arguments without a guard."
-          }
-        ],
+        "knownObservations": [],
         "unsupported": [
           {
             "id": "opencode-full-upstream-parity",

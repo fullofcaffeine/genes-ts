@@ -34,7 +34,7 @@ This is an evidence contract, not a cached CI-success badge. `blocking` and `non
 | Package-shape interoperability | dts2hx package roots | 2 | `blocking` |
 | Downstream pressure tests | Pinned downstream repositories | 2 | `nonblocking-nightly` |
 | Downstream pressure tests | Explicit unsupported/nonblocking full-app areas | 5 | `nonblocking-nightly` |
-| Downstream pressure tests | Known pinned compiler/downstream observations | 1 | `nonblocking-nightly` |
+| Downstream pressure tests | Known pinned compiler/downstream observations | 0 | `nonblocking-nightly` |
 
 ## Toolchain contract
 
@@ -224,13 +224,12 @@ These jobs are deliberately nonblocking and require the centralized stable Node 
 | Profile | Revision | Curated commands | Pinned baseline | Disposition |
 | --- | --- | ---: | --- | --- |
 | PiMonoHX curated compiler contract | [`c8025aa12a6a`](https://github.com/fullofcaffeine/pimono-hx/commit/c8025aa12a6a9a3901aadb63c097a5df66e03d33) | 8 | `passing` | `nonblocking-nightly` |
-| OpenCodeHX curated compiler contract | [`66ae8f711953`](https://github.com/fullofcaffeine/opencodehx/commit/66ae8f7119536142f34a23bf9fefcb238a4e2ce2) | 7 | `known-failure` | `nonblocking-nightly` |
+| OpenCodeHX curated compiler contract | [`8ac36be1d4db`](https://github.com/fullofcaffeine/opencodehx/commit/8ac36be1d4dbbb58fe5edc7e04cea2392c8f1176) | 7 | `passing` | `nonblocking-nightly` |
 
 ## Known pinned-contract observations
 
-| Profile | Owner | Tracking | Observation |
-| --- | --- | --- | --- |
-| opencodehx | `downstream` | `pinned downstream source model` | The downstream stream-part facade models tool-call identifiers as optional strings but passes them to required enum constructor arguments without a guard. |
+None.
+
 
 ## Explicit downstream exclusions
 

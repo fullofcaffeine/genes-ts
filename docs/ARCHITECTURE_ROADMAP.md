@@ -320,11 +320,13 @@ The source of truth is Beads epic `genes-09r`.
    network namespace; compiler observations, downstream results, known owners,
    and unsupported areas remain distinct. Its first OpenCodeHX run exposed the
    generic secondary-native-extern defect fixed by `genes-09r.14`; a pinned
-   rerun now reaches only the separately owned downstream type-model failure.
-   The runner verifies the centralized Node lane before touching a checkout and
-   recognizes that exception only from its exact exit code and complete ordered
-   TypeScript diagnostic set, then continues independent policy/unit/smoke
-   stages; any baseline drift or additional error fails closed.
+   rerun then isolated a separately owned downstream type-model failure. That
+   boundary is now validated in OpenCodeHX itself, and the repinned curated
+   profile passes strict TypeScript plus its independent policy/unit/smoke
+   stages. The runner still verifies the centralized Node lane before touching
+   a checkout; its synthetic policy fixture proves that any future reviewed
+   exception requires the exact exit code and complete ordered TypeScript
+   diagnostic set, while baseline drift or any additional error fails closed.
 5. **`genes-09r.12` — reusable-library retention overlay (landed).** Explicit
    `@:genes.library` classes now root one pre-DCE transitive public graph shared
    by TS implementation output and classic JS/declarations. The inactive marker
