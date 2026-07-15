@@ -94,9 +94,11 @@ typedef FieldOverrideNested = {
  * `Null<T>` from Haxe source. It avoids broad `Undefinable<T>` wrappers and
  * avoids per-field string type overrides when the Haxe type is already right.
  *
- * What/How: `@:ts.optional` only changes anonymous typedef field type emission:
- * generated TS prints `field?: T`, while object literals and reads keep the
- * ordinary Haxe optional-field behavior.
+ * What/How: `@:ts.optional` changes anonymous typedef field type emission to
+ * `field?: T | undefined`. The explicit undefined member is required because
+ * genes may preserve an own property whose value is undefined; it also keeps
+ * function-valued fields grouped as `((...) => T) | undefined`. Object
+ * literals and reads otherwise retain ordinary Haxe optional-field behavior.
  */
 typedef TsOptionalRecord = {
   @:ts.optional

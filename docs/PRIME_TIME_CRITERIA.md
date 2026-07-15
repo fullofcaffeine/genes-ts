@@ -22,9 +22,11 @@ tracked by epic `genes-09r` and documented in `ARCHITECTURE_ROADMAP.md`.
   Haxe/JavaScript contracts differ.
 
 Closed-interface emission, the TypeScript-Compiler-API exported-surface audit,
-and the reusable `PublicSurface` model have landed. The negative matrix remains
-deliberately fixture-scoped; shared nullish modeling is `genes-09r.2` and the
-explicit declaration dependency graph is `genes-09r.3`.
+the reusable `PublicSurface` model, and shared `NullishContract` planning have
+landed. Exact optional-property consumers and paired runtime traces distinguish
+null, undefined, omission, ordinary optional values, optional parameters, map
+absence, and iterator completion. The negative matrix remains deliberately
+fixture-scoped; the explicit declaration dependency graph is `genes-09r.3`.
 
 ### R2 — Runtime correctness in both output modes
 
@@ -97,6 +99,7 @@ support matrix remain `genes-09r.7`.
 | TS aggregate fixtures | `yarn test:genes-ts` and profile runners | Generated syntax/imports plus exercised runtime behavior | All public surfaces are precise merely because `tsc` passes |
 | Closed-interface negative consumer | `yarn test:genes-ts:full` | Unknown ordinary interface members are rejected | All inferred/imported exported types avoid unsafe fallbacks |
 | Strict classic declaration consumer | `yarn test:classic:dts` | Exercised `.d.ts` nullability and closed interfaces under strict flags | Every declaration in arbitrary programs is sound |
+| Exact nullish matrix | `yarn test:genes-ts:full`, `yarn test:classic:dts`, and `yarn test` | Shared null/undefined/omission contracts agree across TS declarations and both runtime modes | Every host API has already been classified |
 | Lexical typing policy | Included by TS runners | Selected literal unsafe forms are absent outside its exclusions | Inferred/imported `any`, broad structural holes, or semantic nullish mismatches |
 | Snapshots | `yarn test:genes-ts:snapshots` | Expected deterministic shape for current cases | Runtime or type soundness by itself |
 | Todoapp acceptance | `yarn test:acceptance` | A real Node/browser integration profile | General compiler completeness |

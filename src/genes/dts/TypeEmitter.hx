@@ -1,6 +1,8 @@
 package genes.dts;
 
 import genes.SourceMapGenerator;
+import genes.NullishContract;
+import genes.NullishContract.NullishMissingValue;
 import haxe.macro.Type;
 import haxe.macro.Context;
 import haxe.macro.Expr;
@@ -35,64 +37,6 @@ class TypeEmitter {
       }
     }
     return e;
-  }
-
-  static function isUndefinableType(t: Type): Bool {
-    return switch Context.follow(t) {
-      case TAbstract(_.get() => {module: 'genes.ts.Undefinable', name: 'Undefinable'}, _):
-        true;
-      case TAbstract(_.get() => {pack: [], name: "Null"}, [inner]) |
-        TType(_.get() => {pack: [], name: "Null"}, [inner]):
-        isUndefinableType(inner);
-      case TLazy(f):
-        isUndefinableType(f());
-      default:
-        false;
-    }
-  }
-
-  /**
-   * Removes Haxe's optional-field `Null<...>` wrapper when the declared field
-   * type is explicitly `genes.ts.Undefinable<T>`.
-   *
-   * Why: a normal `@:optional field:T` can be missing at runtime, and Haxe code
-   * observes that as `null`, so TS declaration output keeps `T | null`. But
-   * `Undefinable<T>` is the opt-in contract for JavaScript `undefined`, not
-   * `null`; adding `| null` lies to strict TypeScript callers and encourages
-   * downstream payloads that many JS APIs reject.
-   */
-  static function stripOptionalUndefinableNull(t: Type): Type {
-    return switch t {
-      case TAbstract(_.get() => {pack: [], name: "Null"}, [inner]) |
-        TType(_.get() => {pack: [], name: "Null"}, [inner])
-          if (isUndefinableType(inner)):
-        inner;
-      case TLazy(f):
-        stripOptionalUndefinableNull(f());
-      default:
-        t;
-    }
-  }
-
-  /**
-   * Removes only the Haxe optional-field null wrapper for fields explicitly
-   * marked with `@:ts.optional`.
-   *
-   * Why: Haxe represents a missing anonymous optional field as `Null<T>` for
-   * source ergonomics, while TypeScript APIs commonly mean omission with
-   * `field?: T` and do not accept `null`. The metadata is an explicit boundary
-   * contract, so unmarked Haxe fields keep the conservative `T | null` output.
-   */
-  static function stripOptionalFieldNull(t: Type): Type {
-    return switch t {
-      case TAbstract(_.get() => {pack: [], name: "Null"}, [inner]) |
-        TType(_.get() => {pack: [], name: "Null"}, [inner]):
-        inner;
-      case TLazy(f):
-        stripOptionalFieldNull(f());
-      default:
-        t;
-    }
   }
 
   static function unwrapMetaExpr(e: Expr): Expr {
@@ -305,6 +249,44 @@ class TypeEmitter {
       default:
         false;
     }
+  }
+
+  /**
+   * Emits one already-classified nullish type projection with correct TS
+   * precedence.
+   *
+   * Why: appending `| undefined` directly to a function type changes its
+   * meaning: `(value: string) => number | undefined` makes the *return value*
+   * optional, while `((value: string) => number) | undefined` makes the
+   * property optional. `@:ts.type` strings and cached projections are opaque
+   * to this printer, so they are conservatively parenthesized when extended.
+   *
+   * What: the shared `NullishContract` decides whether the undefined member is
+   * required. This target printer owns only TypeScript grouping and spelling.
+   *
+   * How: typed function members and opaque/raw projections are grouped before
+   * the union suffix. Ordinary named and primitive types remain compact.
+   */
+  public static function emitNullishProjection(writer: TypeWriter,
+      nullish: NullishContract, emitBase: Void->Void,
+      opaqueBase = false): Void {
+    final needsParens = nullish.needsUndefinedTypeProjection
+      && (opaqueBase || switch nullish.emittedType {
+        case TFun(_, _): true;
+        case TLazy(resolve):
+          switch resolve() {
+            case TFun(_, _): true;
+            default: false;
+          }
+        default: false;
+      });
+    if (needsParens)
+      writer.write('(');
+    emitBase();
+    if (needsParens)
+      writer.write(')');
+    if (nullish.needsUndefinedTypeProjection)
+      writer.write(' | undefined');
   }
 
   public static function emitBaseType(writer: TypeWriter, type: BaseType,
@@ -594,16 +576,17 @@ class TypeEmitter {
                 emitType(writer, param.t);
               write('>');
             }
-            final fieldType = if (field.meta.has(':optional') && field.meta.has(':ts.optional'))
-              stripOptionalFieldNull(field.type)
-            else if (field.meta.has(':optional'))
-              stripOptionalUndefinableNull(field.type)
-            else
-              field.type;
+            // Public property syntax and value nullability are separate facts:
+            // the shared contract keeps ordinary Haxe optionals nullable while
+            // projecting `@:ts.optional` and optional `Undefinable<T>` fields
+            // without their synthetic outer Haxe `Null` wrapper.
+            final fieldNullish = NullishContract.forField(field);
+            final fieldType = fieldNullish.emittedType;
             final fieldTypeOverride = typeOverrideFromMeta(field.meta);
             if (fieldTypeOverride != null) {
-              emitTypeOverride(writer, fieldTypeOverride,
-                [for (param in field.params) param.t]);
+              emitNullishProjection(writer, fieldNullish,
+                () -> emitTypeOverride(writer, fieldTypeOverride,
+                  [for (param in field.params) param.t]), true);
               continue;
             }
             // Anonymous typedef fields can carry enum abstracts whose typed
@@ -614,10 +597,12 @@ class TypeEmitter {
             final cachedFieldType = Context.defined('genes.ts')
               ? genes.ts.SignatureCache.getAnonFieldTsType(field.pos)
               : null;
-            if (cachedFieldType != null)
-              write(cachedFieldType);
-            else
-              emitType(writer, fieldType, false);
+            emitNullishProjection(writer, fieldNullish, () -> {
+              if (cachedFieldType != null)
+                write(cachedFieldType);
+              else
+                emitType(writer, fieldType, false);
+            }, cachedFieldType != null);
           }
           writer.decreaseIndent();
           writer.writeNewline();
@@ -690,9 +675,17 @@ class TypeEmitter {
             // record. In TS, the equivalent and idiomatic type is the builtin `IteratorResult`
             // (a discriminated union for yield/return results).
             //
-            // We intentionally use `undefined` for `TReturn` to avoid leaking `any` into
-            // generated code (most iterators do not use a meaningful return value).
-            write(', undefined>');
+            // The shared semantic plan identifies JavaScript iterator
+            // completion as `undefined`; this printer owns only TS spelling.
+            final completion = NullishContract.forIteratorCompletion(elemT);
+            switch completion.missingValue {
+              case MissingAsUndefined:
+                write(', undefined>');
+              case MissingAsNull:
+                write(', null>');
+              case NoMissingValue:
+                throw 'Iterator completion must have an explicit absence contract';
+            }
           default:
             switch dt.type {
               case TInst(_.get() => {isExtern: true}, _):
@@ -772,10 +765,12 @@ class TypeEmitter {
       if (TypeUtil.isRest(arg.t))
         write('...');
       write(if (arg.name != "") arg.name else 'arg$i');
-      if (arg.opt && i > noOptionalUntil)
+      final nullish = NullishContract.forParameter(arg.t,
+        arg.opt && i > noOptionalUntil);
+      if (nullish.emitOptionalSyntax)
         write("?");
       write(': ');
-      emitType(writer, arg.t);
+      emitType(writer, nullish.emittedType);
     }
   }
 }

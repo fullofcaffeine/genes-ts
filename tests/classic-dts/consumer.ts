@@ -4,6 +4,10 @@ import {
   SurfaceImplementation,
   type SurfaceChild
 } from "../../bin/tests/publicsurface/SurfaceParent.js";
+import {
+  NullishMatrix,
+  type NullishMatrixShape
+} from "../../bin/tests/nullish/NullishMatrix.js";
 
 declare const map: IMap<string, number>;
 
@@ -50,11 +54,51 @@ implementation.runtimeOnly("surface");
 // @ts-expect-error suffix is private implementation state.
 implementation.suffix;
 
+// The same shared nullish facts drive classic declaration output. Exact
+// optional-property mode makes omission distinct from an explicit undefined
+// value and prevents `?` syntax from masking a wrong value union.
+const requiredNullish = { nullable: null, undefinable: undefined } as const;
+const nullish: NullishMatrixShape = {
+  ...requiredNullish,
+  typescriptOptional: undefined,
+  optionalUndefinable: undefined
+};
+const nullableValue: string | null = nullish.nullable;
+const undefinableValue: string | undefined = nullish.undefinable;
+const ordinaryOptionalValue: string | null | undefined = nullish.ordinaryOptional;
+const typescriptOptionalValue: string | undefined = nullish.typescriptOptional;
+const optionalUndefinableValue: string | undefined = nullish.optionalUndefinable;
+const omittedParameter: string | undefined = NullishMatrix.optionalUndefined();
+declare const iterator: IterableIterator<string>;
+const iteratorStep: IteratorResult<string, undefined> = NullishMatrix.next(iterator);
+
+// @ts-expect-error Null<T> excludes JavaScript undefined.
+const invalidNullable: NullishMatrixShape = { ...requiredNullish, nullable: undefined };
+// @ts-expect-error Undefinable<T> excludes null.
+const invalidUndefinable: NullishMatrixShape = { ...requiredNullish, undefinable: null };
+// @ts-expect-error the TS optional projection permits undefined but rejects null.
+const invalidTsOptional: NullishMatrixShape = { ...requiredNullish, typescriptOptional: null };
+// @ts-expect-error ordinary optional T | null rejects explicit undefined.
+const invalidOrdinaryOptional: NullishMatrixShape = { ...requiredNullish, ordinaryOptional: undefined };
+// @ts-expect-error explicit undefined parameters must not acquire null.
+NullishMatrix.optionalUndefined(null);
+
 void maybe;
 void definitely;
 void inherited;
 void own;
 void convertedNumber;
 void convertedString;
+void nullableValue;
+void undefinableValue;
+void ordinaryOptionalValue;
+void typescriptOptionalValue;
+void optionalUndefinableValue;
+void omittedParameter;
+void iteratorStep;
+void invalidNullable;
+void invalidUndefinable;
+void invalidTsOptional;
+void invalidOrdinaryOptional;
 
 export {};

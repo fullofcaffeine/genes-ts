@@ -84,12 +84,13 @@ The audit also required two qualifications:
 | Fail-closed ts2hx | Strict mode diagnoses currently classified unsupported root files/top-level statements and publishes no partial tree; assisted output carries explicit losses and a manifest. Remaining semantic approximations are not declared lossless. | API/CLI/transaction tests and 53 snapshots |
 | Semantic exported-surface policy | Exported TS and classic declaration roots are checked through the TypeScript TypeChecker for explicit/inferred/imported weak types and unapproved index signatures; intentional boundaries require exact owned provenance. | Policy fixtures, TS/classic `IMap`, basic user modules, JSX negative consumers, and aggregate CI |
 | Shared public-surface facts | TS implementation interfaces and classic declarations consume one immutable pre-DCE model for visibility, applied inheritance, generics, overload identity, typedef bodies, and classified compiler-generated support members. | Generic/overload fixture, strict TS and classic declaration consumers, and dual-mode runtime assertions |
+| Shared nullish facts | TS implementation, classic JS behavior checks, and both declaration paths consume one immutable classification for Haxe `Null<T>`, explicit `undefined`, property/parameter omission, native-map absence, and iterator completion. | Exact optional-property negative consumers plus paired TS/classic runtime traces |
 | Product wording | Readiness, JSX, declaration, and migration claims are separated by evidence class. | This document and linked mode/policy docs |
 
 These are focused fixes, not proof that the complete semantic architecture
-already exists. `PublicSurface` now owns declaration facts, but nullish meaning,
-dependency reachability, expression lowering, names/temporaries, and JSX intent
-remain the separately ordered seams below.
+already exists. `PublicSurface` owns declaration facts and `NullishContract`
+owns absence semantics, while dependency reachability, expression lowering,
+names/temporaries, and JSX intent remain the separately ordered seams below.
 
 ## Incremental target architecture
 
@@ -197,9 +198,14 @@ The source of truth is Beads epic `genes-09r`.
    inheritance, overload identity, generic substitution, and typedef bodies.
    Compiler-generated accessor support remains a classified profile decision;
    overload implementations retain one runtime body and precise TS signatures.
-3. **`genes-09r.2` — shared `NullishContract`.** Model null, undefined,
-   optional, absence, native map reads, and iterator results once, then migrate
-   target printers behind existing fixtures.
+3. **`genes-09r.2` — shared `NullishContract` (landed).** TS implementation,
+   classic JS checks, and declaration printers consume one classification for
+   null, explicit undefined, optional properties/parameters, native map reads,
+   and iterator completion. A same-source matrix runs through both output
+   modes; strict external consumers enable `exactOptionalPropertyTypes` and
+   `noUncheckedIndexedAccess`. The TS type printer also groups function-valued
+   optional projections so `((...) => T) | undefined` cannot become a function
+   returning `T | undefined`.
 4. **`genes-09r.3` — runtime/type/declaration `DependencyPlan`.** Depends on
    `.1` and `.10`; first run in shadow/compare mode, then replace printer-driven
    discovery and silent lookup failure.

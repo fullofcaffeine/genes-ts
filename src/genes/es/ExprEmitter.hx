@@ -6,6 +6,7 @@ import haxe.macro.Type;
 import haxe.ds.Option;
 import helder.Set;
 import genes.TypeAccessor;
+import genes.NullishContract;
 import genes.util.TypeUtil.*;
 import genes.util.IteratorUtil.*;
 
@@ -1052,21 +1053,7 @@ class ExprEmitter extends Emitter {
   }
 
   static function typeAllowsNull(t: Type): Bool {
-    return switch t {
-      case TAbstract(_.get() => {pack: [], name: "Null"}, _):
-        true;
-      case TType(_.get() => {pack: [], name: "Null"}, _):
-        true;
-      case TDynamic(_):
-        true;
-      case TMono(tref):
-        final inner = tref.get();
-        inner == null ? true : typeAllowsNull(inner);
-      case TType(_, _):
-        typeAllowsNull(Context.follow(t));
-      default:
-        false;
-    }
+    return NullishContract.forType(t).haxeAllowsNull;
   }
 
   // Utilities

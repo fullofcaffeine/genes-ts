@@ -34,7 +34,8 @@ assertExportedSurfacePolicy({
   tsconfigPath: "tests/classic-dts/tsconfig.json",
   includePaths: [
     "bin/haxe/Constraints.d.ts",
-    "bin/tests/publicsurface/SurfaceParent.d.ts"
+    "bin/tests/publicsurface/SurfaceParent.d.ts",
+    "bin/tests/nullish/NullishMatrix.d.ts"
   ],
   scope: "classic-dts-imap"
 });

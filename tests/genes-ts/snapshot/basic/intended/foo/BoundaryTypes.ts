@@ -74,16 +74,18 @@ export type FieldOverrideNested = {
 * `Null<T>` from Haxe source. It avoids broad `Undefinable<T>` wrappers and
 * avoids per-field string type overrides when the Haxe type is already right.
 *
-* What/How: `@:ts.optional` only changes anonymous typedef field type emission:
-* generated TS prints `field?: T`, while object literals and reads keep the
-* ordinary Haxe optional-field behavior.
+* What/How: `@:ts.optional` changes anonymous typedef field type emission to
+* `field?: T | undefined`. The explicit undefined member is required because
+* genes may preserve an own property whose value is undefined; it also keeps
+* function-valued fields grouped as `((...) => T) | undefined`. Object
+* literals and reads otherwise retain ordinary Haxe optional-field behavior.
 */
 export type TsOptionalRecord = {
-	kind?: "primary" | "secondary",
-	label?: string,
-	nested?: FieldOverrideNested,
-	parse?: (arg0: string) => number,
-	tags?: string[]
+	kind?: ("primary" | "secondary") | undefined,
+	label?: string | undefined,
+	nested?: FieldOverrideNested | undefined,
+	parse?: ((arg0: string) => number) | undefined,
+	tags?: string[] | undefined
 }
 
 /**
@@ -362,8 +364,8 @@ export class BoundaryTypes {
 		let assignedChosen: string | null = BoundaryTypes.normalize(BoundaryTypes.assignChosenName(false).name);
 		let conditionalFlag: boolean | null = BoundaryTypes.conditionalFlagRecord(false).enabled ?? null;
 		let bridgeFlag: boolean | null = BoundaryTypes.conditionalFlagBridge(false).enabled ?? null;
-		let optionalMissing: string | null = BoundaryTypes.normalize(Register.unsafeCast<MaybeName>((BoundaryTypes.optionalMissingName().name ?? null)));
-		let optionalDirectMissing: string | null = BoundaryTypes.normalize(Register.unsafeCast<MaybeName>((BoundaryTypes.optionalDirectMissingName().name ?? null)));
+		let optionalMissing: string | null = BoundaryTypes.normalize(Register.unsafeCast<MaybeName>(BoundaryTypes.optionalMissingName().name));
+		let optionalDirectMissing: string | null = BoundaryTypes.normalize(Register.unsafeCast<MaybeName>(BoundaryTypes.optionalDirectMissingName().name));
 		let guardedPresent: string | null = BoundaryTypes.normalize(BoundaryTypes.guardedName("Ada"));
 		let guardedMissing: string | null = BoundaryTypes.normalize(BoundaryTypes.guardedName(null));
 		let guardedUpper: string = BoundaryTypes.guardedUpper("ada");

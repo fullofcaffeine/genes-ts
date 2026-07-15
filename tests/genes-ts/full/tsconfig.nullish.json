@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": false,
+    "sourceMap": false,
+    "noEmit": true,
+    "rootDir": "./out/nullish-consumer",
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true
+  },
+  "files": ["out/nullish-consumer/consumer.ts"],
+  "include": [],
+  "exclude": []
+}

@@ -86,6 +86,47 @@ writeFileSync(
   ].join("\n")
 );
 
+// Nullish contracts need negative programs under exact optional-property
+// semantics. Ordinary `strict` compilation would still accept explicit
+// `undefined` assignments to every `?` property and could not distinguish the
+// `@:ts.optional` projection from an explicit `Undefinable<T>` value union.
+mkdirSync(
+  path.join(repoRoot, "tests/genes-ts/full/out/nullish-consumer"),
+  { recursive: true }
+);
+writeFileSync(
+  path.join(repoRoot, "tests/genes-ts/full/out/nullish-consumer/consumer.ts"),
+  [
+    'import {NullishMatrix, type NullishMatrixShape} from "../dist/tests/nullish/NullishMatrix.js";',
+    "const required = {nullable: null, undefinable: undefined} as const;",
+    "const valid: NullishMatrixShape = {...required, typescriptOptional: undefined, optionalUndefinable: undefined};",
+    "const nullable: string | null = valid.nullable;",
+    "const undefinable: string | undefined = valid.undefinable;",
+    "const ordinaryOptional: string | null | undefined = valid.ordinaryOptional;",
+    "const typescriptOptional: string | undefined = valid.typescriptOptional;",
+    "const optionalUndefinable: string | undefined = valid.optionalUndefinable;",
+    "const omittedParameter: string | undefined = NullishMatrix.optionalUndefined();",
+    "declare const iterator: IterableIterator<string>;",
+    "const step: IteratorResult<string, undefined> = NullishMatrix.next(iterator);",
+    "// @ts-expect-error Haxe Null<T> does not include JavaScript undefined.",
+    "const invalidNullable: NullishMatrixShape = {...required, nullable: undefined};",
+    "// @ts-expect-error Undefinable<T> deliberately excludes null.",
+    "const invalidUndefinable: NullishMatrixShape = {...required, undefinable: null};",
+    "// @ts-expect-error the TS optional projection permits undefined but rejects null.",
+    "const invalidTsOptional: NullishMatrixShape = {...required, typescriptOptional: null};",
+    "// @ts-expect-error ordinary optional T | null also rejects an explicit undefined write.",
+    "const invalidOrdinaryOptional: NullishMatrixShape = {...required, ordinaryOptional: undefined};",
+    "// @ts-expect-error an explicit undefined parameter must not silently acquire null.",
+    "NullishMatrix.optionalUndefined(null);",
+    "void nullable; void undefinable; void ordinaryOptional;",
+    "void typescriptOptional; void optionalUndefinable; void omittedParameter; void step;",
+    "void invalidNullable; void invalidUndefinable; void invalidTsOptional;",
+    "void invalidOrdinaryOptional;",
+    "export {};",
+    ""
+  ].join("\n")
+);
+
 // The external negative consumer proves invalid access is rejected. The
 // semantic audit separately proves that neither `any` nor an index signature
 // can mask that API even when a future fixture stops touching a member.
@@ -94,6 +135,15 @@ assertExportedSurfacePolicy({
   tsconfigPath: "tests/genes-ts/full/tsconfig.json",
   includePaths: ["tests/genes-ts/full/out/src-gen/haxe/Constraints.ts"],
   scope: "genes-ts-full-imap"
+});
+
+assertExportedSurfacePolicy({
+  repoRoot,
+  tsconfigPath: "tests/genes-ts/full/tsconfig.json",
+  includePaths: [
+    "tests/genes-ts/full/out/src-gen/tests/nullish/NullishMatrix.ts"
+  ],
+  scope: "genes-ts-full-nullish"
 });
 
 const dynamicImportOutput = readFileSync(
@@ -134,5 +184,13 @@ cpSync(path.join(repoRoot, "tests/genes-ts/full/tests"), path.join(outRoot, "tes
 
 // Use a pinned TypeScript version for consistent behavior.
 run("npx", ["-y", "--package", "typescript@5.5.4", "-c", "tsc -p tests/genes-ts/full/tsconfig.json"]);
+
+run("npx", [
+  "-y",
+  "--package",
+  "typescript@5.5.4",
+  "-c",
+  "tsc -p tests/genes-ts/full/tsconfig.nullish.json"
+]);
 
 run("node", ["tests/genes-ts/full/out/dist/index.js"]);

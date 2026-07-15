@@ -8,6 +8,7 @@ import genes.util.IteratorUtil.*;
 import genes.dts.TypeEmitter;
 import genes.util.Timer.timer;
 import genes.PublicSurface;
+import genes.NullishContract;
 
 class DefinitionEmitter extends ModuleEmitter {
   public function emitDefinition(module: Module) {
@@ -276,12 +277,14 @@ class DefinitionEmitter extends ModuleEmitter {
                   if (TypeUtil.isRest(arg.t))
                     write('...');
                   emitIdent(arg.name);
-                  if (arg.opt && i >= optionalPos)
+                  final nullish = NullishContract.forParameter(arg.t,
+                    arg.opt && i >= optionalPos);
+                  if (nullish.emitOptionalSyntax)
                     write('?');
                   write(': ');
                   switch field.expr {
                     case null:
-                      emitType(arg.t);
+                      emitType(nullish.emittedType);
                     case {expr: TFunction(f)}:
                       final meta = f.args[i].v.meta;
                       final paramTypeOverride = switch meta.extract(':ts.type') {
@@ -296,9 +299,9 @@ class DefinitionEmitter extends ModuleEmitter {
                       if (paramTypeOverride != null)
                         write(paramTypeOverride);
                       else
-                        emitType(arg.t);
+                        emitType(nullish.emittedType);
                     default:
-                      emitType(arg.t);
+                      emitType(nullish.emittedType);
                   }
                 }
                 write(')');
@@ -339,11 +342,17 @@ class DefinitionEmitter extends ModuleEmitter {
           if (field.getter && !field.setter)
             write('readonly ');
           write(TypeUtil.nativeName(field.meta) ?? field.name);
+          final nullish = NullishContract.forProperty(field.type, field.meta);
+          if (nullish.emitOptionalSyntax)
+            write('?');
           write(': ');
-          if (field.tsType != null)
-            write(field.tsType);
-          else
-            emitType(field.type, field.isStatic ? null : field.params);
+          TypeEmitter.emitNullishProjection(this, nullish, () -> {
+            if (field.tsType != null)
+              write(field.tsType);
+            else
+              emitType(nullish.emittedType,
+                field.isStatic ? null : field.params);
+          }, field.tsType != null);
       }
     }
     decreaseIndent();

@@ -33,6 +33,17 @@ cannot see.
 ### Default: TS-strict (`strictNullChecks: true`)
 
 - `Null<T>` is emitted as `T | null`.
+- `genes.ts.Undefinable<T>` is emitted as `T | undefined`; it does not silently
+  acquire `null` merely because a Haxe optional field/parameter adds an outer
+  nullable wrapper.
+- Ordinary Haxe optional properties retain their Haxe-visible nullable value
+  contract. `@:ts.optional` is the explicit boundary projection for an
+  omitted/undefined TypeScript property and emits `field?: T | undefined`.
+  The explicit union permits genes-generated object literals to preserve an
+  own property whose value is `undefined` under `exactOptionalPropertyTypes`.
+- Function-valued optional properties are grouped as
+  `field?: ((...) => T) | undefined`; the undefined member belongs to the
+  property, not to the function return type.
 - Everything else is emitted as non-null unless it is explicitly modeled as
   nullable in the Haxe type.
 
@@ -44,7 +55,9 @@ Recommended `tsconfig.json` template:
 {
   "compilerOptions": {
     "strict": true,
-    "strictNullChecks": true
+    "strictNullChecks": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true
   }
 }
 ```

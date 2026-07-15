@@ -1,5 +1,6 @@
 package genes.ts;
 
+import genes.NullishContract;
 import haxe.macro.Context;
 import haxe.macro.Expr.Position;
 import haxe.macro.Type;
@@ -7,6 +8,7 @@ import haxe.macro.Type;
 typedef CachedArg = {
   final opt: Bool;
   final allowsNull: Bool;
+  final preservesUndefined: Bool;
   final tsType: Null<String>;
 }
 
@@ -97,32 +99,6 @@ class SignatureCache {
     }
   }
 
-  static function typeAllowsNull(t: Type): Bool {
-    return switch followTypedefs(unlazy(t)) {
-      case TAbstract(_.get() => {pack: [], name: "Null"}, _):
-        true;
-      case TType(_.get() => {pack: [], name: "Null"}, _):
-        true;
-      case TDynamic(_):
-        true;
-      case TMono(tref):
-        final inner = tref.get();
-        inner == null ? true : typeAllowsNull(inner);
-      default:
-        false;
-    }
-  }
-
-  static function stripOptionalFieldNull(t: Type): Type {
-    return switch unlazy(t) {
-      case TAbstract(_.get() => {pack: [], name: "Null"}, [inner]) |
-        TType(_.get() => {pack: [], name: "Null"}, [inner]):
-        inner;
-      default:
-        t;
-    }
-  }
-
   public static function enumAbstractLiteralUnionTsType(t: Type): Null<String> {
     final normalized = followTypedefs(unlazy(t));
     switch normalized {
@@ -177,9 +153,13 @@ class SignatureCache {
       case TFun(args, ret):
         sigs.set(keyFor(classFullName(cl), isStatic, fieldName), {
           args: [for (a in args) {
-            opt: a.opt,
-            allowsNull: typeAllowsNull(a.t),
-            tsType: enumAbstractLiteralUnionTsType(a.t)
+            final nullish = NullishContract.forType(a.t);
+            {
+              opt: a.opt,
+              allowsNull: nullish.haxeAllowsNull,
+              preservesUndefined: nullish.preservesUndefined,
+              tsType: enumAbstractLiteralUnionTsType(a.t)
+            }
           }],
           retTsType: enumAbstractLiteralUnionTsType(ret)
         });
@@ -188,10 +168,11 @@ class SignatureCache {
   }
 
   static function storeFieldType(cl: ClassType, isStatic: Bool,
-      fieldName: String, type: Type): Void {
-    final tsType = enumAbstractLiteralUnionTsType(type);
+      field: ClassField): Void {
+    final tsType = enumAbstractLiteralUnionTsType(
+      NullishContract.forField(field).emittedType);
     if (tsType != null)
-      fieldTsTypes.set(keyFor(classFullName(cl), isStatic, fieldName), tsType);
+      fieldTsTypes.set(keyFor(classFullName(cl), isStatic, field.name), tsType);
   }
 
   static function captureAnonFieldTypes(type: Type, ?seen: Map<String, Bool>): Void {
@@ -214,9 +195,7 @@ class SignatureCache {
           // `@:ts.optional` means TS callers see omission/undefined, not null.
           // Capture literal unions from that emitted contract so the later
           // TypeEmitter cache does not reintroduce Haxe's optional-field Null.
-          final fieldType = field.meta.has(':ts.optional')
-            ? stripOptionalFieldNull(field.type)
-            : field.type;
+          final fieldType = NullishContract.forField(field).emittedType;
           final tsType = enumAbstractLiteralUnionTsType(fieldType);
           if (tsType != null)
             anonFieldTsTypes.set(posKey(field.pos), tsType);
@@ -240,7 +219,7 @@ class SignatureCache {
         case FMethod(_):
           storeSig(cl, false, f.name, f.type);
         case FVar(_, _):
-          storeFieldType(cl, false, f.name, f.type);
+          storeFieldType(cl, false, f);
       }
     }
     for (f in cl.statics.get()) {
@@ -248,7 +227,7 @@ class SignatureCache {
         case FMethod(_):
           storeSig(cl, true, f.name, f.type);
         case FVar(_, _):
-          storeFieldType(cl, true, f.name, f.type);
+          storeFieldType(cl, true, f);
       }
     }
   }

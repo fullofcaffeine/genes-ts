@@ -63,6 +63,22 @@ Haxe's iterator-step structure maps to TypeScript's
 `IteratorResult<T, undefined>` where that is the actual runtime contract,
 rather than using a broad return type.
 
+### Shared nullish planning
+
+`NullishContract` now classifies Haxe `Null<T>`, explicit JavaScript
+`undefined`, unknown/dynamic boundaries, optional properties, optional
+parameters, native-map absence, and iterator completion before target syntax is
+printed. TS implementation fields, classic JS normalization decisions, TS
+interfaces, and classic declarations consume those facts instead of maintaining
+separate `allowsNull`/`Undefinable` classifiers.
+
+A same-source fixture executes under TS-source and classic JS output. Strict TS
+and classic declaration consumers additionally enable
+`exactOptionalPropertyTypes` and `noUncheckedIndexedAccess`, with negative cases
+for null-versus-undefined writes and calls. Function-valued optional fields are
+explicitly grouped before adding `| undefined`, protecting TypeScript operator
+precedence as well as the semantic classification.
+
 ## Remaining ingress paths
 
 1. **Inferred or imported `any`:** a lexical scan cannot see an unsafe type
@@ -73,9 +89,7 @@ rather than using a broad return type.
    extern package shapes can bypass ordinary Haxe type mapping.
 4. **Runtime/stdlib exclusions:** reflection and boot code need narrow unsafe
    operations, but those operations must not escape into user exports.
-5. **Null/undefined/optional distinctions:** local fixes exist, but the compiler
-   does not yet consume one shared `NullishContract` in every printer.
-6. **Declaration-only reachability:** classic class declarations still require
+5. **Declaration-only reachability:** classic class declarations still require
    the runtime-member intersection described above; TS implementation types do
    not yet consume an explicit declaration dependency graph either.
 
@@ -87,17 +101,16 @@ rather than using a broad return type.
 | Negative consumers | Closed interfaces, classic nullable declarations, React prop snapshots | The matrix is not yet exhaustive across all exported/imported types. |
 | Lexical unsafe-type scan | Selected generated user files | Inference, aliases, imports, declaration merging, and excluded directories. |
 | Runtime assertions | Map absence/undefined, iterator and general compiler fixtures | Public declaration precision not observed at runtime. |
-| Semantic export inspection | TypeChecker audit of generated TS and classic declarations with exact boundary provenance | Coverage is fixture-scoped and does not replace dependency or nullish planning. |
+| Semantic export inspection | TypeChecker audit of generated TS and classic declarations with exact boundary provenance | Coverage is fixture-scoped and does not replace dependency planning. |
 
 ## Next tightening targets
 
-1. `genes-09r.2`: introduce a shared nullish vocabulary for Haxe `Null<T>`,
-   native `undefined`, optional properties, absent parameters, and boundary
-   unknowns.
-2. `genes-09r.3`: make runtime, type-only, and declaration-only dependencies
+1. `genes-09r.3`: make runtime, type-only, and declaration-only dependencies
    explicit so a type printer cannot silently change reachability.
-3. `genes-09r.5`: broaden JSX negative coverage across intrinsic props,
+2. `genes-09r.5`: broaden JSX negative coverage across intrinsic props,
    components, children, spread props, and imported JSX namespaces.
+3. `genes-09r.4`: separate emitted-code compatibility lanes from
+   TypeScript-compiler-API compatibility and centralize toolchain versions.
 
 The desired end state is an allowlisted boundary manifest with a stable ID,
 owner, reason, and source provenance for every public dynamic escape hatch.
