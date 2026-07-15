@@ -1,4 +1,9 @@
 import type { IMap } from "../../bin/haxe/Constraints.js";
+import {
+  OverloadedSurface,
+  SurfaceImplementation,
+  type SurfaceChild
+} from "../../bin/tests/publicsurface/SurfaceParent.js";
 
 declare const map: IMap<string, number>;
 
@@ -22,7 +27,34 @@ const definitely: number = map.get("missing");
 // @ts-expect-error Unknown members are not part of haxe.Constraints.IMap.
 map.nonexistentMember();
 
+declare const child: SurfaceChild<string>;
+const inherited: string[] = child.inherited(["surface"]);
+const own: string = child.own("surface");
+// @ts-expect-error SurfaceChild<T> applies Array<T> to its parent contract.
+child.inherited([1]);
+
+declare const overloaded: OverloadedSurface;
+const convertedNumber: number = overloaded.convert(1);
+const convertedString: string = overloaded.convert("one");
+// @ts-expect-error The captured overload set has no boolean signature.
+overloaded.convert(true);
+
+declare const implementation: SurfaceImplementation;
+implementation.declaredButUnused("surface");
+SurfaceImplementation.declaredStaticButUnused(1);
+// Private runtime helpers must not become declaration API.
+// @ts-expect-error get_label is an implementation detail behind `label`.
+implementation.get_label();
+// @ts-expect-error runtimeOnly is retained for JS behavior, not public API.
+implementation.runtimeOnly("surface");
+// @ts-expect-error suffix is private implementation state.
+implementation.suffix;
+
 void maybe;
 void definitely;
+void inherited;
+void own;
+void convertedNumber;
+void convertedString;
 
 export {};

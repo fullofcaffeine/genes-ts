@@ -9,6 +9,8 @@ import genes.es.ModuleEmitter as JsModuleEmitter;
 import genes.dts.TypeEmitter;
 import genes.util.Timer.timer;
 import genes.util.TypeUtil;
+import genes.PublicSurface;
+import genes.PublicSurface.PublicMember;
 import haxe.ds.Option;
 import haxe.macro.Expr;
 import haxe.macro.Type;
@@ -291,8 +293,8 @@ class TsModuleEmitter extends JsModuleEmitter {
 
     for (member in module.members) {
       switch member {
-        case MClass(cl, _, fields) if (cl.isInterface):
-          emitTsInterface(cl, fields);
+        case MClass(cl, params, _) if (cl.isInterface):
+          emitTsInterface(cl, params);
         case MClass(cl, _, fields):
           final endClassTimer = timer('emitClass');
           emitTsClass(module.isCyclic, cl, fields);
@@ -1519,6 +1521,8 @@ class TsModuleEmitter extends JsModuleEmitter {
               if (field.doc != null)
                 writeNewline();
               emitComment(field.doc);
+              if (!field.kind.equals(Constructor) && field.overloads.length > 0)
+                emitClassMethodOverloadSignatures(cl, field);
               emitPos(field.pos);
               final isAsync = field.meta != null
                 && (field.meta.has(':jsAsync') || field.meta.has('jsAsync'));
@@ -1549,9 +1553,15 @@ class TsModuleEmitter extends JsModuleEmitter {
                 emitMemberName(moduleFieldName(field));
               }
 
-              emitMethodTypeParams(field);
+              if (field.overloads.length > 0 && !field.kind.equals(Constructor))
+                emitOverloadedImplementationTypeParams(field);
+              else
+                emitMethodTypeParams(field);
               write('(');
-              emitTypedFunctionArguments(f, field);
+              if (field.overloads.length > 0 && !field.kind.equals(Constructor))
+                emitOverloadedImplementationArguments(f, field);
+              else
+                emitTypedFunctionArguments(f, field);
               write(')');
 
               // Return type
@@ -1559,7 +1569,10 @@ class TsModuleEmitter extends JsModuleEmitter {
                 write(': void ');
               } else {
                 write(': ');
-                emitReturnTsType(field, f, null);
+                if (field.overloads.length > 0)
+                  emitOverloadedImplementationReturnType(field, f);
+                else
+                  emitReturnTsType(field, f, null);
                 write(' ');
               }
 
@@ -1831,6 +1844,257 @@ class TsModuleEmitter extends JsModuleEmitter {
     write(' = ');
     write(helperName);
     write(';');
+  }
+
+  /**
+   * Emits the consumer-visible overload declarations before one class method.
+   *
+   * Why: Haxe stores `@:overload` call signatures beside one runtime method.
+   * Printing only the canonical implementation type makes valid Haxe calls
+   * fail when the generated source is checked by TypeScript. Emitting several
+   * method bodies would be worse: JavaScript has only one property and the last
+   * body would silently replace the others.
+   *
+   * What/How: every alternate signature followed by the canonical signature is
+   * printed as a body-less TypeScript overload. The single implementation is
+   * emitted immediately afterwards with a compatible union signature. The
+   * signatures come from typed `Module.Field.overloads` facts rather than being
+   * reconstructed from rendered strings.
+   */
+  function emitClassMethodOverloadSignatures(cl: ClassType,
+      field: GenesField): Void {
+    final signatures = field.overloads.copy();
+    signatures.push(field);
+    var first = true;
+    for (signature in signatures) {
+      if (!first)
+        writeNewline();
+      first = false;
+      emitPos(signature.pos);
+      if (field.isStatic)
+        write('static ');
+      emitMemberName(field.isStatic ? staticName(cl, field) : moduleFieldName(field));
+      emitMethodTypeParams(signature);
+      write('(');
+      emitFunctionTypeArguments(signature.type);
+      write('): ');
+      emitFieldFunctionReturnType(signature);
+      write(';');
+    }
+    writeNewline();
+  }
+
+  /**
+   * Declares all method-local type parameters needed by an overload body.
+   *
+   * Alternate Haxe signatures can introduce their own generic parameters. The
+   * TypeScript implementation signature mentions a union of those argument and
+   * return types, so their names must also be in scope there. Parameters with
+   * the same source name are emitted once; each public overload declaration
+   * still retains its own independently scoped generic list.
+   */
+  function emitOverloadedImplementationTypeParams(field: GenesField): Void {
+    final parameters: Array<TypeParameter> = [];
+    final signatures = field.overloads.copy();
+    signatures.push(field);
+    for (signature in signatures) {
+      for (parameter in signature.params) {
+        if (!parameters.exists(existing -> existing.name == parameter.name))
+          parameters.push(parameter);
+      }
+    }
+    emitTypeParamDecls([for (parameter in parameters) parameter.t], true);
+  }
+
+  /**
+   * Emits one TypeScript implementation parameter list for all Haxe overloads.
+   *
+   * Why: TypeScript requires an overload implementation to accept every
+   * declared call shape, but the typed Haxe AST exposes one canonical body.
+   * Weakening that body to `any`/`unknown` would leak unsafety into user modules.
+   *
+   * What/How: canonical formal parameters keep their stable local names while
+   * their types become unions of the corresponding overload types. Missing or
+   * optional positions become optional. Extra and rest positions are expressed
+   * as a union of labeled tuples behind one rest parameter, which preserves the
+   * JavaScript function-length behavior of the canonical Haxe method. The body
+   * remains a single direct lowering and TypeScript can still reject an overload
+   * whose implementation performs operations unsafe for its advertised union.
+   */
+  function emitOverloadedImplementationArguments(f: TFunc,
+      field: GenesField): Void {
+    final signatures = field.overloads.copy();
+    signatures.push(field);
+    final canonicalArgs = switch field.type {
+      case TFun(args, _): args;
+      default: [];
+    };
+    var maxArgs = 0;
+    for (signature in signatures) {
+      switch signature.type {
+        case TFun(args, _):
+          if (args.length > maxArgs)
+            maxArgs = args.length;
+        default:
+      }
+    }
+
+    var prefixCount = canonicalArgs.length;
+    for (i in 0...canonicalArgs.length) {
+      if (genes.util.TypeUtil.isRest(canonicalArgs[i].t)) {
+        prefixCount = i;
+        break;
+      }
+    }
+
+    final cachedSig = currentClass == null ? null : SignatureCache.getSig(currentClass,
+      field.isStatic, field.name);
+    final cachedArgs = cachedSig != null
+      && cachedSig.args.length == canonicalArgs.length ? cachedSig.args : null;
+    var noOptionalUntil = -1;
+    var hadOptional = true;
+    for (i in 0...canonicalArgs.length) {
+      final optional = cachedArgs != null
+        ? cachedArgs[i].opt
+        : canonicalArgs[i].opt;
+      if (optional) {
+        hadOptional = true;
+      } else if (hadOptional) {
+        noOptionalUntil = i;
+        hadOptional = false;
+      }
+    }
+
+    for (i in 0...prefixCount) {
+      if (i > 0)
+        write(', ');
+      var missing = false;
+      var optional = false;
+      for (signature in signatures) {
+        switch signature.type {
+          case TFun(args, _):
+            if (i >= args.length)
+              missing = true;
+            else if (args[i].opt)
+              optional = true;
+          default:
+        }
+      }
+      final canonicalOptional = (cachedArgs != null
+        ? cachedArgs[i].opt
+        : canonicalArgs[i].opt) && i > noOptionalUntil;
+      final defaultNull = canonicalOptional
+        && (cachedArgs != null
+          ? cachedArgs[i].allowsNull
+          : typeAllowsNull(f.args[i].v.t));
+      emitLocalVar(f.args[i].v);
+      if ((missing || optional) && !defaultNull)
+        write('?');
+      write(': ');
+      var emittedTypes = 0;
+      for (signature in signatures) {
+        switch signature.type {
+          case TFun(args, _) if (i < args.length):
+            if (emittedTypes++ > 0)
+              write(' | ');
+            final fallbackType = signature == field && cachedArgs != null
+              ? cachedArgs[i].tsType
+              : null;
+            final argumentOverride = signature == field
+              ? (extractStringMeta(f.args[i].v.meta,
+                ':ts.type') ?? extractStringMeta(f.args[i].v.meta, ':genes.type'))
+              : null;
+            final needsParens = args[i].t.match(TFun(_, _))
+              || fallbackType != null || argumentOverride != null;
+            if (needsParens)
+              write('(');
+            if (signature == field) {
+              emitArgTsType(field, f, i, args[i].t, fallbackType);
+            } else {
+              emitType(args[i].t);
+            }
+            if (needsParens)
+              write(')');
+          default:
+        }
+      }
+      if (defaultNull)
+        write(' = null');
+    }
+
+    if (maxArgs > prefixCount) {
+      if (prefixCount > 0)
+        write(', ');
+      write('...');
+      if (prefixCount < f.args.length)
+        emitLocalVar(f.args[prefixCount].v);
+      else
+        emitLocalIdent('_genesOverloadArgs');
+      write(': ');
+      var tupleIndex = 0;
+      for (signature in signatures) {
+        if (tupleIndex++ > 0)
+          write(' | ');
+        write('[');
+        switch signature.type {
+          case TFun(args, _):
+            var tupleElement = 0;
+            for (i in prefixCount...args.length) {
+              if (tupleElement++ > 0)
+                write(', ');
+              final argument = args[i];
+              if (genes.util.TypeUtil.isRest(argument.t))
+                write('...');
+              emitLocalIdent(argument.name != '' ? argument.name : 'arg$i');
+              if (argument.opt)
+                write('?');
+              write(': ');
+              emitType(argument.t);
+            }
+          default:
+        }
+        write(']');
+      }
+    }
+  }
+
+  /** Emits the union return accepted by the single overload implementation. */
+  function emitOverloadedImplementationReturnType(field: GenesField,
+      f: TFunc): Void {
+    final signatures = field.overloads.copy();
+    signatures.push(field);
+    var index = 0;
+    for (signature in signatures) {
+      if (index++ > 0)
+        write(' | ');
+      final returnOverride = extractStringMeta(signature.meta,
+        ':ts.returnType') ?? extractStringMeta(signature.meta, ':genes.returnType');
+      final needsParens = returnOverride != null || switch signature.type {
+        case TFun(_, result): result.match(TFun(_, _));
+        default: false;
+      };
+      if (needsParens)
+        write('(');
+      if (signature == field)
+        emitReturnTsType(field, f, null);
+      else
+        emitFieldFunctionReturnType(signature);
+      if (needsParens)
+        write(')');
+    }
+  }
+
+  function emitFieldFunctionReturnType(field: GenesField): Void {
+    final returnOverride = extractStringMeta(field.meta,
+      ':ts.returnType') ?? extractStringMeta(field.meta, ':genes.returnType');
+    if (returnOverride != null) {
+      write(returnOverride);
+      return;
+    }
+    switch field.type {
+      case TFun(_, result): emitType(result);
+      default: write('never');
+    }
   }
 
   function emitMethodTypeParams(field: GenesField) {
@@ -4557,73 +4821,65 @@ class TsModuleEmitter extends JsModuleEmitter {
     emitType(field.type, field.isStatic ? null : field.params);
   }
 
-  function emitTsInterface(cl: ClassType, fields: Array<GenesField>) {
-    var clForFields = cl;
-    try {
-      final declaredPath = cl.pack.concat([cl.name]).join('.');
-      final fullName = (declaredPath == cl.module) ? declaredPath : (cl.module
-        + '.'
-        + cl.name);
-      switch haxe.macro.Context.getType(fullName) {
-        case TInst(ref, _):
-          clForFields = ref.get();
-        default:
-      }
-    } catch (_:Dynamic) {}
-
+  function emitTsInterface(cl: ClassType, params: Array<Type>) {
+    final publicSurface = PublicSurface.forClass(cl);
     writeNewline();
     emitComment(cl.doc);
     emitPos(cl.pos);
     write('export interface ');
     write(TypeUtil.className(cl));
-    if (cl.params != null && cl.params.length > 0)
-      emitTypeParamDecls(cl.params.map(p -> p.t), true);
-    if (cl.interfaces != null && cl.interfaces.length > 0) {
+    if (params.length > 0)
+      emitTypeParamDecls(params, true);
+    final parents = publicSurface.interfacesFor(params);
+    if (parents.length > 0) {
       write(' extends ');
-      for (i in join(cl.interfaces, write.bind(', '))) {
-        write(ctx.typeAccessor(i.t.get()));
-        if (i.params != null && i.params.length > 0)
-          TypeEmitter.emitParams(this, i.params, true);
+      for (parent in join(parents, write.bind(', '))) {
+        write(ctx.typeAccessor(parent.type.get()));
+        if (parent.arguments.length > 0)
+          TypeEmitter.emitParams(this, parent.copyArguments(), true);
       }
     }
     write(' {');
     increaseIndent();
-    // Prefer the declaration-time surface captured before runtime DCE. A
-    // TypeScript interface is a public compile-time contract, so it must not be
-    // trimmed merely because the current Haxe program does not call a member.
-    final declaredFields = SignatureCache.getPublicInterfaceFields(cl);
-    final interfaceFields = declaredFields == null
-      ? clForFields.fields.get()
-      : declaredFields;
-    for (field in interfaceFields) {
-      if (!field.isPublic)
-        continue;
-      switch field.kind {
+    function emitMember(member: PublicMember): Void {
+      for (signature in member.overloads)
+        emitMember(signature);
+      switch member.kind {
         case FVar(_, _):
           writeNewline();
-          emitPos(field.pos);
-          emitMemberName(TypeUtil.classFieldName(field));
+          emitPos(member.pos);
+          emitMemberName(TypeUtil.nativeName(member.meta) ?? member.name);
           write(': ');
-          final typeOverride = extractStringMeta(field.meta,
-            ':ts.type') ?? extractStringMeta(field.meta, ':genes.type');
+          final typeOverride = extractStringMeta(member.meta,
+            ':ts.type') ?? extractStringMeta(member.meta, ':genes.type');
           if (typeOverride != null)
             write(typeOverride);
           else
-            emitType(field.type);
+            emitType(member.type);
           write(';');
         case FMethod(_):
           writeNewline();
-          emitPos(field.pos);
-          emitMemberName(TypeUtil.classFieldName(field));
-          if (field.params != null && field.params.length > 0)
-            emitTypeParamDecls(field.params.map(p -> p.t), true);
+          emitPos(member.pos);
+          emitMemberName(TypeUtil.nativeName(member.meta) ?? member.name);
+          if (member.parameters.length > 0)
+            emitTypeParamDecls([
+              for (parameter in member.parameters) parameter.t
+            ], true);
           write('(');
-          emitFunctionTypeArguments(field.type);
+          emitFunctionTypeArguments(member.type);
           write('): ');
-          emitFunctionReturnType(field.type);
+          emitFunctionReturnType(member.type);
           write(';');
       }
     }
+    // Unlike classic `.d.ts`, TS implementation source keeps classified Haxe
+    // accessor support methods: generated class bodies call `get_*`/`set_*`
+    // directly and must structurally satisfy the emitted interface. The shared
+    // model records `isCompilerGenerated`; this profile intentionally includes
+    // it until accessor lowering can hide the runtime method behind a private
+    // structural contract.
+    for (member in publicSurface.instanceMembersFor(params))
+      emitMember(member);
     decreaseIndent();
     writeNewline();
     write('}');
@@ -5041,7 +5297,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     if (typeOverride != null)
       write(typeOverride);
     else
-      emitType(def.type);
+      emitType(PublicSurface.forTypedef(def).aliasTypeFor(params));
     writeNewline();
   }
 

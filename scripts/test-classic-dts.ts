@@ -32,7 +32,10 @@ run("haxe", ["test.hxml"]);
 assertExportedSurfacePolicy({
   repoRoot,
   tsconfigPath: "tests/classic-dts/tsconfig.json",
-  includePaths: ["bin/haxe/Constraints.d.ts"],
+  includePaths: [
+    "bin/haxe/Constraints.d.ts",
+    "bin/tests/publicsurface/SurfaceParent.d.ts"
+  ],
   scope: "classic-dts-imap"
 });
 

@@ -27,7 +27,22 @@ DCE removes implementation details, and the full fixture includes a negative
 consumer that requires an unknown member access to fail.
 
 This closes the concrete `IMap` masking defect. It does not yet replace every
-public-surface collection path with one shared semantic model.
+dependency/reachability path with an explicit graph.
+
+### Shared public-surface planning
+
+`PublicSurface` now captures classes, interfaces, typedef bodies, applied parent
+types, public instance/static members, method generics, overload sets, source
+metadata, and compiler-generated classification before runtime DCE. Generated
+TS interfaces and classic declarations consume those same facts. Focused
+positive and negative consumers cover generic parent substitution, closed
+interfaces, overload identity, and exclusion of private runtime helpers.
+
+TS implementation interfaces intentionally retain classified Haxe accessor
+support methods when emitted class bodies call them directly; classic consumer
+declarations suppress those implementation details. Classic class declarations
+currently intersect the shared surface with runtime-retained members until the
+declaration-only dependency graph can retain referenced types independently.
 
 ### Precise classic nullability
 
@@ -60,8 +75,9 @@ rather than using a broad return type.
    operations, but those operations must not escape into user exports.
 5. **Null/undefined/optional distinctions:** local fixes exist, but the compiler
    does not yet consume one shared `NullishContract` in every printer.
-6. **Declaration-only reachability:** classic declarations and TS implementation
-   types do not yet consume an explicit declaration dependency graph.
+6. **Declaration-only reachability:** classic class declarations still require
+   the runtime-member intersection described above; TS implementation types do
+   not yet consume an explicit declaration dependency graph either.
 
 ## Evidence layers
 
@@ -71,22 +87,16 @@ rather than using a broad return type.
 | Negative consumers | Closed interfaces, classic nullable declarations, React prop snapshots | The matrix is not yet exhaustive across all exported/imported types. |
 | Lexical unsafe-type scan | Selected generated user files | Inference, aliases, imports, declaration merging, and excluded directories. |
 | Runtime assertions | Map absence/undefined, iterator and general compiler fixtures | Public declaration precision not observed at runtime. |
-| Semantic export inspection | Not yet landed (`genes-09r.1`) | This is the missing machine-readable view of transitive exported types. |
+| Semantic export inspection | TypeChecker audit of generated TS and classic declarations with exact boundary provenance | Coverage is fixture-scoped and does not replace dependency or nullish planning. |
 
 ## Next tightening targets
 
-1. `genes-09r.1`: use the TypeScript Compiler API to recursively audit exported
-   symbols for `TypeFlags.Any`, unjustified `Unknown`, and unapproved index
-   signatures; extend `@ts-expect-error` consumers for known ingress paths.
-2. `genes-09r.10`: replace target-local public member collection with a shared
-   `PublicSurface` consumed by TS implementation interfaces and classic
-   declarations.
-3. `genes-09r.2`: introduce a shared nullish vocabulary for Haxe `Null<T>`,
+1. `genes-09r.2`: introduce a shared nullish vocabulary for Haxe `Null<T>`,
    native `undefined`, optional properties, absent parameters, and boundary
    unknowns.
-4. `genes-09r.3`: make runtime, type-only, and declaration-only dependencies
+2. `genes-09r.3`: make runtime, type-only, and declaration-only dependencies
    explicit so a type printer cannot silently change reachability.
-5. `genes-09r.5`: broaden JSX negative coverage across intrinsic props,
+3. `genes-09r.5`: broaden JSX negative coverage across intrinsic props,
    components, children, spread props, and imported JSX namespaces.
 
 The desired end state is an allowlisted boundary manifest with a stable ID,

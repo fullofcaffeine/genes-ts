@@ -10,7 +10,12 @@ class TestTsGenerics {
 
   var types = sourceCode(true);
 
-  @:keep var checkType: NativePromise<String>;
+  /**
+   * Public declaration fixture for generic native-type mapping. `@:keep`
+   * isolates the assertion from runtime DCE; classic declarations should emit
+   * the intentional API as `Promise<string>` without reopening private fields.
+   */
+  @:keep public var checkType: NativePromise<String>;
 
   public function testType() {
     asserts.assert(types.contains('checkType: Promise<string>'));

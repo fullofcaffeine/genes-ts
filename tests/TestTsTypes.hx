@@ -35,6 +35,14 @@ enum BasicEnum {
   B(value: String);
 }
 
+/**
+ * Public declaration fixture for target type-override metadata.
+ *
+ * These methods are public because `PublicSurface` intentionally excludes
+ * private implementation details. Keeping the overrides here proves the raw
+ * metadata boundary without teaching declaration emission to leak private test
+ * helpers.
+ */
 @:keep
 class TsMethods<T:{}> {
   public function typeConstraints<T: (__A & __B)>() {}
@@ -42,6 +50,22 @@ class TsMethods<T:{}> {
   public function testParamType<@:genes.type('param1') T>(@:genes.type('param2') a: Int) {}
 
   public function testInlineAnonymous(a: {a: String, b: String}) {}
+
+  /**
+   * Pins the classic declaration member to a callable property type. This
+   * exercises the low-level whole-type override used when Haxe cannot express
+   * the desired TypeScript declaration shape directly.
+   */
+  @:keep @:genes.type('() => void')
+  public function overwriteFunctionType() {}
+
+  /**
+   * Overrides only the emitted return contract. The empty Haxe body remains a
+   * runtime no-op; TS mode emits a contained typed `undefined` fallback so the
+   * declared string surface still passes strict checking.
+   */
+  @:keep @:genes.returnType('string')
+  public function changeReturn() {}
 }
 
 @:asserts
@@ -51,12 +75,6 @@ class TestTsTypes {
   @:genes.type('number') @:keep public final prop = 'string';
 
   public function new() {}
-
-  @:keep @:genes.type('() => void')
-  function overwriteFunctionType() {}
-
-  @:keep @:genes.returnType('string')
-  function changeReturn() {}
 
   public function testType() {
     asserts.assert(types.contains('export type X1<T> = T'));

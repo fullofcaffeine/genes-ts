@@ -17,6 +17,7 @@ class Run {
       new TestTypeOnlyDce(), new TestTsGenerics(), new TestTypeAlias(),
       new TestSyntax(), new TestAsyncAwait(), new TestImportHelper(),
       new TestUnknownNarrowing(), new TestJsonValue(),
+      new TestPublicSurface(),
       #end
       new TestAsterisk(),
       new TestBind(),

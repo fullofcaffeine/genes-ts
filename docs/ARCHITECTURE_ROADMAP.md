@@ -83,11 +83,13 @@ The audit also required two qualifications:
 | Secondary extern type ownership | A secondary type can reuse its owning module's `@:jsRequire` identity. | Focused extern fixture |
 | Fail-closed ts2hx | Strict mode diagnoses currently classified unsupported root files/top-level statements and publishes no partial tree; assisted output carries explicit losses and a manifest. Remaining semantic approximations are not declared lossless. | API/CLI/transaction tests and 53 snapshots |
 | Semantic exported-surface policy | Exported TS and classic declaration roots are checked through the TypeScript TypeChecker for explicit/inferred/imported weak types and unapproved index signatures; intentional boundaries require exact owned provenance. | Policy fixtures, TS/classic `IMap`, basic user modules, JSX negative consumers, and aggregate CI |
+| Shared public-surface facts | TS implementation interfaces and classic declarations consume one immutable pre-DCE model for visibility, applied inheritance, generics, overload identity, typedef bodies, and classified compiler-generated support members. | Generic/overload fixture, strict TS and classic declaration consumers, and dual-mode runtime assertions |
 | Product wording | Readiness, JSX, declaration, and migration claims are separated by evidence class. | This document and linked mode/policy docs |
 
-These are focused fixes, not proof that the final shared semantic model already
-exists. For example, the interface correction captures public members before
-DCE but does not yet make every printer consume one immutable `PublicSurface`.
+These are focused fixes, not proof that the complete semantic architecture
+already exists. `PublicSurface` now owns declaration facts, but nullish meaning,
+dependency reachability, expression lowering, names/temporaries, and JSX intent
+remain the separately ordered seams below.
 
 ## Incremental target architecture
 
@@ -159,6 +161,13 @@ type/declaration edges never introduce runtime side effects, and unresolved
 Haxe types become diagnostics. The current no-op type-printer discovery and
 silent lookup catch should remain only until the shadow graph proves parity.
 
+Until that graph lands, classic class declarations intersect `PublicSurface`
+with the post-DCE runtime member inventory. This prevents a declaration-only
+member—especially an abstract implementation artifact—from naming a type whose
+module was never planned, while interfaces remain complete. `genes-09r.3` must
+remove that boundary by planning declaration reachability and abstract-instance
+surface representation explicitly; it must not broaden classic runtime DCE.
+
 ### Capability profiles
 
 - `ts-strict`: closed public interfaces, explicit nullish types, strict ESM
@@ -183,10 +192,11 @@ The source of truth is Beads epic `genes-09r`.
    signatures fail CI. Exact boundary entries carry stable ownership and source
    provenance and fail when stale or ambiguous. This is the evidence foundation
    for later shared planning.
-2. **`genes-09r.10` — shared `PublicSurface`.** Build on the landed pre-DCE
-   interface fix and make TS interfaces plus classic declarations consume one
-   immutable model for visibility, inheritance, overload identity, and generic
-   substitution.
+2. **`genes-09r.10` — shared `PublicSurface` (landed).** TS interfaces and
+   classic declarations consume one immutable pre-DCE model for visibility,
+   inheritance, overload identity, generic substitution, and typedef bodies.
+   Compiler-generated accessor support remains a classified profile decision;
+   overload implementations retain one runtime body and precise TS signatures.
 3. **`genes-09r.2` — shared `NullishContract`.** Model null, undefined,
    optional, absence, native map reads, and iterator results once, then migrate
    target printers behind existing fixtures.

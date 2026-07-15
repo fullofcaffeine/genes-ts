@@ -7,6 +7,7 @@ import genes.util.TypeUtil;
 import genes.util.IteratorUtil.*;
 import genes.dts.TypeEmitter;
 import genes.util.Timer.timer;
+import genes.PublicSurface;
 
 class DefinitionEmitter extends ModuleEmitter {
   public function emitDefinition(module: Module) {
@@ -27,13 +28,15 @@ class DefinitionEmitter extends ModuleEmitter {
           emitModuleStatics(cl, fields);
         #end
         case MClass(cl, params, fields):
-          // Runtime DCE must not shrink a public declaration interface. The
-          // cache is populated before DCE but is used only for declarations;
-          // classic JavaScript still receives the compact runtime field list.
-          final declaredFields = genes.ts.SignatureCache.getPublicInterfaceFields(cl);
-          emitClassDefinition(cl, params, declaredFields == null
-            ? fields
-            : Module.fieldsOf(cl, declaredFields));
+          // Declaration output consumes the shared public API facts. Interface
+          // contracts are complete; class members are intersected with the
+          // emitted runtime inventory until the declaration-only DependencyPlan
+          // can retain their referenced types independently. Private runtime
+          // fields never enter this declaration plan.
+          final publicSurface = PublicSurface.forClass(cl);
+          emitClassDefinition(cl, publicSurface, params,
+            Module.fieldsOf(cl, publicSurface, params, false,
+              cl.isInterface ? null : fields));
         case MEnum(et, params):
           emitEnumDefinition(et, params);
         case MType(def, params):
@@ -63,7 +66,7 @@ class DefinitionEmitter extends ModuleEmitter {
     if (typeOverride != null)
       write(typeOverride);
     else
-      emitType(def.type);
+      emitType(PublicSurface.forTypedef(def).aliasTypeFor(params));
     writeNewline();
   }
 
@@ -190,8 +193,8 @@ class DefinitionEmitter extends ModuleEmitter {
       }
   }
 
-  function emitClassDefinition(cl: ClassType, params: Array<Type>,
-      fields: Array<Field>) {
+  function emitClassDefinition(cl: ClassType, publicSurface: PublicSurface,
+      params: Array<Type>, fields: Array<Field>) {
     writeNewline();
     emitComment(cl.doc);
     emitPos(cl.pos);
@@ -200,13 +203,13 @@ class DefinitionEmitter extends ModuleEmitter {
     writeSpace();
     emitBaseType(cl, params, true);
     emitPos(cl.pos);
-    switch cl.superClass {
+    switch publicSurface.superClassFor(params) {
       case null:
-      case {t: t, params: params}:
+      case parent:
         write(' extends ');
-        emitBaseType(t.get(), params);
+        emitBaseType(parent.type.get(), parent.copyArguments());
     }
-    switch cl.interfaces {
+    switch publicSurface.interfacesFor(params) {
       case null | []:
       case interfaces:
         if (cl.isInterface)
@@ -214,11 +217,19 @@ class DefinitionEmitter extends ModuleEmitter {
         else
           write(' implements ');
         for (int in join(interfaces, write.bind(', ')))
-          emitBaseType(int.t.get(), int.params);
+          emitBaseType(int.type.get(), int.copyArguments());
     }
     write(' {');
     increaseIndent();
-    for (field in fields) {
+    final signatureFields: Array<Field> = [];
+    function appendField(field: Field): Void {
+      for (signature in field.overloads)
+        appendField(signature);
+      signatureFields.push(field);
+    }
+    for (field in fields)
+      appendField(field);
+    for (field in signatureFields) {
       switch field.kind {
         case Constructor | Method:
           switch field.type {

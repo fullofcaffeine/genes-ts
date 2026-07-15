@@ -10,6 +10,7 @@ import genes.util.TypeUtil;
 import genes.dts.TypeEmitter;
 import genes.util.Timer.timer;
 import genes.TypeAccessor;
+import genes.PublicSurface.PublicMember;
 
 using StringTools;
 using haxe.macro.TypedExprTools;
@@ -37,6 +38,7 @@ typedef Field = {
   final setter: Bool;
   final getter: Bool;
   final tsType: Null<String>;
+  final overloads: Array<Field>;
 }
 
 enum Member {
@@ -152,6 +154,7 @@ class Module {
     final endTimer = timer('typeDependencies');
     final dependencies = new Dependencies(this, false);
     final tsMode = Context.defined('genes.ts');
+    final declarationMode = Context.defined('dts');
     final noop = function() {}
     final writer = {
       write: function(code: String) {},
@@ -188,36 +191,54 @@ class Module {
       switch member {
         case MClass(cl, params, fields):
           addParams(params);
-          switch cl.interfaces {
+          final publicSurface = (tsMode || declarationMode)
+            ? PublicSurface.forClass(cl)
+            : null;
+          final publicInterfaces = publicSurface == null
+            ? [for (parent in cl.interfaces)
+                new genes.PublicSurface.PublicTypeUse(parent.t, parent.params)]
+            : publicSurface.interfacesFor(params);
+          switch publicInterfaces {
             case null | []:
             case v:
               for (i in v) {
-                dependencies.add(TClassDecl(i.t));
-                addBaseType(i.t.get(), i.params);
+                dependencies.add(TClassDecl(i.type));
+                addBaseType(i.type.get(), i.copyArguments());
               }
           }
-          switch cl.superClass {
+          final publicSuperClass = publicSurface == null
+            ? (switch cl.superClass {
+                case null: null;
+                case parent: new genes.PublicSurface.PublicTypeUse(parent.t,
+                  parent.params);
+              })
+            : publicSurface.superClassFor(params);
+          switch publicSuperClass {
             case null:
-            case {t: t}: dependencies.add(TClassDecl(t));
+            case parent:
+              dependencies.add(TClassDecl(parent.type));
+              addBaseType(parent.type.get(), parent.copyArguments());
           }
-          // Type imports must be planned from the same pre-DCE interface
-          // surface that TS and classic declaration printers consume. Using
-          // only runtime fields can produce a complete interface whose newly
-          // visible member types (for example KeyValueIterator) were never
-          // imported.
-          final declaredInterfaceFields = (tsMode || Context.defined('dts'))
-            && cl.isInterface
-            ? genes.ts.SignatureCache.getPublicInterfaceFields(cl)
-            : null;
-          final signatureFields = declaredInterfaceFields == null
-            ? fields
-            : fieldsOf(cl, declaredInterfaceFields);
-          for (field in signatureFields) {
+          // Dependency discovery consumes exactly the same source-level API
+          // facts as declaration-like emitters. Interfaces use their complete
+          // surface. Class declarations currently intersect it with runtime
+          // reachability until DependencyPlan can retain declaration-only type
+          // edges without pulling implementation modules into classic JS.
+          final signatureFields = publicSurface != null
+            && (declarationMode || cl.isInterface)
+            ? fieldsOf(cl, publicSurface, params, tsMode && cl.isInterface,
+              declarationMode && !cl.isInterface ? fields : null)
+            : fields;
+          function addSignatureField(field: Field): Void {
             if (field.tsType != null)
-              continue;
-            addParams(field.params.map(p -> p.t));
+              return;
+            addParams(field.params.map(parameter -> parameter.t));
             addType(field.type);
+            for (signature in field.overloads)
+              addSignatureField(signature);
           }
+          for (field in signatureFields)
+            addSignatureField(field);
           if (tsMode) {
             for (field in fields)
               addExprLocalTypes(field.expr);
@@ -402,17 +423,130 @@ class Module {
   /**
    * Builds the emitter-facing field records for a typed class.
    *
-   * The optional instance-field list lets declaration emitters use the
-   * pre-DCE interface surface captured by `SignatureCache` while runtime
-   * emitters continue to consume Haxe's post-DCE fields. This keeps classic JS
-   * output compact without trimming the separate TypeScript declaration
-   * contract.
+   * With no surface, runtime emitters receive Haxe's post-DCE fields. Passing a
+   * `PublicSurface` instead maps its pre-DCE, public-only members (including
+   * overload identity) into the existing emitter record without coupling the
+   * semantic model to target formatting. `retainedFields` can constrain class
+   * declarations to the modules/members in the current runtime graph until the
+   * declaration-only `DependencyPlan` owns independent reachability; interfaces
+   * deliberately remain complete. Classic JS therefore stays compact while TS
+   * interfaces and `.d.ts` consume the same API facts.
    */
   public static function fieldsOf(cl: ClassType,
-      ?declaredInstanceFields: Array<ClassField>) {
+      ?publicSurface: PublicSurface, ?surfaceParams: Array<Type>,
+      includeCompilerGenerated = false, ?retainedFields: Array<Field>) {
     final fields: Array<Field> = [];
     final classDisableNativeAccessors = haxe.macro.Context.defined('genes.disable_native_accessors')
       || cl.meta.has(':genes.disableNativeAccessors');
+    inline function extractTsType(meta: MetaAccess): Null<String> {
+      return switch meta.extract(':ts.type') {
+        case [{params: [{expr: EConst(CString(type))}]}]: type;
+        default:
+          switch meta.extract(':genes.type') {
+            case [{params: [{expr: EConst(CString(type))}]}]: type;
+            default: null;
+          }
+      }
+    }
+    function paramsFor(member: PublicMember): Array<TypeParameter> {
+      final params = switch cl.kind {
+        case KAbstractImpl(_.get().params => params) if (member.isStatic):
+          params.copy();
+        default:
+          [];
+      }
+      for (parameter in member.parameters) {
+        if (params.filter(existing -> existing.name == parameter.name).length == 0)
+          params.push(parameter);
+      }
+      return params;
+    }
+    function fieldFromPublicMember(member: PublicMember): Field {
+      if (member.isConstructor) {
+        return {
+          kind: Constructor,
+          type: member.type,
+          meta: member.meta,
+          expr: member.expr,
+          pos: member.pos,
+          name: 'new',
+          isStatic: false,
+          #if (haxe_ver >= 4.2)
+          isAbstract: false,
+          #end
+          isPublic: true,
+          params: member.copyParameters(),
+          doc: member.doc,
+          getter: false,
+          setter: false,
+          tsType: null,
+          overloads: [
+            for (signature in member.overloads)
+              fieldFromPublicMember(signature)
+          ]
+        };
+      }
+      final isVar = member.meta.has(':isVar');
+      final disableNativeAccessors = member.meta.has(':genes.disableNativeAccessors')
+        || classDisableNativeAccessors;
+      return {
+        kind: switch member.kind {
+          case FVar(_, _): Property;
+          case FMethod(_): Method;
+        },
+        meta: member.meta,
+        name: member.name,
+        type: member.type,
+        expr: member.expr,
+        pos: member.pos,
+        isStatic: member.isStatic,
+        #if (haxe_ver >= 4.2)
+        isAbstract: member.isAbstract,
+        #end
+        isPublic: true,
+        params: paramsFor(member),
+        doc: member.doc,
+        getter: !disableNativeAccessors && !isVar
+          && member.kind.match(FVar(AccCall, AccCall | AccNever)),
+        setter: !disableNativeAccessors && !isVar
+          && member.kind.match(FVar(AccCall | AccNever, AccCall)),
+        tsType: extractTsType(member.meta),
+        overloads: [
+          for (signature in member.overloads)
+            fieldFromPublicMember(signature)
+        ]
+      };
+    }
+    if (publicSurface != null) {
+      final concreteTypes = surfaceParams == null
+        ? cl.params.map(parameter -> parameter.t)
+        : surfaceParams;
+      final constructor = publicSurface.constructorFor(concreteTypes);
+      function isRetained(member: PublicMember): Bool {
+        return switch retainedFields {
+          case null:
+            true;
+          case fieldsToMatch:
+            Lambda.exists(fieldsToMatch, field -> field.isStatic == member.isStatic
+              && (member.isConstructor
+                ? field.kind.match(Constructor)
+                : field.name == member.name));
+        };
+      }
+      if (constructor != null && isRetained(constructor))
+        fields.push(fieldFromPublicMember(constructor));
+      for (member in publicSurface.instanceMembersFor(concreteTypes)) {
+        if ((includeCompilerGenerated || !member.isCompilerGenerated)
+          && isRetained(member))
+          fields.push(fieldFromPublicMember(member));
+      }
+      for (member in publicSurface.staticMembersFor(concreteTypes)) {
+        if ((includeCompilerGenerated || !member.isCompilerGenerated)
+          && isRetained(member))
+          fields.push(fieldFromPublicMember(member));
+      }
+      return fields;
+    }
     switch cl.constructor {
       case null:
       case ctor:
@@ -433,26 +567,18 @@ class Module {
           doc: null,
           getter: false,
           setter: false,
-          tsType: null
+          tsType: null,
+          overloads: [
+            for (signature in ctor.get().overloads.get())
+              fieldFromPublicMember(PublicMember.capture(signature, false,
+                true, false))
+          ]
         });
     }
-    final instanceFields = declaredInstanceFields == null
-      ? cl.fields.get()
-      : declaredInstanceFields;
-    for (field in instanceFields) {
+    for (field in cl.fields.get()) {
       final isVar = field.meta.has(':isVar');
       final disableNativeAccessors = field.meta.has(':genes.disableNativeAccessors')
         || classDisableNativeAccessors;
-      inline function extractTsType(meta: MetaAccess): Null<String> {
-        return switch meta.extract(':ts.type') {
-          case [{params: [{expr: EConst(CString(type))}]}]: type;
-          default:
-            switch meta.extract(':genes.type') {
-              case [{params: [{expr: EConst(CString(type))}]}]: type;
-              default: null;
-            }
-        }
-      }
       fields.push({
         kind: switch field.kind {
           case FVar(_, _): Property;
@@ -474,23 +600,18 @@ class Module {
         && field.kind.match(FVar(AccCall, AccCall | AccNever)),
         setter: !disableNativeAccessors && !isVar
         && field.kind.match(FVar(AccCall | AccNever, AccCall)),
-        tsType: extractTsType(field.meta)
+        tsType: extractTsType(field.meta),
+        overloads: [
+          for (signature in field.overloads.get())
+            fieldFromPublicMember(PublicMember.capture(signature, false,
+              false, false))
+        ]
       });
     }
     for (field in cl.statics.get()) {
       final isVar = field.meta.has(':isVar');
       final disableNativeAccessors = field.meta.has(':genes.disableNativeAccessors')
         || classDisableNativeAccessors;
-      inline function extractTsType(meta: MetaAccess): Null<String> {
-        return switch meta.extract(':ts.type') {
-          case [{params: [{expr: EConst(CString(type))}]}]: type;
-          default:
-            switch meta.extract(':genes.type') {
-              case [{params: [{expr: EConst(CString(type))}]}]: type;
-              default: null;
-            }
-        }
-      }
       fields.push({
         kind: switch field.kind {
           case FVar(_, _): Property;
@@ -523,7 +644,12 @@ class Module {
         && field.kind.match(FVar(AccCall, AccCall | AccNever)),
         setter: !disableNativeAccessors && !isVar
         && field.kind.match(FVar(AccCall | AccNever, AccCall)),
-        tsType: extractTsType(field.meta)
+        tsType: extractTsType(field.meta),
+        overloads: [
+          for (signature in field.overloads.get())
+            fieldFromPublicMember(PublicMember.capture(signature, true,
+              false, false))
+        ]
       });
     }
     return fields;

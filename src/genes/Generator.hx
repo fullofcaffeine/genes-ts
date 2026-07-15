@@ -237,6 +237,7 @@ class Generator {
       // TypeScript implementation output and classic declaration output both
       // need source-level signatures captured before runtime-oriented DCE.
       if (Context.defined('genes.ts') || Context.defined('dts')) {
+        genes.PublicSurface.install();
         genes.ts.SignatureCache.install();
       }
       Compiler.include('genes.Register');

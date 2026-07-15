@@ -21,10 +21,10 @@ tracked by epic `genes-09r` and documented in `ARCHITECTURE_ROADMAP.md`.
 - Null, undefined, optional, and absent values remain distinct where their
   Haxe/JavaScript contracts differ.
 
-Closed-interface emission and its negative consumer have landed. A
-TypeScript-Compiler-API exported-surface audit and broader negative matrix are
-still tracked by `genes-09r.1`; the reusable public-surface model is
-`genes-09r.10`, and shared nullish modeling is `genes-09r.2`.
+Closed-interface emission, the TypeScript-Compiler-API exported-surface audit,
+and the reusable `PublicSurface` model have landed. The negative matrix remains
+deliberately fixture-scoped; shared nullish modeling is `genes-09r.2` and the
+explicit declaration dependency graph is `genes-09r.3`.
 
 ### R2 — Runtime correctness in both output modes
 

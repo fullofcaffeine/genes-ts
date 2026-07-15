@@ -66,6 +66,26 @@ writeFileSync(
   ].join("\n")
 );
 
+// The same immutable public plan owns generic parent applications in TS
+// implementation interfaces. Negative calls prove `SurfaceParent<Array<T>>`
+// was not widened or reconstructed differently by this printer.
+writeFileSync(
+  path.join(repoRoot, "tests/genes-ts/full/out/src-gen/PublicSurfaceConsumer.ts"),
+  [
+    'import type {SurfaceChild} from "./tests/publicsurface/SurfaceParent.js";',
+    "declare const child: SurfaceChild<string>;",
+    'const inherited: string[] = child.inherited(["surface"]);',
+    'const own: string = child.own("surface");',
+    "// @ts-expect-error SurfaceChild<T> applies Array<T> to its parent.",
+    "child.inherited([1]);",
+    "// @ts-expect-error the ordinary Haxe interface remains closed",
+    "child.nonexistentMember();",
+    "void inherited; void own;",
+    "export {};",
+    ""
+  ].join("\n")
+);
+
 // The external negative consumer proves invalid access is rejected. The
 // semantic audit separately proves that neither `any` nor an index signature
 // can mask that API even when a future fixture stops touching a member.
