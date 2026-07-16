@@ -83,7 +83,7 @@ The audit also required two qualifications:
 | Native map absence | Missing `EsMap` entries normalize to Haxe `null`; an explicitly stored JS `undefined` remains distinguishable. | Runtime plus negative type fixture |
 | Secondary extern type ownership | A secondary type can reuse its owning module's `@:jsRequire` identity. | Focused extern fixture |
 | Native-global extern ownership | A secondary extern with explicit `@:native` identity never inherits an unrelated sibling `@:jsRequire`; metadata-free secondary package types still reuse their owner. | Four-oracle mixed-global/package fixture plus pinned OpenCodeHX rerun |
-| Fail-closed ts2hx | Strict mode diagnoses currently classified unsupported root files/top-level statements and publishes no partial tree; assisted output carries explicit losses and a manifest. Every effective TypeScript runtime request requires an explicit Genes ESM capability, while request-free standard Haxe remains separately exercised. Remaining semantic approximations are not declared lossless. | API/CLI/transaction tests, exact TypeScript request evidence, a wrong-profile Haxe macro rejection, and 49 reviewed snapshot files |
+| Fail-closed ts2hx | Strict mode diagnoses currently classified unsupported root files/top-level statements and publishes no partial tree; assisted output carries explicit losses and a manifest. Every effective TypeScript runtime request requires an explicit Genes ESM capability, while request-free standard Haxe remains separately exercised. Remaining semantic approximations are not declared lossless. | API/CLI/transaction tests, exact TypeScript request evidence, a wrong-profile Haxe macro rejection, and 50 reviewed snapshot files |
 | Semantic exported-surface policy | Exported TS and classic declaration roots are checked through the TypeScript TypeChecker for explicit/inferred/imported weak types and unapproved index signatures; intentional boundaries require exact owned provenance. | Policy fixtures, TS/classic `IMap`, basic user modules, JSX negative consumers, and aggregate CI |
 | Shared public-surface facts | TS implementation interfaces and classic declarations consume one immutable pre-DCE model for visibility, applied inheritance, generics, overload identity, typedef bodies, and classified compiler-generated support members. | Generic/overload fixture, strict TS and classic declaration consumers, and dual-mode runtime assertions |
 | Reusable-library profile | Explicit `@:genes.library` roots retain one transitive public runtime/type graph before DCE; default application output remains compact and classic mode requires matched declarations. | Default/library/TS builds, strict negative consumer on TS 5/6/7, abstract-owner assertions, and paired Node runtimes |
@@ -398,6 +398,35 @@ roundtrips are valuable. Its contract is now:
   distinct status unless loss is explicitly acknowledged;
 - future `strict-portable`: only a declared portable Haxe subset, backed by
   cross-target evidence rather than source appearance.
+
+### Long-term implementation-language possibility
+
+A Haxe-authored ts2hx is a worthwhile future research direction, not a current
+rewrite plan. Compiling the translator through Genes could consolidate more of
+the toolchain around Haxe and would exercise Genes against a large, demanding
+compiler application rather than only small fixtures. That pressure could
+reveal useful general compiler, interop, and output-quality gaps.
+
+The current TypeScript implementation remains the source of truth unless an
+incremental experiment first proves all of the following:
+
+- a reproducible stage-0 path can build the translator without turning the
+  current CI feedback loop into a compiler build cycle; Genes does not depend
+  on ts2hx at runtime or to build today, although root CI deliberately runs
+  ts2hx as a downstream pressure test;
+- typed Haxe externs can cover the TypeScript Program, TypeChecker, module
+  resolver, and version bridge without replacing those authoritative APIs or
+  falling back to `Dynamic`, `untyped`, or generated `any`;
+- diagnostics, source positions, transactions, manifests, snapshots, runtime
+  differentials, and performance remain at least as strong as the TypeScript
+  implementation; and
+- migration can happen seam by seam with rollback points instead of as a
+  flag-day rewrite.
+
+Until those prerequisites have executable evidence, keeping ts2hx in
+TypeScript is the simpler design: it works directly with TypeScript's native
+compiler objects while continuing to emit ordinary typed Haxe for both Genes
+profiles.
 
 dts2hx remains the declaration-ingestion foundation. The landed bridge shares
 package fixtures, versioned manifests, and a narrow compiler-API resolution
