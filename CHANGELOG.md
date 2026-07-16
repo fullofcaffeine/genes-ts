@@ -1,3 +1,11 @@
+# [1.32.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.31.0...v1.32.0) (2026-07-16)
+
+
+### Features
+
+* **ts2hx:** carry loop control through finally ([f4e0413](https://github.com/fullofcaffeine/genes-ts/commit/f4e0413471cb59925d2b88f920731d331dd498d4))
+* **ts2hx:** promote finally outer completion ([c5b2a62](https://github.com/fullofcaffeine/genes-ts/commit/c5b2a629c665106f093eb587505db8fe15d3dd54))
+
 # [1.31.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.30.0...v1.31.0) (2026-07-16)
 
 
