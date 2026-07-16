@@ -41,6 +41,13 @@ Full Genes CI must pass before downstream projects rely on a local compiler chan
 - Explain what changed, why it matters, and how it was verified. Call out important behavior or output changes and name any intentionally deferred scope so the commit does not imply broader closure than it provides.
 - Prefer concrete descriptions of the old and new behavior over a list of filenames or internal type names. Technical details are welcome, but introduce them in plain language and make the practical outcome clear first.
 
+## Epistemic Rigor and Friendly Explanations
+
+- Do not let confidence substitute for evidence. Inspect the relevant source, generated output, runtime behavior, and owned tests before making non-trivial claims. Clearly distinguish what is directly observed, what is an inference from that evidence, and what still requires an experiment or external review.
+- Avoid overclaiming from a small repro or one green profile. State the exact boundary that was proved, name important counterexamples and failure modes, and keep uncertain or deferred variants explicit. When compiler behavior is ambiguous or risky, reduce it, test it, and use the repository's architecture-review rule instead of guessing.
+- Write comments and documentation for a capable reader who is new to this part of the compiler. Lead with the practical problem and outcome, then explain the invariant, mechanism, tradeoff, verification, and intentionally deferred scope in friendly language. Introduce jargon and internal names only after the underlying idea is clear.
+- Preserve reasoning near the code that depends on it. Tests show that behavior works today; comments and docs should explain why the design is sound, what evidence supports it, and what a future maintainer must not accidentally break. Do not add narration that merely restates the code.
+
 ## Target-Polymorphic Type Helpers
 
 North star: Haxe code that uses genes-provided TypeScript helper abstractions should still be ordinary Haxe code that can compile through both output modes.
