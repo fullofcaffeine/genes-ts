@@ -1,16 +1,17 @@
 /**
- * Immutable, production-neutral facts for a possible strong package boundary.
+ * Immutable semantic facts for ts2hx's strong package-import boundary.
  *
- * This module deliberately has no emitter dependency. It lets tests prove a
- * closed typed subset while bound package requests remain fail-closed, so a
- * later architecture decision can adopt, revise, or remove the plan without
- * silently changing generated Haxe.
+ * This module deliberately has no emitter dependency. The TypeChecker proves
+ * a small closed subset here; runtime-request planning decides whether a whole
+ * import is supported; and the Haxe printer consumes only the resulting type
+ * records. Keeping those stages separate prevents a printer fallback from
+ * silently widening a successful package binding.
  */
 import path from "node:path";
 import ts from "../typescript-api.js";
 
 /**
- * Strong Haxe types admitted by the first package-extern shadow boundary.
+ * Strong Haxe types admitted by the first package-extern boundary.
  *
  * Why: TypeScript can describe far more types than ordinary Haxe can preserve
  * without generated declarations or weak escape hatches. A closed algebra
@@ -215,12 +216,11 @@ function planFunction(
 }
 
 /**
- * Builds a production-neutral plan for one imported package value.
+ * Builds the typed semantic plan for one imported package value.
  *
- * Why: runtime request order is already proven, but current package externs
- * widen every field to `Dynamic`. This shadow planner establishes the exact
- * subset that can be represented with ordinary typed Haxe before any emitter
- * is allowed to consume it.
+ * Why: runtime request order is already proven, but package values must also
+ * have a faithful ordinary-Haxe type. This planner establishes that type before
+ * any emitter is allowed to consume the binding.
  *
  * What: only one non-generic, non-overloaded function over primitive values or
  * one declaration-file `const` primitive is supported. Mutable bindings,
@@ -230,9 +230,9 @@ function planFunction(
  *
  * How: aliases are resolved with checker-owned symbol identity, but the output
  * contains only immutable strings, numbers, and closed unions. TypeScript text
- * is never parsed, package code is never executed, and no Haxe is emitted.
- * The existing package-bound diagnostic remains authoritative until a later
- * reviewed commit deliberately connects this plan to translation.
+ * is never parsed and package code is never executed. The enclosing request
+ * planner accepts an import only when every retained binding is supported;
+ * rejected shapes retain the stable package-bound diagnostic.
  */
 export function planPackageExternBinding(
   input: PackageExternBindingInput

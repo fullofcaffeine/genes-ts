@@ -200,6 +200,15 @@ generated carriers target classic Genes and genes-ts through the named
 `TS2HX-MODULES-ESM-RUNTIME-TARGET-001`; compiling a Genes-profile tree with the
 standard generator independently fails its Haxe macro guard.
 
+For bound npm imports, ts2hx currently generates a strong `@:jsRequire`
+extern only when the TypeScript declaration resolves to a primitive immutable
+constant or a simple non-generic function over primitive values. Default,
+named, aliases, mixed clauses, and static namespace reads share the same
+request identity, so both Genes profiles coalesce duplicates at the first
+source request. Broader declarations and namespace-object behavior keep the
+stable package-bound diagnostic; this narrow J1 boundary is not a general
+`.d.ts` converter or a standard-Haxe module-loading claim.
+
 Request-free ts2hx completion-aware Haxe remains ordinary input to all three
 JavaScript lanes. The supported synchronous return/break/continue subset uses a
 private `@:genes.compilerInternal` enum plus `genes.js.FinallyCompletion`:

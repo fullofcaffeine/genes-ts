@@ -195,8 +195,8 @@ export const SEMANTIC_SUPPORT_MATRIX: readonly SemanticFeatureContract[] = [
     category: "modules",
     support: "supported",
     portableGrade: "J1",
-    summary: "Preserves supported direct ESM names, aliases, type/value roles, and immutable value reads after runtime-request planning.",
-    limitation: "It does not own request retention/order, mutable live bindings, package loading, converted cycles, or runtime re-exports."
+    summary: "Preserves supported direct ESM names, aliases, type/value roles, immutable reads, and the closed typed package-extern subset after runtime-request planning.",
+    limitation: "Package support is limited to declaration-file primitive constants and simple monomorphic primitive functions; mutable live bindings, broader declarations, converted cycles, and runtime re-exports remain outside this row."
   },
   {
     id: "modules.esm-runtime-requests",
@@ -288,7 +288,7 @@ export const SEMANTIC_FAIL_CLOSED_CASES: readonly SemanticFailClosedCase[] = [
   {
     featureId: "modules.esm-bindings",
     diagnosticId: "TS2HX-MODULES-ESM-RUNTIME-PACKAGE-BOUND-001",
-    variant: "bound package runtime request"
+    variant: "bound package value outside the closed typed extern subset"
   },
   {
     featureId: "modules.esm-runtime-requests",

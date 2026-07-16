@@ -67,7 +67,7 @@ Grades describe the emitted Haxe contract:
 | `this.class-and-lexical-arrow` | supported / P0 | Supported class methods and lexical arrows preserve their receiver/capture behavior. |
 | `prototypes.dynamic-mutation` | unsupported / U | Prototype mutation requires an explicit boundary/refactor. |
 | `async.await` | helper / J1 | Uses `genes.js.Async` and the JavaScript Promise/microtask contract. |
-| `modules.esm-bindings` | supported / J1 | Preserves supported direct local names, aliases, type/value roles, and immutable reads after request planning. It does not promise request retention/order, live mutation, package loading, cycles, or runtime re-exports. |
+| `modules.esm-bindings` | supported / J1 | Preserves supported direct local names, aliases, type/value roles, immutable reads, and a closed package-extern subset after request planning. Package values must be declaration-file primitive constants or simple monomorphic functions over primitive values; mutable and broader declaration shapes fail closed. |
 | `modules.esm-runtime-requests` | helper / J1 | Preserves every supported effective ESM request in configured TypeScript emit order across classic Genes and genes-ts. TypeScript-elided and declaration-wide type-only imports create no request; standard Haxe is an explicit capability failure. |
 | `modules.side-effect-import` | helper / J1 | Provides the binding-free package/helper/resource-staging surface on top of the shared request plan, including manifest-owned external relative files and acyclic converted initialization. |
 
@@ -77,7 +77,7 @@ feature-specific failures: excluded async outer finally transfer, dynamic
 prototype mutation, labeled switch continue, four side-effect resource/resolution
 boundaries, four effective-request boundaries for cycles, runtime re-exports,
 non-ESM emit, and the standard-Haxe target, plus two binding boundaries for
-mutable live bindings and bound packages. This table does not turn other syntax
+mutable live bindings and package values outside the closed typed subset. This table does not turn other syntax
 accepted by snapshots into semantic evidence.
 
 ## Project and file inventory
@@ -143,8 +143,15 @@ Known boundaries include:
 - local class type+value aliasing may be approximated with a thin subclass
   because Haxe cannot emit a type alias and value alias with the same name;
 - import classification still uses bounded symbol/name rules for some shapes;
-- non-relative package externs may need manual refinement for precise values,
-  constructors, overloads, and package export forms;
+- non-relative package externs are generated automatically only for
+  declaration-file `const` values of primitive `string`, `number`, or
+  `boolean` type and for exactly-one-signature, non-generic functions whose
+  required parameters and result are primitive (or `void` for the result);
+- optional/rest/explicit-`this` functions, overloads, generics, classes,
+  mutable exports, literal/union/object/callable values, referenced package
+  types, namespace-object identity/computed access, compiler-synthesized uses,
+  import attributes, sanitized export names, and colliding extern module names
+  keep `TS2HX-MODULES-ESM-RUNTIME-PACKAGE-BOUND-001`;
 - generated strong-type guards cover selected roundtrip/React user modules,
   not every possible translated extern boundary;
 - a successful Haxe compile does not prove the public API matches the original
@@ -224,9 +231,10 @@ components, fragments, ordered props, spreads, and supported child
 expressions. Current evidence is deliberately narrower than the todoapp's
 Haxe-authored JSX coverage:
 
-- `basic-tsx` is an assisted inventory because its bound React package request
-  is fail-closed; `react-types` remains a strict request-free snapshot. Both are
-  Haxe compile-smoked;
+- `basic-tsx` is an assisted inventory because classic JSX creates a React
+  namespace use during TypeScript transformation that is not present in the
+  source tree ts2hx lowers; `react-types` remains a strict request-free
+  snapshot. Both are Haxe compile-smoked;
 - their direct standard-Haxe JS smoke is not executed because marker calls are
   compiler intent, not a standalone runtime API;
 - `react-types` additionally roundtrips through genes-ts to strict TSX and has
@@ -247,21 +255,27 @@ remain available, while every runtime re-export is fail-closed until ordered
 live-export behavior has its own proof. A non-relative import generates a small
 `<basePackage>.extern.*` module using `@:jsRequire`-style JS interop.
 
-- the `non-relative-imports` fixture is compile-smoked but not Node-executed;
-  the standard Haxe JS output uses `require()` while the tool package is ESM;
+- the strict `non-relative-imports` snapshot proves exact strong Haxe extern
+  spelling and compile-smokes it; that shape owner does not install its local
+  package into the temporary runtime tree;
+- the semantic differential separately stages a local ESM package, compares
+  default/named/alias/namespace/duplicate/unused bindings across original
+  TypeScript, classic Genes, and genes-ts, asserts once-only initialization and
+  first-request coalescing, and checks generated TypeScript on TS 5/6/7;
 - CommonJS `export =`, configured CommonJS import lowering, conditional package
   exports, subpath conditions, namespace merging, and complex type/value
   exports are not a general ts2hx runtime contract;
 - Node/browser globals and npm packages keep translated code in the JS-specific
   adapter layer;
-- bare package requests are J1, while bound package loading remains fail-closed;
+- bare package requests and the closed typed bound-package subset are J1;
+  broader bound package declarations remain fail-closed;
   relative runtime files require a hash-pinned staging manifest and explicit
   final-build copy ownership;
 - all converted runtime-request cycles, mutable imported bindings, unresolved
   relatives, source code outside the conversion set, unmanifested runtime
   files, unsupported attributes, and runtime re-exports fail closed;
-- a compile-only extern is not evidence that runtime module identity or loading
-  order is correct.
+- an extern outside the named semantic differential is still only shape
+  evidence; it does not extend the runtime package contract.
 
 ## Portability
 
@@ -285,8 +299,9 @@ generated files. Eleven projects require `genes-esm`; eleven are request-free
 and use `standard-haxe-js`, with ten standard-profile runtime smokes. Exceptions
 are explicit:
 
-- `basic-tsx`: assisted and compile-only because bound React loading is not yet
-  runtime-proven and its JSX markers are not executed directly;
+- `basic-tsx`: assisted and compile-only because its transform-synthesized
+  React binding is not represented by the source AST and its JSX markers are
+  not executed directly;
 - `react-types`: strict but compile-only because its JSX markers are not
   executed directly;
 - `finally-completion-return`: strict and request-free; it executes the typed
@@ -297,8 +312,8 @@ are explicit:
   propagated break/continue, lowered-for steps, switch routing, protected-throw
   override, and generated target-name collision avoidance under standard Haxe
   JS, then checks the same generated Haxe through genes-ts and TS 5/6/7;
-- `non-relative-imports`: assisted and compile-only because bound package
-  loading and the ESM/`require()` boundary are not runtime-proven;
+- `non-relative-imports`: strict and compile-only, owning the reviewed strong
+  generated extern shape; package execution belongs to `semantic-diff`;
 - five fixtures use assisted snapshots for an acknowledged top-level `index.ts`
   call; `module-syntax` also records its runtime re-exports as explicit losses;
 - only `roundtrip-fixture`, `roundtrip-advanced`, and `module-regexp` belong to

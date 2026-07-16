@@ -262,6 +262,7 @@ tsconfig + TypeScript source
 | `src/typescript-api.ts` | Isolates the TypeScript 6 compiler-API bridge from tool logic. |
 | `src/semantic/effective-module-requests.ts` | Observes final configured TypeScript import elision/lowering in memory and retains original request provenance. |
 | `src/semantic/compiler-facts.ts` | Records exact bridge/engine identities and a portable deterministic hash of effective compiler options. |
+| `src/semantic/package-extern-plan.ts` | Converts one checker-resolved package value into a closed strong Haxe type plan, or a deterministic rejection reason. It never prints Haxe or executes package code. |
 | `src/semantic/ir.ts` | Owns stable semantic feature IDs, support grades, and deliberately small immutable plans, including function-local callback paths, real control targets, and transfer provenance for `try/finally`. |
 | `src/haxe/emit.ts` | Translates validated constructs, records source provenance, and stages output. Unsupported input must not disappear. |
 | `src/haxe/runtime-modules.ts` | Validates hash-pinned external-relative runtime ownership before emission; staged bytes share the Haxe output transaction, while the named build owner copies them beside final JS. |
@@ -341,16 +342,42 @@ Each supported runtime-importing file receives one kept
 `@:genes.compilerInternal` carrier whose typed marker calls survive full DCE,
 become ordered Genes module requests, and disappear from both final profiles
 and declarations. The supported producer set includes binding-free packages,
-manifest-owned relative resources, and acyclic converted imports with empty,
-immutable named/default/namespace, mixed type/value, and combined clauses.
+the closed typed bound-package subset, manifest-owned relative resources, and
+acyclic converted imports with empty, immutable named/default/namespace, mixed
+type/value, and combined clauses.
+
 Carrier occurrences come from configured TypeScript emit: an unused import
 retained by `verbatimModuleSyntax` remains a request, while an import TypeScript
 elides does not become one. Haxe value-use order is therefore not allowed to
 replace the effective declaration order, even in a module with no bare-import
 ancestor. Maps remain lookup structures; neither ts2hx nor a Genes printer may
-reconstruct request order from grouped bindings. Mutable live bindings, bound
-packages, converted cycles, converted attributes, configured non-ESM output,
-and runtime re-exports remain explicit strict failures.
+reconstruct request order from grouped bindings.
+
+Bound packages add a second proof beside request order. The effective request
+inventory first says which bindings survived TypeScript's configured emit.
+`package-extern-plan.ts` then resolves each retained alias through the checker
+and accepts only two ordinary-Haxe shapes: a declaration-file primitive
+`const`, or one non-generic, non-overloaded function with required primitive
+parameters and a primitive/`Void` result. The plan stores a closed Haxe type
+value; `emitExternModuleFile` never parses TypeScript text or invents a weaker
+fallback. Default, named, aliased, mixed, duplicate, and statically-read
+namespace bindings all use the same literal package identity. The external
+request carrier supplies source order, while ordinary `@:jsRequire` value edges
+attach to its first request slot. Duplicate declarations therefore become one
+final ESM import and one module evaluation.
+
+This boundary deliberately distinguishes an unused source binding from a use
+created later by a TypeScript transform. A zero-source-use binding is accepted
+only when `verbatimModuleSyntax` explicitly retained it. Classic JSX's
+synthetic `React.createElement` use therefore remains fail-closed instead of
+being mistaken for a harmless unused namespace. Mutable exports, overloads,
+generics, optional/rest/explicit-`this` parameters, object or union types,
+namespace-object identity or computed access, attributes on bound packages,
+sanitized export names, colliding extern module names, and other declaration
+shapes retain the stable package-bound diagnostic. Converted cycles,
+converted attributes, configured non-ESM output, and runtime re-exports also
+remain explicit strict failures.
+
 An acyclic binding-free request to converted code targets a deterministic
 compiler-internal field in the generated Haxe module. That typed anchor makes
 the target visible; explicit `@:keep` metadata retains its translated top-level

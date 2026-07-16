@@ -120,7 +120,10 @@ Current fixtures:
 - `fixtures/module-syntax/` (default exports, namespace imports, and re-exports)
 - `fixtures/type-literals/` (type aliases to object literals + optional fields + method signatures)
 - `fixtures/non-relative-imports/` (non-relative imports like `react` / `node:*` via generated extern modules)
-  - Note: this fixture is **compile-only**. Haxe JS output for `@:jsRequire` uses `require()` which is not runnable in ts2hx’s ESM package context.
+  - Note: this strict snapshot is **compile-only** and owns reviewed generated
+    Haxe shape. The semantic differential separately stages a local package and
+    executes the strong default/named/alias/namespace boundary through original
+    TypeScript, classic Genes, and genes-ts.
 - `fixtures/object-methods-spreads/` (object literal method syntax + spread properties)
 - `fixtures/export-forms/` (local export lists + default export aliasing)
 - `fixtures/statement-coverage/` (while/do-while/switch + break/continue + var-without-init)

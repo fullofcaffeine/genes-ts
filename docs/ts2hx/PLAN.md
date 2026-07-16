@@ -41,7 +41,7 @@ What is implemented:
   standard Haxe fails transactionally at the first effective ESM request, and
   generated compiler-owned carriers repeat the guard during Haxe typing
 - An exact original-TS versus classic-JS versus genes-ts-JS event differential
-  for seventeen supported contracts, plus thirteen feature-specific
+  for eighteen supported contracts, plus thirteen feature-specific
   fail-closed cases (including the standard-Haxe request-capability boundary)
 
 Important limitations:
@@ -52,10 +52,13 @@ Important limitations:
 - Some patterns are supported only in the “high signal” shapes we see in fixtures (e.g. logical assigns currently require identifier LHS).
 - Exit `0` means the encountered constructs fit the declared matrix; it does
   not prove arbitrary TypeScript semantics. Dynamic prototype mutation,
-  labeled switch continue and outer completion through finally intentionally
-  reject today. Side-effect imports support packages and manifest-owned runtime
-  files while ambiguous relative/attribute/re-export variants fail closed. Other
-  unmodeled syntax still requires a focused contract before promotion.
+  labeled switch continue and excluded async/generator/constructor/anonymous
+  finally transfers intentionally reject today. Side-effect imports support
+  packages and manifest-owned runtime files; a closed typed package boundary
+  additionally supports declaration-file primitive constants and simple
+  monomorphic primitive functions. Broader package declarations and ambiguous
+  relative/attribute/re-export variants fail closed. Other unmodeled syntax
+  still requires a focused contract before promotion.
 
 Tracking:
 

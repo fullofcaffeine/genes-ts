@@ -1,4 +1,6 @@
-import { sep } from "node:path";
+import { parse } from "node:path";
 
-/** Bound package loading remains outside the runtime-proven ESM subset. */
-export const separator = sep;
+/** Named object results remain outside the first strong package boundary. */
+export function rootDirectory(): string {
+  return parse("/").root;
+}

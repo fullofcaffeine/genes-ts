@@ -1,6 +1,8 @@
 import { deepStrictEqual } from "node:assert/strict";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { emitProjectToHaxe } from "./haxe/emit.js";
 import { loadProject } from "./project.js";
 import {
   planPackageExternBinding,
@@ -9,7 +11,7 @@ import {
 import ts from "./typescript-api.js";
 
 /**
- * Checker evidence and a shadow plan for a future typed package boundary.
+ * Checker evidence for the closed typed package boundary.
  *
  * Why: the runtime request carrier already handles package order, but current
  * generated package extern fields are `Dynamic`. Before choosing an automatic
@@ -18,12 +20,14 @@ import ts from "./typescript-api.js";
  *
  * What: this test reads local declarations through the pinned
  * Program/TypeChecker adapter. It records alias and type facts, then passes
- * them through a closed primitive-only plan. A separate shape fixture proves
- * every accepted type and deterministic rejection reason.
+ * them through the same primitive-only semantic plan consumed by production.
+ * A separate shape fixture proves every accepted type and deterministic
+ * rejection reason.
  *
  * How: every reported field excludes absolute paths and object identity. The
- * comparisons therefore become deterministic shadow contracts. The test does
- * not generate Haxe, connect the plan to an emitter, or promote support.
+ * comparisons therefore become deterministic plan contracts. This focused
+ * owner does not generate Haxe; snapshots and the three-runtime semantic
+ * differential separately prove emitter integration.
  */
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -377,7 +381,7 @@ const namespaceAddNode = requiredNode(namespaceMemberNodes, "add");
 const namespacePiNode = requiredNode(namespaceMemberNodes, "PI");
 const packageSource = sourceFact(packageSourceNode);
 
-function shadowPlan(
+function bindingPlan(
   localReference: string,
   runtimeExportName: string,
   symbol: ts.Symbol | undefined,
@@ -394,20 +398,20 @@ function shadowPlan(
   });
 }
 
-const shadowPlans = [
-  shadowPlan("greet", "default", checkedSymbol(greetNode), greetNode),
-  shadowPlan("sum", "add", checkedSymbol(sumNode), sumNode),
-  shadowPlan("Pkg.add", "add", checkedSymbol(namespaceAddNode), namespaceAddNode),
-  shadowPlan("Pkg.PI", "PI", checkedSymbol(namespacePiNode), namespacePiNode),
-  shadowPlan("Pkg", "*", checkedSymbol(namespaceNode), namespaceNode),
-  shadowPlan("mutableValue", "mutableValue", packageExport("mutableValue"), packageSourceNode),
-  shadowPlan("overloaded", "overloaded", packageExport("overloaded"), packageSourceNode),
-  shadowPlan("parseResult", "parseResult", packageExport("parseResult"), packageSourceNode),
-  shadowPlan("Result", "Result", packageExport("Result"), packageSourceNode),
-  shadowPlan("missing", "missing", undefined, packageSourceNode)
+const bindingPlans = [
+  bindingPlan("greet", "default", checkedSymbol(greetNode), greetNode),
+  bindingPlan("sum", "add", checkedSymbol(sumNode), sumNode),
+  bindingPlan("Pkg.add", "add", checkedSymbol(namespaceAddNode), namespaceAddNode),
+  bindingPlan("Pkg.PI", "PI", checkedSymbol(namespacePiNode), namespacePiNode),
+  bindingPlan("Pkg", "*", checkedSymbol(namespaceNode), namespaceNode),
+  bindingPlan("mutableValue", "mutableValue", packageExport("mutableValue"), packageSourceNode),
+  bindingPlan("overloaded", "overloaded", packageExport("overloaded"), packageSourceNode),
+  bindingPlan("parseResult", "parseResult", packageExport("parseResult"), packageSourceNode),
+  bindingPlan("Result", "Result", packageExport("Result"), packageSourceNode),
+  bindingPlan("missing", "missing", undefined, packageSourceNode)
 ];
 
-const expectedShadowPlans = [
+const expectedBindingPlans = [
   {
     disposition: "supported",
     moduleSpecifier: "fakepkg",
@@ -516,7 +520,7 @@ const expectedShadowPlans = [
   }
 ];
 
-deepStrictEqual(shadowPlans, expectedShadowPlans);
+deepStrictEqual(bindingPlans, expectedBindingPlans);
 
 /**
  * Exercises every first-boundary type and rejection against a real Program.
@@ -691,7 +695,59 @@ deepStrictEqual(boundaryPlans, [
     reason: "implementation-source"
   }
 ]);
+
+/**
+ * Proves sanitized package names cannot publish two externs to one Haxe file.
+ *
+ * The two literal specifiers intentionally normalize to `ShapeOne`. A strict
+ * or assisted run must fail before replacing the sentinel tree; choosing one
+ * package silently would bind source references to the wrong runtime module.
+ */
+const collisionRoot = path.join(boundaryRoot, "collision");
+const collisionLoaded = loadProject(path.join(collisionRoot, "tsconfig.json"));
+if (!collisionLoaded.ok) {
+  throw new Error(
+    `package extern collision fixture failed to load: ${collisionLoaded.diagnostics.length} diagnostic(s)`
+  );
+}
+for (const mode of ["strict-js", "assisted"] as const) {
+  const output = path.join(toolRoot, ".tmp", `package-extern-collision-${mode}`);
+  fs.rmSync(output, { recursive: true, force: true });
+  fs.mkdirSync(output, { recursive: true });
+  const sentinel = path.join(output, "sentinel.txt");
+  fs.writeFileSync(sentinel, "prior collision tree\n", "utf8");
+  const result = emitProjectToHaxe({
+    projectDir: collisionLoaded.projectDir,
+    rootDir: collisionLoaded.rootDir,
+    program: collisionLoaded.program,
+    checker: collisionLoaded.checker,
+    sourceFiles: collisionLoaded.sourceFiles,
+    outDir: output,
+    basePackage: "collision",
+    runtimeProfile: "genes-esm",
+    mode,
+    cleanOutDir: true
+  });
+  deepStrictEqual(
+    result.diagnostics.map((diagnostic) =>
+      `${diagnostic.id}:${diagnostic.source.file}:${diagnostic.source.line}`
+    ),
+    [
+      "TS2HX-MODULES-ESM-RUNTIME-PACKAGE-BOUND-001:Main.ts:1",
+      "TS2HX-MODULES-ESM-RUNTIME-PACKAGE-BOUND-001:Main.ts:2"
+    ]
+  );
+  assert(
+    result.status === "failed" && result.writtenFiles.length === 0,
+    `${mode}: colliding package extern names did not fail before publication`
+  );
+  assert(
+    fs.readFileSync(sentinel, "utf8") === "prior collision tree\n",
+    `${mode}: colliding package extern names modified the prior tree`
+  );
+}
+
 process.stdout.write(
   "package-extern-facts:ok "
-    + "(checker facts + primitive shadow plan + fail-closed boundaries; no Haxe emitted)\n"
+    + "(checker facts + primitive plan + fail-closed boundaries; no Haxe committed here)\n"
 );

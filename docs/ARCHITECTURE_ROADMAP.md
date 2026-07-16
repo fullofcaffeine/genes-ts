@@ -299,7 +299,11 @@ The source of truth is Beads epic `genes-09r`.
    TypeScript emit owns request presence/order and that the capability applies
    to classic Genes and genes-ts, not standard Haxe. The module rows include
    acyclic converted-relative initialization through compiler-internal DCE
-   anchors. Converted cycles, mutable live bindings, bound packages, configured
+   anchors. A checker-owned package plan also supports declaration-file
+   primitive constants and simple monomorphic primitive functions across
+   default, named, alias, mixed, duplicate, and static namespace reads; one
+   three-runtime fixture proves request coalescing and TS 5/6/7 output. Converted
+   cycles, mutable live bindings, broader package declarations, configured
    non-ESM emit, runtime re-exports, and the wrong target profile remain strict
    variants. Synchronous unlabelled return, break, and continue through
    `finally` are supported for the named-function/method, strong-carrier target

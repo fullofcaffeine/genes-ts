@@ -195,22 +195,23 @@ The current snapshot is 50 generated files. Effective TypeScript emit assigns
 `standard-haxe-js`; 10 of the standard fixtures execute their smoke runtime.
 Explicit exceptions:
 
-- `basic-tsx` is assisted because its bound React package request remains
-  fail-closed; it and request-free `react-types` compile but do not execute raw
-  JSX marker calls. `react-types` additionally emits and strictly checks
-  genes-ts TSX;
-- `non-relative-imports` is an assisted extern inventory: it compile-smokes
-  generated `@:jsRequire` boundaries but makes no bound package runtime claim;
+- `basic-tsx` is assisted because classic JSX synthesizes a React namespace
+  use after the source AST ts2hx lowers; it and request-free `react-types`
+  compile but do not execute raw JSX marker calls. `react-types` additionally
+  emits and strictly checks genes-ts TSX;
+- `non-relative-imports` is strict and compile-smokes the reviewed strong
+  `@:jsRequire` extern shape. The semantic differential owns the separate
+  bound-package runtime claim;
 - `roundtrip-fixture`, `roundtrip-advanced`, `module-regexp`, `module-syntax`,
   and `type-literals` record an unsupported top-level `index.ts` entry call in
   assisted snapshots; `module-syntax` additionally records runtime re-export
   losses.
 
-Additional evidence-only fixtures:
+Additional focused evidence fixtures:
 
 - `package-extern-plan`: a declaration-only local package that proves the
-  shadow strong-type boundary without changing translation. Primitive
-  functions and immutable constants receive closed Haxe type plans; mutable,
+  same strong-type plan consumed by translation. Primitive functions and
+  immutable constants receive closed Haxe type plans; mutable,
   overloaded, generic, optional/rest/`this`, merged, class, literal, object,
   union, type-only, namespace-object, and implementation-source shapes receive
   deterministic rejection reasons;
@@ -218,14 +219,17 @@ Additional evidence-only fixtures:
   classic Genes JS, and genes-ts→JS. The completion trace covers supported
   synchronous return/break/continue through `finally`, nested target ownership,
   mixed local and propagated outcomes from one helper, every supported loop
-  form, exact
-  lowered-for increments, switch routing, catch control, finalizer precedence,
+  form, exact lowered-for increments, switch routing, catch control, finalizer precedence,
   nullable and `Void` carriers, and an ordinary class method. The same fixture
   also covers the reduced ordered `state`/`first`/`second` converted-module
-  initialization proof and a standalone bound-only target that reads its
-  imports in reverse order. It runs with `verbatimModuleSyntax` off and on,
-  proving that TypeScript-elided imports create no carrier while an unused
-  retained alias initializes in its effective request slot;
+  initialization proof, a standalone bound-only target that reads its imports
+  in reverse order, and a local typed ESM package. The package path proves
+  default, named, aliased, namespace, duplicate, primitive constant/function,
+  `Void`, and unused-verbatim bindings; it initializes once, coalesces to one
+  final import, and passes generated-output checks on TS 5/6/7. The fixture runs
+  with `verbatimModuleSyntax` off and on, proving that TypeScript-elided imports
+  create no carrier while an unused retained alias initializes in its effective
+  request slot;
 - `semantic-unsupported`: 12 strict failures with source provenance and
   unchanged prior output; together with the runtime-profile target rejection,
   the machine-owned matrix contains 13 feature-specific strict failures;
@@ -244,7 +248,7 @@ The executable source of truth is:
 - `tools/ts2hx/src/test-effective-module-requests.ts` for exact configured
   TypeScript request/elision evidence;
 - `tools/ts2hx/src/test-package-extern-facts.ts` for checker alias/type facts
-  and the production-neutral package-extern shadow plan;
+  and the closed package-extern semantic plan;
 - `tools/ts2hx/src/test-runtime-profile.ts` for schema-v3 profile boundaries,
   transaction safety, and the Haxe macro guard;
 - `tools/ts2hx/src/test-strict-diagnostics.ts` for failure behavior.
@@ -325,17 +329,23 @@ same transaction as generated Haxe. The named `owner` must copy that staged
 asset to the identical module-relative location in both final Genes output
 trees. npm/package installation remains the host build's responsibility.
 
-The current strict boundary supports bare packages, manifest-owned external
-relative files, and acyclic converted-relative modules. Converted imports may
-use immutable named, default, namespace, empty, and combined default clauses;
-their order follows the requests retained by the configured TypeScript emit.
+The current strict boundary supports bare packages, the closed typed
+bound-package subset, manifest-owned external relative files, and acyclic
+converted-relative modules. A supported package binding must resolve through a
+declaration file to a primitive immutable constant or a single non-generic
+function with required primitive parameters and a primitive/`void` result.
+Default, named, alias, mixed, and statically-read namespace clauses share one
+strong generated extern. Converted imports may use immutable named, default,
+namespace, empty, and combined default clauses; their order follows the
+requests retained by the configured TypeScript emit.
 One non-empty literal `type` attribute is supported for external requests when
 source and manifest agree. Converted requests use generated Haxe module
 identities and compiler-internal DCE anchors rather than preserving original
-`.js` paths. Converted cycles, mutable live bindings, bound package requests,
-configured non-ESM lowering, unresolved relatives, code outside the configured
-conversion set, unmanifested runtime files, unsupported attributes, and runtime
-re-exports receive stable source-positioned diagnostics.
+`.js` paths. Converted cycles, mutable live bindings, broader package
+declarations, namespace-object/computed uses, compiler-synthesized package
+uses, configured non-ESM lowering, unresolved relatives, code outside the
+configured conversion set, unmanifested runtime files, unsupported attributes,
+and runtime re-exports receive stable source-positioned diagnostics.
 
 Update snapshots only after reviewing the semantic reason for every change:
 

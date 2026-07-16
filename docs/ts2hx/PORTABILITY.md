@@ -41,7 +41,10 @@ depends on ESM package/resource/generated-module loading. This is a named
 custom-generator capability, not a promise that standard Haxe JS supports the
 same request order. `modules.side-effect-import` is the binding-free helper and
 resource-staging surface that feeds the shared plan; `modules.esm-bindings`
-separately owns supported names and immutable reads. Converted targets use
+separately owns supported names and immutable reads. Its typed package subset
+is still J1: checker-proven primitive declarations become ordinary Haxe
+`@:jsRequire` extern members, but loading and module identity remain ESM host
+contracts consumed by classic Genes or genes-ts. Converted targets use
 compiler-internal typed anchors and retained initializers, but those facts do
 not make their final ESM initialization portable to a non-JS Haxe backend. The
 `EsmRequestFact` macro intentionally fails outside an active Genes JS generator

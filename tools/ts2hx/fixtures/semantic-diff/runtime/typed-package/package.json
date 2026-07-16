@@ -1,0 +1,7 @@
+{
+  "name": "@ts2hx/typed-package",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "index.mjs",
+  "types": "index.d.ts"
+}

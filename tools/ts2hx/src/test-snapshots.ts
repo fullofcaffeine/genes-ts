@@ -305,12 +305,10 @@ function main(): number {
       basePackage: "ts2hx",
       runtimeProfile: "genes-esm",
       smokeMain: "ts2hx.Main",
-      translationMode: "assisted",
-      expectedUnsupportedFiles: ["Main.ts"],
-      // Haxe's JS output for `@:jsRequire` uses CommonJS `require()`. The ts2hx tool package is ESM (`type: "module"`),
-      // so `node dist/index.js` would fail at runtime for this fixture. Bound
-      // package requests also remain fail-closed pending their runtime
-      // differential. Compile-smoke the assisted extern inventory only.
+      // This owner reviews Haxe shape and compileability without installing its
+      // fixture-local package into the smoke tree. The semantic differential
+      // separately stages a package and proves original TypeScript, classic
+      // Genes, and genes-ts execution.
       smokeRun: false
     }
   ];

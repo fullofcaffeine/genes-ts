@@ -9,12 +9,16 @@ import {
   SEMANTIC_SUPPORT_MATRIX,
   type SemanticFeatureId
 } from "./semantic/ir.js";
-import { runTypeScriptApiBridge } from "./toolchains.js";
+import {
+  runTypeScriptApiBridge,
+  runTypeScriptGeneratedOutputLanes
+} from "./toolchains.js";
 import ts from "./typescript-api.js";
 
 const TRACE_MARKER = "SEMANTIC_TRACE:";
 const CONVERTED_TRACE_MARKER = "CONVERTED_TRACE:";
 const BOUND_TRACE_MARKER = "BOUND_TRACE:";
+const PACKAGE_TRACE_MARKER = "PACKAGE_TRACE:";
 
 function assert(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -66,6 +70,20 @@ function boundTrace(output: string, label: string): string {
   const marker = output.indexOf(BOUND_TRACE_MARKER);
   assert(marker >= 0, `${label}: no ${BOUND_TRACE_MARKER} marker in output:\n${output}`);
   return output.slice(marker + BOUND_TRACE_MARKER.length).split(/\r?\n/, 1)[0]?.trim() ?? "";
+}
+
+function packageTrace(output: string, label: string): string {
+  const marker = output.indexOf(PACKAGE_TRACE_MARKER);
+  assert(marker >= 0, `${label}: no ${PACKAGE_TRACE_MARKER} marker in output:\n${output}`);
+  assert(
+    occurrenceCount(output, "TYPED_PACKAGE_INIT") === 1,
+    `${label}: typed package did not initialize exactly once.`
+  );
+  assert(
+    output.indexOf("TYPED_PACKAGE_INIT") < marker,
+    `${label}: package initialization ran after its imported bindings.`
+  );
+  return output.slice(marker + PACKAGE_TRACE_MARKER.length).split(/\r?\n/, 1)[0]?.trim() ?? "";
 }
 
 function occurrenceCount(source: string, needle: string): number {
@@ -157,6 +175,12 @@ function installNodeRuntime(fixtureDir: string, outputDir: string, stagedRuntime
   const packageTarget = path.join(outputDir, "node_modules", "@ts2hx", "semantic-effect");
   fs.mkdirSync(path.dirname(packageTarget), { recursive: true });
   fs.cpSync(path.join(fixtureDir, "runtime", "package"), packageTarget, { recursive: true });
+  const typedPackageTarget = path.join(outputDir, "node_modules", "@ts2hx", "typed-package");
+  fs.cpSync(
+    path.join(fixtureDir, "runtime", "typed-package"),
+    typedPackageTarget,
+    { recursive: true }
+  );
 
   const runtimeTarget = path.join(outputDir, "ts2hx_semantic", "runtime");
   fs.mkdirSync(path.dirname(runtimeTarget), { recursive: true });
@@ -168,12 +192,23 @@ function compileOriginalTypeScript(opts: {
   fixtureDir: string;
   fixtureConfig: string;
   outputDir: string;
-}): { semantic: string; converted: string; bound: string } {
+}): { semantic: string; converted: string; bound: string; packageBound: string } {
   resetDir(opts.outputDir);
   runTypeScriptApiBridge(opts.repoRoot, ["-p", opts.fixtureConfig, "--outDir", opts.outputDir]);
   const packageTarget = path.join(opts.outputDir, "node_modules", "@ts2hx", "semantic-effect");
   fs.mkdirSync(path.dirname(packageTarget), { recursive: true });
   fs.cpSync(path.join(opts.fixtureDir, "runtime", "package"), packageTarget, { recursive: true });
+  const typedPackageTarget = path.join(
+    opts.outputDir,
+    "node_modules",
+    "@ts2hx",
+    "typed-package"
+  );
+  fs.cpSync(
+    path.join(opts.fixtureDir, "runtime", "typed-package"),
+    typedPackageTarget,
+    { recursive: true }
+  );
   const resourceTarget = path.join(opts.outputDir, "runtime", "after-support.mjs");
   fs.mkdirSync(path.dirname(resourceTarget), { recursive: true });
   fs.copyFileSync(path.join(opts.fixtureDir, "runtime", "after-support.mjs"), resourceTarget);
@@ -198,7 +233,15 @@ function compileOriginalTypeScript(opts: {
     ["--input-type=module", "-e", `import(${JSON.stringify(boundEntry)}).then((module) => module.main())`],
     opts.repoRoot
   );
-  return { semantic, converted, bound };
+  const packageEntry = pathToFileURL(
+    path.join(opts.outputDir, "packagebound", "PackageMain.js")
+  ).href;
+  const packageBound = capture(
+    process.execPath,
+    ["--input-type=module", "-e", `import(${JSON.stringify(packageEntry)}).then((module) => module.main())`],
+    opts.repoRoot
+  );
+  return { semantic, converted, bound, packageBound };
 }
 
 function compileClassicHaxe(opts: {
@@ -304,6 +347,10 @@ function main(): void {
     "original converted-relative TypeScript"
   );
   const originalBoundTrace = boundTrace(originalOutput.bound, "original bound-only TypeScript");
+  const originalPackageTrace = packageTrace(
+    originalOutput.packageBound,
+    "original bound-package TypeScript"
+  );
   const originalVerbatimOutput = compileOriginalTypeScript({
     repoRoot,
     fixtureDir,
@@ -313,6 +360,10 @@ function main(): void {
   const originalVerbatimBoundTrace = boundTrace(
     originalVerbatimOutput.bound,
     "original verbatim bound-only TypeScript"
+  );
+  const originalVerbatimPackageTrace = packageTrace(
+    originalVerbatimOutput.packageBound,
+    "original verbatim bound-package TypeScript"
   );
   assert(
     originalConvertedTrace === "first,second|bound-first,bound-second",
@@ -327,6 +378,11 @@ function main(): void {
     originalVerbatimBoundTrace
       === "unused,unused-default,unused-namespace,default,namespace,empty,inline-type,mixed,default-empty,default-named,default-namespace,first,second|4:5:8:9:10:20:11:31:13:12:12",
     "verbatim TypeScript did not retain the unused bound request in source order."
+  );
+  assert(
+    originalPackageTrace === "Hello world|3|7|11|3.14|typed|true"
+      && originalVerbatimPackageTrace === originalPackageTrace,
+    "original TypeScript package fixture produced the wrong typed binding trace."
   );
   assertSideEffectOrder(originalOutput.semantic, "original TypeScript");
 
@@ -631,6 +687,50 @@ function main(): void {
     path.join(verbatimHaxeSourceDir, "ts2hx_semantic", "bound", "BoundMain.hx"),
     "utf8"
   );
+  const packageMainHaxe = fs.readFileSync(
+    path.join(haxeSourceDir, "ts2hx_semantic", "packagebound", "PackageMain.hx"),
+    "utf8"
+  );
+  const verbatimPackageMainHaxe = fs.readFileSync(
+    path.join(
+      verbatimHaxeSourceDir,
+      "ts2hx_semantic",
+      "packagebound",
+      "PackageMain.hx"
+    ),
+    "utf8"
+  );
+  const packageExtern = fs.readFileSync(
+    path.join(haxeSourceDir, "ts2hx_semantic", "extern", "Ts2hxTypedPackage.hx"),
+    "utf8"
+  );
+  assert(
+    packageExtern.includes("static function add(arg0:Float, arg1:Float):Float;")
+      && packageExtern.includes(
+        '@:native("default") static function __default(arg0:String):String;'
+      )
+      && packageExtern.includes("static function notify(arg0:String):Void;")
+      && packageExtern.includes("static var PI(default, never):Float;")
+      && packageExtern.includes("static var label(default, never):String;")
+      && packageExtern.includes("static var enabled(default, never):Bool;")
+      && !packageExtern.includes("Dynamic")
+      && !packageExtern.includes("static var unused"),
+    "bound-package extern was not projected entirely from strong checker plans."
+  );
+  assert(
+    occurrenceCount(
+      packageMainHaxe,
+      'EsmRequestFact.external("@ts2hx/typed-package", null)'
+    ) === 3,
+    "non-verbatim package carrier did not follow TypeScript import elision."
+  );
+  assert(
+    occurrenceCount(
+      verbatimPackageMainHaxe,
+      'EsmRequestFact.external("@ts2hx/typed-package", null)'
+    ) === 4,
+    "verbatim package carrier did not retain the unused effective request."
+  );
   const firstValueAnchor = "EsmRequestFact.internal(firstValue)";
   const secondValueAnchor = "EsmRequestFact.internal(secondValue)";
   const boundStateAnchor = "EsmRequestFact.internal(events)";
@@ -836,6 +936,31 @@ function main(): void {
     fixtureDir,
     stagedRuntimeDir
   });
+  const classicPackageOutput = compileClassicHaxe({
+    haxeBin,
+    repoRoot,
+    haxeSourceDir,
+    outputFile: path.join(tmpRoot, "classic-package", "index.js"),
+    mainClass: "ts2hx_semantic.packagebound.PackageMain",
+    fixtureDir,
+    stagedRuntimeDir,
+    emitDts: true
+  });
+  const genesTsPackageOutput = compileGenesTypeScript({
+    haxeBin,
+    repoRoot,
+    haxeSourceDir,
+    sourceDir: path.join(tmpRoot, "genes-ts-package-source"),
+    distDir: path.join(tmpRoot, "genes-ts-package-dist"),
+    mainClass: "ts2hx_semantic.packagebound.PackageMain",
+    fixtureDir,
+    stagedRuntimeDir
+  });
+  runTypeScriptGeneratedOutputLanes(repoRoot, [
+    "-p",
+    path.join(tmpRoot, "genes-ts-package-source", "tsconfig.semantic.json"),
+    "--noEmit"
+  ]);
   const classicVerbatimBoundOutput = compileClassicHaxe({
     haxeBin,
     repoRoot,
@@ -1011,6 +1136,42 @@ function main(): void {
       generated.verbatim
     );
   }
+  for (const generated of [
+    {
+      label: "classic bound package",
+      file: path.join(
+        tmpRoot,
+        "classic-package",
+        "ts2hx_semantic",
+        "packagebound",
+        "PackageMain.js"
+      )
+    },
+    {
+      label: "genes-ts bound package",
+      file: path.join(
+        tmpRoot,
+        "genes-ts-package-source",
+        "ts2hx_semantic",
+        "packagebound",
+        "PackageMain.ts"
+      )
+    }
+  ] as const) {
+    const source = fs.readFileSync(generated.file, "utf8");
+    assert(
+      runtimeImportSpecifiers(source)
+        .filter((specifier) => specifier === "@ts2hx/typed-package").length === 1,
+      `${generated.label}: duplicate package requests were not coalesced.`
+    );
+    assert(
+      source.includes('import * as Ts2hxTypedPackage from "@ts2hx/typed-package"'),
+      `${generated.label}: package binding did not attach to the first request slot.`
+    );
+    for (const forbidden of ["__ts2hx_requests", "EsmRequestFact", "Dynamic", " any", "unknown"]) {
+      assert(!source.includes(forbidden), `${generated.label}: generated source leaked ${forbidden}.`);
+    }
+  }
   for (const declarationFile of [
     path.join(tmpRoot, "classic-bound", "ts2hx_semantic", "bound", "BoundMain.d.ts"),
     path.join(
@@ -1068,6 +1229,16 @@ function main(): void {
     boundTrace(genesTsVerbatimBoundOutput, "translated genes-ts verbatim bound-only output")
       === originalVerbatimBoundTrace,
     "genes-ts bound-only initialization differs from verbatim TypeScript."
+  );
+  assert(
+    packageTrace(classicPackageOutput, "translated classic bound-package output")
+      === originalPackageTrace,
+    "classic bound-package execution differs from original TypeScript."
+  );
+  assert(
+    packageTrace(genesTsPackageOutput, "translated genes-ts bound-package output")
+      === originalPackageTrace,
+    "genes-ts bound-package execution differs from original TypeScript."
   );
 
   const unsupportedConfig = path.join(toolRoot, "fixtures", "semantic-unsupported", "tsconfig.json");

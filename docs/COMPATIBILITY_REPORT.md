@@ -21,7 +21,7 @@ This is an evidence contract, not a cached CI-success badge. `blocking` and `non
 | Semantic differential | Same-source Haxe modules | 12 | `blocking` |
 | Semantic differential | TS/classic/declaration and JS oracle profiles | 5 | `blocking` |
 | Semantic differential | Stable dual-output runtime trace events | 19 | `blocking` |
-| Semantic differential | ts2hx supported and fail-closed semantic input modules | 53 | `blocking` |
+| Semantic differential | ts2hx supported and fail-closed semantic input modules | 55 | `blocking` |
 | Snapshot stability | genes-ts snapshot profiles | 7 | `blocking` |
 | Snapshot stability | ts2hx reviewed snapshot files | 50 | `blocking` |
 | Runtime smoke and E2E | Same-source dual-profile examples | 2 | `blocking` |
@@ -103,9 +103,9 @@ Named runtime traces agree across the explicitly listed oracles; the result appl
 ### Same-source compiler and ts2hx semantic differentials
 
 - Disposition: `blocking`
-- Scope: Haxe-to-TS/classic evaluation traces plus ts2hx strict-js contracts across original TypeScript, classic Genes, and genes-ts, with a separate standard-Haxe capability boundary.
-- Proves: Named original-TypeScript, classic Genes, and genes-ts traces preserve the supported synchronous typed return/break/continue path through nested finalizers, including target ownership, loop increments, switch routing, catch control, and override precedence; thirteen canonical ts2hx boundaries still fail closed, including excluded async completion, standard-Haxe request rejection, and same-server isolation of the private Genes request capability.
-- Does not prove: The synchronous contract does not cover excluded async/generator/constructor/anonymous/labeled/generic/weak-carrier/unsupported-loop forms. The standard-Haxe request rejection is a capability test rather than a fourth runtime-parity oracle; the curated traces are neither a language-wide proof nor a portability promise for other Haxe targets.
+- Scope: Haxe-to-TS/classic evaluation traces plus ts2hx strict-js control-flow, module-order, and typed package-binding contracts across original TypeScript, classic Genes, and genes-ts, with a separate standard-Haxe capability boundary.
+- Proves: Named original-TypeScript, classic Genes, and genes-ts traces preserve the supported synchronous typed return/break/continue path through nested finalizers and the closed typed package boundary. Package evidence covers default, named, alias, static namespace, duplicate, primitive constant/function, Void, request order, once-only initialization, unused verbatim retention, and TS 5/6/7 generated output. Thirteen canonical ts2hx boundaries still fail closed, including broader package declarations, excluded async completion, standard-Haxe request rejection, and same-server isolation of the private Genes request capability.
+- Does not prove: The synchronous contract does not cover excluded async/generator/constructor/anonymous/labeled/generic/weak-carrier/unsupported-loop forms. Package evidence does not cover mutable exports, overloads, object or union types, namespace identity/computed access, transform-synthesized binding uses, attributes, or arbitrary package export conditions. The standard-Haxe request rejection is a capability test rather than a fourth runtime-parity oracle; the curated traces are neither a language-wide proof nor a portability promise for other Haxe targets.
 - Evidence:
   - [`tests/output-modes/profile-ownership.json`](../tests/output-modes/profile-ownership.json)
   - [`tests/output-modes/expected-trace.json`](../tests/output-modes/expected-trace.json)
@@ -114,6 +114,8 @@ Named runtime traces agree across the explicitly listed oracles; the result appl
   - [`tools/ts2hx/fixtures/semantic-diff`](../tools/ts2hx/fixtures/semantic-diff)
   - [`tools/ts2hx/fixtures/semantic-module-boundaries`](../tools/ts2hx/fixtures/semantic-module-boundaries)
   - [`tools/ts2hx/fixtures/semantic-unsupported`](../tools/ts2hx/fixtures/semantic-unsupported)
+  - [`tools/ts2hx/src/semantic/package-extern-plan.ts`](../tools/ts2hx/src/semantic/package-extern-plan.ts)
+  - [`tools/ts2hx/src/test-package-extern-facts.ts`](../tools/ts2hx/src/test-package-extern-facts.ts)
   - [`tools/ts2hx/src/test-semantic-diff.ts`](../tools/ts2hx/src/test-semantic-diff.ts)
   - [`tools/ts2hx/src/test-runtime-profile.ts`](../tools/ts2hx/src/test-runtime-profile.ts)
 - Gates:

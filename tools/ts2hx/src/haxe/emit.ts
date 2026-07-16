@@ -15,6 +15,11 @@ import {
   type TypeScriptCompilerFacts
 } from "../semantic/compiler-facts.js";
 import {
+  planPackageExternBinding,
+  type PackageExternSource,
+  type SupportedPackageExternBindingPlan
+} from "../semantic/package-extern-plan.js";
+import {
   SemanticRecorder,
   isPrototypeMutationTarget,
   planAssignmentTarget,
@@ -219,6 +224,13 @@ type ConvertedRuntimeEdge = {
 type ProjectRuntimeImportPlan = {
   bySourceFile: ReadonlyMap<string, SourceRuntimeImportPlan>;
   targetBySourceFile: ReadonlyMap<string, ConvertedRuntimeTargetPlan>;
+  /** Strong declaration facts for package requests accepted by this plan. */
+  packageBindingsByStatement: ReadonlyMap<
+    ts.ImportDeclaration,
+    readonly SupportedPackageExternBindingPlan[]
+  >;
+  /** Effective bound package declarations that need an extern or assisted scaffold. */
+  packageExternStatements: ReadonlySet<ts.ImportDeclaration>;
   stagedFiles: readonly EmittedFile[];
   dispositions: readonly RuntimeModuleDisposition[];
 };
@@ -746,8 +758,11 @@ function appendCompletionReturnGuard(ctx: EmitContext, body: string,
 type ExternModule = {
   moduleSpecifier: string;
   className: string;
-  needsDefault: boolean;
-  namedValues: Set<string>;
+  /**
+   * Runtime export name to its checker-validated shape. `null` is retained
+   * only for assisted scaffolding whose package request still fails closed.
+   */
+  members: Map<string, SupportedPackageExternBindingPlan["member"] | null>;
 };
 
 function isValidHaxeIdentifier(name: string): boolean {
@@ -824,30 +839,74 @@ function collectNamespaceMemberAccesses(sf: ts.SourceFile, namespaceImports: Arr
   return perSpec;
 }
 
-function buildExternModules(opts: EmitHaxeOptions): Map<string, ExternModule> {
+function addExternMember(
+  ex: ExternModule,
+  runtimeExportName: string,
+  member: SupportedPackageExternBindingPlan["member"] | null
+): void {
+  const existing = ex.members.get(runtimeExportName);
+  if (existing === undefined || (existing === null && member !== null)) {
+    ex.members.set(runtimeExportName, member);
+    return;
+  }
+  if (existing === null || member === null) return;
+  if (JSON.stringify(existing) !== JSON.stringify(member)) {
+    throw new Error(
+      `Conflicting package declarations were planned for ${JSON.stringify(ex.moduleSpecifier)} `
+        + `export ${JSON.stringify(runtimeExportName)}.`
+    );
+  }
+}
+
+/**
+ * Projects source imports plus validated runtime plans into extern modules.
+ *
+ * Why: source syntax is still needed in assisted mode, but successful package
+ * translation must never infer a Haxe type while printing. The runtime planner
+ * is the sole producer of strong member shapes.
+ *
+ * What: source-only members begin as explicit weak scaffolding. A supported
+ * request replaces those entries with immutable function or readonly-value
+ * records. Conflicting strong records are compiler invariant failures.
+ *
+ * How: modules remain keyed by their literal runtime specifier. Member order is
+ * normalized only by the printer, so Program and Map iteration cannot change
+ * generated files.
+ */
+function buildExternModules(
+  opts: EmitHaxeOptions,
+  packageBindingsByStatement: ReadonlyMap<
+    ts.ImportDeclaration,
+    readonly SupportedPackageExternBindingPlan[]
+  >,
+  packageExternStatements: ReadonlySet<ts.ImportDeclaration>
+): Map<string, ExternModule> {
   const externs = new Map<string, ExternModule>();
 
   for (const sf of opts.sourceFiles) {
-    const imports = collectImports(sf);
+    const imports = sf.statements
+      .filter((statement): statement is ts.ImportDeclaration =>
+        ts.isImportDeclaration(statement) && packageExternStatements.has(statement)
+      )
+      .flatMap((statement) => {
+        const spec = importSpecFromStatement(statement);
+        return spec ? [spec] : [];
+      });
 
     for (const imp of imports) {
-      if (isRelativeModuleSpecifier(imp.moduleSpecifier)) continue;
-      if (imp.isTypeOnly) continue;
-
       const existing = externs.get(imp.moduleSpecifier);
       const ex: ExternModule =
         existing ??
         ({
           moduleSpecifier: imp.moduleSpecifier,
           className: externModuleNameFromSpecifier(imp.moduleSpecifier),
-          needsDefault: false,
-          namedValues: new Set<string>()
+          members: new Map<string, SupportedPackageExternBindingPlan["member"] | null>()
         } as ExternModule);
 
-      if (imp.defaultImport) ex.needsDefault = true;
+      if (imp.defaultImport) addExternMember(ex, "default", null);
       for (const el of imp.named.filter((el) => !el.isTypeOnly)) {
         const exportedName = el.alias ?? el.name;
-        ex.namedValues.add(exportedName);
+        addExternMember(ex, exportedName, null);
       }
 
       externs.set(imp.moduleSpecifier, ex);
@@ -860,7 +919,19 @@ function buildExternModules(opts: EmitHaxeOptions): Map<string, ExternModule> {
     for (const [spec, names] of accessed.entries()) {
       const ex = externs.get(spec);
       if (!ex) continue;
-      for (const n of names) ex.namedValues.add(n);
+      for (const n of names) addExternMember(ex, n, null);
+    }
+  }
+
+  for (const bindings of packageBindingsByStatement.values()) {
+    for (const binding of bindings) {
+      const ex = externs.get(binding.moduleSpecifier);
+      if (!ex) {
+        throw new Error(
+          `Typed package plan has no extern module for ${JSON.stringify(binding.moduleSpecifier)}.`
+        );
+      }
+      addExternMember(ex, binding.runtimeExportName, binding.member);
     }
   }
 
@@ -875,14 +946,34 @@ function emitExternModuleFile(opts: EmitHaxeOptions, ex: ExternModule): { filePa
   const lines: string[] = [];
   lines.push(`package ${externPackage};`);
   lines.push("");
+  lines.push("/**");
+  lines.push(" * Runtime package boundary generated by ts2hx.");
+  lines.push(" *");
+  lines.push(" * @:jsRequire preserves the literal package identity for both Genes output");
+  lines.push(" * profiles. Strong members come only from checker-validated declaration-file");
+  lines.push(" * functions and constants; weak members are assisted-only loss scaffolds.");
+  lines.push(" */");
   lines.push(`@:jsRequire(${JSON.stringify(ex.moduleSpecifier)})`);
   lines.push(`extern class ${ex.className} {`);
-  if (ex.needsDefault) lines.push(`  @:native("default") static var __default: Dynamic;`);
-  for (const exportName of Array.from(ex.namedValues).sort((a, b) => a.localeCompare(b))) {
+  for (const [exportName, member] of Array.from(ex.members.entries()).sort((a, b) =>
+    a[0].localeCompare(b[0])
+  )) {
     const f = externFieldForExportName(exportName);
-    if (f.hxName === "__default" && ex.needsDefault) continue;
-    if (f.nativeName) lines.push(`  @:native(${JSON.stringify(f.nativeName)}) static var ${f.hxName}: Dynamic;`);
-    else lines.push(`  static var ${f.hxName}: Dynamic;`);
+    const native = f.nativeName ? `@:native(${JSON.stringify(f.nativeName)}) ` : "";
+    if (member === null) {
+      lines.push(`  ${native}static var ${f.hxName}: Dynamic;`);
+    } else if (member.kind === "function") {
+      const parameters = member.parameters
+        .map((parameter) => `${parameter.name}:${parameter.type}`)
+        .join(", ");
+      lines.push(
+        `  ${native}static function ${f.hxName}(${parameters}):${member.returnType};`
+      );
+    } else {
+      lines.push(
+        `  ${native}static var ${f.hxName}(default, never):${member.valueType};`
+      );
+    }
   }
   lines.push(`}`);
   lines.push("");
@@ -3433,34 +3524,38 @@ function emitClass(ctx: EmitContext, decl: ts.ClassDeclaration, forcedName?: str
   return lines.join("\n");
 }
 
+function importSpecFromStatement(stmt: ts.ImportDeclaration): ImportSpec | null {
+  if (!stmt.moduleSpecifier || !ts.isStringLiteral(stmt.moduleSpecifier)) return null;
+  const moduleSpecifier = stmt.moduleSpecifier.text;
+  const clause = stmt.importClause;
+  if (!clause) return null;
+  const isTypeOnly = clause.isTypeOnly;
+
+  const defaultImport = clause.name ? clause.name.text : null;
+  let namespaceImport: string | null = null;
+  let named: Array<{ name: string; alias: string | null; isTypeOnly: boolean }> = [];
+
+  if (clause.namedBindings) {
+    if (ts.isNamespaceImport(clause.namedBindings)) {
+      namespaceImport = clause.namedBindings.name.text;
+    } else if (ts.isNamedImports(clause.namedBindings)) {
+      named = clause.namedBindings.elements.map((el) => ({
+        name: el.name.text,
+        alias: el.propertyName ? el.propertyName.text : null,
+        isTypeOnly: isTypeOnly || el.isTypeOnly
+      }));
+    }
+  }
+
+  return { moduleSpecifier, isTypeOnly, defaultImport, namespaceImport, named };
+}
+
 function collectImports(sf: ts.SourceFile): ImportSpec[] {
   const imports: ImportSpec[] = [];
-
   for (const stmt of sf.statements) {
     if (!ts.isImportDeclaration(stmt)) continue;
-    if (!stmt.moduleSpecifier || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
-    const moduleSpecifier = stmt.moduleSpecifier.text;
-    const clause = stmt.importClause;
-    if (!clause) continue;
-    const isTypeOnly = clause.isTypeOnly;
-
-    const defaultImport = clause.name ? clause.name.text : null;
-    let namespaceImport: string | null = null;
-    let named: Array<{ name: string; alias: string | null; isTypeOnly: boolean }> = [];
-
-    if (clause.namedBindings) {
-      if (ts.isNamespaceImport(clause.namedBindings)) {
-        namespaceImport = clause.namedBindings.name.text;
-      } else if (ts.isNamedImports(clause.namedBindings)) {
-        named = clause.namedBindings.elements.map((el) => ({
-          name: el.name.text,
-          alias: el.propertyName ? el.propertyName.text : null,
-          isTypeOnly: isTypeOnly || el.isTypeOnly
-        }));
-      }
-    }
-
-    imports.push({ moduleSpecifier, isTypeOnly, defaultImport, namespaceImport, named });
+    const spec = importSpecFromStatement(stmt);
+    if (spec) imports.push(spec);
   }
 
   return imports;
@@ -3944,6 +4039,301 @@ function isBindingFreeRequestShape(shape: EffectiveImportShape): boolean {
   return shape === "bare" || shape === "empty";
 }
 
+function sourceImportHasValueBindings(statement: ts.ImportDeclaration): boolean {
+  const clause = statement.importClause;
+  if (!clause || clause.isTypeOnly) return false;
+  if (clause.name) return true;
+  if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) return true;
+  return clause.namedBindings?.elements.some((element) => !element.isTypeOnly) ?? false;
+}
+
+type PackageRuntimeRequestPlan =
+  | Readonly<{
+      supported: true;
+      bindings: readonly SupportedPackageExternBindingPlan[];
+    }>
+  | Readonly<{
+      supported: false;
+      reason: string;
+    }>;
+
+function packageExternSource(opts: EmitHaxeOptions, node: ts.Node): PackageExternSource {
+  const sourceFile = node.getSourceFile();
+  const start = node.getStart(sourceFile);
+  const position = sourceFile.getLineAndCharacterOfPosition(start);
+  return {
+    file: portablePath(path.relative(opts.rootDir, sourceFile.fileName)),
+    start,
+    end: node.getEnd(),
+    line: position.line + 1,
+    column: position.character + 1
+  };
+}
+
+function packageBindingFailure(
+  localReference: string,
+  reason: string
+): PackageRuntimeRequestPlan {
+  const readableReason = reason.replace(/-/g, " ");
+  return {
+    supported: false,
+    reason:
+      `Package binding ${JSON.stringify(localReference)} cannot use the first typed extern boundary `
+      + `because of ${readableReason}. Only declaration-file primitive constants and simple `
+      + "monomorphic primitive functions are supported."
+  };
+}
+
+/**
+ * Distinguishes source-owned binding reads from transform-synthesized ones.
+ *
+ * Why: classic JSX and other TypeScript transforms can retain an import and
+ * create uses that do not exist in the typed source tree ts2hx lowers. Treating
+ * that binding as an ordinary unused import would preserve loading but omit the
+ * synthesized call, which is not semantic parity.
+ *
+ * What: a true result means at least one original identifier resolves to the
+ * import alias. A false result is accepted only under verbatim module syntax,
+ * where retaining an otherwise unused declaration is the explicit contract.
+ *
+ * How: checker symbol identity avoids matching shadowed names. The declaration
+ * token itself is excluded, and traversal stops at the first real reference.
+ */
+function hasOriginalImportBindingUse(
+  opts: EmitHaxeOptions,
+  sourceFile: ts.SourceFile,
+  declaration: ts.Identifier
+): boolean {
+  const symbol = opts.checker.getSymbolAtLocation(declaration);
+  if (!symbol) return false;
+  const state = { found: false };
+  const visit = (node: ts.Node): void => {
+    if (state.found) return;
+    if (
+      ts.isIdentifier(node)
+      && node !== declaration
+      && opts.checker.getSymbolAtLocation(node) === symbol
+    ) {
+      state.found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return state.found;
+}
+
+/**
+ * Collects the statically named members read through one package namespace.
+ *
+ * Why: a Haxe extern class can model `Package.member`, but it cannot preserve a
+ * JavaScript module namespace object's identity, enumeration, computed reads,
+ * or passage through arbitrary calls. Pretending otherwise would turn a typed
+ * import into a snapshot-like object with different runtime semantics.
+ *
+ * What: the first boundary accepts property reads whose receiver resolves to
+ * the exact namespace import symbol. Unused namespaces are valid because their
+ * effective request is still preserved by the ordered request carrier.
+ *
+ * How: checker symbol identity distinguishes the import from shadowed local
+ * names. Each selected member is planned independently through the closed
+ * package-extern algebra. Computed and sanitized member spellings remain
+ * explicit failures until expression lowering can represent them directly.
+ */
+function planPackageNamespaceBindings(
+  opts: EmitHaxeOptions,
+  sourceFile: ts.SourceFile,
+  moduleSpecifier: string,
+  namespaceImport: ts.NamespaceImport
+): PackageRuntimeRequestPlan {
+  const localSymbol = opts.checker.getSymbolAtLocation(namespaceImport.name);
+  if (!localSymbol) return packageBindingFailure(namespaceImport.name.text, "missing-symbol");
+
+  const memberNodes = new Map<string, ts.Identifier>();
+  const state: { unsupportedUse: ts.Identifier | null } = { unsupportedUse: null };
+  const visit = (node: ts.Node): void => {
+    if (state.unsupportedUse) return;
+    if (
+      ts.isIdentifier(node)
+      && node !== namespaceImport.name
+      && opts.checker.getSymbolAtLocation(node) === localSymbol
+    ) {
+      const parent = node.parent;
+      if (
+        ts.isPropertyAccessExpression(parent)
+        && parent.expression === node
+        && ts.isIdentifier(parent.name)
+      ) {
+        const field = externFieldForExportName(parent.name.text);
+        if (field.hxName !== parent.name.text) {
+          state.unsupportedUse = node;
+          return;
+        }
+        if (!memberNodes.has(parent.name.text)) memberNodes.set(parent.name.text, parent.name);
+      } else {
+        state.unsupportedUse = node;
+        return;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+
+  if (state.unsupportedUse) {
+    return packageBindingFailure(
+      state.unsupportedUse.text,
+      "namespace-object-or-computed-member-use"
+    );
+  }
+
+  const bindings: SupportedPackageExternBindingPlan[] = [];
+  for (const [runtimeExportName, memberNode] of Array.from(memberNodes.entries()).sort((a, b) =>
+    a[0].localeCompare(b[0])
+  )) {
+    const plan = planPackageExternBinding({
+      checker: opts.checker,
+      projectDir: opts.projectDir,
+      moduleSpecifier,
+      runtimeExportName,
+      localReference: `${namespaceImport.name.text}.${runtimeExportName}`,
+      symbol: opts.checker.getSymbolAtLocation(memberNode),
+      source: packageExternSource(opts, memberNode)
+    });
+    if (plan.disposition === "unsupported") {
+      return packageBindingFailure(plan.localReference, plan.reason);
+    }
+    bindings.push(plan);
+  }
+  return { supported: true, bindings };
+}
+
+/**
+ * Validates every binding retained by TypeScript for one package request.
+ *
+ * Why: original import syntax may contain values that TypeScript elides. The
+ * configured transform is authoritative for runtime requests, while the
+ * original typed nodes are authoritative for alias identity and declarations.
+ *
+ * What: default, named, aliased, mixed, and statically-read namespace bindings
+ * are accepted only when every retained value receives a strong immutable
+ * package-extern plan. One unsupported member rejects the whole declaration so
+ * a partial extern cannot be mistaken for executable parity.
+ *
+ * How: retained local names are matched back to their original clause nodes,
+ * then checker symbols flow into `planPackageExternBinding`. The result holds
+ * no AST or checker objects beyond its statement-keyed project ownership.
+ */
+function planPackageRuntimeRequest(
+  opts: EmitHaxeOptions,
+  sourceFile: ts.SourceFile,
+  occurrence: EffectiveRuntimeImportOccurrence
+): PackageRuntimeRequestPlan {
+  const { statement, request } = occurrence;
+  const clause = statement.importClause;
+  const moduleSpecifier = (statement.moduleSpecifier as ts.StringLiteral).text;
+  if (!clause || clause.isTypeOnly || request.runtimeBindings.length === 0) {
+    return packageBindingFailure(moduleSpecifier, "missing-runtime-binding");
+  }
+
+  const bindings: SupportedPackageExternBindingPlan[] = [];
+  for (const retained of request.runtimeBindings) {
+    if (retained.kind === "namespace") {
+      const namespace = clause.namedBindings;
+      if (
+        !namespace
+        || !ts.isNamespaceImport(namespace)
+        || namespace.name.text !== retained.localName
+      ) {
+        return packageBindingFailure(retained.localName, "request-clause-mismatch");
+      }
+      if (
+        !hasOriginalImportBindingUse(opts, sourceFile, namespace.name)
+        && opts.program.getCompilerOptions().verbatimModuleSyntax !== true
+      ) {
+        return packageBindingFailure(
+          retained.localName,
+          "compiler-synthesized-or-unproven-binding-use"
+        );
+      }
+      const namespacePlan = planPackageNamespaceBindings(
+        opts,
+        sourceFile,
+        moduleSpecifier,
+        namespace
+      );
+      if (!namespacePlan.supported) return namespacePlan;
+      bindings.push(...namespacePlan.bindings);
+      continue;
+    }
+
+    const namedBindings = clause.namedBindings;
+    const identifier = retained.kind === "default"
+      ? clause.name
+      : namedBindings && ts.isNamedImports(namedBindings)
+        ? namedBindings.elements.find((element) =>
+          !element.isTypeOnly && element.name.text === retained.localName
+        )?.name
+        : undefined;
+    if (!identifier || identifier.text !== retained.localName) {
+      return packageBindingFailure(retained.localName, "request-clause-mismatch");
+    }
+    if (
+      !hasOriginalImportBindingUse(opts, sourceFile, identifier)
+      && opts.program.getCompilerOptions().verbatimModuleSyntax !== true
+    ) {
+      return packageBindingFailure(
+        retained.localName,
+        "compiler-synthesized-or-unproven-binding-use"
+      );
+    }
+
+    const runtimeExportName = retained.kind === "default"
+      ? "default"
+      : namedBindings && ts.isNamedImports(namedBindings)
+        ? namedBindings.elements.find((element) => element.name === identifier)?.propertyName?.text
+          ?? identifier.text
+        : identifier.text;
+    const field = externFieldForExportName(runtimeExportName);
+    if (
+      runtimeExportName !== "default"
+      && (field.hxName !== runtimeExportName || runtimeExportName === "__default")
+    ) {
+      return packageBindingFailure(
+        identifier.text,
+        "runtime-export-name-needs-sanitization"
+      );
+    }
+    const plan = planPackageExternBinding({
+      checker: opts.checker,
+      projectDir: opts.projectDir,
+      moduleSpecifier,
+      runtimeExportName,
+      localReference: identifier.text,
+      symbol: opts.checker.getSymbolAtLocation(identifier),
+      source: packageExternSource(opts, identifier)
+    });
+    if (plan.disposition === "unsupported") {
+      return packageBindingFailure(plan.localReference, plan.reason);
+    }
+    bindings.push(plan);
+  }
+
+  const byExport = new Map<string, SupportedPackageExternBindingPlan>();
+  for (const binding of bindings) {
+    const prior = byExport.get(binding.runtimeExportName);
+    if (prior && JSON.stringify(prior.member) !== JSON.stringify(binding.member)) {
+      return packageBindingFailure(binding.localReference, "conflicting-export-declarations");
+    }
+    byExport.set(binding.runtimeExportName, prior ?? binding);
+  }
+  return {
+    supported: true,
+    bindings: Array.from(byExport.values()).sort((a, b) =>
+      a.runtimeExportName.localeCompare(b.runtimeExportName)
+    )
+  };
+}
+
 function runtimeReexports(sourceFile: ts.SourceFile): ts.ExportDeclaration[] {
   return sourceFile.statements.filter((statement): statement is ts.ExportDeclaration => {
     if (!ts.isExportDeclaration(statement) || !statement.moduleSpecifier || statement.isTypeOnly)
@@ -4178,10 +4568,10 @@ function convertedRuntimeComponents(
  * What: every effective ESM request receives exactly one ordered disposition.
  * Acyclic converted bare, empty, named, default, namespace, and combined
  * default clauses use a real immutable binding or deterministic target marker.
- * Bare packages and manifest-owned relative resources become external marker
- * calls. Mutable bindings, bound packages, non-ESM lowering, converted cycles,
- * runtime re-exports, and ambiguous relative/attribute shapes fail closed at
- * their original source node.
+ * Bare packages, validated primitive package bindings, and manifest-owned
+ * relative resources become external marker calls. Weak package declarations,
+ * mutable bindings, non-ESM lowering, converted cycles, runtime re-exports,
+ * and ambiguous relative/attribute shapes fail closed at their source node.
  *
  * How: final TypeScript transform evidence supplies request presence, shape,
  * module format, and order. The planner resolves those facts against the exact
@@ -4200,10 +4590,20 @@ function buildProjectRuntimeImportPlan(
   const conversionSet = new Set(sortedSourceFiles.map((sourceFile) => path.resolve(sourceFile.fileName)));
   const bySourceFile = new Map<string, SourceRuntimeImportPlan>();
   const targetBySourceFile = new Map<string, ConvertedRuntimeTargetPlan>();
+  const packageBindingsByStatement = new Map<
+    ts.ImportDeclaration,
+    readonly SupportedPackageExternBindingPlan[]
+  >();
+  const packageExternStatements = new Set<ts.ImportDeclaration>();
   const usedManifestEntries = new Set<RuntimeModuleManifestEntry>();
   const inventories: RuntimeImportInventory[] = [];
   const convertedEdgeByStatement = new Map<ts.ImportDeclaration, ConvertedRuntimeEdge>();
   const convertedGraph = new Map<string, Set<string>>();
+  const packageClassOwner = new Map<
+    string,
+    { moduleSpecifier: string; statement: ts.ImportDeclaration }
+  >();
+  const collidingPackageStatements = new Set<ts.ImportDeclaration>();
   const effectiveBySourcePath = new Map(
     effectiveRequests.files.map((file) => [path.resolve(file.sourceFile), file] as const)
   );
@@ -4239,7 +4639,19 @@ function buildProjectRuntimeImportPlan(
 
     for (const { statement } of runtimeImports) {
       const moduleSpecifier = (statement.moduleSpecifier as ts.StringLiteral).text;
-      if (!isRelativeModuleSpecifier(moduleSpecifier)) continue;
+      if (!isRelativeModuleSpecifier(moduleSpecifier)) {
+        if (sourceImportHasValueBindings(statement)) {
+          const className = externModuleNameFromSpecifier(moduleSpecifier);
+          const owner = packageClassOwner.get(className);
+          if (!owner) {
+            packageClassOwner.set(className, { moduleSpecifier, statement });
+          } else if (owner.moduleSpecifier !== moduleSpecifier) {
+            collidingPackageStatements.add(owner.statement);
+            collidingPackageStatements.add(statement);
+          }
+        }
+        continue;
+      }
       const targetFile = resolveRelativeSourceFile(opts.program, sourceFile.fileName, moduleSpecifier);
       if (!targetFile || !conversionSet.has(path.resolve(targetFile.fileName))) continue;
 
@@ -4332,6 +4744,25 @@ function buildProjectRuntimeImportPlan(
     for (const occurrence of runtimeImports) {
       const { statement, request } = occurrence;
       const moduleSpecifier = (statement.moduleSpecifier as ts.StringLiteral).text;
+      if (collidingPackageStatements.has(statement)) {
+        problems.push({
+          statement,
+          id: "TS2HX-MODULES-ESM-RUNTIME-PACKAGE-BOUND-001",
+          message:
+            `Package specifier ${JSON.stringify(moduleSpecifier)} collides with another generated `
+            + `extern module name ${JSON.stringify(externModuleNameFromSpecifier(moduleSpecifier))}.`,
+          remediation:
+            "Use a project without colliding package spellings until deterministic extern aliases are supported.",
+          forceError: true
+        });
+        continue;
+      }
+      if (
+        !isRelativeModuleSpecifier(moduleSpecifier)
+        && sourceImportHasValueBindings(statement)
+      ) {
+        packageExternStatements.add(statement);
+      }
 
       if (request.moduleFormat !== "esm") {
         problems.push(problem(
@@ -4365,12 +4796,24 @@ function buildProjectRuntimeImportPlan(
 
       if (!isRelativeModuleSpecifier(moduleSpecifier)) {
         if (!isBindingFreeRequestShape(request.emittedShape)) {
-          problems.push(problem(
-            statement,
-            "TS2HX-MODULES-ESM-RUNTIME-PACKAGE-BOUND-001",
-            "A bound package request needs runtime package binding/loading evidence before it can be emitted."
-          ));
-          continue;
+          if (attribute.importType !== null) {
+            problems.push(problem(
+              statement,
+              "TS2HX-MODULES-SIDE-EFFECT-IMPORT-ATTRIBUTE-001",
+              "A bound package request cannot preserve an import attribute through its typed extern binding."
+            ));
+            continue;
+          }
+          const packagePlan = planPackageRuntimeRequest(opts, sourceFile, occurrence);
+          if (!packagePlan.supported) {
+            problems.push(problem(
+              statement,
+              "TS2HX-MODULES-ESM-RUNTIME-PACKAGE-BOUND-001",
+              packagePlan.reason
+            ));
+            continue;
+          }
+          packageBindingsByStatement.set(statement, packagePlan.bindings);
         }
         requests.push({
           kind: "external",
@@ -4530,6 +4973,8 @@ function buildProjectRuntimeImportPlan(
   return {
     bySourceFile,
     targetBySourceFile,
+    packageBindingsByStatement,
+    packageExternStatements,
     stagedFiles: Array.from(stagedByPath.values(), (value) => value.file)
       .sort((a, b) => a.filePath.localeCompare(b.filePath)),
     dispositions
@@ -4800,8 +5245,8 @@ function emitHaxeSourceFile(
     for (const { name, alias, isTypeOnly } of imp.named) {
       if (isTypeOnly) continue;
       const exportedName = alias ?? name;
-      const field = exportedName === "default" ? "__default" : exportedName;
-      ctx.identifierRewrites.set(name, `${moduleBase}.${field}`);
+      const field = externFieldForExportName(exportedName);
+      ctx.identifierRewrites.set(name, `${moduleBase}.${field.hxName}`);
     }
   }
 
@@ -5373,7 +5818,11 @@ export function emitProjectToHaxe(rawOpts: EmitHaxeOptions): EmitHaxeResult {
 
   files.push(...runtimeImportProjectPlan.stagedFiles);
 
-  const externs = buildExternModules(opts);
+  const externs = buildExternModules(
+    opts,
+    runtimeImportProjectPlan.packageBindingsByStatement,
+    runtimeImportProjectPlan.packageExternStatements
+  );
   for (const ex of Array.from(externs.values()).sort((a, b) => a.moduleSpecifier.localeCompare(b.moduleSpecifier)))
     files.push(emitExternModuleFile(opts, ex));
 
@@ -5416,10 +5865,12 @@ export function emitProjectToHaxe(rawOpts: EmitHaxeOptions): EmitHaxeResult {
 
   diagnostics.sort(compareDiagnostics);
   dispositions.sort((a, b) => a.sourceFile.localeCompare(b.sourceFile));
-  const hasTargetCapabilityFailure = diagnostics.some(
-    diagnostic => diagnostic.id === "TS2HX-MODULES-ESM-RUNTIME-TARGET-001"
-  );
-  const status: TranslationManifest["status"] = hasTargetCapabilityFailure
+  // Assisted mode may publish only diagnostics explicitly graded as losses.
+  // A planner marks non-scaffoldable boundaries as errors with `forceError`;
+  // checking severity here keeps that contract generic instead of hard-coding
+  // the first target-capability diagnostic that needed it.
+  const hasForcedFailure = diagnostics.some((diagnostic) => diagnostic.severity === "error");
+  const status: TranslationManifest["status"] = hasForcedFailure
     ? "failed"
     : diagnostics.length === 0
       ? "success"

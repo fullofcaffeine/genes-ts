@@ -137,8 +137,9 @@ the generated `src-generated/ts2hx-manifest.json` into review or CI evidence.
 
 TypeScript permits executable top-level statements. Haxe modules are not a
 lossless home for arbitrary module initialization, so strict mode rejects
-unmodeled calls. Supported bare package imports and manifest-owned relative
-runtime files become compiler-owned ESM requests; other top-level startup must
+unmodeled calls. Supported bare packages, closed typed package bindings, and
+manifest-owned relative runtime files become compiler-owned ESM requests;
+other top-level startup must
 move into an explicit exported function before translation or a reviewed Haxe
 entry point after it:
 
@@ -169,9 +170,12 @@ haxe build.migrated.hxml
 node --enable-source-maps dist/index.js
 ```
 
-Async output uses `genes.js.Async`, non-relative packages may require generated
-JS externs, and JSX markers require a genes-aware output profile. These are
-JavaScript-target contracts, not portable-Haxe guarantees.
+Async output uses `genes.js.Async`. A non-relative value import gets an
+automatic strong extern only for primitive declaration-file constants and
+simple monomorphic primitive functions; broader package APIs need a reviewed
+extern/dts2hx boundary or stay fail-closed. JSX markers require a genes-aware
+output profile. These are JavaScript-target contracts, not portable-Haxe
+guarantees.
 
 ### 4. Compare behavior
 
