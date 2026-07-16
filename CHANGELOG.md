@@ -1,3 +1,10 @@
+# [1.33.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.32.0...v1.33.0) (2026-07-16)
+
+
+### Features
+
+* **ts2hx:** support typed package bindings ([929ea93](https://github.com/fullofcaffeine/genes-ts/commit/929ea93d9dbeb57098d9ffdc301fce524bcccfa8))
+
 # [1.32.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.31.0...v1.32.0) (2026-07-16)
 
 
