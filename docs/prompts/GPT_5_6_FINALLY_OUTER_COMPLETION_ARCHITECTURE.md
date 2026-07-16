@@ -39,7 +39,7 @@ process-global macro registry. A narrower fail-closed first subset is better
 than a lowering that happens to pass one return example.
 
 The review baseline is production commit
-`8d5813c013391ea5ed4a949e906d8a3e9e1155cc`. The uploaded tree may additionally
+`c2ec7ad4a43af9528171cb417546e96db5538a90`. The uploaded tree may additionally
 contain this prompt and repository-agent guidance; those do not change compiler
 behavior. Bead `genes-2w9` owns the work.
 
@@ -108,7 +108,7 @@ Correct any claim that the uploaded files disprove.
 
 The upload includes the production baseline, not the temporary spike source.
 The following results were obtained locally with Haxe 4.3.7, Node 20.19.3,
-TypeScript 5.5.4, `-dce full`, and production commit `8d5813c` plus this prompt.
+TypeScript 5.5.4, `-dce full`, and the pre-fix production baseline plus this prompt.
 Treat them as observed experiment results to explain or challenge, not as an
 approved production design.
 
@@ -150,22 +150,26 @@ an outer callback, and propagation to a target outside both callbacks.
 ### Declaration/type-output hazard
 
 Module-private visibility did **not** contain the temporary generic enum. Both
-Genes profiles still emitted it. genes-ts represented empty generic variants
-with `never`, but classic `.d.ts` represented `Normal`, `ReturnVoid`, `Break`,
-and `Continue` with `any`. This violates the repository's strong generated-type
-policy if the completion algebra reaches a user declaration module.
+Genes profiles still emitted it. The spike initially found that genes-ts used
+`never` for empty generic variants while classic `.d.ts` used `any`.
 
-The decision must therefore choose and prove one of these outcomes rather than
-assuming `private` is sufficient:
+That narrow weak-type defect is fixed in the uploaded baseline by `genes-zeo`:
+classic nullary constructors now use `never` for unconstrained parameters, with
+an exact TS 5/6/7 declaration gate and full CI evidence. Constructor-local
+generic payload parameters remain separately tracked by `genes-3r3`; the
+proposed completion variants do not require that broader shape.
+
+The fix removes the `any`, but it does **not** make `private` an output-hiding
+mechanism. The decision must still choose and prove one of these outcomes:
 
 1. a compiler/runtime-internal algebra is centrally filtered from public
    declarations while remaining available to implementation typing;
-2. classic generic-enum declaration emission is improved generically to retain
-   a sound bottom type;
-3. a different strongly typed representation avoids unconstrained empty
-   generic constructors; or
-4. completion details remain local in a form that creates no exported helper
-   surface.
+2. a dedicated runtime module may expose the algebra without placing it in
+   translated user modules or public application APIs;
+3. a different strongly typed representation creates no exported helper
+   surface; or
+4. the emitted helper type is an intentional, documented runtime boundary with
+   exact output/declaration budgets.
 
 The spike did **not** prove the TypeScript planner, automatic target assignment,
 source-map provenance, async/generator behavior, or actual ts2hx lowering.
