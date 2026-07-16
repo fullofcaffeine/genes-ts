@@ -34,6 +34,7 @@ export type SemanticFeatureId =
   | "prototypes.dynamic-mutation"
   | "async.await"
   | "modules.esm-bindings"
+  | "modules.esm-runtime-requests"
   | "modules.side-effect-import";
 
 export type SemanticCategory =
@@ -194,16 +195,24 @@ export const SEMANTIC_SUPPORT_MATRIX: readonly SemanticFeatureContract[] = [
     category: "modules",
     support: "supported",
     portableGrade: "J1",
-    summary: "Preserves the exercised ESM value/type binding and re-export subset.",
-    limitation: "Non-relative packages remain JavaScript extern boundaries; local-only projects may be portable after separate evidence."
+    summary: "Preserves supported direct ESM names, aliases, type/value roles, and immutable value reads after runtime-request planning.",
+    limitation: "It does not own request retention/order, mutable live bindings, package loading, converted cycles, or runtime re-exports."
+  },
+  {
+    id: "modules.esm-runtime-requests",
+    category: "modules",
+    support: "supported-with-helper",
+    portableGrade: "J1",
+    summary: "Preserves every supported effective ESM request in configured TypeScript emit order across both Genes profiles.",
+    limitation: "The capability requires genes-esm; standard Haxe, non-ESM emit, converted cycles, and runtime re-exports fail closed."
   },
   {
     id: "modules.side-effect-import",
     category: "modules",
     support: "supported-with-helper",
     portableGrade: "J1",
-    summary: "Preserves source-ordered package, manifest-owned external-relative, and acyclic converted-relative runtime requests.",
-    limitation: "Converted side-effect cycles, unresolved or unconverted sources, unmanifested runtime files, unsupported attributes, and files with runtime re-exports remain strict failures."
+    summary: "Preserves binding-free packages, manifest-owned external-relative resources, and acyclic converted imports through the shared request plan.",
+    limitation: "Unresolved or unconverted sources, unmanifested runtime files, and unsupported attribute/resource shapes remain strict failures."
   }
 ];
 
@@ -242,7 +251,7 @@ export const SEMANTIC_FAIL_CLOSED_CASES: readonly SemanticFailClosedCase[] = [
     variant: "unsupported import attribute shape"
   },
   {
-    featureId: "modules.side-effect-import",
+    featureId: "modules.esm-runtime-requests",
     diagnosticId: "TS2HX-MODULES-SIDE-EFFECT-IMPORT-CONVERTED-CYCLE-001",
     variant: "converted runtime-request cycle"
   },
@@ -252,7 +261,7 @@ export const SEMANTIC_FAIL_CLOSED_CASES: readonly SemanticFailClosedCase[] = [
     variant: "external relative runtime file without a staging manifest"
   },
   {
-    featureId: "modules.side-effect-import",
+    featureId: "modules.esm-runtime-requests",
     diagnosticId: "TS2HX-MODULES-SIDE-EFFECT-IMPORT-REEXPORT-ORDER-001",
     variant: "runtime re-export without an ordered live-binding plan"
   },
@@ -272,7 +281,7 @@ export const SEMANTIC_FAIL_CLOSED_CASES: readonly SemanticFailClosedCase[] = [
     variant: "mutable imported live binding"
   },
   {
-    featureId: "modules.esm-bindings",
+    featureId: "modules.esm-runtime-requests",
     diagnosticId: "TS2HX-MODULES-ESM-RUNTIME-MODULE-KIND-001",
     variant: "configured non-ESM module lowering"
   },
@@ -280,6 +289,11 @@ export const SEMANTIC_FAIL_CLOSED_CASES: readonly SemanticFailClosedCase[] = [
     featureId: "modules.esm-bindings",
     diagnosticId: "TS2HX-MODULES-ESM-RUNTIME-PACKAGE-BOUND-001",
     variant: "bound package runtime request"
+  },
+  {
+    featureId: "modules.esm-runtime-requests",
+    diagnosticId: "TS2HX-MODULES-ESM-RUNTIME-TARGET-001",
+    variant: "effective request under the request-free standard-Haxe profile"
   },
   {
     featureId: "prototypes.dynamic-mutation",

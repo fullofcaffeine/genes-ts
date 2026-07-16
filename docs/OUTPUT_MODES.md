@@ -192,6 +192,14 @@ must be non-empty literals, and calls must be direct outer statements of
 `GENES-SIDE-EFFECT-IMPORT-TARGET-001` because silently erasing required module
 initialization would be incorrect.
 
+ts2hx uses the same ordered request plan for every supported effective ESM
+import, including bound imports that configured TypeScript emit retains. Those
+generated carriers target classic Genes and genes-ts through the named
+`genes.esm-runtime-requests` capability. A ts2hx run using
+`standard-haxe-js` fails at the first effective request with
+`TS2HX-MODULES-ESM-RUNTIME-TARGET-001`; compiling a Genes-profile tree with the
+standard generator independently fails its Haxe macro guard.
+
 The fullstack example deliberately combines these rules: inline markup becomes
 TSX in `ts-strict` and planned `createElement` calls in `classic-esm`; raw TS
 type metadata enriches TS/declarations but disappears from executable classic

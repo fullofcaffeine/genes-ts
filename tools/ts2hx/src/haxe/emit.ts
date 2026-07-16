@@ -182,6 +182,8 @@ type RuntimeImportProblem = {
 };
 
 type SourceRuntimeImportPlan = {
+  /** Every configured-TypeScript runtime request, including rejected edges. */
+  occurrences: readonly ts.ImportDeclaration[];
   requests: readonly RuntimeImportRequest[];
   problems: readonly RuntimeImportProblem[];
 };
@@ -3648,8 +3650,12 @@ function buildProjectRuntimeImportPlan(
       }
     }
 
-    if (requests.length > 0 || problems.length > 0) {
-      bySourceFile.set(path.resolve(sourceFile.fileName), { requests, problems });
+    if (runtimeImports.length > 0 || problems.length > 0) {
+      bySourceFile.set(path.resolve(sourceFile.fileName), {
+        occurrences: runtimeImports.map((occurrence) => occurrence.statement),
+        requests,
+        problems
+      });
     }
   }
 
@@ -3747,9 +3753,14 @@ function applyRuntimeProfileBoundary(
   }
 
   const sourceKey = path.resolve(sourceFile.fileName);
-  const existing = plan.bySourceFile.get(sourceKey) ?? { requests: [], problems: [] };
+  const existing = plan.bySourceFile.get(sourceKey) ?? {
+    occurrences: [statement],
+    requests: [],
+    problems: []
+  };
   const bySourceFile = new Map(plan.bySourceFile);
   bySourceFile.set(sourceKey, {
+    occurrences: existing.occurrences,
     requests: existing.requests,
     problems: [{
       statement,
@@ -3884,6 +3895,15 @@ function emitHaxeSourceFile(
     if (ts.isExportDeclaration(statement) || ts.isExportAssignment(statement))
       recordSemantic(ctx, "modules.esm-bindings", statement);
   }
+
+  // Runtime requests are a separate semantic contract from the source binding
+  // surface. Record the exact post-TypeScript-transform occurrences, including
+  // requests whose resolution later fails, so elided/type-only declarations do
+  // not accidentally inherit a Genes initialization claim.
+  for (const statement of runtimeImportPlan?.occurrences ?? [])
+    recordSemantic(ctx, "modules.esm-runtime-requests", statement);
+  for (const runtimeProblem of runtimeImportPlan?.problems ?? [])
+    recordSemantic(ctx, "modules.esm-runtime-requests", runtimeProblem.statement);
 
   for (const runtimeProblem of runtimeImportPlan?.problems ?? []) {
     recordUnsupported(

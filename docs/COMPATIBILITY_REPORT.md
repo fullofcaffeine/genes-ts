@@ -103,9 +103,9 @@ Named runtime traces agree across the explicitly listed oracles; the result appl
 ### Same-source compiler and ts2hx semantic differentials
 
 - Disposition: `blocking`
-- Scope: Haxe-to-TS/classic evaluation traces plus ts2hx strict-js contracts against original TypeScript.
-- Proves: Named traces preserve evaluation order and runtime behavior across the listed Haxe/TypeScript oracles, named unsupported ts2hx semantics fail closed, and an effective ESM request cannot cross into standard Haxe silently.
-- Does not prove: The curated traces are not a language-wide proof or a promise of portable ts2hx output on non-JS targets.
+- Scope: Haxe-to-TS/classic evaluation traces plus ts2hx strict-js contracts across original TypeScript, classic Genes, and genes-ts, with a separate standard-Haxe capability boundary.
+- Proves: Named original-TypeScript, classic Genes, and genes-ts traces preserve the exercised runtime behavior; thirteen canonical ts2hx boundaries fail closed, including standard-Haxe rejection and same-server isolation of the private Genes request capability.
+- Does not prove: The standard-Haxe rejection is a capability test, not a fourth runtime-parity oracle; the curated traces are neither a language-wide proof nor a portability promise for other Haxe targets.
 - Evidence:
   - [`tests/output-modes/profile-ownership.json`](../tests/output-modes/profile-ownership.json)
   - [`tests/output-modes/expected-trace.json`](../tests/output-modes/expected-trace.json)

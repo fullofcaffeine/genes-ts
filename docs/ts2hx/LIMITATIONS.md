@@ -67,16 +67,18 @@ Grades describe the emitted Haxe contract:
 | `this.class-and-lexical-arrow` | supported / P0 | Supported class methods and lexical arrows preserve their receiver/capture behavior. |
 | `prototypes.dynamic-mutation` | unsupported / U | Prototype mutation requires an explicit boundary/refactor. |
 | `async.await` | helper / J1 | Uses `genes.js.Async` and the JavaScript Promise/microtask contract. |
-| `modules.esm-bindings` | supported / J1 | Covers source-ordered acyclic converted bindings for immutable named, default, namespace, empty, and combined clauses. Mutable live bindings, bound package loading, non-ESM emit, and runtime re-exports fail closed. |
-| `modules.side-effect-import` | helper / J1 | Preserves source-ordered bare packages, manifest-owned external relative runtime files, and acyclic converted-relative initialization. Converted cycles and the strict variants below remain unsupported. |
+| `modules.esm-bindings` | supported / J1 | Preserves supported direct local names, aliases, type/value roles, and immutable reads after request planning. It does not promise request retention/order, live mutation, package loading, cycles, or runtime re-exports. |
+| `modules.esm-runtime-requests` | helper / J1 | Preserves every supported effective ESM request in configured TypeScript emit order across classic Genes and genes-ts. TypeScript-elided and declaration-wide type-only imports create no request; standard Haxe is an explicit capability failure. |
+| `modules.side-effect-import` | helper / J1 | Provides the binding-free package/helper/resource-staging surface on top of the shared request plan, including manifest-owned external relative files and acyclic converted initialization. |
 
-The semantic harness currently requires exactly the 16 supported rows to occur.
-The matrix contains 2 unsupported rows, while the strict companion fixture owns
-12 feature-specific failures: outer finally transfer, dynamic prototype
-mutation, labeled switch continue, six side-effect-import boundary variants,
-and three ESM-binding boundaries for mutable live bindings, bound packages, and
-configured non-ESM emit. This table does not turn other syntax accepted by
-snapshots into semantic evidence.
+The semantic harness currently requires exactly the 17 supported rows to occur.
+The matrix contains 2 unsupported rows, while the strict evidence gates own 13
+feature-specific failures: outer finally transfer, dynamic prototype
+mutation, labeled switch continue, four side-effect resource/resolution
+boundaries, four effective-request boundaries for cycles, runtime re-exports,
+non-ESM emit, and the standard-Haxe target, plus two binding boundaries for
+mutable live bindings and bound packages. This table does not turn other syntax
+accepted by snapshots into semantic evidence.
 
 ## Project and file inventory
 
@@ -110,11 +112,12 @@ Important consequences:
 - authored `main()` calls in five snapshot fixture `index.ts` files are
   deliberately assisted losses;
 - the three roundtrip fixtures invoke the translated Haxe `Main` explicitly;
-- supported bare imports become compiler-owned request carriers; standalone
-  acyclic converted named/aliased imports of immutable `const` exports receive
-  the same ordering proof, including unused requests retained by configured
-  TypeScript emit, so Haxe value-use order cannot replace import order;
-  arbitrary executable top-level statements still fail strict mode;
+- every supported effective runtime import becomes a compiler-owned request
+  carrier. The acyclic converted subset covers empty, immutable
+  named/default/namespace, mixed type/value, and combined clauses, including
+  unused requests retained by configured TypeScript emit, so Haxe value-use
+  order cannot replace import order. Arbitrary executable top-level statements
+  still fail strict mode;
 - any effective runtime request requires `--runtime-profile genes-esm` and is
   recorded as the `genes.esm-runtime-requests` capability; the request-free
   `standard-haxe-js` profile fails transactionally at the first retained
@@ -235,9 +238,10 @@ not infer React migration readiness from generated Haxe syntax alone.
 
 ## Imports, packages, and host APIs
 
-Relative ESM bindings and re-exports have bounded fixture coverage. A
-non-relative import generates a small `<basePackage>.extern.*` module using
-`@:jsRequire`-style JS interop.
+Relative ESM binding syntax has bounded fixture coverage. Type-only re-exports
+remain available, while every runtime re-export is fail-closed until ordered
+live-export behavior has its own proof. A non-relative import generates a small
+`<basePackage>.extern.*` module using `@:jsRequire`-style JS interop.
 
 - the `non-relative-imports` fixture is compile-smoked but not Node-executed;
   the standard Haxe JS output uses `require()` while the tool package is ESM;
@@ -263,7 +267,8 @@ they do not prove another Haxe backend.
 - P0 means the exercised emitted shape is ordinary Haxe, not that every target
   has executed it;
 - P1 is a future review grade, not a current automatic promotion;
-- J1 requires JavaScript helpers/externs or host semantics;
+- J1 requires JavaScript helpers/externs, host semantics, or a named Genes
+  compiler capability; it does not imply standard-Haxe JS support;
 - A and U carry no executable portability claim.
 
 Follow [`PORTABILITY.md`](PORTABILITY.md) to isolate adapters and construct a

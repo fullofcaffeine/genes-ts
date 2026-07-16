@@ -157,6 +157,14 @@ Haxe (`genes.disable`) and non-JS targets fail with
 semantics. The host application still owns package resolution and external
 resource staging.
 
+ts2hx-generated binding-free and bound requests consume this same ordered plan
+in both Genes output modes. Their presence is decided by configured TypeScript
+emit, so an elided import creates no carrier while a retained unused import
+still initializes in its source slot. This generated-Haxe contract requires
+`genes.esm-runtime-requests`: the `standard-haxe-js` translation profile fails
+with `TS2HX-MODULES-ESM-RUNTIME-TARGET-001`, and the internal carrier macro has
+its own `GENES-ESM-REQUEST-TARGET-001` guard against later miscompilation.
+
 ### Default import
 
 ```haxe

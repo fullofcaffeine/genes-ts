@@ -1,6 +1,8 @@
 import fs from "node:fs";
+import net from "node:net";
+import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { emitProjectToHaxe } from "./haxe/emit.js";
 import { loadProject, type LoadProjectResult } from "./project.js";
 import ts from "./typescript-api.js";
@@ -36,6 +38,28 @@ function haxeBinary(repoRoot: string): string {
   return fs.existsSync(local) ? local : "haxe";
 }
 
+/**
+ * Resolves the process that must own a long-lived Haxe compile server.
+ *
+ * Why: Lix's ordinary Node shim adds a private version-selection argument to
+ * each `--connect` call; a raw Haxe server does not accept that argument.
+ * What/How: probe the selected compiler version and use Lix's corresponding
+ * downloaded native binary when present. Non-Lix environments keep their
+ * configured `HAXE_BIN` or PATH candidate unchanged.
+ */
+function haxeServerBinary(repoRoot: string): string {
+  const candidate = haxeBinary(repoRoot);
+  const versionResult = spawnSync(candidate, ["--version"], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  if (versionResult.error) throw versionResult.error;
+  const version = (versionResult.stdout ?? "").trim();
+  const executable = process.platform === "win32" ? "haxe.exe" : "haxe";
+  const lixCompiler = path.join(os.homedir(), "haxe", "versions", version, executable);
+  return fs.existsSync(lixCompiler) ? lixCompiler : candidate;
+}
+
 function runCli(toolRoot: string, args: string[]): {
   readonly status: number | null;
   readonly transcript: string;
@@ -50,6 +74,127 @@ function runCli(toolRoot: string, args: string[]): {
     status: result.status,
     transcript: `${result.stdout ?? ""}\n${result.stderr ?? ""}`
   };
+}
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
+function availableTcpPort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.unref();
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const address = probe.address();
+      if (!address || typeof address === "string") {
+        probe.close();
+        reject(new Error("Could not allocate a local Haxe compile-server port"));
+        return;
+      }
+      probe.close(error => {
+        if (error) reject(error);
+        else resolve(address.port);
+      });
+    });
+  });
+}
+
+async function stopChild(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const exited = new Promise<void>(resolve => child.once("exit", () => resolve()));
+  child.kill("SIGTERM");
+  await Promise.race([exited, wait(1_000)]);
+  if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+  await Promise.race([exited, wait(1_000)]);
+}
+
+/**
+ * Proves the generator capability is compilation-local under Haxe server reuse.
+ *
+ * Why: the first compilation defines `genes.generator.active` from a macro. If
+ * that private define leaked through the compiler server, a later standard-Haxe
+ * build could accept and erase a Genes-only ESM request instead of failing.
+ *
+ * What: one server first compiles the guarded tree with Genes, then compiles the
+ * same tree with `genes.disable`. The first build must succeed; the second must
+ * report the stable macro diagnostic and publish no JavaScript.
+ *
+ * How: connection-refused responses are retried only while the newly spawned
+ * server starts. Both real compilations use the same address and process, and a
+ * `finally` block owns server shutdown so the test cannot leave a watcher behind.
+ */
+async function assertGeneratorCapabilityIsolation(opts: {
+  haxeBin: string;
+  repoRoot: string;
+  guardOut: string;
+  tmpRoot: string;
+}): Promise<void> {
+  const port = await availableTcpPort();
+  const address = `127.0.0.1:${port}`;
+  const server = spawn(opts.haxeBin, ["--server-listen", address], {
+    cwd: opts.repoRoot,
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  let serverTranscript = "";
+  server.stdout?.on("data", chunk => { serverTranscript += String(chunk); });
+  server.stderr?.on("data", chunk => { serverTranscript += String(chunk); });
+
+  const compile = async (args: string[]): Promise<{
+    status: number | null;
+    transcript: string;
+  }> => {
+    for (let attempt = 0; attempt < 80; attempt++) {
+      const result = spawnSync(opts.haxeBin, ["--connect", address, ...args], {
+        cwd: opts.repoRoot,
+        encoding: "utf8"
+      });
+      if (result.error) throw result.error;
+      const transcript = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+      if (!transcript.includes("Couldn't connect")) {
+        return { status: result.status, transcript };
+      }
+      if (server.exitCode !== null || server.signalCode !== null) {
+        throw new Error(`Haxe compile server exited during startup:\n${serverTranscript}`);
+      }
+      await wait(50);
+    }
+    throw new Error(`Haxe compile server did not accept connections:\n${serverTranscript}`);
+  };
+
+  try {
+    const genesOutput = path.join(opts.tmpRoot, "server-genes", "index.js");
+    const genes = await compile([
+      "-lib", "genes-ts",
+      "-cp", opts.guardOut,
+      "-dce", "full",
+      "-main", "ts2hx_guard.Main",
+      "-js", genesOutput
+    ]);
+    assert(
+      genes.status === 0 && fs.existsSync(genesOutput),
+      `compile server rejected the Genes capability build:\n${genes.transcript}`
+    );
+
+    const standardOutput = path.join(opts.tmpRoot, "server-standard-must-not-write.js");
+    fs.rmSync(standardOutput, { force: true });
+    const standard = await compile([
+      "-cp", opts.guardOut,
+      "-cp", path.join(opts.repoRoot, "src"),
+      "-D", "genes.disable",
+      "-dce", "full",
+      "-main", "ts2hx_guard.Main",
+      "-js", standardOutput
+    ]);
+    assert(standard.status !== 0, "compile server leaked the Genes capability into standard Haxe");
+    assert(
+      standard.transcript.includes("GENES-ESM-REQUEST-TARGET-001"),
+      `compile-server standard build lost the target diagnostic:\n${standard.transcript}`
+    );
+    assert(!fs.existsSync(standardOutput), "failed compile-server build published JavaScript");
+  } finally {
+    await stopChild(server);
+  }
 }
 
 /**
@@ -70,7 +215,7 @@ function runCli(toolRoot: string, args: string[]): {
  * compiled without `genes.Generator.use()` so it must fail before JavaScript is
  * emitted.
  */
-function main(): void {
+async function main(): Promise<void> {
   const toolRoot = path.resolve(path.dirname(process.argv[1] ?? "."), "..");
   const repoRoot = path.resolve(toolRoot, "..", "..");
   const tmpRoot = path.join(toolRoot, ".tmp", "runtime-profile");
@@ -130,6 +275,15 @@ function main(): void {
   assert(
     firstRequest.source.file === "Main.ts" && firstRequest.source.line === 1,
     "manifest lost original request provenance"
+  );
+  const requestFeature = rejected.manifest.features.find(
+    feature => feature.id === "modules.esm-runtime-requests"
+  );
+  assert(
+    requestFeature?.occurrences.length === 1
+      && requestFeature.occurrences[0]?.file === "Main.ts"
+      && requestFeature.occurrences[0]?.line === 1,
+    "runtime-request feature contract lost its exact effective-request provenance"
   );
   assert(Array.isArray(rejected.manifest.runtimeModules), "schema v3 removed runtime resource ownership");
   assert(rejected.diagnostics.length === 1, "standard profile did not stop at one target diagnostic");
@@ -282,6 +436,12 @@ function main(): void {
     `standard Haxe did not report the stable request target diagnostic:\n${compilerTranscript}`
   );
   assert(!fs.existsSync(invalidJs), "failed standard compilation published JavaScript");
+  await assertGeneratorCapabilityIsolation({
+    haxeBin: haxeServerBinary(repoRoot),
+    repoRoot,
+    guardOut,
+    tmpRoot
+  });
 
   fs.appendFileSync(
     path.join(guardSource, "src", "Main.ts"),
@@ -335,10 +495,19 @@ function main(): void {
     standardSuccess.manifest.moduleRequests.length === 0,
     "request-free translation invented module requests"
   );
+  assert(
+    standardSuccess.manifest.features.find(
+      feature => feature.id === "modules.esm-runtime-requests"
+    )?.occurrences.length === 0,
+    "request-free translation claimed the Genes runtime-request feature"
+  );
 
   process.stdout.write(
     "Runtime profile OK (schema v3 + transactional target guard + request-free standard Haxe)\n"
   );
 }
 
-main();
+main().catch(error => {
+  process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+  process.exitCode = 1;
+});

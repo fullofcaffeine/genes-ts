@@ -79,6 +79,9 @@ This profile is about module initialization capability, not rich TypeScript
 types. A manifest with effective requests records
 `genes.esm-runtime-requests`, and generated compiler-owned carriers add a
 second Haxe macro guard if the tree is later compiled under the wrong profile.
+The runtime-profile gate also reuses one Haxe compile server for a Genes build
+followed by a `genes.disable` build, proving the private capability does not
+leak between compilations.
 
 ## Strict translation
 
@@ -205,15 +208,16 @@ Explicit exceptions:
 
 Additional evidence-only fixtures:
 
-- `semantic-diff`: 16 supported semantic contracts executed as original TS,
+- `semantic-diff`: 17 supported semantic contracts executed as original TS,
   classic Genes JS, and genes-ts→JS, including the reduced ordered
   `state`/`first`/`second` converted-module initialization proof and a
   standalone bound-only target that reads its imports in reverse order. The
   same differential runs with `verbatimModuleSyntax` off and on, proving that
   TypeScript-elided imports create no carrier while an unused retained alias
   initializes in its effective request slot;
-- `semantic-unsupported`: 12 feature-specific strict failures with source
-  provenance and unchanged prior output;
+- `semantic-unsupported`: 12 strict failures with source provenance and
+  unchanged prior output; together with the runtime-profile target rejection,
+  the machine-owned matrix contains 13 feature-specific strict failures;
 - `semantic-module-boundaries`: focused duplicate-ID coverage for bound and
   self cycles, aliased and namespace live bindings, all runtime re-export
   spellings, converted attributes, assisted loss records, and unchanged
@@ -268,13 +272,14 @@ event traces for explicit undefined, parameter defaults, uninitialized locals,
 truthiness, strict equality, unary-plus numeric coercion, compound-assignment
 order, `for`/`continue`, switch fallthrough/default placement,
 unlabelled switch-to-loop `continue`, try/catch/finally, class and lexical arrow
-`this`, async/await ordering, and ESM bindings. It also proves labeled switch
-continue, outer completion through finally, and dynamic prototype mutation fail
-closed. Its module transcript additionally proves a bare package request, a
-bound converted request, and a manifest-staged relative request execute in
-source order in all three runtimes. A reduced converted-module transcript
-separately proves `first,second` initialization order, duplicate-request
-coalescing, full-DCE retention, and compiler-marker erasure.
+`this`, async/await ordering, ESM bindings, and effective ESM request order. It
+also proves labeled switch continue, outer completion through finally, and
+dynamic prototype mutation fail closed. Its module transcripts cover bare
+packages, manifest-staged relatives, empty and inline-type clauses, immutable
+named/default/namespace and combined converted bindings, TypeScript elision,
+duplicates, and unused requests retained by verbatim emit. Original TypeScript,
+classic Genes, and genes-ts agree under full DCE; standard Haxe is separately
+required to reject the first effective request without modifying prior output.
 
 ## External relative runtime modules
 

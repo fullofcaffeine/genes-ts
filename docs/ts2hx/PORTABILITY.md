@@ -28,22 +28,26 @@ it can become a CLI contract.
 | --- | --- | --- |
 | P0 portable | No JS-only imports, raw syntax, dynamic boundary, or target-specific semantic helper was emitted. | Compile and semantic traces on every claimed Haxe target. |
 | P1 portable-with-review | The Haxe is target-neutral in shape but contains recorded broad types or runtime assumptions. | Manual boundary review plus target tests. |
-| J1 JS-semantic | Behavior is preserved only through named JS helpers/externs. | Original-TS versus Haxe-JS differential evidence. |
+| J1 JS-semantic | Behavior is preserved only through named JS helpers/externs or a named Genes compiler capability. | Original-TS versus claimed Genes/Haxe-JS differential evidence. |
 | A assisted | Incomplete or lossy scaffold. | No executable or portability claim. |
 | U unsupported | Strict mode emitted no module. | Source-positioned diagnostic and manifest record. |
 
 These are evidence labels, not promises. P0 does not mean "works everywhere"
 until the intended targets have run the same semantic fixture.
 
-`modules.side-effect-import` is J1 even though its generated Haxe carrier is
+`modules.esm-runtime-requests` is J1 even though its generated Haxe carrier is
 typed: the Genes JS/TS compiler consumes that carrier, and the final behavior
-depends on ESM package/resource/generated-module loading. Converted targets use
+depends on ESM package/resource/generated-module loading. This is a named
+custom-generator capability, not a promise that standard Haxe JS supports the
+same request order. `modules.side-effect-import` is the binding-free helper and
+resource-staging surface that feeds the shared plan; `modules.esm-bindings`
+separately owns supported names and immutable reads. Converted targets use
 compiler-internal typed anchors and retained initializers, but those facts do
-not make their final ESM initialization portable to a non-JS Haxe backend.
-The `EsmRequestFact` macro intentionally fails outside an active Genes JS
-generator instead of erasing the request or substituting CommonJS behavior.
-Package installation and copying any manifest-staged relative asset beside
-final JavaScript remain explicit host build responsibilities.
+not make their final ESM initialization portable to a non-JS Haxe backend. The
+`EsmRequestFact` macro intentionally fails outside an active Genes JS generator
+instead of erasing the request or substituting CommonJS behavior. Package
+installation and copying any manifest-staged relative asset beside final
+JavaScript remain explicit host build responsibilities.
 
 ## Adapter layers
 

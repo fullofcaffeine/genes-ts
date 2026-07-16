@@ -41,7 +41,8 @@ What is implemented:
   standard Haxe fails transactionally at the first effective ESM request, and
   generated compiler-owned carriers repeat the guard during Haxe typing
 - An exact original-TS versus classic-JS versus genes-ts-JS event differential
-  for sixteen supported contracts, plus twelve feature-specific fail-closed cases
+  for seventeen supported contracts, plus thirteen feature-specific
+  fail-closed cases (including the standard-Haxe request-capability boundary)
 
 Important limitations:
 

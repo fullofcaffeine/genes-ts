@@ -392,6 +392,25 @@ function main(): void {
     translation.manifest.moduleRequests.some(request => request.disposition === "runtime-request"),
     "semantic manifest lost its effective runtime-request evidence."
   );
+  for (const [label, result] of [
+    ["non-verbatim", translation],
+    ["verbatim", verbatimTranslation]
+  ] as const) {
+    const requestSources = result.manifest.moduleRequests
+      .filter(request => request.disposition === "runtime-request")
+      .map(request => `${request.source.file}:${request.source.start}:${request.source.end}`)
+      .sort();
+    const requestFeature = result.manifest.features.find(
+      feature => feature.id === "modules.esm-runtime-requests"
+    );
+    const featureSources = (requestFeature?.occurrences ?? [])
+      .map(source => `${source.file}:${source.start}:${source.end}`)
+      .sort();
+    assert(
+      JSON.stringify(featureSources) === JSON.stringify(requestSources),
+      `${label} runtime-request feature provenance diverged from configured TypeScript emit.`
+    );
+  }
   const unusedDefaultRequest = translation.manifest.moduleRequests.find(request =>
     request.source.file.endsWith("bound/BoundMain.ts")
       && request.specifier === "./unused.js"
@@ -449,6 +468,51 @@ function main(): void {
     JSON.stringify(translationAgain.manifest) === JSON.stringify(translation.manifest),
     "runtime-module planning changed across two clean translations."
   );
+
+  const standardTargetOutput = path.join(tmpRoot, "standard-target");
+  resetDir(standardTargetOutput);
+  const standardTargetSentinel = path.join(standardTargetOutput, "sentinel.txt");
+  fs.writeFileSync(standardTargetSentinel, "prior-standard-tree\n", "utf8");
+  const standardTargetRejected = emitProjectToHaxe({
+    projectDir: loaded.projectDir,
+    rootDir: loaded.rootDir,
+    program: loaded.program,
+    checker: loaded.checker,
+    sourceFiles: loaded.sourceFiles,
+    outDir: standardTargetOutput,
+    basePackage: "ts2hx_semantic",
+    runtimeProfile: "standard-haxe-js",
+    mode: "strict-js",
+    cleanOutDir: true,
+    runtimeModulesManifest: path.join(fixtureDir, "runtime-modules.json")
+  });
+  assert(
+    standardTargetRejected.status === "failed"
+      && standardTargetRejected.writtenFiles.length === 0,
+    "standard Haxe profile did not fail transactionally at its first effective request."
+  );
+  assert(
+    fs.readFileSync(standardTargetSentinel, "utf8") === "prior-standard-tree\n",
+    "standard Haxe target rejection modified the prior output tree."
+  );
+  assert(
+    standardTargetRejected.diagnostics.length === 1
+      && standardTargetRejected.diagnostics[0]?.id
+        === "TS2HX-MODULES-ESM-RUNTIME-TARGET-001",
+    "standard Haxe profile lost its canonical runtime-request capability diagnostic."
+  );
+  const firstEffectiveRequest = translation.manifest.moduleRequests.find(
+    request => request.disposition === "runtime-request"
+  );
+  const standardTargetDiagnostic = standardTargetRejected.diagnostics[0];
+  assert(
+    firstEffectiveRequest !== undefined
+      && standardTargetDiagnostic !== undefined
+      && standardTargetDiagnostic.source.file === firstEffectiveRequest.source.file
+      && standardTargetDiagnostic.source.line === firstEffectiveRequest.source.line
+      && standardTargetDiagnostic.source.column === firstEffectiveRequest.source.column,
+    "standard Haxe target rejection lost first-request provenance."
+  );
   assert(
     translation.manifest.features.length === SEMANTIC_SUPPORT_MATRIX.length,
     "semantic manifest does not contain the complete support matrix."
@@ -482,6 +546,7 @@ function main(): void {
     "this.class-and-lexical-arrow",
     "async.await",
     "modules.esm-bindings",
+    "modules.esm-runtime-requests",
     "modules.side-effect-import"
   ];
   const exercised = translation.manifest.features
@@ -1003,12 +1068,16 @@ function main(): void {
     fs.readFileSync(path.join(unsupportedOutput, "sentinel.txt"), "utf8") === "prior-tree\n",
     "unsupported semantic project modified the prior output tree."
   );
-  const expectedDiagnosticIds = SEMANTIC_FAIL_CLOSED_CASES
+  const targetDiagnosticId = "TS2HX-MODULES-ESM-RUNTIME-TARGET-001";
+  const unsupportedFailClosedCases = SEMANTIC_FAIL_CLOSED_CASES.filter(
+    failure => failure.diagnosticId !== targetDiagnosticId
+  );
+  const expectedUnsupportedDiagnosticIds = unsupportedFailClosedCases
     .map((failure) => failure.diagnosticId)
     .sort();
   const diagnosticIds = rejected.diagnostics.map((diagnostic) => diagnostic.id).sort();
   assert(
-    JSON.stringify(diagnosticIds) === JSON.stringify(expectedDiagnosticIds),
+    JSON.stringify(diagnosticIds) === JSON.stringify(expectedUnsupportedDiagnosticIds),
     `unsupported semantic diagnostics changed: ${JSON.stringify(diagnosticIds)}.`
   );
   const expectedDiagnosticSources = [
@@ -1031,7 +1100,10 @@ function main(): void {
     "canonical fail-closed diagnostics lost their stable source positions."
   );
   for (const failure of SEMANTIC_FAIL_CLOSED_CASES) {
-    const feature = rejected.manifest.features.find((entry) => entry.id === failure.featureId);
+    const manifest = failure.diagnosticId === targetDiagnosticId
+      ? standardTargetRejected.manifest
+      : rejected.manifest;
+    const feature = manifest.features.find((entry) => entry.id === failure.featureId);
     assert(feature !== undefined, `${failure.featureId}: missing fail-closed feature contract.`);
     assert(
       feature.occurrences.length > 0,
@@ -1055,7 +1127,7 @@ function main(): void {
   assert(assisted.status === "assisted", "side-effect boundary losses did not mark assisted output.");
   assert(
     JSON.stringify(assisted.diagnostics.map((diagnostic) => diagnostic.id).sort())
-      === JSON.stringify(expectedDiagnosticIds),
+      === JSON.stringify(expectedUnsupportedDiagnosticIds),
     "assisted side-effect diagnostics diverged from strict mode."
   );
   assert(
@@ -1146,7 +1218,7 @@ function main(): void {
   );
 
   process.stdout.write(
-    `Semantic differential OK (${expectedFeatures.length} exercised contracts, ${expectedDiagnosticIds.length} fail-closed contracts, 3 runtimes)\n`
+    `Semantic differential OK (${expectedFeatures.length} exercised contracts, ${SEMANTIC_FAIL_CLOSED_CASES.length} fail-closed contracts, 3 runtimes)\n`
   );
 }
 

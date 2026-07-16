@@ -273,23 +273,22 @@ no conditional omission or runtime fallback.
 Each supported runtime-importing file receives one kept
 `@:genes.compilerInternal` carrier whose typed marker calls survive full DCE,
 become ordered Genes module requests, and disappear from both final profiles
-and declarations. The supported producer set includes the converted closure of
-a bare import and standalone acyclic closures made entirely from converted
-named or aliased imports of immutable `const` exports. Carrier occurrences come
-from configured TypeScript emit: an unused import retained by
-`verbatimModuleSyntax` remains a request, while an import TypeScript elides does
-not become one. Haxe value-use order is therefore not allowed to replace the
-effective declaration order, even in a module with no bare-import ancestor.
-Maps remain lookup structures; neither ts2hx nor a Genes printer may reconstruct
-request order from grouped bindings. The explicit profile boundary is broader
-than this first bound-binding subset; later support work may consume default,
-namespace, mutable, cyclic, and re-export request evidence without changing the
-target contract.
+and declarations. The supported producer set includes binding-free packages,
+manifest-owned relative resources, and acyclic converted imports with empty,
+immutable named/default/namespace, mixed type/value, and combined clauses.
+Carrier occurrences come from configured TypeScript emit: an unused import
+retained by `verbatimModuleSyntax` remains a request, while an import TypeScript
+elides does not become one. Haxe value-use order is therefore not allowed to
+replace the effective declaration order, even in a module with no bare-import
+ancestor. Maps remain lookup structures; neither ts2hx nor a Genes printer may
+reconstruct request order from grouped bindings. Mutable live bindings, bound
+packages, converted cycles, converted attributes, configured non-ESM output,
+and runtime re-exports remain explicit strict failures.
 An acyclic binding-free request to converted code targets a deterministic
 compiler-internal field in the generated Haxe module. That typed anchor makes
 the target visible; explicit `@:keep` metadata retains its translated top-level
-initializers; Genes then erases both anchor and carrier. A binding-free edge in
-a converted request cycle fails with
+initializers; Genes then erases both anchor and carrier. Every edge in a
+converted runtime-request cycle fails with
 `TS2HX-MODULES-SIDE-EFFECT-IMPORT-CONVERTED-CYCLE-001` until ESM cycle/TDZ parity
 has separate runtime evidence.
 
