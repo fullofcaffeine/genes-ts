@@ -21,7 +21,7 @@ This is an evidence contract, not a cached CI-success badge. `blocking` and `non
 | Semantic differential | Same-source Haxe modules | 12 | `blocking` |
 | Semantic differential | TS/classic/declaration and JS oracle profiles | 5 | `blocking` |
 | Semantic differential | Stable dual-output runtime trace events | 19 | `blocking` |
-| Semantic differential | ts2hx supported and fail-closed semantic input modules | 21 | `blocking` |
+| Semantic differential | ts2hx supported and fail-closed semantic input modules | 53 | `blocking` |
 | Snapshot stability | genes-ts snapshot profiles | 7 | `blocking` |
 | Snapshot stability | ts2hx reviewed snapshot files | 48 | `blocking` |
 | Runtime smoke and E2E | Same-source dual-profile examples | 2 | `blocking` |
@@ -112,6 +112,7 @@ Named runtime traces agree across the explicitly listed oracles; the result appl
   - [`tests/output-modes/src`](../tests/output-modes/src)
   - [`scripts/test-output-modes.ts`](../scripts/test-output-modes.ts)
   - [`tools/ts2hx/fixtures/semantic-diff`](../tools/ts2hx/fixtures/semantic-diff)
+  - [`tools/ts2hx/fixtures/semantic-module-boundaries`](../tools/ts2hx/fixtures/semantic-module-boundaries)
   - [`tools/ts2hx/fixtures/semantic-unsupported`](../tools/ts2hx/fixtures/semantic-unsupported)
   - [`tools/ts2hx/src/test-semantic-diff.ts`](../tools/ts2hx/src/test-semantic-diff.ts)
   - [`tools/ts2hx/src/test-runtime-profile.ts`](../tools/ts2hx/src/test-runtime-profile.ts)

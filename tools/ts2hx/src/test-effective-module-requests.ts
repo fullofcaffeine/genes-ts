@@ -177,6 +177,14 @@ function emittedRequireSpecifiers(file: EffectiveModuleRequestFile): string[] {
   return specifiers;
 }
 
+function runtimeBindingSummary(file: EffectiveModuleRequestFile): string[] {
+  return file.runtimeRequests.map((request) =>
+    `${request.specifier}:${request.runtimeBindings
+      .map((binding) => `${binding.kind}:${binding.localName}`)
+      .join(",")}`
+  );
+}
+
 function assertProvenance(inspection: Inspection): void {
   inspection.file.imports.forEach((entry, index) => {
     assert(entry.sourceOrdinal === index, `${entry.specifier} has an unstable source ordinal`);
@@ -219,6 +227,10 @@ function main(): void {
       elided.file.runtimeRequests.map(request => `${request.specifier}:${request.emittedShape}`),
       "elided ESM request inventory disagrees with emitted JavaScript"
     );
+    assertJson(runtimeBindingSummary(elided.file), [
+      "mixed:named:renamedUsed",
+      "bare:"
+    ], "non-verbatim runtime binding inventory drifted");
 
     const verbatim = inspectFixture(fixtureRoot, "main.mts", esmSource, true);
     assertJson(dispositionSummary(verbatim.file.imports), [
@@ -237,6 +249,16 @@ function main(): void {
       verbatim.file.runtimeRequests.map(request => `${request.specifier}:${request.emittedShape}`),
       "verbatim ESM request inventory disagrees with emitted JavaScript"
     );
+    assertJson(runtimeBindingSummary(verbatim.file), [
+      "named-unused:named:unusedAlias",
+      "default-unused:default:unusedDefault",
+      "namespace-unused:namespace:unusedNamespace",
+      "empty:",
+      "inline-only:",
+      "mixed:named:renamedUsed",
+      "value-used-as-type:named:TypeUsedAsType",
+      "bare:"
+    ], "verbatim runtime binding inventory drifted");
     const mixed = verbatim.file.runtimeRequests.find(request => request.specifier === "mixed");
     assert(mixed?.emittedStatement.includes("used as renamedUsed") === true, "alias spelling was lost");
     assert(

@@ -192,13 +192,16 @@ The current snapshot is 48 generated files. Effective TypeScript emit assigns
 `standard-haxe-js`; 8 of the standard fixtures execute their smoke runtime.
 Explicit exceptions:
 
-- `basic-tsx` and `react-types` compile but do not execute their raw JSX marker
-  calls; `react-types` additionally emits and strictly checks genes-ts TSX;
-- `non-relative-imports` compile-smokes generated `@:jsRequire` externs but does
-  not execute them inside the ESM tool package;
+- `basic-tsx` is assisted because its bound React package request remains
+  fail-closed; it and request-free `react-types` compile but do not execute raw
+  JSX marker calls. `react-types` additionally emits and strictly checks
+  genes-ts TSX;
+- `non-relative-imports` is an assisted extern inventory: it compile-smokes
+  generated `@:jsRequire` boundaries but makes no bound package runtime claim;
 - `roundtrip-fixture`, `roundtrip-advanced`, `module-regexp`, `module-syntax`,
-  and `type-literals` record one unsupported top-level `index.ts` entry call in
-  assisted snapshots.
+  and `type-literals` record an unsupported top-level `index.ts` entry call in
+  assisted snapshots; `module-syntax` additionally records runtime re-export
+  losses.
 
 Additional evidence-only fixtures:
 
@@ -209,8 +212,12 @@ Additional evidence-only fixtures:
   same differential runs with `verbatimModuleSyntax` off and on, proving that
   TypeScript-elided imports create no carrier while an unused retained alias
   initializes in its effective request slot;
-- `semantic-unsupported`: 9 feature-specific strict failures with source
+- `semantic-unsupported`: 12 feature-specific strict failures with source
   provenance and unchanged prior output;
+- `semantic-module-boundaries`: focused duplicate-ID coverage for bound and
+  self cycles, aliased and namespace live bindings, all runtime re-export
+  spellings, converted attributes, assisted loss records, and unchanged
+  strict-mode output;
 - `unsupported-top-level`: generic unknown-statement diagnostics, assisted loss
   markers, CLI exit codes, and transactional writes.
 
@@ -299,14 +306,16 @@ asset to the identical module-relative location in both final Genes output
 trees. npm/package installation remains the host build's responsibility.
 
 The current strict boundary supports bare packages, manifest-owned external
-relative files, and acyclic converted-relative modules. One non-empty literal
-`type` attribute is supported for external requests when source and manifest
-agree. Converted requests use generated Haxe module identities and
-compiler-internal DCE anchors rather than preserving original `.js` paths.
-Converted cycles, unresolved relatives, code outside the configured conversion
-set, unmanifested runtime files, unsupported attributes, and a file combining a
-bare import with a runtime re-export receive stable source-positioned
-diagnostics.
+relative files, and acyclic converted-relative modules. Converted imports may
+use immutable named, default, namespace, empty, and combined default clauses;
+their order follows the requests retained by the configured TypeScript emit.
+One non-empty literal `type` attribute is supported for external requests when
+source and manifest agree. Converted requests use generated Haxe module
+identities and compiler-internal DCE anchors rather than preserving original
+`.js` paths. Converted cycles, mutable live bindings, bound package requests,
+configured non-ESM lowering, unresolved relatives, code outside the configured
+conversion set, unmanifested runtime files, unsupported attributes, and runtime
+re-exports receive stable source-positioned diagnostics.
 
 Update snapshots only after reviewing the semantic reason for every change:
 

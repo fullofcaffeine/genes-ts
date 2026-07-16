@@ -32,6 +32,14 @@ export type EffectiveRuntimeRequest = EffectiveImportProvenance & {
   readonly emittedShape: EffectiveImportShape;
   readonly emittedSyntaxKind: string;
   readonly emittedStatement: string;
+  /** Value bindings that survived TypeScript's configured import elision. */
+  readonly runtimeBindings: readonly EffectiveRuntimeBinding[];
+};
+
+export type EffectiveRuntimeBinding = {
+  readonly kind: "default" | "namespace" | "named";
+  /** Local identifier retained by the emitted ESM declaration. */
+  readonly localName: string;
 };
 
 export type EffectiveTypeOnlyImport = EffectiveImportProvenance & {
@@ -67,6 +75,7 @@ type RetainedRequest = {
   readonly emittedShape: EffectiveImportShape;
   readonly emittedSyntaxKind: string;
   readonly emittedStatement: string;
+  readonly runtimeBindings: readonly EffectiveRuntimeBinding[];
 };
 
 type SourceInventory = {
@@ -125,6 +134,31 @@ function emittedModuleFormat(
 function emittedShape(statement: ts.Statement): EffectiveImportShape {
   if (ts.isImportDeclaration(statement)) return emittedImportShape(statement);
   return "commonjs";
+}
+
+/**
+ * Captures the exact value bindings left by TypeScript's import transform.
+ *
+ * Source clauses are insufficient: with non-verbatim emit, TypeScript can
+ * remove one type-only or unused element while retaining other elements from
+ * the same declaration. The transformed ESM AST is therefore the authority
+ * for which local names may act as runtime-request anchors.
+ */
+function emittedRuntimeBindings(statement: ts.Statement): EffectiveRuntimeBinding[] {
+  if (!ts.isImportDeclaration(statement)) return [];
+  const clause = statement.importClause;
+  if (!clause || clause.isTypeOnly) return [];
+  const bindings: EffectiveRuntimeBinding[] = [];
+  if (clause.name) bindings.push({ kind: "default", localName: clause.name.text });
+  if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
+    bindings.push({ kind: "namespace", localName: clause.namedBindings.name.text });
+  } else if (clause.namedBindings) {
+    for (const element of clause.namedBindings.elements) {
+      if (!element.isTypeOnly)
+        bindings.push({ kind: "named", localName: element.name.text });
+    }
+  }
+  return bindings;
 }
 
 function formatDiagnostics(diagnostics: readonly ts.Diagnostic[]): string {
@@ -257,7 +291,8 @@ export function inspectEffectiveModuleRequests(
           ts.EmitHint.Unspecified,
           statement,
           transformedFile
-        )
+        ),
+        runtimeBindings: emittedRuntimeBindings(statement)
       });
       requestOrdinal += 1;
     }

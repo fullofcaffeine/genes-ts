@@ -67,15 +67,16 @@ Grades describe the emitted Haxe contract:
 | `this.class-and-lexical-arrow` | supported / P0 | Supported class methods and lexical arrows preserve their receiver/capture behavior. |
 | `prototypes.dynamic-mutation` | unsupported / U | Prototype mutation requires an explicit boundary/refactor. |
 | `async.await` | helper / J1 | Uses `genes.js.Async` and the JavaScript Promise/microtask contract. |
-| `modules.esm-bindings` | supported / J1 | Covers the exercised ESM value/type binding and re-export subset. |
+| `modules.esm-bindings` | supported / J1 | Covers source-ordered acyclic converted bindings for immutable named, default, namespace, empty, and combined clauses. Mutable live bindings, bound package loading, non-ESM emit, and runtime re-exports fail closed. |
 | `modules.side-effect-import` | helper / J1 | Preserves source-ordered bare packages, manifest-owned external relative runtime files, and acyclic converted-relative initialization. Converted cycles and the strict variants below remain unsupported. |
 
 The semantic harness currently requires exactly the 16 supported rows to occur.
 The matrix contains 2 unsupported rows, while the strict companion fixture owns
-9 feature-specific failures: outer finally transfer, dynamic prototype
-mutation, labeled switch continue, and six side-effect-import boundary
-variants. This table does not turn other syntax accepted by snapshots into
-semantic evidence.
+12 feature-specific failures: outer finally transfer, dynamic prototype
+mutation, labeled switch continue, six side-effect-import boundary variants,
+and three ESM-binding boundaries for mutable live bindings, bound packages, and
+configured non-ESM emit. This table does not turn other syntax accepted by
+snapshots into semantic evidence.
 
 ## Project and file inventory
 
@@ -216,7 +217,9 @@ components, fragments, ordered props, spreads, and supported child
 expressions. Current evidence is deliberately narrower than the todoapp's
 Haxe-authored JSX coverage:
 
-- `basic-tsx` and `react-types` are snapshotted and Haxe compile-smoked;
+- `basic-tsx` is an assisted inventory because its bound React package request
+  is fail-closed; `react-types` remains a strict request-free snapshot. Both are
+  Haxe compile-smoked;
 - their direct standard-Haxe JS smoke is not executed because marker calls are
   compiler intent, not a standalone runtime API;
 - `react-types` additionally roundtrips through genes-ts to strict TSX and has
@@ -238,16 +241,17 @@ non-relative import generates a small `<basePackage>.extern.*` module using
 
 - the `non-relative-imports` fixture is compile-smoked but not Node-executed;
   the standard Haxe JS output uses `require()` while the tool package is ESM;
-- CommonJS `export =`, conditional package exports, subpath conditions,
-  namespace merging, and complex type/value exports are not a general ts2hx
-  runtime contract;
+- CommonJS `export =`, configured CommonJS import lowering, conditional package
+  exports, subpath conditions, namespace merging, and complex type/value
+  exports are not a general ts2hx runtime contract;
 - Node/browser globals and npm packages keep translated code in the JS-specific
   adapter layer;
-- bare package requests are J1; relative runtime files require a hash-pinned
-  staging manifest and explicit final-build copy ownership;
-- converted side-effect cycles, unresolved relatives, source code outside the
-  conversion set, unmanifested runtime files, unsupported attributes, and
-  bare-import/runtime-re-export interleaving fail closed;
+- bare package requests are J1, while bound package loading remains fail-closed;
+  relative runtime files require a hash-pinned staging manifest and explicit
+  final-build copy ownership;
+- all converted runtime-request cycles, mutable imported bindings, unresolved
+  relatives, source code outside the conversion set, unmanifested runtime
+  files, unsupported attributes, and runtime re-exports fail closed;
 - a compile-only extern is not evidence that runtime module identity or loading
   order is correct.
 
@@ -272,11 +276,14 @@ generated files. Eleven projects require `genes-esm`; nine are request-free and
 use `standard-haxe-js`, with eight standard-profile runtime smokes. Exceptions
 are explicit:
 
-- `basic-tsx` and `react-types`: compile-only because their JSX markers are not
+- `basic-tsx`: assisted and compile-only because bound React loading is not yet
+  runtime-proven and its JSX markers are not executed directly;
+- `react-types`: strict but compile-only because its JSX markers are not
   executed directly;
-- `non-relative-imports`: compile-only because of the ESM/`require()` boundary;
-- five fixtures use assisted snapshots for one acknowledged top-level
-  `index.ts` call;
+- `non-relative-imports`: assisted and compile-only because bound package
+  loading and the ESM/`require()` boundary are not runtime-proven;
+- five fixtures use assisted snapshots for an acknowledged top-level `index.ts`
+  call; `module-syntax` also records its runtime re-exports as explicit losses;
 - only `roundtrip-fixture`, `roundtrip-advanced`, and `module-regexp` belong to
   the roundtrip runtime smoke;
 - exact semantics live in `semantic-diff`; known losses live in

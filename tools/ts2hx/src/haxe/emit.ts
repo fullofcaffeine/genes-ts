@@ -174,7 +174,7 @@ type RuntimeImportRequest =
     };
 
 type RuntimeImportProblem = {
-  statement: ts.ImportDeclaration;
+  statement: ts.Node;
   id: string;
   message: string;
   remediation?: string;
@@ -195,7 +195,6 @@ type RuntimeImportInventory = {
   sourceFile: ts.SourceFile;
   /** Requests retained by the configured TypeScript emitter, in emit order. */
   runtimeImports: readonly EffectiveRuntimeImportOccurrence[];
-  bareImports: readonly ts.ImportDeclaration[];
 };
 
 type EffectiveRuntimeImportOccurrence = {
@@ -2866,70 +2865,267 @@ function parseImportAttribute(statement: ts.ImportDeclaration): ParsedImportAttr
   return { ok: true, importType: attribute.value.text };
 }
 
-function runtimeBindingAnchor(statement: ts.ImportDeclaration): string | null {
-  const clause = statement.importClause;
-  if (!clause || clause.isTypeOnly) return null;
-  if (clause.name) return clause.name.text;
-  const bindings = clause.namedBindings;
-  if (!bindings || ts.isNamespaceImport(bindings)) return null;
-  const valueBinding = bindings.elements.find((element) => !element.isTypeOnly);
-  return valueBinding?.name.text ?? null;
+type ConvertedRequestBindingPlan =
+  | { supported: true; anchor: string | null }
+  | { supported: false };
+
+/**
+ * Resolves a TypeScript import/export alias to the declaration it denotes.
+ *
+ * Why: the checker reports local import names and re-exported names as alias
+ * symbols, while stability is a property of the original runtime declaration.
+ * What: callers receive the first non-alias symbol, or the last symbol when a
+ * malformed/cyclic alias chain cannot make further progress.
+ * How: compiler-owned symbol identity plus a visited set makes the walk
+ * deterministic and prevents a broken declaration graph from looping.
+ */
+function unwrapAliasSymbol(checker: ts.TypeChecker, initial: ts.Symbol | undefined): ts.Symbol | undefined {
+  let symbol = initial;
+  const seen = new Set<ts.Symbol>();
+  while (symbol && (symbol.flags & ts.SymbolFlags.Alias) !== 0 && !seen.has(symbol)) {
+    seen.add(symbol);
+    symbol = checker.getAliasedSymbol(symbol);
+  }
+  return symbol;
 }
 
 /**
- * Proves the first bound-request subset without weakening ESM live bindings.
+ * Recognizes an identifier as part of an assignment target.
  *
- * Why: a carrier may retain an unused local import, but treating a mutable
- * exporter as a value token would overclaim support before mutation and cycle
- * differentials exist. The first increment therefore accepts only named (or
- * locally aliased) bindings whose target is an exported `const`.
- *
- * What: the configured TypeScript emit must retain a plain named ESM import,
- * every runtime element must resolve through the checker to a `const`, and the
- * request must target another source in the exact conversion set.
- *
- * How: TypeScript alias symbols are unwrapped through the checker. Type-only
- * elements do not provide an anchor and are ignored here; the emitted request
- * shape remains the source of truth for whether a runtime declaration exists.
+ * Parentheses and destructuring wrappers are transparent, but ordinary reads,
+ * call arguments, and property receivers are not. This deliberately answers a
+ * narrow syntactic question; symbol identity is checked by the caller.
  */
-function isImmutableConvertedNamedRequest(
-  opts: EmitHaxeOptions,
-  occurrence: EffectiveRuntimeImportOccurrence,
-  edge: ConvertedRuntimeEdge | undefined
-): boolean {
-  const { statement, request } = occurrence;
-  if (!edge || request.moduleFormat !== "esm" || request.emittedShape !== "named") return false;
-  const attribute = parseImportAttribute(statement);
-  if (!attribute.ok || attribute.importType !== null) return false;
-
-  const clause = statement.importClause;
-  if (!clause || clause.isTypeOnly || clause.name) return false;
-  const bindings = clause.namedBindings;
-  if (!bindings || !ts.isNamedImports(bindings)) return false;
-  const valueElements = bindings.elements.filter((element) => !element.isTypeOnly);
-  if (valueElements.length === 0) return false;
-
-  return valueElements.every((element) => {
-    let symbol = opts.checker.getSymbolAtLocation(element.name);
-    const seen = new Set<ts.Symbol>();
-    while (symbol && (symbol.flags & ts.SymbolFlags.Alias) !== 0 && !seen.has(symbol)) {
-      seen.add(symbol);
-      symbol = opts.checker.getAliasedSymbol(symbol);
+function isBindingWriteReference(node: ts.Identifier): boolean {
+  let current: ts.Node = node;
+  while (current.parent) {
+    const parent = current.parent;
+    if (ts.isBinaryExpression(parent)) {
+      return parent.left === current
+        && parent.operatorToken.kind >= ts.SyntaxKind.FirstAssignment
+        && parent.operatorToken.kind <= ts.SyntaxKind.LastAssignment;
     }
-    const declaration = symbol?.valueDeclaration;
-    return declaration !== undefined
-      && ts.isVariableDeclaration(declaration)
-      && ts.isVariableDeclarationList(declaration.parent)
-      && (declaration.parent.flags & ts.NodeFlags.Const) !== 0;
-  });
+    if (ts.isPrefixUnaryExpression(parent) || ts.isPostfixUnaryExpression(parent)) {
+      return parent.operand === current;
+    }
+    if (ts.isForInStatement(parent) || ts.isForOfStatement(parent)) {
+      return parent.initializer === current;
+    }
+    if (
+      ts.isParenthesizedExpression(parent)
+      || ts.isArrayLiteralExpression(parent)
+      || ts.isObjectLiteralExpression(parent)
+      || ts.isSpreadElement(parent)
+      || ts.isSpreadAssignment(parent)
+      || ts.isShorthandPropertyAssignment(parent)
+      || (ts.isPropertyAssignment(parent) && parent.initializer === current)
+    ) {
+      current = parent;
+      continue;
+    }
+    return false;
+  }
+  return false;
 }
 
-function hasRuntimeReexport(sourceFile: ts.SourceFile): boolean {
-  return sourceFile.statements.some((statement) => {
+/**
+ * Proves that a translated import observes one stable ESM binding identity.
+ *
+ * `const` and `export default <expression>` are stable by construction.
+ * Function, class, and enum declarations are accepted only when a checker walk
+ * finds no assignment to their declaration binding. `let` and `var` remain
+ * fail-closed even without a visible write because their live-binding contract
+ * permits mutation that the current Haxe anchor does not model.
+ */
+function isImmutableRuntimeSymbol(checker: ts.TypeChecker, initial: ts.Symbol | undefined): boolean {
+  const symbol = unwrapAliasSymbol(checker, initial);
+  const declaration = symbol?.valueDeclaration;
+  if (!declaration) return false;
+  if (ts.isExportAssignment(declaration) && !declaration.isExportEquals) return true;
+  if (
+    ts.isVariableDeclaration(declaration)
+    && ts.isVariableDeclarationList(declaration.parent)
+    && (declaration.parent.flags & ts.NodeFlags.Const) !== 0
+  ) return true;
+  if (
+    !symbol
+    || (!ts.isFunctionDeclaration(declaration)
+      && !ts.isClassDeclaration(declaration)
+      && !ts.isEnumDeclaration(declaration))
+  ) return false;
+
+  // Function/class/enum declarations are stable in the supported translator
+  // subset only when their module never assigns the declaration binding.
+  // `let`/`var` remain rejected even without an observed write because their
+  // live-binding contract is explicitly mutable.
+  let written = false;
+  const visit = (node: ts.Node): void => {
+    if (written) return;
+    if (
+      ts.isIdentifier(node)
+      && node !== declaration.name
+      && unwrapAliasSymbol(checker, checker.getSymbolAtLocation(node)) === symbol
+      && isBindingWriteReference(node)
+    ) {
+      written = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(declaration.getSourceFile());
+  return !written;
+}
+
+/**
+ * Tests whether a stable TypeScript binding is also a legal Haxe value token.
+ *
+ * ts2hx lowers TypeScript enums to enum abstracts. Their identifiers work in
+ * member access (`Status.Active`) but Haxe forbids passing the abstract itself
+ * as a value to the internal marker macro. Other supported runtime declarations
+ * lower to module fields or class/type expressions understood by Genes. When
+ * no legal local token exists, planning uses the converted target marker.
+ */
+function isHaxeValueAnchorSymbol(checker: ts.TypeChecker, initial: ts.Symbol | undefined): boolean {
+  const declaration = unwrapAliasSymbol(checker, initial)?.valueDeclaration;
+  return declaration !== undefined && !ts.isEnumDeclaration(declaration);
+}
+
+/**
+ * Validates namespace reads without turning the namespace into a runtime value.
+ *
+ * Why: ts2hx rewrites a converted namespace member directly to its generated
+ * Haxe module field. Passing the namespace object around, computing arbitrary
+ * keys, or reading mutable exports would require live-binding evidence that is
+ * deliberately outside this increment.
+ *
+ * What: every value use must be a static property access (or a string-literal
+ * element access), and every selected export must resolve to an immutable
+ * `const` or default-expression binding.
+ *
+ * How: identifier references are matched through the TypeChecker, then export
+ * symbols are read from the aliased module symbol. The carrier itself uses a
+ * target marker, so none of these validation reads reaches generated JS/TS.
+ */
+function hasOnlyImmutableStaticNamespaceReads(
+  opts: EmitHaxeOptions,
+  sourceFile: ts.SourceFile,
+  namespaceImport: ts.NamespaceImport
+): boolean {
+  const localSymbol = opts.checker.getSymbolAtLocation(namespaceImport.name);
+  if (!localSymbol) return false;
+  const exportNames = new Set<string>();
+  let supported = true;
+
+  const visit = (node: ts.Node): void => {
+    if (!supported) return;
+    if (
+      ts.isIdentifier(node)
+      && node !== namespaceImport.name
+      && opts.checker.getSymbolAtLocation(node) === localSymbol
+    ) {
+      const parent = node.parent;
+      if (ts.isPropertyAccessExpression(parent) && parent.expression === node) {
+        exportNames.add(parent.name.text);
+      } else if (
+        ts.isElementAccessExpression(parent)
+        && parent.expression === node
+        && parent.argumentExpression
+        && ts.isStringLiteralLike(parent.argumentExpression)
+      ) {
+        exportNames.add(parent.argumentExpression.text);
+      } else {
+        supported = false;
+        return;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  if (!supported) return false;
+
+  const moduleSymbol = unwrapAliasSymbol(opts.checker, localSymbol);
+  if (!moduleSymbol) return false;
+  const exports = new Map(
+    opts.checker.getExportsOfModule(moduleSymbol).map((symbol) => [symbol.getName(), symbol] as const)
+  );
+  return Array.from(exportNames).every((name) =>
+    isImmutableRuntimeSymbol(opts.checker, exports.get(name))
+  );
+}
+
+/**
+ * Classifies the converted binding forms whose ESM reads are already proven.
+ *
+ * Why: a request carrier must retain TypeScript's effective module request
+ * without turning a mutable live binding or namespace object into a snapshot.
+ *
+ * What: binding-free `bare`/`empty` requests use a deterministic target marker.
+ * Default, named, aliased, and mixed clauses use the first real binding as a
+ * DCE anchor after every retained value resolves to an immutable export.
+ * Namespace requests use a target marker and permit only static immutable
+ * member reads. Every other binding form receives a stable fail-closed result.
+ *
+ * How: classification consumes the post-transform request shape but validates
+ * declarations and reads through the original Program's TypeChecker. The
+ * resulting anchor is compiler-internal and is erased after Genes builds its
+ * ordered dependency projection.
+ */
+function convertedRequestBindingPlan(
+  opts: EmitHaxeOptions,
+  sourceFile: ts.SourceFile,
+  occurrence: EffectiveRuntimeImportOccurrence
+): ConvertedRequestBindingPlan {
+  const { statement, request } = occurrence;
+  if (request.emittedShape === "bare" || request.emittedShape === "empty") {
+    return { supported: true, anchor: null };
+  }
+
+  const clause = statement.importClause;
+  if (!clause || clause.isTypeOnly) return { supported: false };
+  const anchors: string[] = [];
+  for (const retained of request.runtimeBindings) {
+    if (retained.kind === "namespace") {
+      const bindings = clause.namedBindings;
+      if (
+        !bindings
+        || !ts.isNamespaceImport(bindings)
+        || bindings.name.text !== retained.localName
+        || !hasOnlyImmutableStaticNamespaceReads(opts, sourceFile, bindings)
+      ) return { supported: false };
+      continue;
+    }
+
+    const namedBindings = clause.namedBindings;
+    const identifier = retained.kind === "default"
+      ? clause.name
+      : namedBindings && ts.isNamedImports(namedBindings)
+        ? namedBindings.elements.find((element) =>
+          !element.isTypeOnly && element.name.text === retained.localName
+        )?.name
+        : undefined;
+    if (!identifier || identifier.text !== retained.localName) return { supported: false };
+    const symbol = opts.checker.getSymbolAtLocation(identifier);
+    if (!isImmutableRuntimeSymbol(opts.checker, symbol)) {
+      return { supported: false };
+    }
+    if (isHaxeValueAnchorSymbol(opts.checker, symbol)) anchors.push(identifier.text);
+  }
+
+  if (request.runtimeBindings.length === 0) return { supported: false };
+  return { supported: true, anchor: anchors[0] ?? null };
+}
+
+function isBindingFreeRequestShape(shape: EffectiveImportShape): boolean {
+  return shape === "bare" || shape === "empty";
+}
+
+function runtimeReexports(sourceFile: ts.SourceFile): ts.ExportDeclaration[] {
+  return sourceFile.statements.filter((statement): statement is ts.ExportDeclaration => {
     if (!ts.isExportDeclaration(statement) || !statement.moduleSpecifier || statement.isTypeOnly)
       return false;
     if (!statement.exportClause) return true;
-    if (!ts.isNamedExports(statement.exportClause)) return false;
+    // `export * as namespace from "..."` is a runtime module request too.
+    if (!ts.isNamedExports(statement.exportClause)) return true;
     return statement.exportClause.elements.some((element) => !element.isTypeOnly);
   });
 }
@@ -2966,7 +3162,7 @@ function sourceOutputRelativeFile(opts: EmitHaxeOptions, sourceFile: ts.SourceFi
 }
 
 function problem(
-  statement: ts.ImportDeclaration,
+  statement: ts.Node,
   id: string,
   message: string
 ): RuntimeImportProblem {
@@ -3067,9 +3263,10 @@ function convertedTargetMarkerName(opts: EmitHaxeOptions, sourceFile: ts.SourceF
 /**
  * Classifies the converted runtime graph into strongly connected components.
  *
- * Why: a binding-free edge is safe in the first supported increment only when
- * it is outside every converted request cycle. Re-running reachability from
- * each bare occurrence would make planning quadratic on large migrations.
+ * Why: no converted cycle is supported until ESM instantiation, temporal-dead-
+ * zone, and mutation behavior agree in all three runtimes. Re-running
+ * reachability from each request would make planning quadratic on large
+ * migrations.
  *
  * What: the endpoints of an existing edge participate in a cycle when they
  * have the same returned component number (including a self-edge). Component
@@ -3153,19 +3350,19 @@ function convertedRuntimeComponents(
  * a relative request names converted code, a build-owned runtime file, or a
  * missing dependency.
  *
- * What: every file in the converted runtime closure of a bare import receives
- * an ordered request plan. The plan also covers standalone acyclic files whose
- * complete effective request closure consists of converted named bindings to
- * immutable exports. That second boundary fixes bound-only request order and
- * retains imports preserved by `verbatimModuleSyntax` without pretending that
- * mutable bindings, other binding shapes, or runtime re-exports are solved.
- * Package and manifest-owned relative requests become external marker calls.
- * Converted requests use either a real local binding or a deterministic target
- * marker, while binding-free converted cycles remain source-positioned failures.
+ * What: every effective ESM request receives exactly one ordered disposition.
+ * Acyclic converted bare, empty, named, default, namespace, and combined
+ * default clauses use a real immutable binding or deterministic target marker.
+ * Bare packages and manifest-owned relative resources become external marker
+ * calls. Mutable bindings, bound packages, non-ESM lowering, converted cycles,
+ * runtime re-exports, and ambiguous relative/attribute shapes fail closed at
+ * their original source node.
  *
- * How: the plan is built against the exact configured conversion set and an
- * optional hash-verified staging manifest. Resource bytes are read now but are
- * committed only after every source file has been validated.
+ * How: final TypeScript transform evidence supplies request presence, shape,
+ * module format, and order. The planner resolves those facts against the exact
+ * conversion set, checker symbols, SCC graph, and optional hash-verified
+ * staging manifest. Resource bytes are read now but committed only after every
+ * source file has been validated.
  */
 function buildProjectRuntimeImportPlan(
   opts: EmitHaxeOptions,
@@ -3180,7 +3377,6 @@ function buildProjectRuntimeImportPlan(
   const targetBySourceFile = new Map<string, ConvertedRuntimeTargetPlan>();
   const usedManifestEntries = new Set<RuntimeModuleManifestEntry>();
   const inventories: RuntimeImportInventory[] = [];
-  const inventoryBySourcePath = new Map<string, RuntimeImportInventory>();
   const convertedEdgeByStatement = new Map<ts.ImportDeclaration, ConvertedRuntimeEdge>();
   const convertedGraph = new Map<string, Set<string>>();
   const effectiveBySourcePath = new Map(
@@ -3213,12 +3409,8 @@ function buildProjectRuntimeImportPlan(
         }
         return { statement, request };
       });
-    const bareImports = runtimeImports
-      .map((occurrence) => occurrence.statement)
-      .filter((statement) => !statement.importClause);
-    const sourceInventory = { sourceFile, runtimeImports, bareImports };
+    const sourceInventory = { sourceFile, runtimeImports };
     inventories.push(sourceInventory);
-    inventoryBySourcePath.set(sourceKey, sourceInventory);
 
     for (const { statement } of runtimeImports) {
       const moduleSpecifier = (statement.moduleSpecifier as ts.StringLiteral).text;
@@ -3234,121 +3426,108 @@ function buildProjectRuntimeImportPlan(
     }
   }
 
-  // A bare request makes its whole converted dependency closure participate in
-  // ESM evaluation. Carry order through every descendant, including modules
-  // that contain only bindings and would otherwise be reordered by value use.
-  // Do not add Genes-only carriers to unrelated bound-only translations: those
-  // remain valid ordinary Haxe and retain their established snapshot/runtime
-  // contract under the standard Haxe JavaScript generator.
-  const orderedPlanSourcePaths = new Set<string>();
-  const orderedPlanQueue = inventories
-    .filter((inventory) => inventory.bareImports.length > 0)
-    .map((inventory) => path.resolve(inventory.sourceFile.fileName))
-    .sort((a, b) => a.localeCompare(b));
-  for (let index = 0; index < orderedPlanQueue.length; index++) {
-    const sourcePath = orderedPlanQueue[index];
-    if (sourcePath === undefined || orderedPlanSourcePaths.has(sourcePath)) continue;
-    orderedPlanSourcePaths.add(sourcePath);
-    for (const targetPath of Array.from(convertedGraph.get(sourcePath) ?? [])
-      .sort((a, b) => a.localeCompare(b))) {
-      if (!orderedPlanSourcePaths.has(targetPath)) orderedPlanQueue.push(targetPath);
-    }
-  }
-
   const convertedComponents = convertedRuntimeComponents(convertedGraph);
 
-  // Standalone bound-only modules join the ordered plan only when the entire
-  // reachable request graph is inside the deliberately narrow first subset.
-  // A fixed point prevents an apparently safe importer from claiming parity
-  // when one converted descendant still uses a mutable or unsupported shape.
-  const immutableNamedCandidates = new Set<string>();
+  // Reject each converted SCC once, at its earliest request occurrence. A
+  // later edge in the same SCC must not generate a carrier merely because it
+  // has a usable binding: ESM instantiation, TDZ, and live mutation semantics
+  // are properties of the whole component.
+  const cyclicStatements = new Set<ts.ImportDeclaration>();
+  const cycleOccurrences = new Map<
+    number,
+    Array<{ sourceFile: ts.SourceFile; occurrence: EffectiveRuntimeImportOccurrence }>
+  >();
   for (const inventory of inventories) {
     const sourceKey = path.resolve(inventory.sourceFile.fileName);
-    if (inventory.runtimeImports.length === 0 || hasRuntimeReexport(inventory.sourceFile)) continue;
-    const supported = inventory.runtimeImports.every((occurrence) => {
-      const edge = convertedEdgeByStatement.get(occurrence.statement);
-      if (!edge || !isImmutableConvertedNamedRequest(opts, occurrence, edge)) return false;
-      const targetKey = path.resolve(edge.targetFile.fileName);
-      return convertedComponents.get(sourceKey) !== convertedComponents.get(targetKey);
-    });
-    if (supported) immutableNamedCandidates.add(sourceKey);
-  }
-
-  const closedImmutableNamedSources = new Set(immutableNamedCandidates);
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const sourceKey of Array.from(closedImmutableNamedSources)) {
-      const targets = convertedGraph.get(sourceKey) ?? new Set<string>();
-      const hasUnsafeDescendant = Array.from(targets).some((targetKey) => {
-        if (orderedPlanSourcePaths.has(targetKey)) return false;
-        const targetInventory = inventoryBySourcePath.get(targetKey);
-        if (!targetInventory) return true;
-        if (hasRuntimeReexport(targetInventory.sourceFile)) return true;
-        return targetInventory.runtimeImports.length > 0
-          && !closedImmutableNamedSources.has(targetKey);
-      });
-      if (!hasUnsafeDescendant) continue;
-      closedImmutableNamedSources.delete(sourceKey);
-      changed = true;
-    }
-  }
-  for (const sourceKey of closedImmutableNamedSources) orderedPlanSourcePaths.add(sourceKey);
-
-  const cyclicBindingFreeStatements = new Set<ts.ImportDeclaration>();
-  const targetSourcePaths = new Set<string>();
-  for (const inventory of inventories) {
-    const sourceKey = path.resolve(inventory.sourceFile.fileName);
-    if (!orderedPlanSourcePaths.has(sourceKey)) continue;
-    for (const { statement } of inventory.runtimeImports) {
+    for (const occurrence of inventory.runtimeImports) {
+      const { statement } = occurrence;
       const edge = convertedEdgeByStatement.get(statement);
-      if (!edge || runtimeBindingAnchor(statement) !== null) continue;
-      const attribute = parseImportAttribute(statement);
-      if (!attribute.ok || attribute.importType !== null) continue;
-
+      if (!edge) continue;
       const targetKey = path.resolve(edge.targetFile.fileName);
       const sourceComponent = convertedComponents.get(sourceKey);
       const targetComponent = convertedComponents.get(targetKey);
-      if (sourceComponent !== undefined && sourceComponent === targetComponent) {
-        cyclicBindingFreeStatements.add(statement);
-      } else {
-        targetSourcePaths.add(targetKey);
-      }
+      if (sourceComponent === undefined || sourceComponent !== targetComponent) continue;
+      cyclicStatements.add(statement);
+      const entries = cycleOccurrences.get(sourceComponent) ?? [];
+      entries.push({ sourceFile: inventory.sourceFile, occurrence });
+      cycleOccurrences.set(sourceComponent, entries);
     }
   }
-
-  for (const targetPath of Array.from(targetSourcePaths).sort((a, b) => a.localeCompare(b))) {
-    const targetFile = sortedSourceFiles.find(
-      (sourceFile) => path.resolve(sourceFile.fileName) === targetPath
+  const cycleProblemStatements = new Set<ts.ImportDeclaration>();
+  for (const entries of cycleOccurrences.values()) {
+    entries.sort((a, b) =>
+      portablePath(path.relative(opts.rootDir, a.sourceFile.fileName)).localeCompare(
+        portablePath(path.relative(opts.rootDir, b.sourceFile.fileName))
+      )
+      || a.occurrence.request.sourceStart - b.occurrence.request.sourceStart
     );
-    if (!targetFile)
-      throw new Error(`Converted side-effect target left the conversion set: ${targetPath}.`);
-    targetBySourceFile.set(targetPath, {
-      markerName: convertedTargetMarkerName(opts, targetFile)
-    });
+    const first = entries[0];
+    if (first) cycleProblemStatements.add(first.occurrence.statement);
   }
 
-  for (const { sourceFile, runtimeImports, bareImports } of inventories) {
-    if (runtimeImports.length === 0
-      || !orderedPlanSourcePaths.has(path.resolve(sourceFile.fileName))) continue;
+  function internalTargetAnchor(
+    sourceFile: ts.SourceFile,
+    statement: ts.ImportDeclaration,
+    moduleSpecifier: string,
+    edge: ConvertedRuntimeEdge
+  ): string {
+    const targetKey = path.resolve(edge.targetFile.fileName);
+    let targetPlan = targetBySourceFile.get(targetKey);
+    if (!targetPlan) {
+      targetPlan = { markerName: convertedTargetMarkerName(opts, edge.targetFile) };
+      targetBySourceFile.set(targetKey, targetPlan);
+    }
+    const target = moduleTargetFromImport(
+      {
+        projectDir: opts.projectDir,
+        rootDir: opts.rootDir,
+        fromFile: sourceFile.fileName,
+        basePackage: opts.basePackage
+      },
+      moduleSpecifier
+    );
+    const moduleBase = target.packagePath.length > 0
+      ? `${target.packagePath}.${target.moduleName}`
+      : target.moduleName;
+    return `${moduleBase}.${targetPlan.markerName}`;
+  }
+
+  for (const { sourceFile, runtimeImports } of inventories) {
 
     const sourcePath = portablePath(path.relative(opts.rootDir, sourceFile.fileName));
     const requests: RuntimeImportRequest[] = [];
-    const problems: RuntimeImportProblem[] = [];
+    const problems: RuntimeImportProblem[] = runtimeReexports(sourceFile).map((statement) =>
+      problem(
+        statement,
+        "TS2HX-MODULES-SIDE-EFFECT-IMPORT-REEXPORT-ORDER-001",
+        "Runtime re-exports require a shared ordered declaration and live-binding plan that is not yet proven."
+      )
+    );
 
-    if (hasRuntimeReexport(sourceFile)) {
-      const first = bareImports[0];
-      if (first) {
-        problems.push(problem(
-          first,
-          "TS2HX-MODULES-SIDE-EFFECT-IMPORT-REEXPORT-ORDER-001",
-          "A file containing a bare import and a runtime re-export needs one shared ordered ESM declaration plan."
-        ));
-      }
-    }
-
-    for (const { statement } of runtimeImports) {
+    for (const occurrence of runtimeImports) {
+      const { statement, request } = occurrence;
       const moduleSpecifier = (statement.moduleSpecifier as ts.StringLiteral).text;
+
+      if (request.moduleFormat !== "esm") {
+        problems.push(problem(
+          statement,
+          "TS2HX-MODULES-ESM-RUNTIME-MODULE-KIND-001",
+          `Configured TypeScript emit lowers ${JSON.stringify(moduleSpecifier)} as ${request.moduleFormat}, not ESM.`
+        ));
+        continue;
+      }
+
+      if (cyclicStatements.has(statement)) {
+        if (cycleProblemStatements.has(statement)) {
+          problems.push(problem(
+            statement,
+            "TS2HX-MODULES-SIDE-EFFECT-IMPORT-CONVERTED-CYCLE-001",
+            "A converted runtime-request cycle has unproven ESM instantiation, TDZ, and live-binding semantics."
+          ));
+        }
+        continue;
+      }
+
       const attribute = parseImportAttribute(statement);
       if (!attribute.ok) {
         problems.push(problem(
@@ -3360,11 +3539,11 @@ function buildProjectRuntimeImportPlan(
       }
 
       if (!isRelativeModuleSpecifier(moduleSpecifier)) {
-        if (statement.importClause && attribute.importType !== null) {
+        if (!isBindingFreeRequestShape(request.emittedShape)) {
           problems.push(problem(
             statement,
-            "TS2HX-MODULES-SIDE-EFFECT-IMPORT-ATTRIBUTE-001",
-            "A bound package import with attributes is outside the current request/binding coalescing contract."
+            "TS2HX-MODULES-ESM-RUNTIME-PACKAGE-BOUND-001",
+            "A bound package request needs runtime package binding/loading evidence before it can be emitted."
           ));
           continue;
         }
@@ -3388,42 +3567,27 @@ function buildProjectRuntimeImportPlan(
           ));
           continue;
         }
-        const anchor = runtimeBindingAnchor(statement);
-        if (!anchor) {
-          if (cyclicBindingFreeStatements.has(statement)) {
-            problems.push(problem(
-              statement,
-              "TS2HX-MODULES-SIDE-EFFECT-IMPORT-CONVERTED-CYCLE-001",
-              "A binding-free converted-relative request participates in a runtime import cycle whose ESM initialization semantics are not yet proven."
-            ));
-            continue;
-          }
-          const edge = convertedEdgeByStatement.get(statement);
-          const targetPlan = edge
-            ? targetBySourceFile.get(path.resolve(edge.targetFile.fileName))
-            : null;
-          if (!edge || !targetPlan)
-            throw new Error(`Converted side-effect target was not planned for ${sourceFile.fileName}.`);
-          const target = moduleTargetFromImport(
-            {
-              projectDir: opts.projectDir,
-              rootDir: opts.rootDir,
-              fromFile: sourceFile.fileName,
-              basePackage: opts.basePackage
-            },
-            moduleSpecifier
-          );
-          const moduleBase = target.packagePath.length > 0
-            ? `${target.packagePath}.${target.moduleName}`
-            : target.moduleName;
+        const edge = convertedEdgeByStatement.get(statement);
+        if (!edge)
+          throw new Error(`Converted request edge was not planned for ${sourceFile.fileName}.`);
+        const bindingPlan = convertedRequestBindingPlan(opts, sourceFile, occurrence);
+        if (!bindingPlan.supported) {
+          problems.push(problem(
+            statement,
+            "TS2HX-MODULES-ESM-BINDINGS-LIVE-001",
+            "The retained binding is mutable or cannot be reduced to a static immutable export read."
+          ));
+          continue;
+        }
+        if (bindingPlan.anchor) {
+          requests.push({ kind: "internal-binding", statement, anchor: bindingPlan.anchor });
+        } else {
           requests.push({
             kind: "internal-target",
             statement,
-            anchor: `${moduleBase}.${targetPlan.markerName}`
+            anchor: internalTargetAnchor(sourceFile, statement, moduleSpecifier, edge)
           });
-          continue;
         }
-        requests.push({ kind: "internal-binding", statement, anchor });
         continue;
       }
 
@@ -3442,7 +3606,7 @@ function buildProjectRuntimeImportPlan(
 
       const manifestEntry = manifest?.byRequest.get(runtimeModuleRequestKey(sourcePath, moduleSpecifier)) ?? null;
       if (manifestEntry) {
-        if (statement.importClause) {
+        if (!isBindingFreeRequestShape(request.emittedShape)) {
           problems.push(problem(
             statement,
             "TS2HX-MODULES-SIDE-EFFECT-IMPORT-EXTERNAL-RELATIVE-001",
@@ -3479,12 +3643,14 @@ function buildProjectRuntimeImportPlan(
         problems.push(problem(
           statement,
           "TS2HX-MODULES-SIDE-EFFECT-IMPORT-UNRESOLVED-001",
-          `Relative side-effect import ${JSON.stringify(moduleSpecifier)} cannot be resolved.`
+          `Relative runtime import ${JSON.stringify(moduleSpecifier)} cannot be resolved.`
         ));
       }
     }
 
-    bySourceFile.set(path.resolve(sourceFile.fileName), { requests, problems });
+    if (requests.length > 0 || problems.length > 0) {
+      bySourceFile.set(path.resolve(sourceFile.fileName), { requests, problems });
+    }
   }
 
   const stagedByPath = new Map<string, { hash: string; file: EmittedFile }>();

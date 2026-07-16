@@ -156,6 +156,7 @@
         "tests/output-modes/src",
         "scripts/test-output-modes.ts",
         "tools/ts2hx/fixtures/semantic-diff",
+        "tools/ts2hx/fixtures/semantic-module-boundaries",
         "tools/ts2hx/fixtures/semantic-unsupported",
         "tools/ts2hx/src/test-semantic-diff.ts",
         "tools/ts2hx/src/test-runtime-profile.ts"
@@ -195,8 +196,8 @@
           "label": "ts2hx supported and fail-closed semantic input modules",
           "kind": "tracked-files",
           "path": "tools/ts2hx/fixtures",
-          "match": "^semantic-(diff|unsupported)/src/.*\\.ts$",
-          "expected": 21
+          "match": "^semantic-(diff|unsupported|module-boundaries)/src/.*\\.ts$",
+          "expected": 53
         }
       ],
       "proves": "Named traces preserve evaluation order and runtime behavior across the listed Haxe/TypeScript oracles, named unsupported ts2hx semantics fail closed, and an effective ESM request cannot cross into standard Haxe silently.",

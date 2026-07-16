@@ -123,9 +123,13 @@ function main(): number {
       basePackage: "ts2hx",
       runtimeProfile: "genes-esm",
       smokeMain: "ts2hx.Main",
+      translationMode: "assisted",
+      expectedUnsupportedFiles: ["components/Button.tsx"],
       // TSX lowering currently emits `genes.react.internal.Jsx.__jsx` marker calls which
       // are lowered by genes-ts when emitting TS/TSX, but have no runtime implementation
-      // in classic `haxe -js` output. Compile-smoke only for now.
+      // in classic `haxe -js` output. Its bound React package request is also
+      // intentionally fail-closed until the package-loading differential lands.
+      // Compile-smoke the assisted inventory only; it carries no runtime claim.
       smokeRun: false
     },
     {
@@ -179,7 +183,7 @@ function main(): number {
       runtimeProfile: "genes-esm",
       smokeMain: "ts2hx.Main",
       translationMode: "assisted",
-      expectedUnsupportedFiles: ["index.ts"]
+      expectedUnsupportedFiles: ["index.ts", "lib/reexport.ts"]
     },
     {
       name: "type-literals",
@@ -278,8 +282,12 @@ function main(): number {
       basePackage: "ts2hx",
       runtimeProfile: "genes-esm",
       smokeMain: "ts2hx.Main",
+      translationMode: "assisted",
+      expectedUnsupportedFiles: ["Main.ts"],
       // Haxe's JS output for `@:jsRequire` uses CommonJS `require()`. The ts2hx tool package is ESM (`type: "module"`),
-      // so `node dist/index.js` would fail at runtime for this fixture. We still compile the emitted Haxe as a smoke test.
+      // so `node dist/index.js` would fail at runtime for this fixture. Bound
+      // package requests also remain fail-closed pending their runtime
+      // differential. Compile-smoke the assisted extern inventory only.
       smokeRun: false
     }
   ];

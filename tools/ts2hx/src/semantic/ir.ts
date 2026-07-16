@@ -244,7 +244,7 @@ export const SEMANTIC_FAIL_CLOSED_CASES: readonly SemanticFailClosedCase[] = [
   {
     featureId: "modules.side-effect-import",
     diagnosticId: "TS2HX-MODULES-SIDE-EFFECT-IMPORT-CONVERTED-CYCLE-001",
-    variant: "binding-free converted-relative import cycle"
+    variant: "converted runtime-request cycle"
   },
   {
     featureId: "modules.side-effect-import",
@@ -254,7 +254,7 @@ export const SEMANTIC_FAIL_CLOSED_CASES: readonly SemanticFailClosedCase[] = [
   {
     featureId: "modules.side-effect-import",
     diagnosticId: "TS2HX-MODULES-SIDE-EFFECT-IMPORT-REEXPORT-ORDER-001",
-    variant: "bare import interleaved with a runtime re-export"
+    variant: "runtime re-export without an ordered live-binding plan"
   },
   {
     featureId: "modules.side-effect-import",
@@ -265,6 +265,21 @@ export const SEMANTIC_FAIL_CLOSED_CASES: readonly SemanticFailClosedCase[] = [
     featureId: "modules.side-effect-import",
     diagnosticId: "TS2HX-MODULES-SIDE-EFFECT-IMPORT-UNRESOLVED-001",
     variant: "unresolved relative runtime request"
+  },
+  {
+    featureId: "modules.esm-bindings",
+    diagnosticId: "TS2HX-MODULES-ESM-BINDINGS-LIVE-001",
+    variant: "mutable imported live binding"
+  },
+  {
+    featureId: "modules.esm-bindings",
+    diagnosticId: "TS2HX-MODULES-ESM-RUNTIME-MODULE-KIND-001",
+    variant: "configured non-ESM module lowering"
+  },
+  {
+    featureId: "modules.esm-bindings",
+    diagnosticId: "TS2HX-MODULES-ESM-RUNTIME-PACKAGE-BOUND-001",
+    variant: "bound package runtime request"
   },
   {
     featureId: "prototypes.dynamic-mutation",

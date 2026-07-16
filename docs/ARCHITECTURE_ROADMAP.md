@@ -293,11 +293,12 @@ The source of truth is Beads epic `genes-09r`.
    matrix (landed).** Schema-v3 support/provenance manifests now grade 16 supported semantic rows
    across original TS, translated classic JS, and
    translated genes-ts output. The matrix retains 2 unsupported rows, while the
-   strict companion fixture owns 9 exercised fail-closed variants because a
+   strict companion fixture owns 12 exercised fail-closed variants because a
    supported feature can still reject a narrower form such as labeled switch
    continue. The module row includes acyclic converted-relative initialization
-   through compiler-internal DCE anchors, while converted cycles remain one of
-   those strict variants. No failure publishes partial output; printers no
+   through compiler-internal DCE anchors. Converted cycles, mutable live
+   bindings, bound packages, and configured non-ESM emit remain strict
+   variants. No failure publishes partial output; printers no
    longer own support decisions for migrated undefined/default/evaluation/
    control-flow/module categories. The manifest additionally records exact
    TypeScript bridge/engine facts, effective request dispositions, and the

@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { execFileSync } from "child_process";
 import { pathToFileURL } from "url";
-import { emitProjectToHaxe } from "./haxe/emit.js";
+import { emitProjectToHaxe, type TranslationDiagnostic } from "./haxe/emit.js";
 import { loadProject } from "./project.js";
 import {
   SEMANTIC_FAIL_CLOSED_CASES,
@@ -72,6 +72,19 @@ function occurrenceCount(source: string, needle: string): number {
   return source.split(needle).length - 1;
 }
 
+function runtimeImportSpecifiers(source: string): string[] {
+  return [...source.matchAll(/^import(?!\s+type\b).*?["']([^"']+)["']\s*;?$/gm)]
+    .map((match) => match[1]);
+}
+
+function diagnosticSourceSummaries(diagnostics: readonly TranslationDiagnostic[]): string[] {
+  return diagnostics
+    .map((diagnostic) =>
+      `${diagnostic.id}|${diagnostic.source.file}:${diagnostic.source.line}:${diagnostic.source.column}`
+    )
+    .sort();
+}
+
 function assertSideEffectOrder(output: string, label: string): void {
   const packageEffect = output.indexOf("TS2HX_SIDE_EFFECT:package");
   const supportEffect = output.indexOf("TS2HX_SIDE_EFFECT:support");
@@ -84,18 +97,56 @@ function assertSideEffectOrder(output: string, label: string): void {
 }
 
 function assertBoundRequestOrder(source: string, label: string, verbatim: boolean): void {
-  const unusedRequest = source.indexOf("./Unused.js");
-  const firstRequest = source.indexOf("./First.js");
-  const secondRequest = source.indexOf("./Second.js");
-  const stateRequest = source.indexOf("./State.js");
-  if (verbatim)
-    assert(unusedRequest >= 0, `${label}: verbatim output lost the unused request.`);
-  else
-    assert(unusedRequest < 0, `${label}: non-verbatim output retained an elided request.`);
-  assert(firstRequest > unusedRequest, `${label}: First is not in its effective request slot.`);
-  assert(secondRequest > firstRequest, `${label}: Second moved before First.`);
-  assert(stateRequest > secondRequest, `${label}: State moved before the ordered effects.`);
-  assert(occurrenceCount(source, "./First.js") === 1, `${label}: duplicate First request was not coalesced.`);
+  const expected = verbatim
+    ? [
+      "./Unused.js",
+      "./UnusedDefaultEffect.js",
+      "./UnusedNamespaceEffect.js",
+      "./DefaultEffect.js",
+      "./NamespaceEffect.js",
+      "./EmptyEffect.js",
+      "./InlineTypeEffect.js",
+      "./MixedEffect.js",
+      "./DefaultEmptyEffect.js",
+      "./DefaultNamedEffect.js",
+      "./DefaultNamespaceEffect.js",
+      "./First.js",
+      "./Second.js",
+      "./State.js"
+    ]
+    : [
+      "./DefaultEffect.js",
+      "./NamespaceEffect.js",
+      "./MixedEffect.js",
+      "./DefaultEmptyEffect.js",
+      "./DefaultNamedEffect.js",
+      "./DefaultNamespaceEffect.js",
+      "./First.js",
+      "./Second.js",
+      "./State.js"
+    ];
+  const runtimeRequests = runtimeImportSpecifiers(source);
+  const fixtureRequests = runtimeRequests.filter((request) => request.startsWith("./"));
+  assert(
+    JSON.stringify(fixtureRequests) === JSON.stringify(expected),
+    `${label}: effective request order differed. Expected ${expected.join(", ")}; got ${fixtureRequests.join(", ")}.`
+  );
+  for (const elided of [
+    "./DeclarationTypeEffect.js",
+    ...(verbatim ? [] : [
+      "./Unused.js",
+      "./UnusedDefaultEffect.js",
+      "./UnusedNamespaceEffect.js",
+      "./EmptyEffect.js",
+      "./InlineTypeEffect.js"
+    ])
+  ]) {
+    assert(!runtimeRequests.includes(elided), `${label}: retained runtime request ${elided}.`);
+  }
+  assert(
+    runtimeRequests.filter((request) => request === "./First.js").length === 1,
+    `${label}: duplicate First request was not coalesced.`
+  );
   assert(!source.includes("__ts2hx_requests"), `${label}: request carrier leaked into generated output.`);
   assert(!source.includes("SideEffectImportMarker"), `${label}: compiler marker leaked into generated output.`);
   assert(!source.includes("EsmRequestFact"), `${label}: guarded request fact leaked into generated output.`);
@@ -268,11 +319,13 @@ function main(): void {
     "original converted fixture has the wrong source order."
   );
   assert(
-    originalBoundTrace === "first,second|2:1:1",
+    originalBoundTrace
+      === "default,namespace,mixed,default-empty,default-named,default-namespace,first,second|1:2:3:4:5:15:6:26:8:7:7",
     "non-verbatim TypeScript did not elide the unused bound request as expected."
   );
   assert(
-    originalVerbatimBoundTrace === "unused,first,second|3:2:2",
+    originalVerbatimBoundTrace
+      === "unused,unused-default,unused-namespace,default,namespace,empty,inline-type,mixed,default-empty,default-named,default-namespace,first,second|4:5:8:9:10:20:11:31:13:12:12",
     "verbatim TypeScript did not retain the unused bound request in source order."
   );
   assertSideEffectOrder(originalOutput.semantic, "original TypeScript");
@@ -356,6 +409,23 @@ function main(): void {
       && unusedVerbatimRequest.emittedShape === "named",
     "verbatim manifest did not record the unused named runtime request."
   );
+  const exercisedEsmShapes = new Set(
+    verbatimTranslation.manifest.moduleRequests
+      .filter((request) => request.disposition === "runtime-request" && request.moduleFormat === "esm")
+      .map((request) => request.emittedShape)
+  );
+  for (const shape of [
+    "bare",
+    "empty",
+    "named",
+    "default",
+    "namespace",
+    "default-and-empty",
+    "default-and-named",
+    "default-and-namespace"
+  ] as const) {
+    assert(exercisedEsmShapes.has(shape), `three-runtime fixture does not exercise ESM shape ${shape}.`);
+  }
   assert(translation.manifest.runtimeModules.length === 2, "semantic manifest lost its staged runtime modules.");
   assert(
     translation.manifest.runtimeModules[0]?.stagedFile
@@ -499,23 +569,72 @@ function main(): void {
   const secondValueAnchor = "EsmRequestFact.internal(secondValue)";
   const boundStateAnchor = "EsmRequestFact.internal(events)";
   const duplicateFirstAnchor = "EsmRequestFact.internal(firstAgain)";
-  assert(
-    !boundMainHaxe.includes("EsmRequestFact.internal(unusedValue)"),
-    "non-verbatim carrier retained an import erased by configured TypeScript emit."
-  );
-  assert(
-    boundMainHaxe.indexOf(firstValueAnchor) >= 0
-      && boundMainHaxe.indexOf(secondValueAnchor) > boundMainHaxe.indexOf(firstValueAnchor)
-      && boundMainHaxe.indexOf(boundStateAnchor) > boundMainHaxe.indexOf(secondValueAnchor)
-      && boundMainHaxe.indexOf(duplicateFirstAnchor) > boundMainHaxe.indexOf(boundStateAnchor),
-    "standalone bound-only carrier lost effective TypeScript request order."
-  );
   const unusedValueAnchor = "EsmRequestFact.internal(unusedValue)";
+  const defaultAnchor = "EsmRequestFact.internal(defaultValue)";
+  const namespaceAnchor = "EsmRequestFact.internal(ts2hx_semantic.bound.NamespaceEffect.__ts2hx_init_";
+  const emptyAnchor = "EsmRequestFact.internal(ts2hx_semantic.bound.EmptyEffect.__ts2hx_init_";
+  const inlineTypeAnchor = "EsmRequestFact.internal(ts2hx_semantic.bound.InlineTypeEffect.__ts2hx_init_";
+  const mixedAnchor = "EsmRequestFact.internal(mixedValue)";
+  const defaultEmptyAnchor = "EsmRequestFact.internal(defaultEmptyValue)";
+  const defaultNamedAnchor = "EsmRequestFact.internal(defaultNamedValue)";
+  const defaultNamespaceAnchor = "EsmRequestFact.internal(defaultNamespaceValue)";
+  const unusedDefaultAnchor = "EsmRequestFact.internal(unusedDefaultValue)";
+  const unusedNamespaceAnchor =
+    "EsmRequestFact.internal(ts2hx_semantic.bound.UnusedNamespaceEffect.__ts2hx_init_";
+
+  function assertCarrierOrder(source: string, anchors: readonly string[], label: string): void {
+    let previous = -1;
+    for (const anchor of anchors) {
+      const position = source.indexOf(anchor);
+      assert(position > previous, `${label}: carrier misplaced ${anchor}.`);
+      previous = position;
+    }
+  }
+
+  assertCarrierOrder(boundMainHaxe, [
+    defaultAnchor,
+    namespaceAnchor,
+    mixedAnchor,
+    defaultEmptyAnchor,
+    defaultNamedAnchor,
+    defaultNamespaceAnchor,
+    firstValueAnchor,
+    secondValueAnchor,
+    boundStateAnchor,
+    duplicateFirstAnchor
+  ], "non-verbatim bound-only");
+  for (const elidedAnchor of [
+    unusedValueAnchor,
+    unusedDefaultAnchor,
+    unusedNamespaceAnchor,
+    emptyAnchor,
+    inlineTypeAnchor
+  ]) {
+    assert(
+      !boundMainHaxe.includes(elidedAnchor),
+      `non-verbatim carrier retained TypeScript-elided request ${elidedAnchor}.`
+    );
+  }
+  assertCarrierOrder(verbatimBoundMainHaxe, [
+    unusedValueAnchor,
+    unusedDefaultAnchor,
+    unusedNamespaceAnchor,
+    defaultAnchor,
+    namespaceAnchor,
+    emptyAnchor,
+    inlineTypeAnchor,
+    mixedAnchor,
+    defaultEmptyAnchor,
+    defaultNamedAnchor,
+    defaultNamespaceAnchor,
+    firstValueAnchor,
+    secondValueAnchor,
+    boundStateAnchor,
+    duplicateFirstAnchor
+  ], "verbatim bound-only");
   assert(
-    verbatimBoundMainHaxe.indexOf(unusedValueAnchor) >= 0
-      && verbatimBoundMainHaxe.indexOf(firstValueAnchor)
-        > verbatimBoundMainHaxe.indexOf(unusedValueAnchor),
-    "verbatim carrier did not retain the unused aliased request at its first slot."
+    !verbatimBoundMainHaxe.includes("DeclarationTypeEffect.__ts2hx_init_"),
+    "declaration-wide import type created a runtime request carrier."
   );
   const stagedResource = path.join(
     haxeSourceDir,
@@ -892,6 +1011,25 @@ function main(): void {
     JSON.stringify(diagnosticIds) === JSON.stringify(expectedDiagnosticIds),
     `unsupported semantic diagnostics changed: ${JSON.stringify(diagnosticIds)}.`
   );
+  const expectedDiagnosticSources = [
+    "TS2HX-EXCEPTIONS-FINALLY-OUTER-TRANSFER-001|finallyTransfer.ts:2:3",
+    "TS2HX-MODULES-ESM-BINDINGS-LIVE-001|mutableBinding.ts:1:1",
+    "TS2HX-MODULES-ESM-RUNTIME-MODULE-KIND-001|commonjs/commonjsRequest.ts:1:1",
+    "TS2HX-MODULES-ESM-RUNTIME-PACKAGE-BOUND-001|packageBound.ts:1:1",
+    "TS2HX-MODULES-SIDE-EFFECT-IMPORT-ATTRIBUTE-001|unsupportedAttribute.ts:1:1",
+    "TS2HX-MODULES-SIDE-EFFECT-IMPORT-CONVERTED-CYCLE-001|effect.ts:1:1",
+    "TS2HX-MODULES-SIDE-EFFECT-IMPORT-EXTERNAL-RELATIVE-001|externalRelative.ts:1:1",
+    "TS2HX-MODULES-SIDE-EFFECT-IMPORT-REEXPORT-ORDER-001|reexportOrder.ts:3:1",
+    "TS2HX-MODULES-SIDE-EFFECT-IMPORT-UNCONVERTED-SOURCE-001|unconvertedSource.ts:1:1",
+    "TS2HX-MODULES-SIDE-EFFECT-IMPORT-UNRESOLVED-001|unresolvedSideEffect.ts:1:1",
+    "TS2HX-PROTOTYPES-DYNAMIC-MUTATION-001|prototype.ts:8:3",
+    "TS2HX-SWITCH-CONTINUE-001|switchContinue.ts:7:9"
+  ].sort();
+  assert(
+    JSON.stringify(diagnosticSourceSummaries(rejected.diagnostics))
+      === JSON.stringify(expectedDiagnosticSources),
+    "canonical fail-closed diagnostics lost their stable source positions."
+  );
   for (const failure of SEMANTIC_FAIL_CLOSED_CASES) {
     const feature = rejected.manifest.features.find((entry) => entry.id === failure.featureId);
     assert(feature !== undefined, `${failure.featureId}: missing fail-closed feature contract.`);
@@ -924,6 +1062,87 @@ function main(): void {
     fs.readFileSync(path.join(assistedOutput, "ts2hx-manifest.json"), "utf8")
       .includes('"status": "assisted"'),
     "assisted side-effect losses were not committed with their manifest."
+  );
+
+  const moduleBoundaryConfig = path.join(
+    toolRoot,
+    "fixtures",
+    "semantic-module-boundaries",
+    "tsconfig.json"
+  );
+  const moduleBoundaryProject = loadProject(moduleBoundaryConfig);
+  if (!moduleBoundaryProject.ok) {
+    throw new Error(
+      `semantic-module-boundaries fixture failed to load: ${moduleBoundaryProject.diagnostics.length} diagnostic(s).`
+    );
+  }
+  const moduleBoundaryOutput = path.join(tmpRoot, "module-boundaries");
+  resetDir(moduleBoundaryOutput);
+  fs.writeFileSync(path.join(moduleBoundaryOutput, "sentinel.txt"), "module-prior\n", "utf8");
+  const moduleBoundaryRejected = emitProjectToHaxe({
+    projectDir: moduleBoundaryProject.projectDir,
+    rootDir: moduleBoundaryProject.rootDir,
+    program: moduleBoundaryProject.program,
+    checker: moduleBoundaryProject.checker,
+    sourceFiles: moduleBoundaryProject.sourceFiles,
+    outDir: moduleBoundaryOutput,
+    basePackage: "ts2hx_module_boundaries",
+    runtimeProfile: "genes-esm",
+    mode: "strict-js",
+    cleanOutDir: true
+  });
+  const expectedModuleBoundarySources = [
+    "TS2HX-MODULES-ESM-BINDINGS-LIVE-001|mutableAlias.ts:1:1",
+    "TS2HX-MODULES-ESM-BINDINGS-LIVE-001|mutableNamespace.ts:1:1",
+    "TS2HX-MODULES-SIDE-EFFECT-IMPORT-ATTRIBUTE-001|attributeConverted.ts:1:1",
+    "TS2HX-MODULES-SIDE-EFFECT-IMPORT-CONVERTED-CYCLE-001|cycleBoundA.ts:1:1",
+    "TS2HX-MODULES-SIDE-EFFECT-IMPORT-CONVERTED-CYCLE-001|cycleSelf.ts:1:1",
+    "TS2HX-MODULES-SIDE-EFFECT-IMPORT-REEXPORT-ORDER-001|reexportNamed.ts:1:1",
+    "TS2HX-MODULES-SIDE-EFFECT-IMPORT-REEXPORT-ORDER-001|reexportNamespace.ts:1:1",
+    "TS2HX-MODULES-SIDE-EFFECT-IMPORT-REEXPORT-ORDER-001|reexportStar.ts:1:1"
+  ].sort();
+  assert(
+    moduleBoundaryRejected.status === "failed"
+      && moduleBoundaryRejected.writtenFiles.length === 0,
+    "module boundary project did not fail transactionally."
+  );
+  assert(
+    fs.readFileSync(path.join(moduleBoundaryOutput, "sentinel.txt"), "utf8") === "module-prior\n",
+    "module boundary failure modified the prior output tree."
+  );
+  assert(
+    JSON.stringify(diagnosticSourceSummaries(moduleBoundaryRejected.diagnostics))
+      === JSON.stringify(expectedModuleBoundarySources),
+    "cycle/re-export/attribute boundary diagnostics changed."
+  );
+
+  const moduleBoundaryAssistedOutput = path.join(tmpRoot, "module-boundaries-assisted");
+  const moduleBoundaryAssisted = emitProjectToHaxe({
+    projectDir: moduleBoundaryProject.projectDir,
+    rootDir: moduleBoundaryProject.rootDir,
+    program: moduleBoundaryProject.program,
+    checker: moduleBoundaryProject.checker,
+    sourceFiles: moduleBoundaryProject.sourceFiles,
+    outDir: moduleBoundaryAssistedOutput,
+    basePackage: "ts2hx_module_boundaries",
+    runtimeProfile: "genes-esm",
+    mode: "assisted",
+    cleanOutDir: true
+  });
+  assert(
+    moduleBoundaryAssisted.status === "assisted"
+      && JSON.stringify(diagnosticSourceSummaries(moduleBoundaryAssisted.diagnostics))
+        === JSON.stringify(expectedModuleBoundarySources),
+    "assisted module boundary losses diverged from strict diagnostics."
+  );
+  const moduleBoundaryManifest = fs.readFileSync(
+    path.join(moduleBoundaryAssistedOutput, "ts2hx-manifest.json"),
+    "utf8"
+  );
+  assert(
+    moduleBoundaryManifest.includes('"status": "assisted"')
+      && moduleBoundaryManifest.includes("reexportTypeOnly.ts"),
+    "assisted module boundary manifest lost its status or type-only re-export disposition."
   );
 
   process.stdout.write(

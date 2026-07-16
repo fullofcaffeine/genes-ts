@@ -232,9 +232,11 @@ class DependencyPlanBuilder {
      * Consumes a typed marker without traversing its owner or retention token.
      *
      * The internal token is evidence that made the target visible to Haxe DCE;
-     * it is not an imported value. Resolving its static owner to an immutable
-     * module request here prevents the ordinary expression walker from
-     * manufacturing a named binding for that token.
+     * it is not an imported value. A module-level field arrives as `TField`;
+     * an imported class or enum value arrives as `TTypeExpr`. Resolving either
+     * compiler-owned form to an immutable module request here prevents the
+     * ordinary expression walker from manufacturing a named binding for the
+     * token while still supporting every typed ESM binding shape.
      */
     function addMarker(expression: TypedExpr): Void {
       final marker = CompilerInternal.sideEffectImportMarkerCall(expression);
@@ -261,9 +263,10 @@ class DependencyPlanBuilder {
           final argument = unwrap(marker.arguments[0]);
           final targetType = switch argument.expr {
             case TField({expr: TTypeExpr(type)}, FStatic(_, _)): type;
+            case TTypeExpr(type): type;
             default:
               CompilerDiagnostic.fail(
-                'GENES-SIDE-EFFECT-IMPORT-INTERNAL-001: internal marker target must be a static typed module token',
+                'GENES-SIDE-EFFECT-IMPORT-INTERNAL-001: internal marker target must be a static field or type token',
                 argument.pos);
           }
           final requests = Dependencies.requests(module, targetType);

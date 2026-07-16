@@ -6,6 +6,20 @@ import ts2hx.Assert.assertStringEqual;
 import ts2hx.Todo.TodoStatus;
 import ts2hx.Todo.TodoStore;
 
+/**
+ * Compiler-internal ordered ESM request carrier.
+ * @:keep retains typed anchors through full Haxe DCE; the Genes planner
+ * consumes every marker and erases this field from JS, TS, and declarations.
+ */
+@:keep
+@:noCompletion
+@:genes.compilerInternal
+final __ts2hx_requests = {
+  genes.internal.EsmRequestFact.internal(assert);
+  genes.internal.EsmRequestFact.internal(TodoStore);
+  true;
+};
+
 function main(): Void {
   final store = new TodoStore();
   assertEqual(store.list().length, 0, "initial list empty");
