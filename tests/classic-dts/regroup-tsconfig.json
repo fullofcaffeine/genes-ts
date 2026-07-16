@@ -1,0 +1,4 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["regroup-consumer.ts", "../../bin/StdTypes.d.ts"]
+}

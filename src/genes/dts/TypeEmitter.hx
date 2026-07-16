@@ -304,19 +304,39 @@ class TypeEmitter {
       writer.write(' | undefined');
   }
 
+  /**
+   * Emits a declaration's own collision-safe name and generic parameters.
+   *
+   * Why: type-position projection may honestly replace an unsupported helper
+   * reference with `any`, but a declaration identifier is an identity, not a
+   * projected type. Applying that fallback after `export type` creates invalid
+   * TypeScript such as `export type any` and leaves its generics unbound.
+   *
+   * What/How: declaration owners call this only for the left-hand name of a
+   * type, class, interface, or enum declaration. The resolved accessor and
+   * Haxe constraints are emitted verbatim. References, heritage clauses, and
+   * payload types continue through `emitBaseType`/`emitType`, where target
+   * fallbacks remain permitted.
+   */
+  public static function emitDeclarationBaseType(writer: TypeWriter,
+      type: BaseType, params: Array<Type>, withConstraints = false) {
+    writer.emitPos(type.pos);
+    writer.write(writer.typeAccessor(type));
+    emitParams(writer, params, withConstraints);
+  }
+
   public static function emitBaseType(writer: TypeWriter, type: BaseType,
       params: Array<Type>, withConstraints = false) {
     final write = writer.write, emitPos = writer.emitPos;
-    emitPos(type.pos);
     final accessor = writer.typeAccessor(type);
     // Some libraries reference helper types that may be stripped by DCE in runtime output.
     // If a referenced type won't be emitted, fall back to `any` to keep TS compiling.
     if (accessor == "RegroupStatus" || accessor == "RegroupResult") {
+      emitPos(type.pos);
       write("any");
       return;
     }
-    write(accessor);
-    emitParams(writer, params, withConstraints);
+    emitDeclarationBaseType(writer, type, params, withConstraints);
   }
 
   public static function emitParams(writer: TypeWriter, params: Array<Type>,

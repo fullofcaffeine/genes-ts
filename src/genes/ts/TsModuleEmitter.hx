@@ -4314,7 +4314,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           emitComment(def.doc);
           emitPos(def.pos);
           write('export type ');
-          TypeEmitter.emitBaseType(this, def, params, true);
+          TypeEmitter.emitDeclarationBaseType(this, def, params, true);
           write(' = PromiseSettledResult<');
           emitType(params[0]);
           write('>');
@@ -4325,7 +4325,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           emitComment(def.doc);
           emitPos(def.pos);
           write('export type ');
-          TypeEmitter.emitBaseType(this, def, params, true);
+          TypeEmitter.emitDeclarationBaseType(this, def, params, true);
           write(' = PromiseLike<');
           emitType(params[0]);
           write('>');
@@ -4345,7 +4345,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       emitComment(def.doc);
       emitPos(def.pos);
       write('export type ');
-      TypeEmitter.emitBaseType(this, def, params, true);
+      TypeEmitter.emitDeclarationBaseType(this, def, params, true);
       write(' = IterableIterator<[string, string]>');
       writeNewline();
       return;
@@ -4356,7 +4356,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       emitComment(def.doc);
       emitPos(def.pos);
       write('export type ');
-      TypeEmitter.emitBaseType(this, def, params, true);
+      TypeEmitter.emitDeclarationBaseType(this, def, params, true);
       write(' = IterableIterator<[string, string]>');
       writeNewline();
       return;
@@ -4367,7 +4367,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       emitComment(def.doc);
       emitPos(def.pos);
       write('export type ');
-      TypeEmitter.emitBaseType(this, def, params, true);
+      TypeEmitter.emitDeclarationBaseType(this, def, params, true);
       // TS DOM lib provides `FormDataEntryValue = File | string`.
       write(' = IterableIterator<[string, FormDataEntryValue]>');
       writeNewline();
@@ -4380,7 +4380,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           emitComment(def.doc);
           emitPos(def.pos);
           write('export type ');
-          TypeEmitter.emitBaseType(this, def, params, true);
+          TypeEmitter.emitDeclarationBaseType(this, def, params, true);
           write(' = PropertyDescriptor');
           writeNewline();
           return;
@@ -4392,7 +4392,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     emitComment(def.doc);
     emitPos(def.pos);
     write('export type ');
-    TypeEmitter.emitBaseType(this, def, params, true);
+    TypeEmitter.emitDeclarationBaseType(this, def, params, true);
     write(' = ');
     final typeOverride = switch def.meta.extract(':ts.type') {
       case [{params: [{expr: EConst(CString(type))}]}]: type;

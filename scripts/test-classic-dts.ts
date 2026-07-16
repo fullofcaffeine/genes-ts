@@ -99,6 +99,23 @@ if (!constrainedEnumDeclaration.includes(
     "Classic declarations no longer preserve constructor-local enum constraints."
   );
 }
+const streamDeclaration = readFileSync(
+  path.join(repoRoot, "bin/tink/streams/Stream.d.ts"),
+  "utf8"
+);
+if (streamDeclaration.includes("export declare type any")) {
+  throw new Error(
+    "Classic declarations projected a declared enum name to the reserved any type."
+  );
+}
+if (!streamDeclaration.includes("export declare type RegroupStatus<Quality>")) {
+  throw new Error("Classic declarations lost the generic RegroupStatus name.");
+}
+if (!streamDeclaration.includes(
+  "export declare type RegroupResult<In, Out, Quality>"
+)) {
+  throw new Error("Classic declarations lost the generic RegroupResult name.");
+}
 
 assertExportedSurfacePolicy({
   repoRoot,
@@ -112,3 +129,6 @@ assertExportedSurfacePolicy({
 });
 
 runGeneratedTypeScriptMatrix("tests/classic-dts/tsconfig.json", { emit: false });
+runGeneratedTypeScriptMatrix("tests/classic-dts/regroup-tsconfig.json", {
+  emit: false
+});

@@ -72,7 +72,7 @@ class DefinitionEmitter extends ModuleEmitter {
     emitComment(def.doc);
     emitPos(def.pos);
     write('export type ');
-    emitBaseType(def, params, true);
+    emitDeclarationBaseType(def, params, true);
     write(' = ');
     final typeOverride = switch def.meta.extract(':ts.type') {
       case [{params: [{expr: EConst(CString(type))}]}]: type;
@@ -171,7 +171,7 @@ class DefinitionEmitter extends ModuleEmitter {
     writeNewline();
     emitComment(et.doc);
     write('export declare type ');
-    emitBaseType(et, params, true);
+    emitDeclarationBaseType(et, params, true);
     write(' = ');
     increaseIndent();
     for (name => c in et.constructs) {
@@ -215,7 +215,7 @@ class DefinitionEmitter extends ModuleEmitter {
     write('export declare ');
     write(if (cl.isInterface) 'interface' else 'class');
     writeSpace();
-    emitBaseType(cl, params, true);
+    emitDeclarationBaseType(cl, params, true);
     emitPos(cl.pos);
     switch publicSurface.superClassFor(params) {
       case null:
@@ -391,6 +391,11 @@ class DefinitionEmitter extends ModuleEmitter {
   function emitBaseType(type: BaseType, params: Array<Type>,
       withConstraints = false) {
     TypeEmitter.emitBaseType(this, type, params, withConstraints);
+  }
+
+  function emitDeclarationBaseType(type: BaseType, params: Array<Type>,
+      withConstraints = false) {
+    TypeEmitter.emitDeclarationBaseType(this, type, params, withConstraints);
   }
 
   function emitType(type: Type, ?params: Array<TypeParameter>) {
