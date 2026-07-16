@@ -1,3 +1,11 @@
+# [1.27.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.26.0...v1.27.0) (2026-07-16)
+
+
+### Features
+
+* **ts2hx:** order bound ESM runtime requests ([24851a9](https://github.com/fullofcaffeine/genes-ts/commit/24851a9db9918ddf503e0d1bd7855fa6239f2f6a))
+* **ts2hx:** preserve bound ESM request order ([2f32ba3](https://github.com/fullofcaffeine/genes-ts/commit/2f32ba340ed57f90912590bf8b9c995343786557))
+
 # [1.26.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.25.1...v1.26.0) (2026-07-16)
 
 
