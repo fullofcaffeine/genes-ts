@@ -1,3 +1,10 @@
+# [1.26.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.25.1...v1.26.0) (2026-07-16)
+
+
+### Features
+
+* **ts2hx:** require explicit ESM runtime profile ([2430567](https://github.com/fullofcaffeine/genes-ts/commit/24305673967379261af93520bbc705a92bddf260))
+
 ## [1.25.1](https://github.com/fullofcaffeine/genes-ts/compare/v1.25.0...v1.25.1) (2026-07-16)
 
 
