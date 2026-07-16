@@ -1,5 +1,5 @@
 import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { assertExportedSurfacePolicy } from "./exported-surface-policy.js";
@@ -56,6 +56,19 @@ if (existsSync(declarationOnlyJs)) {
 }
 if (existsSync(declarationOnlyJsMap)) {
   throw new Error("Declaration-only reachability emitted an orphan classic JS source map.");
+}
+
+// `Gen.Single` is nullary but belongs to a generic enum. With no constructor
+// payload available for inference, classic declarations must use TypeScript's
+// bottom type rather than widening the unconstrained argument to `any`.
+const genericEnumDeclaration = readFileSync(
+  path.join(repoRoot, "bin/tests/TestEnum.d.ts"),
+  "utf8"
+);
+if (!genericEnumDeclaration.includes("export const Single: Single<string, never>")) {
+  throw new Error(
+    "Classic declarations no longer preserve the typed nullary generic enum contract."
+  );
 }
 
 assertExportedSurfacePolicy({

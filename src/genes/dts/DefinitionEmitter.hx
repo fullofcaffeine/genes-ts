@@ -160,7 +160,12 @@ class DefinitionEmitter extends ModuleEmitter {
                   name: name,
                   kind: KTypeParameter([])
                 }, []):
-                  write('any');
+                  // A nullary constructor has no payload from which TypeScript
+                  // could infer this enum parameter. `never` is the sound
+                  // bottom type: it stays assignable to every structural
+                  // instantiation without leaking `any` into the public
+                  // declaration. Keep this aligned with emitTsEnum.
+                  write('never');
                 default:
                   emitType(param);
               }
