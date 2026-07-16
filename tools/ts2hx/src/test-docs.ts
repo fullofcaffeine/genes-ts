@@ -149,6 +149,8 @@ function main(): void {
   const supportedCount = SEMANTIC_SUPPORT_MATRIX.filter((feature) => feature.support !== "unsupported").length;
   const unsupportedCount = SEMANTIC_SUPPORT_MATRIX.length - supportedCount;
   const failClosedCount = SEMANTIC_FAIL_CLOSED_CASES.length;
+  const supportedRowText = `${supportedCount} supported ${supportedCount === 1 ? "row" : "rows"}`;
+  const unsupportedRowText = `${unsupportedCount} unsupported ${unsupportedCount === 1 ? "row" : "rows"}`;
   assert(
     usage.includes(`${supportedCount} supported semantic contracts`),
     `USAGE.md supported semantic count is stale; expected ${supportedCount}.`
@@ -158,12 +160,12 @@ function main(): void {
     `USAGE.md fail-closed semantic count is stale; expected ${failClosedCount}.`
   );
   assert(
-    limitations.includes(`${supportedCount} supported rows`) && limitations.includes(`${unsupportedCount} unsupported rows`),
+    limitations.includes(supportedRowText) && limitations.includes(unsupportedRowText),
     "LIMITATIONS.md semantic support counts are stale."
   );
   assert(
     architectureRoadmap.includes(`${supportedCount} supported semantic rows`)
-      && architectureRoadmap.includes(`${unsupportedCount} unsupported rows`)
+      && architectureRoadmap.includes(unsupportedRowText)
       && architectureRoadmap.includes(`${failClosedCount} exercised fail-closed variants`),
     "ARCHITECTURE_ROADMAP.md semantic evidence counts are stale."
   );

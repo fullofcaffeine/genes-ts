@@ -281,7 +281,7 @@ evidence Program and remain represented by the options hash.
 
 Outer `try/finally` completion ownership is planned before text emission. The
 existing direct-control-flow emitter consumes real target identities, and the
-staged synchronous completion path also consumes callback paths. Each function
+supported synchronous completion path also consumes callback paths. Each function
 receives readable deterministic IDs local to one source plan; nested functions
 start with a fresh emitter state. A
 loop/switch/return target records the synthetic callback path where it is
@@ -318,11 +318,15 @@ generic cast in generated TypeScript. A final invariant throw satisfies Haxe's
 local value-return analysis without inventing a fallback value; the input
 TypeScript checker has already proved that this path cannot be reached.
 
-This is staged evidence, not a support-matrix promotion. Async, generator,
-constructor, anonymous, labeled, generic, inferred/weak-carrier, and
-unsupported loop forms retain the stable outer-transfer diagnostic or their
-existing statement boundary. Existing callback-local `TryFinally.run` output
-remains unchanged.
+The supported outer-transfer contract is deliberately narrower than all valid
+JavaScript functions: it covers synchronous unlabelled return, break, and
+continue in named function declarations and ordinary class methods with an
+explicit strongly mapped return type. Break may target `while`, `do`, `for`,
+`for...of`, or a source switch; continue may target those loop forms but not a
+switch. Async functions, generators, constructors, anonymous forms, labels,
+generic or inferred/weak carriers, and unsupported loops retain the stable
+outer-transfer diagnostic or their existing statement boundary. Existing
+callback-local `TryFinally.run` output remains unchanged.
 
 Every emitting caller chooses an explicit runtime profile. `genes-esm` covers
 classic Genes and genes-ts and records `genes.esm-runtime-requests` whenever a
@@ -452,8 +456,8 @@ lowered-for increments, switch routing, protected-throw override, and
 local-versus-propagated nested targets. The request-free
 `finally-completion-return` and `finally-completion-control` snapshots run the
 automatic paths under standard Haxe JS and strictly compile them through
-genes-ts with TypeScript 5/6/7. The separate promotion/compatibility gate still
-blocks advertising the broad row as supported.
+genes-ts with TypeScript 5/6/7. These fixtures support the exact synchronous
+boundary above; they do not extend it to the excluded function or target forms.
 
 ## Gate escalation
 

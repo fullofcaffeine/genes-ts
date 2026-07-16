@@ -208,19 +208,18 @@ Explicit exceptions:
 
 Additional evidence-only fixtures:
 
-- `semantic-diff`: all 17 supported semantic contracts plus the staged typed
-  synchronous return/break/continue portion of outer `finally` completion
-  execute as original TS, classic Genes JS, and genes-ts→JS (18 exercised rows
-  total). The completion trace covers nested target ownership, mixed local and
-  propagated outcomes from one helper, every supported loop form, exact
+- `semantic-diff`: all 18 supported semantic contracts execute as original TS,
+  classic Genes JS, and genes-ts→JS. The completion trace covers supported
+  synchronous return/break/continue through `finally`, nested target ownership,
+  mixed local and propagated outcomes from one helper, every supported loop
+  form, exact
   lowered-for increments, switch routing, catch control, finalizer precedence,
   nullable and `Void` carriers, and an ordinary class method. The same fixture
   also covers the reduced ordered `state`/`first`/`second` converted-module
   initialization proof and a standalone bound-only target that reads its
   imports in reverse order. It runs with `verbatimModuleSyntax` off and on,
-  proving that
-  TypeScript-elided imports create no carrier while an unused retained alias
-  initializes in its effective request slot;
+  proving that TypeScript-elided imports create no carrier while an unused
+  retained alias initializes in its effective request slot;
 - `semantic-unsupported`: 12 strict failures with source provenance and
   unchanged prior output; together with the runtime-profile target rejection,
   the machine-owned matrix contains 13 feature-specific strict failures;
@@ -277,10 +276,10 @@ The semantic differential is the stronger behavior gate. It requires matching
 event traces for explicit undefined, parameter defaults, uninitialized locals,
 truthiness, strict equality, unary-plus numeric coercion, compound-assignment
 order, `for`/`continue`, switch fallthrough/default placement,
-unlabelled switch-to-loop `continue`, try/catch/finally, staged typed return
-through nested finalizers, class and lexical arrow `this`, async/await ordering,
-ESM bindings, and effective ESM request order. It also proves labeled switch
-continue, excluded async outer completion through finally, and dynamic
+unlabelled switch-to-loop `continue`, try/catch/finally, typed return/break/
+continue through nested finalizers, class and lexical arrow `this`, async/await
+ordering, ESM bindings, and effective ESM request order. It also proves labeled
+switch continue, excluded async outer completion through finally, and dynamic
 prototype mutation fail closed. Its module transcripts cover bare
 packages, manifest-staged relatives, empty and inline-type clauses, immutable
 named/default/namespace and combined converted bindings, TypeScript elision,

@@ -156,15 +156,15 @@ export const SEMANTIC_SUPPORT_MATRIX: readonly SemanticFeatureContract[] = [
     support: "supported-with-helper",
     portableGrade: "J1",
     summary: "Preserves finally ordering and propagation through typed local or completion-aware helpers.",
-    limitation: "The promoted contract remains local completion; synchronous typed return/break/continue crossing is staged evidence, while excluded function, carrier, label, and loop forms still fail closed."
+    limitation: "Outer transfer support is limited to the synchronous named-function/method, strong-carrier, unlabelled target subset; excluded forms fail closed."
   },
   {
     id: "exceptions.finally-outer-transfer",
     category: "exceptions",
-    support: "unsupported",
-    portableGrade: "U",
-    summary: "Typed synchronous unlabelled return, break, and continue are normalized as staged evidence, but the broader outer-transfer row is not yet promoted.",
-    limitation: "Async, generators, constructors, anonymous forms, labels, unsupported loop forms, and inferred, generic, or weak return carriers remain fail closed until the promotion gate lands."
+    support: "supported-with-helper",
+    portableGrade: "J1",
+    summary: "Preserves synchronous unlabelled return, break, and continue across one or more finally callbacks with typed target ownership.",
+    limitation: "Requires a named function declaration or ordinary class method and an explicit strongly mapped return type. Break may target while/do/for/for-of/switch; continue may target while/do/for/for-of. Async functions, generators, constructors, anonymous forms, labels, unsupported loops, and inferred, generic, or weak carriers fail closed."
   },
   {
     id: "this.class-and-lexical-arrow",
@@ -243,7 +243,7 @@ export const SEMANTIC_FAIL_CLOSED_CASES: readonly SemanticFailClosedCase[] = [
   {
     featureId: "exceptions.finally-outer-transfer",
     diagnosticId: "TS2HX-EXCEPTIONS-FINALLY-OUTER-TRANSFER-001",
-    variant: "outer completion in an excluded async or unsupported target/carrier context"
+    variant: "outer completion in an excluded async, generator, constructor, anonymous, labeled, loop, or carrier context"
   },
   {
     featureId: "modules.side-effect-import",
@@ -975,9 +975,9 @@ function completionLoopKind(node: ts.Node): CompletionLoopKind | null {
  * unlabelled transfer may only target a path that prefixes its source path.
  * Planning records the completion strategy, then independently compares it
  * with the legacy callback-escape detector. The emitter consumes target IDs
- * for direct control flow and callback paths for the staged typed-return
- * subset; unsupported loop transfers and excluded function forms still fail
- * closed from these same immutable facts.
+ * for direct control flow and callback paths for the supported typed
+ * completion subset; unsupported loop transfers and excluded function forms
+ * still fail closed from these same immutable facts.
  */
 function planFunctionCompletion(node: ts.FunctionLikeDeclaration,
     functionId: CompletionFunctionId, sourceFile: string,

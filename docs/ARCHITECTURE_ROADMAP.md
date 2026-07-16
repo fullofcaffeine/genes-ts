@@ -290,9 +290,9 @@ The source of truth is Beads epic `genes-09r`.
 ### P2: mature migration and ecosystem workflows
 
 1. **`genes-09r.7` — ts2hx minimal semantic IR and differential support
-   matrix (landed).** Schema-v3 support/provenance manifests now grade 17 supported semantic rows
+   matrix (landed).** Schema-v3 support/provenance manifests now grade 18 supported semantic rows
    across original TS, translated classic JS, and
-   translated genes-ts output. The matrix retains 2 unsupported rows, while the
+   translated genes-ts output. The matrix retains 1 unsupported row, while the
    strict evidence gates own 13 exercised fail-closed variants because a
    supported feature can still reject a narrower form such as labeled switch
    continue. Separate binding and runtime-request rows make clear that configured
@@ -301,6 +301,9 @@ The source of truth is Beads epic `genes-09r`.
    acyclic converted-relative initialization through compiler-internal DCE
    anchors. Converted cycles, mutable live bindings, bound packages, configured
    non-ESM emit, runtime re-exports, and the wrong target profile remain strict
+   variants. Synchronous unlabelled return, break, and continue through
+   `finally` are supported for the named-function/method, strong-carrier target
+   subset; async and the other documented function/target forms remain strict
    variants. No failure publishes partial output; printers no
    longer own support decisions for migrated undefined/default/evaluation/
    control-flow/module categories. The manifest additionally records exact

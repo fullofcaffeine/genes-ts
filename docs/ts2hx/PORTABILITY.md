@@ -49,6 +49,15 @@ instead of erasing the request or substituting CommonJS behavior. Package
 installation and copying any manifest-staged relative asset beside final
 JavaScript remain explicit host build responsibilities.
 
+`exceptions.finally-outer-transfer` is also J1. Its generated completion enum
+and helper are ordinary typed Haxe, and request-free fixtures execute through
+standard Haxe JS as an additional oracle. The supported contract nevertheless
+preserves JavaScript return/break/continue, thrown-value, and finalizer
+precedence semantics; it is not evidence for a non-JavaScript Haxe target.
+Async functions, generators, constructors, anonymous forms, labels,
+unsupported loops, and inferred, generic, or weak carriers remain explicit
+strict failures.
+
 ## Adapter layers
 
 A portable application should isolate translated code behind explicit layers:

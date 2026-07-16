@@ -425,9 +425,22 @@ Before promotion, executable differentials must cover:
   18-exercised/13-fail-closed semantic suite, and all six todoapp Playwright
   journeys. This proves the staged synchronous target boundary; it does not
   promote the public support row or prove any deferred function/target form.
-- Stage 7 has not landed. `exceptions.finally-outer-transfer` therefore remains
-  unsupported and fail-closed in the public matrix even though the synchronous
-  subset now has staged executable evidence.
+- Stage 7 promotes only the executable synchronous boundary.
+  `exceptions.finally-outer-transfer` is now `supported-with-helper / J1` for
+  unlabelled return, break, and continue in named function declarations and
+  ordinary class methods with an explicit strongly mapped return type and a
+  supported target: break may target while/do/for/for-of/switch, while continue
+  may target while/do/for/for-of. The matrix therefore has 18 supported rows and
+  1 unsupported row. The same stable outer-transfer
+  diagnostic still owns excluded async, generator, constructor, anonymous,
+  labeled, unsupported-loop, inferred, generic, and weak-carrier forms, so the
+  canonical fail-closed inventory remains 13. The complete ts2hx gate passed
+  in 102.76 seconds; full `yarn test:ci` passed in 326.14 seconds with security
+  and dependency checks, TypeScript 5/6/7, classic Genes, genes-ts,
+  declarations, output ownership and transactions, all 50 reviewed snapshots,
+  the three-runtime semantic differential, and all six todoapp Playwright
+  journeys. Promotion changed the published contract and derived evidence, not
+  the already-proven Stage 6 lowering.
 
 No later stage may cite the oracle response as proof. It may cite this document
 for the chosen invariant, then must cite its own fixture and gate for behavior.

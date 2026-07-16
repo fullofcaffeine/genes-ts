@@ -201,12 +201,12 @@ generated carriers target classic Genes and genes-ts through the named
 standard generator independently fails its Haxe macro guard.
 
 Request-free ts2hx completion-aware Haxe remains ordinary input to all three
-JavaScript lanes. The staged synchronous return/break/continue subset uses a
+JavaScript lanes. The supported synchronous return/break/continue subset uses a
 private `@:genes.compilerInternal` enum plus `genes.js.FinallyCompletion`:
 standard Haxe executes it directly, while classic Genes and genes-ts keep the
 enum local to implementation and share the same callback/precedence semantics.
-This does not yet promote the broad outer-transfer contract; excluded function,
-carrier, label, and loop forms still fail before output publication.
+The contract is intentionally exact: excluded function, carrier, label, and
+loop forms still fail before output publication.
 
 The fullstack example deliberately combines these rules: inline markup becomes
 TSX in `ts-strict` and planned `createElement` calls in `classic-esm`; raw TS

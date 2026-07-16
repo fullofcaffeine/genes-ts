@@ -158,9 +158,9 @@ bound-only descendant deliberately reads its bindings in reverse order to
 prove that its original import declarations still control initialization.
 Unlabelled switch-continue and unary-plus numeric coercion are exercised as
 supported contracts. Synchronous typed return, break, and continue through one
-or more finalizers are exercised as staged evidence in named functions and
-ordinary methods. The broad outer-transfer row remains unpromoted until the
-separate compatibility and promotion gate passes.
+or more finalizers are supported in named functions and ordinary methods with
+an explicit strong return type and the documented unlabelled target subset.
+Excluded function, carrier, label, and loop forms remain fail closed.
 
 What `test:roundtrip` does for selected supported modules:
 

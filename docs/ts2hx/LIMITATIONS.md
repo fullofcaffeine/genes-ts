@@ -62,8 +62,8 @@ Grades describe the emitted Haxe contract:
 | `switch.fallthrough` | supported / P0 | A normalized state machine preserves case search, default placement, fallthrough, and break. |
 | `switch.continue` | supported / P0 | Unlabelled continue propagates through lowered nested switches to the real enclosing `while`/`for`; a lowered `for` step runs exactly once. Labeled continue is rejected. |
 | `exceptions.try-catch` | supported / P0 | Ordinary catch and propagation are exercised. |
-| `exceptions.finally` | helper / J1 | Ordering and precedence use the established local helper or the typed completion-aware helper for the staged synchronous return/break/continue subset. |
-| `exceptions.finally-outer-transfer` | unsupported / U | Synchronous unlabelled return, break, and continue in a named function or ordinary method now have executable staging evidence, but this broad row remains unpromoted until the separate compatibility/promotion gate passes. Async, generators, constructors, anonymous forms, labels, unsupported loop forms, and weak/inferred/generic carriers fail closed. |
+| `exceptions.finally` | helper / J1 | Ordering and precedence use the established local helper or the typed completion-aware helper. |
+| `exceptions.finally-outer-transfer` | helper / J1 | Preserves synchronous unlabelled return, break, and continue across nested finalizers in a named function or ordinary method with an explicit strong return type. Break may target `while`, `do`, `for`, `for...of`, or a source switch; continue may target those loop forms. Async functions, generators, constructors, anonymous forms, labels, unsupported loops, and weak/inferred/generic carriers fail closed. |
 | `this.class-and-lexical-arrow` | supported / P0 | Supported class methods and lexical arrows preserve their receiver/capture behavior. |
 | `prototypes.dynamic-mutation` | unsupported / U | Prototype mutation requires an explicit boundary/refactor. |
 | `async.await` | helper / J1 | Uses `genes.js.Async` and the JavaScript Promise/microtask contract. |
@@ -71,11 +71,10 @@ Grades describe the emitted Haxe contract:
 | `modules.esm-runtime-requests` | helper / J1 | Preserves every supported effective ESM request in configured TypeScript emit order across classic Genes and genes-ts. TypeScript-elided and declaration-wide type-only imports create no request; standard Haxe is an explicit capability failure. |
 | `modules.side-effect-import` | helper / J1 | Provides the binding-free package/helper/resource-staging surface on top of the shared request plan, including manifest-owned external relative files and acyclic converted initialization. |
 
-The semantic harness currently executes all 17 supported rows plus the staged
-synchronous completion portion of `exceptions.finally-outer-transfer` (18 exercised
-rows total). The matrix still contains 2 unsupported rows, while the strict evidence gates own 13
-feature-specific failures: excluded async outer finally transfer, dynamic prototype
-mutation, labeled switch continue, four side-effect resource/resolution
+The semantic harness currently executes all 18 supported rows. The matrix now
+contains 1 unsupported row, while the strict evidence gates own 13
+feature-specific failures: excluded async outer finally transfer, dynamic
+prototype mutation, labeled switch continue, four side-effect resource/resolution
 boundaries, four effective-request boundaries for cycles, runtime re-exports,
 non-ESM emit, and the standard-Haxe target, plus two binding boundaries for
 mutable live bindings and bound packages. This table does not turn other syntax
@@ -188,8 +187,7 @@ finally. Exact differentials own only the matrix rows above.
   function or ordinary class method. Target ownership preserves inner versus
   outer loops/switches, lowered-for increments, and finalizer override. The
   excluded async/generator/constructor/anonymous/labeled/generic/weak-carrier
-  and unsupported-loop variants remain fail closed, so the broad row is not
-  yet a supported contract;
+  and unsupported-loop variants remain fail closed;
 - unsupported statement kinds receive a source-positioned diagnostic rather
   than a placeholder that returns success.
 
