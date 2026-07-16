@@ -46,7 +46,11 @@ rmSync(declarationOnlyDts, { force: true });
 
 // Always rebuild: accepting a stale declaration tree would make the negative
 // consumer pass or fail independently of the compiler revision under test.
-run("haxe", ["test.hxml"]);
+run("haxe", [
+  "test.hxml",
+  "--macro",
+  "include('tests.classicdts')"
+]);
 
 if (!existsSync(declarationOnlyDts)) {
   throw new Error("Declaration-only DCE dependency did not receive a .d.ts module.");
@@ -68,6 +72,31 @@ const genericEnumDeclaration = readFileSync(
 if (!genericEnumDeclaration.includes("export const Single: Single<string, never>")) {
   throw new Error(
     "Classic declarations no longer preserve the typed nullary generic enum contract."
+  );
+}
+const constructorGenericDeclaration = readFileSync(
+  path.join(repoRoot, "bin/tests/classicdts/ConstructorGeneric.d.ts"),
+  "utf8"
+);
+if (!constructorGenericDeclaration.includes("export type Payload<B, A, T = never>")) {
+  throw new Error(
+    "Classic declarations no longer declare constructor-local enum type parameters."
+  );
+}
+if (!constructorGenericDeclaration.includes("left: A, right: B, value: T")) {
+  throw new Error(
+    "Classic declarations no longer preserve the constructor-local enum payload type."
+  );
+}
+const constrainedEnumDeclaration = readFileSync(
+  path.join(repoRoot, "bin/tests/TestTsTypes.d.ts"),
+  "utf8"
+);
+if (!constrainedEnumDeclaration.includes(
+  "export type CTor<T extends __A, A extends __A = never>"
+)) {
+  throw new Error(
+    "Classic declarations no longer preserve constructor-local enum constraints."
   );
 }
 

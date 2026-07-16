@@ -1804,51 +1804,6 @@ class TsModuleEmitter extends JsModuleEmitter {
     write('>');
   }
 
-  /**
-   * Emit type parameters for enum constructor *types*.
-   *
-   * Constructor-specific type params cannot be left "free" in TS type aliases,
-   * so we give them a `never` default to allow referencing the constructor type
-   * with only the enum's own parameters.
-   */
-  function emitEnumCtorTypeParamDecls(enumParams: Array<Type>,
-      ctorParams: Array<Type>, withConstraints: Bool) {
-    if ((enumParams == null || enumParams.length == 0)
-      && (ctorParams == null || ctorParams.length == 0))
-      return;
-    write('<');
-    var first = true;
-    inline function emitOne(param: Type, defaultValue: Null<String>) {
-      if (!first)
-        write(', ');
-      first = false;
-      switch param {
-        case TInst(_.get() => {kind: KTypeParameter(constraints)}, _):
-          TypeEmitter.emitType(this, param);
-          if (withConstraints && constraints.length > 0) {
-            write(' extends ');
-            for (c in join(constraints, write.bind(' & ')))
-              TypeEmitter.emitType(this, c);
-          }
-        default:
-          TypeEmitter.emitType(this, param);
-      }
-      if (defaultValue != null) {
-        write(' = ');
-        write(defaultValue);
-      }
-    }
-    if (enumParams != null) {
-      for (param in enumParams)
-        emitOne(param, null);
-    }
-    if (ctorParams != null) {
-      for (param in ctorParams)
-        emitOne(param, 'never');
-    }
-    write('>');
-  }
-
   override public function emitVar(v: TVar, eo: Null<TypedExpr>) {
     // Haxe often creates `_g` temporaries while lowering loops. If such a temp
     // is initialized from an optional field already narrowed by a null guard,
@@ -4106,7 +4061,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       emitPos(c.pos);
       write('export type ');
       write(ctorName);
-      emitEnumCtorTypeParamDecls(enumParams, ctorParams, true);
+      TypeEmitter.emitEnumConstructorTypeParams(this, enumParams, ctorParams);
       write(' = {');
       if (discriminator != null) {
         emitString(discriminator);

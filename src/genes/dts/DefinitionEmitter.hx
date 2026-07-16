@@ -91,10 +91,6 @@ class DefinitionEmitter extends ModuleEmitter {
 
   function emitEnumDefinition(et: EnumType, params: Array<Type>) {
     final id = et.pack.concat([et.name]).join('.');
-    final paramNames = params.map(t -> switch t {
-      case TInst(_.get().name => name, _): name;
-      default: throw 'assert';
-    });
     writeNewline();
     emitComment(et.doc);
     emitPos(et.pos);
@@ -107,7 +103,7 @@ class DefinitionEmitter extends ModuleEmitter {
       emitPos(c.pos);
       write('export type ');
       write(name);
-      emitParams(params, true);
+      emitEnumConstructorTypeParams(params, c.params.map(param -> param.t));
       write(' = {');
       final discriminator = haxe.macro.Context.definedValue('genes.enum_discriminator');
       if (discriminator != null) {
@@ -123,13 +119,7 @@ class DefinitionEmitter extends ModuleEmitter {
             write(', ');
             emitIdent(arg.name);
             write(': ');
-            switch arg.t {
-              case TInst(_.get() => {name: name, kind: KTypeParameter([])}, []):
-                if (paramNames.indexOf(name) > -1) write(name) else
-                  write('any');
-              default:
-                emitType(arg.t);
-            }
+            emitType(arg.t);
           }
         default:
       }
@@ -409,8 +399,32 @@ class DefinitionEmitter extends ModuleEmitter {
     TypeEmitter.emitType(this, type, params == null);
   }
 
-  function emitParams(params: Array<Type>, withConstraints = false) {
-    final all = new Map();
+  /** Normalizes classic parameter identity before shared enum alias spelling. */
+  function emitEnumConstructorTypeParams(enumParams: Array<Type>,
+      constructorParams: Array<Type>) {
+    final normalizedEnumParams = uniqueParams(enumParams);
+    final enumParamNames = [
+      for (param in normalizedEnumParams)
+        switch param {
+          case TInst(_.get().name => name, _): name;
+          default: throw 'Expected an enum type parameter';
+        }
+    ];
+    final normalizedConstructorParams = [
+      for (param in uniqueParams(constructorParams))
+        if (switch param {
+          case TInst(_.get().name => name, _):
+            enumParamNames.indexOf(name) == -1;
+          default:
+            true;
+        }) param
+    ];
+    TypeEmitter.emitEnumConstructorTypeParams(this, normalizedEnumParams,
+      normalizedConstructorParams);
+  }
+
+  function uniqueParams(params: Array<Type>): Array<Type> {
+    final all = new Map<String, Type>();
     for (param in params) {
       switch param {
         case TInst(_.get().name => name, _):
@@ -418,6 +432,10 @@ class DefinitionEmitter extends ModuleEmitter {
         default:
       }
     }
-    TypeEmitter.emitParams(this, [for (p in all) p], withConstraints);
+    return [for (param in all) param];
+  }
+
+  function emitParams(params: Array<Type>, withConstraints = false) {
+    TypeEmitter.emitParams(this, uniqueParams(params), withConstraints);
   }
 }

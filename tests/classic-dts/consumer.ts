@@ -10,10 +10,16 @@ import {
 } from "../../bin/tests/nullish/NullishMatrix.js";
 import type { DeclarationOnlyShape } from "../../bin/tests/typeonly/DeclarationOnlyShape.js";
 import type { WebIdlGapSurface } from "../../bin/tests/webidl/WebIdlGapSurface.js";
+import { ConstructorGeneric } from "../../bin/tests/classicdts/ConstructorGeneric.js";
 
 declare const map: IMap<string, number>;
 declare const declarationOnlyShape: DeclarationOnlyShape;
 declare const webIdl: WebIdlGapSurface;
+declare const genericVariant: ConstructorGeneric.Payload<
+  string,
+  number,
+  { readonly label: string }
+>;
 
 const maybe: number | null = map.get("present");
 map.set("present", 1);
@@ -47,6 +53,17 @@ const observerState:
   | "errored"
   | "complete" = FetchObserver.prototype.state;
 const permissionDenied: 1 = PositionError.PERMISSION_DENIED;
+
+// A constructor-local Haxe type parameter belongs to the variant alias, not
+// only to its factory function. This direct alias use proves the payload stays
+// precise for declaration consumers instead of widening to `any`.
+const genericPayload: { readonly label: string } = genericVariant.value;
+const constructedGeneric: ConstructorGeneric<
+  { readonly label: string },
+  { readonly label: string }
+> = ConstructorGeneric.Payload("left", 1, { label: "typed" });
+// @ts-expect-error The constructor-local payload is not a number.
+const invalidGenericPayload: number = genericVariant.value;
 
 // Classic declaration interfaces should remain closed as well.
 // @ts-expect-error Unknown members are not part of haxe.Constraints.IMap.
@@ -111,6 +128,9 @@ void definitely;
 void observerHandler;
 void observerState;
 void permissionDenied;
+void genericPayload;
+void constructedGeneric;
+void invalidGenericPayload;
 void inherited;
 void own;
 void convertedNumber;

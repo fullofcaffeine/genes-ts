@@ -341,6 +341,58 @@ class TypeEmitter {
     }
   }
 
+  /**
+   * Emits the generic declaration owned by one enum constructor type alias.
+   *
+   * Why: a Haxe enum constructor may introduce a type parameter that does not
+   * belong to the enum itself, such as `Payload<T>(value:T)`. That parameter
+   * must remain available to the structural TypeScript variant or its payload
+   * would widen to `any`.
+   *
+   * What: enum-level parameters are required and constructor-local parameters
+   * follow them with a `never` default. TypeScript can therefore refer to a
+   * variant with only the enum parameters when building the enclosing union,
+   * while direct variant consumers can still supply the precise payload type.
+   * `never` is the sound bottom type and satisfies every valid constraint.
+   *
+   * How: callers provide their profile's already-normalized parameter order;
+   * this shared printer preserves Haxe constraints and owns the identical
+   * spelling used by classic `.d.ts` and genes-ts source output. Constructor
+   * function signatures remain separate because their local parameters are
+   * inferred from call arguments rather than defaulted.
+   */
+  public static function emitEnumConstructorTypeParams(writer: TypeWriter,
+      enumParams: Array<Type>, constructorParams: Array<Type>) {
+    if (enumParams.length == 0 && constructorParams.length == 0)
+      return;
+    final write = writer.write;
+    write('<');
+    var first = true;
+    function emitOne(param: Type, defaultNever: Bool) {
+      if (!first)
+        write(', ');
+      first = false;
+      switch param {
+        case TInst(_.get() => {kind: KTypeParameter(constraints)}, _):
+          emitType(writer, param);
+          if (constraints.length > 0) {
+            write(' extends ');
+            for (constraint in join(constraints, write.bind(' & ')))
+              emitType(writer, constraint);
+          }
+        default:
+          emitType(writer, param);
+      }
+      if (defaultNever)
+        write(' = never');
+    }
+    for (param in enumParams)
+      emitOne(param, false);
+    for (param in constructorParams)
+      emitOne(param, true);
+    write('>');
+  }
+
   public static function emitType(writer: TypeWriter, type: Type,
       wrap = true) {
     final write = writer.write, emitPos = writer.emitPos,
