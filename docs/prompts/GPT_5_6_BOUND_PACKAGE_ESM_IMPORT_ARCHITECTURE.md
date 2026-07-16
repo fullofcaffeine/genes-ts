@@ -184,6 +184,75 @@ yarn --cwd tools/ts2hx test:package-extern-facts
 These facts narrow the design but are not a recommendation to build a type
 converter inside `emitExternModuleFile`.
 
+### Reduced dts2hx experiment added after the checker probe
+
+A second evidence-only experiment tested Candidate 4 against the same local
+`fakepkg` entrypoint with the repository-pinned dts2hx 0.34.0 / TypeScript
+5.9.3 toolchain.
+
+The first invocation reused the fixture's ordinary consumer `tsconfig`, which
+includes Node types. Even with `--skipDependencies --modular --noLibWrap`,
+dts2hx generated 1,997 Haxe files and 196,100 lines, printed many unrelated
+standard-library unhandled-symbol diagnostics, and contained 4,592
+`Dynamic`/`Any` lines. This confirms that a normal consumer configuration is
+not a deterministic narrow declaration boundary.
+
+The same package was then converted with an isolated declaration config:
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "types": [],
+    "lib": ["ES2022"],
+    "skipLibCheck": false
+  }
+}
+```
+
+That invocation produced exactly two files and no warning/error or weak-type
+token: a nine-line `Fakepkg.hx` and a four-line `fakepkg/Result.hx`. The value
+module contained strong signatures for the default function, `add`, `PI`, both
+`overloaded` call shapes, `parseResult`, and the mutable export. The referenced
+`Result` interface became a real Haxe record typedef.
+
+The exact generated externs were consumed unchanged by a hand-authored Haxe
+runtime probe. Classic Genes and genes-ts each emitted one
+`import * as Fakepkg from "fakepkg"`; default, named, overload, constant, and
+record-result reads produced this transcript in both profiles:
+
+```text
+Hello world
+3
+3.14
+4
+typed
+```
+
+The genes-ts tree passed strict TypeScript 5.5, 6, and 7. This proves that
+dts2hx can represent more than the proposed primitive-only subset for one
+isolated declaration entrypoint. It does **not** prove that ts2hx should invoke
+it automatically:
+
+- the production transaction would need to own a sanitized declaration
+  configuration rather than inherit ambient consumer types;
+- the generated class exposes `export let mutableValue` as writable
+  `static var`, which is not a safe authoring model for an imported ESM binding;
+- dts2hx names the default field `default_`, while current ts2hx rewrites it to
+  `__default`;
+- wholesale output contains declarations that the source never imports, so
+  selection, DCE/public-surface ownership, hashes, and stale-file cleanup still
+  require an immutable plan; and
+- dts2hx owns a different pinned TypeScript API version. Production integration
+  must compare stable declaration identities rather than share compiler AST
+  objects.
+
+The review should therefore distinguish "dts2hx can spell this reduced extern"
+from "dts2hx is a sound transactional package-import subsystem."
+
 ## Candidate directions to evaluate
 
 These are hypotheses, not instructions. Adopt, reject, or combine them.
