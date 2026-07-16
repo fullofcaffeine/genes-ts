@@ -1,5 +1,7 @@
 package genes.ts;
 
+import genes.SourceMapGenerator.SourcePosition;
+
 import genes.Dependencies;
 import genes.CompilerDiagnostic;
 import genes.CompilerInternal;
@@ -55,6 +57,22 @@ typedef PrivateMethodCall = {
  * This is intentionally incomplete. Expression coverage and richer typing land in later milestones.
  */
 class TsModuleEmitter extends JsModuleEmitter {
+  var emitTsMemberSourcePositions = true;
+
+  /**
+   * Applies the shared compiler-internal provenance projection in TS mode.
+   *
+   * Why: the TS enum printer emits several merged type/value declarations, so
+   * suppressing only the first token would still map invented constructors and
+   * runtime assignments back to user source. What/How: the member loop scopes
+   * this flag around the complete top-level type, and the inherited emitter
+   * keeps mapping every neighboring ordinary member as before.
+   */
+  override public function emitPos(pos: SourcePosition) {
+    if (emitTsMemberSourcePositions)
+      super.emitPos(pos);
+  }
+
   var jsxEmitTsx: Bool = false;
   var inAssignTarget: Bool = false;
   var currentClass: Null<ClassType> = null;
@@ -215,13 +233,21 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
 
     for (member in module.members) {
+      final memberProjection = Module.memberProjection(member);
+      if (!memberProjection.emitImplementation)
+        continue;
+      final previousSourcePositions = emitTsMemberSourcePositions;
+      emitTsMemberSourcePositions = memberProjection.emitSourcePosition;
       switch member {
         case MClass(cl, params, _) if (cl.isInterface):
-          emitTsInterface(cl, params);
+          emitTsInterface(cl, params,
+            memberProjection.exportImplementation);
         case MClass(cl, _, fields):
           final emittableFields = Module.emittableFields(fields);
           final endClassTimer = timer('emitClass');
-          emitTsClass(module.isCyclic, cl, emittableFields);
+          emitTsClass(module.isCyclic, cl, emittableFields,
+            memberProjection.exportImplementation,
+            memberProjection.registerRuntimeType);
           endClassTimer();
           final endStaticsTimer = timer('emitStatics');
           emitTsStatics(module.isCyclic, cl, emittableFields);
@@ -229,15 +255,18 @@ class TsModuleEmitter extends JsModuleEmitter {
           emitInit(cl);
         case MEnum(et, _):
           final endEnumTimer = timer('emitEnums');
-          emitTsEnum(et);
+          emitTsEnum(et, memberProjection.exportImplementation,
+            memberProjection.registerRuntimeType);
           endEnumTimer();
         case MType(def, params):
-          emitTsTypeDefinition(def, params);
+          emitTsTypeDefinition(def, params,
+            memberProjection.exportImplementation);
         case MMain(e):
           writeNewline();
           emitExpr(e);
         default:
       }
+      emitTsMemberSourcePositions = previousSourcePositions;
     }
 
     for (export in module.expose)
@@ -903,14 +932,17 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   function emitTsClass(checkCycles: (module: String) -> Bool, cl: ClassType,
-      fields: Array<GenesField>) {
+      fields: Array<GenesField>, export = true,
+      registerRuntimeType = true) {
     final prevClass = currentClass;
     currentClass = cl;
 
     writeNewline();
     emitComment(cl.doc);
     emitPos(cl.pos);
-    write('export class ');
+    if (export)
+      write('export ');
+    write('class ');
     write(TypeUtil.className(cl));
     if (cl.params != null && cl.params.length > 0)
       emitTypeParamDecls(cl.params.map(p -> p.t), true);
@@ -1246,7 +1278,7 @@ class TsModuleEmitter extends JsModuleEmitter {
 
     // Register class in $hxClasses registry (Genes runtime compatibility).
     final id = cl.pack.concat([TypeUtil.className(cl)]).join('.');
-    if (id != 'genes.Register'
+    if (registerRuntimeType && id != 'genes.Register'
       && !haxe.macro.Context.defined('genes.ts.minimal_runtime')) {
       writeNewline();
       write(ctx.typeAccessor(TypeUtil.registerType));
@@ -3908,12 +3940,14 @@ class TsModuleEmitter extends JsModuleEmitter {
         field.isStatic ? null : field.params));
   }
 
-  function emitTsInterface(cl: ClassType, params: Array<Type>) {
+  function emitTsInterface(cl: ClassType, params: Array<Type>, export = true) {
     final publicSurface = PublicSurface.forClass(cl);
     writeNewline();
     emitComment(cl.doc);
     emitPos(cl.pos);
-    write('export interface ');
+    if (export)
+      write('export ');
+    write('interface ');
     write(TypeUtil.className(cl));
     if (params.length > 0)
       emitTypeParamDecls(params, true);
@@ -3979,7 +4013,9 @@ class TsModuleEmitter extends JsModuleEmitter {
     writeNewline();
 
     // Runtime marker (Genes runtime compatibility).
-    write('export const ');
+    if (export)
+      write('export ');
+    write('const ');
     write(TypeUtil.className(cl));
     write(' = function() {};');
     writeNewline();
@@ -4027,7 +4063,8 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
   }
 
-  function emitTsEnum(et: EnumType) {
+  function emitTsEnum(et: EnumType, export = true,
+      registerRuntimeType = true) {
     final discriminator = haxe.macro.Context.definedValue('genes.enum_discriminator');
     final id = et.pack.concat([et.name]).join('.');
     final enumParams = et.params != null ? et.params.map(p -> p.t) : [];
@@ -4041,7 +4078,9 @@ class TsModuleEmitter extends JsModuleEmitter {
     // `export declare namespace EnumName` (duplicate identifier). A function
     // works as the runtime enum container while still allowing type namespace
     // merging.
-    write('export declare namespace ');
+    if (export)
+      write('export ');
+    write('declare namespace ');
     write(et.name);
     write(' {');
     increaseIndent();
@@ -4160,7 +4199,9 @@ class TsModuleEmitter extends JsModuleEmitter {
     writeNewline();
     emitComment(et.doc);
     emitPos(et.pos);
-    write('export type ');
+    if (export)
+      write('export ');
+    write('type ');
     write(et.name);
     emitTypeParamDecls(enumParams, true);
     write(' =');
@@ -4180,12 +4221,15 @@ class TsModuleEmitter extends JsModuleEmitter {
     writeNewline();
 
     emitPos(et.pos);
-    write('export function ');
+    if (export)
+      write('export ');
+    write('function ');
     write(et.name);
     write('() {}');
     writeNewline();
     writeNewline();
-    if (!haxe.macro.Context.defined('genes.ts.minimal_runtime')) {
+    if (registerRuntimeType
+      && !haxe.macro.Context.defined('genes.ts.minimal_runtime')) {
       write(ctx.typeAccessor(TypeUtil.registerType));
       write('.setHxEnum(');
       emitString(id);
@@ -4304,7 +4348,8 @@ class TsModuleEmitter extends JsModuleEmitter {
     writeNewline();
   }
 
-  function emitTsTypeDefinition(def: DefType, params: Array<Type>) {
+  function emitTsTypeDefinition(def: DefType, params: Array<Type>,
+      export = true) {
     // Prefer TypeScript builtins for well-known JS types to avoid "stringly"
     // typedefs (e.g. `{ status: string, ... }`) and reduce `any` usage.
     if (def.module == 'js.lib.Promise') {
@@ -4313,7 +4358,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           writeNewline();
           emitComment(def.doc);
           emitPos(def.pos);
-          write('export type ');
+          emitTsTypeDeclarationPrefix(export);
           TypeEmitter.emitDeclarationBaseType(this, def, params, true);
           write(' = PromiseSettledResult<');
           emitType(params[0]);
@@ -4324,7 +4369,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           writeNewline();
           emitComment(def.doc);
           emitPos(def.pos);
-          write('export type ');
+          emitTsTypeDeclarationPrefix(export);
           TypeEmitter.emitDeclarationBaseType(this, def, params, true);
           write(' = PromiseLike<');
           emitType(params[0]);
@@ -4344,7 +4389,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       writeNewline();
       emitComment(def.doc);
       emitPos(def.pos);
-      write('export type ');
+      emitTsTypeDeclarationPrefix(export);
       TypeEmitter.emitDeclarationBaseType(this, def, params, true);
       write(' = IterableIterator<[string, string]>');
       writeNewline();
@@ -4355,7 +4400,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       writeNewline();
       emitComment(def.doc);
       emitPos(def.pos);
-      write('export type ');
+      emitTsTypeDeclarationPrefix(export);
       TypeEmitter.emitDeclarationBaseType(this, def, params, true);
       write(' = IterableIterator<[string, string]>');
       writeNewline();
@@ -4366,7 +4411,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       writeNewline();
       emitComment(def.doc);
       emitPos(def.pos);
-      write('export type ');
+      emitTsTypeDeclarationPrefix(export);
       TypeEmitter.emitDeclarationBaseType(this, def, params, true);
       // TS DOM lib provides `FormDataEntryValue = File | string`.
       write(' = IterableIterator<[string, FormDataEntryValue]>');
@@ -4379,7 +4424,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           writeNewline();
           emitComment(def.doc);
           emitPos(def.pos);
-          write('export type ');
+          emitTsTypeDeclarationPrefix(export);
           TypeEmitter.emitDeclarationBaseType(this, def, params, true);
           write(' = PropertyDescriptor');
           writeNewline();
@@ -4391,7 +4436,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     writeNewline();
     emitComment(def.doc);
     emitPos(def.pos);
-    write('export type ');
+    emitTsTypeDeclarationPrefix(export);
     TypeEmitter.emitDeclarationBaseType(this, def, params, true);
     write(' = ');
     final typeOverride = switch def.meta.extract(':ts.type') {
@@ -4407,6 +4452,13 @@ class TsModuleEmitter extends JsModuleEmitter {
     else
       emitType(PublicSurface.forTypedef(def).aliasTypeFor(params));
     writeNewline();
+  }
+
+  /** Writes one module-level type alias prefix with projected ESM visibility. */
+  function emitTsTypeDeclarationPrefix(export:Bool):Void {
+    if (export)
+      write('export ');
+    write('type ');
   }
 
   public function includeType(type: Type) {}

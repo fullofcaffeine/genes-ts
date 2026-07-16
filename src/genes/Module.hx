@@ -49,6 +49,31 @@ enum Member {
   MMain(expr: TypedExpr);
 }
 
+/**
+ * Projects one typed top-level member onto independent output capabilities.
+ *
+ * Why: compiler ownership answers more questions than Haxe's `isPrivate`
+ * flag. A `@:genes.compilerInternal` enum must survive typing and DCE without
+ * becoming a public export, declaration, registry entry, or invented
+ * source-map location. One visibility boolean cannot preserve that contract.
+ *
+ * What: the five facts describe implementation presence, ESM visibility,
+ * consumer declaration visibility, Haxe reflection registration, and source
+ * provenance separately. They are semantic output facts shared by classic JS,
+ * genes-ts, and classic `.d.ts`; printers do not rediscover metadata policy.
+ *
+ * How: `Module.memberProjection` computes this immutable record from the typed
+ * `BaseType`. Emitters apply it only at their final member boundary, after
+ * dependency planning and Haxe DCE have consumed the complete typed member.
+ */
+typedef MemberProjection = {
+  final emitImplementation:Bool;
+  final exportImplementation:Bool;
+  final emitDeclaration:Bool;
+  final registerRuntimeType:Bool;
+  final emitSourcePosition:Bool;
+}
+
 typedef ModuleContext = {
   modules: Map<String, Module>,
   concrete: Array<String>
@@ -260,6 +285,42 @@ class Module {
         default:
       }
     return null;
+  }
+
+  /**
+   * Returns the shared implementation/declaration projection for one member.
+   *
+   * Compiler-internal metadata hides every public/provenance surface but
+   * deliberately leaves implementation emission enabled so typed local uses
+   * still work. Ordinary members retain the repository's existing projection.
+   * Some libraries expose signatures through source-private helper types, so
+   * changing Haxe privacy here would require a separate public-type
+   * accessibility normalization rather than a printer flag.
+   */
+  public static function memberProjection(member:Member):MemberProjection {
+    final base:Null<BaseType> = switch member {
+      case MClass(type, _, _): type;
+      case MEnum(type, _): type;
+      case MType(type, _): type;
+      case MMain(_): null;
+    }
+    if (base == null) {
+      return {
+        emitImplementation: true,
+        exportImplementation: false,
+        emitDeclaration: false,
+        registerRuntimeType: false,
+        emitSourcePosition: true
+      };
+    }
+    final compilerInternal = CompilerInternal.isType(base.meta);
+    return {
+      emitImplementation: true,
+      exportImplementation: !compilerInternal,
+      emitDeclaration: !compilerInternal,
+      registerRuntimeType: !compilerInternal,
+      emitSourcePosition: !compilerInternal
+    };
   }
 
   /**

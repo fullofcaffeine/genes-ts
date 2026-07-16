@@ -3,6 +3,7 @@ package genes.es;
 import genes.Emitter;
 import genes.Dependencies;
 import genes.Module;
+import genes.SourceMapGenerator.SourcePosition;
 import haxe.macro.Type;
 import genes.util.IteratorUtil.*;
 import genes.util.TypeUtil.*;
@@ -15,6 +16,23 @@ using genes.util.TypeUtil;
 using Lambda;
 
 class ModuleEmitter extends ExprEmitter {
+  var emitMemberSourcePositions = true;
+
+  /**
+   * Suppresses provenance only while printing an invented compiler member.
+   *
+   * Why: `@:genes.compilerInternal` types have no honest source declaration
+   * for consumers to navigate to, but neighboring user members must keep their
+   * exact mappings. What/How: `emitModule` scopes one shared projection flag
+   * around a member; every nested expression/type printer already routes
+   * positions through this virtual method, so no target-specific token scan is
+   * needed and the previous state is restored before the next member.
+   */
+  override public function emitPos(pos: SourcePosition) {
+    if (emitMemberSourcePositions)
+      super.emitPos(pos);
+  }
+
   public function emitModule(module: Module, ?extension: String) {
     final projection = module.runtimeProjection;
     final dependencies = projection.bindings;
@@ -47,14 +65,21 @@ class ModuleEmitter extends ExprEmitter {
       write(".$global");
       writeNewline();
     }
-    for (member in module.members)
+    for (member in module.members) {
+      final memberProjection = Module.memberProjection(member);
+      if (!memberProjection.emitImplementation)
+        continue;
+      final previousSourcePositions = emitMemberSourcePositions;
+      emitMemberSourcePositions = memberProjection.emitSourcePosition;
       switch member {
         case MClass(cl, _, fields) if (cl.isInterface):
-          emitInterface(cl);
+          emitInterface(cl, memberProjection.exportImplementation);
         case MClass(cl, _, fields):
           final emittableFields = Module.emittableFields(fields);
           final endClassTimer = timer('emitClass');
-          emitClass(module.isCyclic, cl, emittableFields);
+          emitClass(module.isCyclic, cl, emittableFields,
+            memberProjection.exportImplementation,
+            memberProjection.registerRuntimeType);
           endClassTimer();
           var endStaticsTimer = timer('emitStatics');
           emitStatics(module.isCyclic, cl, emittableFields);
@@ -62,13 +87,16 @@ class ModuleEmitter extends ExprEmitter {
           emitInit(cl);
         case MEnum(et, _):
           var endEnumTimer = timer('emitEnums');
-          emitEnum(et);
+          emitEnum(et, memberProjection.exportImplementation,
+            memberProjection.registerRuntimeType);
           endEnumTimer();
         case MMain(e):
           writeNewline();
           emitExpr(e);
         default:
       }
+      emitMemberSourcePositions = previousSourcePositions;
+    }
     for (export in module.expose)
       if (!export.isType)
         emitExport(export, module.toPath(export.module), extension);
@@ -304,9 +332,11 @@ class ModuleEmitter extends ExprEmitter {
     return false;
   }
 
-  function emitInterface(cl: ClassType) {
+  function emitInterface(cl: ClassType, export = true) {
     writeNewline();
-    write('export const ');
+    if (export)
+      write('export ');
+    write('const ');
     write(TypeUtil.className(cl));
     write(' = function() {};');
     writeNewline();
@@ -316,7 +346,7 @@ class ModuleEmitter extends ExprEmitter {
   }
 
   function emitClass(checkCycles: (module: String) -> Bool, cl: ClassType,
-      fields: Array<Field>, export = true) {
+      fields: Array<Field>, export = true, registerRuntimeType = true) {
     writeNewline();
     emitComment(cl.doc);
     emitPos(cl.pos);
@@ -328,12 +358,14 @@ class ModuleEmitter extends ExprEmitter {
       write('const ');
       write(TypeUtil.className(cl));
       write(' = ');
-      writeGlobalVar("$hxClasses");
-      write('[');
-      emitString(id);
-      write(']');
-      write(' = ');
-      writeNewline();
+      if (registerRuntimeType) {
+        writeGlobalVar("$hxClasses");
+        write('[');
+        emitString(id);
+        write(']');
+        write(' = ');
+        writeNewline();
+      }
     }
 
     emitPos(cl.pos);
@@ -369,7 +401,7 @@ class ModuleEmitter extends ExprEmitter {
           #if (haxe_ver >= 4.2) if (!field.isAbstract) #end:
           switch field.expr {
             case null:
-            case {expr: TFunction(f)} if (export || !field.isStatic):
+            case {expr: TFunction(f)}:
               writeNewline();
               if (field.doc != null)
                 writeNewline();
@@ -505,22 +537,27 @@ class ModuleEmitter extends ExprEmitter {
       writeNewline();
   }
 
-  function emitEnum(et: EnumType) {
+  function emitEnum(et: EnumType, export = true,
+      registerRuntimeType = true) {
     final discriminator = haxe.macro.Context.definedValue('genes.enum_discriminator');
     final id = et.pack.concat([et.name]).join('.');
     writeNewline();
     emitComment(et.doc);
     emitPos(et.pos);
-    write('export const ');
+    if (export)
+      write('export ');
+    write('const ');
     write(et.name);
     write(' = ');
-    writeNewline();
-    writeGlobalVar("$hxEnums");
-    write('[');
-    emitString(id);
-    write(']');
-    write(' = ');
-    writeNewline();
+    if (registerRuntimeType) {
+      writeNewline();
+      writeGlobalVar("$hxEnums");
+      write('[');
+      emitString(id);
+      write(']');
+      write(' = ');
+      writeNewline();
+    }
     write('{');
     increaseIndent();
     writeNewline();

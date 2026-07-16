@@ -69,6 +69,7 @@ depend on formatting.
 | Generator lifecycle and profile selection | `src/genes/Generator.hx` | Orchestrates typed input, reachability, validation, implementation emission, and declarations. |
 | Generation diagnostics | `src/genes/CompilerDiagnostic.hx` | Throws source-positioned Haxe macro errors through normal stack unwinding so staged output is cleaned before diagnostics escape. |
 | Module/member inventory | `src/genes/Module.hx` | Presents one emitter-facing module view and materializes declaration-only members without changing the runtime graph. |
+| Top-level output projection | `Module.memberProjection`, `src/genes/CompilerInternal.hx` | Separates local implementation presence, ESM export, consumer declarations, Haxe runtime registration, and source provenance. Printers consume these facts instead of treating one visibility flag as every policy. |
 | Public API facts | `src/genes/PublicSurface.hx` | Captures visibility, inheritance, generics, overload identity, and complete closed interface members before DCE. |
 | Null, undefined, and optionality | `src/genes/NullishContract.hx` | Keeps Haxe `Null<T>`, native `undefined`, optional fields, absent parameters, and unknown boundaries distinct. |
 | Dependency graphs and module-request order | `src/genes/DependencyPlan.hx`, `DependencyPlanBuilder.hx` | Records runtime-value, runtime-side-effect, type-only, and declaration-only edges with provenance; projects runtime requests by external/path/attribute identity into one ordered plan. |
@@ -116,6 +117,16 @@ capability diagnostic in classic mode.
 - Runtime, type-only, and declaration-only edges remain distinct. A type import
   must not introduce a runtime side effect; a declaration-only type must not
   broaden classic DCE.
+- Top-level output visibility is not one boolean. A
+  `@:genes.compilerInternal` type remains a typed local implementation after
+  full DCE while being omitted from exports, declarations, public runtime
+  registries, and source-map positions. Apply this projection only at the
+  final emitter boundary so dependency planning can still inspect the complete
+  typed member. Ordinary Haxe privacy remains byte-stable for now: real
+  libraries can route public signatures through source-private helper types,
+  and hiding those declarations without first normalizing the public type
+  graph would leave dangling consumer names. That broader privacy correction
+  requires separate evidence and is not implied by compiler ownership.
 - Runtime module-request order is an explicit immutable array keyed by
   internal/external identity, path, and optional loader attribute. Printers do
   not infer evaluation order from a path-grouped map. Equal requests coalesce

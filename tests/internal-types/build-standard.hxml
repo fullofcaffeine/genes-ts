@@ -1,0 +1,7 @@
+-cp tests/internal-types/src
+--main internaltypes.Main
+-js tests/internal-types/out/standard/index.cjs
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
+-debug

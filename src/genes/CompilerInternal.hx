@@ -17,16 +17,18 @@ typedef SideEffectImportMarkerCall = {
  * could execute a retention read at the wrong time.
  *
  * What: `@:genes.compilerInternal` removes an already-typed field from every
- * implementation/declaration printer, while the side-effect marker predicate
- * identifies calls that are consumed by dependency planning and must not reach
- * expression output.
+ * implementation/declaration printer. On a top-level type it instead requests
+ * a local-only implementation with no export, declaration, runtime registry,
+ * or source position. The side-effect marker predicate identifies calls that
+ * are consumed by dependency planning and must not reach expression output.
  *
  * How: `Module` deliberately keeps internal fields in its semantic member
  * inventory so dependency planning can traverse their expressions. Emitters
- * filter only at their output boundary. Marker recognition uses the compiler's
- * typed owner/member identity, never a generated name or source string. A
- * producer must still prove its DCE and placement contract before using this
- * boundary; the metadata alone does not create a dependency edge.
+ * filter only at their output boundary. `Module.memberProjection` owns the
+ * independent type-level visibility facts. Marker recognition uses the
+ * compiler's typed owner/member identity, never a generated name or source
+ * string. A producer must still prove its DCE and placement contract before
+ * using this boundary; the metadata alone does not create a dependency edge.
  */
 class CompilerInternal {
   /**
@@ -50,6 +52,18 @@ class CompilerInternal {
 
   /** Returns whether one typed field is semantic-only compiler evidence. */
   public static function isField(meta:Null<MetaAccess>):Bool {
+    return meta != null && meta.has(FIELD_METADATA);
+  }
+
+  /**
+   * Returns whether a typed top-level type is compiler-owned implementation.
+   *
+   * Why/What/How: the metadata spelling is shared with fields, but type members
+   * need a different final projection rather than erasure. `Module` calls this
+   * after typing to keep the implementation local while suppressing public,
+   * reflection, and provenance surfaces in both Genes output profiles.
+   */
+  public static function isType(meta:Null<MetaAccess>):Bool {
     return meta != null && meta.has(FIELD_METADATA);
   }
 

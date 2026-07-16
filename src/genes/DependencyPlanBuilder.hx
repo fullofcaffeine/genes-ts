@@ -406,6 +406,13 @@ class DependencyPlanBuilder {
     }
 
     for (member in module.members) {
+      // The implementation still needs every type named by an internal enum or
+      // typedef, but a declaration-hidden member has no consumer-facing syntax
+      // that could use those imports. Apply the same projection as the `.d.ts`
+      // printer here so an erased compiler detail cannot leave orphan imports.
+      if (kind == DeclarationOnly
+        && !Module.memberProjection(member).emitDeclaration)
+        continue;
       switch member {
         case MClass(cl, params, fields):
           collector.collectParams(params, true, '$kind.owner-parameters',

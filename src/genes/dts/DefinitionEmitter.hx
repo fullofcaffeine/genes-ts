@@ -35,7 +35,11 @@ class DefinitionEmitter extends ModuleEmitter {
         writeNewline();
       });
     }
-    for (member in module.members)
+    for (member in module.members) {
+      // Dependency planning uses this same projection, so skipping an internal
+      // member cannot leave a declaration import with no printed consumer.
+      if (!Module.memberProjection(member).emitDeclaration)
+        continue;
       switch member {
         #if (haxe_ver >= 4.2)
         case MClass(cl = {kind: KModuleFields(_)}, _, fields):
@@ -57,6 +61,7 @@ class DefinitionEmitter extends ModuleEmitter {
           emitTypeDefinition(def, params);
         default:
       }
+    }
     for (export in module.expose)
       emitExport(export, module.toPath(export.module), Genes.outExtension);
     // Haxe's structural StdTypes module is the one declaration artifact every

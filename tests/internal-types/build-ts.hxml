@@ -1,0 +1,9 @@
+-lib genes-ts
+-cp tests/internal-types/src
+--main internaltypes.Main
+-js tests/internal-types/out/ts/src-gen/index.ts
+-D genes.ts
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
+-debug
