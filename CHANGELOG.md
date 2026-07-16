@@ -1,3 +1,10 @@
+# [1.31.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.30.0...v1.31.0) (2026-07-16)
+
+
+### Features
+
+* **ts2hx:** carry typed returns through finally ([d9fb1f8](https://github.com/fullofcaffeine/genes-ts/commit/d9fb1f8b11155146c5b113f87955b33777a0a9b5))
+
 # [1.30.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.29.0...v1.30.0) (2026-07-16)
 
 
