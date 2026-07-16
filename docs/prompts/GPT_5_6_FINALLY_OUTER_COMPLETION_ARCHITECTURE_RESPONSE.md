@@ -405,8 +405,29 @@ Before promotion, executable differentials must cover:
   output ownership, transactions, security checks, and all six todoapp browser
   journeys were green. This proves only the documented synchronous-return
   boundary; it does not prove loop-target completion dispatch.
-- Stages 6 and 7 have not landed. `exceptions.finally-outer-transfer`
-  therefore remains unsupported and fail-closed.
+- Stage 6 now spells target-aware break and continue records. Deterministic
+  function-local integers are only the final Haxe representation; the planner's
+  callback path decides whether each target dispatches here or propagates to an
+  outer helper. Focused runtime evidence covers body/finalizer transfers in
+  while, do/while, lowered for, for-of, and lowered switch; exact for-step
+  timing; protected throws suppressed by finalizer control; finalizer throws;
+  catch control; mixed value/control carriers; and a single inner helper that
+  dispatches to a loop inside an outer callback while propagating a return from
+  another branch. The first executable D-case exposed and fixed one integration
+  gap: callback-local outer helpers must still enter their planned path so an
+  inner target can stop there. The new request-free control snapshot matches
+  standard Haxe and compiles through genes-ts with TypeScript 5/6/7; the larger
+  semantic transcript matches original TypeScript, classic Genes, and genes-ts.
+  Existing return-only and callback-local snapshots remain byte-stable. Full
+  `yarn test:ci` passed in 370.09 seconds, including security and dependency
+  gates, TypeScript 5/6/7, classic Genes and genes-ts, declarations, output
+  ownership and transactions, all 50 reviewed ts2hx snapshots, the complete
+  18-exercised/13-fail-closed semantic suite, and all six todoapp Playwright
+  journeys. This proves the staged synchronous target boundary; it does not
+  promote the public support row or prove any deferred function/target form.
+- Stage 7 has not landed. `exceptions.finally-outer-transfer` therefore remains
+  unsupported and fail-closed in the public matrix even though the synchronous
+  subset now has staged executable evidence.
 
 No later stage may cite the oracle response as proof. It may cite this document
 for the chosen invariant, then must cite its own fixture and gate for behavior.

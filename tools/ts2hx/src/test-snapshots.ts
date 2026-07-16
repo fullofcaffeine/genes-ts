@@ -225,6 +225,16 @@ function main(): number {
       requireStrongGeneratedHaxe: true
     },
     {
+      name: "finally-completion-control",
+      tsconfigPath: path.join(toolRoot, "fixtures", "finally-completion-control", "tsconfig.json"),
+      snapshotsDir: path.join(toolRoot, "tests_snapshots", "finally-completion-control"),
+      basePackage: "ts2hx",
+      runtimeProfile: "standard-haxe-js",
+      smokeMain: "ts2hx.Main",
+      genesTsRoundtrip: true,
+      requireStrongGeneratedHaxe: true
+    },
+    {
       name: "expression-coverage",
       tsconfigPath: path.join(toolRoot, "fixtures", "expression-coverage", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "expression-coverage"),
@@ -424,6 +434,38 @@ function main(): number {
       }
     }
 
+    if (fixture.name === "finally-completion-control") {
+      const completionSource = fs.readFileSync(
+        path.join(outDir, fixture.basePackage, "Main.hx"),
+        "utf8"
+      );
+      if (!completionSource.includes("BreakTo(target:Int)")
+        || !completionSource.includes("ContinueTo(target:Int)")) {
+        throw new Error(
+          "finally-completion-control: typed break/continue constructors are missing."
+        );
+      }
+      if (!completionSource.includes("case __Ts2hxFinallyAbrupt.BreakTo(__ts2hx_break_target2)")
+        || !completionSource.includes("case __Ts2hxFinallyAbrupt.ContinueTo(__ts2hx_continue_target2)")) {
+        throw new Error(
+          "finally-completion-control: generated target locals did not avoid source names."
+        );
+      }
+      const localAfter = completionSource.indexOf('events.push("local:after-loop")');
+      const outerFinalizer = completionSource.indexOf('events.push("local:outer")');
+      if (localAfter < 0 || outerFinalizer <= localAfter) {
+        throw new Error(
+          "finally-completion-control: an inner transfer skipped the remaining outer body."
+        );
+      }
+      if (!/case 1:\n\s+advanceLocalLoop\(\);\n\s+continue;/.test(completionSource)
+        || !/case 1:\n\s+break;\n\s+default:/.test(completionSource)) {
+        throw new Error(
+          "finally-completion-control: lowered-for dispatch lost its exactly-once step boundary."
+        );
+      }
+    }
+
     // The semantic manifest is asserted structurally by test-semantic-diff.
     // Keeping one copy per syntax fixture would duplicate a large global
     // support matrix and turn harmless provenance additions into snapshot churn.
@@ -554,7 +596,8 @@ function main(): number {
           include: ["**/*.tsx"]
         }, null, 2)}\n`
       );
-      if (fixture.name === "finally-completion-return")
+      if (fixture.name === "finally-completion-return"
+        || fixture.name === "finally-completion-control")
         runTypeScriptGeneratedOutputLanes(repoRoot, ["-p", roundtripConfig]);
       else
         runTypeScriptApiBridge(repoRoot, ["-p", roundtripConfig]);
@@ -562,10 +605,10 @@ function main(): number {
     }
   }
 
-  if (genesEsmFixtures !== 11 || standardHaxeFixtures !== 10 || standardHaxeRuntimeFixtures !== 9) {
+  if (genesEsmFixtures !== 11 || standardHaxeFixtures !== 11 || standardHaxeRuntimeFixtures !== 10) {
     throw new Error(
       "Snapshot runtime-profile inventory drifted; expected "
-      + "genes-esm=11, standard-haxe-js=10 with 9 standard runtime smokes, got "
+      + "genes-esm=11, standard-haxe-js=11 with 10 standard runtime smokes, got "
       + `genes-esm=${genesEsmFixtures}, standard-haxe-js=${standardHaxeFixtures} `
       + `with ${standardHaxeRuntimeFixtures} standard runtime smokes.`
     );

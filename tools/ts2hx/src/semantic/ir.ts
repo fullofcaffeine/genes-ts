@@ -156,15 +156,15 @@ export const SEMANTIC_SUPPORT_MATRIX: readonly SemanticFeatureContract[] = [
     support: "supported-with-helper",
     portableGrade: "J1",
     summary: "Preserves finally ordering and propagation through typed local or completion-aware helpers.",
-    limitation: "The promoted contract remains local completion; synchronous typed return crossing is staged evidence, while loop transfers and excluded function forms still fail closed."
+    limitation: "The promoted contract remains local completion; synchronous typed return/break/continue crossing is staged evidence, while excluded function, carrier, label, and loop forms still fail closed."
   },
   {
     id: "exceptions.finally-outer-transfer",
     category: "exceptions",
     support: "unsupported",
     portableGrade: "U",
-    summary: "Typed synchronous return completion is normalized as staged evidence, but the broader outer-transfer row is not yet promoted.",
-    limitation: "Break/continue, async, generators, constructors, anonymous forms, labels, and unsupported return carriers remain fail closed until the complete target differential lands."
+    summary: "Typed synchronous unlabelled return, break, and continue are normalized as staged evidence, but the broader outer-transfer row is not yet promoted.",
+    limitation: "Async, generators, constructors, anonymous forms, labels, unsupported loop forms, and inferred, generic, or weak return carriers remain fail closed until the promotion gate lands."
   },
   {
     id: "this.class-and-lexical-arrow",
@@ -617,13 +617,17 @@ export type CompletionReturnCarrierFailure =
 /**
  * Describes the generic payload required only when a return crosses a callback.
  *
- * `unused` deliberately covers functions whose only crossing transfers are
- * break/continue; their future carrier can instantiate the abrupt enum with
- * `Void`. A nullable source payload remains a value carrier because normal
- * callback completion is represented outside the enum as `null`.
+ * `unused` means that this function does not need a completion carrier at all.
+ * `control` covers functions whose crossing transfers are only break/continue:
+ * the abrupt enum can use `Void`, but the source function still needs an
+ * explicit strong return annotation so its own generated Haxe signature does
+ * not fall back to `Dynamic`. A nullable source payload remains a value carrier
+ * because normal callback completion is represented outside the enum as
+ * `null`.
  */
 export type CompletionReturnCarrierPlan =
   | Readonly<{ kind: "unused" }>
+  | Readonly<{ kind: "control"; sourceType: ts.TypeNode }>
   | Readonly<{ kind: "void"; sourceType: ts.TypeNode }>
   | Readonly<{ kind: "value"; sourceType: ts.TypeNode }>
   | Readonly<{
@@ -884,12 +888,15 @@ function planCompletionReturnCarrier(node: ts.FunctionLikeDeclaration,
     transfers: readonly CompletionTransferPlan[],
     sf: ts.SourceFile,
     checker: ts.TypeChecker | null): CompletionReturnCarrierPlan {
+  const crossingTransfers = transfers.filter((transfer) =>
+    transfer.disposition === "encode"
+  );
+  if (crossingTransfers.length === 0) return { kind: "unused" };
+
   const crossingReturns = transfers.filter((transfer) =>
     transfer.disposition === "encode"
     && (transfer.kind === "return-value" || transfer.kind === "return-void")
   );
-  if (crossingReturns.length === 0) return { kind: "unused" };
-
   const sourceType = node.type ?? null;
   if (!sourceType) {
     return {
@@ -919,6 +926,9 @@ function planCompletionReturnCarrier(node: ts.FunctionLikeDeclaration,
       reason: "weak-return-type"
     };
   }
+
+  if (crossingReturns.length === 0)
+    return { kind: "control", sourceType };
 
   const returnsVoid = sourceType.kind === ts.SyntaxKind.VoidKeyword;
   if (returnsVoid && hasValue) {

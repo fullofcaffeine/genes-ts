@@ -179,20 +179,20 @@ externs to ingest npm declarations.
 
 ## Current fixture inventory
 
-The snapshot runner currently owns these 21 projects:
+The snapshot runner currently owns these 22 projects:
 
 | Area | Fixtures |
 | --- | --- |
 | Core declarations/runtime | `minimal-codegen`, `classes-enums`, `real-world-v1` |
-| Expressions/control flow | `statement-coverage`, `expression-coverage`, `destructuring`, `params-defaults-rest`, `optional-chain-assignments`, `object-methods-spreads`, `async-await`, `finally-completion-return` |
+| Expressions/control flow | `statement-coverage`, `expression-coverage`, `destructuring`, `params-defaults-rest`, `optional-chain-assignments`, `object-methods-spreads`, `async-await`, `finally-completion-return`, `finally-completion-control` |
 | Types | `type-emission`, `type-literals` |
 | Modules/exports | `export-forms`, `module-syntax`, `module-regexp`, `non-relative-imports` |
 | JSX/React | `basic-tsx`, `react-types` |
 | Migration roundtrip | `roundtrip-fixture`, `roundtrip-advanced` |
 
-The current snapshot is 49 generated files. Effective TypeScript emit assigns
-11 fixtures to `genes-esm` and 10 request-free fixtures to
-`standard-haxe-js`; 9 of the standard fixtures execute their smoke runtime.
+The current snapshot is 50 generated files. Effective TypeScript emit assigns
+11 fixtures to `genes-esm` and 11 request-free fixtures to
+`standard-haxe-js`; 10 of the standard fixtures execute their smoke runtime.
 Explicit exceptions:
 
 - `basic-tsx` is assisted because its bound React package request remains
@@ -209,13 +209,16 @@ Explicit exceptions:
 Additional evidence-only fixtures:
 
 - `semantic-diff`: all 17 supported semantic contracts plus the staged typed
-  synchronous-return portion of outer `finally` completion execute as original
-  TS, classic Genes JS, and genes-ts→JS (18 exercised rows total), including
-  nested return/finalizer precedence, catch return/rethrow, exact thrown-object
-  identity, nullable and `Void` carriers, an ordinary class method, and the reduced ordered
-  `state`/`first`/`second` converted-module initialization proof and a
-  standalone bound-only target that reads its imports in reverse order. The
-  same differential runs with `verbatimModuleSyntax` off and on, proving that
+  synchronous return/break/continue portion of outer `finally` completion
+  execute as original TS, classic Genes JS, and genes-ts→JS (18 exercised rows
+  total). The completion trace covers nested target ownership, mixed local and
+  propagated outcomes from one helper, every supported loop form, exact
+  lowered-for increments, switch routing, catch control, finalizer precedence,
+  nullable and `Void` carriers, and an ordinary class method. The same fixture
+  also covers the reduced ordered `state`/`first`/`second` converted-module
+  initialization proof and a standalone bound-only target that reads its
+  imports in reverse order. It runs with `verbatimModuleSyntax` off and on,
+  proving that
   TypeScript-elided imports create no carrier while an unused retained alias
   initializes in its effective request slot;
 - `semantic-unsupported`: 12 strict failures with source provenance and

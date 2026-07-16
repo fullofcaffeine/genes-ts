@@ -113,6 +113,73 @@ function main(): void {
   const allowedCli = runCli(toolRoot, [...assistedArgs, "--allow-loss"]);
   assert(allowedCli.status === 0, `assisted --allow-loss exit was ${allowedCli.status}: ${allowedCli.stderr}`);
 
+  // A completion may be nested under syntax the statement printer never
+  // enters. Function-level preflight must still retain the precise try span and
+  // atomic no-write contract instead of falling back to a generic declaration
+  // diagnostic. `for...in` is intentionally outside the first completion
+  // boundary; supported loops are while, do/while, lowered for, and for-of.
+  const completionFixture = path.join(toolRoot, ".tmp", "completion-excluded-fixture");
+  const completionSource = path.join(completionFixture, "Main.ts");
+  const completionConfig = path.join(completionFixture, "tsconfig.json");
+  resetDir(completionFixture);
+  fs.writeFileSync(completionConfig, `${JSON.stringify({
+    compilerOptions: {
+      target: "ES2022",
+      module: "NodeNext",
+      moduleResolution: "NodeNext",
+      strict: true,
+      skipLibCheck: true
+    },
+    include: ["Main.ts"]
+  }, null, 2)}\n`, "utf8");
+  fs.writeFileSync(completionSource, `export function unsupportedLoop(values: Record<string, number>): void {
+  for (const key in values) {
+    try {
+      continue;
+    } finally {}
+  }
+}
+`, "utf8");
+  try {
+    const completionProject = loadProject(completionConfig);
+    if (!completionProject.ok)
+      throw new Error(
+        `Could not load completion exclusion fixture: ${completionProject.diagnostics.length} diagnostic(s).`
+      );
+    const completionOut = path.join(toolRoot, ".tmp", "completion-excluded-output");
+    resetDir(completionOut);
+    const completionSentinel = path.join(completionOut, "sentinel.txt");
+    fs.writeFileSync(completionSentinel, "prior-completion-tree\n", "utf8");
+    const completionRejected = emitProjectToHaxe({
+      projectDir: completionProject.projectDir,
+      rootDir: completionProject.rootDir,
+      program: completionProject.program,
+      checker: completionProject.checker,
+      sourceFiles: completionProject.sourceFiles,
+      outDir: completionOut,
+      basePackage: "completion_excluded",
+      runtimeProfile: "standard-haxe-js",
+      mode: "strict-js",
+      cleanOutDir: true
+    });
+    assert(completionRejected.status === "failed",
+      `unsupported completion status was ${completionRejected.status}`);
+    assert(completionRejected.writtenFiles.length === 0,
+      "unsupported completion committed partial output");
+    assert(fs.readFileSync(completionSentinel, "utf8") === "prior-completion-tree\n",
+      "unsupported completion changed the prior tree");
+    const completionDiagnostic = completionRejected.diagnostics[0];
+    assert(completionRejected.diagnostics.length === 1
+      && completionDiagnostic?.id === "TS2HX-EXCEPTIONS-FINALLY-OUTER-TRANSFER-001",
+      "unsupported completion lost its stable diagnostic");
+    assert(completionDiagnostic?.source.file === "Main.ts"
+      && completionDiagnostic.source.line === 3
+      && completionDiagnostic.source.column === 5,
+      "unsupported completion lost the source try position");
+  } finally {
+    fs.rmSync(completionFixture, { recursive: true, force: true });
+  }
+
   process.stdout.write("Strict diagnostics OK (API + CLI + transactional output)\n");
 }
 

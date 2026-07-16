@@ -221,8 +221,8 @@
           "count": 53
         }
       ],
-      "proves": "Named original-TypeScript, classic Genes, and genes-ts traces preserve the exercised runtime behavior, including the staged synchronous typed-return path through nested finalizers; thirteen canonical ts2hx boundaries fail closed, including excluded async completion, standard-Haxe request rejection, and same-server isolation of the private Genes request capability.",
-      "doesNotProve": "The staged return trace does not promote break/continue or excluded function/carrier forms, and the standard-Haxe request rejection is a capability test rather than a fourth runtime-parity oracle; the curated traces are neither a language-wide proof nor a portability promise for other Haxe targets."
+      "proves": "Named original-TypeScript, classic Genes, and genes-ts traces preserve the staged synchronous typed return/break/continue path through nested finalizers, including target ownership, loop increments, switch routing, catch control, and override precedence; thirteen canonical ts2hx boundaries still fail closed, including excluded async completion, standard-Haxe request rejection, and same-server isolation of the private Genes request capability.",
+      "doesNotProve": "The staged synchronous trace does not itself promote the semantic row or cover excluded async/generator/constructor/anonymous/labeled/generic/weak-carrier/unsupported-loop forms. The standard-Haxe request rejection is a capability test rather than a fourth runtime-parity oracle; the curated traces are neither a language-wide proof nor a portability promise for other Haxe targets."
     },
     {
       "id": "reviewed-generated-shape",
@@ -256,8 +256,8 @@
           "kind": "tracked-files",
           "path": "tools/ts2hx/tests_snapshots",
           "match": ".*",
-          "expected": 49,
-          "count": 49
+          "expected": 50,
+          "count": 50
         }
       ],
       "proves": "The exact generated forms remain stable unless reviewers intentionally update their baselines.",

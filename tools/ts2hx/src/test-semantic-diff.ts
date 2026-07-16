@@ -887,7 +887,9 @@ function main(): void {
     assert(!source.includes("__ts2hx_requests"), `${label}: request carrier leaked into generated output.`);
     assert(
       source.includes("__Ts2hxFinallyAbrupt")
-        && source.includes("FinallyCompletion.run"),
+        && source.includes("FinallyCompletion.run")
+        && source.includes("BreakTo")
+        && source.includes("ContinueTo"),
       `${label}: typed finally completion implementation is missing.`
     );
     assert(

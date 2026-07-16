@@ -262,6 +262,23 @@ function nestedFinallyReturn(localEvents: string[]): number {
   }
 }
 
+function tripleNestedFinallyReturn(localEvents: string[]): number {
+  try {
+    try {
+      try {
+        localEvents.push("triple:body");
+        return 9;
+      } finally {
+        localEvents.push("triple:inner");
+      }
+    } finally {
+      localEvents.push("triple:middle");
+    }
+  } finally {
+    localEvents.push("triple:outer");
+  }
+}
+
 function catchFinallyReturn(localEvents: string[], token: FinallyToken): number {
   try {
     throw token;
@@ -345,6 +362,7 @@ function finallyReturnTrace(): string {
   }
 
   localEvents.push(`nested:value:${nestedFinallyReturn(localEvents)}`);
+  localEvents.push(`triple:value:${tripleNestedFinallyReturn(localEvents)}`);
   localEvents.push(`catch:value:${catchFinallyReturn(localEvents, new FinallyToken("caught"))}`);
 
   const rethrown = new FinallyToken("rethrown");
@@ -359,6 +377,367 @@ function finallyReturnTrace(): string {
     nullableFinallyReturn(localEvents) === null ? "nullable:null" : "nullable:changed"
   );
   localEvents.push(`method:value:${new FinallyMethodOwner(8).read(localEvents)}`);
+  return localEvents.join(",");
+}
+
+let finallyForIndex = 0;
+let finallyForSteps = 0;
+
+// This group is intentionally redundant across loop and nesting shapes. A
+// green compile is not enough: the shared transcript proves when the finalizer
+// runs, whether the real target is local or outside another callback, and
+// whether a lowered for increment happens exactly once.
+function advanceFinallyFor(): void {
+  finallyForSteps += 1;
+  finallyForIndex += 1;
+}
+
+function finallyForControl(localEvents: string[]): void {
+  finallyForSteps = 0;
+  for (finallyForIndex = 0; finallyForIndex < 3; advanceFinallyFor()) {
+    try {
+      localEvents.push(`for:body:${finallyForIndex}`);
+      if (finallyForIndex === 0) continue;
+      if (finallyForIndex === 1) break;
+    } finally {
+      localEvents.push(`for:finally:${finallyForIndex}`);
+    }
+    localEvents.push(`for:after:${finallyForIndex}`);
+  }
+  localEvents.push(`for:steps:${finallyForSteps}`);
+}
+
+function finalizerControlOverride(localEvents: string[]): void {
+  let index = 0;
+  while (index < 3) {
+    index += 1;
+    try {
+      localEvents.push(`override-control:body:${index}`);
+      if (index === 1) break;
+      continue;
+    } finally {
+      localEvents.push(`override-control:finally:${index}`);
+      if (index === 1) continue;
+      if (index === 2) break;
+    }
+  }
+  localEvents.push(`override-control:end:${index}`);
+}
+
+function mixedValueControl(localEvents: string[], useBreak: boolean): number {
+  for (let index = 0; index < 2; index++) {
+    try {
+      localEvents.push(`mixed:body:${useBreak}:${index}`);
+      if (useBreak) break;
+      if (index === 0) continue;
+      return 17;
+    } finally {
+      localEvents.push(`mixed:finally:${useBreak}:${index}`);
+    }
+  }
+  return 19;
+}
+
+function finalizerReturnOverControl(localEvents: string[]): number {
+  for (let index = 0; index < 1; index++) {
+    try {
+      localEvents.push("return-over-control:body");
+      continue;
+    } finally {
+      localEvents.push("return-over-control:finally");
+      return 23;
+    }
+  }
+  return 0;
+}
+
+function nestedFinallyLocalTarget(localEvents: string[]): void {
+  try {
+    for (let index = 0; index < 2; index++) {
+      try {
+        localEvents.push(`local-target:body:${index}`);
+        if (index === 0) continue;
+        break;
+      } finally {
+        localEvents.push(`local-target:inner:${index}`);
+      }
+    }
+    localEvents.push("local-target:after-loop");
+  } finally {
+    localEvents.push("local-target:outer");
+  }
+}
+
+function nestedFinallyOuterTarget(localEvents: string[]): void {
+  for (let index = 0; index < 2; index++) {
+    try {
+      try {
+        localEvents.push(`outer-target:body:${index}`);
+        if (index === 0) continue;
+        break;
+      } finally {
+        localEvents.push(`outer-target:inner:${index}`);
+      }
+    } finally {
+      localEvents.push(`outer-target:outer:${index}`);
+    }
+  }
+  localEvents.push("outer-target:after-loop");
+}
+
+function mixedTargetOwnership(localEvents: string[], shouldReturn: boolean): number {
+  try {
+    for (let index = 0; index < 2; index++) {
+      try {
+        localEvents.push(`mixed-target:body:${shouldReturn}:${index}`);
+        if (shouldReturn) return 31;
+        if (index === 0) continue;
+        break;
+      } finally {
+        localEvents.push(`mixed-target:inner:${shouldReturn}:${index}`);
+      }
+    }
+    localEvents.push(`mixed-target:after-loop:${shouldReturn}`);
+  } finally {
+    localEvents.push(`mixed-target:outer:${shouldReturn}`);
+  }
+  return 32;
+}
+
+function finallySwitchControl(localEvents: string[]): void {
+  switch (1) {
+    case 1:
+      try {
+        localEvents.push("switch:break-body");
+        break;
+      } finally {
+        localEvents.push("switch:break-finally");
+      }
+    default:
+      localEvents.push("switch:unreachable");
+      break;
+  }
+  localEvents.push("switch:after-break");
+
+  switch (2) {
+    case 2:
+      try {
+        localEvents.push("switch:finalizer-break-body");
+      } finally {
+        localEvents.push("switch:finalizer-break-finally");
+        break;
+      }
+    default:
+      localEvents.push("switch:finalizer-break-unreachable");
+      break;
+  }
+  localEvents.push("switch:after-finalizer-break");
+
+  for (let index = 0; index < 2; index++) {
+    switch (index) {
+      case 0:
+        try {
+          localEvents.push("switch:continue-body");
+          continue;
+        } finally {
+          localEvents.push("switch:continue-finally");
+        }
+      default:
+        localEvents.push("switch:second");
+        break;
+    }
+    localEvents.push(`switch:after:${index}`);
+  }
+
+  for (let index = 0; index < 2; index++) {
+    switch (index) {
+      case 0:
+        try {
+          localEvents.push("switch:finalizer-continue-body");
+        } finally {
+          localEvents.push("switch:finalizer-continue-finally");
+          continue;
+        }
+      default:
+        localEvents.push("switch:finalizer-continue-second");
+        break;
+    }
+    localEvents.push(`switch:finalizer-continue-after:${index}`);
+  }
+
+  let nestedIndex = 0;
+  while (nestedIndex < 2) {
+    nestedIndex += 1;
+    switch (nestedIndex) {
+      case 1:
+        switch (nestedIndex) {
+          case 1:
+            try {
+              localEvents.push("switch:nested-continue-body");
+              continue;
+            } finally {
+              localEvents.push("switch:nested-continue-finally");
+            }
+          default:
+            break;
+        }
+        localEvents.push("switch:nested-unreachable");
+        break;
+      default:
+        localEvents.push(`switch:nested-second:${nestedIndex}`);
+        break;
+    }
+    localEvents.push(`switch:nested-after:${nestedIndex}`);
+  }
+}
+
+function finallyLoopKinds(localEvents: string[]): void {
+  let whileIndex = 0;
+  while (whileIndex < 2) {
+    try {
+      localEvents.push(`while:body:${whileIndex}`);
+      whileIndex += 1;
+      if (whileIndex === 1) continue;
+      break;
+    } finally {
+      localEvents.push(`while:finally:${whileIndex}`);
+    }
+  }
+
+  let doIndex = 0;
+  do {
+    try {
+      localEvents.push(`do:body:${doIndex}`);
+      doIndex += 1;
+      if (doIndex === 1) continue;
+      break;
+    } finally {
+      localEvents.push(`do:finally:${doIndex}`);
+    }
+  } while (doIndex < 3);
+
+  for (const value of [0, 1, 2]) {
+    try {
+      localEvents.push(`for-of:body:${value}`);
+      if (value === 0) continue;
+      break;
+    } finally {
+      localEvents.push(`for-of:finally:${value}`);
+    }
+  }
+}
+
+function finalizerOriginatedLoopKinds(localEvents: string[]): void {
+  let whileIndex = 0;
+  while (whileIndex < 2) {
+    whileIndex += 1;
+    try {
+      localEvents.push(`finalizer-while:body:${whileIndex}`);
+    } finally {
+      localEvents.push(`finalizer-while:finally:${whileIndex}`);
+      if (whileIndex === 1) continue;
+      break;
+    }
+  }
+
+  let doIndex = 0;
+  do {
+    doIndex += 1;
+    try {
+      localEvents.push(`finalizer-do:body:${doIndex}`);
+    } finally {
+      localEvents.push(`finalizer-do:finally:${doIndex}`);
+      if (doIndex === 1) continue;
+      break;
+    }
+  } while (doIndex < 3);
+
+  for (let index = 0; index < 3; index++) {
+    try {
+      localEvents.push(`finalizer-for:body:${index}`);
+    } finally {
+      localEvents.push(`finalizer-for:finally:${index}`);
+      if (index === 0) continue;
+      break;
+    }
+  }
+
+  for (const value of [0, 1, 2]) {
+    try {
+      localEvents.push(`finalizer-for-of:body:${value}`);
+    } finally {
+      localEvents.push(`finalizer-for-of:finally:${value}`);
+      if (value === 0) continue;
+      break;
+    }
+  }
+}
+
+function finallyControlThrowPrecedence(localEvents: string[]): void {
+  let index = 0;
+  while (index < 2) {
+    index += 1;
+    try {
+      localEvents.push(`throw-control:body:${index}`);
+      throw new FinallyToken(`protected:${index}`);
+    } finally {
+      localEvents.push(`throw-control:finally:${index}`);
+      if (index === 1) continue;
+      break;
+    }
+  }
+
+  const finalizerError = new FinallyToken("finalizer-control");
+  try {
+    while (true) {
+      try {
+        localEvents.push("control-throw:body-break");
+        break;
+      } finally {
+        localEvents.push("control-throw:finally");
+        throw finalizerError;
+      }
+    }
+  } catch (caught) {
+    localEvents.push(
+      caught === finalizerError
+        ? "control-throw:finalizer-same"
+        : "control-throw:finalizer-changed"
+    );
+  }
+}
+
+function catchFinallyControl(localEvents: string[]): void {
+  for (let index = 0; index < 2; index++) {
+    try {
+      throw new FinallyToken(`catch-control:${index}`);
+    } catch {
+      localEvents.push(`catch-control:catch:${index}`);
+      if (index === 0) continue;
+      break;
+    } finally {
+      localEvents.push(`catch-control:finally:${index}`);
+    }
+  }
+  localEvents.push("catch-control:after-loop");
+}
+
+function finallyControlTrace(): string {
+  const localEvents: string[] = [];
+  finallyForControl(localEvents);
+  finalizerControlOverride(localEvents);
+  localEvents.push(`mixed:break-value:${mixedValueControl(localEvents, true)}`);
+  localEvents.push(`mixed:continue-value:${mixedValueControl(localEvents, false)}`);
+  localEvents.push(`return-over-control:value:${finalizerReturnOverControl(localEvents)}`);
+  nestedFinallyLocalTarget(localEvents);
+  nestedFinallyOuterTarget(localEvents);
+  localEvents.push(`mixed-target:local-value:${mixedTargetOwnership(localEvents, false)}`);
+  localEvents.push(`mixed-target:return-value:${mixedTargetOwnership(localEvents, true)}`);
+  finallySwitchControl(localEvents);
+  finallyLoopKinds(localEvents);
+  finalizerOriginatedLoopKinds(localEvents);
+  finallyControlThrowPrecedence(localEvents);
+  catchFinallyControl(localEvents);
   return localEvents.join(",");
 }
 
@@ -428,6 +807,7 @@ export function main(): void {
   events.push(`switch-continue:nested-switch:${nestedSwitchContinue()}`);
   events.push(`function-state:${nestedFunctionControlState()}`);
   events.push(`finally-return:${finallyReturnTrace()}`);
+  events.push(`finally-control:${finallyControlTrace()}`);
 
   const firstSwitch: number = 2;
   switch (firstSwitch) {

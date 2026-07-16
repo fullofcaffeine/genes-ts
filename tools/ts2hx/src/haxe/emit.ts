@@ -286,6 +286,7 @@ type FunctionEmitState = {
   callbackPath: CompletionCallbackPath;
   activeTargets: CompletionTargetId[];
   targetById: ReadonlyMap<CompletionTargetId, CompletionControlTargetPlan>;
+  targetNumberById: ReadonlyMap<CompletionTargetId, number>;
   continueSteps: Map<CompletionTargetId, string | null>;
   switchContinueTransfers: Array<{ flag: string; targetId: CompletionTargetId }>;
   generatedLocalNames: Set<string>;
@@ -381,6 +382,9 @@ function withFunctionEmitState<T>(ctx: EmitContext,
     callbackPath: [],
     activeTargets: [],
     targetById: new Map(plan.targets.map((target) => [target.id, target])),
+    targetNumberById: new Map(
+      plan.targets.map((target, index) => [target.id, index])
+    ),
     continueSteps: new Map(),
     switchContinueTransfers: [],
     generatedLocalNames
@@ -448,6 +452,26 @@ function nextFunctionLocal(ctx: EmitContext, prefix: string): string {
   return name;
 }
 
+/**
+ * Claims a readable pattern-local name without perturbing temp ordinals.
+ *
+ * Dispatch variables are scoped to generated switch cases, but Haxe still
+ * rejects some shadowing shapes. Reusing the familiar base keeps existing
+ * return-only output byte-stable; a deterministic suffix is added only when
+ * the source function or an earlier generated case already owns that name.
+ */
+function claimFunctionLocal(ctx: EmitContext, base: string): string {
+  const state = requireFunctionEmitState(ctx);
+  let name = base;
+  let suffix = 2;
+  while (state.generatedLocalNames.has(name)) {
+    name = `${base}${suffix}`;
+    suffix++;
+  }
+  state.generatedLocalNames.add(name);
+  return name;
+}
+
 function nextCompletionLocal(ctx: EmitContext): string {
   return nextFunctionLocal(ctx, "__ts2hx_completion");
 }
@@ -456,6 +480,28 @@ function callbackPathsEqual(left: CompletionCallbackPath,
     right: CompletionCallbackPath): boolean {
   return left.length === right.length
     && left.every((callback, index) => callback === right[index]);
+}
+
+function callbackPathIsPrefix(prefix: CompletionCallbackPath,
+    value: CompletionCallbackPath): boolean {
+  return prefix.length <= value.length
+    && prefix.every((callback, index) => callback === value[index]);
+}
+
+function completionTargetForId(state: FunctionEmitState,
+    targetId: CompletionTargetId): CompletionControlTargetPlan {
+  const target = state.targetById.get(targetId);
+  if (!target)
+    throw new Error(`Completion plan is missing target ${targetId}.`);
+  return target;
+}
+
+function completionTargetNumber(state: FunctionEmitState,
+    targetId: CompletionTargetId): number {
+  const target = state.targetNumberById.get(targetId);
+  if (target === undefined)
+    throw new Error(`Completion plan is missing numeric target ${targetId}.`);
+  return target;
 }
 
 /**
@@ -531,27 +577,59 @@ function completionTransfersForRegion(fn: FunctionCompletionPlan,
   });
 }
 
-/** First staged emitter boundary: typed return records, without loop transfer. */
-function isReturnOnlyCompletionRegion(fn: FunctionCompletionPlan,
+const COMPLETION_LOOP_KINDS = new Set(["while", "do", "for", "for-of"]);
+
+/**
+ * Checks the exact synchronous target subset before a callback is printed.
+ *
+ * Why: the semantic planner intentionally inventories more syntax than this
+ * emitter has proved. Treating every planned target as printable would turn a
+ * useful ownership model into an accidental support claim.
+ *
+ * What: return targets require a matching strong carrier; break may target a
+ * supported real loop or source switch; continue may target only a supported
+ * real loop. `for...in` remains outside the strict statement subset.
+ *
+ * How: every crossing transfer is resolved through the immutable function
+ * target table. A false result makes the containing source `try` produce the
+ * stable fail-closed diagnostic before any output tree is published.
+ */
+function isSupportedCompletionRegion(fn: FunctionCompletionPlan,
     region: CompletionFinallyPlan): boolean {
   if (region.strategy !== "finally-helper-completion") return false;
-  if (fn.returnCarrier.kind !== "value" && fn.returnCarrier.kind !== "void")
+  if (fn.returnCarrier.kind === "unused"
+    || fn.returnCarrier.kind === "unsupported")
     return false;
   const transfers = completionTransfersForRegion(fn, region);
-  return transfers.length > 0 && transfers.every((transfer) =>
-    transfer.kind === "return-value" || transfer.kind === "return-void");
+  if (transfers.length === 0) return false;
+  return transfers.every((transfer) => {
+    if (!transfer.targetId || !transfer.targetPath) return false;
+    const target = fn.targets.find((candidate) => candidate.id === transfer.targetId);
+    if (!target) return false;
+    if (transfer.kind === "return-value")
+      return target.id === fn.returnTarget.id && fn.returnCarrier.kind === "value";
+    if (transfer.kind === "return-void")
+      return target.id === fn.returnTarget.id && fn.returnCarrier.kind === "void";
+    if (transfer.kind === "break") {
+      return target.kind === "switch"
+        || (target.kind === "loop" && target.loopKind !== null
+          && COMPLETION_LOOP_KINDS.has(target.loopKind));
+    }
+    return target.kind === "loop" && target.loopKind !== null
+      && COMPLETION_LOOP_KINDS.has(target.loopKind);
+  });
 }
 
-function sourceNeedsReturnCompletionType(plan: SourceCompletionPlan): boolean {
+function sourceNeedsCompletionType(plan: SourceCompletionPlan): boolean {
   return plan.functions.some((fn) => fn.finallyRegions.some((region) =>
-    isReturnOnlyCompletionRegion(fn, region)));
+    isSupportedCompletionRegion(fn, region)));
 }
 
 type EmittedCompletionCarrier = Readonly<{
   typeName: string;
   payloadType: string;
   carrierType: string;
-  kind: "value" | "void";
+  kind: "value" | "void" | "control";
 }>;
 
 function emittedTypeContainsWeakBoundary(type: string): boolean {
@@ -572,6 +650,16 @@ function completionCarrier(ctx: EmitContext,
   const typeName = ctx.completionAbruptTypeName;
   if (!typeName) return null;
   const plan = state.plan.returnCarrier;
+  if (plan.kind === "control") {
+    const functionReturnType = emitType(plan.sourceType);
+    if (emittedTypeContainsWeakBoundary(functionReturnType)) return null;
+    return {
+      typeName,
+      payloadType: "Void",
+      carrierType: `${typeName}<Void>`,
+      kind: "control"
+    };
+  }
   if (plan.kind === "void") {
     return {
       typeName,
@@ -592,6 +680,45 @@ function completionCarrier(ctx: EmitContext,
 }
 
 /**
+ * Validates every completion region before spelling its surrounding function.
+ *
+ * A supported transfer can sit inside a statement form that the emitter never
+ * descends into (for example, the currently unsupported `for...in`). Without a
+ * function preflight, that shape would receive a generic declaration failure
+ * instead of the stable source-positioned outer-completion diagnostic. The
+ * check is read-only and reports only the first region, matching normal
+ * fail-fast function emission and preserving transactional output.
+ */
+function validateCompletionFunction(ctx: EmitContext): boolean {
+  const state = requireFunctionEmitState(ctx);
+  for (const region of state.plan.finallyRegions) {
+    if (region.strategy === "finally-helper-local") continue;
+    if (region.strategy === "unsupported-outer-transfer"
+      || !isSupportedCompletionRegion(state.plan, region)) {
+      rejectSemantic(
+        ctx,
+        "exceptions.finally-outer-transfer",
+        region.statement,
+        "This return, break, or continue crosses a finally boundary outside the typed synchronous completion subset.",
+        "control-flow"
+      );
+      return false;
+    }
+    if (!completionCarrier(ctx, state)) {
+      rejectSemantic(
+        ctx,
+        "exceptions.finally-outer-transfer",
+        region.statement,
+        "The explicit return type cannot be represented by a strong Haxe completion carrier.",
+        "control-flow"
+      );
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Satisfies Haxe's value-return check without inventing a fallback value.
  *
  * TypeScript has already accepted the whole project. For this staged boundary,
@@ -607,7 +734,7 @@ function appendCompletionReturnGuard(ctx: EmitContext, body: string,
   const state = requireFunctionEmitState(ctx);
   if (state.plan.returnCarrier.kind !== "value"
     || !state.plan.finallyRegions.some((region) =>
-      isReturnOnlyCompletionRegion(state.plan, region)))
+      isSupportedCompletionRegion(state.plan, region)))
     return body;
   const message = JSON.stringify(
     `Typed completion function ${state.plan.name} reached impossible fallthrough.`
@@ -1617,6 +1744,7 @@ function emitLogicalAssignment(ctx: EmitContext, expression: ts.BinaryExpression
 function emitArrowFunctionExpression(ctx: EmitContext,
     fn: ts.ArrowFunction): string | null {
   return withFunctionEmitState(ctx, fn, () => {
+    if (!validateCompletionFunction(ctx)) return null;
     const isAsync = fn.modifiers?.some((m) =>
       m.kind === ts.SyntaxKind.AsyncKeyword) ?? false;
     if (isAsync) recordSemantic(ctx, "async.await", fn);
@@ -1787,6 +1915,7 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
           if (!prop.body) return null;
 
           const fn = withFunctionEmitState(ctx, prop, () => {
+            if (!validateCompletionFunction(ctx)) return null;
             const params = prop.parameters.map((p) => {
               const id = ts.isIdentifier(p.name) ? p.name.text : "arg";
               const isOptional = !!p.questionToken;
@@ -2315,7 +2444,7 @@ function emitDirectTryCatch(ctx: EmitContext, stmt: ts.TryStatement, indent: str
 }
 
 /**
- * Emits a continue for the real loop represented by the current semantic plan.
+ * Emits a continue for one real loop from the immutable semantic plan.
  *
  * A lowered switch uses `do ... while (false)` so source `break` has a concrete
  * target. A source `continue` must not target that synthetic loop. While switch
@@ -2324,12 +2453,13 @@ function emitDirectTryCatch(ctx: EmitContext, stmt: ts.TryStatement, indent: str
  * through an enclosing synthetic switch or performs the real loop continue,
  * including a lowered for-loop increment exactly once.
  */
-function emitContinue(ctx: EmitContext, indent: string): string {
+function emitContinueToTarget(ctx: EmitContext, targetId: CompletionTargetId,
+    indent: string): string {
   const state = requireFunctionEmitState(ctx);
-  const loopTarget = currentLoopTarget(state);
-  if (!loopTarget) {
+  const loopTarget = completionTargetForId(state, targetId);
+  if (loopTarget.kind !== "loop" || !state.activeTargets.includes(targetId)) {
     throw new Error(
-      `Continue has no active loop target in ${ctx.sourceFilePath}.`
+      `Continue target ${targetId} is not an active loop in ${ctx.sourceFilePath}.`
     );
   }
   const switchTransfer = state.switchContinueTransfers
@@ -2345,7 +2475,121 @@ function emitContinue(ctx: EmitContext, indent: string): string {
     : `${indent}continue;`;
 }
 
-function emitReturnCompletionDispatch(ctx: EmitContext,
+function emitContinue(ctx: EmitContext, indent: string): string {
+  const state = requireFunctionEmitState(ctx);
+  const loopTarget = currentLoopTarget(state);
+  if (!loopTarget)
+    throw new Error(`Continue has no active loop target in ${ctx.sourceFilePath}.`);
+  return emitContinueToTarget(ctx, loopTarget.id, indent);
+}
+
+function emitBreakToTarget(ctx: EmitContext, targetId: CompletionTargetId,
+    indent: string): string {
+  const state = requireFunctionEmitState(ctx);
+  const target = completionTargetForId(state, targetId);
+  if ((target.kind !== "loop" && target.kind !== "switch")
+    || !state.activeTargets.includes(targetId)) {
+    throw new Error(
+      `Break target ${targetId} is not active in ${ctx.sourceFilePath}.`
+    );
+  }
+  // Haxe switches do not own `break`; inside the generated enum/target switch,
+  // this still exits the nearest real loop. A source switch is deliberately
+  // represented by its surrounding synthetic `do/while(false)` target.
+  return `${indent}break;`;
+}
+
+type CompletionDispatchAction = "dispatch" | "propagate";
+
+function completionDispatchAction(state: FunctionEmitState,
+    transfer: CompletionTransferPlan): CompletionDispatchAction {
+  if (!transfer.targetId || !transfer.targetPath)
+    throw new Error(`Completion transfer ${transfer.id} has no resolved target.`);
+  const target = completionTargetForId(state, transfer.targetId);
+  if (!callbackPathsEqual(target.ownerPath, transfer.targetPath)) {
+    throw new Error(
+      `Completion transfer ${transfer.id} disagrees with target ${target.id} ownership.`
+    );
+  }
+  if (callbackPathsEqual(target.ownerPath, state.callbackPath)) return "dispatch";
+  if (callbackPathIsPrefix(target.ownerPath, state.callbackPath)) return "propagate";
+  throw new Error(
+    `Completion transfer ${transfer.id} cannot move from `
+    + `${JSON.stringify(state.callbackPath)} to ${JSON.stringify(target.ownerPath)}.`
+  );
+}
+
+function completionTargetsByKind(state: FunctionEmitState,
+    transfers: readonly CompletionTransferPlan[],
+    kind: "break" | "continue"): Array<{
+      targetId: CompletionTargetId;
+      targetNumber: number;
+      action: CompletionDispatchAction;
+    }> {
+  const targets = new Map<CompletionTargetId, CompletionDispatchAction>();
+  for (const transfer of transfers) {
+    if (transfer.kind !== kind || !transfer.targetId) continue;
+    const action = completionDispatchAction(state, transfer);
+    const prior = targets.get(transfer.targetId);
+    if (prior && prior !== action)
+      throw new Error(`Completion target ${transfer.targetId} has inconsistent ownership.`);
+    targets.set(transfer.targetId, action);
+  }
+  return Array.from(targets, ([targetId, action]) => ({
+    targetId,
+    targetNumber: completionTargetNumber(state, targetId),
+    action
+  })).sort((left, right) => left.targetNumber - right.targetNumber);
+}
+
+function emitTargetCompletionCase(ctx: EmitContext,
+    transfers: readonly CompletionTransferPlan[],
+    kind: "break" | "continue", completionName: string,
+    carrier: EmittedCompletionCarrier, indent: string): string[] {
+  const state = requireFunctionEmitState(ctx);
+  const targets = completionTargetsByKind(state, transfers, kind);
+  if (targets.length === 0) return [];
+  const targetLocal = claimFunctionLocal(ctx, `__ts2hx_${kind}_target`);
+  const constructor = kind === "break" ? "BreakTo" : "ContinueTo";
+  const lines = [
+    `${indent}  case ${carrier.typeName}.${constructor}(${targetLocal}):`,
+    `${indent}    switch (${targetLocal}) {`
+  ];
+  for (const target of targets) {
+    lines.push(`${indent}      case ${target.targetNumber}:`);
+    if (target.action === "propagate") {
+      lines.push(`${indent}        return ${completionName};`);
+      continue;
+    }
+    lines.push(kind === "break"
+      ? emitBreakToTarget(ctx, target.targetId, indent + "        ")
+      : emitContinueToTarget(ctx, target.targetId, indent + "        "));
+  }
+  lines.push(
+    `${indent}      default:`,
+    `${indent}        throw new haxe.Exception("ts2hx received an unplanned ${kind} target.");`,
+    `${indent}    }`
+  );
+  return lines;
+}
+
+/**
+ * Stops or propagates an abrupt record at the first callback path that owns it.
+ *
+ * Why: an inner `continue` may target a loop inside an outer protected
+ * callback, while another syntactically similar continue targets a loop around
+ * both finalizers. Propagating both would skip valid outer-body statements;
+ * dispatching both would skip an outer finalizer.
+ *
+ * What: the immutable target path decides the action. A target owned at the
+ * current path becomes a real return/break/continue. A target owned by a strict
+ * prefix is returned unchanged so the next helper can run its finalizer.
+ *
+ * How: target IDs become deterministic function-local integers only at this
+ * final spelling boundary. The generated switch contains exactly the target
+ * cases proven reachable from this region and rejects every impossible tag.
+ */
+function emitCompletionDispatch(ctx: EmitContext,
     region: CompletionFinallyPlan, completionName: string,
     carrier: EmittedCompletionCarrier, indent: string): string {
   const state = requireFunctionEmitState(ctx);
@@ -2356,63 +2600,82 @@ function emitReturnCompletionDispatch(ctx: EmitContext,
   }
 
   const transfers = completionTransfersForRegion(state.plan, region);
-  for (const transfer of transfers) {
-    if (transfer.targetId !== state.plan.returnTarget.id
-      || transfer.targetPath === null || transfer.targetPath.length !== 0) {
-      throw new Error(
-        `Return-only region ${region.id} contains non-function target ${transfer.id}.`
-      );
-    }
-  }
-
-  // Inside an enclosing completion callback, every function return still has
-  // farther to travel. Propagate the opaque record without inspecting it; the
-  // next outer helper must run its own finalizer before root dispatch.
-  if (state.callbackPath.length > 0)
+  const actions = transfers.map((transfer) =>
+    completionDispatchAction(state, transfer));
+  if (actions.length > 0 && actions.every((action) => action === "propagate"))
     return `${indent}if (${completionName} != null) return ${completionName};`;
 
-  const returnCase = carrier.kind === "value"
-    ? [
-        `${indent}  case ${carrier.typeName}.ReturnValue(value):`,
-        `${indent}    return value;`
-      ]
-    : [
-        `${indent}  case ${carrier.typeName}.ReturnVoid:`,
-        `${indent}    return;`
-      ];
-  // `ReturnValue` carries `Void` in a void function. Haxe deliberately
-  // forbids destructuring a Void payload, so an explicit default handles every
-  // statically unreachable constructor without weakening the carrier type.
-  const lines = [
-    `${indent}switch (${completionName}) {`,
-    ...returnCase,
+  const lines = [`${indent}switch (${completionName}) {`];
+  const valueReturns = transfers.filter((transfer) =>
+    transfer.kind === "return-value");
+  if (valueReturns.length > 0) {
+    const valueTransfer = valueReturns[0];
+    if (!valueTransfer)
+      throw new Error(`Finally region ${region.id} lost its value return.`);
+    if (carrier.kind !== "value")
+      throw new Error(`Value return reached ${carrier.kind} carrier dispatch.`);
+    const returnValue = claimFunctionLocal(ctx, "value");
+    lines.push(
+      `${indent}  case ${carrier.typeName}.ReturnValue(${returnValue}):`,
+      completionDispatchAction(state, valueTransfer)
+        === "propagate"
+        ? `${indent}    return ${completionName};`
+        : `${indent}    return ${returnValue};`
+    );
+  }
+  const voidReturns = transfers.filter((transfer) =>
+    transfer.kind === "return-void");
+  if (voidReturns.length > 0) {
+    const voidTransfer = voidReturns[0];
+    if (!voidTransfer)
+      throw new Error(`Finally region ${region.id} lost its void return.`);
+    if (carrier.kind !== "void")
+      throw new Error(`Void return reached ${carrier.kind} carrier dispatch.`);
+    lines.push(
+      `${indent}  case ${carrier.typeName}.ReturnVoid:`,
+      completionDispatchAction(state, voidTransfer)
+        === "propagate"
+        ? `${indent}    return ${completionName};`
+        : `${indent}    return;`
+    );
+  }
+  lines.push(...emitTargetCompletionCase(
+    ctx, transfers, "break", completionName, carrier, indent
+  ));
+  lines.push(...emitTargetCompletionCase(
+    ctx, transfers, "continue", completionName, carrier, indent
+  ));
+  // A `Void` carrier cannot destructure the statically impossible
+  // `ReturnValue(Void)` constructor. The default covers every unreachable
+  // constructor without weakening the enum or fabricating a payload.
+  lines.push(
     `${indent}  case null:`,
     `${indent}    {}`,
     `${indent}  default:`,
     `${indent}    throw new haxe.Exception("ts2hx received an unplanned completion variant.");`,
     `${indent}}`
-  ];
+  );
   return lines.join("\n");
 }
 
 /**
- * Emits the typed return-only portion of completion-aware `try/finally`.
+ * Emits typed completion-aware `try/finally` callbacks.
  *
- * Why: a source return cannot directly leave the synthetic callbacks used to
- * model `finally`. Returning from those callbacks would target the callback,
- * not the original TypeScript function.
+ * Why: a source return, break, or continue cannot directly leave the synthetic
+ * callbacks used to model `finally`; it would target the callback rather than
+ * the original function, loop, or switch.
  *
  * What: protected and finalizer callbacks return either `null` (normal) or one
  * private abrupt enum value. `FinallyCompletion.run` applies JavaScript's
  * precedence rule exactly once, after which the result is dispatched at the
- * function root or propagated through an enclosing completion callback.
+ * first owning target path or propagated through an enclosing callback.
  *
  * How: callback paths come from the immutable semantic plan. Return
  * expressions are constructor arguments, so they evaluate once before the
  * finalizer. Host throws remain throws; the runtime helper preserves or
  * replaces them without putting a weak thrown value in the generated enum.
  */
-function emitReturnCompletionTry(ctx: EmitContext, stmt: ts.TryStatement,
+function emitCompletionTry(ctx: EmitContext, stmt: ts.TryStatement,
     region: CompletionFinallyPlan, carrier: EmittedCompletionCarrier,
     indent: string): string | null {
   if (!stmt.finallyBlock) return null;
@@ -2443,7 +2706,7 @@ function emitReturnCompletionTry(ctx: EmitContext, stmt: ts.TryStatement,
     `${bodyIndent}return null;`,
     `${indent}    }`,
     `${indent}  );`,
-    emitReturnCompletionDispatch(ctx, region, completionName, carrier, indent)
+    emitCompletionDispatch(ctx, region, completionName, carrier, indent)
   ];
   return lines.filter((line) => line.length > 0).join("\n");
 }
@@ -2586,13 +2849,45 @@ function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): st
   }
 
   if (ts.isBreakStatement(stmt)) {
-    if (stmt.label) return null;
-    return `${indent}break;`;
+    const transfer = completionTransferForNode(ctx, stmt);
+    if (transfer.disposition === "unsupported" || !transfer.targetId) return null;
+    if (transfer.disposition === "encode") {
+      const state = requireFunctionEmitState(ctx);
+      if (!callbackPathsEqual(state.callbackPath, transfer.sourcePath)) {
+        throw new Error(
+          `Transfer ${transfer.id} expected callback path `
+          + `${JSON.stringify(transfer.sourcePath)}, got `
+          + `${JSON.stringify(state.callbackPath)}.`
+        );
+      }
+      const carrier = completionCarrier(ctx, state);
+      if (!carrier)
+        throw new Error(`Transfer ${transfer.id} has no strong completion carrier.`);
+      return `${indent}return ${carrier.typeName}.BreakTo(`
+        + `${completionTargetNumber(state, transfer.targetId)});`;
+    }
+    return emitBreakToTarget(ctx, transfer.targetId, indent);
   }
 
   if (ts.isContinueStatement(stmt)) {
-    if (stmt.label) return null;
-    return emitContinue(ctx, indent);
+    const transfer = completionTransferForNode(ctx, stmt);
+    if (transfer.disposition === "unsupported" || !transfer.targetId) return null;
+    if (transfer.disposition === "encode") {
+      const state = requireFunctionEmitState(ctx);
+      if (!callbackPathsEqual(state.callbackPath, transfer.sourcePath)) {
+        throw new Error(
+          `Transfer ${transfer.id} expected callback path `
+          + `${JSON.stringify(transfer.sourcePath)}, got `
+          + `${JSON.stringify(state.callbackPath)}.`
+        );
+      }
+      const carrier = completionCarrier(ctx, state);
+      if (!carrier)
+        throw new Error(`Transfer ${transfer.id} has no strong completion carrier.`);
+      return `${indent}return ${carrier.typeName}.ContinueTo(`
+        + `${completionTargetNumber(state, transfer.targetId)});`;
+    }
+    return emitContinueToTarget(ctx, transfer.targetId, indent);
   }
 
   if (ts.isThrowStatement(stmt)) {
@@ -2611,12 +2906,12 @@ function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): st
     const region = completionFinallyForNode(ctx, stmt);
     if (region.strategy === "unsupported-outer-transfer"
       || (region.strategy === "finally-helper-completion"
-        && !isReturnOnlyCompletionRegion(state.plan, region))) {
+        && !isSupportedCompletionRegion(state.plan, region))) {
       return rejectSemantic(
         ctx,
         "exceptions.finally-outer-transfer",
         stmt,
-        "This return, break, or continue crosses a finally boundary outside the typed return-only completion subset.",
+        "This return, break, or continue crosses a finally boundary outside the typed synchronous completion subset.",
         "control-flow"
       );
     }
@@ -2636,20 +2931,29 @@ function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): st
       recordSemantic(ctx, "exceptions.finally-outer-transfer", stmt);
       if (stmt.catchClause)
         recordSemantic(ctx, "exceptions.try-catch", stmt.catchClause);
-      return emitReturnCompletionTry(ctx, stmt, region, carrier, indent);
+      return emitCompletionTry(ctx, stmt, region, carrier, indent);
     }
 
     recordSemantic(ctx, "exceptions.finally", stmt);
     if (stmt.catchClause) recordSemantic(ctx, "exceptions.try-catch", stmt.catchClause);
     const bodyIndent = indent + "    ";
-    let protectedBody: string | null;
-    if (stmt.catchClause) {
-      protectedBody = emitDirectTryCatch(ctx, stmt, bodyIndent);
-    } else {
-      protectedBody = emitStatements(ctx, stmt.tryBlock.statements, bodyIndent);
-    }
+    // Even a callback-local helper owns a real planner path. Entering it has
+    // no textual effect, but it lets an inner completion stop at a loop or
+    // switch declared inside this callback instead of propagating past valid
+    // outer-body statements.
+    const protectedBody = withCompletionCallback(
+      ctx,
+      region.protectedCallback,
+      () => stmt.catchClause
+        ? emitDirectTryCatch(ctx, stmt, bodyIndent)
+        : emitStatements(ctx, stmt.tryBlock.statements, bodyIndent)
+    );
     if (protectedBody == null || !stmt.finallyBlock) return null;
-    const finalizerBody = emitStatements(ctx, stmt.finallyBlock.statements, bodyIndent);
+    const finalizerBody = withCompletionCallback(
+      ctx,
+      region.finalizerCallback,
+      () => emitStatements(ctx, stmt.finallyBlock?.statements ?? [], bodyIndent)
+    );
     if (finalizerBody == null) return null;
     return [
       `${indent}genes.js.TryFinally.run(`,
@@ -2857,6 +3161,7 @@ function emitFunctionLike(opts: {
   ctx: EmitContext;
 }): string | null {
   return withFunctionEmitState(opts.ctx, opts.node, () => {
+    if (!validateCompletionFunction(opts.ctx)) return null;
     const emittedParameters = emitParameters(opts.ctx, opts.parameters, "  ");
     if (!emittedParameters) return null;
     const params = emittedParameters.parameters;
@@ -2892,6 +3197,7 @@ function emitAnonFunctionLike(opts: {
   ctx: EmitContext;
 }): string | null {
   return withFunctionEmitState(opts.ctx, opts.node, () => {
+    if (!validateCompletionFunction(opts.ctx)) return null;
     const emittedParameters = emitParameters(opts.ctx, opts.parameters, "  ");
     if (!emittedParameters) return null;
     const params = emittedParameters.parameters;
@@ -4638,7 +4944,7 @@ function emitHaxeSourceFile(
     return name;
   }
 
-  if (sourceNeedsReturnCompletionType(ctx.completionPlan)) {
+  if (sourceNeedsCompletionType(ctx.completionPlan)) {
     const abruptType = uniqueTopLevelTypeName("__Ts2hxFinallyAbrupt");
     ctx.completionAbruptTypeName = abruptType;
     out.push("/**");
@@ -4792,6 +5098,13 @@ function emitHaxeSourceFile(
           category: TranslationDiagnostic["semanticCategory"];
         };
         const defaultFunction = withFunctionEmitState<DefaultFunctionResult>(ctx, stmt, () => {
+          if (!validateCompletionFunction(ctx)) {
+            return {
+              fn: null,
+              message: "Default function completion cannot be preserved.",
+              category: "control-flow"
+            };
+          }
           if (stmt.body?.statements.length === 1
             && ts.isReturnStatement(stmt.body.statements[0])) {
             const ret = stmt.body.statements[0] as ts.ReturnStatement;

@@ -75,6 +75,26 @@ function outerTarget(): void {
   }
 }
 
+function mixedOwnership(flag: boolean): number {
+  try {
+    for (let index = 0; index < 2; index++) {
+      try {
+        if (flag) return 1;
+        continue;
+      } finally {}
+    }
+  } finally {}
+  return 2;
+}
+
+function inferredControlCarrier() {
+  while (Date.now() > 0) {
+    try {
+      continue;
+    } finally {}
+  }
+}
+
 function nestedFunction(): void {
   try {
     const inner = (): number => {
@@ -151,6 +171,22 @@ function labeledTransfer(): void {
   outer: while (Date.now() > 0) {
     try {
       continue outer;
+    } finally {}
+  }
+}
+
+function labeledBreakTransfer(): void {
+  outer: while (Date.now() > 0) {
+    try {
+      break outer;
+    } finally {}
+  }
+}
+
+function forInTransfer(values: { [key: string]: number }): void {
+  for (const key in values) {
+    try {
+      continue;
     } finally {}
   }
 }
@@ -276,6 +312,14 @@ function aliasCarrier(): MaybeNumber {
     return 1;
   } finally {}
 }
+function aliasControlCarrier(): MaybeNumber {
+  while (Date.now() > 0) {
+    try {
+      break;
+    } finally {}
+  }
+  return 1;
+}
 `, "utf8");
 try {
   const checkerProgram = ts.createProgram([checkerFixture], {
@@ -296,6 +340,10 @@ try {
   equal(aliasCarrier.returnCarrier.kind, "unsupported");
   if (aliasCarrier.returnCarrier.kind === "unsupported")
     equal(aliasCarrier.returnCarrier.reason, "weak-return-type");
+  const aliasControlCarrier = namedFunction(checkerPlan, "aliasControlCarrier");
+  equal(aliasControlCarrier.returnCarrier.kind, "unsupported");
+  if (aliasControlCarrier.returnCarrier.kind === "unsupported")
+    equal(aliasControlCarrier.returnCarrier.reason, "weak-return-type");
 } finally {
   fs.rmSync(checkerFixtureDir, { recursive: true, force: true });
 }
@@ -352,6 +400,8 @@ deepStrictEqual(catchTransfer.sourcePath, catchRegion.protectedCallback.path,
 
 const nestedTarget = namedFunction(first.plan, "nestedTarget");
 equal(nestedTarget.finallyRegions.length, 2);
+equal(nestedTarget.returnCarrier.kind, "control",
+  "control-only crossings use Void records without weakening the function signature");
 const nestedOuter = nestedTarget.finallyRegions[0];
 const nestedInner = nestedTarget.finallyRegions[1];
 ok(nestedOuter && nestedInner);
@@ -373,6 +423,7 @@ for (const transferId of nestedInner.crossingTransfers) {
 }
 
 const outerTarget = namedFunction(first.plan, "outerTarget");
+equal(outerTarget.returnCarrier.kind, "control");
 equal(outerTarget.finallyRegions.length, 2);
 const outerRegion = outerTarget.finallyRegions[0];
 const innerRegion = outerTarget.finallyRegions[1];
@@ -387,6 +438,34 @@ deepStrictEqual(outerContinue.crossedCallbacks, [
 ]);
 equal(innerRegion.strategy, "finally-helper-completion");
 equal(outerRegion.strategy, "finally-helper-completion");
+
+const mixedOwnership = namedFunction(first.plan, "mixedOwnership");
+const mixedOuter = mixedOwnership.finallyRegions[0];
+const mixedInner = mixedOwnership.finallyRegions[1];
+ok(mixedOuter && mixedInner);
+const mixedReturn = mixedOwnership.transfers.find((transfer) =>
+  transfer.kind === "return-value" && transfer.disposition === "encode");
+const mixedContinue = mixedOwnership.transfers.find((transfer) =>
+  transfer.kind === "continue");
+ok(mixedReturn && mixedContinue);
+deepStrictEqual(mixedInner.parentPath, mixedOuter.protectedCallback.path);
+deepStrictEqual(mixedContinue.targetPath, mixedOuter.protectedCallback.path,
+  "inner continue stops at the loop inside the outer protected callback");
+deepStrictEqual(mixedContinue.crossedCallbacks,
+  [mixedInner.protectedCallback.id]);
+deepStrictEqual(mixedReturn.targetPath, [],
+  "return from the same helper still targets the source function");
+deepStrictEqual(mixedReturn.crossedCallbacks, [
+  mixedInner.protectedCallback.id,
+  mixedOuter.protectedCallback.id
+]);
+
+const inferredControlCarrier = namedFunction(first.plan, "inferredControlCarrier");
+equal(inferredControlCarrier.returnCarrier.kind, "unsupported");
+if (inferredControlCarrier.returnCarrier.kind === "unsupported")
+  equal(inferredControlCarrier.returnCarrier.reason, "missing-explicit-return-type");
+equal(inferredControlCarrier.finallyRegions[0]?.strategy,
+  "unsupported-outer-transfer");
 
 const nestedFunction = namedFunction(first.plan, "nestedFunction");
 equal(nestedFunction.finallyRegions[0]?.strategy, "finally-helper-local");
@@ -467,6 +546,23 @@ ok(labeledContinue);
 equal(labeledContinue.disposition, "unsupported");
 equal(labeledContinue.unsupportedReason, "labeled-transfer");
 equal(labeledTransfer.finallyRegions[0]?.strategy, "unsupported-outer-transfer");
+
+const labeledBreakTransfer = namedFunction(first.plan, "labeledBreakTransfer");
+const labeledBreak = labeledBreakTransfer.transfers.find((transfer) =>
+  transfer.kind === "break");
+ok(labeledBreak);
+equal(labeledBreak.disposition, "unsupported");
+equal(labeledBreak.unsupportedReason, "labeled-transfer");
+equal(labeledBreakTransfer.finallyRegions[0]?.strategy,
+  "unsupported-outer-transfer");
+
+const forInTransfer = namedFunction(first.plan, "forInTransfer");
+const forInContinue = forInTransfer.transfers.find((transfer) =>
+  transfer.kind === "continue");
+ok(forInContinue);
+equal(targetForTransfer(forInTransfer, forInContinue).loopKind, "for-in",
+  "the planner records unsupported loop identity instead of pretending it is for-of");
+equal(forInTransfer.returnCarrier.kind, "control");
 
 /** Recursively inventories TypeScript fixture files for legacy shadow checks. */
 function typescriptFiles(root: string): string[] {

@@ -281,7 +281,7 @@ evidence Program and remain represented by the options hash.
 
 Outer `try/finally` completion ownership is planned before text emission. The
 existing direct-control-flow emitter consumes real target identities, and the
-staged synchronous-return path also consumes callback paths. Each function
+staged synchronous completion path also consumes callback paths. Each function
 receives readable deterministic IDs local to one source plan; nested functions
 start with a fresh emitter state. A
 loop/switch/return target records the synthetic callback path where it is
@@ -293,28 +293,36 @@ continue propagates through both finalizers to an outside loop.
 
 `test-completion-plan.ts` compares that ownership model with the legacy
 callback-escape detector on reduced nested cases and repository fixtures. The
-emitter uses target IDs only to preserve today's loop increments and
-switch-to-loop continue routing. Every source function installs its own active
-target, increment, and switch-escape state; a nested arrow or method therefore
-cannot inherit an enclosing function's control targets. Synthetic callbacks
-created by the local `try/finally` helper deliberately remain inside their
-source function's state.
+emitter uses target IDs for direct and completion-aware loop increments,
+switch breaks, and switch-to-loop continue routing. Every source function
+installs its own active-target, increment, and switch-escape state; a nested
+arrow or method therefore cannot inherit an enclosing function's control
+targets. Local and completion-aware `try/finally` callbacks both enter their
+planned callback path without changing source-function ownership.
 
-For a validated synchronous return, protected and finalizer callbacks return
+For a validated synchronous transfer, protected and finalizer callbacks return
 `Null<__Ts2hxFinallyAbrupt<T>>`: `null` means normal completion, and the private
-enum carries a value or bare return. A nested helper propagates the opaque enum
-only while the function target remains outside its parent callback; the root
-dispatcher performs the real Haxe return after every crossed finalizer has
-run. Return expressions first enter a strongly typed collision-safe local,
-which both evaluates them once and prevents nullable payloads from forcing an
-unsafe generic cast in generated TypeScript. A final invariant throw satisfies
-Haxe's local value-return analysis without inventing a fallback value; the
-input TypeScript checker has already proved that this path cannot be reached.
+enum carries a value/bare return or a stable loop/switch target. After a helper
+returns, the target's callback path chooses one of two actions: a target owned
+at the current path becomes a real Haxe return/break/continue; a target owned by
+a strict prefix propagates unchanged so the next helper runs its finalizer.
+This is why an inner continue can stop at a loop inside an outer callback while
+a return from the same helper still leaves that callback. Lowered `for`
+increments run only at final continue dispatch, after all crossed finalizers;
+break never runs the increment. Switch escape flags remain keyed by the real
+loop target rather than the synthetic `do/while(false)` used for fallthrough.
 
-This is staged evidence, not a support-matrix promotion. Break/continue target
-dispatch, async/generator/constructor/anonymous/labeled forms, inferred or
-weak carriers, and unsupported target shapes retain the stable outer-transfer
-diagnostic. Existing callback-local `TryFinally.run` output remains unchanged.
+Return expressions first enter a strongly typed collision-safe local, which
+both evaluates them once and prevents nullable payloads from forcing an unsafe
+generic cast in generated TypeScript. A final invariant throw satisfies Haxe's
+local value-return analysis without inventing a fallback value; the input
+TypeScript checker has already proved that this path cannot be reached.
+
+This is staged evidence, not a support-matrix promotion. Async, generator,
+constructor, anonymous, labeled, generic, inferred/weak-carrier, and
+unsupported loop forms retain the stable outer-transfer diagnostic or their
+existing statement boundary. Existing callback-local `TryFinally.run` output
+remains unchanged.
 
 Every emitting caller chooses an explicit runtime profile. `genes-esm` covers
 classic Genes and genes-ts and records `genes.esm-runtime-requests` whenever a
@@ -438,10 +446,14 @@ The helper remains infrastructure rather than a public completion algebra.
 exactly-once contract. The ts2hx semantic differential separately proves
 automatic value/bare returns, nullable carriers, catches, nested propagation,
 finalizer override, and an ordinary class method in original TypeScript,
-classic Genes, and genes-ts. The request-free `finally-completion-return`
-snapshot runs the automatic path under standard Haxe JS and strictly compiles
-it through genes-ts. Loop-target dispatch remains the blocking evidence before
-the broad outer-completion row can be advertised as supported.
+classic Genes, and genes-ts. It also covers body/finalizer break and continue,
+mixed return/control carriers, catch control, all supported loop forms, exact
+lowered-for increments, switch routing, protected-throw override, and
+local-versus-propagated nested targets. The request-free
+`finally-completion-return` and `finally-completion-control` snapshots run the
+automatic paths under standard Haxe JS and strictly compile them through
+genes-ts with TypeScript 5/6/7. The separate promotion/compatibility gate still
+blocks advertising the broad row as supported.
 
 ## Gate escalation
 
