@@ -279,21 +279,31 @@ bridge and engine, and an effective-options hash. The input project must
 type-check; `noEmit` and `emitDeclarationOnly` are disabled only in an in-memory
 evidence Program and remain represented by the options hash.
 
-Outer `try/finally` completion is currently planned in shadow mode. Each
-function receives readable deterministic IDs local to one source plan; nested
-functions start fresh. A loop/switch/return target records the synthetic
-callback path where it is owned, and each transfer records the inner-to-outer
-callback suffix it would have to leave. The target path must prefix the source
-path—control may leave a callback but cannot jump into one. This distinction is
-what lets an inner continue stop at a loop inside an outer protected callback
-while another continue propagates through both finalizers to an outside loop.
+Outer `try/finally` completion ownership is still planned in shadow mode, while
+the existing direct-control-flow emitter now consumes the plan's target
+identities. Each function receives readable deterministic IDs local to one
+source plan; nested functions start with a fresh emitter state. A
+loop/switch/return target records the synthetic callback path where it is
+owned, and each transfer records the inner-to-outer callback suffix it would
+have to leave. The target path must prefix the source path—control may leave a
+callback but cannot jump into one. This distinction is what lets an inner
+continue stop at a loop inside an outer protected callback while another
+continue propagates through both finalizers to an outside loop.
 
 `test-completion-plan.ts` compares that ownership model with the existing
 callback-escape detector on reduced nested cases and repository fixtures. The
-production emitter still calls the old `planTry` strategy and rejects every
-outer transfer, so this shadow inventory does not change generated Haxe,
-manifests, diagnostics, or the support matrix. A later commit may switch an
-emitter consumer only after target-aware state and runtime differentials exist.
+emitter uses target IDs only to preserve today's loop increments and
+switch-to-loop continue routing. Every source function installs its own active
+target, increment, and switch-escape state; a nested arrow or method therefore
+cannot inherit an enclosing function's control targets. Synthetic callbacks
+created by today's local `try/finally` helper deliberately remain inside their
+source function's state.
+
+The production emitter still calls the old `planTry` strategy and rejects
+every outer transfer. Target-aware bookkeeping therefore does not add a new
+completion carrier, change generated Haxe, weaken diagnostics, or promote the
+support matrix. Completion callback paths will become an emitting concern only
+after the typed return/catch lowering has its own executable differential.
 
 Every emitting caller chooses an explicit runtime profile. `genes-esm` covers
 classic Genes and genes-ts and records `genes.esm-runtime-requests` whenever a

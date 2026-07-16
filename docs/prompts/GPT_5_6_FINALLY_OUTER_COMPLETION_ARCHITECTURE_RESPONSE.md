@@ -374,9 +374,19 @@ Before promotion, executable differentials must cover:
   function isolation, weak/inferred carriers, and labelled failure. The live
   supported and unsupported fixtures agree exactly with current `planTry`.
   Full `yarn test:ci` passed in 1,297.81 seconds with all 48 snapshots and
-  current semantic/transaction contracts unchanged. The emitter does not
-  consume this plan yet.
-- Stages 4 through 7 have not landed. `exceptions.finally-outer-transfer`
+  current semantic/transaction contracts unchanged.
+- Stage 4 now uses the plan's target identities for existing direct loop and
+  switch emission. Every source function receives fresh active-target,
+  lowered-for-increment, and switch-escape state; synthetic helper callbacks
+  remain in their source function. All 48 reviewed snapshots stayed
+  byte-stable, and a focused nested-function differential matched original
+  TypeScript, classic Genes, and genes-ts. The complete ts2hx gate passed in
+  290.30 seconds. Full `yarn test:ci` then passed in 988.32 seconds, including
+  security checks, TypeScript 5/6/7, both output profiles, declarations,
+  transaction owners, and all six todoapp browser journeys. Completion
+  callback paths are still not emitted, and the old `planTry` rejection
+  remains authoritative.
+- Stages 5 through 7 have not landed. `exceptions.finally-outer-transfer`
   therefore remains unsupported and fail-closed.
 
 No later stage may cite the oracle response as proof. It may cite this document

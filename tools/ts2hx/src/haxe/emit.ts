@@ -22,11 +22,17 @@ import {
   planForLoop,
   planLocalDeclaration,
   planParameter,
+  planSourceCompletions,
   planSwitch,
   planTry,
+  type CompletionCallbackPath,
+  type CompletionControlTargetPlan,
+  type CompletionTargetId,
+  type FunctionCompletionPlan,
   type PortabilityGrade,
   type SemanticFeatureDisposition,
-  type SemanticFeatureId
+  type SemanticFeatureId,
+  type SourceCompletionPlan
 } from "../semantic/ir.js";
 import {
   loadRuntimeModuleManifest,
@@ -252,6 +258,34 @@ function isLikelyTypeName(name: string): boolean {
   return /^[A-Z]/.test(name);
 }
 
+/**
+ * Function-local control state consumed while spelling an immutable plan.
+ *
+ * Why: a source-file-wide loop-depth stack lets a nested arrow or method see
+ * targets owned by its containing function. It also cannot distinguish two
+ * targets that happen to sit at the same textual depth across synthetic
+ * `try/finally` callbacks.
+ *
+ * What: every source function gets a fresh state keyed by semantic target ID.
+ * `activeTargets` preserves lexical nesting, `continueSteps` retains the exact
+ * lowered-for increment string, and switch escape flags name the real loop
+ * they eventually continue. `callbackPath` remains empty in this refactor and
+ * is reserved for completion-aware emission in the next stage.
+ *
+ * How: `withFunctionEmitState` looks up the immutable source plan, installs a
+ * new state, and restores the caller in `finally`. Synthetic callbacks used by
+ * current finally lowering stay inside the same source-function state; actual
+ * nested source functions always start with empty target and switch stacks.
+ */
+type FunctionEmitState = {
+  plan: FunctionCompletionPlan;
+  callbackPath: CompletionCallbackPath;
+  activeTargets: CompletionTargetId[];
+  targetById: ReadonlyMap<CompletionTargetId, CompletionControlTargetPlan>;
+  continueSteps: Map<CompletionTargetId, string | null>;
+  switchContinueTransfers: Array<{ flag: string; targetId: CompletionTargetId }>;
+};
+
 type EmitContext = {
   checker: ts.TypeChecker;
   identifierRewrites: Map<string, string>;
@@ -262,10 +296,10 @@ type EmitContext = {
   semanticFailures: SemanticFailure[];
   /** Scoped textual substitutions introduced by normalized expression plans. */
   expressionRewrites: Map<string, string>;
-  /** Increment expressions to execute before a continue at each loop depth. */
-  continueSteps: Array<string | null>;
-  /** Escapes the synthetic do/while used to preserve switch break semantics. */
-  switchContinueTransfers: Array<{ flag: string; loopDepth: number }>;
+  /** Immutable callback/target inventory for this source file. */
+  completionPlan: SourceCompletionPlan;
+  /** Current source function; nested functions install an independent state. */
+  functionState: FunctionEmitState | null;
 };
 
 type SemanticFailure = {
@@ -316,6 +350,79 @@ function nextTmp(ctx: EmitContext, prefix = "__ts2hx_tmp"): string {
   const n = ctx.tmpCounter;
   ctx.tmpCounter++;
   return `${prefix}${n}`;
+}
+
+function withFunctionEmitState<T>(ctx: EmitContext,
+    node: ts.FunctionLikeDeclaration, emit: () => T): T {
+  const start = node.getStart(ctx.sourceFile, false);
+  const plan = ctx.completionPlan.functionByStart.get(start);
+  if (!plan) {
+    throw new Error(
+      `Completion plan is missing ${ts.SyntaxKind[node.kind] ?? "function"} at `
+      + `${ctx.sourceFilePath}:${start}.`
+    );
+  }
+  const previous = ctx.functionState;
+  ctx.functionState = {
+    plan,
+    callbackPath: [],
+    activeTargets: [],
+    targetById: new Map(plan.targets.map((target) => [target.id, target])),
+    continueSteps: new Map(),
+    switchContinueTransfers: []
+  };
+  try {
+    return emit();
+  } finally {
+    ctx.functionState = previous;
+  }
+}
+
+function requireFunctionEmitState(ctx: EmitContext): FunctionEmitState {
+  if (!ctx.functionState) {
+    throw new Error(
+      `Control-flow emission escaped a source function in ${ctx.sourceFilePath}.`
+    );
+  }
+  return ctx.functionState;
+}
+
+function targetForNode(ctx: EmitContext, node: ts.Node,
+    kind: CompletionControlTargetPlan["kind"]): CompletionControlTargetPlan {
+  const state = requireFunctionEmitState(ctx);
+  const target = state.plan.targets.find((candidate) =>
+    candidate.node === node && candidate.kind === kind);
+  if (!target) {
+    throw new Error(
+      `Completion plan is missing ${kind} target at `
+      + `${ctx.sourceFilePath}:${node.getStart(ctx.sourceFile, false)}.`
+    );
+  }
+  return target;
+}
+
+function withActiveTarget<T>(ctx: EmitContext,
+    target: CompletionControlTargetPlan, continueStep: string | null,
+    emit: () => T): T {
+  const state = requireFunctionEmitState(ctx);
+  state.activeTargets.push(target.id);
+  state.continueSteps.set(target.id, continueStep);
+  try {
+    return emit();
+  } finally {
+    state.continueSteps.delete(target.id);
+    const removed = state.activeTargets.pop();
+    if (removed !== target.id)
+      throw new Error(`Completion target stack corrupted while leaving ${target.id}.`);
+  }
+}
+
+function currentLoopTarget(state: FunctionEmitState): CompletionControlTargetPlan | null {
+  for (let index = state.activeTargets.length - 1; index >= 0; index--) {
+    const target = state.targetById.get(state.activeTargets[index] as CompletionTargetId);
+    if (target?.kind === "loop") return target;
+  }
+  return null;
 }
 
 type ExternModule = {
@@ -1316,6 +1423,49 @@ function emitLogicalAssignment(ctx: EmitContext, expression: ts.BinaryExpression
   ]);
 }
 
+function emitArrowFunctionExpression(ctx: EmitContext,
+    fn: ts.ArrowFunction): string | null {
+  return withFunctionEmitState(ctx, fn, () => {
+    const isAsync = fn.modifiers?.some((m) =>
+      m.kind === ts.SyntaxKind.AsyncKeyword) ?? false;
+    if (isAsync) recordSemantic(ctx, "async.await", fn);
+    const emittedParameters = emitParameters(ctx, fn.parameters, "  ");
+    if (!emittedParameters) return null;
+    const params = emittedParameters.parameters;
+    const prelude = emittedParameters.prelude;
+    const bodyRewrites = emittedParameters.bodyRewrites;
+
+    const asyncPrefix = isAsync ? "@:async " : "";
+    const asyncReturnTypeSuffix = isAsync ? `: ${emitType(fn.type)}` : "";
+    const fnBody = fn.body;
+
+    if (ts.isBlock(fnBody)) {
+      const body = withIdentifierRewrites(
+        ctx,
+        bodyRewrites,
+        () => emitStatements(ctx, fnBody.statements, "  ")
+      );
+      if (body == null) return null;
+      const merged = prelude.length > 0
+        ? (body.length > 0 ? `${prelude.join("\n")}\n${body}` : prelude.join("\n"))
+        : body;
+      return `${asyncPrefix}function(${params.join(", ")})${asyncReturnTypeSuffix} {\n${merged}\n}`;
+    }
+
+    const bodyExpr = withIdentifierRewrites(ctx, bodyRewrites,
+      () => emitExpression(ctx, fnBody));
+    if (!bodyExpr) return null;
+    if (!isAsync && prelude.length === 0)
+      return `function(${params.join(", ")}) return ${bodyExpr}`;
+    if (isAsync) {
+      const mergedPrelude = prelude.length > 0 ? `${prelude.join("\n")}\n` : "";
+      return `${asyncPrefix}function(${params.join(", ")})${asyncReturnTypeSuffix} {\n${mergedPrelude}  return ${bodyExpr};\n}`;
+    }
+
+    return `function(${params.join(", ")}) {\n${prelude.join("\n")}\n  return ${bodyExpr};\n}`;
+  });
+}
+
 function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
   const normalizedRewrite = ctx.expressionRewrites.get(expressionKey(ctx, expr));
   if (normalizedRewrite !== undefined) return normalizedRewrite;
@@ -1390,38 +1540,7 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
     }
     case ts.SyntaxKind.ArrowFunction: {
       const fn = expr as ts.ArrowFunction;
-      const isAsync = fn.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword) ?? false;
-      if (isAsync) recordSemantic(ctx, "async.await", fn);
-      const emittedParameters = emitParameters(ctx, fn.parameters, "  ");
-      if (!emittedParameters) return null;
-      const params = emittedParameters.parameters;
-      const prelude = emittedParameters.prelude;
-      const bodyRewrites = emittedParameters.bodyRewrites;
-
-      const asyncPrefix = isAsync ? "@:async " : "";
-      const asyncReturnTypeSuffix = isAsync ? `: ${emitType(fn.type)}` : "";
-      const fnBody = fn.body;
-
-      if (ts.isBlock(fnBody)) {
-        const body = withIdentifierRewrites(
-          ctx,
-          bodyRewrites,
-          () => emitStatements(ctx, fnBody.statements, "  ")
-        );
-        if (body == null) return null;
-        const merged = prelude.length > 0 ? (body.length > 0 ? `${prelude.join("\n")}\n${body}` : prelude.join("\n")) : body;
-        return `${asyncPrefix}function(${params.join(", ")})${asyncReturnTypeSuffix} {\n${merged}\n}`;
-      }
-
-      const bodyExpr = withIdentifierRewrites(ctx, bodyRewrites, () => emitExpression(ctx, fnBody));
-      if (!bodyExpr) return null;
-      if (!isAsync && prelude.length === 0) return `function(${params.join(", ")}) return ${bodyExpr}`;
-      if (isAsync) {
-        const mergedPrelude = prelude.length > 0 ? `${prelude.join("\n")}\n` : "";
-        return `${asyncPrefix}function(${params.join(", ")})${asyncReturnTypeSuffix} {\n${mergedPrelude}  return ${bodyExpr};\n}`;
-      }
-
-      return `function(${params.join(", ")}) {\n${prelude.join("\n")}\n  return ${bodyExpr};\n}`;
+      return emitArrowFunctionExpression(ctx, fn);
     }
     case ts.SyntaxKind.ObjectLiteralExpression: {
       const obj = expr as ts.ObjectLiteralExpression;
@@ -1476,25 +1595,27 @@ function emitExpression(ctx: EmitContext, expr: ts.Expression): string | null {
           if (!name) return null;
           if (!prop.body) return null;
 
-          const params = prop.parameters.map((p) => {
-            const id = ts.isIdentifier(p.name) ? p.name.text : "arg";
-            const isOptional = !!p.questionToken;
-            const t = emitType(p.type);
-            return `${isOptional ? "?" : ""}${id}: ${t}`;
-          });
+          const fn = withFunctionEmitState(ctx, prop, () => {
+            const params = prop.parameters.map((p) => {
+              const id = ts.isIdentifier(p.name) ? p.name.text : "arg";
+              const isOptional = !!p.questionToken;
+              const t = emitType(p.type);
+              return `${isOptional ? "?" : ""}${id}: ${t}`;
+            });
 
-          let fn: string | null = null;
-          if (prop.body.statements.length === 1 && ts.isReturnStatement(prop.body.statements[0])) {
-            const ret = prop.body.statements[0] as ts.ReturnStatement;
-            if (!ret.expression) return null;
-            const retExpr = emitExpression(ctx, ret.expression);
-            if (!retExpr) return null;
-            fn = `function(${params.join(", ")}) return ${retExpr}`;
-          } else {
-            const body = emitStatements(ctx, prop.body.statements, "  ");
-            if (body == null) return null;
-            fn = `function(${params.join(", ")}) {\n${body}\n}`;
-          }
+            if (prop.body?.statements.length === 1
+              && ts.isReturnStatement(prop.body.statements[0])) {
+              const ret = prop.body.statements[0] as ts.ReturnStatement;
+              if (!ret.expression) return null;
+              const retExpr = emitExpression(ctx, ret.expression);
+              return retExpr ? `function(${params.join(", ")}) return ${retExpr}` : null;
+            }
+            const body = emitStatements(ctx, prop.body?.statements ?? [], "  ");
+            return body == null
+              ? null
+              : `function(${params.join(", ")}) {\n${body}\n}`;
+          });
+          if (!fn) return null;
 
           literalFields.push(`${name}: ${fn}`);
           continue;
@@ -2013,15 +2134,21 @@ function emitDirectTryCatch(ctx: EmitContext, stmt: ts.TryStatement, indent: str
  * including a lowered for-loop increment exactly once.
  */
 function emitContinue(ctx: EmitContext, indent: string): string {
-  const loopDepth = ctx.continueSteps.length;
-  const switchTransfer = ctx.switchContinueTransfers
+  const state = requireFunctionEmitState(ctx);
+  const loopTarget = currentLoopTarget(state);
+  if (!loopTarget) {
+    throw new Error(
+      `Continue has no active loop target in ${ctx.sourceFilePath}.`
+    );
+  }
+  const switchTransfer = state.switchContinueTransfers
     .slice()
     .reverse()
-    .find((transfer) => transfer.loopDepth === loopDepth);
+    .find((transfer) => transfer.targetId === loopTarget.id);
   if (switchTransfer)
     return `${indent}${switchTransfer.flag} = true;\n${indent}break;`;
 
-  const continueStep = ctx.continueSteps[loopDepth - 1] ?? null;
+  const continueStep = state.continueSteps.get(loopTarget.id) ?? null;
   return continueStep
     ? `${indent}${continueStep};\n${indent}continue;`
     : `${indent}continue;`;
@@ -2191,9 +2318,11 @@ function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): st
   if (ts.isWhileStatement(stmt)) {
     const cond = emitCondition(ctx, stmt.expression);
     if (!cond) return null;
-    ctx.continueSteps.push(null);
-    const bodyPart = emitStatement(ctx, stmt.statement, ts.isBlock(stmt.statement) ? indent : indent + "  ");
-    ctx.continueSteps.pop();
+    const target = targetForNode(ctx, stmt, "loop");
+    const bodyPart = withActiveTarget(ctx, target, null, () =>
+      emitStatement(ctx, stmt.statement,
+        ts.isBlock(stmt.statement) ? indent : indent + "  ")
+    );
     if (bodyPart == null) return null;
     const bodyBlock = ts.isBlock(stmt.statement) ? bodyPart : `${indent}{\n${bodyPart}\n${indent}}`;
     return `${indent}while (${cond}) ${bodyBlock}`;
@@ -2202,9 +2331,11 @@ function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): st
   if (ts.isDoStatement(stmt)) {
     const cond = emitCondition(ctx, stmt.expression);
     if (!cond) return null;
-    ctx.continueSteps.push(null);
-    const bodyPart = emitStatement(ctx, stmt.statement, ts.isBlock(stmt.statement) ? indent : indent + "  ");
-    ctx.continueSteps.pop();
+    const target = targetForNode(ctx, stmt, "loop");
+    const bodyPart = withActiveTarget(ctx, target, null, () =>
+      emitStatement(ctx, stmt.statement,
+        ts.isBlock(stmt.statement) ? indent : indent + "  ")
+    );
     if (bodyPart == null) return null;
     const bodyBlock = ts.isBlock(stmt.statement) ? bodyPart : `${indent}{\n${bodyPart}\n${indent}}`;
     return `${indent}do ${bodyBlock} while (${cond});`;
@@ -2212,6 +2343,9 @@ function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): st
 
   if (ts.isSwitchStatement(stmt)) {
     const plan = planSwitch(stmt);
+    const functionState = requireFunctionEmitState(ctx);
+    const switchTarget = targetForNode(ctx, stmt, "switch");
+    const enclosingLoopTarget = currentLoopTarget(functionState);
     if (plan.continuePlan.kind === "unsupported-labeled") {
       return rejectSemantic(
         ctx,
@@ -2221,7 +2355,7 @@ function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): st
         "control-flow"
       );
     }
-    if (plan.continuePlan.kind === "outer-loop" && ctx.continueSteps.length === 0) {
+    if (plan.continuePlan.kind === "outer-loop" && !enclosingLoopTarget) {
       return rejectSemantic(
         ctx,
         "switch.continue",
@@ -2264,19 +2398,35 @@ function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): st
       lines.push(`${indent}  if (${stateTemp} == -1) ${stateTemp} = ${plan.defaultIndex};`);
 
     lines.push(`${indent}  if (${stateTemp} >= 0) do {`);
-    if (continueFlag)
-      ctx.switchContinueTransfers.push({ flag: continueFlag, loopDepth: ctx.continueSteps.length });
-    for (const clause of plan.clauses) {
-      const body = emitStatements(ctx, clause.statements, indent + "      ");
-      if (body == null) {
-        if (continueFlag) ctx.switchContinueTransfers.pop();
-        return null;
+    const clausesEmitted = withActiveTarget(ctx, switchTarget, null, () => {
+      if (continueFlag && enclosingLoopTarget) {
+        functionState.switchContinueTransfers.push({
+          flag: continueFlag,
+          targetId: enclosingLoopTarget.id
+        });
       }
-      lines.push(`${indent}    if (${stateTemp} <= ${clause.index}) {`);
-      if (body.length > 0) lines.push(body);
-      lines.push(`${indent}    }`);
-    }
-    if (continueFlag) ctx.switchContinueTransfers.pop();
+      try {
+        for (const clause of plan.clauses) {
+          const body = emitStatements(ctx, clause.statements, indent + "      ");
+          if (body == null) return false;
+          lines.push(`${indent}    if (${stateTemp} <= ${clause.index}) {`);
+          if (body.length > 0) lines.push(body);
+          lines.push(`${indent}    }`);
+        }
+        return true;
+      } finally {
+        if (continueFlag && enclosingLoopTarget) {
+          const removed = functionState.switchContinueTransfers.pop();
+          if (removed?.flag !== continueFlag
+            || removed.targetId !== enclosingLoopTarget.id) {
+            throw new Error(
+              `Switch continue stack corrupted while leaving ${switchTarget.id}.`
+            );
+          }
+        }
+      }
+    });
+    if (!clausesEmitted) return null;
     lines.push(`${indent}  } while (false);`);
     if (continueFlag) {
       lines.push(`${indent}  if (${continueFlag}) {`);
@@ -2310,11 +2460,12 @@ function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): st
     const inc = emitExpression(ctx, plan.continueStep);
     if (!cond || !inc) return null;
 
-    ctx.continueSteps.push(inc);
-    const bodyInner = ts.isBlock(stmt.statement)
-      ? emitStatements(ctx, stmt.statement.statements, indent + "    ")
-      : emitStatement(ctx, stmt.statement, indent + "    ");
-    ctx.continueSteps.pop();
+    const target = targetForNode(ctx, stmt, "loop");
+    const bodyInner = withActiveTarget(ctx, target, inc, () =>
+      ts.isBlock(stmt.statement)
+        ? emitStatements(ctx, stmt.statement.statements, indent + "    ")
+        : emitStatement(ctx, stmt.statement, indent + "    ")
+    );
     if (bodyInner == null) return null;
 
     const whileBody =
@@ -2334,9 +2485,11 @@ function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): st
     const iter = emitExpression(ctx, stmt.expression);
     if (!iter) return null;
 
-    ctx.continueSteps.push(null);
-    const bodyPart = emitStatement(ctx, stmt.statement, ts.isBlock(stmt.statement) ? indent : indent + "  ");
-    ctx.continueSteps.pop();
+    const target = targetForNode(ctx, stmt, "loop");
+    const bodyPart = withActiveTarget(ctx, target, null, () =>
+      emitStatement(ctx, stmt.statement,
+        ts.isBlock(stmt.statement) ? indent : indent + "  ")
+    );
     if (bodyPart == null) return null;
     const bodyBlock = ts.isBlock(stmt.statement) ? bodyPart : `${indent}{\n${bodyPart}\n${indent}}`;
     return `${indent}for (${name} in ${iter}) ${bodyBlock}`;
@@ -2346,6 +2499,7 @@ function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): st
 }
 
 function emitFunctionLike(opts: {
+  node: ts.FunctionLikeDeclaration;
   name: string;
   parameters: readonly ts.ParameterDeclaration[];
   returnType: ts.TypeNode | undefined;
@@ -2354,57 +2508,69 @@ function emitFunctionLike(opts: {
   omitReturnType?: boolean;
   ctx: EmitContext;
 }): string | null {
-  const emittedParameters = emitParameters(opts.ctx, opts.parameters, "  ");
-  if (!emittedParameters) return null;
-  const params = emittedParameters.parameters;
-  const prelude = emittedParameters.prelude;
+  return withFunctionEmitState(opts.ctx, opts.node, () => {
+    const emittedParameters = emitParameters(opts.ctx, opts.parameters, "  ");
+    if (!emittedParameters) return null;
+    const params = emittedParameters.parameters;
+    const prelude = emittedParameters.prelude;
 
-  const returnType = emitType(opts.returnType);
-  const returnTypeSuffix = opts.omitReturnType ? "" : `: ${returnType}`;
+    const returnType = emitType(opts.returnType);
+    const returnTypeSuffix = opts.omitReturnType ? "" : `: ${returnType}`;
 
-  if (!opts.body) return null;
-  const emittedBody = withIdentifierRewrites(
-    opts.ctx,
-    emittedParameters.bodyRewrites,
-    () => emitStatements(opts.ctx, opts.body?.statements ?? [], "  ")
-  );
-  if (emittedBody == null) return null;
-  let body = emittedBody.length > 0 ? emittedBody : "";
-  if (prelude.length > 0) body = body.length > 0 ? `${prelude.join("\n")}\n${body}` : prelude.join("\n");
+    if (!opts.body) return null;
+    const emittedBody = withIdentifierRewrites(
+      opts.ctx,
+      emittedParameters.bodyRewrites,
+      () => emitStatements(opts.ctx, opts.body?.statements ?? [], "  ")
+    );
+    if (emittedBody == null) return null;
+    let body = emittedBody.length > 0 ? emittedBody : "";
+    if (prelude.length > 0)
+      body = body.length > 0
+        ? `${prelude.join("\n")}\n${body}`
+        : prelude.join("\n");
 
-  return `${opts.modifierPrefix}function ${opts.name}(${params.join(", ")})${returnTypeSuffix} {\n${body}\n}`;
+    return `${opts.modifierPrefix}function ${opts.name}(${params.join(", ")})${returnTypeSuffix} {\n${body}\n}`;
+  });
 }
 
 function emitAnonFunctionLike(opts: {
+  node: ts.FunctionLikeDeclaration;
   parameters: readonly ts.ParameterDeclaration[];
   returnType: ts.TypeNode | undefined;
   body: ts.Block | undefined;
   omitReturnType?: boolean;
   ctx: EmitContext;
 }): string | null {
-  const emittedParameters = emitParameters(opts.ctx, opts.parameters, "  ");
-  if (!emittedParameters) return null;
-  const params = emittedParameters.parameters;
-  const prelude = emittedParameters.prelude;
+  return withFunctionEmitState(opts.ctx, opts.node, () => {
+    const emittedParameters = emitParameters(opts.ctx, opts.parameters, "  ");
+    if (!emittedParameters) return null;
+    const params = emittedParameters.parameters;
+    const prelude = emittedParameters.prelude;
 
-  const returnType = emitType(opts.returnType);
-  const returnTypeSuffix = opts.omitReturnType ? "" : `: ${returnType}`;
+    const returnType = emitType(opts.returnType);
+    const returnTypeSuffix = opts.omitReturnType ? "" : `: ${returnType}`;
 
-  if (!opts.body) return null;
-  const emittedBody = withIdentifierRewrites(
-    opts.ctx,
-    emittedParameters.bodyRewrites,
-    () => emitStatements(opts.ctx, opts.body?.statements ?? [], "  ")
-  );
-  if (emittedBody == null) return null;
-  let body = emittedBody.length > 0 ? emittedBody : "";
-  if (prelude.length > 0) body = body.length > 0 ? `${prelude.join("\n")}\n${body}` : prelude.join("\n");
+    if (!opts.body) return null;
+    const emittedBody = withIdentifierRewrites(
+      opts.ctx,
+      emittedParameters.bodyRewrites,
+      () => emitStatements(opts.ctx, opts.body?.statements ?? [], "  ")
+    );
+    if (emittedBody == null) return null;
+    let body = emittedBody.length > 0 ? emittedBody : "";
+    if (prelude.length > 0)
+      body = body.length > 0
+        ? `${prelude.join("\n")}\n${body}`
+        : prelude.join("\n");
 
-  return `function(${params.join(", ")})${returnTypeSuffix} {\n${body}\n}`;
+    return `function(${params.join(", ")})${returnTypeSuffix} {\n${body}\n}`;
+  });
 }
 
 function emitFunction(ctx: EmitContext, fn: ts.FunctionDeclaration): string | null {
   return emitFunctionLike({
+    node: fn,
     name: fn.name?.text ?? "anon",
     parameters: fn.parameters,
     returnType: fn.type,
@@ -2569,6 +2735,7 @@ function emitClass(ctx: EmitContext, decl: ts.ClassDeclaration, forcedName?: str
     if (ts.isConstructorDeclaration(member)) {
       sawConstructor = true;
       const emitted = emitFunctionLike({
+        node: member,
         name: "new",
         parameters: member.parameters,
         returnType: undefined,
@@ -2589,6 +2756,7 @@ function emitClass(ctx: EmitContext, decl: ts.ClassDeclaration, forcedName?: str
       if (isAsync) recordSemantic(ctx, "async.await", member);
       const visibility = isPrivate ? "private" : "public";
       const emitted = emitFunctionLike({
+        node: member,
         name: member.name.text,
         parameters: member.parameters,
         returnType: member.type,
@@ -3862,17 +4030,18 @@ function emitHaxeSourceFile(
     };
   }
 
+  const sourceFilePath = portablePath(path.relative(opts.rootDir, sf.fileName));
   const ctx: EmitContext = {
     checker: opts.checker,
     identifierRewrites: new Map(),
     tmpCounter: 0,
     sourceFile: sf,
-    sourceFilePath: portablePath(path.relative(opts.rootDir, sf.fileName)),
+    sourceFilePath,
     semanticRecorder,
     semanticFailures: [],
     expressionRewrites: new Map(),
-    continueSteps: [],
-    switchContinueTransfers: []
+    completionPlan: planSourceCompletions(sf, sourceFilePath),
+    functionState: null
   };
 
   function recordSemanticFailures(): void {
@@ -4181,6 +4350,7 @@ function emitHaxeSourceFile(
         const helper = ensureAsyncHelper();
         if (isDefault && !stmt.name) {
           const fnExpr = emitAnonFunctionLike({
+            node: stmt,
             parameters: stmt.parameters,
             returnType: stmt.type,
             body: stmt.body,
@@ -4204,6 +4374,7 @@ function emitHaxeSourceFile(
             return unsupported(stmt, "Async function declaration has no usable name.");
           const name = stmt.name.text;
           const fnExpr = emitAnonFunctionLike({
+            node: stmt,
             parameters: stmt.parameters,
             returnType: stmt.type,
             body: stmt.body,
@@ -4232,25 +4403,61 @@ function emitHaxeSourceFile(
           return `${isOptional ? "?" : ""}${id}: ${type}`;
         });
 
-        let fn: string | null = null;
-        if (stmt.body && stmt.body.statements.length === 1 && ts.isReturnStatement(stmt.body.statements[0])) {
-          const ret = stmt.body.statements[0] as ts.ReturnStatement;
-          if (!ret.expression)
-            return unsupported(stmt, "Default function's bare return cannot be preserved.", "control-flow");
-          const retExpr = emitExpression(ctx, ret.expression);
-          if (!retExpr)
-            return unsupported(stmt, "Default function return expression cannot be preserved.", "expression");
-          fn = `function(${params.join(", ")}) return ${retExpr}`;
-        } else if (stmt.body) {
-          const body = emitStatements(ctx, stmt.body.statements, "  ");
-          if (body == null)
-            return unsupported(stmt, "Default function control flow cannot be preserved.", "control-flow");
-          fn = `function(${params.join(", ")}) {\n${body}\n}`;
-        } else {
+        if (!stmt.body)
           return unsupported(stmt, "Ambient default function has no implementation.");
+        type DefaultFunctionResult = {
+          fn: string | null;
+          message: string;
+          category: TranslationDiagnostic["semanticCategory"];
+        };
+        const defaultFunction = withFunctionEmitState<DefaultFunctionResult>(ctx, stmt, () => {
+          if (stmt.body?.statements.length === 1
+            && ts.isReturnStatement(stmt.body.statements[0])) {
+            const ret = stmt.body.statements[0] as ts.ReturnStatement;
+            if (!ret.expression) {
+              return {
+                fn: null,
+                message: "Default function's bare return cannot be preserved.",
+                category: "control-flow"
+              };
+            }
+            const retExpr = emitExpression(ctx, ret.expression);
+            if (!retExpr) {
+              return {
+                fn: null,
+                message: "Default function return expression cannot be preserved.",
+                category: "expression"
+              };
+            }
+            return {
+              fn: `function(${params.join(", ")}) return ${retExpr}`,
+              message: "",
+              category: "declaration"
+            };
+          }
+          const body = emitStatements(ctx, stmt.body?.statements ?? [], "  ");
+          if (body == null) {
+            return {
+              fn: null,
+              message: "Default function control flow cannot be preserved.",
+              category: "control-flow"
+            };
+          }
+          return {
+            fn: `function(${params.join(", ")}) {\n${body}\n}`,
+            message: "",
+            category: "declaration"
+          };
+        });
+        if (!defaultFunction.fn) {
+          return unsupported(
+            stmt,
+            defaultFunction.message,
+            defaultFunction.category
+          );
         }
 
-        out.push(`final __default = ${fn};`);
+        out.push(`final __default = ${defaultFunction.fn};`);
       } else {
         const emitted = emitFunction(ctx, stmt);
         if (!emitted)

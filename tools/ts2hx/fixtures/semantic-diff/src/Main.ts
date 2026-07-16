@@ -160,6 +160,29 @@ function nestedSwitchContinue(): string {
   return seen.join(",");
 }
 
+// Keeps source-function ownership observable. The inner switch continue must
+// use the inner for-loop increment, while leaving the outer loop state intact.
+function nestedFunctionControlState(): string {
+  const seen: string[] = [];
+  for (let outer = 0; outer < 2; outer++) {
+    const collectInner = (): string => {
+      const innerSeen: string[] = [];
+      for (let inner = 0; inner < 3; inner++) {
+        switch (inner) {
+          case 1:
+            continue;
+          default:
+            innerSeen.push(`${outer}:${inner}`);
+            break;
+        }
+      }
+      return innerSeen.join(",");
+    };
+    seen.push(collectInner());
+  }
+  return seen.join("|");
+}
+
 class Counter {
   private value: number;
 
@@ -224,6 +247,7 @@ export function main(): void {
   events.push(`switch-continue:for:${forSwitchContinue()}`);
   events.push(`switch-continue:nested-loop:${nestedLoopSwitchContinue()}`);
   events.push(`switch-continue:nested-switch:${nestedSwitchContinue()}`);
+  events.push(`function-state:${nestedFunctionControlState()}`);
 
   const firstSwitch: number = 2;
   switch (firstSwitch) {
