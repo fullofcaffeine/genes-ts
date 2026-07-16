@@ -48,6 +48,7 @@ feature surface beyond the quick examples in `readme.md`.
 - `DOCS_PLAN.md` — docs PRD/roadmap (onboarding + workflows)
 - `prompts/GPT_5_6_SIDE_EFFECT_IMPORT_ARCHITECTURE.md` — focused evidence packet for resolving ordered ESM side-effect imports before implementation
 - `prompts/GPT_5_6_SIDE_EFFECT_IMPORT_ARCHITECTURE_RESPONSE.md` — reviewed semantic model, supported boundary, experiments, and incremental landing contract
+- `prompts/GPT_5_6_BOUND_ONLY_ESM_IMPORT_ORDER_ARCHITECTURE.md` — focused follow-up for bound-import initialization order, unused-binding retention, and the standard-Haxe capability boundary
 
 ## Experimental
 

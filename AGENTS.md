@@ -35,6 +35,12 @@ Full Genes CI must pass before downstream projects rely on a local compiler chan
 - If full CI fails, stop downstream work and fix or explicitly resolve the Genes CI failure in this repo first. Do not continue building downstream projects on top of an unproven compiler checkout.
 - If a CI failure is external or intentionally allowlisted, document the reason, the owning Bead, and the exact command/output proving the remaining compiler gates are healthy before downstream work resumes.
 
+## Commit Messages
+
+- Keep the conventional-commit subject concise, then add a useful commit body for every non-trivial change. Write the body in friendly, beginner-readable language so someone who does not already know the compiler internals can understand what problem was solved.
+- Explain what changed, why it matters, and how it was verified. Call out important behavior or output changes and name any intentionally deferred scope so the commit does not imply broader closure than it provides.
+- Prefer concrete descriptions of the old and new behavior over a list of filenames or internal type names. Technical details are welcome, but introduce them in plain language and make the practical outcome clear first.
+
 ## Target-Polymorphic Type Helpers
 
 North star: Haxe code that uses genes-provided TypeScript helper abstractions should still be ordinary Haxe code that can compile through both output modes.
