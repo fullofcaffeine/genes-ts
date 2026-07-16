@@ -104,6 +104,73 @@ outside it.
 
 Correct any claim that the uploaded files disprove.
 
+## Local evidence spike completed after initial scoping
+
+The upload includes the production baseline, not the temporary spike source.
+The following results were obtained locally with Haxe 4.3.7, Node 20.19.3,
+TypeScript 5.5.4, `-dce full`, and production commit `8d5813c` plus this prompt.
+Treat them as observed experiment results to explain or challenge, not as an
+approved production design.
+
+### Typed representation and helper behavior
+
+- Haxe accepts a generic enum instantiated as `Completion<Void>`. A temporary
+  enum with `Normal`, `ReturnValue(value:T)`, `ReturnVoid`, `Break`, and
+  `Continue` compiled without `Dynamic`, `untyped`, or casts.
+- A pure Haxe generic runner can isolate `body()` in `try/catch`, call the
+  finalizer exactly once, rethrow the body error only when the finalizer returns
+  `Normal`, and otherwise return the finalizer completion. No raw
+  `js.Syntax.code` was required for this spike.
+- The runner preserved a body return through a normal finalizer, allowed a
+  finalizer return to override a body return or throw, and allowed a finalizer
+  throw to override a body return.
+- Haxe `switch` dispatch after the helper accepted a real `return`, `break`, or
+  `continue`. A manually modeled lowered-for path ran the increment once after
+  continue and not after break.
+- A nested manual model proved the crucial distinction: an inner completion
+  could be dispatched to a loop inside an outer body callback, preserving the
+  remaining outer protected statements, while a completion targeting a loop
+  outside both callbacks could be returned through the outer runner and
+  dispatched there.
+
+The exact transcript matched in standard Haxe JS, classic Genes JS, and
+genes-ts compiled by strict TypeScript 5.5:
+
+```text
+1;2;3;finalizer;return-void;
+body:0|finally:0|body:1|finally:1;
+inner:0|inner:1|after-loop|outer;
+body:0|inner:0|outer:0|body:1|inner:1|outer:1
+```
+
+The four fields respectively demonstrate return preservation/override,
+Void-generic dispatch, local continue/break with finalization, a target inside
+an outer callback, and propagation to a target outside both callbacks.
+
+### Declaration/type-output hazard
+
+Module-private visibility did **not** contain the temporary generic enum. Both
+Genes profiles still emitted it. genes-ts represented empty generic variants
+with `never`, but classic `.d.ts` represented `Normal`, `ReturnVoid`, `Break`,
+and `Continue` with `any`. This violates the repository's strong generated-type
+policy if the completion algebra reaches a user declaration module.
+
+The decision must therefore choose and prove one of these outcomes rather than
+assuming `private` is sufficient:
+
+1. a compiler/runtime-internal algebra is centrally filtered from public
+   declarations while remaining available to implementation typing;
+2. classic generic-enum declaration emission is improved generically to retain
+   a sound bottom type;
+3. a different strongly typed representation avoids unconstrained empty
+   generic constructors; or
+4. completion details remain local in a form that creates no exported helper
+   surface.
+
+The spike did **not** prove the TypeScript planner, automatic target assignment,
+source-map provenance, async/generator behavior, or actual ts2hx lowering.
+Those remain the architecture decision.
+
 ## Required semantic cases
 
 The architecture must explain all of these, even if some remain explicitly
