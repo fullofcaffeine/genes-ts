@@ -5,6 +5,7 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "resolveJsonModule": true,
+    "verbatimModuleSyntax": false,
     "strict": true,
     "noEmitOnError": true,
     "rootDir": "./src",

@@ -109,10 +109,11 @@ Important consequences:
 - authored `main()` calls in five snapshot fixture `index.ts` files are
   deliberately assisted losses;
 - the three roundtrip fixtures invoke the translated Haxe `Main` explicitly;
-- supported bare imports become compiler-owned request carriers, and converted
-  runtime descendants receive carriers so bound-import declaration order is
-  not replaced by Haxe value-use order; arbitrary executable top-level
-  statements still fail strict mode;
+- supported bare imports become compiler-owned request carriers; standalone
+  acyclic converted named/aliased imports of immutable `const` exports receive
+  the same ordering proof, including unused requests retained by configured
+  TypeScript emit, so Haxe value-use order cannot replace import order;
+  arbitrary executable top-level statements still fail strict mode;
 - any effective runtime request requires `--runtime-profile genes-esm` and is
   recorded as the `genes.esm-runtime-requests` capability; the request-free
   `standard-haxe-js` profile fails transactionally at the first retained

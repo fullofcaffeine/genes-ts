@@ -270,15 +270,21 @@ request carriers call `genes.internal.EsmRequestFact`, whose macro repeats the
 JS-plus-active-Genes check before expanding to the raw typed marker. There is
 no conditional omission or runtime fallback.
 
-For the currently supported bare-import closure, each runtime-importing file
-receives one kept `@:genes.compilerInternal` carrier whose typed marker calls
-survive full DCE, become ordered Genes module requests, and disappear from both
-final profiles and declarations. This includes bound-only descendants: Haxe
-value-use order is not allowed to replace their TypeScript import-declaration
-order. Maps remain lookup structures; neither ts2hx nor a Genes printer may
-reconstruct request order from grouped bindings. The explicit profile boundary
-is deliberately broader than this first carrier subset; later support work may
-consume the recorded effective requests without changing the target contract.
+Each supported runtime-importing file receives one kept
+`@:genes.compilerInternal` carrier whose typed marker calls survive full DCE,
+become ordered Genes module requests, and disappear from both final profiles
+and declarations. The supported producer set includes the converted closure of
+a bare import and standalone acyclic closures made entirely from converted
+named or aliased imports of immutable `const` exports. Carrier occurrences come
+from configured TypeScript emit: an unused import retained by
+`verbatimModuleSyntax` remains a request, while an import TypeScript elides does
+not become one. Haxe value-use order is therefore not allowed to replace the
+effective declaration order, even in a module with no bare-import ancestor.
+Maps remain lookup structures; neither ts2hx nor a Genes printer may reconstruct
+request order from grouped bindings. The explicit profile boundary is broader
+than this first bound-binding subset; later support work may consume default,
+namespace, mutable, cyclic, and re-export request evidence without changing the
+target contract.
 An acyclic binding-free request to converted code targets a deterministic
 compiler-internal field in the generated Haxe module. That typed anchor makes
 the target visible; explicit `@:keep` metadata retains its translated top-level

@@ -14,6 +14,7 @@ import ts from "./typescript-api.js";
 
 const TRACE_MARKER = "SEMANTIC_TRACE:";
 const CONVERTED_TRACE_MARKER = "CONVERTED_TRACE:";
+const BOUND_TRACE_MARKER = "BOUND_TRACE:";
 
 function assert(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -61,6 +62,12 @@ function convertedTrace(output: string, label: string): string {
   return output.slice(marker + CONVERTED_TRACE_MARKER.length).split(/\r?\n/, 1)[0]?.trim() ?? "";
 }
 
+function boundTrace(output: string, label: string): string {
+  const marker = output.indexOf(BOUND_TRACE_MARKER);
+  assert(marker >= 0, `${label}: no ${BOUND_TRACE_MARKER} marker in output:\n${output}`);
+  return output.slice(marker + BOUND_TRACE_MARKER.length).split(/\r?\n/, 1)[0]?.trim() ?? "";
+}
+
 function occurrenceCount(source: string, needle: string): number {
   return source.split(needle).length - 1;
 }
@@ -74,6 +81,25 @@ function assertSideEffectOrder(output: string, label: string): void {
   assert(supportEffect > packageEffect, `${label}: bound Support request did not follow the package request.`);
   assert(resourceEffect > supportEffect, `${label}: staged resource did not follow the bound Support request.`);
   assert(semanticTrace > resourceEffect, `${label}: Main ran before its ordered runtime requests completed.`);
+}
+
+function assertBoundRequestOrder(source: string, label: string, verbatim: boolean): void {
+  const unusedRequest = source.indexOf("./Unused.js");
+  const firstRequest = source.indexOf("./First.js");
+  const secondRequest = source.indexOf("./Second.js");
+  const stateRequest = source.indexOf("./State.js");
+  if (verbatim)
+    assert(unusedRequest >= 0, `${label}: verbatim output lost the unused request.`);
+  else
+    assert(unusedRequest < 0, `${label}: non-verbatim output retained an elided request.`);
+  assert(firstRequest > unusedRequest, `${label}: First is not in its effective request slot.`);
+  assert(secondRequest > firstRequest, `${label}: Second moved before First.`);
+  assert(stateRequest > secondRequest, `${label}: State moved before the ordered effects.`);
+  assert(occurrenceCount(source, "./First.js") === 1, `${label}: duplicate First request was not coalesced.`);
+  assert(!source.includes("__ts2hx_requests"), `${label}: request carrier leaked into generated output.`);
+  assert(!source.includes("SideEffectImportMarker"), `${label}: compiler marker leaked into generated output.`);
+  assert(!source.includes("EsmRequestFact"), `${label}: guarded request fact leaked into generated output.`);
+  assert(!source.includes("genes.compilerInternal"), `${label}: compiler metadata leaked into generated output.`);
 }
 
 function installNodeRuntime(fixtureDir: string, outputDir: string, stagedRuntimeDir: string): void {
@@ -91,7 +117,7 @@ function compileOriginalTypeScript(opts: {
   fixtureDir: string;
   fixtureConfig: string;
   outputDir: string;
-}): { semantic: string; converted: string } {
+}): { semantic: string; converted: string; bound: string } {
   resetDir(opts.outputDir);
   runTypeScriptApiBridge(opts.repoRoot, ["-p", opts.fixtureConfig, "--outDir", opts.outputDir]);
   const packageTarget = path.join(opts.outputDir, "node_modules", "@ts2hx", "semantic-effect");
@@ -115,7 +141,13 @@ function compileOriginalTypeScript(opts: {
     ["--input-type=module", "-e", `import(${JSON.stringify(convertedEntry)}).then((module) => module.main())`],
     opts.repoRoot
   );
-  return { semantic, converted };
+  const boundEntry = pathToFileURL(path.join(opts.outputDir, "bound", "BoundMain.js")).href;
+  const bound = capture(
+    process.execPath,
+    ["--input-type=module", "-e", `import(${JSON.stringify(boundEntry)}).then((module) => module.main())`],
+    opts.repoRoot
+  );
+  return { semantic, converted, bound };
 }
 
 function compileClassicHaxe(opts: {
@@ -126,16 +158,19 @@ function compileClassicHaxe(opts: {
   mainClass: string;
   fixtureDir: string;
   stagedRuntimeDir: string;
+  emitDts?: boolean;
 }): string {
   resetDir(path.dirname(opts.outputFile));
-  run(opts.haxeBin, [
+  const args = [
     "-lib", "genes-ts",
     "-cp", opts.haxeSourceDir,
     "--macro", "genes.js.Async.enable()",
     "-dce", "full",
     "-main", opts.mainClass,
     "-js", opts.outputFile
-  ], opts.repoRoot);
+  ];
+  if (opts.emitDts) args.push("-D", "dts");
+  run(opts.haxeBin, args, opts.repoRoot);
   installNodeRuntime(opts.fixtureDir, path.dirname(opts.outputFile), opts.stagedRuntimeDir);
   return capture(process.execPath, [opts.outputFile], opts.repoRoot);
 }
@@ -204,6 +239,7 @@ function main(): void {
   const tmpRoot = path.join(toolRoot, ".tmp", "semantic-diff");
   const fixtureDir = path.join(toolRoot, "fixtures", "semantic-diff");
   const fixtureConfig = path.join(fixtureDir, "tsconfig.json");
+  const verbatimFixtureConfig = path.join(fixtureDir, "tsconfig.verbatim.json");
 
   const originalOutput = compileOriginalTypeScript({
     repoRoot,
@@ -216,9 +252,28 @@ function main(): void {
     originalOutput.converted,
     "original converted-relative TypeScript"
   );
+  const originalBoundTrace = boundTrace(originalOutput.bound, "original bound-only TypeScript");
+  const originalVerbatimOutput = compileOriginalTypeScript({
+    repoRoot,
+    fixtureDir,
+    fixtureConfig: verbatimFixtureConfig,
+    outputDir: path.join(tmpRoot, "original-verbatim")
+  });
+  const originalVerbatimBoundTrace = boundTrace(
+    originalVerbatimOutput.bound,
+    "original verbatim bound-only TypeScript"
+  );
   assert(
     originalConvertedTrace === "first,second|bound-first,bound-second",
     "original converted fixture has the wrong source order."
+  );
+  assert(
+    originalBoundTrace === "first,second|2:1:1",
+    "non-verbatim TypeScript did not elide the unused bound request as expected."
+  );
+  assert(
+    originalVerbatimBoundTrace === "unused,first,second|3:2:2",
+    "verbatim TypeScript did not retain the unused bound request in source order."
   );
   assertSideEffectOrder(originalOutput.semantic, "original TypeScript");
 
@@ -241,6 +296,34 @@ function main(): void {
   });
   assert(translation.status === "success", `semantic-diff translation status was ${translation.status}.`);
   assert(translation.diagnostics.length === 0, "semantic-diff unexpectedly produced translation diagnostics.");
+  const verbatimLoaded = loadProject(verbatimFixtureConfig);
+  if (!verbatimLoaded.ok) {
+    throw new Error(
+      `verbatim semantic-diff fixture failed to load: ${verbatimLoaded.diagnostics.length} diagnostic(s).`
+    );
+  }
+  const verbatimHaxeSourceDir = path.join(tmpRoot, "haxe-verbatim");
+  const verbatimTranslation = emitProjectToHaxe({
+    projectDir: verbatimLoaded.projectDir,
+    rootDir: verbatimLoaded.rootDir,
+    program: verbatimLoaded.program,
+    checker: verbatimLoaded.checker,
+    sourceFiles: verbatimLoaded.sourceFiles,
+    outDir: verbatimHaxeSourceDir,
+    basePackage: "ts2hx_semantic",
+    runtimeProfile: "genes-esm",
+    mode: "strict-js",
+    cleanOutDir: true,
+    runtimeModulesManifest: path.join(fixtureDir, "runtime-modules.json")
+  });
+  assert(
+    verbatimTranslation.status === "success",
+    `verbatim semantic-diff translation status was ${verbatimTranslation.status}.`
+  );
+  assert(
+    verbatimTranslation.diagnostics.length === 0,
+    "verbatim semantic-diff unexpectedly produced translation diagnostics."
+  );
   assert(translation.manifest.schemaVersion === 3, "semantic manifest schema is not version 3.");
   assert(translation.manifest.targetProfile === "genes-esm", "semantic manifest lost its runtime profile.");
   assert(
@@ -255,6 +338,23 @@ function main(): void {
   assert(
     translation.manifest.moduleRequests.some(request => request.disposition === "runtime-request"),
     "semantic manifest lost its effective runtime-request evidence."
+  );
+  const unusedDefaultRequest = translation.manifest.moduleRequests.find(request =>
+    request.source.file.endsWith("bound/BoundMain.ts")
+      && request.specifier === "./unused.js"
+  );
+  const unusedVerbatimRequest = verbatimTranslation.manifest.moduleRequests.find(request =>
+    request.source.file.endsWith("bound/BoundMain.ts")
+      && request.specifier === "./unused.js"
+  );
+  assert(
+    unusedDefaultRequest?.disposition === "elided",
+    "non-verbatim manifest did not record the unused import as TypeScript-elided."
+  );
+  assert(
+    unusedVerbatimRequest?.disposition === "runtime-request"
+      && unusedVerbatimRequest.emittedShape === "named",
+    "verbatim manifest did not record the unused named runtime request."
   );
   assert(translation.manifest.runtimeModules.length === 2, "semantic manifest lost its staged runtime modules.");
   assert(
@@ -387,6 +487,36 @@ function main(): void {
     transitiveBoundTargetHaxe.includes('("" + second + ":" + first)'),
     "transitive fixture no longer reads bindings in the order that exposes the dependency-order bug."
   );
+  const boundMainHaxe = fs.readFileSync(
+    path.join(haxeSourceDir, "ts2hx_semantic", "bound", "BoundMain.hx"),
+    "utf8"
+  );
+  const verbatimBoundMainHaxe = fs.readFileSync(
+    path.join(verbatimHaxeSourceDir, "ts2hx_semantic", "bound", "BoundMain.hx"),
+    "utf8"
+  );
+  const firstValueAnchor = "EsmRequestFact.internal(firstValue)";
+  const secondValueAnchor = "EsmRequestFact.internal(secondValue)";
+  const boundStateAnchor = "EsmRequestFact.internal(events)";
+  const duplicateFirstAnchor = "EsmRequestFact.internal(firstAgain)";
+  assert(
+    !boundMainHaxe.includes("EsmRequestFact.internal(unusedValue)"),
+    "non-verbatim carrier retained an import erased by configured TypeScript emit."
+  );
+  assert(
+    boundMainHaxe.indexOf(firstValueAnchor) >= 0
+      && boundMainHaxe.indexOf(secondValueAnchor) > boundMainHaxe.indexOf(firstValueAnchor)
+      && boundMainHaxe.indexOf(boundStateAnchor) > boundMainHaxe.indexOf(secondValueAnchor)
+      && boundMainHaxe.indexOf(duplicateFirstAnchor) > boundMainHaxe.indexOf(boundStateAnchor),
+    "standalone bound-only carrier lost effective TypeScript request order."
+  );
+  const unusedValueAnchor = "EsmRequestFact.internal(unusedValue)";
+  assert(
+    verbatimBoundMainHaxe.indexOf(unusedValueAnchor) >= 0
+      && verbatimBoundMainHaxe.indexOf(firstValueAnchor)
+        > verbatimBoundMainHaxe.indexOf(unusedValueAnchor),
+    "verbatim carrier did not retain the unused aliased request at its first slot."
+  );
   const stagedResource = path.join(
     haxeSourceDir,
     "ts2hx_semantic",
@@ -500,6 +630,46 @@ function main(): void {
     fixtureDir,
     stagedRuntimeDir
   });
+  const classicBoundOutput = compileClassicHaxe({
+    haxeBin,
+    repoRoot,
+    haxeSourceDir,
+    outputFile: path.join(tmpRoot, "classic-bound", "index.js"),
+    mainClass: "ts2hx_semantic.bound.BoundMain",
+    fixtureDir,
+    stagedRuntimeDir,
+    emitDts: true
+  });
+  const genesTsBoundOutput = compileGenesTypeScript({
+    haxeBin,
+    repoRoot,
+    haxeSourceDir,
+    sourceDir: path.join(tmpRoot, "genes-ts-bound-source"),
+    distDir: path.join(tmpRoot, "genes-ts-bound-dist"),
+    mainClass: "ts2hx_semantic.bound.BoundMain",
+    fixtureDir,
+    stagedRuntimeDir
+  });
+  const classicVerbatimBoundOutput = compileClassicHaxe({
+    haxeBin,
+    repoRoot,
+    haxeSourceDir: verbatimHaxeSourceDir,
+    outputFile: path.join(tmpRoot, "classic-verbatim-bound", "index.js"),
+    mainClass: "ts2hx_semantic.bound.BoundMain",
+    fixtureDir,
+    stagedRuntimeDir,
+    emitDts: true
+  });
+  const genesTsVerbatimBoundOutput = compileGenesTypeScript({
+    haxeBin,
+    repoRoot,
+    haxeSourceDir: verbatimHaxeSourceDir,
+    sourceDir: path.join(tmpRoot, "genes-ts-verbatim-bound-source"),
+    distDir: path.join(tmpRoot, "genes-ts-verbatim-bound-dist"),
+    mainClass: "ts2hx_semantic.bound.BoundMain",
+    fixtureDir,
+    stagedRuntimeDir
+  });
   assert(
     !fs.existsSync(path.join(tmpRoot, "genes-ts-source", "genes", "js", "Coercion.ts")),
     "the macro-only coercion abstract leaked an empty runtime TypeScript module."
@@ -587,6 +757,67 @@ function main(): void {
     assert(!source.includes("SideEffectImportMarker"), `${label}: compiler marker leaked into generated output.`);
     assert(!source.includes("EsmRequestFact"), `${label}: guarded request fact leaked into generated output.`);
   }
+  const boundGeneratedSources = [
+    {
+      label: "classic bound-only",
+      file: path.join(tmpRoot, "classic-bound", "ts2hx_semantic", "bound", "BoundMain.js"),
+      verbatim: false
+    },
+    {
+      label: "genes-ts bound-only",
+      file: path.join(tmpRoot, "genes-ts-bound-source", "ts2hx_semantic", "bound", "BoundMain.ts"),
+      verbatim: false
+    },
+    {
+      label: "classic verbatim bound-only",
+      file: path.join(
+        tmpRoot,
+        "classic-verbatim-bound",
+        "ts2hx_semantic",
+        "bound",
+        "BoundMain.js"
+      ),
+      verbatim: true
+    },
+    {
+      label: "genes-ts verbatim bound-only",
+      file: path.join(
+        tmpRoot,
+        "genes-ts-verbatim-bound-source",
+        "ts2hx_semantic",
+        "bound",
+        "BoundMain.ts"
+      ),
+      verbatim: true
+    }
+  ] as const;
+  for (const generated of boundGeneratedSources) {
+    assertBoundRequestOrder(
+      fs.readFileSync(generated.file, "utf8"),
+      generated.label,
+      generated.verbatim
+    );
+  }
+  for (const declarationFile of [
+    path.join(tmpRoot, "classic-bound", "ts2hx_semantic", "bound", "BoundMain.d.ts"),
+    path.join(
+      tmpRoot,
+      "classic-verbatim-bound",
+      "ts2hx_semantic",
+      "bound",
+      "BoundMain.d.ts"
+    )
+  ]) {
+    const declaration = fs.readFileSync(declarationFile, "utf8");
+    for (const forbidden of [
+      "__ts2hx_requests",
+      "SideEffectImportMarker",
+      "EsmRequestFact",
+      "genes.compilerInternal"
+    ]) {
+      assert(!declaration.includes(forbidden), `bound-only declaration leaked ${forbidden}.`);
+    }
+  }
   assertSideEffectOrder(classicOutput, "translated classic Genes JavaScript");
   assertSideEffectOrder(genesTsOutput, "translated genes-ts output");
   assert(
@@ -606,6 +837,24 @@ function main(): void {
     convertedTrace(genesTsConvertedOutput, "translated genes-ts converted-relative output")
       === originalConvertedTrace,
     "genes-ts converted-relative initialization differs from original TypeScript."
+  );
+  assert(
+    boundTrace(classicBoundOutput, "translated classic bound-only output") === originalBoundTrace,
+    "classic bound-only initialization differs from non-verbatim TypeScript."
+  );
+  assert(
+    boundTrace(genesTsBoundOutput, "translated genes-ts bound-only output") === originalBoundTrace,
+    "genes-ts bound-only initialization differs from non-verbatim TypeScript."
+  );
+  assert(
+    boundTrace(classicVerbatimBoundOutput, "translated classic verbatim bound-only output")
+      === originalVerbatimBoundTrace,
+    "classic bound-only initialization differs from verbatim TypeScript."
+  );
+  assert(
+    boundTrace(genesTsVerbatimBoundOutput, "translated genes-ts verbatim bound-only output")
+      === originalVerbatimBoundTrace,
+    "genes-ts bound-only initialization differs from verbatim TypeScript."
   );
 
   const unsupportedConfig = path.join(toolRoot, "fixtures", "semantic-unsupported", "tsconfig.json");

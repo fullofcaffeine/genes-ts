@@ -205,7 +205,10 @@ Additional evidence-only fixtures:
 - `semantic-diff`: 16 supported semantic contracts executed as original TS,
   classic Genes JS, and genes-ts→JS, including the reduced ordered
   `state`/`first`/`second` converted-module initialization proof and a
-  transitive bound-only target that reads its imports in reverse order;
+  standalone bound-only target that reads its imports in reverse order. The
+  same differential runs with `verbatimModuleSyntax` off and on, proving that
+  TypeScript-elided imports create no carrier while an unused retained alias
+  initializes in its effective request slot;
 - `semantic-unsupported`: 9 feature-specific strict failures with source
   provenance and unchanged prior output;
 - `unsupported-top-level`: generic unknown-statement diagnostics, assisted loss

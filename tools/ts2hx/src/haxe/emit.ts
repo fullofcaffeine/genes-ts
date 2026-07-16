@@ -193,8 +193,14 @@ type ConvertedRuntimeTargetPlan = {
 
 type RuntimeImportInventory = {
   sourceFile: ts.SourceFile;
-  runtimeImports: readonly ts.ImportDeclaration[];
+  /** Requests retained by the configured TypeScript emitter, in emit order. */
+  runtimeImports: readonly EffectiveRuntimeImportOccurrence[];
   bareImports: readonly ts.ImportDeclaration[];
+};
+
+type EffectiveRuntimeImportOccurrence = {
+  statement: ts.ImportDeclaration;
+  request: EffectiveRuntimeRequest;
 };
 
 type ConvertedRuntimeEdge = {
@@ -2860,18 +2866,6 @@ function parseImportAttribute(statement: ts.ImportDeclaration): ParsedImportAttr
   return { ok: true, importType: attribute.value.text };
 }
 
-function isRuntimeImport(statement: ts.ImportDeclaration): boolean {
-  const clause = statement.importClause;
-  if (!clause) return true;
-  if (clause.isTypeOnly) return false;
-  if (clause.name) return true;
-  const bindings = clause.namedBindings;
-  if (!bindings) return true;
-  if (ts.isNamespaceImport(bindings)) return true;
-  if (bindings.elements.length === 0) return true;
-  return bindings.elements.some((element) => !element.isTypeOnly);
-}
-
 function runtimeBindingAnchor(statement: ts.ImportDeclaration): string | null {
   const clause = statement.importClause;
   if (!clause || clause.isTypeOnly) return null;
@@ -2880,6 +2874,54 @@ function runtimeBindingAnchor(statement: ts.ImportDeclaration): string | null {
   if (!bindings || ts.isNamespaceImport(bindings)) return null;
   const valueBinding = bindings.elements.find((element) => !element.isTypeOnly);
   return valueBinding?.name.text ?? null;
+}
+
+/**
+ * Proves the first bound-request subset without weakening ESM live bindings.
+ *
+ * Why: a carrier may retain an unused local import, but treating a mutable
+ * exporter as a value token would overclaim support before mutation and cycle
+ * differentials exist. The first increment therefore accepts only named (or
+ * locally aliased) bindings whose target is an exported `const`.
+ *
+ * What: the configured TypeScript emit must retain a plain named ESM import,
+ * every runtime element must resolve through the checker to a `const`, and the
+ * request must target another source in the exact conversion set.
+ *
+ * How: TypeScript alias symbols are unwrapped through the checker. Type-only
+ * elements do not provide an anchor and are ignored here; the emitted request
+ * shape remains the source of truth for whether a runtime declaration exists.
+ */
+function isImmutableConvertedNamedRequest(
+  opts: EmitHaxeOptions,
+  occurrence: EffectiveRuntimeImportOccurrence,
+  edge: ConvertedRuntimeEdge | undefined
+): boolean {
+  const { statement, request } = occurrence;
+  if (!edge || request.moduleFormat !== "esm" || request.emittedShape !== "named") return false;
+  const attribute = parseImportAttribute(statement);
+  if (!attribute.ok || attribute.importType !== null) return false;
+
+  const clause = statement.importClause;
+  if (!clause || clause.isTypeOnly || clause.name) return false;
+  const bindings = clause.namedBindings;
+  if (!bindings || !ts.isNamedImports(bindings)) return false;
+  const valueElements = bindings.elements.filter((element) => !element.isTypeOnly);
+  if (valueElements.length === 0) return false;
+
+  return valueElements.every((element) => {
+    let symbol = opts.checker.getSymbolAtLocation(element.name);
+    const seen = new Set<ts.Symbol>();
+    while (symbol && (symbol.flags & ts.SymbolFlags.Alias) !== 0 && !seen.has(symbol)) {
+      seen.add(symbol);
+      symbol = opts.checker.getAliasedSymbol(symbol);
+    }
+    const declaration = symbol?.valueDeclaration;
+    return declaration !== undefined
+      && ts.isVariableDeclaration(declaration)
+      && ts.isVariableDeclarationList(declaration.parent)
+      && (declaration.parent.flags & ts.NodeFlags.Const) !== 0;
+  });
 }
 
 function hasRuntimeReexport(sourceFile: ts.SourceFile): boolean {
@@ -3112,11 +3154,11 @@ function convertedRuntimeComponents(
  * missing dependency.
  *
  * What: every file in the converted runtime closure of a bare import receives
- * an ordered request plan. This includes bound-only transitive modules: their
- * Haxe expressions can read imported values in a different order from the
- * TypeScript declarations, but ESM initialization must continue to follow
- * declaration source order. Unrelated projects containing only bound imports
- * remain ordinary Haxe and preserve their existing standard-Haxe behavior.
+ * an ordered request plan. The plan also covers standalone acyclic files whose
+ * complete effective request closure consists of converted named bindings to
+ * immutable exports. That second boundary fixes bound-only request order and
+ * retains imports preserved by `verbatimModuleSyntax` without pretending that
+ * mutable bindings, other binding shapes, or runtime re-exports are solved.
  * Package and manifest-owned relative requests become external marker calls.
  * Converted requests use either a real local binding or a deterministic target
  * marker, while binding-free converted cycles remain source-positioned failures.
@@ -3125,7 +3167,10 @@ function convertedRuntimeComponents(
  * optional hash-verified staging manifest. Resource bytes are read now but are
  * committed only after every source file has been validated.
  */
-function buildProjectRuntimeImportPlan(opts: EmitHaxeOptions): ProjectRuntimeImportPlan {
+function buildProjectRuntimeImportPlan(
+  opts: EmitHaxeOptions,
+  effectiveRequests: EffectiveModuleRequestInventory
+): ProjectRuntimeImportPlan {
   const manifest: RuntimeModuleManifestPlan | null = opts.runtimeModulesManifest
     ? loadRuntimeModuleManifest(opts.runtimeModulesManifest)
     : null;
@@ -3135,8 +3180,12 @@ function buildProjectRuntimeImportPlan(opts: EmitHaxeOptions): ProjectRuntimeImp
   const targetBySourceFile = new Map<string, ConvertedRuntimeTargetPlan>();
   const usedManifestEntries = new Set<RuntimeModuleManifestEntry>();
   const inventories: RuntimeImportInventory[] = [];
+  const inventoryBySourcePath = new Map<string, RuntimeImportInventory>();
   const convertedEdgeByStatement = new Map<ts.ImportDeclaration, ConvertedRuntimeEdge>();
   const convertedGraph = new Map<string, Set<string>>();
+  const effectiveBySourcePath = new Map(
+    effectiveRequests.files.map((file) => [path.resolve(file.sourceFile), file] as const)
+  );
 
   for (const sourceFile of sortedSourceFiles) {
     const imports = sourceFile.statements.filter(
@@ -3144,13 +3193,34 @@ function buildProjectRuntimeImportPlan(opts: EmitHaxeOptions): ProjectRuntimeImp
         ts.isImportDeclaration(statement)
         && ts.isStringLiteral(statement.moduleSpecifier)
     );
-    const runtimeImports = imports.filter(isRuntimeImport);
-    const bareImports = imports.filter((statement) => !statement.importClause);
-    inventories.push({ sourceFile, runtimeImports, bareImports });
-
     const sourceKey = path.resolve(sourceFile.fileName);
-    for (const statement of imports) {
-      if (!isRuntimeImport(statement)) continue;
+    const effectiveFile = effectiveBySourcePath.get(sourceKey);
+    if (!effectiveFile)
+      throw new Error(`Effective request inventory omitted ${sourceFile.fileName}.`);
+    const importBySpan = new Map(
+      imports.map((statement) => [`${statement.getStart(sourceFile)}:${statement.getEnd()}`, statement] as const)
+    );
+    const runtimeImports = effectiveFile.runtimeRequests
+      .slice()
+      .sort((a, b) => a.requestOrdinal - b.requestOrdinal || a.sourceStart - b.sourceStart)
+      .map((request): EffectiveRuntimeImportOccurrence => {
+        const statement = importBySpan.get(`${request.sourceStart}:${request.sourceEnd}`);
+        if (!statement) {
+          throw new Error(
+            `Could not recover effective request ${request.specifier} at `
+              + `${sourceFile.fileName}:${request.sourceStart}.`
+          );
+        }
+        return { statement, request };
+      });
+    const bareImports = runtimeImports
+      .map((occurrence) => occurrence.statement)
+      .filter((statement) => !statement.importClause);
+    const sourceInventory = { sourceFile, runtimeImports, bareImports };
+    inventories.push(sourceInventory);
+    inventoryBySourcePath.set(sourceKey, sourceInventory);
+
+    for (const { statement } of runtimeImports) {
       const moduleSpecifier = (statement.moduleSpecifier as ts.StringLiteral).text;
       if (!isRelativeModuleSpecifier(moduleSpecifier)) continue;
       const targetFile = resolveRelativeSourceFile(opts.program, sourceFile.fileName, moduleSpecifier);
@@ -3185,13 +3255,52 @@ function buildProjectRuntimeImportPlan(opts: EmitHaxeOptions): ProjectRuntimeImp
     }
   }
 
+  const convertedComponents = convertedRuntimeComponents(convertedGraph);
+
+  // Standalone bound-only modules join the ordered plan only when the entire
+  // reachable request graph is inside the deliberately narrow first subset.
+  // A fixed point prevents an apparently safe importer from claiming parity
+  // when one converted descendant still uses a mutable or unsupported shape.
+  const immutableNamedCandidates = new Set<string>();
+  for (const inventory of inventories) {
+    const sourceKey = path.resolve(inventory.sourceFile.fileName);
+    if (inventory.runtimeImports.length === 0 || hasRuntimeReexport(inventory.sourceFile)) continue;
+    const supported = inventory.runtimeImports.every((occurrence) => {
+      const edge = convertedEdgeByStatement.get(occurrence.statement);
+      if (!edge || !isImmutableConvertedNamedRequest(opts, occurrence, edge)) return false;
+      const targetKey = path.resolve(edge.targetFile.fileName);
+      return convertedComponents.get(sourceKey) !== convertedComponents.get(targetKey);
+    });
+    if (supported) immutableNamedCandidates.add(sourceKey);
+  }
+
+  const closedImmutableNamedSources = new Set(immutableNamedCandidates);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const sourceKey of Array.from(closedImmutableNamedSources)) {
+      const targets = convertedGraph.get(sourceKey) ?? new Set<string>();
+      const hasUnsafeDescendant = Array.from(targets).some((targetKey) => {
+        if (orderedPlanSourcePaths.has(targetKey)) return false;
+        const targetInventory = inventoryBySourcePath.get(targetKey);
+        if (!targetInventory) return true;
+        if (hasRuntimeReexport(targetInventory.sourceFile)) return true;
+        return targetInventory.runtimeImports.length > 0
+          && !closedImmutableNamedSources.has(targetKey);
+      });
+      if (!hasUnsafeDescendant) continue;
+      closedImmutableNamedSources.delete(sourceKey);
+      changed = true;
+    }
+  }
+  for (const sourceKey of closedImmutableNamedSources) orderedPlanSourcePaths.add(sourceKey);
+
   const cyclicBindingFreeStatements = new Set<ts.ImportDeclaration>();
   const targetSourcePaths = new Set<string>();
-  const convertedComponents = convertedRuntimeComponents(convertedGraph);
   for (const inventory of inventories) {
     const sourceKey = path.resolve(inventory.sourceFile.fileName);
     if (!orderedPlanSourcePaths.has(sourceKey)) continue;
-    for (const statement of inventory.runtimeImports) {
+    for (const { statement } of inventory.runtimeImports) {
       const edge = convertedEdgeByStatement.get(statement);
       if (!edge || runtimeBindingAnchor(statement) !== null) continue;
       const attribute = parseImportAttribute(statement);
@@ -3238,7 +3347,7 @@ function buildProjectRuntimeImportPlan(opts: EmitHaxeOptions): ProjectRuntimeImp
       }
     }
 
-    for (const statement of runtimeImports) {
+    for (const { statement } of runtimeImports) {
       const moduleSpecifier = (statement.moduleSpecifier as ts.StringLiteral).text;
       const attribute = parseImportAttribute(statement);
       if (!attribute.ok) {
@@ -4172,7 +4281,7 @@ export function emitProjectToHaxe(rawOpts: EmitHaxeOptions): EmitHaxeResult {
   const runtimeImportProjectPlan = applyRuntimeProfileBoundary(
     opts,
     effectiveRequests,
-    buildProjectRuntimeImportPlan(opts)
+    buildProjectRuntimeImportPlan(opts, effectiveRequests)
   );
 
   files.push(...runtimeImportProjectPlan.stagedFiles);
