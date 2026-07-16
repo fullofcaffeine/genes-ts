@@ -1,3 +1,17 @@
+# [1.28.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.27.0...v1.28.0) (2026-07-16)
+
+
+### Bug Fixes
+
+* **dts:** keep declaration names out of type fallbacks ([f48a631](https://github.com/fullofcaffeine/genes-ts/commit/f48a63141b8e137369becc64e3ba0cc6916de126))
+* **dts:** preserve constructor-local enum generics ([f12077d](https://github.com/fullofcaffeine/genes-ts/commit/f12077d06abfa0fb39357ee99728758141e427d4))
+* **dts:** type nullary generic enums with never ([c2ec7ad](https://github.com/fullofcaffeine/genes-ts/commit/c2ec7ad4a43af9528171cb417546e96db5538a90))
+
+
+### Features
+
+* **ts2hx:** publish ESM request contract ([8d5813c](https://github.com/fullofcaffeine/genes-ts/commit/8d5813c013391ea5ed4a949e906d8a3e9e1155cc))
+
 # [1.27.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.26.0...v1.27.0) (2026-07-16)
 
 
