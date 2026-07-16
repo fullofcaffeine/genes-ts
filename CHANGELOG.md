@@ -1,3 +1,10 @@
+## [1.25.1](https://github.com/fullofcaffeine/genes-ts/compare/v1.25.0...v1.25.1) (2026-07-16)
+
+
+### Bug Fixes
+
+* preserve transitive runtime import order ([80f85d1](https://github.com/fullofcaffeine/genes-ts/commit/80f85d1c33bbfb1daa5eea099acc08de8f821506))
+
 # [1.25.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.24.0...v1.25.0) (2026-07-15)
 
 
