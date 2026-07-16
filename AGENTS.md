@@ -17,6 +17,28 @@ genes-ts is a general-purpose Haxe-to-TypeScript/JavaScript compiler.
 - If a compiler, macro, type-system, interop, or output-architecture issue becomes ambiguous, risky, or tempting to solve with a clever workaround, stop and prepare a detailed GPT 5.5 Pro prompt instead of guessing. Include the reduced repro, relevant files, current hypotheses, failed approaches, desired output, and non-negotiable architecture rules, then use the response to guide an elegant generic fix.
 - The goal is to make genes-ts the best JS/TS compiler for Haxe. Compiler work only serves that goal when it benefits arbitrary Haxe projects too.
 
+## Migration Tooling and Long-Term Consolidation
+
+- `tools/ts2hx` is currently a TypeScript tool built on the TypeScript
+  `Program`/`TypeChecker` API. It may use both Genes output profiles as runtime
+  or differential evidence, but the Haxe-to-TS/JS compiler must remain usable,
+  testable, and releasable without ts2hx. This dependency is intentionally
+  one-way: migration tooling depends on the compiler, not the compiler on the
+  migration tool.
+- A future rewrite of ts2hx in strongly typed Haxe is a legitimate long-term
+  possibility. It could consolidate implementation languages and exercise
+  Genes on a demanding real compiler tool. Treat that as a separately designed
+  bootstrap/self-hosting project, not as an assumption behind current patches.
+- Before such a rewrite, prove how Haxe will consume the authoritative
+  TypeScript compiler API, how a known-good Genes compiler bootstraps the tool,
+  and how failures are distinguished from bugs in the compiler being tested.
+  Preserve deterministic transactions, exact source provenance, strict and
+  assisted diagnostics, TS-version isolation, and original-TS/classic/genes-ts
+  differentials throughout the migration.
+- Do not distort the current TypeScript implementation merely to make a future
+  port look easier. Prefer small immutable semantic plans and typed boundaries
+  that are good architecture today and would also translate cleanly later.
+
 ## Output modes (keep both green)
 
 genes-ts intentionally supports **two output modes** within the same library:
