@@ -253,6 +253,49 @@ it automatically:
 The review should therefore distinguish "dts2hx can spell this reduced extern"
 from "dts2hx is a sound transactional package-import subsystem."
 
+### Immutable shadow plan added without changing translation
+
+The repository now contains
+`tools/ts2hx/src/semantic/package-extern-plan.ts`. Nothing in production
+emission imports it. The existing package-bound diagnostic and generated
+`Dynamic` assisted scaffold are unchanged.
+
+The shadow plan demonstrates the smallest closed checker-derived algebra found
+so far:
+
+- one declaration-file `const` whose checker type is exactly primitive
+  `string`, `number`, or `boolean`;
+- one declaration-file function with exactly one call signature, no type
+  parameters, no explicit `this`, no optional/rest parameters, primitive
+  parameters, and a primitive or `void` return;
+- TypeScript `number` maps to Haxe `Float`, and argument names become stable
+  `arg0`, `arg1`, ... names because parameter spelling has no runtime identity;
+- the output record owns module specifier, runtime export name, local source
+  reference, resolved declaration name/file, source provenance, member kind,
+  and a closed Haxe type value; and
+- aliases are resolved through checker symbol identity, but no `ts.Symbol`, AST
+  node, absolute path, or rendered TypeScript type text survives in the plan.
+
+Every other tested shape receives an explicit reason: missing/type-only
+symbols, implementation sources, mutable exports, overloads, merged
+declarations, generics, explicit `this`, optional/rest parameters, object or
+union parameter/results, literal/object/callable constants, classes, and raw
+namespace-object use. This is a shadow predicate, not the final public
+diagnostic taxonomy.
+
+`tools/ts2hx/fixtures/package-extern-plan` and the existing focused checker
+test exercise each accepted type and rejection. That test exposed one
+non-obvious TypeScript 6 fact: primitive `boolean` is represented as a
+true/false union carrying the `TypeFlags.Boolean` bit. Exact numeric flag
+equality rejects it, while the broader `BooleanLike` mask would also accept
+boolean literals. The plan therefore tests the primitive Boolean bit and has a
+separate literal-constant rejection.
+
+This evidence makes Candidate 2 concrete and reversible. The review must still
+decide whether production should consume this narrow plan directly, populate
+it from selected dts2hx output, combine it with an explicit mapping manifest,
+or leave the feature fail-closed.
+
 ## Candidate directions to evaluate
 
 These are hypotheses, not instructions. Adopt, reject, or combine them.
@@ -527,12 +570,14 @@ Upload a companion Repomix XML containing at least:
   package extern generation, request planning, source emission, and project
   transaction sections;
 - `tools/ts2hx/src/semantic/ir.ts`, `project.ts`, `typescript-api.ts`, and the
-  effective-request semantic owner;
+  effective-request semantic owner, plus
+  `tools/ts2hx/src/semantic/package-extern-plan.ts`;
 - `tools/ts2hx/src/test-semantic-diff.ts`, `test-snapshots.ts`,
   `test-strict-diagnostics.ts`, `test-effective-module-requests.ts`, and the
   evidence-only `test-package-extern-facts.ts`;
 - the complete `non-relative-imports`, `semantic-diff`, and relevant
-  `semantic-unsupported` package/binding fixtures and reviewed snapshots;
+  `semantic-unsupported` package/binding fixtures and reviewed snapshots, plus
+  the focused `package-extern-plan` declaration-shape fixture;
 - `src/genes/DependencyPlan.hx`, `DependencyPlanBuilder.hx`, `Dependencies.hx`,
   `CompilerInternal.hx`, and `internal/EsmRequestFact.hx`;
 - both Genes implementation import printers and the compiler-internal/public

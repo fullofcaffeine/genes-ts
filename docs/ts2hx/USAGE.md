@@ -208,6 +208,12 @@ Explicit exceptions:
 
 Additional evidence-only fixtures:
 
+- `package-extern-plan`: a declaration-only local package that proves the
+  shadow strong-type boundary without changing translation. Primitive
+  functions and immutable constants receive closed Haxe type plans; mutable,
+  overloaded, generic, optional/rest/`this`, merged, class, literal, object,
+  union, type-only, namespace-object, and implementation-source shapes receive
+  deterministic rejection reasons;
 - `semantic-diff`: all 18 supported semantic contracts execute as original TS,
   classic Genes JS, and genes-ts→JS. The completion trace covers supported
   synchronous return/break/continue through `finally`, nested target ownership,
@@ -237,6 +243,8 @@ The executable source of truth is:
 - `tools/ts2hx/src/test-semantic-diff.ts` for semantic contracts;
 - `tools/ts2hx/src/test-effective-module-requests.ts` for exact configured
   TypeScript request/elision evidence;
+- `tools/ts2hx/src/test-package-extern-facts.ts` for checker alias/type facts
+  and the production-neutral package-extern shadow plan;
 - `tools/ts2hx/src/test-runtime-profile.ts` for schema-v3 profile boundaries,
   transaction safety, and the Haxe macro guard;
 - `tools/ts2hx/src/test-strict-diagnostics.ts` for failure behavior.
@@ -254,6 +262,7 @@ Focused gates:
 ```bash
 yarn --cwd tools/ts2hx test:snapshots
 yarn --cwd tools/ts2hx test:esm-request-plan
+yarn --cwd tools/ts2hx test:package-extern-facts
 yarn --cwd tools/ts2hx test:runtime-profile
 yarn --cwd tools/ts2hx test:roundtrip
 yarn --cwd tools/ts2hx test:semantic-diff
