@@ -1,3 +1,10 @@
+# [1.30.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.29.0...v1.30.0) (2026-07-16)
+
+
+### Features
+
+* **runtime:** add typed finally completion runner ([979df20](https://github.com/fullofcaffeine/genes-ts/commit/979df209069822fb59c779ba1c5c09c65da5b63d))
+
 # [1.29.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.28.0...v1.29.0) (2026-07-16)
 
 
