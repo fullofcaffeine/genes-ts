@@ -1,3 +1,10 @@
+# [1.29.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.28.0...v1.29.0) (2026-07-16)
+
+
+### Features
+
+* **codegen:** contain compiler-internal types ([0a6522b](https://github.com/fullofcaffeine/genes-ts/commit/0a6522bc76d3b19c064d4e49ecdf15f321971164))
+
 # [1.28.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.27.0...v1.28.0) (2026-07-16)
 
 
