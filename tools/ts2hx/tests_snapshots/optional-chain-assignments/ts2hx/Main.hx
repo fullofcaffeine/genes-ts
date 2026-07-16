@@ -2,9 +2,17 @@ package ts2hx;
 
 typedef Obj = { @:optional @:ts.optional var value: Float; @:optional @:ts.optional var nested: { @:optional @:ts.optional var n: Float; @:optional @:ts.optional var fn: Float->Float; }; };
 
+function nullableObj(value: Null<Obj>): Null<Obj> {
+  return value;
+}
+
+function nullableFunction(value: Null<Float->Float>): Null<Float->Float> {
+  return value;
+}
+
 function main(): Void {
   final obj: Null<Obj> = { value: 1, nested: { n: 2, fn: function(x: Float) return (x + 1) } };
-  final nil: Null<Obj> = null;
+  final nil = nullableObj(null);
   trace((function() {
   var __ts2hx_tmp0 = obj;
   return (__ts2hx_tmp0 == null ? null : __ts2hx_tmp0.value);
@@ -50,7 +58,7 @@ function main(): Void {
   if (__ts2hx_fn11 == null) return null;
   return __ts2hx_fn11(3);
 })());
-  final g: Null<Float->Float> = null;
+  final g = nullableFunction(null);
   trace((function() {
   var __ts2hx_fn12 = g;
   if (__ts2hx_fn12 == null) return null;

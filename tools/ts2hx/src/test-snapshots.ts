@@ -1,8 +1,13 @@
 import fs from "fs";
 import path from "path";
 import { execFileSync } from "child_process";
-import { emitProjectToHaxe, type TranslationMode } from "./haxe/emit.js";
+import {
+  emitProjectToHaxe,
+  type RuntimeProfile,
+  type TranslationMode
+} from "./haxe/emit.js";
 import { loadProject } from "./project.js";
+import { inspectEffectiveModuleRequests } from "./semantic/effective-module-requests.js";
 import { runTypeScriptApiBridge } from "./toolchains.js";
 
 function resolveHaxeBin(toolRoot: string): string {
@@ -59,6 +64,7 @@ type Fixture = {
   tsconfigPath: string;
   snapshotsDir: string;
   basePackage: string;
+  runtimeProfile: RuntimeProfile;
   smokeMain: string | null;
   smokeRun?: boolean;
   genesTsRoundtrip?: boolean;
@@ -99,6 +105,7 @@ function main(): number {
       tsconfigPath: path.join(toolRoot, "fixtures", "minimal-codegen", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "minimal-codegen"),
       basePackage: "ts2hx",
+      runtimeProfile: "genes-esm",
       smokeMain: "ts2hx.Main"
     },
     {
@@ -106,6 +113,7 @@ function main(): number {
       tsconfigPath: path.join(toolRoot, "fixtures", "classes-enums", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "classes-enums"),
       basePackage: "ts2hx",
+      runtimeProfile: "genes-esm",
       smokeMain: "ts2hx.Main"
     },
     {
@@ -113,6 +121,7 @@ function main(): number {
       tsconfigPath: path.join(toolRoot, "fixtures", "basic-tsx", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "basic-tsx"),
       basePackage: "ts2hx",
+      runtimeProfile: "genes-esm",
       smokeMain: "ts2hx.Main",
       // TSX lowering currently emits `genes.react.internal.Jsx.__jsx` marker calls which
       // are lowered by genes-ts when emitting TS/TSX, but have no runtime implementation
@@ -124,6 +133,7 @@ function main(): number {
       tsconfigPath: path.join(toolRoot, "fixtures", "react-types", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "react-types"),
       basePackage: "ts2hx",
+      runtimeProfile: "standard-haxe-js",
       smokeMain: "ts2hx.Main",
       // JSX markers are compile-time genes-ts IR and intentionally have no
       // classic JavaScript runtime implementation.
@@ -136,6 +146,7 @@ function main(): number {
       tsconfigPath: path.join(toolRoot, "fixtures", "roundtrip-fixture", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "roundtrip-fixture"),
       basePackage: "ts2hx",
+      runtimeProfile: "genes-esm",
       smokeMain: "ts2hx.Main",
       translationMode: "assisted",
       expectedUnsupportedFiles: ["index.ts"]
@@ -145,6 +156,7 @@ function main(): number {
       tsconfigPath: path.join(toolRoot, "fixtures", "roundtrip-advanced", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "roundtrip-advanced"),
       basePackage: "ts2hx",
+      runtimeProfile: "genes-esm",
       smokeMain: "ts2hx.Main",
       translationMode: "assisted",
       expectedUnsupportedFiles: ["index.ts"]
@@ -154,6 +166,7 @@ function main(): number {
       tsconfigPath: path.join(toolRoot, "fixtures", "module-regexp", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "module-regexp"),
       basePackage: "ts2hx",
+      runtimeProfile: "genes-esm",
       smokeMain: "ts2hx.Main",
       translationMode: "assisted",
       expectedUnsupportedFiles: ["index.ts"]
@@ -163,6 +176,7 @@ function main(): number {
       tsconfigPath: path.join(toolRoot, "fixtures", "module-syntax", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "module-syntax"),
       basePackage: "ts2hx",
+      runtimeProfile: "genes-esm",
       smokeMain: "ts2hx.Main",
       translationMode: "assisted",
       expectedUnsupportedFiles: ["index.ts"]
@@ -172,6 +186,7 @@ function main(): number {
       tsconfigPath: path.join(toolRoot, "fixtures", "type-literals", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "type-literals"),
       basePackage: "ts2hx",
+      runtimeProfile: "genes-esm",
       smokeMain: "ts2hx.Main",
       translationMode: "assisted",
       expectedUnsupportedFiles: ["index.ts"]
@@ -181,6 +196,7 @@ function main(): number {
       tsconfigPath: path.join(toolRoot, "fixtures", "export-forms", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "export-forms"),
       basePackage: "ts2hx",
+      runtimeProfile: "standard-haxe-js",
       smokeMain: "ts2hx.Main"
     },
     {
@@ -188,6 +204,7 @@ function main(): number {
       tsconfigPath: path.join(toolRoot, "fixtures", "statement-coverage", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "statement-coverage"),
       basePackage: "ts2hx",
+      runtimeProfile: "standard-haxe-js",
       smokeMain: "ts2hx.Main"
     },
     {
@@ -195,6 +212,7 @@ function main(): number {
       tsconfigPath: path.join(toolRoot, "fixtures", "expression-coverage", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "expression-coverage"),
       basePackage: "ts2hx",
+      runtimeProfile: "standard-haxe-js",
       smokeMain: "ts2hx.Main"
     },
     {
@@ -202,6 +220,7 @@ function main(): number {
       tsconfigPath: path.join(toolRoot, "fixtures", "type-emission", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "type-emission"),
       basePackage: "ts2hx",
+      runtimeProfile: "genes-esm",
       smokeMain: "ts2hx.Main"
     },
     {
@@ -209,6 +228,7 @@ function main(): number {
       tsconfigPath: path.join(toolRoot, "fixtures", "object-methods-spreads", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "object-methods-spreads"),
       basePackage: "ts2hx",
+      runtimeProfile: "standard-haxe-js",
       smokeMain: "ts2hx.Main"
     },
     {
@@ -216,6 +236,7 @@ function main(): number {
       tsconfigPath: path.join(toolRoot, "fixtures", "destructuring", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "destructuring"),
       basePackage: "ts2hx",
+      runtimeProfile: "standard-haxe-js",
       smokeMain: "ts2hx.Main"
     },
     {
@@ -223,6 +244,7 @@ function main(): number {
       tsconfigPath: path.join(toolRoot, "fixtures", "params-defaults-rest", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "params-defaults-rest"),
       basePackage: "ts2hx",
+      runtimeProfile: "standard-haxe-js",
       smokeMain: "ts2hx.Main"
     },
     {
@@ -230,6 +252,7 @@ function main(): number {
       tsconfigPath: path.join(toolRoot, "fixtures", "optional-chain-assignments", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "optional-chain-assignments"),
       basePackage: "ts2hx",
+      runtimeProfile: "standard-haxe-js",
       smokeMain: "ts2hx.Main"
     },
     {
@@ -237,6 +260,7 @@ function main(): number {
       tsconfigPath: path.join(toolRoot, "fixtures", "real-world-v1", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "real-world-v1"),
       basePackage: "ts2hx",
+      runtimeProfile: "genes-esm",
       smokeMain: "ts2hx.Main"
     },
     {
@@ -244,6 +268,7 @@ function main(): number {
       tsconfigPath: path.join(toolRoot, "fixtures", "async-await", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "async-await"),
       basePackage: "ts2hx",
+      runtimeProfile: "standard-haxe-js",
       smokeMain: "ts2hx.Main"
     },
     {
@@ -251,6 +276,7 @@ function main(): number {
       tsconfigPath: path.join(toolRoot, "fixtures", "non-relative-imports", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "non-relative-imports"),
       basePackage: "ts2hx",
+      runtimeProfile: "genes-esm",
       smokeMain: "ts2hx.Main",
       // Haxe's JS output for `@:jsRequire` uses CommonJS `require()`. The ts2hx tool package is ESM (`type: "module"`),
       // so `node dist/index.js` would fail at runtime for this fixture. We still compile the emitted Haxe as a smoke test.
@@ -259,6 +285,9 @@ function main(): number {
   ];
 
   let totalFiles = 0;
+  let genesEsmFixtures = 0;
+  let standardHaxeFixtures = 0;
+  let standardHaxeRuntimeFixtures = 0;
 
   for (const fixture of fixtures) {
     const outDir = path.join(toolRoot, ".tmp", `${fixture.name}-out`);
@@ -274,6 +303,27 @@ function main(): number {
       return 1;
     }
 
+    const requestInventory = inspectEffectiveModuleRequests(
+      loaded.program,
+      loaded.sourceFiles
+    );
+    const effectiveRequestCount = requestInventory.files.reduce(
+      (count, file) => count + file.runtimeRequests.length,
+      0
+    );
+    const observedRuntimeProfile: RuntimeProfile = effectiveRequestCount > 0
+      ? "genes-esm"
+      : "standard-haxe-js";
+    if (observedRuntimeProfile !== fixture.runtimeProfile) {
+      throw new Error(
+        `${fixture.name}: configured TypeScript emit requires ${observedRuntimeProfile}, `
+        + `but the fixture owns ${fixture.runtimeProfile}.`
+      );
+    }
+    const runtimeProfile = fixture.runtimeProfile;
+    if (runtimeProfile === "genes-esm") genesEsmFixtures++;
+    else standardHaxeFixtures++;
+
     const translation = emitProjectToHaxe({
       projectDir: loaded.projectDir,
       rootDir: loaded.rootDir,
@@ -282,9 +332,36 @@ function main(): number {
       sourceFiles: loaded.sourceFiles,
       outDir,
       basePackage: fixture.basePackage,
+      runtimeProfile,
       mode: fixture.translationMode ?? "strict-js",
       cleanOutDir: true
     });
+    if (translation.manifest.targetProfile !== runtimeProfile) {
+      throw new Error(`${fixture.name}: manifest lost runtime profile ${runtimeProfile}.`);
+    }
+    const recordedRuntimeRequests = translation.manifest.moduleRequests.filter(
+      request => request.disposition === "runtime-request"
+    ).length;
+    if (recordedRuntimeRequests !== effectiveRequestCount) {
+      throw new Error(
+        `${fixture.name}: manifest recorded ${recordedRuntimeRequests} effective requests, `
+        + `expected ${effectiveRequestCount}.`
+      );
+    }
+    const expectedCapabilities = effectiveRequestCount > 0
+      ? ["genes.esm-runtime-requests"]
+      : [];
+    if (JSON.stringify(translation.manifest.requiredCompilerCapabilities)
+      !== JSON.stringify(expectedCapabilities)) {
+      throw new Error(`${fixture.name}: compiler capability inventory changed.`);
+    }
+    if (translation.manifest.compiler.typescriptEngine.version
+      !== requestInventory.typescriptVersion) {
+      throw new Error(`${fixture.name}: manifest lost its effective TypeScript engine.`);
+    }
+    if (!/^[0-9a-f]{64}$/.test(translation.manifest.compiler.optionsHash)) {
+      throw new Error(`${fixture.name}: compiler options hash is not a SHA-256 value.`);
+    }
 
     const expectedUnsupported = (fixture.expectedUnsupportedFiles ?? []).slice().sort();
     const actualUnsupported = translation.dispositions
@@ -358,25 +435,43 @@ function main(): number {
     if (fixture.smokeMain) {
       rmrf(distDir);
       fs.mkdirSync(distDir, { recursive: true });
-      // Smoke compile the generated Haxe output. We include the repo `src/` on the classpath so fixtures
-      // can use genes-ts macros (e.g. async/await sugar) while still keeping ts2hx as a standalone tool.
+      // Compile with the profile proved by configured TypeScript emit. Genes
+      // requests install the full custom generator; request-free fixtures keep
+      // the standard Haxe JS path while exposing only typed helper macros.
       const genesSrc = path.resolve(toolRoot, "..", "..", "src");
-      run(
-        haxeBin,
-        [
+      const compileArgs = runtimeProfile === "genes-esm"
+        ? [
+          "-lib",
+          "genes-ts",
+          "-cp",
+          outDir,
+          "--macro",
+          "genes.js.Async.enable()",
+          "-dce",
+          "full",
+          "-main",
+          fixture.smokeMain,
+          "-js",
+          path.join(distDir, "index.js")
+        ]
+        : [
           "-cp",
           outDir,
           "-cp",
           genesSrc,
           "--macro",
           "genes.js.Async.enable()",
+          "-dce",
+          "full",
           "-main",
           fixture.smokeMain,
           "-js",
           path.join(distDir, "index.js")
-        ],
-        toolRoot
-      );
+        ];
+      run(haxeBin, compileArgs, runtimeProfile === "genes-esm" ? repoRoot : toolRoot);
+      if (runtimeProfile === "standard-haxe-js" && fixture.smokeRun !== false) {
+        standardHaxeRuntimeFixtures++;
+      }
       if (fixture.smokeRun !== false) run("node", [path.join(distDir, "index.js")], toolRoot);
     }
 
@@ -421,7 +516,20 @@ function main(): number {
     }
   }
 
-  if (!update) process.stdout.write(`Snapshots OK (${totalFiles} files)\n`);
+  if (genesEsmFixtures !== 11 || standardHaxeFixtures !== 9 || standardHaxeRuntimeFixtures !== 8) {
+    throw new Error(
+      "Snapshot runtime-profile inventory drifted; expected "
+      + "genes-esm=11, standard-haxe-js=9 with 8 standard runtime smokes, got "
+      + `genes-esm=${genesEsmFixtures}, standard-haxe-js=${standardHaxeFixtures} `
+      + `with ${standardHaxeRuntimeFixtures} standard runtime smokes.`
+    );
+  }
+  if (!update) {
+    process.stdout.write(
+      `Snapshots OK (${totalFiles} files; genes-esm=${genesEsmFixtures}, `
+      + `standard-haxe-js=${standardHaxeFixtures}/${standardHaxeRuntimeFixtures} runtime)\n`
+    );
+  }
   return 0;
 }
 

@@ -52,6 +52,7 @@ function main(): void {
     sourceFiles: loaded.sourceFiles,
     outDir: strictOut,
     basePackage: "strict_diag",
+    runtimeProfile: "standard-haxe-js" as const,
     mode: "strict-js" as const,
     cleanOutDir: true
   };
@@ -89,6 +90,7 @@ function main(): void {
     "--project", projectPath,
     "--out", cliStrictOut,
     "--base-package", "strict_diag",
+    "--runtime-profile", "standard-haxe-js",
     "--clean",
     "--diagnostics-json", cliJson
   ]);
@@ -102,6 +104,7 @@ function main(): void {
     "--project", projectPath,
     "--out", assistedCliOut,
     "--base-package", "strict_diag",
+    "--runtime-profile", "standard-haxe-js",
     "--clean",
     "--mode", "assisted"
   ];

@@ -242,6 +242,8 @@ tsconfig + TypeScript source
 |---|---|
 | `src/project.ts` | Loads tsconfig through the TS Program/TypeChecker API and sorts source files deterministically. |
 | `src/typescript-api.ts` | Isolates the TypeScript 6 compiler-API bridge from tool logic. |
+| `src/semantic/effective-module-requests.ts` | Observes final configured TypeScript import elision/lowering in memory and retains original request provenance. |
+| `src/semantic/compiler-facts.ts` | Records exact bridge/engine identities and a portable deterministic hash of effective compiler options. |
 | `src/semantic/ir.ts` | Owns stable semantic feature IDs, support grades, and the deliberately small normalized model. |
 | `src/haxe/emit.ts` | Translates validated constructs, records source provenance, and stages output. Unsupported input must not disappear. |
 | `src/haxe/runtime-modules.ts` | Validates hash-pinned external-relative runtime ownership before emission; staged bytes share the Haxe output transaction, while the named build owner copies them beside final JS. |
@@ -251,16 +253,32 @@ Strict mode succeeds only for the supported subset and preserves the previous
 output tree on failure. Assisted mode may create scaffolding only when every
 loss has a stable `TS2HX-*` marker and manifest record. Printers may not turn an
 unsupported construct into a silent omission or behavior-changing default.
-For a source file with a supported bare import, a project prepass inventories
-every runtime import declaration in source order across that file's converted
-runtime dependency closure. Each runtime-importing file in the closure receives
-one kept `@:genes.compilerInternal` carrier whose typed marker calls survive
-full DCE, become ordered Genes module requests, and disappear from both final
-profiles and declarations. This includes bound-only descendants: Haxe value-use
-order is not allowed to replace their TypeScript import-declaration order.
-Unrelated translations containing only bound imports remain ordinary Haxe and
-retain their standard-Haxe behavior. Maps remain lookup structures; neither
-ts2hx nor a Genes printer may reconstruct request order from grouped bindings.
+Before Haxe planning, a read-only TypeScript `after` transform classifies every
+original static import as a runtime request, type-only request, or elided
+declaration under the configured compiler options. A schema-v3 manifest records
+the original span, effective runtime order/format/shape, exact TypeScript
+bridge and engine, and an effective-options hash. The input project must
+type-check; `noEmit` and `emitDeclarationOnly` are disabled only in an in-memory
+evidence Program and remain represented by the options hash.
+
+Every emitting caller chooses an explicit runtime profile. `genes-esm` covers
+classic Genes and genes-ts and records `genes.esm-runtime-requests` whenever a
+runtime request survives. `standard-haxe-js` is request-free: its first
+effective request produces `TS2HX-MODULES-ESM-RUNTIME-TARGET-001`, remains an
+error in assisted mode, and cannot modify the prior tree. Compiler-owned
+request carriers call `genes.internal.EsmRequestFact`, whose macro repeats the
+JS-plus-active-Genes check before expanding to the raw typed marker. There is
+no conditional omission or runtime fallback.
+
+For the currently supported bare-import closure, each runtime-importing file
+receives one kept `@:genes.compilerInternal` carrier whose typed marker calls
+survive full DCE, become ordered Genes module requests, and disappear from both
+final profiles and declarations. This includes bound-only descendants: Haxe
+value-use order is not allowed to replace their TypeScript import-declaration
+order. Maps remain lookup structures; neither ts2hx nor a Genes printer may
+reconstruct request order from grouped bindings. The explicit profile boundary
+is deliberately broader than this first carrier subset; later support work may
+consume the recorded effective requests without changing the target contract.
 An acyclic binding-free request to converted code targets a deterministic
 compiler-internal field in the generated Haxe module. That typed anchor makes
 the target visible; explicit `@:keep` metadata retains its translated top-level

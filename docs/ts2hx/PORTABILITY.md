@@ -9,6 +9,11 @@ refactor before claiming another target.
 
 - `strict-js` may rely on `js.*` externs, JavaScript truthiness, native module
   behavior, promises, prototypes, and named runtime helpers.
+- A translation with any effective runtime module request requires the
+  `genes-esm` runtime profile. Its manifest records
+  `genes.esm-runtime-requests`, and the generated Haxe must be consumed by
+  classic Genes or genes-ts. `standard-haxe-js` is supported only when the
+  configured TypeScript emit is request-free.
 - `assisted` output is incomplete by definition and has no portability claim.
 - A future `strict-portable` mode may accept a smaller subset, but only
   cross-target compile/runtime tests can promote that subset.
@@ -35,6 +40,8 @@ typed: the Genes JS/TS compiler consumes that carrier, and the final behavior
 depends on ESM package/resource/generated-module loading. Converted targets use
 compiler-internal typed anchors and retained initializers, but those facts do
 not make their final ESM initialization portable to a non-JS Haxe backend.
+The `EsmRequestFact` macro intentionally fails outside an active Genes JS
+generator instead of erasing the request or substituting CommonJS behavior.
 Package installation and copying any manifest-staged relative asset beside
 final JavaScript remain explicit host build responsibilities.
 

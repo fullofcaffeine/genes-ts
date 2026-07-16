@@ -6,7 +6,7 @@
     "moduleResolution": "NodeNext",
     "strict": true,
     "noEmitOnError": true,
-    "rootDir": "./src",
+    "noUncheckedSideEffectImports": false,
     "outDir": "./dist",
     "types": ["node"]
   },

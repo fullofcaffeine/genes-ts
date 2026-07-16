@@ -104,7 +104,7 @@ Named runtime traces agree across the explicitly listed oracles; the result appl
 
 - Disposition: `blocking`
 - Scope: Haxe-to-TS/classic evaluation traces plus ts2hx strict-js contracts against original TypeScript.
-- Proves: Named traces preserve evaluation order and runtime behavior across the listed Haxe/TypeScript oracles, while named unsupported ts2hx semantics fail closed.
+- Proves: Named traces preserve evaluation order and runtime behavior across the listed Haxe/TypeScript oracles, named unsupported ts2hx semantics fail closed, and an effective ESM request cannot cross into standard Haxe silently.
 - Does not prove: The curated traces are not a language-wide proof or a promise of portable ts2hx output on non-JS targets.
 - Evidence:
   - [`tests/output-modes/profile-ownership.json`](../tests/output-modes/profile-ownership.json)
@@ -114,9 +114,11 @@ Named runtime traces agree across the explicitly listed oracles; the result appl
   - [`tools/ts2hx/fixtures/semantic-diff`](../tools/ts2hx/fixtures/semantic-diff)
   - [`tools/ts2hx/fixtures/semantic-unsupported`](../tools/ts2hx/fixtures/semantic-unsupported)
   - [`tools/ts2hx/src/test-semantic-diff.ts`](../tools/ts2hx/src/test-semantic-diff.ts)
+  - [`tools/ts2hx/src/test-runtime-profile.ts`](../tools/ts2hx/src/test-runtime-profile.ts)
 - Gates:
   - `yarn test:dual-output`
   - `yarn --cwd tools/ts2hx test:semantic-diff`
+  - `yarn --cwd tools/ts2hx test:runtime-profile`
 
 ## Snapshot stability
 
@@ -165,18 +167,22 @@ Generated output and programmatic compiler APIs are checked on separately owned,
 
 - Disposition: `blocking`
 - Scope: Stable/current Node, stable/preview Haxe, TS5/TS6/TS7 generated output, the TS6 program API, and dts2hx's TS5.9 converter API.
-- Proves: Generated code and API consumers are checked against their explicitly different compatibility contracts.
+- Proves: Generated code and API consumers are checked against their explicitly different compatibility contracts, and ts2hx request evidence records the exact pinned TypeScript engine and configured transform behavior.
 - Does not prove: The Haxe preview lane is nonblocking, and TS7 generated-output success does not imply a TS7 programmatic API.
 - Evidence:
   - [`config/toolchains.json`](../config/toolchains.json)
   - [`scripts/toolchains.ts`](../scripts/toolchains.ts)
   - [`scripts/test-typescript-api-lane.ts`](../scripts/test-typescript-api-lane.ts)
+  - [`tools/ts2hx/src/semantic/effective-module-requests.ts`](../tools/ts2hx/src/semantic/effective-module-requests.ts)
+  - [`tools/ts2hx/src/semantic/compiler-facts.ts`](../tools/ts2hx/src/semantic/compiler-facts.ts)
+  - [`tools/ts2hx/src/test-effective-module-requests.ts`](../tools/ts2hx/src/test-effective-module-requests.ts)
   - [`docs/TOOLCHAINS.md`](../docs/TOOLCHAINS.md)
   - [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
 - Gates:
   - `yarn test:versions`
   - `yarn test:matrix:generated`
   - `yarn test:matrix:api`
+  - `yarn --cwd tools/ts2hx test:esm-request-plan`
 
 ## Package-shape interoperability
 

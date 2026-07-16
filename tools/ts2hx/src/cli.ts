@@ -7,7 +7,8 @@ import {
   emitProjectToHaxe,
   type TranslationDiagnostic,
   type TranslationManifest,
-  type TranslationMode
+  type TranslationMode,
+  type RuntimeProfile
 } from "./haxe/emit.js";
 import { loadProject } from "./project.js";
 
@@ -26,6 +27,7 @@ type CliCommand =
       allowLoss: boolean;
       diagnosticsJson: string | null;
       runtimeModulesManifest: string | null;
+      runtimeProfile: RuntimeProfile | null;
     };
 
 function readPackageJsonVersion(argv1: string | undefined): string {
@@ -60,6 +62,7 @@ Options:
   --out, -o             Emit Haxe into this directory
   --base-package        Haxe base package for generated modules (default: ts2hx)
   --mode                 strict-js (default) or assisted
+  --runtime-profile      genes-esm or standard-haxe-js (required with --out)
   --allow-loss           Map assisted-loss exit 3 to 0 (manifest remains lossy)
   --diagnostics-json     Write the deterministic translation manifest to a JSON file
   --runtime-modules      Hash-pinned manifest for staged relative runtime modules
@@ -88,6 +91,7 @@ function parseArgs(argv: string[]): CliCommand | { kind: "error"; message: strin
   let allowLoss = false;
   let diagnosticsJson: string | null = null;
   let runtimeModulesManifest: string | null = null;
+  let runtimeProfile: RuntimeProfile | null = null;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] ?? "";
@@ -138,6 +142,18 @@ function parseArgs(argv: string[]): CliCommand | { kind: "error"; message: strin
       i++;
       continue;
     }
+    if (arg === "--runtime-profile") {
+      const next = args[i + 1];
+      if (next !== "genes-esm" && next !== "standard-haxe-js") {
+        return {
+          kind: "error",
+          message: "--runtime-profile must be genes-esm or standard-haxe-js."
+        };
+      }
+      runtimeProfile = next;
+      i++;
+      continue;
+    }
     if (arg === "--clean") {
       cleanOutDir = true;
       continue;
@@ -155,6 +171,12 @@ function parseArgs(argv: string[]): CliCommand | { kind: "error"; message: strin
 
   if (allowLoss && mode !== "assisted")
     return { kind: "error", message: "--allow-loss requires --mode assisted." };
+  if (outDir !== null && runtimeProfile === null) {
+    return {
+      kind: "error",
+      message: "--runtime-profile is required when --out emits Haxe."
+    };
+  }
 
   return {
     kind: "run",
@@ -167,7 +189,8 @@ function parseArgs(argv: string[]): CliCommand | { kind: "error"; message: strin
     mode,
     allowLoss,
     diagnosticsJson,
-    runtimeModulesManifest
+    runtimeModulesManifest,
+    runtimeProfile
   };
 }
 
@@ -202,6 +225,7 @@ function inspectProject(opts: {
   allowLoss: boolean;
   diagnosticsJson: string | null;
   runtimeModulesManifest: string | null;
+  runtimeProfile: RuntimeProfile | null;
 }): number {
   const loaded = loadProject(opts.projectPath);
   if (!loaded.ok) {
@@ -213,18 +237,18 @@ function inspectProject(opts: {
     return 2;
   }
 
-  if (opts.showDiagnostics) {
-    const diagnostics = ts
-      .getPreEmitDiagnostics(loaded.program)
-      .slice()
-      .sort((a, b) => {
-        const af = a.file?.fileName ?? "";
-        const bf = b.file?.fileName ?? "";
-        if (af !== bf) return af.localeCompare(bf);
-        return (a.start ?? 0) - (b.start ?? 0);
-      });
+  const projectDiagnostics = ts
+    .getPreEmitDiagnostics(loaded.program)
+    .slice()
+    .sort((a, b) => {
+      const af = a.file?.fileName ?? "";
+      const bf = b.file?.fileName ?? "";
+      if (af !== bf) return af.localeCompare(bf);
+      return (a.start ?? 0) - (b.start ?? 0);
+    });
 
-    for (const diag of diagnostics) {
+  if (opts.showDiagnostics) {
+    for (const diag of projectDiagnostics) {
       process.stderr.write(`${formatDiagnostic(loaded.projectDir, diag)}\n`);
     }
   }
@@ -240,6 +264,22 @@ function inspectProject(opts: {
   }
 
   if (opts.outDir) {
+    const projectErrors = projectDiagnostics.filter(
+      diagnostic => diagnostic.category === ts.DiagnosticCategory.Error
+    );
+    if (projectErrors.length > 0) {
+      if (!opts.showDiagnostics) {
+        for (const diagnostic of projectErrors)
+          process.stderr.write(`${formatDiagnostic(loaded.projectDir, diagnostic)}\n`);
+      }
+      process.stderr.write(
+        "TypeScript project must type-check before effective module requests can be planned.\n"
+      );
+      return 2;
+    }
+    if (!opts.runtimeProfile) {
+      throw new Error("An output translation reached emission without a runtime profile.");
+    }
     const outAbsDir = path.resolve(opts.outDir);
     const emitted = emitProjectToHaxe({
       projectDir: loaded.projectDir,
@@ -249,6 +289,7 @@ function inspectProject(opts: {
       sourceFiles: loaded.sourceFiles,
       outDir: outAbsDir,
       basePackage: opts.basePackage,
+      runtimeProfile: opts.runtimeProfile,
       mode: opts.mode,
       cleanOutDir: opts.cleanOutDir,
       runtimeModulesManifest: opts.runtimeModulesManifest ?? undefined

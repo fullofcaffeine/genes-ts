@@ -4,6 +4,17 @@ import { createHash } from "crypto";
 import ts from "../typescript-api.js";
 import { toHaxeModuleName, toHaxePackagePath } from "../util.js";
 import {
+  inspectEffectiveModuleRequests,
+  type EffectiveImportShape,
+  type EffectiveModuleFormat,
+  type EffectiveModuleRequestInventory,
+  type EffectiveRuntimeRequest
+} from "../semantic/effective-module-requests.js";
+import {
+  typeScriptCompilerFacts,
+  type TypeScriptCompilerFacts
+} from "../semantic/compiler-facts.js";
+import {
   SemanticRecorder,
   isPrototypeMutationTarget,
   planAssignmentTarget,
@@ -32,6 +43,8 @@ export type EmitHaxeOptions = {
   sourceFiles: ts.SourceFile[];
   outDir: string;
   basePackage: string;
+  /** Runtime compiler contract required by the generated Haxe tree. */
+  runtimeProfile: RuntimeProfile;
   /** Translation policy. Strict JS semantics are the default. */
   mode?: TranslationMode;
   /** Replace the prior output tree instead of preserving unrelated files. */
@@ -41,6 +54,8 @@ export type EmitHaxeOptions = {
 };
 
 export type TranslationMode = "strict-js" | "assisted";
+export type RuntimeProfile = "genes-esm" | "standard-haxe-js";
+export type RequiredCompilerCapability = "genes.esm-runtime-requests";
 
 export type TranslationDiagnostic = {
   id: string;
@@ -80,11 +95,26 @@ export type RuntimeModuleDisposition = {
   sha256: string;
 };
 
+export type TranslationModuleRequestDisposition = {
+  source: TranslationDiagnostic["source"];
+  sourceOrdinal: number;
+  disposition: "runtime-request" | "type-only" | "elided";
+  /** Runtime order within the emitted source module; absent requests use null. */
+  ordinal: number | null;
+  specifier: string;
+  moduleFormat: EffectiveModuleFormat | null;
+  emittedShape: EffectiveImportShape | null;
+};
+
 export type TranslationManifest = {
-  schemaVersion: 2;
+  schemaVersion: 3;
   mode: TranslationMode;
   status: "success" | "failed" | "assisted";
   basePackage: string;
+  targetProfile: RuntimeProfile;
+  compiler: TypeScriptCompilerFacts;
+  requiredCompilerCapabilities: RequiredCompilerCapability[];
+  moduleRequests: TranslationModuleRequestDisposition[];
   plannedFiles: string[];
   files: TranslationFileDisposition[];
   diagnostics: TranslationDiagnostic[];
@@ -147,6 +177,8 @@ type RuntimeImportProblem = {
   statement: ts.ImportDeclaration;
   id: string;
   message: string;
+  remediation?: string;
+  forceError?: boolean;
 };
 
 type SourceRuntimeImportPlan = {
@@ -2777,13 +2809,17 @@ function translationDiagnostic(opts: EmitHaxeOptions, sf: ts.SourceFile, node: t
   message: string;
   outputFile: string | null;
   portableGrade?: PortabilityGrade;
+  remediation?: string;
+  forceError?: boolean;
 }): TranslationDiagnostic {
   const start = node.getStart(sf, false);
   const end = node.getEnd();
   const position = sf.getLineAndCharacterOfPosition(start);
   return {
     id: details.id,
-    severity: (opts.mode ?? "strict-js") === "assisted" ? "loss" : "error",
+    severity: details.forceError || (opts.mode ?? "strict-js") !== "assisted"
+      ? "error"
+      : "loss",
     mode: opts.mode ?? "strict-js",
     source: {
       file: portablePath(path.relative(opts.rootDir, sf.fileName)),
@@ -2798,7 +2834,8 @@ function translationDiagnostic(opts: EmitHaxeOptions, sf: ts.SourceFile, node: t
     support: "unsupported",
     portableGrade: details.portableGrade ?? "U",
     outputFile: details.outputFile,
-    remediation: "Refactor the construct or rerun with --mode assisted to produce explicitly lossy scaffolding."
+    remediation: details.remediation
+      ?? "Refactor the construct or rerun with --mode assisted to produce explicitly lossy scaffolding."
   };
 }
 
@@ -2892,6 +2929,56 @@ function problem(
   message: string
 ): RuntimeImportProblem {
   return { statement, id, message };
+}
+
+/** Normalizes Program file order before manifest and diagnostic selection. */
+function sortedRequestInventoryFiles(
+  opts: EmitHaxeOptions,
+  inventory: EffectiveModuleRequestInventory
+): EffectiveModuleRequestInventory["files"] {
+  return inventory.files.slice().sort((a, b) =>
+    portablePath(path.relative(opts.rootDir, a.sourceFile)).localeCompare(
+      portablePath(path.relative(opts.rootDir, b.sourceFile))
+    )
+  );
+}
+
+/** Projects read-only compiler evidence into the stable public manifest form. */
+function manifestModuleRequests(
+  opts: EmitHaxeOptions,
+  inventory: EffectiveModuleRequestInventory
+): TranslationModuleRequestDisposition[] {
+  return sortedRequestInventoryFiles(opts, inventory).flatMap(file =>
+    file.imports.map(entry => ({
+      source: {
+        file: portablePath(path.relative(opts.rootDir, entry.sourceFile)),
+        start: entry.sourceStart,
+        end: entry.sourceEnd,
+        line: entry.sourceLine,
+        column: entry.sourceColumn
+      },
+      sourceOrdinal: entry.sourceOrdinal,
+      disposition: entry.disposition,
+      ordinal: entry.disposition === "runtime-request" ? entry.requestOrdinal : null,
+      specifier: entry.specifier,
+      moduleFormat: entry.disposition === "runtime-request" ? entry.moduleFormat : null,
+      emittedShape: entry.disposition === "runtime-request" ? entry.emittedShape : null
+    }))
+  );
+}
+
+/** Selects the first runtime request by portable file path, then emit order. */
+function firstEffectiveRuntimeRequest(
+  opts: EmitHaxeOptions,
+  inventory: EffectiveModuleRequestInventory
+): EffectiveRuntimeRequest | null {
+  for (const file of sortedRequestInventoryFiles(opts, inventory)) {
+    const request = file.runtimeRequests
+      .slice()
+      .sort((a, b) => a.requestOrdinal - b.requestOrdinal || a.sourceStart - b.sourceStart)[0];
+    if (request) return request;
+  }
+  return null;
 }
 
 /**
@@ -3346,6 +3433,65 @@ function buildProjectRuntimeImportPlan(opts: EmitHaxeOptions): ProjectRuntimeImp
 }
 
 /**
+ * Applies the request-free standard-Haxe capability boundary before emission.
+ *
+ * Why: a normal Haxe JS compilation cannot consume compiler-owned ESM request
+ * carriers or promise their initialization order. Assisted scaffolding is not
+ * allowed to turn that missing compiler capability into an executable claim.
+ *
+ * What: only the first effective runtime request receives the stable target
+ * diagnostic, selected independently of TypeScript Program iteration order.
+ * Genes profiles keep the existing semantic request plan unchanged.
+ *
+ * How: the immutable TypeScript provenance is matched back to its original
+ * `ImportDeclaration`, then added as a forced error to the normal per-file
+ * plan. Rendering may collect other diagnostics, but the transaction status is
+ * always failed and no staged Haxe or runtime resource is published.
+ */
+function applyRuntimeProfileBoundary(
+  opts: EmitHaxeOptions,
+  inventory: EffectiveModuleRequestInventory,
+  plan: ProjectRuntimeImportPlan
+): ProjectRuntimeImportPlan {
+  if (opts.runtimeProfile !== "standard-haxe-js") return plan;
+  const firstRequest = firstEffectiveRuntimeRequest(opts, inventory);
+  if (!firstRequest) return plan;
+
+  const sourceFile = opts.sourceFiles.find(
+    source => path.resolve(source.fileName) === path.resolve(firstRequest.sourceFile)
+  );
+  const statement = sourceFile?.statements.find((node): node is ts.ImportDeclaration =>
+    ts.isImportDeclaration(node)
+    && node.getStart(sourceFile) === firstRequest.sourceStart
+    && node.getEnd() === firstRequest.sourceEnd
+  );
+  if (!sourceFile || !statement) {
+    throw new Error(
+      `Could not recover the first effective request at ${firstRequest.sourceFile}:${firstRequest.sourceStart}`
+    );
+  }
+
+  const sourceKey = path.resolve(sourceFile.fileName);
+  const existing = plan.bySourceFile.get(sourceKey) ?? { requests: [], problems: [] };
+  const bySourceFile = new Map(plan.bySourceFile);
+  bySourceFile.set(sourceKey, {
+    requests: existing.requests,
+    problems: [{
+      statement,
+      id: "TS2HX-MODULES-ESM-RUNTIME-TARGET-001",
+      message:
+        `Configured TypeScript emit retains runtime module request ${JSON.stringify(firstRequest.specifier)}; `
+        + "the standard-haxe-js profile cannot preserve its ESM initialization contract.",
+      remediation:
+        "Select --runtime-profile genes-esm and compile with classic Genes or genes-ts, "
+        + "or remove the effective runtime request from configured TypeScript emit.",
+      forceError: true
+    }, ...existing.problems]
+  });
+  return { ...plan, bySourceFile };
+}
+
+/**
  * Converts one source file without mutating the output tree.
  *
  * Every input receives an explicit disposition. Unsupported lowering returns a
@@ -3398,12 +3544,16 @@ function emitHaxeSourceFile(
 
   function recordUnsupported(node: ts.Node, message: string,
       category: TranslationDiagnostic["semanticCategory"] = "declaration",
-      id = "TS2HX-UNSUPPORTED-LOWERING-001"): TranslationDiagnostic {
+      id = "TS2HX-UNSUPPORTED-LOWERING-001",
+      remediation?: string,
+      forceError = false): TranslationDiagnostic {
     const diagnostic = translationDiagnostic(opts, sf, node, {
       id,
       category,
       message,
-      outputFile: portableOutFile
+      outputFile: portableOutFile,
+      remediation,
+      forceError
     });
     if (out[out.length - 1] !== "")
       out.push("");
@@ -3465,7 +3615,9 @@ function emitHaxeSourceFile(
       runtimeProblem.statement,
       runtimeProblem.message,
       "module",
-      runtimeProblem.id
+      runtimeProblem.id,
+      runtimeProblem.remediation,
+      runtimeProblem.forceError
     );
   }
 
@@ -3582,10 +3734,10 @@ function emitHaxeSourceFile(
       if (request.kind === "external") {
         const attribute = request.importType === null ? "null" : JSON.stringify(request.importType);
         out.push(
-          `  genes.internal.SideEffectImportMarker.external(${JSON.stringify(request.runtimeSpecifier)}, ${attribute});`
+          `  genes.internal.EsmRequestFact.external(${JSON.stringify(request.runtimeSpecifier)}, ${attribute});`
         );
       } else {
-        out.push(`  genes.internal.SideEffectImportMarker.internal(${request.anchor});`);
+        out.push(`  genes.internal.EsmRequestFact.internal(${request.anchor});`);
       }
     }
     out.push("  true;");
@@ -3996,6 +4148,13 @@ function compareDiagnostics(a: TranslationDiagnostic, b: TranslationDiagnostic):
  * deterministic manifest, writes no files, and preserves the previous output
  * tree byte-for-byte. Assisted mode may commit partial scaffolding, but every
  * loss is marked in both the generated source and `ts2hx-manifest.json`.
+ *
+ * Before source rendering, the configured TypeScript transform supplies the
+ * effective request inventory and exact compiler facts stored in schema v3.
+ * `genes-esm` records the runtime capability required by retained requests;
+ * `standard-haxe-js` rejects the first such request before the transaction can
+ * commit. This plan-first order keeps diagnostics, manifests, Haxe, and staged
+ * runtime resources one atomic contract.
  */
 export function emitProjectToHaxe(rawOpts: EmitHaxeOptions): EmitHaxeResult {
   const opts: EmitHaxeOptions = { ...rawOpts, mode: rawOpts.mode ?? "strict-js" };
@@ -4004,7 +4163,17 @@ export function emitProjectToHaxe(rawOpts: EmitHaxeOptions): EmitHaxeResult {
   const diagnostics: TranslationDiagnostic[] = [];
   const dispositions: TranslationFileDisposition[] = [];
   const semanticRecorder = new SemanticRecorder();
-  const runtimeImportProjectPlan = buildProjectRuntimeImportPlan(opts);
+  const effectiveRequests = inspectEffectiveModuleRequests(opts.program, opts.sourceFiles);
+  const compiler = typeScriptCompilerFacts(opts.program, opts.projectDir);
+  const moduleRequests = manifestModuleRequests(opts, effectiveRequests);
+  const requiredCompilerCapabilities: RequiredCompilerCapability[] = moduleRequests.some(
+    request => request.disposition === "runtime-request"
+  ) ? ["genes.esm-runtime-requests"] : [];
+  const runtimeImportProjectPlan = applyRuntimeProfileBoundary(
+    opts,
+    effectiveRequests,
+    buildProjectRuntimeImportPlan(opts)
+  );
 
   files.push(...runtimeImportProjectPlan.stagedFiles);
 
@@ -4051,17 +4220,26 @@ export function emitProjectToHaxe(rawOpts: EmitHaxeOptions): EmitHaxeResult {
 
   diagnostics.sort(compareDiagnostics);
   dispositions.sort((a, b) => a.sourceFile.localeCompare(b.sourceFile));
-  const status: TranslationManifest["status"] = diagnostics.length === 0
-    ? "success"
-    : mode === "assisted" ? "assisted" : "failed";
+  const hasTargetCapabilityFailure = diagnostics.some(
+    diagnostic => diagnostic.id === "TS2HX-MODULES-ESM-RUNTIME-TARGET-001"
+  );
+  const status: TranslationManifest["status"] = hasTargetCapabilityFailure
+    ? "failed"
+    : diagnostics.length === 0
+      ? "success"
+      : mode === "assisted" ? "assisted" : "failed";
   const plannedFiles = files
     .map((emitted) => portablePath(path.relative(opts.outDir, emitted.filePath)))
     .sort((a, b) => a.localeCompare(b));
   const manifest: TranslationManifest = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     mode,
     status,
     basePackage: opts.basePackage,
+    targetProfile: opts.runtimeProfile,
+    compiler,
+    requiredCompilerCapabilities,
+    moduleRequests,
     plannedFiles,
     files: dispositions,
     diagnostics,

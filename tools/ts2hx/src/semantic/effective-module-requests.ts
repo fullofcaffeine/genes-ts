@@ -160,6 +160,21 @@ function isJavaScriptOutput(fileName: string): boolean {
   return /\.(?:[cm]?js|jsx)$/.test(fileName);
 }
 
+function requestEvidenceProgram(program: ts.Program): ts.Program {
+  const options = program.getCompilerOptions();
+  if (!options.noEmit && !options.emitDeclarationOnly) return program;
+
+  return ts.createProgram({
+    rootNames: program.getRootFileNames(),
+    options: {
+      ...options,
+      noEmit: false,
+      emitDeclarationOnly: false
+    },
+    projectReferences: program.getProjectReferences()
+  });
+}
+
 /**
  * Observes the configured TypeScript emitter's effective module requests.
  *
@@ -179,22 +194,17 @@ function isJavaScriptOutput(fileName: string): boolean {
  * built-in import elision and module transform. `ts.getOriginalNode` links each
  * surviving top-level statement back to its source `ImportDeclaration`. Output
  * is captured in memory, so this evidence pass never publishes compiler files.
- * The supplied Program must be error-free and emit-capable; production use may
- * later create an equivalent shadow Program when a user tsconfig sets
- * output-only flags such as `noEmit`.
+ * When a user tsconfig sets `noEmit` or `emitDeclarationOnly`, the observer
+ * creates an equivalent shadow Program and disables only those output-control
+ * flags. All options that can affect elision or module lowering remain intact.
  */
 export function inspectEffectiveModuleRequests(
   program: ts.Program,
   sourceFiles: readonly ts.SourceFile[]
 ): EffectiveModuleRequestInventory {
-  const compilerOptions = program.getCompilerOptions();
-  if (compilerOptions.noEmit || compilerOptions.emitDeclarationOnly) {
-    throw new Error(
-      "TS2HX-ESM-REQUEST-INVENTORY-002: the evidence Program must emit JavaScript"
-    );
-  }
+  const evidenceProgram = requestEvidenceProgram(program);
 
-  const errors = ts.getPreEmitDiagnostics(program).filter(
+  const errors = ts.getPreEmitDiagnostics(evidenceProgram).filter(
     diagnostic => diagnostic.category === ts.DiagnosticCategory.Error
   );
   if (errors.length > 0) {
@@ -233,7 +243,7 @@ export function inspectEffectiveModuleRequests(
       const key = importKey(original);
       if (!inventory.originalKeys.has(key) || inventory.retained.has(key)) continue;
 
-      const moduleFormat = emittedModuleFormat(program, original, statement);
+      const moduleFormat = emittedModuleFormat(evidenceProgram, original, statement);
       inventory.retained.set(key, {
         requestOrdinal,
         moduleFormat,
@@ -264,7 +274,7 @@ export function inspectEffectiveModuleRequests(
     }
   };
 
-  const emitResult = program.emit(
+  const emitResult = evidenceProgram.emit(
     undefined,
     writeFile,
     undefined,

@@ -16,10 +16,10 @@ export function main(): void {
   const { d: dd = 9 } = obj;
 
   let x: number = 0;
-  ({ a: x } = obj);
+  ({ a: x = 0 } = obj);
 
   let y = "missing";
-  ({ b: { c: y } = {} } = obj);
+  ({ b: { c: y = "missing" } = { c: "missing" } } = obj);
 
   const arr = [10, 20, 30, 40];
   const [first, , third = 33, ...tail] = arr;

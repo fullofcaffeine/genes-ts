@@ -157,11 +157,13 @@
         "scripts/test-output-modes.ts",
         "tools/ts2hx/fixtures/semantic-diff",
         "tools/ts2hx/fixtures/semantic-unsupported",
-        "tools/ts2hx/src/test-semantic-diff.ts"
+        "tools/ts2hx/src/test-semantic-diff.ts",
+        "tools/ts2hx/src/test-runtime-profile.ts"
       ],
       "commands": [
         "yarn test:dual-output",
-        "yarn --cwd tools/ts2hx test:semantic-diff"
+        "yarn --cwd tools/ts2hx test:semantic-diff",
+        "yarn --cwd tools/ts2hx test:runtime-profile"
       ],
       "metrics": [
         {
@@ -197,7 +199,7 @@
           "expected": 21
         }
       ],
-      "proves": "Named traces preserve evaluation order and runtime behavior across the listed Haxe/TypeScript oracles, while named unsupported ts2hx semantics fail closed.",
+      "proves": "Named traces preserve evaluation order and runtime behavior across the listed Haxe/TypeScript oracles, named unsupported ts2hx semantics fail closed, and an effective ESM request cannot cross into standard Haxe silently.",
       "doesNotProve": "The curated traces are not a language-wide proof or a promise of portable ts2hx output on non-JS targets."
     },
     {
@@ -285,13 +287,17 @@
         "config/toolchains.json",
         "scripts/toolchains.ts",
         "scripts/test-typescript-api-lane.ts",
+        "tools/ts2hx/src/semantic/effective-module-requests.ts",
+        "tools/ts2hx/src/semantic/compiler-facts.ts",
+        "tools/ts2hx/src/test-effective-module-requests.ts",
         "docs/TOOLCHAINS.md",
         ".github/workflows/ci.yml"
       ],
       "commands": [
         "yarn test:versions",
         "yarn test:matrix:generated",
-        "yarn test:matrix:api"
+        "yarn test:matrix:api",
+        "yarn --cwd tools/ts2hx test:esm-request-plan"
       ],
       "metrics": [
         {
@@ -319,7 +325,7 @@
           "expected": 2
         }
       ],
-      "proves": "Generated code and API consumers are checked against their explicitly different compatibility contracts.",
+      "proves": "Generated code and API consumers are checked against their explicitly different compatibility contracts, and ts2hx request evidence records the exact pinned TypeScript engine and configured transform behavior.",
       "doesNotProve": "The Haxe preview lane is nonblocking, and TS7 generated-output success does not imply a TS7 programmatic API."
     },
     {

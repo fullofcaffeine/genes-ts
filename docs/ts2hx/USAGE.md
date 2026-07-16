@@ -37,15 +37,17 @@ Current options:
 --out, -o             Output directory for generated Haxe
 --base-package        Generated Haxe package prefix (default: ts2hx)
 --mode                strict-js (default) or assisted
+--runtime-profile     genes-esm or standard-haxe-js (required with --out)
 --allow-loss          Map assisted exit 3 to 0; manifest stays assisted
 --diagnostics-json    Write the complete deterministic manifest to another path
 --runtime-modules     Hash-pinned staging manifest for relative runtime files
 --clean               Transactionally replace, rather than overlay, the output
 ```
 
-`--diagnostics` is an inspection aid. Run the original project's `tsc` gate
-separately; printing a TypeScript diagnostic does not define ts2hx's
-translation exit status.
+`--diagnostics` is an inspection aid. Emission requires a clean configured
+TypeScript project because effective runtime requests are observed from the
+compiler's final transform. A project error exits `2` before Haxe is planned;
+keep the original project's own `tsc` gate as the authoritative source check.
 
 ## Inspect a project without emitting
 
@@ -60,6 +62,24 @@ Only the printed root-file inventory receives translation dispositions. Make
 the migration tsconfig explicit and include every implementation file intended
 for conversion.
 
+## Runtime compiler profiles
+
+Every `--out` command must state which Haxe compiler contract will consume the
+generated tree:
+
+- `--runtime-profile genes-esm` targets both maintained Genes output modes:
+  classic Genes JavaScript and genes-ts TypeScript. Use it whenever configured
+  TypeScript emit retains a runtime module request.
+- `--runtime-profile standard-haxe-js` is the narrow request-free profile. If
+  any original import remains a runtime request after TypeScript elision, ts2hx
+  reports `TS2HX-MODULES-ESM-RUNTIME-TARGET-001` at the first request and
+  preserves the previous tree. Assisted mode cannot weaken this boundary.
+
+This profile is about module initialization capability, not rich TypeScript
+types. A manifest with effective requests records
+`genes.esm-runtime-requests`, and generated compiler-owned carriers add a
+second Haxe macro guard if the tree is later compiled under the wrong profile.
+
 ## Strict translation
 
 `strict-js` is the default:
@@ -69,6 +89,7 @@ node tools/ts2hx/dist/cli.js \
   --project ./tsconfig.migration.json \
   --out ./src-generated \
   --base-package migrated \
+  --runtime-profile genes-esm \
   --clean \
   --diagnostics-json ./artifacts/ts2hx-result.json
 ```
@@ -89,6 +110,7 @@ node tools/ts2hx/dist/cli.js \
   --project tools/ts2hx/fixtures/minimal-codegen/tsconfig.json \
   --out /tmp/ts2hx-out \
   --base-package ts2hx \
+  --runtime-profile genes-esm \
   --clean
 ```
 
@@ -102,6 +124,7 @@ node tools/ts2hx/dist/cli.js \
   --project tools/ts2hx/fixtures/unsupported-top-level/tsconfig.json \
   --out /tmp/ts2hx-assisted \
   --base-package ts2hx \
+  --runtime-profile standard-haxe-js \
   --clean \
   --mode assisted
 ```
@@ -124,13 +147,20 @@ automation accepted `--allow-loss`.
 
 ## Translation manifest
 
-Every successful or assisted tree contains a schema-v2
+Every successful or assisted tree contains a schema-v3
 `ts2hx-manifest.json`. `--diagnostics-json <path>` writes the same complete
 manifest for all translation results, including strict failures.
 
 The stable top-level fields are:
 
-- `schemaVersion`, `mode`, `status`, and `basePackage`;
+- `schemaVersion`, `mode`, `status`, `basePackage`, and `targetProfile`;
+- `compiler`: exact TypeScript bridge and executing engine versions plus a
+  deterministic effective-options hash;
+- `requiredCompilerCapabilities`: capabilities the selected Haxe compiler must
+  provide, currently `genes.esm-runtime-requests` when runtime requests remain;
+- `moduleRequests`: every original static import's runtime/type-only/elided
+  disposition, original span, and any final request ordinal, module format, and
+  emitted shape;
 - `plannedFiles`: deterministic output plan;
 - `files`: one `emitted`, `declaration-only`, or `unsupported` disposition per
   configured source file;
@@ -157,12 +187,13 @@ The snapshot runner currently owns these 20 projects:
 | JSX/React | `basic-tsx`, `react-types` |
 | Migration roundtrip | `roundtrip-fixture`, `roundtrip-advanced` |
 
-The current snapshot is 48 generated files. Most fixtures compile and execute
-through standard Haxe JS. Explicit exceptions:
+The current snapshot is 48 generated files. Effective TypeScript emit assigns
+11 fixtures to `genes-esm` and 9 request-free fixtures to
+`standard-haxe-js`; 8 of the standard fixtures execute their smoke runtime.
+Explicit exceptions:
 
-- `basic-tsx` and `react-types` compile but do not execute their raw marker
-  calls under the standard Haxe generator; `react-types` additionally emits and
-  strictly checks genes-ts TSX;
+- `basic-tsx` and `react-types` compile but do not execute their raw JSX marker
+  calls; `react-types` additionally emits and strictly checks genes-ts TSX;
 - `non-relative-imports` compile-smokes generated `@:jsRequire` externs but does
   not execute them inside the ESM tool package;
 - `roundtrip-fixture`, `roundtrip-advanced`, `module-regexp`, `module-syntax`,
@@ -185,6 +216,10 @@ The executable source of truth is:
 - `tools/ts2hx/src/test-snapshots.ts` for registered snapshot/smoke profiles;
 - `tools/ts2hx/src/test-roundtrip.ts` for the three roundtrip fixtures;
 - `tools/ts2hx/src/test-semantic-diff.ts` for semantic contracts;
+- `tools/ts2hx/src/test-effective-module-requests.ts` for exact configured
+  TypeScript request/elision evidence;
+- `tools/ts2hx/src/test-runtime-profile.ts` for schema-v3 profile boundaries,
+  transaction safety, and the Haxe macro guard;
 - `tools/ts2hx/src/test-strict-diagnostics.ts` for failure behavior.
 
 ## Tests
@@ -199,6 +234,8 @@ Focused gates:
 
 ```bash
 yarn --cwd tools/ts2hx test:snapshots
+yarn --cwd tools/ts2hx test:esm-request-plan
+yarn --cwd tools/ts2hx test:runtime-profile
 yarn --cwd tools/ts2hx test:roundtrip
 yarn --cwd tools/ts2hx test:semantic-diff
 yarn --cwd tools/ts2hx test:strict-diagnostics

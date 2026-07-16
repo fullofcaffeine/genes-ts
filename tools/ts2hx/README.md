@@ -39,9 +39,22 @@ the remaining source with stable diagnostics. Do not use it as a general-purpose
 `strict-portable` is a future contract, not a current CLI mode. Current output
 may depend on the Haxe JS target and genes runtime helpers.
 
+Every command that emits Haxe must choose its runtime compiler contract:
+
+- `--runtime-profile genes-esm` is required when configured TypeScript emit
+  retains any runtime module request. The generated tree must be compiled by
+  classic Genes or genes-ts, and the manifest records
+  `genes.esm-runtime-requests` as a required capability.
+- `--runtime-profile standard-haxe-js` is limited to request-free projects. If
+  TypeScript retains a request, translation fails at the first original import
+  and preserves the prior tree even in assisted mode.
+
+The choice is explicit because dropping or replacing ESM initialization is not
+a safe portability fallback.
+
 Important: exit `0` applies only to the declared subset, not arbitrary
 TypeScript. Semantic decisions for the high-risk subset are normalized before
-printing and recorded in a schema-v2 support manifest. The exact
+printing and recorded in a schema-v3 support manifest. The exact
 `test:semantic-diff` trace is the runtime evidence for those contracts; syntax
 outside the matrix must either gain its own evidence or fail closed.
 
@@ -68,7 +81,11 @@ node tools/ts2hx/dist/cli.js --help
 Quick try (emit Haxe):
 
 ```bash
-node tools/ts2hx/dist/cli.js --project tools/ts2hx/fixtures/minimal-codegen/tsconfig.json --out /tmp/ts2hx-out --clean
+node tools/ts2hx/dist/cli.js \
+  --project tools/ts2hx/fixtures/minimal-codegen/tsconfig.json \
+  --out /tmp/ts2hx-out \
+  --runtime-profile genes-esm \
+  --clean
 ```
 
 For an intentionally partial scaffold:
@@ -77,6 +94,7 @@ For an intentionally partial scaffold:
 node tools/ts2hx/dist/cli.js \
   --project tools/ts2hx/fixtures/unsupported-top-level/tsconfig.json \
   --out /tmp/ts2hx-assisted \
+  --runtime-profile standard-haxe-js \
   --clean \
   --mode assisted
 ```
@@ -87,7 +105,8 @@ recorded losses. `--diagnostics-json <file>` writes the same deterministic
 manifest even when strict mode refuses to touch the output directory.
 
 Tests (snapshots, Haxe JS smoke, exact three-runtime semantic differentials,
-roundtrips, and strict failure/transaction checks):
+roundtrips, effective-request evidence, runtime-profile guards, and strict
+failure/transaction checks):
 
 ```bash
 yarn --cwd tools/ts2hx test

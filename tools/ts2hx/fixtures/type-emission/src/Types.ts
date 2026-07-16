@@ -1,4 +1,4 @@
-import * as NS from "./NS";
+import * as NS from "./NS.js";
 
 export type MaybeString = string | null | undefined;
 export type MaybeNumOrStr = string | number | null;
@@ -9,4 +9,3 @@ export type Qualified = NS.Bar;
 export function call(fn: Fn, a: number, b?: string): string {
   return fn(a, b);
 }
-

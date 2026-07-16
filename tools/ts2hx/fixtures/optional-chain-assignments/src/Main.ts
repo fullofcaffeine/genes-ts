@@ -6,9 +6,19 @@ export type Obj = {
   };
 };
 
+function nullableObj(value: Obj | null): Obj | null {
+  return value;
+}
+
+function nullableFunction(
+  value: ((x: number) => number) | null
+): ((x: number) => number) | null {
+  return value;
+}
+
 export function main(): void {
   const obj: Obj | null = { value: 1, nested: { n: 2, fn: (x: number): number => x + 1 } };
-  const nil: Obj | null = null;
+  const nil = nullableObj(null);
 
   console.log(obj?.value);
   console.log(nil?.value);
@@ -19,7 +29,7 @@ export function main(): void {
 
   const f: ((x: number) => number) | null = (x: number): number => x * 2;
   console.log(f?.(3));
-  const g: ((x: number) => number) | null = null;
+  const g = nullableFunction(null);
   console.log(g?.(3));
 
   let v: number | null = null;
@@ -36,4 +46,3 @@ export function main(): void {
   b ||= true;
   console.log(b);
 }
-

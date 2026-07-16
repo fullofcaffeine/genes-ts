@@ -36,7 +36,7 @@ evidence.
 | Haxe compile smoke | Generated Haxe parses and types on the exercised JS profile. | Runtime behavior or non-JS portability. |
 | Runtime smoke | A selected generated entry executes and prints its marker. | Edge cases or behavioral equivalence with the original TypeScript. |
 | Roundtrip smoke | Original TS and Haxe→genes-ts→TS execute selected common workflows; guarded user modules avoid `any`/`unknown`. | Whole-program parity; the three fixtures explicitly exclude one unsupported top-level entry file each. |
-| Semantic differential | The original TS, classic Genes JS, and genes-ts→JS event traces match for 15 declared contracts. | Syntax/categories outside those contracts. |
+| Semantic differential | The original TS, classic Genes JS, and genes-ts→JS event traces match for 16 declared contracts. | Syntax/categories outside those contracts. |
 | Strict diagnostics/transaction test | Unsupported source receives stable spans/IDs and cannot leave a partial output tree. | That the unsupported feature has been implemented. |
 
 ## Current semantic support matrix
@@ -79,6 +79,9 @@ semantic evidence.
 
 ## Project and file inventory
 
+- An emitting run requires clean TypeScript pre-emit diagnostics. Effective
+  request evidence comes from the compiler's final transform; ts2hx does not
+  claim a module plan for a project that failed typing.
 - ts2hx translates the sorted root files returned for the supplied tsconfig.
   Use `--list-files` and ensure every implementation dependency intended for
   conversion is present.
@@ -110,6 +113,10 @@ Important consequences:
   runtime descendants receive carriers so bound-import declaration order is
   not replaced by Haxe value-use order; arbitrary executable top-level
   statements still fail strict mode;
+- any effective runtime request requires `--runtime-profile genes-esm` and is
+  recorded as the `genes.esm-runtime-requests` capability; the request-free
+  `standard-haxe-js` profile fails transactionally at the first retained
+  import, including in assisted mode;
 - uninitialized top-level variables and top-level destructuring declarations
   are unsupported;
 - async function-valued top-level variables are unsupported; use an async
@@ -260,10 +267,12 @@ new target differential before claiming portability.
 ## Current fixture evidence
 
 The registered snapshot suite covers 20 projects and currently compares 48
-generated files. Most compile and run through standard Haxe JS. Exceptions are
-explicit:
+generated files. Eleven projects require `genes-esm`; nine are request-free and
+use `standard-haxe-js`, with eight standard-profile runtime smokes. Exceptions
+are explicit:
 
-- `basic-tsx` and `react-types`: compile-only under standard Haxe JS;
+- `basic-tsx` and `react-types`: compile-only because their JSX markers are not
+  executed directly;
 - `non-relative-imports`: compile-only because of the ESM/`require()` boundary;
 - five fixtures use assisted snapshots for one acknowledged top-level
   `index.ts` call;

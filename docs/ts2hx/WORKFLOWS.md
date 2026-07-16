@@ -42,8 +42,9 @@ tsc -p ./tsconfig.json --noEmit
 ```
 
 `--diagnostics` on ts2hx prints sorted TypeScript pre-emit diagnostics for
-inspection, but it does not turn them into a separate translation failure
-code. A clean TypeScript build remains the source-project gate.
+inspection. An emitting command requires that set to contain no errors and
+exits `2` before planning Haxe otherwise. A clean TypeScript build remains the
+source-project gate.
 
 Use a dedicated `tsconfig` for the migration slice. Every implementation file
 that should receive a disposition must be part of that config's root-file
@@ -78,6 +79,7 @@ node tools/ts2hx/dist/cli.js \
   --project ./tsconfig.migration.json \
   --out ./src-generated \
   --base-package migrated \
+  --runtime-profile genes-esm \
   --clean \
   --diagnostics-json ./artifacts/ts2hx-strict.json
 ```
@@ -91,7 +93,7 @@ Possible outcomes:
 - exit `2`: configuration, CLI, or internal failure;
 - exit `3`: assisted output was committed with recorded losses.
 
-`--diagnostics-json` writes the complete schema-v2 translation manifest, not
+`--diagnostics-json` writes the complete schema-v3 translation manifest, not
 only an array of errors. Put it outside the generated directory so a failed
 strict transaction can still leave evidence without modifying that directory.
 
@@ -100,6 +102,10 @@ Review these fields before continuing:
 ```text
 status             success | failed | assisted
 mode               strict-js | assisted
+targetProfile      genes-esm | standard-haxe-js
+compiler           exact TS bridge/engine versions and effective-options hash
+requiredCompilerCapabilities[]
+moduleRequests[]   source dispositions plus effective runtime order/format
 files[]            emitted | declaration-only | unsupported
 diagnostics[]      stable ID, source span, syntax kind, category, remediation
 features[]         complete semantic catalog plus occurrences in this run
@@ -110,6 +116,12 @@ runtimeModules[]   staged runtime file identity, hash, owner, and destination
 Exit `0` is a subset claim, not a replacement for runtime comparison. The
 manifest tells you which semantic contracts occurred; it cannot prove syntax
 that has no differential fixture yet.
+
+Use `genes-esm` for either classic Genes or genes-ts whenever any configured
+TypeScript import survives as a runtime request. Use `standard-haxe-js` only
+for a request-free slice. The latter fails at the first effective request, even
+in assisted mode, because standard Haxe cannot preserve the declared ESM
+initialization contract.
 
 ## TS → Haxe → classic JS
 
@@ -244,6 +256,7 @@ node tools/ts2hx/dist/cli.js \
   --project ./tsconfig.migration.json \
   --out ./src-generated-assisted \
   --base-package migrated \
+  --runtime-profile genes-esm \
   --clean \
   --mode assisted
 ```
@@ -258,6 +271,7 @@ tree includes `ts2hx-manifest.json` with status `assisted`.
 node tools/ts2hx/dist/cli.js \
   --project ./tsconfig.migration.json \
   --out ./src-generated-assisted \
+  --runtime-profile genes-esm \
   --clean \
   --mode assisted \
   --allow-loss
@@ -283,6 +297,8 @@ smallest generic TypeScript behavior before changing the emitter.
 
 ```bash
 yarn --cwd tools/ts2hx test:snapshots
+yarn --cwd tools/ts2hx test:esm-request-plan
+yarn --cwd tools/ts2hx test:runtime-profile
 yarn --cwd tools/ts2hx test:roundtrip
 yarn --cwd tools/ts2hx test:semantic-diff
 yarn --cwd tools/ts2hx test:strict-diagnostics

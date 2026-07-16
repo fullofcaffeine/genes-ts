@@ -243,6 +243,7 @@ yarn --cwd tools/ts2hx build
 node tools/ts2hx/dist/cli.js \
   --project ./tsconfig.json \
   --out ./src-generated \
+  --runtime-profile genes-esm \
   --clean \
   --diagnostics-json ./ts2hx-result.json
 ```
@@ -274,6 +275,7 @@ an inventory or reviewable scaffold:
 node tools/ts2hx/dist/cli.js \
   --project ./tsconfig.json \
   --out ./src-generated \
+  --runtime-profile genes-esm \
   --clean \
   --mode assisted
 ```

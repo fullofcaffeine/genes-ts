@@ -73,11 +73,13 @@ function inspectFixture(
   fixtureRoot: string,
   fileName: "main.mts" | "main.cts",
   source: string,
-  verbatimModuleSyntax: boolean
+  verbatimModuleSyntax: boolean,
+  noEmit = false
 ): Inspection {
   const caseRoot = path.join(
     fixtureRoot,
     `${path.basename(fileName, path.extname(fileName))}-${verbatimModuleSyntax ? "verbatim" : "elided"}`
+      + `${noEmit ? "-no-emit" : ""}`
   );
   fs.mkdirSync(caseRoot, { recursive: true });
   const mainPath = path.join(caseRoot, fileName);
@@ -92,6 +94,7 @@ function inspectFixture(
     strict: true,
     skipLibCheck: true,
     noEmitOnError: true,
+    noEmit,
     outDir: path.join(caseRoot, "out"),
     verbatimModuleSyntax,
     esModuleInterop: true
@@ -258,15 +261,28 @@ function main(): void {
       "CommonJS request inventory disagrees with emitted JavaScript"
     );
 
+    const configuredNoEmit = inspectFixture(fixtureRoot, "main.mts", esmSource, false, true);
+    assertJson(
+      dispositionSummary(configuredNoEmit.file.imports),
+      dispositionSummary(elided.file.imports),
+      "noEmit shadow evidence changed effective request dispositions"
+    );
+    assertJson(
+      emittedEsmRequests(configuredNoEmit.file),
+      emittedEsmRequests(elided.file),
+      "noEmit shadow evidence changed configured JavaScript emit"
+    );
+
     assertProvenance(elided);
     assertProvenance(verbatim);
     assertProvenance(commonJs);
+    assertProvenance(configuredNoEmit);
   } finally {
     fs.rmSync(fixtureRoot, { recursive: true, force: true });
   }
 
   process.stdout.write(
-    `Effective module requests OK (TypeScript ${ts.version}; verbatim off/on + ESM/CommonJS)\n`
+    `Effective module requests OK (TypeScript ${ts.version}; verbatim off/on + ESM/CommonJS + noEmit shadow)\n`
   );
 }
 

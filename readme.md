@@ -313,7 +313,11 @@ scaffolder. Strict mode fails closed for constructs the translator knows it
 cannot preserve; assisted mode records explicit losses. Exit success is not a
 blanket semantic-equivalence certificate.
 
-Its schema-v2 manifest grades the exercised semantic features, and
+Its schema-v3 manifest grades the exercised semantic features, records the
+exact TypeScript request plan, and names the required Haxe runtime profile. A
+request-free translation may target standard Haxe JS; every effective ESM
+request requires classic Genes or genes-ts and fails explicitly under the
+wrong profile. The
 `test:semantic-diff` requires the same event trace from original TypeScript,
 translated classic JavaScript, and translated genes-ts output. This is bounded
 subset evidence—not a claim that arbitrary TypeScript can be translated.

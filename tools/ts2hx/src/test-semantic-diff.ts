@@ -10,6 +10,7 @@ import {
   type SemanticFeatureId
 } from "./semantic/ir.js";
 import { runTypeScriptApiBridge } from "./toolchains.js";
+import ts from "./typescript-api.js";
 
 const TRACE_MARKER = "SEMANTIC_TRACE:";
 const CONVERTED_TRACE_MARKER = "CONVERTED_TRACE:";
@@ -192,8 +193,9 @@ function compileGenesTypeScript(opts: {
  * genes-ts TypeScript. A companion project proves known unsupported semantics
  * produce feature-specific, source-positioned strict failures.
  *
- * How: the test also validates the emitted schema-v2 feature manifest, making
- * the support/portability grades executable release evidence rather than prose.
+ * How: the test also validates the emitted schema-v3 feature/request manifest,
+ * making the support/portability grades executable release evidence rather
+ * than prose.
  */
 function main(): void {
   const toolRoot = path.resolve(path.dirname(process.argv[1] ?? "."), "..");
@@ -232,13 +234,28 @@ function main(): void {
     sourceFiles: loaded.sourceFiles,
     outDir: haxeSourceDir,
     basePackage: "ts2hx_semantic",
+    runtimeProfile: "genes-esm",
     mode: "strict-js",
     cleanOutDir: true,
     runtimeModulesManifest: path.join(fixtureDir, "runtime-modules.json")
   });
   assert(translation.status === "success", `semantic-diff translation status was ${translation.status}.`);
   assert(translation.diagnostics.length === 0, "semantic-diff unexpectedly produced translation diagnostics.");
-  assert(translation.manifest.schemaVersion === 2, "semantic manifest schema is not version 2.");
+  assert(translation.manifest.schemaVersion === 3, "semantic manifest schema is not version 3.");
+  assert(translation.manifest.targetProfile === "genes-esm", "semantic manifest lost its runtime profile.");
+  assert(
+    JSON.stringify(translation.manifest.requiredCompilerCapabilities)
+      === JSON.stringify(["genes.esm-runtime-requests"]),
+    "semantic manifest lost its required Genes capability."
+  );
+  assert(
+    translation.manifest.compiler.typescriptEngine.version === ts.version,
+    "semantic manifest recorded the wrong TypeScript engine."
+  );
+  assert(
+    translation.manifest.moduleRequests.some(request => request.disposition === "runtime-request"),
+    "semantic manifest lost its effective runtime-request evidence."
+  );
   assert(translation.manifest.runtimeModules.length === 2, "semantic manifest lost its staged runtime modules.");
   assert(
     translation.manifest.runtimeModules[0]?.stagedFile
@@ -253,6 +270,7 @@ function main(): void {
     sourceFiles: loaded.sourceFiles,
     outDir: haxeSourceDir,
     basePackage: "ts2hx_semantic",
+    runtimeProfile: "genes-esm",
     mode: "strict-js",
     cleanOutDir: true,
     runtimeModulesManifest: path.join(fixtureDir, "runtime-modules.json")
@@ -313,10 +331,10 @@ function main(): void {
     "unary plus did not lower through the named typed coercion boundary."
   );
   assert(
-    translatedMain.includes("SideEffectImportMarker.external(\"@ts2hx/semantic-effect\", null)")
-      && translatedMain.includes("SideEffectImportMarker.internal(moduleLabel)")
-      && translatedMain.includes("SideEffectImportMarker.external(\"./runtime/after-support.mjs\", null)")
-      && translatedMain.includes("SideEffectImportMarker.external(\"./runtime/config.json\", \"json\")"),
+    translatedMain.includes("EsmRequestFact.external(\"@ts2hx/semantic-effect\", null)")
+      && translatedMain.includes("EsmRequestFact.internal(moduleLabel)")
+      && translatedMain.includes("EsmRequestFact.external(\"./runtime/after-support.mjs\", null)")
+      && translatedMain.includes("EsmRequestFact.external(\"./runtime/config.json\", \"json\")"),
     "translated Haxe did not preserve the complete ordered runtime-import sequence."
   );
   const convertedHaxeDir = path.join(haxeSourceDir, "ts2hx_semantic", "converted");
@@ -340,9 +358,9 @@ function main(): void {
       && secondHaxe.includes("@:keep\nfinal initialized = events.push(\"second\");"),
     "converted target initializers are not explicitly retained through full Haxe DCE."
   );
-  const firstAnchor = `SideEffectImportMarker.internal(ts2hx_semantic.converted.First.${firstMarker})`;
-  const secondAnchor = `SideEffectImportMarker.internal(ts2hx_semantic.converted.Second.${secondMarker})`;
-  const stateAnchor = "SideEffectImportMarker.internal(events)";
+  const firstAnchor = `EsmRequestFact.internal(ts2hx_semantic.converted.First.${firstMarker})`;
+  const secondAnchor = `EsmRequestFact.internal(ts2hx_semantic.converted.Second.${secondMarker})`;
+  const stateAnchor = "EsmRequestFact.internal(events)";
   assert(
     convertedMainHaxe.indexOf(firstAnchor) >= 0
       && convertedMainHaxe.indexOf(secondAnchor) > convertedMainHaxe.indexOf(firstAnchor)
@@ -357,8 +375,8 @@ function main(): void {
     !convertedMainHaxe.includes('"./first.js"') && !convertedMainHaxe.includes('"./second.js"'),
     "converted request carrier preserved a deleted original JavaScript path."
   );
-  const transitiveFirstAnchor = "SideEffectImportMarker.internal(first)";
-  const transitiveSecondAnchor = "SideEffectImportMarker.internal(second)";
+  const transitiveFirstAnchor = "EsmRequestFact.internal(first)";
+  const transitiveSecondAnchor = "EsmRequestFact.internal(second)";
   assert(
     transitiveBoundTargetHaxe.indexOf(transitiveFirstAnchor) >= 0
       && transitiveBoundTargetHaxe.indexOf(transitiveSecondAnchor)
@@ -388,6 +406,7 @@ function main(): void {
     "--project", fixtureConfig,
     "--out", cliOutput,
     "--base-package", "ts2hx_semantic",
+    "--runtime-profile", "genes-esm",
     "--runtime-modules", path.join(fixtureDir, "runtime-modules.json"),
     "--clean"
   ], repoRoot);
@@ -429,6 +448,7 @@ function main(): void {
       sourceFiles: loaded.sourceFiles,
       outDir: invalidOutput,
       basePackage: "ts2hx_semantic",
+      runtimeProfile: "genes-esm",
       mode: "strict-js",
       cleanOutDir: true,
       runtimeModulesManifest: invalidManifest
@@ -507,6 +527,7 @@ function main(): void {
     assert(attributedRequest > resourceRequest, `${label}: generated attributed request moved before the resource.`);
     assert(source.includes('type: "json"'), `${label}: generated JSON request lost its import attribute.`);
     assert(!source.includes("SideEffectImportMarker"), `${label}: compiler marker leaked into generated output.`);
+    assert(!source.includes("EsmRequestFact"), `${label}: guarded request fact leaked into generated output.`);
     assert(!source.includes("__ts2hx_requests"), `${label}: request carrier leaked into generated output.`);
   }
   const classicConvertedMain = fs.readFileSync(
@@ -532,6 +553,7 @@ function main(): void {
     assert(!source.includes("__ts2hx_init_"), `${label}: target marker leaked into generated output.`);
     assert(!source.includes("__ts2hx_requests"), `${label}: request carrier leaked into generated output.`);
     assert(!source.includes("SideEffectImportMarker"), `${label}: compiler marker leaked into generated output.`);
+    assert(!source.includes("EsmRequestFact"), `${label}: guarded request fact leaked into generated output.`);
   }
   const classicTransitiveBoundTarget = fs.readFileSync(
     path.join(
@@ -563,6 +585,7 @@ function main(): void {
     assert(secondRequest > firstRequest, `${label}: value-use order replaced import-declaration order.`);
     assert(!source.includes("__ts2hx_requests"), `${label}: request carrier leaked into generated output.`);
     assert(!source.includes("SideEffectImportMarker"), `${label}: compiler marker leaked into generated output.`);
+    assert(!source.includes("EsmRequestFact"), `${label}: guarded request fact leaked into generated output.`);
   }
   assertSideEffectOrder(classicOutput, "translated classic Genes JavaScript");
   assertSideEffectOrder(genesTsOutput, "translated genes-ts output");
@@ -602,6 +625,7 @@ function main(): void {
     sourceFiles: unsupportedProject.sourceFiles,
     outDir: unsupportedOutput,
     basePackage: "ts2hx_unsupported",
+    runtimeProfile: "genes-esm",
     mode: "strict-js",
     cleanOutDir: true
   });
@@ -637,6 +661,7 @@ function main(): void {
     sourceFiles: unsupportedProject.sourceFiles,
     outDir: assistedOutput,
     basePackage: "ts2hx_unsupported",
+    runtimeProfile: "genes-esm",
     mode: "assisted",
     cleanOutDir: true
   });

@@ -34,8 +34,12 @@ What is implemented:
 - A minimal semantic plan for exact undefined/default absence, typed
   uninitialized locals, truthiness, lvalue evaluation order, `for` continuation
   steps, switch fallthrough, bounded finally completion, and feature provenance
-- A schema-v2 manifest that records the complete support/portability matrix for
-  successful and assisted runs
+- A schema-v3 manifest that records the complete support/portability matrix,
+  exact TypeScript compiler facts, effective module-request dispositions, and
+  the selected Haxe runtime capability profile
+- An explicit `genes-esm` versus request-free `standard-haxe-js` boundary;
+  standard Haxe fails transactionally at the first effective ESM request, and
+  generated compiler-owned carriers repeat the guard during Haxe typing
 - An exact original-TS versus classic-JS versus genes-ts-JS event differential
   for sixteen supported contracts, plus nine feature-specific fail-closed cases
 

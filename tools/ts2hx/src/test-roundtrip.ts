@@ -153,6 +153,7 @@ function main(): number {
       sourceFiles: loaded.sourceFiles,
       outDir: haxeOutDir,
       basePackage: fixture.basePackage,
+      runtimeProfile: "genes-esm",
       mode: "assisted",
       cleanOutDir: true
     });
