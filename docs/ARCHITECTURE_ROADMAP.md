@@ -404,11 +404,13 @@ roundtrips are valuable. Its contract is now:
 
 ### Long-term implementation-language possibility
 
-A Haxe-authored ts2hx is a worthwhile future research direction, not a current
-rewrite plan. Compiling the translator through Genes could consolidate more of
-the toolchain around Haxe and would exercise Genes against a large, demanding
-compiler application rather than only small fixtures. That pressure could
-reveal useful general compiler, interop, and output-quality gaps.
+A Haxe-authored ts2hx remains a worthwhile future research direction, not a
+current rewrite plan. The bounded
+[feasibility decision](ts2hx/HAXE_BOOTSTRAP_FEASIBILITY.md) proves that typed
+Haxe can use the real TypeScript Program/TypeChecker API through standard Haxe,
+classic Genes, and genes-ts. Compiling the translator through Genes could
+consolidate more of the toolchain and would exercise Genes against a large,
+demanding compiler application rather than only small fixtures.
 
 The current TypeScript implementation remains the source of truth unless an
 incremental experiment first proves all of the following:
@@ -429,7 +431,8 @@ incremental experiment first proves all of the following:
 Until those prerequisites have executable evidence, keeping ts2hx in
 TypeScript is the simpler design: it works directly with TypeScript's native
 compiler objects while continuing to emit ordinary typed Haxe for both Genes
-profiles.
+profiles. The repository keeps only the small `yarn test:ts2hx-bootstrap`
+canary; no production translator seam has moved.
 
 dts2hx remains the declaration-ingestion foundation. The landed bridge shares
 package fixtures, versioned manifests, and a narrow compiler-API resolution

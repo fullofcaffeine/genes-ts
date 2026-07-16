@@ -53,7 +53,11 @@ latency bounded; their language categories are represented by the matrix-owned
 profiles.
 
 `yarn test:matrix:api` builds the harness and ts2hx with the TS6 package and
-executes a real compiler-API smoke. It is included in `yarn test:ci`.
+executes the real compiler-API smoke. It also owns the Haxe-authored ts2hx
+bootstrap canary: one curated Program/TypeChecker seam must agree when run
+directly in TypeScript and through standard Haxe, classic Genes, and genes-ts.
+This is feasibility and interop evidence, not a production translator port.
+The matrix is included in `yarn test:ci`.
 
 GitHub Actions reads the manifest before dependency installation. Stable Haxe
 is blocking in classic and genes-ts jobs. The Haxe preview job runs classic and

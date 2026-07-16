@@ -9,6 +9,8 @@ its output is not production-ready merely because the generated Haxe compiles.
 - Usage: `docs/ts2hx/USAGE.md`
 - Limitations: `docs/ts2hx/LIMITATIONS.md`
 - Future portability: `docs/ts2hx/PORTABILITY.md`
+- Haxe-authored bootstrap feasibility:
+  [`docs/ts2hx/HAXE_BOOTSTRAP_FEASIBILITY.md`](../../docs/ts2hx/HAXE_BOOTSTRAP_FEASIBILITY.md)
 - Contributor architecture and fixture guide:
   [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md#contributing-a-ts2hx-fixture)
 - Status: strict failure contract plus a bounded supported subset; not production-ready

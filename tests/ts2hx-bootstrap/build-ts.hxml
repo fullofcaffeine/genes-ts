@@ -1,0 +1,8 @@
+-lib genes-ts
+-cp tests/ts2hx-bootstrap/src
+--main ts2hxbootstrap.Main
+-js tests/ts2hx-bootstrap/out/ts/src-gen/index.ts
+-D genes.ts
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
