@@ -179,20 +179,20 @@ externs to ingest npm declarations.
 
 ## Current fixture inventory
 
-The snapshot runner currently owns these 20 projects:
+The snapshot runner currently owns these 21 projects:
 
 | Area | Fixtures |
 | --- | --- |
 | Core declarations/runtime | `minimal-codegen`, `classes-enums`, `real-world-v1` |
-| Expressions/control flow | `statement-coverage`, `expression-coverage`, `destructuring`, `params-defaults-rest`, `optional-chain-assignments`, `object-methods-spreads`, `async-await` |
+| Expressions/control flow | `statement-coverage`, `expression-coverage`, `destructuring`, `params-defaults-rest`, `optional-chain-assignments`, `object-methods-spreads`, `async-await`, `finally-completion-return` |
 | Types | `type-emission`, `type-literals` |
 | Modules/exports | `export-forms`, `module-syntax`, `module-regexp`, `non-relative-imports` |
 | JSX/React | `basic-tsx`, `react-types` |
 | Migration roundtrip | `roundtrip-fixture`, `roundtrip-advanced` |
 
-The current snapshot is 48 generated files. Effective TypeScript emit assigns
-11 fixtures to `genes-esm` and 9 request-free fixtures to
-`standard-haxe-js`; 8 of the standard fixtures execute their smoke runtime.
+The current snapshot is 49 generated files. Effective TypeScript emit assigns
+11 fixtures to `genes-esm` and 10 request-free fixtures to
+`standard-haxe-js`; 9 of the standard fixtures execute their smoke runtime.
 Explicit exceptions:
 
 - `basic-tsx` is assisted because its bound React package request remains
@@ -208,8 +208,11 @@ Explicit exceptions:
 
 Additional evidence-only fixtures:
 
-- `semantic-diff`: 17 supported semantic contracts executed as original TS,
-  classic Genes JS, and genes-ts→JS, including the reduced ordered
+- `semantic-diff`: all 17 supported semantic contracts plus the staged typed
+  synchronous-return portion of outer `finally` completion execute as original
+  TS, classic Genes JS, and genes-ts→JS (18 exercised rows total), including
+  nested return/finalizer precedence, catch return/rethrow, exact thrown-object
+  identity, nullable and `Void` carriers, an ordinary class method, and the reduced ordered
   `state`/`first`/`second` converted-module initialization proof and a
   standalone bound-only target that reads its imports in reverse order. The
   same differential runs with `verbatimModuleSyntax` off and on, proving that
@@ -271,10 +274,11 @@ The semantic differential is the stronger behavior gate. It requires matching
 event traces for explicit undefined, parameter defaults, uninitialized locals,
 truthiness, strict equality, unary-plus numeric coercion, compound-assignment
 order, `for`/`continue`, switch fallthrough/default placement,
-unlabelled switch-to-loop `continue`, try/catch/finally, class and lexical arrow
-`this`, async/await ordering, ESM bindings, and effective ESM request order. It
-also proves labeled switch continue, outer completion through finally, and
-dynamic prototype mutation fail closed. Its module transcripts cover bare
+unlabelled switch-to-loop `continue`, try/catch/finally, staged typed return
+through nested finalizers, class and lexical arrow `this`, async/await ordering,
+ESM bindings, and effective ESM request order. It also proves labeled switch
+continue, excluded async outer completion through finally, and dynamic
+prototype mutation fail closed. Its module transcripts cover bare
 packages, manifest-staged relatives, empty and inline-type clauses, immutable
 named/default/namespace and combined converted bindings, TypeScript elision,
 duplicates, and unused requests retained by verbatim emit. Original TypeScript,

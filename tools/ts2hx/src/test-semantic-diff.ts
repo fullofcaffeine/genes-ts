@@ -543,6 +543,7 @@ function main(): void {
     "switch.continue",
     "exceptions.try-catch",
     "exceptions.finally",
+    "exceptions.finally-outer-transfer",
     "this.class-and-lexical-arrow",
     "async.await",
     "modules.esm-bindings",
@@ -783,7 +784,8 @@ function main(): void {
     outputFile: path.join(tmpRoot, "classic", "index.js"),
     mainClass: "ts2hx_semantic.Main",
     fixtureDir,
-    stagedRuntimeDir
+    stagedRuntimeDir,
+    emitDts: true
   });
   const genesTsOutput = compileGenesTypeScript({
     haxeBin,
@@ -883,7 +885,32 @@ function main(): void {
     assert(!source.includes("SideEffectImportMarker"), `${label}: compiler marker leaked into generated output.`);
     assert(!source.includes("EsmRequestFact"), `${label}: guarded request fact leaked into generated output.`);
     assert(!source.includes("__ts2hx_requests"), `${label}: request carrier leaked into generated output.`);
+    assert(
+      source.includes("__Ts2hxFinallyAbrupt")
+        && source.includes("FinallyCompletion.run"),
+      `${label}: typed finally completion implementation is missing.`
+    );
+    assert(
+      !/^export\s+(?:type|const|function|class|\{)[^\n]*__Ts2hxFinallyAbrupt/m.test(source),
+      `${label}: compiler-internal completion type became a module export.`
+    );
+    assert(
+      !source.includes("setHxEnum") && !source.includes("hxEnums()["),
+      `${label}: compiler-internal completion type entered the public enum registry.`
+    );
+    assert(
+      !source.includes("ReturnValue(Register.unsafeCast"),
+      `${label}: nullable completion payload required an unsafe generic cast.`
+    );
   }
+  const classicMainDts = fs.readFileSync(
+    path.join(tmpRoot, "classic", "ts2hx_semantic", "Main.d.ts"),
+    "utf8"
+  );
+  assert(
+    !classicMainDts.includes("__Ts2hxFinallyAbrupt"),
+    "classic declarations exposed the compiler-internal completion type."
+  );
   const classicConvertedMain = fs.readFileSync(
     path.join(tmpRoot, "classic-converted", "ts2hx_semantic", "converted", "ConvertedMain.js"),
     "utf8"

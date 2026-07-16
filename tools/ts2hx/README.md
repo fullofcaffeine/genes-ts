@@ -122,6 +122,7 @@ Current fixtures:
 - `fixtures/object-methods-spreads/` (object literal method syntax + spread properties)
 - `fixtures/export-forms/` (local export lists + default export aliasing)
 - `fixtures/statement-coverage/` (while/do-while/switch + break/continue + var-without-init)
+- `fixtures/finally-completion-return/` (request-free typed return, nested finalizer precedence, collision-safe compiler locals, and standard-Haxe runtime smoke)
 - `fixtures/expression-coverage/` (unary ops, ternary, typeof, compound assignments, ++/--)
 - `fixtures/type-emission/` (qualified names, unions, function types)
 - `fixtures/semantic-diff/` (exact defaults/undefined/truthiness/order/control-flow/this/async/module trace)
@@ -148,14 +149,16 @@ yarn --cwd tools/ts2hx test:semantic-diff
 This runs the same fixture as original TypeScript, ts2hx → Haxe → classic
 Genes JavaScript, and ts2hx → Haxe → genes-ts TypeScript → JavaScript. The
 JSON event traces must be byte-equivalent after extraction. It also checks that
-prototype mutation, labeled switch-continue, finally outer transfer, and six
-unsupported side-effect-import variants diagnose precisely without changing
+prototype mutation, labeled switch-continue, excluded async finally transfer,
+and six unsupported side-effect-import variants diagnose precisely without changing
 the prior output tree. Bare packages and hash-pinned external relative runtime
 files execute in source order through both Genes profiles. A converted
 bound-only descendant deliberately reads its bindings in reverse order to
 prove that its original import declarations still control initialization.
 Unlabelled switch-continue and unary-plus numeric coercion are exercised as
-supported contracts.
+supported contracts. Synchronous typed return through one or more finalizers is
+exercised as staged evidence in named functions and ordinary methods; the broad
+outer-transfer row remains unpromoted until break/continue dispatch is proven.
 
 What `test:roundtrip` does for selected supported modules:
 

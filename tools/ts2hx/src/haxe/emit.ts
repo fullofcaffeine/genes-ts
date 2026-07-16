@@ -24,10 +24,12 @@ import {
   planParameter,
   planSourceCompletions,
   planSwitch,
-  planTry,
+  type CompletionCallbackPlan,
   type CompletionCallbackPath,
   type CompletionControlTargetPlan,
+  type CompletionFinallyPlan,
   type CompletionTargetId,
+  type CompletionTransferPlan,
   type FunctionCompletionPlan,
   type PortabilityGrade,
   type SemanticFeatureDisposition,
@@ -269,13 +271,15 @@ function isLikelyTypeName(name: string): boolean {
  * What: every source function gets a fresh state keyed by semantic target ID.
  * `activeTargets` preserves lexical nesting, `continueSteps` retains the exact
  * lowered-for increment string, and switch escape flags name the real loop
- * they eventually continue. `callbackPath` remains empty in this refactor and
- * is reserved for completion-aware emission in the next stage.
+ * they eventually continue. `callbackPath` identifies the synthetic protected
+ * or finalizer callback currently being spelled. The generated-name set keeps
+ * compiler locals from shadowing any identifier already present in the source
+ * function, including identifiers inside nested syntax.
  *
  * How: `withFunctionEmitState` looks up the immutable source plan, installs a
- * new state, and restores the caller in `finally`. Synthetic callbacks used by
- * current finally lowering stay inside the same source-function state; actual
- * nested source functions always start with empty target and switch stacks.
+ * new state, and restores the caller in `finally`. `withCompletionCallback`
+ * changes only the callback path; actual nested source functions install a new
+ * state with empty callback, target, and switch stacks.
  */
 type FunctionEmitState = {
   plan: FunctionCompletionPlan;
@@ -284,6 +288,7 @@ type FunctionEmitState = {
   targetById: ReadonlyMap<CompletionTargetId, CompletionControlTargetPlan>;
   continueSteps: Map<CompletionTargetId, string | null>;
   switchContinueTransfers: Array<{ flag: string; targetId: CompletionTargetId }>;
+  generatedLocalNames: Set<string>;
 };
 
 type EmitContext = {
@@ -300,6 +305,8 @@ type EmitContext = {
   completionPlan: SourceCompletionPlan;
   /** Current source function; nested functions install an independent state. */
   functionState: FunctionEmitState | null;
+  /** Collision-safe private enum used only by completion-aware functions. */
+  completionAbruptTypeName: string | null;
 };
 
 type SemanticFailure = {
@@ -363,13 +370,20 @@ function withFunctionEmitState<T>(ctx: EmitContext,
     );
   }
   const previous = ctx.functionState;
+  const generatedLocalNames = new Set<string>();
+  function collectIdentifiers(current: ts.Node): void {
+    if (ts.isIdentifier(current)) generatedLocalNames.add(current.text);
+    ts.forEachChild(current, collectIdentifiers);
+  }
+  collectIdentifiers(node);
   ctx.functionState = {
     plan,
     callbackPath: [],
     activeTargets: [],
     targetById: new Map(plan.targets.map((target) => [target.id, target])),
     continueSteps: new Map(),
-    switchContinueTransfers: []
+    switchContinueTransfers: [],
+    generatedLocalNames
   };
   try {
     return emit();
@@ -423,6 +437,183 @@ function currentLoopTarget(state: FunctionEmitState): CompletionControlTargetPla
     if (target?.kind === "loop") return target;
   }
   return null;
+}
+
+function nextFunctionLocal(ctx: EmitContext, prefix: string): string {
+  const state = requireFunctionEmitState(ctx);
+  let name = nextTmp(ctx, prefix);
+  while (state.generatedLocalNames.has(name))
+    name = nextTmp(ctx, prefix);
+  state.generatedLocalNames.add(name);
+  return name;
+}
+
+function nextCompletionLocal(ctx: EmitContext): string {
+  return nextFunctionLocal(ctx, "__ts2hx_completion");
+}
+
+function callbackPathsEqual(left: CompletionCallbackPath,
+    right: CompletionCallbackPath): boolean {
+  return left.length === right.length
+    && left.every((callback, index) => callback === right[index]);
+}
+
+/**
+ * Enters one synthetic completion callback without changing source-function ownership.
+ *
+ * Why: a nested `finally` may return a record to an enclosing synthetic
+ * callback, but a real nested source function must still receive entirely new
+ * state. Treating those two boundaries alike would skip outer protected
+ * statements or target a caller's return.
+ *
+ * What: only the immutable callback path changes. Real loop targets, switch
+ * escapes, and the function return carrier remain owned by the current source
+ * function.
+ *
+ * How: the planner proves that the region parent equals the current path. The
+ * emitter checks that invariant, installs the child path for statement
+ * spelling, and restores the parent in `finally` even when emission rejects a
+ * nested construct.
+ */
+function withCompletionCallback<T>(ctx: EmitContext,
+    callback: CompletionCallbackPlan, emit: () => T): T {
+  const state = requireFunctionEmitState(ctx);
+  const previous = state.callbackPath;
+  if (!callbackPathsEqual(previous, callback.parentPath)) {
+    throw new Error(
+      `Completion callback ${callback.id} expected parent `
+      + `${JSON.stringify(callback.parentPath)}, got ${JSON.stringify(previous)}.`
+    );
+  }
+  state.callbackPath = callback.path;
+  try {
+    return emit();
+  } finally {
+    state.callbackPath = previous;
+  }
+}
+
+function completionTransferForNode(ctx: EmitContext,
+    node: ts.ReturnStatement | ts.BreakStatement
+      | ts.ContinueStatement): CompletionTransferPlan {
+  const start = node.getStart(ctx.sourceFile, false);
+  const transfer = ctx.completionPlan.transferByStart.get(start);
+  const state = requireFunctionEmitState(ctx);
+  if (!transfer || transfer.functionId !== state.plan.id) {
+    throw new Error(
+      `Completion plan is missing transfer at ${ctx.sourceFilePath}:${start}.`
+    );
+  }
+  return transfer;
+}
+
+function completionFinallyForNode(ctx: EmitContext,
+    node: ts.TryStatement): CompletionFinallyPlan {
+  const start = node.getStart(ctx.sourceFile, false);
+  const region = ctx.completionPlan.finallyByStart.get(start);
+  const state = requireFunctionEmitState(ctx);
+  if (!region || region.statement !== node
+    || !state.plan.finallyRegions.some((candidate) => candidate.id === region.id)) {
+    throw new Error(
+      `Completion plan is missing finally region at ${ctx.sourceFilePath}:${start}.`
+    );
+  }
+  return region;
+}
+
+function completionTransfersForRegion(fn: FunctionCompletionPlan,
+    region: CompletionFinallyPlan): CompletionTransferPlan[] {
+  return region.crossingTransfers.map((transferId) => {
+    const transfer = fn.transfers.find((candidate) => candidate.id === transferId);
+    if (!transfer)
+      throw new Error(`Finally region ${region.id} refers to missing ${transferId}.`);
+    return transfer;
+  });
+}
+
+/** First staged emitter boundary: typed return records, without loop transfer. */
+function isReturnOnlyCompletionRegion(fn: FunctionCompletionPlan,
+    region: CompletionFinallyPlan): boolean {
+  if (region.strategy !== "finally-helper-completion") return false;
+  if (fn.returnCarrier.kind !== "value" && fn.returnCarrier.kind !== "void")
+    return false;
+  const transfers = completionTransfersForRegion(fn, region);
+  return transfers.length > 0 && transfers.every((transfer) =>
+    transfer.kind === "return-value" || transfer.kind === "return-void");
+}
+
+function sourceNeedsReturnCompletionType(plan: SourceCompletionPlan): boolean {
+  return plan.functions.some((fn) => fn.finallyRegions.some((region) =>
+    isReturnOnlyCompletionRegion(fn, region)));
+}
+
+type EmittedCompletionCarrier = Readonly<{
+  typeName: string;
+  payloadType: string;
+  carrierType: string;
+  kind: "value" | "void";
+}>;
+
+function emittedTypeContainsWeakBoundary(type: string): boolean {
+  return /(^|[<,( ]|->)(?:Dynamic|Any)(?=$|[>,) ]|->)/.test(type);
+}
+
+/**
+ * Projects the planner's explicit return annotation into one strong Haxe type.
+ *
+ * The semantic plan rejects missing, mixed, broad, and implicit-undefined
+ * carriers. This final spelling check catches source syntax that the current
+ * Haxe type printer cannot represent without falling back to `Dynamic` or
+ * core `Any`. Returning `null` asks the containing `try` to fail closed before
+ * generated output is published.
+ */
+function completionCarrier(ctx: EmitContext,
+    state = requireFunctionEmitState(ctx)): EmittedCompletionCarrier | null {
+  const typeName = ctx.completionAbruptTypeName;
+  if (!typeName) return null;
+  const plan = state.plan.returnCarrier;
+  if (plan.kind === "void") {
+    return {
+      typeName,
+      payloadType: "Void",
+      carrierType: `${typeName}<Void>`,
+      kind: "void"
+    };
+  }
+  if (plan.kind !== "value") return null;
+  const payloadType = emitType(plan.sourceType);
+  if (emittedTypeContainsWeakBoundary(payloadType)) return null;
+  return {
+    typeName,
+    payloadType,
+    carrierType: `${typeName}<${payloadType}>`,
+    kind: "value"
+  };
+}
+
+/**
+ * Satisfies Haxe's value-return check without inventing a fallback value.
+ *
+ * TypeScript has already accepted the whole project. For this staged boundary,
+ * a completion-aware value function has an explicit strong return annotation
+ * that cannot contain implicit `undefined`; a reachable fallthrough would have
+ * been a TypeScript error. Haxe cannot derive that fact through the generic
+ * callback result, so the generated function ends with an invariant throw.
+ * The throw is unreachable for accepted input and is safer than fabricating a
+ * number, string, object, or cast merely to satisfy Haxe's local analysis.
+ */
+function appendCompletionReturnGuard(ctx: EmitContext, body: string,
+    indent: string): string {
+  const state = requireFunctionEmitState(ctx);
+  if (state.plan.returnCarrier.kind !== "value"
+    || !state.plan.finallyRegions.some((region) =>
+      isReturnOnlyCompletionRegion(state.plan, region)))
+    return body;
+  const message = JSON.stringify(
+    `Typed completion function ${state.plan.name} reached impossible fallthrough.`
+  );
+  const guard = `${indent}throw new haxe.Exception(${message});`;
+  return body.length > 0 ? `${body}\n${guard}` : guard;
 }
 
 type ExternModule = {
@@ -2154,6 +2345,109 @@ function emitContinue(ctx: EmitContext, indent: string): string {
     : `${indent}continue;`;
 }
 
+function emitReturnCompletionDispatch(ctx: EmitContext,
+    region: CompletionFinallyPlan, completionName: string,
+    carrier: EmittedCompletionCarrier, indent: string): string {
+  const state = requireFunctionEmitState(ctx);
+  if (!callbackPathsEqual(state.callbackPath, region.parentPath)) {
+    throw new Error(
+      `Finally region ${region.id} returned at the wrong callback path.`
+    );
+  }
+
+  const transfers = completionTransfersForRegion(state.plan, region);
+  for (const transfer of transfers) {
+    if (transfer.targetId !== state.plan.returnTarget.id
+      || transfer.targetPath === null || transfer.targetPath.length !== 0) {
+      throw new Error(
+        `Return-only region ${region.id} contains non-function target ${transfer.id}.`
+      );
+    }
+  }
+
+  // Inside an enclosing completion callback, every function return still has
+  // farther to travel. Propagate the opaque record without inspecting it; the
+  // next outer helper must run its own finalizer before root dispatch.
+  if (state.callbackPath.length > 0)
+    return `${indent}if (${completionName} != null) return ${completionName};`;
+
+  const returnCase = carrier.kind === "value"
+    ? [
+        `${indent}  case ${carrier.typeName}.ReturnValue(value):`,
+        `${indent}    return value;`
+      ]
+    : [
+        `${indent}  case ${carrier.typeName}.ReturnVoid:`,
+        `${indent}    return;`
+      ];
+  // `ReturnValue` carries `Void` in a void function. Haxe deliberately
+  // forbids destructuring a Void payload, so an explicit default handles every
+  // statically unreachable constructor without weakening the carrier type.
+  const lines = [
+    `${indent}switch (${completionName}) {`,
+    ...returnCase,
+    `${indent}  case null:`,
+    `${indent}    {}`,
+    `${indent}  default:`,
+    `${indent}    throw new haxe.Exception("ts2hx received an unplanned completion variant.");`,
+    `${indent}}`
+  ];
+  return lines.join("\n");
+}
+
+/**
+ * Emits the typed return-only portion of completion-aware `try/finally`.
+ *
+ * Why: a source return cannot directly leave the synthetic callbacks used to
+ * model `finally`. Returning from those callbacks would target the callback,
+ * not the original TypeScript function.
+ *
+ * What: protected and finalizer callbacks return either `null` (normal) or one
+ * private abrupt enum value. `FinallyCompletion.run` applies JavaScript's
+ * precedence rule exactly once, after which the result is dispatched at the
+ * function root or propagated through an enclosing completion callback.
+ *
+ * How: callback paths come from the immutable semantic plan. Return
+ * expressions are constructor arguments, so they evaluate once before the
+ * finalizer. Host throws remain throws; the runtime helper preserves or
+ * replaces them without putting a weak thrown value in the generated enum.
+ */
+function emitReturnCompletionTry(ctx: EmitContext, stmt: ts.TryStatement,
+    region: CompletionFinallyPlan, carrier: EmittedCompletionCarrier,
+    indent: string): string | null {
+  if (!stmt.finallyBlock) return null;
+  const completionName = nextCompletionLocal(ctx);
+  const callbackType = `Null<${carrier.carrierType}>`;
+  const bodyIndent = indent + "      ";
+
+  const protectedBody = withCompletionCallback(ctx, region.protectedCallback, () =>
+    stmt.catchClause
+      ? emitDirectTryCatch(ctx, stmt, bodyIndent)
+      : emitStatements(ctx, stmt.tryBlock.statements, bodyIndent)
+  );
+  if (protectedBody == null) return null;
+  const finalizerBody = withCompletionCallback(ctx, region.finalizerCallback, () =>
+    emitStatements(ctx, stmt.finallyBlock?.statements ?? [], bodyIndent)
+  );
+  if (finalizerBody == null) return null;
+
+  const lines = [
+    `${indent}final ${completionName}:${callbackType} =`,
+    `${indent}  genes.js.FinallyCompletion.run(`,
+    `${indent}    function():${callbackType} {`,
+    protectedBody,
+    `${bodyIndent}return null;`,
+    `${indent}    },`,
+    `${indent}    function():${callbackType} {`,
+    finalizerBody,
+    `${bodyIndent}return null;`,
+    `${indent}    }`,
+    `${indent}  );`,
+    emitReturnCompletionDispatch(ctx, region, completionName, carrier, indent)
+  ];
+  return lines.filter((line) => line.length > 0).join("\n");
+}
+
 function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): string | null {
   if (ts.isLabeledStatement(stmt)) {
     // An unused statement label has no runtime effect. Any labeled break or
@@ -2171,6 +2465,39 @@ function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): st
   }
 
   if (ts.isReturnStatement(stmt)) {
+    const transfer = completionTransferForNode(ctx, stmt);
+    if (transfer.disposition === "encode") {
+      const state = requireFunctionEmitState(ctx);
+      if (!callbackPathsEqual(state.callbackPath, transfer.sourcePath)) {
+        throw new Error(
+          `Transfer ${transfer.id} expected callback path `
+          + `${JSON.stringify(transfer.sourcePath)}, got `
+          + `${JSON.stringify(state.callbackPath)}.`
+        );
+      }
+      const carrier = completionCarrier(ctx, state);
+      if (!carrier) {
+        throw new Error(
+          `Transfer ${transfer.id} reached emission without a strong completion carrier.`
+        );
+      }
+      if (!stmt.expression)
+        return `${indent}return ${carrier.typeName}.ReturnVoid;`;
+      const expr = emitExpression(ctx, stmt.expression);
+      if (!expr) return null;
+      // Materialize the source value once at its declared return type before
+      // constructing the generic record. A direct `ReturnValue(null)` makes
+      // Haxe infer the constructor payload as bottom even when the surrounding
+      // callback expects `Null<String>`; genes-ts would then need an unsafe
+      // generic cast. The typed local preserves evaluation order and gives
+      // both Genes profiles the same strong constructor instantiation.
+      const returnValue = nextFunctionLocal(ctx, "__ts2hx_return_value");
+      return [
+        `${indent}final ${returnValue}:${carrier.payloadType} = ${expr};`,
+        `${indent}return ${carrier.typeName}.ReturnValue(${returnValue});`
+      ].join("\n");
+    }
+    if (transfer.disposition === "unsupported") return null;
     if (!stmt.expression) return `${indent}return;`;
     const expr = emitExpression(ctx, stmt.expression);
     if (!expr) return null;
@@ -2275,20 +2602,41 @@ function emitStatement(ctx: EmitContext, stmt: ts.Statement, indent: string): st
   }
 
   if (ts.isTryStatement(stmt)) {
-    const plan = planTry(stmt);
-    if (plan.strategy === "unsupported-outer-transfer") {
+    if (!stmt.finallyBlock) {
+      recordSemantic(ctx, "exceptions.try-catch", stmt);
+      return emitDirectTryCatch(ctx, stmt, indent);
+    }
+
+    const state = requireFunctionEmitState(ctx);
+    const region = completionFinallyForNode(ctx, stmt);
+    if (region.strategy === "unsupported-outer-transfer"
+      || (region.strategy === "finally-helper-completion"
+        && !isReturnOnlyCompletionRegion(state.plan, region))) {
       return rejectSemantic(
         ctx,
         "exceptions.finally-outer-transfer",
         stmt,
-        "A return, break, or continue crossing finally requires completion-record lowering.",
+        "This return, break, or continue crosses a finally boundary outside the typed return-only completion subset.",
         "control-flow"
       );
     }
 
-    if (plan.strategy === "direct-catch") {
-      recordSemantic(ctx, "exceptions.try-catch", stmt);
-      return emitDirectTryCatch(ctx, stmt, indent);
+    if (region.strategy === "finally-helper-completion") {
+      const carrier = completionCarrier(ctx, state);
+      if (!carrier) {
+        return rejectSemantic(
+          ctx,
+          "exceptions.finally-outer-transfer",
+          stmt,
+          "The explicit return type cannot be represented by a strong Haxe completion carrier.",
+          "control-flow"
+        );
+      }
+      recordSemantic(ctx, "exceptions.finally", stmt);
+      recordSemantic(ctx, "exceptions.finally-outer-transfer", stmt);
+      if (stmt.catchClause)
+        recordSemantic(ctx, "exceptions.try-catch", stmt.catchClause);
+      return emitReturnCompletionTry(ctx, stmt, region, carrier, indent);
     }
 
     recordSemantic(ctx, "exceptions.finally", stmt);
@@ -2529,6 +2877,7 @@ function emitFunctionLike(opts: {
       body = body.length > 0
         ? `${prelude.join("\n")}\n${body}`
         : prelude.join("\n");
+    body = appendCompletionReturnGuard(opts.ctx, body, "  ");
 
     return `${opts.modifierPrefix}function ${opts.name}(${params.join(", ")})${returnTypeSuffix} {\n${body}\n}`;
   });
@@ -4040,8 +4389,9 @@ function emitHaxeSourceFile(
     semanticRecorder,
     semanticFailures: [],
     expressionRewrites: new Map(),
-    completionPlan: planSourceCompletions(sf, sourceFilePath),
-    functionState: null
+    completionPlan: planSourceCompletions(sf, sourceFilePath, opts.checker),
+    functionState: null,
+    completionAbruptTypeName: null
   };
 
   function recordSemanticFailures(): void {
@@ -4270,16 +4620,47 @@ function emitHaxeSourceFile(
       .filter((s): s is ts.ClassDeclaration => ts.isClassDeclaration(s) && !!s.name)
       .map((s) => (s.name as ts.Identifier).text)
   );
+  const generatedTopLevelTypeNames = new Set(localDeclKinds.keys());
+  for (const imp of imports) {
+    if (imp.defaultImport) generatedTopLevelTypeNames.add(imp.defaultImport);
+    if (imp.namespaceImport) generatedTopLevelTypeNames.add(imp.namespaceImport);
+    for (const named of imp.named) generatedTopLevelTypeNames.add(named.name);
+  }
 
   function uniqueTopLevelTypeName(base: string): string {
-    const used = new Set(localDeclKinds.keys());
     let name = base;
     let i = 2;
-    while (used.has(name)) {
+    while (generatedTopLevelTypeNames.has(name)) {
       name = `${base}${i}`;
       i++;
     }
+    generatedTopLevelTypeNames.add(name);
     return name;
+  }
+
+  if (sourceNeedsReturnCompletionType(ctx.completionPlan)) {
+    const abruptType = uniqueTopLevelTypeName("__Ts2hxFinallyAbrupt");
+    ctx.completionAbruptTypeName = abruptType;
+    out.push("/**");
+    out.push(" * Compiler-internal abrupt completion for translated try/finally.");
+    out.push(" *");
+    out.push(" * Why: a source return, break, or continue cannot directly leave the");
+    out.push(" * synthetic callbacks used to run a finalizer exactly once.");
+    out.push(" * What: null represents normal callback completion; enum values carry only");
+    out.push(" * the typed transfer that still belongs to an enclosing source target.");
+    out.push(" * How: genes.js.FinallyCompletion applies finalizer precedence, then ts2hx");
+    out.push(" * statically dispatches or propagates the result. Host throws stay throws.");
+    out.push(" * Genes keeps this type local to implementation and omits declarations,");
+    out.push(" * runtime registration, public exports, and source mappings.");
+    out.push(" */");
+    out.push("@:genes.compilerInternal");
+    out.push(`private enum ${abruptType}<T> {`);
+    out.push("  ReturnValue(value:T);");
+    out.push("  ReturnVoid;");
+    out.push("  BreakTo(target:Int);");
+    out.push("  ContinueTo(target:Int);");
+    out.push("}");
+    out.push("");
   }
 
   const asyncHelperFields: string[] = [];

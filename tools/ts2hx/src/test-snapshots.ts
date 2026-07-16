@@ -8,7 +8,10 @@ import {
 } from "./haxe/emit.js";
 import { loadProject } from "./project.js";
 import { inspectEffectiveModuleRequests } from "./semantic/effective-module-requests.js";
-import { runTypeScriptApiBridge } from "./toolchains.js";
+import {
+  runTypeScriptApiBridge,
+  runTypeScriptGeneratedOutputLanes
+} from "./toolchains.js";
 
 function resolveHaxeBin(toolRoot: string): string {
   const env = process.env.HAXE_BIN;
@@ -212,6 +215,16 @@ function main(): number {
       smokeMain: "ts2hx.Main"
     },
     {
+      name: "finally-completion-return",
+      tsconfigPath: path.join(toolRoot, "fixtures", "finally-completion-return", "tsconfig.json"),
+      snapshotsDir: path.join(toolRoot, "tests_snapshots", "finally-completion-return"),
+      basePackage: "ts2hx",
+      runtimeProfile: "standard-haxe-js",
+      smokeMain: "ts2hx.Main",
+      genesTsRoundtrip: true,
+      requireStrongGeneratedHaxe: true
+    },
+    {
       name: "expression-coverage",
       tsconfigPath: path.join(toolRoot, "fixtures", "expression-coverage", "tsconfig.json"),
       snapshotsDir: path.join(toolRoot, "tests_snapshots", "expression-coverage"),
@@ -389,6 +402,28 @@ function main(): number {
     if (fixture.requireStrongGeneratedHaxe)
       assertStrongGeneratedHaxe(outDir, fixture.name);
 
+    if (fixture.name === "finally-completion-return") {
+      const completionSource = fs.readFileSync(
+        path.join(outDir, fixture.basePackage, "Main.hx"),
+        "utf8"
+      );
+      if (!completionSource.includes("private enum __Ts2hxFinallyAbrupt2<T>")) {
+        throw new Error(
+          "finally-completion-return: generated enum did not avoid the source-owned type name."
+        );
+      }
+      if (!completionSource.includes("final __ts2hx_completion1:Null<")) {
+        throw new Error(
+          "finally-completion-return: generated local did not avoid the source-owned completion name."
+        );
+      }
+      if (completionSource.includes("final __ts2hx_completion0:Null<")) {
+        throw new Error(
+          "finally-completion-return: generated completion local shadowed source code."
+        );
+      }
+    }
+
     // The semantic manifest is asserted structurally by test-semantic-diff.
     // Keeping one copy per syntax fixture would duplicate a large global
     // support matrix and turn harmless provenance additions into snapshot churn.
@@ -519,15 +554,18 @@ function main(): number {
           include: ["**/*.tsx"]
         }, null, 2)}\n`
       );
-      runTypeScriptApiBridge(repoRoot, ["-p", roundtripConfig]);
+      if (fixture.name === "finally-completion-return")
+        runTypeScriptGeneratedOutputLanes(repoRoot, ["-p", roundtripConfig]);
+      else
+        runTypeScriptApiBridge(repoRoot, ["-p", roundtripConfig]);
       assertStrongGeneratedTypeScript(path.join(tsxDir, fixture.basePackage), fixture.name);
     }
   }
 
-  if (genesEsmFixtures !== 11 || standardHaxeFixtures !== 9 || standardHaxeRuntimeFixtures !== 8) {
+  if (genesEsmFixtures !== 11 || standardHaxeFixtures !== 10 || standardHaxeRuntimeFixtures !== 9) {
     throw new Error(
       "Snapshot runtime-profile inventory drifted; expected "
-      + "genes-esm=11, standard-haxe-js=9 with 8 standard runtime smokes, got "
+      + "genes-esm=11, standard-haxe-js=10 with 9 standard runtime smokes, got "
       + `genes-esm=${genesEsmFixtures}, standard-haxe-js=${standardHaxeFixtures} `
       + `with ${standardHaxeRuntimeFixtures} standard runtime smokes.`
     );

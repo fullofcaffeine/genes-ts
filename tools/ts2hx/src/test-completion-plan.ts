@@ -96,6 +96,18 @@ function weakCarrier(): any {
   } finally {}
 }
 
+function undefinedCarrier(): number | undefined {
+  try {
+    return 1;
+  } finally {}
+}
+
+export default function (): number {
+  try {
+    return 1;
+  } finally {}
+}
+
 function switchTargets(): void {
   while (Date.now() > 0) {
     try {
@@ -254,6 +266,40 @@ deepStrictEqual(normalizedPlan(first.plan), normalizedPlan(second.plan),
   "repeated same-process planning is deterministic");
 assertLegacyAgreement(first.plan, "focused");
 
+const checkerFixtureDir = path.join(toolRoot, ".tmp", "completion-plan-checker");
+const checkerFixture = path.join(checkerFixtureDir, "alias.ts");
+fs.rmSync(checkerFixtureDir, { recursive: true, force: true });
+fs.mkdirSync(checkerFixtureDir, { recursive: true });
+fs.writeFileSync(checkerFixture, `type MaybeNumber = number | undefined;
+function aliasCarrier(): MaybeNumber {
+  try {
+    return 1;
+  } finally {}
+}
+`, "utf8");
+try {
+  const checkerProgram = ts.createProgram([checkerFixture], {
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.NodeNext,
+    moduleResolution: ts.ModuleResolutionKind.NodeNext,
+    strict: true,
+    skipLibCheck: true
+  });
+  const checkerSource = checkerProgram.getSourceFile(checkerFixture);
+  ok(checkerSource, "checker fixture source is available");
+  const checkerPlan = planSourceCompletions(
+    checkerSource,
+    "completion-plan-checker/alias.ts",
+    checkerProgram.getTypeChecker()
+  );
+  const aliasCarrier = namedFunction(checkerPlan, "aliasCarrier");
+  equal(aliasCarrier.returnCarrier.kind, "unsupported");
+  if (aliasCarrier.returnCarrier.kind === "unsupported")
+    equal(aliasCarrier.returnCarrier.reason, "weak-return-type");
+} finally {
+  fs.rmSync(checkerFixtureDir, { recursive: true, force: true });
+}
+
 const localLoop = namedFunction(first.plan, "localLoop");
 equal(localLoop.finallyRegions.length, 1);
 equal(localLoop.finallyRegions[0]?.strategy, "finally-helper-local");
@@ -364,6 +410,17 @@ const weakCarrier = namedFunction(first.plan, "weakCarrier");
 equal(weakCarrier.returnCarrier.kind, "unsupported");
 if (weakCarrier.returnCarrier.kind === "unsupported")
   equal(weakCarrier.returnCarrier.reason, "weak-return-type");
+
+const undefinedCarrier = namedFunction(first.plan, "undefinedCarrier");
+equal(undefinedCarrier.returnCarrier.kind, "unsupported");
+if (undefinedCarrier.returnCarrier.kind === "unsupported")
+  equal(undefinedCarrier.returnCarrier.reason, "weak-return-type");
+
+const anonymousDefault = first.plan.functions.find((fn) =>
+  fn.form === "function-declaration" && fn.name.startsWith("<function-declaration@"));
+ok(anonymousDefault);
+ok(anonymousDefault.exclusions.includes("anonymous-function-form"));
+equal(anonymousDefault.finallyRegions[0]?.strategy, "unsupported-outer-transfer");
 
 const switchTargets = namedFunction(first.plan, "switchTargets");
 const switchRegion = switchTargets.finallyRegions[0];

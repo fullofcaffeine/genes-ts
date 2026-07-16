@@ -62,8 +62,8 @@ Grades describe the emitted Haxe contract:
 | `switch.fallthrough` | supported / P0 | A normalized state machine preserves case search, default placement, fallthrough, and break. |
 | `switch.continue` | supported / P0 | Unlabelled continue propagates through lowered nested switches to the real enclosing `while`/`for`; a lowered `for` step runs exactly once. Labeled continue is rejected. |
 | `exceptions.try-catch` | supported / P0 | Ordinary catch and propagation are exercised. |
-| `exceptions.finally` | helper / J1 | Ordering/propagation is preserved when completion remains inside the modeled region. |
-| `exceptions.finally-outer-transfer` | unsupported / U | Return, break, or continue crossing the protected region is rejected. |
+| `exceptions.finally` | helper / J1 | Ordering and precedence use the established local helper or the typed completion-aware helper for the staged synchronous-return subset. |
+| `exceptions.finally-outer-transfer` | unsupported / U | Synchronous unlabelled return in a named function or ordinary method now has executable staging evidence, but this broad row remains unpromoted until break/continue target dispatch also passes. Async, generators, constructors, anonymous forms, labels, weak/inferred carriers, and unsupported target shapes fail closed. |
 | `this.class-and-lexical-arrow` | supported / P0 | Supported class methods and lexical arrows preserve their receiver/capture behavior. |
 | `prototypes.dynamic-mutation` | unsupported / U | Prototype mutation requires an explicit boundary/refactor. |
 | `async.await` | helper / J1 | Uses `genes.js.Async` and the JavaScript Promise/microtask contract. |
@@ -71,9 +71,10 @@ Grades describe the emitted Haxe contract:
 | `modules.esm-runtime-requests` | helper / J1 | Preserves every supported effective ESM request in configured TypeScript emit order across classic Genes and genes-ts. TypeScript-elided and declaration-wide type-only imports create no request; standard Haxe is an explicit capability failure. |
 | `modules.side-effect-import` | helper / J1 | Provides the binding-free package/helper/resource-staging surface on top of the shared request plan, including manifest-owned external relative files and acyclic converted initialization. |
 
-The semantic harness currently requires exactly the 17 supported rows to occur.
-The matrix contains 2 unsupported rows, while the strict evidence gates own 13
-feature-specific failures: outer finally transfer, dynamic prototype
+The semantic harness currently executes all 17 supported rows plus the staged
+synchronous-return portion of `exceptions.finally-outer-transfer` (18 exercised
+rows total). The matrix still contains 2 unsupported rows, while the strict evidence gates own 13
+feature-specific failures: excluded async outer finally transfer, dynamic prototype
 mutation, labeled switch continue, four side-effect resource/resolution
 boundaries, four effective-request boundaries for cycles, runtime re-exports,
 non-ESM emit, and the standard-Haxe target, plus two binding boundaries for
@@ -182,8 +183,11 @@ finally. Exact differentials own only the matrix rows above.
 - switch fallthrough and unlabelled switch-to-enclosing-loop `continue` are
   modeled, including nested switches and lowered `for` steps; labeled continue
   is rejected;
-- `finally` cannot yet carry a return/break/continue completion across an outer
-  function or loop boundary;
+- a synchronous unlabelled return with an explicit strong carrier can cross
+  one or more `finally` callbacks in a named function or ordinary class method;
+  break/continue target dispatch and the excluded async/generator/constructor/
+  anonymous/labeled/weak-carrier variants remain fail closed, so the broad
+  outer-transfer row is not yet a supported contract;
 - unsupported statement kinds receive a source-positioned diagnostic rather
   than a placeholder that returns success.
 
@@ -276,15 +280,19 @@ new target differential before claiming portability.
 
 ## Current fixture evidence
 
-The registered snapshot suite covers 20 projects and currently compares 48
-generated files. Eleven projects require `genes-esm`; nine are request-free and
-use `standard-haxe-js`, with eight standard-profile runtime smokes. Exceptions
+The registered snapshot suite covers 21 projects and currently compares 49
+generated files. Eleven projects require `genes-esm`; ten are request-free and
+use `standard-haxe-js`, with nine standard-profile runtime smokes. Exceptions
 are explicit:
 
 - `basic-tsx`: assisted and compile-only because bound React loading is not yet
   runtime-proven and its JSX markers are not executed directly;
 - `react-types`: strict but compile-only because its JSX markers are not
   executed directly;
+- `finally-completion-return`: strict and request-free; it executes the typed
+  return/nesting path under standard Haxe JS and strictly compiles the same
+  generated Haxe through genes-ts. The three-runtime semantic differential
+  separately compares the full return/catch/override trace with original TS;
 - `non-relative-imports`: assisted and compile-only because bound package
   loading and the ESM/`require()` boundary are not runtime-proven;
 - five fixtures use assisted snapshots for an acknowledged top-level `index.ts`

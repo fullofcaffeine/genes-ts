@@ -23,7 +23,7 @@ This is an evidence contract, not a cached CI-success badge. `blocking` and `non
 | Semantic differential | Stable dual-output runtime trace events | 19 | `blocking` |
 | Semantic differential | ts2hx supported and fail-closed semantic input modules | 53 | `blocking` |
 | Snapshot stability | genes-ts snapshot profiles | 7 | `blocking` |
-| Snapshot stability | ts2hx reviewed snapshot files | 48 | `blocking` |
+| Snapshot stability | ts2hx reviewed snapshot files | 49 | `blocking` |
 | Runtime smoke and E2E | Same-source dual-profile examples | 2 | `blocking` |
 | Runtime smoke and E2E | Todoapp browser journeys run in each profile | 3 | `blocking` |
 | Toolchain compatibility | Pinned TypeScript lanes | 3 | `blocking` |
@@ -104,8 +104,8 @@ Named runtime traces agree across the explicitly listed oracles; the result appl
 
 - Disposition: `blocking`
 - Scope: Haxe-to-TS/classic evaluation traces plus ts2hx strict-js contracts across original TypeScript, classic Genes, and genes-ts, with a separate standard-Haxe capability boundary.
-- Proves: Named original-TypeScript, classic Genes, and genes-ts traces preserve the exercised runtime behavior; thirteen canonical ts2hx boundaries fail closed, including standard-Haxe rejection and same-server isolation of the private Genes request capability.
-- Does not prove: The standard-Haxe rejection is a capability test, not a fourth runtime-parity oracle; the curated traces are neither a language-wide proof nor a portability promise for other Haxe targets.
+- Proves: Named original-TypeScript, classic Genes, and genes-ts traces preserve the exercised runtime behavior, including the staged synchronous typed-return path through nested finalizers; thirteen canonical ts2hx boundaries fail closed, including excluded async completion, standard-Haxe request rejection, and same-server isolation of the private Genes request capability.
+- Does not prove: The staged return trace does not promote break/continue or excluded function/carrier forms, and the standard-Haxe request rejection is a capability test rather than a fourth runtime-parity oracle; the curated traces are neither a language-wide proof nor a portability promise for other Haxe targets.
 - Evidence:
   - [`tests/output-modes/profile-ownership.json`](../tests/output-modes/profile-ownership.json)
   - [`tests/output-modes/expected-trace.json`](../tests/output-modes/expected-trace.json)

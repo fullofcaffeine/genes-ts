@@ -383,10 +383,29 @@ Before promotion, executable differentials must cover:
   TypeScript, classic Genes, and genes-ts. The complete ts2hx gate passed in
   290.30 seconds. Full `yarn test:ci` then passed in 988.32 seconds, including
   security checks, TypeScript 5/6/7, both output profiles, declarations,
-  transaction owners, and all six todoapp browser journeys. Completion
-  callback paths are still not emitted, and the old `planTry` rejection
-  remains authoritative.
-- Stages 5 through 7 have not landed. `exceptions.finally-outer-transfer`
+  transaction owners, and all six todoapp browser journeys. At that landing
+  point, completion callback paths were not yet emitted and the old `planTry`
+  rejection still owned production behavior.
+- Stage 5 now emits the return-only portion of the reviewed design. One
+  collision-safe private generic enum per affected Haxe module carries value
+  or bare returns; nested helpers propagate the opaque record and the function
+  root dispatches it. A strongly typed temporary evaluates each return value
+  once and prevents nullable `null` payloads from producing an unsafe generic
+  cast. A final invariant throw represents TypeScript-proved unreachable
+  fallthrough without fabricating a value. The three-runtime differential
+  covers preserved/overriding returns, protected and finalizer throws, exact
+  object identity, nested precedence, bound and omitted catches, rethrow,
+  `Void`, nullable values, and a class method. The request-free snapshot also
+  runs under standard Haxe JS, strictly checks genes-ts output, and proves
+  generated type/local collision avoidance. The planner now has 18 focused
+  functions, including explicit anonymous-default and `undefined`-carrier
+  exclusions. Full `yarn test:ci` passed in 1,241.35 seconds: the 49 reviewed
+  snapshots, 18 exercised/13 fail-closed semantic contracts, TypeScript 5/6/7,
+  both Genes profiles, the standard-Haxe request-free fixture, declarations,
+  output ownership, transactions, security checks, and all six todoapp browser
+  journeys were green. This proves only the documented synchronous-return
+  boundary; it does not prove loop-target completion dispatch.
+- Stages 6 and 7 have not landed. `exceptions.finally-outer-transfer`
   therefore remains unsupported and fail-closed.
 
 No later stage may cite the oracle response as proof. It may cite this document

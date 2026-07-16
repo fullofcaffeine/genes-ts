@@ -279,10 +279,11 @@ bridge and engine, and an effective-options hash. The input project must
 type-check; `noEmit` and `emitDeclarationOnly` are disabled only in an in-memory
 evidence Program and remain represented by the options hash.
 
-Outer `try/finally` completion ownership is still planned in shadow mode, while
-the existing direct-control-flow emitter now consumes the plan's target
-identities. Each function receives readable deterministic IDs local to one
-source plan; nested functions start with a fresh emitter state. A
+Outer `try/finally` completion ownership is planned before text emission. The
+existing direct-control-flow emitter consumes real target identities, and the
+staged synchronous-return path also consumes callback paths. Each function
+receives readable deterministic IDs local to one source plan; nested functions
+start with a fresh emitter state. A
 loop/switch/return target records the synthetic callback path where it is
 owned, and each transfer records the inner-to-outer callback suffix it would
 have to leave. The target path must prefix the source path—control may leave a
@@ -290,20 +291,30 @@ callback but cannot jump into one. This distinction is what lets an inner
 continue stop at a loop inside an outer protected callback while another
 continue propagates through both finalizers to an outside loop.
 
-`test-completion-plan.ts` compares that ownership model with the existing
+`test-completion-plan.ts` compares that ownership model with the legacy
 callback-escape detector on reduced nested cases and repository fixtures. The
 emitter uses target IDs only to preserve today's loop increments and
 switch-to-loop continue routing. Every source function installs its own active
 target, increment, and switch-escape state; a nested arrow or method therefore
 cannot inherit an enclosing function's control targets. Synthetic callbacks
-created by today's local `try/finally` helper deliberately remain inside their
+created by the local `try/finally` helper deliberately remain inside their
 source function's state.
 
-The production emitter still calls the old `planTry` strategy and rejects
-every outer transfer. Target-aware bookkeeping therefore does not add a new
-completion carrier, change generated Haxe, weaken diagnostics, or promote the
-support matrix. Completion callback paths will become an emitting concern only
-after the typed return/catch lowering has its own executable differential.
+For a validated synchronous return, protected and finalizer callbacks return
+`Null<__Ts2hxFinallyAbrupt<T>>`: `null` means normal completion, and the private
+enum carries a value or bare return. A nested helper propagates the opaque enum
+only while the function target remains outside its parent callback; the root
+dispatcher performs the real Haxe return after every crossed finalizer has
+run. Return expressions first enter a strongly typed collision-safe local,
+which both evaluates them once and prevents nullable payloads from forcing an
+unsafe generic cast in generated TypeScript. A final invariant throw satisfies
+Haxe's local value-return analysis without inventing a fallback value; the
+input TypeScript checker has already proved that this path cannot be reached.
+
+This is staged evidence, not a support-matrix promotion. Break/continue target
+dispatch, async/generator/constructor/anonymous/labeled forms, inferred or
+weak carriers, and unsupported target shapes retain the stable outer-transfer
+diagnostic. Existing callback-local `TryFinally.run` output remains unchanged.
 
 Every emitting caller chooses an explicit runtime profile. `genes-esm` covers
 classic Genes and genes-ts and records `genes.esm-runtime-requests` whenever a
@@ -404,8 +415,8 @@ source position before a partial output tree can be published.
 
 ### Opaque finally-completion runner
 
-`genes.js.FinallyCompletion.run<C>` is the typed runtime seam for a future
-ts2hx transfer that has to leave a synthetic `try/finally` callback. The helper
+`genes.js.FinallyCompletion.run<C>` is the typed runtime seam for a ts2hx
+transfer that has to leave a synthetic `try/finally` callback. The helper
 does not know whether `C` means return, break, or continue. It only applies two
 small rules:
 
@@ -422,12 +433,15 @@ uses ordinary request-free Haxe and is executable under standard Haxe JS,
 classic Genes, and genes-ts. `TryFinally.run` remains the smaller established
 path when both callbacks complete locally.
 
-This helper is infrastructure, not a semantic-matrix promotion. ts2hx must
-still prove immutable callback ownership, target dispatch, nested propagation,
-lowered-loop increments, switch routing, catches, and source provenance before
-outer completion is advertised as supported. The focused
-`tests/finally-completion` fixture proves only the helper's precedence, typing,
-identity, and exactly-once contract.
+The helper remains infrastructure rather than a public completion algebra.
+`tests/finally-completion` proves its precedence, typing, identity, and
+exactly-once contract. The ts2hx semantic differential separately proves
+automatic value/bare returns, nullable carriers, catches, nested propagation,
+finalizer override, and an ordinary class method in original TypeScript,
+classic Genes, and genes-ts. The request-free `finally-completion-return`
+snapshot runs the automatic path under standard Haxe JS and strictly compiles
+it through genes-ts. Loop-target dispatch remains the blocking evidence before
+the broad outer-completion row can be advertised as supported.
 
 ## Gate escalation
 

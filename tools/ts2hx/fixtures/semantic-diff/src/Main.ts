@@ -183,6 +183,185 @@ function nestedFunctionControlState(): string {
   return seen.join("|");
 }
 
+class FinallyToken {
+  public label: string;
+
+  public constructor(label: string) {
+    this.label = label;
+  }
+}
+
+let finallyReturnEvaluations = 0;
+
+function evaluateFinallyReturn(localEvents: string[]): number {
+  finallyReturnEvaluations += 1;
+  localEvents.push("return:evaluate");
+  return 11;
+}
+
+function preservedFinallyReturn(localEvents: string[]): number {
+  try {
+    localEvents.push("preserved:body");
+    return evaluateFinallyReturn(localEvents);
+  } finally {
+    localEvents.push("preserved:finally");
+  }
+}
+
+function finalizerReturnOverride(localEvents: string[]): number {
+  try {
+    localEvents.push("override:body");
+    return 1;
+  } finally {
+    localEvents.push("override:finally");
+    return 2;
+  }
+}
+
+function finalizerReturnOverThrow(localEvents: string[], token: FinallyToken): number {
+  try {
+    localEvents.push("throw-return:body");
+    throw token;
+  } finally {
+    localEvents.push("throw-return:finally");
+    return 3;
+  }
+}
+
+function protectedThrowThroughFinally(localEvents: string[], token: FinallyToken): number {
+  try {
+    localEvents.push("throw-preserved:body");
+    if (token.label === "preserved") throw token;
+    return 0;
+  } finally {
+    localEvents.push("throw-preserved:finally");
+  }
+}
+
+function finalizerThrowOverride(localEvents: string[], token: FinallyToken): number {
+  try {
+    localEvents.push("throw-override:body");
+    return 4;
+  } finally {
+    localEvents.push("throw-override:finally");
+    throw token;
+  }
+}
+
+function nestedFinallyReturn(localEvents: string[]): number {
+  try {
+    try {
+      localEvents.push("nested:body");
+      return 5;
+    } finally {
+      localEvents.push("nested:inner");
+    }
+  } finally {
+    localEvents.push("nested:outer");
+    return 6;
+  }
+}
+
+function catchFinallyReturn(localEvents: string[], token: FinallyToken): number {
+  try {
+    throw token;
+  } catch {
+    localEvents.push("catch:return");
+    return 7;
+  } finally {
+    localEvents.push("catch:finally");
+  }
+}
+
+function catchFinallyRethrow(localEvents: string[], token: FinallyToken): number {
+  try {
+    throw token;
+  } catch (caught) {
+    localEvents.push("catch:rethrow");
+    if (caught === token) throw caught;
+    return 0;
+  } finally {
+    localEvents.push("catch:rethrow-finally");
+  }
+}
+
+function voidFinallyReturn(localEvents: string[]): void {
+  try {
+    localEvents.push("void:body");
+    return;
+  } finally {
+    localEvents.push("void:finally");
+  }
+}
+
+function nullableFinallyReturn(localEvents: string[]): string | null {
+  try {
+    localEvents.push("nullable:body");
+    return null;
+  } finally {
+    localEvents.push("nullable:finally");
+  }
+}
+
+class FinallyMethodOwner {
+  private value: number;
+
+  public constructor(value: number) {
+    this.value = value;
+  }
+
+  public read(localEvents: string[]): number {
+    try {
+      localEvents.push("method:body");
+      return this.value;
+    } finally {
+      localEvents.push("method:finally");
+    }
+  }
+}
+
+function finallyReturnTrace(): string {
+  const localEvents: string[] = [];
+  finallyReturnEvaluations = 0;
+  localEvents.push(`preserved:value:${preservedFinallyReturn(localEvents)}`);
+  localEvents.push(`preserved:evaluations:${finallyReturnEvaluations}`);
+  localEvents.push(`override:value:${finalizerReturnOverride(localEvents)}`);
+
+  const suppressed = new FinallyToken("suppressed");
+  localEvents.push(`throw-return:value:${finalizerReturnOverThrow(localEvents, suppressed)}`);
+
+  const preserved = new FinallyToken("preserved");
+  try {
+    protectedThrowThroughFinally(localEvents, preserved);
+  } catch (caught) {
+    localEvents.push(caught === preserved ? "throw-preserved:same" : "throw-preserved:changed");
+  }
+
+  const overriding = new FinallyToken("overriding");
+  try {
+    finalizerThrowOverride(localEvents, overriding);
+  } catch (caught) {
+    localEvents.push(caught === overriding ? "throw-override:same" : "throw-override:changed");
+  }
+
+  localEvents.push(`nested:value:${nestedFinallyReturn(localEvents)}`);
+  localEvents.push(`catch:value:${catchFinallyReturn(localEvents, new FinallyToken("caught"))}`);
+
+  const rethrown = new FinallyToken("rethrown");
+  try {
+    catchFinallyRethrow(localEvents, rethrown);
+  } catch (caught) {
+    localEvents.push(caught === rethrown ? "catch:rethrow-same" : "catch:rethrow-changed");
+  }
+
+  voidFinallyReturn(localEvents);
+  localEvents.push(
+    nullableFinallyReturn(localEvents) === null ? "nullable:null" : "nullable:changed"
+  );
+  localEvents.push(`method:value:${new FinallyMethodOwner(8).read(localEvents)}`);
+  return localEvents.join(",");
+}
+
 class Counter {
   private value: number;
 
@@ -248,6 +427,7 @@ export function main(): void {
   events.push(`switch-continue:nested-loop:${nestedLoopSwitchContinue()}`);
   events.push(`switch-continue:nested-switch:${nestedSwitchContinue()}`);
   events.push(`function-state:${nestedFunctionControlState()}`);
+  events.push(`finally-return:${finallyReturnTrace()}`);
 
   const firstSwitch: number = 2;
   switch (firstSwitch) {

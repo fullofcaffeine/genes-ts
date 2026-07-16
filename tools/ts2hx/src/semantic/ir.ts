@@ -155,16 +155,16 @@ export const SEMANTIC_SUPPORT_MATRIX: readonly SemanticFeatureContract[] = [
     category: "exceptions",
     support: "supported-with-helper",
     portableGrade: "J1",
-    summary: "Preserves finally ordering and propagation through a typed JavaScript boundary helper.",
-    limitation: "Return, break, or continue crossing the protected region is rejected."
+    summary: "Preserves finally ordering and propagation through typed local or completion-aware helpers.",
+    limitation: "The promoted contract remains local completion; synchronous typed return crossing is staged evidence, while loop transfers and excluded function forms still fail closed."
   },
   {
     id: "exceptions.finally-outer-transfer",
     category: "exceptions",
     support: "unsupported",
     portableGrade: "U",
-    summary: "Outer return/break/continue completion through finally is not yet normalized.",
-    limitation: "The completion-record IR does not yet model transfer to an enclosing function or loop."
+    summary: "Typed synchronous return completion is normalized as staged evidence, but the broader outer-transfer row is not yet promoted.",
+    limitation: "Break/continue, async, generators, constructors, anonymous forms, labels, and unsupported return carriers remain fail closed until the complete target differential lands."
   },
   {
     id: "this.class-and-lexical-arrow",
@@ -243,7 +243,7 @@ export const SEMANTIC_FAIL_CLOSED_CASES: readonly SemanticFailClosedCase[] = [
   {
     featureId: "exceptions.finally-outer-transfer",
     diagnosticId: "TS2HX-EXCEPTIONS-FINALLY-OUTER-TRANSFER-001",
-    variant: "outer completion crossing finally"
+    variant: "outer completion in an excluded async or unsupported target/carrier context"
   },
   {
     featureId: "modules.side-effect-import",
@@ -823,7 +823,8 @@ function completionFunctionExclusions(node: ts.FunctionLikeDeclaration,
     || ts.isMethodDeclaration(node)) && node.asteriskToken)
     exclusions.push("generator");
   if (form === "constructor") exclusions.push("constructor");
-  if (form === "function-expression" || form === "arrow" || form === "other")
+  if ((form === "function-declaration" && !node.name)
+    || form === "function-expression" || form === "arrow" || form === "other")
     exclusions.push("anonymous-function-form");
   if (form === "object-method") exclusions.push("object-method");
   if (form === "accessor") exclusions.push("accessor");
@@ -838,7 +839,8 @@ function returnTypeContainsWeakKeyword(node: ts.TypeNode): boolean {
   function visit(current: ts.Node): void {
     if (weak) return;
     if (current.kind === ts.SyntaxKind.AnyKeyword
-      || current.kind === ts.SyntaxKind.UnknownKeyword) {
+      || current.kind === ts.SyntaxKind.UnknownKeyword
+      || current.kind === ts.SyntaxKind.UndefinedKeyword) {
       weak = true;
       return;
     }
@@ -848,9 +850,40 @@ function returnTypeContainsWeakKeyword(node: ts.TypeNode): boolean {
   return weak;
 }
 
+/**
+ * Looks through aliases before a value-return carrier is admitted.
+ *
+ * Source syntax alone cannot reveal that `type Result = number | undefined`
+ * permits implicit JavaScript fallthrough. The project TypeChecker supplies
+ * the resolved signature, so aliases to `any`, `unknown`, standalone `null`,
+ * or any union containing `undefined` retain the same fail-closed boundary as
+ * their directly written forms. Nullable unions remain valid because `null`
+ * is a real payload inside `ReturnValue`, not the outer normal sentinel.
+ */
+function resolvedReturnTypeIsWeak(checker: ts.TypeChecker,
+    node: ts.FunctionLikeDeclaration): boolean {
+  const signature = checker.getSignatureFromDeclaration(node);
+  if (!signature) return true;
+  const returnType = checker.getReturnTypeOfSignature(signature);
+  const flags = returnType.getFlags();
+  if ((flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown
+    | ts.TypeFlags.Undefined)) !== 0)
+    return true;
+  if ((flags & ts.TypeFlags.Null) !== 0) return true;
+  if (returnType.isUnionOrIntersection()) {
+    return returnType.types.some((member) => {
+      const memberFlags = member.getFlags();
+      return (memberFlags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown
+        | ts.TypeFlags.Undefined)) !== 0;
+    });
+  }
+  return false;
+}
+
 function planCompletionReturnCarrier(node: ts.FunctionLikeDeclaration,
     transfers: readonly CompletionTransferPlan[],
-    sf: ts.SourceFile): CompletionReturnCarrierPlan {
+    sf: ts.SourceFile,
+    checker: ts.TypeChecker | null): CompletionReturnCarrierPlan {
   const crossingReturns = transfers.filter((transfer) =>
     transfer.disposition === "encode"
     && (transfer.kind === "return-value" || transfer.kind === "return-void")
@@ -878,6 +911,7 @@ function planCompletionReturnCarrier(node: ts.FunctionLikeDeclaration,
 
   const sourceTypeText = sourceType.getText(sf).trim();
   if (returnTypeContainsWeakKeyword(sourceType)
+    || (checker !== null && resolvedReturnTypeIsWeak(checker, node))
     || sourceTypeText === "undefined" || sourceTypeText === "null") {
     return {
       kind: "unsupported",
@@ -929,13 +963,15 @@ function completionLoopKind(node: ts.Node): CompletionLoopKind | null {
  *
  * How: targets capture the callback path where they are declared. A valid
  * unlabelled transfer may only target a path that prefixes its source path.
- * Planning records the future completion strategy, then independently compares
- * it with the existing callback-escape detector. The emitter continues to use
- * `planTry`, so this phase is behavior-neutral shadow evidence.
+ * Planning records the completion strategy, then independently compares it
+ * with the legacy callback-escape detector. The emitter consumes target IDs
+ * for direct control flow and callback paths for the staged typed-return
+ * subset; unsupported loop transfers and excluded function forms still fail
+ * closed from these same immutable facts.
  */
 function planFunctionCompletion(node: ts.FunctionLikeDeclaration,
     functionId: CompletionFunctionId, sourceFile: string,
-    sf: ts.SourceFile): FunctionCompletionPlan {
+    sf: ts.SourceFile, checker: ts.TypeChecker | null): FunctionCompletionPlan {
   const functionSource = semanticSourceForNode(sourceFile, sf, node);
   const form = completionFunctionForm(node);
   const callbacks: CompletionCallbackPlan[] = [];
@@ -1122,7 +1158,7 @@ function planFunctionCompletion(node: ts.FunctionLikeDeclaration,
   };
   if (node.body && ts.isBlock(node.body)) visit(node.body, initialState);
 
-  const returnCarrier = planCompletionReturnCarrier(node, transfers, sf);
+  const returnCarrier = planCompletionReturnCarrier(node, transfers, sf, checker);
   const exclusions = completionFunctionExclusions(node, form);
   const functionUnsupported = exclusions.length > 0
     || returnCarrier.kind === "unsupported";
@@ -1174,7 +1210,7 @@ function planFunctionCompletion(node: ts.FunctionLikeDeclaration,
 /**
  * Builds a behavior-neutral completion inventory for one TypeScript source.
  *
- * Why: later Haxe emission must consume stable ownership facts rather than
+ * Why: Haxe emission must consume stable ownership facts rather than
  * reconstructing control flow from mutable printer stacks. What: every
  * function with a body receives an independent plan and lookup maps retain its
  * try/transfer provenance. How: discovery follows source preorder, while all
@@ -1182,7 +1218,7 @@ function planFunctionCompletion(node: ts.FunctionLikeDeclaration,
  * therefore deterministic and cannot leak IDs between projects.
  */
 export function planSourceCompletions(sf: ts.SourceFile,
-    sourceFile: string): SourceCompletionPlan {
+    sourceFile: string, checker: ts.TypeChecker | null = null): SourceCompletionPlan {
   const functions: FunctionCompletionPlan[] = [];
   let functionOrdinal = 0;
   function discover(current: ts.Node): void {
@@ -1191,7 +1227,8 @@ export function planSourceCompletions(sf: ts.SourceFile,
         current,
         completionFunctionId(functionOrdinal++),
         sourceFile,
-        sf
+        sf,
+        checker
       ));
     }
     ts.forEachChild(current, discover);
@@ -1246,12 +1283,21 @@ export type TryPlan = {
 };
 
 /**
- * Selects exception lowering before printing.
+ * Retains the pre-completion-planner decision for shadow comparison.
  *
- * A callback-based finally helper preserves normal/throw completion, but a
- * return/break/continue inside that callback would target the callback rather
- * than the original outer scope. Such transfers therefore fail closed until a
- * completion-record node exists.
+ * Why: the original implementation answered only whether any transfer escaped
+ * a synthetic callback. Keeping that small classifier during the staged
+ * migration lets tests prove that the richer callback/target plan recognizes
+ * every old rejection before production behavior expands.
+ *
+ * What: this function reports the legacy `direct-catch`, local-helper, or
+ * unsupported decision. It does not own current Haxe emission; emitters consume
+ * `SourceCompletionPlan`, which also records the transfer's real target and
+ * every callback it crosses.
+ *
+ * How: planner tests compare this result with `shadowMatchesLegacy`. Remove the
+ * compatibility API only after all staged completion lowering has landed and
+ * the shadow evidence no longer protects a migration boundary.
  */
 export function planTry(statement: ts.TryStatement): TryPlan {
   if (!statement.finallyBlock) return { statement, strategy: "direct-catch" };

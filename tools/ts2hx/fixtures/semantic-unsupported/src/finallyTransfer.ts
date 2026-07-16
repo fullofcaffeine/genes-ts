@@ -1,10 +1,10 @@
-export function protectedReturn(): number {
+export async function protectedReturn(): Promise<number> {
   try {
     return 1;
   } finally {
-    // The finalizer itself is harmless; returning across its callback boundary
-    // is the unsupported completion that strict mode must diagnose.
-    const completed = true;
-    if (!completed) throw new Error("unreachable");
+    // Synchronous return normalization is staged separately. Async finally
+    // also crosses the Async macro's scheduling/return rewrite and therefore
+    // keeps the stable fail-closed diagnostic until it has its own design.
+    await Promise.resolve();
   }
 }
