@@ -262,7 +262,7 @@ tsconfig + TypeScript source
 | `src/typescript-api.ts` | Isolates the TypeScript 6 compiler-API bridge from tool logic. |
 | `src/semantic/effective-module-requests.ts` | Observes final configured TypeScript import elision/lowering in memory and retains original request provenance. |
 | `src/semantic/compiler-facts.ts` | Records exact bridge/engine identities and a portable deterministic hash of effective compiler options. |
-| `src/semantic/ir.ts` | Owns stable semantic feature IDs, support grades, and the deliberately small normalized model. |
+| `src/semantic/ir.ts` | Owns stable semantic feature IDs, support grades, and deliberately small immutable plans, including function-local callback paths, real control targets, and transfer provenance for `try/finally`. |
 | `src/haxe/emit.ts` | Translates validated constructs, records source provenance, and stages output. Unsupported input must not disappear. |
 | `src/haxe/runtime-modules.ts` | Validates hash-pinned external-relative runtime ownership before emission; staged bytes share the Haxe output transaction, while the named build owner copies them beside final JS. |
 | `src/cli.ts` | Owns strict/assisted modes, exit codes, human diagnostics, and deterministic JSON output. |
@@ -278,6 +278,22 @@ the original span, effective runtime order/format/shape, exact TypeScript
 bridge and engine, and an effective-options hash. The input project must
 type-check; `noEmit` and `emitDeclarationOnly` are disabled only in an in-memory
 evidence Program and remain represented by the options hash.
+
+Outer `try/finally` completion is currently planned in shadow mode. Each
+function receives readable deterministic IDs local to one source plan; nested
+functions start fresh. A loop/switch/return target records the synthetic
+callback path where it is owned, and each transfer records the inner-to-outer
+callback suffix it would have to leave. The target path must prefix the source
+path—control may leave a callback but cannot jump into one. This distinction is
+what lets an inner continue stop at a loop inside an outer protected callback
+while another continue propagates through both finalizers to an outside loop.
+
+`test-completion-plan.ts` compares that ownership model with the existing
+callback-escape detector on reduced nested cases and repository fixtures. The
+production emitter still calls the old `planTry` strategy and rejects every
+outer transfer, so this shadow inventory does not change generated Haxe,
+manifests, diagnostics, or the support matrix. A later commit may switch an
+emitter consumer only after target-aware state and runtime differentials exist.
 
 Every emitting caller chooses an explicit runtime profile. `genes-esm` covers
 classic Genes and genes-ts and records `genes.esm-runtime-requests` whenever a

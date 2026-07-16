@@ -368,7 +368,15 @@ Before promotion, executable differentials must cover:
   supported/fail-closed ts2hx contracts green. That run checks exact identity
   for object, string, native `Error`, and Haxe exception throws rather than
   extrapolating from one exception shape.
-- Stages 3 through 7 have not landed. `exceptions.finally-outer-transfer`
+- Stage 3 now has focused shadow evidence: deterministic source-local string
+  IDs avoid casts and process-global counters; 16 reduced functions prove
+  return/catch/finalizer ownership, inner versus outer loop targets, nested
+  function isolation, weak/inferred carriers, and labelled failure. The live
+  supported and unsupported fixtures agree exactly with current `planTry`.
+  Full `yarn test:ci` passed in 1,297.81 seconds with all 48 snapshots and
+  current semantic/transaction contracts unchanged. The emitter does not
+  consume this plan yet.
+- Stages 4 through 7 have not landed. `exceptions.finally-outer-transfer`
   therefore remains unsupported and fail-closed.
 
 No later stage may cite the oracle response as proof. It may cite this document

@@ -325,23 +325,29 @@ export type SemanticFeatureDisposition = SemanticFeatureContract & {
   occurrences: SemanticSource[];
 };
 
+/** Builds one stable, one-based source record shared by semantic plans. */
+function semanticSourceForNode(sourceFile: string, sf: ts.SourceFile,
+  node: ts.Node): SemanticSource {
+  const start = node.getStart(sf, false);
+  const end = node.getEnd();
+  const position = sf.getLineAndCharacterOfPosition(start);
+  return {
+    file: sourceFile,
+    start,
+    end,
+    line: position.line + 1,
+    column: position.character + 1,
+    syntaxKind: ts.SyntaxKind[node.kind] ?? `SyntaxKind(${node.kind})`
+  };
+}
+
 /** Collects deterministic feature provenance while semantic plans are built. */
 export class SemanticRecorder {
   private readonly uses = new Map<string, SemanticFeatureUse>();
 
   public record(featureId: SemanticFeatureId, sourceFile: string, sf: ts.SourceFile, node: ts.Node): void {
-    const start = node.getStart(sf, false);
-    const end = node.getEnd();
-    const position = sf.getLineAndCharacterOfPosition(start);
-    const source: SemanticSource = {
-      file: sourceFile,
-      start,
-      end,
-      line: position.line + 1,
-      column: position.character + 1,
-      syntaxKind: ts.SyntaxKind[node.kind] ?? `SyntaxKind(${node.kind})`
-    };
-    const key = `${featureId}\u0000${source.file}\u0000${start}\u0000${end}`;
+    const source = semanticSourceForNode(sourceFile, sf, node);
+    const key = `${featureId}\u0000${source.file}\u0000${source.start}\u0000${source.end}`;
     this.uses.set(key, { featureId, source });
   }
 
@@ -571,6 +577,650 @@ function hasTransferEscapingCallback(root: ts.Node): boolean {
   }
   visit(root, 0, 0);
   return found;
+}
+
+/** Stable, source-local identifiers used only by completion planning. */
+export type CompletionFunctionId = `function:${number}`;
+export type CompletionCallbackId = `${CompletionFunctionId}/callback:${number}`;
+export type CompletionFinallyId = `${CompletionFunctionId}/finally:${number}`;
+export type CompletionTargetId = `${CompletionFunctionId}/target:${number}`;
+export type CompletionTransferId = `${CompletionFunctionId}/transfer:${number}`;
+export type CompletionCallbackPath = readonly CompletionCallbackId[];
+
+export type CompletionFunctionForm =
+  | "function-declaration"
+  | "class-method"
+  | "constructor"
+  | "function-expression"
+  | "arrow"
+  | "object-method"
+  | "accessor"
+  | "other";
+
+export type CompletionFunctionExclusion =
+  | "async"
+  | "generator"
+  | "constructor"
+  | "anonymous-function-form"
+  | "object-method"
+  | "accessor"
+  | "generic-function"
+  | "expression-body";
+
+export type CompletionReturnCarrierFailure =
+  | "missing-explicit-return-type"
+  | "mixed-bare-and-value-return"
+  | "value-return-in-void-function"
+  | "bare-return-in-value-function"
+  | "weak-return-type";
+
+/**
+ * Describes the generic payload required only when a return crosses a callback.
+ *
+ * `unused` deliberately covers functions whose only crossing transfers are
+ * break/continue; their future carrier can instantiate the abrupt enum with
+ * `Void`. A nullable source payload remains a value carrier because normal
+ * callback completion is represented outside the enum as `null`.
+ */
+export type CompletionReturnCarrierPlan =
+  | Readonly<{ kind: "unused" }>
+  | Readonly<{ kind: "void"; sourceType: ts.TypeNode }>
+  | Readonly<{ kind: "value"; sourceType: ts.TypeNode }>
+  | Readonly<{
+      kind: "unsupported";
+      sourceType: ts.TypeNode | null;
+      reason: CompletionReturnCarrierFailure;
+    }>;
+
+export type CompletionCallbackPlan = Readonly<{
+  id: CompletionCallbackId;
+  finallyId: CompletionFinallyId;
+  role: "protected" | "finalizer";
+  parentPath: CompletionCallbackPath;
+  path: CompletionCallbackPath;
+  source: SemanticSource;
+}>;
+
+export type CompletionLoopKind =
+  | "while"
+  | "do"
+  | "for"
+  | "for-of"
+  | "for-in";
+
+export type CompletionControlTargetPlan = Readonly<{
+  id: CompletionTargetId;
+  functionId: CompletionFunctionId;
+  kind: "function-return" | "loop" | "switch";
+  node: ts.Node;
+  ownerPath: CompletionCallbackPath;
+  loopKind: CompletionLoopKind | null;
+  continueStep: ts.Expression | null;
+  source: SemanticSource;
+}>;
+
+export type CompletionTransferKind =
+  | "return-value"
+  | "return-void"
+  | "break"
+  | "continue";
+
+export type CompletionTransferUnsupportedReason =
+  | "labeled-transfer"
+  | "missing-target"
+  | "target-path-not-prefix";
+
+export type CompletionTransferPlan = Readonly<{
+  id: CompletionTransferId;
+  functionId: CompletionFunctionId;
+  node: ts.ReturnStatement | ts.BreakStatement | ts.ContinueStatement;
+  kind: CompletionTransferKind;
+  targetId: CompletionTargetId | null;
+  sourcePath: CompletionCallbackPath;
+  targetPath: CompletionCallbackPath | null;
+  crossedCallbacks: readonly CompletionCallbackId[];
+  disposition: "direct" | "encode" | "unsupported";
+  unsupportedReason: CompletionTransferUnsupportedReason | null;
+  source: SemanticSource;
+}>;
+
+export type CompletionFinallyStrategy =
+  | "finally-helper-local"
+  | "finally-helper-completion"
+  | "unsupported-outer-transfer";
+
+export type CompletionFinallyPlan = Readonly<{
+  id: CompletionFinallyId;
+  statement: ts.TryStatement;
+  parentPath: CompletionCallbackPath;
+  protectedCallback: CompletionCallbackPlan;
+  finalizerCallback: CompletionCallbackPlan;
+  strategy: CompletionFinallyStrategy;
+  crossingTransfers: readonly CompletionTransferId[];
+  unsupportedTransfers: readonly CompletionTransferId[];
+  legacyHasOuterTransfer: boolean;
+  shadowMatchesLegacy: boolean;
+  source: SemanticSource;
+}>;
+
+export type FunctionCompletionPlan = Readonly<{
+  id: CompletionFunctionId;
+  node: ts.FunctionLikeDeclaration;
+  name: string;
+  form: CompletionFunctionForm;
+  returnTarget: CompletionControlTargetPlan;
+  returnCarrier: CompletionReturnCarrierPlan;
+  exclusions: readonly CompletionFunctionExclusion[];
+  callbacks: readonly CompletionCallbackPlan[];
+  finallyRegions: readonly CompletionFinallyPlan[];
+  targets: readonly CompletionControlTargetPlan[];
+  transfers: readonly CompletionTransferPlan[];
+  needsModuleAbruptType: boolean;
+  source: SemanticSource;
+}>;
+
+export type SourceCompletionPlan = Readonly<{
+  sourceFile: string;
+  functions: readonly FunctionCompletionPlan[];
+  functionByStart: ReadonlyMap<number, FunctionCompletionPlan>;
+  finallyByStart: ReadonlyMap<number, CompletionFinallyPlan>;
+  transferByStart: ReadonlyMap<number, CompletionTransferPlan>;
+}>;
+
+type CompletionWalkState = Readonly<{
+  callbackPath: CompletionCallbackPath;
+  breakTargets: readonly CompletionControlTargetPlan[];
+  continueTargets: readonly CompletionControlTargetPlan[];
+}>;
+
+type MutableFinallyPlan = {
+  id: CompletionFinallyId;
+  statement: ts.TryStatement;
+  parentPath: CompletionCallbackPath;
+  protectedCallback: CompletionCallbackPlan;
+  finalizerCallback: CompletionCallbackPlan;
+  legacyHasOuterTransfer: boolean;
+  source: SemanticSource;
+};
+
+function completionFunctionId(ordinal: number): CompletionFunctionId {
+  return `function:${ordinal}`;
+}
+
+function completionCallbackId(functionId: CompletionFunctionId,
+    ordinal: number): CompletionCallbackId {
+  return `${functionId}/callback:${ordinal}`;
+}
+
+function completionFinallyId(functionId: CompletionFunctionId,
+    ordinal: number): CompletionFinallyId {
+  return `${functionId}/finally:${ordinal}`;
+}
+
+function completionTargetId(functionId: CompletionFunctionId,
+    ordinal: number): CompletionTargetId {
+  return `${functionId}/target:${ordinal}`;
+}
+
+function completionTransferId(functionId: CompletionFunctionId,
+    ordinal: number): CompletionTransferId {
+  return `${functionId}/transfer:${ordinal}`;
+}
+
+function isCompletionPathPrefix(prefix: CompletionCallbackPath,
+    value: CompletionCallbackPath): boolean {
+  return prefix.length <= value.length
+    && prefix.every((callback, index) => callback === value[index]);
+}
+
+function completionFunctionForm(node: ts.FunctionLikeDeclaration): CompletionFunctionForm {
+  if (ts.isFunctionDeclaration(node)) return "function-declaration";
+  if (ts.isConstructorDeclaration(node)) return "constructor";
+  if (ts.isArrowFunction(node)) return "arrow";
+  if (ts.isFunctionExpression(node)) return "function-expression";
+  if (ts.isGetAccessorDeclaration(node) || ts.isSetAccessorDeclaration(node))
+    return "accessor";
+  if (ts.isMethodDeclaration(node))
+    return ts.isClassLike(node.parent) ? "class-method" : "object-method";
+  return "other";
+}
+
+/** Narrows TypeScript's broad signature guard to declarations with bodies. */
+function isCompletionFunctionLike(node: ts.Node): node is ts.FunctionLikeDeclaration {
+  return ts.isFunctionDeclaration(node)
+    || ts.isFunctionExpression(node)
+    || ts.isArrowFunction(node)
+    || ts.isMethodDeclaration(node)
+    || ts.isConstructorDeclaration(node)
+    || ts.isGetAccessorDeclaration(node)
+    || ts.isSetAccessorDeclaration(node);
+}
+
+function completionFunctionName(node: ts.FunctionLikeDeclaration,
+    form: CompletionFunctionForm, source: SemanticSource,
+    sf: ts.SourceFile): string {
+  if (ts.isConstructorDeclaration(node)) return "constructor";
+  if ((ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node))
+    && node.name)
+    return node.name.text;
+  if ((ts.isMethodDeclaration(node) || ts.isGetAccessorDeclaration(node)
+    || ts.isSetAccessorDeclaration(node)) && node.name)
+    return node.name.getText(sf);
+  return `<${form}@${source.line}:${source.column}>`;
+}
+
+function hasCompletionModifier(node: ts.Node, kind: ts.SyntaxKind): boolean {
+  return ts.canHaveModifiers(node)
+    && (ts.getModifiers(node)?.some((modifier) => modifier.kind === kind) ?? false);
+}
+
+function completionFunctionExclusions(node: ts.FunctionLikeDeclaration,
+    form: CompletionFunctionForm): CompletionFunctionExclusion[] {
+  const exclusions: CompletionFunctionExclusion[] = [];
+  if (hasCompletionModifier(node, ts.SyntaxKind.AsyncKeyword))
+    exclusions.push("async");
+  if ((ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node)
+    || ts.isMethodDeclaration(node)) && node.asteriskToken)
+    exclusions.push("generator");
+  if (form === "constructor") exclusions.push("constructor");
+  if (form === "function-expression" || form === "arrow" || form === "other")
+    exclusions.push("anonymous-function-form");
+  if (form === "object-method") exclusions.push("object-method");
+  if (form === "accessor") exclusions.push("accessor");
+  if (node.typeParameters && node.typeParameters.length > 0)
+    exclusions.push("generic-function");
+  if (!node.body || !ts.isBlock(node.body)) exclusions.push("expression-body");
+  return exclusions;
+}
+
+function returnTypeContainsWeakKeyword(node: ts.TypeNode): boolean {
+  let weak = false;
+  function visit(current: ts.Node): void {
+    if (weak) return;
+    if (current.kind === ts.SyntaxKind.AnyKeyword
+      || current.kind === ts.SyntaxKind.UnknownKeyword) {
+      weak = true;
+      return;
+    }
+    ts.forEachChild(current, visit);
+  }
+  visit(node);
+  return weak;
+}
+
+function planCompletionReturnCarrier(node: ts.FunctionLikeDeclaration,
+    transfers: readonly CompletionTransferPlan[],
+    sf: ts.SourceFile): CompletionReturnCarrierPlan {
+  const crossingReturns = transfers.filter((transfer) =>
+    transfer.disposition === "encode"
+    && (transfer.kind === "return-value" || transfer.kind === "return-void")
+  );
+  if (crossingReturns.length === 0) return { kind: "unused" };
+
+  const sourceType = node.type ?? null;
+  if (!sourceType) {
+    return {
+      kind: "unsupported",
+      sourceType,
+      reason: "missing-explicit-return-type"
+    };
+  }
+
+  const hasValue = crossingReturns.some((transfer) => transfer.kind === "return-value");
+  const hasVoid = crossingReturns.some((transfer) => transfer.kind === "return-void");
+  if (hasValue && hasVoid) {
+    return {
+      kind: "unsupported",
+      sourceType,
+      reason: "mixed-bare-and-value-return"
+    };
+  }
+
+  const sourceTypeText = sourceType.getText(sf).trim();
+  if (returnTypeContainsWeakKeyword(sourceType)
+    || sourceTypeText === "undefined" || sourceTypeText === "null") {
+    return {
+      kind: "unsupported",
+      sourceType,
+      reason: "weak-return-type"
+    };
+  }
+
+  const returnsVoid = sourceType.kind === ts.SyntaxKind.VoidKeyword;
+  if (returnsVoid && hasValue) {
+    return {
+      kind: "unsupported",
+      sourceType,
+      reason: "value-return-in-void-function"
+    };
+  }
+  if (!returnsVoid && hasVoid) {
+    return {
+      kind: "unsupported",
+      sourceType,
+      reason: "bare-return-in-value-function"
+    };
+  }
+  return returnsVoid
+    ? { kind: "void", sourceType }
+    : { kind: "value", sourceType };
+}
+
+function completionLoopKind(node: ts.Node): CompletionLoopKind | null {
+  if (ts.isWhileStatement(node)) return "while";
+  if (ts.isDoStatement(node)) return "do";
+  if (ts.isForStatement(node)) return "for";
+  if (ts.isForOfStatement(node)) return "for-of";
+  if (ts.isForInStatement(node)) return "for-in";
+  return null;
+}
+
+/**
+ * Plans one function's callback crossings without changing production output.
+ *
+ * Why: textual loop depth cannot say whether an inner completion stops at a
+ * target inside an outer callback or must propagate through that callback.
+ * Nested function bodies also cannot inherit their parent's targets.
+ *
+ * What: the walk assigns deterministic function-local IDs to real targets,
+ * synthetic protected/finalizer callbacks, and every transfer. Callback paths
+ * make ownership explicit; `crossedCallbacks` is the inner-to-outer suffix a
+ * transfer must leave.
+ *
+ * How: targets capture the callback path where they are declared. A valid
+ * unlabelled transfer may only target a path that prefixes its source path.
+ * Planning records the future completion strategy, then independently compares
+ * it with the existing callback-escape detector. The emitter continues to use
+ * `planTry`, so this phase is behavior-neutral shadow evidence.
+ */
+function planFunctionCompletion(node: ts.FunctionLikeDeclaration,
+    functionId: CompletionFunctionId, sourceFile: string,
+    sf: ts.SourceFile): FunctionCompletionPlan {
+  const functionSource = semanticSourceForNode(sourceFile, sf, node);
+  const form = completionFunctionForm(node);
+  const callbacks: CompletionCallbackPlan[] = [];
+  const targets: CompletionControlTargetPlan[] = [];
+  const transfers: CompletionTransferPlan[] = [];
+  const mutableFinallyRegions: MutableFinallyPlan[] = [];
+  let callbackOrdinal = 0;
+  let finallyOrdinal = 0;
+  let targetOrdinal = 0;
+  let transferOrdinal = 0;
+
+  function addTarget(kind: CompletionControlTargetPlan["kind"],
+      targetNode: ts.Node, ownerPath: CompletionCallbackPath,
+      loopKind: CompletionLoopKind | null,
+      continueStep: ts.Expression | null): CompletionControlTargetPlan {
+    const target: CompletionControlTargetPlan = {
+      id: completionTargetId(functionId, targetOrdinal++),
+      functionId,
+      kind,
+      node: targetNode,
+      ownerPath: [...ownerPath],
+      loopKind,
+      continueStep,
+      source: semanticSourceForNode(sourceFile, sf, targetNode)
+    };
+    targets.push(target);
+    return target;
+  }
+
+  const returnTarget = addTarget("function-return", node, [], null, null);
+
+  function addTransfer(transferNode: ts.ReturnStatement
+      | ts.BreakStatement | ts.ContinueStatement,
+      kind: CompletionTransferKind,
+      candidateTarget: CompletionControlTargetPlan | null,
+      state: CompletionWalkState,
+      labeled: boolean): void {
+    const sourcePath: CompletionCallbackPath = [...state.callbackPath];
+    let target = labeled ? null : candidateTarget;
+    let unsupportedReason: CompletionTransferUnsupportedReason | null = labeled
+      ? "labeled-transfer"
+      : null;
+    if (!target && !unsupportedReason) unsupportedReason = "missing-target";
+
+    let targetPath: CompletionCallbackPath | null = target
+      ? [...target.ownerPath]
+      : null;
+    let crossedCallbacks: readonly CompletionCallbackId[] = [];
+    if (target && targetPath) {
+      if (isCompletionPathPrefix(targetPath, sourcePath)) {
+        crossedCallbacks = sourcePath.slice(targetPath.length).reverse();
+      } else {
+        target = null;
+        targetPath = null;
+        unsupportedReason = "target-path-not-prefix";
+      }
+    }
+
+    transfers.push({
+      id: completionTransferId(functionId, transferOrdinal++),
+      functionId,
+      node: transferNode,
+      kind,
+      targetId: target?.id ?? null,
+      sourcePath,
+      targetPath,
+      crossedCallbacks,
+      disposition: unsupportedReason
+        ? "unsupported"
+        : crossedCallbacks.length > 0 ? "encode" : "direct",
+      unsupportedReason,
+      source: semanticSourceForNode(sourceFile, sf, transferNode)
+    });
+  }
+
+  function visit(current: ts.Node, state: CompletionWalkState): void {
+    if (current !== node && (ts.isFunctionLike(current) || ts.isClassLike(current)))
+      return;
+
+    if (ts.isTryStatement(current) && current.finallyBlock) {
+      const id = completionFinallyId(functionId, finallyOrdinal++);
+      const parentPath: CompletionCallbackPath = [...state.callbackPath];
+      const protectedId = completionCallbackId(functionId, callbackOrdinal++);
+      const finalizerId = completionCallbackId(functionId, callbackOrdinal++);
+      const protectedCallback: CompletionCallbackPlan = {
+        id: protectedId,
+        finallyId: id,
+        role: "protected",
+        parentPath,
+        path: [...parentPath, protectedId],
+        source: semanticSourceForNode(sourceFile, sf, current.tryBlock)
+      };
+      const finalizerCallback: CompletionCallbackPlan = {
+        id: finalizerId,
+        finallyId: id,
+        role: "finalizer",
+        parentPath,
+        path: [...parentPath, finalizerId],
+        source: semanticSourceForNode(sourceFile, sf, current.finallyBlock)
+      };
+      callbacks.push(protectedCallback, finalizerCallback);
+      const legacyNodes: ts.Node[] = [current.tryBlock];
+      if (current.catchClause) legacyNodes.push(current.catchClause.block);
+      legacyNodes.push(current.finallyBlock);
+      mutableFinallyRegions.push({
+        id,
+        statement: current,
+        parentPath,
+        protectedCallback,
+        finalizerCallback,
+        legacyHasOuterTransfer: legacyNodes.some(hasTransferEscapingCallback),
+        source: semanticSourceForNode(sourceFile, sf, current)
+      });
+
+      const protectedState: CompletionWalkState = {
+        ...state,
+        callbackPath: protectedCallback.path
+      };
+      visit(current.tryBlock, protectedState);
+      if (current.catchClause) visit(current.catchClause.block, protectedState);
+      visit(current.finallyBlock, {
+        ...state,
+        callbackPath: finalizerCallback.path
+      });
+      return;
+    }
+
+    if (ts.isReturnStatement(current)) {
+      addTransfer(current, current.expression ? "return-value" : "return-void",
+        returnTarget, state, false);
+      return;
+    }
+    if (ts.isBreakStatement(current)) {
+      addTransfer(current, "break",
+        state.breakTargets[state.breakTargets.length - 1] ?? null,
+        state, current.label !== undefined);
+      return;
+    }
+    if (ts.isContinueStatement(current)) {
+      addTransfer(current, "continue",
+        state.continueTargets[state.continueTargets.length - 1] ?? null,
+        state, current.label !== undefined);
+      return;
+    }
+
+    const loopKind = completionLoopKind(current);
+    if (loopKind) {
+      const continueStep = ts.isForStatement(current)
+        ? current.incrementor ?? null
+        : null;
+      const target = addTarget("loop", current, state.callbackPath,
+        loopKind, continueStep);
+      const loopState: CompletionWalkState = {
+        ...state,
+        breakTargets: [...state.breakTargets, target],
+        continueTargets: [...state.continueTargets, target]
+      };
+      if (ts.isWhileStatement(current) || ts.isDoStatement(current)
+        || ts.isForStatement(current) || ts.isForOfStatement(current)
+        || ts.isForInStatement(current))
+        visit(current.statement, loopState);
+      return;
+    }
+
+    if (ts.isSwitchStatement(current)) {
+      const target = addTarget("switch", current, state.callbackPath, null, null);
+      const switchState: CompletionWalkState = {
+        ...state,
+        breakTargets: [...state.breakTargets, target]
+      };
+      for (const clause of current.caseBlock.clauses)
+        for (const statement of clause.statements)
+          visit(statement, switchState);
+      return;
+    }
+
+    ts.forEachChild(current, (child) => visit(child, state));
+  }
+
+  const initialState: CompletionWalkState = {
+    callbackPath: [],
+    breakTargets: [],
+    continueTargets: []
+  };
+  if (node.body && ts.isBlock(node.body)) visit(node.body, initialState);
+
+  const returnCarrier = planCompletionReturnCarrier(node, transfers, sf);
+  const exclusions = completionFunctionExclusions(node, form);
+  const functionUnsupported = exclusions.length > 0
+    || returnCarrier.kind === "unsupported";
+  const finallyRegions: CompletionFinallyPlan[] = mutableFinallyRegions.map((region) => {
+    const callbackIds = [
+      region.protectedCallback.id,
+      region.finalizerCallback.id
+    ];
+    const crossingTransfers = transfers.filter((transfer) =>
+      transfer.crossedCallbacks.some((callback) => callbackIds.includes(callback))
+    );
+    const unsupportedTransfers = transfers.filter((transfer) =>
+      transfer.disposition === "unsupported"
+      && transfer.sourcePath.some((callback) => callbackIds.includes(callback))
+    );
+    const shadowHasOuterTransfer = crossingTransfers.length > 0
+      || unsupportedTransfers.length > 0;
+    return {
+      ...region,
+      strategy: !shadowHasOuterTransfer
+        ? "finally-helper-local"
+        : functionUnsupported || unsupportedTransfers.length > 0
+          ? "unsupported-outer-transfer"
+          : "finally-helper-completion",
+      crossingTransfers: crossingTransfers.map((transfer) => transfer.id),
+      unsupportedTransfers: unsupportedTransfers.map((transfer) => transfer.id),
+      shadowMatchesLegacy: shadowHasOuterTransfer === region.legacyHasOuterTransfer
+    };
+  });
+
+  return {
+    id: functionId,
+    node,
+    name: completionFunctionName(node, form, functionSource, sf),
+    form,
+    returnTarget,
+    returnCarrier,
+    exclusions,
+    callbacks,
+    finallyRegions,
+    targets,
+    transfers,
+    needsModuleAbruptType: finallyRegions.some((region) =>
+      region.strategy === "finally-helper-completion"),
+    source: functionSource
+  };
+}
+
+/**
+ * Builds a behavior-neutral completion inventory for one TypeScript source.
+ *
+ * Why: later Haxe emission must consume stable ownership facts rather than
+ * reconstructing control flow from mutable printer stacks. What: every
+ * function with a body receives an independent plan and lookup maps retain its
+ * try/transfer provenance. How: discovery follows source preorder, while all
+ * counters live inside this call; repeated and same-process translations are
+ * therefore deterministic and cannot leak IDs between projects.
+ */
+export function planSourceCompletions(sf: ts.SourceFile,
+    sourceFile: string): SourceCompletionPlan {
+  const functions: FunctionCompletionPlan[] = [];
+  let functionOrdinal = 0;
+  function discover(current: ts.Node): void {
+    if (isCompletionFunctionLike(current) && current.body) {
+      functions.push(planFunctionCompletion(
+        current,
+        completionFunctionId(functionOrdinal++),
+        sourceFile,
+        sf
+      ));
+    }
+    ts.forEachChild(current, discover);
+  }
+  discover(sf);
+
+  const functionByStart = new Map<number, FunctionCompletionPlan>();
+  const finallyByStart = new Map<number, CompletionFinallyPlan>();
+  const transferByStart = new Map<number, CompletionTransferPlan>();
+  for (const fn of functions) {
+    functionByStart.set(fn.source.start, fn);
+    for (const region of fn.finallyRegions)
+      finallyByStart.set(region.source.start, region);
+    for (const transfer of fn.transfers)
+      transferByStart.set(transfer.source.start, transfer);
+  }
+  return {
+    sourceFile,
+    functions,
+    functionByStart,
+    finallyByStart,
+    transferByStart
+  };
+}
+
+/** Returns whether every shadow finally decision agrees with current rejection. */
+export function completionPlanMatchesLegacy(plan: SourceCompletionPlan): boolean {
+  return plan.functions.every((fn) =>
+    fn.finallyRegions.every((region) => region.shadowMatchesLegacy));
 }
 
 /** Captures case order/fallthrough before rendering a Haxe state machine. */
