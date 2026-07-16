@@ -17,8 +17,9 @@
     "test:strict-diagnostics": "yarn build && node dist/test-strict-diagnostics.js",
     "test:completion-plan": "yarn build && node dist/test-completion-plan.js",
     "test:esm-request-plan": "yarn build && node dist/test-effective-module-requests.js",
+    "test:package-extern-facts": "yarn build && node dist/test-package-extern-facts.js",
     "test:runtime-profile": "yarn build && node dist/test-runtime-profile.js",
     "test:docs": "yarn build && node dist/test-docs.js",
-    "test": "yarn test:docs && yarn test:completion-plan && yarn test:esm-request-plan && yarn test:runtime-profile && yarn test:snapshots && yarn test:roundtrip && yarn test:semantic-diff && yarn test:strict-diagnostics"
+    "test": "yarn test:docs && yarn test:completion-plan && yarn test:esm-request-plan && yarn test:package-extern-facts && yarn test:runtime-profile && yarn test:snapshots && yarn test:roundtrip && yarn test:semantic-diff && yarn test:strict-diagnostics"
   }
 }

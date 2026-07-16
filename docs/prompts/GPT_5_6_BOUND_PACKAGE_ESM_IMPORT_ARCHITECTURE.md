@@ -149,6 +149,41 @@ prove that ts2hx can derive that extern safely, that namespace coalescing is
 correct for mutable/getter/proxy exports, or that broader declaration shapes
 have faithful Haxe representations.
 
+### Shadow TypeChecker evidence added after the runtime spike
+
+The repository now also contains an evidence-only test at
+`tools/ts2hx/src/test-package-extern-facts.ts`. It emits no Haxe and does not
+change the package diagnostic. Against the local declaration file, the pinned
+TypeScript Program API established these additional facts:
+
+- a default import's local alias resolves to the declared function symbol
+  `greet`, while the runtime export name remains `default`;
+- `add as sum` resolves the local name `sum` to runtime export `add`;
+- a namespace alias resolves to equivalent module facts, but not necessarily
+  the same JavaScript `ts.Symbol` object instance as the module specifier;
+- `getExportsOfModule` returns the default export as an alias whose direct flags
+  do not include `Value`; value/type classification is wrong unless the alias
+  is resolved first;
+- checker `typeToTypeNode` renders the monomorphic functions as `FunctionType`
+  nodes and `PI` as `NumberKeyword`; declaration-list flags separately prove
+  that `PI` is `const`;
+- a mutable `let` export has the same `NumberKeyword` type node as the constant,
+  so type shape alone cannot establish live-binding safety;
+- an overloaded function becomes a `TypeLiteral` containing two call
+  signatures, while a function returning a package interface becomes a
+  `FunctionType` whose return text is the unresolved named `Result` type; and
+- the `Result` interface is a type-only module export. Materializing the
+  function type does not by itself create the companion Haxe declaration.
+
+Run this shadow contract with:
+
+```bash
+yarn --cwd tools/ts2hx test:package-extern-facts
+```
+
+These facts narrow the design but are not a recommendation to build a type
+converter inside `emitExternModuleFile`.
+
 ## Candidate directions to evaluate
 
 These are hypotheses, not instructions. Adopt, reject, or combine them.
@@ -425,7 +460,8 @@ Upload a companion Repomix XML containing at least:
 - `tools/ts2hx/src/semantic/ir.ts`, `project.ts`, `typescript-api.ts`, and the
   effective-request semantic owner;
 - `tools/ts2hx/src/test-semantic-diff.ts`, `test-snapshots.ts`,
-  `test-strict-diagnostics.ts`, and `test-effective-module-requests.ts`;
+  `test-strict-diagnostics.ts`, `test-effective-module-requests.ts`, and the
+  evidence-only `test-package-extern-facts.ts`;
 - the complete `non-relative-imports`, `semantic-diff`, and relevant
   `semantic-unsupported` package/binding fixtures and reviewed snapshots;
 - `src/genes/DependencyPlan.hx`, `DependencyPlanBuilder.hx`, `Dependencies.hx`,
