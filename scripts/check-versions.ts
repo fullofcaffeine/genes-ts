@@ -94,6 +94,7 @@ function assertModernTsconfigs(): void {
 const pkg = readJson("package.json");
 const haxelib = readJson("haxelib.json");
 const devDependencies = asObject(pkg.devDependencies, "package.json devDependencies");
+const resolutions = asObject(pkg.resolutions, "package.json resolutions");
 
 const pkgVersion = asString(pkg.version, "package.json version");
 const haxelibVersion = asString(haxelib.version, "haxelib.json version");
@@ -127,6 +128,38 @@ for (const laneName of generatedOutputLanes) {
       `${laneName} install mismatch: manifest=${lane.version}, installed=${installedVersion}`
     );
   }
+}
+
+const apiEngine = toolchains.typescript.apiBridge.programApiEngine;
+if (!apiEngine) {
+  throw new Error("typescript.apiBridge must declare its delegated Program API engine");
+}
+ensureSemver(apiEngine.version);
+const expectedEngineResolution = `npm:${apiEngine.package}@${apiEngine.version}`;
+const actualEngineResolution = asString(
+  resolutions[apiEngine.dependency],
+  `resolutions.${apiEngine.dependency}`
+);
+if (actualEngineResolution !== expectedEngineResolution) {
+  throw new Error(
+    `TypeScript Program API engine resolution mismatch: expected ${expectedEngineResolution}, `
+      + `got ${actualEngineResolution}`
+  );
+}
+const installedApiEngine = dependencyPackageJson(apiEngine.dependency);
+const installedApiEngineName = asString(
+  installedApiEngine.name,
+  `${apiEngine.dependency} installed package name`
+);
+const installedApiEngineVersion = asString(
+  installedApiEngine.version,
+  `${apiEngine.dependency} installed version`
+);
+if (installedApiEngineName !== apiEngine.package || installedApiEngineVersion !== apiEngine.version) {
+  throw new Error(
+    `TypeScript Program API engine mismatch: manifest=${apiEngine.package}@${apiEngine.version}, `
+      + `installed=${installedApiEngineName}@${installedApiEngineVersion}`
+  );
 }
 
 ensureSemver(toolchains.dts2hx.version);
@@ -201,5 +234,6 @@ assertModernTsconfigs();
 process.stdout.write(
   `versions:ok package=${pkgVersion} haxe=${toolchains.haxe.stable} `
     + `typescript=${generatedOutputLanes.map(name => `${name}:${toolchains.typescript[name].version}`).join(",")} `
+    + `apiEngine=${apiEngine.version} `
     + `dts2hx=${toolchains.dts2hx.version}/ts${toolchains.dts2hx.typescriptVersion}\n`
 );

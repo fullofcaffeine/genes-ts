@@ -25,8 +25,14 @@ if (!laneName) {
   } else {
     const packageRoot = path.join(repoRoot, "node_modules", ...lane.dependency.split("/"));
     const compilerBin = path.join(packageRoot, ...lane.binary.split("/"));
+    const engine = lane.programApiEngine;
+    const engineLabel = engine
+      && typeof engine.package === "string"
+      && typeof engine.version === "string"
+      ? ` (Program API engine ${engine.package}@${engine.version})`
+      : "";
     process.stdout.write(
-      `[toolchain] TypeScript ${laneName}: ${lane.package}@${lane.version}\n`
+      `[toolchain] TypeScript ${laneName}: ${lane.package}@${lane.version}${engineLabel}\n`
     );
     execFileSync(process.execPath, [compilerBin, ...compilerArgs], {
       cwd: process.cwd(),

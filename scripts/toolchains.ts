@@ -5,12 +5,19 @@ import { fileURLToPath } from "node:url";
 
 export type TypeScriptLaneName = "legacyFloor" | "apiBridge" | "current";
 
+export interface TypeScriptProgramApiEngine {
+  readonly dependency: string;
+  readonly package: string;
+  readonly version: string;
+}
+
 export interface TypeScriptLane {
   readonly dependency: string;
   readonly package: string;
   readonly version: string;
   readonly binary: string;
   readonly contract: "generated-output" | "program-api-and-generated-output" | "generated-output-only";
+  readonly programApiEngine: TypeScriptProgramApiEngine | null;
 }
 
 export interface ToolchainManifest {
@@ -52,12 +59,35 @@ function readLane(value: unknown, label: string): TypeScriptLane {
   if (!["generated-output", "program-api-and-generated-output", "generated-output-only"].includes(contract)) {
     throw new Error(`Unsupported ${label}.contract: ${contract}`);
   }
+  const rawEngine = lane.programApiEngine;
+  let programApiEngine: TypeScriptProgramApiEngine | null = null;
+  if (rawEngine !== undefined) {
+    if (typeof rawEngine !== "object" || rawEngine === null || Array.isArray(rawEngine)) {
+      throw new Error(`Expected ${label}.programApiEngine to be an object`);
+    }
+    const engine = rawEngine as Record<string, unknown>;
+    programApiEngine = {
+      dependency: nonEmptyString(
+        engine.dependency,
+        `${label}.programApiEngine.dependency`
+      ),
+      package: nonEmptyString(engine.package, `${label}.programApiEngine.package`),
+      version: nonEmptyString(engine.version, `${label}.programApiEngine.version`)
+    };
+  }
+  const ownsProgramApi = contract === "program-api-and-generated-output";
+  if (ownsProgramApi !== (programApiEngine !== null)) {
+    throw new Error(
+      `${label}.programApiEngine must be present exactly when the lane owns the Program API`
+    );
+  }
   return {
     dependency: nonEmptyString(lane.dependency, `${label}.dependency`),
     package: nonEmptyString(lane.package, `${label}.package`),
     version: nonEmptyString(lane.version, `${label}.version`),
     binary: nonEmptyString(lane.binary, `${label}.binary`),
-    contract: contract as TypeScriptLane["contract"]
+    contract: contract as TypeScriptLane["contract"],
+    programApiEngine
   };
 }
 

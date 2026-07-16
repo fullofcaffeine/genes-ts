@@ -22,7 +22,7 @@
     "test:output-transaction": "yarn build:scripts && node scripts/dist/test-output-transaction.js",
     "test:side-effect-import:evidence": "yarn build:scripts && node scripts/dist/test-side-effect-import-evidence.js",
     "test:matrix:generated": "yarn build:scripts && node scripts/dist/test-genes-ts-full.js && node scripts/dist/test-genes-tsx.js && node scripts/dist/test-package-shapes.js && node scripts/dist/test-output-modes.js && node scripts/dist/test-output-quality.js && node scripts/dist/test-output-transaction.js && node scripts/dist/test-side-effect-import-evidence.js && node scripts/dist/test-classic-dts.js && node scripts/dist/test-library-profile.js",
-    "test:matrix:api": "yarn build:scripts && yarn --cwd tools/ts2hx build && node scripts/dist/test-typescript-api-lane.js",
+    "test:matrix:api": "yarn build:scripts && yarn --cwd tools/ts2hx build && node scripts/dist/test-typescript-api-lane.js && node tools/ts2hx/dist/test-effective-module-requests.js",
     "test:secrets": "yarn build:scripts && node scripts/dist/secret-scan.js",
     "test:vulns": "yarn build:scripts && node scripts/dist/osv-scan.js",
     "test:acceptance": "yarn build:scripts && node scripts/dist/test-acceptance.js",
@@ -75,6 +75,7 @@
     "semantic-release": "^24.2.9"
   },
   "resolutions": {
+    "@typescript/old": "npm:typescript@6.0.3",
     "handlebars": "4.7.9",
     "ip-address": "10.2.0",
     "js-yaml": "4.2.0",

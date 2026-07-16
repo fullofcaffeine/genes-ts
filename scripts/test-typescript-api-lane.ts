@@ -1,10 +1,14 @@
 import ts from "./typescript-api.js";
 import { toolchains } from "./toolchains.js";
 
-const expectedMajor = toolchains.typescript.apiBridge.version.split(".")[0];
-if (ts.versionMajorMinor.split(".")[0] !== expectedMajor) {
+const bridge = toolchains.typescript.apiBridge;
+const engine = bridge.programApiEngine;
+if (!engine) {
+  throw new Error("TypeScript API bridge has no declared Program API engine");
+}
+if (ts.version !== engine.version) {
   throw new Error(
-    `TypeScript API bridge mismatch: manifest=${toolchains.typescript.apiBridge.version}, runtime=${ts.version}`
+    `TypeScript API engine mismatch: manifest=${engine.version}, runtime=${ts.version}`
   );
 }
 
@@ -39,4 +43,7 @@ if (diagnostics.length > 0) {
   );
 }
 
-process.stdout.write(`typescript-api-lane:ok (TypeScript ${ts.version})\n`);
+process.stdout.write(
+  `typescript-api-lane:ok (bridge ${bridge.package}@${bridge.version}, `
+    + `engine ${engine.package}@${ts.version})\n`
+);

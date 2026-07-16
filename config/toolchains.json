@@ -21,7 +21,12 @@
       "package": "@typescript/typescript6",
       "version": "6.0.2",
       "binary": "bin/tsc6",
-      "contract": "program-api-and-generated-output"
+      "contract": "program-api-and-generated-output",
+      "programApiEngine": {
+        "dependency": "@typescript/old",
+        "package": "typescript",
+        "version": "6.0.3"
+      }
     },
     "current": {
       "dependency": "@typescript/native",
