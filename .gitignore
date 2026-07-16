@@ -8,6 +8,7 @@
 /tests/output-transaction/out
 /tests/side-effect-import/out
 /tests/internal-types/out
+/tests/finally-completion/out
 /tests/library-profile/out
 /examples/typescript-target/src-gen
 /examples/typescript-target/dist

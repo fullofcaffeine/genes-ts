@@ -50,6 +50,8 @@ feature surface beyond the quick examples in `readme.md`.
 - `prompts/GPT_5_6_SIDE_EFFECT_IMPORT_ARCHITECTURE_RESPONSE.md` — reviewed semantic model, supported boundary, experiments, and incremental landing contract
 - `prompts/GPT_5_6_BOUND_ONLY_ESM_IMPORT_ORDER_ARCHITECTURE.md` — focused follow-up for bound-import initialization order, unused-binding retention, and the standard-Haxe capability boundary
 - `prompts/GPT_5_6_BOUND_ONLY_ESM_IMPORT_ORDER_ARCHITECTURE_RESPONSE.md` — reviewed split between binding translation and effective runtime requests, including TypeScript elision and the explicit Genes capability boundary
+- `prompts/GPT_5_6_FINALLY_OUTER_COMPLETION_ARCHITECTURE.md` — focused evidence packet for return, break, and continue crossing callback-modeled `try/finally`
+- `prompts/GPT_5_6_FINALLY_OUTER_COMPLETION_ARCHITECTURE_RESPONSE.md` — reviewed completion semantics, callback/target ownership model, first support boundary, and staged evidence contract
 
 ## Experimental
 

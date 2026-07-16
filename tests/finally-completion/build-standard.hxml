@@ -1,0 +1,8 @@
+-cp src
+-cp tests/finally-completion/src
+--main finallycompletion.Main
+-js tests/finally-completion/out/standard/index.cjs
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
+-debug

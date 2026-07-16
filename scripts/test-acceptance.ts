@@ -36,6 +36,7 @@ run("node", ["scripts/dist/test-output-quality.js"]);
 run("node", ["scripts/dist/test-output-transaction.js"]);
 run("node", ["scripts/dist/test-side-effect-import-evidence.js"]);
 run("node", ["scripts/dist/test-internal-types.js"]);
+run("node", ["scripts/dist/test-finally-completion.js"]);
 
 if (!skipTs2hx) {
   run("yarn", ["--cwd", "tools/ts2hx", "test"]);

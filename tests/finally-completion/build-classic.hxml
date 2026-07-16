@@ -1,0 +1,9 @@
+-lib genes-ts
+-cp tests/finally-completion/src
+--main finallycompletion.Main
+-js tests/finally-completion/out/classic/index.js
+-D dts
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
+-debug

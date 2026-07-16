@@ -82,6 +82,7 @@ depend on formatting.
 | Classic JavaScript syntax | `src/genes/es/ModuleEmitter.hx`, `ExprEmitter.hx` | Prints modern ESM JavaScript while preserving Haxe JS runtime behavior. |
 | Declaration syntax | `src/genes/dts/DefinitionEmitter.hx`, `TypeEmitter.hx` | Prints public declarations from the same API/nullish facts; it does not infer API semantics independently. |
 | JS runtime and stdlib support | `src/genes/Register.hx`, `src/genes/js/**`, `src/haxe/**` | Implements real Haxe-on-JS behavior shared by both profiles. Haxe overrides are for runtime incompatibilities, not TS declaration gaps. |
+| Callback-modeled finally completion | `src/genes/js/TryFinally.hx`, `FinallyCompletion.hx` | Keeps the existing local-completion IIFE separate from the request-free typed runner that carries an opaque outer completion and applies finalizer precedence. |
 | TypeScript host/global support | `src/genes/StdTypesSupport.hx`, `src/genes/ts/StdTypesEmitter.hx` | Describes runtime-written metadata and narrow TypeScript lib augmentations. |
 | File output and mappings | `src/genes/OutputTransaction.hx`, `Writer.hx`, `SourceMapGenerator.hx` | Buffers complete artifacts, publishes an ownership-scoped tree transaction, removes stale owned files, rolls back failures, and preserves source provenance. |
 
@@ -133,6 +134,12 @@ capability diagnostic in classic mode.
   at first occurrence, and a real binding can satisfy an earlier bare request.
 - Public generated TypeScript is closed and precise. Broad `any`, `unknown`, or
   catch-all index signatures require a named, documented foreign boundary.
+- A finalizer executes exactly once. `FinallyCompletion.run` places only its
+  protected callback inside the catchable Haxe `try`; placing the normal-path
+  finalizer there would catch a finalizer throw and incorrectly invoke the
+  finalizer again. Its one `Any` binding is a host-thrown-value boundary: the
+  value is never inspected or converted and is rethrown unchanged when a
+  normal finalizer does not replace it.
 - Capability and dependency errors that planning can identify are diagnosed
   before committing output. A failed TS, classic JS, declaration, support-file,
   or source-map emission leaves the prior owned tree byte-identical. Successful
@@ -368,6 +375,33 @@ into an ordered `RuntimeSideEffect` request; both implementation printers erase
 the call and render the same binding-free ESM declaration; declaration
 reachability never sees it. Nested use and inactive targets fail at the Haxe
 source position before a partial output tree can be published.
+
+### Opaque finally-completion runner
+
+`genes.js.FinallyCompletion.run<C>` is the typed runtime seam for a future
+ts2hx transfer that has to leave a synthetic `try/finally` callback. The helper
+does not know whether `C` means return, break, or continue. It only applies two
+small rules:
+
+1. `null` means the callback completed normally; a non-null `C` is an abrupt
+   result whose meaning remains owned by the compiler plan.
+2. A non-null or throwing finalizer replaces the protected outcome. A normal
+   finalizer preserves the protected result or rethrows the exact protected
+   value.
+
+Keeping the carrier opaque is important. A private compiler-owned generic enum
+can represent `Void`, a nullable return payload, and stable target identifiers
+without adding a public completion algebra to the runtime library. The helper
+uses ordinary request-free Haxe and is executable under standard Haxe JS,
+classic Genes, and genes-ts. `TryFinally.run` remains the smaller established
+path when both callbacks complete locally.
+
+This helper is infrastructure, not a semantic-matrix promotion. ts2hx must
+still prove immutable callback ownership, target dispatch, nested propagation,
+lowered-loop increments, switch routing, catches, and source provenance before
+outer completion is advertised as supported. The focused
+`tests/finally-completion` fixture proves only the helper's precedence, typing,
+identity, and exactly-once contract.
 
 ## Gate escalation
 
