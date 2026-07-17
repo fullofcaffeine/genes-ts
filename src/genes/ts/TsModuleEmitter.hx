@@ -176,6 +176,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     ctx.typeAccessor = deps.typeAccessor;
     configureJsx(jsxPlan, jsxCapability, deps);
 
+    emitDirectivePrologue(module);
     if (haxe.macro.Context.defined('genes.banner')) {
       write(haxe.macro.Context.definedValue('genes.banner'));
       writeNewline();
