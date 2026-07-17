@@ -99,6 +99,78 @@ function main(): void {
   assert(fs.readFileSync(path.join(cliStrictOut, "sentinel.txt"), "utf8") === "cli-prior\n", "strict CLI modified prior output");
   assert(fs.readFileSync(cliJson, "utf8").includes("TS2HX-UNSUPPORTED-LOWERING-001"), "strict CLI JSON omitted diagnostics");
 
+  // A successful translation and its requested external manifest are one CLI
+  // publication result. If the external target cannot be installed, exit 2
+  // must leave the previously published Haxe tree intact and remove every
+  // transaction artifact. This exercises the success path; strict translation
+  // failures already avoid opening the output-tree transaction above.
+  const publicationFixture = path.join(toolRoot, ".tmp", "diagnostics-publication-fixture");
+  const publicationProject = path.join(publicationFixture, "tsconfig.json");
+  const publicationOut = path.join(toolRoot, ".tmp", "diagnostics-publication-output");
+  const invalidDiagnosticsTarget = path.join(toolRoot, ".tmp", "diagnostics-publication-target");
+  resetDir(publicationFixture);
+  fs.writeFileSync(path.join(publicationFixture, "Main.ts"),
+    "export function answer(): number { return 42; }\n", "utf8");
+  fs.writeFileSync(publicationProject, `${JSON.stringify({
+    compilerOptions: {
+      target: "ES2022",
+      module: "NodeNext",
+      moduleResolution: "NodeNext",
+      strict: true,
+      skipLibCheck: true
+    },
+    include: ["Main.ts"]
+  }, null, 2)}\n`, "utf8");
+  resetDir(publicationOut);
+  const publicationSentinel = path.join(publicationOut, "sentinel.txt");
+  fs.writeFileSync(publicationSentinel, "prior-publication-tree\n", "utf8");
+  resetDir(invalidDiagnosticsTarget);
+  const publicationParent = path.dirname(publicationOut);
+  const publicationArtifactPrefixes = [publicationOut, invalidDiagnosticsTarget]
+    .map(target => `.${path.basename(target)}.ts2hx-`);
+  const publicationArtifactsBefore = fs.readdirSync(publicationParent)
+    .filter(name => publicationArtifactPrefixes.some(prefix => name.startsWith(prefix)))
+    .sort();
+  const publicationCli = runCli(toolRoot, [
+    "--project", publicationProject,
+    "--out", publicationOut,
+    "--base-package", "diagnostics_publication",
+    "--runtime-profile", "standard-haxe-js",
+    "--clean",
+    "--diagnostics-json", invalidDiagnosticsTarget
+  ]);
+  const publicationArtifactsAfter = fs.readdirSync(publicationParent)
+    .filter(name => publicationArtifactPrefixes.some(prefix => name.startsWith(prefix)))
+    .sort();
+  assert(publicationCli.status === 2,
+    `diagnostics publication CLI exit was ${publicationCli.status}: ${publicationCli.stderr}`);
+  assert(fs.readFileSync(publicationSentinel, "utf8") === "prior-publication-tree\n",
+    "failed external diagnostics publication replaced the prior output tree");
+  assert(JSON.stringify(publicationArtifactsAfter) === JSON.stringify(publicationArtifactsBefore),
+    "failed external diagnostics publication left stage or backup artifacts");
+
+  const validDiagnosticsTarget = path.join(toolRoot, ".tmp", "diagnostics-publication.json");
+  fs.writeFileSync(validDiagnosticsTarget, "prior-external-manifest\n", "utf8");
+  const successfulPublicationCli = runCli(toolRoot, [
+    "--project", publicationProject,
+    "--out", publicationOut,
+    "--base-package", "diagnostics_publication",
+    "--runtime-profile", "standard-haxe-js",
+    "--clean",
+    "--diagnostics-json", validDiagnosticsTarget
+  ]);
+  assert(successfulPublicationCli.status === 0,
+    `successful diagnostics publication exit was ${successfulPublicationCli.status}: ${successfulPublicationCli.stderr}`);
+  assert(!fs.existsSync(publicationSentinel),
+    "successful diagnostics publication retained the prior clean output tree");
+  assert(fs.existsSync(path.join(publicationOut, "diagnostics_publication", "Main.hx")),
+    "successful diagnostics publication omitted generated Haxe");
+  assert(fs.readFileSync(validDiagnosticsTarget, "utf8").includes('"status": "success"'),
+    "successful diagnostics publication did not replace the external manifest");
+  assert(!fs.readdirSync(path.dirname(validDiagnosticsTarget))
+    .some(name => name.startsWith(`.${path.basename(validDiagnosticsTarget)}.ts2hx-`)),
+    "successful diagnostics publication left an external stage or backup artifact");
+
   const assistedCliOut = path.join(toolRoot, ".tmp", "strict-diagnostics-cli-assisted");
   const assistedArgs = [
     "--project", projectPath,

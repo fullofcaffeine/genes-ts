@@ -15,11 +15,11 @@ into `ts2hx-manifest.json` and annotates features exercised by the run.
 
 | Result | Output-tree contract | Semantic claim |
 | --- | --- | --- |
-| `strict-js` success, exit `0` | Every configured root file has an emitted or declaration-only disposition; the complete tree and manifest are committed atomically. | Only encountered constructs recognized by the current strict subset are accepted. Runtime parity still requires a differential. |
+| `strict-js` success, exit `0` | Every configured root file has an emitted or declaration-only disposition; the complete tree and embedded manifest are committed atomically. A requested external manifest has also reached its separate final path. | Only encountered constructs recognized by the current strict subset are accepted. Runtime parity still requires a differential. |
 | `strict-js` failure, exit `1` | No generated file is committed and the prior output directory is preserved byte-for-byte. An external diagnostics manifest may still be written. | At least one construct is known to be unsupported or lossy. |
 | `assisted`, exit `3` | Partial scaffolding and its loss manifest are committed together; unsupported source has stable markers/dispositions. | No executable or parity claim. |
 | `assisted --allow-loss`, exit `0` | Identical assisted tree and manifest; only the shell status changes. | Still no executable or parity claim. |
-| CLI/config/internal failure, exit `2` | No translation-success claim. | Fix the tool invocation, project configuration, or internal error first. |
+| CLI/config/internal failure, exit `2` | No translation-success claim. A reported external-manifest staging or installation failure restores the prior generated tree. | Fix the tool invocation, project configuration, or internal error first. |
 
 Exit `0` is not proof that arbitrary TypeScript has a Haxe equivalent. A new
 syntax path can be accepted only after the emitter recognizes it; a robust
@@ -111,6 +111,11 @@ accepted by snapshots into semantic evidence.
 - Without `--clean`, the transactional writer overlays planned files on a copy
   of the prior directory, so obsolete files can remain. Use a dedicated output
   directory plus `--clean` for reproducible migration builds.
+- `--diagnostics-json` names a separate artifact outside the generated tree.
+  It is staged before output changes and installed while the prior tree backup
+  is still available, so process-visible staging/install failures restore the
+  old tree. Separate-filesystem publication is not crash-atomic across a host
+  failure or power loss.
 
 ## Top-level execution and module initialization
 

@@ -39,7 +39,7 @@ Current options:
 --mode                strict-js (default) or assisted
 --runtime-profile     genes-esm or standard-haxe-js (required with --out)
 --allow-loss          Map assisted exit 3 to 0; manifest stays assisted
---diagnostics-json    Write the complete deterministic manifest to another path
+--diagnostics-json    Publish the complete manifest to a path outside --out
 --runtime-modules     Hash-pinned staging manifest for relative runtime files
 --clean               Transactionally replace, rather than overlay, the output
 ```
@@ -114,6 +114,21 @@ On success, `src-generated/ts2hx-manifest.json` is committed atomically beside
 the Haxe files. Use `--clean` with a dedicated generated directory so files
 removed from the source inventory cannot survive as stale output.
 
+The optional `--diagnostics-json` path is a second publication of that same
+manifest and must be outside `--out`; the generated tree already contains its
+owned copy. ts2hx writes the external bytes to a sibling stage before changing
+the generated tree, keeps the old tree as a backup until the external file is
+installed, and restores prior output when staging or installation reports an
+error. A strict translation failure still publishes its diagnostic manifest
+without opening the Haxe-tree transaction.
+
+Each final replacement uses a rename beside its own target. This gives a clear
+process-failure guarantee: a reported staging or installation failure does not
+leave newly generated Haxe behind. It is not a claim of crash-atomicity across
+different filesystems; a process kill, power loss, or host crash between the
+two final renames can expose only one of them. Keep the external artifact on
+the same reliable build volume when crash recovery matters.
+
 Try the smallest repository fixture:
 
 ```bash
@@ -165,7 +180,9 @@ selected; `--allow-loss` does not turn those errors into output.
 
 Every successful or assisted tree contains a schema-v3
 `ts2hx-manifest.json`. `--diagnostics-json <path>` writes the same complete
-manifest for all translation results, including strict failures.
+manifest for all translation results, including strict failures. Its path must
+be outside the generated tree, and success/assisted publication participates
+in the output rollback window described above.
 
 The stable top-level fields are:
 

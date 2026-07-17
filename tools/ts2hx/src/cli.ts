@@ -6,7 +6,6 @@ import ts from "./typescript-api.js";
 import {
   emitProjectToHaxe,
   type TranslationDiagnostic,
-  type TranslationManifest,
   type TranslationMode,
   type RuntimeProfile
 } from "./haxe/emit.js";
@@ -64,7 +63,7 @@ Options:
   --mode                 strict-js (default) or assisted
   --runtime-profile      genes-esm or standard-haxe-js (required with --out)
   --allow-loss           Map assisted-loss exit 3 to 0 (manifest remains lossy)
-  --diagnostics-json     Write the deterministic translation manifest to a JSON file
+  --diagnostics-json     Publish an external manifest outside --out in the same CLI transaction
   --runtime-modules      Hash-pinned manifest for staged relative runtime modules
   --clean                Replace output dir contents transactionally
 `);
@@ -208,12 +207,6 @@ function formatTranslationDiagnostic(diag: TranslationDiagnostic): string {
   return `${diag.source.file}:${diag.source.line}:${diag.source.column} - ${diag.id}: ${diag.message}`;
 }
 
-function writeManifest(filePath: string, manifest: TranslationManifest): void {
-  const absolute = path.resolve(filePath);
-  fs.mkdirSync(path.dirname(absolute), { recursive: true });
-  fs.writeFileSync(absolute, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-}
-
 function inspectProject(opts: {
   projectPath: string;
   listFiles: boolean;
@@ -292,10 +285,9 @@ function inspectProject(opts: {
       runtimeProfile: opts.runtimeProfile,
       mode: opts.mode,
       cleanOutDir: opts.cleanOutDir,
-      runtimeModulesManifest: opts.runtimeModulesManifest ?? undefined
+      runtimeModulesManifest: opts.runtimeModulesManifest ?? undefined,
+      externalManifestPath: opts.diagnosticsJson ?? undefined
     });
-    if (opts.diagnosticsJson)
-      writeManifest(opts.diagnosticsJson, emitted.manifest);
     for (const diagnostic of emitted.diagnostics)
       process.stderr.write(`${formatTranslationDiagnostic(diagnostic)}\n`);
 

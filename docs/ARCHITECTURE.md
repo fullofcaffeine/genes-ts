@@ -290,9 +290,9 @@ tsconfig + TypeScript source
 | `src/semantic/package-extern-plan.ts` | Converts one checker-resolved package value into a closed strong Haxe type plan, or a deterministic rejection reason. It never prints Haxe or executes package code. |
 | `src/semantic/ir.ts` | Owns stable semantic feature IDs, support grades, and deliberately small immutable plans, including function-local callback paths, real control targets, and transfer provenance for `try/finally`. |
 | `src/haxe/source-namespace-plan.ts` | Assigns every configured source one validated Haxe package, module FQN, and output path before any runtime request, extern, or source text is planned. |
-| `src/haxe/emit.ts` | Translates validated constructs, records source provenance, and stages output. Unsupported input must not disappear. |
+| `src/haxe/emit.ts` | Translates validated constructs, records source provenance, and stages output. It also coordinates an optional external manifest with the generated-tree rollback window. Unsupported input must not disappear. |
 | `src/haxe/runtime-modules.ts` | Validates hash-pinned external-relative runtime ownership before emission; staged bytes share the Haxe output transaction, while the named build owner copies them beside final JS. |
-| `src/cli.ts` | Owns strict/assisted modes, exit codes, human diagnostics, and deterministic JSON output. |
+| `src/cli.ts` | Owns strict/assisted modes, exit codes, human diagnostics, and selection of the optional external-manifest path. |
 
 Strict mode succeeds only for the supported subset and preserves the previous
 output tree on failure. Assisted mode may create scaffolding only when every

@@ -70,6 +70,15 @@ export type EmitHaxeOptions = {
   cleanOutDir?: boolean;
   /** Optional hash-pinned ownership plan for external relative runtime files. */
   runtimeModulesManifest?: string;
+  /**
+   * Optional external copy of the deterministic translation manifest.
+   *
+   * This path must remain outside `outDir`: every successful output tree
+   * already owns an embedded `ts2hx-manifest.json`. Keeping the extra copy
+   * separate lets its staged installation join the output-tree rollback
+   * window without confusing generated-tree ownership.
+   */
+  externalManifestPath?: string;
 };
 
 export type TranslationMode = "strict-js" | "assisted";
@@ -5713,6 +5722,101 @@ function removeTree(absPath: string): void {
     fs.rmSync(absPath, { recursive: true, force: true });
 }
 
+type PreparedExternalFile = {
+  targetPath: string;
+  stagePath: string;
+  backupPath: string;
+  hadPriorFile: boolean;
+  installed: boolean;
+};
+
+function isPathWithin(parentPath: string, candidatePath: string): boolean {
+  const relative = path.relative(parentPath, candidatePath);
+  return relative === ""
+    || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
+/**
+ * Stages one external file without changing its final path.
+ *
+ * Why: the CLI's requested manifest is part of one observable command result,
+ * even though it may live on a different filesystem from generated Haxe.
+ * What: this writes complete bytes beside the final target and records enough
+ * state to replace or restore an existing file with same-directory renames.
+ * How: preparation happens before the output tree is swapped. An invalid final
+ * target therefore fails early, while a later install failure can still use
+ * the output tree's retained backup.
+ */
+function prepareExternalFile(file: EmittedFile, transaction: string): PreparedExternalFile {
+  const targetPath = path.resolve(file.filePath);
+  const parent = path.dirname(targetPath);
+  const name = path.basename(targetPath);
+  const stagePath = path.join(parent, `.${name}.ts2hx-stage-${transaction}`);
+  const backupPath = path.join(parent, `.${name}.ts2hx-backup-${transaction}`);
+
+  fs.mkdirSync(parent, { recursive: true });
+  if (fs.existsSync(targetPath) && fs.statSync(targetPath).isDirectory())
+    throw new Error(`External translation manifest target is a directory: ${targetPath}`);
+  if (fs.existsSync(stagePath) || fs.existsSync(backupPath))
+    throw new Error(`External translation manifest transaction path already exists beside ${targetPath}.`);
+
+  try {
+    fs.writeFileSync(stagePath, file.content, { flag: "wx" });
+  } catch (error) {
+    if (fs.existsSync(stagePath)) fs.rmSync(stagePath, { force: true });
+    throw error;
+  }
+
+  return {
+    targetPath,
+    stagePath,
+    backupPath,
+    hadPriorFile: false,
+    installed: false
+  };
+}
+
+function installExternalFile(file: PreparedExternalFile): void {
+  if (fs.existsSync(file.targetPath)) {
+    fs.renameSync(file.targetPath, file.backupPath);
+    file.hadPriorFile = true;
+  }
+  try {
+    fs.renameSync(file.stagePath, file.targetPath);
+    file.installed = true;
+  } catch (error) {
+    if (file.hadPriorFile && fs.existsSync(file.backupPath)) {
+      fs.renameSync(file.backupPath, file.targetPath);
+      file.hadPriorFile = false;
+    }
+    throw error;
+  }
+}
+
+function rollbackExternalFile(file: PreparedExternalFile): void {
+  if (file.installed && fs.existsSync(file.targetPath))
+    fs.rmSync(file.targetPath, { force: true });
+  if (file.hadPriorFile && fs.existsSync(file.backupPath))
+    fs.renameSync(file.backupPath, file.targetPath);
+  if (fs.existsSync(file.stagePath)) fs.rmSync(file.stagePath, { force: true });
+}
+
+function finalizeExternalFile(file: PreparedExternalFile): void {
+  if (fs.existsSync(file.backupPath)) fs.rmSync(file.backupPath, { force: true });
+}
+
+function commitExternalFile(file: EmittedFile): void {
+  const transaction = `${process.pid}-${outputTransactionId++}`;
+  const prepared = prepareExternalFile(file, transaction);
+  try {
+    installExternalFile(prepared);
+    finalizeExternalFile(prepared);
+  } catch (error) {
+    rollbackExternalFile(prepared);
+    throw error;
+  }
+}
+
 /**
  * Commits a complete generated tree with a same-directory rename transaction.
  *
@@ -5722,19 +5826,29 @@ function removeTree(absPath: string): void {
  * Thus strict translation failures and mid-write exceptions cannot leave a mix
  * of stale and newly generated modules behind.
  */
-function commitOutputTree(opts: EmitHaxeOptions, files: EmittedFile[]): string[] {
+function commitOutputTree(
+  opts: EmitHaxeOptions,
+  files: EmittedFile[],
+  externalFile: EmittedFile | null
+): string[] {
   const outDir = path.resolve(opts.outDir);
   const parent = path.dirname(outDir);
   const name = path.basename(outDir);
   const transaction = `${process.pid}-${outputTransactionId++}`;
   const stageDir = path.join(parent, `.${name}.ts2hx-stage-${transaction}`);
   const backupDir = path.join(parent, `.${name}.ts2hx-backup-${transaction}`);
+  let preparedExternal: PreparedExternalFile | null = null;
+  let hadPriorTree = false;
+  let installedOutputTree = false;
 
   removeTree(stageDir);
   removeTree(backupDir);
   fs.mkdirSync(parent, { recursive: true });
 
   try {
+    if (externalFile)
+      preparedExternal = prepareExternalFile(externalFile, transaction);
+
     if (!opts.cleanOutDir && fs.existsSync(outDir))
       fs.cpSync(outDir, stageDir, { recursive: true });
     else
@@ -5749,25 +5863,59 @@ function commitOutputTree(opts: EmitHaxeOptions, files: EmittedFile[]): string[]
       fs.writeFileSync(stagedPath, emitted.content);
     }
 
-    const hadPriorTree = fs.existsSync(outDir);
+    hadPriorTree = fs.existsSync(outDir);
     if (hadPriorTree)
       fs.renameSync(outDir, backupDir);
     try {
       fs.renameSync(stageDir, outDir);
+      installedOutputTree = true;
     } catch (error) {
       if (hadPriorTree && fs.existsSync(backupDir))
         fs.renameSync(backupDir, outDir);
       throw error;
     }
+
+    // Keep the old generated tree until the separately staged manifest has
+    // reached its final path. If that final rename fails, the catch below can
+    // restore both publications instead of reporting failure after new Haxe
+    // has already become visible.
+    if (preparedExternal)
+      installExternalFile(preparedExternal);
+
+    if (preparedExternal)
+      finalizeExternalFile(preparedExternal);
     removeTree(backupDir);
   } catch (error) {
+    if (preparedExternal)
+      rollbackExternalFile(preparedExternal);
     removeTree(stageDir);
-    if (!fs.existsSync(outDir) && fs.existsSync(backupDir))
+    if (installedOutputTree && fs.existsSync(outDir))
+      removeTree(outDir);
+    if (hadPriorTree && fs.existsSync(backupDir))
       fs.renameSync(backupDir, outDir);
     throw error;
   }
 
   return files.map((emitted) => path.resolve(emitted.filePath));
+}
+
+function externalManifestFile(
+  opts: EmitHaxeOptions,
+  manifest: TranslationManifest
+): EmittedFile | null {
+  if (!opts.externalManifestPath) return null;
+  const targetPath = path.resolve(opts.externalManifestPath);
+  const outDir = path.resolve(opts.outDir);
+  if (isPathWithin(outDir, targetPath)) {
+    throw new Error(
+      `External translation manifest must be outside the generated output tree: ${targetPath}. `
+      + `Use the embedded ${path.join(outDir, "ts2hx-manifest.json")} instead.`
+    );
+  }
+  return {
+    filePath: targetPath,
+    content: `${JSON.stringify(manifest, null, 2)}\n`
+  };
 }
 
 function compareDiagnostics(a: TranslationDiagnostic, b: TranslationDiagnostic): number {
@@ -5858,6 +6006,9 @@ export function emitProjectToHaxe(rawOpts: EmitHaxeOptions): EmitHaxeResult {
       runtimeModules: [],
       features: semanticRecorder.dispositions()
     };
+    const externalFile = externalManifestFile(opts, manifest);
+    if (externalFile)
+      commitExternalFile(externalFile);
     return {
       status: "failed",
       writtenFiles: [],
@@ -5955,8 +6106,11 @@ export function emitProjectToHaxe(rawOpts: EmitHaxeOptions): EmitHaxeResult {
     runtimeModules: runtimeImportProjectPlan.dispositions.slice(),
     features: semanticRecorder.dispositions()
   };
+  const externalFile = externalManifestFile(opts, manifest);
 
   if (status === "failed") {
+    if (externalFile)
+      commitExternalFile(externalFile);
     return { status, writtenFiles: [], diagnostics, dispositions, manifest };
   }
 
@@ -5968,6 +6122,6 @@ export function emitProjectToHaxe(rawOpts: EmitHaxeOptions): EmitHaxeResult {
     content: `${JSON.stringify(manifest, null, 2)}\n`
   });
 
-  const writtenFiles = commitOutputTree(opts, files);
+  const writtenFiles = commitOutputTree(opts, files, externalFile);
   return { status, writtenFiles, diagnostics, dispositions, manifest };
 }

@@ -96,6 +96,10 @@ Possible outcomes:
 `--diagnostics-json` writes the complete schema-v3 translation manifest, not
 only an array of errors. Put it outside the generated directory so a failed
 strict transaction can still leave evidence without modifying that directory.
+For success and assisted output, ts2hx stages this external copy first and
+keeps the prior Haxe tree available until both final paths are installed. A
+reported publication failure therefore restores the old tree; two filesystems
+still cannot provide one crash-atomic rename across a host failure.
 
 Review these fields before continuing:
 
