@@ -40,26 +40,34 @@ function runtimeTranscript(relativeFile: string): string[] {
   }).trim().split(/\r?\n/).filter((line) => line.length > 0);
 }
 
-function assertDirectiveShape(relativeFile: string): void {
+function assertDirectiveShape(
+  relativeFile: string,
+  directives: ReadonlyArray<string>,
+  expectedImport?: string
+): void {
   const source = readFileSync(path.join(outputRoot, relativeFile), "utf8");
   const lines = source.split(/\r?\n/).filter((line) => line.length > 0);
-  deepStrictEqual(lines.slice(0, 3), [
-    '"alpha-mode";',
-    '"beta-mode";',
+  const expectedPrologue = [
+    ...directives.map((directive) => `${JSON.stringify(directive)};`),
     "(0)/*module-directive-banner*/;"
-  ], `${relativeFile} starts with the ordered directive plan before the banner`);
-  ok(lines[2].startsWith("("),
+  ];
+  deepStrictEqual(lines.slice(0, expectedPrologue.length), expectedPrologue,
+    `${relativeFile} starts with the ordered directive plan before the banner`);
+  ok(lines[directives.length].startsWith("("),
     `${relativeFile} exercises an ASI-hostile expression-continuation banner`);
-  strictEqual(source.match(/"alpha-mode"/g)?.length, 1,
-    `${relativeFile} exact-deduplicates repeated directives`);
-  strictEqual(source.match(/"beta-mode"/g)?.length, 1,
-    `${relativeFile} retains the second distinct directive`);
+  for (const directive of directives) {
+    strictEqual(source.split(JSON.stringify(directive)).length - 1, 1,
+      `${relativeFile} emits ${directive} exactly once`);
+  }
   const firstImport = lines.findIndex((line) => line.startsWith("import "));
-  ok(firstImport > 2, `${relativeFile} places every import after the prologue`);
-  ok(source.includes('from "./Support.js"'),
-    `${relativeFile} keeps a real dependency import`);
-  ok(!source.includes("DirectiveOwner"),
-    `${relativeFile} does not retain the metadata owner`);
+  if (firstImport !== -1) {
+    ok(firstImport >= expectedPrologue.length,
+      `${relativeFile} places every import after the prologue`);
+  }
+  if (expectedImport != null) {
+    ok(source.includes(expectedImport),
+      `${relativeFile} keeps the expected dependency import`);
+  }
 }
 
 function sourceLine(source: string, needle: string): number {
@@ -68,18 +76,22 @@ function sourceLine(source: string, needle: string): number {
   return source.slice(0, offset).split("\n").length;
 }
 
-function assertDirectiveMapping(relativeFile: string): void {
+function assertDirectiveMapping(
+  relativeFile: string,
+  sourceFile: string,
+  metadata: string
+): void {
   const generatedPath = path.join(outputRoot, relativeFile);
   const map = new SourceMapConsumer(JSON.parse(
     readFileSync(`${generatedPath}.map`, "utf8")
   ) as RawSourceMap);
   const original = map.originalPositionFor({ line: 1, column: 0 });
-  ok(original.source?.endsWith("src/module_directives/Main.hx"),
+  ok(original.source?.endsWith(`src/module_directives/${sourceFile}`),
     `${relativeFile} directive maps to its Haxe metadata owner`);
   const haxeSource = readFileSync(path.join(
-    fixtureRoot, "src/module_directives/Main.hx"), "utf8");
+    fixtureRoot, `src/module_directives/${sourceFile}`), "utf8");
   strictEqual(original.line,
-    sourceLine(haxeSource, '@:genes.moduleDirective("alpha-mode")'),
+    sourceLine(haxeSource, metadata),
     `${relativeFile} first directive maps to the first duplicate occurrence`);
 }
 
@@ -131,10 +143,29 @@ run("haxe", ["tests/module-directives/build-classic.hxml"]);
 run("haxe", ["tests/module-directives/build-ts.hxml"]);
 runGeneratedTypeScriptMatrix("tests/module-directives/tsconfig.json");
 
-assertDirectiveShape("classic/module_directives/Main.js");
-assertDirectiveShape("ts/src-gen/module_directives/Main.ts");
-assertDirectiveMapping("classic/module_directives/Main.js");
-assertDirectiveMapping("ts/src-gen/module_directives/Main.ts");
+assertDirectiveShape("classic/module_directives/Main.js",
+  ["alpha-mode", "beta-mode"], 'from "./Support.js"');
+assertDirectiveShape("ts/src-gen/module_directives/Main.ts",
+  ["alpha-mode", "beta-mode"], 'from "./Support.js"');
+assertDirectiveShape("classic/module_directives/Support.js", ["support-mode"]);
+assertDirectiveShape("ts/src-gen/module_directives/Support.ts", ["support-mode"]);
+assertDirectiveMapping("classic/module_directives/Main.js", "Main.hx",
+  '@:genes.moduleDirective("alpha-mode")');
+assertDirectiveMapping("ts/src-gen/module_directives/Main.ts", "Main.hx",
+  '@:genes.moduleDirective("alpha-mode")');
+assertDirectiveMapping("classic/module_directives/Support.js", "Support.hx",
+  '@:genes.moduleDirective("support-mode")');
+assertDirectiveMapping("ts/src-gen/module_directives/Support.ts", "Support.hx",
+  '@:genes.moduleDirective("support-mode")');
+
+for (const relativeFile of [
+  "classic/module_directives/Main.js",
+  "ts/src-gen/module_directives/Main.ts"
+]) {
+  const source = readFileSync(path.join(outputRoot, relativeFile), "utf8");
+  ok(!source.includes("directiveOwner"),
+    `${relativeFile} does not retain the unused module-field metadata owner`);
+}
 
 deepStrictEqual(runtimeTranscript("tests/module-directives/out/classic/index.js"),
   ["module-directives:ok"]);
@@ -145,10 +176,17 @@ const files = generatedFiles(outputRoot).map((file) =>
   path.relative(outputRoot, file).replaceAll("\\", "/"));
 ok(!files.some((file) => file.includes("Pruned")),
   "module directive metadata does not create a DCE root or output module");
-const classicDeclaration = readFileSync(path.join(
-  outputRoot, "classic/module_directives/Main.d.ts"), "utf8");
-for (const token of ["alpha-mode", "beta-mode", "module-directive-banner"]) {
-  ok(!classicDeclaration.includes(token),
+const classicDeclarations = generatedFiles(path.join(outputRoot, "classic"))
+  .filter((file) => file.endsWith(".d.ts"))
+  .map((file) => readFileSync(file, "utf8"))
+  .join("\n");
+for (const token of [
+  "alpha-mode",
+  "beta-mode",
+  "support-mode",
+  "module-directive-banner"
+]) {
+  ok(!classicDeclarations.includes(token),
     `classic declarations omit runtime-only token ${token}`);
 }
 
@@ -159,5 +197,5 @@ for (const profile of ["classic", "ts"] as const) {
 }
 
 process.stdout.write(
-  "module-directives:ok (terminated TS/classic prologues, ASI safety, DCE neutrality, runtime, mappings, diagnostics)\n"
+  "module-directives:ok (named/module-field owners, terminated TS/classic prologues, ASI safety, DCE neutrality, runtime, mappings, diagnostics)\n"
 );

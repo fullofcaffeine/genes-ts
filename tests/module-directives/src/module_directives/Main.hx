@@ -1,16 +1,17 @@
 package module_directives;
 
 /**
- * Carries module intent without becoming a generated runtime declaration.
+ * Carries module intent on a module-level function without becoming a
+ * generated runtime declaration.
  *
- * Full DCE removes this private class. The compiler must still recover the
- * directives before DCE, while the metadata itself must not retain this class
- * or create a new output module.
+ * Haxe types this declaration as a field on a synthetic `KModuleFields` class.
+ * Full DCE removes the unused function, but the compiler must still recover its
+ * directives before DCE without retaining the function or its container.
  */
 @:genes.moduleDirective("alpha-mode")
 @:genes.moduleDirective("beta-mode")
 @:genes.moduleDirective("alpha-mode")
-private class DirectiveOwner {}
+function directiveOwner(): Void {}
 
 /** Executes the same ordinary typed program through both output profiles. */
 class Main {

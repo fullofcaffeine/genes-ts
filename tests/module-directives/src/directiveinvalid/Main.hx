@@ -15,5 +15,5 @@ class Main {
 
 #if module_directive_conflict
 @:genes.moduleDirective("second-mode")
-private class OtherDirectiveOwner {}
+var otherDirectiveOwner = "conflicting module field";
 #end

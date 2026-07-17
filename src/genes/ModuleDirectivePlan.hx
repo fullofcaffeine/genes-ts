@@ -80,31 +80,55 @@ class ModuleDirectivePlan {
   static function capture(types: Array<ModuleType>): Void {
     for (type in types) {
       final base = DependencyPlan.moduleTypeBase(type);
-      final entries = base.meta.extract(METADATA);
-      if (entries.length == 0)
-        continue;
+      captureOwner(base.module, DependencyPlan.moduleTypeKey(type),
+        base.meta.extract(METADATA));
 
-      final ownerKey = DependencyPlan.moduleTypeKey(type);
-      if (seenOwners.exists(ownerKey))
-        continue;
-      seenOwners.set(ownerKey, true);
-
-      entries.sort((left, right) -> comparePosition(left.pos, right.pos));
-      final directives = [
-        for (entry in entries)
-          new ModuleDirective(literal(entry), entry.pos)
-      ];
-      final owner: CapturedDirectiveOwner = {
-        key: ownerKey,
-        pos: directives[0].pos,
-        directives: directives
-      };
-      final owners = ownersByModule.get(base.module);
-      if (owners == null)
-        ownersByModule.set(base.module, [owner]);
-      else
-        owners.push(owner);
+      #if (haxe_ver >= 4.2)
+      switch type {
+        case TClassDecl(ref):
+          final cl = ref.get();
+          if (cl.kind.match(KModuleFields(_))) {
+            for (field in cl.statics.get()) {
+              captureOwner(base.module, 'field:${base.module}.${field.name}',
+                field.meta.extract(METADATA));
+            }
+          }
+        default:
+      }
+      #end
     }
+  }
+
+  /**
+   * Records one source declaration independently from its typed representation.
+   *
+   * Named Haxe types carry metadata on `BaseType`, while module-level functions
+   * and variables become static fields on a synthetic `KModuleFields` class.
+   * Normalizing both shapes here keeps ownership, ordering, diagnostics, and
+   * exact de-duplication identical without making either emitter understand
+   * Haxe's representation detail.
+   */
+  static function captureOwner(module: String, ownerKey: String,
+      entries: Array<haxe.macro.Expr.MetadataEntry>): Void {
+    if (entries.length == 0 || seenOwners.exists(ownerKey))
+      return;
+    seenOwners.set(ownerKey, true);
+
+    entries.sort((left, right) -> comparePosition(left.pos, right.pos));
+    final directives = [
+      for (entry in entries)
+        new ModuleDirective(literal(entry), entry.pos)
+    ];
+    final owner: CapturedDirectiveOwner = {
+      key: ownerKey,
+      pos: directives[0].pos,
+      directives: directives
+    };
+    final owners = ownersByModule.get(module);
+    if (owners == null)
+      ownersByModule.set(module, [owner]);
+    else
+      owners.push(owner);
   }
 
   static function literal(entry: haxe.macro.Expr.MetadataEntry): String {
