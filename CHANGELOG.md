@@ -1,3 +1,10 @@
+## [1.34.2](https://github.com/fullofcaffeine/genes-ts/compare/v1.34.1...v1.34.2) (2026-07-17)
+
+
+### Bug Fixes
+
+* **ts2hx:** validate source namespace identity ([2b4b71b](https://github.com/fullofcaffeine/genes-ts/commit/2b4b71b00528fb376f7f0f8527237cf336b0f36b))
+
 ## [1.34.1](https://github.com/fullofcaffeine/genes-ts/compare/v1.34.0...v1.34.1) (2026-07-17)
 
 
