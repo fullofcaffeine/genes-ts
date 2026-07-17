@@ -1,3 +1,15 @@
+# [1.36.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.35.4...v1.36.0) (2026-07-17)
+
+
+### Bug Fixes
+
+* **runtime:** isolate named registries from object prototypes ([bf25a7b](https://github.com/fullofcaffeine/genes-ts/commit/bf25a7bcafcd0847cc6e630985283167ec5b2c83))
+
+
+### Features
+
+* **async:** validate native await ownership ([2a69b6e](https://github.com/fullofcaffeine/genes-ts/commit/2a69b6e6068d952d0c2146a95b387566a5562e27))
+
 ## [1.35.4](https://github.com/fullofcaffeine/genes-ts/compare/v1.35.3...v1.35.4) (2026-07-17)
 
 
