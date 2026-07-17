@@ -43,7 +43,7 @@ The strongest architecture remains intact:
 | Audit finding | Local disposition | Bead |
 | --- | --- | --- |
 | GRA-001: filename-only `StdTypes.ts.map` retirement | **Observed P0.** `OutputTransaction.retire` bypasses prior manifest ownership, and TS generation calls it unconditionally. Add the unowned sentinel before changing cleanup. | `genes-gl2` |
-| GRA-002: lossy transaction scope | **Observed P0.** `Generator` drops directory and extension, then `safeScope` replaces distinct characters with `_`. Different entrypoints can share manifest/stage names. | `genes-552` |
+| GRA-002: lossy transaction scope | **Reproduced and remediated P0.** The focused baseline test showed `entry@one.ts` consuming the lossy `entry_one` v1 scope. Manifest v2 now records the exact basename plus extension, uses a readable full-digest scope, rejects owner mismatches before publication, and preserves ambiguous v1 ownership rather than guessing. | `genes-552` |
 | GRA-003: ts2hx source namespace collision | **Observed P0.** filename-to-module spelling is lossy, output identity is recomputed, and duplicate staged paths are overwritten rather than rejected. | `genes-3a5` |
 | GRA-004: import binding form/declaration identity collapse | **Observed omission, inferred consequence.** Equality and accessor lookup omit binding form and original declaration identity. The exact Haxe/package pair must reproduce before severity is final. If it does, a narrow architecture review is mandatory before the shared identity changes. | `genes-ntz` |
 | GRA-005: malformed handwritten import attributes | **Observed P1.** metadata presence with invalid arity/value is converted to `null`, which is indistinguishable from absence. | `genes-3vd` |

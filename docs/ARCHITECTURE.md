@@ -56,7 +56,9 @@ where multiple emitters or passes need the same semantic decision.
    not broaden classic JavaScript DCE.
 8. `OutputTransaction` stages the complete tree, snapshots every destination it
    will mutate, publishes the ownership manifest last, removes only stale
-   manifest-owned paths, and rolls the whole mutation set back on failure.
+   manifest-owned paths, and rolls the whole mutation set back on failure. Its
+   v2 owner is the exact configured output basename including the extension;
+   a readable SHA-256-scoped filename keeps distinct entrypoints isolated.
 
 This ordering is a correctness contract. In particular, moving declaration
 expansion before implementation emission can accidentally retain runtime
@@ -150,6 +152,13 @@ capability diagnostic in classic mode.
   before committing output. A failed TS, classic JS, declaration, support-file,
   or source-map emission leaves the prior owned tree byte-identical. Successful
   builds remove stale manifest-owned paths and preserve unrelated files.
+- Output ownership includes the configured filename extension and is recorded
+  exactly inside a versioned manifest. Filesystem-safe punctuation replacement
+  is only a readable prefix, never identity: a full digest distinguishes names
+  such as `entry@one.ts` and `entry#one.ts`, while `index.ts` and `index.js`
+  remain independent owners in one directory. Legacy v1 manifests did not
+  carry exact identity and are preserved rather than guessed or used for stale
+  deletion.
 - Diagnostics reachable during planning/emission use `CompilerDiagnostic`, not
   an uncatchable macro-host abort, so transaction cleanup is an invariant of
   every compiler failure path.

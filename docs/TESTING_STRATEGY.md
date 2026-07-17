@@ -57,7 +57,11 @@ The transaction harness deliberately fails after complete private staging
 and again after a real filesystem rename. For both TS and classic JS with
 declarations/maps, it requires the prior tree to remain byte-identical, then
 proves a successful build removes only stale manifest-owned modules, preserves
-a colocated user asset, and reproduces the same clean-tree hashes.
+a colocated user asset, and reproduces the same clean-tree hashes. It also
+builds punctuation-colliding filenames and `.ts`/`.js` entrypoints into shared
+directories. Each must receive a distinct v2 manifest containing its exact
+owner, a mismatched owner record must fail before publication, and an ambiguous
+v1 manifest must remain untouched.
 
 The dual/output-quality pair also owns the pre-emission lowering-plan contract:
 `TempPlan` supplies iterator and expression-result bindings to both printers,

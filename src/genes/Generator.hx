@@ -47,7 +47,11 @@ class Generator {
       : configuredOutputFile;
     final output = Path.withoutExtension(Path.withoutDirectory(outputFile));
     final outputDir = Path.directory(outputFile);
-    final outputTransaction = new OutputTransaction(outputDir, output);
+    // The module name intentionally omits the extension, but filesystem
+    // ownership must not. `index.ts` and `index.js` can coexist in one output
+    // directory and need independent manifests and staging directories.
+    final outputIdentity = Path.withoutDirectory(Path.normalize(outputFile));
+    final outputTransaction = new OutputTransaction(outputDir, outputIdentity);
 
     try {
       removeCompilerSentinel();
