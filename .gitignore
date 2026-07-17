@@ -5,6 +5,7 @@
 /tests/genes-ts/**/src-gen*
 /tests/genes-ts/**/dist*
 /tests/output-modes/out
+/tests/template-literals/out
 /tests/output-transaction/out
 /tests/side-effect-import/out
 /tests/module-directives/out

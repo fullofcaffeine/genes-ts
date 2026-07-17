@@ -158,6 +158,7 @@ jobs:
           SKIP_TS2HX: "1"
       - run: yarn test:ts2hx
       - run: yarn test:matrix:api
+      - run: yarn test:template-literals
       - run: yarn test:classic:dts
       - run: yarn test:library-profile
 
@@ -226,18 +227,24 @@ jobs:
         name: Run minimal generated suite against Haxe preview
         continue-on-error: true
         run: yarn test:genes-ts:minimal
+      - id: preview-template-literals
+        name: Run template-literal suite against Haxe preview
+        continue-on-error: true
+        run: yarn test:template-literals
       - name: Report Haxe preview compatibility
         if: always()
         env:
           BASELINE_OUTCOME: ${{ steps.preview-baseline.outcome }}
           MINIMAL_OUTCOME: ${{ steps.preview-minimal.outcome }}
+          TEMPLATE_LITERALS_OUTCOME: ${{ steps.preview-template-literals.outcome }}
         run: |
           printf '%s\n' \
             "### Haxe preview compatibility (advisory)" \
             "" \
             "- Baseline suite: **$BASELINE_OUTCOME**" \
             "- Minimal generated suite: **$MINIMAL_OUTCOME**" \
+            "- Template-literal suite: **$TEMPLATE_LITERALS_OUTCOME**" \
             >> "$GITHUB_STEP_SUMMARY"
-          if [ "$BASELINE_OUTCOME" != "success" ] || [ "$MINIMAL_OUTCOME" != "success" ]; then
-            echo "::warning title=Haxe preview compatibility::baseline=$BASELINE_OUTCOME, minimal=$MINIMAL_OUTCOME. Supported Haxe remains authoritative."
+          if [ "$BASELINE_OUTCOME" != "success" ] || [ "$MINIMAL_OUTCOME" != "success" ] || [ "$TEMPLATE_LITERALS_OUTCOME" != "success" ]; then
+            echo "::warning title=Haxe preview compatibility::baseline=$BASELINE_OUTCOME, minimal=$MINIMAL_OUTCOME, template-literals=$TEMPLATE_LITERALS_OUTCOME. Supported Haxe remains authoritative."
           fi

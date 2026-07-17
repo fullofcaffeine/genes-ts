@@ -38,6 +38,7 @@ class ModuleEmitter extends ExprEmitter {
     final dependencies = projection.bindings;
     final endTimer = timer('emitModule');
     configureLowering(module, ClassicStable);
+    configureTemplateLiterals(module.templateLiteralPlan);
     ctx.typeAccessor = dependencies.typeAccessor;
     configureJsx(module.jsxPlan, JsxCapabilityPolicy.current(), dependencies);
     final typed = module.members.filter(m -> m.match(MType(_, _)));

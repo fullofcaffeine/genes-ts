@@ -93,6 +93,7 @@ class Module {
   public final expose: Array<ModuleExport> = [];
   public final directivePlan: ModuleDirectivePlan;
   public var jsxPlan(get, null): JsxPlan;
+  public var templateLiteralPlan(get, null): TemplateLiteralPlan;
   public var dependencyPlan(get, null): DependencyPlan;
   public var typeDependencies(get, null): Dependencies;
   public var declarationDependencies(get, null): Dependencies;
@@ -128,6 +129,12 @@ class Module {
     if (jsxPlan == null)
       jsxPlan = JsxPlan.build(this);
     return jsxPlan;
+  }
+
+  function get_templateLiteralPlan(): TemplateLiteralPlan {
+    if (templateLiteralPlan == null)
+      templateLiteralPlan = TemplateLiteralPlan.build(this);
+    return templateLiteralPlan;
   }
 
   /**

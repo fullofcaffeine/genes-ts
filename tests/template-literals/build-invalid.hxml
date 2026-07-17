@@ -1,0 +1,8 @@
+-lib genes-ts
+-cp tests/template-literals/invalid
+--main Invalid
+-js tests/template-literals/out/invalid/index.js
+-D genes.ts
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
