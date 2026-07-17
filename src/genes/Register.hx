@@ -12,13 +12,21 @@ class Register {
   public static final _global = js.Syntax.code('globalThis');
 
   /**
-   * A dynamic registry of global objects (e.g. `$hxClasses`, `$hxEnums`).
+   * The private index of global runtime registries (for example `$hxClasses`).
    *
-   * genes-ts uses a dedicated registry type (`HxRegistry`) to avoid leaking
-   * `any` into user modules. The registries are heterogeneous at runtime.
+   * Why: every JavaScript string is a valid registry name, including inherited
+   * object keys such as `constructor`, `toString`, and `__proto__`.
+   *
+   * What: the index and each registry use null-prototype objects, so lookups
+   * see only entries that Genes created. The Haxe type also records that this
+   * outer dictionary stores `HxRegistry` values rather than arbitrary values.
+   *
+   * How: `Object.create(null)` produces a plain string-keyed dictionary with
+   * no inherited properties. Keep this representation when changing registry
+   * initialization; `{}` would silently reintroduce prototype-name collisions.
    */
   @:ts.type("{[key: string]: HxRegistry}")
-  static final globals: DynamicAccess<Dynamic> = {}
+  static final globals: DynamicAccess<HxRegistry> = nullPrototypeDictionary();
   @:keep @:native('new')
   @:ts.type("unique symbol")
   static final construct = new js.lib.Symbol();
@@ -32,12 +40,31 @@ class Register {
    */
   @:ts.returnType("HxRegistry")
   @:keep public static function global(name: String): HxRegistry {
-    final existing: Null<HxRegistry> = cast globals.get(name);
+    final existing = globals.get(name);
     if (existing != null)
       return existing;
-    final created: HxRegistry = cast {};
+    final created: HxRegistry = nullPrototypeDictionary();
     globals.set(name, created);
     return created;
+  }
+
+  /**
+   * Creates a typed string dictionary without JavaScript prototype members.
+   *
+   * Why: Haxe's `DynamicAccess` normally starts from `{}`, while Genes runtime
+   * registries must accept every string without inheriting `Object` keys.
+   *
+   * What: callers receive an ordinary `DynamicAccess<T>` whose missing keys
+   * return `null`, including `constructor`, `toString`, and `__proto__`.
+   *
+   * How: `NullPrototypeObject` supplies the null-accepting `Object.create`
+   * overload missing from Haxe 4.3.7 but present in newer Haxe versions. The
+   * private extern emits the native call directly, while this return type keeps
+   * the dictionary generic and cast-free. No arbitrary object operation is
+   * exposed through the compatibility bridge.
+   */
+  static inline function nullPrototypeDictionary<T>():DynamicAccess<T> {
+    return NullPrototypeObject.createDictionary(null);
   }
 
   /**
@@ -294,10 +321,21 @@ class Register {
   static var fid = 0;
 
   /**
-   * Bind a method to `this` and cache the closure on the receiver.
+   * Returns the stable Haxe-JavaScript closure for one receiver/method pair.
    *
-   * The inputs are dynamic because this is used by the JS runtime and relies
-   * on attaching hidden fields (`__id__`, `hx__closures__`) to arbitrary values.
+   * Why: reading an instance method as a value must preserve `this`, and
+   * repeated reads must return the same closure for Haxe identity semantics.
+   *
+   * What: `null` methods remain `null`; the same receiver and callable reuse
+   * one closure; a different receiver or callable receives a different one.
+   *
+   * How: the Haxe JS protocol attaches a numeric `__id__` to the callable and
+   * an `hx__closures__` cache to the receiver. Those hidden mutable properties
+   * are not part of the user's nominal Haxe types, so this helper deliberately
+   * remains a contained dynamic runtime boundary. The emitters recover the
+   * precise callable type at user-module assignments and calls. Direct uses
+   * require a mutable, extensible object receiver; primitives and frozen host
+   * objects are outside this internal helper's supported contract.
    */
   @:keep public static function bind(o: Dynamic, m: Dynamic) {
     if (m == null)
@@ -315,6 +353,27 @@ class Register {
     }
     return f;
   }
+}
+
+/**
+ * Typed compatibility bridge for JavaScript's `Object.create(null)`.
+ *
+ * Why: Haxe 4.3.7 declares the prototype parameter as non-null `{}`, although
+ * JavaScript explicitly accepts `null` and newer Haxe versions model that
+ * fact as `Null<{}>`. Using the old extern would otherwise require a cast or a
+ * raw syntax escape in runtime code.
+ *
+ * What: this private extern exposes only the missing null-capable dictionary
+ * creation operation. Its result is always `DynamicAccess<T>`; callers cannot
+ * use it as a general-purpose assertion to an unrelated result type.
+ *
+ * How: `@:native("Object")` binds the declaration to JavaScript's built-in
+ * constructor and emits no runtime wrapper. Keep the bridge private and narrow
+ * until the minimum supported Haxe version provides the corrected signature.
+ */
+@:native("Object")
+private extern class NullPrototypeObject {
+  @:pure @:native("create") static function createDictionary<T>(prototype:Null<{}>):DynamicAccess<T>;
 }
 
 /**

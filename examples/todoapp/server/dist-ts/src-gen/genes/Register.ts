@@ -18,7 +18,7 @@ export class Register {
 		if (existing != null) {
 			return existing;
 		};
-		let created: HxRegistry = {};
+		let created: HxRegistry = Object.create(null);
 		Register.globals[name] = created;
 		return created;
 	}
@@ -264,10 +264,21 @@ export class Register {
 	}
 
 	/**
-	* Bind a method to `this` and cache the closure on the receiver.
+	* Returns the stable Haxe-JavaScript closure for one receiver/method pair.
 	*
-	* The inputs are dynamic because this is used by the JS runtime and relies
-	* on attaching hidden fields (`__id__`, `hx__closures__`) to arbitrary values.
+	* Why: reading an instance method as a value must preserve `this`, and
+	* repeated reads must return the same closure for Haxe identity semantics.
+	*
+	* What: `null` methods remain `null`; the same receiver and callable reuse
+	* one closure; a different receiver or callable receives a different one.
+	*
+	* How: the Haxe JS protocol attaches a numeric `__id__` to the callable and
+	* an `hx__closures__` cache to the receiver. Those hidden mutable properties
+	* are not part of the user's nominal Haxe types, so this helper deliberately
+	* remains a contained dynamic runtime boundary. The emitters recover the
+	* precise callable type at user-module assignments and calls. Direct uses
+	* require a mutable, extensible object receiver; primitives and frozen host
+	* objects are outside this internal helper's supported contract.
 	*/
 	static bind(o: any, m: any): any | null {
 		if (m == null) {
@@ -297,7 +308,7 @@ export class Register {
 }
 
 Register.$global = globalThis
-Register.globals = {}
+Register.globals = Object.create(null)
 // @ts-ignore
 Register["new"] = Symbol()
 // @ts-ignore

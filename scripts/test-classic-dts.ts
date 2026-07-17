@@ -117,6 +117,35 @@ if (!streamDeclaration.includes(
   throw new Error("Classic declarations lost the generic RegroupResult name.");
 }
 
+// Classic implementation and declaration output share the registry contract
+// with genes-ts. The private construction helper must stay out of the public
+// declaration, while the named registry values remain strongly classified.
+const registerImplementation = readFileSync(
+  path.join(repoRoot, "bin/genes/Register.js"),
+  "utf8"
+);
+const registerDeclaration = readFileSync(
+  path.join(repoRoot, "bin/genes/Register.d.ts"),
+  "utf8"
+);
+if (!registerImplementation.includes("Object.create(null)")) {
+  throw new Error("Classic Genes no longer creates prototype-free runtime registries.");
+}
+if (!registerDeclaration.includes("static global(name: string): HxRegistry")) {
+  throw new Error("Classic declarations lost the typed HxRegistry return contract.");
+}
+if (!registerDeclaration.includes("export type HxRegistry = {[key: string]: unknown}")) {
+  throw new Error("Classic declarations widened heterogeneous registry values.");
+}
+if (registerDeclaration.includes("nullPrototypeDictionary")) {
+  throw new Error("The private registry construction helper leaked into classic declarations.");
+}
+if (!registerDeclaration.includes("static bind(o: any, m: any): any | null")) {
+  throw new Error(
+    "The documented dynamic bind boundary changed without corresponding runtime/type evidence."
+  );
+}
+
 // Classic declarations expose the same legacy Dynamic-heavy stdlib and test
 // dependencies as the full TypeScript profile. The audit config loads every
 // owned declaration, while this exact list records the pre-existing contracts

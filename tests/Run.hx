@@ -28,6 +28,7 @@ class Run {
       new TestTypedef(),
       new TestEnum(),
       new TestRegisterAlias(),
+      new TestRuntimeRegistry(),
       new TestRecursiveTypedef(),
       new TestFunction(),
       new TestType(),

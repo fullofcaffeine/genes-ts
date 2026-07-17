@@ -229,6 +229,39 @@ if (/unsafeCast<Rest</.test(reflectOutput)) {
   throw new Error("Reflect.fields emitted an unresolved Rest<T> cast instead of an array type.");
 }
 
+// Registry names come from runtime metadata and are not limited to friendly
+// identifiers. The implementation must therefore use a prototype-free map,
+// while its generated API keeps the heterogeneous values behind HxRegistry.
+const registerOutput = readFileSync(
+  path.join(repoRoot, "tests/genes-ts/full/out/src-gen/genes/Register.ts"),
+  "utf8"
+);
+if (!registerOutput.includes("declare static globals: {[key: string]: HxRegistry};")) {
+  throw new Error("The runtime registry index lost its HxRegistry value type.");
+}
+if (!registerOutput.includes("Object.create(null)")) {
+  throw new Error("The runtime registry no longer uses a prototype-free dictionary.");
+}
+if (
+  registerOutput.includes("Register.globals = {}") ||
+  registerOutput.includes("let created: HxRegistry = {}")
+) {
+  throw new Error("The runtime registry regressed to an inherited JavaScript object.");
+}
+
+// `Register.bind` remains one documented dynamic runtime boundary, but the
+// compiler must recover the precise callable type at every user-module use.
+// A visually narrower Object/Function helper signature would not prove that.
+for (const relativeFile of ["TestBind.ts", "TestRuntimeRegistry.ts"]) {
+  const userOutput = readFileSync(
+    path.join(repoRoot, "tests/genes-ts/full/out/src-gen/tests", relativeFile),
+    "utf8"
+  );
+  if (/\b(?:any|unknown)\b/.test(userOutput)) {
+    throw new Error(`${relativeFile} leaked the runtime registry/bind boundary into user typing.`);
+  }
+}
+
 // `IReadable` is a secondary extern declared in the same Haxe module as the
 // `@:jsRequire("stream", "Readable")` owner. Its use in a signature must reuse
 // that package export as a type-only alias instead of becoming an unresolved

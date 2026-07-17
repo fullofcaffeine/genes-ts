@@ -51,9 +51,9 @@ called out below.
 | --- | --- | --- | --- | --- |
 | Native async/await | No typed public async authoring layer | Detects `__async_marker__`, filters it during printing, recognizes one raw `await {0}` spelling, and reads method metadata in the classic printer | `genes.js.Async` types and validates the authoring API, marks typed functions with private `:jsAsync` semantics, and both profiles emit native async/await | **Superseded**, with missing focused regressions tracked by `genes-7be.4` |
 | String literals | Iterates the compiler-time Haxe string and escapes each reported character | Walks `0...input.length` and calls `charCodeAt` | Retains the iterator and now has an exact code-unit differential | **Already supported**; both mechanisms match standard Haxe, original Genes, and the vendored fork, so no production port is justified |
-| Runtime globals | Uses an untyped object and bracket access | Uses `DynamicAccess<Object>` and explicit get/create logic | Uses a typed `HxRegistry`, `globalThis`, and narrow registry projections for classes and enums | **Superseded** by the stronger modern registry boundary |
-| Iterator runtime | Uses `untyped` array and structural iterator access | Replaces those operations with local `js.Syntax.code` calls | Centralizes the dynamic host boundary, supports arrays, callable/non-callable iterator fields, and map-like `keys/get` iteration | **Superseded**, with a few identity/shape cases still under-tested |
-| Bound-method cache | Uses `Dynamic` for receiver and method | Narrows to `Object`, `Function`, and `Null<Function>` while keeping hidden-field access in syntax calls | Preserves the Haxe JS cache protocol behind one documented dynamic runtime boundary | **Supported but under-tested**; do not adopt the narrower signature until it proves every real receiver/callable shape |
+| Runtime globals | Uses an untyped object and bracket access | Uses `DynamicAccess<Object>` and explicit get/create logic | Uses a typed, null-prototype `DynamicAccess<HxRegistry>`, `globalThis`, and narrow registry projections for classes and enums | **Superseded and hardened**; the audit exposed prototype-name collisions that neither older implementation handled |
+| Iterator runtime | Uses `untyped` array and structural iterator access | Replaces those operations with local `js.Syntax.code` calls | Centralizes the dynamic host boundary and proves arrays, callable/non-callable iterator fields, receiver binding, and map-like `keys/get` iteration | **Superseded**, with direct runtime evidence in both profiles |
+| Bound-method cache | Uses `Dynamic` for receiver and method | Narrows to `Object`, `Function`, and `Null<Function>` while keeping hidden-field access in syntax calls | Preserves the Haxe JS cache protocol behind one documented dynamic runtime boundary while user-module callable types remain precise | **Already supported and now directly proved**; the fork's nominal narrowing does not model hidden mutation or preserve callable signatures |
 | Source-map JSON construction | Builds the JSON object as `Dynamic` | Adds a structural `SourceMap` typedef | Uses a private exact `SourceMapJson` record while retaining modern path normalization and transactional publication | **Absorbed generically** in `f99c824`; schema, optional source content, relative paths, and byte determinism have focused evidence |
 | Writer comparison catch | Uses `catch (e:Dynamic)` around only the unchanged-output comparison | Uses inferred catch typing | Infers the comparison exception type; the actual write remains outside the catch | **Absorbed generically**; direct evidence covers create/change/unchanged output, comparison-read fallback, and escaping write failure |
 | Assignment whitespace | Some multiline assignments end a visible line with ` = ` | Removes the final space at selected class/enum registration sites | Raw output quality now rejects whitespace after visible content across owned TS, classic JS, and classic declarations | **Absorbed generically**; all current multiline class/enum/declaration producers satisfy the central invariant |
@@ -120,7 +120,7 @@ future supported Haxe toolchain produces a failing code-unit case. This avoids
 production churn while retaining stronger evidence than either implementation
 previously had.
 
-### Registry globals and iteration: modern architecture already absorbed the intent
+### Registry globals and iteration: keep the modern model and close inherited keys
 
 **Observed.** `src/genes/Register.hx` no longer uses the original untyped
 global lookup. It owns heterogeneous registry behavior through `HxRegistry`,
@@ -128,15 +128,34 @@ returns narrower `HxClasses` and `HxEnums` views for reflection, and keeps
 `unknown`/dynamic behavior inside the runtime module rather than generated user
 modules.
 
-**Observed.** Its iterator helpers explicitly distinguish arrays, structural
-iterator fields, and map-like `keys/get` objects. `tests/TestIterators.hx`
-executes array and dynamic iterator behavior, including a non-callable
-`iterator` field; full classic and genes-ts runtime gates passed.
+**Observed fail-first result.** The modern and vendored implementations both
+created their registry dictionaries with `{}`. A reduced fixture then exposed
+four wrong baseline lookups: `constructor` resolved to a function, while
+`toString` and `__proto__` registries inherited built-in members instead of
+behaving like empty string dictionaries.
 
-**Decision.** The vendor changes are superseded. Do not replace the modern
-map-like model with the narrower old fork. `genes-7be.3` should add direct
-registry identity/unusual-key checks and an explicit map-like iterator trace so
-the existing behavior is proved rather than inferred from broad suite use.
+**Implemented.** The private registry index is now a
+`DynamicAccess<HxRegistry>`, and both that index and every named registry are
+created with `Object.create(null)`. A narrowly documented helper contains the
+construction policy, while a private typed extern fills Haxe 4.3.7's missing
+null-capable `Object.create` signature without a cast or raw syntax escape.
+`tests/TestRuntimeRegistry.hx` proves same-name identity, different-name
+separation, prototype-name isolation, and stable writes. Generated user
+TypeScript contains neither `any` nor `unknown`;
+classic declarations retain `HxRegistry` as an unknown-valued boundary, and
+the private construction helper is absent from `.d.ts`.
+
+**Executed iterator evidence.** `tests/TestIterators.hx` now exercises both
+`iterator(...)` and `getIterator(...)` over an explicit ordered `keys/get`
+object. A second structural object mutates its own call counter, proving that a
+dynamically discovered iterator method remains bound to its receiver. Existing
+array and non-callable-field cases remain green.
+
+**Decision.** The vendor's narrower iterator implementation remains
+superseded. Retain the modern array/structural/map-like model and the new
+prototype-free registry correction. The focused classic runtime,
+genes-ts TypeScript 5/6/7 runtime/type gate, and classic declaration gate own
+this boundary.
 
 ### Bound methods: preserve behavior before narrowing types
 
@@ -145,21 +164,27 @@ is stored on the callable, one closure cache is stored on the receiver, null
 methods remain null, and repeated reads can return the same bound closure. The
 nearby documentation accurately explains why this is a dynamic host boundary.
 
-**Observed.** `tests/TestBind.hx` proves ordinary bound calls and dynamic method
-replacement, but it does not directly prove closure identity, receiver/method
-cache separation, inheritance overrides, or primitive/structural receiver
-limits. Generated runtime declarations currently expose this internal helper
-as `any`-shaped.
+**Executed evidence.** `tests/TestBind.hx` now proves repeated closure identity,
+separation by receiver, separation by method, correct receiver values,
+inherited methods, overridden methods, and the existing null/replacement
+behavior. Both implementation profiles execute the same assertions. Generated
+genes-ts user locals retain their exact function signatures and contain no
+`any` or `unknown` even though the internal runtime declaration remains the
+documented `any`-shaped host boundary.
 
 **Inference.** The vendor's `Object`/`Function` signature looks cleaner, but a
 cleaner spelling is not evidence that every Haxe JS call site fits it. In
 particular, JavaScript binding permits receiver and callable shapes that Haxe's
 nominal `js.lib.Object` surface may not describe precisely.
 
-**Decision.** Keep the contained dynamic boundary until `genes-7be.3` supplies
-the complete cache/receiver fixture. Then either introduce a truthful private
-runtime shape or document the remaining boundary with exact declaration
-evidence. Do not remove `Dynamic` by making the public contract false.
+**Decision.** Keep the contained dynamic boundary. Its hidden properties are
+not part of the nominal receiver/callable types, and using `Function` would
+also erase the actual parameter and return signature. The helper documentation
+now states its real input boundary: compiler-generated method extraction on a
+mutable, extensible object receiver. Primitive and frozen-object direct calls
+are not an advertised API. Any future narrowing may replace this only with a
+type that models the hidden mutation and preserves callable shape;
+do not remove `Dynamic` by making the contract false.
 
 ### Source-map JSON: adopt the type, not the old implementation
 
@@ -221,11 +246,10 @@ compiler special case.
 
 ## Safe implementation order
 
-1. Complete registry and bound-method runtime/type evidence in `genes-7be.3`.
-2. Complete the async supersession matrix in `genes-7be.4`; keep the marker
+1. Complete the async supersession matrix in `genes-7be.4`; keep the marker
    protocol rejected.
-3. Run full `yarn test:ci` after every production slice.
-4. Only after Genes is green, use a disposable Reflaxe.Elixir worktree for the
+2. Run full `yarn test:ci` after every production slice.
+3. Only after Genes is green, use a disposable Reflaxe.Elixir worktree for the
    five client builds, generated ESM/map review, bundler tests, and browser
    evidence (`genes-7be.5`). Do not modify or remove the real downstream vendor.
 
