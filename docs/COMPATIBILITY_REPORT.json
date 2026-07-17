@@ -132,8 +132,8 @@
           "kind": "tracked-files",
           "path": "tests",
           "match": "^(typing-policy/semantic/[^/]+|classic-dts/consumer|output-modes/consumer|library-profile/consumer)\\.ts$",
-          "expected": 7,
-          "count": 7
+          "expected": 10,
+          "count": 10
         },
         {
           "id": "owned-unsafe-boundaries",
@@ -156,8 +156,8 @@
           "count": 4
         }
       ],
-      "proves": "Selected exported APIs are semantically audited, strict consumers reject the named unsafe programs, and one opt-in library graph has matched retained TS/classic runtime and declaration surfaces.",
-      "doesNotProve": "The audit cannot infer soundness for untested raw metadata or every third-party declaration package."
+      "proves": "Every manifest-owned type module in the named generated profiles is either semantically audited or given an exact stale-detecting classification; strict consumers reject the named unsafe programs, and one opt-in library graph has matched retained TS/classic runtime and declaration surfaces.",
+      "doesNotProve": "An exact runtime, fixture, or known-gap classification does not itself prove that foreign boundary sound; the audit also cannot infer soundness for untested raw metadata or every third-party declaration package."
     },
     {
       "id": "runtime-semantic-differentials",

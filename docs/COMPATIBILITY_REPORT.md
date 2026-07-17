@@ -15,7 +15,7 @@ This is an evidence contract, not a cached CI-success badge. `blocking` and `non
 | Compile inventory | Classic Haxe test modules | 46 | `blocking` |
 | Compile inventory | Generated TypeScript snapshot profiles | 7 | `blocking` |
 | Compile inventory | Examples with TS and classic profiles | 2 | `blocking` |
-| Strict public typing | Strict positive/negative consumer sources | 7 | `blocking` |
+| Strict public typing | Strict positive/negative consumer sources | 10 | `blocking` |
 | Strict public typing | Explicitly owned exported-surface boundaries | 6 | `blocking` |
 | Strict public typing | Reusable-library same-source Haxe modules | 4 | `blocking` |
 | Semantic differential | Same-source Haxe modules | 13 | `blocking` |
@@ -77,8 +77,8 @@ Positive consumers compile and selected invalid consumers are rejected without b
 
 - Disposition: `blocking`
 - Scope: Generated TS exports, ordinary interfaces, explicit foreign boundaries, classic declarations, and strict external consumers.
-- Proves: Selected exported APIs are semantically audited, strict consumers reject the named unsafe programs, and one opt-in library graph has matched retained TS/classic runtime and declaration surfaces.
-- Does not prove: The audit cannot infer soundness for untested raw metadata or every third-party declaration package.
+- Proves: Every manifest-owned type module in the named generated profiles is either semantically audited or given an exact stale-detecting classification; strict consumers reject the named unsafe programs, and one opt-in library graph has matched retained TS/classic runtime and declaration surfaces.
+- Does not prove: An exact runtime, fixture, or known-gap classification does not itself prove that foreign boundary sound; the audit also cannot infer soundness for untested raw metadata or every third-party declaration package.
 - Evidence:
   - [`scripts/exported-surface-policy.ts`](../scripts/exported-surface-policy.ts)
   - [`scripts/test-exported-surface-policy.ts`](../scripts/test-exported-surface-policy.ts)
