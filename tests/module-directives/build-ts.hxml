@@ -1,0 +1,11 @@
+-lib genes-ts
+-cp tests/module-directives/src
+--main module_directives.Main
+-js tests/module-directives/out/ts/src-gen/index.ts
+-D genes.ts
+-D no-deprecation-warnings
+-D js-es=6
+-D genes.banner=(0)/*module-directive-banner*/;
+-dce full
+-debug
+--macro include('module_directives')

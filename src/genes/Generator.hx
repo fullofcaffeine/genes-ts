@@ -78,6 +78,7 @@ class Generator {
    */
   static function generateTransactional(api: JSGenApi, outputFile: String,
       output: String, outputTransaction: OutputTransaction): Void {
+    ModuleDirectivePlan.validate();
     final toGenerate = typesPerModule(api.types);
     final extension = Path.extension(outputFile);
     final outputDir = Path.directory(outputFile);
@@ -434,6 +435,7 @@ class Generator {
       Compiler.define(CompilerInternal.GENERATOR_ACTIVE_DEFINE);
       isolateCompilerOutput();
       LibraryProfile.validate();
+      ModuleDirectivePlan.install();
       // TypeScript implementation output and classic declaration output both
       // need source-level signatures captured before runtime-oriented DCE.
       if (Context.defined('genes.ts') || Context.defined('dts')

@@ -63,6 +63,28 @@ Full Genes CI must pass before downstream projects rely on a local compiler chan
 - Explain what changed, why it matters, and how it was verified. Call out important behavior or output changes and name any intentionally deferred scope so the commit does not imply broader closure than it provides.
 - Prefer concrete descriptions of the old and new behavior over a list of filenames or internal type names. Technical details are welcome, but introduce them in plain language and make the practical outcome clear first.
 
+## Pull Request Descriptions
+
+- Make every PR description as concrete and specific as the available evidence
+  permits. For compiler or generated-output changes, an architecture-only
+  summary is not sufficient.
+- Explain why the change was needed and how the need was discovered. Name the
+  concrete project, workflow, or use case when it is safe to disclose; show the
+  exact observed output or failure; explain why existing mechanisms were
+  inadequate; and state why the reduced, generalized fix belongs in this
+  repository. Discovery context may be downstream-specific, but compiler code
+  and fixtures must remain reusable and consumer-neutral.
+- Include the smallest useful positive example: the exact Haxe input or command
+  and the relevant generated TS/JS, runtime transcript, or diagnostic.
+- Include a negative or before-the-change example when behavior changes: show
+  the exact missing/incorrect output, failure, or workaround, and explain why
+  it is inadequate. When validation is part of the feature, name the exact
+  diagnostic and publication/rollback result.
+- State which output profiles and toolchain lanes were observed, and separate
+  verified behavior from inferred or intentionally deferred scope. Keep
+  examples minimal enough to review directly, but never replace specifics with
+  vague claims such as “handles the edge case.”
+
 ## Epistemic Rigor and Friendly Explanations
 
 - Do not let confidence substitute for evidence. Inspect the relevant source, generated output, runtime behavior, and owned tests before making non-trivial claims. Clearly distinguish what is directly observed, what is an inference from that evidence, and what still requires an experiment or external review.

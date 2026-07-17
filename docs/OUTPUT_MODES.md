@@ -141,6 +141,36 @@ surface. `yarn test:library-profile` builds the same inert source as default
 classic, library classic, and library TypeScript, type-checks both surfaces on
 TS 5/6/7, and executes both retained runtimes.
 
+### Module directive prologues
+
+Some ESM consumers assign meaning to leading string-literal statements. Genes
+models that syntax without knowing any consumer-specific directive names:
+
+```haxe
+@:genes.moduleDirective("custom-mode")
+@:genes.moduleDirective("strict-boundary")
+class Boundary {}
+```
+
+Metadata must be declared on exactly one top-level type in a Haxe module. That
+owner may repeat the metadata: non-empty string literals retain source order,
+and exact duplicates coalesce at their first occurrence. Computed expressions,
+empty strings, wrong arity, or a second annotated declaration fail with stable
+`GENES-MODULE-DIRECTIVE-*` diagnostics before output publication.
+
+The compiler captures the plan before DCE but does not add `@:keep`, a module
+root, or a dependency edge. Consequently, an independently reachable module
+keeps its directive even if DCE removes the metadata-carrying type, while an
+otherwise unreachable annotated module remains absent. Both TypeScript and
+classic ESM print the same semicolon-terminated prologue before `genes.banner`,
+JSX/type imports, and runtime imports. Explicit termination keeps a banner or
+other following text beginning with `(`, `[`, or another continuation token
+from attaching to the directive through automatic semicolon insertion. Classic
+`.d.ts` output deliberately omits directives.
+
+`yarn test:module-directives` owns the dual-profile shape, strict TypeScript,
+runtime, DCE-neutrality, source-map, diagnostic, and rollback evidence.
+
 ## Picking a mode
 
 - If your goal is “Haxe is a better language on top of TS, and we may port to TS later” → use **TypeScript output** (`-D genes.ts`).

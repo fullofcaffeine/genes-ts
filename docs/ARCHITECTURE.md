@@ -38,9 +38,10 @@ where multiple emitters or passes need the same semantic decision.
    redirects Haxe's compiler-owned output slot to a private sentinel. The
    user-visible `-js` path belongs exclusively to the Genes transaction, so
    Haxe cannot delete a previously good entry file after a generator error.
-2. Before Haxe DCE can erase source-level API information, `PublicSurface` and
-   `genes.ts.SignatureCache` capture the facts needed by TS interfaces and
-   declarations.
+2. Before Haxe DCE can erase source-level information, `PublicSurface`,
+   `ModuleDirectivePlan`, and `genes.ts.SignatureCache` capture the facts needed
+   by TS interfaces, module prologues, and declarations. Directive capture adds
+   no roots or dependency edges.
 3. `Generator` receives `JSGenApi`, groups typed types into `Module` values,
    records exposed/library roots, and creates shared plans.
 4. Runtime, type-only, and declaration-only reachability are expanded without
@@ -71,6 +72,7 @@ depend on formatting.
 | Module/member inventory | `src/genes/Module.hx` | Presents one emitter-facing module view and materializes declaration-only members without changing the runtime graph. |
 | Top-level output projection | `Module.memberProjection`, `src/genes/CompilerInternal.hx` | Separates local implementation presence, ESM export, consumer declarations, Haxe runtime registration, and source provenance. Printers consume these facts instead of treating one visibility flag as every policy. |
 | Public API facts | `src/genes/PublicSurface.hx` | Captures visibility, inheritance, generics, overload identity, and complete closed interface members before DCE. |
+| Module directive prologues | `src/genes/ModuleDirectivePlan.hx` | Captures literal module intent before DCE, validates single-owner source order, and exposes one immutable plan without changing reachability. |
 | Null, undefined, and optionality | `src/genes/NullishContract.hx` | Keeps Haxe `Null<T>`, native `undefined`, optional fields, absent parameters, and unknown boundaries distinct. |
 | Dependency graphs and module-request order | `src/genes/DependencyPlan.hx`, `DependencyPlanBuilder.hx` | Records runtime-value, runtime-side-effect, type-only, and declaration-only edges with provenance; projects runtime requests by external/path/attribute identity into one ordered plan. |
 | Import bindings and aliases | `src/genes/Dependencies.hx` | Allocates canonical named/default/namespace bindings and collision-safe local aliases. A binding-free request never invents a dependency name. |
@@ -132,6 +134,10 @@ capability diagnostic in classic mode.
   internal/external identity, path, and optional loader attribute. Printers do
   not infer evaluation order from a path-grouped map. Equal requests coalesce
   at first occurrence, and a real binding can satisfy an earlier bare request.
+- Runtime module directives are an explicit pre-DCE plan, emitted as terminated
+  statements before every banner and import in both implementation profiles.
+  Metadata can affect only a module already selected by ordinary reachability
+  and never enters `.d.ts`.
 - Public generated TypeScript is closed and precise. Broad `any`, `unknown`, or
   catch-all index signatures require a named, documented foreign boundary.
 - A finalizer executes exactly once. `FinallyCompletion.run` places only its
@@ -190,6 +196,7 @@ layer when a change affects more than one contract.
 | Type-only reachability and DCE | `tests/typeonly/` | Owning genes-ts/full and dual-output gates |
 | Same-source TS/classic parity | `tests/output-modes/` | `yarn test:dual-output` |
 | Reusable package surface | `tests/library-profile/` | `yarn test:library-profile` |
+| Module directive prologues | `tests/module-directives/` | `yarn test:module-directives` |
 | ESM/CommonJS/package import shape | `tests/genes-ts/package-shapes/` | `yarn test:interop:module-shapes` |
 | Source-map contract | Existing source-map fixture | `yarn test:genes-ts:sourcemaps` |
 | Determinism, size, modules, or temporaries | Curated compiler fixtures | `yarn test:output-quality` |

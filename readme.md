@@ -47,6 +47,8 @@ boundary and planned shared architecture.
   - inline markup (`return <div>...</div>;`), default-on in TypeScript mode
   - equivalent React-compatible `createElement(...)` lowering in classic JS
 - **JS/TS interop helpers** via `genes.ts.Imports` (consume existing TS/TSX easily)
+- **Generic ESM directive prologues** via literal-only
+  `@:genes.moduleDirective(...)`, shared by TypeScript and classic output
 - **npm declaration ingestion** via a pinned, deterministic dts2hx bridge whose
   externs are exercised through both TS and classic JS output
 - **Async/await sugar** (`@:async` + `await(...)`) emitting native `async`/`await`
@@ -130,6 +132,22 @@ classes into matched public retention. Classic output requires `-D dts`; the
 same source can also emit TypeScript with `-D genes.ts`. Without the library
 define, the marker is inert and ordinary application DCE remains compact. See
 `docs/OUTPUT_MODES.md#reusable-library-profile`.
+
+For tools that inspect ECMAScript directive prologues, place one or more
+literal markers on a single top-level declaration in the Haxe module:
+
+```haxe
+@:genes.moduleDirective("custom-mode")
+@:genes.moduleDirective("strict-boundary")
+class Boundary {}
+```
+
+Both implementation profiles emit semicolon-terminated string statements in
+source order before banners and imports. Explicit termination prevents a
+following expression-continuation token from attaching through ASI. Exact
+repeats are coalesced. The marker never creates a DCE root, and classic `.d.ts`
+files omit runtime directives. See
+`docs/OUTPUT_MODES.md#module-directive-prologues`.
 
 ## Target-polymorphic helpers
 

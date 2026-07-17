@@ -43,6 +43,7 @@ class ModuleEmitter extends ExprEmitter {
     final typed = module.members.filter(m -> m.match(MType(_, _)));
     if (typed.length == module.members.length && module.expose.length == 0)
       return endTimer();
+    emitDirectivePrologue(module);
     if (haxe.macro.Context.defined('genes.banner')) {
       write(haxe.macro.Context.definedValue('genes.banner'));
       writeNewline();
@@ -101,6 +102,16 @@ class ModuleEmitter extends ExprEmitter {
       if (!export.isType)
         emitExport(export, module.toPath(export.module), extension);
     return endTimer();
+  }
+
+  /** Emits one validated module directive plan before any other statement. */
+  function emitDirectivePrologue(module: Module): Void {
+    for (directive in module.directivePlan.directives) {
+      emitPos(directive.pos);
+      emitString(directive.value);
+      write(';');
+      writeNewline();
+    }
   }
 
   function emitExport(export: ModuleExport, from: String, ?extension: String) {

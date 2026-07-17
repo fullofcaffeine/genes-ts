@@ -91,6 +91,7 @@ class Module {
   public final path: String;
   public final members: Array<Member> = [];
   public final expose: Array<ModuleExport> = [];
+  public final directivePlan: ModuleDirectivePlan;
   public var jsxPlan(get, null): JsxPlan;
   public var dependencyPlan(get, null): DependencyPlan;
   public var typeDependencies(get, null): Dependencies;
@@ -106,6 +107,7 @@ class Module {
       ?main: TypedExpr, ?expose: Array<ModuleExport>) {
     this.context = context;
     this.module = module;
+    directivePlan = ModuleDirectivePlan.forModule(module);
     if (expose != null)
       this.expose = expose;
     path = module.split('.').join('/');

@@ -7,6 +7,7 @@
 /tests/output-modes/out
 /tests/output-transaction/out
 /tests/side-effect-import/out
+/tests/module-directives/out
 /tests/internal-types/out
 /tests/finally-completion/out
 /tests/library-profile/out
