@@ -57,9 +57,27 @@ runGeneratedTypeScriptMatrix(
 assertExportedSurfacePolicy({
   repoRoot,
   tsconfigPath: "examples/typescript-target/tsconfig.classic.json",
-  includePaths: [
-    "examples/typescript-target/classic-src-gen/my/app/Greeter.d.ts"
-  ],
+  ownershipInventories: [{
+    outputRoot: "examples/typescript-target/classic-src-gen",
+    outputIdentity: "index.js",
+    classifications: [
+      {
+        file: "genes/Register.d.ts",
+        disposition: "runtime-boundary",
+        reason: "The Haxe runtime registry intentionally models reflective JavaScript values."
+      },
+      {
+        file: "js/lib/Object.d.ts",
+        disposition: "runtime-boundary",
+        reason: "The Haxe JavaScript Object extern intentionally represents arbitrary host objects."
+      },
+      {
+        file: "js/lib/Promise.d.ts",
+        disposition: "runtime-boundary",
+        reason: "The Haxe JavaScript Promise extern retains its host callback boundary."
+      }
+    ]
+  }],
   scope: "example-typescript-target-classic"
 });
 

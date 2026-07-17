@@ -223,6 +223,39 @@ as an integration witness, not the first reproduction for a compiler defect.
 Reduce failures to a generic fixture above, fix the compiler there, and let the
 todoapp prove the complete workflow afterward.
 
+### Enrolling generated public surfaces
+
+`scripts/exported-surface-policy.ts` uses TypeScript's `Program` and
+`TypeChecker` to reject weak exported types that a text scan or successful
+`tsc` run cannot see. Production profiles must select files through
+`ownershipInventories`, using the exact output identity from a Genes v2
+manifest. Every compiler-owned `.ts`, `.tsx`, or `.d.ts` module then has one of
+two outcomes:
+
+1. it enters the semantic audit automatically; or
+2. its exact manifest-relative path has a documented `runtime-boundary`,
+   `fixture-boundary`, or `known-gap` classification.
+
+Classifications are deliberately strict. They must name a current owned type
+file, carry a useful reason, and disappear when that file disappears. A
+`known-gap` also names its Bead, so an exclusion cannot become anonymous debt.
+Adding a generated module therefore expands the audit without editing a caller
+path list, while renaming or deleting a classified boundary makes the gate fail
+until the evidence is reviewed.
+
+The audit treats each owned module as the root of its own public graph. It
+checks imported weak values and generic arguments, but expands declarations
+only in the root module; the imported module is audited independently. This is
+both the semantic ownership rule and a termination rule: recursively
+instantiated generic libraries can create a fresh TypeScript `Type` object at
+every level even though they repeat one declaration. A declaration-owner guard
+prevents that graph from unfolding forever without hiding an immediate
+`any`/`unknown` argument.
+
+Direct `includePaths` remain available only for the policy's small unit
+fixtures, where testing one selected graph is the point. New production profile
+gates should use compiler ownership rather than hand-maintained enrollment.
+
 ### Adding or updating a genes-ts snapshot
 
 Each snapshot case under `tests/genes-ts/snapshot/` contains:

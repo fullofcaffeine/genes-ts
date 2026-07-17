@@ -160,9 +160,27 @@ ok(
 assertExportedSurfacePolicy({
   repoRoot,
   tsconfigPath: "tests/genes-ts/package-shapes/tsconfig.ts.json",
-  includePaths: [
-    "tests/genes-ts/package-shapes/out/ts/src-gen/package_shapes/Main.ts"
-  ],
+  ownershipInventories: [{
+    outputRoot: "tests/genes-ts/package-shapes/out/ts/src-gen",
+    outputIdentity: "index.ts",
+    classifications: [
+      {
+        file: "genes/Register.ts",
+        disposition: "runtime-boundary",
+        reason: "Haxe's reflection registry intentionally contains heterogeneous host values."
+      },
+      {
+        file: "js/node/Util.ts",
+        disposition: "fixture-boundary",
+        reason: "The package-shape fixture transitively emits the Haxe Node extern's open inspect-options host contract."
+      },
+      {
+        file: "js/node/stream/Writable.ts",
+        disposition: "fixture-boundary",
+        reason: "The package-shape fixture transitively emits the Haxe Node writable-options host contract."
+      }
+    ]
+  }],
   scope: "genes-ts-export-equals-package-shape"
 });
 runGeneratedTypeScriptMatrix(

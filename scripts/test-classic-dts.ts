@@ -117,15 +117,77 @@ if (!streamDeclaration.includes(
   throw new Error("Classic declarations lost the generic RegroupResult name.");
 }
 
+// Classic declarations expose the same legacy Dynamic-heavy stdlib and test
+// dependencies as the full TypeScript profile. The audit config loads every
+// owned declaration, while this exact list records the pre-existing contracts
+// that genes-ofy must narrow or justify separately. A new declaration is not
+// added here automatically: it is audited immediately.
+const classicKnownSurfaceGaps = [
+  "ANSI.d.ts",
+  "Reflect.d.ts",
+  "Std.d.ts",
+  "Type.d.ts",
+  "genes/Register.d.ts",
+  "genes/ts/Json.d.ts",
+  "genes/ts/JsonCodec.d.ts",
+  "genes/ts/UnknownNarrow.d.ts",
+  "haxe/Exception.d.ts",
+  "haxe/PosInfos.d.ts",
+  "haxe/ValueException.d.ts",
+  "haxe/display/Diagnostic.d.ts",
+  "haxe/display/Display.d.ts",
+  "haxe/display/JsonModuleTypes.d.ts",
+  "haxe/ds/EnumValueMap.d.ts",
+  "haxe/macro/Compiler.d.ts",
+  "haxe/macro/Expr.d.ts",
+  "haxe/macro/PlatformConfig.d.ts",
+  "js/lib/Map.d.ts",
+  "js/lib/Object.d.ts",
+  "js/lib/Promise.d.ts",
+  "js/node/Assert.d.ts",
+  "js/node/Buffer.d.ts",
+  "js/node/ChildProcess.d.ts",
+  "js/node/Fs.d.ts",
+  "js/node/Util.d.ts",
+  "js/node/stream/Writable.d.ts",
+  "tests/TestAsyncAwait.d.ts",
+  "tests/TestImportModule.d.ts",
+  "tests/TestJsonValue.d.ts",
+  "tests/TestTsTypes.d.ts",
+  "tink/CoreApi.d.ts",
+  "tink/core/Annex.d.ts",
+  "tink/core/Any.d.ts",
+  "tink/core/Error.d.ts",
+  "tink/core/Future.d.ts",
+  "tink/core/Promise.d.ts",
+  "tink/streams/IdealStream.d.ts",
+  "tink/streams/RealStream.d.ts",
+  "tink/streams/Stream.d.ts",
+  "tink/testrunner/Assertion.d.ts",
+  "tink/testrunner/Assertions.d.ts",
+  "tink/testrunner/Case.d.ts",
+  "tink/testrunner/Reporter.d.ts",
+  "tink/testrunner/Result.d.ts",
+  "tink/testrunner/Runner.d.ts",
+  "tink/testrunner/Suite.d.ts",
+  "tink/unit/AssertionBuffer.d.ts",
+  "tink/unit/TestCase.d.ts"
+] as const;
+
 assertExportedSurfacePolicy({
   repoRoot,
-  tsconfigPath: "tests/classic-dts/tsconfig.json",
-  includePaths: [
-    "bin/haxe/Constraints.d.ts",
-    "bin/tests/publicsurface/SurfaceParent.d.ts",
-    "bin/tests/nullish/NullishMatrix.d.ts"
-  ],
-  scope: "classic-dts-imap"
+  tsconfigPath: "tests/classic-dts/audit-tsconfig.json",
+  ownershipInventories: [{
+    outputRoot: "bin",
+    outputIdentity: "tests.js",
+    classifications: classicKnownSurfaceGaps.map(file => ({
+      file,
+      disposition: "known-gap" as const,
+      owner: "genes-ofy",
+      reason: "Legacy Dynamic-heavy stdlib, host, or regression dependency surface tracked for separate semantic narrowing."
+    }))
+  }],
+  scope: "classic-dts-owned-surfaces"
 });
 
 runGeneratedTypeScriptMatrix("tests/classic-dts/tsconfig.json", { emit: false });

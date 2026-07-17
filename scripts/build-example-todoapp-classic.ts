@@ -76,9 +76,66 @@ runGeneratedTypeScriptMatrix("examples/todoapp/tsconfig.classic.json", {
 assertExportedSurfacePolicy({
   repoRoot,
   tsconfigPath: "examples/todoapp/tsconfig.classic.json",
-  includePaths: [
-    "examples/todoapp/web/classic-src-gen/todo/web/pages/TodoListPage.d.ts",
-    "examples/todoapp/server/classic-src-gen/todo/server/Store.d.ts"
+  ownershipInventories: [
+    {
+      outputRoot: "examples/todoapp/web/classic-src-gen",
+      outputIdentity: "index.js",
+      classifications: [
+        ...[
+          "genes/Register.d.ts",
+          "haxe/Exception.d.ts",
+          "haxe/ValueException.d.ts",
+          "js/html/FontFaceSetIteratorResult.d.ts",
+          "js/html/FormDataIterator.d.ts",
+          "js/html/HeadersIterator.d.ts",
+          "js/html/MediaKeyStatusMapIterator.d.ts",
+          "js/html/NotificationOptions.d.ts",
+          "js/html/RequestInit.d.ts",
+          "js/html/ResponseInit.d.ts",
+          "js/html/URLSearchParamsIterator.d.ts",
+          "js/lib/Object.d.ts",
+          "js/lib/Promise.d.ts"
+        ].map(file => ({
+          file,
+          disposition: "runtime-boundary" as const,
+          reason: "Haxe JavaScript runtime or browser-host declaration intentionally models a dynamic foreign boundary."
+        })),
+        {
+          file: "todo/extern/Fetch.d.ts",
+          disposition: "fixture-boundary" as const,
+          reason: "The todoapp fixture keeps a direct fetch interop facade to exercise host-boundary declarations."
+        },
+        {
+          file: "todo/web/ReactTypes.d.ts",
+          disposition: "fixture-boundary" as const,
+          reason: "The todoapp fixture deliberately exposes React's foreign element boundary."
+        }
+      ]
+    },
+    {
+      outputRoot: "examples/todoapp/server/classic-src-gen",
+      outputIdentity: "index.js",
+      classifications: [
+        ...[
+          "genes/Register.d.ts",
+          "haxe/Exception.d.ts",
+          "haxe/ValueException.d.ts",
+          "js/lib/Object.d.ts",
+          "js/lib/Promise.d.ts",
+          "js/node/Util.d.ts",
+          "js/node/stream/Writable.d.ts"
+        ].map(file => ({
+          file,
+          disposition: "runtime-boundary" as const,
+          reason: "Haxe JavaScript runtime or Node-host declaration intentionally models a dynamic foreign boundary."
+        })),
+        {
+          file: "todo/extern/Express.d.ts",
+          disposition: "fixture-boundary" as const,
+          reason: "The todoapp fixture keeps a direct Express interop facade to exercise server-host declarations."
+        }
+      ]
+    }
   ],
   scope: "todoapp-classic-public-surface"
 });

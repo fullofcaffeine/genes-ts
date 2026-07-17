@@ -142,11 +142,27 @@ ok(
 assertExportedSurfacePolicy({
   repoRoot,
   tsconfigPath: "tests/library-profile/tsconfig.json",
-  includePaths: [
-    "tests/library-profile/out/library/library_profile/LibraryApi.d.ts",
-    "tests/library-profile/out/library/library_profile/SignatureOnly.d.ts",
-    "tests/library-profile/out/library/library_profile/GenericView.d.ts"
-  ],
+  ownershipInventories: [{
+    outputRoot: "tests/library-profile/out/library",
+    outputIdentity: "index.js",
+    classifications: [
+      {
+        file: "genes/Register.d.ts",
+        disposition: "runtime-boundary",
+        reason: "The classic runtime declaration describes Haxe's heterogeneous reflection registry."
+      },
+      {
+        file: "js/lib/Object.d.ts",
+        disposition: "runtime-boundary",
+        reason: "The Haxe JavaScript extern models host Object descriptors whose values are intentionally dynamic."
+      },
+      {
+        file: "js/lib/Promise.d.ts",
+        disposition: "runtime-boundary",
+        reason: "The Haxe JavaScript extern models arbitrary thenables and host rejection values."
+      }
+    ]
+  }],
   scope: "library-profile-classic"
 });
 runGeneratedTypeScriptMatrix("tests/library-profile/tsconfig.json", {
@@ -169,6 +185,20 @@ ok(
 );
 ok(typescriptAbstract.includes("static version(): string"));
 ok(!typescriptAbstract.includes("static version<T>"));
+assertExportedSurfacePolicy({
+  repoRoot,
+  tsconfigPath: "tests/library-profile/tsconfig-typescript.json",
+  ownershipInventories: [{
+    outputRoot: "tests/library-profile/out/typescript/src-gen",
+    outputIdentity: "index.ts",
+    classifications: [{
+      file: "genes/Register.ts",
+      disposition: "runtime-boundary",
+      reason: "The TypeScript runtime module contains Haxe's heterogeneous reflection registry."
+    }]
+  }],
+  scope: "library-profile-typescript"
+});
 runGeneratedTypeScriptMatrix("tests/library-profile/tsconfig-typescript.json");
 run("node", ["tests/library-profile/runtime-typescript.mjs"]);
 

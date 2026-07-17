@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { Buffer } from "node:buffer";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import ts from "./typescript-api.js";
 
@@ -17,7 +18,25 @@ export interface ExportedSurfaceFinding {
 export interface ExportedSurfaceAuditOptions {
   readonly repoRoot: string;
   readonly tsconfigPath: string;
-  readonly includePaths: ReadonlyArray<string>;
+  readonly includePaths?: ReadonlyArray<string>;
+  readonly ownershipInventories?: ReadonlyArray<ExportedSurfaceOwnershipInventory>;
+}
+
+export interface ExportedSurfaceOwnershipInventory {
+  /** Directory containing one Genes v2 output manifest and its owned files. */
+  readonly outputRoot: string;
+  /** Exact configured output filename recorded by the compiler, including its extension. */
+  readonly outputIdentity: string;
+  /** Exact compiler-owned modules whose public shape is an intentional host/runtime boundary. */
+  readonly classifications?: ReadonlyArray<ExportedSurfaceOwnedFileClassification>;
+}
+
+export interface ExportedSurfaceOwnedFileClassification {
+  readonly file: string;
+  readonly disposition: "runtime-boundary" | "fixture-boundary" | "known-gap";
+  readonly reason: string;
+  /** Required for a known gap so the exclusion cannot become anonymous debt. */
+  readonly owner?: string;
 }
 
 export interface ExportedSurfacePolicyOptions extends ExportedSurfaceAuditOptions {
@@ -60,6 +79,7 @@ interface AuditContext {
   readonly findings: ExportedSurfaceFinding[];
   readonly findingKeys: Set<string>;
   readonly activeTypes: Set<ts.Type>;
+  readonly activeTypeOwners: Set<ts.Symbol>;
 }
 
 /**
@@ -69,11 +89,14 @@ interface AuditContext {
  * TypeScript, or hidden inside an exported generic. A successful `tsc` run is
  * also insufficient because `any` deliberately accepts invalid consumers.
  *
- * What: the audit starts at every export in explicitly selected generated
- * modules, follows public signatures and locally declared structural members,
- * and reports `any`, `unknown`, and explicit string/number index signatures.
- * External library implementations are not expanded, but their public type
- * arguments are inspected so shapes such as `Promise<any>` remain visible.
+ * What: the audit starts at every export in selected generated modules,
+ * follows public signatures and locally declared structural members, and
+ * reports `any`, `unknown`, and explicit string/number index signatures.
+ * Production profiles select modules from compiler ownership manifests so a
+ * newly generated public file enrolls automatically. Explicit include paths
+ * remain available for small policy-unit fixtures. External library
+ * implementations are not expanded, but their public type arguments are
+ * inspected so shapes such as `Promise<any>` remain visible.
  *
  * How: TypeScript's Program and TypeChecker are the semantic oracle. Traversal
  * is cycle-safe, findings are deterministic, and source positions identify the
@@ -85,7 +108,8 @@ export function auditExportedSurfaces(options: ExportedSurfaceAuditOptions): Rea
   const configPath = path.resolve(repoRoot, options.tsconfigPath);
   const program = loadProgram(configPath);
   const checker = program.getTypeChecker();
-  const isIncluded = createSourceMatcher(repoRoot, options.includePaths);
+  const includePaths = resolveIncludePaths(repoRoot, program, options);
+  const isIncluded = createSourceMatcher(repoRoot, includePaths);
   const findings: ExportedSurfaceFinding[] = [];
   const context: AuditContext = {
     program,
@@ -94,7 +118,8 @@ export function auditExportedSurfaces(options: ExportedSurfaceAuditOptions): Rea
     isIncluded,
     findings,
     findingKeys: new Set<string>(),
-    activeTypes: new Set<ts.Type>()
+    activeTypes: new Set<ts.Type>(),
+    activeTypeOwners: new Set<ts.Symbol>()
   };
 
   for (const sourceFile of program.getSourceFiles().filter(isIncluded).sort(compareSourceFiles)) {
@@ -131,7 +156,7 @@ export function auditExportedSurfaces(options: ExportedSurfaceAuditOptions): Rea
         );
       }
       for (const targetDeclaration of target.declarations ?? []) {
-        if (context.isIncluded(targetDeclaration.getSourceFile())) {
+        if (targetDeclaration.getSourceFile() === root.sourceFile) {
           visitDeclarationTypeSyntax(context, targetDeclaration, `${root.exportName}<syntax>`, root);
         }
       }
@@ -221,6 +246,201 @@ function formatDiagnostics(diagnostics: ReadonlyArray<ts.Diagnostic>): string {
   });
 }
 
+const GENES_OUTPUT_MANIFEST_HEADER = "genes-output-manifest-v2";
+const GENES_OUTPUT_OWNER_PREFIX = "owner-base64:";
+
+/**
+ * Turns compiler ownership into the audit's module inventory.
+ *
+ * Why: a hand-maintained list proves only the files it remembers. A new
+ * generated module can otherwise compile successfully while its inferred
+ * public `any` never reaches the semantic gate.
+ *
+ * What: exactly one selection mode is accepted. Small unit fixtures may name
+ * files directly. Production profiles name the exact compiler output identity;
+ * every type-bearing file in that v2 manifest is audited unless the caller
+ * gives that exact file a documented boundary or owned-gap classification.
+ *
+ * How: the reader validates the manifest signature, owner, canonical sorted
+ * paths, containment, program enrollment, and every classification. Missing or
+ * stale evidence fails closed. The compiler remains unaware of this policy;
+ * this is an executable release inventory over files it already owns.
+ */
+function resolveIncludePaths(
+  repoRoot: string,
+  program: ts.Program,
+  options: ExportedSurfaceAuditOptions
+): ReadonlyArray<string> {
+  const direct = options.includePaths ?? [];
+  const inventories = options.ownershipInventories ?? [];
+  if ((direct.length === 0) === (inventories.length === 0)) {
+    throw new Error(
+      "Exported-surface audit requires exactly one non-empty selection: includePaths or ownershipInventories."
+    );
+  }
+  if (direct.length > 0) return direct;
+
+  const programFiles = new Map(
+    program.getSourceFiles().map(sourceFile => [path.resolve(sourceFile.fileName), sourceFile] as const)
+  );
+  const selected = new Set<string>();
+
+  for (const inventory of inventories) {
+    const outputRoot = path.resolve(repoRoot, inventory.outputRoot);
+    if (!existsSync(outputRoot) || !statSync(outputRoot).isDirectory()) {
+      throw new Error(`Exported-surface ownership root is not a directory: ${inventory.outputRoot}`);
+    }
+    if (inventory.outputIdentity.length === 0 || path.basename(inventory.outputIdentity) !== inventory.outputIdentity) {
+      throw new Error(
+        `Exported-surface output identity must be one filename including its extension: ${inventory.outputIdentity}`
+      );
+    }
+
+    const ownedFiles = readOwnedTypeFiles(outputRoot, inventory.outputIdentity);
+    const ownedSet = new Set(ownedFiles);
+    const classified = new Set<string>();
+    for (const classification of inventory.classifications ?? []) {
+      if (!isPortableRelativeFile(classification.file)) {
+        throw new Error(`Invalid exported-surface classification path: ${classification.file}`);
+      }
+      if (classification.disposition !== "runtime-boundary"
+        && classification.disposition !== "fixture-boundary"
+        && classification.disposition !== "known-gap") {
+        throw new Error(`Unsupported exported-surface disposition for ${classification.file}.`);
+      }
+      if (classification.reason.trim().length === 0) {
+        throw new Error(`Exported-surface classification needs a reason: ${classification.file}`);
+      }
+      if (classification.disposition === "known-gap" && (classification.owner?.trim().length ?? 0) === 0) {
+        throw new Error(`Known exported-surface gap needs an owning issue: ${classification.file}`);
+      }
+      if (classified.has(classification.file)) {
+        throw new Error(`Duplicate exported-surface classification: ${classification.file}`);
+      }
+      if (!ownedSet.has(classification.file)) {
+        throw new Error(
+          `Stale exported-surface classification is not a type-bearing owned file: ${classification.file}`
+        );
+      }
+      classified.add(classification.file);
+    }
+
+    for (const relativeFile of ownedFiles) {
+      if (classified.has(relativeFile)) continue;
+      const absoluteFile = path.resolve(outputRoot, ...relativeFile.split("/"));
+      if (!programFiles.has(absoluteFile)) {
+        throw new Error(
+          `Compiler-owned type module is missing from the TypeScript Program: ${path.relative(repoRoot, absoluteFile)}`
+        );
+      }
+      if (selected.has(absoluteFile)) {
+        throw new Error(
+          `Compiler-owned type module is enrolled by more than one inventory: ${path.relative(repoRoot, absoluteFile)}`
+        );
+      }
+      selected.add(absoluteFile);
+    }
+  }
+
+  if (selected.size === 0) {
+    throw new Error("Exported-surface ownership inventories selected no type-bearing modules.");
+  }
+  return [...selected].sort(compareCodeUnits);
+}
+
+function readOwnedTypeFiles(outputRoot: string, outputIdentity: string): ReadonlyArray<string> {
+  const matchingManifests: string[] = [];
+  for (const name of readdirSync(outputRoot).sort(compareCodeUnits)) {
+    if (!name.startsWith(".genes-output-") || !name.endsWith(".manifest")) continue;
+    const manifestPath = path.join(outputRoot, name);
+    if (!statSync(manifestPath).isFile()) continue;
+    const lines = readFileSync(manifestPath, "utf8")
+      .split("\n")
+      .map(line => line.endsWith("\r") ? line.slice(0, -1) : line);
+    if (lines[0] !== GENES_OUTPUT_MANIFEST_HEADER) continue;
+    const ownerLine = lines[1] ?? "";
+    if (!ownerLine.startsWith(GENES_OUTPUT_OWNER_PREFIX)) {
+      throw new Error(`Genes v2 output manifest has no owner identity: ${manifestPath}`);
+    }
+    const encodedOwner = ownerLine.slice(GENES_OUTPUT_OWNER_PREFIX.length);
+    const decodedOwner = decodeManifestOwner(encodedOwner, manifestPath);
+    if (decodedOwner === outputIdentity) matchingManifests.push(manifestPath);
+  }
+
+  if (matchingManifests.length !== 1) {
+    throw new Error(
+      `Expected one Genes v2 ownership manifest for ${JSON.stringify(outputIdentity)} in ${outputRoot}; found ${matchingManifests.length}.`
+    );
+  }
+
+  const manifestPath = matchingManifests[0];
+  const lines = readFileSync(manifestPath, "utf8")
+    .split("\n")
+    .map(line => line.endsWith("\r") ? line.slice(0, -1) : line);
+  const entries = lines.slice(2);
+  if (entries.at(-1) === "") entries.pop();
+
+  const owned: string[] = [];
+  let previous: string | null = null;
+  const portableKeys = new Set<string>();
+  for (const relativeFile of entries) {
+    if (!isPortableRelativeFile(relativeFile)) {
+      throw new Error(`Invalid Genes ownership path in ${manifestPath}: ${JSON.stringify(relativeFile)}`);
+    }
+    if (previous !== null && compareCodeUnits(previous, relativeFile) >= 0) {
+      throw new Error(`Genes ownership paths are not strictly sorted in ${manifestPath}.`);
+    }
+    const portableKey = relativeFile.toLowerCase();
+    if (portableKeys.has(portableKey)) {
+      throw new Error(`Genes ownership paths have a case-insensitive collision in ${manifestPath}.`);
+    }
+    portableKeys.add(portableKey);
+    previous = relativeFile;
+    if (!isTypeBearingModule(relativeFile)) continue;
+
+    const absoluteFile = path.resolve(outputRoot, ...relativeFile.split("/"));
+    if (!isPathWithin(outputRoot, absoluteFile) || !existsSync(absoluteFile) || !statSync(absoluteFile).isFile()) {
+      throw new Error(`Genes ownership manifest names a missing type module: ${absoluteFile}`);
+    }
+    owned.push(relativeFile);
+  }
+  return owned;
+}
+
+function decodeManifestOwner(encodedOwner: string, manifestPath: string): string {
+  let decoded: string;
+  try {
+    decoded = Buffer.from(encodedOwner, "base64").toString("utf8");
+  } catch {
+    throw new Error(`Genes output manifest has invalid owner encoding: ${manifestPath}`);
+  }
+  if (Buffer.from(decoded, "utf8").toString("base64") !== encodedOwner || decoded.length === 0) {
+    throw new Error(`Genes output manifest has non-canonical owner encoding: ${manifestPath}`);
+  }
+  return decoded;
+}
+
+function isTypeBearingModule(relativeFile: string): boolean {
+  return relativeFile.endsWith(".ts") || relativeFile.endsWith(".tsx");
+}
+
+function isPortableRelativeFile(relativeFile: string): boolean {
+  if (relativeFile.length === 0 || relativeFile.includes("\\") || relativeFile.includes("\0")) return false;
+  if (path.posix.isAbsolute(relativeFile) || path.posix.normalize(relativeFile) !== relativeFile) return false;
+  return relativeFile.split("/").every(segment => segment.length > 0 && segment !== "." && segment !== "..");
+}
+
+function isPathWithin(parentPath: string, candidatePath: string): boolean {
+  const relative = path.relative(parentPath, candidatePath);
+  return relative === ""
+    || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
+/** Matches Haxe's deterministic string ordering without host-locale rules. */
+function compareCodeUnits(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function createSourceMatcher(repoRoot: string, includePaths: ReadonlyArray<string>): (sourceFile: ts.SourceFile) => boolean {
   if (includePaths.length === 0) {
     throw new Error("Exported-surface audit requires at least one explicit include path.");
@@ -246,7 +466,7 @@ function createSourceMatcher(repoRoot: string, includePaths: ReadonlyArray<strin
 }
 
 function compareSourceFiles(left: ts.SourceFile, right: ts.SourceFile): number {
-  return left.fileName.localeCompare(right.fileName);
+  return compareCodeUnits(left.fileName, right.fileName);
 }
 
 function resolveAlias(checker: ts.TypeChecker, symbol: ts.Symbol): ts.Symbol {
@@ -268,7 +488,19 @@ function visitType(context: AuditContext, type: ts.Type, surfacePath: string, ro
   }
   if (context.activeTypes.has(type)) return;
 
+  // Recursive generic APIs can instantiate a fresh TypeScript `Type` object
+  // at each level even though every level comes from the same declaration.
+  // Object identity alone therefore does not bound traversal. The first visit
+  // owns that declaration's complete member/syntax graph; a recursive revisit
+  // checks immediate weak arguments, then stops before unfolding it again.
+  const typeOwner = type.aliasSymbol ?? type.symbol;
+  if (typeOwner !== undefined && context.activeTypeOwners.has(typeOwner)) {
+    visitImmediateWeakArguments(context, type, surfacePath, root);
+    return;
+  }
+
   context.activeTypes.add(type);
+  if (typeOwner !== undefined) context.activeTypeOwners.add(typeOwner);
   try {
     if (type.isUnionOrIntersection()) {
       type.types.forEach((member, index) => visitType(context, member, `${surfacePath}.member[${index}]`, root));
@@ -350,10 +582,10 @@ function visitType(context: AuditContext, type: ts.Type, surfacePath: string, ro
       visitType(context, constraint, `${surfacePath}.constraint`, root);
     }
 
-    if (!shouldExpandLocalStructure(context, type)) return;
+    if (!shouldExpandRootStructure(type, root)) return;
 
     for (const indexInfo of context.checker.getIndexInfosOfType(type)) {
-      if (indexInfo.declaration === undefined || !context.isIncluded(indexInfo.declaration.getSourceFile())) continue;
+      if (indexInfo.declaration === undefined || indexInfo.declaration.getSourceFile() !== root.sourceFile) continue;
       const indexKind = classifyIndexKind(indexInfo.keyType);
       if (indexKind !== undefined) {
         addFinding(context, indexKind, indexInfo.type, `${surfacePath}.[${renderType(context, indexInfo.keyType)}]`, root);
@@ -366,7 +598,7 @@ function visitType(context: AuditContext, type: ts.Type, surfacePath: string, ro
 
     for (const property of context.checker.getPropertiesOfType(type)) {
       const declarations = property.declarations ?? [];
-      const localDeclarations = declarations.filter(declaration => context.isIncluded(declaration.getSourceFile()));
+      const localDeclarations = declarations.filter(declaration => declaration.getSourceFile() === root.sourceFile);
       if (localDeclarations.length === 0 || localDeclarations.every(isNonPublicDeclaration)) continue;
       const declaration = property.valueDeclaration ?? localDeclarations[0];
       visitType(
@@ -377,8 +609,26 @@ function visitType(context: AuditContext, type: ts.Type, surfacePath: string, ro
       );
     }
   } finally {
+    if (typeOwner !== undefined) context.activeTypeOwners.delete(typeOwner);
     context.activeTypes.delete(type);
   }
+}
+
+function visitImmediateWeakArguments(
+  context: AuditContext,
+  type: ts.Type,
+  surfacePath: string,
+  root: ExportRoot
+): void {
+  const argumentsToCheck: ReadonlyArray<ts.Type> = (type.flags & ts.TypeFlags.Object) !== 0
+    && ((type as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference) !== 0
+    ? context.checker.getTypeArguments(type as ts.TypeReference)
+    : type.aliasTypeArguments ?? [];
+  argumentsToCheck.forEach((argument, index) => {
+    if ((argument.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) !== 0) {
+      visitType(context, argument, `${surfacePath}.recursiveArg[${index}]`, root);
+    }
+  });
 }
 
 /**
@@ -415,12 +665,23 @@ function isDefaultLibraryWeakDefault(
   );
 }
 
-function shouldExpandLocalStructure(context: AuditContext, type: ts.Type): boolean {
+/**
+ * Expands one module's own declarations without recursively unfolding every
+ * other enrolled generated module.
+ *
+ * Every compiler-owned module is now audited as an independent export root.
+ * Expanding imported structures again from each consumer would multiply the
+ * same graph paths and can unroll recursive generic APIs indefinitely. Weak
+ * imported values and explicit generic arguments are still inspected before
+ * this boundary; the imported declaration's own module audit owns its member
+ * graph.
+ */
+function shouldExpandRootStructure(type: ts.Type, root: ExportRoot): boolean {
   const declarations = [
     ...(type.aliasSymbol?.declarations ?? []),
     ...(type.symbol?.declarations ?? [])
   ];
-  return declarations.some(declaration => context.isIncluded(declaration.getSourceFile()));
+  return declarations.some(declaration => declaration.getSourceFile() === root.sourceFile);
 }
 
 function visitSignatures(
@@ -433,7 +694,7 @@ function visitSignatures(
 ): void {
   context.checker.getSignaturesOfType(type, kind).forEach((signature, signatureIndex) => {
     const declaration = signature.getDeclaration();
-    if (declaration === undefined || !context.isIncluded(declaration.getSourceFile())) return;
+    if (declaration === undefined || declaration.getSourceFile() !== root.sourceFile) return;
     const signaturePath = `${surfacePath}.${label}[${signatureIndex}]`;
 
     for (const typeParameter of signature.getTypeParameters() ?? []) {

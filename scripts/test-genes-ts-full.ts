@@ -135,23 +135,82 @@ writeFileSync(
   ].join("\n")
 );
 
-// The external negative consumer proves invalid access is rejected. The
-// semantic audit separately proves that neither `any` nor an index signature
-// can mask that API even when a future fixture stops touching a member.
-assertExportedSurfacePolicy({
-  repoRoot,
-  tsconfigPath: "tests/genes-ts/full/tsconfig.json",
-  includePaths: ["tests/genes-ts/full/out/src-gen/haxe/Constraints.ts"],
-  scope: "genes-ts-full-imap"
-});
+// The full profile intentionally pulls in Haxe macro/display APIs, Node
+// externs, and older tink libraries so the compiler sees difficult real-world
+// types. Those dependencies still contain broad Dynamic-shaped public
+// contracts. Inventory enrollment must not pretend they are safe, but fixing
+// all of those pre-existing contracts would hide the much smaller goal of this
+// gate: every newly owned module must be audited automatically. Keep this list
+// exact and stale-detecting while genes-ofy reduces or documents each boundary.
+const fullProfileKnownSurfaceGaps = [
+  "ANSI.ts",
+  "Reflect.ts",
+  "Std.ts",
+  "Type.ts",
+  "genes/Register.ts",
+  "genes/ts/Json.ts",
+  "genes/ts/JsonCodec.ts",
+  "genes/ts/UnknownNarrow.ts",
+  "haxe/Exception.ts",
+  "haxe/PosInfos.ts",
+  "haxe/ValueException.ts",
+  "haxe/display/Diagnostic.ts",
+  "haxe/display/Display.ts",
+  "haxe/display/JsonModuleTypes.ts",
+  "haxe/ds/EnumValueMap.ts",
+  "haxe/macro/Compiler.ts",
+  "haxe/macro/Expr.ts",
+  "haxe/macro/PlatformConfig.ts",
+  "js/Boot.ts",
+  "js/lib/Map.ts",
+  "js/node/Assert.ts",
+  "js/node/ChildProcess.ts",
+  "js/node/Util.ts",
+  "js/node/stream/Writable.ts",
+  "tests/TestAsyncAwait.ts",
+  "tests/TestImportModule.ts",
+  "tests/TestTsTypes.ts",
+  "tink/CoreApi.ts",
+  "tink/core/Annex.ts",
+  "tink/core/Any.ts",
+  "tink/core/Error.ts",
+  "tink/core/Future.ts",
+  "tink/core/Promise.ts",
+  "tink/core/Signal.ts",
+  "tink/streams/IdealStream.ts",
+  "tink/streams/RealStream.ts",
+  "tink/streams/Stream.ts",
+  "tink/streams/nodejs/NodejsStream.ts",
+  "tink/streams/nodejs/WrappedReadable.ts",
+  "tink/testrunner/Assertion.ts",
+  "tink/testrunner/Assertions.ts",
+  "tink/testrunner/Case.ts",
+  "tink/testrunner/Reporter.ts",
+  "tink/testrunner/Result.ts",
+  "tink/testrunner/Runner.ts",
+  "tink/testrunner/Suite.ts",
+  "tink/unit/AssertionBuffer.ts",
+  "tink/unit/TestCase.ts"
+] as const;
 
+// The external negative consumers prove important APIs reject invalid access.
+// The semantic audit separately enrolls every compiler-owned TypeScript module
+// from the output manifest, so a future file cannot evade inspection merely
+// because this script did not know its path yet.
 assertExportedSurfacePolicy({
   repoRoot,
   tsconfigPath: "tests/genes-ts/full/tsconfig.json",
-  includePaths: [
-    "tests/genes-ts/full/out/src-gen/tests/nullish/NullishMatrix.ts"
-  ],
-  scope: "genes-ts-full-nullish"
+  ownershipInventories: [{
+    outputRoot: "tests/genes-ts/full/out/src-gen",
+    outputIdentity: "index.ts",
+    classifications: fullProfileKnownSurfaceGaps.map(file => ({
+      file,
+      disposition: "known-gap" as const,
+      owner: "genes-ofy",
+      reason: "Legacy Dynamic-heavy stdlib, host, or regression dependency surface tracked for separate semantic narrowing."
+    }))
+  }],
+  scope: "genes-ts-full-owned-surfaces"
 });
 
 const dynamicImportOutput = readFileSync(

@@ -102,10 +102,32 @@ assertNoUnsafeTypes({
 assertExportedSurfacePolicy({
   repoRoot,
   tsconfigPath: "tests/genes-ts/snapshot/basic/tsconfig.json",
-  includePaths: [
-    "tests/genes-ts/snapshot/basic/out/src-gen/Main.ts",
-    "tests/genes-ts/snapshot/basic/out/src-gen/foo"
-  ],
+  ownershipInventories: [{
+    outputRoot: "tests/genes-ts/snapshot/basic/out/src-gen",
+    outputIdentity: "index.ts",
+    classifications: [
+      {
+        file: "genes/Register.ts",
+        disposition: "runtime-boundary",
+        reason: "Haxe's reflection registry intentionally stores heterogeneous host values behind one contained runtime API."
+      },
+      {
+        file: "genes/ts/UnknownNarrow.ts",
+        disposition: "runtime-boundary",
+        reason: "The reusable narrowing helper deliberately accepts unknown host values before returning guarded Haxe types."
+      },
+      {
+        file: "haxe/Exception.ts",
+        disposition: "runtime-boundary",
+        reason: "Haxe exceptions wrap arbitrary JavaScript-thrown values at the host exception boundary."
+      },
+      {
+        file: "haxe/ValueException.ts",
+        disposition: "runtime-boundary",
+        reason: "ValueException preserves arbitrary JavaScript-thrown payloads for Haxe-compatible exception behavior."
+      }
+    ]
+  }],
   scope: "genes-ts-basic",
   boundaryManifestPath: "tests/typing-policy/exported-surface-boundaries.json"
 });
