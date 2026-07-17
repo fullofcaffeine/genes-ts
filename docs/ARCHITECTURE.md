@@ -195,6 +195,7 @@ layer when a change affects more than one contract.
 | Nullish/map/iterator contract | `tests/nullish/` | Owning genes-ts/full and exported-surface gates |
 | Type-only reachability and DCE | `tests/typeonly/` | Owning genes-ts/full and dual-output gates |
 | Same-source TS/classic parity | `tests/output-modes/` | `yarn test:dual-output` |
+| String literal code units and escaping | `tests/string-literals/` | `yarn test:string-literals` |
 | Reusable package surface | `tests/library-profile/` | `yarn test:library-profile` |
 | Module directive prologues | `tests/module-directives/` | `yarn test:module-directives` |
 | ESM/CommonJS/package import shape | `tests/genes-ts/package-shapes/` | `yarn test:interop:module-shapes` |

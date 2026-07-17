@@ -50,7 +50,7 @@ called out below.
 | Delta | Original v0.4.14 | Reflaxe.Elixir vendor | Modern genes-ts | Disposition |
 | --- | --- | --- | --- | --- |
 | Native async/await | No typed public async authoring layer | Detects `__async_marker__`, filters it during printing, recognizes one raw `await {0}` spelling, and reads method metadata in the classic printer | `genes.js.Async` types and validates the authoring API, marks typed functions with private `:jsAsync` semantics, and both profiles emit native async/await | **Superseded**, with missing focused regressions tracked by `genes-7be.4` |
-| String literals | Iterates the compiler-time Haxe string and escapes each reported character | Walks `0...input.length` and calls `charCodeAt` | Still uses the original iterator in the shared classic/TS expression emitter | **Supported but under-tested**; Unicode/code-unit evidence is required before copying the indexed walk |
+| String literals | Iterates the compiler-time Haxe string and escapes each reported character | Walks `0...input.length` and calls `charCodeAt` | Retains the iterator and now has an exact code-unit differential | **Already supported**; both mechanisms match standard Haxe, original Genes, and the vendored fork, so no production port is justified |
 | Runtime globals | Uses an untyped object and bracket access | Uses `DynamicAccess<Object>` and explicit get/create logic | Uses a typed `HxRegistry`, `globalThis`, and narrow registry projections for classes and enums | **Superseded** by the stronger modern registry boundary |
 | Iterator runtime | Uses `untyped` array and structural iterator access | Replaces those operations with local `js.Syntax.code` calls | Centralizes the dynamic host boundary, supports arrays, callable/non-callable iterator fields, and map-like `keys/get` iteration | **Superseded**, with a few identity/shape cases still under-tested |
 | Bound-method cache | Uses `Dynamic` for receiver and method | Narrows to `Object`, `Function`, and `Null<Function>` while keeping hidden-field access in syntax calls | Preserves the Haxe JS cache protocol behind one documented dynamic runtime boundary | **Supported but under-tested**; do not adopt the narrower signature until it proves every real receiver/callable shape |
@@ -95,30 +95,30 @@ index access after await, exception propagation, single evaluation, source-map
 lookup at the await token, await misuse outside async context, and constructor
 misuse. This is `genes-7be.4`.
 
-### String literals: prove code units and runtime equality first
+### String literals: retain the current walk after exact comparison
 
 **Observed.** The vendor replaced `for (char in input)` with an indexed
-`charCodeAt` loop after a downstream Haxe 4.3.7 failure. Modern genes-ts still
-uses the original loop, and the full Haxe 4.3.7 gate succeeds for the current
-corpus. That proves ordinary compiler compatibility, not Unicode equivalence.
+`charCodeAt` loop after a downstream Haxe 4.3.7 failure. Modern genes-ts and
+original Genes retain the iterator. Because these operations run inside the
+compiler, their behavior could have depended on the macro host's string model;
+source resemblance alone was not enough to choose between them.
 
-**Observed.** No focused fixture currently covers surrogate pairs, combining
-characters, U+2028/U+2029, or exact runtime code-unit sequences. Both genes-ts
-and classic Genes call the same expression-emitter string routine, so an error
-here affects both profiles.
+**Executed experiment.** `tests/string-literals` now compares runtime UTF-16
+length and every ordered code unit for ASCII, quotes and slashes, newline/tab/
+carriage-return, NUL and another control byte, Latin-1, BMP Unicode, emoji,
+combining marks, U+2028/U+2029, a property key, and an import-like value. It
+also checks Unicode module-directive spelling and maps both metadata and an
+expression literal back to their Haxe source lines. Standard Haxe JS is the
+primary oracle; classic Genes and genes-ts TS 5/6/7 match it. On the reviewed
+machine, live original Genes and the live Reflaxe.Elixir vendor match the same
+transcript exactly.
 
-**Inference.** An indexed loop may be the more explicit contract, but Haxe
-string length and `charCodeAt` behavior are target-sensitive. Applying the
-vendor patch without measuring the macro/runtime strings could split an emoji,
-duplicate bytes, or merely replace one implementation with an equivalent one.
-
-**Decision.** Treat current literal emission as supported but under-tested.
-Before changing it, add one reduced fixture covering ASCII, quotes, slashes,
-control characters, Latin-1, BMP characters, emoji, combining characters,
-U+2028/U+2029, property keys, and source-map metadata. Compare generated parse
-success, runtime length, and every UTF-16 code unit in standard Haxe JS,
-classic Genes, and genes-ts. Reclassify as **missing and valid** only if that
-fixture exposes a real defect. This work belongs to `genes-7be.2`.
+**Decision.** The fork's indexed walk is behaviorally equivalent for the
+proved Haxe 4.3.7 boundary, not a missing compiler fix. Keep the current
+iterator, preserve the differential, and revisit the mechanism only if a
+future supported Haxe toolchain produces a failing code-unit case. This avoids
+production churn while retaining stronger evidence than either implementation
+previously had.
 
 ### Registry globals and iteration: modern architecture already absorbed the intent
 
@@ -218,8 +218,8 @@ compiler special case.
 
 ## Safe implementation order
 
-1. Complete the remaining literal and whitespace evidence in `genes-7be.2`;
-   the source-map and writer improvements have landed as independent slices.
+1. Complete the remaining raw whitespace evidence in `genes-7be.2`; literal
+   behavior is now proved and the source-map/Writer improvements have landed.
 2. Complete registry and bound-method runtime/type evidence in `genes-7be.3`.
 3. Complete the async supersession matrix in `genes-7be.4`; keep the marker
    protocol rejected.

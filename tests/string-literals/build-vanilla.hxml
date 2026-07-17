@@ -1,0 +1,11 @@
+-lib helder.set
+-cp ../genes-vanilla/src
+-cp tests/string-literals/src
+--main literalevidence.Main
+-js tests/string-literals/out/vanilla/index.js
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
+-debug
+--macro genes.Generator.use()
+--macro addMetadata('@:genes.disableNativeAccessors', 'haxe.Exception')

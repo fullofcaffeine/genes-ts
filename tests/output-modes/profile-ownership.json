@@ -78,6 +78,13 @@
       "resource": "tests/output-modes/resources/profile.json",
       "gate": "yarn test:dual-output",
       "contract": "Dependency planning retains the import attribute independently of printer syntax; TS and classic ESM both emit the JSON loader contract and execute the same checked-in module on supported Node releases."
+    },
+    "stringLiterals": {
+      "status": "exact-code-unit-cross-profile-differential",
+      "owner": "genes-7be.2",
+      "source": "tests/string-literals/src/literalevidence/Main.hx",
+      "gate": "yarn test:string-literals",
+      "contract": "Standard Haxe is the primary runtime oracle; classic Genes and genes-ts must preserve exact UTF-16 code units, parseable source, metadata spelling, and Haxe source-map provenance. A live original Genes checkout is a secondary oracle when available."
     }
   }
 }

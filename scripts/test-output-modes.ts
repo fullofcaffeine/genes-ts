@@ -194,6 +194,18 @@ function assertProfileOwnership(manifestUnknown: unknown): void {
     "tests/output-modes/resources/profile.json"
   );
   strictEqual(importAttributes.gate, "yarn test:dual-output");
+
+  const stringLiterals = requiredRecord(capabilities, "stringLiterals");
+  strictEqual(stringLiterals.owner, "genes-7be.2");
+  strictEqual(
+    stringLiterals.status,
+    "exact-code-unit-cross-profile-differential"
+  );
+  strictEqual(
+    stringLiterals.source,
+    "tests/string-literals/src/literalevidence/Main.hx"
+  );
+  strictEqual(stringLiterals.gate, "yarn test:string-literals");
 }
 
 function assertSourceMap(
