@@ -30,7 +30,19 @@ jobs:
       pull-requests: read
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/dependency-review-action@v4
+      - name: Review dependency changes
+        if: ${{ !github.event.repository.fork }}
+        uses: actions/dependency-review-action@v4
+      - name: Report fork dependency-review fallback
+        if: ${{ github.event.repository.fork }}
+        run: |
+          echo "::notice title=Dependency review unavailable on GitHub forks::The dependency-review API rejects fork repositories; the required Vulnerabilities (OSV) job still scans the pinned dependency set."
+          printf '%s\n' \
+            "### Dependency Review" \
+            "" \
+            "GitHub's dependency-review API is unavailable for fork repositories." \
+            "The required **Vulnerabilities (OSV)** job remains the security gate for the pinned dependency set." \
+            >> "$GITHUB_STEP_SUMMARY"
 
   secrets:
     name: Secrets (gitleaks)
@@ -206,5 +218,26 @@ jobs:
       - run: yarn install --frozen-lockfile
       - run: yarn lix install haxe ${{ steps.toolchains.outputs.haxe-preview }}
       - run: yarn lix use haxe ${{ steps.toolchains.outputs.haxe-preview }}
-      - run: yarn test
-      - run: yarn test:genes-ts:minimal
+      - id: preview-baseline
+        name: Run baseline suite against Haxe preview
+        continue-on-error: true
+        run: yarn test
+      - id: preview-minimal
+        name: Run minimal generated suite against Haxe preview
+        continue-on-error: true
+        run: yarn test:genes-ts:minimal
+      - name: Report Haxe preview compatibility
+        if: always()
+        env:
+          BASELINE_OUTCOME: ${{ steps.preview-baseline.outcome }}
+          MINIMAL_OUTCOME: ${{ steps.preview-minimal.outcome }}
+        run: |
+          printf '%s\n' \
+            "### Haxe preview compatibility (advisory)" \
+            "" \
+            "- Baseline suite: **$BASELINE_OUTCOME**" \
+            "- Minimal generated suite: **$MINIMAL_OUTCOME**" \
+            >> "$GITHUB_STEP_SUMMARY"
+          if [ "$BASELINE_OUTCOME" != "success" ] || [ "$MINIMAL_OUTCOME" != "success" ]; then
+            echo "::warning title=Haxe preview compatibility::baseline=$BASELINE_OUTCOME, minimal=$MINIMAL_OUTCOME. Supported Haxe remains authoritative."
+          fi
