@@ -47,6 +47,12 @@ class Main {
     return TemplateLiteral.value('${value}');
   }
 
+  @:keep
+  public static function compoundInterpolation(prefix: String,
+      count: Int): String {
+    return TemplateLiteral.value('/${prefix + count}/end');
+  }
+
   static function observe(label: String): String {
     events.push(label);
     return label.toUpperCase();
@@ -72,6 +78,7 @@ ${observe("first")}|${observe("second")}');
       href: href('a b/c'),
       staticHref: staticHref(),
       pureInterpolation: pureInterpolation('whole'),
+      compoundInterpolation: compoundInterpolation('item-', 7),
       escaped: escaped,
       events: events.copy()
     };

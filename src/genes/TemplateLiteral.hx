@@ -40,9 +40,12 @@ class TemplateLiteral {
    * authoring diagnostic.
    *
    * How: `MacroStringTools.formatString` applies Haxe's own `$name`/`${expr}`
-   * grammar, then this macro flattens only that returned concatenation tree.
-   * Reification preserves each embedded expression for ordinary Haxe typing;
-   * the marker's `Array<String>` signature rejects implicit broad coercions.
+   * grammar. Its generated concatenation is left-associated, so this macro
+   * flattens only that outer left spine and retains every right operand as one
+   * authored slot. An embedded `+` therefore remains inside `${...}` instead of
+   * becoming another template boundary. Reification preserves each expression
+   * for ordinary Haxe typing; the marker's `Array<String>` signature rejects
+   * implicit broad coercions.
    */
   public static macro function value(template: ExprOf<String>): ExprOf<String> {
     final callPos = Context.currentPos();
@@ -55,16 +58,23 @@ class TemplateLiteral {
     final chunks: Array<String> = [''];
     final values: Array<Expr> = [];
 
-    function append(expression: Expr): Void {
+    function appendPart(expression: Expr): Void {
       switch expression.expr {
-        case EBinop(OpAdd, left, right):
-          append(left);
-          append(right);
         case EConst(CString(value, _)):
           chunks[chunks.length - 1] += value;
         default:
           values.push(expression);
           chunks.push('');
+      }
+    }
+
+    function appendFormatted(expression: Expr): Void {
+      switch expression.expr {
+        case EBinop(OpAdd, left, right):
+          appendFormatted(left);
+          appendPart(right);
+        default:
+          appendPart(expression);
       }
     }
 
@@ -77,7 +87,7 @@ class TemplateLiteral {
         Context.error('[GENES-TEMPLATE-LITERAL-AUTHORING-001] TemplateLiteral.value expects a string literal or an authored interpolated string, not an arbitrary String expression.',
           template.pos);
     };
-    append(authored);
+    appendFormatted(authored);
 
     final chunkExpressions = [
       for (chunk in chunks) {

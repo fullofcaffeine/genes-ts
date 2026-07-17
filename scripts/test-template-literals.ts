@@ -80,12 +80,20 @@ ok(
   "genes-ts rejected or rewrote a template with no static text"
 );
 ok(
-  classicSource.includes('"/records/" + encodeURIComponent(id) + ""'),
+  tsSource.includes("return `/${prefix + count}/end`"),
+  "genes-ts split a compound interpolation into multiple template slots"
+);
+ok(
+  classicSource.includes('"/records/" + (encodeURIComponent(id)) + ""'),
   "classic Genes did not emit ordered string concatenation"
 );
 ok(
-  classicSource.includes('"" + value + ""'),
+  classicSource.includes('"" + (value) + ""'),
   "classic Genes rejected a template with no static text"
+);
+ok(
+  classicSource.includes('"/" + (prefix + count) + "/end"'),
+  "classic Genes reassociated a compound interpolation with template chunks"
 );
 for (const [profile, source] of [
   ["genes-ts", tsSource],
@@ -123,6 +131,7 @@ const expected = {
   href: "/records/a%20b%2Fc",
   staticHref: "/about",
   pureInterpolation: "whole",
+  compoundInterpolation: "/item-7/end",
   escaped: "tick`|slash\\|literal ${brace}|line\nFIRST|SECOND",
   events: ["first", "second"]
 };

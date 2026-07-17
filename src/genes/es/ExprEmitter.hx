@@ -744,9 +744,11 @@ class ExprEmitter extends Emitter {
    * inference, but it must execute the same values in the same order.
    *
    * What/How: a static template stays a string literal; a dynamic template is
-   * parenthesized concatenation beginning with a literal chunk. Interpolations
-   * are already typed as `String`, are printed once, and temporarily use their
-   * own expected type so an outer destination cannot alter nested emission.
+   * parenthesized concatenation beginning with a literal chunk. Each slot is
+   * also parenthesized so an embedded operator cannot reassociate with the
+   * surrounding `+` chain. Interpolations are already typed as `String`, are
+   * printed once, and temporarily use their own expected type so an outer
+   * destination cannot alter nested emission.
    */
   function emitTemplateLiteralIntent(intent:TemplateLiteralIntent):Void {
     emitPos(intent.pos);
@@ -757,10 +759,10 @@ class ExprEmitter extends Emitter {
     write('(');
     emitString(intent.chunks[0]);
     for (index in 0...intent.values.length) {
-      write(' + ');
+      write(' + (');
       final value = intent.values[index];
       emitValueWithExpectedType(value.t, value);
-      write(' + ');
+      write(') + ');
       emitString(intent.chunks[index + 1]);
     }
     write(')');
