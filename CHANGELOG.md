@@ -1,3 +1,10 @@
+# [1.34.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.33.1...v1.34.0) (2026-07-17)
+
+
+### Features
+
+* **generator:** support module directive prologues ([#1](https://github.com/fullofcaffeine/genes-ts/issues/1)) ([9b33a04](https://github.com/fullofcaffeine/genes-ts/commit/9b33a048769373c57bfc066160641badc5bf93ed))
+
 ## [1.33.1](https://github.com/fullofcaffeine/genes-ts/compare/v1.33.0...v1.33.1) (2026-07-17)
 
 
