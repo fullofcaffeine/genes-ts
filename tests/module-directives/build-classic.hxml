@@ -5,7 +5,7 @@
 -D dts
 -D no-deprecation-warnings
 -D js-es=6
--D genes.banner=/*module-directive-banner*/
+-D genes.banner=(0)/*module-directive-banner*/;
 -dce full
 -debug
 --macro include('module_directives')

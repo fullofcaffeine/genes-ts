@@ -142,9 +142,11 @@ literal markers on a single top-level declaration in the Haxe module:
 class Boundary {}
 ```
 
-Both implementation profiles emit the strings in source order before banners
-and imports. Exact repeats are coalesced. The marker never creates a DCE root,
-and classic `.d.ts` files omit runtime directives. See
+Both implementation profiles emit semicolon-terminated string statements in
+source order before banners and imports. Explicit termination prevents a
+following expression-continuation token from attaching through ASI. Exact
+repeats are coalesced. The marker never creates a DCE root, and classic `.d.ts`
+files omit runtime directives. See
 `docs/OUTPUT_MODES.md#module-directive-prologues`.
 
 ## Target-polymorphic helpers

@@ -44,10 +44,12 @@ function assertDirectiveShape(relativeFile: string): void {
   const source = readFileSync(path.join(outputRoot, relativeFile), "utf8");
   const lines = source.split(/\r?\n/).filter((line) => line.length > 0);
   deepStrictEqual(lines.slice(0, 3), [
-    '"alpha-mode"',
-    '"beta-mode"',
-    "/*module-directive-banner*/"
+    '"alpha-mode";',
+    '"beta-mode";',
+    "(0)/*module-directive-banner*/;"
   ], `${relativeFile} starts with the ordered directive plan before the banner`);
+  ok(lines[2].startsWith("("),
+    `${relativeFile} exercises an ASI-hostile expression-continuation banner`);
   strictEqual(source.match(/"alpha-mode"/g)?.length, 1,
     `${relativeFile} exact-deduplicates repeated directives`);
   strictEqual(source.match(/"beta-mode"/g)?.length, 1,
@@ -157,5 +159,5 @@ for (const profile of ["classic", "ts"] as const) {
 }
 
 process.stdout.write(
-  "module-directives:ok (ordered TS/classic prologues, DCE neutrality, runtime, mappings, diagnostics)\n"
+  "module-directives:ok (terminated TS/classic prologues, ASI safety, DCE neutrality, runtime, mappings, diagnostics)\n"
 );

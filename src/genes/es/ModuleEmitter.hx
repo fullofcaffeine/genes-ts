@@ -109,6 +109,7 @@ class ModuleEmitter extends ExprEmitter {
     for (directive in module.directivePlan.directives) {
       emitPos(directive.pos);
       emitString(directive.value);
+      write(';');
       writeNewline();
     }
   }

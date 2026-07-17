@@ -162,8 +162,11 @@ The compiler captures the plan before DCE but does not add `@:keep`, a module
 root, or a dependency edge. Consequently, an independently reachable module
 keeps its directive even if DCE removes the metadata-carrying type, while an
 otherwise unreachable annotated module remains absent. Both TypeScript and
-classic ESM print the same prologue before `genes.banner`, JSX/type imports,
-and runtime imports. Classic `.d.ts` output deliberately omits directives.
+classic ESM print the same semicolon-terminated prologue before `genes.banner`,
+JSX/type imports, and runtime imports. Explicit termination keeps a banner or
+other following text beginning with `(`, `[`, or another continuation token
+from attaching to the directive through automatic semicolon insertion. Classic
+`.d.ts` output deliberately omits directives.
 
 `yarn test:module-directives` owns the dual-profile shape, strict TypeScript,
 runtime, DCE-neutrality, source-map, diagnostic, and rollback evidence.

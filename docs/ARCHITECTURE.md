@@ -134,9 +134,10 @@ capability diagnostic in classic mode.
   internal/external identity, path, and optional loader attribute. Printers do
   not infer evaluation order from a path-grouped map. Equal requests coalesce
   at first occurrence, and a real binding can satisfy an earlier bare request.
-- Runtime module directives are an explicit pre-DCE plan, emitted before every
-  banner and import in both implementation profiles. Metadata can affect only
-  a module already selected by ordinary reachability and never enters `.d.ts`.
+- Runtime module directives are an explicit pre-DCE plan, emitted as terminated
+  statements before every banner and import in both implementation profiles.
+  Metadata can affect only a module already selected by ordinary reachability
+  and never enters `.d.ts`.
 - Public generated TypeScript is closed and precise. Broad `any`, `unknown`, or
   catch-all index signatures require a named, documented foreign boundary.
 - A finalizer executes exactly once. `FinallyCompletion.run` places only its
