@@ -1,13 +1,13 @@
-import {Router} from "../Router"
-import type {ReactElement, ChangeEvent} from "../ReactTypes"
-import {Client} from "../Client"
-import type {Todo} from "../../shared/Todo"
-import {ReactRouterDom_Fields_} from "../../extern/ReactRouterDom"
-import {React_Fields_} from "../../extern/React"
-import {useNavigate, Link} from "react-router-dom"
 import {useState, useEffect} from "react"
-import {Register} from "../../../genes/Register"
+import {useNavigate, Link} from "react-router-dom"
+import {Router} from "../Router"
+import {React_Fields_} from "../../extern/React"
+import {ReactRouterDom_Fields_} from "../../extern/ReactRouterDom"
+import {Client} from "../Client"
 import {StringTools} from "../../../StringTools"
+import {Register} from "../../../genes/Register"
+import type {ReactElement, ChangeEvent} from "../ReactTypes"
+import type {Todo} from "../../shared/Todo"
 
 export class TodoDetailPage {
 	static Component(): ReactElement {

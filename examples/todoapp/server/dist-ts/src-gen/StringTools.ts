@@ -1,5 +1,5 @@
-import {Register} from "./genes/Register.js"
 import {HxOverrides} from "./HxOverrides.js"
+import {Register} from "./genes/Register.js"
 
 /**
 This class provides advanced methods on Strings. It is ideally used with

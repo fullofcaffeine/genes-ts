@@ -1,14 +1,14 @@
-import {Register} from "./genes/Register.js"
-import {TypedCatch} from "./foo/TypedCatch.js"
-import {ServerCallbacks} from "./foo/ServerCallbacks.js"
-import {Placeholder} from "./foo/Placeholder.js"
-import {Narrowing} from "./foo/Narrowing.js"
-import {JsonAlias} from "./foo/JsonAlias.js"
-import {Foo} from "./foo/Foo.js"
-import {EnumAbstract} from "./foo/EnumAbstract.js"
-import {BoundaryTypes} from "./foo/BoundaryTypes.js"
-import {AsyncFoo} from "./foo/AsyncFoo.js"
 import __genes_import_ThemeFixture from "./resources/theme.json" with { type: "json" }
+import {Foo} from "./foo/Foo.js"
+import {AsyncFoo} from "./foo/AsyncFoo.js"
+import {BoundaryTypes} from "./foo/BoundaryTypes.js"
+import {Placeholder} from "./foo/Placeholder.js"
+import {EnumAbstract} from "./foo/EnumAbstract.js"
+import {JsonAlias} from "./foo/JsonAlias.js"
+import {ServerCallbacks} from "./foo/ServerCallbacks.js"
+import {Narrowing} from "./foo/Narrowing.js"
+import {TypedCatch} from "./foo/TypedCatch.js"
+import {Register} from "./genes/Register.js"
 
 type JsonPrimitive = null | boolean | number | string
 type JsonObject = { readonly [key: string]: JsonValue }

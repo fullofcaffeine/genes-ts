@@ -1,5 +1,5 @@
-import type {PushSubscriptionKeys} from "./PushSubscriptionKeys"
 import {Register} from "../../../genes/Register"
+import type {PushSubscriptionKeys} from "./PushSubscriptionKeys"
 
 export type PushSubscriptionJSON = {
 	endpoint?: string | null,

@@ -1,5 +1,5 @@
-import {Register} from "../../genes/Register.js"
 import {Std} from "../../Std.js"
+import {Register} from "../../genes/Register.js"
 
 export class TodoId {
 	static create(): string {

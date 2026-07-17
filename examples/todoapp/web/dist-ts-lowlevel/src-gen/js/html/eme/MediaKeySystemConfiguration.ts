@@ -1,5 +1,5 @@
-import type {MediaKeySystemMediaCapability} from "./MediaKeySystemMediaCapability"
 import {Register} from "../../../genes/Register"
+import type {MediaKeySystemMediaCapability} from "./MediaKeySystemMediaCapability"
 
 /**
 The `MediaKeySystemConfiguration` interface Encrypted Media Extensions API provides configuration information about the media key system.

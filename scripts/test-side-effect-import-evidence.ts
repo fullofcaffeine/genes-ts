@@ -138,9 +138,13 @@ run("haxe", ["tests/side-effect-import/build-classic.hxml"]);
 run("haxe", ["tests/side-effect-import/build-ts.hxml"]);
 run("haxe", ["tests/side-effect-import/build-projection-classic.hxml"]);
 run("haxe", ["tests/side-effect-import/build-projection-ts.hxml"]);
+run("haxe", ["tests/side-effect-import/build-bound-standard.hxml"]);
+run("haxe", ["tests/side-effect-import/build-bound-classic.hxml"]);
+run("haxe", ["tests/side-effect-import/build-bound-ts.hxml"]);
 stageRuntime("classic/sideeffectevidence");
 stageRuntime("ts/src-gen/sideeffectevidence");
 runGeneratedTypeScriptMatrix("tests/side-effect-import/tsconfig.json");
+runGeneratedTypeScriptMatrix("tests/side-effect-import/tsconfig-bound.json");
 stageRuntime("ts/dist/sideeffectevidence");
 
 genesCompileFailure("side_effect_nonliteral",
@@ -188,6 +192,18 @@ deepStrictEqual(runtimeTranscript("tests/side-effect-import/out/ts/dist/index.js
   "external:second",
   "first,second"
 ]);
+
+// Standard Haxe is the semantic reference for ordinary bound-module static
+// initialization. Both Genes profiles consume the same typed source and must
+// not let a lookup Map silently replace that executable encounter order.
+for (const relativeFile of [
+  "tests/side-effect-import/out/bound-standard/index.js",
+  "tests/side-effect-import/out/bound-classic/index.js",
+  "tests/side-effect-import/out/bound-ts/dist/index.js"
+]) {
+  deepStrictEqual(runtimeTranscript(relativeFile), ["boundary,placeholder"],
+    `${relativeFile} preserves bound-module initialization order`);
+}
 
 const internalSources = [
   readFileSync(path.join(outputRoot, "classic/sideeffectevidence/Main.js"), "utf8"),

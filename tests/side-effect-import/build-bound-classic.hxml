@@ -1,0 +1,7 @@
+-lib genes-ts
+-cp tests/side-effect-import/src
+--main sideeffectboundorder.Main
+-js tests/side-effect-import/out/bound-classic/index.js
+-D no-deprecation-warnings
+-D js-es=6
+-dce full

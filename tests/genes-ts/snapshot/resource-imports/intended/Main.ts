@@ -1,6 +1,6 @@
-import {Register} from "./genes/Register.js"
-import __genes_import_PulseFile from "./resources/pulse.wav" with { type: "file" }
 import __genes_import_PromptText from "./resources/prompt.txt"
+import __genes_import_PulseFile from "./resources/pulse.wav" with { type: "file" }
+import {Register} from "./genes/Register.js"
 
 export type ResourceModule = {
 	default: string

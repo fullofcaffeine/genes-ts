@@ -1,5 +1,5 @@
-import {Register} from "./genes/Register"
 import {HxOverrides} from "./HxOverrides"
+import {Register} from "./genes/Register"
 
 /**
 This class provides advanced methods on Strings. It is ideally used with

@@ -1,10 +1,10 @@
-import {renderToStaticMarkup as __genes_import_renderToStaticMarkup} from "react-dom/server"
 import * as React__genes_jsx from "react"
+import __genes_import_Button from "./components/Button.js"
+import {renderToStaticMarkup as __genes_import_renderToStaticMarkup} from "react-dom/server"
 import {Exception} from "./haxe/Exception.js"
-import {Register} from "./genes/Register.js"
 import {createSignal as __genes_import_createSignal, createMemo as __genes_import_createMemo} from "./runtime/signals.js"
 import __genes_import_Status from "./components/Status.js"
-import __genes_import_Button from "./components/Button.js"
+import {Register} from "./genes/Register.js"
 
 export type StringAccessor = (() => string)
 

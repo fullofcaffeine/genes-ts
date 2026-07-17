@@ -1,8 +1,8 @@
+import {Fetch} from "../extern/Fetch"
+import {Register} from "../../genes/Register"
 import type {Todo} from "../shared/Todo"
 import type {UpdateTodoBody, ErrorResponse, TodoListResponse, TodoResponse, CreateTodoBody} from "../shared/Api"
-import {Fetch} from "../extern/Fetch"
 import type {FetchHeaders, FetchRequestInit, FetchResponse} from "../extern/Fetch"
-import {Register} from "../../genes/Register"
 
 export class Client {
 	static requestJson<T>(method: string, url: string, body: {

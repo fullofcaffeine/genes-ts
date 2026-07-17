@@ -1,10 +1,10 @@
 import {TodoId} from "../shared/TodoId.js"
-import type {Todo} from "../shared/Todo.js"
-import type {UpdateTodoBody} from "../shared/Api.js"
+import * as Fs from "fs"
 import {Exception} from "../../haxe/Exception.js"
 import {Register} from "../../genes/Register.js"
-import * as Fs from "fs"
+import type {Todo} from "../shared/Todo.js"
 import type {Console} from "console"
+import type {UpdateTodoBody} from "../shared/Api.js"
 
 export type PersistedStore = {
 	todos: Todo[]

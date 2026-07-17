@@ -1,5 +1,5 @@
-import type {Todo} from "./Todo.js"
 import {Register} from "../../genes/Register.js"
+import type {Todo} from "./Todo.js"
 
 export type TodoListResponse = {
 	todos: Todo[]

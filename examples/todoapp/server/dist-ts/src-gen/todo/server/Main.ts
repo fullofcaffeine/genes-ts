@@ -1,14 +1,14 @@
-import type {Todo} from "../shared/Todo.js"
-import type {TodoListResponse, ErrorResponse, TodoResponse, CreateTodoBody, UpdateTodoBody} from "../shared/Api.js"
-import {Store} from "./Store.js"
-import type {ExpressApp, ExpressRequest, ExpressResponse} from "../extern/Express.js"
 import * as Path from "path"
-import {Register} from "../../genes/Register.js"
-import * as Fs from "fs"
+import {Store} from "./Store.js"
 import Express from "express"
-import type {Console} from "console"
 import {StringTools} from "../../StringTools.js"
+import * as Fs from "fs"
 import {Std} from "../../Std.js"
+import {Register} from "../../genes/Register.js"
+import type {Console} from "console"
+import type {ExpressApp, ExpressRequest, ExpressResponse} from "../extern/Express.js"
+import type {TodoListResponse, ErrorResponse, TodoResponse, CreateTodoBody, UpdateTodoBody} from "../shared/Api.js"
+import type {Todo} from "../shared/Todo.js"
 
 export class Main {
 	static main(): void {

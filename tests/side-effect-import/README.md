@@ -37,6 +37,10 @@ stage executes classic ESM and generated strict TypeScript.
   request is deduplicated. Classic declarations contain none of those requests.
 - A later `String` binding satisfies an earlier gamma request and retains the
   allocator's collision-safe `String__1` alias in both printers.
+- Ordinary bound modules initialize in the same typed encounter order under
+  standard Haxe JS, classic Genes, and genes-ts. This case contains no bare
+  request marker, so it directly guards the bound-only projection from
+  path-grouped `Map` reordering.
 - `Imports.sideEffect(...)` and `sideEffectWith(...)` survive full DCE as typed
   `Void` statements, preserve their source order, coalesce an equal duplicate,
   and execute external JavaScript/JSON requests in TS and classic output.

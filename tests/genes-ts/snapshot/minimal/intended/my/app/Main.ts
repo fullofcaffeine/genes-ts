@@ -1,7 +1,7 @@
-import {MyEnum} from "./MyEnum.js"
 import {MyClass} from "./MyClass.js"
-import {Exception} from "../../haxe/Exception.js"
+import {MyEnum} from "./MyEnum.js"
 import {Register} from "../../genes/Register.js"
+import {Exception} from "../../haxe/Exception.js"
 import type {HxRegistry} from "../../genes/Register.js"
 
 export class Main {

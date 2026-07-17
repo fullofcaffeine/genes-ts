@@ -1,9 +1,9 @@
-import type {MediaTrackConstraintSet} from "./MediaTrackConstraintSet"
-import type {ConstrainLongRange} from "./ConstrainLongRange"
-import type {ConstrainDoubleRange} from "./ConstrainDoubleRange"
-import type {ConstrainDOMStringParameters} from "./ConstrainDOMStringParameters"
-import type {ConstrainBooleanParameters} from "./ConstrainBooleanParameters"
 import {Register} from "../../genes/Register"
+import type {MediaTrackConstraintSet} from "./MediaTrackConstraintSet"
+import type {ConstrainBooleanParameters} from "./ConstrainBooleanParameters"
+import type {ConstrainLongRange} from "./ConstrainLongRange"
+import type {ConstrainDOMStringParameters} from "./ConstrainDOMStringParameters"
+import type {ConstrainDoubleRange} from "./ConstrainDoubleRange"
 
 /**
 The `MediaTrackConstraints` dictionary is used to describe a set of capabilities and the value or values each can take on. A constraints dictionary is passed into `applyConstraints()` to allow a script to establish a set of exact (required) values or ranges and/or preferred values or ranges of values for the track, and the most recently-requested set of custom constraints can be retrieved by calling `getConstraints()`.

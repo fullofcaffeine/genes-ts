@@ -1,8 +1,8 @@
-import type {ReactComponent} from "./ReactTypes"
+import {Exception} from "../../haxe/Exception"
 import {App} from "./App"
 import * as ReactDomClient from "react-dom/client"
-import {Exception} from "../../haxe/Exception"
 import {Register} from "../../genes/Register"
+import type {ReactComponent} from "./ReactTypes"
 
 export class Main {
 	static main(): void {

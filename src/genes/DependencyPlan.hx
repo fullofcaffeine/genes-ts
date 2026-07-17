@@ -239,9 +239,10 @@ private typedef MutableModuleRequestPlan = {
  * expressions. Implementation printers consume an explicit ordered request
  * projection routed through the established collision-safe alias allocator.
  * The edge array is defensively copied and exposed read-only, making traversal
- * and output deterministic for one compilation. A narrow bound-only
- * compatibility projection preserves established output ordering until a real
- * side-effect edge makes semantic request order observable.
+ * and output deterministic for one compilation. The edge array remains the
+ * order owner for both bound and binding-free runtime requests. `Dependencies`
+ * maps are lookup and alias-allocation structures only; iterating them cannot
+ * replace source encounter order because ESM evaluates bound imports too.
  */
 class DependencyPlan {
   final edgeValues: Array<DependencyEdge>;
@@ -296,7 +297,6 @@ class DependencyPlan {
     final bindings = new Dependencies(module, true);
     final runtimePlans: Array<MutableModuleRequestPlan> = [];
     final typePlans: Array<MutableModuleRequestPlan> = [];
-    var hasRuntimeSideEffect = false;
 
     function findOrAdd(plans: Array<MutableModuleRequestPlan>,
         request: DependencyModuleRequest,
@@ -349,7 +349,6 @@ class DependencyPlan {
       switch edge.importSpec {
         case SideEffect(request):
           if (runtimeEdge) {
-            hasRuntimeSideEffect = true;
             findOrAdd(runtimePlans, request, edge.provenance);
           }
 
@@ -388,41 +387,13 @@ class DependencyPlan {
       return result;
     }
 
-    var frozenRuntime = freeze(runtimePlans, false);
-    var frozenTypes = freeze(typePlans, true);
+    final frozenRuntime = freeze(runtimePlans, false);
+    final frozenTypes = freeze(typePlans, true);
     final declarations: Array<ImportDeclarationPlan> = [];
-
-    if (!hasRuntimeSideEffect) {
-      /**
-       * Existing bound-only modules have no Haxe source-level ESM declaration
-       * order to preserve, but their checked-in trees expose the historical
-       * StringMap spelling order. Freeze that order into the array here—not in
-       * either printer—so the semantic refactor is byte-stable. Modules with a
-       * side-effect edge never enter this compatibility path: their edge order
-       * is observable initialization behavior and remains authoritative.
-       */
-      final legacyRuntime: Array<ModuleRequestPlan> = [];
-      final legacyTypes: Array<ModuleRequestPlan> = [];
-      for (path => _ in bindings.imports) {
-        for (plan in frozenRuntime)
-          if (plan.request.path == path) {
-            legacyRuntime.push(plan);
-            declarations.push(new ImportDeclarationPlan(plan, false));
-          }
-        for (plan in frozenTypes)
-          if (plan.request.path == path) {
-            legacyTypes.push(plan);
-            declarations.push(new ImportDeclarationPlan(plan, true));
-          }
-      }
-      frozenRuntime = legacyRuntime;
-      frozenTypes = legacyTypes;
-    } else {
-      for (plan in frozenRuntime)
-        declarations.push(new ImportDeclarationPlan(plan, false));
-      for (plan in frozenTypes)
-        declarations.push(new ImportDeclarationPlan(plan, true));
-    }
+    for (plan in frozenRuntime)
+      declarations.push(new ImportDeclarationPlan(plan, false));
+    for (plan in frozenTypes)
+      declarations.push(new ImportDeclarationPlan(plan, true));
 
     return new DependencyProjection(bindings, frozenRuntime, frozenTypes,
       declarations);

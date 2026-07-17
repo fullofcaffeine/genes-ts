@@ -1,8 +1,8 @@
 import {TodoListPage} from "./pages/TodoListPage"
 import {TodoDetailPage} from "./pages/TodoDetailPage"
-import type {ReactElement, ReactComponent} from "./ReactTypes"
 import {Link, Route, Routes, BrowserRouter} from "react-router-dom"
 import {Register} from "../../genes/Register"
+import type {ReactElement, ReactComponent} from "./ReactTypes"
 
 export class App {
 	static Component(): ReactElement {

@@ -1,5 +1,5 @@
-import type {ObserverCallback} from "./ObserverCallback"
 import {Register} from "../../genes/Register"
+import type {ObserverCallback} from "./ObserverCallback"
 
 export type RequestInit = {
 	body?: Blob | ArrayBufferView | ArrayBuffer | FormData | URLSearchParams | string | null,

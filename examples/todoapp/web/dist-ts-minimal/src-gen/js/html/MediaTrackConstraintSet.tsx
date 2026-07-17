@@ -1,8 +1,8 @@
-import type {ConstrainLongRange} from "./ConstrainLongRange"
-import type {ConstrainDoubleRange} from "./ConstrainDoubleRange"
-import type {ConstrainDOMStringParameters} from "./ConstrainDOMStringParameters"
-import type {ConstrainBooleanParameters} from "./ConstrainBooleanParameters"
 import {Register} from "../../genes/Register"
+import type {ConstrainBooleanParameters} from "./ConstrainBooleanParameters"
+import type {ConstrainLongRange} from "./ConstrainLongRange"
+import type {ConstrainDOMStringParameters} from "./ConstrainDOMStringParameters"
+import type {ConstrainDoubleRange} from "./ConstrainDoubleRange"
 
 export type MediaTrackConstraintSet = {
 	autoGainControl?: boolean | ConstrainBooleanParameters | null,
