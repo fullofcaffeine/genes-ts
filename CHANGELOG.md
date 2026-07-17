@@ -1,3 +1,10 @@
+## [1.35.3](https://github.com/fullofcaffeine/genes-ts/compare/v1.35.2...v1.35.3) (2026-07-17)
+
+
+### Bug Fixes
+
+* **ts2hx:** retire stale manifest-owned output ([3f7b16f](https://github.com/fullofcaffeine/genes-ts/commit/3f7b16f4e9764c643018653f3c5d0e62815c589e))
+
 ## [1.35.2](https://github.com/fullofcaffeine/genes-ts/compare/v1.35.1...v1.35.2) (2026-07-17)
 
 
