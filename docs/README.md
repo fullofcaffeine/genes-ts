@@ -45,6 +45,7 @@ feature surface beyond the quick examples in `readme.md`.
 - `PRD_TODOAPP_HARNESS.md` — historical todoapp integration-harness + ts2hx roundtrip PRD
 - `PRIME_TIME_CRITERIA.md` — bounded-readiness criteria and evidence map (historical filename)
 - `ARCHITECTURE_ROADMAP.md` — audit disposition, shared TS/JS architecture, and dependency-ordered roadmap
+- `REFLAXE_ELIXIR_VENDOR_AUDIT.md` — three-way disposition of the useful, superseded, and downstream-only changes in Reflaxe.Elixir's vendored Genes copy
 - `DOCS_PLAN.md` — docs PRD/roadmap (onboarding + workflows)
 - `prompts/GPT_5_6_SIDE_EFFECT_IMPORT_ARCHITECTURE.md` — focused evidence packet for resolving ordered ESM side-effect imports before implementation
 - `prompts/GPT_5_6_SIDE_EFFECT_IMPORT_ARCHITECTURE_RESPONSE.md` — reviewed semantic model, supported boundary, experiments, and incremental landing contract
