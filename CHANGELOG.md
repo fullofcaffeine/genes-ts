@@ -1,3 +1,10 @@
+## [1.35.2](https://github.com/fullofcaffeine/genes-ts/compare/v1.35.1...v1.35.2) (2026-07-17)
+
+
+### Bug Fixes
+
+* **ts2hx:** coordinate diagnostics publication ([face6ea](https://github.com/fullofcaffeine/genes-ts/commit/face6ead9bfa23a343c140f7d627b800199bfb61))
+
 ## [1.35.1](https://github.com/fullofcaffeine/genes-ts/compare/v1.35.0...v1.35.1) (2026-07-17)
 
 
