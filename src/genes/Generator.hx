@@ -293,7 +293,10 @@ class Generator {
     if (tsMode) {
       final stdTypesPath = Path.join([outputDir, 'StdTypes'])
         + Genes.outExtension;
-      outputTransaction.retire(stdTypesPath + '.map');
+      // The normal manifest diff retires source maps produced by an older
+      // Genes build. A historical filename alone is not ownership evidence:
+      // the output directory may also contain a user-created file with that
+      // name, so first builds must leave it untouched.
       StdTypesEmitter.emit(stdTypesPath, outputTransaction);
     }
 

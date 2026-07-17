@@ -39,7 +39,6 @@ class OutputTransaction {
   final stageRelative: String;
   final outputRootExisted: Bool;
   final staged: Map<String, Bool> = new Map();
-  final retired: Map<String, Bool> = new Map();
   var stagePrepared = false;
   var committed = false;
 
@@ -83,13 +82,6 @@ class OutputTransaction {
     register(relativePath(path), content);
   }
 
-  /** Removes a known legacy artifact even if an older manifest did not own it. */
-  public function retire(path: String): Void {
-    final relative = relativePath(path);
-    if (!staged.exists(relative))
-      retired.set(relative, true);
-  }
-
   /**
    * Abandons an uncommitted generation and removes private staging artifacts.
    *
@@ -127,9 +119,6 @@ class OutputTransaction {
       final current = sortedKeys(staged);
       final staleSet: Map<String, Bool> = new Map();
       for (relative in previous)
-        if (!staged.exists(relative))
-          staleSet.set(relative, true);
-      for (relative in retired.keys())
         if (!staged.exists(relative))
           staleSet.set(relative, true);
       final stale = sortedKeys(staleSet);
@@ -226,7 +215,6 @@ class OutputTransaction {
       throw new haxe.Exception('Cannot register output after commit: $relative');
     if (staged.exists(relative))
       throw new haxe.Exception('Two emitters own the same output path: $relative');
-    retired.remove(relative);
     prepareStageRoot();
     final path = stagePath(relative);
     ensureDirectory(Path.directory(path));

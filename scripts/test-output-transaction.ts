@@ -137,9 +137,46 @@ rmSync(path.join(fixtureRoot, "out"), { recursive: true, force: true });
 for (const profile of profiles) {
   const outputRoot = path.join(fixtureRoot, "out", profile.id);
   const userAsset = path.join(outputRoot, "assets/user-owned.txt");
+  const unownedLegacyMap = profile.id === "ts"
+    ? path.join(outputRoot, "StdTypes.ts.map")
+    : null;
+  const unownedLegacyMapContents = "user-owned-legacy-map\n";
   const initialDefines = ["output_transaction_include_stale"];
 
+  // A historical compiler filename is not proof of compiler ownership. This
+  // sentinel deliberately exists before the first manifest, so a successful
+  // build must preserve it and must not claim it in the new manifest.
+  if (unownedLegacyMap !== null) {
+    mkdirSync(path.dirname(unownedLegacyMap), { recursive: true });
+    writeFileSync(unownedLegacyMap, unownedLegacyMapContents, "utf8");
+  }
+
   run(profile, initialDefines);
+  if (unownedLegacyMap !== null) {
+    strictEqual(
+      readFileSync(unownedLegacyMap, "utf8"),
+      unownedLegacyMapContents,
+      "ts: first build deleted an unowned historical source-map filename"
+    );
+    ok(
+      !manifestPaths(outputRoot).includes("StdTypes.ts.map"),
+      "ts: manifest claimed the unowned historical source map"
+    );
+
+    // Model an older Genes build that did affirmatively own this path. Once
+    // ownership appears in a recognized manifest, ordinary stale cleanup—not
+    // the filename—must remove it on the next successful publication.
+    writeFileSync(unownedLegacyMap, "genes-owned-legacy-map\n", "utf8");
+    const previousOwned = [
+      ...manifestPaths(outputRoot),
+      "StdTypes.ts.map"
+    ].sort((left, right) => left.localeCompare(right));
+    writeFileSync(
+      path.join(outputRoot, ".genes-output-index.manifest"),
+      ["genes-output-manifest-v1", ...previousOwned, ""].join("\n"),
+      "utf8"
+    );
+  }
   mkdirSync(path.dirname(userAsset), { recursive: true });
   writeFileSync(userAsset, `user-owned-${profile.id}\n`, "utf8");
   for (const relative of profile.stale)
@@ -186,6 +223,9 @@ for (const profile of profiles) {
   for (const relative of profile.stale)
     ok(!existsSync(path.join(outputRoot, relative)),
       `${profile.id}: stale owned path survived: ${relative}`);
+  if (unownedLegacyMap !== null)
+    ok(!existsSync(unownedLegacyMap),
+      "ts: prior manifest-owned historical source map survived");
   strictEqual(readFileSync(userAsset, "utf8"), `user-owned-${profile.id}\n`);
   const owned = manifestPaths(outputRoot);
   ok(owned.includes(profile.implementation),
