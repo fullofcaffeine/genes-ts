@@ -18,6 +18,32 @@ class SourcePositionData {
   public final file: Null<String>;
 }
 
+/**
+ * The exact JSON record written for one version-three source map.
+ *
+ * Why: this compiler-owned value used to be `Dynamic`, even though every key
+ * is fixed by the source-map contract. That made a misspelled or wrongly typed
+ * field invisible to Haxe and encouraged callers to treat serialization as an
+ * untyped boundary.
+ *
+ * What: required map fields are immutable after construction. Source entries
+ * may be `null` for compiler-generated positions, and `sourcesContent` is
+ * optional because it is emitted only for the `source_map_content` profile.
+ *
+ * How: the type remains private to this implementation module. `haxe.Json`
+ * serializes the same anonymous record as before, so typing the record must not
+ * change property order, bytes, source paths, or transaction ownership.
+ */
+private typedef SourceMapJson = {
+  final version: Int;
+  final names: Array<String>;
+  final file: String;
+  final sourceRoot: String;
+  final sources: Array<Null<String>>;
+  final mappings: String;
+  @:optional var sourcesContent: Array<Null<String>>;
+}
+
 @:forward
 abstract SourcePosition(SourcePositionData) from SourcePositionData {
   @:from static function fromTypedExpr(expr: TypedExpr)
@@ -109,8 +135,8 @@ class SourceMapGenerator {
     previousSource = source;
   }
 
-  public function toJSON(path: String, withSources: Bool) {
-    final map: Dynamic = {
+  public function toJSON(path: String, withSources: Bool): SourceMapJson {
+    final map: SourceMapJson = {
       version: 3,
       names: [],
       file: Path.withoutDirectory(Path.withoutExtension(path)),
