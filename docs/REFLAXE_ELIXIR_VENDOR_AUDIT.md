@@ -263,6 +263,84 @@ part of that stack manually. Duplicate activation and output differences must
 be tested in a disposable downstream worktree, not guessed or hidden in a
 compiler special case.
 
+## Disposable Reflaxe.Elixir verification
+
+The downstream adoption experiment used Reflaxe.Elixir commit
+`1ce84dcfef6c1633e56cbc8e266984519181d84f` in a disposable Git worktree and
+Genes commit `2a69b6e`. The real Reflaxe.Elixir worktree, including its
+vendored compiler, was not modified. The experiment replaced only the
+disposable worktree's Genes library descriptor with the modern Genes source
+and activation contract. It deliberately left the five client HXML files'
+historical `Generator.use()` and native-accessor metadata calls in place. This
+proved that modern automatic activation and the downstream's duplicate manual
+activation can coexist; it did not add a downstream compatibility branch to
+the compiler.
+
+### What was executed
+
+All five browser clients compiled in classic ESM mode against the same pushed
+Genes revision:
+
+- Phoenix chat;
+- Elixir-first LiveView;
+- Haxe-first Phoenix chat;
+- the RailsHx-to-PhoenixHx todo example; and
+- the standalone todo application.
+
+The downstream aggregate example, expected-output, warnings-as-errors Elixir,
+runtime, and QA-guard commands all passed. Each example's normal asset pipeline
+also passed: TypeScript checking and Vite for Phoenix chat, esbuild for the
+LiveView and Haxe-first clients, Tailwind plus esbuild for the RailsHx port,
+and Tailwind plus esbuild for the standalone todo application. Two examples
+needed their own declared npm dependencies installed before those commands
+could run; the initial missing-command/module failures were environment setup,
+not generated-code failures.
+
+The bounded standalone-todo browser sentinel passed five Playwright journeys:
+basic use, optimistic toggling, presence collaboration, search, and the typed
+channel flow. The bounded RailsHx-port sentinel passed its browser journey
+after restoring that snapshot's checked-in migrations. An earlier run asked
+the downstream migration generator to replace those timestamped migrations;
+Ecto then discovered no root migrations and the browser correctly reported a
+missing `users` table. That generator does not load Genes, so this was isolated
+as a downstream migration-output issue rather than hidden as compiler evidence.
+
+### Generated output and source maps
+
+The reviewed modern ESM intentionally differs from the old fork. It uses the
+typed registry helpers, null-prototype registries, the broader structural
+iterator support, safer inheritance fallbacks, transaction manifests, and the
+current temporary-name plan. Vite and esbuild accepted those imports, and the
+browser journeys exercised the resulting bundles. This is executable evidence
+that the modern generic runtime replaces the vendored mechanisms for these
+clients; it is not a claim that every untested downstream program is identical.
+
+All 26 generated client source maps parsed successfully and described 52
+sources. The bundle tools consumed their maps, and the browser applications ran
+from the resulting assets. A direct classpath pin necessarily records a path
+back to the external Genes source tree. The older checked-in downstream maps
+already contain machine-local Haxe and vendored-Genes paths, so the experiment
+did not establish portable checked-in map bytes. Before adopting new generated
+maps, the downstream owner should use a stable package location, embed source
+content, or adopt an explicit map-normalization policy. The compiler must not
+erase real debugger provenance merely to make this one checkout's paths look
+portable.
+
+### Adoption result and boundary
+
+`2a69b6e` is the exact green Genes revision exercised downstream. Its full
+`yarn test:ci` gate passed before the downstream run, including classic Genes,
+genes-ts, ts2hx, both todo applications, Playwright, and security checks. This
+revision is suitable for the downstream migration task to pin and evaluate in
+classic ESM mode. It is newer than the `v1.35.4` tag, so pinning that tag alone
+would omit the final async ownership evidence.
+
+This verification does **not** authorize deleting the vendor. Reflaxe.Elixir
+still owns dependency pinning, any compatibility alias, committed-output and
+source-map policy, and its final release/browser validation under
+`haxe.elixir.codex-m52`. Enabling `-D genes.ts` remains a separate downstream
+product decision.
+
 ## Safe implementation order
 
 1. Keep the marker protocol rejected and preserve the focused async evidence
