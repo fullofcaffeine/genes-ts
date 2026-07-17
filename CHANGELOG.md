@@ -1,3 +1,15 @@
+# [1.35.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.34.2...v1.35.0) (2026-07-17)
+
+
+### Bug Fixes
+
+* **template:** preserve compound interpolation slots ([b6c0463](https://github.com/fullofcaffeine/genes-ts/commit/b6c0463fa626b7dc5debec6f5fc9013d4f0c9775))
+
+
+### Features
+
+* **ts:** preserve typed template literals ([dae8194](https://github.com/fullofcaffeine/genes-ts/commit/dae8194402672c67f3f56ff5a1d9f27a79539ba1))
+
 ## [1.34.2](https://github.com/fullofcaffeine/genes-ts/compare/v1.34.1...v1.34.2) (2026-07-17)
 
 
