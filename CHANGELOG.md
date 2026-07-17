@@ -1,3 +1,11 @@
+## [1.34.1](https://github.com/fullofcaffeine/genes-ts/compare/v1.34.0...v1.34.1) (2026-07-17)
+
+
+### Bug Fixes
+
+* **output:** isolate transaction owner identities ([a44ee09](https://github.com/fullofcaffeine/genes-ts/commit/a44ee09cb44d8d6d29b1e7ff8d45f49386d6d715))
+* **output:** remove visible trailing whitespace ([0fd8540](https://github.com/fullofcaffeine/genes-ts/commit/0fd854046b05c0094cd519b19aa259184c8ea57c))
+
 # [1.34.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.33.1...v1.34.0) (2026-07-17)
 
 
