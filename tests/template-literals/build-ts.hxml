@@ -1,0 +1,8 @@
+-lib genes-ts
+-cp tests/template-literals/src
+--main template_literals.Main
+-js tests/template-literals/out/ts/src-gen/index.ts
+-D genes.ts
+-D no-deprecation-warnings
+-D js-es=6
+-dce full

@@ -161,6 +161,7 @@ Examples of these helpers:
 - `genes.ts.Unknown` for untrusted runtime values that should be decoded or narrowed before application code uses them.
 - `genes.ts.UnknownNarrow`, `UnknownRecord`, and `UnknownArray` for guarded reads from untrusted JavaScript values.
 - `genes.ts.Imports` for typed imports from existing JS/TS/TSX modules without hand-writing fragile import strings at every call site.
+- `genes.TemplateLiteral` when a string's template shape is part of its TypeScript type.
 - `@:ts.instanceType` for CommonJS `export =` constructor values whose `@types`
   declaration exposes the constructed instance through a merged namespace.
 
@@ -179,6 +180,29 @@ final missing = Undefinable.absent();
 ```
 
 In TypeScript output, `Undefinable<String>` can print as `string | undefined`. In classic Genes JS output, the type annotation disappears but `Undefinable.absent()` still emits the runtime JavaScript value `undefined`.
+
+`TemplateLiteral.value` preserves the shape of an authored Haxe interpolation
+when TypeScript uses a template-literal type. For example:
+
+```haxe
+import genes.TemplateLiteral;
+
+@:ts.type("`/records/$${string}`")
+abstract RecordHref(String) from String to String {}
+
+function href(id:String):RecordHref {
+  return TemplateLiteral.value('/records/${StringTools.urlEncode(id)}');
+}
+```
+
+genes-ts emits the return value as
+`` `/records/${encodeURIComponent(id)}` ``. The ordinary Haxe expression
+`'/records/${StringTools.urlEncode(id)}'` emits string concatenation instead;
+TypeScript widens that result to `string` and rejects it as `RecordHref`.
+Classic Genes emits the helper call as equivalent ordered concatenation. Every
+interpolation must already be a `String`, each is evaluated once, and an
+arbitrary runtime `String` is rejected because it is not authored template
+syntax. The compiler marker and helper import never appear in either output.
 
 `Unknown` means “this value crossed a runtime boundary and has not been
 validated yet.” It intentionally does not let application code use the value
@@ -394,6 +418,7 @@ Classic Genes mode (JS output) also supports:
 - `npm run test:ci` (CI-equivalent local run; includes secret scan)
 - `npm run test:matrix:api` (TS6 Program/TypeChecker bridge)
 - `npm run test:matrix:generated` (curated generated output on TS5/TS6/TS7)
+- `npm run test:template-literals` (native TS inference + classic runtime parity)
 - `npm run test:interop:module-shapes` (strict npm declaration/runtime shapes)
 - `npm run test:library-profile` (default DCE vs matched TS/classic library APIs)
 - `npm run test:genes-ts`

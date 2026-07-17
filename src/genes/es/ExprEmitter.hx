@@ -22,6 +22,8 @@ import genes.JsxPlan.JsxChildIntent;
 import genes.JsxPlan.JsxPropIntent;
 import genes.JsxPlan.JsxValueAccess;
 import genes.JsxPlan.JsxValueSource;
+import genes.TemplateLiteralPlan;
+import genes.TemplateLiteralPlan.TemplateLiteralIntent;
 import genes.util.TypeUtil.*;
 import genes.util.IteratorUtil.*;
 
@@ -123,6 +125,7 @@ class ExprEmitter extends Emitter {
   var currentExpectedValueType: Null<Type> = null;
   var currentReturnType: Null<Type> = null;
   var jsxPlan: Null<JsxPlan> = null;
+  var templateLiteralPlan: Null<TemplateLiteralPlan> = null;
   var jsxRuntimeBinding: Null<String> = null;
   var namePlan: Null<NamePlan> = null;
   var tempPlan: Null<TempPlan> = null;
@@ -141,6 +144,11 @@ class ExprEmitter extends Emitter {
       capability: JsxCapabilityPolicy, dependencies: Dependencies): Void {
     jsxPlan = plan;
     jsxRuntimeBinding = capability.resolveRuntimeBinding(dependencies, plan);
+  }
+
+  /** Installs the validated target-neutral string-template plan. */
+  public function configureTemplateLiterals(plan:TemplateLiteralPlan):Void {
+    templateLiteralPlan = plan;
   }
 
   /**
@@ -626,6 +634,8 @@ class ExprEmitter extends Emitter {
   }
 
   function emitCall(e: TypedExpr, params: Array<TypedExpr>, inValue: Bool) {
+    if (emitPlannedTemplateLiteralCall(e, params))
+      return;
     if (emitPlannedJsxCall(e, params))
       return;
     emitPos(e.pos);
@@ -703,6 +713,59 @@ class ExprEmitter extends Emitter {
         emitCallParams(e, params);
         write(')');
     }
+  }
+
+  /**
+   * Routes only the exact compiler marker through shared template semantics.
+   *
+   * Why/What: ordinary string concatenation must keep its historical spelling;
+   * a validated marker alone opts into the stronger template contract. Returning
+   * `false` leaves every unrelated call on the existing emitter path.
+   *
+   * How: `TemplateLiteralPlan` owns identity and carrier validation. This method
+   * chooses no syntax itself, so the classic and TypeScript emitters consume the
+   * same ordered chunks and values without re-parsing target text.
+   */
+  function emitPlannedTemplateLiteralCall(callee:TypedExpr,
+      arguments:Array<TypedExpr>):Bool {
+    if (templateLiteralPlan == null)
+      return false;
+    final intent = templateLiteralPlan.intentForCall(callee, arguments);
+    if (intent == null)
+      return false;
+    emitTemplateLiteralIntent(intent);
+    return true;
+  }
+
+  /**
+   * Emits the classic-JS spelling for target-neutral string-template intent.
+   *
+   * Why: classic output cannot rely on TypeScript's contextual template-literal
+   * inference, but it must execute the same values in the same order.
+   *
+   * What/How: a static template stays a string literal; a dynamic template is
+   * parenthesized concatenation beginning with a literal chunk. Each slot is
+   * also parenthesized so an embedded operator cannot reassociate with the
+   * surrounding `+` chain. Interpolations are already typed as `String`, are
+   * printed once, and temporarily use their own expected type so an outer
+   * destination cannot alter nested emission.
+   */
+  function emitTemplateLiteralIntent(intent:TemplateLiteralIntent):Void {
+    emitPos(intent.pos);
+    if (intent.values.length == 0) {
+      emitString(intent.chunks[0]);
+      return;
+    }
+    write('(');
+    emitString(intent.chunks[0]);
+    for (index in 0...intent.values.length) {
+      write(' + (');
+      final value = intent.values[index];
+      emitValueWithExpectedType(value.t, value);
+      write(') + ');
+      emitString(intent.chunks[index + 1]);
+    }
+    write(')');
   }
 
   /** Emits one marker call through the shared semantic plan when applicable. */

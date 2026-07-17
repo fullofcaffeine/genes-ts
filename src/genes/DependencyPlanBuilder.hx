@@ -94,6 +94,9 @@ class DependencyPlanBuilder {
   }
 
   function collectRuntimeEdges(): Void {
+    // Validate compiler-owned string templates before output projection opens
+    // any implementation writer. The plan itself adds no dependency edge.
+    module.templateLiteralPlan;
     final jsxPlan = module.jsxPlan;
     final jsxCapability = JsxCapabilityPolicy.current();
     jsxCapability.validate(jsxPlan);

@@ -27,6 +27,7 @@ import genes.JsxPlan.JsxChildIntent;
 import genes.JsxPlan.JsxPropIntent;
 import genes.JsxPlan.JsxTagIntent;
 import genes.JsxPlan.JsxValueSource;
+import genes.TemplateLiteralPlan.TemplateLiteralIntent;
 import genes.JsonTypeSupport;
 import haxe.ds.Option;
 import haxe.macro.Expr;
@@ -164,6 +165,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     final endTimer = timer('emitTsModule');
     jsxEmitTsx = genes.Genes.outExtension == '.tsx';
     configureLowering(module, TypeScriptReadable, jsxEmitTsx);
+    configureTemplateLiterals(module.templateLiteralPlan);
     narrowedNonNullKeys = [];
     final jsxPlan = module.jsxPlan;
     final jsxCapability = JsxCapabilityPolicy.current();
@@ -406,6 +408,8 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   override function emitCall(e: TypedExpr, params: Array<TypedExpr>,
       inValue: Bool) {
+    if (emitPlannedTemplateLiteralCall(e, params))
+      return;
     if (emitPlannedJsxCall(e, params))
       return;
     final privateMethod = privateMethodCall(e);
@@ -629,6 +633,69 @@ class TsModuleEmitter extends JsModuleEmitter {
     } else {
       super.emitCall(e, params, inValue);
     }
+  }
+
+  /**
+   * Emits native TypeScript syntax that preserves contextual template inference.
+   *
+   * Why: `"prefix" + value` always widens to `string`, even when the destination
+   * is a template-literal type. A backtick expression lets TypeScript prove the
+   * shape without a cast or runtime helper.
+   *
+   * What/How: static intent remains an ordinary quoted literal. Dynamic intent
+   * alternates escaped cooked chunks with each typed value exactly once. The
+   * surrounding expected type is not propagated into interpolations, preventing
+   * a route-like destination from manufacturing assertions inside `${...}`.
+   */
+  override function emitTemplateLiteralIntent(
+      intent:TemplateLiteralIntent):Void {
+    emitPos(intent.pos);
+    if (intent.values.length == 0) {
+      emitString(intent.chunks[0]);
+      return;
+    }
+    write('`');
+    for (index in 0...intent.values.length) {
+      write(escapeTemplateLiteralChunk(intent.chunks[index]));
+      write('$${');
+      final value = intent.values[index];
+      emitValueWithExpectedType(value.t, value);
+      write('}');
+    }
+    write(escapeTemplateLiteralChunk(intent.chunks[intent.chunks.length - 1]));
+    write('`');
+  }
+
+  /**
+   * Escapes one cooked Haxe string chunk without changing its runtime value.
+   *
+   * Backticks, backslashes, and `${` would otherwise reopen TypeScript template
+   * syntax. Control characters use explicit escapes so generated lines and
+   * source-map columns stay deterministic, including authored multiline text.
+   */
+  static function escapeTemplateLiteralChunk(value:String):String {
+    final result = new StringBuf();
+    var index = 0;
+    while (index < value.length) {
+      final code = value.charCodeAt(index);
+      if (code == '$'.code && index + 1 < value.length
+        && value.charCodeAt(index + 1) == '{'.code) {
+        result.add('\\$${');
+        index += 2;
+        continue;
+      }
+      result.add(switch code {
+        case '\\'.code: '\\\\';
+        case '`'.code: '\\`';
+        case '\n'.code: '\\n';
+        case '\r'.code: '\\r';
+        case '\t'.code: '\\t';
+        case value if (value < 32): '\\x' + StringTools.hex(value, 2);
+        case value: String.fromCharCode(value);
+      });
+      index++;
+    }
+    return result.toString();
   }
 
   static function expectedEnumCallParams(callee: TypedExpr,
