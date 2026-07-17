@@ -11,8 +11,8 @@
     "fullofcaffeine",
     "benmerckx"
   ],
-  "releasenote": "v1.35.3: See CHANGELOG.md",
-  "version": "1.35.3",
+  "releasenote": "v1.35.4: See CHANGELOG.md",
+  "version": "1.35.4",
   "url": "https://github.com/fullofcaffeine/genes-ts",
   "dependencies": {
     "helder.set": "0.3.1"

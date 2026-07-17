@@ -1,3 +1,10 @@
+## [1.35.4](https://github.com/fullofcaffeine/genes-ts/compare/v1.35.3...v1.35.4) (2026-07-17)
+
+
+### Bug Fixes
+
+* **output:** reject symlinked transaction paths ([fb0a235](https://github.com/fullofcaffeine/genes-ts/commit/fb0a235e579b57238ea9156a3b0880b4ad50495b))
+
 ## [1.35.3](https://github.com/fullofcaffeine/genes-ts/compare/v1.35.2...v1.35.3) (2026-07-17)
 
 
