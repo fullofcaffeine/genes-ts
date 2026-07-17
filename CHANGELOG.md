@@ -1,3 +1,10 @@
+## [1.35.1](https://github.com/fullofcaffeine/genes-ts/compare/v1.35.0...v1.35.1) (2026-07-17)
+
+
+### Bug Fixes
+
+* **imports:** reject malformed import attributes ([f2db60b](https://github.com/fullofcaffeine/genes-ts/commit/f2db60be0161d4511b7a5a2705ecc8e0cbe2c9c2))
+
 # [1.35.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.34.2...v1.35.0) (2026-07-17)
 
 
