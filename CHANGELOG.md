@@ -1,3 +1,10 @@
+## [1.33.1](https://github.com/fullofcaffeine/genes-ts/compare/v1.33.0...v1.33.1) (2026-07-17)
+
+
+### Bug Fixes
+
+* **output:** preserve unowned legacy source maps ([8989465](https://github.com/fullofcaffeine/genes-ts/commit/89894654f61a86d882b55306e5ec726b27a337a8))
+
 # [1.33.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.32.0...v1.33.0) (2026-07-16)
 
 
