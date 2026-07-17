@@ -56,7 +56,7 @@ called out below.
 | Bound-method cache | Uses `Dynamic` for receiver and method | Narrows to `Object`, `Function`, and `Null<Function>` while keeping hidden-field access in syntax calls | Preserves the Haxe JS cache protocol behind one documented dynamic runtime boundary | **Supported but under-tested**; do not adopt the narrower signature until it proves every real receiver/callable shape |
 | Source-map JSON construction | Builds the JSON object as `Dynamic` | Adds a structural `SourceMap` typedef | Uses a private exact `SourceMapJson` record while retaining modern path normalization and transactional publication | **Absorbed generically** in `f99c824`; schema, optional source content, relative paths, and byte determinism have focused evidence |
 | Writer comparison catch | Uses `catch (e:Dynamic)` around only the unchanged-output comparison | Uses inferred catch typing | Infers the comparison exception type; the actual write remains outside the catch | **Absorbed generically**; direct evidence covers create/change/unchanged output, comparison-read fallback, and escaping write failure |
-| Assignment whitespace | Some multiline assignments end a visible line with ` = ` | Removes the final space at selected class/enum registration sites | Raw classic output still contains those visible trailing spaces, while snapshot comparison normalizes them away | **Formatting-only**; accept only through a raw output-quality invariant, not a three-line transplant |
+| Assignment whitespace | Some multiline assignments end a visible line with ` = ` | Removes the final space at selected class/enum registration sites | Raw output quality now rejects whitespace after visible content across owned TS, classic JS, and classic declarations | **Absorbed generically**; all current multiline class/enum/declaration producers satisfy the central invariant |
 | `Genes.hx` comment | Dynamic fallback has no nearby explanation | Adds a comment explaining the macro fallback | Modern contributor guidance already requires documented unsafe boundaries, but this old macro path is no longer the vendor decision seam | **Comment-only**; document current boundaries where they exist instead of copying historical narration |
 | `TypeUtil.hx` and repository churn | Baseline contents | Line-ending or packaging churn only | Modern implementation has independently evolved | **Formatting-only or obsolete** |
 | Lix descriptor, removed upstream files, Phoenix build conventions | Upstream package layout | Hermetic downstream vendor and explicit activation flags | genes-ts has its own package identity, `extraParams.hxml`, CI, and release workflow | **Downstream-only** |
@@ -199,11 +199,14 @@ not broadened and remains separate from transaction recovery.
 strip trailing whitespace before comparison, so reviewed goldens cannot detect
 this. The vendor fixed only selected implementation-emitter sites.
 
-**Decision.** This is a real output-quality blemish but not a semantic compiler
-fix. Add a raw generated-output assertion that forbids whitespace after a
-visible character, then correct every owned classic implementation/declaration
-site required by that invariant. Indentation-only blank lines are a separate,
-larger formatting decision and should not be pulled into this small change.
+**Implemented.** This is an output-quality correction, not a language-semantic
+change. The raw-tree gate now rejects spaces or tabs after visible content in
+every owned TS, classic JS, and classic declaration artifact. That assertion
+failed on 31 generated files before the fix. The current class-registration,
+enum-registration, and multiline declaration-union producers now end the line
+at `=`, while inline assignments retain their conventional surrounding spaces.
+Indentation-only blank lines remain a separate, intentionally deferred
+formatting policy.
 
 ### Downstream packaging stays downstream
 
@@ -218,13 +221,11 @@ compiler special case.
 
 ## Safe implementation order
 
-1. Complete the remaining raw whitespace evidence in `genes-7be.2`; literal
-   behavior is now proved and the source-map/Writer improvements have landed.
-2. Complete registry and bound-method runtime/type evidence in `genes-7be.3`.
-3. Complete the async supersession matrix in `genes-7be.4`; keep the marker
+1. Complete registry and bound-method runtime/type evidence in `genes-7be.3`.
+2. Complete the async supersession matrix in `genes-7be.4`; keep the marker
    protocol rejected.
-4. Run full `yarn test:ci` after every production slice.
-5. Only after Genes is green, use a disposable Reflaxe.Elixir worktree for the
+3. Run full `yarn test:ci` after every production slice.
+4. Only after Genes is green, use a disposable Reflaxe.Elixir worktree for the
    five client builds, generated ESM/map review, bundler tests, and browser
    evidence (`genes-7be.5`). Do not modify or remove the real downstream vendor.
 

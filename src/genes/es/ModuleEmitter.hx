@@ -374,7 +374,9 @@ class ModuleEmitter extends ExprEmitter {
         write('[');
         emitString(id);
         write(']');
-        write(' = ');
+        // The class expression starts on the next line. Keep the operator but
+        // do not leave an invisible trailing space in the generated module.
+        write(' =');
         writeNewline();
       }
     }
@@ -559,14 +561,16 @@ class ModuleEmitter extends ExprEmitter {
       write('export ');
     write('const ');
     write(et.name);
-    write(' = ');
+    // Registered enums continue on the next line; unregistered private enums
+    // still keep the conventional inline space before their object literal.
+    write(registerRuntimeType ? ' =' : ' = ');
     if (registerRuntimeType) {
       writeNewline();
       writeGlobalVar("$hxEnums");
       write('[');
       emitString(id);
       write(']');
-      write(' = ');
+      write(' =');
       writeNewline();
     }
     write('{');

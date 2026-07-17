@@ -177,7 +177,9 @@ class DefinitionEmitter extends ModuleEmitter {
     emitComment(et.doc);
     write('export declare type ');
     emitDeclarationBaseType(et, params, true);
-    write(' = ');
+    // Each union member starts on its own line. Keep the assignment readable
+    // without leaving a trailing space on the preceding declaration line.
+    write(' =');
     increaseIndent();
     for (name => c in et.constructs) {
       writeNewline();

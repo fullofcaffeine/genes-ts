@@ -240,6 +240,9 @@ To add a case:
 `scripts/snapshots.ts` compares the complete file set and normalized content.
 It normalizes line endings and trailing whitespace, but it does not bless
 missing files, extra files, typing holes, or runtime drift.
+`yarn test:output-quality` separately reads the raw compiler-owned TS, JS, and
+declaration trees and rejects spaces or tabs after visible content. It does not
+currently impose a policy on indentation-only blank lines.
 
 ### Adding an example
 
