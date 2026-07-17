@@ -113,7 +113,7 @@ moduleRequests[]   source dispositions plus effective runtime order/format
 files[]            emitted | declaration-only | unsupported
 diagnostics[]      stable ID, source span, syntax kind, category, remediation
 features[]         complete semantic catalog plus occurrences in this run
-plannedFiles[]     deterministic output inventory
+plannedFiles[]     deterministic generated-file ownership for no-clean cleanup
 runtimeModules[]   staged runtime file identity, hash, owner, and destination
 ```
 
@@ -306,6 +306,7 @@ smallest generic TypeScript behavior before changing the emitter.
 ```bash
 yarn --cwd tools/ts2hx test:snapshots
 yarn --cwd tools/ts2hx test:source-namespace-plan
+yarn --cwd tools/ts2hx test:output-ownership
 yarn --cwd tools/ts2hx test:esm-request-plan
 yarn --cwd tools/ts2hx test:runtime-profile
 yarn --cwd tools/ts2hx test:roundtrip

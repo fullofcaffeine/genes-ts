@@ -41,7 +41,7 @@ Current options:
 --allow-loss          Map assisted exit 3 to 0; manifest stays assisted
 --diagnostics-json    Publish the complete manifest to a path outside --out
 --runtime-modules     Hash-pinned staging manifest for relative runtime files
---clean               Transactionally replace, rather than overlay, the output
+--clean               Replace a dedicated output tree instead of preserving unowned files
 ```
 
 `--diagnostics` is an inspection aid. Emission requires a clean configured
@@ -111,8 +111,12 @@ also remain errors in assisted mode because there is no honest one-file
 scaffold for two modules. No prior output is changed.
 
 On success, `src-generated/ts2hx-manifest.json` is committed atomically beside
-the Haxe files. Use `--clean` with a dedicated generated directory so files
-removed from the source inventory cannot survive as stale output.
+the Haxe files. The default no-clean transaction reads the previous recognized
+schema-v3 manifest and removes only its `plannedFiles` that are absent from the
+new plan. Handwritten Haxe, assets, and every other unowned path are preserved.
+If the prior manifest exists but is malformed or contains an unsafe ownership
+path, publication fails before changing the old tree. Use `--clean` only when
+the entire output directory is dedicated to ts2hx and should be replaced.
 
 The optional `--diagnostics-json` path is a second publication of that same
 manifest and must be outside `--out`; the generated tree already contains its
@@ -194,7 +198,8 @@ The stable top-level fields are:
 - `moduleRequests`: every original static import's runtime/type-only/elided
   disposition, original span, and any final request ordinal, module format, and
   emitted shape;
-- `plannedFiles`: deterministic output plan;
+- `plannedFiles`: deterministic generated-file ownership used by the next
+  no-clean transaction for selective stale cleanup;
 - `files`: one `emitted`, `declaration-only`, or `unsupported` disposition per
   configured source file;
 - `diagnostics`: stable `TS2HX-*` ID, severity, source span, syntax kind,
@@ -281,6 +286,8 @@ The executable source of truth is:
   and the closed package-extern semantic plan;
 - `tools/ts2hx/src/test-source-namespace-plan.ts` for package/module/output
   identity, collisions, root containment, and strict/assisted rollback;
+- `tools/ts2hx/src/test-output-ownership.ts` for no-clean selective stale
+  removal, unowned-file preservation, malformed manifests, and determinism;
 - `tools/ts2hx/src/test-runtime-profile.ts` for schema-v3 profile boundaries,
   transaction safety, and the Haxe macro guard;
 - `tools/ts2hx/src/test-strict-diagnostics.ts` for failure behavior.
@@ -298,6 +305,7 @@ Focused gates:
 ```bash
 yarn --cwd tools/ts2hx test:snapshots
 yarn --cwd tools/ts2hx test:source-namespace-plan
+yarn --cwd tools/ts2hx test:output-ownership
 yarn --cwd tools/ts2hx test:esm-request-plan
 yarn --cwd tools/ts2hx test:package-extern-facts
 yarn --cwd tools/ts2hx test:runtime-profile

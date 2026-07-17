@@ -108,9 +108,12 @@ accepted by snapshots into semantic evidence.
 - Comments, original formatting, and TypeScript source maps are not preserved as
   a source-to-source fidelity contract. Diagnostics retain source spans and
   syntax kinds in the manifest.
-- Without `--clean`, the transactional writer overlays planned files on a copy
-  of the prior directory, so obsolete files can remain. Use a dedicated output
-  directory plus `--clean` for reproducible migration builds.
+- Without `--clean`, the transactional writer preserves unowned files and
+  consumes only a recognized prior schema-v3 manifest. Its missing
+  `plannedFiles` are removed from the private stage before publication;
+  malformed, duplicate, unsorted, or escaping ownership entries fail without
+  changing the prior tree. Use `--clean` only for a directory wholly owned by
+  ts2hx.
 - `--diagnostics-json` names a separate artifact outside the generated tree.
   It is staged before output changes and installed while the prior tree backup
   is still available, so process-visible staging/install failures restore the

@@ -48,7 +48,7 @@ The strongest architecture remains intact:
 | GRA-004: import binding form/declaration identity collapse | **Observed omission, inferred consequence.** Equality and accessor lookup omit binding form and original declaration identity. The exact Haxe/package pair must reproduce before severity is final. If it does, a narrow architecture review is mandatory before the shared identity changes. | `genes-ntz` |
 | GRA-005: malformed handwritten import attributes | **Reproduced and remediated P1.** The baseline accepted a two-argument annotation and published output because malformed presence collapsed to `null`. Shared dependency planning now distinguishes absence from presence and rejects wrong arity, computed values, and empty literals with stable source-positioned diagnostics. The paired TS/classic gate seeds prior output and proves each failure publishes no module, declaration, map, support file, or manifest; the valid handwritten JSON request still executes in both profiles. | `genes-3vd` |
 | GRA-006: external diagnostics after ts2hx commit | **Reproduced and remediated P1.** A successful baseline translation replaced the prior Haxe tree before an invalid external target produced exit 2. External bytes are now staged first and installed while the old tree backup remains available; staging/install failures preserve prior output and leave no transaction debris. The documented guarantee covers reported process failures, not crash-atomicity across filesystems. | `genes-ipp` |
-| GRA-007: no-clean ts2hx leaves stale owned Haxe | **Observed P1.** the prior tree is copied wholesale and its embedded `plannedFiles` ownership is never consumed. Selective cleanup waits for unique source output identities. | `genes-qfn`, blocked by `genes-3a5` |
+| GRA-007: no-clean ts2hx leaves stale owned Haxe | **Reproduced and remediated P1.** Removing a TypeScript root left its manifest-owned Haxe in a successful no-clean tree. Publication now validates the complete prior schema-v3 ownership envelope, removes only stale `plannedFiles` inside the private stage, preserves colocated assets and handwritten Haxe, and rejects malformed or escaping ownership before replacing prior output. | `genes-qfn` |
 | GRA-008: bound-only request order from `Map` | **Experiment/decision, downgraded to P2.** The branch is explicitly documented compatibility for ordinary Haxe imports, whose textual import order is not itself an ESM runtime contract. ts2hx effective request carriers already create explicit observable request edges. Do not call this a miscompile until a supported-source oracle defines a contradictory order. | `genes-9n4` |
 | GRA-009: public-surface audit enrollment | **Observed P1 evidence gap.** TypeChecker traversal is strong after enrollment, but profile callers supply manual path lists. Fix enrollment rather than weakening or replacing the audit. | `genes-7dt` |
 | GRA-010: symlink/reparse containment | **Experiment required.** Lexical containment is visible; pinned Haxe filesystem behavior and the relevant trusted-workspace threat model are not. | `genes-rby` |
@@ -85,9 +85,9 @@ or removing the compatibility path.
    GPT review requested by `genes-ntz`, then implement one canonical identity
    without merging module-request and binding equality.
 4. Fail closed on malformed import-attribute metadata.
-5. Coordinate the optional external diagnostics artifact with ts2hx output
-   publication, then consume recognized prior `plannedFiles` for safe no-clean
-   stale removal.
+5. **Landed:** coordinate the optional external diagnostics artifact with
+   ts2hx output publication, then consume recognized prior `plannedFiles` for
+   safe no-clean stale removal.
 6. Enroll all compiler-owned public modules in the existing semantic type
    audit or require an explicit support/runtime classification.
 7. Resolve the three experiments before creating performance, symlink, or deep
@@ -123,7 +123,8 @@ Until the fixes land, documentation must not overclaim:
 - the embedded `ts2hx-manifest.json` is part of the output-tree transaction,
   while optional external diagnostics currently have a separate failure
   boundary;
-- default no-clean translation can retain obsolete generated Haxe;
+- default no-clean translation retires only files affirmed by the prior
+  schema-v3 ownership inventory and preserves every unowned path;
 - semantic public-surface guarantees apply to enrolled files, and enrollment
   itself is being made executable.
 

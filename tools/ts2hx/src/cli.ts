@@ -65,7 +65,7 @@ Options:
   --allow-loss           Map assisted-loss exit 3 to 0 (manifest remains lossy)
   --diagnostics-json     Publish an external manifest outside --out in the same CLI transaction
   --runtime-modules      Hash-pinned manifest for staged relative runtime modules
-  --clean                Replace output dir contents transactionally
+  --clean                Replace a dedicated output dir; default retires only prior manifest-owned files
 `);
 }
 

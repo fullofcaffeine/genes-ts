@@ -5717,9 +5717,143 @@ function emitHaxeSourceFile(
 
 let outputTransactionId = 0;
 
+type JsonObject = { [key: string]: unknown };
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function invalidPriorOwnership(manifestPath: string, detail: string): Error {
+  return new Error(`Invalid prior ts2hx ownership manifest at ${manifestPath}: ${detail}`);
+}
+
+function isPortableOwnedFile(value: string): boolean {
+  if (value.length === 0 || value.includes("\\") || value.includes("\0")) return false;
+  if (path.posix.isAbsolute(value) || path.posix.normalize(value) !== value) return false;
+  return value.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
+}
+
+function hasPackageIdentity(value: unknown): boolean {
+  return isJsonObject(value)
+    && typeof value.package === "string"
+    && value.package.length > 0
+    && typeof value.version === "string"
+    && value.version.length > 0;
+}
+
+/**
+ * Reads the only evidence that permits selective deletion in no-clean mode.
+ *
+ * Why: generated Haxe shares this directory with files ts2hx does not own.
+ * Inferring ownership from an extension or package folder could delete a
+ * handwritten file, while accepting a damaged manifest could turn a corrupt
+ * path into an unintended deletion target.
+ *
+ * What: a complete schema-v3 manifest with a successful or assisted status may
+ * own its sorted `plannedFiles`. Missing evidence owns nothing. An existing
+ * but malformed, duplicate, unsorted, or escaping inventory fails before a
+ * stage or backup is created.
+ *
+ * How: paths remain canonical forward-slash strings and are resolved only
+ * after lexical containment is proven. The rest of the required manifest
+ * envelope is checked as an affirmative ts2hx signature; individual semantic
+ * records are irrelevant to filesystem ownership and remain opaque here.
+ */
+function loadPriorOwnedFiles(outDir: string): readonly string[] {
+  const manifestPath = path.join(outDir, "ts2hx-manifest.json");
+  if (!fs.existsSync(manifestPath)) return [];
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  } catch {
+    throw invalidPriorOwnership(manifestPath, "the file is not valid JSON.");
+  }
+  if (!isJsonObject(raw))
+    throw invalidPriorOwnership(manifestPath, "the root must be an object.");
+  if (raw.schemaVersion !== 3)
+    throw invalidPriorOwnership(manifestPath, "schemaVersion must be 3; use --clean to replace an unrecognized tree.");
+  if (raw.mode !== "strict-js" && raw.mode !== "assisted")
+    throw invalidPriorOwnership(manifestPath, "mode must be strict-js or assisted.");
+  if (raw.status !== "success" && raw.status !== "assisted")
+    throw invalidPriorOwnership(manifestPath, "an embedded manifest must describe a published success or assisted tree.");
+  if (typeof raw.basePackage !== "string" || raw.basePackage.length === 0)
+    throw invalidPriorOwnership(manifestPath, "basePackage must be a non-empty string.");
+  if (raw.targetProfile !== "genes-esm" && raw.targetProfile !== "standard-haxe-js")
+    throw invalidPriorOwnership(manifestPath, "targetProfile is not recognized.");
+  if (!isJsonObject(raw.compiler)
+    || !hasPackageIdentity(raw.compiler.typescriptBridge)
+    || !hasPackageIdentity(raw.compiler.typescriptEngine)
+    || typeof raw.compiler.optionsHash !== "string"
+    || !/^[a-f0-9]{64}$/.test(raw.compiler.optionsHash)) {
+    throw invalidPriorOwnership(manifestPath, "compiler identity is incomplete.");
+  }
+
+  const arrayFields = [
+    "requiredCompilerCapabilities",
+    "moduleRequests",
+    "plannedFiles",
+    "files",
+    "diagnostics",
+    "runtimeModules",
+    "features"
+  ] as const;
+  for (const field of arrayFields) {
+    if (!Array.isArray(raw[field]))
+      throw invalidPriorOwnership(manifestPath, `${field} must be an array.`);
+  }
+  const plannedFileValues = raw.plannedFiles;
+  if (!Array.isArray(plannedFileValues))
+    throw invalidPriorOwnership(manifestPath, "plannedFiles must be an array.");
+
+  const plannedFiles: string[] = [];
+  const portableKeys = new Set<string>();
+  let previous: string | null = null;
+  for (let index = 0; index < plannedFileValues.length; index++) {
+    const value: unknown = plannedFileValues[index];
+    if (typeof value !== "string" || !isPortableOwnedFile(value))
+      throw invalidPriorOwnership(manifestPath, `plannedFiles[${index}] must be a canonical relative file path.`);
+    const target = path.resolve(outDir, ...value.split("/"));
+    if (target === outDir || !isPathWithin(outDir, target))
+      throw invalidPriorOwnership(manifestPath, `plannedFiles[${index}] escapes the generated output tree.`);
+    if (previous !== null && previous.localeCompare(value) >= 0)
+      throw invalidPriorOwnership(manifestPath, "plannedFiles must be strictly sorted and contain no duplicates.");
+    const portableKey = value.toLowerCase();
+    if (portableKeys.has(portableKey))
+      throw invalidPriorOwnership(manifestPath, "plannedFiles contains a case-insensitive path collision.");
+    portableKeys.add(portableKey);
+    plannedFiles.push(value);
+    previous = value;
+  }
+  return Object.freeze(plannedFiles);
+}
+
 function removeTree(absPath: string): void {
   if (fs.existsSync(absPath))
     fs.rmSync(absPath, { recursive: true, force: true });
+}
+
+function removeStaleOwnedFile(stageDir: string, relativeFile: string, manifestPath: string): void {
+  const stagedPath = path.resolve(stageDir, ...relativeFile.split("/"));
+  if (!isPathWithin(stageDir, stagedPath) || stagedPath === stageDir)
+    throw invalidPriorOwnership(manifestPath, `owned path ${JSON.stringify(relativeFile)} escapes the private stage.`);
+  if (!fs.existsSync(stagedPath)) return;
+
+  const stat = fs.lstatSync(stagedPath);
+  if (!stat.isFile()) {
+    throw invalidPriorOwnership(
+      manifestPath,
+      `owned path ${JSON.stringify(relativeFile)} no longer names a regular file; refusing recursive cleanup.`
+    );
+  }
+  fs.rmSync(stagedPath);
+
+  let directory = path.dirname(stagedPath);
+  while (directory !== stageDir && isPathWithin(stageDir, directory)) {
+    if (fs.readdirSync(directory).length > 0) break;
+    fs.rmdirSync(directory);
+    directory = path.dirname(directory);
+  }
 }
 
 type PreparedExternalFile = {
@@ -5829,6 +5963,7 @@ function commitExternalFile(file: EmittedFile): void {
 function commitOutputTree(
   opts: EmitHaxeOptions,
   files: EmittedFile[],
+  plannedFiles: readonly string[],
   externalFile: EmittedFile | null
 ): string[] {
   const outDir = path.resolve(opts.outDir);
@@ -5840,6 +5975,9 @@ function commitOutputTree(
   let preparedExternal: PreparedExternalFile | null = null;
   let hadPriorTree = false;
   let installedOutputTree = false;
+  const priorOwnedFiles = opts.cleanOutDir ? [] : loadPriorOwnedFiles(outDir);
+  const currentOwnedFiles = new Set(plannedFiles);
+  const priorManifestPath = path.join(outDir, "ts2hx-manifest.json");
 
   removeTree(stageDir);
   removeTree(backupDir);
@@ -5853,6 +5991,11 @@ function commitOutputTree(
       fs.cpSync(outDir, stageDir, { recursive: true });
     else
       fs.mkdirSync(stageDir, { recursive: true });
+
+    for (const priorFile of priorOwnedFiles) {
+      if (!currentOwnedFiles.has(priorFile))
+        removeStaleOwnedFile(stageDir, priorFile, priorManifestPath);
+    }
 
     for (const emitted of files) {
       const relative = path.relative(outDir, emitted.filePath);
@@ -6122,6 +6265,6 @@ export function emitProjectToHaxe(rawOpts: EmitHaxeOptions): EmitHaxeResult {
     content: `${JSON.stringify(manifest, null, 2)}\n`
   });
 
-  const writtenFiles = commitOutputTree(opts, files, externalFile);
+  const writtenFiles = commitOutputTree(opts, files, plannedFiles, externalFile);
   return { status, writtenFiles, diagnostics, dispositions, manifest };
 }
