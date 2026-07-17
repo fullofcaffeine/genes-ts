@@ -60,7 +60,7 @@ Options:
   --list-files          Print project source files (sorted, path-relative)
   --diagnostics         Print TypeScript diagnostics (sorted)
   --out, -o             Emit Haxe into this directory
-  --base-package        Haxe base package for generated modules (default: ts2hx)
+  --base-package        Valid dot-separated Haxe package prefix (default: ts2hx)
   --mode                 strict-js (default) or assisted
   --runtime-profile      genes-esm or standard-haxe-js (required with --out)
   --allow-loss           Map assisted-loss exit 3 to 0 (manifest remains lossy)

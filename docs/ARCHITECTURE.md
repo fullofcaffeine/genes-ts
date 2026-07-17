@@ -270,6 +270,7 @@ not a lossless inverse compiler.
 ```text
 tsconfig + TypeScript source
   -> project.ts: Program/TypeChecker and deterministic source inventory
+  -> haxe/source-namespace-plan.ts: validated source/package/output identity
   -> semantic/ir.ts + haxe/emit.ts: supported semantic decisions,
      Haxe translation, provenance, and diagnostics
   -> transactional Haxe output + ts2hx-manifest.json
@@ -284,6 +285,7 @@ tsconfig + TypeScript source
 | `src/semantic/compiler-facts.ts` | Records exact bridge/engine identities and a portable deterministic hash of effective compiler options. |
 | `src/semantic/package-extern-plan.ts` | Converts one checker-resolved package value into a closed strong Haxe type plan, or a deterministic rejection reason. It never prints Haxe or executes package code. |
 | `src/semantic/ir.ts` | Owns stable semantic feature IDs, support grades, and deliberately small immutable plans, including function-local callback paths, real control targets, and transfer provenance for `try/finally`. |
+| `src/haxe/source-namespace-plan.ts` | Assigns every configured source one validated Haxe package, module FQN, and output path before any runtime request, extern, or source text is planned. |
 | `src/haxe/emit.ts` | Translates validated constructs, records source provenance, and stages output. Unsupported input must not disappear. |
 | `src/haxe/runtime-modules.ts` | Validates hash-pinned external-relative runtime ownership before emission; staged bytes share the Haxe output transaction, while the named build owner copies them beside final JS. |
 | `src/cli.ts` | Owns strict/assisted modes, exit codes, human diagnostics, and deterministic JSON output. |
@@ -292,6 +294,16 @@ Strict mode succeeds only for the supported subset and preserves the previous
 output tree on failure. Assisted mode may create scaffolding only when every
 loss has a stable `TS2HX-*` marker and manifest record. Printers may not turn an
 unsupported construct into a silent omission or behavior-changing default.
+Source identity is validated even earlier than TypeScript request inspection.
+The base package and every source directory must use legal Haxe package
+segments, each emitting filename must produce a usable module name, and every
+source must remain under the configured root. The plan groups final output
+paths case-insensitively so a project is safe on both case-sensitive and
+case-insensitive hosts. A collision is an error in strict and assisted modes:
+one Haxe module cannot honestly scaffold two TypeScript roots. Namespace
+failure returns source-positioned diagnostics and an empty publication plan,
+leaving the previous tree byte-for-byte unchanged.
+
 Before Haxe planning, a read-only TypeScript `after` transform classifies every
 original static import as a runtime request, type-only request, or elided
 declaration under the configured compiler options. A schema-v3 manifest records
