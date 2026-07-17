@@ -6,6 +6,7 @@
 /tests/genes-ts/**/dist*
 /tests/output-modes/out
 /tests/output-transaction/out
+/tests/writer/out
 /tests/side-effect-import/out
 /tests/module-directives/out
 /tests/internal-types/out

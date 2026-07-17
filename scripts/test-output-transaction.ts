@@ -2,11 +2,14 @@ import { deepStrictEqual, ok, strictEqual } from "node:assert";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
+  utimesSync,
   writeFileSync
 } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -15,6 +18,7 @@ import path from "node:path";
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "../..");
 const fixtureRoot = path.join(repoRoot, "tests/output-transaction");
+const writerFixtureRoot = path.join(repoRoot, "tests/writer");
 
 type Profile = {
   readonly id: "ts" | "classic";
@@ -84,6 +88,103 @@ function expectFailure(
   );
 }
 
+/** Executes the standalone buffered writer through the pinned Haxe compiler. */
+function runBufferedWriter(file: string, payload: string): void {
+  execFileSync("haxe", [
+    "-cp",
+    "src",
+    "-cp",
+    "tests/writer/src",
+    "-D",
+    "genes.unchanged_no_rewrite",
+    "--run",
+    "writerevidence.Main",
+    file,
+    payload
+  ], {
+    cwd: repoRoot,
+    stdio: "inherit"
+  });
+}
+
+/**
+ * Proves the fallback writer catches comparison failures, not publication
+ * failures, and keeps that boundary strongly typed in Haxe source.
+ */
+function assertBufferedWriterBoundary(): void {
+  const writerSource = readFileSync(
+    path.join(repoRoot, "src/genes/Writer.hx"),
+    "utf8"
+  );
+  ok(
+    !/catch\s*\([^)]*:\s*Dynamic\b/.test(writerSource),
+    "Writer unchanged-file comparison must infer its exception type"
+  );
+
+  const outputRoot = path.join(writerFixtureRoot, "out");
+  rmSync(outputRoot, { recursive: true, force: true });
+
+  const output = path.join(outputRoot, "nested/artifact.txt");
+  runBufferedWriter(output, "first");
+  strictEqual(readFileSync(output, "utf8"), "first");
+
+  const oldTime = new Date("2000-01-01T00:00:00.000Z");
+  utimesSync(output, oldTime, oldTime);
+  const unchangedTime = statSync(output).mtimeMs;
+  runBufferedWriter(output, "first");
+  strictEqual(
+    statSync(output).mtimeMs,
+    unchangedTime,
+    "identical buffered output was rewritten"
+  );
+
+  runBufferedWriter(output, "second");
+  strictEqual(readFileSync(output, "utf8"), "second");
+  ok(
+    statSync(output).mtimeMs > unchangedTime,
+    "changed buffered output did not replace the old file"
+  );
+
+  // POSIX permissions provide a real comparison-read failure while leaving
+  // the owner able to open the file for writing. Running the same payload then
+  // distinguishes fallback publication from an accidental unchanged return.
+  if (process.platform !== "win32" && process.getuid?.() !== 0) {
+    writeFileSync(output, "comparison-fallback", "utf8");
+    utimesSync(output, oldTime, oldTime);
+    chmodSync(output, 0o200);
+    try {
+      runBufferedWriter(output, "comparison-fallback");
+    } finally {
+      chmodSync(output, 0o600);
+    }
+    strictEqual(readFileSync(output, "utf8"), "comparison-fallback");
+    ok(
+      statSync(output).mtimeMs > oldTime.getTime(),
+      "comparison read failure did not fall through to publication"
+    );
+  }
+
+  const blockingParent = path.join(outputRoot, "not-a-directory");
+  writeFileSync(blockingParent, "user-owned-parent", "utf8");
+  const failedWrite = spawnSync("haxe", [
+    "-cp",
+    "src",
+    "-cp",
+    "tests/writer/src",
+    "-D",
+    "genes.unchanged_no_rewrite",
+    "--run",
+    "writerevidence.Main",
+    path.join(blockingParent, "artifact.txt"),
+    "must-fail"
+  ], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  ok(failedWrite.status !== 0, "buffered writer swallowed a real write failure");
+  strictEqual(readFileSync(blockingParent, "utf8"), "user-owned-parent");
+}
+
 function walkFiles(root: string): string[] {
   const files: string[] = [];
   function walk(directory: string): void {
@@ -133,6 +234,7 @@ function assertNoTransactionDebris(outputRoot: string): void {
 }
 
 rmSync(path.join(fixtureRoot, "out"), { recursive: true, force: true });
+assertBufferedWriterBoundary();
 
 for (const profile of profiles) {
   const outputRoot = path.join(fixtureRoot, "out", profile.id);
@@ -244,4 +346,4 @@ for (const profile of profiles) {
   assertNoTransactionDebris(outputRoot);
 }
 
-console.log("output-transaction:ok (TS + classic + declarations + rollback + stale ownership)");
+console.log("output-transaction:ok (writer boundary + TS/classic rollback + stale ownership)");
