@@ -1,5 +1,7 @@
 package genes;
 
+import haxe.crypto.Base64;
+import haxe.crypto.Sha256;
 import haxe.io.Bytes;
 import haxe.io.Path;
 import sys.FileSystem;
@@ -19,7 +21,7 @@ using StringTools;
  * private staging directory. `commit()` snapshots every public target it will
  * mutate, publishes the complete owned set, removes stale owned paths, and
  * rolls all mutations back if publication fails. A deterministic manifest per
- * `-js` entrypoint stem is the sole authority for stale-file deletion; files
+ * exact `-js` filename is the sole authority for stale-file deletion; files
  * absent from that manifest are never removed.
  *
  * How: paths are canonicalized beneath the output directory before admission.
@@ -28,13 +30,19 @@ using StringTools;
  * and rollback rather than a directory swap, because output directories may
  * also contain user assets or artifacts owned by another tool. This class owns
  * filesystem policy only; TS/classic/declaration semantics remain in their
- * existing planners and emitters.
+ * existing planners and emitters. Manifest v2 stores the exact owner identity
+ * as well as a collision-resistant scope. Older v1 manifests did not record
+ * enough identity to migrate safely, so they are preserved rather than
+ * guessed from a lossy filename.
  */
 class OutputTransaction {
-  static inline final MANIFEST_HEADER = 'genes-output-manifest-v1';
+  static inline final MANIFEST_HEADER = 'genes-output-manifest-v2';
+  static inline final MANIFEST_OWNER_PREFIX = 'owner-base64:';
+  static inline final READABLE_SCOPE_LIMIT = 48;
 
   final outputRoot: String;
   final outputPrefix: String;
+  final ownerIdentity: String;
   final manifestRelative: String;
   final stageRelative: String;
   final outputRootExisted: Bool;
@@ -42,13 +50,29 @@ class OutputTransaction {
   var stagePrepared = false;
   var committed = false;
 
-  public function new(outputDirectory: String, entrypointStem: String) {
+  /**
+   * Creates one filesystem owner for an exact configured output filename.
+   *
+   * Why: a stem-only name loses the extension, while replacing punctuation
+   * with `_` maps distinct entrypoints such as `entry@one.ts` and
+   * `entry#one.ts` to the same manifest and stage. One build can then delete
+   * files owned by the other as if they were stale.
+   *
+   * What/How: `entrypointIdentity` is the normalized basename including its
+   * extension. The output root already owns the directory part, so this is the
+   * complete identity within that root without making generated filenames
+   * depend on a machine-local absolute path. A readable prefix is paired with
+   * the full SHA-256 digest for filesystem names, and the exact identity is
+   * stored inside the manifest for mismatch detection.
+   */
+  public function new(outputDirectory: String, entrypointIdentity: String) {
     outputRoot = absolutePath(outputDirectory.length == 0
       ? '.'
       : outputDirectory);
     outputRootExisted = FileSystem.exists(outputRoot);
     outputPrefix = outputRoot.endsWith('/') ? outputRoot : outputRoot + '/';
-    final scope = safeScope(entrypointStem);
+    ownerIdentity = validateOwnerIdentity(entrypointIdentity);
+    final scope = safeScope(ownerIdentity);
     manifestRelative = '.genes-output-$scope.manifest';
     stageRelative = '.genes-output-$scope.stage';
   }
@@ -232,10 +256,14 @@ class OutputTransaction {
     final lines = File.getContent(path).split('\n');
     if (lines.length == 0 || withoutCarriageReturn(lines[0]) != MANIFEST_HEADER)
       throw new haxe.Exception('Unsupported Genes output manifest: $path');
+    if (lines.length < 2
+      || withoutCarriageReturn(lines[1]) != manifestOwnerLine())
+      throw new haxe.Exception(
+        'Genes output manifest owner does not match "$ownerIdentity": $path');
 
     final seen: Map<String, Bool> = new Map();
     final result = [];
-    for (index in 1...lines.length) {
+    for (index in 2...lines.length) {
       final line = withoutCarriageReturn(lines[index]);
       if (line.length == 0)
         continue;
@@ -250,8 +278,12 @@ class OutputTransaction {
   }
 
   function manifestText(paths: Array<String>): String {
-    return MANIFEST_HEADER + '\n'
+    return MANIFEST_HEADER + '\n' + manifestOwnerLine() + '\n'
       + (paths.length == 0 ? '' : paths.join('\n') + '\n');
+  }
+
+  function manifestOwnerLine(): String {
+    return MANIFEST_OWNER_PREFIX + Base64.encode(Bytes.ofString(ownerIdentity));
   }
 
   function prepareStageRoot(): Void {
@@ -362,8 +394,22 @@ class OutputTransaction {
         || code == '-'.code || code == '_'.code || code == '.'.code;
       result.addChar(allowed ? code : '_'.code);
     }
-    final scope = result.toString();
-    return scope.length == 0 ? 'output' : scope;
+    final sanitized = result.toString();
+    final readable = (sanitized.length == 0 ? 'output' : sanitized)
+      .substr(0, READABLE_SCOPE_LIMIT);
+    return readable + '-' + Sha256.encode(value);
+  }
+
+  static function validateOwnerIdentity(value: String): String {
+    final normalized = value.replace('\\', '/');
+    if (normalized.length == 0 || normalized.indexOf('/') != -1
+      || normalized.indexOf('\x00') != -1
+      || normalized.indexOf('\n') != -1
+      || normalized.indexOf('\r') != -1
+      || normalized == '.' || normalized == '..')
+      throw new haxe.Exception(
+        'Invalid Genes output transaction owner: $value');
+    return normalized;
   }
 
   static function withoutCarriageReturn(value: String): String {

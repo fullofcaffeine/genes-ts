@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { createHash } from "crypto";
 import ts from "../typescript-api.js";
-import { toHaxeModuleName, toHaxePackagePath } from "../util.js";
+import { toHaxeModuleName } from "../util.js";
 import {
   inspectEffectiveModuleRequests,
   type EffectiveImportShape,
@@ -47,6 +47,12 @@ import {
   type RuntimeModuleManifestEntry,
   type RuntimeModuleManifestPlan
 } from "./runtime-modules.js";
+import {
+  planSourceNamespace,
+  type SourceNamespaceEntry,
+  type SourceNamespacePlan,
+  type SourceNamespaceProblem
+} from "./source-namespace-plan.js";
 
 export type EmitHaxeOptions = {
   projectDir: string;
@@ -156,6 +162,7 @@ type SourceEmitOutcome =
   | { kind: "unsupported"; emitted: EmittedFile | null; diagnostics: TranslationDiagnostic[] };
 
 type ImportSpec = {
+  statement: ts.ImportDeclaration;
   moduleSpecifier: string;
   isTypeOnly: boolean;
   defaultImport: string | null;
@@ -164,8 +171,13 @@ type ImportSpec = {
 };
 
 type ExportFromSpec =
-  | { kind: "named"; moduleSpecifier: string; elements: Array<{ exported: string; source: string }> }
-  | { kind: "all"; moduleSpecifier: string };
+  | {
+      kind: "named";
+      statement: ts.ExportDeclaration;
+      moduleSpecifier: string;
+      elements: Array<{ exported: string; source: string }>;
+    }
+  | { kind: "all"; statement: ts.ExportDeclaration; moduleSpecifier: string };
 
 type RuntimeImportRequest =
   | {
@@ -241,31 +253,6 @@ function isRelativeModuleSpecifier(spec: string): boolean {
 
 function stripTsExtension(spec: string): string {
   return spec.replace(/\.(d\.)?(tsx?|jsx?)$/i, "");
-}
-
-function moduleTargetFromImport(opts: {
-  projectDir: string;
-  rootDir: string;
-  fromFile: string;
-  basePackage: string;
-}, spec: string): {
-  packagePath: string;
-  moduleName: string;
-} {
-  const fromDir = path.dirname(opts.fromFile);
-  const resolved = path.resolve(fromDir, stripTsExtension(spec));
-
-  const relativeToRoot = path.relative(opts.rootDir, resolved);
-  const relNoExt = relativeToRoot.replace(/\.(tsx?|jsx?)$/i, "");
-  const segments = relNoExt.split(path.sep).filter((p) => p.length > 0);
-
-  const fileBase = segments.length > 0 ? segments[segments.length - 1] : "Module";
-  const dirSegments = segments.slice(0, -1);
-
-  return {
-    packagePath: toHaxePackagePath([opts.basePackage, ...dirSegments]),
-    moduleName: toHaxeModuleName(fileBase)
-  };
 }
 
 function isLikelyTypeName(name: string): boolean {
@@ -938,10 +925,18 @@ function buildExternModules(
   return externs;
 }
 
-function emitExternModuleFile(opts: EmitHaxeOptions, ex: ExternModule): { filePath: string; content: string } {
-  const externPackage = toHaxePackagePath([opts.basePackage, "extern"]);
-  const basePackageDirs = opts.basePackage.split(".").filter((p) => p.length > 0);
-  const outAbsFile = path.resolve(opts.outDir, path.join(...basePackageDirs, "extern", `${ex.className}.hx`));
+function emitExternModuleFile(
+  opts: EmitHaxeOptions,
+  namespacePlan: SourceNamespacePlan,
+  ex: ExternModule
+): { filePath: string; content: string } {
+  const externPackage = `${namespacePlan.basePackagePath}.extern`;
+  const outAbsFile = path.resolve(
+    opts.outDir,
+    ...namespacePlan.basePackageSegments,
+    "extern",
+    `${ex.className}.hx`
+  );
 
   const lines: string[] = [];
   lines.push(`package ${externPackage};`);
@@ -3547,7 +3542,7 @@ function importSpecFromStatement(stmt: ts.ImportDeclaration): ImportSpec | null 
     }
   }
 
-  return { moduleSpecifier, isTypeOnly, defaultImport, namespaceImport, named };
+  return { statement: stmt, moduleSpecifier, isTypeOnly, defaultImport, namespaceImport, named };
 }
 
 function collectImports(sf: ts.SourceFile): ImportSpec[] {
@@ -3570,7 +3565,7 @@ function collectExportFroms(sf: ts.SourceFile): ExportFromSpec[] {
     const moduleSpecifier = stmt.moduleSpecifier.text;
 
     if (!stmt.exportClause) {
-      exports.push({ kind: "all", moduleSpecifier });
+      exports.push({ kind: "all", statement: stmt, moduleSpecifier });
       continue;
     }
 
@@ -3579,7 +3574,7 @@ function collectExportFroms(sf: ts.SourceFile): ExportFromSpec[] {
       exported: el.name.text,
       source: el.propertyName ? el.propertyName.text : el.name.text
     }));
-    exports.push({ kind: "named", moduleSpecifier, elements });
+    exports.push({ kind: "named", statement: stmt, moduleSpecifier, elements });
   }
 
   return exports;
@@ -3722,6 +3717,19 @@ function resolveRelativeSourceFile(program: ts.Program, fromFile: string, module
     if (sf) return sf;
   }
   return null;
+}
+
+/** Returns the validated Haxe identity for one resolved converted source. */
+function relativeNamespaceTarget(
+  namespacePlan: SourceNamespacePlan,
+  program: ts.Program,
+  fromFile: string,
+  moduleSpecifier: string
+): SourceNamespaceEntry | null {
+  const sourceFile = resolveRelativeSourceFile(program, fromFile, moduleSpecifier);
+  if (!sourceFile) return null;
+  const entry = namespacePlan.bySourceFile.get(path.resolve(sourceFile.fileName));
+  return entry?.kind === "emitted" ? entry : null;
 }
 
 function portablePath(filePath: string): string {
@@ -4367,15 +4375,6 @@ function isConvertibleSourcePath(filePath: string): boolean {
   return /\.(d\.)?(tsx?|jsx?)$/i.test(filePath);
 }
 
-function sourceOutputRelativeFile(opts: EmitHaxeOptions, sourceFile: ts.SourceFile): string {
-  const relative = path.relative(opts.rootDir, sourceFile.fileName);
-  const directory = path.dirname(relative);
-  const fileBase = path.basename(relative).replace(/\.(d\.)?(tsx?|jsx?)$/i, "");
-  const moduleName = toHaxeModuleName(fileBase);
-  const basePackageDirs = opts.basePackage.split(".").filter((part) => part.length > 0);
-  return path.join(...basePackageDirs, directory, `${moduleName}.hx`);
-}
-
 function problem(
   statement: ts.Node,
   id: string,
@@ -4452,9 +4451,9 @@ function firstEffectiveRuntimeRequest(
  * erase the field. The hash is an identifier aid only; request identity remains
  * the compiler-owned Haxe module type.
  */
-function convertedTargetMarkerName(opts: EmitHaxeOptions, sourceFile: ts.SourceFile): string {
-  const sourcePath = portablePath(path.relative(opts.rootDir, sourceFile.fileName));
-  const hash = createHash("sha256").update(sourcePath).digest("hex").slice(0, 10);
+function convertedTargetMarkerName(entry: SourceNamespaceEntry): string {
+  const sourceFile = entry.sourceFile;
+  const hash = createHash("sha256").update(entry.sourcePath).digest("hex").slice(0, 10);
   const base = `__ts2hx_init_${hash}`;
   const usedNames = new Set(collectLocalDeclarationKinds(sourceFile).keys());
   for (const imp of collectImports(sourceFile)) {
@@ -4581,7 +4580,8 @@ function convertedRuntimeComponents(
  */
 function buildProjectRuntimeImportPlan(
   opts: EmitHaxeOptions,
-  effectiveRequests: EffectiveModuleRequestInventory
+  effectiveRequests: EffectiveModuleRequestInventory,
+  namespacePlan: SourceNamespacePlan
 ): ProjectRuntimeImportPlan {
   const manifest: RuntimeModuleManifestPlan | null = opts.runtimeModulesManifest
     ? loadRuntimeModuleManifest(opts.runtimeModulesManifest)
@@ -4703,30 +4703,21 @@ function buildProjectRuntimeImportPlan(
   }
 
   function internalTargetAnchor(
-    sourceFile: ts.SourceFile,
-    statement: ts.ImportDeclaration,
-    moduleSpecifier: string,
     edge: ConvertedRuntimeEdge
   ): string {
     const targetKey = path.resolve(edge.targetFile.fileName);
+    const namespaceTarget = namespacePlan.bySourceFile.get(targetKey);
+    if (
+      !namespaceTarget
+      || namespaceTarget.kind !== "emitted"
+      || namespaceTarget.moduleFqn === null
+    ) throw new Error(`Converted request target has no emitted source namespace: ${edge.targetFile.fileName}.`);
     let targetPlan = targetBySourceFile.get(targetKey);
     if (!targetPlan) {
-      targetPlan = { markerName: convertedTargetMarkerName(opts, edge.targetFile) };
+      targetPlan = { markerName: convertedTargetMarkerName(namespaceTarget) };
       targetBySourceFile.set(targetKey, targetPlan);
     }
-    const target = moduleTargetFromImport(
-      {
-        projectDir: opts.projectDir,
-        rootDir: opts.rootDir,
-        fromFile: sourceFile.fileName,
-        basePackage: opts.basePackage
-      },
-      moduleSpecifier
-    );
-    const moduleBase = target.packagePath.length > 0
-      ? `${target.packagePath}.${target.moduleName}`
-      : target.moduleName;
-    return `${moduleBase}.${targetPlan.markerName}`;
+    return `${namespaceTarget.moduleFqn}.${targetPlan.markerName}`;
   }
 
   for (const { sourceFile, runtimeImports } of inventories) {
@@ -4853,7 +4844,7 @@ function buildProjectRuntimeImportPlan(
           requests.push({
             kind: "internal-target",
             statement,
-            anchor: internalTargetAnchor(sourceFile, statement, moduleSpecifier, edge)
+            anchor: internalTargetAnchor(edge)
           });
         }
         continue;
@@ -4936,7 +4927,10 @@ function buildProjectRuntimeImportPlan(
     if (!importer)
       throw new Error(`Runtime-module manifest importer is not in the conversion set: ${entry.importer}.`);
 
-    const importerOutput = portablePath(sourceOutputRelativeFile(opts, importer));
+    const importerNamespace = namespacePlan.bySourceFile.get(path.resolve(importer.fileName));
+    if (!importerNamespace?.outputRelativeFile)
+      throw new Error(`Runtime-module importer has no emitted source namespace: ${entry.importer}.`);
+    const importerOutput = importerNamespace.outputRelativeFile;
     const importerDirectory = path.posix.dirname(importerOutput);
     const runtimeTarget = path.posix.normalize(path.posix.join(importerDirectory, entry.runtimeSpecifier));
     const stagedTarget = path.posix.normalize(path.posix.join(importerDirectory, entry.stagedPath));
@@ -5057,13 +5051,15 @@ function applyRuntimeProfileBoundary(
 function emitHaxeSourceFile(
   opts: EmitHaxeOptions,
   sf: ts.SourceFile,
+  namespaceEntry: SourceNamespaceEntry,
+  namespacePlan: SourceNamespacePlan,
   semanticRecorder: SemanticRecorder,
   runtimeImportPlan: SourceRuntimeImportPlan | null,
   runtimeTargetPlan: ConvertedRuntimeTargetPlan | null
 ): SourceEmitOutcome {
   const absFile = sf.fileName;
-  if (absFile.endsWith(".d.ts")) return { kind: "declaration-only" };
-  if (!(absFile.endsWith(".ts") || absFile.endsWith(".tsx") || absFile.endsWith(".js") || absFile.endsWith(".jsx"))) {
+  if (namespaceEntry.kind === "declaration-only") return { kind: "declaration-only" };
+  if (namespaceEntry.kind === "unsupported") {
     return {
       kind: "unsupported",
       emitted: null,
@@ -5077,19 +5073,15 @@ function emitHaxeSourceFile(
       ]
     };
   }
-
-  const relToRoot = path.relative(opts.rootDir, absFile);
-  const relDir = path.dirname(relToRoot);
-  const fileBase = path.basename(relToRoot).replace(/\.(d\.)?(tsx?|jsx?)$/i, "");
-  const moduleName = toHaxeModuleName(fileBase);
-
-  const basePackageDirs = opts.basePackage.split(".").filter((p) => p.length > 0);
-  const outRelFile = path.join(...basePackageDirs, relDir, `${moduleName}.hx`);
-  const outAbsFile = path.resolve(opts.outDir, outRelFile);
-  const portableOutFile = portablePath(outRelFile);
-
-  const packageSegments = relDir === "." ? [] : relDir.split(path.sep).filter((p) => p.length > 0);
-  const packagePath = toHaxePackagePath([opts.basePackage, ...packageSegments]);
+  if (
+    namespaceEntry.moduleName === null
+    || namespaceEntry.packagePath === null
+    || namespaceEntry.outputFile === null
+    || namespaceEntry.outputRelativeFile === null
+  ) throw new Error(`Emitted source has an incomplete namespace entry: ${sf.fileName}.`);
+  const outAbsFile = namespaceEntry.outputFile;
+  const portableOutFile = namespaceEntry.outputRelativeFile;
+  const packagePath = namespaceEntry.packagePath;
 
   const out: string[] = [];
   out.push(`package ${packagePath};`);
@@ -5130,7 +5122,7 @@ function emitHaxeSourceFile(
     };
   }
 
-  const sourceFilePath = portablePath(path.relative(opts.rootDir, sf.fileName));
+  const sourceFilePath = namespaceEntry.sourcePath;
   const ctx: EmitContext = {
     checker: opts.checker,
     identifierRewrites: new Map(),
@@ -5191,12 +5183,20 @@ function emitHaxeSourceFile(
   const externalTypeAliases: string[] = [];
   for (const imp of imports) {
     if (isRelativeModuleSpecifier(imp.moduleSpecifier)) {
-      const target = moduleTargetFromImport(
-        { projectDir: opts.projectDir, rootDir: opts.rootDir, fromFile: absFile, basePackage: opts.basePackage },
-        imp.moduleSpecifier
-      );
-
-      const moduleBase = target.packagePath.length > 0 ? `${target.packagePath}.${target.moduleName}` : target.moduleName;
+      const target = relativeNamespaceTarget(namespacePlan, opts.program, absFile, imp.moduleSpecifier);
+      if (!target || !target.moduleFqn || !target.moduleName || target.packagePath === null) {
+        const alreadyRejected = runtimeImportPlan?.problems.some((entry) => entry.statement === imp.statement) ?? false;
+        if (!alreadyRejected) {
+          recordUnsupported(
+            imp.statement,
+            `Relative import ${JSON.stringify(imp.moduleSpecifier)} does not resolve to one emitted source namespace.`,
+            "module",
+            "TS2HX-MODULES-ESM-BINDINGS-UNRESOLVED-001"
+          );
+        }
+        continue;
+      }
+      const moduleBase = target.moduleFqn;
 
       if (imp.defaultImport) {
         importLines.push(`import ${moduleBase}.__default as ${imp.defaultImport};`);
@@ -5223,7 +5223,7 @@ function emitHaxeSourceFile(
     }
 
     // Non-relative module specifiers: rewrite identifiers to generated extern modules.
-    const externPackage = toHaxePackagePath([opts.basePackage, "extern"]);
+    const externPackage = `${namespacePlan.basePackagePath}.extern`;
     const externModuleName = externModuleNameFromSpecifier(imp.moduleSpecifier);
     const moduleBase = `${externPackage}.${externModuleName}`;
 
@@ -5315,12 +5315,20 @@ function emitHaxeSourceFile(
   for (const exp of exportFroms) {
     if (!isRelativeModuleSpecifier(exp.moduleSpecifier)) continue;
 
-    const target = moduleTargetFromImport(
-      { projectDir: opts.projectDir, rootDir: opts.rootDir, fromFile: absFile, basePackage: opts.basePackage },
-      exp.moduleSpecifier
-    );
-    const moduleBase = target.packagePath.length > 0 ? `${target.packagePath}.${target.moduleName}` : target.moduleName;
     const srcFile = resolveRelativeSourceFile(opts.program, absFile, exp.moduleSpecifier);
+    const target = srcFile
+      ? namespacePlan.bySourceFile.get(path.resolve(srcFile.fileName)) ?? null
+      : null;
+    if (!srcFile || !target || target.kind !== "emitted" || !target.moduleFqn) {
+      recordUnsupported(
+        exp.statement,
+        `Relative re-export ${JSON.stringify(exp.moduleSpecifier)} does not resolve to one emitted source namespace.`,
+        "module",
+        "TS2HX-MODULES-ESM-BINDINGS-UNRESOLVED-001"
+      );
+      continue;
+    }
+    const moduleBase = target.moduleFqn;
     const kinds = srcFile ? collectExportKinds(srcFile) : null;
 
     if (exp.kind === "named") {
@@ -5340,20 +5348,6 @@ function emitHaxeSourceFile(
     }
 
     // export * from "./x"
-    if (!srcFile) {
-      const exportNode = sf.statements.find((stmt) =>
-        ts.isExportDeclaration(stmt)
-        && stmt.moduleSpecifier !== undefined
-        && ts.isStringLiteral(stmt.moduleSpecifier)
-        && stmt.moduleSpecifier.text === exp.moduleSpecifier
-      ) ?? sf;
-      return unsupported(
-        exportNode,
-        `Cannot resolve re-exported source module ${JSON.stringify(exp.moduleSpecifier)}.`,
-        "module"
-      );
-    }
-
     for (const [name, kind] of collectExportKinds(srcFile).entries()) {
       if (reexported.has(name)) continue;
       const ref = `${moduleBase}.${name}`;
@@ -5782,6 +5776,21 @@ function compareDiagnostics(a: TranslationDiagnostic, b: TranslationDiagnostic):
     || a.id.localeCompare(b.id);
 }
 
+function sourceNamespaceDiagnostic(
+  opts: EmitHaxeOptions,
+  problem: SourceNamespaceProblem
+): TranslationDiagnostic {
+  return translationDiagnostic(opts, problem.sourceFile, problem.sourceFile, {
+    id: problem.id,
+    category: "file",
+    message: problem.message,
+    outputFile: problem.outputRelativeFile,
+    forceError: true,
+    remediation:
+      "Rename the source or package so every configured root has one valid, unique Haxe identity."
+  });
+}
+
 /**
  * Plans, validates, and transactionally emits a TypeScript project as Haxe.
  *
@@ -5800,12 +5809,64 @@ function compareDiagnostics(a: TranslationDiagnostic, b: TranslationDiagnostic):
 export function emitProjectToHaxe(rawOpts: EmitHaxeOptions): EmitHaxeResult {
   const opts: EmitHaxeOptions = { ...rawOpts, mode: rawOpts.mode ?? "strict-js" };
   const mode = opts.mode ?? "strict-js";
+  const namespacePlan = planSourceNamespace(opts);
   const files: EmittedFile[] = [];
   const diagnostics: TranslationDiagnostic[] = [];
   const dispositions: TranslationFileDisposition[] = [];
   const semanticRecorder = new SemanticRecorder();
-  const effectiveRequests = inspectEffectiveModuleRequests(opts.program, opts.sourceFiles);
   const compiler = typeScriptCompilerFacts(opts.program, opts.projectDir);
+  if (namespacePlan.problems.length > 0) {
+    const namespaceDiagnostics = namespacePlan.problems
+      .map((problem) => sourceNamespaceDiagnostic(opts, problem))
+      .sort(compareDiagnostics);
+    const diagnosticIdsBySource = new Map<string, string[]>();
+    for (const problem of namespacePlan.problems) {
+      const ids = diagnosticIdsBySource.get(problem.sourceKey) ?? [];
+      if (!ids.includes(problem.id)) ids.push(problem.id);
+      diagnosticIdsBySource.set(problem.sourceKey, ids);
+    }
+    const projectDiagnosticIds = namespacePlan.problems
+      .filter((problem) => problem.id === "TS2HX-SOURCE-NAMESPACE-BASE-PACKAGE-001")
+      .map((problem) => problem.id);
+    const namespaceDispositions: TranslationFileDisposition[] = namespacePlan.entries.map((entry) => {
+      if (entry.kind === "declaration-only") {
+        return { sourceFile: entry.sourcePath, status: "declaration-only", outputFile: null, diagnosticIds: [] };
+      }
+      const diagnosticIds = Array.from(new Set([
+        ...(diagnosticIdsBySource.get(entry.sourceKey) ?? []),
+        ...projectDiagnosticIds
+      ])).sort();
+      return {
+        sourceFile: entry.sourcePath,
+        status: diagnosticIds.length > 0 || entry.kind === "unsupported" ? "unsupported" : "emitted",
+        outputFile: entry.outputRelativeFile,
+        diagnosticIds
+      };
+    });
+    const manifest: TranslationManifest = {
+      schemaVersion: 3,
+      mode,
+      status: "failed",
+      basePackage: opts.basePackage,
+      targetProfile: opts.runtimeProfile,
+      compiler,
+      requiredCompilerCapabilities: [],
+      moduleRequests: [],
+      plannedFiles: [],
+      files: namespaceDispositions,
+      diagnostics: namespaceDiagnostics,
+      runtimeModules: [],
+      features: semanticRecorder.dispositions()
+    };
+    return {
+      status: "failed",
+      writtenFiles: [],
+      diagnostics: namespaceDiagnostics,
+      dispositions: namespaceDispositions,
+      manifest
+    };
+  }
+  const effectiveRequests = inspectEffectiveModuleRequests(opts.program, opts.sourceFiles);
   const moduleRequests = manifestModuleRequests(opts, effectiveRequests);
   const requiredCompilerCapabilities: RequiredCompilerCapability[] = moduleRequests.some(
     request => request.disposition === "runtime-request"
@@ -5813,7 +5874,7 @@ export function emitProjectToHaxe(rawOpts: EmitHaxeOptions): EmitHaxeResult {
   const runtimeImportProjectPlan = applyRuntimeProfileBoundary(
     opts,
     effectiveRequests,
-    buildProjectRuntimeImportPlan(opts, effectiveRequests)
+    buildProjectRuntimeImportPlan(opts, effectiveRequests, namespacePlan)
   );
 
   files.push(...runtimeImportProjectPlan.stagedFiles);
@@ -5824,17 +5885,20 @@ export function emitProjectToHaxe(rawOpts: EmitHaxeOptions): EmitHaxeResult {
     runtimeImportProjectPlan.packageExternStatements
   );
   for (const ex of Array.from(externs.values()).sort((a, b) => a.moduleSpecifier.localeCompare(b.moduleSpecifier)))
-    files.push(emitExternModuleFile(opts, ex));
+    files.push(emitExternModuleFile(opts, namespacePlan, ex));
 
-  for (const sf of opts.sourceFiles.slice().sort((a, b) => a.fileName.localeCompare(b.fileName))) {
+  for (const namespaceEntry of namespacePlan.entries) {
+    const sf = namespaceEntry.sourceFile;
     const outcome = emitHaxeSourceFile(
       opts,
       sf,
+      namespaceEntry,
+      namespacePlan,
       semanticRecorder,
       runtimeImportProjectPlan.bySourceFile.get(path.resolve(sf.fileName)) ?? null,
       runtimeImportProjectPlan.targetBySourceFile.get(path.resolve(sf.fileName)) ?? null
     );
-    const sourceFile = portablePath(path.relative(opts.rootDir, sf.fileName));
+    const sourceFile = namespaceEntry.sourcePath;
     if (outcome.kind === "declaration-only") {
       dispositions.push({ sourceFile, status: "declaration-only", outputFile: null, diagnosticIds: [] });
       continue;
@@ -5844,7 +5908,7 @@ export function emitProjectToHaxe(rawOpts: EmitHaxeOptions): EmitHaxeResult {
       dispositions.push({
         sourceFile,
         status: "emitted",
-        outputFile: portablePath(path.relative(opts.outDir, outcome.emitted.filePath)),
+        outputFile: namespaceEntry.outputRelativeFile,
         diagnosticIds: []
       });
       continue;
@@ -5856,9 +5920,7 @@ export function emitProjectToHaxe(rawOpts: EmitHaxeOptions): EmitHaxeResult {
     dispositions.push({
       sourceFile,
       status: "unsupported",
-      outputFile: outcome.emitted
-        ? portablePath(path.relative(opts.outDir, outcome.emitted.filePath))
-        : null,
+      outputFile: outcome.emitted ? namespaceEntry.outputRelativeFile : null,
       diagnosticIds: Array.from(new Set(outcome.diagnostics.map((diagnostic) => diagnostic.id))).sort()
     });
   }

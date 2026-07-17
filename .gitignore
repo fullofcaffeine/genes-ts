@@ -7,6 +7,8 @@
 /tests/output-modes/out
 /tests/template-literals/out
 /tests/output-transaction/out
+/tests/writer/out
+/tests/string-literals/out
 /tests/side-effect-import/out
 /tests/module-directives/out
 /tests/internal-types/out

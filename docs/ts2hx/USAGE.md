@@ -35,7 +35,7 @@ Current options:
 --list-files          Print configured root source files in deterministic order
 --diagnostics         Print sorted TypeScript pre-emit diagnostics
 --out, -o             Output directory for generated Haxe
---base-package        Generated Haxe package prefix (default: ts2hx)
+--base-package        Valid dot-separated Haxe package prefix (default: ts2hx)
 --mode                strict-js (default) or assisted
 --runtime-profile     genes-esm or standard-haxe-js (required with --out)
 --allow-loss          Map assisted exit 3 to 0; manifest stays assisted
@@ -102,6 +102,14 @@ and does not commit a partial tree. An existing output directory remains
 unchanged. The external manifest still records deterministic diagnostics and
 the complete semantic support catalog.
 
+Source naming is checked before lowering. The base package and relative source
+directories must be legal Haxe package segments, sources must remain under the
+configured `rootDir`, and each source must own a unique Haxe module/output
+identity. In particular, `foo-bar.ts` and `foo_bar.ts` cannot both become
+`FooBar.hx`; both receive `TS2HX-SOURCE-NAMESPACE-COLLISION-001`. These failures
+also remain errors in assisted mode because there is no honest one-file
+scaffold for two modules. No prior output is changed.
+
 On success, `src-generated/ts2hx-manifest.json` is committed atomically beside
 the Haxe files. Use `--clean` with a dedicated generated directory so files
 removed from the source inventory cannot survive as stale output.
@@ -138,6 +146,11 @@ It commits explicit `TS2HX-*` loss markers plus a manifest with status
 
 Never put assisted output on a production execution path merely because
 automation accepted `--allow-loss`.
+
+Some project-level boundaries cannot be scaffolded at all. Invalid or
+colliding source namespaces and a runtime request sent to the request-free
+standard-Haxe profile return status `failed` even when `--mode assisted` was
+selected; `--allow-loss` does not turn those errors into output.
 
 ## Exit codes
 
@@ -249,6 +262,8 @@ The executable source of truth is:
   TypeScript request/elision evidence;
 - `tools/ts2hx/src/test-package-extern-facts.ts` for checker alias/type facts
   and the closed package-extern semantic plan;
+- `tools/ts2hx/src/test-source-namespace-plan.ts` for package/module/output
+  identity, collisions, root containment, and strict/assisted rollback;
 - `tools/ts2hx/src/test-runtime-profile.ts` for schema-v3 profile boundaries,
   transaction safety, and the Haxe macro guard;
 - `tools/ts2hx/src/test-strict-diagnostics.ts` for failure behavior.
@@ -265,6 +280,7 @@ Focused gates:
 
 ```bash
 yarn --cwd tools/ts2hx test:snapshots
+yarn --cwd tools/ts2hx test:source-namespace-plan
 yarn --cwd tools/ts2hx test:esm-request-plan
 yarn --cwd tools/ts2hx test:package-extern-facts
 yarn --cwd tools/ts2hx test:runtime-profile

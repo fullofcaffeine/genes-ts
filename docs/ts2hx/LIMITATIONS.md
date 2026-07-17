@@ -88,6 +88,18 @@ accepted by snapshots into semantic evidence.
 - ts2hx translates the sorted root files returned for the supplied tsconfig.
   Use `--list-files` and ensure every implementation dependency intended for
   conversion is present.
+- Before lowering, one immutable source-namespace plan assigns every emitting
+  root its Haxe package, module FQN, and output path. `--base-package` and source
+  directories must contain legal Haxe package segments; sources must remain
+  under `rootDir`; and each filename must produce a usable Haxe module name.
+- Lossy spellings are permitted only when unique. For example, `foo-bar.ts`
+  and `foo_bar.ts` both propose `FooBar.hx`, so the project fails with
+  `TS2HX-SOURCE-NAMESPACE-COLLISION-001` at both sources. Invalid base packages,
+  directory segments, module names, and root escapes use the corresponding
+  `TS2HX-SOURCE-NAMESPACE-*-001` diagnostic.
+- Namespace failures are not assisted scaffolds. One generated module cannot
+  represent two source identities, so strict and assisted modes both return a
+  failed manifest, publish no files, and preserve the prior output tree.
 - `.ts`, `.tsx`, `.js`, and `.jsx` are accepted translation file kinds. JS/JSX
   must be enabled and included by the source tsconfig.
 - `.d.ts` files receive a `declaration-only` disposition and emit no Haxe.

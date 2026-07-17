@@ -1,0 +1,8 @@
+-lib genes-ts
+-cp tests/string-literals/src
+--main literalevidence.Main
+-js tests/string-literals/out/classic/index.js
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
+-debug

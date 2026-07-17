@@ -301,6 +301,7 @@ smallest generic TypeScript behavior before changing the emitter.
 
 ```bash
 yarn --cwd tools/ts2hx test:snapshots
+yarn --cwd tools/ts2hx test:source-namespace-plan
 yarn --cwd tools/ts2hx test:esm-request-plan
 yarn --cwd tools/ts2hx test:runtime-profile
 yarn --cwd tools/ts2hx test:roundtrip

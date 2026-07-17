@@ -50,13 +50,13 @@ called out below.
 | Delta | Original v0.4.14 | Reflaxe.Elixir vendor | Modern genes-ts | Disposition |
 | --- | --- | --- | --- | --- |
 | Native async/await | No typed public async authoring layer | Detects `__async_marker__`, filters it during printing, recognizes one raw `await {0}` spelling, and reads method metadata in the classic printer | `genes.js.Async` types and validates the authoring API, marks typed functions with private `:jsAsync` semantics, and both profiles emit native async/await | **Superseded**, with missing focused regressions tracked by `genes-7be.4` |
-| String literals | Iterates the compiler-time Haxe string and escapes each reported character | Walks `0...input.length` and calls `charCodeAt` | Still uses the original iterator in the shared classic/TS expression emitter | **Supported but under-tested**; Unicode/code-unit evidence is required before copying the indexed walk |
+| String literals | Iterates the compiler-time Haxe string and escapes each reported character | Walks `0...input.length` and calls `charCodeAt` | Retains the iterator and now has an exact code-unit differential | **Already supported**; both mechanisms match standard Haxe, original Genes, and the vendored fork, so no production port is justified |
 | Runtime globals | Uses an untyped object and bracket access | Uses `DynamicAccess<Object>` and explicit get/create logic | Uses a typed `HxRegistry`, `globalThis`, and narrow registry projections for classes and enums | **Superseded** by the stronger modern registry boundary |
 | Iterator runtime | Uses `untyped` array and structural iterator access | Replaces those operations with local `js.Syntax.code` calls | Centralizes the dynamic host boundary, supports arrays, callable/non-callable iterator fields, and map-like `keys/get` iteration | **Superseded**, with a few identity/shape cases still under-tested |
 | Bound-method cache | Uses `Dynamic` for receiver and method | Narrows to `Object`, `Function`, and `Null<Function>` while keeping hidden-field access in syntax calls | Preserves the Haxe JS cache protocol behind one documented dynamic runtime boundary | **Supported but under-tested**; do not adopt the narrower signature until it proves every real receiver/callable shape |
-| Source-map JSON construction | Builds the JSON object as `Dynamic` | Adds a structural `SourceMap` typedef | Still builds the modern transaction-aware map as `Dynamic` | **Missing and valid** typing improvement; adapt it to the current map contract |
-| Writer comparison catch | Uses `catch (e:Dynamic)` around only the unchanged-output comparison | Uses inferred catch typing | Still uses the original explicit `Dynamic` catch; the actual write remains outside it | **Missing and valid** typing cleanup, provided read failure still falls through and write failure still escapes |
-| Assignment whitespace | Some multiline assignments end a visible line with ` = ` | Removes the final space at selected class/enum registration sites | Raw classic output still contains those visible trailing spaces, while snapshot comparison normalizes them away | **Formatting-only**; accept only through a raw output-quality invariant, not a three-line transplant |
+| Source-map JSON construction | Builds the JSON object as `Dynamic` | Adds a structural `SourceMap` typedef | Uses a private exact `SourceMapJson` record while retaining modern path normalization and transactional publication | **Absorbed generically** in `f99c824`; schema, optional source content, relative paths, and byte determinism have focused evidence |
+| Writer comparison catch | Uses `catch (e:Dynamic)` around only the unchanged-output comparison | Uses inferred catch typing | Infers the comparison exception type; the actual write remains outside the catch | **Absorbed generically**; direct evidence covers create/change/unchanged output, comparison-read fallback, and escaping write failure |
+| Assignment whitespace | Some multiline assignments end a visible line with ` = ` | Removes the final space at selected class/enum registration sites | Raw output quality now rejects whitespace after visible content across owned TS, classic JS, and classic declarations | **Absorbed generically**; all current multiline class/enum/declaration producers satisfy the central invariant |
 | `Genes.hx` comment | Dynamic fallback has no nearby explanation | Adds a comment explaining the macro fallback | Modern contributor guidance already requires documented unsafe boundaries, but this old macro path is no longer the vendor decision seam | **Comment-only**; document current boundaries where they exist instead of copying historical narration |
 | `TypeUtil.hx` and repository churn | Baseline contents | Line-ending or packaging churn only | Modern implementation has independently evolved | **Formatting-only or obsolete** |
 | Lix descriptor, removed upstream files, Phoenix build conventions | Upstream package layout | Hermetic downstream vendor and explicit activation flags | genes-ts has its own package identity, `extraParams.hxml`, CI, and release workflow | **Downstream-only** |
@@ -95,30 +95,30 @@ index access after await, exception propagation, single evaluation, source-map
 lookup at the await token, await misuse outside async context, and constructor
 misuse. This is `genes-7be.4`.
 
-### String literals: prove code units and runtime equality first
+### String literals: retain the current walk after exact comparison
 
 **Observed.** The vendor replaced `for (char in input)` with an indexed
-`charCodeAt` loop after a downstream Haxe 4.3.7 failure. Modern genes-ts still
-uses the original loop, and the full Haxe 4.3.7 gate succeeds for the current
-corpus. That proves ordinary compiler compatibility, not Unicode equivalence.
+`charCodeAt` loop after a downstream Haxe 4.3.7 failure. Modern genes-ts and
+original Genes retain the iterator. Because these operations run inside the
+compiler, their behavior could have depended on the macro host's string model;
+source resemblance alone was not enough to choose between them.
 
-**Observed.** No focused fixture currently covers surrogate pairs, combining
-characters, U+2028/U+2029, or exact runtime code-unit sequences. Both genes-ts
-and classic Genes call the same expression-emitter string routine, so an error
-here affects both profiles.
+**Executed experiment.** `tests/string-literals` now compares runtime UTF-16
+length and every ordered code unit for ASCII, quotes and slashes, newline/tab/
+carriage-return, NUL and another control byte, Latin-1, BMP Unicode, emoji,
+combining marks, U+2028/U+2029, a property key, and an import-like value. It
+also checks Unicode module-directive spelling and maps both metadata and an
+expression literal back to their Haxe source lines. Standard Haxe JS is the
+primary oracle; classic Genes and genes-ts TS 5/6/7 match it. On the reviewed
+machine, live original Genes and the live Reflaxe.Elixir vendor match the same
+transcript exactly.
 
-**Inference.** An indexed loop may be the more explicit contract, but Haxe
-string length and `charCodeAt` behavior are target-sensitive. Applying the
-vendor patch without measuring the macro/runtime strings could split an emoji,
-duplicate bytes, or merely replace one implementation with an equivalent one.
-
-**Decision.** Treat current literal emission as supported but under-tested.
-Before changing it, add one reduced fixture covering ASCII, quotes, slashes,
-control characters, Latin-1, BMP characters, emoji, combining characters,
-U+2028/U+2029, property keys, and source-map metadata. Compare generated parse
-success, runtime length, and every UTF-16 code unit in standard Haxe JS,
-classic Genes, and genes-ts. Reclassify as **missing and valid** only if that
-fixture exposes a real defect. This work belongs to `genes-7be.2`.
+**Decision.** The fork's indexed walk is behaviorally equivalent for the
+proved Haxe 4.3.7 boundary, not a missing compiler fix. Keep the current
+iterator, preserve the differential, and revisit the mechanism only if a
+future supported Haxe toolchain produces a failing code-unit case. This avoids
+production churn while retaining stronger evidence than either implementation
+previously had.
 
 ### Registry globals and iteration: modern architecture already absorbed the intent
 
@@ -163,16 +163,19 @@ evidence. Do not remove `Dynamic` by making the public contract false.
 
 ### Source-map JSON: adopt the type, not the old implementation
 
-**Observed.** The current map includes the modern output filename rule,
-relative source normalization, optional source content, serialization, and
-transactional publication. Only the local JSON record remains typed as
-`Dynamic`.
+**Observed at the audit baseline.** The modern map already included output
+filename rules, relative source normalization, optional source content,
+serialization, and transactional publication. Only its local JSON record was
+still typed as `Dynamic`; the fork's smaller typedef therefore identified a
+real typing gap without supplying the modern implementation.
 
-**Decision.** Add a private structural JSON type that describes version,
-names, file, source root, nullable sources, mappings, and optional nullable
-source content. Keep current bytes and transaction ownership unchanged. The
-existing source-map consumers prove mapping behavior; `genes-7be.2` must also
-assert the schema and byte stability with source content enabled and disabled.
+**Implemented.** `SourceMapGenerator` now builds a private exact
+`SourceMapJson` record describing version, names, file, source root, nullable
+sources, mappings, and optional nullable source content. The change kept the
+serialized bytes and transaction ownership unchanged. The focused source-map
+gate checks the exact schema, optional-source-content alignment, relative
+paths, and deterministic default bytes; transaction and dual-output gates
+continue to cover publication and both profiles. This landed in `f99c824`.
 
 ### Writer catch: narrow the comparison fallback only
 
@@ -181,10 +184,13 @@ legacy buffered writer. `File.saveContent` remains after the catch, so write
 failure is not intentionally swallowed. Transaction-owned compiler output has
 its own stronger publication and rollback path.
 
-**Decision.** Prefer inferred catch typing on supported Haxe versions. Add a
-focused writer test that proves unchanged output avoids rewriting, read failure
-falls through to a write, and write failure propagates. Do not broaden the
-catch or turn it into transaction recovery. This is `genes-7be.2`.
+**Implemented.** The comparison catch now uses Haxe's inferred exception type,
+and the streamed writer's delayed file handle has an explicit nullable type.
+The focused filesystem harness proves that missing and changed files are
+written, identical output preserves its modification time, a real POSIX
+comparison-read failure falls through to publication, and a real publication
+failure exits nonzero without changing the blocking user file. The catch was
+not broadened and remains separate from transaction recovery.
 
 ### Assignment whitespace: enforce an outcome, not the fork's call sites
 
@@ -193,11 +199,14 @@ catch or turn it into transaction recovery. This is `genes-7be.2`.
 strip trailing whitespace before comparison, so reviewed goldens cannot detect
 this. The vendor fixed only selected implementation-emitter sites.
 
-**Decision.** This is a real output-quality blemish but not a semantic compiler
-fix. Add a raw generated-output assertion that forbids whitespace after a
-visible character, then correct every owned classic implementation/declaration
-site required by that invariant. Indentation-only blank lines are a separate,
-larger formatting decision and should not be pulled into this small change.
+**Implemented.** This is an output-quality correction, not a language-semantic
+change. The raw-tree gate now rejects spaces or tabs after visible content in
+every owned TS, classic JS, and classic declaration artifact. That assertion
+failed on 31 generated files before the fix. The current class-registration,
+enum-registration, and multiline declaration-union producers now end the line
+at `=`, while inline assignments retain their conventional surrounding spaces.
+Indentation-only blank lines remain a separate, intentionally deferred
+formatting policy.
 
 ### Downstream packaging stays downstream
 
@@ -212,13 +221,11 @@ compiler special case.
 
 ## Safe implementation order
 
-1. Complete the literal/source-map/writer/whitespace evidence in
-   `genes-7be.2`, landing each independently meaningful correction.
-2. Complete registry and bound-method runtime/type evidence in `genes-7be.3`.
-3. Complete the async supersession matrix in `genes-7be.4`; keep the marker
+1. Complete registry and bound-method runtime/type evidence in `genes-7be.3`.
+2. Complete the async supersession matrix in `genes-7be.4`; keep the marker
    protocol rejected.
-4. Run full `yarn test:ci` after every production slice.
-5. Only after Genes is green, use a disposable Reflaxe.Elixir worktree for the
+3. Run full `yarn test:ci` after every production slice.
+4. Only after Genes is green, use a disposable Reflaxe.Elixir worktree for the
    five client builds, generated ESM/map review, bundler tests, and browser
    evidence (`genes-7be.5`). Do not modify or remove the real downstream vendor.
 

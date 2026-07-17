@@ -312,6 +312,42 @@ function captureTree(spec: TreeSpec): TreeSnapshot {
   return { id: spec.id, files: files.length, hash: hash.digest("hex") };
 }
 
+/**
+ * Rejects spaces or tabs left after visible generated source.
+ *
+ * Why: reviewed snapshots intentionally trim line endings and trailing spaces,
+ * so they cannot catch an emitter that writes ` = ` immediately before a
+ * newline. Those bytes are harmless at runtime but make generated files noisy
+ * in editors and diffs.
+ *
+ * What/How: inspect the raw compiler-owned source and declaration artifacts,
+ * while leaving source-map JSON and whitespace-only blank lines alone. Blank
+ * line indentation is a broader formatting policy and is intentionally not
+ * introduced by this focused vendor-audit correction.
+ */
+function assertNoVisibleTrailingWhitespace(spec: TreeSpec): void {
+  const root = path.join(repoRoot, spec.root);
+  const violations: string[] = [];
+  const files = listFilesRecursive(root).filter((file) =>
+    !file.endsWith(".map") && spec.suffixes.some((suffix) => file.endsWith(suffix))
+  );
+
+  for (const file of files) {
+    const lines = normalizeLineEndings(readFileSync(file, "utf8")).split("\n");
+    lines.forEach((line, index) => {
+      if (/\S[ \t]+$/.test(line)) {
+        violations.push(`${slash(path.relative(root, file))}:${index + 1}`);
+      }
+    });
+  }
+
+  strictEqual(
+    violations.length,
+    0,
+    `${spec.id} contains visible lines with trailing whitespace:\n${violations.join("\n")}`
+  );
+}
+
 function rawSourceMap(mapPath: string): { readonly raw: RawSourceMap; readonly sourceRoot: string } {
   const parsed: unknown = JSON.parse(readFileSync(mapPath, "utf8"));
   if (!isRecord(parsed)) {
@@ -704,6 +740,9 @@ const secondProfiles = Object.fromEntries(
 
 deepStrictEqual(secondTrees, firstTrees, "Two clean compiler builds produced different normalized trees");
 deepStrictEqual(secondProfiles, firstProfiles, "Two clean compiler builds produced different metrics");
+for (const tree of manifest.trees) {
+  assertNoVisibleTrailingWhitespace(tree);
+}
 
 if (process.env.UPDATE_OUTPUT_QUALITY === "1") {
   console.log(JSON.stringify({ trees: secondTrees, profiles: secondProfiles }, null, 2));

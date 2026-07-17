@@ -43,8 +43,8 @@ The strongest architecture remains intact:
 | Audit finding | Local disposition | Bead |
 | --- | --- | --- |
 | GRA-001: filename-only `StdTypes.ts.map` retirement | **Observed P0.** `OutputTransaction.retire` bypasses prior manifest ownership, and TS generation calls it unconditionally. Add the unowned sentinel before changing cleanup. | `genes-gl2` |
-| GRA-002: lossy transaction scope | **Observed P0.** `Generator` drops directory and extension, then `safeScope` replaces distinct characters with `_`. Different entrypoints can share manifest/stage names. | `genes-552` |
-| GRA-003: ts2hx source namespace collision | **Observed P0.** filename-to-module spelling is lossy, output identity is recomputed, and duplicate staged paths are overwritten rather than rejected. | `genes-3a5` |
+| GRA-002: lossy transaction scope | **Reproduced and remediated P0.** The focused baseline test showed `entry@one.ts` consuming the lossy `entry_one` v1 scope. Manifest v2 now records the exact basename plus extension, uses a readable full-digest scope, rejects owner mismatches before publication, and preserves ambiguous v1 ownership rather than guessing. | `genes-552` |
+| GRA-003: ts2hx source namespace collision | **Reproduced and remediated P0.** The baseline focused test showed `foo-bar.ts` and `foo_bar.ts` both reporting success while staging `FooBar.hx`. One immutable pre-emission plan now validates the base package, directory segments, root containment, module FQN, and portable output identity. All source/import/re-export/runtime-anchor/resource/extern consumers reuse it; every collider receives a source-positioned error in strict and assisted modes, with no publication. | `genes-3a5` |
 | GRA-004: import binding form/declaration identity collapse | **Observed omission, inferred consequence.** Equality and accessor lookup omit binding form and original declaration identity. The exact Haxe/package pair must reproduce before severity is final. If it does, a narrow architecture review is mandatory before the shared identity changes. | `genes-ntz` |
 | GRA-005: malformed handwritten import attributes | **Observed P1.** metadata presence with invalid arity/value is converted to `null`, which is indistinguishable from absence. | `genes-3vd` |
 | GRA-006: external diagnostics after ts2hx commit | **Observed P1.** the CLI can return exit 2 after the generated tree has already changed. The fix must state its process-failure and cross-filesystem crash boundary honestly. | `genes-ipp` |
@@ -78,8 +78,9 @@ or removing the compatibility path.
 
 1. Protect unowned legacy output and give each compiler entrypoint an exact,
    collision-resistant transaction identity.
-2. Add one project-wide ts2hx source namespace plan before any spelling or
-   publication consumer runs.
+2. **Landed:** keep the project-wide ts2hx source namespace plan ahead of every
+   spelling and publication consumer; later stale-output ownership may rely on
+   its unique `plannedFiles` identities.
 3. Reproduce the import-binding collision. If reachable, prepare the narrow
    GPT review requested by `genes-ntz`, then implement one canonical identity
    without merging module-request and binding equality.
@@ -117,7 +118,8 @@ merged merely because they request the same module or share a simple name.
 Until the fixes land, documentation must not overclaim:
 
 - filename resemblance is not compiler ownership;
-- ts2hx source paths are not certified collision-free yet;
+- ts2hx source identities are certified by the pre-emission namespace plan;
+  invalid or colliding packages/modules fail before runtime or text planning;
 - the embedded `ts2hx-manifest.json` is part of the output-tree transaction,
   while optional external diagnostics currently have a separate failure
   boundary;

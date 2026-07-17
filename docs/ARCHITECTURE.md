@@ -56,7 +56,9 @@ where multiple emitters or passes need the same semantic decision.
    not broaden classic JavaScript DCE.
 8. `OutputTransaction` stages the complete tree, snapshots every destination it
    will mutate, publishes the ownership manifest last, removes only stale
-   manifest-owned paths, and rolls the whole mutation set back on failure.
+   manifest-owned paths, and rolls the whole mutation set back on failure. Its
+   v2 owner is the exact configured output basename including the extension;
+   a readable SHA-256-scoped filename keeps distinct entrypoints isolated.
 
 This ordering is a correctness contract. In particular, moving declaration
 expansion before implementation emission can accidentally retain runtime
@@ -150,6 +152,13 @@ capability diagnostic in classic mode.
   before committing output. A failed TS, classic JS, declaration, support-file,
   or source-map emission leaves the prior owned tree byte-identical. Successful
   builds remove stale manifest-owned paths and preserve unrelated files.
+- Output ownership includes the configured filename extension and is recorded
+  exactly inside a versioned manifest. Filesystem-safe punctuation replacement
+  is only a readable prefix, never identity: a full digest distinguishes names
+  such as `entry@one.ts` and `entry#one.ts`, while `index.ts` and `index.js`
+  remain independent owners in one directory. Legacy v1 manifests did not
+  carry exact identity and are preserved rather than guessed or used for stale
+  deletion.
 - Diagnostics reachable during planning/emission use `CompilerDiagnostic`, not
   an uncatchable macro-host abort, so transaction cleanup is an invariant of
   every compiler failure path.
@@ -195,6 +204,7 @@ layer when a change affects more than one contract.
 | Nullish/map/iterator contract | `tests/nullish/` | Owning genes-ts/full and exported-surface gates |
 | Type-only reachability and DCE | `tests/typeonly/` | Owning genes-ts/full and dual-output gates |
 | Same-source TS/classic parity | `tests/output-modes/` | `yarn test:dual-output` |
+| String literal code units and escaping | `tests/string-literals/` | `yarn test:string-literals` |
 | Reusable package surface | `tests/library-profile/` | `yarn test:library-profile` |
 | Module directive prologues | `tests/module-directives/` | `yarn test:module-directives` |
 | ESM/CommonJS/package import shape | `tests/genes-ts/package-shapes/` | `yarn test:interop:module-shapes` |
@@ -239,6 +249,9 @@ To add a case:
 `scripts/snapshots.ts` compares the complete file set and normalized content.
 It normalizes line endings and trailing whitespace, but it does not bless
 missing files, extra files, typing holes, or runtime drift.
+`yarn test:output-quality` separately reads the raw compiler-owned TS, JS, and
+declaration trees and rejects spaces or tabs after visible content. It does not
+currently impose a policy on indentation-only blank lines.
 
 ### Adding an example
 
@@ -257,6 +270,7 @@ not a lossless inverse compiler.
 ```text
 tsconfig + TypeScript source
   -> project.ts: Program/TypeChecker and deterministic source inventory
+  -> haxe/source-namespace-plan.ts: validated source/package/output identity
   -> semantic/ir.ts + haxe/emit.ts: supported semantic decisions,
      Haxe translation, provenance, and diagnostics
   -> transactional Haxe output + ts2hx-manifest.json
@@ -271,6 +285,7 @@ tsconfig + TypeScript source
 | `src/semantic/compiler-facts.ts` | Records exact bridge/engine identities and a portable deterministic hash of effective compiler options. |
 | `src/semantic/package-extern-plan.ts` | Converts one checker-resolved package value into a closed strong Haxe type plan, or a deterministic rejection reason. It never prints Haxe or executes package code. |
 | `src/semantic/ir.ts` | Owns stable semantic feature IDs, support grades, and deliberately small immutable plans, including function-local callback paths, real control targets, and transfer provenance for `try/finally`. |
+| `src/haxe/source-namespace-plan.ts` | Assigns every configured source one validated Haxe package, module FQN, and output path before any runtime request, extern, or source text is planned. |
 | `src/haxe/emit.ts` | Translates validated constructs, records source provenance, and stages output. Unsupported input must not disappear. |
 | `src/haxe/runtime-modules.ts` | Validates hash-pinned external-relative runtime ownership before emission; staged bytes share the Haxe output transaction, while the named build owner copies them beside final JS. |
 | `src/cli.ts` | Owns strict/assisted modes, exit codes, human diagnostics, and deterministic JSON output. |
@@ -279,6 +294,16 @@ Strict mode succeeds only for the supported subset and preserves the previous
 output tree on failure. Assisted mode may create scaffolding only when every
 loss has a stable `TS2HX-*` marker and manifest record. Printers may not turn an
 unsupported construct into a silent omission or behavior-changing default.
+Source identity is validated even earlier than TypeScript request inspection.
+The base package and every source directory must use legal Haxe package
+segments, each emitting filename must produce a usable module name, and every
+source must remain under the configured root. The plan groups final output
+paths case-insensitively so a project is safe on both case-sensitive and
+case-insensitive hosts. A collision is an error in strict and assisted modes:
+one Haxe module cannot honestly scaffold two TypeScript roots. Namespace
+failure returns source-positioned diagnostics and an empty publication plan,
+leaving the previous tree byte-for-byte unchanged.
+
 Before Haxe planning, a read-only TypeScript `after` transform classifies every
 original static import as a runtime request, type-only request, or elided
 declaration under the configured compiler options. A schema-v3 manifest records
