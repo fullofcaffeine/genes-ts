@@ -351,24 +351,48 @@ class Dependencies {
   }
 
   /**
-   * Reads the internal import-attribute metadata used by genes-ts import emitters.
+   * Validates and reads the import-attribute metadata shared by both emitters.
    *
    * Why: TypeScript import attributes, such as `with { type: "json" }`, are a
-   * dependency-level property rather than an expression-level property. Carrying
-   * them through `Dependency` keeps both macro-generated externs and hand-written
-   * `@:jsRequire` bindings on the same deterministic import path.
+   * runtime loader contract, not an optional formatting hint. Treating malformed
+   * metadata as if it were absent can produce valid-looking output that fails
+   * before application code starts. Validation therefore belongs in dependency
+   * planning, before either output profile opens a public writer.
    *
-   * What: `@:genes.importAttributeType("json")` lowers to an optional string on
-   * `Dependency`. The TypeScript emitter prints it only for value imports.
+   * What: an absent annotation returns `null`. A present annotation must occur
+   * once and contain exactly one non-empty string literal; otherwise compilation
+   * stops with a stable diagnostic at the offending source metadata.
    *
-   * How: callers attach the metadata beside `@:jsRequire`; this helper extracts
-   * the literal value and rejects non-literal shapes by ignoring them, matching
-   * existing metadata extraction conventions in this module.
+   * How: callers attach `@:genes.importAttributeType("json")` beside
+   * `@:jsRequire`. The validated literal travels on `Dependency`, so TypeScript
+   * and classic ESM retain the same request identity while choosing only their
+   * profile-specific import syntax.
    */
   public static function extractImportAttributeType(meta: MetaAccess): Null<String> {
-    return switch meta.extract(':genes.importAttributeType') {
-      case [{params: [{expr: EConst(CString(value))}]}]: value;
-      default: null;
+    final entries = meta.extract(':genes.importAttributeType');
+    if (entries.length == 0)
+      return null;
+    final entry = entries[0];
+    if (entries.length != 1 || entry.params.length != 1) {
+      return CompilerDiagnostic.fail('GENES-IMPORT-ATTRIBUTE-ARITY-001: '
+        + '@:genes.importAttributeType must appear once with exactly one '
+        + 'string-literal argument',
+        entry.pos);
+    }
+    final parameter = entry.params[0];
+    return switch parameter.expr {
+      case EConst(CString(value)):
+        if (StringTools.trim(value).length == 0) {
+          CompilerDiagnostic.fail('GENES-IMPORT-ATTRIBUTE-EMPTY-001: '
+            + '@:genes.importAttributeType requires a non-empty string literal',
+            parameter.pos);
+        } else {
+          value;
+        }
+      default:
+        CompilerDiagnostic.fail('GENES-IMPORT-ATTRIBUTE-LITERAL-001: '
+          + '@:genes.importAttributeType does not accept computed values',
+          parameter.pos);
     }
   }
 

@@ -136,6 +136,10 @@ capability diagnostic in classic mode.
   internal/external identity, path, and optional loader attribute. Printers do
   not infer evaluation order from a path-grouped map. Equal requests coalesce
   at first occurrence, and a real binding can satisfy an earlier bare request.
+- Import-attribute metadata is validated while that dependency plan is built.
+  Absence means an ordinary request; presence requires exactly one non-empty
+  string literal. Invalid metadata never degrades to absence, because doing so
+  would silently remove a host loader contract before either printer sees it.
 - Runtime module directives are an explicit pre-DCE plan, emitted as terminated
   statements before every banner and import in both implementation profiles.
   Metadata can affect only a module already selected by ordinary reachability

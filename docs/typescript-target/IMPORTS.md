@@ -191,6 +191,24 @@ This emits an import shaped like:
 import Theme from "./theme.json" with { type: "json" }
 ```
 
+`defaultImportWith` is the preferred authoring API because its macro checks the
+module and attribute literals at the call site. Low-level extern declarations
+may instead place `@:genes.importAttributeType("json")` beside `@:jsRequire`,
+but that metadata is a strict loader contract: it must appear once with exactly
+one non-empty string literal. Genes rejects malformed forms before publishing
+either output profile:
+
+- wrong arity or duplicate annotations:
+  `GENES-IMPORT-ATTRIBUTE-ARITY-001`;
+- a computed/nonliteral value:
+  `GENES-IMPORT-ATTRIBUTE-LITERAL-001`;
+- an empty or whitespace-only literal:
+  `GENES-IMPORT-ATTRIBUTE-EMPTY-001`.
+
+These errors intentionally do not fall back to an ordinary import. Silently
+dropping an attribute could defer the mistake until the host loader starts the
+application, and could make a failed build replace previously working output.
+
 ### Resource imports
 
 `Imports.text` names the common bundler/Bun contract where a text resource is a

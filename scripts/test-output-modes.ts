@@ -1,12 +1,17 @@
 import { deepStrictEqual, ok, strictEqual } from "node:assert";
-import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
+import {
+  execFileSync,
+  spawnSync,
+  type ExecFileSyncOptions
+} from "node:child_process";
 import {
   copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
-  rmSync
+  rmSync,
+  writeFileSync
 } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -119,6 +124,92 @@ function directFiles(relativeDirectory: string): string[] {
     .sort();
 }
 
+function generatedFiles(root: string): string[] {
+  if (!existsSync(root)) return [];
+  const files: string[] = [];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const absolute = path.join(root, entry.name);
+    if (entry.isDirectory()) files.push(...generatedFiles(absolute));
+    else if (entry.isFile()) files.push(absolute);
+  }
+  return files.sort((left, right) => left.localeCompare(right));
+}
+
+const invalidImportAttributeCases = [
+  ["import_attribute_arity", "GENES-IMPORT-ATTRIBUTE-ARITY-001"],
+  ["import_attribute_nonliteral", "GENES-IMPORT-ATTRIBUTE-LITERAL-001"],
+  ["import_attribute_empty", "GENES-IMPORT-ATTRIBUTE-EMPTY-001"]
+] as const;
+
+/**
+ * Proves that a malformed loader contract cannot publish partial output.
+ *
+ * Why: treating invalid `@:genes.importAttributeType` metadata as if it were
+ * absent produces valid-looking source that can fail only when the host tries
+ * to load the resource. Both output profiles must reject that typo before they
+ * replace an application's last known-good files.
+ *
+ * What/How: seed the public entrypoint with sentinel bytes, compile one invalid
+ * metadata shape, and require a stable source diagnostic. A planning failure
+ * must leave only the sentinel behind: no manifest, map, declaration, support
+ * module, or partially generated implementation may escape.
+ */
+function assertImportAttributeFailure(
+  profile: "classic" | "ts",
+  define: string,
+  diagnostic: string
+): void {
+  const extension = profile === "ts" ? "ts" : "js";
+  const output = path.join(
+    fixtureRoot,
+    "out/invalid-import-attribute",
+    `${profile}-${define}`,
+    `index.${extension}`
+  );
+  const sentinel = `preserved:${profile}:${define}\n`;
+  mkdirSync(path.dirname(output), { recursive: true });
+  writeFileSync(output, sentinel, "utf8");
+
+  const args = [
+    "-lib", "genes-ts",
+    "-cp", "tests/output-modes/src",
+    "--main", "importattributeinvalid.Main",
+    "-js", path.relative(repoRoot, output),
+    "-D", define,
+    "-D", "no-deprecation-warnings",
+    "-D", "js-es=6",
+    "-dce", "full",
+    ...(profile === "ts" ? ["-D", "genes.ts"] : ["-D", "dts"])
+  ];
+  const result = spawnSync("haxe", args, {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  ok(
+    result.status !== null && result.status !== 0,
+    `${profile}/${define} must fail compilation`
+  );
+  const diagnostics = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+  ok(
+    diagnostics.includes(diagnostic),
+    `${profile}/${define} reports ${diagnostic}\n${diagnostics}`
+  );
+  ok(
+    /importattributeinvalid\/Main\.hx:\d+:/.test(diagnostics),
+    `${profile}/${define} reports a source position\n${diagnostics}`
+  );
+  strictEqual(
+    readFileSync(output, "utf8"),
+    sentinel,
+    `${profile}/${define} preserves prior public output`
+  );
+  deepStrictEqual(
+    generatedFiles(path.dirname(output)),
+    [output],
+    `${profile}/${define} publishes no partial artifacts`
+  );
+}
+
 function assertProfileOwnership(manifestUnknown: unknown): void {
   if (!isRecord(manifestUnknown)) {
     throw new Error("profile-ownership.json must contain an object");
@@ -194,6 +285,29 @@ function assertProfileOwnership(manifestUnknown: unknown): void {
     "tests/output-modes/resources/profile.json"
   );
   strictEqual(importAttributes.gate, "yarn test:dual-output");
+
+  const importAttributeValidation = requiredRecord(
+    capabilities,
+    "importAttributeValidation"
+  );
+  strictEqual(importAttributeValidation.owner, "genes-3vd");
+  strictEqual(
+    importAttributeValidation.status,
+    "fail-closed-arity-literal-empty-transactional"
+  );
+  strictEqual(
+    importAttributeValidation.source,
+    "tests/output-modes/src/importattributeinvalid/Main.hx"
+  );
+  deepStrictEqual(
+    requiredStringArray(importAttributeValidation, "diagnostics"),
+    [
+      "GENES-IMPORT-ATTRIBUTE-ARITY-001",
+      "GENES-IMPORT-ATTRIBUTE-LITERAL-001",
+      "GENES-IMPORT-ATTRIBUTE-EMPTY-001"
+    ]
+  );
+  strictEqual(importAttributeValidation.gate, "yarn test:dual-output");
 
   const stringLiterals = requiredRecord(capabilities, "stringLiterals");
   strictEqual(stringLiterals.owner, "genes-7be.2");
@@ -465,6 +579,12 @@ if (hasLiveVanilla) {
     requiredStringArray(vanillaUnknown, "modules"),
     requiredStringArray(shapeUnknown, "vanillaModules")
   );
+}
+
+for (const profile of ["classic", "ts"] as const) {
+  for (const [define, diagnostic] of invalidImportAttributeCases) {
+    assertImportAttributeFailure(profile, define, diagnostic);
+  }
 }
 
 console.log(

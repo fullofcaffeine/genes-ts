@@ -79,6 +79,18 @@
       "gate": "yarn test:dual-output",
       "contract": "Dependency planning retains the import attribute independently of printer syntax; TS and classic ESM both emit the JSON loader contract and execute the same checked-in module on supported Node releases."
     },
+    "importAttributeValidation": {
+      "status": "fail-closed-arity-literal-empty-transactional",
+      "owner": "genes-3vd",
+      "source": "tests/output-modes/src/importattributeinvalid/Main.hx",
+      "diagnostics": [
+        "GENES-IMPORT-ATTRIBUTE-ARITY-001",
+        "GENES-IMPORT-ATTRIBUTE-LITERAL-001",
+        "GENES-IMPORT-ATTRIBUTE-EMPTY-001"
+      ],
+      "gate": "yarn test:dual-output",
+      "contract": "A handwritten import attribute must appear once with one non-empty string literal. Both implementation profiles reject malformed metadata during dependency planning and preserve the prior public output tree."
+    },
     "stringLiterals": {
       "status": "exact-code-unit-cross-profile-differential",
       "owner": "genes-7be.2",

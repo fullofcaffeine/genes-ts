@@ -20,6 +20,13 @@ import attribute. This is a runtime contract, not a source snapshot: both the
 generated TypeScript and classic JavaScript must retain
 `with { type: "json" }`, and Node must execute the imported value successfully.
 
+The same gate exercises the low-level handwritten metadata boundary. A present
+`@:genes.importAttributeType` must occur once and contain one non-empty string
+literal. Wrong arity, computed values, and empty values stop dependency
+planning with stable `GENES-IMPORT-ATTRIBUTE-*` diagnostics in both profiles.
+Each failure starts with a sentinel output and proves that no generated module,
+declaration, map, support file, or ownership manifest replaces that prior tree.
+
 ## Profiles and oracles
 
 | Profile | Build product | Gate |
@@ -45,6 +52,8 @@ The identical `dual.Main` source covers:
 - maps, iterators, exceptions, expression-valued switch, and receiver/index/RHS
   evaluation order;
 - a real `node:path` ESM value import and a type-only local dependency;
+- a paired JSON loader attribute plus transactional diagnostics for every
+  malformed handwritten attribute shape;
 - embedded Haxe resources, strict resource/Bytes runtime support typing, DCE,
   source-map linkage, and a retained no-temp/stack-probe entry point.
 
