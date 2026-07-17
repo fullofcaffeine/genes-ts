@@ -68,6 +68,12 @@ Full Genes CI must pass before downstream projects rely on a local compiler chan
 - Make every PR description as concrete and specific as the available evidence
   permits. For compiler or generated-output changes, an architecture-only
   summary is not sufficient.
+- Explain why the change was needed and how the need was discovered. Name the
+  concrete project, workflow, or use case when it is safe to disclose; show the
+  exact observed output or failure; explain why existing mechanisms were
+  inadequate; and state why the reduced, generalized fix belongs in this
+  repository. Discovery context may be downstream-specific, but compiler code
+  and fixtures must remain reusable and consumer-neutral.
 - Include the smallest useful positive example: the exact Haxe input or command
   and the relevant generated TS/JS, runtime transcript, or diagnostic.
 - Include a negative or before-the-change example when behavior changes: show
