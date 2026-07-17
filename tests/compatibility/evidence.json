@@ -69,7 +69,7 @@
           "kind": "tracked-files",
           "path": "tests",
           "match": "^Test[^/]*\\.hx$",
-          "expected": 46
+          "expected": 47
         },
         {
           "id": "genes-ts-snapshot-profiles",

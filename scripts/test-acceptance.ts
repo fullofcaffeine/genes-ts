@@ -33,6 +33,7 @@ run("node", ["scripts/dist/test-genes-ts-sourcemaps.js"]);
 run("node", ["scripts/dist/test-genes-ts-snapshots.js"]);
 run("node", ["scripts/dist/test-output-modes.js"]);
 run("node", ["scripts/dist/test-string-literals.js"]);
+run("node", ["scripts/dist/test-async-await-evidence.js"]);
 run("node", ["scripts/dist/test-output-quality.js"]);
 run("node", ["scripts/dist/test-output-transaction.js"]);
 run("node", ["scripts/dist/test-side-effect-import-evidence.js"]);

@@ -12,7 +12,7 @@ This is an evidence contract, not a cached CI-success badge. `blocking` and `non
 
 | Evidence class | Metric | Exact count | Disposition |
 | --- | --- | ---: | --- |
-| Compile inventory | Classic Haxe test modules | 46 | `blocking` |
+| Compile inventory | Classic Haxe test modules | 47 | `blocking` |
 | Compile inventory | Generated TypeScript snapshot profiles | 7 | `blocking` |
 | Compile inventory | Examples with TS and classic profiles | 2 | `blocking` |
 | Strict public typing | Strict positive/negative consumer sources | 10 | `blocking` |

@@ -52,6 +52,8 @@ boundary and planned shared architecture.
 - **npm declaration ingestion** via a pinned, deterministic dts2hx bridge whose
   externs are exercised through both TS and classic JS output
 - **Async/await sugar** (`@:async` + `await(...)`) emitting native `async`/`await`
+  in both Genes profiles, plus stock-Haxe support for syntax-lowered anonymous
+  async functions and a clear guard for named methods
 - **Layered harness**: snapshots, strict `tsc`, negative type consumers, runtime smoke, classic JS assertions, exact source-map/determinism/output-budget evidence, and todoapp E2E (Playwright)
 - **ts2hx experiment**: fail-closed TS/JS → Haxe subset migration plus explicitly lossy assisted scaffolding
 - **Secret scanning** in CI + local (`gitleaks`)
@@ -280,7 +282,8 @@ See `docs/typescript-target/REACT_HXX.md`.
 
 ## Async/await sugar (optional)
 
-genes-ts includes an `@:async` + `await(...)` macro that emits native `async`/`await`:
+genes-ts includes an `@:async` + `await(...)` macro that emits native
+`async`/`await` in classic Genes JavaScript and genes-ts TypeScript:
 
 ```haxe
 import genes.js.Async.await;
@@ -292,6 +295,11 @@ function plusOne(x: Int): Promise<Int> {
   return v + 1;
 }
 ```
+
+Anonymous async functions lower to explicit syntax and also work under stock
+Haxe JS. Named methods depend on the Genes printers' async semantic fact, so
+they fail during typing when the Genes generator is disabled or absent instead
+of emitting invalid JavaScript.
 
 See `docs/typescript-target/ASYNC_AWAIT.md`.
 

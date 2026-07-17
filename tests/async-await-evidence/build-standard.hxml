@@ -1,0 +1,8 @@
+-lib genes-ts
+-cp tests/async-await-evidence/src
+-main asyncawaitevidence.Main
+-js tests/async-await-evidence/out/standard/index.cjs
+-D genes.disable
+-D js-es=6
+-dce full
+-debug

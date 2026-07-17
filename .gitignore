@@ -6,6 +6,7 @@
 /tests/genes-ts/**/dist*
 /tests/output-modes/out
 /tests/template-literals/out
+/tests/async-await-evidence/out
 /tests/output-transaction/out
 /tests/writer/out
 /tests/string-literals/out

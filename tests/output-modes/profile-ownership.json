@@ -97,6 +97,21 @@
       "source": "tests/string-literals/src/literalevidence/Main.hx",
       "gate": "yarn test:string-literals",
       "contract": "Standard Haxe is the primary runtime oracle; classic Genes and genes-ts must preserve exact UTF-16 code units, parseable source, metadata spelling, and Haxe source-map provenance. A live original Genes checkout is a secondary oracle when available."
+    },
+    "asyncAwait": {
+      "status": "typed-native-dual-profile-with-exact-standard-boundary",
+      "owner": "genes-7be.4",
+      "source": "tests/async-await-evidence/src/asyncawaitevidence/Main.hx",
+      "standardSource": "tests/async-await-evidence/src/asyncawaitevidence/AnonymousStandard.hx",
+      "diagnostics": [
+        "GENES-ASYNC-TARGET-001",
+        "GENES-ASYNC-CONTEXT-001",
+        "GENES-ASYNC-CONSTRUCTOR-001",
+        "GENES-ASYNC-RETURN-001",
+        "GENES-ASYNC-AUTHORING-001"
+      ],
+      "gate": "yarn test:async-await:evidence",
+      "contract": "Classic Genes and genes-ts share typed native async/await semantics, runtime order, exception behavior, TS 5/6/7 typing, and source provenance. Stock Haxe executes explicitly lowered anonymous async functions, while named async methods fail before output because they require the Genes printer semantic fact."
     }
   }
 }

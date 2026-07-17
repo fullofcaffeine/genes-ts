@@ -49,7 +49,7 @@ called out below.
 
 | Delta | Original v0.4.14 | Reflaxe.Elixir vendor | Modern genes-ts | Disposition |
 | --- | --- | --- | --- | --- |
-| Native async/await | No typed public async authoring layer | Detects `__async_marker__`, filters it during printing, recognizes one raw `await {0}` spelling, and reads method metadata in the classic printer | `genes.js.Async` types and validates the authoring API, marks typed functions with private `:jsAsync` semantics, and both profiles emit native async/await | **Superseded**, with missing focused regressions tracked by `genes-7be.4` |
+| Native async/await | No typed public async authoring layer | Detects `__async_marker__`, filters it during printing, recognizes one raw `await {0}` spelling, and reads method metadata in the classic printer | `genes.js.Async` validates lexical/target ownership, marks named functions with private `:jsAsync` semantics, and explicitly lowers anonymous functions | **Superseded and directly proved**; the old marker protocol is unnecessary, stock Haxe runs anonymous functions, and named methods fail clearly without Genes |
 | String literals | Iterates the compiler-time Haxe string and escapes each reported character | Walks `0...input.length` and calls `charCodeAt` | Retains the iterator and now has an exact code-unit differential | **Already supported**; both mechanisms match standard Haxe, original Genes, and the vendored fork, so no production port is justified |
 | Runtime globals | Uses an untyped object and bracket access | Uses `DynamicAccess<Object>` and explicit get/create logic | Uses a typed, null-prototype `DynamicAccess<HxRegistry>`, `globalThis`, and narrow registry projections for classes and enums | **Superseded and hardened**; the audit exposed prototype-name collisions that neither older implementation handled |
 | Iterator runtime | Uses `untyped` array and structural iterator access | Replaces those operations with local `js.Syntax.code` calls | Centralizes the dynamic host boundary and proves arrays, callable/non-callable iterator fields, receiver binding, and map-like `keys/get` iteration | **Superseded**, with direct runtime evidence in both profiles |
@@ -79,21 +79,40 @@ profiles. `src/genes/es/ExprEmitter.hx` and
 `src/genes/es/ModuleEmitter.hx` print that typed fact rather than searching for
 a magic local name.
 
-Existing executable evidence includes instance methods, an anonymous async
+Earlier executable evidence included instance methods, one anonymous async
 function, value and `Void` promises, both await spellings, local-scope typing,
 generic returns, property access after await, and a cross-module function call
 inside await (`tests/TestAsyncAwait.hx`). The basic snapshot also exercises a
 private static async method (`tests/genes-ts/snapshot/basic/src/foo/AsyncFoo.hx`).
-The full classic and genes-ts runtime gates passed at the review baseline.
+
+**Executed evidence.** `tests/async-await-evidence` now runs one strongly typed
+source through classic Genes and genes-ts. Its exact runtime report covers
+static and instance methods, anonymous and nested anonymous functions,
+`Promise<T>` and `Promise<Void>`, property and index access after await,
+exception propagation, and single evaluation/order. Generated TypeScript is
+accepted by the pinned TypeScript 5/6/7 lanes, contains no `any` or `unknown`,
+and both implementation source maps return the indexed await to its Haxe line.
+The harness also proves the fork's `__async_marker__` never appears.
+
+**Observed correction.** Stock Haxe ignores the private `:jsAsync` fact on
+named methods. Before this slice it could therefore publish an ordinary method
+containing raw `await`, which Node rejected while parsing. Anonymous async
+functions are different: the macro already wraps them in explicit native
+syntax, and both the focused fixture and ts2hx snapshot execute that form under
+stock Haxe. The build macro now requires the compile-local active-Genes
+capability only for the named form and reports `GENES-ASYNC-TARGET-001` before
+output replacement. Await placement is also checked against immutable
+per-field function ranges: the innermost named or anonymous function must be
+async, so a synchronous nested callback cannot inherit permission from its
+async parent. Misplaced await and constructor fixtures prove the stable
+diagnostics and unchanged sentinel output in both Genes profiles and the
+standard-Haxe lanes.
 
 **Decision.** Do not import `__async_marker__`. The typed modern mechanism is
-the single semantic owner and supersedes the fork.
-
-**Experiment required before closing the equivalence claim.** Add nested
-anonymous async functions, static and instance cases in one paired fixture,
-index access after await, exception propagation, single evaluation, source-map
-lookup at the await token, await misuse outside async context, and constructor
-misuse. This is `genes-7be.4`.
+the single semantic owner and now has the missing runtime, typing, provenance,
+context, capability, and transaction evidence. Standard Haxe support is exact:
+explicitly lowered anonymous functions are supported; named methods are a
+guarded Genes capability.
 
 ### String literals: retain the current walk after exact comparison
 
@@ -246,8 +265,8 @@ compiler special case.
 
 ## Safe implementation order
 
-1. Complete the async supersession matrix in `genes-7be.4`; keep the marker
-   protocol rejected.
+1. Keep the marker protocol rejected and preserve the focused async evidence
+   when changing macros, printers, or source-map projection.
 2. Run full `yarn test:ci` after every production slice.
 3. Only after Genes is green, use a disposable Reflaxe.Elixir worktree for the
    five client builds, generated ESM/map review, bundler tests, and browser

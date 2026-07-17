@@ -320,6 +320,29 @@ function assertProfileOwnership(manifestUnknown: unknown): void {
     "tests/string-literals/src/literalevidence/Main.hx"
   );
   strictEqual(stringLiterals.gate, "yarn test:string-literals");
+
+  const asyncAwait = requiredRecord(capabilities, "asyncAwait");
+  strictEqual(asyncAwait.owner, "genes-7be.4");
+  strictEqual(
+    asyncAwait.status,
+    "typed-native-dual-profile-with-exact-standard-boundary"
+  );
+  strictEqual(
+    asyncAwait.source,
+    "tests/async-await-evidence/src/asyncawaitevidence/Main.hx"
+  );
+  strictEqual(
+    asyncAwait.standardSource,
+    "tests/async-await-evidence/src/asyncawaitevidence/AnonymousStandard.hx"
+  );
+  deepStrictEqual(requiredStringArray(asyncAwait, "diagnostics"), [
+    "GENES-ASYNC-TARGET-001",
+    "GENES-ASYNC-CONTEXT-001",
+    "GENES-ASYNC-CONSTRUCTOR-001",
+    "GENES-ASYNC-RETURN-001",
+    "GENES-ASYNC-AUTHORING-001"
+  ]);
+  strictEqual(asyncAwait.gate, "yarn test:async-await:evidence");
 }
 
 function assertSourceMap(

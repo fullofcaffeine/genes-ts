@@ -27,7 +27,7 @@ feature surface beyond the quick examples in `readme.md`.
 - `typescript-target/INTEROP.md` — bidirectional cookbook: Haxe consuming JS/TS and TS consuming generated Haxe
 - `typescript-target/IMPORTS.md` — consuming existing JS/TS/TSX via `genes.ts.Imports`
 - `typescript-target/REACT_HXX.md` — React/TSX authoring in Haxe (`genes.react.JSX`)
-- `typescript-target/ASYNC_AWAIT.md` — `@:async` + `await(...)` macro (native `async`/`await` output)
+- `typescript-target/ASYNC_AWAIT.md` — typed `@:async` + `await(...)`, native Genes output, and the exact anonymous/named stock-Haxe boundary
 - `typescript-target/DEBUGGING.md` — source maps and debugging workflow
 
 ## Testing + CI
