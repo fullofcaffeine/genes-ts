@@ -24,16 +24,23 @@ using StringTools;
  * exact `-js` filename is the sole authority for stale-file deletion; files
  * absent from that manifest are never removed.
  *
- * How: paths are canonicalized beneath the output directory before admission.
- * The staging directory lives on the same filesystem as the destination, so
- * each final move is a rename. The whole set is failure-atomic through backup
- * and rollback rather than a directory swap, because output directories may
- * also contain user assets or artifacts owned by another tool. This class owns
- * filesystem policy only; TS/classic/declaration semantics remain in their
- * existing planners and emitters. Manifest v2 stores the exact owner identity
- * as well as a collision-resistant scope. Older v1 manifests did not record
- * enough identity to migrate safely, so they are preserved rather than
- * guessed from a lossy filename.
+ * How: paths are canonicalized beneath the output directory before admission,
+ * and every existing component is checked with `FileSystem.fullPath` before it
+ * is read, removed, or replaced. That second check matters because a lexical
+ * child can be a symbolic link to an unrelated directory. The staging
+ * directory lives on the same filesystem as the destination, so each final
+ * move is a rename. The whole set is failure-atomic through backup and rollback
+ * rather than a directory swap, because output directories may also contain
+ * user assets or artifacts owned by another tool. This class owns filesystem
+ * policy only; TS/classic/declaration semantics remain in their existing
+ * planners and emitters. Manifest v2 stores the exact owner identity as well as
+ * a collision-resistant scope. Older v1 manifests did not record enough
+ * identity to migrate safely, so they are preserved rather than guessed from a
+ * lossy filename.
+ *
+ * The full-path comparison rejects links that exist when a transaction checks
+ * them; it is not an operating-system no-follow file handle. Callers must keep
+ * the existing rule that writers to the same destination are serialized.
  */
 class OutputTransaction {
   static inline final MANIFEST_HEADER = 'genes-output-manifest-v2';
@@ -117,7 +124,9 @@ class OutputTransaction {
   public function abort(): Void {
     if (committed)
       return;
-    deleteTree(stagePath(''));
+    // A rejected pre-existing stage link is not compiler-owned cleanup. Skip
+    // it instead of following it and turning a safe diagnostic into data loss.
+    deleteTree(stagePath(''), false);
     stagePrepared = false;
     removeNewEmptyRoot();
   }
@@ -157,6 +166,12 @@ class OutputTransaction {
         affected.set(relative, true);
       for (relative in publicationPaths)
         affected.set(relative, true);
+
+      // Validate the complete public mutation set before the first backup,
+      // deletion, or rename. Stale manifest paths need this check too: they may
+      // not have appeared in the current emitter run.
+      for (relative in sortedKeys(affected))
+        assertNoSymlinkTraversal(targetPath(relative));
 
       stageManifest(current);
       for (relative in sortedKeys(affected)) {
@@ -202,7 +217,7 @@ class OutputTransaction {
         #end
       }
 
-      deleteTree(stagePath(''));
+      deleteTree(stagePath(''), true);
       stagePrepared = false;
       pruneEmptyParents(stale);
       committed = true;
@@ -218,7 +233,7 @@ class OutputTransaction {
       rollbackError = error;
     }
     try {
-      deleteTree(stagePath(''));
+      deleteTree(stagePath(''), false);
       stagePrepared = false;
       removeNewEmptyRoot();
     } catch (error:haxe.Exception) {
@@ -248,6 +263,7 @@ class OutputTransaction {
 
   function readManifest(): Array<String> {
     final path = targetPath(manifestRelative);
+    assertNoSymlinkTraversal(path);
     if (!FileSystem.exists(path))
       return [];
     if (FileSystem.isDirectory(path))
@@ -290,8 +306,9 @@ class OutputTransaction {
     if (stagePrepared)
       return;
     final root = stagePath('');
-    deleteTree(root);
+    deleteTree(root, true);
     ensureDirectory(root);
+    assertNoSymlinkTraversal(root);
     stagePrepared = true;
   }
 
@@ -342,6 +359,7 @@ class OutputTransaction {
     for (directory in directories) {
       if (!FileSystem.exists(directory) || !FileSystem.isDirectory(directory))
         continue;
+      assertNoSymlinkTraversal(directory);
       if (FileSystem.readDirectory(directory).length == 0)
         FileSystem.deleteDirectory(directory);
     }
@@ -352,7 +370,66 @@ class OutputTransaction {
     if (!absolute.startsWith(outputPrefix))
       throw new haxe.Exception(
         'Genes output path escapes $outputRoot: $absolute');
+    assertNoSymlinkTraversal(absolute);
     return validateRelative(absolute.substr(outputPrefix.length));
+  }
+
+  /**
+   * Rejects an existing path component that resolves outside its lexical name.
+   *
+   * Why: `absolutePath` normalizes `.` and `..` but intentionally does not
+   * follow links. That is useful for nonexistent destinations, yet insufficient
+   * before filesystem mutation because `out/pkg` may point somewhere outside
+   * `out`.
+   *
+   * What/How: walk from the candidate back to this transaction's output root.
+   * For each existing path, compare its lexical absolute path with
+   * `FileSystem.fullPath`, which resolves links on the POSIX implementations
+   * exercised by the transaction fixture. A difference fails closed before
+   * publication. Windows comparison is case-insensitive; junction-specific
+   * behavior remains owned by its platform fixture rather than inferred from
+   * POSIX evidence. This preflight does not replace the compiler's existing
+   * same-destination serialization contract.
+   */
+  function assertNoSymlinkTraversal(path: String): Void {
+    final link = firstSymlinkTraversal(path);
+    if (link != null)
+      throw new haxe.Exception('Genes output path traverses a symbolic link: $link');
+  }
+
+  function firstSymlinkTraversal(path: String): Null<String> {
+    var current = absolutePath(path);
+    final comparableRoot = comparablePath(outputRoot);
+    final comparablePrefix = comparableRoot.endsWith('/')
+      ? comparableRoot
+      : comparableRoot + '/';
+    final comparableCandidate = comparablePath(current);
+    if (comparableCandidate != comparableRoot
+      && !comparableCandidate.startsWith(comparablePrefix))
+      throw new haxe.Exception('Genes output path escapes $outputRoot: $current');
+
+    while (true) {
+      if (FileSystem.exists(current)) {
+        final resolved = absolutePath(FileSystem.fullPath(current));
+        if (comparablePath(resolved) != comparablePath(current))
+          return current;
+      }
+      if (comparablePath(current) == comparableRoot)
+        return null;
+      final parent = absolutePath(Path.directory(current));
+      if (comparablePath(parent) == comparablePath(current))
+        throw new haxe.Exception('Genes output path escapes $outputRoot: $path');
+      current = parent;
+    }
+  }
+
+  static function comparablePath(path: String): String {
+    final normalized = absolutePath(path);
+    #if windows
+    return normalized.toLowerCase();
+    #else
+    return normalized;
+    #end
   }
 
   function targetPath(relative: String): String {
@@ -427,15 +504,35 @@ class OutputTransaction {
       FileSystem.createDirectory(path);
   }
 
-  static function deleteTree(path: String): Void {
+  /**
+   * Removes only an ordinary compiler-owned stage tree without following links.
+   *
+   * Strict cleanup is used before staging and after a successful commit, where
+   * any link means private ownership was compromised and must diagnose.
+   * Best-effort abort cleanup skips such entries so a hostile pre-existing link
+   * cannot redirect recursive deletion into a user directory. Returning
+   * `false` tells the parent to remain in place because it still contains an
+   * entry the compiler deliberately did not own.
+   */
+  function deleteTree(path: String, rejectSymlinks: Bool): Bool {
+    final link = firstSymlinkTraversal(path);
+    if (link != null) {
+      if (rejectSymlinks)
+        throw new haxe.Exception('Genes output path traverses a symbolic link: $link');
+      return false;
+    }
     if (!FileSystem.exists(path))
-      return;
+      return true;
     if (!FileSystem.isDirectory(path)) {
       FileSystem.deleteFile(path);
-      return;
+      return true;
     }
+    var removed = true;
     for (entry in FileSystem.readDirectory(path))
-      deleteTree(Path.join([path, entry]));
-    FileSystem.deleteDirectory(path);
+      if (!deleteTree(Path.join([path, entry]), rejectSymlinks))
+        removed = false;
+    if (removed)
+      FileSystem.deleteDirectory(path);
+    return removed;
   }
 }

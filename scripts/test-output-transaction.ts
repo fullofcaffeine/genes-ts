@@ -5,14 +5,17 @@ import { createHash } from "node:crypto";
 import {
   chmodSync,
   existsSync,
+  mkdtempSync,
   mkdirSync,
   readFileSync,
   readdirSync,
   rmSync,
   statSync,
+  symlinkSync,
   utimesSync,
   writeFileSync
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -79,9 +82,9 @@ function run(profile: Profile, defines: ReadonlyArray<string>): void {
   });
 }
 
-/** Builds one independently owned entrypoint into a shared output directory. */
-function runOwnerScopeBuild(build: OwnerScopeBuild): void {
-  execFileSync("haxe", [
+/** Returns the exact compiler arguments shared by owner-scope evidence. */
+function ownerScopeBuildArgs(build: OwnerScopeBuild): string[] {
+  return [
     "-lib",
     "genes-ts",
     "-cp",
@@ -100,10 +103,32 @@ function runOwnerScopeBuild(build: OwnerScopeBuild): void {
     "-dce",
     "full",
     "-debug"
-  ], {
+  ];
+}
+
+/** Builds one independently owned entrypoint into a shared output directory. */
+function runOwnerScopeBuild(build: OwnerScopeBuild): void {
+  execFileSync("haxe", ownerScopeBuildArgs(build), {
     cwd: repoRoot,
     stdio: "inherit"
   });
+}
+
+/** Runs an owner-scope build whose filesystem boundary must fail closed. */
+function expectOwnerScopeFailure(
+  build: OwnerScopeBuild,
+  diagnostic: string
+): void {
+  const result = spawnSync("haxe", ownerScopeBuildArgs(build), {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  ok(result.status !== 0, `Expected ${build.output} to fail`);
+  const output = `${result.stdout}${result.stderr}`;
+  ok(
+    output.includes(diagnostic),
+    `Missing filesystem diagnostic ${diagnostic}\n${output}`
+  );
 }
 
 function expectFailure(
@@ -438,6 +463,83 @@ function assertIndependentEntrypointOwners(): void {
   );
 }
 
+/**
+ * Proves a preplanted symbolic link cannot redirect publication or cleanup.
+ *
+ * Why: lexical `..` checks keep authored paths inside the output directory,
+ * but a directory entry inside that root can still point somewhere else. If
+ * the compiler follows it, a normal build can overwrite a user file or its
+ * deterministic stage cleanup can recursively delete an unrelated directory.
+ *
+ * What/How: on POSIX hosts, one probe links a generated package directory to
+ * an external casualty and a second links the exact private stage directory.
+ * Both builds must fail before publication, preserve the casualty bytes, and
+ * leave only the unowned link in the output root. Windows junction behavior is
+ * intentionally a separate platform experiment rather than an inferred claim.
+ */
+function assertSymlinkContainment(): void {
+  if (process.platform === "win32") return;
+
+  const casualtyRoot = mkdtempSync(
+    path.join(tmpdir(), "genes-output-transaction-symlink-")
+  );
+  const targetRoot = path.join(fixtureRoot, "out/symlink-target");
+  const stageRoot = path.join(fixtureRoot, "out/symlink-stage");
+  const diagnostic = "Genes output path traverses a symbolic link";
+
+  function buildFor(outputRoot: string): OwnerScopeBuild {
+    const output = path.relative(
+      repoRoot,
+      path.join(outputRoot, "index.ts")
+    ).replaceAll("\\", "/");
+    return {
+      main: "transactionowners.OwnerAt",
+      output,
+      implementation: "transactionowners/OwnerAt.ts",
+      genesTs: true
+    };
+  }
+
+  try {
+    const targetCasualty = path.join(casualtyRoot, "target");
+    const targetFile = path.join(targetCasualty, "OwnerAt.ts");
+    mkdirSync(targetCasualty, { recursive: true });
+    writeFileSync(targetFile, "user-owned-target\n", "utf8");
+    mkdirSync(targetRoot, { recursive: true });
+    symlinkSync(
+      targetCasualty,
+      path.join(targetRoot, "transactionowners"),
+      "dir"
+    );
+
+    expectOwnerScopeFailure(buildFor(targetRoot), diagnostic);
+    strictEqual(readFileSync(targetFile, "utf8"), "user-owned-target\n");
+    deepStrictEqual(readdirSync(targetRoot).sort(), ["transactionowners"]);
+
+    const stageCasualty = path.join(casualtyRoot, "stage");
+    const stageFile = path.join(stageCasualty, "do-not-delete.txt");
+    mkdirSync(stageCasualty, { recursive: true });
+    writeFileSync(stageFile, "user-owned-stage\n", "utf8");
+    mkdirSync(stageRoot, { recursive: true });
+
+    const owner = "index.ts";
+    const readableOwner = owner
+      .replace(/[^A-Za-z0-9_.-]/g, "_")
+      .slice(0, 48) || "output";
+    const ownerDigest = createHash("sha256").update(owner).digest("hex");
+    const stageName = `.genes-output-${readableOwner}-${ownerDigest}.stage`;
+    symlinkSync(stageCasualty, path.join(stageRoot, stageName), "dir");
+
+    expectOwnerScopeFailure(buildFor(stageRoot), diagnostic);
+    strictEqual(readFileSync(stageFile, "utf8"), "user-owned-stage\n");
+    deepStrictEqual(readdirSync(stageRoot).sort(), [stageName]);
+  } finally {
+    rmSync(targetRoot, { recursive: true, force: true });
+    rmSync(stageRoot, { recursive: true, force: true });
+    rmSync(casualtyRoot, { recursive: true, force: true });
+  }
+}
+
 rmSync(path.join(fixtureRoot, "out"), { recursive: true, force: true });
 assertBufferedWriterBoundary();
 
@@ -576,5 +678,6 @@ for (const profile of profiles) {
 }
 
 assertIndependentEntrypointOwners();
+assertSymlinkContainment();
 
-console.log("output-transaction:ok (exact owners + writer boundary + TS/classic rollback + stale ownership)");
+console.log("output-transaction:ok (exact owners + writer boundary + TS/classic rollback + stale ownership + POSIX symlink containment)");

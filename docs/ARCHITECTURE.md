@@ -59,6 +59,12 @@ where multiple emitters or passes need the same semantic decision.
    manifest-owned paths, and rolls the whole mutation set back on failure. Its
    v2 owner is the exact configured output basename including the extension;
    a readable SHA-256-scoped filename keeps distinct entrypoints isolated.
+   Before reading or mutating an existing destination or private stage path,
+   the transaction compares its lexical absolute path with the symlink-resolving
+   `FileSystem.fullPath`. A mismatch fails closed, and abort cleanup
+   deliberately leaves the unowned link untouched instead of following it.
+   This is a preflight safety boundary, not an operating-system no-follow lock;
+   the existing requirement to serialize writers to one destination remains.
 
 This ordering is a correctness contract. In particular, moving declaration
 expansion before implementation emission can accidentally retain runtime
