@@ -1,3 +1,11 @@
+## [1.36.7](https://github.com/fullofcaffeine/genes-ts/compare/v1.36.6...v1.36.7) (2026-07-18)
+
+
+### Bug Fixes
+
+* **sourcemaps:** disambiguate overlapping classpaths ([184b45d](https://github.com/fullofcaffeine/genes-ts/commit/184b45de99635ba6dac281b1b7462d9238f936af))
+* **sourcemaps:** make external source identities portable ([20e2bd0](https://github.com/fullofcaffeine/genes-ts/commit/20e2bd0bf61e00cbf6da408f1581155adf0a2102))
+
 ## [1.36.6](https://github.com/fullofcaffeine/genes-ts/compare/v1.36.5...v1.36.6) (2026-07-18)
 
 
