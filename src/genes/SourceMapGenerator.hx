@@ -1,6 +1,7 @@
 package genes;
 
 import haxe.macro.Compiler;
+import haxe.macro.Context;
 import haxe.macro.Type;
 import haxe.macro.Expr.Position;
 import haxe.display.Position.Location;
@@ -135,13 +136,55 @@ class SourceMapGenerator {
     previousSource = source;
   }
 
+  static function encodePath(path: String): String
+    return path.split('/').map(part -> StringTools.replace(StringTools.urlEncode(part), '+', '%20')).join('/');
+
+  static function projectRoot(): String {
+    final configured = Context.definedValue('genes.source_map_root');
+    return if (configured == null || configured.length == 0) Sys.getCwd() else configured;
+  }
+
+  static function containingClassPath(source: String): Null<String> {
+    var owner: Null<String> = null;
+    for (classPath in Context.getClassPath())
+      if (classPath.length > 0 && PathUtil.isWithin(classPath, source)
+        && (owner == null || classPath.length < owner.length))
+        owner = classPath;
+    return owner;
+  }
+
+  /**
+   * Produces a portable source identity without weakening application-source
+   * debugging.
+   *
+   * Source maps used to relativize every compiler position against the output
+   * file. Application files were useful, but Haxelib and Haxe-stdlib positions
+   * then walked out of the project and encoded the invoking machine's cache
+   * layout. Files owned by the configured project root remain ordinary relative
+   * paths. External classpath files receive a stable virtual URI based on their
+   * Haxe module path; `-D source_map_content` embeds their contents when a
+   * debugger needs the original dependency source.
+   */
+  static function sourceIdentity(mapPath: String, source: String): String {
+    if (PathUtil.isWithin(projectRoot(), source))
+      return PathUtil.relative(mapPath, source);
+
+    final classPath = containingClassPath(source);
+    final relative = if (classPath == null) null else PathUtil.fromRoot(classPath, source);
+    final identity = if (relative == null || relative.length == 0)
+      Path.withoutDirectory(Path.normalize(source))
+    else
+      relative;
+    return 'haxe://classpath/${encodePath(identity)}';
+  }
+
   public function toJSON(path: String, withSources: Bool): SourceMapJson {
     final map: SourceMapJson = {
       version: 3,
       names: [],
       file: Path.withoutDirectory(Path.withoutExtension(path)),
       sourceRoot: "",
-      sources: sources.map(source -> if (source == '?') null else PathUtil.relative(path, source)),
+      sources: sources.map(source -> if (source == '?') null else sourceIdentity(path, source)),
       mappings: mappings
     }
     #if source_map_content

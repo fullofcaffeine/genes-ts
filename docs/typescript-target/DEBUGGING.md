@@ -88,6 +88,25 @@ Example:
 
 This produces `src-gen/**/*.ts.map` files that map generated TS positions back to `.hx` positions.
 
+Project-owned Haxe files remain relative to each map, so local breakpoints work
+without configuration. Sources outside the project root—Haxelib dependencies
+and the Haxe standard library—use stable `haxe://classpath/...` identities
+instead of recording a developer's package-cache path. Add
+`-D source_map_content` when a debugger must display those external sources;
+Genes then embeds the original source text alongside the virtual identity.
+
+Genes treats the compiler working directory as the project root. Builds
+intentionally launched from a parent orchestration directory can set an
+explicit portable owner:
+
+```hxml
+-D genes.source_map_root=path/to/application
+```
+
+The value may be relative to the compiler working directory. It changes only
+which source files retain navigable project-relative paths; it does not change
+generated program behavior.
+
 ## Current limitation: map composition
 
 You will generally debug **TS**, not original **Haxe**, because the runtime executes JS compiled by `tsc`:
