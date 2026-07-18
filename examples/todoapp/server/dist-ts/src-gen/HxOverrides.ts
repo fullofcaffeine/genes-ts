@@ -32,5 +32,4 @@ export class HxOverrides {
 }
 Register.setHxClass("HxOverrides", HxOverrides);
 
-
 ;((typeof(performance) != "undefined") ? typeof(performance.now) == "function" : false) ? HxOverrides.now = performance.now.bind(performance) : null

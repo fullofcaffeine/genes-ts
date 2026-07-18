@@ -11,7 +11,6 @@ export class Std {
 		return Std
 	}
 }
-
 ;{
 	String.__name__ = "String";
 	Register.hxClasses()["Array"] = Array;

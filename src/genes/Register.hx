@@ -235,8 +235,10 @@ class Register {
    */
   @:keep @:ts.returnType("new (...args: unknown[]) => {}")
   public static function extend(superClass) {
-    Syntax.code('
-      function res() {
+    // The emitter owns the surrounding method indentation. Keeping the first
+    // and last target tokens beside the string delimiters avoids raw-syntax
+    // newlines that would otherwise become whitespace-only output lines.
+    Syntax.code('function res() {
         // Prefer the legacy Genes initializer path when present.
         // @ts-ignore
         const init = this[Register.new]
@@ -250,8 +252,7 @@ class Register {
         return Reflect.construct(superClass, arguments, new.target)
       }
       Object.setPrototypeOf(res.prototype, superClass.prototype)
-      return Register.unsafeCast(res)
-    ');
+      return Register.unsafeCast(res)');
   }
 
   /**
@@ -270,8 +271,9 @@ class Register {
    */
   @:keep @:ts.returnType("new (...args: unknown[]) => {}")
   public static function inherits(?resolve, defer = false) {
-    Syntax.code('
-      function res() {
+    // See extend(): raw syntax owns its inner layout, while the emitter owns
+    // the method boundary and must not be handed an empty first/last line.
+    Syntax.code('function res() {
         // @ts-ignore
         if (defer && resolve && res[Register.init]) res[Register.init]()
         // Prefer the legacy Genes initializer path when present.
@@ -314,8 +316,7 @@ class Register {
 	          res[Register.init] = undefined
 	        }
 	      }
-	      return Register.unsafeCast(res)
-    ');
+	      return Register.unsafeCast(res)');
   }
 
   static var fid = 0;

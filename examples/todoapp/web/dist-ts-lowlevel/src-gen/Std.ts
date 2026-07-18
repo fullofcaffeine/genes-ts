@@ -13,6 +13,5 @@ export class Std {
 }
 Register.setHxClass("Std", Std);
 
-
 ;{
 }

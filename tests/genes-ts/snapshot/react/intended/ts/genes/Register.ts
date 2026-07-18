@@ -178,8 +178,7 @@ export class Register {
 	* one unavoidable assertion contained in this runtime helper.
 	*/
 	static extend(superClass: any): new (...args: unknown[]) => {} {
-
-      function res() {
+		function res() {
         // Prefer the legacy Genes initializer path when present.
         // @ts-ignore
         const init = this[Register.new]
@@ -193,8 +192,7 @@ export class Register {
         return Reflect.construct(superClass, arguments, new.target)
       }
       Object.setPrototypeOf(res.prototype, superClass.prototype)
-      return Register.unsafeCast(res)
-    ;
+      return Register.unsafeCast(res);
 	}
 
 	/**
@@ -215,8 +213,7 @@ export class Register {
 		if (defer == null) {
 			defer = false;
 		};
-
-      function res() {
+		function res() {
         // @ts-ignore
         if (defer && resolve && res[Register.init]) res[Register.init]()
         // Prefer the legacy Genes initializer path when present.
@@ -259,8 +256,7 @@ export class Register {
 	          res[Register.init] = undefined
 	        }
 	      }
-	      return Register.unsafeCast(res)
-    ;
+	      return Register.unsafeCast(res);
 	}
 
 	/**

@@ -1,7 +1,6 @@
 import {Register} from "../../genes/Register.js"
 
 export declare namespace MyEnum {
-
 	export const __ename__: string;
 	export type A = {_hx_index: 0, __enum__: "my.app.MyEnum"}
 	export const A: A;
