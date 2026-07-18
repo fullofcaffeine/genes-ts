@@ -9,6 +9,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "../..");
 const fixtureRoot = path.join(repoRoot, "tests/genes-ts/snapshot/basic");
+const overlappingFixtureRoot = path.join(repoRoot, "tests/source-map-paths/overlap");
 
 function rmrf(relPath: string): void {
   rmSync(path.join(repoRoot, relPath), { recursive: true, force: true });
@@ -133,6 +134,42 @@ function readSourceMap(mapPath: string): { readonly text: string; readonly value
   return { text, value: JSON.parse(text) as unknown };
 }
 
+function assertOverlappingClassPathIdentities(): void {
+  const outputPath = path.join(overlappingFixtureRoot, "out/index.ts");
+  rmSync(path.dirname(outputPath), { recursive: true, force: true });
+  run("haxe", [
+    "-lib", "helder.set",
+    "-cp", path.join(repoRoot, "src"),
+    "-cp", path.join(overlappingFixtureRoot, "vendor/a"),
+    // Haxe gives later -cp arguments higher lookup priority. Putting the broad
+    // root last lets it own `a.foo.Util`, while the nested root remains a valid
+    // alternate spelling that the source-map allocator must not choose blindly.
+    "-cp", path.join(overlappingFixtureRoot, "vendor"),
+    "-cp", path.join(overlappingFixtureRoot, "app"),
+    "--macro", "genes.Generator.use()",
+    "--main", "OverlapMain",
+    "-js", outputPath,
+    "-D", "js-es=6",
+    "-D", "genes.ts",
+    "-D", `genes.source_map_root=${path.join(overlappingFixtureRoot, "app")}`,
+    "-debug"
+  ], { cwd: repoRoot });
+
+  const map = readSourceMap(path.join(overlappingFixtureRoot, "out/OverlapMain.ts.map"));
+  ok(isRecord(map.value), "Expected overlapping-classpath source-map JSON object");
+  const sources = map.value.sources;
+  ok(Array.isArray(sources)
+    && sources.every((source) => source === null || typeof source === "string"),
+    "Expected overlapping-classpath source-map sources to contain strings or null");
+  ok(sources.includes("haxe://classpath/foo/Util.hx"),
+    "Expected the root classpath source to keep its concise portable identity");
+  ok(sources.includes("haxe://classpath/a/foo/Util.hx"),
+    "Expected the nested source to use a distinct portable identity");
+  const namedSources = sources.filter((source): source is string => source !== null);
+  strictEqual(new Set(namedSources).size, namedSources.length,
+    "Two different overlapping-classpath sources received the same source-map identity");
+}
+
 run("haxe", [
   "-cp", path.join(repoRoot, "src"),
   "-cp", path.join(repoRoot, "tests/source-map-paths/src"),
@@ -200,8 +237,11 @@ try {
   strictEqual(configuredRootMap.text, firstMap.text,
     "A relative genes.source_map_root changed the application source identities");
 
+  assertOverlappingClassPathIdentities();
+
   console.log("ok");
 } finally {
   rmSync(firstExternalRoot, { recursive: true, force: true });
   rmSync(secondExternalRoot, { recursive: true, force: true });
+  rmSync(path.join(overlappingFixtureRoot, "out"), { recursive: true, force: true });
 }

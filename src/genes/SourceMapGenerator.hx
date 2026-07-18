@@ -67,6 +67,30 @@ abstract SourcePosition(SourcePositionData) from SourcePositionData {
 }
 
 /**
+ * One possible portable name for an external source file.
+ *
+ * A file can sit under more than one classpath. We keep every spelling because
+ * the shortest spelling is pleasant for debuggers, while a longer spelling may
+ * be needed to distinguish it from another file in the same source map.
+ */
+private typedef SourceIdentityCandidate = {
+  final path: String;
+  final classPathOrder: Int;
+}
+
+/**
+ * Connects an external source-map entry to all of its portable name choices.
+ *
+ * The source index is the stable order already used by the source-map mapping
+ * table. Candidate allocation may run in a different order so files with only
+ * one possible name get that name before more flexible files are considered.
+ */
+private typedef ExternalSourceIdentityPlan = {
+  final sourceIndex: Int;
+  final candidates: Array<SourceIdentityCandidate>;
+}
+
+/**
  * Builds version-three source maps while target emitters write generated code.
  *
  * Original Haxe positions stay in a typed table until serialization. The
@@ -159,63 +183,150 @@ class SourceMapGenerator {
     return path.length == 0 ? 0 : path.split('/').length;
 
   /**
-   * Finds the classpath entry that gives a source its Haxe-facing path.
+   * Lists every classpath-relative name that can describe one source file.
    *
-   * A source can belong to nested entries. For example, Haxe may expose both
-   * its standard-library directory and a target-specific directory inside it.
-   * The most specific entry produces the useful identity `Std.hx`; choosing a
-   * broader parent would leak layout details such as `js/_std/Std.hx`.
+   * A source can belong to nested entries. The shortest candidate is usually
+   * the name a developer expects, such as `Std.hx`, so candidates are ordered
+   * from shortest to longest. We keep longer candidates because two different
+   * files can otherwise both become `foo/Util.hx`; allocation resolves that
+   * ambiguity before the map is serialized.
    */
-  static function containingClassPath(source: String): Null<String> {
-    var owner: Null<String> = null;
-    var ownerRelative: Null<String> = null;
-    for (classPath in Context.getClassPath()) {
+  static function sourceIdentityCandidates(source: String): Array<SourceIdentityCandidate> {
+    final candidates: Array<SourceIdentityCandidate> = [];
+    final classPaths = Context.getClassPath();
+    for (classPathOrder in 0...classPaths.length) {
+      final classPath = classPaths[classPathOrder];
       if (classPath.length == 0)
         continue;
       final relative = PathUtil.fromRoot(classPath, source);
-      if (relative == null)
+      if (relative == null || relative.length == 0)
         continue;
-      final isMoreSpecific = ownerRelative == null
-        || pathPartCount(relative) < pathPartCount(ownerRelative)
-        || (pathPartCount(relative) == pathPartCount(ownerRelative)
-          && relative.length < ownerRelative.length);
-      if (isMoreSpecific) {
-        owner = classPath;
-        ownerRelative = relative;
-      }
+      var alreadyKnown = false;
+      for (candidate in candidates)
+        if (candidate.path == relative) {
+          alreadyKnown = true;
+          break;
+        }
+      if (!alreadyKnown)
+        candidates.push({path: relative, classPathOrder: classPathOrder});
     }
-    return owner;
+    if (candidates.length == 0)
+      candidates.push({
+        path: Path.withoutDirectory(Path.normalize(source)),
+        classPathOrder: classPaths.length
+      });
+    candidates.sort((left, right) -> {
+      final partDifference = pathPartCount(left.path) - pathPartCount(right.path);
+      if (partDifference != 0)
+        return partDifference;
+      final lengthDifference = left.path.length - right.path.length;
+      return lengthDifference != 0
+        ? lengthDifference
+        : left.classPathOrder - right.classPathOrder;
+    });
+    return candidates;
   }
 
   /**
-   * Gives a debugger a useful source name without publishing machine paths.
+   * Tries to give one external source a name no other source currently owns.
+   *
+   * This is a small deterministic matching step. It first takes an unused
+   * candidate. If every candidate is already owned, it asks an earlier source
+   * whether that source can move to another valid name. This preserves concise
+   * names where possible without letting two source indices share one URI.
+   */
+  static function claimSourceIdentity(planIndex: Int,
+      plans: Array<ExternalSourceIdentityPlan>, ownerByPath: Map<String, Int>,
+      chosenByPlan: Array<Null<String>>, visitedPaths: Map<String, Bool>): Bool {
+    final plan = plans[planIndex];
+    for (candidate in plan.candidates) {
+      if (visitedPaths.exists(candidate.path) || ownerByPath.exists(candidate.path))
+        continue;
+      visitedPaths.set(candidate.path, true);
+      ownerByPath.set(candidate.path, planIndex);
+      chosenByPlan[planIndex] = candidate.path;
+      return true;
+    }
+    for (candidate in plan.candidates) {
+      if (visitedPaths.exists(candidate.path))
+        continue;
+      visitedPaths.set(candidate.path, true);
+      final currentOwner = ownerByPath.get(candidate.path);
+      if (currentOwner != null
+        && claimSourceIdentity(currentOwner, plans, ownerByPath, chosenByPlan, visitedPaths)) {
+        ownerByPath.set(candidate.path, planIndex);
+        chosenByPlan[planIndex] = candidate.path;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Gives every mapped source a useful, unambiguous name without machine paths.
    *
    * Why: turning every absolute Haxe position into `../../...` keeps project
    * files navigable, but it also records a developer's Haxelib cache and Haxe
-   * installation layout in maps that may be committed or published.
+   * installation layout in maps that may be committed or published. Choosing
+   * the shortest classpath spelling independently is also unsafe: overlapping
+   * classpaths can give two different files the same apparent name.
    *
    * What: files inside the configured project root keep ordinary relative
-   * paths. Dependency and standard-library files instead use a stable
-   * `haxe://classpath/...` name based on the path Haxe uses to find the module.
+   * paths. Dependency and standard-library files instead use distinct, stable
+   * `haxe://classpath/...` names based on paths Haxe can use to find them.
    *
-   * How: `sourcesContent` still reads from the original absolute path before
-   * publication, so `-D source_map_content` lets debuggers display an external
-   * source even though its local cache directory is deliberately hidden. A
-   * source that Haxe does not associate with a classpath falls back to its file
-   * name; this keeps compiler-generated positions usable without inventing an
-   * unstable machine identity.
+   * How: external sources are matched to unique classpath-relative candidates.
+   * If genuinely separate classpath roots offer no distinct spelling, a stable
+   * `_duplicate_N` segment based on source-map encounter order keeps the URIs
+   * separate. `sourcesContent` still reads from the original absolute path, so
+   * `-D source_map_content` can display the source while hiding its cache path.
    */
-  static function sourceIdentity(mapPath: String, source: String): String {
-    if (PathUtil.isWithin(projectRoot(), source))
-      return PathUtil.relative(mapPath, source);
+  function sourceIdentities(mapPath: String): Array<Null<String>> {
+    final identities: Array<Null<String>> = [for (_ in sources) null];
+    final externalPlans: Array<ExternalSourceIdentityPlan> = [];
+    for (sourceIndex in 0...sources.length) {
+      final source = sources[sourceIndex];
+      if (source == '?')
+        continue;
+      if (PathUtil.isWithin(projectRoot(), source))
+        identities[sourceIndex] = PathUtil.relative(mapPath, source);
+      else
+        externalPlans.push({
+          sourceIndex: sourceIndex,
+          candidates: sourceIdentityCandidates(source)
+        });
+    }
 
-    final classPath = containingClassPath(source);
-    final relative = classPath == null ? null : PathUtil.fromRoot(classPath, source);
-    final identity = if (relative == null || relative.length == 0)
-      Path.withoutDirectory(Path.normalize(source))
-    else
-      relative;
-    return 'haxe://classpath/${encodeSourcePath(identity)}';
+    externalPlans.sort((left, right) -> {
+      final candidateDifference = left.candidates.length - right.candidates.length;
+      return candidateDifference != 0
+        ? candidateDifference
+        : left.sourceIndex - right.sourceIndex;
+    });
+    final ownerByPath = new Map<String, Int>();
+    final chosenByPlan: Array<Null<String>> = [for (_ in externalPlans) null];
+    for (planIndex in 0...externalPlans.length)
+      claimSourceIdentity(planIndex, externalPlans, ownerByPath, chosenByPlan, new Map());
+
+    final usedPaths = new Map<String, Bool>();
+    for (chosen in chosenByPlan)
+      if (chosen != null)
+        usedPaths.set(chosen, true);
+    for (planIndex in 0...externalPlans.length) {
+      final plan = externalPlans[planIndex];
+      var chosen = chosenByPlan[planIndex];
+      if (chosen == null) {
+        final base = plan.candidates[0].path;
+        var duplicateNumber = 2;
+        do {
+          chosen = '_duplicate_${duplicateNumber}/${base}';
+          duplicateNumber++;
+        } while (usedPaths.exists(chosen));
+        usedPaths.set(chosen, true);
+      }
+      identities[plan.sourceIndex] = 'haxe://classpath/${encodeSourcePath(chosen)}';
+    }
+    return identities;
   }
 
   public function toJSON(path: String, withSources: Bool): SourceMapJson {
@@ -224,7 +335,7 @@ class SourceMapGenerator {
       names: [],
       file: Path.withoutDirectory(Path.withoutExtension(path)),
       sourceRoot: "",
-      sources: sources.map(source -> if (source == '?') null else sourceIdentity(path, source)),
+      sources: sourceIdentities(path),
       mappings: mappings
     }
     #if source_map_content
