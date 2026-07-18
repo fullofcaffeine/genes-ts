@@ -128,6 +128,14 @@ current emitter, compare the new plan against current output in shadow mode,
 switch one consumer, and retain semantic/snapshot gates throughout. Do not begin
 with a new all-language IR or separate TS and classic compiler engines.
 
+The next evidence-backed candidate is TypeScript null-narrowing proof. The
+[ownership inventory](TS_NARROWING_OWNERSHIP.md) separates shared
+`NullishContract` meaning from TS-only branch facts, records two reproduced
+invalidation defects, and defines the boundary for a function-local
+`TsNarrowingPlan`. This is a go decision for a shadow plan, not approval for a
+general control-flow graph, SSA, alias-analysis framework, or classic/TS shared
+flow IR.
+
 ### Shared facts
 
 The following describe Haxe/JavaScript meaning and should be computed once:

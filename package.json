@@ -17,6 +17,7 @@
     "test:interop:module-shapes": "yarn build:scripts && node scripts/dist/test-package-shapes.js",
     "test:binding-identity": "yarn build:scripts && node scripts/dist/probe-binding-identity.js",
     "probe:binding-identity": "yarn test:binding-identity",
+    "probe:ts-narrowing-invalidation": "yarn build:scripts && node scripts/dist/probe-ts-narrowing-invalidation.js",
     "test:classic:dts": "yarn build:scripts && node scripts/dist/test-classic-dts.js",
     "test:library-profile": "yarn build:scripts && node scripts/dist/test-library-profile.js",
     "test:dual-output": "yarn build:scripts && node scripts/dist/test-output-modes.js && node scripts/dist/test-string-literals.js && node scripts/dist/test-template-literals.js && node scripts/dist/test-async-await-evidence.js && node scripts/dist/test-output-quality.js && node scripts/dist/test-output-transaction.js && node scripts/dist/test-internal-types.js && node scripts/dist/test-array-index-strict.js && node scripts/dist/test-finally-completion.js",
