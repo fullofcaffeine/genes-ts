@@ -320,10 +320,9 @@ function captureTree(spec: TreeSpec): TreeSnapshot {
  * newline. Those bytes are harmless at runtime but make generated files noisy
  * in editors and diffs.
  *
- * What/How: inspect the raw compiler-owned source and declaration artifacts,
- * while leaving source-map JSON and whitespace-only blank lines alone. Blank
- * line indentation is a broader formatting policy and is intentionally not
- * introduced by this focused vendor-audit correction.
+ * What/How: inspect the raw compiler-owned source and declaration artifacts.
+ * Source-map JSON is excluded because its encoded JSON strings are data rather
+ * than printed source lines.
  */
 function assertNoVisibleTrailingWhitespace(spec: TreeSpec): void {
   const root = path.join(repoRoot, spec.root);
@@ -345,6 +344,30 @@ function assertNoVisibleTrailingWhitespace(spec: TreeSpec): void {
     violations.length,
     0,
     `${spec.id} contains visible lines with trailing whitespace:\n${violations.join("\n")}`
+  );
+}
+
+/** Rejects emitter-owned indentation on otherwise empty generated lines. */
+function assertNoWhitespaceOnlyLines(spec: TreeSpec): void {
+  const root = path.join(repoRoot, spec.root);
+  const violations: string[] = [];
+  const files = listFilesRecursive(root).filter((file) =>
+    !file.endsWith(".map") && spec.suffixes.some((suffix) => file.endsWith(suffix))
+  );
+
+  for (const file of files) {
+    const lines = normalizeLineEndings(readFileSync(file, "utf8")).split("\n");
+    lines.forEach((line, index) => {
+      if (/^[ \t]+$/.test(line)) {
+        violations.push(`${slash(path.relative(root, file))}:${index + 1}`);
+      }
+    });
+  }
+
+  strictEqual(
+    violations.length,
+    0,
+    `${spec.id} contains whitespace-only generated lines:\n${violations.join("\n")}`
   );
 }
 
@@ -742,6 +765,7 @@ deepStrictEqual(secondTrees, firstTrees, "Two clean compiler builds produced dif
 deepStrictEqual(secondProfiles, firstProfiles, "Two clean compiler builds produced different metrics");
 for (const tree of manifest.trees) {
   assertNoVisibleTrailingWhitespace(tree);
+  assertNoWhitespaceOnlyLines(tree);
 }
 
 if (process.env.UPDATE_OUTPUT_QUALITY === "1") {

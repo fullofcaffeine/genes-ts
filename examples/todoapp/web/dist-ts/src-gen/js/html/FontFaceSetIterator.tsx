@@ -3,7 +3,7 @@ import type {FontFaceSetIteratorResult} from "./FontFaceSetIteratorResult"
 
 export type FontFaceSetIterator = {
 	/**
-	@throws DOMError
-	*/
+	 * @throws DOMError
+	 */
 	next: () => FontFaceSetIteratorResult
 }

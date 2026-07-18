@@ -1161,9 +1161,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           switch field.expr {
             case null:
             case {expr: TFunction(f)}:
-              writeNewline();
-              if (field.doc != null)
-                writeNewline();
+              writeMemberNewline(field.doc != null);
               emitComment(field.doc);
               if (!field.kind.equals(Constructor) && field.overloads.length > 0)
                 emitClassMethodOverloadSignatures(cl, field);
@@ -1435,9 +1433,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       #end
       switch field.expr {
         case {expr: TFunction(f)}:
-          writeNewline();
-          if (field.doc != null)
-            writeNewline();
+          writeMemberNewline(field.doc != null);
           emitComment(field.doc);
           emitPos(field.pos);
           final isAsync = field.meta != null
@@ -3497,7 +3493,16 @@ class TsModuleEmitter extends JsModuleEmitter {
     write(' {');
     increaseIndent();
     writeNewline();
+    var hasClause = false;
+    // Insert separators before later clauses so the final clause cannot leave
+    // eager indentation on a blank line before the closing switch brace.
+    function startClause() {
+      if (hasClause)
+        writeNewline();
+      hasClause = true;
+    }
     for (c in cases) {
+      startClause();
       emitPos(c.expr.pos);
       for (v in c.values) {
         emitPos(v.pos);
@@ -3526,7 +3531,6 @@ class TsModuleEmitter extends JsModuleEmitter {
       decreaseIndent();
       writeNewline();
       write('}');
-      writeNewline();
     }
     switch def {
       case null:
@@ -3536,6 +3540,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         // If any branch returns, add a default that throws to keep TS happy
         // without changing the successful-path semantics.
         if (cases.exists(c -> hasReturnExpr(c.expr))) {
+          startClause();
           emitPos(cond.pos);
           write('default: {');
           increaseIndent();
@@ -3546,9 +3551,9 @@ class TsModuleEmitter extends JsModuleEmitter {
           decreaseIndent();
           writeNewline();
           write('}');
-          writeNewline();
         }
       case e:
+        startClause();
         emitPos(e.pos);
         write('default: {');
         increaseIndent();
@@ -3558,7 +3563,6 @@ class TsModuleEmitter extends JsModuleEmitter {
         decreaseIndent();
         writeNewline();
         write('}');
-        writeNewline();
     }
     decreaseIndent();
     writeNewline();
@@ -4168,7 +4172,6 @@ class TsModuleEmitter extends JsModuleEmitter {
     writeNewline();
     emitPos(et.pos);
     if (ctx.hasFeature('js.Boot.isEnum')) {
-      writeNewline();
       emitPos(et.pos);
       write('export const __ename__: string;');
     }

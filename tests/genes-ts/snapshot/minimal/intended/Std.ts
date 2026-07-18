@@ -1,8 +1,8 @@
 import {Register} from "./genes/Register.js"
 
 /**
-The Std class provides standard methods for manipulating basic types.
-*/
+ * The Std class provides standard methods for manipulating basic types.
+ */
 export class Std {
 	static get __name__(): string {
 		return "Std"
@@ -11,7 +11,6 @@ export class Std {
 		return Std
 	}
 }
-
 ;{
 	String.__name__ = "String";
 	Register.hxClasses()["Array"] = Array;

@@ -1,8 +1,8 @@
 import {Register} from "../../genes/Register.js"
 
 /**
-This iterator is used only when `Array<T>` is passed to `Iterable<T>`
-*/
+ * This iterator is used only when `Array<T>` is passed to `Iterable<T>`
+ */
 export class ArrayIterator<T> extends Register.inherits() {
 	constructor(array: T[]) {
 		super(array);
@@ -16,15 +16,15 @@ export class ArrayIterator<T> extends Register.inherits() {
 	}
 
 	/**
-	See `Iterator.hasNext`
-	*/
+	 * See `Iterator.hasNext`
+	 */
 	hasNext(): boolean {
 		return this.current < this.array.length;
 	}
 
 	/**
-	See `Iterator.next`
-	*/
+	 * See `Iterator.next`
+	 */
 	next(): T {
 		return this.array[this.current++]!;
 	}

@@ -2,19 +2,19 @@ import {Exception} from "./Exception.js"
 import {Register} from "../genes/Register.js"
 
 /**
-An exception containing arbitrary value.
-
-This class is automatically used for throwing values, which don't extend `haxe.Exception`
-or native exception type.
-For example:
-```haxe
-throw "Terrible error";
-```
-will be compiled to
-```haxe
-throw new ValueException("Terrible error");
-```
-*/
+ * An exception containing arbitrary value.
+ *
+ * This class is automatically used for throwing values, which don't extend `haxe.Exception`
+ * or native exception type.
+ * For example:
+ * ```haxe
+ * throw "Terrible error";
+ * ```
+ * will be compiled to
+ * ```haxe
+ * throw new ValueException("Terrible error");
+ * ```
+ */
 export class ValueException extends (Register.inherits(() => Exception, true) as typeof Exception) {
 	constructor(value: unknown, previous: Exception | null = null, $native: unknown | null = null) {
 		// @ts-ignore

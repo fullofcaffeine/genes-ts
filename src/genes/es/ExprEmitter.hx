@@ -1148,7 +1148,6 @@ class ExprEmitter extends Emitter {
             write(';');
             writeNewline();
           }
-          writeNewline();
           assign(el[el.length - 1]);
         });
       case TIf(cond, e, eo):
@@ -1219,7 +1218,16 @@ class ExprEmitter extends Emitter {
     write(' {');
     increaseIndent();
     writeNewline();
+    var hasClause = false;
+    // Insert separators before later clauses. Emitting one after every clause
+    // would eagerly indent a blank line before the switch's closing brace.
+    function startClause() {
+      if (hasClause)
+        writeNewline();
+      hasClause = true;
+    }
     for (c in cases) {
+      startClause();
       emitPos(c.expr.pos);
       for (v in c.values) {
         emitPos(v.pos);
@@ -1237,15 +1245,14 @@ class ExprEmitter extends Emitter {
       writeNewline();
       write('break'); // Todo: implement needs_switch_break
       decreaseIndent();
-      writeNewline();
     }
     switch def {
       case null:
       case e:
+        startClause();
         emitPos(e.pos);
         write('default:');
         leaf(e);
-        writeNewline();
     }
     decreaseIndent();
     writeNewline();
@@ -1427,17 +1434,51 @@ class ExprEmitter extends Emitter {
     }
   }
 
+  /**
+   * Emits one conventional JSDoc block without whitespace-only lines.
+   *
+   * Why: downstream formatters and bundlers indent empty comment lines, which
+   * turns a visually blank hxdoc line into trailing whitespace even when the
+   * direct Genes output was clean. What/How: every content line carries the
+   * standard visible ` *` prefix. A block whose source lines all carry the
+   * conventional leading `*` is normalized before that prefix is added. Empty
+   * hxdoc lines therefore remain explicit comment lines, and generated source
+   * reads like ordinary handwritten JS/TS.
+   */
   public function emitComment(text: Null<String>) {
     if (text == null)
       return;
     final comment = text.trim();
-    write('/**');
-    writeNewline();
-    for (line in comment.split('\n')) {
-      write(line.trim());
-      writeNewline();
+    final lines = comment.split('\n');
+    var usesSourceStarLeaders = false;
+    var allContentUsesStarLeaders = true;
+    for (line in lines) {
+      final content = line.trim();
+      if (content.length > 0) {
+        usesSourceStarLeaders = true;
+        if (content.charAt(0) != '*')
+          allContentUsesStarLeaders = false;
+      }
     }
-    write('*/');
+    usesSourceStarLeaders = usesSourceStarLeaders && allContentUsesStarLeaders;
+    write('/**\n');
+    for (line in lines) {
+      var content = line.trim();
+      if (usesSourceStarLeaders && content.charAt(0) == '*') {
+        content = content.substr(1);
+        if (content.charAt(0) == ' ')
+          content = content.substr(1);
+      }
+      for (i in 0...indent)
+        write('\t');
+      write(' *');
+      if (content.length > 0)
+        write(' ' + content);
+      write('\n');
+    }
+    for (i in 0...indent)
+      write('\t');
+    write(' */');
     writeNewline();
   }
 
@@ -1488,6 +1529,20 @@ class ExprEmitter extends Emitter {
 
   public function writeNewline() {
     write('\n');
+    for (i in 0...indent)
+      write('\t');
+  }
+
+  /**
+   * Starts a member line and inserts one clean separator for documentation.
+   *
+   * Why: two consecutive ordinary newline calls eagerly indent the empty line,
+   * leaving invisible trailing tabs before documented members. What/How: the
+   * separator is emitted as part of the newline sequence before indentation,
+   * preserving source-map columns on the actual member line.
+   */
+  public function writeMemberNewline(hasDocumentation: Bool) {
+    write(hasDocumentation ? '\n\n' : '\n');
     for (i in 0...indent)
       write('\t');
   }

@@ -2,7 +2,7 @@ import {Register} from "../../genes/Register"
 
 export type MediaKeyStatusMapIterator = {
 	/**
-	@throws DOMError
-	*/
+	 * @throws DOMError
+	 */
 	next: () => any
 }
