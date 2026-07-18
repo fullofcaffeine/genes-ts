@@ -16,7 +16,7 @@ This is an evidence contract, not a cached CI-success badge. `blocking` and `non
 | Compile inventory | Generated TypeScript snapshot profiles | 7 | `blocking` |
 | Compile inventory | Examples with TS and classic profiles | 2 | `blocking` |
 | Strict public typing | Strict positive/negative consumer sources | 10 | `blocking` |
-| Strict public typing | Explicitly owned exported-surface boundaries | 6 | `blocking` |
+| Strict public typing | Explicitly owned exported-surface boundaries | 28 | `blocking` |
 | Strict public typing | Reusable-library same-source Haxe modules | 4 | `blocking` |
 | Semantic differential | Same-source Haxe modules | 13 | `blocking` |
 | Semantic differential | TS/classic/declaration and JS oracle profiles | 5 | `blocking` |

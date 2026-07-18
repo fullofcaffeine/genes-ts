@@ -257,6 +257,31 @@ Adding a generated module therefore expands the audit without editing a caller
 path list, while renaming or deleting a classified boundary makes the gate fail
 until the evidence is reviewed.
 
+The three classifications answer different practical questions:
+
+- `runtime-boundary` means the whole module describes a real value that cannot
+  be known completely until JavaScript runs. Examples include Haxe reflection
+  registries and hxnodejs option/callback APIs. The reason must name that host
+  contract; this is not permission for ordinary user modules to expose weak
+  types.
+- `fixture-boundary` means the module is present only because a regression test
+  deliberately compiles an external or low-level API. For example, the full
+  profile compiles Haxe compiler data structures and Tink to pressure-test
+  Genes. The test proves that Genes preserves those source APIs; it does not
+  claim that Genes owns or should silently redesign them.
+- `known-gap` is temporary debt: the generated API is weaker than its intended
+  contract and a named Bead owns the correction or a more precise explanation.
+
+A reusable Genes API should normally remain inside the semantic audit even when
+it has an intentional boundary. In that case,
+`tests/typing-policy/exported-surface-boundaries.json` names the exact export and
+finding kinds. This lets `genes.Register`, `genes.ts.JsonCodec`, and
+`genes.ts.UnknownNarrow` keep their small documented runtime inputs while the
+rest of each generated profile stays automatically enrolled. See also the
+nearby Why/What/How comments in those Haxe modules, which explain where the
+runtime value comes from, what guard or containment applies, and what typed
+value callers receive afterward.
+
 The audit treats each owned module as the root of its own public graph. It
 checks imported weak values and generic arguments, but expands declarations
 only in the root module; the imported module is audited independently. This is

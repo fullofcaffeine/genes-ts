@@ -72,6 +72,270 @@
         "export": "JsonAlias",
         "kinds": ["string-index"]
       }
+    },
+    {
+      "id": "GTS-BOUNDARY-FULL-HX-CLASSES",
+      "scope": "genes-ts-full-owned-surfaces",
+      "owner": "genes.Register",
+      "reason": "Haxe class names are runtime strings, so this reflection registry needs string lookup while every stored value remains a Function.",
+      "source": "src/genes/Register.hx",
+      "match": {
+        "file": "tests/genes-ts/full/out/src-gen/genes/Register.ts",
+        "export": "HxClasses",
+        "kinds": ["string-index"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-FULL-HX-ENUMS",
+      "scope": "genes-ts-full-owned-surfaces",
+      "owner": "genes.Register",
+      "reason": "Haxe enum names are runtime strings, so this reflection registry needs string lookup while each value keeps the small enum metadata shape used by the runtime.",
+      "source": "src/genes/Register.hx",
+      "match": {
+        "file": "tests/genes-ts/full/out/src-gen/genes/Register.ts",
+        "export": "HxEnums",
+        "kinds": ["string-index"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-FULL-HX-REGISTRY",
+      "scope": "genes-ts-full-owned-surfaces",
+      "owner": "genes.Register",
+      "reason": "The shared runtime registry can store classes, enums, and internal helpers under names discovered at runtime. Values remain unknown until a typed registry view validates their role.",
+      "source": "src/genes/Register.hx",
+      "match": {
+        "file": "tests/genes-ts/full/out/src-gen/genes/Register.ts",
+        "export": "HxRegistry",
+        "kinds": ["unknown", "string-index"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-FULL-REGISTER-RUNTIME",
+      "scope": "genes-ts-full-owned-surfaces",
+      "owner": "genes.Register",
+      "reason": "Register contains the one low-level bridge for Haxe's dynamic JavaScript runtime: reflection dictionaries, iterator discovery, deferred superclass constructors, safe assertions, and bound-method caches. Each escape is documented beside its Haxe implementation and ordinary generated modules regain precise types immediately.",
+      "source": "src/genes/Register.hx",
+      "match": {
+        "file": "tests/genes-ts/full/out/src-gen/genes/Register.ts",
+        "export": "Register",
+        "kinds": ["any", "unknown", "string-index"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-FULL-JSON",
+      "scope": "genes-ts-full-owned-surfaces",
+      "owner": "genes.ts.JsonValue",
+      "reason": "A JSON object accepts arbitrary string property names, but each property value stays inside the closed recursive JsonValue type instead of becoming any or unknown.",
+      "source": "src/genes/ts/Json.hx",
+      "match": {
+        "file": "tests/genes-ts/full/out/src-gen/genes/ts/Json.ts",
+        "export": "Json",
+        "kinds": ["string-index"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-FULL-JSON-CODEC",
+      "scope": "genes-ts-full-owned-surfaces",
+      "owner": "genes.ts.JsonCodec",
+      "reason": "JsonCodec accepts an unknown host value only at its validation entry points, then returns the closed recursive JsonValue type. JSON objects remain string-indexed because JSON property names are not known in advance.",
+      "source": "src/genes/ts/JsonCodec.hx",
+      "match": {
+        "file": "tests/genes-ts/full/out/src-gen/genes/ts/JsonCodec.ts",
+        "export": "JsonCodec",
+        "kinds": ["unknown", "string-index"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-FULL-UNKNOWN-NARROW",
+      "scope": "genes-ts-full-owned-surfaces",
+      "owner": "genes.ts.UnknownNarrow",
+      "reason": "UnknownNarrow deliberately receives opaque host values and exposes only guarded conversions. Callers receive a concrete type or null after the runtime check.",
+      "source": "src/genes/ts/UnknownNarrow.hx",
+      "match": {
+        "file": "tests/genes-ts/full/out/src-gen/genes/ts/UnknownNarrow.ts",
+        "export": "UnknownNarrow",
+        "kinds": ["unknown"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-CLASSIC-HX-CLASSES",
+      "scope": "classic-dts-owned-surfaces",
+      "owner": "genes.Register",
+      "reason": "Haxe class names are runtime strings, so this reflection registry needs string lookup while every stored value remains a Function.",
+      "source": "src/genes/Register.hx",
+      "match": {
+        "file": "bin/genes/Register.d.ts",
+        "export": "HxClasses",
+        "kinds": ["string-index"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-CLASSIC-HX-ENUMS",
+      "scope": "classic-dts-owned-surfaces",
+      "owner": "genes.Register",
+      "reason": "Haxe enum names are runtime strings, so this reflection registry needs string lookup while each value keeps the small enum metadata shape used by the runtime.",
+      "source": "src/genes/Register.hx",
+      "match": {
+        "file": "bin/genes/Register.d.ts",
+        "export": "HxEnums",
+        "kinds": ["string-index"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-CLASSIC-HX-REGISTRY",
+      "scope": "classic-dts-owned-surfaces",
+      "owner": "genes.Register",
+      "reason": "The shared runtime registry can store classes, enums, and internal helpers under names discovered at runtime. Values remain unknown until a typed registry view validates their role.",
+      "source": "src/genes/Register.hx",
+      "match": {
+        "file": "bin/genes/Register.d.ts",
+        "export": "HxRegistry",
+        "kinds": ["unknown", "string-index"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-CLASSIC-REGISTER-RUNTIME",
+      "scope": "classic-dts-owned-surfaces",
+      "owner": "genes.Register",
+      "reason": "Register contains the one low-level bridge for Haxe's dynamic JavaScript runtime: reflection dictionaries, iterator discovery, deferred superclass constructors, safe assertions, and bound-method caches. Each escape is documented beside its Haxe implementation and ordinary generated modules regain precise types immediately.",
+      "source": "src/genes/Register.hx",
+      "match": {
+        "file": "bin/genes/Register.d.ts",
+        "export": "Register",
+        "kinds": ["any", "unknown", "string-index"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-CLASSIC-JSON-CLASS",
+      "scope": "classic-dts-owned-surfaces",
+      "owner": "genes.ts.JsonValue",
+      "reason": "A JSON object accepts arbitrary string property names, but each property value stays inside the closed recursive JsonValue type instead of becoming any or unknown.",
+      "source": "src/genes/ts/Json.hx",
+      "match": {
+        "file": "bin/genes/ts/Json.d.ts",
+        "export": "Json",
+        "kinds": ["string-index"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-CLASSIC-JSON-ARRAY",
+      "scope": "classic-dts-owned-surfaces",
+      "owner": "genes.ts.JsonValue",
+      "reason": "JsonArray can contain recursive JSON objects; those objects use string keys while all nested values remain inside JsonValue.",
+      "source": "src/genes/ts/JsonArray.hx",
+      "match": {
+        "file": "bin/genes/ts/Json.d.ts",
+        "export": "JsonArray",
+        "kinds": ["string-index"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-CLASSIC-JSON-NON-NULL",
+      "scope": "classic-dts-owned-surfaces",
+      "owner": "genes.ts.JsonValue",
+      "reason": "JsonNonNullValue can still be a JSON object, whose property names are arbitrary strings but whose values stay inside the JSON algebra.",
+      "source": "src/genes/ts/JsonNonNullValue.hx",
+      "match": {
+        "file": "bin/genes/ts/Json.d.ts",
+        "export": "JsonNonNullValue",
+        "kinds": ["string-index"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-CLASSIC-JSON-OBJECT",
+      "scope": "classic-dts-owned-surfaces",
+      "owner": "genes.ts.JsonValue",
+      "reason": "JSON object property names are not known in advance, so JsonObject is string-indexed while its values remain precisely JsonValue.",
+      "source": "src/genes/ts/JsonObject.hx",
+      "match": {
+        "file": "bin/genes/ts/Json.d.ts",
+        "export": "JsonObject",
+        "kinds": ["string-index"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-CLASSIC-JSON-VALUE",
+      "scope": "classic-dts-owned-surfaces",
+      "owner": "genes.ts.JsonValue",
+      "reason": "JsonValue is a closed recursive union that includes string-keyed JSON objects; the index does not permit values outside that union.",
+      "source": "src/genes/ts/JsonValue.hx",
+      "match": {
+        "file": "bin/genes/ts/Json.d.ts",
+        "export": "JsonValue",
+        "kinds": ["string-index"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-CLASSIC-CODEC-JSON-ARRAY",
+      "scope": "classic-dts-owned-surfaces",
+      "owner": "genes.ts.JsonValue",
+      "reason": "The declaration module repeats JsonArray so consumers can name its recursive JSON shape; nested objects remain string-indexed and typed as JsonValue.",
+      "source": "src/genes/ts/JsonArray.hx",
+      "match": {
+        "file": "bin/genes/ts/JsonCodec.d.ts",
+        "export": "JsonArray",
+        "kinds": ["string-index"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-CLASSIC-JSON-CODEC",
+      "scope": "classic-dts-owned-surfaces",
+      "owner": "genes.ts.JsonCodec",
+      "reason": "JsonCodec accepts an unknown host value only at its validation entry points, then returns the closed recursive JsonValue type. JSON objects remain string-indexed because JSON property names are not known in advance.",
+      "source": "src/genes/ts/JsonCodec.hx",
+      "match": {
+        "file": "bin/genes/ts/JsonCodec.d.ts",
+        "export": "JsonCodec",
+        "kinds": ["unknown", "string-index"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-CLASSIC-CODEC-JSON-NON-NULL",
+      "scope": "classic-dts-owned-surfaces",
+      "owner": "genes.ts.JsonValue",
+      "reason": "The declaration module repeats JsonNonNullValue so consumers can name its recursive JSON shape; nested object keys remain strings and values remain typed.",
+      "source": "src/genes/ts/JsonNonNullValue.hx",
+      "match": {
+        "file": "bin/genes/ts/JsonCodec.d.ts",
+        "export": "JsonNonNullValue",
+        "kinds": ["string-index"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-CLASSIC-CODEC-JSON-OBJECT",
+      "scope": "classic-dts-owned-surfaces",
+      "owner": "genes.ts.JsonValue",
+      "reason": "The declaration module repeats JsonObject for consumers; arbitrary string keys are valid JSON while every value stays inside JsonValue.",
+      "source": "src/genes/ts/JsonObject.hx",
+      "match": {
+        "file": "bin/genes/ts/JsonCodec.d.ts",
+        "export": "JsonObject",
+        "kinds": ["string-index"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-CLASSIC-CODEC-JSON-VALUE",
+      "scope": "classic-dts-owned-surfaces",
+      "owner": "genes.ts.JsonValue",
+      "reason": "The declaration module repeats the closed JsonValue union; its string index comes only from the JSON object member of that union.",
+      "source": "src/genes/ts/JsonValue.hx",
+      "match": {
+        "file": "bin/genes/ts/JsonCodec.d.ts",
+        "export": "JsonValue",
+        "kinds": ["string-index"]
+      }
+    },
+    {
+      "id": "GTS-BOUNDARY-CLASSIC-UNKNOWN-NARROW",
+      "scope": "classic-dts-owned-surfaces",
+      "owner": "genes.ts.UnknownNarrow",
+      "reason": "UnknownNarrow deliberately receives opaque host values and exposes only guarded conversions. Callers receive a concrete type or null after the runtime check.",
+      "source": "src/genes/ts/UnknownNarrow.hx",
+      "match": {
+        "file": "bin/genes/ts/UnknownNarrow.d.ts",
+        "export": "UnknownNarrow",
+        "kinds": ["unknown"]
+      }
     }
   ]
 }

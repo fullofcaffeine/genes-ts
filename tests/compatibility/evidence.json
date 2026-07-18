@@ -130,7 +130,7 @@
           "kind": "json-array",
           "path": "tests/typing-policy/exported-surface-boundaries.json",
           "pointer": ["boundaries"],
-          "expected": 6
+          "expected": 28
         },
         {
           "id": "reusable-library-source-modules",

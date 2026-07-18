@@ -2,7 +2,10 @@ import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { assertExportedSurfacePolicy } from "./exported-surface-policy.js";
+import {
+  assertExportedSurfacePolicy,
+  type ExportedSurfaceOwnedFileClassification
+} from "./exported-surface-policy.js";
 import { runGeneratedTypeScriptMatrix } from "./toolchains.js";
 
 /**
@@ -146,43 +149,76 @@ if (!registerDeclaration.includes("static bind(o: any, m: any): any | null")) {
   );
 }
 
-// Classic declarations expose the same legacy Dynamic-heavy stdlib and test
-// dependencies as the full TypeScript profile. The audit config loads every
-// owned declaration, while this exact list records the pre-existing contracts
-// that genes-ofy must narrow or justify separately. A new declaration is not
-// added here automatically: it is audited immediately.
-const classicKnownSurfaceGaps = [
-  "ANSI.d.ts",
+/**
+ * Gives a small, named group of generated declarations one documented role.
+ *
+ * Classic `.d.ts` output includes Haxe runtime modules and compatibility
+ * fixtures whose source APIs already use `Dynamic`. Genes must describe those
+ * real contracts honestly. The exact file inventory keeps the exception local:
+ * a new compiler-owned declaration is audited unless a reviewer classifies it.
+ */
+function classifyOwnedSurfaceFiles(
+  files: ReadonlyArray<string>,
+  disposition: "runtime-boundary" | "fixture-boundary",
+  reason: string
+): ReadonlyArray<ExportedSurfaceOwnedFileClassification> {
+  return files.map(file => ({ file, disposition, reason }));
+}
+
+// These declarations describe Haxe's JavaScript runtime. Reflection,
+// exception payloads, and native collection adapters receive values that Haxe
+// itself does not know statically, so a narrow invented type would be unsound.
+const classicHaxeRuntimeBoundaryFiles = [
   "Reflect.d.ts",
   "Std.d.ts",
   "Type.d.ts",
-  "genes/Register.d.ts",
-  "genes/ts/Json.d.ts",
-  "genes/ts/JsonCodec.d.ts",
-  "genes/ts/UnknownNarrow.d.ts",
   "haxe/Exception.d.ts",
   "haxe/PosInfos.d.ts",
   "haxe/ValueException.d.ts",
-  "haxe/display/Diagnostic.d.ts",
-  "haxe/display/Display.d.ts",
-  "haxe/display/JsonModuleTypes.d.ts",
   "haxe/ds/EnumValueMap.d.ts",
-  "haxe/macro/Compiler.d.ts",
-  "haxe/macro/Expr.d.ts",
-  "haxe/macro/PlatformConfig.d.ts",
   "js/lib/Map.d.ts",
   "js/lib/Object.d.ts",
-  "js/lib/Promise.d.ts",
+  "js/lib/Promise.d.ts"
+] as const;
+
+// hxnodejs mirrors flexible Node callbacks, buffers, option objects, and
+// streams. These are host-library contracts rather than permission for user
+// declarations to expose broad types.
+const classicNodeRuntimeBoundaryFiles = [
   "js/node/Assert.d.ts",
   "js/node/Buffer.d.ts",
   "js/node/ChildProcess.d.ts",
   "js/node/Fs.d.ts",
   "js/node/Util.d.ts",
-  "js/node/stream/Writable.d.ts",
+  "js/node/stream/Writable.d.ts"
+] as const;
+
+// The full classic fixture imports compiler/display structures only to stress
+// declaration generation. They are not part of the ordinary runtime surface
+// offered by genes-ts applications.
+const classicCompilerApiFixtureFiles = [
+  "haxe/display/Diagnostic.d.ts",
+  "haxe/display/Display.d.ts",
+  "haxe/display/JsonModuleTypes.d.ts",
+  "haxe/macro/Compiler.d.ts",
+  "haxe/macro/Expr.d.ts",
+  "haxe/macro/PlatformConfig.d.ts"
+] as const;
+
+// These declarations belong to tests that intentionally exercise raw interop
+// or Dynamic source APIs. Their focused assertions contain that weak surface.
+const classicRegressionFixtureFiles = [
+  "ANSI.d.ts",
   "tests/TestAsyncAwait.d.ts",
   "tests/TestImportModule.d.ts",
   "tests/TestJsonValue.d.ts",
-  "tests/TestTsTypes.d.ts",
+  "tests/TestTsTypes.d.ts"
+] as const;
+
+// Tink is an external compatibility fixture. The compiler must preserve its
+// published Haxe types, including deliberate Any/Dynamic seams, rather than
+// silently claiming a different third-party API in generated declarations.
+const classicTinkFixtureFiles = [
   "tink/CoreApi.d.ts",
   "tink/core/Annex.d.ts",
   "tink/core/Any.d.ts",
@@ -209,14 +245,36 @@ assertExportedSurfacePolicy({
   ownershipInventories: [{
     outputRoot: "bin",
     outputIdentity: "tests.js",
-    classifications: classicKnownSurfaceGaps.map(file => ({
-      file,
-      disposition: "known-gap" as const,
-      owner: "genes-ofy",
-      reason: "Legacy Dynamic-heavy stdlib, host, or regression dependency surface tracked for separate semantic narrowing."
-    }))
+    classifications: [
+      ...classifyOwnedSurfaceFiles(
+        classicHaxeRuntimeBoundaryFiles,
+        "runtime-boundary",
+        "Haxe's JavaScript runtime intentionally accepts values whose concrete type is known only at runtime."
+      ),
+      ...classifyOwnedSurfaceFiles(
+        classicNodeRuntimeBoundaryFiles,
+        "runtime-boundary",
+        "The declaration preserves an hxnodejs host-API contract whose callbacks or option values are intentionally dynamic."
+      ),
+      ...classifyOwnedSurfaceFiles(
+        classicCompilerApiFixtureFiles,
+        "fixture-boundary",
+        "The regression fixture imports Haxe compiler/display structures to test declaration generation, not as a Genes application API."
+      ),
+      ...classifyOwnedSurfaceFiles(
+        classicRegressionFixtureFiles,
+        "fixture-boundary",
+        "This test declaration deliberately exercises raw interop or Dynamic behavior and is bounded by focused compile/runtime assertions."
+      ),
+      ...classifyOwnedSurfaceFiles(
+        classicTinkFixtureFiles,
+        "fixture-boundary",
+        "Tink is a third-party compatibility fixture; Genes preserves its declared Any/Dynamic API instead of inventing a different contract."
+      )
+    ]
   }],
-  scope: "classic-dts-owned-surfaces"
+  scope: "classic-dts-owned-surfaces",
+  boundaryManifestPath: "tests/typing-policy/exported-surface-boundaries.json"
 });
 
 runGeneratedTypeScriptMatrix("tests/classic-dts/tsconfig.json", { emit: false });

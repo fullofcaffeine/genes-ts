@@ -2,7 +2,10 @@ import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { assertExportedSurfacePolicy } from "./exported-surface-policy.js";
+import {
+  assertExportedSurfacePolicy,
+  type ExportedSurfaceOwnedFileClassification
+} from "./exported-surface-policy.js";
 import { runGeneratedTypeScriptMatrix } from "./toolchains.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -135,41 +138,78 @@ writeFileSync(
   ].join("\n")
 );
 
-// The full profile intentionally pulls in Haxe macro/display APIs, Node
-// externs, and older tink libraries so the compiler sees difficult real-world
-// types. Those dependencies still contain broad Dynamic-shaped public
-// contracts. Inventory enrollment must not pretend they are safe, but fixing
-// all of those pre-existing contracts would hide the much smaller goal of this
-// gate: every newly owned module must be audited automatically. Keep this list
-// exact and stale-detecting while genes-ofy reduces or documents each boundary.
-const fullProfileKnownSurfaceGaps = [
-  "ANSI.ts",
+/**
+ * Gives a small, named group of generated files one documented audit role.
+ *
+ * The full profile deliberately compiles standard-library, host-library, and
+ * third-party APIs that already use Haxe `Dynamic`. Genes must preserve those
+ * source contracts; silently replacing them with a made-up narrower type would
+ * be incorrect. Grouping the exact owned files here keeps that exception easy
+ * to review and makes a renamed or removed file fail the gate as stale.
+ */
+function classifyOwnedSurfaceFiles(
+  files: ReadonlyArray<string>,
+  disposition: "runtime-boundary" | "fixture-boundary",
+  reason: string
+): ReadonlyArray<ExportedSurfaceOwnedFileClassification> {
+  return files.map(file => ({ file, disposition, reason }));
+}
+
+// These modules implement Haxe's JavaScript runtime behavior. Reflection,
+// exceptions, and map lookups genuinely receive values whose concrete type is
+// known only while the program runs. The compiler may contain that boundary,
+// but it must not invent a stronger public contract than the Haxe standard
+// library declares.
+const fullProfileHaxeRuntimeBoundaryFiles = [
   "Reflect.ts",
   "Std.ts",
   "Type.ts",
-  "genes/Register.ts",
-  "genes/ts/Json.ts",
-  "genes/ts/JsonCodec.ts",
-  "genes/ts/UnknownNarrow.ts",
   "haxe/Exception.ts",
   "haxe/PosInfos.ts",
   "haxe/ValueException.ts",
-  "haxe/display/Diagnostic.ts",
-  "haxe/display/Display.ts",
-  "haxe/display/JsonModuleTypes.ts",
   "haxe/ds/EnumValueMap.ts",
-  "haxe/macro/Compiler.ts",
-  "haxe/macro/Expr.ts",
-  "haxe/macro/PlatformConfig.ts",
   "js/Boot.ts",
-  "js/lib/Map.ts",
+  "js/lib/Map.ts"
+] as const;
+
+// These declarations come from hxnodejs and describe flexible Node APIs such
+// as callbacks, option bags, and writable streams. They are runtime boundaries
+// owned by that host extern contract, not evidence that ordinary generated
+// application modules may expose `any`.
+const fullProfileNodeRuntimeBoundaryFiles = [
   "js/node/Assert.ts",
   "js/node/ChildProcess.ts",
   "js/node/Util.ts",
-  "js/node/stream/Writable.ts",
+  "js/node/stream/Writable.ts"
+] as const;
+
+// The full regression fixture imports Haxe's compiler/display data structures
+// to exercise difficult compiler types. These are compile-time fixture inputs,
+// not a public runtime API that genes-ts promises to redesign.
+const fullProfileCompilerApiFixtureFiles = [
+  "haxe/display/Diagnostic.ts",
+  "haxe/display/Display.ts",
+  "haxe/display/JsonModuleTypes.ts",
+  "haxe/macro/Compiler.ts",
+  "haxe/macro/Expr.ts",
+  "haxe/macro/PlatformConfig.ts"
+] as const;
+
+// These files intentionally exercise raw interop or legacy Dynamic behavior.
+// Their runtime and negative assertions are the evidence; their deliberately
+// weak fixture signatures must not grant an exemption to unrelated modules.
+const fullProfileRegressionFixtureFiles = [
+  "ANSI.ts",
   "tests/TestAsyncAwait.ts",
   "tests/TestImportModule.ts",
-  "tests/TestTsTypes.ts",
+  "tests/TestTsTypes.ts"
+] as const;
+
+// Tink is compiled here as a demanding third-party compatibility fixture.
+// Its source-level `Any`/`Dynamic` contracts belong to Tink. This gate proves
+// that Genes preserves and compiles them; it does not silently rewrite that
+// external library's published API.
+const fullProfileTinkFixtureFiles = [
   "tink/CoreApi.ts",
   "tink/core/Annex.ts",
   "tink/core/Any.ts",
@@ -203,14 +243,36 @@ assertExportedSurfacePolicy({
   ownershipInventories: [{
     outputRoot: "tests/genes-ts/full/out/src-gen",
     outputIdentity: "index.ts",
-    classifications: fullProfileKnownSurfaceGaps.map(file => ({
-      file,
-      disposition: "known-gap" as const,
-      owner: "genes-ofy",
-      reason: "Legacy Dynamic-heavy stdlib, host, or regression dependency surface tracked for separate semantic narrowing."
-    }))
+    classifications: [
+      ...classifyOwnedSurfaceFiles(
+        fullProfileHaxeRuntimeBoundaryFiles,
+        "runtime-boundary",
+        "Haxe's JavaScript runtime intentionally accepts values whose concrete type is known only at runtime."
+      ),
+      ...classifyOwnedSurfaceFiles(
+        fullProfileNodeRuntimeBoundaryFiles,
+        "runtime-boundary",
+        "The generated module preserves an hxnodejs host-API contract whose callbacks or option values are intentionally dynamic."
+      ),
+      ...classifyOwnedSurfaceFiles(
+        fullProfileCompilerApiFixtureFiles,
+        "fixture-boundary",
+        "The full regression fixture imports Haxe compiler/display structures to test code generation; it does not publish them as a Genes application API."
+      ),
+      ...classifyOwnedSurfaceFiles(
+        fullProfileRegressionFixtureFiles,
+        "fixture-boundary",
+        "This regression module deliberately exercises raw interop or Dynamic behavior and is bounded by its focused compile/runtime assertions."
+      ),
+      ...classifyOwnedSurfaceFiles(
+        fullProfileTinkFixtureFiles,
+        "fixture-boundary",
+        "Tink is a third-party compatibility fixture; Genes preserves its declared Any/Dynamic API instead of inventing a different contract."
+      )
+    ]
   }],
-  scope: "genes-ts-full-owned-surfaces"
+  scope: "genes-ts-full-owned-surfaces",
+  boundaryManifestPath: "tests/typing-policy/exported-surface-boundaries.json"
 });
 
 const dynamicImportOutput = readFileSync(
