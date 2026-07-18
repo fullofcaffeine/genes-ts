@@ -158,6 +158,15 @@ declare another function named `readStatus` without redirecting either call.
 This is useful for hxnodejs-style extern libraries as well as application-owned
 package bindings.
 
+Older hxnodejs releases describe Node's built-in `process` and `console`
+objects with an old Haxe helper named `__js__`. Haxe 5 preview leaves that
+helper visible to custom generators, even though `__js__` is not a real
+JavaScript function. Genes recognizes the narrow form those externs use—one
+literal global identifier—and writes the real `process` or `console` value in
+both output profiles. Arbitrary source strings are deliberately not accepted
+by this compatibility rule; new interop code should use typed externs or
+`js.Syntax` instead.
+
 Older Haxe JavaScript externs sometimes combine `@:native` and `@:jsRequire`:
 
 ```haxe

@@ -18,19 +18,6 @@ import package_shapes.abstract_namespace.NamespaceCode;
 import package_shapes.field_default.DefaultField.fieldValue as defaultImportedFieldValue;
 import package_shapes.field_named.NamedField.fieldValue as namedImportedFieldValue;
 
-/**
- * The one global operation needed by this command-line fixture.
- *
- * `@:native("console")` tells Haxe that this typed extern describes Node's
- * existing global `console` object; it does not create or import a class. The
- * small surface keeps the import-origin test independent from hxnodejs's old
- * deprecated `__js__` implementation of `js.Node.console`.
- */
-@:native("console")
-private extern class ProbeConsole {
-  public static function log(value: String): Void;
-}
-
 /** The two runtime values that the binding-identity probe must keep separate. */
 typedef BindingIdentityTranscript = {
   final defaultBinding: String;
@@ -52,6 +39,7 @@ typedef BindingIdentityTranscript = {
   final abstractNamespaceBinding: String;
   final defaultFieldBinding: String;
   final namedFieldBinding: String;
+  final nodeProcessBinding: String;
 }
 
 /**
@@ -208,11 +196,12 @@ class BindingIdentityProbe {
       abstractBinding: abstractValue(),
       abstractNamespaceBinding: abstractNamespaceValue(),
       defaultFieldBinding: defaultFieldValue(),
-      namedFieldBinding: namedFieldValue()
+      namedFieldBinding: namedFieldValue(),
+      nodeProcessBinding: js.Node.process.version.charAt(0)
     };
   }
 
   public static function main(): Void {
-    ProbeConsole.log(haxe.Json.stringify(transcript()));
+    js.Node.console.log(haxe.Json.stringify(transcript()));
   }
 }

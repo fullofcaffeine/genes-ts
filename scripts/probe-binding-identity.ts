@@ -30,7 +30,8 @@ const expected = {
   abstractBinding: "abstract-alpha",
   abstractNamespaceBinding: "abstract-namespace-alpha",
   defaultFieldBinding: "field-default",
-  namedFieldBinding: "field-named"
+  namedFieldBinding: "field-named",
+  nodeProcessBinding: "v"
 };
 
 function run(command: string, args: ReadonlyArray<string>): void {
@@ -301,6 +302,9 @@ for (const [label, source] of [
   );
   assertContains(source, "return fieldValue();", `${label} default field call`);
   assertContains(source, "return fieldValue__1();", `${label} named field call`);
+  assertContains(source, "process.version.charAt(0)", `${label} Node process global`);
+  assertContains(source, "console.log", `${label} Node console global`);
+  ok(!source.includes("__js__"), `${label} leaked hxnodejs's legacy __js__ intrinsic`);
 }
 
 for (const [label, source] of [
@@ -357,6 +361,16 @@ assertMappedTo(
   path.join(tsRoot, "src-gen/package_shapes/BindingIdentityProbe.ts"),
   "fieldValue as fieldValue__1",
   "NamedField.hx"
+);
+assertMappedTo(
+  path.join(tsRoot, "src-gen/package_shapes/BindingIdentityProbe.ts"),
+  "process.version",
+  "BindingIdentityProbe.hx"
+);
+assertMappedTo(
+  path.join(tsRoot, "src-gen/package_shapes/BindingIdentityProbe.ts"),
+  "console.log",
+  "BindingIdentityProbe.hx"
 );
 
 deepStrictEqual(tsTranscript, expected, "genes-ts collapsed two import forms");

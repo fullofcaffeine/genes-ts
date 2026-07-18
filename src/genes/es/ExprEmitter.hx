@@ -322,6 +322,46 @@ class ExprEmitter extends Emitter {
     emitValue(value);
   }
 
+  /**
+   * Emits the narrow legacy `__js__("identifier")` form used by older externs.
+   *
+   * Why: hxnodejs 10 exposes Node globals such as `process` and `console`
+   * through Haxe's former `__js__` intrinsic. Haxe 5 leaves that call visible
+   * in the typed tree, and delegating it prints a nonexistent `__js__` function
+   * into generated TypeScript and JavaScript.
+   *
+   * What: Genes accepts only one literal, ASCII JavaScript identifier. This is
+   * enough for the old global-access contract without treating an arbitrary
+   * source string as compiler-owned code.
+   *
+   * How: the validated identifier is written as the value that Haxe 4 already
+   * produced. Calls with arguments, operators, or nonliteral text remain on the
+   * existing backend path; this compatibility rule does not broaden raw syntax.
+   */
+  function emitLegacyJsIdentifier(args: Array<TypedExpr>): Bool {
+    if (args.length != 1)
+      return false;
+    final identifier = switch args[0].expr {
+      case TConst(TString(value)): value;
+      default: return false;
+    }
+    if (identifier.length == 0)
+      return false;
+
+    for (index in 0...identifier.length) {
+      final code = identifier.charCodeAt(index);
+      final letter = (code >= "A".code && code <= "Z".code)
+        || (code >= "a".code && code <= "z".code);
+      final allowed = letter || code == "_".code || code == "$".code
+        || (index > 0 && code >= "0".code && code <= "9".code);
+      if (!allowed)
+        return false;
+    }
+
+    write(identifier);
+    return true;
+  }
+
   /** Emits one null-comparison operand with its hidden nullish syntax grouped. */
   function emitNullComparisonOperand(value: TypedExpr): Void {
     final wrap = nullComparisonOperandNeedsParens(value);
@@ -539,8 +579,9 @@ class ExprEmitter extends Emitter {
       }, args):
         if (!emitSyntaxCodeWithArgs(args))
           write(ctx.expr(e));
-      case TCall({expr: TIdent('__js__')}, _):
-        write(ctx.expr(e));
+      case TCall({expr: TIdent('__js__')}, args):
+        if (!emitLegacyJsIdentifier(args))
+          write(ctx.expr(e));
       case TCall({
         expr: TField(_,
           FStatic(_.get() => {module: 'genes.Genes'},
@@ -1064,8 +1105,9 @@ class ExprEmitter extends Emitter {
       }, args):
         if (!emitSyntaxCodeWithArgs(args))
           write(ctx.value(e));
-      case TCall({expr: TIdent('__js__')}, _):
-        write(ctx.value(e));
+      case TCall({expr: TIdent('__js__')}, args):
+        if (!emitLegacyJsIdentifier(args))
+          write(ctx.value(e));
       case TCall({
         expr: TField(_,
           FStatic(_.get() => {module: 'genes.Genes'},
