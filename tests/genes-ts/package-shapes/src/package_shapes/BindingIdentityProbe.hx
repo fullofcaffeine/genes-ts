@@ -10,6 +10,7 @@ import package_shapes.collision_default.Foo as CollisionDefaultFoo;
 import package_shapes.dropdown_root.Dropdown as DropdownRoot;
 import package_shapes.dropdown_menu.Menu as DropdownMenu;
 import package_shapes.native_named.NativeNamedExport;
+import package_shapes.native_regexp.NativeRegExp;
 import package_shapes.native_string.NativeString;
 import package_shapes.native_dotted.NativeComponent;
 import package_shapes.native_only.HostDate;
@@ -32,6 +33,7 @@ typedef BindingIdentityTranscript = {
   final localNativeNamedBinding: String;
   final localNativeRootBinding: String;
   final nativeNamedBinding: String;
+  final nativeRegExpBinding: String;
   final nativeStringBinding: String;
   final nativeDottedBinding: String;
   final nativeOnlyYear: Int;
@@ -140,9 +142,30 @@ class BindingIdentityProbe {
     return new NativeNamedExport();
   }
 
-  /** Calls the package class named `String` without exposing it as a core type. */
+  /**
+   * Exposes a package class whose runtime name overlaps the built-in RegExp.
+   */
+  public static function nativeRegExpValue(): NativeRegExp {
+    return new NativeRegExp();
+  }
+
+  public static function nativeRegExpMarker(): String {
+    return nativeRegExpValue().marker();
+  }
+
+  /**
+   * Exposes the package class whose JavaScript name is also `String`.
+   *
+   * This return type is the important part of the experiment. Runtime calls
+   * already reach the package correctly; a generated public type must describe
+   * that same package value instead of silently becoming Haxe's built-in string.
+   */
+  public static function nativeStringValue(): NativeString {
+    return new NativeString();
+  }
+
   public static function nativeStringMarker(): String {
-    return new NativeString().marker();
+    return nativeStringValue().marker();
   }
 
   /** Selects `.Component` only after resolving the imported root's alias. */
@@ -190,6 +213,7 @@ class BindingIdentityProbe {
       localNativeNamedBinding: localNativeNamedValue(),
       localNativeRootBinding: localNativeRootValue(),
       nativeNamedBinding: nativeNamedValue().marker(),
+      nativeRegExpBinding: nativeRegExpMarker(),
       nativeStringBinding: nativeStringMarker(),
       nativeDottedBinding: nativeDottedValue().marker(),
       nativeOnlyYear: nativeOnlyValue().getUTCFullYear(),

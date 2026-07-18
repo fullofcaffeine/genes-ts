@@ -71,9 +71,25 @@ class TypeReferenceCollector {
 
   function collectInner(type: Type, rule: String, pos: Position): Void {
     switch type {
+      case TInst(_.get() => cl, _):
+        ExternTypeContract.validateBuiltInNativeType(cl);
+      default:
+    }
+
+    switch type {
       case TInst(_.get() => {name: "RegroupStatus" | "RegroupResult"}, _) |
         TType(_.get() => {name: "RegroupStatus" | "RegroupResult"}, _):
         // These legacy helpers deliberately project to `any`.
+
+      case TInst(ref = _.get() => cl, params)
+        if (ExternTypeContract.usesImportedInstanceType(cl)):
+        // Haxe can rewrite an extern whose native JavaScript name is
+        // `String` or `RegExp` to look like that built-in later in code
+        // generation. The explicit instance-type contract still means the
+        // public API names the package constructor, so retain its typed import
+        // before the built-in spelling rules below can discard it.
+        ExternTypeContract.validateImportedInstanceType(cl, params);
+        includeType(TClassDecl(ref), '$rule.imported-instance', cl.pos);
 
       case TInst(_.get().meta => meta, params)
         if (hasTypeOverride(meta)):

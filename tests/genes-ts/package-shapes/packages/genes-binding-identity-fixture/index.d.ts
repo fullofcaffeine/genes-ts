@@ -26,6 +26,11 @@ export class String {
   marker(): "native-string";
 }
 
+export class RegExp {
+  constructor();
+  marker(): "native-regexp";
+}
+
 export class Foo {
   marker(): "named";
 }

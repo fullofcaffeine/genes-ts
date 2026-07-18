@@ -66,6 +66,9 @@ before DCE and requires matched declarations in classic mode; its inactive
 marker separately proves ordinary application output remains compact.
 The CommonJS `export =` constructor/value split now has a blocking
 `@:ts.instanceType` fixture across TS 5/6/7 and both Genes runtime profiles.
+The same gate covers package constructors whose native `String` or `RegExp`
+name would otherwise collide with a host built-in, including fail-closed
+diagnostics and the advisory Haxe preview lane.
 Haxe 4.3.7's historical `PositionError` and `FetchObserver` WebIDL names now
 come from one shared TS/classic support contract with a generic strict-consumer
 regression. The dts2hx bridge now adds deterministic generated externs for an

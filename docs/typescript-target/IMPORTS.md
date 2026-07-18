@@ -83,6 +83,31 @@ an unsupported package shape cannot silently widen or change meaning. The
 blocking `yarn test:interop:module-shapes` fixture type-checks the same source on
 TS 5, TS 6, and TS 7, then executes both TS and classic Genes output.
 
+The same annotation also protects older package externs whose `@:native` name
+overlaps a JavaScript built-in:
+
+```haxe
+/**
+ * This constructor comes from the package, not from JavaScript's global
+ * `String` value.
+ */
+@:native("String")
+@:jsRequire("boxed-text-package", "String")
+@:ts.instanceType
+extern class PackageString {
+  public function new();
+  public function marker():String;
+}
+```
+
+Haxe gives native `String` and `RegExp` special meaning while preparing
+JavaScript. Without an explicit contract, a public `PackageString` can
+therefore look like primitive `string` even though runtime code constructs the
+package export. Genes requires `@:ts.instanceType` when one of these
+package-backed values enters generated TS or `.d.ts` syntax. Missing metadata
+reports `GENES-EXTERN-BUILTIN-NAME-TYPE-001` before either output profile
+replaces prior files; runtime-only use remains a valid package import.
+
 ### Generating externs from npm declarations with dts2hx
 
 Use dts2hx for package `.d.ts` ingestion; ts2hx serves the separate and much

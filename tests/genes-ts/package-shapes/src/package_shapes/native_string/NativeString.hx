@@ -7,14 +7,18 @@ package package_shapes.native_string;
  * normally give `String` special primitive behavior, but this declaration says
  * that the runtime constructor comes from a package instead.
  *
- * What/How: this probe uses the class only as a runtime value and immediately
- * returns its ordinary Haxe `String` marker. Genes must import the package's
- * named constructor and give it a collision-safe local instead of calling the
- * global `String`. Public APIs use the separate `NativeNamedExport` fixture,
- * because Haxe itself gives a native class called `String` core-type behavior.
+ * What: Genes must import the package's named constructor and give it a safe
+ * local name instead of calling the global `String`. Public methods must also
+ * describe instances of that package constructor, not primitive text values.
+ *
+ * How: `@:ts.instanceType` states that a TypeScript type position means
+ * `InstanceType<typeof importedConstructor>`. This keeps the runtime and
+ * public type tied to the same import even when Haxe later treats the native
+ * name as its built-in string during JavaScript preparation.
  */
 @:native("String")
 @:jsRequire("genes-binding-identity-fixture", "String")
+@:ts.instanceType
 extern class NativeString {
   public function new();
   public function marker(): String;

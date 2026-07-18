@@ -252,7 +252,9 @@ TS-specific overrides:
 - `@:ts.instanceType` — on a non-generic `@:jsRequire` extern constructor,
   project instance type positions as `InstanceType<typeof ImportedValue>` while
   leaving value imports and both runtime profiles unchanged. This is the
-  explicit CommonJS `export =` const-plus-namespace contract; see `IMPORTS.md`.
+  explicit contract for CommonJS `export =` const-plus-namespace constructors
+  and package constructors whose `@:native` name overlaps `String` or
+  `RegExp`; see `IMPORTS.md`.
 
 Compatibility aliases (optional):
 - `@:genes.type` and `@:genes.returnType` are supported as aliases for the TS metadata above.

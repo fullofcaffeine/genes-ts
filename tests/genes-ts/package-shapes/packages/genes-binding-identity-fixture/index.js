@@ -16,6 +16,12 @@ export class String {
   }
 }
 
+export class RegExp {
+  marker() {
+    return "native-regexp";
+  }
+}
+
 export default class DefaultFoo {
   static Component = Component;
 

@@ -270,8 +270,9 @@ runtime representation must remain truthful. The todoapp's
 this narrow pattern with explanatory hxdoc.
 
 For a CommonJS `export =` constructor whose value does not occupy TypeScript's
-type namespace, use the explicit `@:ts.instanceType` extern contract described
-in [IMPORTS.md](IMPORTS.md#commonjs-export--constructor-instances). Do not hide
+type namespace—or a package constructor whose `@:native` name is `String` or
+`RegExp`—use the explicit `@:ts.instanceType` extern contract described in
+[IMPORTS.md](IMPORTS.md#commonjs-export--constructor-instances). Do not hide
 that package shape behind `Dynamic`.
 
 ### Generate package externs with dts2hx
@@ -513,10 +514,12 @@ Compile that authored module to JS, point at its package export, or run both
 graphs through a bundler/loader that supports the source extension. Classic
 Genes deliberately does not add a hidden TypeScript runtime stage.
 
-### A CommonJS constructor is a value but not a TypeScript type
+### An imported constructor is a value but not the right TypeScript type
 
-Model the constructable extern and opt into `@:ts.instanceType`. Verify it with
-the package-shape gate rather than switching the instance to `Dynamic`.
+Model the constructable extern and opt into `@:ts.instanceType`. This covers
+CommonJS constructor values and package-backed `@:native("String")` /
+`@:native("RegExp")` externs. Verify it with the package-shape gate rather
+than switching the instance to `Dynamic`.
 
 ### A bidirectional import fails during module initialization
 

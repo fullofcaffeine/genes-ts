@@ -165,7 +165,9 @@ Examples of these helpers:
 - `genes.ts.Imports` for typed imports from existing JS/TS/TSX modules without hand-writing fragile import strings at every call site.
 - `genes.TemplateLiteral` when a string's template shape is part of its TypeScript type.
 - `@:ts.instanceType` for CommonJS `export =` constructor values whose `@types`
-  declaration exposes the constructed instance through a merged namespace.
+  declaration exposes the instance through a merged namespace, and for package
+  constructors whose native `String` or `RegExp` name would otherwise be
+  mistaken for a JavaScript built-in in public types.
 
 They are useful when the JavaScript/TypeScript ecosystem has a real contract that Haxe does not express directly. The helper gives that contract a Haxe name, keeps the unsafety or TS-specific syntax in one maintained place, and lets the compiler choose the right output for each target.
 

@@ -1,6 +1,12 @@
-import { deepStrictEqual, ok } from "node:assert";
-import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { deepStrictEqual, match, ok } from "node:assert";
+import { execFileSync, spawnSync } from "node:child_process";
+import {
+  cpSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { SourceMapConsumer, type RawSourceMap } from "source-map";
@@ -24,6 +30,7 @@ const expected = {
   localNativeNamedBinding: "local-named",
   localNativeRootBinding: "local-root",
   nativeNamedBinding: "native-named",
+  nativeRegExpBinding: "native-regexp",
   nativeStringBinding: "native-string",
   nativeDottedBinding: "native-dotted",
   nativeOnlyYear: 1970,
@@ -122,6 +129,61 @@ function assertMappedTo(
 }
 
 /**
+ * Proves that a missing built-in-name type contract fails before publication.
+ *
+ * Runtime-only use of these externs is valid, so the fixture puts the value in
+ * a public type position. Both output profiles must preserve the prior file and
+ * explain that `@:ts.instanceType` is required; a later TypeScript error would
+ * be too late and would leave the Haxe author without the relevant source rule.
+ */
+function assertBuiltInNativeTypeFailsClosed(
+  nativeName: "String" | "RegExp",
+  profile: "ts" | "classic"
+): void {
+  const root = path.join(
+    outputRoot,
+    "invalid-built-in",
+    nativeName.toLowerCase(),
+    profile
+  );
+  const outputPath = path.join(root, profile === "ts" ? "index.ts" : "index.js");
+  const sentinel = `user-owned-${nativeName}-${profile}\n`;
+  mkdirSync(root, { recursive: true });
+  writeFileSync(outputPath, sentinel);
+
+  const args = [
+    "-lib", "genes-ts",
+    "-cp", "tests/genes-ts/package-shapes/invalid",
+    "-main", "BuiltInNativeMain",
+    "-js", outputPath,
+    "-D", profile === "ts" ? "genes.ts" : "dts",
+    "-D", "no-deprecation-warnings",
+    "-D", "js-es=6",
+    "-dce", "no"
+  ];
+  if (nativeName === "RegExp")
+    args.push("-D", "genes_fixture_regexp");
+
+  const result = spawnSync("haxe", args, {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  if (result.error !== undefined)
+    throw result.error;
+  ok(result.status !== 0,
+    `${profile} accepted an ambiguous package-backed ${nativeName} type`);
+  const diagnostics = `${result.stdout}${result.stderr}`;
+  match(diagnostics, /BuiltInNativeMain\.hx:\d+/);
+  match(diagnostics, /GENES-EXTERN-BUILTIN-NAME-TYPE-001/);
+  match(diagnostics, /Add @:ts\.instanceType/);
+  deepStrictEqual(
+    readFileSync(outputPath, "utf8"),
+    sentinel,
+    `${profile} changed prior output after the ${nativeName} diagnostic`
+  );
+}
+
+/**
  * Proves exact default-versus-named binding identity in every public surface.
  *
  * The command compiles both first-class output profiles, checks genes-ts and
@@ -131,6 +193,10 @@ function assertMappedTo(
  * imported root had to be renamed after a collision.
  */
 rmSync(outputRoot, { recursive: true, force: true });
+for (const nativeName of ["String", "RegExp"] as const) {
+  assertBuiltInNativeTypeFailsClosed(nativeName, "ts");
+  assertBuiltInNativeTypeFailsClosed(nativeName, "classic");
+}
 
 run("haxe", ["tests/genes-ts/package-shapes/build-binding-identity-standard.hxml"]);
 const standardSource = readFileSync(
@@ -146,6 +212,11 @@ assertContains(
   standardSource,
   'require("genes-binding-identity-fixture").String',
   "standard Haxe built-in-name package binding"
+);
+assertContains(
+  standardSource,
+  'require("genes-binding-identity-fixture").RegExp',
+  "standard Haxe RegExp-name package binding"
 );
 assertContains(
   standardSource,
@@ -236,6 +307,8 @@ for (const [label, source] of [
   );
   assertContains(source, "Dropdown as Dropdown__1", label);
   assertContains(source, "NativeNamed as NativeNamed__1", label);
+  assertContains(source, "RegExp as RegExp__1", label);
+  assertContains(source, "String as String__1", label);
   assertContains(
     source,
     'import NativeRoot__1 from "genes-binding-identity-fixture"',
@@ -266,10 +339,14 @@ for (const [label, source] of [
     "return new NativeNamed__1();",
     `${label} native named binding`
   );
-  assertContains(source, "String as String__1", `${label} native String import`);
   assertContains(
     source,
-    "return new String__1().marker();",
+    "return new RegExp__1();",
+    `${label} native RegExp binding`
+  );
+  assertContains(
+    source,
+    "return new String__1();",
     `${label} native String binding`
   );
   assertContains(
@@ -321,6 +398,16 @@ for (const [label, source] of [
   assertContains(source, "static collisionDefaultValue(): Dropdown", label);
   assertContains(source, "static dropdownMenuValue(): Dropdown__1.Menu", label);
   assertContains(source, "static nativeNamedValue(): NativeNamed__1", label);
+  assertContains(
+    source,
+    "static nativeRegExpValue(): InstanceType<typeof RegExp__1>",
+    label
+  );
+  assertContains(
+    source,
+    "static nativeStringValue(): InstanceType<typeof String__1>",
+    label
+  );
   assertContains(source, "static nativeDottedValue(): NativeRoot__1.Component", label);
   assertContains(source, "static nativeOnlyValue(): Date", label);
   assertContains(source, "static abstractValue(): string", label);
@@ -330,6 +417,21 @@ for (const [label, source] of [
 assertMappedTo(
   path.join(tsRoot, "src-gen/package_shapes/BindingIdentityProbe.ts"),
   "new NativeNamed__1()",
+  "BindingIdentityProbe.hx"
+);
+assertMappedTo(
+  path.join(tsRoot, "src-gen/package_shapes/BindingIdentityProbe.ts"),
+  "RegExp as RegExp__1",
+  "NativeRegExp.hx"
+);
+assertMappedTo(
+  path.join(tsRoot, "src-gen/package_shapes/BindingIdentityProbe.ts"),
+  "String as String__1",
+  "NativeString.hx"
+);
+assertMappedTo(
+  path.join(tsRoot, "src-gen/package_shapes/BindingIdentityProbe.ts"),
+  "new RegExp__1()",
   "BindingIdentityProbe.hx"
 );
 assertMappedTo(
@@ -375,4 +477,4 @@ assertMappedTo(
 
 deepStrictEqual(tsTranscript, expected, "genes-ts collapsed two import forms");
 deepStrictEqual(classicTranscript, expected, "classic Genes collapsed two import forms");
-console.log("binding-identity:ok (declarations + abstracts + static fields + TS/classic runtime + source maps + TS 5/6/7)");
+console.log("binding-identity:ok (declarations + built-in-name externs + abstracts + static fields + TS/classic runtime + source maps + TS 5/6/7)");

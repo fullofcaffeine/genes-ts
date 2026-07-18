@@ -255,6 +255,8 @@ The source of truth is Beads epic `genes-09r`.
    transcripts. The landed `genes-09r.8` bridge now adds generated ESM,
    subpath, conditional-export, and class-shaped `export =` contracts while
    retaining this precise manual boundary for const-plus-namespace declarations.
+   The same contract now retains package-backed native `String` and `RegExp`
+   instance types across stable/preview Haxe lanes; omission fails before output.
 8. **`genes-09r.5` — target-neutral `JsxPlan` (landed).** Typed marker intent
    now captures tags/components, ordered props/children, fragments, lifted
    Haxe locals with exact-once evaluation paths, source provenance, and an
