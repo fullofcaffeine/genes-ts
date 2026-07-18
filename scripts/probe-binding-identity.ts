@@ -1,4 +1,4 @@
-import { deepStrictEqual } from "node:assert";
+import { deepStrictEqual, ok } from "node:assert";
 import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
@@ -38,6 +38,13 @@ function runtimeTranscript(entrypoint: string): unknown {
   return JSON.parse(line);
 }
 
+function assertContains(source: string, expectedText: string, label: string): void {
+  ok(
+    source.includes(expectedText),
+    `${label} did not contain the exact expected text:\n${expectedText}\n\nActual source:\n${source}`
+  );
+}
+
 /**
  * Runs the known-failing reduction without enrolling it as a release gate.
  *
@@ -63,6 +70,10 @@ const tsTranscript = runtimeTranscript(
 run("haxe", ["tests/genes-ts/package-shapes/build-binding-identity-classic.hxml"]);
 const classicRoot = path.join(outputRoot, "classic");
 installPackage(classicRoot);
+runGeneratedTypeScriptMatrix(
+  "tests/genes-ts/package-shapes/tsconfig.binding-identity-classic.json",
+  { emit: false }
+);
 const classicTranscript = runtimeTranscript(
   "tests/genes-ts/package-shapes/out/binding-identity/classic/src-gen/index.js"
 );
@@ -75,12 +86,71 @@ const classicSource = readFileSync(
   path.join(classicRoot, "src-gen/package_shapes/BindingIdentityProbe.js"),
   "utf8"
 );
+const generatedDeclaration = readFileSync(
+  path.join(tsRoot, "dist/package_shapes/BindingIdentityProbe.d.ts"),
+  "utf8"
+);
+const classicDeclaration = readFileSync(
+  path.join(classicRoot, "src-gen/package_shapes/BindingIdentityProbe.d.ts"),
+  "utf8"
+);
 console.log(JSON.stringify({
   tsImports: tsSource.split(/\r?\n/).filter(line => line.startsWith("import ")),
   classicImports: classicSource.split(/\r?\n/).filter(line => line.startsWith("import ")),
+  generatedDeclarationImports: generatedDeclaration
+    .split(/\r?\n/)
+    .filter(line => line.startsWith("import ")),
+  classicDeclarationImports: classicDeclaration
+    .split(/\r?\n/)
+    .filter(line => line.startsWith("import ")),
   tsTranscript,
   classicTranscript
 }, null, 2));
+
+for (const [label, source] of [
+  ["genes-ts source", tsSource],
+  ["classic JavaScript", classicSource],
+  ["TypeScript-emitted declaration", generatedDeclaration],
+  ["classic declaration", classicDeclaration]
+] as const) {
+  assertContains(
+    source,
+    'import Foo from "genes-binding-identity-fixture"',
+    label
+  );
+  assertContains(
+    source,
+    'import {Foo as Foo__1} from "genes-binding-identity-fixture"',
+    label
+  );
+}
+
+assertContains(tsSource, "static defaultValue(): Foo", "genes-ts source");
+assertContains(tsSource, "static namedValue(): Foo__1", "genes-ts source");
+assertContains(tsSource, "return new Foo();", "genes-ts default constructor");
+assertContains(tsSource, "return new Foo__1();", "genes-ts named constructor");
+assertContains(classicSource, "return new Foo();", "classic default constructor");
+assertContains(classicSource, "return new Foo__1();", "classic named constructor");
+assertContains(
+  generatedDeclaration,
+  "static defaultValue(): Foo",
+  "TypeScript-emitted default return type"
+);
+assertContains(
+  generatedDeclaration,
+  "static namedValue(): Foo__1",
+  "TypeScript-emitted named return type"
+);
+assertContains(
+  classicDeclaration,
+  "static defaultValue(): Foo",
+  "classic default return type"
+);
+assertContains(
+  classicDeclaration,
+  "static namedValue(): Foo__1",
+  "classic named return type"
+);
 
 deepStrictEqual(tsTranscript, expected, "genes-ts collapsed two import forms");
 deepStrictEqual(classicTranscript, expected, "classic Genes collapsed two import forms");

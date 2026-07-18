@@ -27,9 +27,19 @@ typedef BindingIdentityTranscript = {
  * the command fails with `namedBinding: "default"`.
  */
 class BindingIdentityProbe {
+  /** Returns the package's default export through its exact Haxe declaration. */
+  public static function defaultValue(): DefaultFoo {
+    return new DefaultFoo();
+  }
+
+  /** Returns the named export through its separate exact Haxe declaration. */
+  public static function namedValue(): NamedFoo {
+    return new NamedFoo();
+  }
+
   public static function transcript(): BindingIdentityTranscript {
-    final defaultFoo = new DefaultFoo();
-    final namedFoo = new NamedFoo();
+    final defaultFoo = defaultValue();
+    final namedFoo = namedValue();
     return {
       defaultBinding: defaultFoo.marker(),
       namedBinding: namedFoo.marker()
