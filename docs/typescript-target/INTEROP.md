@@ -97,6 +97,45 @@ That makes dependency identity and generated output deterministic. See the
 [complete Imports API](IMPORTS.md) for import attributes, text/file resources,
 dynamic WASM imports, dotted exports, and alias control.
 
+#### How Genes keeps similarly named imports separate
+
+The local word used in generated code is not an import's identity. This matters
+when a package legally exports more than one value with the same visible name.
+For example, these two declarations select different JavaScript values even
+though both would naturally be called `Foo`:
+
+```haxe
+@:jsRequire("example-package", "default")
+extern class DefaultFoo {}
+
+@:jsRequire("example-package", "Foo")
+extern class NamedFoo {}
+```
+
+Genes records four separate facts before it prints either output profile:
+
+- the module request (`example-package`);
+- the selected export (default, named `Foo`, or the namespace);
+- the preferred local name;
+- the exact typed Haxe declaration or compiler-owned field that requested it.
+
+The package is still evaluated as one ESM request, but the bindings receive
+separate collision-safe locals such as `Foo` and `Foo__1`. Expressions, public
+TypeScript annotations, classic JavaScript, and classic `.d.ts` declarations
+all resolve from the typed Haxe origin rather than choosing the first import
+whose text happens to match.
+
+Explicit `@:genes.importAlias` values change only the preferred local spelling;
+they do not turn a default export into a named export. For a dotted selector
+such as `Dropdown.Menu`, Genes imports the root `Dropdown`, resolves any local
+collision, and only then appends `.Menu`. This preserves both the package's ESM
+shape and the member access.
+
+`Genes.dynamicImport` is the deliberate exception to a top-level import
+mapping. Its callback values are created by `import()` at runtime, so the
+compiler keeps those names local to the callback instead of adding a static ESM
+request that would defeat code splitting.
+
 ### Import an authored TSX component
 
 Model the component's props on the Haxe side, then give the default import a

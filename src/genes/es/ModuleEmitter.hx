@@ -11,6 +11,7 @@ import genes.util.Timer.timer;
 import genes.JsxPlan.JsxCapabilityPolicy;
 import genes.NamePlan.NamePlanProfile;
 import genes.DependencyPlan.DependencyModuleRequest;
+import genes.TypeAccessor;
 
 using genes.util.TypeUtil;
 using Lambda;
@@ -237,31 +238,15 @@ class ModuleEmitter extends ExprEmitter {
       switch field {
         case {isStatic: true, meta: meta} if (meta != null):
           switch meta.extract(':jsRequire') {
-            case [{params: [{expr: EConst(CString(_))}]}]:
-              // Single-arg form imports the module; treat the field name as the
-              // imported identifier.
+            case [{params: [{expr: EConst(CString(_))}]}] |
+              [{params: [{expr: EConst(CString(_))}, {expr: EConst(CString(_))}]}]:
               writeNewline();
               emitPos(field.pos);
               emitIdent(TypeUtil.className(cl));
               emitField(staticName(cl, field));
               write(' = ');
-              emitIdent(field.name);
-              writeNewline();
-            case [{params: [{expr: EConst(CString(_))}, {expr: EConst(CString('default'))}]}]:
-              writeNewline();
-              emitPos(field.pos);
-              emitIdent(TypeUtil.className(cl));
-              emitField(staticName(cl, field));
-              write(' = ');
-              emitIdent(field.name);
-              writeNewline();
-            case [{params: [{expr: EConst(CString(_))}, {expr: EConst(CString(name))}]}]:
-              writeNewline();
-              emitPos(field.pos);
-              emitIdent(TypeUtil.className(cl));
-              emitField(staticName(cl, field));
-              write(' = ');
-              emitIdent(name);
+              write(ctx.typeAccessor(TypeAccessor.forStaticFieldName(cl,
+                field.name, field.pos)));
               writeNewline();
             default:
           }

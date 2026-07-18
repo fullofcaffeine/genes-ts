@@ -12,7 +12,14 @@ const outputRoot = path.join(fixtureRoot, "out/binding-identity");
 const packageName = "genes-binding-identity-fixture";
 const expected = {
   defaultBinding: "default",
-  namedBinding: "named"
+  namedBinding: "named",
+  duplicateNamedBinding: "named",
+  firstAliasBinding: "named",
+  secondAliasBinding: "named",
+  namespaceBinding: "namespace",
+  collisionDefaultBinding: "default",
+  dropdownRootBinding: "dropdown-root",
+  dropdownMenuBinding: "dropdown-menu"
 };
 
 function run(command: string, args: ReadonlyArray<string>): void {
@@ -46,14 +53,13 @@ function assertContains(source: string, expectedText: string, label: string): vo
 }
 
 /**
- * Runs the known-failing reduction without enrolling it as a release gate.
+ * Proves exact default-versus-named binding identity in every public surface.
  *
- * This is intentionally a `probe`, not a passing test: genes-ntz requires a
- * narrow architecture review before production identity changes. The command
- * compiles both first-class output profiles, shows their generated import
- * lines and runtime results, then asserts the correct JavaScript behavior. It
- * will exit nonzero on the reviewed baseline because both profiles collapse
- * the named binding into the default binding.
+ * The command compiles both first-class output profiles, checks genes-ts and
+ * classic declaration typing with the pinned TypeScript versions, executes
+ * both results, and prints a compact transcript for review. It covers distinct
+ * export forms, repeated origins, explicit aliases, and dotted members whose
+ * imported root had to be renamed after a collision.
  */
 rmSync(outputRoot, { recursive: true, force: true });
 
@@ -118,39 +124,52 @@ for (const [label, source] of [
     'import Foo from "genes-binding-identity-fixture"',
     label
   );
+  assertContains(source, "Foo as Foo__1", label);
+  assertContains(source, "Foo as FirstFoo", label);
+  assertContains(source, "Foo as SecondFoo", label);
   assertContains(
     source,
-    'import {Foo as Foo__1} from "genes-binding-identity-fixture"',
+    'import Dropdown from "genes-binding-identity-fixture"',
     label
   );
+  assertContains(source, "Dropdown as Dropdown__1", label);
+  ok(!source.includes("Foo__3"), `${label} allocated an unnecessary Foo__3 binding`);
 }
 
-assertContains(tsSource, "static defaultValue(): Foo", "genes-ts source");
-assertContains(tsSource, "static namedValue(): Foo__1", "genes-ts source");
-assertContains(tsSource, "return new Foo();", "genes-ts default constructor");
-assertContains(tsSource, "return new Foo__1();", "genes-ts named constructor");
-assertContains(classicSource, "return new Foo();", "classic default constructor");
-assertContains(classicSource, "return new Foo__1();", "classic named constructor");
-assertContains(
-  generatedDeclaration,
-  "static defaultValue(): Foo",
-  "TypeScript-emitted default return type"
-);
-assertContains(
-  generatedDeclaration,
-  "static namedValue(): Foo__1",
-  "TypeScript-emitted named return type"
-);
-assertContains(
-  classicDeclaration,
-  "static defaultValue(): Foo",
-  "classic default return type"
-);
-assertContains(
-  classicDeclaration,
-  "static namedValue(): Foo__1",
-  "classic named return type"
-);
+for (const [label, source] of [
+  ["genes-ts source", tsSource],
+  ["classic JavaScript", classicSource]
+] as const) {
+  assertContains(
+    source,
+    'import * as Foo__2 from "genes-binding-identity-fixture"',
+    label
+  );
+  assertContains(source, "return new Foo();", `${label} default constructor`);
+  assertContains(source, "return new Foo__1();", `${label} named constructor`);
+  assertContains(source, "return new FirstFoo();", `${label} first explicit alias`);
+  assertContains(source, "return new SecondFoo();", `${label} second explicit alias`);
+  assertContains(source, "return Foo__2.namespaceMarker();", `${label} namespace binding`);
+  assertContains(source, "return new Dropdown();", `${label} colliding default binding`);
+  assertContains(source, "return Dropdown__1.rootMarker();", `${label} named root binding`);
+  assertContains(source, "return new Dropdown__1.Menu();", `${label} dotted member binding`);
+}
+
+for (const [label, source] of [
+  ["genes-ts source", tsSource],
+  ["TypeScript-emitted declaration", generatedDeclaration],
+  ["classic declaration", classicDeclaration]
+] as const) {
+  ok(!/\b(?:any|unknown)\b/.test(source), `${label} weakened the public binding types`);
+  assertContains(source, "static defaultValue(): Foo", label);
+  assertContains(source, "static namedValue(): Foo__1", label);
+  assertContains(source, "static duplicateNamedValue(): Foo__1", label);
+  assertContains(source, "static firstAliasValue(): FirstFoo", label);
+  assertContains(source, "static secondAliasValue(): SecondFoo", label);
+  assertContains(source, "static collisionDefaultValue(): Dropdown", label);
+  assertContains(source, "static dropdownMenuValue(): Dropdown__1.Menu", label);
+}
 
 deepStrictEqual(tsTranscript, expected, "genes-ts collapsed two import forms");
 deepStrictEqual(classicTranscript, expected, "classic Genes collapsed two import forms");
+console.log("binding-identity:ok (TS + classic + both declaration surfaces + TS 5/6/7)");

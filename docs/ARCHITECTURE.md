@@ -83,7 +83,7 @@ depend on formatting.
 | Module directive prologues | `src/genes/ModuleDirectivePlan.hx` | Captures literal module intent before DCE, validates single-owner source order, and exposes one immutable plan without changing reachability. |
 | Null, undefined, and optionality | `src/genes/NullishContract.hx` | Keeps Haxe `Null<T>`, native `undefined`, optional fields, absent parameters, and unknown boundaries distinct. |
 | Dependency graphs and module-request order | `src/genes/DependencyPlan.hx`, `DependencyPlanBuilder.hx` | Records runtime-value, runtime-side-effect, type-only, and declaration-only edges with provenance; projects runtime requests by external/path/attribute identity into one ordered plan. |
-| Import bindings and aliases | `src/genes/Dependencies.hx` | Allocates canonical named/default/namespace bindings and collision-safe local aliases. A binding-free request never invents a dependency name. |
+| Import bindings and aliases | `src/genes/BindingIdentity.hx`, `Dependencies.hx` | Keeps the requested module, selected export, requested local, and typed Haxe origin as separate facts; then allocates collision-safe locals. A binding-free request never invents a dependency name. |
 | JSX intent and capability | `src/genes/JsxPlan.hx` | Represents markup before choosing TSX, `createElement`, classic lowering, or an unsupported diagnostic. |
 | Names and required temporaries | `src/genes/NamePlan.hx`, `TempPlan.hx` | Preserves scopes and evaluation order while creating only necessary generated names. |
 | Reusable-library retention | `src/genes/LibraryProfile.hx` | Opts public package APIs into matched TS/classic/declaration surfaces without making every build library-shaped. |
@@ -128,6 +128,11 @@ capability diagnostic in classic mode.
 - Runtime, type-only, and declaration-only edges remain distinct. A type import
   must not introduce a runtime side effect; a declaration-only type must not
   broaden classic DCE.
+- Type-only planning also owns type syntax that appears inside executable
+  TypeScript. For example, when Genes must print an inferred enum constructor
+  argument such as `Yield.Data<Assertion, tink.Error>`, it retains the authored
+  `tink.Error` import instead of accidentally resolving the same word to the
+  JavaScript global `Error`.
 - Top-level output visibility is not one boolean. A
   `@:genes.compilerInternal` type remains a typed local implementation after
   full DCE while being omitted from exports, declarations, public runtime
@@ -142,6 +147,13 @@ capability diagnostic in classic mode.
   internal/external identity, path, and optional loader attribute. Printers do
   not infer evaluation order from a path-grouped map. Equal requests coalesce
   at first occurrence, and a real binding can satisfy an earlier bare request.
+- Import identity is not the generated local word. A module request identifies
+  which module is loaded; an export selector distinguishes default, named, and
+  namespace values; a local intent records the preferred identifier; and a
+  typed Haxe origin tells expressions and annotations which allocated local to
+  use. For example, default `Foo` and named `Foo` from one package share module
+  evaluation but remain different values and receive different local names.
+  Source positions are provenance only and never change these equalities.
 - Import-attribute metadata is validated while that dependency plan is built.
   Absence means an ordinary request; presence requires exactly one non-empty
   string literal. Invalid metadata never degrades to absence, because doing so

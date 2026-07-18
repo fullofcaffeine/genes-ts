@@ -2,10 +2,15 @@ package genes;
 
 #if macro
 import haxe.ds.ReadOnlyArray;
+import haxe.macro.Context;
 import haxe.macro.Expr.Position;
 import haxe.macro.Type;
 import genes.Dependencies.Dependency;
+import genes.Dependencies.DependencySpec;
 import genes.Dependencies.DependencyType;
+import genes.BindingIdentity.BindingIdentity;
+import genes.BindingIdentity.ImportBindingFact;
+import genes.BindingIdentity.ModuleRequestKey;
 import genes.SourceMapGenerator.SourcePosition;
 import genes.util.TypeUtil;
 
@@ -37,30 +42,56 @@ class DependencyImport {
   public final name: String;
   public final external: Bool;
   public final path: String;
+  public final memberPath: ReadOnlyArray<String>;
   public final alias: Null<String>;
   public final importAttributeType: Null<String>;
   public final pos: Null<SourcePosition>;
+  public final bindingFact: ImportBindingFact;
 
-  public function new(dependency: Dependency) {
+  public function new(dependency: DependencySpec,
+      bindingFact: ImportBindingFact) {
+    final expectedIntent = BindingIdentity.localIntentFor(dependency);
+    if (!expectedIntent.equals(bindingFact.localIntent)
+      || !bindingFact.originMapping.localIntent.equals(
+        bindingFact.localIntent)
+      || !BindingIdentity.memberPathsEqual(dependency.memberPath,
+        bindingFact.originMapping.memberPath)) {
+      CompilerDiagnostic.fail(
+        'GENES-IMPORT-IDENTITY-MISMATCH-001: normalized import syntax and canonical binding identity disagree',
+        Context.currentPos());
+    }
     type = dependency.type;
     name = dependency.name;
     external = dependency.external;
     path = dependency.path;
+    memberPath = dependency.memberPath.copy();
     alias = dependency.alias;
     importAttributeType = dependency.importAttributeType;
-    pos = dependency.pos;
+    // Provenance travels with the immutable fact so every profile starts from
+    // the same Haxe position even though each profile allocates locals again.
+    pos = bindingFact.firstPosition;
+    this.bindingFact = bindingFact;
   }
 
-  /** Returns a fresh value because `Dependencies.push` may assign an alias. */
+  /**
+   * Returns a fresh local spelling while preserving every semantic identity.
+   *
+   * Why: classic runtime, genes-ts, and classic declarations can allocate a
+   * different collision suffix because their reachable binding subsets differ.
+   * Request, export, requested-local intent, origin, and member path must remain
+   * byte-for-byte semantic copies; only `alias` may be changed by projection.
+   */
   public function copyForProjection(): Dependency {
     return {
       type: type,
       name: name,
       external: external,
       path: path,
+      memberPath: [for (part in memberPath) part],
       alias: alias,
       importAttributeType: importAttributeType,
-      pos: pos
+      pos: pos,
+      bindingFact: bindingFact
     };
   }
 }
@@ -83,6 +114,7 @@ class DependencyImport {
  * profile extension policy and leave external specifiers unchanged.
  */
 class DependencyModuleRequest {
+  public final key: ModuleRequestKey;
   public final external: Bool;
   public final path: String;
   public final importAttributeType: Null<String>;
@@ -90,6 +122,7 @@ class DependencyModuleRequest {
 
   public function new(external: Bool, path: String,
       importAttributeType: Null<String>, pos: Null<SourcePosition>) {
+    this.key = new ModuleRequestKey(external, path, importAttributeType);
     this.external = external;
     this.path = path;
     this.importAttributeType = importAttributeType;
@@ -97,14 +130,14 @@ class DependencyModuleRequest {
   }
 
   public static function fromImport(importSpec: DependencyImport): DependencyModuleRequest {
-    return new DependencyModuleRequest(importSpec.external, importSpec.path,
-      importSpec.importAttributeType, importSpec.pos);
+    final key = importSpec.bindingFact.exportBinding.request;
+    return new DependencyModuleRequest(key.external, key.path,
+      key.importAttributeType, importSpec.pos);
   }
 
   /** Attribute-aware identity comparison; positions deliberately do not count. */
   public function equals(other: DependencyModuleRequest): Bool {
-    return external == other.external && path == other.path
-      && importAttributeType == other.importAttributeType;
+    return key.equals(other.key);
   }
 }
 
@@ -314,10 +347,8 @@ class DependencyPlan {
     }
 
     function sameBinding(left: Dependency, right: Dependency): Bool {
-      return left.external == right.external && left.path == right.path
-        && left.name == right.name
-        && left.alias == right.alias
-        && left.importAttributeType == right.importAttributeType;
+      return left.bindingFact.localIntent.equals(
+        right.bindingFact.localIntent);
     }
 
     function attach(plan: MutableModuleRequestPlan,

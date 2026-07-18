@@ -14,6 +14,7 @@
 /tests/module-directives/out
 /tests/internal-types/out
 /tests/finally-completion/out
+/tests/deep-nullish-alias/out
 /tests/library-profile/out
 /tests/ts2hx-bootstrap/out
 /examples/typescript-target/src-gen

@@ -375,12 +375,14 @@
       "scope": "Manual externs and deterministic dts2hx-generated externs consumed through TS and classic Genes profiles.",
       "evidence": [
         "scripts/test-package-shapes.ts",
+        "scripts/probe-binding-identity.ts",
         "scripts/dts2hx-bridge.ts",
         "tests/genes-ts/package-shapes/packages",
         "tests/genes-ts/package-shapes/dts2hx/manifest.json"
       ],
       "commands": [
-        "yarn test:interop:module-shapes"
+        "yarn test:interop:module-shapes",
+        "yarn test:binding-identity"
       ],
       "metrics": [
         {
@@ -389,8 +391,8 @@
           "kind": "tracked-files",
           "path": "tests/genes-ts/package-shapes/packages",
           "match": "^[^/]+/package\\.json$",
-          "expected": 3,
-          "count": 3
+          "expected": 4,
+          "count": 4
         },
         {
           "id": "dts2hx-entrypoints",
@@ -416,8 +418,8 @@
           "count": 2
         }
       ],
-      "proves": "The named package and import forms resolve, type-check, and execute through the tested profiles without weak generated extern types.",
-      "doesNotProve": "Three synthetic packages do not cover every package.json condition, declaration merge, bundler, or host environment."
+      "proves": "The named package and import forms resolve, type-check, and execute through the tested profiles without weak generated extern types. The focused identity fixture also keeps same-named default, named, and namespace exports distinct across TS, classic JS, and both declaration surfaces.",
+      "doesNotProve": "Four synthetic packages do not cover every package.json condition, declaration merge, bundler, or host environment."
     },
     {
       "id": "curated-downstream-contracts",

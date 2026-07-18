@@ -3,7 +3,7 @@ package genes;
 import haxe.macro.Context;
 import haxe.macro.Expr.Position;
 import haxe.macro.Type;
-import genes.Dependencies.DependencyType;
+import genes.BindingIdentity.CompilerCapabilityId;
 
 using haxe.macro.TypedExprTools;
 
@@ -166,26 +166,16 @@ class JsxCapabilityPolicy {
     if (!requiresRuntimeNamespace(plan))
       return null;
     validate(plan);
-    final imports = dependencies.imports.get(runtimeModule);
-    if (imports != null) {
-      for (dependency in imports) {
-        if (dependency.name != runtimeBindingName)
-          continue;
-        switch dependency.type {
-          case DependencyType.DAsterisk:
-            final binding = dependency.alias == null
-              ? dependency.name
-              : dependency.alias;
-            if (profile == TsxClassic && binding != CLASSIC_TSX_BINDING) {
-              CompilerDiagnostic.fail('[GTS-JSX-CAPABILITY-003] Classic TSX requires the '
-                + '`React` namespace, but that identifier collides in this '
-                + 'module. Use the automatic JSX runtime or rename the '
-                + 'conflicting Haxe declaration/import.', plan.firstPosition);
-            }
-            return binding;
-          default:
-        }
+    final binding = dependencies.resolveCapability(
+      CompilerCapabilityId.JsxRuntimeNamespace);
+    if (binding != null) {
+      if (profile == TsxClassic && binding != CLASSIC_TSX_BINDING) {
+        CompilerDiagnostic.fail('[GTS-JSX-CAPABILITY-003] Classic TSX requires the '
+          + '`React` namespace, but that identifier collides in this '
+          + 'module. Use the automatic JSX runtime or rename the '
+          + 'conflicting Haxe declaration/import.', plan.firstPosition);
       }
+      return binding;
     }
     return CompilerDiagnostic.fail(
       '[GTS-JSX-CAPABILITY-002] JSX runtime dependency was not '

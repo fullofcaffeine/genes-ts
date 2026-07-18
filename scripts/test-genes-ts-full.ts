@@ -286,6 +286,22 @@ if (!dynamicImportOutput.includes('as typeof import("./ExternalClass.js")')) {
   throw new Error("Genes.dynamicImport did not emit a typed import cast for module reads.");
 }
 
+// The assertion macro supplies `tink.Error` only as an inferred enum type
+// argument inside executable code. TypeScript has a global `Error`, so a
+// missing import still compiles while meaning the wrong type. Require both the
+// explicit type-only alias and its use to prove dependency planning follows the
+// typed Haxe result instead of accidentally accepting the host global.
+const abstractOutput = readFileSync(
+  path.join(repoRoot, "tests/genes-ts/full/out/src-gen/tests/TestAbstract.ts"),
+  "utf8"
+);
+if (!abstractOutput.includes('import type {Error as Error__1} from "../tink/CoreApi.js"')) {
+  throw new Error("Inferred enum type arguments did not retain the authored tink.Error import.");
+}
+if (!abstractOutput.includes("Yield.Data<Assertion, Error__1>")) {
+  throw new Error("Inferred enum type arguments resolved through the JavaScript Error global.");
+}
+
 const reflectOutput = readFileSync(path.join(repoRoot, "tests/genes-ts/full/out/src-gen/Reflect.ts"), "utf8");
 if (/unsafeCast<Rest</.test(reflectOutput)) {
   throw new Error("Reflect.fields emitted an unresolved Rest<T> cast instead of an array type.");

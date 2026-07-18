@@ -7,6 +7,14 @@ import genes.Module;
 import genes.TypeAccessor;
 import genes.SourceMapGenerator;
 import haxe.macro.Context;
+import haxe.ds.ReadOnlyArray;
+import genes.BindingIdentity.BindingIdentity;
+import genes.BindingIdentity.BindingOriginKey;
+import genes.BindingIdentity.CompilerCapabilityId;
+import genes.BindingIdentity.HaxeDeclarationKey;
+import genes.BindingIdentity.ImportBindingFact;
+import genes.BindingIdentity.LocalBindingIntent;
+import genes.BindingIdentity.OriginBindingMapping;
 
 enum DependencyType {
   DName;
@@ -14,14 +22,30 @@ enum DependencyType {
   DAsterisk;
 }
 
-typedef Dependency = {
+/**
+ * Import syntax and metadata before a projection chooses a local identifier.
+ *
+ * `memberPath` contains access after the imported root. For example,
+ * `@:jsRequire("menu", "Dropdown.Item")` imports `Dropdown` and later reads
+ * `.Item` from its collision-safe local. Keeping both pieces here prevents an
+ * expression emitter from reparsing metadata and accidentally bypassing an
+ * allocated alias.
+ */
+typedef DependencySpec = {
   type: DependencyType,
   name: String,
   external: Bool,
   path: String,
+  memberPath: Array<String>,
   ?alias: String,
   ?importAttributeType: String,
   ?pos: SourcePosition
+}
+
+/** One projection-local binding with immutable semantic identity attached. */
+typedef Dependency = {
+  > DependencySpec,
+  final bindingFact: ImportBindingFact;
 }
 
 /**
@@ -34,13 +58,16 @@ typedef Dependency = {
  * `DependencyPlan` grow type/declaration graphs from compiler-owned refs and
  * report invalid edges deterministically.
  *
- * What/How: `dependency` is the pre-alias import request and `referencedType`
- * is the compiler-owned declaration that supplies it. Host/runtime imports are
- * added directly as plan edges because they have no Haxe declaration.
- * `Dependencies.push` still owns collision-safe alias allocation.
+ * What/How: `dependency` is the pre-alias import request, `originType` is the
+ * declaration the Haxe source named, and `referencedType` is the declaration
+ * retained for reachability. Those differ for a local typedef that aliases an
+ * imported type. `bindingFact` connects the source declaration to the exact
+ * export/local intent before projection-specific alias allocation.
  */
 typedef DependencyRequest = {
-  final dependency: Dependency;
+  final dependency: DependencySpec;
+  final bindingFact: ImportBindingFact;
+  final originType: ModuleType;
   final referencedType: ModuleType;
 }
 
@@ -52,7 +79,8 @@ class Dependencies {
   final module: Module;
   final runtime: Bool;
   final names: Array<{name: String, module: String}>;
-  final aliases = new Map<String, String>();
+  final allocated: Array<Dependency> = [];
+  final originMappings: Array<OriginBindingMapping> = [];
   final aliasCount = new Map<String, Int>();
 
   public function new(module: Module, runtime = true) {
@@ -88,61 +116,94 @@ class Dependencies {
    * to reconstruct that binding from a path-grouped map and thereby lost the
    * original declaration order.
    *
-   * What/How: preserve the existing alias and duplicate rules, but return the
-   * inserted or matching object. Binding the same local identifier through two
-   * different import attributes is rejected because ESM attributes belong to
-   * the declaration and two such bindings would redeclare one local name.
+   * What: repeated requests for the same exact export and requested local reuse
+   * one object. Different exports remain different even when both prefer the
+   * word `Foo`; the later one receives a stable `Foo__N` suffix. Two Haxe
+   * declarations may still share a binding when they intentionally describe
+   * the same JavaScript export.
+   *
+   * How: origin mappings are validated first, then local intent controls
+   * de-duplication and collision allocation. Binding the same selector and
+   * requested local through two import attributes is rejected because the
+   * loader contracts disagree. The returned object is the one both request
+   * planning and expression/type lookup must use.
    */
   public function pushAndGet(module: String, dependency: Dependency,
       ?position: haxe.macro.Expr.Position): Dependency {
-    // Internal module identities and external literal specifiers are distinct
-    // ESM requests even when their strings happen to match.
-    final bindingOwner = (dependency.external ? 'external:' : 'internal:')
-      + module;
-    final key = bindingOwner + '.' + dependency.name;
-    inline function alias(key: String, name: String) {
-      return aliases[key] = name
-        + '__'
-        + (aliasCount[name] = switch aliasCount[name] {
-          case null: 1;
-          case v: v + 1;
-        });
+    final intent = dependency.bindingFact.localIntent;
+    final mapping = dependency.bindingFact.originMapping;
+    final diagnosticPosition = position == null ? Context.currentPos() : position;
+
+    // One typed origin must keep one meaning throughout a projection. A second
+    // equal mapping is ordinary repeated use; a different mapping means the
+    // planner assigned one Haxe declaration or field to two JavaScript values.
+    var knownOrigin = false;
+    for (existing in originMappings) {
+      if (!BindingIdentity.originsEqual(existing.origin, mapping.origin))
+        continue;
+      knownOrigin = true;
+      if (!existing.localIntent.equals(mapping.localIntent)
+        || !BindingIdentity.memberPathsEqual(existing.memberPath,
+          mapping.memberPath)) {
+        CompilerDiagnostic.fail(
+          'GENES-IMPORT-ORIGIN-CONFLICT-001: '
+          + BindingIdentity.originDescription(mapping.origin)
+          + ' was assigned to two different JavaScript bindings',
+          diagnosticPosition);
+      }
+      break;
     }
-    switch aliases[key] {
-      case null:
-        if (GlobalTypes.exists(dependency.name)) {
-          dependency.alias = alias(key, dependency.name);
-        } else
-          for (named in names) {
-            if (named.module != bindingOwner
-              && named.name == dependency.name) {
-              dependency.alias = alias(key, named.name);
-              break;
-            }
-          }
-      case v:
-        dependency.alias = v;
-    }
-    if (imports.exists(module)) {
-      final deps = imports.get(module);
-      for (i in deps) {
-        if (i.external != dependency.external
-          || i.name != dependency.name || i.alias != dependency.alias)
-          continue;
-        if (i.importAttributeType == dependency.importAttributeType)
-          return i;
+    if (!knownOrigin)
+      originMappings.push(mapping);
+
+    for (existing in allocated) {
+      final existingIntent = existing.bindingFact.localIntent;
+      if (BindingIdentity.attributeConflictKeyEquals(existingIntent, intent)
+        && existing.importAttributeType != dependency.importAttributeType) {
         CompilerDiagnostic.fail(
           'GENES-IMPORT-ATTRIBUTE-BINDING-001: local import "'
-          + (dependency.alias == null ? dependency.name : dependency.alias)
+          + intent.requestedLocal
           + '" cannot use multiple module-request attributes',
-          position == null ? Context.currentPos() : position);
+          diagnosticPosition);
       }
-      deps.push(dependency);
-      names.push({name: dependency.name, module: bindingOwner});
-    } else {
-      imports.set(module, [dependency]);
-      names.push({name: dependency.name, module: bindingOwner});
+      if (existingIntent.equals(intent))
+        return existing;
     }
+
+    /** Whether a local is already owned by source, a global, or another import. */
+    function unavailable(candidate: String): Bool {
+      if (GlobalTypes.exists(candidate))
+        return true;
+      for (named in names)
+        if (named.name == candidate)
+          return true;
+      for (existing in allocated) {
+        final local = existing.alias == null ? existing.name : existing.alias;
+        if (local == candidate)
+          return true;
+      }
+      return false;
+    }
+
+    var local = intent.requestedLocal;
+    if (unavailable(local)) {
+      var suffix = switch aliasCount[local] {
+        case null: 0;
+        case value: value;
+      }
+      do {
+        suffix++;
+        local = intent.requestedLocal + '__' + suffix;
+      } while (unavailable(local));
+      aliasCount[intent.requestedLocal] = suffix;
+    }
+    dependency.alias = local == dependency.name ? null : local;
+    allocated.push(dependency);
+
+    if (imports.exists(module))
+      imports.get(module).push(dependency);
+    else
+      imports.set(module, [dependency]);
     return dependency;
   }
 
@@ -223,7 +284,7 @@ class Dependencies {
    * The returned request remains target-neutral; TS and classic printers share
    * the later alias/import projection.
    */
-  public static function makeDependency(base: BaseType): Dependency {
+  public static function makeDependency(base: BaseType): DependencySpec {
     final name = TypeUtil.baseTypeName(base);
     final explicitAlias = switch base.meta.extract(':genes.importAlias') {
       case [{params: [{expr: EConst(CString(alias))}]}]: alias;
@@ -252,6 +313,7 @@ class Dependencies {
             name: name,
             path: path,
             external: true,
+            memberPath: [],
             alias: explicitAlias,
             importAttributeType: importAttributeType,
             pos: base.pos
@@ -262,6 +324,7 @@ class Dependencies {
             name: name,
             path: path,
             external: true,
+            memberPath: [],
             alias: explicitAlias,
             importAttributeType: importAttributeType,
             pos: base.pos
@@ -274,11 +337,13 @@ class Dependencies {
           }
           // If we have a native name with a dot path we need a default import
           if (native != null && native.indexOf('.') > -1) {
+            final nativeParts = native.split('.');
             return {
               type: DDefault,
-              name: native.split('.')[0],
+              name: nativeParts.shift(),
               path: path,
               external: true,
+              memberPath: nativeParts,
               alias: explicitAlias,
               importAttributeType: importAttributeType,
               pos: base.pos
@@ -286,11 +351,13 @@ class Dependencies {
           }
           // benmerckx/genes#7
           if (name.indexOf('.') > -1) {
+            final nameParts = name.split('.');
             return {
               type: DName,
-              name: name.split('.')[0],
+              name: nameParts.shift(),
               path: path,
               external: true,
+              memberPath: nameParts,
               alias: explicitAlias,
               importAttributeType: importAttributeType,
               pos: base.pos
@@ -301,6 +368,7 @@ class Dependencies {
             name: name,
             path: path,
             external: true,
+            memberPath: [],
             alias: explicitAlias,
             importAttributeType: importAttributeType,
             pos: base.pos
@@ -344,6 +412,7 @@ class Dependencies {
       name: name,
       external: false,
       path: base.module,
+      memberPath: [],
       alias: explicitAlias,
       importAttributeType: importAttributeType,
       pos: base.pos
@@ -414,7 +483,7 @@ class Dependencies {
         if (dependency == null)
           return [];
         if (dependency.path != module.module)
-          return [{dependency: dependency, referencedType: type}];
+          return [declarationRequest(dependency, type, type)];
         switch type {
           case TTypeDecl(_.get() => t)
             if (module.getMember(TypeUtil.baseTypeName(base)) == null):
@@ -429,10 +498,7 @@ class Dependencies {
             if (referencedType == null)
               return [];
             y.alias = dependency.name;
-            return [{
-              dependency: y,
-              referencedType: referencedType
-            }];
+            return [declarationRequest(y, type, referencedType)];
           default:
         }
       default:
@@ -440,24 +506,138 @@ class Dependencies {
     return [];
   }
 
+  /**
+   * Creates declaration-backed identity only after import normalization ends.
+   *
+   * A local typedef may replace its first dependency with an underlying
+   * package import and request the typedef's name as the local. Creating the
+   * key before that substitution would identify the wrong module/export. The
+   * source `originType` remains separate from `referencedType`, which continues
+   * to own DCE and declaration reachability.
+   */
+  static function declarationRequest(dependency: DependencySpec,
+      originType: ModuleType, referencedType: ModuleType): DependencyRequest {
+    final origin = BindingOriginKey.HaxeDeclaration(
+      HaxeDeclarationKey.fromModuleType(originType));
+    return {
+      dependency: dependency,
+      bindingFact: BindingIdentity.create(dependency, origin),
+      originType: originType,
+      referencedType: referencedType
+    };
+  }
+
   public function add(type: ModuleType) {
     for (request in requests(module, type)) {
-      final dependency = request.dependency;
+      final spec = request.dependency;
+      final dependency: Dependency = {
+        type: spec.type,
+        name: spec.name,
+        external: spec.external,
+        path: spec.path,
+        memberPath: spec.memberPath.copy(),
+        alias: spec.alias,
+        importAttributeType: spec.importAttributeType,
+        pos: spec.pos,
+        bindingFact: request.bindingFact
+      };
       push(dependency.path, dependency);
     }
   }
 
+  /**
+   * Resolves one compiler origin through the exact projected binding.
+   *
+   * Lookup never starts from generated text. It first finds the immutable
+   * origin mapping, then the equal local intent allocated for this projection,
+   * and finally appends any dotted member path. A mapping without an allocation
+   * is an internal planning error rather than permission to print a simple name.
+   */
+  public function resolveOrigin(origin: BindingOriginKey): Null<String> {
+    for (mapping in originMappings) {
+      if (!BindingIdentity.originsEqual(mapping.origin, origin))
+        continue;
+      final resolved = resolveIntent(mapping.localIntent, mapping.memberPath);
+      if (resolved != null)
+        return resolved;
+      CompilerDiagnostic.fail(
+        'GENES-IMPORT-BINDING-MISSING-001: the projected import for '
+        + BindingIdentity.originDescription(origin)
+        + ' was not allocated', Context.currentPos());
+    }
+    return null;
+  }
+
+  /**
+   * Resolves a compiler-created Haxe import alias that has no ModuleType owner.
+   *
+   * Normal declarations always use origin lookup. Haxe's `import X in Alias`
+   * can instead create a local `BaseType` without a declaration node; its exact
+   * export form and requested local still provide a non-lossy lookup key.
+   */
+  public function resolveIntent(intent: LocalBindingIntent,
+      memberPath: ReadOnlyArray<String>): Null<String> {
+    for (dependency in allocated) {
+      if (!dependency.bindingFact.localIntent.equals(intent))
+        continue;
+      var result = dependency.alias == null
+        ? dependency.name
+        : dependency.alias;
+      for (member in memberPath)
+        result += '.' + member;
+      return result;
+    }
+    return null;
+  }
+
+  /** Resolves the reviewed JSX runtime capability without a name scan. */
+  public function resolveCapability(id: CompilerCapabilityId): Null<String> {
+    return resolveOrigin(BindingOriginKey.CompilerCapability(id));
+  }
+
   public function typeAccessor(type: TypeAccessor)
     return switch type {
-      case Abstract(name): name;
-      case Concrete(module, name, native):
-        if (native != null)
-          return native;
-        final deps = imports.get(module);
-        if (deps != null)
-          for (i in deps)
-            if (i.name == name || i.alias == name)
-              return if (i.alias != null) i.alias else i.name;
-        return name;
+      case CoreAbstract(name) | DirectValue(name): name;
+      case ImportedDeclaration(key, fallbackName, directNative, dependencyPath,
+          external, pos):
+        // Preserve Haxe's existing explicit @:native host contract. Imported
+        // native-plus-require combinations remain a separate focused experiment;
+        // ordinary imports always use exact declaration identity below.
+        if (directNative != null)
+          return directNative;
+        final origin = BindingOriginKey.HaxeDeclaration(key);
+        final resolved = resolveOrigin(origin);
+        if (resolved != null)
+          return resolved;
+        if (external || (dependencyPath != null
+          && dependencyPath != module.module)) {
+          return CompilerDiagnostic.fail(
+            'GENES-IMPORT-BINDING-MISSING-001: no projected import exists for '
+            + key.describe() + ' while emitting ' + module.module
+            + ' (dependency path: ' + dependencyPath + ')', pos);
+        }
+        fallbackName;
+      case ImportedAlias(intent, fallbackName, directNative, memberPath,
+          dependencyPath, external, pos):
+        if (directNative != null)
+          return directNative;
+        final resolved = resolveIntent(intent, memberPath);
+        if (resolved != null)
+          return resolved;
+        if (external || dependencyPath != module.module) {
+          return CompilerDiagnostic.fail(
+            'GENES-IMPORT-BINDING-MISSING-001: no projected import exists for Haxe alias '
+            + fallbackName + ' while emitting ' + module.module, pos);
+        }
+        fallbackName;
+      case ImportedStaticField(key, fallbackName, pos):
+        final origin = BindingOriginKey.StaticField(key);
+        final resolved = resolveOrigin(origin);
+        if (resolved == null)
+          CompilerDiagnostic.fail(
+            'GENES-IMPORT-BINDING-MISSING-001: no projected import exists for '
+            + key.describe(), pos)
+        else
+          resolved;
     }
 }

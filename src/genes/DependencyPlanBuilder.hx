@@ -6,8 +6,12 @@ import haxe.macro.Expr.Constant;
 import haxe.macro.Expr.ExprDef;
 import haxe.macro.Expr.Position;
 import haxe.macro.Type;
-import genes.Dependencies.Dependency;
+import genes.Dependencies.DependencySpec;
 import genes.Dependencies.DependencyType;
+import genes.BindingIdentity.BindingIdentity;
+import genes.BindingIdentity.BindingOriginKey;
+import genes.BindingIdentity.CompilerCapabilityId;
+import genes.BindingIdentity.StaticFieldOriginKey;
 import genes.DependencyPlan.DependencyEdge;
 import genes.DependencyPlan.DependencyEdgeKind;
 import genes.DependencyPlan.DependencyImport;
@@ -67,13 +71,15 @@ class DependencyPlanBuilder {
     }
     for (request in requests) {
       addEdge(kind, request.referencedType,
-        Bound(new DependencyImport(request.dependency)), rule, pos);
+        Bound(new DependencyImport(request.dependency, request.bindingFact)),
+        rule, pos);
     }
   }
 
-  function addImport(kind: DependencyEdgeKind, dependency: Dependency,
-      rule: String, pos: Position): Void {
-    addEdge(kind, null, Bound(new DependencyImport(dependency)), rule, pos);
+  function addImport(kind: DependencyEdgeKind, dependency: DependencySpec,
+      origin: BindingOriginKey, rule: String, pos: Position): Void {
+    addEdge(kind, null, Bound(new DependencyImport(dependency,
+      BindingIdentity.create(dependency, origin))), rule, pos);
   }
 
   function addEdge(kind: DependencyEdgeKind,
@@ -106,8 +112,63 @@ class DependencyPlanBuilder {
         name: jsxCapability.runtimeBindingName,
         path: jsxCapability.runtimeModule,
         external: true,
+        memberPath: [],
         pos: jsxPlan.firstPosition
-      }, JsxCapabilityPolicy.RUNTIME_IMPORT_RULE, jsxPlan.firstPosition);
+      }, BindingOriginKey.CompilerCapability(
+        CompilerCapabilityId.JsxRuntimeNamespace),
+        JsxCapabilityPolicy.RUNTIME_IMPORT_RULE, jsxPlan.firstPosition);
+    }
+
+    /**
+     * Normalizes one field-level `@:jsRequire` before creating its identity.
+     *
+     * The first named segment is the ESM export. Any remaining dotted segments
+     * are member access after the collision-safe local has been resolved.
+     */
+    function fieldImport(name: String, meta: MetaAccess,
+        pos: Position): Null<DependencySpec> {
+      final attribute = Dependencies.extractImportAttributeType(meta);
+      return switch meta.extract(':jsRequire') {
+        case [{params: [{expr: EConst(CString(path))}]}] |
+          [{
+            params: [
+              {expr: EConst(CString(path))},
+              {expr: EConst(CString('default'))}
+            ]
+          }]:
+          {
+            type: DependencyType.DDefault,
+            name: name,
+            path: path,
+            external: true,
+            memberPath: [],
+            importAttributeType: attribute,
+            pos: pos
+          };
+        case [{
+          params: [
+            {expr: EConst(CString(path))},
+            {expr: EConst(CString(name))}
+          ]
+        }]:
+          final parts = name.split('.');
+          {
+            type: DependencyType.DName,
+            name: parts.shift(),
+            path: path,
+            external: true,
+            memberPath: parts,
+            importAttributeType: attribute,
+            pos: pos
+          };
+        default: null;
+      }
+    }
+
+    function fieldOrigin(owner: ClassType,
+        fieldName: String): BindingOriginKey {
+      return BindingOriginKey.StaticField(new StaticFieldOriginKey(
+        owner.module, owner.name, fieldName));
     }
 
     #if (haxe_ver >= 4.2)
@@ -118,40 +179,10 @@ class DependencyPlanBuilder {
       for (field in fields) {
         if (!field.isStatic || field.meta == null)
           continue;
-        switch field.meta.extract(':jsRequire') {
-          case [{params: [{expr: EConst(CString(path))}]}] |
-            [{
-              params: [
-                {expr: EConst(CString(path))},
-                {expr: EConst(CString('default'))}
-              ]
-            }]:
-            addImport(RuntimeValue, {
-              type: DependencyType.DDefault,
-              name: field.name,
-              path: path,
-              external: true,
-              importAttributeType: Dependencies.extractImportAttributeType(
-                field.meta),
-              pos: field.pos
-            }, 'runtime.module-field-js-require', field.pos);
-          case [{
-            params: [
-              {expr: EConst(CString(path))},
-              {expr: EConst(CString(name))}
-            ]
-          }]:
-            addImport(RuntimeValue, {
-              type: DependencyType.DName,
-              name: name,
-              path: path,
-              external: true,
-              importAttributeType: Dependencies.extractImportAttributeType(
-                field.meta),
-              pos: field.pos
-            }, 'runtime.module-field-js-require', field.pos);
-          default:
-        }
+        final dependency = fieldImport(field.name, field.meta, field.pos);
+        if (dependency != null)
+          addImport(RuntimeValue, dependency, fieldOrigin(cl, field.name),
+            'runtime.module-field-js-require', field.pos);
       }
     }
     #end
@@ -160,41 +191,12 @@ class DependencyPlanBuilder {
       if (expression == null)
         return;
       switch expression.expr {
-        case TField(_, FStatic(_, _.get() => field)):
-          switch field.meta.extract(':jsRequire') {
-            case [{params: [{expr: EConst(CString(path))}]}] |
-              [{
-                params: [
-                  {expr: EConst(CString(path))},
-                  {expr: EConst(CString('default'))}
-                ]
-              }]:
-              addImport(RuntimeValue, {
-                type: DependencyType.DDefault,
-                name: field.name,
-                path: path,
-                external: true,
-                importAttributeType: Dependencies.extractImportAttributeType(
-                  field.meta),
-                pos: field.pos
-              }, 'runtime.expression-js-require', field.pos);
-            case [{
-              params: [
-                {expr: EConst(CString(path))},
-                {expr: EConst(CString(name))}
-              ]
-            }]:
-              addImport(RuntimeValue, {
-                type: DependencyType.DName,
-                name: name,
-                path: path,
-                external: true,
-                importAttributeType: Dependencies.extractImportAttributeType(
-                  field.meta),
-                pos: field.pos
-              }, 'runtime.expression-js-require', field.pos);
-            default:
-          }
+        case TField(_, FStatic(owner, _.get() => field)):
+          final dependency = fieldImport(field.name, field.meta, field.pos);
+          if (dependency != null)
+            addImport(RuntimeValue, dependency,
+              fieldOrigin(owner.get(), field.name),
+              'runtime.expression-js-require', field.pos);
         default:
       }
       expression.iter(addJsRequireFromExpr);
@@ -278,10 +280,9 @@ class DependencyPlanBuilder {
               'GENES-SIDE-EFFECT-IMPORT-INTERNAL-001: internal marker target must resolve to one generated module',
               argument.pos);
           final target = requests[0];
-          final dependency = new DependencyImport(target.dependency);
           addSideEffect(target.referencedType,
-            new DependencyModuleRequest(false, dependency.path,
-              dependency.importAttributeType, expression.pos),
+            new DependencyModuleRequest(false, target.dependency.path,
+              target.dependency.importAttributeType, expression.pos),
             'runtime.side-effect.internal', expression.pos);
 
         default:
@@ -383,9 +384,45 @@ class DependencyPlanBuilder {
     final collector = new TypeReferenceCollector((type, rule, pos) ->
       addReference(kind, type, rule, pos));
 
+    /**
+     * Reports whether TypeScript emission may print this call's enum result.
+     *
+     * Why: Haxe can infer an enum constructor's generic arguments from the
+     * destination. genes-ts sometimes has to print those arguments explicitly
+     * so TypeScript reaches the same result. A type used only in that inferred
+     * result (for example `Yield.Data<Assertion, tink.Error>`) is not a local
+     * variable or public signature, but it still needs a type-only import.
+     *
+     * How: unwrap only typed nodes that do not change the called value, matching
+     * the emitter's constructor recognition. The collector then traverses the
+     * already-typed result; it does not re-infer generic arguments or inspect
+     * generated text.
+     */
+    function isEnumConstructorCall(expression: TypedExpr): Bool {
+      function unwrap(value: TypedExpr): TypedExpr
+        return switch value.expr {
+          case TMeta(_, inner) | TParenthesis(inner) | TCast(inner, null):
+            unwrap(inner);
+          default:
+            value;
+        }
+
+      return switch expression.expr {
+        case TCall(callee, _):
+          switch unwrap(callee).expr {
+            case TField(_, FEnum(_, _)): true;
+            default: false;
+          }
+        default: false;
+      }
+    }
+
     function collectLocalTypes(expression: TypedExpr): Void {
       if (expression == null)
         return;
+      if (isEnumConstructorCall(expression))
+        collector.collect(expression.t, 'type.enum-constructor-result',
+          expression.pos);
       switch expression.expr {
         case TVar(variable, _):
           collector.collect(variable.t, 'type.local-variable', expression.pos);

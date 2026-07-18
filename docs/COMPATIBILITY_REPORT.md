@@ -29,7 +29,7 @@ This is an evidence contract, not a cached CI-success badge. `blocking` and `non
 | Toolchain compatibility | Pinned TypeScript lanes | 3 | `blocking` |
 | Toolchain compatibility | Pinned Haxe lanes | 2 | `blocking` |
 | Toolchain compatibility | Pinned Node lanes | 2 | `blocking` |
-| Package-shape interoperability | Local package-shape fixtures | 3 | `blocking` |
+| Package-shape interoperability | Local package-shape fixtures | 4 | `blocking` |
 | Package-shape interoperability | dts2hx declaration entrypoints | 3 | `blocking` |
 | Package-shape interoperability | dts2hx package roots | 2 | `blocking` |
 | Downstream pressure tests | Pinned downstream repositories | 2 | `nonblocking-nightly` |
@@ -195,15 +195,17 @@ Named ESM, subpath, conditional-export, CommonJS, and declaration-ingestion fixt
 
 - Disposition: `blocking`
 - Scope: Manual externs and deterministic dts2hx-generated externs consumed through TS and classic Genes profiles.
-- Proves: The named package and import forms resolve, type-check, and execute through the tested profiles without weak generated extern types.
-- Does not prove: Three synthetic packages do not cover every package.json condition, declaration merge, bundler, or host environment.
+- Proves: The named package and import forms resolve, type-check, and execute through the tested profiles without weak generated extern types. The focused identity fixture also keeps same-named default, named, and namespace exports distinct across TS, classic JS, and both declaration surfaces.
+- Does not prove: Four synthetic packages do not cover every package.json condition, declaration merge, bundler, or host environment.
 - Evidence:
   - [`scripts/test-package-shapes.ts`](../scripts/test-package-shapes.ts)
+  - [`scripts/probe-binding-identity.ts`](../scripts/probe-binding-identity.ts)
   - [`scripts/dts2hx-bridge.ts`](../scripts/dts2hx-bridge.ts)
   - [`tests/genes-ts/package-shapes/packages`](../tests/genes-ts/package-shapes/packages)
   - [`tests/genes-ts/package-shapes/dts2hx/manifest.json`](../tests/genes-ts/package-shapes/dts2hx/manifest.json)
 - Gates:
   - `yarn test:interop:module-shapes`
+  - `yarn test:binding-identity`
 
 ## Downstream pressure tests
 

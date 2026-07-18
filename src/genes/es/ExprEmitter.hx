@@ -129,6 +129,7 @@ class ExprEmitter extends Emitter {
   var jsxRuntimeBinding: Null<String> = null;
   var namePlan: Null<NamePlan> = null;
   var tempPlan: Null<TempPlan> = null;
+  var directImportLocals: Array<String> = [];
 
   var declare = #if (js_es == 6) 'let'; #else 'var'; #end
 
@@ -167,6 +168,68 @@ class ExprEmitter extends Emitter {
       jsxEmitTsx = false): Void {
     tempPlan = TempPlan.build(module);
     namePlan = NamePlan.build(module, tempPlan, profile, jsxEmitTsx);
+  }
+
+  /**
+   * Emits the local values created by `Genes.dynamicImport` without a static import.
+   *
+   * Why: the macro deliberately removes these declarations from the normal
+   * dependency graph, then creates callback-local values after `import()`
+   * resolves. Exact import lookup must not reject those values or accidentally
+   * add a top-level ESM import that defeats code splitting.
+   *
+   * What/How: the existing `Genes.ignore([full names], body)` carrier names the
+   * declarations that are local only inside `body`. This method scopes that
+   * compiler-owned list while emitting the body. Every other type expression
+   * still requires an exact origin-to-binding mapping.
+   */
+  function withDirectImportLocals(names: TypedExpr, emit: Void->Void): Void {
+    final previous = directImportLocals;
+    final scoped = previous.copy();
+    switch names.expr {
+      case TArrayDecl(values):
+        for (value in values)
+          switch value.expr {
+            case TConst(TString(fullName)):
+              if (scoped.indexOf(fullName) == -1)
+                scoped.push(fullName);
+            default:
+          }
+      default:
+    }
+    directImportLocals = scoped;
+    final previousAccessor = ctx.typeAccessor;
+    ctx.typeAccessor = type -> {
+      final local = directImportLocalName(type);
+      return local == null ? previousAccessor(type) : local;
+    };
+    emit();
+    ctx.typeAccessor = previousAccessor;
+    directImportLocals = previous;
+  }
+
+  /** Returns the callback-local spelling for an exact dynamic-import origin. */
+  function directImportLocalName(type: TypeAccessor): Null<String> {
+    return switch type {
+      case ImportedDeclaration(key, fallbackName, _, _, _, _):
+        final moduleParts = key.module.split('.');
+        moduleParts.pop();
+        final sourceName = moduleParts.concat([key.name]).join('.');
+        final qualifiedModuleName = key.module + '.' + key.name;
+        directImportLocals.indexOf(key.module) != -1
+          || directImportLocals.indexOf(sourceName) != -1
+          || directImportLocals.indexOf(qualifiedModuleName) != -1
+          ? fallbackName
+          : null;
+      default: null;
+    }
+  }
+
+  function isDirectImportLocal(type: ModuleType): Bool {
+    final base = DependencyPlan.moduleTypeBase(type);
+    final declaredName = base.pack.concat([base.name]).join('.');
+    return directImportLocals.indexOf(declaredName) != -1
+      || directImportLocals.indexOf(baseTypeFullName(base)) != -1;
   }
 
   /**
@@ -371,8 +434,8 @@ class ExprEmitter extends Emitter {
           case TFun(args, _): args[i].name;
           case _: throw 'assert';
         });
-      case TField(_, FStatic(_, _.get() => field)) if (field.meta.has(':jsRequire')):
-        emitJsRequireField(field);
+      case TField(_, FStatic(owner, _.get() => field)) if (field.meta.has(':jsRequire')):
+        emitJsRequireField(owner.get(), field);
       case TField(_, FStatic(_.get() => {
         pack: [],
         name: ''
@@ -399,7 +462,10 @@ class ExprEmitter extends Emitter {
             emitField(fieldName(f));
         }
       case TTypeExpr(t):
-        write(ctx.typeAccessor(t));
+        if (isDirectImportLocal(t))
+          write(baseTypeName(DependencyPlan.moduleTypeBase(t)));
+        else
+          write(ctx.typeAccessor(t));
       case TParenthesis(e1):
         write('(');
         emitValue(e1);
@@ -479,8 +545,8 @@ class ExprEmitter extends Emitter {
         expr: TField(_,
           FStatic(_.get() => {module: 'genes.Genes'},
             _.get() => {name: 'ignore'}))
-      }, [_, body]):
-        emitExpr(body);
+      }, [names, body]):
+        withDirectImportLocals(names, () -> emitExpr(body));
       case TCall(e, params):
         emitCall(e, params, false);
       case TArrayDecl(el):
@@ -1004,8 +1070,8 @@ class ExprEmitter extends Emitter {
         expr: TField(_,
           FStatic(_.get() => {module: 'genes.Genes'},
             _.get() => {name: 'ignore'}))
-      }, [_, body]):
-        emitValue(body);
+      }, [names, body]):
+        withDirectImportLocals(names, () -> emitValue(body));
       case TCall(callee, params)
         if (Context.defined('genes.ts') && params.length == 0 && switch callee.expr {
           case TField(_, f): (fieldName(f) == "pop" || fieldName(f) == "shift");
@@ -1222,30 +1288,17 @@ class ExprEmitter extends Emitter {
     write(fieldName(f));
   }
 
-  function emitJsRequireField(field: haxe.macro.Type.ClassField) {
-    switch field.meta.extract(':jsRequire') {
-      case [{params: [{expr: EConst(CString(path))}]}]:
-        write(ctx.typeAccessor((Concrete(path, field.name, null) : TypeAccessor)));
-      case [{
-        params: [
-          {expr: EConst(CString(path))},
-          {expr: EConst(CString('default'))}
-        ]
-      }]:
-        write(ctx.typeAccessor((Concrete(path, field.name, null) : TypeAccessor)));
-      case [{
-        params: [
-          {expr: EConst(CString(path))},
-          {expr: EConst(CString(name))}
-        ]
-      }]:
-        // Dotted paths would require additional member access; keep the import
-        // identifier stable by using the first segment.
-        final importName = name.indexOf('.') > -1 ? name.split('.')[0] : name;
-        write(ctx.typeAccessor((Concrete(path, importName, null) : TypeAccessor)));
-      default:
-        emitIdent(field.name);
-    }
+  /**
+   * Emits a field-level package binding from its exact typed owner.
+   *
+   * Import form, exported root, and dotted member suffix were normalized by
+   * dependency planning. Re-reading metadata here would lose the collision-safe
+   * local and could choose another same-named export, so this emitter performs
+   * only an origin lookup and prints the resolved accessor.
+   */
+  function emitJsRequireField(owner: haxe.macro.Type.ClassType,
+      field: haxe.macro.Type.ClassField) {
+    write(ctx.typeAccessor(TypeAccessor.forStaticField(owner, field)));
   }
 
   function transformIdent(name: String) {
