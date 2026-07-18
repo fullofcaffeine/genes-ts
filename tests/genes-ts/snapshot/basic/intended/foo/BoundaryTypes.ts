@@ -286,7 +286,7 @@ export class BoundaryTypes {
 			let _g: number = 0;
 			let _g1: string[] = (record.items!);
 			while (_g < _g1.length) {
-				let item: string = _g1[_g];
+				let item: string = _g1[_g]!;
 				++_g;
 				out.push(item.toUpperCase());
 			};
@@ -352,7 +352,7 @@ export class BoundaryTypes {
 		return (record["function"].description ?? null) != null;
 	}
 	static firstWarningFeature(record: OptionalWarningsRecord): string {
-		return ((record.warnings ?? null)!)[0].feature;
+		return ((record.warnings ?? null)!)[0]!.feature;
 	}
 	static demo(): string {
 		let present: string | null = BoundaryTypes.normalize(BoundaryTypes.presentName());
@@ -388,8 +388,8 @@ export class BoundaryTypes {
 		let optionalParamLabel: string = BoundaryTypes.optionalLabelViaNullableParam({});
 		let optionalNestedParamLabel: string = BoundaryTypes.optionalNestedLabelViaNullableParam({"child": {}});
 		let nativeFunction: string = BoundaryTypes.nativeFunctionSummary(BoundaryTypes.nativeFunctionRecord());
-		let nativeArrayFunction: string = BoundaryTypes.nativeFunctionSummary(BoundaryTypes.nativeFunctionRecords()[0]);
-		let nativePushFunction: string = BoundaryTypes.nativeFunctionSummary(BoundaryTypes.nativeFunctionRecordsViaPush()[0]);
+		let nativeArrayFunction: string = BoundaryTypes.nativeFunctionSummary(BoundaryTypes.nativeFunctionRecords()[0]!);
+		let nativePushFunction: string = BoundaryTypes.nativeFunctionSummary(BoundaryTypes.nativeFunctionRecordsViaPush()[0]!);
 		let nativeChoice: string = (BoundaryTypes.nativeFunctionChoiceObject() == null) ? "missing" : "choice";
 		let nativeOptional: string | null = BoundaryTypes.nativeOptionalDescription(BoundaryTypes.nativeOptionalRecord());
 		let nativeOptionalPresent: boolean = BoundaryTypes.nativeOptionalDescriptionPresent(BoundaryTypes.nativeOptionalRecord());

@@ -2356,15 +2356,28 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   function emitArrayAccess(e: TypedExpr, receiver: TypedExpr,
       index: TypedExpr) {
-    final normalizeResult = !inAssignTarget && typeAllowsNull(e.t);
+    final contract = NullishContract.forType(e.t);
+    final normalizeResult = !inAssignTarget && !contract.preservesUndefined
+      && typeAllowsNull(e.t);
+    final assertTypedResult = !inAssignTarget
+      && !contract.preservesUndefined && !typeAllowsNull(e.t);
     if (normalizeResult)
       write('(');
-    emitChainedAccessReceiver(receiver, typeAllowsNull(receiver.t));
-    write('[');
-    emitValue(index);
-    write(']');
+    if (TypeUtil.rawSyntaxReceiverNeedsParens(receiver)) {
+      // Preserve the dedicated raw-syntax precedence repair that originally
+      // owned this path. Ordinary indexing stays with the base emitter so its
+      // source positions, comments, and assignment rendering remain stable.
+      emitChainedAccessReceiver(receiver, typeAllowsNull(receiver.t));
+      write('[');
+      emitValue(index);
+      write(']');
+    } else {
+      super.emitExpr(e);
+    }
     if (normalizeResult)
       write(' ?? null)');
+    else if (assertTypedResult)
+      write('!');
   }
 
   override public function emitValue(e: TypedExpr) {
@@ -2610,14 +2623,14 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TField(_, f)
         if (!inAssignTarget && isOptionalField(f) && isNarrowedOptionalField(e)):
         emitNarrowedOptionalField(e);
-      case TArray(receiver, index) if (TypeUtil.rawSyntaxReceiverNeedsParens(receiver)):
+      case TArray(receiver, index):
+        // TypeScript widens an indexed Array<T> read to `T | undefined` under
+        // `noUncheckedIndexedAccess`, while Haxe's typed AST keeps the declared
+        // result `T`. Preserve that Haxe contract with a type-only assertion.
+        // Nullable Haxe elements still normalize a missing JavaScript value to
+        // `null`, and Undefinable<T> keeps its explicit `undefined` unchanged.
+        // Assignment targets receive none of these read-only projections.
         emitArrayAccess(e, receiver, index);
-      case TArray(_, _) if (!inAssignTarget && typeAllowsNull(e.t)):
-        // Haxe generally models missing values as `null` while JS property/index
-        // reads can produce `undefined`. Normalize to `null` for TS `strict`.
-        write('(');
-        super.emitExpr(e);
-        write(' ?? null)');
       case TField(x,
         f) // If the receiver type is nullable in TS (`T | null`), TS does not
         // reliably narrow property accesses across statements (e.g. `this.pos`).

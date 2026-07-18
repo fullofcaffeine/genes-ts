@@ -355,7 +355,7 @@ export class ArrayIterator<T> extends Register.inherits() {
 		return this.current < this.array.length;
 	}
 	next(): T {
-		return this.array[this.current++];
+		return this.array[this.current++]!;
 	}
 	static get __name__(): string {
 		return "genes._Register.ArrayIterator"

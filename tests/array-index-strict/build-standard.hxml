@@ -1,0 +1,8 @@
+-lib genes-ts
+-cp tests/array-index-strict/src
+--main arrayindexstrict.Main
+-js tests/array-index-strict/out/standard/index.cjs
+-D genes.disable
+-D no-deprecation-warnings
+-D js-es=6
+-dce full

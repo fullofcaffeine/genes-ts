@@ -33,7 +33,7 @@ export class Store extends Register.inherits() {
 		let _g: number = 0;
 		let _g1: Todo[] = this.todos;
 		while (_g < _g1.length) {
-			let t: Todo = _g1[_g];
+			let t: Todo = _g1[_g]!;
 			++_g;
 			if (t.id == id) {
 				return t;
@@ -68,7 +68,7 @@ export class Store extends Register.inherits() {
 		let _g1_1: number = this.todos.length;
 		while (_g_1 < _g1_1) {
 			let i: number = _g_1++;
-			if (this.todos[i].id == id) {
+			if (this.todos[i]!.id == id) {
 				this.todos.splice(i, 1);
 				this.save();
 				return true;
@@ -92,7 +92,7 @@ export class Store extends Register.inherits() {
 			};
 			let _g_2: number = 0;
 			while (_g_2 < arr.length) {
-				let t: Todo = arr[_g_2];
+				let t: Todo = arr[_g_2]!;
 				++_g_2;
 				this.todos.push(t);
 			};

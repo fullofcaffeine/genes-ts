@@ -26,7 +26,7 @@ export class ArrayIterator<T> extends Register.inherits() {
 	See `Iterator.next`
 	*/
 	next(): T {
-		return this.array[this.current++];
+		return this.array[this.current++]!;
 	}
 	static get __name__(): string {
 		return "haxe.iterators.ArrayIterator"
