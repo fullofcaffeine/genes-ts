@@ -47,11 +47,20 @@ yarn test:output-quality # exact maps, clean hashes, and reviewed budgets
 yarn test:output-transaction # failure atomicity and stale-file ownership
 yarn test:interop:module-shapes # npm declaration/runtime import contracts
 yarn test:library-profile # default DCE vs matched TS/classic library surfaces
+yarn benchmark:dependency-plan # report-only scaling experiment for large import graphs
 ```
 
 The quality manifest measures the bounded dual corpus. It uses exact module,
 temporary, and import baselines plus 5% byte/token ceilings; it is not a
 whole-language performance benchmark.
+
+`benchmark:dependency-plan` answers a narrower performance question: how a
+single generated module's build time changes as its import graph grows from
+128 to 512 edges. It reports complete warm genes-ts build times and verifies
+identical output hashes, but it sets no CI timing budget. See
+`tests/dependency-plan-benchmark/README.md` for the fixture shape and guidance
+on interpreting the numbers without mistaking a whole-build result for a
+microbenchmark of one planner function.
 
 The transaction harness deliberately fails after complete private staging
 and again after a real filesystem rename. For both TS and classic JS with
