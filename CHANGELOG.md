@@ -1,3 +1,10 @@
+## [1.36.1](https://github.com/fullofcaffeine/genes-ts/compare/v1.36.0...v1.36.1) (2026-07-18)
+
+
+### Bug Fixes
+
+* **imports:** preserve bound initialization order ([f795da5](https://github.com/fullofcaffeine/genes-ts/commit/f795da54ca9a80028c6bac549d94fd3e37909b6f))
+
 # [1.36.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.35.4...v1.36.0) (2026-07-17)
 
 
