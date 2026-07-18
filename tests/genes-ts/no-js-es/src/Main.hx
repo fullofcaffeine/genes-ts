@@ -38,6 +38,22 @@ typedef NamedCallback = {
   final read: () -> String;
 }
 
+/**
+ * A small record whose `name` field may be missing at runtime.
+ *
+ * Why: the receiver-reassignment fixture needs an ordinary Haxe property that
+ * can be absent without using a weak runtime type.
+ *
+ * What/How: `@:optional` lets Haxe object literals omit `name`, and genes-ts
+ * emits the public property as `name?: string`. An ordinary read converts the
+ * resulting JavaScript `undefined` to Haxe `null`. The fixture checks that an
+ * earlier null guard does not keep describing a different record after the
+ * local variable is assigned again.
+ */
+typedef OptionalNamedItem = {
+  @:optional final name: String;
+}
+
 typedef MessageBatch = {
   final messages: Array<String>;
 }
@@ -95,6 +111,10 @@ class Main {
     trace(mapGetDirectAfterKeyIteration().join(","));
     final callback = closureAfterOuterGuard("alpha");
     trace(callback == null ? "missing" : callback.read());
+    final reassignedOptional = optionalAfterReceiverReassignment();
+    trace('receiver-reassignment:${reassignedOptional == null}:${genes.ts.Undefinable.isAbsent(reassignedOptional)}');
+    trace('map-remove:${mapGetAfterRemove("alpha") == null}');
+    trace('map-clear:${mapGetAfterClear("alpha") == null}');
     trace(inlineValueTemps());
     trace(mapAfterResultParameter({messages: ["one", "three"]}).join(","));
     trace(recordConstructionTemps("alpha", {name: "Alpha"}, null));
@@ -248,6 +268,52 @@ class Main {
     return {
       read: () -> item.name
     };
+  }
+
+  /**
+   * Reassigning a receiver must end facts learned about its old optional field.
+   *
+   * The first null guard describes the record containing `"before"`. After the
+   * assignment, `item` refers to a new empty record, so the final read must use
+   * the normal optional-field path and produce Haxe `null`, not raw JavaScript
+   * `undefined`.
+   */
+  static function optionalAfterReceiverReassignment(): Null<String> {
+    var item: OptionalNamedItem = {name: "before"};
+    if (item.name == null)
+      return null;
+    item = {};
+    return item.name;
+  }
+
+  /**
+   * Removing a key ends the presence fact established by `Map.exists`.
+   *
+   * A later `Map.get` is nullable again even though the same stable map and key
+   * appear in both calls. The generated TypeScript must not retain a non-null
+   * assertion from the earlier check.
+   */
+  static function mapGetAfterRemove(id: String): Null<NamedItem> {
+    final holder = buildMapHolder(["alpha"]);
+    if (!holder.named.exists(id))
+      return null;
+    holder.named.remove(id);
+    return holder.named.get(id);
+  }
+
+  /**
+   * Clearing a map ends every presence fact learned for that map.
+   *
+   * Unlike `remove`, `clear` does not name one key. The future narrowing plan
+   * must therefore invalidate all facts whose receiver is this map while
+   * leaving facts for unrelated maps intact.
+   */
+  static function mapGetAfterClear(id: String): Null<NamedItem> {
+    final holder = buildMapHolder(["alpha"]);
+    if (!holder.named.exists(id))
+      return null;
+    holder.named.clear();
+    return holder.named.get(id);
   }
 
   static function namedItem(name: String): NamedItem {
