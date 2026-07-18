@@ -18,7 +18,7 @@ This is an evidence contract, not a cached CI-success badge. `blocking` and `non
 | Strict public typing | Strict positive/negative consumer sources | 10 | `blocking` |
 | Strict public typing | Explicitly owned exported-surface boundaries | 28 | `blocking` |
 | Strict public typing | Reusable-library same-source Haxe modules | 4 | `blocking` |
-| Semantic differential | Same-source Haxe modules | 13 | `blocking` |
+| Semantic differential | Same-source Haxe modules | 17 | `blocking` |
 | Semantic differential | TS/classic/declaration and JS oracle profiles | 5 | `blocking` |
 | Semantic differential | Stable dual-output runtime trace events | 19 | `blocking` |
 | Semantic differential | ts2hx supported and fail-closed semantic input modules | 55 | `blocking` |
@@ -195,8 +195,8 @@ Named ESM, subpath, conditional-export, CommonJS, and declaration-ingestion fixt
 
 - Disposition: `blocking`
 - Scope: Manual externs and deterministic dts2hx-generated externs consumed through TS and classic Genes profiles.
-- Proves: The named package and import forms resolve, type-check, and execute through the tested profiles without weak generated extern types. The focused identity fixture also keeps same-named default, named, and namespace exports distinct across TS, classic JS, and both declaration surfaces.
-- Does not prove: Four synthetic packages do not cover every package.json condition, declaration merge, bundler, or host environment.
+- Proves: The named package and import forms resolve, type-check, and execute through the tested profiles without weak generated extern types. The focused identity fixture also keeps same-named default, named, and namespace exports distinct across TS, classic JS, and both declaration surfaces. Its hxnodejs-style extern enum abstract and same-named module-field imports preserve exact runtime values and source ownership under the stable gate, with the same command enrolled in the advisory Haxe preview lane.
+- Does not prove: Four synthetic packages do not cover every package.json condition, declaration merge, abstract shape, module-field shape, bundler, or host environment. The Haxe preview lane remains advisory rather than a supported release contract.
 - Evidence:
   - [`scripts/test-package-shapes.ts`](../scripts/test-package-shapes.ts)
   - [`scripts/probe-binding-identity.ts`](../scripts/probe-binding-identity.ts)

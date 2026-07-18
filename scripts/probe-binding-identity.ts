@@ -26,7 +26,11 @@ const expected = {
   nativeNamedBinding: "native-named",
   nativeStringBinding: "native-string",
   nativeDottedBinding: "native-dotted",
-  nativeOnlyYear: 1970
+  nativeOnlyYear: 1970,
+  abstractBinding: "abstract-alpha",
+  abstractNamespaceBinding: "abstract-namespace-alpha",
+  defaultFieldBinding: "field-default",
+  namedFieldBinding: "field-named"
 };
 
 function run(command: string, args: ReadonlyArray<string>): void {
@@ -147,6 +151,16 @@ assertContains(
   'require("genes-binding-identity-fixture").Component',
   "standard Haxe dotted native binding"
 );
+assertContains(
+  standardSource,
+  'require("genes-binding-identity-fixture").AbstractCodes',
+  "standard Haxe named extern-abstract binding"
+);
+assertContains(
+  standardSource,
+  ".NamespaceAlpha",
+  "standard Haxe namespace extern-abstract value"
+);
 ok(!standardSource.includes("new NativeRoot.Component()"),
   "standard Haxe bypassed the package import through raw native text");
 
@@ -263,6 +277,30 @@ for (const [label, source] of [
     `${label} native dotted binding`
   );
   assertContains(source, "return new Date(0);", `${label} native-only host binding`);
+  assertContains(source, "AbstractCodes", `${label} imported abstract binding`);
+  assertContains(
+    source,
+    'import * as NamespaceCode from "genes-binding-identity-fixture"',
+    `${label} abstract namespace binding`
+  );
+  assertContains(
+    source,
+    'import fieldValue from "genes-binding-identity-fixture/fields"',
+    `${label} default field binding`
+  );
+  assertContains(
+    source,
+    "fieldValue as fieldValue__1",
+    `${label} named field binding`
+  );
+  assertContains(source, "return AbstractCodes.Alpha;", `${label} abstract value`);
+  assertContains(
+    source,
+    "return NamespaceCode.NamespaceAlpha;",
+    `${label} abstract namespace value`
+  );
+  assertContains(source, "return fieldValue();", `${label} default field call`);
+  assertContains(source, "return fieldValue__1();", `${label} named field call`);
 }
 
 for (const [label, source] of [
@@ -281,6 +319,8 @@ for (const [label, source] of [
   assertContains(source, "static nativeNamedValue(): NativeNamed__1", label);
   assertContains(source, "static nativeDottedValue(): NativeRoot__1.Component", label);
   assertContains(source, "static nativeOnlyValue(): Date", label);
+  assertContains(source, "static abstractValue(): string", label);
+  assertContains(source, "static abstractNamespaceValue(): string", label);
 }
 
 assertMappedTo(
@@ -298,7 +338,27 @@ assertMappedTo(
   "new NativeRoot__1.Component()",
   "BindingIdentityProbe.hx"
 );
+assertMappedTo(
+  path.join(tsRoot, "src-gen/package_shapes/BindingIdentityProbe.ts"),
+  "AbstractCodes",
+  "ImportedCode.hx"
+);
+assertMappedTo(
+  path.join(tsRoot, "src-gen/package_shapes/BindingIdentityProbe.ts"),
+  "NamespaceCode",
+  "NamespaceCode.hx"
+);
+assertMappedTo(
+  path.join(tsRoot, "src-gen/package_shapes/BindingIdentityProbe.ts"),
+  'fieldValue from "genes-binding-identity-fixture/fields"',
+  "DefaultField.hx"
+);
+assertMappedTo(
+  path.join(tsRoot, "src-gen/package_shapes/BindingIdentityProbe.ts"),
+  "fieldValue as fieldValue__1",
+  "NamedField.hx"
+);
 
 deepStrictEqual(tsTranscript, expected, "genes-ts collapsed two import forms");
 deepStrictEqual(classicTranscript, expected, "classic Genes collapsed two import forms");
-console.log("binding-identity:ok (standard Haxe semantics + TS + classic + declarations + source maps + TS 5/6/7)");
+console.log("binding-identity:ok (declarations + abstracts + static fields + TS/classic runtime + source maps + TS 5/6/7)");

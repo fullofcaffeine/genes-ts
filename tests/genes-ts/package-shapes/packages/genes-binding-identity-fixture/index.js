@@ -34,6 +34,12 @@ export function namespaceMarker() {
   return "namespace";
 }
 
+export const AbstractCodes = {
+  Alpha: "abstract-alpha"
+};
+
+export const NamespaceAlpha = "abstract-namespace-alpha";
+
 export class Dropdown {
   static rootMarker() {
     return "dropdown-root";

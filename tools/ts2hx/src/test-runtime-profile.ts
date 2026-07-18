@@ -116,9 +116,10 @@ async function stopChild(child: ChildProcess): Promise<void> {
  * that private define leaked through the compiler server, a later standard-Haxe
  * build could accept and erase a Genes-only ESM request instead of failing.
  *
- * What: one server first compiles the guarded tree with Genes, then compiles the
- * same tree with `genes.disable`. The first build must succeed; the second must
- * report the stable macro diagnostic and publish no JavaScript.
+ * What: one server compiles the guarded tree through Genes twice, then compiles
+ * the same tree with `genes.disable`. Both Genes builds must succeed, including
+ * compiler-owned type lookup in the fresh macro context. The standard build
+ * must report the stable macro diagnostic and publish no JavaScript.
  *
  * How: connection-refused responses are retried only while the newly spawned
  * server starts. Both real compilations use the same address and process, and a
@@ -174,6 +175,20 @@ async function assertGeneratorCapabilityIsolation(opts: {
     assert(
       genes.status === 0 && fs.existsSync(genesOutput),
       `compile server rejected the Genes capability build:\n${genes.transcript}`
+    );
+
+    const repeatedGenesOutput = path.join(opts.tmpRoot,
+      "server-genes-repeated", "index.js");
+    const repeatedGenes = await compile([
+      "-lib", "genes-ts",
+      "-cp", opts.guardOut,
+      "-dce", "full",
+      "-main", "ts2hx_guard.Main",
+      "-js", repeatedGenesOutput
+    ]);
+    assert(
+      repeatedGenes.status === 0 && fs.existsSync(repeatedGenesOutput),
+      `compile server reused stale Genes compiler types:\n${repeatedGenes.transcript}`
     );
 
     const standardOutput = path.join(opts.tmpRoot, "server-standard-must-not-write.js");
@@ -503,7 +518,7 @@ async function main(): Promise<void> {
   );
 
   process.stdout.write(
-    "Runtime profile OK (schema v3 + transactional target guard + request-free standard Haxe)\n"
+    "Runtime profile OK (schema v3 + repeated compile-server Genes context + transactional target guard + request-free standard Haxe)\n"
   );
 }
 

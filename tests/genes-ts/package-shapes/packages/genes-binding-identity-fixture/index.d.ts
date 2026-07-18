@@ -32,6 +32,12 @@ export class Foo {
 
 export function namespaceMarker(): "namespace";
 
+export const AbstractCodes: {
+  readonly Alpha: "abstract-alpha";
+};
+
+export const NamespaceAlpha: "abstract-namespace-alpha";
+
 export class Dropdown {
   static rootMarker(): "dropdown-root";
 }

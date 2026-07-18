@@ -190,8 +190,8 @@
           "kind": "tracked-files",
           "path": "tests/output-modes/src",
           "match": "\\.hx$",
-          "expected": 13,
-          "count": 13
+          "expected": 17,
+          "count": 17
         },
         {
           "id": "dual-output-oracles-and-profiles",
@@ -418,8 +418,8 @@
           "count": 2
         }
       ],
-      "proves": "The named package and import forms resolve, type-check, and execute through the tested profiles without weak generated extern types. The focused identity fixture also keeps same-named default, named, and namespace exports distinct across TS, classic JS, and both declaration surfaces.",
-      "doesNotProve": "Four synthetic packages do not cover every package.json condition, declaration merge, bundler, or host environment."
+      "proves": "The named package and import forms resolve, type-check, and execute through the tested profiles without weak generated extern types. The focused identity fixture also keeps same-named default, named, and namespace exports distinct across TS, classic JS, and both declaration surfaces. Its hxnodejs-style extern enum abstract and same-named module-field imports preserve exact runtime values and source ownership under the stable gate, with the same command enrolled in the advisory Haxe preview lane.",
+      "doesNotProve": "Four synthetic packages do not cover every package.json condition, declaration merge, abstract shape, module-field shape, bundler, or host environment. The Haxe preview lane remains advisory rather than a supported release contract."
     },
     {
       "id": "curated-downstream-contracts",

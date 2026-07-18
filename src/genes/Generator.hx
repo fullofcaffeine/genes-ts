@@ -3,6 +3,8 @@ package genes;
 import haxe.macro.JSGenApi;
 import haxe.macro.Compiler;
 import haxe.macro.Context;
+import haxe.macro.Expr.Constant;
+import haxe.macro.Expr.ExprDef;
 import haxe.macro.Type;
 import haxe.crypto.Sha256;
 import haxe.io.Path;

@@ -131,6 +131,33 @@ such as `Dropdown.Menu`, Genes imports the root `Dropdown`, resolves any local
 collision, and only then appends `.Menu`. This preserves both the package's ESM
 shape and the member access.
 
+The same identity rule covers two Haxe forms that can look less like imports at
+first glance. An extern enum abstract may read constants from a package:
+
+```haxe
+@:jsRequire("status-package", "Codes")
+@:enum extern abstract StatusCode(String) to String {
+  var Ready;
+}
+```
+
+`StatusCode.Ready` is a read from the package's `Codes` export; Genes does not
+invent or inline the string value. The one-argument form
+`@:jsRequire("status-package")` instead imports the whole module namespace and
+reads the constant from that namespace, matching hxnodejs-style module
+constants. A module-level extern function works in the same way:
+
+```haxe
+@:jsRequire("status-package", "readStatus")
+extern function readStatus(): StatusCode;
+```
+
+Haxe represents that top-level function internally as a static field owned by
+its `.hx` module. Genes keeps the full typed owner, so a different module may
+declare another function named `readStatus` without redirecting either call.
+This is useful for hxnodejs-style extern libraries as well as application-owned
+package bindings.
+
 Older Haxe JavaScript externs sometimes combine `@:native` and `@:jsRequire`:
 
 ```haxe

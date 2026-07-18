@@ -297,18 +297,23 @@ class Dependencies {
     if (base.isExtern) {
       switch base.meta.extract(':jsRequire') {
         case [{params: [{expr: EConst(CString(path))}]}]:
-          final cl: ClassType = cast base;
-          final isWildcard = switch [cl.kind, cl.fields.get(), cl.statics.get()] {
-            case [KAbstractImpl(_.get() => {meta: meta}), _, _]
-              if (meta.has(':enum')):
-              true;
-            case [_, fields, statics]:
-              cl.kind.equals(KNormal)
-              && !cl.isInterface
-              && cl.superClass == null
-              && cl.constructor == null
-              && fields.length == 0
-              && statics.filter(st -> st.meta.has(':selfCall')).length == 0;
+          final cl = TypeUtil.classTypeForBase(base);
+          final isWildcard = switch cl {
+            case null:
+              false;
+            case cl:
+              switch [cl.kind, cl.fields.get(), cl.statics.get()] {
+                case [KAbstractImpl(_.get() => {meta: meta}), _, _]
+                  if (meta.has(':enum')):
+                  true;
+                case [_, fields, statics]:
+                  cl.kind.equals(KNormal)
+                  && !cl.isInterface
+                  && cl.superClass == null
+                  && cl.constructor == null
+                  && fields.length == 0
+                  && statics.filter(st -> st.meta.has(':selfCall')).length == 0;
+              }
           }
 
           return {

@@ -231,12 +231,17 @@ jobs:
         name: Run template-literal suite against Haxe preview
         continue-on-error: true
         run: yarn test:template-literals
+      - id: preview-binding-identity
+        name: Run import-origin suite against Haxe preview
+        continue-on-error: true
+        run: yarn test:binding-identity
       - name: Report Haxe preview compatibility
         if: always()
         env:
           BASELINE_OUTCOME: ${{ steps.preview-baseline.outcome }}
           MINIMAL_OUTCOME: ${{ steps.preview-minimal.outcome }}
           TEMPLATE_LITERALS_OUTCOME: ${{ steps.preview-template-literals.outcome }}
+          BINDING_IDENTITY_OUTCOME: ${{ steps.preview-binding-identity.outcome }}
         run: |
           printf '%s\n' \
             "### Haxe preview compatibility (advisory)" \
@@ -244,7 +249,8 @@ jobs:
             "- Baseline suite: **$BASELINE_OUTCOME**" \
             "- Minimal generated suite: **$MINIMAL_OUTCOME**" \
             "- Template-literal suite: **$TEMPLATE_LITERALS_OUTCOME**" \
+            "- Import-origin suite: **$BINDING_IDENTITY_OUTCOME**" \
             >> "$GITHUB_STEP_SUMMARY"
-          if [ "$BASELINE_OUTCOME" != "success" ] || [ "$MINIMAL_OUTCOME" != "success" ] || [ "$TEMPLATE_LITERALS_OUTCOME" != "success" ]; then
-            echo "::warning title=Haxe preview compatibility::baseline=$BASELINE_OUTCOME, minimal=$MINIMAL_OUTCOME, template-literals=$TEMPLATE_LITERALS_OUTCOME. Supported Haxe remains authoritative."
+          if [ "$BASELINE_OUTCOME" != "success" ] || [ "$MINIMAL_OUTCOME" != "success" ] || [ "$TEMPLATE_LITERALS_OUTCOME" != "success" ] || [ "$BINDING_IDENTITY_OUTCOME" != "success" ]; then
+            echo "::warning title=Haxe preview compatibility::baseline=$BASELINE_OUTCOME, minimal=$MINIMAL_OUTCOME, template-literals=$TEMPLATE_LITERALS_OUTCOME, import-origin=$BINDING_IDENTITY_OUTCOME. Supported Haxe remains authoritative."
           fi

@@ -8,8 +8,38 @@ using haxe.macro.TypeTools;
 using haxe.macro.TypedExprTools;
 
 class TypeUtil {
+  /**
+   * Loads compiler-owned helper types at the earliest safe lifecycle point.
+   *
+   * Why: dependency planning needs typed declarations for `genes.Register`
+   * and `js.Boot`. Haxe 4 allows those lookups while this macro utility is
+   * initialized, but Haxe 5 requires initialization macros to finish first.
+   *
+   * What: each supported compiler follows its native safe timing. Keeping the
+   * Haxe 4 path eager also preserves its established typing and output order;
+   * moving that lookup later changes otherwise unrelated generated code.
+   *
+   * How: Haxe 5 fills read-only fields from `onAfterInitMacros`. Haxe 4 keeps
+   * the proven eager values. Neither path stores weak names or process-global
+   * typed objects, so compiler-server builds still receive current declarations.
+   */
+  #if (haxe_ver >= 5)
+  public static var registerType(default, null): ModuleType;
+  public static var bootType(default, null): ModuleType;
+
+  static final contextTypesScheduled = scheduleContextTypes();
+
+  static function scheduleContextTypes(): Bool {
+    Context.onAfterInitMacros(() -> {
+      registerType = getModuleType('genes.Register');
+      bootType = getModuleType('js.Boot');
+    });
+    return true;
+  }
+  #else
   public static final registerType = getModuleType('genes.Register');
   public static final bootType = getModuleType('js.Boot');
+  #end
 
   public static function typeToModuleType(type: Type): ModuleType
     return switch type {
@@ -352,9 +382,101 @@ class TypeUtil {
     }
   }
 
+  /**
+   * Finds the exact class shape represented by a shared Haxe `BaseType`.
+   *
+   * Why: classes, enums, typedefs, and abstracts all expose `BaseType`, but
+   * class-only fields such as `kind` and `statics` are not safe to read from
+   * that shared surface. Older code checked the runtime object with reflection
+   * and then cast it, even though Haxe already owns the typed declaration.
+   *
+   * What: ordinary classes return their `ClassType`. An abstract returns its
+   * generated implementation class when one exists; this is the class that
+   * owns enum-abstract constants and methods in the typed expression tree.
+   * Other declaration kinds return `null`.
+   *
+   * How: the lookup compares the full module and declaration names in Haxe's
+   * module inventory. It also compares an abstract's implementation name, so
+   * callers work whether the compiler supplied the authored abstract base or
+   * its generated implementation base. No source position or object-shape
+   * guess becomes type identity.
+   */
+  public static function classTypeForBase(base: BaseType): Null<ClassType> {
+    function sameDeclaration(candidate: BaseType): Bool {
+      return candidate.module == base.module && candidate.name == base.name;
+    }
+
+    for (candidate in Context.getModule(base.module)) {
+      switch candidate {
+        case TInst(ref, _):
+          final cl = ref.get();
+          if (sameDeclaration(cl))
+            return cl;
+        case TAbstract(ref, _):
+          final abstractType = ref.get();
+          final implementation = abstractType.impl;
+          if (implementation != null) {
+            final cl = implementation.get();
+            if (sameDeclaration(abstractType) || sameDeclaration(cl))
+              return cl;
+          }
+        default:
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Returns the source-level name that Genes should print for a `BaseType`.
+   *
+   * Why: an extern abstract and its compiler-generated implementation class
+   * are related, but they are not interchangeable here. The authored abstract
+   * keeps its own name; only a real class or implementation-class value needs
+   * `className`'s special handling.
+   *
+   * How: Haxe's typed module inventory tells us which declaration owns the
+   * shared `BaseType`. We check authored declarations first, then accept an
+   * implementation-class name only when the supplied base actually names that
+   * class. This preserves the old output without reflection or a cast.
+   */
   public static function baseTypeName(base: BaseType) {
-    if (Reflect.hasField(base, 'kind'))
-      return className(cast base);
+    final moduleTypes = Context.getModule(base.module);
+
+    for (candidate in moduleTypes) {
+      switch candidate {
+        case TInst(ref, _):
+          final cl = ref.get();
+          if (cl.module == base.module && cl.name == base.name)
+            return className(cl);
+        case TEnum(ref, _):
+          final en = ref.get();
+          if (en.module == base.module && en.name == base.name)
+            return en.name;
+        case TType(ref, _):
+          final typedefType = ref.get();
+          if (typedefType.module == base.module && typedefType.name == base.name)
+            return typedefType.name;
+        case TAbstract(ref, _):
+          final abstractType = ref.get();
+          if (abstractType.module == base.module && abstractType.name == base.name)
+            return abstractType.name;
+        default:
+      }
+    }
+
+    for (candidate in moduleTypes) {
+      switch candidate {
+        case TAbstract(ref, _):
+          final implementation = ref.get().impl;
+          if (implementation != null) {
+            final cl = implementation.get();
+            if (cl.module == base.module && cl.name == base.name)
+              return className(cl);
+          }
+        default:
+      }
+    }
+
     return base.name;
   }
 

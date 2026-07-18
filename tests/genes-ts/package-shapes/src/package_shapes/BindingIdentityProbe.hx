@@ -13,6 +13,23 @@ import package_shapes.native_named.NativeNamedExport;
 import package_shapes.native_string.NativeString;
 import package_shapes.native_dotted.NativeComponent;
 import package_shapes.native_only.HostDate;
+import package_shapes.abstract_binding.ImportedCode;
+import package_shapes.abstract_namespace.NamespaceCode;
+import package_shapes.field_default.DefaultField.fieldValue as defaultImportedFieldValue;
+import package_shapes.field_named.NamedField.fieldValue as namedImportedFieldValue;
+
+/**
+ * The one global operation needed by this command-line fixture.
+ *
+ * `@:native("console")` tells Haxe that this typed extern describes Node's
+ * existing global `console` object; it does not create or import a class. The
+ * small surface keeps the import-origin test independent from hxnodejs's old
+ * deprecated `__js__` implementation of `js.Node.console`.
+ */
+@:native("console")
+private extern class ProbeConsole {
+  public static function log(value: String): Void;
+}
 
 /** The two runtime values that the binding-identity probe must keep separate. */
 typedef BindingIdentityTranscript = {
@@ -31,6 +48,10 @@ typedef BindingIdentityTranscript = {
   final nativeStringBinding: String;
   final nativeDottedBinding: String;
   final nativeOnlyYear: Int;
+  final abstractBinding: String;
+  final abstractNamespaceBinding: String;
+  final defaultFieldBinding: String;
+  final namedFieldBinding: String;
 }
 
 /**
@@ -146,6 +167,25 @@ class BindingIdentityProbe {
     return new HostDate(0);
   }
 
+  /** Reads a package constant through a non-core extern enum abstract. */
+  public static function abstractValue(): ImportedCode {
+    return ImportedCode.Alpha;
+  }
+
+  /** Reads a package constant through a whole-module extern enum abstract. */
+  public static function abstractNamespaceValue(): NamespaceCode {
+    return NamespaceCode.NamespaceAlpha;
+  }
+
+  /** Calls two same-named Haxe fields that select different ESM bindings. */
+  public static function defaultFieldValue(): String {
+    return defaultImportedFieldValue();
+  }
+
+  public static function namedFieldValue(): String {
+    return namedImportedFieldValue();
+  }
+
   public static function transcript(): BindingIdentityTranscript {
     final defaultFoo = defaultValue();
     final namedFoo = namedValue();
@@ -164,11 +204,15 @@ class BindingIdentityProbe {
       nativeNamedBinding: nativeNamedValue().marker(),
       nativeStringBinding: nativeStringMarker(),
       nativeDottedBinding: nativeDottedValue().marker(),
-      nativeOnlyYear: nativeOnlyValue().getUTCFullYear()
+      nativeOnlyYear: nativeOnlyValue().getUTCFullYear(),
+      abstractBinding: abstractValue(),
+      abstractNamespaceBinding: abstractNamespaceValue(),
+      defaultFieldBinding: defaultFieldValue(),
+      namedFieldBinding: namedFieldValue()
     };
   }
 
   public static function main(): Void {
-    js.Node.console.log(haxe.Json.stringify(transcript()));
+    ProbeConsole.log(haxe.Json.stringify(transcript()));
   }
 }
