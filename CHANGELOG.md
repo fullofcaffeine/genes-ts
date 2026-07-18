@@ -1,3 +1,10 @@
+## [1.36.2](https://github.com/fullofcaffeine/genes-ts/compare/v1.36.1...v1.36.2) (2026-07-18)
+
+
+### Bug Fixes
+
+* **imports:** preserve canonical ESM binding identity ([e756eac](https://github.com/fullofcaffeine/genes-ts/commit/e756eac88903244e943dbbdc8621daf4b14c0705))
+
 ## [1.36.1](https://github.com/fullofcaffeine/genes-ts/compare/v1.36.0...v1.36.1) (2026-07-18)
 
 
