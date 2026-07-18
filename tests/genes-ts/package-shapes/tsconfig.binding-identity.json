@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "types": ["node"],
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "declaration": true,
+    "sourceMap": true,
+    "rootDir": "./out/binding-identity/ts/src-gen",
+    "outDir": "./out/binding-identity/ts/dist",
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": false,
+    "noEmitOnError": true
+  },
+  "include": ["out/binding-identity/ts/src-gen/**/*.ts"]
+}

@@ -1,0 +1,10 @@
+-lib genes-ts
+-lib hxnodejs
+-cp tests/genes-ts/package-shapes/src
+--main package_shapes.BindingIdentityProbe
+-js tests/genes-ts/package-shapes/out/binding-identity/classic/src-gen/index.js
+-D dts
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
+-debug
