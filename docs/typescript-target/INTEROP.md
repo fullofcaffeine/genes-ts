@@ -131,6 +131,33 @@ such as `Dropdown.Menu`, Genes imports the root `Dropdown`, resolves any local
 collision, and only then appends `.Menu`. This preserves both the package's ESM
 shape and the member access.
 
+Older Haxe JavaScript externs sometimes combine `@:native` and `@:jsRequire`:
+
+```haxe
+@:native("React.Component")
+@:jsRequire("react", "Component")
+extern class ReactComponent {}
+```
+
+The two annotations answer different questions. `@:jsRequire` says the runtime
+value comes from the package. The native name preserves the older binding's
+expected JavaScript spelling and, for this dotted form, describes the member
+path Genes appends after resolving the imported root. Genes must still use the
+collision-safe package local; it never writes raw `React.Component` in a way
+that could select an unrelated local or global named `React`.
+
+The same runtime rule applies when the old native spelling matches a built-in
+name. For `@:native("String")` combined with a package request, constructor and
+method calls still use the imported package value rather than JavaScript's
+global constructor. Haxe itself treats a native class called `String` as a core
+type in some public type positions, so reusable public APIs should give such a
+package type a non-core Haxe class name and let `@:jsRequire` name the `String`
+export, or wrap it in a separately typed Haxe abstraction.
+
+When there is no `@:jsRequire`, `@:native` is the whole runtime identity. For
+example, an extern annotated only with `@:native("Date")` continues to use
+JavaScript's built-in `Date` directly and emits no package import.
+
 `Genes.dynamicImport` is the deliberate exception to a top-level import
 mapping. Its callback values are created by `import()` at runtime, so the
 compiler keeps those names local to the callback instead of adding a static ESM

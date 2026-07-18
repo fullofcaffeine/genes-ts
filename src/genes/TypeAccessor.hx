@@ -22,17 +22,19 @@ import haxe.macro.Type;
  * retain their established generated spelling.
  *
  * How: `Dependencies.typeAccessor` follows an origin mapping to the allocated
- * local and then appends any normalized member path. `dependencyPath` and
+ * local and then appends any normalized member path. `@:native` alone remains
+ * a direct host/global value or an internal emitted-name override. When
+ * `@:jsRequire` is also present, the package import is the value source, so old
+ * native text cannot bypass its allocated local. `dependencyPath` and
  * `external` distinguish an expected import from an ordinary same-module value.
  * Source position is diagnostic provenance only and never affects identity.
  */
 enum TypeAccessorImpl {
   ImportedDeclaration(key: HaxeDeclarationKey, fallbackName: String,
-    directNative: Null<String>, dependencyPath: Null<String>, external: Bool,
-    pos: Position);
+    dependencyPath: Null<String>, external: Bool, pos: Position);
   ImportedAlias(intent: LocalBindingIntent, fallbackName: String,
-    directNative: Null<String>, memberPath: Array<String>,
-    dependencyPath: String, external: Bool, pos: Position);
+    memberPath: Array<String>, dependencyPath: String, external: Bool,
+    pos: Position);
   ImportedStaticField(key: StaticFieldOriginKey, fallbackName: String,
     pos: Position);
   DirectValue(path: String);
@@ -89,14 +91,22 @@ abstract TypeAccessor(TypeAccessorImpl) from TypeAccessorImpl {
         ? DirectValue(TypeUtil.baseTypeName(type))
         : DirectValue(directNative);
 
-    // Imported @:native compatibility remains a reviewed direct host boundary.
-    // Dotted @:jsRequire selectors are not placed here: their suffix belongs to
-    // the canonical origin mapping so collision aliases remain effective.
+    // Internal Haxe declarations can use `@:native` purely to choose their
+    // emitted name, for example a typedef renamed in a classic `.d.ts`. They
+    // have no package value to resolve. Only an external package dependency
+    // makes canonical import identity authoritative over the native spelling.
+    if (directNative != null && !dependency.external)
+      return DirectValue(directNative);
+
+    // A package-backed declaration must use the package import. For older
+    // `@:native("Root.Member")` bindings, `makeDependency` has already kept the
+    // compatible member suffix in the canonical mapping. Carrying the raw
+    // native text here would let it skip collision-safe import allocation.
     return key == null
       ? ImportedAlias(BindingIdentity.localIntentFor(dependency),
-        TypeUtil.baseTypeName(type), directNative, dependency.memberPath.copy(),
+        TypeUtil.baseTypeName(type), dependency.memberPath.copy(),
         dependency.path, dependency.external, type.pos)
-      : ImportedDeclaration(key, TypeUtil.baseTypeName(type), directNative,
-        dependency.path, dependency.external, type.pos);
+      : ImportedDeclaration(key, TypeUtil.baseTypeName(type), dependency.path,
+        dependency.external, type.pos);
   }
 }

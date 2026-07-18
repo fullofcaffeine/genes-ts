@@ -598,13 +598,8 @@ class Dependencies {
   public function typeAccessor(type: TypeAccessor)
     return switch type {
       case CoreAbstract(name) | DirectValue(name): name;
-      case ImportedDeclaration(key, fallbackName, directNative, dependencyPath,
-          external, pos):
-        // Preserve Haxe's existing explicit @:native host contract. Imported
-        // native-plus-require combinations remain a separate focused experiment;
-        // ordinary imports always use exact declaration identity below.
-        if (directNative != null)
-          return directNative;
+      case ImportedDeclaration(key, fallbackName, dependencyPath, external,
+          pos):
         final origin = BindingOriginKey.HaxeDeclaration(key);
         final resolved = resolveOrigin(origin);
         if (resolved != null)
@@ -617,10 +612,8 @@ class Dependencies {
             + ' (dependency path: ' + dependencyPath + ')', pos);
         }
         fallbackName;
-      case ImportedAlias(intent, fallbackName, directNative, memberPath,
-          dependencyPath, external, pos):
-        if (directNative != null)
-          return directNative;
+      case ImportedAlias(intent, fallbackName, memberPath, dependencyPath,
+          external, pos):
         final resolved = resolveIntent(intent, memberPath);
         if (resolved != null)
           return resolved;

@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { SourceMapConsumer, type RawSourceMap } from "source-map";
 import { runGeneratedTypeScriptMatrix } from "./toolchains.js";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -19,7 +20,13 @@ const expected = {
   namespaceBinding: "namespace",
   collisionDefaultBinding: "default",
   dropdownRootBinding: "dropdown-root",
-  dropdownMenuBinding: "dropdown-menu"
+  dropdownMenuBinding: "dropdown-menu",
+  localNativeNamedBinding: "local-named",
+  localNativeRootBinding: "local-root",
+  nativeNamedBinding: "native-named",
+  nativeStringBinding: "native-string",
+  nativeDottedBinding: "native-dotted",
+  nativeOnlyYear: 1970
 };
 
 function run(command: string, args: ReadonlyArray<string>): void {
@@ -52,6 +59,63 @@ function assertContains(source: string, expectedText: string, label: string): vo
   );
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Checks the generated JSON before giving it to the older source-map library.
+ *
+ * Why: `JSON.parse` cannot prove a file's shape at compile time, while
+ * `source-map` 0.6 expects a fully typed object. Keeping the unknown value in
+ * this small decoder avoids a type assertion and prevents malformed test data
+ * from reaching the consumer.
+ */
+function parseSourceMap(file: string): RawSourceMap {
+  const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+  ok(isRecord(parsed), `${file}: expected a source-map object`);
+  ok(parsed.version === 3, `${file}: expected source-map version 3`);
+  ok(typeof parsed.file === "string", `${file}: expected file`);
+  ok(typeof parsed.sourceRoot === "string", `${file}: expected sourceRoot`);
+  ok(Array.isArray(parsed.sources) && parsed.sources.every(
+    value => typeof value === "string"
+  ), `${file}: expected string sources`);
+  ok(Array.isArray(parsed.names) && parsed.names.every(
+    value => typeof value === "string"
+  ), `${file}: expected string names`);
+  ok(typeof parsed.mappings === "string", `${file}: expected mappings`);
+  return {
+    // source-map@0.6 models this JSON field as a string even though source-map
+    // v3 writes the number 3. The value was checked above before conversion.
+    version: "3",
+    file: parsed.file,
+    sourceRoot: parsed.sourceRoot,
+    sources: parsed.sources,
+    names: parsed.names,
+    mappings: parsed.mappings
+  };
+}
+
+/** Requires one generated token to retain the Haxe file that introduced it. */
+function assertMappedTo(
+  generatedPath: string,
+  generatedToken: string,
+  expectedSourceSuffix: string
+): void {
+  const generated = readFileSync(generatedPath, "utf8");
+  const offset = generated.indexOf(generatedToken);
+  ok(offset !== -1, `${generatedPath} contains ${generatedToken}`);
+  const before = generated.slice(0, offset).split("\n");
+  const consumer = new SourceMapConsumer(parseSourceMap(`${generatedPath}.map`));
+  const original = consumer.originalPositionFor({
+    line: before.length,
+    column: before.at(-1)?.length ?? 0,
+    bias: SourceMapConsumer.GREATEST_LOWER_BOUND
+  });
+  ok(original.source?.endsWith(expectedSourceSuffix),
+    `${generatedToken} maps to ${expectedSourceSuffix}; got ${original.source}`);
+}
+
 /**
  * Proves exact default-versus-named binding identity in every public surface.
  *
@@ -62,6 +126,29 @@ function assertContains(source: string, expectedText: string, label: string): vo
  * imported root had to be renamed after a collision.
  */
 rmSync(outputRoot, { recursive: true, force: true });
+
+run("haxe", ["tests/genes-ts/package-shapes/build-binding-identity-standard.hxml"]);
+const standardSource = readFileSync(
+  path.join(outputRoot, "standard/index.js"),
+  "utf8"
+);
+assertContains(
+  standardSource,
+  'require("genes-binding-identity-fixture").NativeNamed',
+  "standard Haxe named native binding"
+);
+assertContains(
+  standardSource,
+  'require("genes-binding-identity-fixture").String',
+  "standard Haxe built-in-name package binding"
+);
+assertContains(
+  standardSource,
+  'require("genes-binding-identity-fixture").Component',
+  "standard Haxe dotted native binding"
+);
+ok(!standardSource.includes("new NativeRoot.Component()"),
+  "standard Haxe bypassed the package import through raw native text");
 
 run("haxe", ["tests/genes-ts/package-shapes/build-binding-identity-ts.hxml"]);
 const tsRoot = path.join(outputRoot, "ts");
@@ -133,6 +220,12 @@ for (const [label, source] of [
     label
   );
   assertContains(source, "Dropdown as Dropdown__1", label);
+  assertContains(source, "NativeNamed as NativeNamed__1", label);
+  assertContains(
+    source,
+    'import NativeRoot__1 from "genes-binding-identity-fixture"',
+    label
+  );
   ok(!source.includes("Foo__3"), `${label} allocated an unnecessary Foo__3 binding`);
 }
 
@@ -153,6 +246,23 @@ for (const [label, source] of [
   assertContains(source, "return new Dropdown();", `${label} colliding default binding`);
   assertContains(source, "return Dropdown__1.rootMarker();", `${label} named root binding`);
   assertContains(source, "return new Dropdown__1.Menu();", `${label} dotted member binding`);
+  assertContains(
+    source,
+    "return new NativeNamed__1();",
+    `${label} native named binding`
+  );
+  assertContains(source, "String as String__1", `${label} native String import`);
+  assertContains(
+    source,
+    "return new String__1().marker();",
+    `${label} native String binding`
+  );
+  assertContains(
+    source,
+    "return new NativeRoot__1.Component();",
+    `${label} native dotted binding`
+  );
+  assertContains(source, "return new Date(0);", `${label} native-only host binding`);
 }
 
 for (const [label, source] of [
@@ -168,8 +278,27 @@ for (const [label, source] of [
   assertContains(source, "static secondAliasValue(): SecondFoo", label);
   assertContains(source, "static collisionDefaultValue(): Dropdown", label);
   assertContains(source, "static dropdownMenuValue(): Dropdown__1.Menu", label);
+  assertContains(source, "static nativeNamedValue(): NativeNamed__1", label);
+  assertContains(source, "static nativeDottedValue(): NativeRoot__1.Component", label);
+  assertContains(source, "static nativeOnlyValue(): Date", label);
 }
+
+assertMappedTo(
+  path.join(tsRoot, "src-gen/package_shapes/BindingIdentityProbe.ts"),
+  "new NativeNamed__1()",
+  "BindingIdentityProbe.hx"
+);
+assertMappedTo(
+  path.join(tsRoot, "src-gen/package_shapes/BindingIdentityProbe.ts"),
+  "new String__1()",
+  "BindingIdentityProbe.hx"
+);
+assertMappedTo(
+  path.join(classicRoot, "src-gen/package_shapes/BindingIdentityProbe.js"),
+  "new NativeRoot__1.Component()",
+  "BindingIdentityProbe.hx"
+);
 
 deepStrictEqual(tsTranscript, expected, "genes-ts collapsed two import forms");
 deepStrictEqual(classicTranscript, expected, "classic Genes collapsed two import forms");
-console.log("binding-identity:ok (TS + classic + both declaration surfaces + TS 5/6/7)");
+console.log("binding-identity:ok (standard Haxe semantics + TS + classic + declarations + source maps + TS 5/6/7)");

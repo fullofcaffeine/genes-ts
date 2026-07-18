@@ -211,7 +211,7 @@ class ExprEmitter extends Emitter {
   /** Returns the callback-local spelling for an exact dynamic-import origin. */
   function directImportLocalName(type: TypeAccessor): Null<String> {
     return switch type {
-      case ImportedDeclaration(key, fallbackName, _, _, _, _):
+      case ImportedDeclaration(key, fallbackName, _, _, _):
         final moduleParts = key.module.split('.');
         moduleParts.pop();
         final sourceName = moduleParts.concat([key.name]).join('.');

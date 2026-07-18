@@ -9,6 +9,10 @@ import package_shapes.namespace_binding.Foo as NamespaceFoo;
 import package_shapes.collision_default.Foo as CollisionDefaultFoo;
 import package_shapes.dropdown_root.Dropdown as DropdownRoot;
 import package_shapes.dropdown_menu.Menu as DropdownMenu;
+import package_shapes.native_named.NativeNamedExport;
+import package_shapes.native_string.NativeString;
+import package_shapes.native_dotted.NativeComponent;
+import package_shapes.native_only.HostDate;
 
 /** The two runtime values that the binding-identity probe must keep separate. */
 typedef BindingIdentityTranscript = {
@@ -21,6 +25,32 @@ typedef BindingIdentityTranscript = {
   final collisionDefaultBinding: String;
   final dropdownRootBinding: String;
   final dropdownMenuBinding: String;
+  final localNativeNamedBinding: String;
+  final localNativeRootBinding: String;
+  final nativeNamedBinding: String;
+  final nativeStringBinding: String;
+  final nativeDottedBinding: String;
+  final nativeOnlyYear: Int;
+}
+
+/**
+ * An ordinary Haxe class that happens to use the old imported root's name.
+ *
+ * Keeping this class in the generated module turns the dotted-native case into
+ * an observable collision: raw `NativeRoot.Component` would select this local
+ * class, while the correct package root receives a safe generated alias.
+ */
+private class NativeRoot {
+  public static function marker(): String {
+    return "local-root";
+  }
+}
+
+/** The unrelated local that forces the named package import to be renamed. */
+private class NativeNamed {
+  public static function marker(): String {
+    return "local-named";
+  }
 }
 
 /**
@@ -34,8 +64,8 @@ typedef BindingIdentityTranscript = {
  * What: the fixture package gives each relevant JavaScript value a small marker
  * string. The transcript therefore shows which value each Haxe declaration
  * actually reached. It also covers a repeated named declaration, two explicit
- * aliases, a namespace import, and a dotted `Dropdown.Menu` member whose root
- * has to be renamed after a collision.
+ * aliases, a namespace import, a dotted `Dropdown.Menu` member, and older
+ * `@:native` declarations whose package imports must remain authoritative.
  *
  * How: `test:binding-identity` runs this same Haxe source through genes-ts and
  * classic Genes, checks both declaration surfaces with the pinned TypeScript
@@ -86,6 +116,36 @@ class BindingIdentityProbe {
     return new DropdownMenu();
   }
 
+  /** Keeps the unrelated local root visible in generated runtime output. */
+  public static function localNativeRootValue(): String {
+    return NativeRoot.marker();
+  }
+
+  /** Keeps the unrelated non-dotted local visible in generated output. */
+  public static function localNativeNamedValue(): String {
+    return NativeNamed.marker();
+  }
+
+  /** Uses the package export, never the same-looking local Haxe class. */
+  public static function nativeNamedValue(): NativeNamedExport {
+    return new NativeNamedExport();
+  }
+
+  /** Calls the package class named `String` without exposing it as a core type. */
+  public static function nativeStringMarker(): String {
+    return new NativeString().marker();
+  }
+
+  /** Selects `.Component` only after resolving the imported root's alias. */
+  public static function nativeDottedValue(): NativeComponent {
+    return new NativeComponent();
+  }
+
+  /** Proves that `@:native` without a package still uses the host global. */
+  public static function nativeOnlyValue(): HostDate {
+    return new HostDate(0);
+  }
+
   public static function transcript(): BindingIdentityTranscript {
     final defaultFoo = defaultValue();
     final namedFoo = namedValue();
@@ -98,7 +158,13 @@ class BindingIdentityProbe {
       namespaceBinding: namespaceValue(),
       collisionDefaultBinding: collisionDefaultValue().marker(),
       dropdownRootBinding: dropdownRootValue(),
-      dropdownMenuBinding: dropdownMenuValue().marker()
+      dropdownMenuBinding: dropdownMenuValue().marker(),
+      localNativeNamedBinding: localNativeNamedValue(),
+      localNativeRootBinding: localNativeRootValue(),
+      nativeNamedBinding: nativeNamedValue().marker(),
+      nativeStringBinding: nativeStringMarker(),
+      nativeDottedBinding: nativeDottedValue().marker(),
+      nativeOnlyYear: nativeOnlyValue().getUTCFullYear()
     };
   }
 
