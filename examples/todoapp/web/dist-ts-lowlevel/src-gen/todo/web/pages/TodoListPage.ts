@@ -35,7 +35,7 @@ export class TodoListPage {
 			let _g: Todo[] = [];
 			let _g1: number = 0;
 			while (_g1 < todos.length) {
-				let t: Todo = todos[_g1];
+				let t: Todo = todos[_g1]!;
 				++_g1;
 				_g.push((t.id == updated.id) ? updated : t);
 			};
@@ -47,7 +47,7 @@ export class TodoListPage {
 			let _g_1: Todo[] = [];
 			let _g1_1: number = 0;
 			while (_g1_1 < todos.length) {
-				let t: Todo = todos[_g1_1];
+				let t: Todo = todos[_g1_1]!;
 				++_g1_1;
 				if (t.id != id) {
 					_g_1.push(t);
@@ -113,7 +113,7 @@ export class TodoListPage {
 		let _g1_2: number = todos.length;
 		while (_g_2 < _g1_2) {
 			let i: number = _g_2++;
-			result[i] = f(todos[i]);
+			result[i] = f(todos[i]!);
 		};
 		let tmp4: JSX.Element = React__genes_jsx.createElement("ul", ({style: {"listStyle": "none", "padding": "0", "margin": "0"}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"ul"> & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), result);
 		let tmp5: string = TodoListPage.interopBanner();

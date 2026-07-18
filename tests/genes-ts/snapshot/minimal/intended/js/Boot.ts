@@ -20,8 +20,8 @@ export class Boot {
 			}
 			case "object": {
 				if (o.__enum__) {
-					let e: any = Register.hxEnums()[o.__enum__];
-					let con: any = e.__constructs__[o._hx_index];
+					let e: any = Register.hxEnums()[o.__enum__]!;
+					let con: any = e.__constructs__[o._hx_index]!;
 					let n: string = con._hx_name;
 					if (con.__params__) {
 						s = s + "\t";
@@ -34,7 +34,7 @@ export class Boot {
 									if (!(_g1 < _g2.length)) {
 										break;
 									};
-									let p: string = _g2[_g1];
+									let p: string = _g2[_g1]!;
 									_g1 = _g1 + 1;
 									_g.push(Boot.__string_rec((o[p] ?? null), s));
 								};
