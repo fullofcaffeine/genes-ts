@@ -1,3 +1,12 @@
+## [1.36.6](https://github.com/fullofcaffeine/genes-ts/compare/v1.36.5...v1.36.6) (2026-07-18)
+
+
+### Bug Fixes
+
+* **output:** eliminate whitespace-only generated lines ([db9278d](https://github.com/fullofcaffeine/genes-ts/commit/db9278df9fbf82a41042ca8cc904e47e339f6caa))
+* **output:** emit conventional whitespace-safe JSDoc ([ba152b6](https://github.com/fullofcaffeine/genes-ts/commit/ba152b606ab5e82985f7856cced259d44d45b8af))
+* **output:** keep documented separators whitespace-free ([f4adb2a](https://github.com/fullofcaffeine/genes-ts/commit/f4adb2a7b789d006206588fe88ec8f0df67f5829))
+
 ## [1.36.5](https://github.com/fullofcaffeine/genes-ts/compare/v1.36.4...v1.36.5) (2026-07-18)
 
 
