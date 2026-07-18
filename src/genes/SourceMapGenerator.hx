@@ -1,6 +1,6 @@
 package genes;
 
-import haxe.macro.Compiler;
+import haxe.macro.Context;
 import haxe.macro.Type;
 import haxe.macro.Expr.Position;
 import haxe.display.Position.Location;
@@ -66,6 +66,13 @@ abstract SourcePosition(SourcePositionData) from SourcePositionData {
   } : SourcePositionData);
 }
 
+/**
+ * Builds version-three source maps while target emitters write generated code.
+ *
+ * Original Haxe positions stay in a typed table until serialization. The
+ * generator owns mapping math and portable source names; the surrounding
+ * output transaction still owns when source and map files become public.
+ */
 class SourceMapGenerator {
   static final chars = [
     'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O',
@@ -135,13 +142,89 @@ class SourceMapGenerator {
     previousSource = source;
   }
 
+  static function encodeSourcePath(path: String): String
+    return path.split('/')
+      .map(part -> StringTools.replace(StringTools.urlEncode(part), '+', '%20'))
+      .join('/');
+
+  static function projectRoot(): String {
+    final configured = Context.definedValue('genes.source_map_root');
+    return if (configured == null || configured.length == 0)
+      Sys.getCwd()
+    else
+      configured;
+  }
+
+  static function pathPartCount(path: String): Int
+    return path.length == 0 ? 0 : path.split('/').length;
+
+  /**
+   * Finds the classpath entry that gives a source its Haxe-facing path.
+   *
+   * A source can belong to nested entries. For example, Haxe may expose both
+   * its standard-library directory and a target-specific directory inside it.
+   * The most specific entry produces the useful identity `Std.hx`; choosing a
+   * broader parent would leak layout details such as `js/_std/Std.hx`.
+   */
+  static function containingClassPath(source: String): Null<String> {
+    var owner: Null<String> = null;
+    var ownerRelative: Null<String> = null;
+    for (classPath in Context.getClassPath()) {
+      if (classPath.length == 0)
+        continue;
+      final relative = PathUtil.fromRoot(classPath, source);
+      if (relative == null)
+        continue;
+      final isMoreSpecific = ownerRelative == null
+        || pathPartCount(relative) < pathPartCount(ownerRelative)
+        || (pathPartCount(relative) == pathPartCount(ownerRelative)
+          && relative.length < ownerRelative.length);
+      if (isMoreSpecific) {
+        owner = classPath;
+        ownerRelative = relative;
+      }
+    }
+    return owner;
+  }
+
+  /**
+   * Gives a debugger a useful source name without publishing machine paths.
+   *
+   * Why: turning every absolute Haxe position into `../../...` keeps project
+   * files navigable, but it also records a developer's Haxelib cache and Haxe
+   * installation layout in maps that may be committed or published.
+   *
+   * What: files inside the configured project root keep ordinary relative
+   * paths. Dependency and standard-library files instead use a stable
+   * `haxe://classpath/...` name based on the path Haxe uses to find the module.
+   *
+   * How: `sourcesContent` still reads from the original absolute path before
+   * publication, so `-D source_map_content` lets debuggers display an external
+   * source even though its local cache directory is deliberately hidden. A
+   * source that Haxe does not associate with a classpath falls back to its file
+   * name; this keeps compiler-generated positions usable without inventing an
+   * unstable machine identity.
+   */
+  static function sourceIdentity(mapPath: String, source: String): String {
+    if (PathUtil.isWithin(projectRoot(), source))
+      return PathUtil.relative(mapPath, source);
+
+    final classPath = containingClassPath(source);
+    final relative = classPath == null ? null : PathUtil.fromRoot(classPath, source);
+    final identity = if (relative == null || relative.length == 0)
+      Path.withoutDirectory(Path.normalize(source))
+    else
+      relative;
+    return 'haxe://classpath/${encodeSourcePath(identity)}';
+  }
+
   public function toJSON(path: String, withSources: Bool): SourceMapJson {
     final map: SourceMapJson = {
       version: 3,
       names: [],
       file: Path.withoutDirectory(Path.withoutExtension(path)),
       sourceRoot: "",
-      sources: sources.map(source -> if (source == '?') null else PathUtil.relative(path, source)),
+      sources: sources.map(source -> if (source == '?') null else sourceIdentity(path, source)),
       mappings: mappings
     }
     #if source_map_content
