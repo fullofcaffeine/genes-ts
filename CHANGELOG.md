@@ -1,3 +1,13 @@
+## [1.36.4](https://github.com/fullofcaffeine/genes-ts/compare/v1.36.3...v1.36.4) (2026-07-18)
+
+
+### Bug Fixes
+
+* **hxnodejs:** lower legacy Node globals ([b05d4f6](https://github.com/fullofcaffeine/genes-ts/commit/b05d4f61aeecf87d3d01af8ba00c95e6787b5149))
+* **imports:** honor package-backed native bindings ([552a8bf](https://github.com/fullofcaffeine/genes-ts/commit/552a8bf2b867c448c3eb701222577173172c15eb))
+* **imports:** prove abstract and field origins ([e727648](https://github.com/fullofcaffeine/genes-ts/commit/e727648672c8e19505dc11d4c202bb87fa0dca2a))
+* **imports:** reject conflicting aliased attributes ([ff588cf](https://github.com/fullofcaffeine/genes-ts/commit/ff588cff2c48bd6443af20e6f8429423d256fafe))
+
 ## [1.36.3](https://github.com/fullofcaffeine/genes-ts/compare/v1.36.2...v1.36.3) (2026-07-18)
 
 
