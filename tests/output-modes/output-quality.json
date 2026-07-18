@@ -21,22 +21,22 @@
       "budget": {
         "baseline": {
           "modules": 7,
-          "bytes": 13649,
-          "tokens": 2154,
+          "bytes": 14119,
+          "tokens": 2229,
           "temporaryDeclarations": 8,
-          "valueImports": 23,
+          "valueImports": 26,
           "typeImports": 4
         },
         "maximum": {
           "bytes": 14332,
           "tokens": 2262,
           "temporaryDeclarations": 8,
-          "valueImports": 23,
+          "valueImports": 26,
           "typeImports": 4
         },
         "review": {
-          "id": "GTS-BUDGET-BASELINE-004",
-          "reason": "Reviewed one retained recursive-JSON boundary that proves the shared TS/classic declaration alias contract without changing imports, modules, or temporaries."
+          "id": "GTS-BUDGET-BASELINE-005",
+          "reason": "Reviewed three additional JSON value imports that prove equal aliases reuse one binding and different aliases remain valid when their loader attribute agrees. Module count and lowering temporaries remain unchanged."
         }
       }
     },
@@ -47,22 +47,22 @@
       "budget": {
         "baseline": {
           "modules": 6,
-          "bytes": 10261,
-          "tokens": 1541,
+          "bytes": 10704,
+          "tokens": 1611,
           "temporaryDeclarations": 8,
-          "valueImports": 22,
+          "valueImports": 25,
           "typeImports": 0
         },
         "maximum": {
           "bytes": 10775,
           "tokens": 1619,
           "temporaryDeclarations": 8,
-          "valueImports": 22,
+          "valueImports": 25,
           "typeImports": 0
         },
         "review": {
-          "id": "GTS-BUDGET-BASELINE-004",
-          "reason": "Reviewed one retained recursive-JSON boundary that proves the shared TS/classic declaration alias contract without changing imports, modules, or temporaries."
+          "id": "GTS-BUDGET-BASELINE-005",
+          "reason": "Reviewed three additional JSON value imports that prove equal aliases reuse one binding and different aliases remain valid when their loader attribute agrees. Module count and lowering temporaries remain unchanged."
         }
       }
     },

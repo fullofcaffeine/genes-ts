@@ -123,10 +123,11 @@ class Dependencies {
    * the same JavaScript export.
    *
    * How: origin mappings are validated first, then local intent controls
-   * de-duplication and collision allocation. Binding the same selector and
-   * requested local through two import attributes is rejected because the
-   * loader contracts disagree. The returned object is the one both request
-   * planning and expression/type lookup must use.
+   * de-duplication and collision allocation. Binding the same module export
+   * through two different import attributes is rejected because the loader
+   * contracts disagree; changing only the local alias cannot make them safe.
+   * The returned object is the one both request planning and expression/type
+   * lookup must use.
    */
   public function pushAndGet(module: String, dependency: Dependency,
       ?position: haxe.macro.Expr.Position): Dependency {
@@ -161,9 +162,11 @@ class Dependencies {
       if (BindingIdentity.attributeConflictKeyEquals(existingIntent, intent)
         && existing.importAttributeType != dependency.importAttributeType) {
         CompilerDiagnostic.fail(
-          'GENES-IMPORT-ATTRIBUTE-BINDING-001: local import "'
-          + intent.requestedLocal
-          + '" cannot use multiple module-request attributes',
+          'GENES-IMPORT-ATTRIBUTE-BINDING-001: the '
+          + BindingIdentity.selectorDescription(intent.exportBinding.selector)
+          + ' from "' + intent.exportBinding.request.path
+          + '" cannot use multiple loader attributes; local aliases do not '
+          + 'create separate module requests',
           diagnosticPosition);
       }
       if (existingIntent.equals(intent))

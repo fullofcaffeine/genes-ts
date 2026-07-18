@@ -138,7 +138,9 @@ function generatedFiles(root: string): string[] {
 const invalidImportAttributeCases = [
   ["import_attribute_arity", "GENES-IMPORT-ATTRIBUTE-ARITY-001"],
   ["import_attribute_nonliteral", "GENES-IMPORT-ATTRIBUTE-LITERAL-001"],
-  ["import_attribute_empty", "GENES-IMPORT-ATTRIBUTE-EMPTY-001"]
+  ["import_attribute_empty", "GENES-IMPORT-ATTRIBUTE-EMPTY-001"],
+  ["import_attribute_same_alias_conflict", "GENES-IMPORT-ATTRIBUTE-BINDING-001"],
+  ["import_attribute_distinct_alias_conflict", "GENES-IMPORT-ATTRIBUTE-BINDING-001"]
 ] as const;
 
 /**
@@ -275,10 +277,23 @@ function assertProfileOwnership(manifestUnknown: unknown): void {
 
   const importAttributes = requiredRecord(capabilities, "importAttributes");
   strictEqual(importAttributes.owner, "genes-6cb");
-  strictEqual(importAttributes.status, "paired-static-json-runtime");
+  strictEqual(importAttributes.aliasOwner, "genes-ozb");
+  strictEqual(
+    importAttributes.status,
+    "paired-static-json-runtime-with-alias-contract"
+  );
   strictEqual(
     importAttributes.source,
     "tests/output-modes/src/dual/DualProfileResource.hx"
+  );
+  deepStrictEqual(
+    requiredStringArray(importAttributes, "aliasSources"),
+    [
+      "tests/output-modes/src/dual/SameAliasProfileOne.hx",
+      "tests/output-modes/src/dual/SameAliasProfileTwo.hx",
+      "tests/output-modes/src/dual/FirstAliasProfile.hx",
+      "tests/output-modes/src/dual/SecondAliasProfile.hx"
+    ]
   );
   strictEqual(
     importAttributes.resource,
@@ -291,9 +306,10 @@ function assertProfileOwnership(manifestUnknown: unknown): void {
     "importAttributeValidation"
   );
   strictEqual(importAttributeValidation.owner, "genes-3vd");
+  strictEqual(importAttributeValidation.conflictOwner, "genes-ozb");
   strictEqual(
     importAttributeValidation.status,
-    "fail-closed-arity-literal-empty-transactional"
+    "fail-closed-shape-and-conflicting-loader-contracts-transactional"
   );
   strictEqual(
     importAttributeValidation.source,
@@ -304,7 +320,8 @@ function assertProfileOwnership(manifestUnknown: unknown): void {
     [
       "GENES-IMPORT-ATTRIBUTE-ARITY-001",
       "GENES-IMPORT-ATTRIBUTE-LITERAL-001",
-      "GENES-IMPORT-ATTRIBUTE-EMPTY-001"
+      "GENES-IMPORT-ATTRIBUTE-EMPTY-001",
+      "GENES-IMPORT-ATTRIBUTE-BINDING-001"
     ]
   );
   strictEqual(importAttributeValidation.gate, "yarn test:dual-output");
@@ -437,6 +454,23 @@ for (const [profile, relativePath] of [
       'from "../resources/profile.json" with { type: "json" }'
     ),
     `${profile} dropped the JSON import attribute`
+  );
+  strictEqual(
+    generated.match(/import SharedProfile from "\.\.\/resources\/profile\.json" with \{ type: "json" \}/g)?.length ?? 0,
+    1,
+    `${profile} must reuse an equal attributed binding and explicit alias`
+  );
+  for (const local of ["FirstProfile", "SecondProfile"]) {
+    ok(
+      generated.includes(
+        `import ${local} from "../resources/profile.json" with { type: "json" }`
+      ),
+      `${profile} lost the valid ${local} alias`
+    );
+  }
+  ok(
+    !generated.includes("SharedProfile__1"),
+    `${profile} split an equal attributed binding into a second local`
   );
 }
 

@@ -16,7 +16,12 @@ class HelperScenario {
   public static function run():Array<String> {
     final events:Array<String> = [];
 #if dual_import_attributes
-    events.push('json-import:${DualProfileResource.profile}');
+    final profile = DualProfileResource.profile;
+    final aliasesAgree = SameAliasProfileOne.profile == profile
+      && SameAliasProfileTwo.profile == profile
+      && FirstAliasProfile.profile == profile
+      && SecondAliasProfile.profile == profile;
+    events.push('json-import:${aliasesAgree ? profile : "alias-mismatch"}');
 #else
     events.push("json-import:dual-output");
 #end

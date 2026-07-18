@@ -209,6 +209,34 @@ These errors intentionally do not fall back to an ordinary import. Silently
 dropping an attribute could defer the mistake until the host loader starts the
 application, and could make a failed build replace previously working output.
 
+An import alias only changes the local name used by generated code; it does not
+change how the host loads the module. Genes therefore rejects two bound imports
+of the same module export when their attributes disagree, even if they ask for
+different aliases:
+
+```haxe
+// Rejected: both declarations select the same default export, but they ask the
+// host to interpret that one resource in two incompatible ways.
+@:jsRequire("./profile.json", "default")
+@:genes.importAttributeType("json")
+@:genes.importAlias("JsonProfile")
+extern class JsonProfile {}
+
+@:jsRequire("./profile.json", "default")
+@:genes.importAttributeType("file")
+@:genes.importAlias("ProfilePath")
+extern class ProfilePath {}
+```
+
+This reports `GENES-IMPORT-ATTRIBUTE-BINDING-001` before either output profile
+is published. Repeating the export with the same attribute remains valid: an
+equal alias reuses one generated binding, while different aliases remain
+available when an application needs both local spellings. If the resources are
+genuinely different, give the host genuinely different supported module
+specifiers instead of relying on aliases to distinguish them. Ordered
+side-effect-only requests do not introduce a local binding and continue to use
+their own request-level attribute rules.
+
 ### Resource imports
 
 `Imports.text` names the common bundler/Bun contract where a text resource is a

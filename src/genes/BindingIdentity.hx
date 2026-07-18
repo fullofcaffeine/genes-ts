@@ -329,6 +329,15 @@ class BindingIdentity {
     }
   }
 
+  /** Returns a short, user-facing description for an imported ESM value. */
+  public static function selectorDescription(selector: ExportSelector): String {
+    return switch selector {
+      case DefaultExport: "default export";
+      case NamedExport(exactName): 'named export "$exactName"';
+      case NamespaceExport: "module namespace";
+    }
+  }
+
   public static function originsEqual(left: BindingOriginKey,
       right: BindingOriginKey): Bool {
     return switch [left, right] {
@@ -360,14 +369,32 @@ class BindingIdentity {
     return true;
   }
 
-  /** Same selector and requested local, deliberately ignoring the attribute. */
+  /**
+   * Reports whether two bindings select the same module export before their
+   * loader attributes are considered.
+   *
+   * Why: an import alias only changes the local word used in generated code.
+   * It does not create a second module or make conflicting loader rules safe.
+   * For example, naming one JSON import `FirstProfile` and another
+   * `SecondProfile` cannot make `type: "json"` and `type: "file"` agree.
+   * Supported Node versions can otherwise load or combine that request
+   * differently, so accepting it would make runtime behavior host-dependent.
+   *
+   * What: the module target, literal path, and exact default/named/namespace
+   * selector define this comparison. The requested local name, member suffix,
+   * source position, and attribute are deliberately excluded.
+   *
+   * How: dependency allocation calls this helper first, then compares the two
+   * attributes and reports `GENES-IMPORT-ATTRIBUTE-BINDING-001` when they
+   * differ. Side-effect-only requests have no local binding intent and remain
+   * governed by the ordered module-request plan instead.
+   */
   public static function attributeConflictKeyEquals(left: LocalBindingIntent,
       right: LocalBindingIntent): Bool {
     final leftExport = left.exportBinding;
     final rightExport = right.exportBinding;
     return leftExport.request.external == rightExport.request.external
       && leftExport.request.path == rightExport.request.path
-      && selectorsEqual(leftExport.selector, rightExport.selector)
-      && left.requestedLocal == right.requestedLocal;
+      && selectorsEqual(leftExport.selector, rightExport.selector);
   }
 }
