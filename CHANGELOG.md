@@ -1,3 +1,10 @@
+## [1.36.5](https://github.com/fullofcaffeine/genes-ts/compare/v1.36.4...v1.36.5) (2026-07-18)
+
+
+### Bug Fixes
+
+* **types:** retain built-in-name package instances ([227259c](https://github.com/fullofcaffeine/genes-ts/commit/227259c2626876e0dc4b4b06ba97025dbcdca685))
+
 ## [1.36.4](https://github.com/fullofcaffeine/genes-ts/compare/v1.36.3...v1.36.4) (2026-07-18)
 
 
