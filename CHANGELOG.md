@@ -1,3 +1,10 @@
+## [1.36.3](https://github.com/fullofcaffeine/genes-ts/compare/v1.36.2...v1.36.3) (2026-07-18)
+
+
+### Bug Fixes
+
+* **types:** preserve typed indexed reads ([77aa609](https://github.com/fullofcaffeine/genes-ts/commit/77aa609279886fd8f53f48e0d2b751f898489930))
+
 ## [1.36.2](https://github.com/fullofcaffeine/genes-ts/compare/v1.36.1...v1.36.2) (2026-07-18)
 
 
