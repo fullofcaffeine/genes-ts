@@ -30,5 +30,4 @@ export class HxOverrides {
 		return HxOverrides
 	}
 }
-
 ;((typeof(performance) != "undefined") ? typeof(performance.now) == "function" : false) ? HxOverrides.now = performance.now.bind(performance) : null

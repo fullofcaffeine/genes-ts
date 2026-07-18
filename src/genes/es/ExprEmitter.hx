@@ -1148,7 +1148,6 @@ class ExprEmitter extends Emitter {
             write(';');
             writeNewline();
           }
-          writeNewline();
           assign(el[el.length - 1]);
         });
       case TIf(cond, e, eo):
@@ -1219,7 +1218,16 @@ class ExprEmitter extends Emitter {
     write(' {');
     increaseIndent();
     writeNewline();
+    var hasClause = false;
+    // Insert separators before later clauses. Emitting one after every clause
+    // would eagerly indent a blank line before the switch's closing brace.
+    function startClause() {
+      if (hasClause)
+        writeNewline();
+      hasClause = true;
+    }
     for (c in cases) {
+      startClause();
       emitPos(c.expr.pos);
       for (v in c.values) {
         emitPos(v.pos);
@@ -1237,15 +1245,14 @@ class ExprEmitter extends Emitter {
       writeNewline();
       write('break'); // Todo: implement needs_switch_break
       decreaseIndent();
-      writeNewline();
     }
     switch def {
       case null:
       case e:
+        startClause();
         emitPos(e.pos);
         write('default:');
         leaf(e);
-        writeNewline();
     }
     decreaseIndent();
     writeNewline();
@@ -1427,16 +1434,31 @@ class ExprEmitter extends Emitter {
     }
   }
 
+  /**
+   * Emits one documentation block without indenting its empty content lines.
+   *
+   * Why: `writeNewline()` eagerly prepares indentation for the next token. A
+   * blank line inside hxdoc has no token, so using that helper leaves tabs on
+   * an otherwise empty generated line. What/How: documentation owns its line
+   * layout here; visible lines and the closing delimiter receive the current
+   * indent, while empty source lines receive only a newline.
+   */
   public function emitComment(text: Null<String>) {
     if (text == null)
       return;
     final comment = text.trim();
-    write('/**');
-    writeNewline();
+    write('/**\n');
     for (line in comment.split('\n')) {
-      write(line.trim());
-      writeNewline();
+      final content = line.trim();
+      if (content.length > 0) {
+        for (i in 0...indent)
+          write('\t');
+        write(content);
+      }
+      write('\n');
     }
+    for (i in 0...indent)
+      write('\t');
     write('*/');
     writeNewline();
   }

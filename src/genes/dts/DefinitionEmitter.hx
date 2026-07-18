@@ -357,11 +357,9 @@ class DefinitionEmitter extends ModuleEmitter {
             default: throw 'assert';
           }
         case Property:
-          writeNewline();
-          emitPos(field.pos);
-          if (field.doc != null)
-            writeNewline();
+          writeMemberNewline(field.doc != null);
           emitComment(field.doc);
+          emitPos(field.pos);
           if (!field.isPublic)
             write('protected ');
           if (field.isStatic)

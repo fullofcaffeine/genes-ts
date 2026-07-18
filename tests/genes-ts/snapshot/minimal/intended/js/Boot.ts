@@ -39,7 +39,6 @@ export class Boot {
 									_g.push(Boot.__string_rec((o[p] ?? null), s));
 								};
 							};
-
 							$r0 = _g
 							return $r0})(this)).join(",") + ")";
 					} else {
@@ -98,7 +97,6 @@ export class Boot {
 			default: {
 				return String(o);
 			}
-
 		};
 	}
 	static get __name__(): string {
@@ -108,5 +106,4 @@ export class Boot {
 		return Boot
 	}
 }
-
 ;Boot.__toStr = ({}).toString

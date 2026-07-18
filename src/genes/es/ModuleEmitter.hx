@@ -207,8 +207,38 @@ class ModuleEmitter extends ExprEmitter {
     writeNewline();
   }
 
+  /** Emits static initialization/bindings only when the class owns such output. */
   function emitStatics(checkCycles: (module: String) -> Bool, cl: ClassType,
       fields: Array<Field>) {
+    final isModuleFields = #if (haxe_ver >= 4.2)
+      cl.kind.match(KModuleFields(_));
+    #else
+      false;
+    #end
+    function hasJsRequire(field: Field): Bool {
+      if (!isModuleFields || !field.isStatic || field.meta == null)
+        return false;
+      return switch field.meta.extract(':jsRequire') {
+        case [{params: [{expr: EConst(CString(_))}]}] |
+          [{params: [{expr: EConst(CString(_))}, {expr: EConst(CString(_))}]}]:
+          true;
+        default:
+          false;
+      }
+    }
+    final hasOutput = fields.exists(field -> switch field {
+      case {kind: Property, isStatic: true, expr: expr} if (expr != null):
+        true;
+      case {isStatic: true, isPublic: true} if (isModuleFields):
+        true;
+      case field if (hasJsRequire(field)):
+        true;
+      default:
+        false;
+    });
+    if (!hasOutput)
+      return;
+
     writeNewline();
     for (field in fields)
       switch field {
@@ -225,7 +255,7 @@ class ModuleEmitter extends ExprEmitter {
       }
 
     #if (haxe_ver >= 4.2)
-    if (!cl.kind.match(KModuleFields(_)))
+    if (!isModuleFields)
       return;
 
     // Bind `@:jsRequire` module-level externs onto the module fields class.
@@ -564,7 +594,6 @@ class ModuleEmitter extends ExprEmitter {
       write('__ename__: "${id}",');
       writeNewline();
     }
-    writeNewline();
     for (name in join(et.names, () -> {
       write(',');
       writeNewline();

@@ -11,6 +11,5 @@ export class Std {
 		return Std
 	}
 }
-
 ;{
 }

@@ -24,7 +24,6 @@ Register.setHxClass("foo.FixtureError", FixtureError);
 
 Register.seedProtoField(FixtureError, "message");
 
-
 export class TypedCatch {
 
 	/**

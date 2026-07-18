@@ -320,9 +320,9 @@ function captureTree(spec: TreeSpec): TreeSnapshot {
  * newline. Those bytes are harmless at runtime but make generated files noisy
  * in editors and diffs.
  *
- * What/How: inspect the raw compiler-owned source and declaration artifacts,
- * while leaving source-map JSON and unrelated whitespace-only blank lines
- * alone. A separate assertion below owns documented-member separators.
+ * What/How: inspect the raw compiler-owned source and declaration artifacts.
+ * Source-map JSON is excluded because its encoded JSON strings are data rather
+ * than printed source lines.
  */
 function assertNoVisibleTrailingWhitespace(spec: TreeSpec): void {
   const root = path.join(repoRoot, spec.root);
@@ -347,8 +347,8 @@ function assertNoVisibleTrailingWhitespace(spec: TreeSpec): void {
   );
 }
 
-/** Rejects indentation on the blank separator before documented methods. */
-function assertCleanDocumentedMethodSeparators(spec: TreeSpec): void {
+/** Rejects emitter-owned indentation on otherwise empty generated lines. */
+function assertNoWhitespaceOnlyLines(spec: TreeSpec): void {
   const root = path.join(repoRoot, spec.root);
   const violations: string[] = [];
   const files = listFilesRecursive(root).filter((file) =>
@@ -358,15 +358,7 @@ function assertCleanDocumentedMethodSeparators(spec: TreeSpec): void {
   for (const file of files) {
     const lines = normalizeLineEndings(readFileSync(file, "utf8")).split("\n");
     lines.forEach((line, index) => {
-      const next = lines[index + 1];
-      if (!/^[ \t]+$/.test(line) || !next?.trimStart().startsWith("/**")) {
-        return;
-      }
-      const commentEnd = lines.findIndex((candidate, candidateIndex) =>
-        candidateIndex > index && candidate.trimStart().startsWith("*/")
-      );
-      const declaration = commentEnd >= 0 ? lines[commentEnd + 1] : undefined;
-      if (declaration?.includes("(")) {
+      if (/^[ \t]+$/.test(line)) {
         violations.push(`${slash(path.relative(root, file))}:${index + 1}`);
       }
     });
@@ -375,7 +367,7 @@ function assertCleanDocumentedMethodSeparators(spec: TreeSpec): void {
   strictEqual(
     violations.length,
     0,
-    `${spec.id} indents blank lines before documented methods:\n${violations.join("\n")}`
+    `${spec.id} contains whitespace-only generated lines:\n${violations.join("\n")}`
   );
 }
 
@@ -773,7 +765,7 @@ deepStrictEqual(secondTrees, firstTrees, "Two clean compiler builds produced dif
 deepStrictEqual(secondProfiles, firstProfiles, "Two clean compiler builds produced different metrics");
 for (const tree of manifest.trees) {
   assertNoVisibleTrailingWhitespace(tree);
-  assertCleanDocumentedMethodSeparators(tree);
+  assertNoWhitespaceOnlyLines(tree);
 }
 
 if (process.env.UPDATE_OUTPUT_QUALITY === "1") {
