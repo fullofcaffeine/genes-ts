@@ -67,19 +67,19 @@ export type FieldOverrideNested = {
 }
 
 /**
-* Fixture for TS optional-property contracts without changing Haxe field types.
-*
-* Why: this is the preferred way to model JavaScript DTO fields that are
-* omitted/undefined at the TypeScript boundary but still read as normal
-* `Null<T>` from Haxe source. It avoids broad `Undefinable<T>` wrappers and
-* avoids per-field string type overrides when the Haxe type is already right.
-*
-* What/How: `@:ts.optional` changes anonymous typedef field type emission to
-* `field?: T | undefined`. The explicit undefined member is required because
-* genes may preserve an own property whose value is undefined; it also keeps
-* function-valued fields grouped as `((...) => T) | undefined`. Object
-* literals and reads otherwise retain ordinary Haxe optional-field behavior.
-*/
+ * Fixture for TS optional-property contracts without changing Haxe field types.
+ *
+ * Why: this is the preferred way to model JavaScript DTO fields that are
+ * omitted/undefined at the TypeScript boundary but still read as normal
+ * `Null<T>` from Haxe source. It avoids broad `Undefinable<T>` wrappers and
+ * avoids per-field string type overrides when the Haxe type is already right.
+ *
+ * What/How: `@:ts.optional` changes anonymous typedef field type emission to
+ * `field?: T | undefined`. The explicit undefined member is required because
+ * genes may preserve an own property whose value is undefined; it also keeps
+ * function-valued fields grouped as `((...) => T) | undefined`. Object
+ * literals and reads otherwise retain ordinary Haxe optional-field behavior.
+ */
 export type TsOptionalRecord = {
 	kind?: ("primary" | "secondary") | undefined,
 	label?: string | undefined,
@@ -89,18 +89,18 @@ export type TsOptionalRecord = {
 }
 
 /**
-* Fixture for boundary-only TypeScript field type overrides.
-*
-* Why: most records should rely on inferred Haxe types, or on semantic markers
-* such as `@:ts.optional` when the mismatch is recurring and well understood.
-* Field-level `@:ts.type` remains available for lower-level boundaries where
-* the canonical TypeScript projection cannot be expressed directly in Haxe,
-* such as readonly arrays, imported ecosystem types, or host function shapes.
-*
-* What/How: each field keeps its Haxe type for object literals and normal
-* Haxe reads. genes-ts uses the metadata only when printing this anonymous
-* typedef field in generated TS source and declaration output.
-*/
+ * Fixture for boundary-only TypeScript field type overrides.
+ *
+ * Why: most records should rely on inferred Haxe types, or on semantic markers
+ * such as `@:ts.optional` when the mismatch is recurring and well understood.
+ * Field-level `@:ts.type` remains available for lower-level boundaries where
+ * the canonical TypeScript projection cannot be expressed directly in Haxe,
+ * such as readonly arrays, imported ecosystem types, or host function shapes.
+ *
+ * What/How: each field keeps its Haxe type for object literals and normal
+ * Haxe reads. genes-ts uses the metadata only when printing this anonymous
+ * typedef field in generated TS source and declaration output.
+ */
 export type FieldOverrideRecord = {
 	label?: string,
 	nested?: FieldOverrideNested,
@@ -109,13 +109,13 @@ export type FieldOverrideRecord = {
 }
 
 /**
-* Fixture for Haxe-safe aliases over external JavaScript property names.
-*
-* `function` is a TypeScript/JavaScript keyword, so Haxe source uses `fn`.
-* `@:native("function")` requires generated TS types, object literals, and
-* field access to use the runtime property name while Haxe keeps typechecking
-* against the safe alias.
-*/
+ * Fixture for Haxe-safe aliases over external JavaScript property names.
+ *
+ * `function` is a TypeScript/JavaScript keyword, so Haxe source uses `fn`.
+ * `@:native("function")` requires generated TS types, object literals, and
+ * field access to use the runtime property name while Haxe keeps typechecking
+ * against the safe alias.
+ */
 export type NativeFunctionRecord = {
 	function: NativeFunctionPayload
 }

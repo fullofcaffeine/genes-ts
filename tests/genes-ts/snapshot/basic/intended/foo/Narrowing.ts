@@ -7,15 +7,15 @@ export type NarrowedPayload = {
 export class Narrowing {
 
 	/**
-	Why: Haxe can narrow a nullable switch subject by giving the `null` case an
-	exiting branch. genes-ts should preserve that flow fact in generated
-	TypeScript instead of inserting an identity `Register.unsafeCast`.
-
-	What/How: the non-null `case payload` branch becomes the initializer for a
-	non-null local. The snapshot protects the IIFE-based switch-expression
-	emission path, which needs expected-type context just like `if`
-	expressions, returns, object fields, and ordinary local initializers.
-	*/
+	 * Why: Haxe can narrow a nullable switch subject by giving the `null` case an
+	 * exiting branch. genes-ts should preserve that flow fact in generated
+	 * TypeScript instead of inserting an identity `Register.unsafeCast`.
+	 *
+	 * What/How: the non-null `case payload` branch becomes the initializer for a
+	 * non-null local. The snapshot protects the IIFE-based switch-expression
+	 * emission path, which needs expected-type context just like `if`
+	 * expressions, returns, object fields, and ordinary local initializers.
+	 */
 	static switchExitingNull(input: NarrowedPayload | null): string {
 		let payload: NarrowedPayload;
 		if (input == null) {

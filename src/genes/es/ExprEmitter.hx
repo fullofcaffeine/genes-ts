@@ -1435,31 +1435,50 @@ class ExprEmitter extends Emitter {
   }
 
   /**
-   * Emits one documentation block without indenting its empty content lines.
+   * Emits one conventional JSDoc block without whitespace-only lines.
    *
-   * Why: `writeNewline()` eagerly prepares indentation for the next token. A
-   * blank line inside hxdoc has no token, so using that helper leaves tabs on
-   * an otherwise empty generated line. What/How: documentation owns its line
-   * layout here; visible lines and the closing delimiter receive the current
-   * indent, while empty source lines receive only a newline.
+   * Why: downstream formatters and bundlers indent empty comment lines, which
+   * turns a visually blank hxdoc line into trailing whitespace even when the
+   * direct Genes output was clean. What/How: every content line carries the
+   * standard visible ` *` prefix. A block whose source lines all carry the
+   * conventional leading `*` is normalized before that prefix is added. Empty
+   * hxdoc lines therefore remain explicit comment lines, and generated source
+   * reads like ordinary handwritten JS/TS.
    */
   public function emitComment(text: Null<String>) {
     if (text == null)
       return;
     final comment = text.trim();
-    write('/**\n');
-    for (line in comment.split('\n')) {
+    final lines = comment.split('\n');
+    var usesSourceStarLeaders = false;
+    var allContentUsesStarLeaders = true;
+    for (line in lines) {
       final content = line.trim();
       if (content.length > 0) {
-        for (i in 0...indent)
-          write('\t');
-        write(content);
+        usesSourceStarLeaders = true;
+        if (content.charAt(0) != '*')
+          allContentUsesStarLeaders = false;
       }
+    }
+    usesSourceStarLeaders = usesSourceStarLeaders && allContentUsesStarLeaders;
+    write('/**\n');
+    for (line in lines) {
+      var content = line.trim();
+      if (usesSourceStarLeaders && content.charAt(0) == '*') {
+        content = content.substr(1);
+        if (content.charAt(0) == ' ')
+          content = content.substr(1);
+      }
+      for (i in 0...indent)
+        write('\t');
+      write(' *');
+      if (content.length > 0)
+        write(' ' + content);
       write('\n');
     }
     for (i in 0...indent)
       write('\t');
-    write('*/');
+    write(' */');
     writeNewline();
   }
 

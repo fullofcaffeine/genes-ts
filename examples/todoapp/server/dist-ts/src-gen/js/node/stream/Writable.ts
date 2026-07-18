@@ -1,9 +1,9 @@
 import {Register} from "../../../genes/Register.js"
 
 /**
-Options for `Writable` private constructor.
-For stream implementors only, see node.js API documentation
-*/
+ * Options for `Writable` private constructor.
+ * For stream implementors only, see node.js API documentation
+ */
 export type WritableNewOptions = {
 	decodeStrings?: boolean | null,
 	defaultEncoding?: string | null,
