@@ -27,14 +27,14 @@ Register.seedProtoField(FixtureError, "message");
 export class TypedCatch {
 
 	/**
-	Why: Haxe lowers `catch (error:FixtureError)` through
-	`haxe.Exception.caught(raw).unwrap()` and a runtime type guard. genes-ts
-	must not expose the lowered dynamic temporary as a weak user-module type.
-
-	What/How: this fixture catches a user-defined class, reads a typed field,
-	and has a fallback catch so the generated TS must preserve both Haxe's
-	runtime matching semantics and strict user-module typing.
-	*/
+	 * Why: Haxe lowers `catch (error:FixtureError)` through
+	 * `haxe.Exception.caught(raw).unwrap()` and a runtime type guard. genes-ts
+	 * must not expose the lowered dynamic temporary as a weak user-module type.
+	 *
+	 * What/How: this fixture catches a user-defined class, reads a typed field,
+	 * and has a fallback catch so the generated TS must preserve both Haxe's
+	 * runtime matching semantics and strict user-module typing.
+	 */
 	static recover(kind: string): string {
 		try {
 			if (kind == "fixture") {

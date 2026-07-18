@@ -16,27 +16,27 @@ export type PathModule = {
 }
 
 /**
-Path object returned from `Path.parse` and taken by `Path.format`.
-*/
+ * Path object returned from `Path.parse` and taken by `Path.format`.
+ */
 export type PathObject = {
 	/**
-	E.g. "index.html" for "C:\path\dir\index.html"
-	*/
+	 * E.g. "index.html" for "C:\path\dir\index.html"
+	 */
 	base: string,
 	/**
-	E.g. "C:\path\dir" for "C:\path\dir\index.html"
-	*/
+	 * E.g. "C:\path\dir" for "C:\path\dir\index.html"
+	 */
 	dir: string,
 	/**
-	E.g. ".html" for "C:\path\dir\index.html"
-	*/
+	 * E.g. ".html" for "C:\path\dir\index.html"
+	 */
 	ext: string,
 	/**
-	E.g. "index" for "C:\path\dir\index.html"
-	*/
+	 * E.g. "index" for "C:\path\dir\index.html"
+	 */
 	name: string,
 	/**
-	E.g. "C:\" for "C:\path\dir\index.html"
-	*/
+	 * E.g. "C:\" for "C:\path\dir\index.html"
+	 */
 	root: string
 }

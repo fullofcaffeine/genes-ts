@@ -11,8 +11,8 @@ export type JsonAliasEnvelope = {
 }
 
 /**
-* Snapshot fixture for aliases that reach `JsonValue` through a local abstract.
-*/
+ * Snapshot fixture for aliases that reach `JsonValue` through a local abstract.
+ */
 export class JsonAlias {
 	static passthrough(input: JsonAliasEnvelope): JsonAliasEnvelope {
 		return input;
