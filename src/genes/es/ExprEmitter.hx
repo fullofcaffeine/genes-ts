@@ -1492,6 +1492,20 @@ class ExprEmitter extends Emitter {
       write('\t');
   }
 
+  /**
+   * Starts a member line and inserts one clean separator for documentation.
+   *
+   * Why: two consecutive ordinary newline calls eagerly indent the empty line,
+   * leaving invisible trailing tabs before documented members. What/How: the
+   * separator is emitted as part of the newline sequence before indentation,
+   * preserving source-map columns on the actual member line.
+   */
+  public function writeMemberNewline(hasDocumentation: Bool) {
+    write(hasDocumentation ? '\n\n' : '\n');
+    for (i in 0...indent)
+      write('\t');
+  }
+
   function writeSpace()
     write(' ');
 

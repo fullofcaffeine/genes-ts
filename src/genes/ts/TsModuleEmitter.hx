@@ -1161,9 +1161,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           switch field.expr {
             case null:
             case {expr: TFunction(f)}:
-              writeNewline();
-              if (field.doc != null)
-                writeNewline();
+              writeMemberNewline(field.doc != null);
               emitComment(field.doc);
               if (!field.kind.equals(Constructor) && field.overloads.length > 0)
                 emitClassMethodOverloadSignatures(cl, field);
@@ -1435,9 +1433,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       #end
       switch field.expr {
         case {expr: TFunction(f)}:
-          writeNewline();
-          if (field.doc != null)
-            writeNewline();
+          writeMemberNewline(field.doc != null);
           emitComment(field.doc);
           emitPos(field.pos);
           final isAsync = field.meta != null

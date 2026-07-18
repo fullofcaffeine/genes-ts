@@ -264,9 +264,7 @@ class DefinitionEmitter extends ModuleEmitter {
         case Constructor | Method:
           switch field.type {
             case TFun(args, ret):
-              writeNewline();
-              if (field.doc != null)
-                writeNewline();
+              writeMemberNewline(field.doc != null);
               emitComment(field.doc);
               if (!field.isPublic)
                 write('protected ');

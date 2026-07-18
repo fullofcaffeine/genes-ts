@@ -401,9 +401,7 @@ class ModuleEmitter extends ExprEmitter {
           switch field.expr {
             case null:
             case {expr: TFunction(f)}:
-              writeNewline();
-              if (field.doc != null)
-                writeNewline();
+              writeMemberNewline(field.doc != null);
               emitComment(field.doc);
               emitPos(field.pos);
               final isAsync = field.meta != null && (field.meta.has(':jsAsync') || field.meta.has('jsAsync'));
