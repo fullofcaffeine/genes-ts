@@ -40,6 +40,7 @@ run("node", ["scripts/dist/test-side-effect-import-evidence.js"]);
 run("node", ["scripts/dist/test-module-directives.js"]);
 run("node", ["scripts/dist/test-internal-types.js"]);
 run("node", ["scripts/dist/test-finally-completion.js"]);
+run("node", ["scripts/dist/test-deep-nullish-alias.js"]);
 
 if (!skipTs2hx) {
   run("yarn", ["--cwd", "tools/ts2hx", "test"]);

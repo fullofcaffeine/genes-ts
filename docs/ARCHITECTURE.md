@@ -152,6 +152,14 @@ capability diagnostic in classic mode.
   and never enters `.d.ts`.
 - Public generated TypeScript is closed and precise. Broad `any`, `unknown`, or
   catch-all index signatures require a named, documented foreign boundary.
+- A long, valid chain of Haxe type aliases must not weaken the final type. Genes
+  still needs to know whether the value is always present, may be `null`, or
+  may be JavaScript `undefined`. An internal 64-step safety limit prevents an
+  unexpected recursive compiler type from looping forever, but it is not a
+  user-facing limit on aliases. `yarn test:deep-nullish-alias` checks a 66-link
+  chain in fields, function parameters and results, and map reads across
+  standard Haxe, classic Genes, and genes-ts. See
+  `tests/deep-nullish-alias/README.md` for the beginner-oriented explanation.
 - A finalizer executes exactly once. `FinallyCompletion.run` places only its
   protected callback inside the catchable Haxe `try`; placing the normal-path
   finalizer there would catch a finalizer throw and incorrectly invoke the
@@ -211,7 +219,7 @@ layer when a change affects more than one contract.
 | JSX profiles and prop/child typing | React snapshot fixture and TSX consumers | `yarn test:genes-ts:tsx` |
 | Exported-surface rejection | `tests/typing-policy/`, `tests/publicsurface/` | `yarn test:types:exports` |
 | Classic `.d.ts` consumer behavior | `tests/classic-dts/` | `yarn test:classic:dts` |
-| Nullish/map/iterator contract | `tests/nullish/` | Owning genes-ts/full and exported-surface gates |
+| Nullish/map/iterator contract | `tests/nullish/`, `tests/deep-nullish-alias/` | Owning genes-ts/full/exported-surface gates and `yarn test:deep-nullish-alias` |
 | Type-only reachability and DCE | `tests/typeonly/` | Owning genes-ts/full and dual-output gates |
 | Same-source TS/classic parity | `tests/output-modes/` | `yarn test:dual-output` |
 | String literal code units and escaping | `tests/string-literals/` | `yarn test:string-literals` |

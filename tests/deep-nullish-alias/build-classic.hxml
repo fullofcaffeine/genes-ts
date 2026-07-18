@@ -1,0 +1,8 @@
+-lib genes-ts
+-cp tests/deep-nullish-alias/src
+--main deepnullish.Main
+-js tests/deep-nullish-alias/out/classic/index.js
+-D dts
+-D no-deprecation-warnings
+-D js-es=6
+-dce full

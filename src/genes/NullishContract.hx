@@ -321,10 +321,13 @@ final class NullishContract {
   }
 
   static function classify(type: Type, depth = 0): NullishTypeFacts {
-    // Recursive typedefs cannot usefully alter a top-level nullish decision.
-    // Treat an unexpectedly deep alias chain as a dynamic boundary, preserving
-    // the compiler's historical permissive behavior instead of recursing
-    // forever during code generation.
+    // Haxe normally resolves a valid chain of type aliases before this method
+    // needs to inspect the underlying type. The 64-step limit below is a safety
+    // net for an unexpected recursive compiler type that might otherwise make
+    // code generation loop forever; it is not a limit on aliases users may
+    // write. The 66-link fixture in tests/deep-nullish-alias verifies that
+    // ordinary aliases still preserve the exact null/undefined behavior.
+    // See that fixture's README for a plain-language example and test command.
     if (depth > 64)
       return {
         haxeAllowsNull: true,
