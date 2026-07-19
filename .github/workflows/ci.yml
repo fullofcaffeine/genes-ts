@@ -163,7 +163,7 @@ jobs:
       - run: yarn test:library-profile
 
   genes-ts-smoke-next-lts:
-    name: genes-ts smoke (Node next LTS)
+    name: genes-ts smoke (Node latest LTS)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

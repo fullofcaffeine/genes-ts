@@ -346,7 +346,7 @@ function renderMarkdown(report: ReturnType<typeof createReport>): string {
 
   lines.push("", "## Toolchain contract", "", "| Surface | Lane | Pin | Contract |", "| --- | --- | --- | --- |");
   lines.push(`| Node | stable | ${report.toolchains.node.stable} | blocking runtime lane |`);
-  lines.push(`| Node | next LTS | ${report.toolchains.node.nextLts} | blocking runtime lane |`);
+  lines.push(`| Node | latest LTS | ${report.toolchains.node.nextLts} | blocking runtime lane |`);
   lines.push(`| Haxe | stable | ${report.toolchains.haxe.stable} | blocking compiler lane |`);
   lines.push(`| Haxe | preview | ${report.toolchains.haxe.preview} | nonblocking early warning |`);
   for (const [lane, contract] of Object.entries(report.toolchains.typescript)) {

@@ -214,10 +214,107 @@ if (haxercVersion !== toolchains.haxe.stable) {
   );
 }
 
-const nodeMajor = process.versions.node.split(".")[0];
-if (![toolchains.node.stable, toolchains.node.nextLts].includes(nodeMajor)) {
+function nodeMajor(value: string, label: string): number {
+  if (!/^[0-9]+$/.test(value)) {
+    throw new Error(`Expected ${label} to be a Node major version, got ${value}`);
+  }
+  return Number(value);
+}
+
+function admitsNodeMajor(
+  candidate: number,
+  supportedFloor: number,
+  latestLts: number
+): boolean {
+  return candidate >= supportedFloor && candidate <= latestLts;
+}
+
+/**
+ * Exercises the complete manifest-defined boundary on every version-policy run.
+ *
+ * The hosted matrix proves the two LTS endpoints with real Node installations.
+ * These derived cases additionally prove that intervening migration majors are
+ * admitted while the immediately older and newer majors fail. Keeping the
+ * samples relative to the manifest avoids creating a second list of Node
+ * versions that could drift from the policy owner.
+ */
+function verifyNodeAdmissionBoundary(
+  supportedFloor: number,
+  latestLts: number
+): void {
+  const cases: Array<{
+    major: number;
+    expected: boolean;
+    label: string;
+  }> = [
+    {
+      major: supportedFloor - 1,
+      expected: false,
+      label: "major below the supported floor",
+    },
+    {
+      major: supportedFloor,
+      expected: true,
+      label: "supported floor",
+    },
+  ];
+  for (let major = supportedFloor + 1; major < latestLts; major += 1) {
+    cases.push({
+      major,
+      expected: true,
+      label: "intervening migration major",
+    });
+  }
+  cases.push(
+    {
+      major: latestLts,
+      expected: true,
+      label: "latest LTS",
+    },
+    {
+      major: latestLts + 1,
+      expected: false,
+      label: "unreviewed future major",
+    }
+  );
+
+  for (const testCase of cases) {
+    const actual = admitsNodeMajor(
+      testCase.major,
+      supportedFloor,
+      latestLts
+    );
+    if (actual !== testCase.expected) {
+      throw new Error(
+        `Node admission policy rejected its ${testCase.label} case: `
+          + `major=${testCase.major}, expected=${testCase.expected}, actual=${actual}`
+      );
+    }
+  }
+}
+
+const supportedNodeFloor = nodeMajor(toolchains.node.stable, "node.stable");
+const latestNodeLts = nodeMajor(toolchains.node.nextLts, "node.nextLts");
+if (supportedNodeFloor >= latestNodeLts) {
   throw new Error(
-    `Node ${process.versions.node} is outside manifest lanes ${toolchains.node.stable}/${toolchains.node.nextLts}`
+    `Expected node.stable (${supportedNodeFloor}) to precede node.nextLts (${latestNodeLts})`
+  );
+}
+verifyNodeAdmissionBoundary(supportedNodeFloor, latestNodeLts);
+
+const runningNodeMajor = nodeMajor(
+  process.versions.node.split(".")[0],
+  "running Node major"
+);
+
+// CI owns both LTS endpoints. An intervening odd major may keep a local
+// checkout working during migration, but docs do not present it as LTS or as a
+// hosted support lane. Future majors still fail until CI deliberately moves
+// the upper bound.
+if (!admitsNodeMajor(runningNodeMajor, supportedNodeFloor, latestNodeLts)) {
+  throw new Error(
+    `Node ${process.versions.node} is outside the admitted major range `
+      + `${toolchains.node.stable}-${toolchains.node.nextLts}`
   );
 }
 

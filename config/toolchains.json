@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "node": {
-    "stable": "20",
-    "nextLts": "22"
+    "stable": "22",
+    "nextLts": "24"
   },
   "haxe": {
     "stable": "4.3.7",
