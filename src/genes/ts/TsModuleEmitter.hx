@@ -38,11 +38,6 @@ using genes.util.TypeUtil;
 using Lambda;
 using haxe.macro.Tools;
 
-typedef NullNarrowCheck = {
-  final nonNullWhenTrue: Array<String>;
-  final nonNullWhenFalse: Array<String>;
-}
-
 typedef PrivateMethodCall = {
   final owner: ClassType;
   final field: ClassField;
@@ -78,10 +73,8 @@ class TsModuleEmitter extends JsModuleEmitter {
   var inAssignTarget: Bool = false;
   var currentClass: Null<ClassType> = null;
   var currentReturnIsVoidLike: Bool = false;
-  var mapKeyIteratorOrigins: Map<Int, String> = [];
-  var mapKeyLocalOrigins: Map<Int, String> = [];
   var localTsTypeOverrides: Map<Int, String> = [];
-  var narrowedNonNullKeys: Array<String> = [];
+  var narrowingPlan: Null<TsNarrowingPlan> = null;
   var inRawSyntaxTemplate: Bool = false;
   var suppressOptionalFieldNullNormalization: Bool = false;
   var suppressPromiseResolveNullThenableCast: Bool = false;
@@ -166,7 +159,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     jsxEmitTsx = genes.Genes.outExtension == '.tsx';
     configureLowering(module, TypeScriptReadable, jsxEmitTsx);
     configureTemplateLiterals(module.templateLiteralPlan);
-    narrowedNonNullKeys = [];
+    narrowingPlan = module.tsNarrowingPlan;
     final jsxPlan = module.jsxPlan;
     final jsxCapability = JsxCapabilityPolicy.current();
     final usesReactJsxMarkers = jsxPlan.hasIntents;
@@ -1914,12 +1907,6 @@ class TsModuleEmitter extends JsModuleEmitter {
     final emittedTypeOverride = (narrowedOptionalInit || narrowedNonNullInit) ? null : localTsTypeOverride(eo);
     if (emittedTypeOverride != null)
       localTsTypeOverrides.set(v.id, emittedTypeOverride);
-    final mapKeysOrigin = eo == null ? null : mapKeysIteratorOrigin(eo);
-    if (mapKeysOrigin != null)
-      mapKeyIteratorOrigins.set(v.id, mapKeysOrigin);
-    final mapKeyOrigin = eo == null ? null : mapIteratorNextOrigin(eo);
-    if (mapKeyOrigin != null)
-      mapKeyLocalOrigins.set(v.id, mapKeyOrigin);
     write('$declare ');
     emitLocalVar(v);
     write(': ');
@@ -2436,19 +2423,16 @@ class TsModuleEmitter extends JsModuleEmitter {
         writeSpace();
         emitOperand(e2);
       case TIf(cond, thenExpr, elseExpr):
-        final check = nullNarrowCheck(cond);
         final expected = currentExpectedValueType;
         emitValue(cond);
         write(' ? ');
-        emitNullNarrowedBranch(check, true,
-          () -> emitValueWithExpectedType(expected, thenExpr));
+        emitValueWithExpectedType(expected, thenExpr);
         write(' : ');
         switch elseExpr {
           case null:
             write('null');
           case branch:
-            emitNullNarrowedBranch(check, false,
-              () -> emitValueWithExpectedType(expected, branch));
+            emitValueWithExpectedType(expected, branch);
         }
       case TField(_, field)
         if (StdlibTypeOverrides.needsArrayBufferAssertion(e.t, field)):
@@ -2485,7 +2469,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TBlock(el):
         write('{');
         increaseIndent();
-        emitNarrowedBlockElements(el);
+        for (element in el)
+          emitBlockElement(element);
         decreaseIndent();
         writeNewline();
         write('}');
@@ -2762,10 +2747,6 @@ class TsModuleEmitter extends JsModuleEmitter {
             emitLocalIdent(tempIt);
         }
 
-        final mapKeysOrigin = localIt == null ? mapKeysIteratorOrigin(itExpr) : mapKeyIteratorOrigins.get(localIt.id);
-        final mapGetKey = mapKeysOrigin == null ? null : mapGetNarrowKeyFromParts(mapKeysOrigin,
-          stableValueKey({expr: TLocal(v), t: v.t, pos: itExpr.pos}));
-
         write('while (');
         emitIterator();
         write('.hasNext()) {');
@@ -2777,40 +2758,25 @@ class TsModuleEmitter extends JsModuleEmitter {
         emitIterator();
         write('.next()');
         writeNewline();
-        if (mapGetKey == null) {
-          emitBlockElement(body);
-        } else {
-          final previousKeyOrigin = mapKeyLocalOrigins.get(v.id);
-          mapKeyLocalOrigins.set(v.id, mapKeysOrigin);
-          narrowedNonNullKeys.push(mapGetKey);
-          emitBlockElement(body);
-          narrowedNonNullKeys.pop();
-          if (previousKeyOrigin == null)
-            mapKeyLocalOrigins.remove(v.id);
-          else
-            mapKeyLocalOrigins.set(v.id, previousKeyOrigin);
-        }
+        emitBlockElement(body);
         decreaseIndent();
         writeNewline();
         write('}');
         inLoop = wasInLoop;
       case TIf(cond, thenExpr, elseExpr):
-        final check = nullNarrowCheck(cond);
         write('if ');
         emitValue(cond);
         writeSpace();
-        emitNullNarrowedBranch(check, true,
-          () -> emitExpr(TypeUtil.block(thenExpr)));
+        emitExpr(TypeUtil.block(thenExpr));
         switch elseExpr {
           case null:
           case branch:
             emitPos(branch.pos);
             write(' else ');
-            emitNullNarrowedBranch(check, false,
-              () -> emitExpr(switch branch.expr {
-                case TIf(_, _, _): branch;
-                case _: TypeUtil.block(branch);
-              }));
+            emitExpr(switch branch.expr {
+              case TIf(_, _, _): branch;
+              case _: TypeUtil.block(branch);
+            });
         }
       case TTry(etry, [{v: v, expr: ecatch}]):
         write('try ');
@@ -2826,8 +2792,6 @@ class TsModuleEmitter extends JsModuleEmitter {
         final inLoop = this.inLoop;
         final prevReturn = currentReturnType;
         final prevVoidLike = currentReturnIsVoidLike;
-        final prevNarrowedNonNullKeys = narrowedNonNullKeys;
-        narrowedNonNullKeys = [];
         currentReturnType = switch e.t {
           case TFun(_, ret): ret;
           default: null;
@@ -2882,7 +2846,6 @@ class TsModuleEmitter extends JsModuleEmitter {
         this.inLoop = inLoop;
         currentReturnType = prevReturn;
         currentReturnIsVoidLike = prevVoidLike;
-        narrowedNonNullKeys = prevNarrowedNonNullKeys;
       case TBinop(op = OpGt | OpGte | OpLt | OpLte, e1, e2)
         if ((typeAllowsNull(e1.t) && isNumberLike(e1.t))
           || (typeAllowsNull(e2.t) && isNumberLike(e2.t))):
@@ -2938,381 +2901,23 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   /**
-   * Why: nullable Haxe values often lower to TypeScript unions containing
-   * `null`. If Haxe has already proven a stable nullable local or optional
-   * field non-null, emitting `Register.unsafeCast<T>(value)` is noisier than
-   * the TypeScript code a person would write and hides useful flow facts.
+   * Reads the semantic plan instead of inferring control flow while printing.
    *
-   * What/How: for stable locals and stable optional field paths only
-   * (`local`, `local.field`, `this.field`, and nested field chains), record
-   * null facts proven by direct `== null` / `!= null` checks. The facts flow
-   * through simple boolean conditions: `a && b` proves true-branch facts from
-   * both sides, while `a || b` proves false-branch facts from both sides. An
-   * `if (value == null)` branch that exits with `return`, `throw`, `continue`,
-   * or `break` proves the following same-block statements are in the non-null
-   * path. Those facts intentionally reset at nested function expressions because
-   * TypeScript does not trust captured mutable locals to stay narrowed when a
-   * callback runs later. Matching locals can then emit directly, and matching
-   * optional field reads emit as `receiver.field!`. Unstable receivers such as
-   * calls stay on the conservative cast / `?? null` paths.
+   * A missing entry is intentionally conservative. It can occur for the small
+   * default-argument checks synthesized by `getFunctionBody`; those generated
+   * checks do not establish source-level facts for later expressions.
    */
-  function nullNarrowCheck(e: TypedExpr): Null<NullNarrowCheck> {
-    return switch unwrapExpr(e).expr {
-      case TBinop(op = OpEq | OpNotEq, left, right):
-        final leftKey = nonNullNarrowKey(left);
-        if (leftKey != null && isNullConst(unwrapExpr(right))) {
-          op == OpNotEq ? {
-            nonNullWhenTrue: [leftKey],
-            nonNullWhenFalse: []
-          } : {
-            nonNullWhenTrue: [],
-            nonNullWhenFalse: [leftKey]
-          };
-        } else {
-          final rightKey = nonNullNarrowKey(right);
-          if (rightKey != null && isNullConst(unwrapExpr(left)))
-            op == OpNotEq ? {
-              nonNullWhenTrue: [rightKey],
-              nonNullWhenFalse: []
-            } : {
-              nonNullWhenTrue: [],
-              nonNullWhenFalse: [rightKey]
-            }
-          else
-            null;
-        }
-      case TBinop(OpBoolAnd, left, right):
-        final leftCheck = nullNarrowCheck(left);
-        final rightCheck = nullNarrowCheck(right);
-        if (leftCheck == null && rightCheck == null) null else {
-          nonNullWhenTrue: uniqueNarrowKeys(concatNarrowKeys(leftCheck == null ? [] : leftCheck.nonNullWhenTrue,
-            rightCheck == null ? [] : rightCheck.nonNullWhenTrue)),
-          nonNullWhenFalse: []
-        };
-      case TBinop(OpBoolOr, left, right):
-        final leftCheck = nullNarrowCheck(left);
-        final rightCheck = nullNarrowCheck(right);
-        if (leftCheck == null && rightCheck == null) null else {
-          nonNullWhenTrue: [],
-          nonNullWhenFalse: uniqueNarrowKeys(concatNarrowKeys(leftCheck == null ? [] : leftCheck.nonNullWhenFalse,
-            rightCheck == null ? [] : rightCheck.nonNullWhenFalse))
-        };
-      case TUnop(OpNot, _, inner):
-        final check = nullNarrowCheck(inner);
-        check == null ? null : {
-          nonNullWhenTrue: check.nonNullWhenFalse,
-          nonNullWhenFalse: check.nonNullWhenTrue
-        };
-      case TCall({expr: TField(mapExpr, f)}, [keyExpr])
-        if (fieldAccessName(f) == "exists"):
-        final key = mapGetNarrowKeyFromParts(stableMapKey(mapExpr),
-          stableValueKey(keyExpr));
-        key == null ? null : {
-          nonNullWhenTrue: [key],
-          nonNullWhenFalse: []
-        };
-      default:
-        null;
-    }
-  }
-
-  function emitNullNarrowedBranch(check: Null<NullNarrowCheck>,
-      thenBranch: Bool, emit: Void->Void) {
-    final keys = check == null ? [] : thenBranch ? check.nonNullWhenTrue : check.nonNullWhenFalse;
-    if (keys.length == 0) {
-      emit();
-      return;
-    }
-
-    for (key in keys)
-      narrowedNonNullKeys.push(key);
-    emit();
-    for (_ in keys)
-      narrowedNonNullKeys.pop();
-  }
-
-  function emitNarrowedBlockElements(elements: Array<TypedExpr>) {
-    var activeKeys: Array<String> = [];
-    for (element in elements) {
-      for (key in activeKeys)
-        narrowedNonNullKeys.push(key);
-      emitBlockElement(element);
-      for (_ in activeKeys)
-        narrowedNonNullKeys.pop();
-      activeKeys = removeNarrowKeys(activeKeys, assignedNarrowKeys(element));
-      activeKeys = uniqueNarrowKeys(concatNarrowKeys(activeKeys,
-        continuationNonNullKeys(element)));
-    }
-  }
-
-  function continuationNonNullKeys(e: TypedExpr): Array<String> {
-    return switch unwrapExpr(e).expr {
-      case TVar(v, init)
-        if (init != null && isNarrowedNonNull(init) && typeAllowsNull(v.t)):
-        // Haxe can introduce a nullable local while lowering patterns such as
-        // `case value:` in the non-null branch of a nullable switch. The
-        // initializer is already proven non-null by the surrounding branch, so
-        // carry that flow fact to the next statement and avoid emitting a
-        // TypeScript-only identity cast when the local is consumed immediately.
-        ['local:${v.id}'];
-      case TIf(cond, thenExpr, null): final check = nullNarrowCheck(cond); check != null && definitelyExits(thenExpr) ? check.nonNullWhenFalse : [];
-      default:
-        [];
-    }
-  }
-
-  function assignedNarrowKeys(e: TypedExpr): Array<String> {
-    return switch unwrapExpr(e).expr {
-      case TBinop(OpAssign | OpAssignOp(_), lhs, _):
-        final key = nonNullNarrowKey(lhs);
-        key == null ? [] : [key];
-      case TBlock(elements):
-        var keys: Array<String> = [];
-        for (element in elements)
-          keys = concatNarrowKeys(keys, assignedNarrowKeys(element));
-        uniqueNarrowKeys(keys);
-      case TIf(_, thenExpr, elseExpr):
-        var keys = assignedNarrowKeys(thenExpr);
-        if (elseExpr != null)
-          keys = concatNarrowKeys(keys, assignedNarrowKeys(elseExpr));
-        uniqueNarrowKeys(keys);
-      default:
-        [];
-    }
-  }
-
-  static function definitelyExits(e: TypedExpr): Bool {
-    return switch unwrapExpr(e).expr {
-      case TReturn(_) | TThrow(_) | TContinue | TBreak:
-        true;
-      case TBlock(elements): elements.length > 0 && definitelyExits(elements[elements.length
-          - 1]);
-      case TIf(_, thenExpr, elseExpr): elseExpr != null && definitelyExits(thenExpr) && definitelyExits(elseExpr);
-      default:
-        false;
-    }
-  }
-
-  static function concatNarrowKeys(left: Array<String>,
-      right: Array<String>): Array<String> {
-    final out = left.copy();
-    for (key in right)
-      out.push(key);
-    return out;
-  }
-
-  static function uniqueNarrowKeys(keys: Array<String>): Array<String> {
-    final out: Array<String> = [];
-    for (key in keys) {
-      var exists = false;
-      for (item in out)
-        if (item == key) {
-          exists = true;
-          break;
-        }
-      if (!exists)
-        out.push(key);
-    }
-    return out;
-  }
-
-  static function removeNarrowKeys(keys: Array<String>,
-      removed: Array<String>): Array<String> {
-    if (removed.length == 0)
-      return keys;
-    final out: Array<String> = [];
-    for (key in keys) {
-      var keep = true;
-      for (item in removed)
-        if (item == key) {
-          keep = false;
-          break;
-        }
-      if (keep)
-        out.push(key);
-    }
-    return out;
+  function isNarrowedNonNull(e: TypedExpr): Bool {
+    final plan = narrowingPlan;
+    return plan != null && plan.isKnownNonNull(e);
   }
 
   function isNarrowedOptionalField(e: TypedExpr): Bool {
-    final key = optionalFieldNarrowKey(e);
-    if (key == null)
-      return false;
-    for (narrowed in narrowedNonNullKeys)
-      if (narrowed == key)
-        return true;
-    return false;
-  }
-
-  function isNarrowedNonNull(e: TypedExpr): Bool {
-    final key = nonNullNarrowKey(e);
-    if (key != null)
-      for (narrowed in narrowedNonNullKeys)
-        if (narrowed == key)
-          return true;
-    return isMapGetFromKnownKey(e);
-  }
-
-  function nonNullNarrowKey(e: TypedExpr): Null<String> {
-    final unwrapped = unwrapExpr(e);
-    return switch unwrapped.expr {
-      case TLocal(v) if (typeAllowsNull(unwrapped.t)):
-        'local:${v.id}';
-      default:
-        final mapKey = mapGetNarrowKey(unwrapped);
-        mapKey != null ? mapKey : optionalFieldNarrowKey(unwrapped);
-    }
-  }
-
-  /**
-   * Why: Haxe `Map.get` returns `Null<V>` because a key can be missing, even
-   * when `V` itself is non-null. TypeScript then needs a cast in places where
-   * the surrounding Haxe code has already proven key presence with
-   * `map.exists(key)` or by iterating `map.keys()`.
-   *
-   * What/How: represent "this stable map contains this stable key" as another
-   * flow fact in the same stack used by local/field null narrowing. The fact is
-   * intentionally limited to stable map receivers and stable key expressions,
-   * and only for maps whose value type is non-null. Maps storing nullable
-   * values still need the conservative `V | null` output.
-   */
-  function mapGetNarrowKey(e: TypedExpr): Null<String> {
-    return switch unwrapExpr(e).expr {
-      case TCall({expr: TField(mapExpr, f)}, [keyExpr])
-        if (fieldAccessName(f) == "get"):
-        mapGetNarrowKeyFromParts(stableMapKey(mapExpr), stableValueKey(keyExpr));
-      default:
-        null;
-    }
-  }
-
-  function mapKeysIteratorOrigin(e: TypedExpr): Null<String> {
-    return switch unwrapExpr(e).expr {
-      case TCall({expr: TField(mapExpr, f)}, [])
-        if (fieldAccessName(f) == "keys"):
-        stableMapKey(mapExpr);
-      default:
-        null;
-    }
-  }
-
-  function mapIteratorNextOrigin(e: TypedExpr): Null<String> {
-    return switch unwrapExpr(e).expr {
-      case TCall({expr: TField({expr: TLocal(iteratorLocal)}, f)}, [])
-        if (fieldAccessName(f) == "next"):
-        mapKeyIteratorOrigins.get(iteratorLocal.id);
-      default:
-        null;
-    }
-  }
-
-  function isMapGetFromKnownKey(e: TypedExpr): Bool {
-    return switch unwrapExpr(e).expr {
-      case TCall({expr: TField(mapExpr, f)}, [{expr: TLocal(keyLocal)}])
-        if (fieldAccessName(f) == "get"):
-        final mapKey = stableMapKey(mapExpr);
-        final origin = mapKeyLocalOrigins.get(keyLocal.id);
-        mapKey != null && origin != null && mapKey == origin;
-      default:
-        false;
-    }
-  }
-
-  function mapGetNarrowKeyFromParts(mapKey: Null<String>,
-      keyKey: Null<String>): Null<String> {
-    return mapKey != null && keyKey != null ? 'map:$mapKey|key:$keyKey' : null;
-  }
-
-  function stableMapKey(e: TypedExpr): Null<String> {
-    if (mapValueAllowsNull(e.t))
-      return null;
-    return stableValueKey(e);
-  }
-
-  function stableValueKey(e: TypedExpr): Null<String> {
-    return switch unwrapExpr(e).expr {
-      case TLocal(v):
-        'local:${v.id}';
-      case TConst(TThis):
-        'this';
-      case TConst(TString(value)):
-        'string:$value';
-      case TConst(TInt(value)):
-        'int:$value';
-      case TConst(TFloat(value)):
-        'float:$value';
-      case TConst(TBool(value)):
-        'bool:$value';
-      case TField(receiver, f):
-        final parent = stableValueKey(receiver);
-        final name = fieldAccessName(f);
-        parent != null && name != null ? parent + "." + name : null;
-      default:
-        null;
-    }
-  }
-
-  static function mapValueAllowsNull(t: Type): Bool {
-    final valueType = mapValueType(t);
-    return valueType == null || typeAllowsNull(valueType);
+    return isNarrowedNonNull(e);
   }
 
   static function tsIsIMapType(t: Type): Bool {
-    return mapValueType(t) != null;
-  }
-
-  static function mapValueType(t: Type, ?seen: Map<String, Bool>): Null<Type> {
-    if (seen == null)
-      seen = [];
-    return switch haxe.macro.Context.follow(t) {
-      case TInst(ref, params):
-        final cl = ref.get();
-        final id = cl.module + "." + cl.name;
-        if (seen.exists(id)) {
-          null;
-        } else if (cl.module == "haxe.Constraints" && cl.name == "IMap"
-          && params.length >= 2) {
-          params[1];
-        } else {
-          seen.set(id, true);
-          var found: Null<Type> = null;
-          for (iface in cl.interfaces) {
-            final ifaceParams = [for (param in iface.params) param.applyTypeParameters(cl.params,
-              params)];
-            found = mapValueType(TInst(iface.t, ifaceParams), seen);
-            if (found != null)
-              break;
-          }
-          if (found == null && cl.superClass != null) {
-            final superParams = [for (param in cl.superClass.params) param.applyTypeParameters(cl.params,
-              params)];
-            found = mapValueType(TInst(cl.superClass.t, superParams), seen);
-          }
-          found;
-        }
-      default:
-        null;
-    }
-  }
-
-  function optionalFieldNarrowKey(e: TypedExpr): Null<String> {
-    return switch unwrapExpr(e).expr {
-      case TField(receiver, f) if (isOptionalField(f)): final receiverKey = stableFieldReceiverKey(receiver); final name = fieldAccessName(f); receiverKey != null && name != null ? receiverKey + "." + name : null;
-      default:
-        null;
-    }
-  }
-
-  function stableFieldReceiverKey(e: TypedExpr): Null<String> {
-    return switch unwrapExpr(e).expr {
-      case TLocal(v):
-        'local:${v.id}';
-      case TConst(TThis):
-        'this';
-      case TField(receiver, f): final parent = stableFieldReceiverKey(receiver); final name = fieldAccessName(f); parent != null && name != null ? parent + "." + name : null;
-      default:
-        null;
-    }
+    return TsNarrowingPlan.mapValueType(t) != null;
   }
 
   static function isOptionalField(f: FieldAccess): Bool {
