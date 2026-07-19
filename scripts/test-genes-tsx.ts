@@ -81,7 +81,7 @@ function assertHaxeHxxNegatives(): void {
     path.join(repoRoot, "tests/genes-ts/snapshot/react/negative/Negative.hx"),
     "utf8"
   ).split(/\r?\n/);
-  const cases: ReadonlyArray<readonly [string, string]> = [
+  const cases: ReadonlyArray<readonly [string, string, string?]> = [
     ["hxx_negative_unknown_intrinsic", "GTS-HXX-TAG-001"],
     ["hxx_negative_unknown_custom_intrinsic", "GTS-HXX-TAG-001"],
     ["hxx_negative_intrinsic_prop", "GTS-HXX-PROP-001"],
@@ -101,6 +101,11 @@ function assertHaxeHxxNegatives(): void {
     ["hxx_negative_required_spread_and_nested_child", "GTS-HXX-CHILD-004"],
     ["hxx_negative_optional_spread_missing_child", "GTS-HXX-CHILD-002"],
     ["hxx_negative_intrinsic_child", "GTS-HXX-CHILD-003"],
+    [
+      "hxx_negative_dynamic_marker_unsafe_prop",
+      "GTS-HXX-TYPE-001",
+      "__genesJsxPropValue: unsafeValue"
+    ],
     ["hxx_negative_spread_non_object", "GTS-HXX-SPREAD-001"],
     ["hxx_negative_spread_extra", "GTS-HXX-SPREAD-003"],
     ["hxx_negative_spread_wrong", "GTS-HXX-SPREAD-002"],
@@ -121,16 +126,16 @@ function assertHaxeHxxNegatives(): void {
     ["hxx_negative_required_undefinable_missing", "GTS-HXX-PROP-004"],
     ["hxx_negative_null_to_undefinable", "GTS-HXX-PROP-002"]
   ];
-  for (const [define, diagnostic] of cases) {
+  for (const [define, diagnostic, sourceMarker = "final value ="] of cases) {
     const branchLine = negativeSource.findIndex((line) =>
       line.includes(`#if ${define}`) || line.includes(`#elseif ${define}`)
     );
     ok(branchLine >= 0, `${define} has no source branch`);
-    const valueOffset = negativeSource
+    const sourceOffset = negativeSource
       .slice(branchLine + 1)
-      .findIndex((line) => line.includes("final value ="));
-    ok(valueOffset >= 0, `${define} has no HXX value expression`);
-    const valueLine = branchLine + valueOffset + 2;
+      .findIndex((line) => line.includes(sourceMarker));
+    ok(sourceOffset >= 0, `${define} has no '${sourceMarker}' expression`);
+    const sourceLine = branchLine + sourceOffset + 2;
     const result = spawnSync(
       "haxe",
       ["tests/genes-ts/snapshot/react/build-negative.hxml", "-D", define],
@@ -140,8 +145,8 @@ function assertHaxeHxxNegatives(): void {
     const output = `${result.stdout}${result.stderr}`;
     ok(output.includes(`[${diagnostic}]`), `${define} did not report ${diagnostic}:\n${output}`);
     ok(
-      output.includes(`Negative.hx:${valueLine}:`),
-      `${define} did not retain the authored HXX line ${valueLine}:\n${output}`
+      output.includes(`Negative.hx:${sourceLine}:`),
+      `${define} did not retain the authored HXX line ${sourceLine}:\n${output}`
     );
   }
 
@@ -418,6 +423,7 @@ rmrf("tests/genes-ts/snapshot/react/out/tsx-jsx-source");
 rmrf("tests/genes-ts/snapshot/react/out/tsx-classic");
 rmrf("tests/genes-ts/snapshot/react/out/ts");
 rmrf("tests/genes-ts/snapshot/react/out/dual-tsx");
+rmrf("tests/genes-ts/snapshot/react/out/dual-ts");
 rmrf("tests/genes-ts/snapshot/react/out/dual-classic");
 rmrf("tests/genes-ts/snapshot/react/out/dual-jsx");
 rmrf("tests/genes-ts/snapshot/react/out/dual-jsx-dist");
@@ -637,6 +643,30 @@ runGeneratedTypeScriptMatrix(
   "tests/genes-ts/snapshot/react/tsconfig.dual-tsx.json"
 );
 
+// The same marker must remain typed when a runtime String selects the
+// intrinsic tag in plain `.ts` createElement output. Static intrinsic and
+// component tags keep their stricter tag-specific property contracts.
+run("haxe", ["tests/genes-ts/snapshot/react/build-dual-ts.hxml"]);
+const dualTsSource = readFileSync(
+  path.join(repoRoot, "tests/genes-ts/snapshot/react/out/dual-ts/src-gen/DualJsxMain.ts"),
+  "utf8"
+);
+assertNoUnsafeTypes({
+  repoRoot,
+  generatedDir: "tests/genes-ts/snapshot/react/out/dual-ts/src-gen",
+  fileExts: [".ts"],
+  ignoreTopLevelDirs: ["genes", "haxe", "js"]
+});
+ok(dualTsSource.includes(
+  'React__genes_jsx.createElement(runtimeTag, {"data-mode": "dynamic"}, "D")'
+), "typed createElement preserves the exact checked properties and child");
+ok(!dualTsSource.includes(
+  "ComponentPropsWithoutRef<typeof runtimeTag>"
+), "runtime string props do not claim one statically known intrinsic contract");
+runGeneratedTypeScriptMatrix(
+  "tests/genes-ts/snapshot/react/tsconfig.dual-ts.json"
+);
+
 run("haxe", ["tests/genes-ts/snapshot/react/build-dual-classic.hxml"]);
 const dualClassicSource = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/react/out/dual-classic/DualJsxMain.js"),
@@ -681,6 +711,9 @@ const expectedTranscript = {
 const tsxTranscript = parseTranscript(
   capture("node", ["tests/genes-ts/snapshot/react/out/dual-tsx/dist/index.js"])
 );
+const tsTranscript = parseTranscript(
+  capture("node", ["tests/genes-ts/snapshot/react/out/dual-ts/dist/index.js"])
+);
 const classicTranscript = parseTranscript(
   capture("node", ["tests/genes-ts/snapshot/react/out/dual-classic/index.js"])
 );
@@ -688,6 +721,7 @@ const jsxTranscript = parseTranscript(
   capture("node", ["tests/genes-ts/snapshot/react/out/dual-jsx-dist/index.js"])
 );
 deepStrictEqual(tsxTranscript, expectedTranscript);
+deepStrictEqual(tsTranscript, expectedTranscript);
 deepStrictEqual(classicTranscript, expectedTranscript);
 deepStrictEqual(jsxTranscript, expectedTranscript);
 

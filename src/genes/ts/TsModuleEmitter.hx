@@ -834,7 +834,12 @@ class TsModuleEmitter extends JsModuleEmitter {
       write('null');
       return;
     }
-    write('(');
+    final hasTagSpecificPropsContract = switch tag {
+      case IntrinsicTag(_, _) | ComponentTag(_): true;
+      case DynamicIntrinsicTag(_): false;
+    };
+    if (hasTagSpecificPropsContract)
+      write('(');
     write('{');
     for (p in join(props, write.bind(', '))) {
       switch p {
@@ -861,6 +866,15 @@ class TsModuleEmitter extends JsModuleEmitter {
       }
     }
     write('}');
+    // A runtime String tells React which intrinsic to create only when this
+    // code executes. There is therefore no single tag-specific
+    // `ComponentPropsWithoutRef` contract that TypeScript can honestly check
+    // here. HXX has already rejected unsafe values and non-object spreads, and
+    // the exact object literal keeps its inferred TypeScript type for React's
+    // string-tag overload. Static intrinsic and component tags continue below
+    // and retain their stronger `satisfies` checks.
+    if (!hasTagSpecificPropsContract)
+      return;
     write(' satisfies ');
     write('(');
     if (functionPropsType == null) {

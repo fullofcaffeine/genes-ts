@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "types": ["node", "react", "react-dom"],
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "declaration": true,
+    "sourceMap": true,
+    "rootDir": "./out/dual-ts/src-gen",
+    "outDir": "./out/dual-ts/dist",
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": false,
+    "jsx": "react-jsx"
+  },
+  "include": ["out/dual-ts/src-gen/**/*.ts"]
+}

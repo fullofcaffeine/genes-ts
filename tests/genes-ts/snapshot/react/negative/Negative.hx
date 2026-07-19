@@ -358,6 +358,21 @@ class Negative {
     #elseif hxx_positive_ts_optional_spread
     final props: TsOptionalElements.TsOptionalProps = {};
     final value = <x-ts-optional {...props} />;
+    #elseif hxx_negative_dynamic_marker_unsafe_prop
+    // A runtime tag cannot select one intrinsic schema, but its marker values
+    // must still cross HXX's normal deep type-safety gate before emission.
+    // Dynamic is intentional only in this negative fixture: a properly typed
+    // value would be safe and could not prove that compilation stops before
+    // the weak value reaches generated code.
+    final runtimeTag = "aside";
+    final unsafeValue: Dynamic = "unsafe";
+    final value = genes.react.internal.Jsx.__jsx(runtimeTag, {
+      __genesJsxPropName: "data-mode",
+      __genesJsxPropValue: unsafeValue,
+      __genesJsxPropNext: {
+        __genesJsxPropsEnd: true
+      }
+    }, {__genesJsxChildrenEnd: true});
     #end
   }
 }

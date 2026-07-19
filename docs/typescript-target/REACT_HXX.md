@@ -129,7 +129,7 @@ need fragment roots (`<>...</>`) or tags that aren’t valid XML names.
 | --- | --- | --- |
 | TSX automatic (`.tsx`, `-D genes.ts`) | Inline markup or `jsx("...")` | Emits JSX/TSX after Haxe validation; TypeScript checks parity. Runtime string tags use the planned factory namespace. |
 | TSX classic (`.tsx`, plus `-D genes.ts.jsx_classic`) | Inline markup or `jsx("...")` | Emits JSX/TSX plus the required `React` namespace import. |
-| TS (`.ts`, `-D genes.ts`) | Inline markup or `jsx("...")` | Lowers to typed `React.createElement(...)`, including `satisfies` prop checks. |
+| TS (`.ts`, `-D genes.ts`) | Inline markup or `jsx("...")` | Lowers to typed `React.createElement(...)`; statically known tags include tag-specific `satisfies` prop checks. |
 | JSX (`.jsx`, without `-D genes.ts`) | `jsx("...")`, or opted-in inline markup | Keeps JSX syntax while erasing Haxe types; runtime string tags use the planned factory namespace. |
 | Classic Genes JS | `jsx("...")`, or opted-in inline markup | Lowers the same ordered intent to plain React-compatible `createElement(...)`/`Fragment` calls. |
 
@@ -138,8 +138,18 @@ named/spread props, children, fragments, source provenance, and capability
 selection before either printer runs. It also distinguishes a direct value
 from a Haxe-lifted marker local, so property and child side effects are read
 from their evaluated path instead of executing twice. The identical-source fixture
-`DualJsxMain.hx` renders through TSX, type-erased JSX, and classic JS under
-`yarn test:genes-ts:tsx` and compares the resulting HTML transcript.
+`DualJsxMain.hx` renders through TSX, typed createElement, type-erased JSX, and
+classic JS under `yarn test:genes-ts:tsx` and compares the resulting HTML
+transcript.
+
+A runtime string tag is different from a tag written directly in markup. For
+example, migration code may pass a `String` whose value is chosen while the
+program runs. HXX still checks that every property value is typed, every spread
+is an object, and every child is renderable. Plain TypeScript output preserves
+the exact inferred property-object type, but it cannot claim that the object
+belongs to one particular HTML tag because that tag is not known yet. Static
+tags such as `<a>` and components such as `<Button>` keep their stronger,
+tag-specific TypeScript property checks.
 
 ## TSX runtime: automatic vs classic
 
