@@ -22,6 +22,7 @@
 /tests/hxx-event-variance/out
 /tests/library-profile/out
 /tests/ts2hx-bootstrap/out
+/tests/explicit-type-arguments/out
 /examples/typescript-target/src-gen
 /examples/typescript-target/dist
 /examples/typescript-target/classic-src-gen

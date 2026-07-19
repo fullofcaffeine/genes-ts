@@ -1,0 +1,8 @@
+-lib genes-ts
+-cp tests/explicit-type-arguments/negative
+--main NonExtern
+-js tests/explicit-type-arguments/out/negative/non-extern.ts
+-D genes.ts
+-D js-es=6
+-dce full
+

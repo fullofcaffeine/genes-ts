@@ -255,6 +255,14 @@ TS-specific overrides:
   explicit contract for CommonJS `export =` const-plus-namespace constructors
   and package constructors whose `@:native` name overlaps `String` or
   `RegExp`; see `IMPORTS.md`.
+- `@:ts.explicitTypeArguments` — on a generic extern callable, emit the exact
+  method type arguments already selected by Haxe at each direct call. Use this
+  only when TypeScript cannot reconstruct the same instantiation from the
+  runtime arguments, such as a destination-constrained `null` or no-argument
+  call. The metadata takes no arguments, rejects unresolved/broad types, does
+  not follow runtime function-value aliases that have lost field identity, and
+  erases completely in classic JavaScript. See
+  [INTEROP.md](INTEROP.md#preserve-a-contextual-generic-extern-call).
 
 Compatibility aliases (optional):
 - `@:genes.type` and `@:genes.returnType` are supported as aliases for the TS metadata above.

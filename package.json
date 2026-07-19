@@ -47,6 +47,7 @@
     "test:array-index-strict": "yarn build:scripts && node scripts/dist/test-array-index-strict.js",
     "test:ci": "yarn test:secrets && yarn test:vulns && yarn test:versions && yarn test:compatibility-report && yarn test:matrix:api && yarn test:types:exports && yarn test && yarn test:template-literals && yarn test:classic:dts && yarn test:library-profile && yarn test:array-index-strict && cross-env SKIP_CLASSIC=1 SKIP_TS2HX=1 yarn test:acceptance && yarn test:ts2hx",
     "test:genes-ts": "yarn build:scripts && node scripts/dist/test-genes-ts.js",
+    "test:explicit-type-arguments": "yarn build:scripts && node scripts/dist/test-explicit-type-arguments.js",
     "test:genes-ts:snapshots": "yarn build:scripts && node scripts/dist/test-genes-ts-snapshots.js",
     "test:genes-ts:sourcemaps": "yarn build:scripts && node scripts/dist/test-genes-ts-sourcemaps.js",
     "test:genes-ts:hxx-diagnostic-ranges": "yarn build:scripts && node scripts/dist/test-hxx-diagnostic-ranges.js",

@@ -262,6 +262,65 @@ Externs describe values that exist at runtime; they do not install or bundle
 the package. Keep package installation, export conditions, and host types in
 the owning application or library build.
 
+### Preserve a contextual generic extern call
+
+Haxe and TypeScript independently infer a generic call. Usually that is useful:
+the generated TypeScript remains concise and idiomatic. Occasionally Haxe can
+use a destination type that TypeScript cannot see at the call itself. For this
+package contract:
+
+```haxe
+extern class Cell<Value> {}
+
+private extern class Cells {
+  @:jsRequire("cell-package", "makeCell")
+  static function makeCell<Value>(initial:Value):Cell<Value>;
+}
+
+final cell:Cell<Null<String>> = Cells.makeCell(null);
+```
+
+the unspecialized output is a negative control:
+
+```ts
+const cell: Cell<string | null> = makeCell(null);
+// TypeScript infers Cell<null>, which is not the Haxe-proven result.
+```
+
+When the real package declaration cannot infer the intended argument, annotate
+the generic extern field:
+
+```haxe
+private extern class Cells {
+  /**
+   * Haxe's destination chooses `Null<String>`; the annotation preserves that
+   * checked choice as a TypeScript call argument and has no JS runtime effect.
+   */
+  @:ts.explicitTypeArguments
+  @:jsRequire("cell-package", "makeCell")
+  static function makeCell<Value>(initial:Value):Cell<Value>;
+}
+```
+
+genes-ts then emits the direct, handwritten TypeScript form:
+
+```ts
+const cell: Cell<string | null> = makeCell<string | null>(null);
+```
+
+The same contract handles a no-argument overload whose exact result is fixed by
+Haxe and multiple method type parameters. It is deliberately opt-in: an
+unannotated neighboring generic extern continues to use TypeScript inference.
+The annotation is valid only on a generic extern callable, takes no arguments,
+and fails closed if genes-ts cannot recover a precise Haxe instantiation. A
+runtime function-valued local does not retain declaration metadata, so call the
+annotated extern field directly (Haxe import aliases still preserve field
+identity). Classic Genes emits the ordinary call with identical evaluation
+order and no `<...>` syntax.
+
+The package-neutral positive, negative, strict-TypeScript, and classic-JS
+evidence lives in [`tests/explicit-type-arguments`](../../tests/explicit-type-arguments/README.md).
+
 Use raw `@:ts.type(...)` only when the canonical ecosystem type cannot be
 expressed cleanly with Haxe types. It changes the generated TS/declaration
 surface but erases from classic executable JS, so the underlying Haxe extern or

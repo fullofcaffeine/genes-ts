@@ -1,0 +1,9 @@
+-lib genes-ts
+
+-cp tests/explicit-type-arguments/src
+--main Main
+
+-js tests/explicit-type-arguments/out/classic/src-gen/index.js
+-D js-es=6
+-dce full
+
