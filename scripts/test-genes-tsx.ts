@@ -4,14 +4,22 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { assertNoUnsafeTypes } from "./typing-policy.js";
-import { runGeneratedTypeScriptMatrix } from "./toolchains.js";
+import { runGeneratedTypeScriptMatrix, runTypeScript } from "./toolchains.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "../..");
 
 function rmrf(relPath: string): void {
-  rmSync(path.join(repoRoot, relPath), { recursive: true, force: true });
+  // macOS can briefly report ENOTEMPTY while a recursive deletion is
+  // finishing. Node's bounded retry keeps generated-fixture cleanup reliable
+  // without hiding a persistent filesystem error.
+  rmSync(path.join(repoRoot, relPath), {
+    recursive: true,
+    force: true,
+    maxRetries: 3,
+    retryDelay: 50
+  });
 }
 
 function run(cmd: string, args: ReadonlyArray<string>, opts: ExecFileSyncOptions = {}): void {
@@ -63,22 +71,100 @@ function copyTsxFixtures(intoRelDir: string): void {
   copyDir(fixturesDir);
 }
 
-/**
- * Keeps the React fixture genuinely negative, not merely type-checking.
- *
- * Each directive must suppress a real TypeScript error: a bad intrinsic event
- * handler, a bad component prop, an invalid intrinsic attribute, and an invalid
- * child. TypeScript reports unused `@ts-expect-error` directives, so the
- * following `tsc` run fails if any generated JSX surface widens enough to
- * accept those operations.
- */
-function assertJsxNegativeConsumer(relFile: string): void {
-  const source = readFileSync(path.join(repoRoot, relFile), "utf8");
-  const directiveCount = source.match(/@ts-expect-error/g)?.length ?? 0;
-  if (directiveCount !== 4) {
-    throw new Error(`${relFile} must emit exactly four JSX negative-consumer directives; got ${directiveCount}.`);
+function assertHaxeHxxNegatives(): void {
+  const negativeSource = readFileSync(
+    path.join(repoRoot, "tests/genes-ts/snapshot/react/negative/Negative.hx"),
+    "utf8"
+  ).split(/\r?\n/);
+  const cases: ReadonlyArray<readonly [string, string]> = [
+    ["hxx_negative_unknown_intrinsic", "GTS-HXX-TAG-001"],
+    ["hxx_negative_unknown_custom_intrinsic", "GTS-HXX-TAG-001"],
+    ["hxx_negative_intrinsic_prop", "GTS-HXX-PROP-001"],
+    ["hxx_negative_intrinsic_prop_type", "GTS-HXX-PROP-002"],
+    ["hxx_negative_handler", "GTS-HXX-PROP-002"],
+    ["hxx_negative_component_missing", "GTS-HXX-PROP-004"],
+    ["hxx_negative_component_extra", "GTS-HXX-PROP-001"],
+    ["hxx_negative_component_wrong", "GTS-HXX-PROP-002"],
+    ["hxx_negative_component_duplicate", "GTS-HXX-PROP-003"],
+    ["hxx_negative_unexpected_child", "GTS-HXX-CHILD-001"],
+    ["hxx_negative_wrong_child", "GTS-HXX-CHILD-003"],
+    ["hxx_negative_missing_child", "GTS-HXX-CHILD-002"],
+    ["hxx_negative_named_and_nested_child", "GTS-HXX-CHILD-004"],
+    ["hxx_negative_intrinsic_child", "GTS-HXX-CHILD-003"],
+    ["hxx_negative_spread_non_object", "GTS-HXX-SPREAD-001"],
+    ["hxx_negative_spread_extra", "GTS-HXX-SPREAD-003"],
+    ["hxx_negative_spread_wrong", "GTS-HXX-SPREAD-002"],
+    ["hxx_negative_spread_optional_required", "GTS-HXX-PROP-004"],
+    ["hxx_negative_non_component", "GTS-HXX-TAG-002"],
+    ["hxx_negative_component_return", "GTS-HXX-TAG-003"],
+    ["hxx_negative_unsafe_key", "GTS-HXX-PROP-002"],
+    ["hxx_negative_event_target", "GTS-HXX-PROP-002"],
+    ["hxx_negative_inherited_event_target", "GTS-HXX-PROP-002"],
+    ["hxx_negative_optional_callback", "GTS-HXX-PROP-002"],
+    ["hxx_negative_inherited_missing", "GTS-HXX-PROP-004"],
+    ["hxx_negative_nested_unsafe", "GTS-HXX-TYPE-001"]
+  ];
+  for (const [define, diagnostic] of cases) {
+    const branchLine = negativeSource.findIndex((line) =>
+      line.includes(`#if ${define}`) || line.includes(`#elseif ${define}`)
+    );
+    ok(branchLine >= 0, `${define} has no source branch`);
+    const valueOffset = negativeSource
+      .slice(branchLine + 1)
+      .findIndex((line) => line.includes("final value ="));
+    ok(valueOffset >= 0, `${define} has no HXX value expression`);
+    const valueLine = branchLine + valueOffset + 2;
+    const result = spawnSync(
+      "haxe",
+      ["tests/genes-ts/snapshot/react/build-negative.hxml", "-D", define],
+      { cwd: repoRoot, encoding: "utf8" }
+    );
+    strictEqual(result.status === 0, false, `${define} unexpectedly compiled`);
+    const output = `${result.stdout}${result.stderr}`;
+    ok(output.includes(`[${diagnostic}]`), `${define} did not report ${diagnostic}:\n${output}`);
+    ok(
+      output.includes(`Negative.hx:${valueLine}:`),
+      `${define} did not retain the authored HXX line ${valueLine}:\n${output}`
+    );
   }
+
+  const duplicateProvider = readFileSync(
+    path.join(
+      repoRoot,
+      "tests/genes-ts/snapshot/react/negative/DuplicatePrefixElements.hx"
+    ),
+    "utf8"
+  ).split(/\r?\n/);
+  const duplicateLine = duplicateProvider.findIndex((line, index) =>
+    index > 0
+    && line.includes('@:genes.jsxAttributePrefix("qa-")')
+    && duplicateProvider.slice(0, index).some((previous) =>
+      previous.includes('@:genes.jsxAttributePrefix("qa-")'))
+  ) + 1;
+  ok(duplicateLine > 0, "duplicate-prefix fixture has no second declaration");
+  const duplicateResult = spawnSync(
+    "haxe",
+    [
+      "tests/genes-ts/snapshot/react/build-negative.hxml",
+      "-D",
+      "hxx_negative_duplicate_prefix",
+      "-D",
+      "genes.react.jsx_intrinsic_providers=DuplicatePrefixElements"
+    ],
+    { cwd: repoRoot, encoding: "utf8" }
+  );
+  strictEqual(duplicateResult.status === 0, false);
+  const duplicateOutput = `${duplicateResult.stdout}${duplicateResult.stderr}`;
+  ok(duplicateOutput.includes("[GTS-HXX-SCHEMA-007]"));
+  ok(duplicateOutput.includes(`DuplicatePrefixElements.hx:${duplicateLine}:`));
 }
+
+const authoredHxxSource = readFileSync(
+  path.join(repoRoot, "tests/genes-ts/snapshot/react/src/Main.hx"),
+  "utf8"
+);
+ok(authoredHxxSource.includes('<GenericInt value={7} render={value -> \'n:$value\'} />'));
+strictEqual(/<\s+GenericInt/.test(authoredHxxSource), false);
 
 rmrf("tests/genes-ts/snapshot/react/out/tsx");
 rmrf("tests/genes-ts/snapshot/react/out/tsx-jsx-source");
@@ -86,7 +172,64 @@ rmrf("tests/genes-ts/snapshot/react/out/tsx-classic");
 rmrf("tests/genes-ts/snapshot/react/out/ts");
 rmrf("tests/genes-ts/snapshot/react/out/dual-tsx");
 rmrf("tests/genes-ts/snapshot/react/out/dual-classic");
+rmrf("tests/genes-ts/snapshot/react/out/dual-jsx");
+rmrf("tests/genes-ts/snapshot/react/out/dual-jsx-dist");
+rmrf("tests/genes-ts/snapshot/react/out/dual-jsx-ts-disabled");
 rmrf("tests/genes-ts/snapshot/react/out/dual-disabled");
+rmrf("tests/genes-ts/snapshot/react/out/negative");
+rmrf("tests/genes-ts/snapshot/react/out/custom-provider");
+rmrf("tests/genes-ts/snapshot/react/out/packed-consumer");
+
+assertHaxeHxxNegatives();
+
+// Exercise the release artifact, not the checkout classpath. This proves every
+// checker/schema source required by HXX is present in the Haxelib ZIP and can
+// produce strict typed TSX for a clean consumer.
+try {
+  run("yarn", ["submit:zip"]);
+  mkdirSync(path.join(
+    repoRoot,
+    "tests/genes-ts/snapshot/react/out/packed-consumer"
+  ), { recursive: true });
+  run("unzip", [
+    "-q",
+    "-o",
+    "submit.zip",
+    "-d",
+    "tests/genes-ts/snapshot/react/out/packed-consumer/package"
+  ]);
+  for (const packagedSource of [
+    "src/genes/JsxTypeChecker.hx",
+    "src/genes/react/IntrinsicElements.hx",
+    "src/genes/react/ReactProps.hx",
+    "src/genes/react/internal/JsxContext.hx"
+  ]) {
+    ok(existsSync(path.join(
+      repoRoot,
+      "tests/genes-ts/snapshot/react/out/packed-consumer/package",
+      packagedSource
+    )), `Haxelib ZIP omitted ${packagedSource}`);
+  }
+  run("haxe", ["tests/genes-ts/snapshot/react/build-packed-consumer.hxml"]);
+  assertNoUnsafeTypes({
+    repoRoot,
+    generatedDir: "tests/genes-ts/snapshot/react/out/packed-consumer/src-gen",
+    fileExts: [".ts", ".tsx"],
+    ignoreTopLevelDirs: ["genes", "haxe", "js"]
+  });
+  runGeneratedTypeScriptMatrix(
+    "tests/genes-ts/snapshot/react/tsconfig.packed-consumer.json"
+  );
+} finally {
+  rmSync(path.join(repoRoot, "submit.zip"), { force: true });
+}
+
+run("haxe", ["tests/genes-ts/snapshot/react/build-custom-provider.hxml"]);
+const customProviderSource = readFileSync(
+  path.join(repoRoot, "tests/genes-ts/snapshot/react/out/custom-provider/CustomProviderMain.js"),
+  "utf8"
+);
+ok(customProviderSource.includes('createElement("x-card"'));
 
 run("haxe", ["tests/genes-ts/snapshot/react/build-tsx.hxml"]);
 copyTsxFixtures("tests/genes-ts/snapshot/react/out/tsx/src-gen");
@@ -96,7 +239,6 @@ assertNoUnsafeTypes({
   fileExts: [".ts", ".tsx"],
   ignoreTopLevelDirs: ["genes", "haxe", "js", "tink", "components"]
 });
-assertJsxNegativeConsumer("tests/genes-ts/snapshot/react/out/tsx/src-gen/Main.tsx");
 runGeneratedTypeScriptMatrix(
   "tests/genes-ts/snapshot/react/tsconfig.tsx.json"
 );
@@ -110,7 +252,6 @@ assertNoUnsafeTypes({
   fileExts: [".ts", ".tsx"],
   ignoreTopLevelDirs: ["genes", "haxe", "js", "tink", "components"]
 });
-assertJsxNegativeConsumer("tests/genes-ts/snapshot/react/out/tsx-jsx-source/src-gen/Main.tsx");
 runGeneratedTypeScriptMatrix(
   "tests/genes-ts/snapshot/react/tsconfig.tsx-jsx-source.json"
 );
@@ -125,7 +266,6 @@ assertNoUnsafeTypes({
   fileExts: [".ts", ".tsx"],
   ignoreTopLevelDirs: ["genes", "haxe", "js", "tink", "components"]
 });
-assertJsxNegativeConsumer("tests/genes-ts/snapshot/react/out/tsx-classic/src-gen/Main.tsx");
 runGeneratedTypeScriptMatrix(
   "tests/genes-ts/snapshot/react/tsconfig.tsx.classic.json"
 );
@@ -139,7 +279,6 @@ assertNoUnsafeTypes({
   fileExts: [".ts", ".tsx"],
   ignoreTopLevelDirs: ["genes", "haxe", "js", "tink", "components"]
 });
-assertJsxNegativeConsumer("tests/genes-ts/snapshot/react/out/ts/src-gen/Main.ts");
 runGeneratedTypeScriptMatrix(
   "tests/genes-ts/snapshot/react/tsconfig.ts.json"
 );
@@ -154,6 +293,7 @@ const dualTsxSource = readFileSync(
   "utf8"
 );
 ok(dualTsxSource.includes("<main {...rootProps}>"));
+ok(dualTsxSource.includes("let tree1: JSX.Element ="));
 ok(dualTsxSource.includes("React__genes_jsx.createElement(runtimeTag"));
 runGeneratedTypeScriptMatrix(
   "tests/genes-ts/snapshot/react/tsconfig.dual-tsx.json"
@@ -167,6 +307,20 @@ const dualClassicSource = readFileSync(
 ok(dualClassicSource.includes('import * as React__genes_jsx from "react"'));
 ok(dualClassicSource.includes("React__genes_jsx.createElement(\"main\""));
 strictEqual(dualClassicSource.includes("Jsx.__jsx"), false);
+
+run("haxe", ["tests/genes-ts/snapshot/react/build-dual-jsx.hxml"]);
+const dualJsxSource = readFileSync(
+  path.join(repoRoot, "tests/genes-ts/snapshot/react/out/dual-jsx/DualJsxMain.jsx"),
+  "utf8"
+);
+ok(dualJsxSource.includes("<main {...rootProps}>"));
+ok(dualJsxSource.includes("React__genes_jsx.createElement(runtimeTag"));
+strictEqual(dualJsxSource.includes("Jsx.__jsx"), false);
+strictEqual(dualJsxSource.includes(": JSX.Element"), false);
+runTypeScript("apiBridge", [
+  "-p",
+  "tests/genes-ts/snapshot/react/tsconfig.dual-jsx.json"
+]);
 
 const expectedTranscript = {
   staticHtml: '<main class="shared" id="root"><h1>dual</h1><span>A</span><span>B</span></main>',
@@ -182,8 +336,31 @@ const tsxTranscript = parseTranscript(
 const classicTranscript = parseTranscript(
   capture("node", ["tests/genes-ts/snapshot/react/out/dual-classic/index.js"])
 );
+const jsxTranscript = parseTranscript(
+  capture("node", ["tests/genes-ts/snapshot/react/out/dual-jsx-dist/index.js"])
+);
 deepStrictEqual(tsxTranscript, expectedTranscript);
 deepStrictEqual(classicTranscript, expectedTranscript);
+deepStrictEqual(jsxTranscript, expectedTranscript);
+
+// `.tsx` and `.jsx` are deliberately distinct contracts. Rejecting the
+// contradictory `.jsx` + `genes.ts` combination prevents silently erasing the
+// Haxe-derived TypeScript annotations a caller explicitly requested.
+const jsxWithTypes = spawnSync(
+  "haxe",
+  ["tests/genes-ts/snapshot/react/build-dual-jsx-ts-disabled.hxml"],
+  { cwd: repoRoot, encoding: "utf8" }
+);
+strictEqual(jsxWithTypes.status === 0, false);
+const jsxWithTypesOutput = `${jsxWithTypes.stdout}${jsxWithTypes.stderr}`;
+ok(jsxWithTypesOutput.includes("[GTS-JSX-CAPABILITY-007]"));
+const jsxWithTypesDirectory = path.join(
+  repoRoot,
+  "tests/genes-ts/snapshot/react/out/dual-jsx-ts-disabled"
+);
+if (existsSync(jsxWithTypesDirectory)) {
+  deepStrictEqual(readdirSync(jsxWithTypesDirectory), []);
+}
 
 // Disabling the required classic runtime is an explicit capability choice. It
 // must diagnose the original Haxe source and commit no partial output tree.

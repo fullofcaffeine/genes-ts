@@ -36,17 +36,43 @@ class DualJsxMain {
     final tree = <main {...rootProps}><h1>{heading}</h1>{fragment}</main>;
 
     final runtimeTag = "aside";
-    final dynamicElement = Jsx.__jsx(runtimeTag, [
-      {name: "data-mode", value: "dynamic"}
-    ], ["D"]);
-    final evaluatedProp = {name: "title", value: nextPropValue()};
-    final evaluatedElement = Jsx.__jsx("div", [evaluatedProp], ["E"]);
-    final evaluatedProps = [
-      {name: "data-array", value: nextPropValue()}
-    ];
-    final arrayPropElement = Jsx.__jsx("div", evaluatedProps, ["P"]);
-    final evaluatedChildren = [nextPropValue()];
-    final arrayChildElement = Jsx.__jsx("div", [], evaluatedChildren);
+    final dynamicElement = Jsx.__jsx(runtimeTag, {
+      __genesJsxPropName: "data-mode",
+      __genesJsxPropValue: "dynamic",
+      __genesJsxPropNext: {
+        __genesJsxPropsEnd: true
+      }
+    }, {
+      __genesJsxChildValue: "D",
+      __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+    });
+    final evaluatedProp = {
+      __genesJsxPropName: "title",
+      __genesJsxPropValue: nextPropValue(),
+      __genesJsxPropNext: {
+        __genesJsxPropsEnd: true
+      }
+    };
+    final evaluatedElement = Jsx.__jsx("div", evaluatedProp, {
+      __genesJsxChildValue: "E",
+      __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+    });
+    final evaluatedProps = {
+      __genesJsxPropName: "data-array",
+      __genesJsxPropValue: nextPropValue(),
+      __genesJsxPropNext: {
+        __genesJsxPropsEnd: true
+      }
+    };
+    final arrayPropElement = Jsx.__jsx("div", evaluatedProps, {
+      __genesJsxChildValue: "P",
+      __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+    });
+    final evaluatedChildren = {
+      __genesJsxChildValue: nextPropValue(),
+      __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+    };
+    final arrayChildElement = Jsx.__jsx("div", {__genesJsxPropsEnd: true}, evaluatedChildren);
 
     print({
       staticHtml: renderToStaticMarkup(tree),
@@ -67,6 +93,9 @@ class DualJsxMain {
   /** Emits one deterministic machine-readable line for the differential gate. */
   static function print(transcript: DualJsxTranscript): Void {
     final json = haxe.Json.stringify(transcript);
+    // Haxe's standard library has no typed console writer that is portable
+    // across this Node fixture and browser-oriented JS output. The unsafe JS
+    // boundary is therefore one statement, and only accepts a typed String.
     js.Syntax.code("console.log({0})", json);
   }
 }

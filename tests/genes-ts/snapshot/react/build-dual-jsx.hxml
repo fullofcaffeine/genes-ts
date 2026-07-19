@@ -1,0 +1,12 @@
+-lib genes-ts
+
+-cp tests/genes-ts/snapshot/react/src
+--main DualJsxMain
+
+# Type-erased JavaScript keeps static JSX syntax; runtime string tags still use
+# the configured React-compatible namespace.
+-js tests/genes-ts/snapshot/react/out/dual-jsx/index.jsx
+-D genes.react.inline_markup
+-D js-es=6
+
+-dce full

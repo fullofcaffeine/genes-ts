@@ -6,11 +6,11 @@ import {ReactRouterDom_Fields_} from "../../extern/ReactRouterDom"
 import {Client} from "../Client"
 import {StringTools} from "../../../StringTools"
 import {Register} from "../../../genes/Register"
-import type {ReactElement, ChangeEvent} from "../ReactTypes"
 import type {Todo} from "../../shared/Todo"
+import type {ChangeEvent} from "../ReactTypes"
 
 export class TodoDetailPage {
-	static Component(): ReactElement {
+	static Component(): JSX.Element {
 		let idStr: string | null = Router.param("id");
 		let id: string | null = (idStr == null) ? null : idStr;
 		let todoState: [ Todo | null, import('react').Dispatch<import('react').SetStateAction<Todo | null>> ] = useState<Todo | null>(null);
@@ -56,17 +56,23 @@ export class TodoDetailPage {
 			});
 		};
 		if (error != "") {
-			return <div><p style={{"color": "crimson"}}>{error}</p><Link to="/">Back</Link></div>;
+			let p: JSX.Element = <p style={{"color": "crimson"}}>{error}</p>;
+			let tmp1: JSX.Element = <Link to="/">Back</Link>;
+			return <div>{p}{tmp1}</div>;
 		};
 		if (todo == null) {
 			return <p>Loading...</p>;
 		};
 		let todoValue: Todo = todo;
-		let p: JSX.Element = <p><Link to="/">← Back</Link></p>;
+		let tmp: JSX.Element = <Link to="/">← Back</Link>;
+		let p_1: JSX.Element = <p>{tmp}</p>;
 		let h2: JSX.Element = <h2>Todo</h2>;
-		let p_1: JSX.Element = <p><b>ID:</b>{todoValue.id}</p>;
-		let p_2: JSX.Element = <p><b>Created:</b>{todoValue.createdAt}</p>;
-		let p_3: JSX.Element = <p><b>Updated:</b>{todoValue.updatedAt}</p>;
+		let b: JSX.Element = <b>ID:</b>;
+		let p_2: JSX.Element = <p>{b}{todoValue.id}</p>;
+		let b_1: JSX.Element = <b>Created:</b>;
+		let p_3: JSX.Element = <p>{b_1}{todoValue.createdAt}</p>;
+		let b_2: JSX.Element = <b>Updated:</b>;
+		let p_4: JSX.Element = <p>{b_2}{todoValue.updatedAt}</p>;
 		let input: JSX.Element = <input value={title} onChange={function (e: ChangeEvent) {
 			let setter: ((arg0: string) => void) = (titleState[1] ?? null);
 			setter(e.target.value);
@@ -75,7 +81,8 @@ export class TodoDetailPage {
 		let button: JSX.Element = <button onClick={function () {
 			onSave();
 		}} style={{"padding": "8px 12px"}}>Save</button>;
-		return <div>{p}{h2}{p_1}{p_2}{p_3}{label}<div style={{"marginTop": "12px"}}>{button}</div></div>;
+		let div: JSX.Element = <div style={{"marginTop": "12px"}}>{button}</div>;
+		return <div>{p_1}{h2}{p_2}{p_3}{p_4}{label}{div}</div>;
 	}
 	static get __name__(): string {
 		return "todo.web.pages.TodoDetailPage"

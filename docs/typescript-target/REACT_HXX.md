@@ -1,14 +1,16 @@
-# React / TSX authoring in Haxe (Genes TS and classic JS)
+# Haxe-authoritative React HXX (`.tsx`, `.jsx`, `.ts`, and `.js`)
 
 genes-ts includes a **compile-time JSX/HXX macro** so you can write TSX-like
-markup in Haxe and get **idiomatic, type-checked TS/TSX output**.
+markup in Haxe and get idiomatic checked React source in four output profiles.
 
 Key properties:
 - **Compile-time only** (no runtime template engine)
-- `{ ... }` interpolations are **real Haxe expressions** (typed by Haxe)
-- Resulting output is type-checked by **TypeScript** against React typings
-- The same validated marker intent lowers to React-compatible runtime calls in
-  classic Genes JavaScript
+- Tags, component props, handlers, spreads, and children are checked by Haxe
+  against real Haxe types before any output is committed.
+- `{ ... }` interpolations remain real, contextually typed Haxe expressions.
+- TypeScript checks `.tsx` and `.ts` output independently as a parity oracle.
+- One validated semantic plan emits typed TSX, type-erased JSX, typed
+  `createElement`, or equivalent classic JavaScript calls.
 
 ## Requirements
 
@@ -20,9 +22,9 @@ Key properties:
   The explicit `jsx("...")` macro already creates marker intent without that
   parser-level opt-in.
 
-## Two output styles: `.tsx` vs `.ts`
+## Four output profiles
 
-genes-ts supports both:
+Genes supports all four from the same HXX source:
 
 1) **TSX mode** (`.tsx` output)
    - Emit `.tsx` and print real TSX markup.
@@ -31,6 +33,13 @@ genes-ts supports both:
 2) **Low-level mode** (`.ts` output)
    - Emit `.ts` and lower JSX into `React.createElement(...)`.
    - Useful when you want plain `.ts` output (or when TSX is undesirable).
+
+3) **JSX mode** (`.jsx` output)
+   - Omit `-D genes.ts`; Haxe types are erased while JSX syntax remains.
+   - Internal imports use runtime-correct `.js` specifiers for the JSX transform.
+
+4) **Classic JavaScript mode** (`.js` output)
+   - Omit `-D genes.ts`; JSX lowers directly to React-compatible runtime calls.
 
 Selection is based on the `-js` output filename extension:
 
@@ -42,6 +51,14 @@ Selection is based on the `-js` output filename extension:
 # Low-level mode
 -js src-gen/index.ts
 -D genes.ts
+
+# Type-erased JSX mode
+-js src-gen/index.jsx
+-D genes.react.inline_markup
+
+# Classic JavaScript mode
+-js src-gen/index.js
+-D genes.react.inline_markup
 ```
 
 ## Basic usage: `jsx("...")` template
@@ -69,14 +86,15 @@ Supported syntax (intentionally small, TSX-like subset):
 
 Notes:
 - `jsx(...)` expects a **string literal** (for stable codegen).
-- Interpolations are parsed with `Context.parse(...)`, so `{ ... }` must be valid Haxe.
+- Interpolations are parsed with `Context.parseInlineString(...)`, so `{ ... }`
+  must be valid Haxe and diagnostics retain the authored expression span.
 
 ## Inline markup (default in TypeScript mode)
 
 Inline markup enables writing:
 
 ```haxe
-return <div className={"x"}>{title}</div>;
+return <div className="x">{title}</div>;
 ```
 
 The build macro is installed automatically by `-lib genes-ts` (via
@@ -109,9 +127,10 @@ need fragment roots (`<>...</>`) or tags that aren’t valid XML names.
 
 | Profile | Authoring input | Current lowering contract |
 | --- | --- | --- |
-| TSX automatic (`.tsx`, `-D genes.ts`) | Inline markup or `jsx("...")` | Emits JSX/TSX; TypeScript validates tags/props/children. Runtime string tags use the planned factory namespace. |
+| TSX automatic (`.tsx`, `-D genes.ts`) | Inline markup or `jsx("...")` | Emits JSX/TSX after Haxe validation; TypeScript checks parity. Runtime string tags use the planned factory namespace. |
 | TSX classic (`.tsx`, plus `-D genes.ts.jsx_classic`) | Inline markup or `jsx("...")` | Emits JSX/TSX plus the required `React` namespace import. |
 | TS (`.ts`, `-D genes.ts`) | Inline markup or `jsx("...")` | Lowers to typed `React.createElement(...)`, including `satisfies` prop checks. |
+| JSX (`.jsx`, without `-D genes.ts`) | `jsx("...")`, or opted-in inline markup | Keeps JSX syntax while erasing Haxe types; runtime string tags use the planned factory namespace. |
 | Classic Genes JS | `jsx("...")`, or opted-in inline markup | Lowers the same ordered intent to plain React-compatible `createElement(...)`/`Fragment` calls. |
 
 `src/genes/JsxPlan.hx` owns marker recognition, tags/components, ordered
@@ -119,7 +138,7 @@ named/spread props, children, fragments, source provenance, and capability
 selection before either printer runs. It also distinguishes a direct value
 from a Haxe-lifted marker local, so property and child side effects are read
 from their evaluated path instead of executing twice. The identical-source fixture
-`DualJsxMain.hx` renders through TSX and classic JS under
+`DualJsxMain.hx` renders through TSX, type-erased JSX, and classic JS under
 `yarn test:genes-ts:tsx` and compares the resulting HTML transcript.
 
 ## TSX runtime: automatic vs classic
@@ -168,46 +187,102 @@ import genes.ts.Imports;
 
 final Button = Imports.defaultImport("./components/Button.js");
 
-return jsx('<Button label={"Save"} />');
+return jsx('<Button label="Save" />');
 ```
 
 ---
 
 ## Typechecking behavior (important)
 
-The JSX/HXX macros are **syntactic sugar**: they don’t typecheck React props at
-Haxe compile time.
+Haxe is the primary checker. A component function's first argument is its exact
+prop contract; `genes.react.ComponentType<Props>` and compatible wrappers can
+declare a prop type parameter with `@:genes.jsxComponentProps(index)`. HXX uses
+that identity to provide contextual callback typing, infer generic props, and
+check required, optional, extra, duplicate, spread, and `children` values.
+Extern and ordinary Haxe interfaces may extend other property interfaces; HXX
+collects their public inherited fields before it checks the tag. This matters
+for library contracts that keep common accessibility or callback properties in
+a base interface.
 
-Instead, the contract is:
-
-- Haxe typechecks the **interpolated expressions** (`{ ... }`) as normal Haxe.
-- TypeScript typechecks the **resulting TS/TSX** against React typings (`@types/react`).
-
-This is why genes-ts strongly recommends:
-
-- `tsc --noEmit` in CI for your generated output, and
-- strict React typings installed in the consuming project.
-
-### Testing for expected TS errors
-
-In snapshot fixtures and harnesses, it’s often useful to assert that TypeScript
-*rejects* an invalid pattern (e.g. wrong prop type).
-
-Since the invalid code must still pass Haxe typing, the pattern used in this repo
-is to inject `// @ts-expect-error` right before the generated TS expression:
+An imported extern class can name a closed property contract directly. This is
+useful when `@:jsRequire` represents a React component as a class value rather
+than a Haxe function:
 
 ```haxe
-js.Syntax.code("// @ts-expect-error");
-final bad = jsx('<Button label={123} />');
+@:genes.compilerInternal typedef LinkProps = {
+  final to: String;
+  final children: genes.react.Node;
+}
+
+@:jsRequire("react-router-dom", "Link")
+@:genes.jsxComponentProps("my.extern.ReactRouter.LinkProps")
+extern class Link {}
 ```
 
-If the generated TS becomes “too loose” (e.g. `any` leaks), TypeScript will stop
-erroring and then fail due to an unused `@ts-expect-error` directive — which is
-exactly what we want for regression protection.
+The string must be a fully qualified Haxe type path. It is resolved by Haxe at
+compile time; it is not emitted or interpreted at runtime. Both the generic
+index and type-path forms fail closed when the referenced contract is missing,
+open, or unsafe.
 
-The React profiles include negative checks for event handlers, component prop
-types, invalid intrinsic attributes, and invalid child records across TSX and
-typed createElement output. Positive spread/component/reactive examples and
-the same-source classic differential run beside them. This is strong evidence
-for those cases, not a claim that every framework-specific JSX namespace or
-component identity pattern is covered.
+Lowercase tags are resolved through the typed
+`genes.react.IntrinsicElements` provider. A JSX runtime can replace it with a
+comma-separated provider list:
+
+```hxml
+-D genes.react.jsx_intrinsic_providers=my.ui.IntrinsicElements
+```
+
+Provider fields use `@:genes.jsxIntrinsic("tag-name")`; prefix fields use
+`@:genes.jsxAttributePrefix("data-")`. The field type—not its metadata
+spelling—is the Haxe prop/value contract. Unknown tags and unresolved contracts
+fail closed rather than falling back to a permissive top type. A provider also
+cannot declare the same prefix twice: competing value types would make the
+accepted contract depend on field order, so HXX reports
+`GTS-HXX-SCHEMA-007` at the duplicate declaration.
+
+The bundled provider is deliberately a reviewed common subset, not a loose
+copy of every version of `@types/react`. If an application needs another valid
+attribute, extend a typed provider or contribute the missing generic contract.
+Do not work around a missing field with `Dynamic`, a cast, or a raw TypeScript
+type string: those approaches would move the error past Haxe again.
+
+Default React event contracts retain their element parameter. For example, an
+`<input>` callback contextually receives
+`genes.react.ChangeEvent<genes.react.InputElement>`, so
+`event.target.value` is checked in Haxe and is emitted as React's canonical
+`ChangeEvent<HTMLInputElement>`. Anchor events similarly retain
+`genes.react.AnchorElement`/`HTMLAnchorElement`. A callback may intentionally
+omit supplied event parameters or return a value when the consumer expects
+`Void`, matching JavaScript/TypeScript callback subtyping. The reverse is not
+safe: a callback that requires an argument cannot fill a contract whose caller
+may omit that argument. Declared parameters are checked contravariantly, and
+incompatible event targets fail in Haxe even when their extern wrappers have no
+runtime fields.
+
+Renderable children include the closed `genes.react.OneOf*` carriers and
+standard `haxe.extern.EitherType` unions. Domain abstracts backed by a React
+scalar remain renderable without erasing their Haxe identity.
+
+Keep `tsc --noEmit` and strict React typings in CI for `.tsx`/`.ts`. They prove
+that Haxe-derived output still matches the real consumer ecosystem, but an
+invalid HXX program must already have failed in Haxe.
+
+### Negative Haxe evidence
+
+Negative fixtures compile one invalid HXX operation at a time and assert its
+stable source-positioned diagnostic. For example:
+
+```haxe
+final bad = <Button label={123} />;
+// [GTS-HXX-PROP-002] component `Button` property `label` expects `String`
+// but received `Int`.
+```
+
+The repository covers tag typos, component identity/return types, missing,
+extra, duplicate and wrong props, unsafe keys and nested values, handler target/optionality,
+required and unexpected children, non-renderable children, and invalid spreads
+before any TypeScript lane runs. The harness checks the exact authored HXX line,
+not merely the source filename. Positive alias, generic, inherited-interface,
+wrapper, prefix, custom-provider, packed-release, and runtime fixtures run
+beside them. Provider coverage is explicit and extensible; it is not a claim
+that every third-party JSX namespace is built in.

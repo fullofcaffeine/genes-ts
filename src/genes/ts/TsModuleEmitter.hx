@@ -758,139 +758,28 @@ class TsModuleEmitter extends JsModuleEmitter {
     switch intent {
       case ElementIntent(tag, props, children, _):
         if (jsxEmitTsx)
-          emitTsxElement(tag, props, children);
+          emitJsxSourceElement(tag, props, children);
         else
           emitCreateElement(requireJsxRuntimeBinding(intent), tag, props,
             children);
       case FragmentIntent(children, _):
         if (jsxEmitTsx)
-          emitTsxFragment(children);
+          emitJsxSourceFragment(children);
         else
           emitCreateElementFragment(requireJsxRuntimeBinding(intent), children);
     }
   }
 
-  function emitTsxFragment(children: Array<JsxChildIntent>) {
-    write('<>');
-    emitTsxChildren(children);
-    write('</>');
-  }
-
-  function emitTsxElement(tag: JsxTagIntent, props: Array<JsxPropIntent>,
-      children: Array<JsxChildIntent>) {
-    switch tag {
-      case DynamicIntrinsicTag(_):
-        emitDynamicIntrinsicElement(tag, props, children);
-        return;
-      default:
-    }
-    write('<');
-    emitTsxTagName(tag);
-    emitTsxAttributes(props);
-    if (children.length == 0) {
-      write(' />');
-      return;
-    }
-    write('>');
-    emitTsxChildren(children);
-    write('</');
-    emitTsxTagName(tag);
-    write('>');
-  }
-
-  /** Emits runtime string tags through React's typed createElement overload. */
-  function emitDynamicIntrinsicElement(tag: JsxTagIntent,
-      props: Array<JsxPropIntent>, children: Array<JsxChildIntent>) {
-    final runtime = jsxRuntimeBinding;
-    if (runtime == null)
-      CompilerDiagnostic.fail('[GTS-JSX-CAPABILITY-005] Dynamic intrinsic '
-        + 'tag has no planned JSX runtime namespace.',
-        JsxPlan.tagExpression(tag).pos);
-    write(runtime);
-    write('.createElement(');
-    emitValue(JsxPlan.tagExpression(tag));
-    write(', ');
-    if (props.length == 0) {
-      write('null');
-    } else {
-      write('{');
-      for (prop in join(props, write.bind(', '))) {
-        switch prop {
-          case SpreadProp(e, source):
-            write('...');
-            emitJsxValue(e, source);
-          case NamedProp(name, value, source):
-            emitObjectKey(name);
-            write(': ');
-            emitJsxValue(value, source);
-        }
-      }
-      write('}');
-    }
-    for (child in children) {
-      write(', ');
-      emitJsxChildValue(child);
-    }
-    write(')');
-  }
-
-  function emitTsxTagName(tag: JsxTagIntent) {
-    switch tag {
-      case IntrinsicTag(name, _):
-        write(name);
-      case ComponentTag(expression):
-        emitValue(expression);
-      case DynamicIntrinsicTag(expression):
-        CompilerDiagnostic.fail('[GTS-JSX-CAPABILITY-006] Dynamic intrinsic '
-          + 'tag reached TSX tag-name printing instead of createElement.',
-          expression.pos);
-    }
-  }
-
-  function emitTsxAttributes(props: Array<JsxPropIntent>) {
-    for (p in props) {
-      switch p {
-        case SpreadProp(e, source):
-          write(' {...');
-          emitJsxValue(e, source);
-          write('}');
-        case NamedProp(name, value, source):
-          write(' ');
-          write(name);
-          switch [source, unwrapExpr(value).expr] {
-            case [DirectValue, TConst(TBool(true))]:
-              // Boolean attribute shorthand.
-            case [DirectValue, TConst(TString(s))]:
-              write('=');
-              emitString(s);
-            default:
-              write('={');
-              emitJsxValue(value, source);
-              write('}');
-          }
-      }
-    }
-  }
-
-  function emitTsxChildren(children: Array<JsxChildIntent>) {
-    for (child in children) {
-      switch child {
-        case ChildIntent(expression, source):
-          if (source.match(DirectValue)
-            && isReactJsxMarkerCallExpr(expression)) {
-            emitValue(expression);
-            continue;
-          }
-          switch [source, unwrapExpr(expression).expr] {
-            case [DirectValue, TConst(TString(value))]:
-              write(value);
-            default:
-              write('{');
-              emitJsxValue(expression, source);
-              write('}');
-          }
-      }
-    }
+  /** JSX props preserve explicit `undefined`; omission is not Haxe `null`. */
+  override function emitJsxValue(expression: TypedExpr,
+      source: JsxValueSource): Void {
+    final previous = suppressOptionalFieldNullNormalization;
+    final previousExpected = currentExpectedValueType;
+    suppressOptionalFieldNullNormalization = true;
+    currentExpectedValueType = expression.t;
+    super.emitJsxValue(expression, source);
+    currentExpectedValueType = previousExpected;
+    suppressOptionalFieldNullNormalization = previous;
   }
 
   function emitCreateElement(runtime: String, tag: JsxTagIntent,
@@ -946,6 +835,12 @@ class TsModuleEmitter extends JsModuleEmitter {
     write('.ComponentPropsWithoutRef<');
     emitComponentPropsTypeArgForTag(tag);
     write('>');
+    // React's `key` belongs to Attributes rather than a component's ordinary
+    // property object. HXX validates it separately and createElement accepts
+    // the same intersection, matching JSX syntax without widening other props.
+    write(' & ');
+    write(runtime);
+    write('.Attributes');
     // In TSX, TypeScript allows `data-*` / `aria-*` attributes by default.
     // In low-level `createElement(...)` mode, we add explicit mapped types so
     // real-world attributes don't get blocked by excess property checks.
@@ -1894,6 +1789,16 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   override public function emitVar(v: TVar, eo: Null<TypedExpr>) {
+    if (eo != null && isJsxCarrierLocal(v.id)) {
+      // The linked HXX carrier is compiler-owned scaffolding, not a public
+      // application value. Let TypeScript infer its exact recursive object
+      // shape instead of widening a synthetic anonymous carrier to `any`.
+      write('$declare ');
+      emitLocalVar(v);
+      write(' = ');
+      emitValue(eo);
+      return;
+    }
     // Haxe often creates `_g` temporaries while lowering loops. If such a temp
     // is initialized from an optional field already narrowed by a null guard,
     // emit the temp as non-null so generated TS matches the guarded branch.

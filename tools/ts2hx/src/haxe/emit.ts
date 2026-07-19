@@ -1343,7 +1343,7 @@ function emitType(typeNode: ts.TypeNode | undefined): string {
           : baseName === "RegExp"
             ? "EReg"
           : baseName === "HTMLAnchorElement"
-            ? "js.html.AnchorElement"
+            ? "genes.react.AnchorElement"
           : baseName === "ReadonlyArray"
             ? "Array"
             : baseName === "JSX.Element"
@@ -1625,8 +1625,12 @@ function emitJsxTag(ctx: EmitContext, tagName: ts.JsxTagNameExpression): string 
   return null;
 }
 
-function emitJsxProps(ctx: EmitContext, attrs: ts.JsxAttributes): string[] | null {
-  const out: string[] = [];
+type EmittedJsxProp =
+  | { readonly kind: "named"; readonly name: string; readonly value: string }
+  | { readonly kind: "spread"; readonly value: string };
+
+function emitJsxProps(ctx: EmitContext, attrs: ts.JsxAttributes): EmittedJsxProp[] | null {
+  const out: EmittedJsxProp[] = [];
   for (const prop of attrs.properties) {
     if (ts.isJsxAttribute(prop)) {
       const name = ts.isIdentifier(prop.name)
@@ -1650,20 +1654,39 @@ function emitJsxProps(ctx: EmitContext, attrs: ts.JsxAttributes): string[] | nul
         return null;
       }
       if (!valueExpr) return null;
-      out.push(`{ name: ${JSON.stringify(name)}, value: ${valueExpr} }`);
+      out.push({ kind: "named", name, value: valueExpr });
       continue;
     }
 
     if (ts.isJsxSpreadAttribute(prop)) {
       const spread = emitExpression(ctx, prop.expression);
       if (!spread) return null;
-      out.push(`{ spread: ${spread} }`);
+      out.push({ kind: "spread", value: spread });
       continue;
     }
 
     return null;
   }
   return out;
+}
+
+function emitJsxPropsCarrier(props: readonly EmittedJsxProp[]): string {
+  let carrier = "{ __genesJsxPropsEnd: true }";
+  for (let index = props.length - 1; index >= 0; index -= 1) {
+    const prop = props[index];
+    carrier = prop.kind === "spread"
+      ? `{ __genesJsxSpreadValue: ${prop.value}, __genesJsxPropNext: ${carrier} }`
+      : `{ __genesJsxPropName: ${JSON.stringify(prop.name)}, __genesJsxPropValue: ${prop.value}, __genesJsxPropNext: ${carrier} }`;
+  }
+  return carrier;
+}
+
+function emitJsxChildrenCarrier(children: readonly string[]): string {
+  let carrier = "{ __genesJsxChildrenEnd: true }";
+  for (let index = children.length - 1; index >= 0; index -= 1) {
+    carrier = `{ __genesJsxChildValue: ${children[index]}, __genesJsxChildNext: ${carrier} }`;
+  }
+  return carrier;
 }
 
 function emitJsxChildren(ctx: EmitContext, children: readonly ts.JsxChild[]): string[] | null {
@@ -1726,7 +1749,7 @@ function emitJsxRoot(ctx: EmitContext, expr: ts.JsxElement | ts.JsxSelfClosingEl
   if (ts.isJsxFragment(expr)) {
     const children = emitJsxChildren(ctx, expr.children);
     if (!children) return null;
-    return `genes.react.internal.Jsx.__frag([${children.join(", ")}])`;
+    return `genes.react.internal.Jsx.__frag(${emitJsxChildrenCarrier(children)})`;
   }
 
   if (ts.isJsxSelfClosingElement(expr)) {
@@ -1734,7 +1757,7 @@ function emitJsxRoot(ctx: EmitContext, expr: ts.JsxElement | ts.JsxSelfClosingEl
     if (!tag) return null;
     const props = emitJsxProps(ctx, expr.attributes);
     if (!props) return null;
-    return `genes.react.internal.Jsx.__jsx(${tag}, [${props.join(", ")}], [])`;
+    return `genes.react.internal.Jsx.__jsx(${tag}, ${emitJsxPropsCarrier(props)}, ${emitJsxChildrenCarrier([])})`;
   }
 
   // JsxElement
@@ -1744,7 +1767,7 @@ function emitJsxRoot(ctx: EmitContext, expr: ts.JsxElement | ts.JsxSelfClosingEl
   if (!props) return null;
   const children = emitJsxChildren(ctx, expr.children);
   if (!children) return null;
-  return `genes.react.internal.Jsx.__jsx(${tag}, [${props.join(", ")}], [${children.join(", ")}])`;
+  return `genes.react.internal.Jsx.__jsx(${tag}, ${emitJsxPropsCarrier(props)}, ${emitJsxChildrenCarrier(children)})`;
 }
 
 type EmittedLValue = {

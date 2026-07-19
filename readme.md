@@ -246,7 +246,7 @@ The authoritative `yarn test:dual-output` corpus now proves the checked runtime,
 declaration, resource, DCE, import, reflection, and source-map-shape contracts
 across TS, classic, standard Haxe JS, and a vanilla-compatible core. General
 equivalence outside that corpus remains experimental. JSX has its own
-same-source TSX/classic runtime differential under the React gate; it does not
+same-source TSX/JSX/classic runtime differential under the React gate; it does not
 turn either bounded corpus into a universal language-parity claim.
 
 ES6 support is not a lowest-common-denominator mode. TypeScript output should stay precise and readable; portability is implemented through maintainable compiler architecture and target-specific emitters.
@@ -258,12 +258,25 @@ genes-ts includes a compile-time JSX-ish macro that lowers to React nodes:
 ```haxe
 import genes.react.JSX.*;
 
-return jsx('<div className={"x"}>{title}</div>');
+return jsx('<div className="x">{title}</div>');
 ```
 
-TSX vs low-level mode:
+Checked output profiles:
 - Emit `.tsx` (idiomatic TSX): set your `-js` output to `.../index.tsx`
 - Emit `.ts` (low-level): set your `-js` output to `.../index.ts`
+- Emit `.jsx` (type-erased JSX): omit `-D genes.ts` and output `.../index.jsx`
+- Emit `.js` (runtime calls): omit `-D genes.ts` and output `.../index.js`
+
+Haxe validates intrinsic/component tags, exact props, callbacks, spreads, and
+children before generation. TypeScript remains an independent consumer check
+for `.tsx` and `.ts`, not the first typechecker.
+
+Callable components derive props from their Haxe argument. Generic wrappers use
+`@:genes.jsxComponentProps(index)`, while `@:jsRequire` extern component classes
+can use `@:genes.jsxComponentProps("fully.qualified.Props")`. Intrinsic event
+contracts preserve the concrete element target (for example,
+`ChangeEvent<InputElement>` on `<input>`), including contextual callback
+typing at the HXX source position.
 
 Inline markup rewriting is default-on in `-D genes.ts` builds. Disable it for a
 build with `-D genes.react.no_inline_markup`, or for one class with
@@ -271,9 +284,9 @@ build with `-D genes.react.no_inline_markup`, or for one class with
 `-D genes.react.inline_markup`, and `-D genes.react.inline_markup_all` are
 explicit opt-ins to the parser rewrite. Shared `JsxPlan` semantics then lower
 the same tag, ordered props, fragment, and children intent to React-compatible
-`createElement(...)` calls in classic Genes JS. `yarn test:genes-ts:tsx`
-executes one identical Haxe source through TSX and classic output and compares
-its rendered HTML.
+output. `yarn test:genes-ts:tsx` executes one identical Haxe source through
+typed TSX, type-erased JSX, and classic JavaScript and compares its rendered
+HTML.
 
 The runtime namespace defaults to `react`. Set
 `-D genes.react.jsx_runtime_module=<module>` for a compatible factory module,

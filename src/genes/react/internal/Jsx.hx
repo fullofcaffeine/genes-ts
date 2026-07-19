@@ -12,8 +12,8 @@ import genes.react.Element;
  * runtime calls. The marker itself never leaks into generated source.
  */
 extern class Jsx {
-  public static function __jsx(tag: Dynamic, props: Array<Dynamic>,
-    children: Array<Dynamic>): Element;
+  public static function __jsx<Tag, Props, Children>(tag: Tag, props: Props,
+    children: Children): Element;
 
-  public static function __frag(children: Array<Dynamic>): Element;
+  public static function __frag<Children>(children: Children): Element;
 }

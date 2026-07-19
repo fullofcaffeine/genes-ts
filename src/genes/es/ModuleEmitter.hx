@@ -38,7 +38,8 @@ class ModuleEmitter extends ExprEmitter {
     final projection = module.runtimeProjection;
     final dependencies = projection.bindings;
     final endTimer = timer('emitModule');
-    configureLowering(module, ClassicStable);
+    configureLowering(module, ClassicStable,
+      genes.Genes.outExtension == '.jsx');
     configureTemplateLiterals(module.templateLiteralPlan);
     ctx.typeAccessor = dependencies.typeAccessor;
     configureJsx(module.jsxPlan, JsxCapabilityPolicy.current(), dependencies);

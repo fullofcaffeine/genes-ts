@@ -128,11 +128,10 @@ function main(): number {
       smokeMain: "ts2hx.Main",
       translationMode: "assisted",
       expectedUnsupportedFiles: ["components/Button.tsx"],
-      // TSX lowering currently emits `genes.react.internal.Jsx.__jsx` marker calls which
-      // are lowered by genes-ts when emitting TS/TSX, but have no runtime implementation
-      // in classic `haxe -js` output. Its bound React package request is also
-      // intentionally fail-closed until the package-loading differential lands.
-      // Compile-smoke the assisted inventory only; it carries no runtime claim.
+      // TSX lowering emits typed `genes.react.internal.Jsx` carriers which
+      // genes-ts consumes in every supported source profile. This assisted
+      // inventory still carries no classic-runtime claim because its source
+      // package request is intentionally unresolved in this fixture.
       smokeRun: false
     },
     {
@@ -142,8 +141,8 @@ function main(): number {
       basePackage: "ts2hx",
       runtimeProfile: "standard-haxe-js",
       smokeMain: "ts2hx.Main",
-      // JSX markers are compile-time genes-ts IR and intentionally have no
-      // classic JavaScript runtime implementation.
+      // JSX carriers are compile-time genes-ts IR; this fixture proves the
+      // genes-ts roundtrip separately from its standard-Haxe smoke compile.
       smokeRun: false,
       genesTsRoundtrip: true,
       requireStrongGeneratedHaxe: true

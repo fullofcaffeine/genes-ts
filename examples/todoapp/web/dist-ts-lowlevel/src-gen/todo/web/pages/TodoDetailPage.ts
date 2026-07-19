@@ -7,11 +7,11 @@ import {ReactRouterDom_Fields_} from "../../extern/ReactRouterDom"
 import {Client} from "../Client"
 import {StringTools} from "../../../StringTools"
 import {Register} from "../../../genes/Register"
-import type {ReactElement, ChangeEvent} from "../ReactTypes"
 import type {Todo} from "../../shared/Todo"
+import type {ChangeEvent} from "../ReactTypes"
 
 export class TodoDetailPage {
-	static Component(): ReactElement {
+	static Component(): JSX.Element {
 		let idStr: string | null = Router.param("id");
 		let id: string | null = (idStr == null) ? null : idStr;
 		let todoState: [ Todo | null, import('react').Dispatch<import('react').SetStateAction<Todo | null>> ] = useState<Todo | null>(null);
@@ -57,26 +57,33 @@ export class TodoDetailPage {
 			});
 		};
 		if (error != "") {
-			return React__genes_jsx.createElement("div", null, React__genes_jsx.createElement("p", ({style: {"color": "crimson"}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"p"> & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), error), React__genes_jsx.createElement(Link, ({to: "/"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Link> & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Back"));
+			let tmp: JSX.Element = React__genes_jsx.createElement("p", ({style: {"color": "crimson"}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"p"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), error);
+			let tmp1: JSX.Element = React__genes_jsx.createElement(Link, ({to: "/"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Link> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Back");
+			return React__genes_jsx.createElement("div", null, tmp, tmp1);
 		};
 		if (todo == null) {
 			return React__genes_jsx.createElement("p", null, "Loading...");
 		};
 		let todoValue: Todo = todo;
-		let tmp: JSX.Element = React__genes_jsx.createElement("p", null, React__genes_jsx.createElement(Link, ({to: "/"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Link> & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "← Back"));
-		let tmp1: JSX.Element = React__genes_jsx.createElement("h2", null, "Todo");
-		let tmp2: JSX.Element = React__genes_jsx.createElement("p", null, React__genes_jsx.createElement("b", null, "ID:"), todoValue.id);
-		let tmp3: JSX.Element = React__genes_jsx.createElement("p", null, React__genes_jsx.createElement("b", null, "Created:"), todoValue.createdAt);
-		let tmp4: JSX.Element = React__genes_jsx.createElement("p", null, React__genes_jsx.createElement("b", null, "Updated:"), todoValue.updatedAt);
-		let tmp5: JSX.Element = React__genes_jsx.createElement("input", ({value: title, onChange: function (e: ChangeEvent) {
+		let tmp_1: JSX.Element = React__genes_jsx.createElement(Link, ({to: "/"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Link> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "← Back");
+		let tmp1_1: JSX.Element = React__genes_jsx.createElement("p", null, tmp_1);
+		let tmp2: JSX.Element = React__genes_jsx.createElement("h2", null, "Todo");
+		let tmp3: JSX.Element = React__genes_jsx.createElement("b", null, "ID:");
+		let tmp4: JSX.Element = React__genes_jsx.createElement("p", null, tmp3, todoValue.id);
+		let tmp5: JSX.Element = React__genes_jsx.createElement("b", null, "Created:");
+		let tmp6: JSX.Element = React__genes_jsx.createElement("p", null, tmp5, todoValue.createdAt);
+		let tmp7: JSX.Element = React__genes_jsx.createElement("b", null, "Updated:");
+		let tmp8: JSX.Element = React__genes_jsx.createElement("p", null, tmp7, todoValue.updatedAt);
+		let tmp9: JSX.Element = React__genes_jsx.createElement("input", ({value: title, onChange: function (e: ChangeEvent) {
 			let setter: ((arg0: string) => void) = (titleState[1] ?? null);
 			setter(e.target.value);
-		}, style: {"display": "block", "width": "100%", "padding": "8px", "marginTop": "6px"}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"input"> & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
-		let tmp6: JSX.Element = React__genes_jsx.createElement("label", ({style: {"display": "block", "marginTop": "12px"}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"label"> & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), " Title ", tmp5);
-		let tmp7: JSX.Element = React__genes_jsx.createElement("button", ({onClick: function () {
+		}, style: {"display": "block", "width": "100%", "padding": "8px", "marginTop": "6px"}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"input"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
+		let tmp10: JSX.Element = React__genes_jsx.createElement("label", ({style: {"display": "block", "marginTop": "12px"}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"label"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), " Title ", tmp9);
+		let tmp11: JSX.Element = React__genes_jsx.createElement("button", ({onClick: function () {
 			onSave();
-		}, style: {"padding": "8px 12px"}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"button"> & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Save");
-		return React__genes_jsx.createElement("div", null, tmp, tmp1, tmp2, tmp3, tmp4, tmp6, React__genes_jsx.createElement("div", ({style: {"marginTop": "12px"}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"div"> & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), tmp7));
+		}, style: {"padding": "8px 12px"}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"button"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Save");
+		let tmp12: JSX.Element = React__genes_jsx.createElement("div", ({style: {"marginTop": "12px"}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"div"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), tmp11);
+		return React__genes_jsx.createElement("div", null, tmp1_1, tmp2, tmp4, tmp6, tmp8, tmp10, tmp12);
 	}
 	static get __name__(): string {
 		return "todo.web.pages.TodoDetailPage"

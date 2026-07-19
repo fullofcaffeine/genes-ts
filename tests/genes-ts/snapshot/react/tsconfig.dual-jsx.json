@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "jsx": "react-jsx",
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "rootDir": "out/dual-jsx",
+    "outDir": "out/dual-jsx-dist",
+    "rewriteRelativeImportExtensions": true,
+    "skipLibCheck": true
+  },
+  "include": ["out/dual-jsx/**/*.jsx"]
+}

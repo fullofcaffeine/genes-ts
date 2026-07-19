@@ -1,0 +1,9 @@
+-lib genes-ts
+
+-cp tests/genes-ts/snapshot/react/negative
+--main Negative
+
+-js tests/genes-ts/snapshot/react/out/negative/index.tsx
+-D genes.ts
+
+-dce full

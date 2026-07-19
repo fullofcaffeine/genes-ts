@@ -15,6 +15,9 @@ enum abstract JsxEmissionProfile(String) to String {
   /** TypeScript source keeps JSX syntax and expects `React.createElement`. */
   var TsxClassic = "tsx-classic";
 
+  /** JavaScript source keeps JSX syntax with all Haxe types erased. */
+  var JavaScriptJsxAutomatic = "jsx-automatic";
+
   /** Plain TypeScript source lowers intent directly to `createElement`. */
   var TypeScriptCreateElement = "typescript-create-element";
 
@@ -60,7 +63,6 @@ enum JsxValueSource {
 
 /** One target-neutral access segment within an already-evaluated marker value. */
 enum JsxValueAccess {
-  JsxArrayIndex(index: Int);
   JsxObjectField(name: String);
 }
 
@@ -106,7 +108,8 @@ class JsxCapabilityPolicy {
   public final runtimeBindingName: String;
 
   public static function current(): JsxCapabilityPolicy {
-    final profile: JsxEmissionProfile = if (!Context.defined('genes.ts'))
+    final profile: JsxEmissionProfile = if (Genes.outExtension == '.jsx')
+      JavaScriptJsxAutomatic else if (!Context.defined('genes.ts'))
       ClassicCreateElement
     else if (Genes.outExtension == '.tsx')
       Context.defined('genes.ts.jsx_classic') ? TsxClassic : TsxAutomatic
@@ -139,7 +142,7 @@ class JsxCapabilityPolicy {
     if (!plan.hasIntents)
       return false;
     return switch profile {
-      case TsxAutomatic: plan.usesDynamicIntrinsicTag;
+      case TsxAutomatic | JavaScriptJsxAutomatic: plan.usesDynamicIntrinsicTag;
       case TsxClassic | TypeScriptCreateElement | ClassicCreateElement: true;
     }
   }
@@ -206,6 +209,7 @@ class JsxCapabilityPolicy {
  */
 class JsxPlan {
   final localInitializers: Map<Int, TypedExpr> = [];
+  final carrierLocalIds: Map<Int, Bool> = [];
   var intentCount = 0;
   var dynamicIntrinsic = false;
   var firstIntentPosition: Null<Position> = null;
@@ -214,8 +218,14 @@ class JsxPlan {
   public var usesDynamicIntrinsicTag(get, never): Bool;
   public var firstPosition(get, never): Position;
 
+  /** True when a local exists only to retain a typed JSX carrier record. */
+  public function isCarrierLocal(id: Int): Bool {
+    return carrierLocalIds.exists(id);
+  }
+
   public static function build(module: Module): JsxPlan {
     final plan = new JsxPlan();
+    var checker: Null<JsxTypeChecker> = null;
     plan.visitModuleExpressions(module, expression -> {
       switch unwrap(expression).expr {
         case TVar(variable, initializer) if (initializer != null):
@@ -227,6 +237,9 @@ class JsxPlan {
       final intent = plan.intentForExpression(expression);
       if (intent == null)
         return;
+      if (checker == null)
+        checker = new JsxTypeChecker();
+      checker.validate(intent);
       plan.intentCount++;
       final pos = intentPosition(intent);
       if (plan.firstIntentPosition == null)
@@ -330,7 +343,14 @@ class JsxPlan {
 
   function intentForExpression(expression: TypedExpr): Null<JsxIntent> {
     return switch unwrap(expression).expr {
-      case TCall(callee, arguments): intentForCall(callee, arguments);
+      case TCall(callee, arguments):
+        final intent = intentForCall(callee, arguments);
+        intent == null ? null : switch intent {
+          case ElementIntent(tag, props, children, _):
+            ElementIntent(tag, props, children, expression.pos);
+          case FragmentIntent(children, _):
+            FragmentIntent(children, expression.pos);
+        };
       default: null;
     }
   }
@@ -350,87 +370,127 @@ class JsxPlan {
   function childrenIntent(expression: TypedExpr): Array<JsxChildIntent> {
     final sourceRoot = markerLocalSource(expression);
     final resolved = resolveMarkerLocal(expression);
-    return switch resolved.expr {
-      case TArrayDecl(children):
-        [for (index in 0...children.length)
-          ChildIntent(children[index], sourceRoot == null
-            ? DirectValue
-            : RuntimeValuePath(sourceRoot, [JsxArrayIndex(index)]))];
-      case TConst(TNull): [];
-      default:
-        markerError('GTS-JSX-INTENT-003',
-          'Marker children must be an array literal', resolved.pos);
-    }
+    return readChildren(resolved, sourceRoot, [], 0);
   }
 
   function propsIntent(expression: TypedExpr): Array<JsxPropIntent> {
     final sourceRoot = markerLocalSource(expression);
     final resolved = resolveMarkerLocal(expression);
-    return switch resolved.expr {
-      case TArrayDecl(entries):
-        [for (index in 0...entries.length)
-          propIntent(entries[index], sourceRoot == null
-            ? null
-            : RuntimeValuePath(sourceRoot, [JsxArrayIndex(index)]))];
-      case TConst(TNull): [];
-      default:
-        markerError('GTS-JSX-INTENT-004',
-          'Marker props must be an array literal', resolved.pos);
-    }
+    return readProps(resolved, sourceRoot, [], 0);
   }
 
-  function propIntent(expression: TypedExpr,
-      arrayEntrySource: Null<JsxValueSource>): JsxPropIntent {
-    final entryRoot = markerLocalSource(expression);
-    final resolved = resolveMarkerLocal(expression);
-    return switch resolved.expr {
-      case TObjectDecl(fields):
-        var name: Null<String> = null;
-        var value: Null<TypedExpr> = null;
-        var spread: Null<TypedExpr> = null;
-        for (field in fields) {
-          switch field.name {
-            case 'name':
-              switch unwrap(field.expr).expr {
-                case TConst(TString(found)): name = found;
+  function readChildren(expression: TypedExpr, sourceRoot: Null<TypedExpr>,
+      path: Array<JsxValueAccess>, depth: Int): Array<JsxChildIntent> {
+    if (depth > 4096)
+      markerError('GTS-JSX-INTENT-008',
+        'Marker children carrier exceeds the supported depth', expression.pos);
+    final fields = objectFields(expression, 'children');
+    if (fields.exists('__genesJsxChildrenEnd'))
+      return [];
+    final value = requiredCarrierField(fields, '__genesJsxChildValue',
+      'GTS-JSX-INTENT-003', expression.pos);
+    final next = requiredCarrierField(fields, '__genesJsxChildNext',
+      'GTS-JSX-INTENT-003', expression.pos);
+    final valuePath = appendPath(path, '__genesJsxChildValue');
+    final nextState = nestedCarrierState(next, sourceRoot,
+      appendPath(path, '__genesJsxChildNext'));
+    final out = [ChildIntent(value, sourceFor(sourceRoot, valuePath))];
+    for (child in readChildren(nextState.expression, nextState.sourceRoot,
+      nextState.path, depth + 1))
+      out.push(child);
+    return out;
+  }
+
+  function readProps(expression: TypedExpr, sourceRoot: Null<TypedExpr>,
+      path: Array<JsxValueAccess>, depth: Int): Array<JsxPropIntent> {
+    if (depth > 4096)
+      markerError('GTS-JSX-INTENT-009',
+        'Marker props carrier exceeds the supported depth', expression.pos);
+    final fields = objectFields(expression, 'props');
+    if (fields.exists('__genesJsxPropsEnd'))
+      return [];
+
+    final next = requiredCarrierField(fields, '__genesJsxPropNext',
+      'GTS-JSX-INTENT-004', expression.pos);
+    final current = if (fields.exists('__genesJsxSpreadValue')) {
+      final value = fields.get('__genesJsxSpreadValue');
+      SpreadProp(value,
+        sourceFor(sourceRoot, appendPath(path, '__genesJsxSpreadValue')));
+    } else {
+      final nameExpr = requiredCarrierField(fields, '__genesJsxPropName',
+        'GTS-JSX-INTENT-005', expression.pos);
+      final name = switch unwrap(nameExpr).expr {
+                case TConst(TString(found)): found;
                 default:
                   markerError('GTS-JSX-INTENT-005',
-                    'Marker prop name must be a string literal', field.expr.pos);
-              }
-            case 'value': value = field.expr;
-            case 'spread': spread = field.expr;
-            default:
-          }
-        }
-        if (spread != null)
-          SpreadProp(spread, propFieldSource(arrayEntrySource, entryRoot,
-            'spread'))
-        else if (name != null && value != null)
-          NamedProp(name, value, propFieldSource(arrayEntrySource, entryRoot,
-            'value'))
-        else
-          markerError('GTS-JSX-INTENT-006',
-            'Marker prop entry must contain name/value or spread', resolved.pos);
+                    'Marker prop name must be a string literal', nameExpr.pos);
+              };
+      final value = requiredCarrierField(fields, '__genesJsxPropValue',
+        'GTS-JSX-INTENT-006', expression.pos);
+      NamedProp(name, value,
+        sourceFor(sourceRoot, appendPath(path, '__genesJsxPropValue')));
+    }
+
+    final nextState = nestedCarrierState(next, sourceRoot,
+      appendPath(path, '__genesJsxPropNext'));
+    final out = [current];
+    for (prop in readProps(nextState.expression, nextState.sourceRoot,
+      nextState.path, depth + 1))
+      out.push(prop);
+    return out;
+  }
+
+  function objectFields(expression: TypedExpr,
+      carrierName: String): Map<String, TypedExpr> {
+    return switch unwrap(expression).expr {
+      case TObjectDecl(fields):
+        [for (field in fields) field.name => field.expr];
       default:
-        markerError('GTS-JSX-INTENT-007',
-          'Marker prop entry must be an object literal', resolved.pos);
+        markerError(carrierName == 'props' ? 'GTS-JSX-INTENT-004' : 'GTS-JSX-INTENT-003',
+          'Marker $carrierName must use the compiler-owned linked record carrier',
+          expression.pos);
     }
   }
 
-  function propFieldSource(arrayEntrySource: Null<JsxValueSource>,
-      entryRoot: Null<TypedExpr>, field: String): JsxValueSource {
-    if (arrayEntrySource != null) {
-      return switch arrayEntrySource {
-        case DirectValue: DirectValue;
-        case RuntimeValuePath(root, path):
-          final extended = path.copy();
-          extended.push(JsxObjectField(field));
-          RuntimeValuePath(root, extended);
-      }
-    }
-    return entryRoot == null
+  function requiredCarrierField(fields: Map<String, TypedExpr>, name: String,
+      id: String, pos: Position): TypedExpr {
+    final field = fields.get(name);
+    return field == null ? markerError(id,
+      'Marker carrier is missing `$name`', pos) : field;
+  }
+
+  function nestedCarrierState(expression: TypedExpr,
+      inheritedRoot: Null<TypedExpr>, inheritedPath: Array<JsxValueAccess>): {
+    final expression: TypedExpr;
+    final sourceRoot: Null<TypedExpr>;
+    final path: Array<JsxValueAccess>;
+  } {
+    if (inheritedRoot != null)
+      return {
+        expression: resolveMarkerLocal(expression),
+        sourceRoot: inheritedRoot,
+        path: inheritedPath
+      };
+    final localRoot = markerLocalSource(expression);
+    return {
+      expression: resolveMarkerLocal(expression),
+      sourceRoot: localRoot,
+      path: []
+    };
+  }
+
+  static function appendPath(path: Array<JsxValueAccess>,
+      field: String): Array<JsxValueAccess> {
+    final out = path.copy();
+    out.push(JsxObjectField(field));
+    return out;
+  }
+
+  static function sourceFor(root: Null<TypedExpr>,
+      path: Array<JsxValueAccess>): JsxValueSource {
+    return root == null
       ? DirectValue
-      : RuntimeValuePath(entryRoot, [JsxObjectField(field)]);
+      : RuntimeValuePath(root, path);
   }
 
   /** Returns the original local only when marker data was already evaluated. */
@@ -438,6 +498,7 @@ class JsxPlan {
     final candidate = unwrap(expression);
     return switch candidate.expr {
       case TLocal(variable) if (localInitializers.exists(variable.id)):
+        carrierLocalIds.set(variable.id, true);
         candidate;
       default:
         null;
