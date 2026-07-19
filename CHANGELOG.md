@@ -1,3 +1,11 @@
+## [1.36.8](https://github.com/fullofcaffeine/genes-ts/compare/v1.36.7...v1.36.8) (2026-07-19)
+
+
+### Bug Fixes
+
+* **ts:** invalidate stale narrowing facts ([e4d118b](https://github.com/fullofcaffeine/genes-ts/commit/e4d118b276a0d72381f1756fd0fe09f9520de0de))
+* **ts:** respect do-while narrowing order ([62897e0](https://github.com/fullofcaffeine/genes-ts/commit/62897e022edc9d5cc9a151144188d8b5c35bffa6))
+
 ## [1.36.7](https://github.com/fullofcaffeine/genes-ts/compare/v1.36.6...v1.36.7) (2026-07-18)
 
 
