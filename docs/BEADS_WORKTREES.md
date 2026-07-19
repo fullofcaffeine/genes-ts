@@ -173,6 +173,11 @@ byte-identical. It then restores only the disposable fixture and proves that
 the repository-owned export command works from clean primary `main` while
 refusing linked and dirty contexts.
 
+CI runs this test against verified upstream Beads 1.0.4 and 1.1.0 release
+binaries. Their Linux archive hashes are pinned in `.github/workflows/ci.yml`,
+so a hook or configuration change in either the incident version or recommended
+version cannot silently remove this protection.
+
 See also:
 
 - [Beads configuration reference](https://github.com/gastownhall/beads/blob/main/docs/CONFIG.md)

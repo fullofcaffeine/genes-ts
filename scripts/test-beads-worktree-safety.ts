@@ -120,8 +120,16 @@ function assertRealWorktreeHookBoundary(): void {
       BD_EXPORT_AUTO: "false",
       BD_EXPORT_GIT_ADD: "false"
     };
-    bd(primary, ["config", "set", "export.auto", "false"], configEnv);
-    bd(primary, ["config", "set", "export.git-add", "false"], configEnv);
+    const fixtureConfigPath = path.join(primary, ".beads/config.yaml");
+    writeFileSync(
+      fixtureConfigPath,
+      `${readFileSync(fixtureConfigPath, "utf8")}\nexport.auto: false\nexport.git-add: false\n`
+    );
+    strictEqual(bd(primary, ["config", "get", "export.auto"], configEnv), "false");
+    strictEqual(
+      bd(primary, ["config", "get", "export.git-add"], configEnv),
+      "false"
+    );
     bd(primary, ["hooks", "install"], configEnv);
     const commonGitDir = path.resolve(
       primary,
@@ -152,9 +160,15 @@ function assertRealWorktreeHookBoundary(): void {
       /only from the primary Git worktree/
     );
 
+    const linkedSnapshotBeforeIssue = snapshotHashes(linked, env);
     const created = bd(linked, ["create", "Shared worktree issue", "--priority", "2"], env);
     const issueId = created.match(/safety-[a-z0-9]+/)?.[0];
     ok(issueId, `Could not read the created issue ID from: ${created}`);
+    strictEqual(
+      snapshotHashes(linked, env).join(","),
+      linkedSnapshotBeforeIssue.join(","),
+      "linked issue creation changed its tracked snapshot or index"
+    );
 
     const cleanSnapshot = readFileSync(
       path.join(primary, ".beads/issues.jsonl"),
@@ -186,6 +200,16 @@ function assertRealWorktreeHookBoundary(): void {
     ok(
       readFileSync(commitTrace, "utf8").includes("hooks/pre-commit"),
       "Git trace does not show the managed pre-commit hook running"
+    );
+    strictEqual(
+      snapshotHashes(linked, env).join(","),
+      linkedSnapshotBeforeIssue.join(","),
+      "linked commit changed its tracked snapshot or index"
+    );
+    strictEqual(
+      git(linked, ["status", "--porcelain=v1", "--untracked-files=all"], env),
+      "",
+      "linked worktree was left dirty after its feature commit"
     );
     const afterCommit = snapshotHashes(primary, env);
     strictEqual(afterCommit[0], beforeCommit[0], "primary working snapshot changed");
