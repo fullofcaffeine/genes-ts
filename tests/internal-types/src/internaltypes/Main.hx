@@ -23,6 +23,12 @@ private typedef LocalRecord = {
   final value:String;
 }
 
+/** Compiler-owned alias that is hidden publicly but required by local TS. */
+@:genes.compilerInternal
+private typedef InternalRecord = {
+  final value:String;
+}
+
 /** Module-private enum whose ordinary Haxe reflection identity is preserved. */
 private enum LocalState {
   Ready;
@@ -59,7 +65,8 @@ class Main {
   public static function evaluate(value:String):String {
     final local:LocalTag = new LocalBox(value);
     final record:LocalRecord = {value: local.label()};
-    final result:InternalResult<String> = Value(record.value);
+    final internal:InternalRecord = {value: record.value};
+    final result:InternalResult<String> = Value(internal.value);
     final resolved = switch result {
       case Value(found): found;
       case Empty: "empty";

@@ -446,12 +446,15 @@ class DependencyPlanBuilder {
     }
 
     for (member in module.members) {
-      // The implementation still needs every type named by an internal enum or
-      // typedef, but a declaration-hidden member has no consumer-facing syntax
-      // that could use those imports. Apply the same projection as the `.d.ts`
-      // printer here so an erased compiler detail cannot leave orphan imports.
-      if (kind == DeclarationOnly
-        && !Module.memberProjection(member).emitDeclaration)
+      final projection = Module.memberProjection(member);
+      // Type dependencies must follow the syntax that will actually be
+      // printed. An ordinary compiler-internal alias still has a local
+      // implementation and therefore keeps its imports. A semantic-only alias
+      // has no emitted syntax at all, so retaining its dependencies would
+      // generate unrelated modules for a checker contract no output can name.
+      // Declaration planning applies the same rule to every hidden member.
+      if ((kind == TypeOnly && !projection.emitImplementation)
+        || (kind == DeclarationOnly && !projection.emitDeclaration))
         continue;
       switch member {
         case MClass(cl, params, fields):

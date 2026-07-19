@@ -13,20 +13,32 @@ package genes.react;
  * an unsafe catch-all.
  *
  * How: `@:genes.compilerInternal` keeps the schemas available through typing
- * and HXX planning, then removes them from public/runtime output. `HtmlPropsOf`
- * carries the exact element type into React event callbacks. The anchor and
- * input schemas use more specific element contracts; other HTML tags use the
- * shared `DomElement` boundary until a focused contract justifies refinement.
+ * and hides them from public output. `@:genes.semanticOnly` additionally says
+ * generated code never names these aliases, so their local TypeScript
+ * declarations may also be omitted. `HtmlPropsOf` carries the exact element
+ * type into React event callbacks. The anchor and input schemas use focused
+ * element facades with the common fields HXX checks today; other tags use the
+ * shared `DomElement` boundary. These facades print the canonical browser names
+ * in TypeScript without retaining Haxe's much larger DOM declaration graph.
  */
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef Key = OneOf3<String, Int, Float>;
 
-@:genes.compilerInternal typedef Key = OneOf3<String, Int, Float>;
-@:genes.compilerInternal typedef AttributeValue = OneOf4<String, Int, Float,
-  Bool>;
-@:genes.compilerInternal typedef NumberLike = OneOf3<String, Int, Float>;
-@:genes.compilerInternal typedef FormValue = OneOf3<String, Int, Array<String>>;
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef AttributeValue = OneOf4<String, Int, Float, Bool>;
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef NumberLike = OneOf3<String, Int, Float>;
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef FormValue = OneOf3<String, Int, Array<String>>;
 
 /** A deliberately structural subset of React's typed style object. */
-@:genes.compilerInternal typedef CSSProperties = {
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef CSSProperties = {
   @:optional var color: String;
   @:optional var background: String;
   @:optional var backgroundColor: String;
@@ -68,15 +80,21 @@ package genes.react;
   @:optional var zIndex: Int;
 }
 
-@:genes.compilerInternal typedef InnerHtml = {
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef InnerHtml = {
   final __html: String;
 }
 
 /** Properties shared by standard HTML elements. */
-@:genes.compilerInternal typedef HtmlProps = HtmlPropsOf<DomElement>;
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef HtmlProps = HtmlPropsOf<DomElement>;
 
 /** Shared properties with the concrete event-target element preserved. */
-@:genes.compilerInternal typedef HtmlPropsOf<T> = {
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef HtmlPropsOf<T> = {
   @:optional var children: Node;
   @:optional var key: Key;
   @:optional var id: String;
@@ -114,7 +132,9 @@ package genes.react;
   @:optional var onError: SyntheticEvent<T>->Void;
 }
 
-@:genes.compilerInternal typedef AnchorProps = {
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef AnchorProps = {
   > HtmlPropsOf<AnchorElement>,
   @:optional var href: String;
   @:optional var target: String;
@@ -127,7 +147,9 @@ package genes.react;
   @:optional var type: String;
 }
 
-@:genes.compilerInternal typedef ButtonProps = {
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef ButtonProps = {
   > HtmlProps,
   @:optional var disabled: Bool;
   @:optional var form: String;
@@ -141,7 +163,9 @@ package genes.react;
   @:optional var value: FormValue;
 }
 
-@:genes.compilerInternal typedef FormProps = {
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef FormProps = {
   > HtmlProps,
   @:optional var acceptCharset: String;
   @:optional var action: String;
@@ -153,7 +177,9 @@ package genes.react;
   @:optional var target: String;
 }
 
-@:genes.compilerInternal typedef InputProps = {
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef InputProps = {
   > HtmlPropsOf<InputElement>,
   @:optional var accept: String;
   @:optional var alt: String;
@@ -185,7 +211,9 @@ package genes.react;
   @:optional var width: NumberLike;
 }
 
-@:genes.compilerInternal typedef SelectProps = {
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef SelectProps = {
   > HtmlProps,
   @:optional var autoComplete: String;
   @:optional var autoFocus: Bool;
@@ -199,7 +227,9 @@ package genes.react;
   @:optional var value: FormValue;
 }
 
-@:genes.compilerInternal typedef TextareaProps = {
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef TextareaProps = {
   > HtmlProps,
   @:optional var autoComplete: String;
   @:optional var autoFocus: Bool;
@@ -218,7 +248,9 @@ package genes.react;
   @:optional var wrap: String;
 }
 
-@:genes.compilerInternal typedef ImgProps = {
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef ImgProps = {
   > HtmlProps,
   @:optional var alt: String;
   @:optional var crossOrigin: String;
@@ -234,7 +266,9 @@ package genes.react;
   @:optional var width: NumberLike;
 }
 
-@:genes.compilerInternal typedef MediaProps = {
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef MediaProps = {
   > HtmlProps,
   @:optional var autoPlay: Bool;
   @:optional var controls: Bool;
@@ -246,13 +280,17 @@ package genes.react;
   @:optional var src: String;
 }
 
-@:genes.compilerInternal typedef LabelProps = {
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef LabelProps = {
   > HtmlProps,
   @:optional var form: String;
   @:optional var htmlFor: String;
 }
 
-@:genes.compilerInternal typedef OptionProps = {
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef OptionProps = {
   > HtmlProps,
   @:optional var disabled: Bool;
   @:optional var label: String;
@@ -260,7 +298,9 @@ package genes.react;
   @:optional var value: FormValue;
 }
 
-@:genes.compilerInternal typedef TableCellProps = {
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef TableCellProps = {
   > HtmlProps,
   @:optional var abbr: String;
   @:optional var colSpan: Int;
@@ -269,7 +309,9 @@ package genes.react;
   @:optional var scope: String;
 }
 
-@:genes.compilerInternal typedef ScriptProps = {
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef ScriptProps = {
   > HtmlProps,
   @:optional var async: Bool;
   @:optional var crossOrigin: String;
@@ -282,7 +324,9 @@ package genes.react;
   @:optional var type: String;
 }
 
-@:genes.compilerInternal typedef LinkProps = {
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef LinkProps = {
   > HtmlProps,
   @:optional var as: String;
   @:optional var crossOrigin: String;
@@ -297,7 +341,9 @@ package genes.react;
   @:optional var type: String;
 }
 
-@:genes.compilerInternal typedef MetaProps = {
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef MetaProps = {
   > HtmlProps,
   @:optional var charSet: String;
   @:optional var content: String;
@@ -306,7 +352,9 @@ package genes.react;
   @:optional var name: String;
 }
 
-@:genes.compilerInternal typedef IframeProps = {
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef IframeProps = {
   > HtmlProps,
   @:optional var allow: String;
   @:optional var allowFullScreen: Bool;
@@ -320,7 +368,9 @@ package genes.react;
   @:optional var width: NumberLike;
 }
 
-@:genes.compilerInternal typedef SvgProps = {
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef SvgProps = {
   > HtmlProps,
   @:optional var fill: String;
   @:optional var stroke: String;

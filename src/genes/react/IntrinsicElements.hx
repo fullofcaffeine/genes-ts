@@ -31,12 +31,16 @@ import genes.react.ReactProps.TextareaProps;
  *
  * How: `@:genes.jsxIntrinsic("button")` connects an external tag spelling to
  * its field type. `@:genes.jsxAttributePrefix("data-")` admits a typed family
- * of prefixed attributes. The metadata changes compile-time HXX validation
- * only; this compiler-internal extern is omitted from generated output.
- * Alternate runtimes may replace or combine providers with
+ * of prefixed attributes. `@:genes.jsxOptionalValuesAllowUndefined` mirrors
+ * React's DOM declarations, where an optional property may also be supplied
+ * explicitly as JavaScript `undefined`; custom providers do not inherit that
+ * policy unless they opt in themselves. The metadata changes compile-time HXX
+ * validation only; this compiler-internal extern is omitted from generated
+ * output. Alternate runtimes may replace or combine providers with
  * `-D genes.react.jsx_intrinsic_providers=some.Provider`.
  */
 @:genes.compilerInternal
+@:genes.jsxOptionalValuesAllowUndefined
 extern class IntrinsicElements {
   @:genes.jsxAttributePrefix("data-")
   public static var dataAttribute: AttributeValue;

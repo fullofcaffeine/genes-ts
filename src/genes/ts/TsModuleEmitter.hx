@@ -784,11 +784,18 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   function emitCreateElement(runtime: String, tag: JsxTagIntent,
       props: Array<JsxPropIntent>, children: Array<JsxChildIntent>) {
+    final functionPropsType = validatedFunctionPropsType(tag);
     write(runtime);
-    write('.createElement(');
+    write('.createElement');
+    if (functionPropsType != null) {
+      write('<');
+      TypeEmitter.emitType(this, functionPropsType);
+      write('>');
+    }
+    write('(');
     emitValue(JsxPlan.tagExpression(tag));
     write(', ');
-    emitCreateElementProps(runtime, tag, props);
+    emitCreateElementProps(runtime, tag, props, functionPropsType);
     for (child in children) {
       write(', ');
       emitJsxChildValue(child);
@@ -810,7 +817,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   function emitCreateElementProps(runtime: String, tag: JsxTagIntent,
-      props: Array<JsxPropIntent>) {
+      props: Array<JsxPropIntent>, functionPropsType: Null<Type>) {
     if (props.length == 0) {
       write('null');
       return;
@@ -831,10 +838,14 @@ class TsModuleEmitter extends JsModuleEmitter {
     write('}');
     write(' satisfies ');
     write('(');
-    write(runtime);
-    write('.ComponentPropsWithoutRef<');
-    emitComponentPropsTypeArgForTag(tag);
-    write('>');
+    if (functionPropsType == null) {
+      write(runtime);
+      write('.ComponentPropsWithoutRef<');
+      emitComponentPropsTypeArgForTag(tag);
+      write('>');
+    } else {
+      TypeEmitter.emitType(this, functionPropsType);
+    }
     // React's `key` belongs to Attributes rather than a component's ordinary
     // property object. HXX validates it separately and createElement accepts
     // the same intersection, matching JSX syntax without widening other props.
@@ -848,6 +859,26 @@ class TsModuleEmitter extends JsModuleEmitter {
     write(' & { [K in `aria-$${string}`]?: string | number | boolean | null | undefined }');
     write(')');
     write(')');
+  }
+
+  /**
+   * Returns Haxe's already-inferred property type for a function component.
+   *
+   * React's `ComponentPropsWithoutRef<typeof GenericComponent>` necessarily
+   * substitutes `unknown` for a still-generic function. The typed Haxe tag has
+   * already been unified with its HXX values, so carrying that exact argument
+   * type into `createElement<P>` preserves inference without a cast or wrapper
+   * component. The plan returns no specialization when a type parameter is
+   * still unbound or when metadata supplies a wrapper/class contract; those
+   * cases keep React's ordinary utility-type inference and never name a
+   * checker-only schema in generated code.
+   */
+  function validatedFunctionPropsType(tag: JsxTagIntent): Null<Type> {
+    return switch tag {
+      case ComponentTag(_):
+        jsxPlan == null ? null : jsxPlan.componentPropsType(tag);
+      default: null;
+    }
   }
 
   function emitObjectKey(name: String) {

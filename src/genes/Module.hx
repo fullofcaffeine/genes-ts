@@ -315,10 +315,11 @@ class Module {
   /**
    * Returns the shared implementation/declaration projection for one member.
    *
-   * Compiler-internal metadata hides every public/provenance surface. Runtime
-   * classes and enums retain a local implementation so typed local uses still
-   * work; an erased typedef has no runtime implementation and is omitted
-   * completely. Ordinary members retain the existing projection.
+   * Compiler-internal metadata hides every public/provenance surface while
+   * retaining a local implementation so typed local uses still work. A
+   * compiler-internal typedef is omitted only when it also declares
+   * `@:genes.semanticOnly`, which means no emitted code may name that alias.
+   * Ordinary members retain the existing projection.
    * Some libraries expose signatures through source-private helper types, so
    * changing Haxe privacy here would require a separate public-type
    * accessibility normalization rather than a printer flag.
@@ -340,9 +341,11 @@ class Module {
       };
     }
     final compilerInternal = CompilerInternal.isType(base.meta);
-    final erasedCompilerType = compilerInternal && member.match(MType(_, _));
+    final semanticOnlyType = compilerInternal
+      && CompilerInternal.isSemanticOnlyType(base.meta)
+      && member.match(MType(_, _));
     return {
-      emitImplementation: !erasedCompilerType,
+      emitImplementation: !semanticOnlyType,
       exportImplementation: !compilerInternal,
       emitDeclaration: !compilerInternal,
       registerRuntimeType: !compilerInternal,

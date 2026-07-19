@@ -14,18 +14,22 @@ import haxe.macro.TypeTools;
 private typedef JsxPropField = {
   var name: String;
   var type: Type;
+  var presentType: Type;
   var optional: Bool;
+  var allowsUndefined: Bool;
   var pos: Position;
 }
 
 private typedef JsxPropSchema = {
   var fields: Map<String, JsxPropField>;
+  var optionalValuesAllowUndefined: Bool;
 }
 
 private typedef JsxPrefixContract = {
   var prefix: String;
   var type: Type;
   var pos: Position;
+  var allowsUndefined: Bool;
 }
 
 private typedef JsxIntrinsicContract = {
@@ -38,6 +42,7 @@ private typedef JsxIntrinsicContract = {
 private typedef JsxComponentContract = {
   var schema: JsxPropSchema;
   var bindings: Map<String, Type>;
+  var emissionPropsType: Null<Type>;
 }
 
 private typedef JsxStringMetadata = {
@@ -54,6 +59,20 @@ private typedef JsxFunctionArgument = {
   var name: String;
   var opt: Bool;
   var t: Type;
+}
+
+/**
+ * Canonical browser identity shared by Haxe's DOM externs and React facades.
+ *
+ * React's small event-target facades and Haxe's full `js.html` externs emit the
+ * same TypeScript browser names. Keeping that equivalence typed and local to
+ * React event comparison lets migration code retain the complete DOM API
+ * without making unrelated Haxe classes structurally interchangeable.
+ */
+private enum abstract JsxBrowserElementIdentity(String) {
+  var HtmlElement = 'html-element';
+  var AnchorElement = 'anchor-element';
+  var InputElement = 'input-element';
 }
 
 /**
@@ -81,8 +100,8 @@ class JsxTypeChecker {
     loadIntrinsicProviders();
   }
 
-  public function validate(intent: JsxIntent): Void {
-    switch intent {
+  public function validate(intent: JsxIntent): Null<Type> {
+    return switch intent {
       case ElementIntent(tag, props, children, _):
         switch tag {
           case IntrinsicTag(name, expression):
@@ -94,19 +113,23 @@ class JsxTypeChecker {
                 expression.pos);
             validateProps('<$name>', contract.schema, contract.prefixes,
               props, children, [], expression.pos);
+            null;
           case ComponentTag(expression):
             final contract = componentContract(expression);
             validateProps('component `${componentName(expression)}`',
               contract.schema, [], props, children, contract.bindings,
               expression.pos);
+            specializedComponentPropsType(contract);
           case DynamicIntrinsicTag(_):
             // The low-level internal marker retains runtime-string support for
             // compiler migrations. HXX source itself always has a static tag.
             validateDynamicMarker(props, children);
+            null;
         }
       case FragmentIntent(children, _):
         validateRenderableChildren('fragment', children);
-    }
+        null;
+    };
   }
 
   function validateProps(label: String, schema: JsxPropSchema,
@@ -127,13 +150,15 @@ class JsxTypeChecker {
             namedChildren = true;
           final field = schema.fields.get(name);
           if (field != null) {
-            requireAssignable(value.t, field.type, bindings, field.optional,
+            requireAssignable(value.t, field.type, bindings,
               'GTS-HXX-PROP-002',
               '$label property `$name` expects `${typeName(field.type)}` but ' +
               'received `${typeName(value.t)}`',
-              value.pos);
+              value.pos,
+              isNullLiteral(value), field.optional && (field.allowsUndefined
+                || schema.optionalValuesAllowUndefined));
           } else if (name == 'key') {
-            if (!isKey(value.t))
+            if (!isNullLiteral(value) && !isKey(value.t))
               fail('GTS-HXX-PROP-002',
                 '$label property `key` expects ' +
                 '`String | Int` but received `${typeName(value.t)}`',
@@ -143,12 +168,12 @@ class JsxTypeChecker {
             if (prefix == null)
               fail('GTS-HXX-PROP-001',
                 '$label does not declare a `$name` ' + 'property', value.pos);
-            requireAssignable(value.t, prefix.type, bindings, true,
+            requireAssignable(value.t, prefix.type, bindings,
               'GTS-HXX-PROP-002',
               '$label prefixed property `$name` expects ' +
               '`${typeName(prefix.type)}` but received ' +
               '`${typeName(value.t)}`',
-              value.pos);
+              value.pos, isNullLiteral(value), prefix.allowsUndefined);
           }
         case SpreadProp(expression, _):
           final spread = spreadSchema(expression.t, expression.pos);
@@ -163,13 +188,26 @@ class JsxTypeChecker {
               namedChildren = true;
             final expected = schema.fields.get(name);
             if (expected != null) {
-              requireAssignable(actual.type, expected.type,
-                bindings, actual.optional || expected.optional,
-                'GTS-HXX-SPREAD-002',
-                '$label spread property `$name` expects ' +
-                '`${typeName(expected.type)}` but received ' +
-                '`${typeName(actual.type)}`',
-                expression.pos);
+              // An optional spread field cannot satisfy a required property,
+              // regardless of its payload type. Leave it marked as missing so
+              // the later required-property check reports the useful problem.
+              // Optional-to-optional comparisons retain the complete typed
+              // `Null<T>` contract unless the spread field explicitly uses
+              // `@:ts.optional`. That metadata converts Haxe's synthetic null
+              // write to host undefined, so its present value is the precise
+              // comparison type; an authored inner Null<T> remains intact.
+              if (!actual.optional || expected.optional) {
+                final actualType = actual.optional && actual.allowsUndefined
+                  ? actual.presentType : actual.type;
+                requireAssignable(actualType, expected.type, bindings,
+                  'GTS-HXX-SPREAD-002',
+                  '$label spread property `$name` expects ' +
+                  '`${typeName(expected.type)}` but received ' +
+                  '`${typeName(actualType)}`',
+                  expression.pos,
+                  false, expected.optional && (expected.allowsUndefined
+                    || schema.optionalValuesAllowUndefined));
+              }
             } else if (name == 'key') {
               if (!isKey(actual.type))
                 fail('GTS-HXX-SPREAD-002',
@@ -184,11 +222,11 @@ class JsxTypeChecker {
                   '$label spread contains unknown ' + 'property `$name`',
                   expression.pos);
               requireAssignable(actual.type, prefix.type, bindings,
-                actual.optional, 'GTS-HXX-SPREAD-002',
+                'GTS-HXX-SPREAD-002',
                 '$label spread property `$name` expects ' +
                 '`${typeName(prefix.type)}` but received ' +
                 '`${typeName(actual.type)}`',
-                expression.pos);
+                expression.pos, false, prefix.allowsUndefined);
             }
           }
       }
@@ -240,12 +278,12 @@ class JsxTypeChecker {
     if (elementType != null) {
       for (child in children) {
         final expression = childExpression(child);
-        requireAssignable(expression.t, elementType, bindings, false,
+        requireAssignable(expression.t, elementType, bindings,
           'GTS-HXX-CHILD-003',
           '$label child expects ' +
           '`${typeName(elementType)}` but received ' +
           '`${typeName(expression.t)}`',
-          expression.pos);
+          expression.pos, isNullLiteral(expression));
       }
       return;
     }
@@ -255,11 +293,10 @@ class JsxTypeChecker {
         '`${typeName(expected)}`, not ${children.length} children',
         childExpression(children[1]).pos);
     final expression = childExpression(children[0]);
-    requireAssignable(expression.t, expected, bindings, false,
-      'GTS-HXX-CHILD-003',
+    requireAssignable(expression.t, expected, bindings, 'GTS-HXX-CHILD-003',
       '$label child expects `${typeName(expected)}` ' +
       'but received `${typeName(expression.t)}`',
-      expression.pos);
+      expression.pos, isNullLiteral(expression));
   }
 
   function validateDynamicMarker(props: Array<JsxPropIntent>,
@@ -279,7 +316,7 @@ class JsxTypeChecker {
       children: Array<JsxChildIntent>): Void {
     for (child in children) {
       final expression = childExpression(child);
-      if (!isRenderable(expression.t, 0))
+      if (!isNullLiteral(expression) && !isRenderable(expression.t, 0))
         fail('GTS-HXX-CHILD-003',
           '$label cannot render a child of type ' +
           '`${typeName(expression.t)}`',
@@ -304,10 +341,20 @@ class JsxTypeChecker {
             'React node or `Promise` of one',
             expression.pos);
         final schema = arguments.length == 0 ? {
-          fields: new Map<String, JsxPropField>()
+          fields: new Map<String, JsxPropField>(),
+          optionalValuesAllowUndefined: false
         } : propSchema(arguments[0].t, expression.pos,
           'component `${componentName(expression)}` properties');
-        {schema: schema, bindings: new Map<String, Type>()};
+        {
+          schema: schema,
+          bindings: new Map<String, Type>(),
+          // React's normal `ComponentPropsWithoutRef<typeof Tag>` path is
+          // concise and already correct for concrete functions and aliases.
+          // Only a direct open generic needs HXX's inferred Haxe type carried
+          // into `createElement<T>`; otherwise React would widen it to unknown.
+          emissionPropsType: arguments.length == 0
+            || !hasOpenComponentType(arguments[0].t) ? null : arguments[0].t
+        };
       case TInst(classRef, parameters)
         if (hasMeta(classRef.get().meta, 'genes.jsxComponentProps')):
         componentContractFromMetadata(classRef.get(), parameters,
@@ -355,7 +402,11 @@ class JsxTypeChecker {
     final propsType = componentPropsMetadataType(base, parameters, pos);
     return {
       schema: propSchema(propsType, pos, '${base.name} properties'),
-      bindings: new Map<String, Type>()
+      bindings: new Map<String, Type>(),
+      // Metadata-backed wrappers already carry their property type in their
+      // emitted React component type. Keeping the utility-type path also means
+      // a checker-only `@:genes.semanticOnly` schema is never named in output.
+      emissionPropsType: null
     };
   }
 
@@ -382,14 +433,36 @@ class JsxTypeChecker {
     }
   }
 
-  function propSchema(type: Type, pos: Position, label: String): JsxPropSchema {
+  function propSchema(type: Type, pos: Position, label: String,
+      optionalValuesAllowUndefined = false): JsxPropSchema {
     final fields = objectFields(type, false, 0);
     if (fields == null)
       fail('GTS-HXX-TAG-005',
         '$label must be a closed anonymous structure or ' +
         'an extern/interface property contract; received `${typeName(type)}`',
         pos);
-    return {fields: fields};
+    for (name => field in fields)
+      if (isUnsafeSchema(field.type))
+        fail('GTS-HXX-SCHEMA-008',
+          '$label declares `$name` with weak type `${typeName(field.type)}`. ' +
+          'HXX property contracts must use resolved concrete Haxe types',
+          field.pos);
+    // Haxe represents `@:optional var href:String` as `Null<String>` in the
+    // typed tree. React's declaration means something narrower:
+    // `href?: string | undefined` permits omission or a supplied undefined,
+    // but not a supplied null. Provider-wide policy or a field's
+    // `@:ts.optional` metadata opts into that host contract, so validation
+    // removes only Haxe's synthetic outer null. A provider that intentionally
+    // accepts both sentinels can write `Undefinable<Null<T>>`; `presentType`
+    // preserves that inner Null<T>.
+    for (field in fields)
+      if (field.optional
+        && (optionalValuesAllowUndefined || field.allowsUndefined))
+        field.type = field.presentType;
+    return {
+      fields: fields,
+      optionalValuesAllowUndefined: optionalValuesAllowUndefined
+    };
   }
 
   function spreadSchema(type: Type, pos: Position): JsxPropSchema {
@@ -400,7 +473,7 @@ class JsxTypeChecker {
         'HXX spread values must have a closed typed ' +
         'property structure; received `${typeName(type)}`',
         pos);
-    return {fields: fields};
+    return {fields: fields, optionalValuesAllowUndefined: false};
   }
 
   function objectFields(type: Type, allowTypeParameter: Bool,
@@ -477,11 +550,18 @@ class JsxTypeChecker {
     for (field in fields) {
       if (!field.isPublic)
         continue;
+      final nullish = NullishContract.forField(field);
+      final declaredType = parameters.length == 0 ? field.type : TypeTools.applyTypeParameters(field.type,
+        parameters, concrete);
+      final presentType = parameters.length == 0 ? nullish.valueType : TypeTools.applyTypeParameters(nullish.valueType,
+        parameters, concrete);
       out.set(field.name, {
         name: field.name,
-        type: parameters.length == 0 ? field.type : TypeTools.applyTypeParameters(field.type,
-          parameters, concrete),
+        type: declaredType,
+        presentType: presentType,
         optional: hasMeta(field.meta, 'optional'),
+        allowsUndefined: hasMeta(field.meta, 'ts.optional')
+          || nullish.explicitUndefined,
         pos: field.pos
       });
     }
@@ -489,31 +569,40 @@ class JsxTypeChecker {
   }
 
   function requireAssignable(actual: Type, expected: Type,
-      bindings: Map<String, Type>, allowAbsent: Bool, id: String,
-      message: String, pos: Position): Void {
-    rejectUnsafeForExpected(actual, expected, pos);
-    if (!isAssignable(actual, expected, bindings, allowAbsent, 0))
+      bindings: Map<String, Type>, id: String, message: String, pos: Position,
+      literalNull = false, allowUndefined = false): Void {
+    final checkedActual = allowUndefined
+      && NullishContract.forType(actual).explicitUndefined
+      ? stripExplicitUndefined(actual)
+      : actual;
+    rejectUnsafeForExpected(checkedActual, expected, pos, literalNull);
+    if (!isAssignable(checkedActual, expected, bindings, 0, false,
+      literalNull))
       fail(id, message, pos);
   }
 
   function isAssignable(actual: Type, expected: Type,
-      bindings: Map<String, Type>, allowAbsent: Bool, depth: Int,
-      allowExtraObjectFields = false): Bool {
+      bindings: Map<String, Type>, depth: Int, allowExtraObjectFields = false,
+      literalNull = false): Bool {
     if (depth > 64)
       return false;
-    final absentInner = undefinableInner(actual);
-    if (absentInner != null)
-      return allowAbsent
-        && isAssignable(absentInner, expected, bindings, true, depth + 1,
-          allowExtraObjectFields);
-
     final resolvedExpected = substitute(resolveAliases(expected), bindings);
+    final undefinedExpected = undefinableInner(resolvedExpected);
+    if (undefinedExpected != null) {
+      final presentActual = NullishContract.forType(actual).explicitUndefined
+        ? stripExplicitUndefined(actual)
+        : actual;
+      return isAssignable(presentActual, undefinedExpected, bindings,
+        depth + 1, allowExtraObjectFields, literalNull);
+    }
     final nullableExpected = nullableInner(resolvedExpected);
     if (nullableExpected != null) {
-      if (isNull(resolveAliases(actual)))
+      if (literalNull)
         return true;
-      return isAssignable(actual, nullableExpected, bindings, allowAbsent,
-        depth + 1, allowExtraObjectFields);
+      final resolvedActual = resolveAliases(actual);
+      final nullableActual = nullableInner(resolvedActual);
+      return isAssignable(nullableActual == null ? actual : nullableActual,
+        nullableExpected, bindings, depth + 1, allowExtraObjectFields);
     }
     switch resolvedExpected {
       case TInst(parameterRef, _)
@@ -521,14 +610,14 @@ class JsxTypeChecker {
         final key = typeParameterKey(parameterRef.get());
         final bound = bindings.get(key);
         if (bound != null)
-          return isAssignable(actual, bound, bindings, false, depth + 1,
+          return isAssignable(actual, bound, bindings, depth + 1,
             allowExtraObjectFields);
         final constraints = switch parameterRef.get().kind {
           case KTypeParameter(found): found;
           default: [];
         };
         for (constraint in constraints)
-          if (!isAssignable(actual, constraint, bindings, false, depth + 1,
+          if (!isAssignable(actual, constraint, bindings, depth + 1,
             allowExtraObjectFields))
             return false;
         bindings.set(key, actual);
@@ -543,8 +632,8 @@ class JsxTypeChecker {
           for (key => value in bindings)
             key => value
         ];
-        if (isAssignable(actual, member, branchBindings, false, depth + 1,
-          allowExtraObjectFields)) {
+        if (isAssignable(actual, member, branchBindings, depth + 1,
+          allowExtraObjectFields, literalNull)) {
           for (key => value in branchBindings)
             bindings.set(key, value);
           return true;
@@ -554,9 +643,18 @@ class JsxTypeChecker {
     }
 
     if (isNodeContract(resolvedExpected))
-      return isRenderable(actual, depth + 1);
+      return literalNull || isRenderable(actual, depth + 1);
 
     final resolvedActual = resolveAliases(actual);
+    if (undefinableInner(resolvedActual) != null)
+      return false;
+    // Haxe's JavaScript target can unify `Null<T>` with `T`, but an explicit
+    // HXX property is also checked by TypeScript where `T | null` cannot fill
+    // a non-null `T`. Omission and `undefined` use the separate
+    // `Undefinable<T>` path above; only an expected nullable/union contract may
+    // accept a value that can actually be null.
+    if (nullableInner(resolvedActual) != null || literalNull)
+      return false;
     final eventCompatibility = reactEventCompatibility(resolvedActual,
       resolvedExpected, depth + 1);
     if (eventCompatibility != null)
@@ -571,16 +669,19 @@ class JsxTypeChecker {
         for (argument in expectedArgs)
           if (!argument.opt)
             requiredExpected++;
-        if (requiredActual > requiredExpected
-          || actualArgs.length > expectedArgs.length)
+        if (requiredActual > requiredExpected)
           return false;
-        for (index in 0...actualArgs.length)
+        final sharedArguments = actualArgs.length < expectedArgs.length ? actualArgs.length : expectedArgs.length;
+        for (index in 0...sharedArguments)
           if (!isAssignable(expectedArgs[index].t, actualArgs[index].t,
-            bindings, false, depth + 1, true))
+            bindings, depth + 1, true))
+            return false;
+        for (index in sharedArguments...actualArgs.length)
+          if (!actualArgs[index].opt)
             return false;
         return isVoid(expectedResult)
-          || isAssignable(actualResult, expectedResult, bindings, false,
-            depth + 1, true);
+          || isAssignable(actualResult, expectedResult, bindings, depth + 1,
+            true);
       default:
     }
     final actualAnonymous = isAnonymous(resolvedActual);
@@ -612,7 +713,7 @@ class JsxTypeChecker {
         if (actualField.optional && !expectedField.optional)
           return false;
         if (!isAssignable(actualField.type, expectedField.type, bindings,
-          expectedField.optional, depth + 1, true))
+          depth + 1, true))
           return false;
       }
       return true;
@@ -624,7 +725,7 @@ class JsxTypeChecker {
       if (actualField.optional && !expectedField.optional)
         return false;
       if (!isAssignable(actualField.type, expectedField.type, bindings,
-        expectedField.optional, depth + 1))
+        depth + 1))
         return false;
     }
     for (name => expectedField in expected)
@@ -659,8 +760,7 @@ class JsxTypeChecker {
           return false;
       return union.length > 0;
     }
-    if (isNodeContract(resolved) || isScalarNode(resolved, depth + 1)
-      || isNull(resolved))
+    if (isNodeContract(resolved) || isScalarNode(resolved, depth + 1))
       return true;
     final element = arrayElement(resolved);
     if (element != null)
@@ -699,6 +799,8 @@ class JsxTypeChecker {
           'with typed static fields',
           Context.currentPos());
     };
+    final optionalValuesAllowUndefined = hasMeta(classType.meta,
+      'genes.jsxOptionalValuesAllowUndefined');
     final localPrefixes: Array<JsxPrefixContract> = [];
     final pending: Array<{name: String, type: Type, pos: Position}> = [];
     for (field in classType.statics.get()) {
@@ -720,11 +822,25 @@ class JsxTypeChecker {
           if (existing.prefix == prefix)
             fail('GTS-HXX-SCHEMA-007',
               '$path declares attribute prefix `$prefix` more than once',
+              prefixMetadata.pos)
+          else if (StringTools.startsWith(prefix, existing.prefix)
+            || StringTools.startsWith(existing.prefix, prefix))
+            fail('GTS-HXX-SCHEMA-009',
+              '$path declares overlapping attribute prefixes ' +
+              '`${existing.prefix}` and `$prefix`. One property could match ' +
+              'both contracts, so use non-overlapping prefixes',
               prefixMetadata.pos);
+        if (isUnsafe(field.type))
+          fail('GTS-HXX-SCHEMA-008',
+            '$path declares attribute prefix `$prefix` with weak type ' +
+            '`${typeName(field.type)}`. Prefix contracts must use a resolved ' +
+            'concrete Haxe type',
+            prefixMetadata.pos);
         final contract = {
           prefix: prefix,
           type: field.type,
-          pos: prefixMetadata.pos
+          pos: prefixMetadata.pos,
+          allowsUndefined: optionalValuesAllowUndefined
         };
         localPrefixes.push(contract);
       }
@@ -738,7 +854,8 @@ class JsxTypeChecker {
       intrinsics.set(entry.name, {
         name: entry.name,
         schema: propSchema(entry.type, entry.pos,
-          'intrinsic `${entry.name}` properties'),
+          'intrinsic `${entry.name}` properties',
+          optionalValuesAllowUndefined),
         prefixes: localPrefixes,
         pos: entry.pos
       });
@@ -784,6 +901,85 @@ class JsxTypeChecker {
       default:
         TypeTools.map(type, child -> substitute(child, bindings, depth + 1));
     }
+  }
+
+  /**
+   * Reports whether a component property type still names an unbound generic.
+   *
+   * A direct generic component can be specialized from its supplied HXX
+   * properties. If no property determines one of its type parameters, however,
+   * that parameter has no legal name in the surrounding generated function.
+   * The emitter must then use React's ordinary type inference instead of
+   * printing a dangling Haxe type parameter.
+   */
+  static function hasUnboundTypeParameter(type: Type,
+      bindings: Map<String, Type>, depth = 0): Bool {
+    if (depth > 64)
+      return true;
+    return switch type {
+      case TInst(parameterRef, _)
+        if (parameterRef.get().kind.match(KTypeParameter(_))):
+        !bindings.exists(typeParameterKey(parameterRef.get()));
+      default:
+        var found = false;
+        TypeTools.iter(type, child -> {
+          if (!found
+            && hasUnboundTypeParameter(child, bindings, depth + 1))
+            found = true;
+        });
+        found;
+    }
+  }
+
+  /**
+   * Reports whether a direct function component still needs generic inference.
+   *
+   * Why: concrete component functions should keep React's short, established
+   * `ComponentPropsWithoutRef<typeof Tag>` output. A direct generic function is
+   * different: React cannot recover the Haxe type chosen from its HXX values,
+   * so the compiler must carry that one specialization into `createElement`.
+   *
+   * What/How: compiler-owned type parameters and unresolved monomorphs count as
+   * open. The walk is read-only and bounded; an unexpected recursive compiler
+   * type conservatively keeps React's ordinary utility-type path.
+   */
+  static function hasOpenComponentType(type: Type, depth = 0): Bool {
+    if (depth > 64)
+      return false;
+    return switch type {
+      case TMono(reference):
+        final resolved = reference.get();
+        resolved == null || hasOpenComponentType(resolved, depth + 1);
+      case TInst(parameterRef, _)
+        if (parameterRef.get().kind.match(KTypeParameter(_))):
+        true;
+      default:
+        var found = false;
+        TypeTools.iter(type, child -> {
+          if (!found && hasOpenComponentType(child, depth + 1))
+            found = true;
+        });
+        found;
+    }
+  }
+
+  /**
+   * Returns a safe, fully inferred property type for TypeScript emission.
+   *
+   * Haxe may leave a generic parameter open when no supplied property chooses
+   * it. A literal `null` can also appear as Haxe's weak internal null type even
+   * though the authored value itself is precise. Neither case is a type the
+   * emitter may print. React's normal inference remains the safe fallback, so
+   * this method returns no specialization until every printed part is concrete.
+   */
+  static function specializedComponentPropsType(
+      contract: JsxComponentContract): Null<Type> {
+    final original = contract.emissionPropsType;
+    if (original == null
+      || hasUnboundTypeParameter(original, contract.bindings))
+      return null;
+    final specialized = substitute(original, contract.bindings);
+    return isUnsafe(specialized) ? null : specialized;
   }
 
   static function resolveAliases(type: Type): Type {
@@ -858,8 +1054,6 @@ class JsxTypeChecker {
           return false;
       return union.length > 0;
     }
-    if (isNull(resolved))
-      return true;
     return switch resolved {
       case TInst(classRef, _): classRef.get()
           .pack.length == 0 && classRef.get().name == 'String';
@@ -875,12 +1069,10 @@ class JsxTypeChecker {
     }
   }
 
-  static function isNull(type: Type): Bool {
-    return switch resolveAliases(type) {
-      case TMono(reference): reference.get() == null;
-      case TDynamic(inner): inner == null;
-      case TAbstract(abstractRef, _): abstractRef.get()
-          .pack.length == 0 && abstractRef.get().name == 'Null';
+  /** Returns whether this exact HXX value is the authored `null` constant. */
+  static function isNullLiteral(expression: TypedExpr): Bool {
+    return switch JsxPlan.unwrap(expression).expr {
+      case TConst(TNull): true;
       default: false;
     }
   }
@@ -934,6 +1126,10 @@ class JsxTypeChecker {
   static function sameInvariantType(left: Type, right: Type, depth: Int): Bool {
     if (depth > 64)
       return false;
+    final leftBrowser = browserElementIdentity(left);
+    final rightBrowser = browserElementIdentity(right);
+    if (leftBrowser != null || rightBrowser != null)
+      return leftBrowser != null && leftBrowser == rightBrowser;
     return switch [resolveAliases(left), resolveAliases(right)] {
       case [TInst(leftRef, leftParameters), TInst(rightRef, rightParameters)]: leftRef.get()
           .module == rightRef.get()
@@ -952,6 +1148,30 @@ class JsxTypeChecker {
           .name == rightRef.get()
           .name && sameTypeParameters(leftParameters, rightParameters, depth + 1);
       default: Context.unify(left, right) && Context.unify(right, left);
+    }
+  }
+
+  static function browserElementIdentity(type: Type): Null<JsxBrowserElementIdentity> {
+    return switch resolveAliases(type) {
+      case TInst(classRef, _):
+        final owner = classRef.get();
+        // Haxe's JS DOM externs use their JavaScript class name as the typed
+        // declaration name (for example `HTMLAnchorElement`) while keeping the
+        // Haxe module path (`js.html.AnchorElement`). Compare both compiler
+        // identities rather than their source spelling or generated TS text.
+        switch [owner.module, owner.name] {
+          case ['genes.react.DomElement', 'DomElement'] |
+            ['js.html.Element', 'HTMLElement']:
+            HtmlElement;
+          case ['genes.react.AnchorElement', 'AnchorElement'] |
+            ['js.html.AnchorElement', 'HTMLAnchorElement']:
+            AnchorElement;
+          case ['genes.react.InputElement', 'InputElement'] |
+            ['js.html.InputElement', 'HTMLInputElement']:
+            InputElement;
+          default: null;
+        }
+      default: null;
     }
   }
 
@@ -1002,6 +1222,25 @@ class JsxTypeChecker {
     }
   }
 
+  /**
+   * Returns the value carried by one or more explicit undefined boundaries.
+   *
+   * Why: `@:optional` describes whether a property may be omitted, while
+   * `Undefinable<T>` describes a value supplied as JavaScript `undefined`.
+   * Most HXX component contracts keep those rules separate. A provider may
+   * opt in when its TypeScript API explicitly accepts supplied undefined.
+   *
+   * How: callers first ask `NullishContract` whether undefined is intentional,
+   * then this helper removes only the named boundary abstract. It never removes
+   * `Null<T>`, so accepting `undefined` cannot accidentally accept Haxe `null`.
+   */
+  static function stripExplicitUndefined(type: Type, depth = 0): Type {
+    if (depth > 64)
+      return type;
+    final inner = undefinableInner(type);
+    return inner == null ? type : stripExplicitUndefined(inner, depth + 1);
+  }
+
   static function nullableInner(type: Type): Null<Type> {
     return switch resolveAliases(type) {
       case TAbstract(abstractRef, [inner])
@@ -1039,7 +1278,11 @@ class JsxTypeChecker {
    * containers such as `Array<Dynamic>` remain rejected.
    */
   static function rejectUnsafeForExpected(actual: Type, expected: Type,
-      pos: Position): Void {
+      pos: Position, literalNull: Bool): Void {
+    // A literal null is a precise authored value, not an unresolved boundary.
+    // Assignability below decides whether the destination admits it.
+    if (literalNull)
+      return;
     if (hasObservableUnsafeType(actual, expected, 0))
       fail('GTS-HXX-TYPE-001',
         'HXX values must have a resolved concrete Haxe ' +
@@ -1090,10 +1333,12 @@ class JsxTypeChecker {
    * never decides assignability or generated names.
    */
   static function isUnsafe(type: Type, depth = 0,
-      visiting: Null<Array<JsxUnsafeVisit>> = null): Bool {
+      visiting: Null<Array<JsxUnsafeVisit>> = null,
+      allowInferenceVariables = false): Bool {
     if (depth > 64)
       return true;
     final active = visiting == null ? [] : visiting;
+    final nextDepth = depth + 1;
     return switch type {
       case TType(typeRef, parameters):
         final arguments = [
@@ -1109,34 +1354,58 @@ class JsxTypeChecker {
           }
         if (recursive) false; else {
           active.push({owner: typeRef, arguments: arguments});
-          final unsafe = isUnsafe(Context.follow(type), depth + 1, active);
+          final unsafe = isUnsafe(Context.follow(type), nextDepth, active,
+            allowInferenceVariables);
           active.pop();
           unsafe;
         }
-      case TLazy(resolve): isUnsafe(resolve(), depth + 1, active);
-      case TMono(reference): isUnsafeMonomorph(reference, depth + 1, active);
+      case TLazy(resolve):
+        isUnsafe(resolve(), nextDepth, active, allowInferenceVariables);
+      case TMono(reference):
+        isUnsafeMonomorph(reference, nextDepth, active,
+          allowInferenceVariables);
+      case TInst(classRef, _) if (classRef.get().kind.match(KTypeParameter(_))):
+        // A named type parameter is a checked symbolic contract, not an
+        // unresolved monomorph. Assignability binds or validates it later.
+        false;
       case TDynamic(_): true;
-      case TAbstract(abstractRef, _): abstractRef.get()
-          .pack.join('.') == 'genes.ts' && abstractRef.get()
-          .name == 'Unknown' ? true : hasUnsafeChild(type, depth + 1, active);
-      default: hasUnsafeChild(type, depth + 1, active);
+      case TAbstract(abstractRef, _):
+        if (isUnsafeAbstract(abstractRef.get())) true; else
+          hasUnsafeChild(type, nextDepth, active, allowInferenceVariables);
+      default:
+        hasUnsafeChild(type, nextDepth, active, allowInferenceVariables);
     }
   }
 
+  static function isUnsafeSchema(type: Type): Bool {
+    // Generic component functions expose fresh Haxe monomorphs while their
+    // HXX arguments are being inferred. They are checked inference variables,
+    // not weak application values; prop validation binds them immediately.
+    return isUnsafe(type, 0, null, true);
+  }
+
+  static function isUnsafeAbstract(type: AbstractType): Bool {
+    final coreAny = type.pack.length == 0 && type.name == 'Any';
+    final genesUnknown = type.pack.join('.') == 'genes.ts'
+      && type.name == 'Unknown';
+    return coreAny || genesUnknown;
+  }
+
   static function hasUnsafeChild(type: Type, depth: Int,
-      visiting: Array<JsxUnsafeVisit>): Bool {
+      visiting: Array<JsxUnsafeVisit>, allowInferenceVariables: Bool): Bool {
     var unsafe = false;
     TypeTools.iter(type, child -> {
-      if (!unsafe && isUnsafe(child, depth, visiting))
+      if (!unsafe && isUnsafe(child, depth, visiting, allowInferenceVariables))
         unsafe = true;
     });
     return unsafe;
   }
 
   static function isUnsafeMonomorph(reference: Ref<Null<Type>>, depth: Int,
-      visiting: Array<JsxUnsafeVisit>): Bool {
+      visiting: Array<JsxUnsafeVisit>, allowInferenceVariables: Bool): Bool {
     final resolved = reference.get();
-    return resolved == null || isUnsafe(resolved, depth, visiting);
+    return resolved == null ? !allowInferenceVariables : isUnsafe(resolved,
+      depth, visiting, allowInferenceVariables);
   }
 
   static function sameStrings(left: Array<String>, right: Array<String>): Bool {
@@ -1174,18 +1443,23 @@ class JsxTypeChecker {
    */
   static function metadataString(meta: MetaAccess,
       name: String): Null<JsxStringMetadata> {
-    for (entry in metadata(meta, name)) {
-      return switch entry.params {
-        case [{expr: EConst(CString(value, _))}]: {
-            value: value,
-            pos: entry.pos
-          };
-        default:
-          fail('GTS-HXX-SCHEMA-005',
-            '@:$name expects exactly one string ' + 'literal', entry.pos);
-      }
+    final entries = metadata(meta, name);
+    if (entries.length > 1)
+      fail('GTS-HXX-SCHEMA-010', '@:$name may appear only once on a field',
+        entries[1].pos);
+    return switch entries {
+      case []: null;
+      case [entry]: switch entry.params {
+          case [{expr: EConst(CString(value, _))}]: {
+              value: value,
+              pos: entry.pos
+            };
+          default:
+            fail('GTS-HXX-SCHEMA-005',
+              '@:$name expects exactly one string literal', entry.pos);
+        }
+      default: null;
     }
-    return null;
   }
 
   static function hasMeta(meta: MetaAccess, name: String): Bool {

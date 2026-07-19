@@ -126,6 +126,12 @@ export class Main {
 		if (genericHtml != "<span>n:7</span>") {
 			throw Exception.thrown("Unexpected generic HTML: " + genericHtml);
 		};
+		let directGenericHtml: string = renderToStaticMarkup(<Main.GenericValue value={8} render={function (value: number) {
+			return "n:" + value;
+		}} />);
+		if (directGenericHtml != "<span>n:8</span>") {
+			throw Exception.thrown("Unexpected direct generic HTML: " + directGenericHtml);
+		};
 		let broadHandler: ((arg0: import('react').SyntheticEvent<HTMLElement>) => void) = function (event: import('react').SyntheticEvent<HTMLElement>) {
 			event.preventDefault();
 		};
@@ -159,8 +165,20 @@ export class Main {
 			event.preventDefault();
 		}}>Contextual</button>;
 		renderToStaticMarkup(contextualClick);
+		let contextualAnchor: JSX.Element = <a onClick={function (event: import('react').MouseEvent<HTMLAnchorElement>) {
+			event.currentTarget.download = "report.csv";
+			event.currentTarget.rel = "noopener";
+			event.currentTarget.focus();
+		}}>Download</a>;
+		renderToStaticMarkup(contextualAnchor);
+		let absentHref: string | undefined = undefined;
+		let absentHrefHtml: string = renderToStaticMarkup(<a href={absentHref}>Absent href</a>);
+		if (absentHrefHtml != "<a>Absent href</a>") {
+			throw Exception.thrown("Unexpected absent href HTML: " + absentHrefHtml);
+		};
 		let contextualInput: JSX.Element = <input onChange={function (event: import('react').ChangeEvent<HTMLInputElement>) {
-			console.log("tests/genes-ts/snapshot/react/src/Main.hx:151:",event.target.value);
+			console.log("tests/genes-ts/snapshot/react/src/Main.hx:179:",event.target.value);
+			event.target.select();
 		}} />;
 		renderToStaticMarkup(contextualInput);
 		let okHandler: (() => void) = function () {

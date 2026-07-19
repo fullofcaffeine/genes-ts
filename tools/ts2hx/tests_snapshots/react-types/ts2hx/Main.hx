@@ -5,7 +5,15 @@ typedef ReactElement = genes.react.Element;
 
 typedef LinkNode = { var label: String; var href: String; var children: Null<Array<LinkNode>>; };
 
-function NestedLinks(_p0: { var items: Array<LinkNode>; @:optional @:ts.optional var disabled: Bool; @:optional @:ts.optional var onClick: MouseEvent<genes.react.AnchorElement>->Void; @:optional @:ts.optional var ordered: Bool; }): ReactElement {
+function configureAnchor(anchor: js.html.AnchorElement): String {
+  anchor.download = "report.csv";
+  anchor.rel = "noopener";
+  anchor.protocol = "https:";
+  anchor.focus();
+  return anchor.protocol;
+}
+
+function NestedLinks(_p0: { var items: Array<LinkNode>; @:optional @:ts.optional var disabled: Bool; @:optional @:ts.optional var onClick: MouseEvent<js.html.AnchorElement>->Void; @:optional @:ts.optional var ordered: Bool; }): ReactElement {
   var __ts2hx_tmp0 = _p0;
   var __ts2hx_tmp1 = __ts2hx_tmp0.items;
   var items = __ts2hx_tmp1;
@@ -14,7 +22,7 @@ function NestedLinks(_p0: { var items: Array<LinkNode>; @:optional @:ts.optional
   var __ts2hx_tmp3 = __ts2hx_tmp0.onClick;
   var onClick = __ts2hx_tmp3;
   var __ts2hx_tmp4 = __ts2hx_tmp0.ordered;
-  var ordered = (__ts2hx_tmp4 == null ? true : __ts2hx_tmp4);
+  var ordered = (genes.ts.Undefinable.isAbsent(__ts2hx_tmp4) ? true : genes.ts.Present.require(__ts2hx_tmp4));
   return (genes.react.internal.Jsx.__frag({ __genesJsxChildValue: genes.js.ArrayCallbacks.mapWithIndex(items, function(item, index) {
   final ListTag = (ordered ? "ol" : "ul");
   return (genes.react.internal.Jsx.__jsx("li", { __genesJsxPropName: "key", __genesJsxPropValue: index, __genesJsxPropNext: { __genesJsxPropsEnd: true } }, { __genesJsxChildValue: genes.react.internal.Jsx.__jsx("a", { __genesJsxPropName: "href", __genesJsxPropValue: item.href, __genesJsxPropNext: { __genesJsxPropName: "aria-disabled", __genesJsxPropValue: genes.ts.Undefinable.fromNullable((genes.js.Truthiness.isTruthy(disabled) ? genes.ts.Undefinable.fromNullable(disabled) : genes.ts.Undefinable.absent())), __genesJsxPropNext: { __genesJsxPropName: "onClick", __genesJsxPropValue: genes.ts.Undefinable.fromNullable((genes.js.Truthiness.isTruthy((genes.js.Truthiness.isTruthy(disabled) ? genes.js.TypeChecks.isFunction(onClick) : disabled)) ? genes.ts.Undefinable.fromNullable(onClick) : genes.ts.Undefinable.absent())), __genesJsxPropNext: { __genesJsxPropsEnd: true } } } }, { __genesJsxChildValue: item.label, __genesJsxChildNext: { __genesJsxChildrenEnd: true } }), __genesJsxChildNext: { __genesJsxChildValue: genes.react.Children.nullable((function() {
@@ -25,7 +33,7 @@ function NestedLinks(_p0: { var items: Array<LinkNode>; @:optional @:ts.optional
 }
 
 function main(): Void {
-  final onClick = function(event: MouseEvent<genes.react.AnchorElement>) return event.preventDefault();
+  final onClick = function(event: MouseEvent<js.html.AnchorElement>) return event.preventDefault();
   final element = NestedLinks({ items: [{ label: "Guide", href: "#guide", children: null }], disabled: true, onClick: onClick, ordered: false });
   trace(((element != null) ? "REACT_TYPES_OK" : "REACT_TYPES_FAIL"));
 }

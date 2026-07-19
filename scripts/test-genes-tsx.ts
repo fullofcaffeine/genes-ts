@@ -71,6 +71,11 @@ function copyTsxFixtures(intoRelDir: string): void {
   copyDir(fixturesDir);
 }
 
+function assertNoGeneratedDomSupportGraph(generatedRelDir: string): void {
+  ok(!existsSync(path.join(repoRoot, generatedRelDir, "js/html")),
+    `${generatedRelDir} published browser typedef modules loaded only through ambient externs`);
+}
+
 function assertHaxeHxxNegatives(): void {
   const negativeSource = readFileSync(
     path.join(repoRoot, "tests/genes-ts/snapshot/react/negative/Negative.hx"),
@@ -81,6 +86,7 @@ function assertHaxeHxxNegatives(): void {
     ["hxx_negative_unknown_custom_intrinsic", "GTS-HXX-TAG-001"],
     ["hxx_negative_intrinsic_prop", "GTS-HXX-PROP-001"],
     ["hxx_negative_intrinsic_prop_type", "GTS-HXX-PROP-002"],
+    ["hxx_negative_intrinsic_null", "GTS-HXX-PROP-002"],
     ["hxx_negative_handler", "GTS-HXX-PROP-002"],
     ["hxx_negative_component_missing", "GTS-HXX-PROP-004"],
     ["hxx_negative_component_extra", "GTS-HXX-PROP-001"],
@@ -100,10 +106,16 @@ function assertHaxeHxxNegatives(): void {
     ["hxx_negative_unsafe_key", "GTS-HXX-PROP-002"],
     ["hxx_negative_event_target", "GTS-HXX-PROP-002"],
     ["hxx_negative_inherited_event_target", "GTS-HXX-PROP-002"],
+    ["hxx_negative_anchor_event_target", "GTS-HXX-PROP-002"],
     ["hxx_negative_optional_callback", "GTS-HXX-PROP-002"],
     ["hxx_negative_inherited_missing", "GTS-HXX-PROP-004"],
     ["hxx_negative_nested_unsafe", "GTS-HXX-TYPE-001"],
-    ["hxx_negative_recursive_unsafe", "GTS-HXX-TYPE-001"]
+    ["hxx_negative_any_value", "GTS-HXX-TYPE-001"],
+    ["hxx_negative_nested_any", "GTS-HXX-TYPE-001"],
+    ["hxx_negative_nullable_prop", "GTS-HXX-PROP-002"],
+    ["hxx_negative_nullable_payload", "GTS-HXX-PROP-002"],
+    ["hxx_negative_required_undefinable_missing", "GTS-HXX-PROP-004"],
+    ["hxx_negative_null_to_undefinable", "GTS-HXX-PROP-002"]
   ];
   for (const [define, diagnostic] of cases) {
     const branchLine = negativeSource.findIndex((line) =>
@@ -159,6 +171,171 @@ function assertHaxeHxxNegatives(): void {
   ok(duplicateOutput.includes("[GTS-HXX-SCHEMA-007]"));
   ok(duplicateOutput.includes(`DuplicatePrefixElements.hx:${duplicateLine}:`));
 
+  const weakProvider = readFileSync(
+    path.join(
+      repoRoot,
+      "tests/genes-ts/snapshot/react/negative/WeakPrefixElements.hx"
+    ),
+    "utf8"
+  ).split(/\r?\n/);
+  const weakPrefixLine = weakProvider.findIndex((line) =>
+    line.includes('@:genes.jsxAttributePrefix("weak-")')
+  ) + 1;
+  ok(weakPrefixLine > 0, "weak-prefix fixture has no prefix declaration");
+  const weakPrefixResult = spawnSync(
+    "haxe",
+    [
+      "tests/genes-ts/snapshot/react/build-negative.hxml",
+      "-D",
+      "hxx_negative_unknown_custom_intrinsic",
+      "-D",
+      "genes.react.jsx_intrinsic_providers=WeakPrefixElements"
+    ],
+    { cwd: repoRoot, encoding: "utf8" }
+  );
+  strictEqual(weakPrefixResult.status === 0, false);
+  const weakPrefixOutput = `${weakPrefixResult.stdout}${weakPrefixResult.stderr}`;
+  ok(weakPrefixOutput.includes("[GTS-HXX-SCHEMA-008]"));
+  ok(weakPrefixOutput.includes(`WeakPrefixElements.hx:${weakPrefixLine}:`));
+
+  for (const [define, fieldSource] of [
+    ["hxx_negative_schema_unsafe", "final value: Dynamic;"],
+    ["hxx_negative_recursive_unsafe", "final items: Array<RecursiveUnsafeItem>;"]
+  ] as const) {
+    const fieldLine = negativeSource.findIndex((line) =>
+      line.includes(fieldSource)
+    ) + 1;
+    ok(fieldLine > 0, `${define} has no weak schema field`);
+    const result = spawnSync(
+      "haxe",
+      ["tests/genes-ts/snapshot/react/build-negative.hxml", "-D", define],
+      { cwd: repoRoot, encoding: "utf8" }
+    );
+    strictEqual(result.status === 0, false);
+    const output = `${result.stdout}${result.stderr}`;
+    ok(output.includes("[GTS-HXX-SCHEMA-008]"));
+    ok(output.includes(`Negative.hx:${fieldLine}:`));
+  }
+
+  const overlapProvider = readFileSync(
+    path.join(
+      repoRoot,
+      "tests/genes-ts/snapshot/react/negative/OverlappingPrefixElements.hx"
+    ),
+    "utf8"
+  ).split(/\r?\n/);
+  const overlapLine = overlapProvider.findIndex((line) =>
+    line.includes('@:genes.jsxAttributePrefix("qa-count-")')
+  ) + 1;
+  ok(overlapLine > 0, "overlap fixture has no specific prefix declaration");
+  const overlapResult = spawnSync(
+    "haxe",
+    [
+      "tests/genes-ts/snapshot/react/build-negative.hxml",
+      "-D",
+      "hxx_negative_unknown_custom_intrinsic",
+      "-D",
+      "genes.react.jsx_intrinsic_providers=OverlappingPrefixElements"
+    ],
+    { cwd: repoRoot, encoding: "utf8" }
+  );
+  strictEqual(overlapResult.status === 0, false);
+  const overlapOutput = `${overlapResult.stdout}${overlapResult.stderr}`;
+  ok(overlapOutput.includes("[GTS-HXX-SCHEMA-009]"));
+  ok(overlapOutput.includes(`OverlappingPrefixElements.hx:${overlapLine}:`));
+
+  const duplicateMetadataProvider = readFileSync(
+    path.join(
+      repoRoot,
+      "tests/genes-ts/snapshot/react/negative/DuplicateMetadataElements.hx"
+    ),
+    "utf8"
+  ).split(/\r?\n/);
+  const duplicateMetadataLine = duplicateMetadataProvider.findIndex((line) =>
+    line.includes('@:genes.jsxAttributePrefix("qa-count-")')
+  ) + 1;
+  ok(duplicateMetadataLine > 0,
+    "duplicate-metadata fixture has no second annotation");
+  const duplicateMetadataResult = spawnSync(
+    "haxe",
+    [
+      "tests/genes-ts/snapshot/react/build-negative.hxml",
+      "-D",
+      "hxx_negative_unknown_custom_intrinsic",
+      "-D",
+      "genes.react.jsx_intrinsic_providers=DuplicateMetadataElements"
+    ],
+    { cwd: repoRoot, encoding: "utf8" }
+  );
+  strictEqual(duplicateMetadataResult.status === 0, false);
+  const duplicateMetadataOutput =
+    `${duplicateMetadataResult.stdout}${duplicateMetadataResult.stderr}`;
+  ok(duplicateMetadataOutput.includes("[GTS-HXX-SCHEMA-010]"));
+  ok(duplicateMetadataOutput.includes(
+    `DuplicateMetadataElements.hx:${duplicateMetadataLine}:`
+  ));
+
+  const tsOptionalBranch = negativeSource.findIndex((line) =>
+    line.includes("#elseif hxx_negative_ts_optional_null")
+  );
+  const tsOptionalValueOffset = negativeSource
+    .slice(tsOptionalBranch + 1)
+    .findIndex((line) => line.includes("final value ="));
+  const tsOptionalValueLine = tsOptionalBranch + tsOptionalValueOffset + 2;
+  ok(tsOptionalBranch >= 0 && tsOptionalValueOffset >= 0,
+    "per-field ts.optional fixture has no HXX value");
+  const tsOptionalNull = spawnSync(
+    "haxe",
+    [
+      "tests/genes-ts/snapshot/react/build-negative.hxml",
+      "-D",
+      "hxx_negative_ts_optional_null",
+      "-D",
+      "genes.react.jsx_intrinsic_providers=TsOptionalElements"
+    ],
+    { cwd: repoRoot, encoding: "utf8" }
+  );
+  strictEqual(tsOptionalNull.status === 0, false,
+    "@:ts.optional custom intrinsic unexpectedly accepted Haxe null");
+  const tsOptionalNullOutput =
+    `${tsOptionalNull.stdout}${tsOptionalNull.stderr}`;
+  ok(tsOptionalNullOutput.includes("[GTS-HXX-PROP-002]"));
+  ok(tsOptionalNullOutput.includes(`Negative.hx:${tsOptionalValueLine}:`));
+
+  const tsOptionalUndefined = spawnSync(
+    "haxe",
+    [
+      "tests/genes-ts/snapshot/react/build-negative.hxml",
+      "-D",
+      "hxx_positive_ts_optional_undefined",
+      "-D",
+      "genes.react.jsx_intrinsic_providers=TsOptionalElements"
+    ],
+    { cwd: repoRoot, encoding: "utf8" }
+  );
+  strictEqual(
+    tsOptionalUndefined.status,
+    0,
+    `@:ts.optional should accept an explicit Undefinable value:\n${tsOptionalUndefined.stdout}${tsOptionalUndefined.stderr}`
+  );
+
+  const tsOptionalSpread = spawnSync(
+    "haxe",
+    [
+      "tests/genes-ts/snapshot/react/build-negative.hxml",
+      "-D",
+      "hxx_positive_ts_optional_spread",
+      "-D",
+      "genes.react.jsx_intrinsic_providers=TsOptionalElements"
+    ],
+    { cwd: repoRoot, encoding: "utf8" }
+  );
+  strictEqual(
+    tsOptionalSpread.status,
+    0,
+    `@:ts.optional spread fields should keep their present-value type:\n${tsOptionalSpread.stdout}${tsOptionalSpread.stderr}`
+  );
+
   const ignoredCallbackResult = spawnSync(
     "haxe",
     [
@@ -188,6 +365,40 @@ function assertHaxeHxxNegatives(): void {
     0,
     `A closed recursive property contract should compile:\n${recursiveProps.stdout}${recursiveProps.stderr}`
   );
+
+  const nullableProp = spawnSync(
+    "haxe",
+    [
+      "tests/genes-ts/snapshot/react/build-negative.hxml",
+      "-D",
+      "hxx_positive_nullable_prop"
+    ],
+    { cwd: repoRoot, encoding: "utf8" }
+  );
+  strictEqual(
+    nullableProp.status,
+    0,
+    `A nullable value should fill a nullable property contract:\n${nullableProp.stdout}${nullableProp.stderr}`
+  );
+
+  for (const [define, description] of [
+    ["hxx_positive_plain_to_nullable", "a concrete value should fill a nullable contract"],
+    ["hxx_positive_literal_null", "a literal null should fill a nullable contract"],
+    ["hxx_positive_undefinable_prop", "a supplied Undefinable value should fill an explicit Undefinable contract"],
+    ["hxx_positive_optional_nullable_spread", "an optional nullable spread should preserve its nullable payload"],
+    ["hxx_positive_optional_trailing_callback", "a safe trailing optional callback parameter should be accepted"]
+  ] as const) {
+    const result = spawnSync(
+      "haxe",
+      ["tests/genes-ts/snapshot/react/build-negative.hxml", "-D", define],
+      { cwd: repoRoot, encoding: "utf8" }
+    );
+    strictEqual(
+      result.status,
+      0,
+      `${description}:\n${result.stdout}${result.stderr}`
+    );
+  }
 }
 
 const authoredHxxSource = readFileSync(
@@ -195,6 +406,7 @@ const authoredHxxSource = readFileSync(
   "utf8"
 );
 ok(authoredHxxSource.includes('<GenericInt value={7} render={value -> \'n:$value\'} />'));
+ok(authoredHxxSource.includes("<GenericValue"));
 strictEqual(/<\s+GenericInt/.test(authoredHxxSource), false);
 
 rmrf("tests/genes-ts/snapshot/react/out/tsx");
@@ -212,6 +424,10 @@ rmrf("tests/genes-ts/snapshot/react/out/custom-provider");
 rmrf("tests/genes-ts/snapshot/react/out/packed-consumer");
 
 assertHaxeHxxNegatives();
+ok(!existsSync(path.join(
+  repoRoot,
+  "tests/genes-ts/snapshot/react/out/negative/js/html"
+)), "semantic-only React schemas do not publish unrelated DOM support modules");
 
 // Exercise the release artifact, not the checkout classpath. This proves every
 // checker/schema source required by HXX is present in the Haxelib ZIP and can
@@ -263,7 +479,21 @@ const customProviderSource = readFileSync(
 ok(customProviderSource.includes('createElement("x-card"'));
 
 run("haxe", ["tests/genes-ts/snapshot/react/build-tsx.hxml"]);
+assertNoGeneratedDomSupportGraph(
+  "tests/genes-ts/snapshot/react/out/tsx/src-gen"
+);
 copyTsxFixtures("tests/genes-ts/snapshot/react/out/tsx/src-gen");
+const automaticTsxSource = readFileSync(
+  path.join(repoRoot, "tests/genes-ts/snapshot/react/out/tsx/src-gen/Main.tsx"),
+  "utf8"
+);
+ok(automaticTsxSource.includes(
+  "MouseEvent<HTMLAnchorElement>"
+), "TSX preserves the complete anchor event target as an ambient DOM type");
+ok(automaticTsxSource.includes(
+  "ChangeEvent<HTMLInputElement>"
+), "TSX preserves the complete input event target as an ambient DOM type");
+ok(!automaticTsxSource.includes("./js/html"));
 assertNoUnsafeTypes({
   repoRoot,
   generatedDir: "tests/genes-ts/snapshot/react/out/tsx/src-gen",
@@ -276,6 +506,9 @@ runGeneratedTypeScriptMatrix(
 run("node", ["tests/genes-ts/snapshot/react/out/tsx/dist/index.js"]);
 
 run("haxe", ["tests/genes-ts/snapshot/react/build-tsx-jsx-source.hxml"]);
+assertNoGeneratedDomSupportGraph(
+  "tests/genes-ts/snapshot/react/out/tsx-jsx-source/src-gen"
+);
 copyTsxFixtures("tests/genes-ts/snapshot/react/out/tsx-jsx-source/src-gen");
 assertNoUnsafeTypes({
   repoRoot,
@@ -290,6 +523,9 @@ run("node", ["tests/genes-ts/snapshot/react/out/tsx-jsx-source/dist/index.js"]);
 
 rmrf("tests/genes-ts/snapshot/react/out/tsx-classic");
 run("haxe", ["tests/genes-ts/snapshot/react/build-tsx-classic.hxml"]);
+assertNoGeneratedDomSupportGraph(
+  "tests/genes-ts/snapshot/react/out/tsx-classic/src-gen"
+);
 copyTsxFixtures("tests/genes-ts/snapshot/react/out/tsx-classic/src-gen");
 assertNoUnsafeTypes({
   repoRoot,
@@ -303,7 +539,26 @@ runGeneratedTypeScriptMatrix(
 run("node", ["tests/genes-ts/snapshot/react/out/tsx-classic/dist/index.js"]);
 
 run("haxe", ["tests/genes-ts/snapshot/react/build-ts.hxml"]);
+assertNoGeneratedDomSupportGraph(
+  "tests/genes-ts/snapshot/react/out/ts/src-gen"
+);
 copyTsxFixtures("tests/genes-ts/snapshot/react/out/ts/src-gen");
+const typedCreateElementSource = readFileSync(
+  path.join(repoRoot, "tests/genes-ts/snapshot/react/out/ts/src-gen/Main.ts"),
+  "utf8"
+);
+ok(typedCreateElementSource.includes(
+  "createElement<GenericValueProps<number>>(Main.GenericValue"
+), "typed createElement preserves the Haxe-inferred generic component props");
+ok(!typedCreateElementSource.includes(
+  "ComponentPropsWithoutRef<typeof Main.GenericValue>"
+), "typed createElement does not widen a generic component contract to unknown");
+ok(typedCreateElementSource.includes(
+  "ComponentPropsWithoutRef<typeof Button>"
+), "concrete function components keep React's concise utility-type path");
+ok(typedCreateElementSource.includes(
+  "ComponentPropsWithoutRef<typeof TypedButton>"
+), "metadata-backed component wrappers keep their emitted React prop contract");
 assertNoUnsafeTypes({
   repoRoot,
   generatedDir: "tests/genes-ts/snapshot/react/out/ts/src-gen",

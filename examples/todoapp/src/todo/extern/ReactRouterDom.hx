@@ -20,30 +20,44 @@ import genes.react.Node;
  * - `@:genes.jsxComponentProps("...")` points HXX at a closed Haxe property
  *   type. The string is resolved at compile time, so missing or wrong Router
  *   properties fail in Haxe before JSX is emitted.
+ * - `@:genes.compilerInternal` keeps those property types available to the
+ *   checker, while `@:genes.semanticOnly` says generated code never needs to
+ *   name them. Together they prevent checker-only declarations from leaking
+ *   into the todoapp's generated TypeScript.
  * - `@:ts.type(...)` pins type aliases to React Router’s own TS types so we
  *   avoid `any` and keep the output idiomatic.
  */
 import haxe.DynamicAccess;
 
-@:genes.compilerInternal typedef BrowserRouterProps = {
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef BrowserRouterProps = {
   final children: Node;
 }
 
-@:genes.compilerInternal typedef RoutesProps = {
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef RoutesProps = {
   final children: Node;
 }
 
-@:genes.compilerInternal typedef RouteProps = {
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef RouteProps = {
   final path: String;
   final element: Element;
 }
 
-@:genes.compilerInternal typedef LinkStyle = {
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef LinkStyle = {
   @:optional final flex: String;
   @:optional final textDecoration: String;
 }
 
-@:genes.compilerInternal typedef LinkProps = {
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef LinkProps = {
   final to: String;
   final children: Node;
   @:optional final style: LinkStyle;

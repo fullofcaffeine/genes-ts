@@ -1009,6 +1009,29 @@ function canDotAccessField(name: string): boolean {
   return isValidHaxeIdentifier(name) && !HAXE_RESERVED.has(name);
 }
 
+/**
+ * Emits the value of a JavaScript destructuring default without confusing null
+ * with undefined.
+ *
+ * JavaScript runs `{value = fallback}` only when `value` is exactly undefined;
+ * an explicit null stays null. Haxe's ordinary `== null` check treats both host
+ * values alike, so it cannot model this boundary. The exact `isAbsent` guard
+ * preserves JavaScript semantics. When TypeScript says the post-default target
+ * cannot be null, `Present.require` also gives Haxe the precise non-null type;
+ * targets whose declared result still includes null keep that nullable value.
+ */
+function emitDefaultedBindingValue(
+  ctx: EmitContext,
+  rawValue: string,
+  fallback: string,
+  target: ts.Node
+): string {
+  const presentValue = typeIncludesNull(ctx.checker.getTypeAtLocation(target))
+    ? rawValue
+    : `genes.ts.Present.require(${rawValue})`;
+  return `(genes.ts.Undefinable.isAbsent(${rawValue}) ? ${fallback} : ${presentValue})`;
+}
+
 function emitDestructureFromBindingName(opts: {
   ctx: EmitContext;
   mode: BindingMode;
@@ -1062,7 +1085,7 @@ function emitDestructureFromBindingName(opts: {
       if (el.initializer) {
         const def = emitExpression(ctx, el.initializer);
         if (!def) return null;
-        effectiveValue = `(${rawTmp} == null ? ${def} : ${rawTmp})`;
+        effectiveValue = emitDefaultedBindingValue(ctx, rawTmp, def, el.name);
       }
 
       const targetName = el.name;
@@ -1109,7 +1132,7 @@ function emitDestructureFromBindingName(opts: {
       if (el.initializer) {
         const def = emitExpression(ctx, el.initializer);
         if (!def) return null;
-        effectiveValue = `(${rawTmp} == null ? ${def} : ${rawTmp})`;
+        effectiveValue = emitDefaultedBindingValue(ctx, rawTmp, def, el.name);
       }
 
       if (ts.isIdentifier(el.name)) {
@@ -1166,7 +1189,13 @@ function emitDestructureAssignmentFromExpression(opts: {
         if (prop.objectAssignmentInitializer) {
           const def = emitExpression(ctx, prop.objectAssignmentInitializer);
           if (!def) return null;
-          out.push(`${indent}${key} = (${rawTmp} == null ? ${def} : ${rawTmp});`);
+          const effectiveValue = emitDefaultedBindingValue(
+            ctx,
+            rawTmp,
+            def,
+            prop.name
+          );
+          out.push(`${indent}${key} = ${effectiveValue};`);
         } else {
           out.push(`${indent}${key} = ${rawTmp};`);
         }
@@ -1191,7 +1220,12 @@ function emitDestructureAssignmentFromExpression(opts: {
           out.push(`${indent}var ${rhsTmp} = ${access};`);
           const def = emitExpression(ctx, prop.initializer.right);
           if (!def) return null;
-          const effectiveValue = `(${rhsTmp} == null ? ${def} : ${rhsTmp})`;
+          const effectiveValue = emitDefaultedBindingValue(
+            ctx,
+            rhsTmp,
+            def,
+            prop.initializer.left
+          );
 
           const left = prop.initializer.left;
           if (ts.isObjectLiteralExpression(left) || ts.isArrayLiteralExpression(left)) {
@@ -1253,7 +1287,12 @@ function emitDestructureAssignmentFromExpression(opts: {
         out.push(`${indent}var ${rhsTmp} = ${access};`);
         const def = emitExpression(ctx, el.right);
         if (!def) return null;
-        const effectiveValue = `(${rhsTmp} == null ? ${def} : ${rhsTmp})`;
+        const effectiveValue = emitDefaultedBindingValue(
+          ctx,
+          rhsTmp,
+          def,
+          el.left
+        );
 
         const left = el.left;
         if (ts.isObjectLiteralExpression(left) || ts.isArrayLiteralExpression(left)) {
@@ -1343,7 +1382,7 @@ function emitType(typeNode: ts.TypeNode | undefined): string {
           : baseName === "RegExp"
             ? "EReg"
           : baseName === "HTMLAnchorElement"
-            ? "genes.react.AnchorElement"
+            ? "js.html.AnchorElement"
           : baseName === "ReadonlyArray"
             ? "Array"
             : baseName === "JSX.Element"
@@ -1743,6 +1782,11 @@ function isJsxExpressionNode(node: ts.Node): boolean {
 function typeIncludesUndefined(type: ts.Type): boolean {
   if ((type.getFlags() & ts.TypeFlags.Undefined) !== 0) return true;
   return type.isUnion() && type.types.some(typeIncludesUndefined);
+}
+
+function typeIncludesNull(type: ts.Type): boolean {
+  if ((type.getFlags() & ts.TypeFlags.Null) !== 0) return true;
+  return type.isUnion() && type.types.some(typeIncludesNull);
 }
 
 function emitJsxRoot(ctx: EmitContext, expr: ts.JsxElement | ts.JsxSelfClosingElement | ts.JsxFragment): string | null {

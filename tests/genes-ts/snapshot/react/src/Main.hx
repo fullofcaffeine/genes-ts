@@ -6,6 +6,7 @@ import genes.react.MouseEvent;
 import genes.react.SyntheticEvent;
 import genes.react.internal.Jsx;
 import genes.ts.Imports;
+import genes.ts.Undefinable;
 
 typedef StringAccessor = Void->String;
 
@@ -50,6 +51,8 @@ interface InheritedCardProps extends InheritedBaseProps {
  * contracts alongside intrinsic props, callbacks, spreads, and children. The
  * harness type-checks and executes the generated output.
  */
+// The Haxe formatter does not yet understand component HXX reliably.
+// @formatter:off
 class Main {
   static function main() {
     final title = "Hi";
@@ -111,6 +114,15 @@ class Main {
     if (genericHtml != '<span>n:7</span>')
       throw 'Unexpected generic HTML: ' + genericHtml;
 
+    // The component remains generic at the tag. Haxe infers `T = Int` from
+    // `value` before it gives the inline callback its parameter type.
+    final directGenericHtml = renderToStaticMarkup(<GenericValue
+      value={8}
+      render={value -> 'n:$value'}
+    />);
+    if (directGenericHtml != '<span>n:8</span>')
+      throw 'Unexpected direct generic HTML: ' + directGenericHtml;
+
     final broadHandler: SyntheticEvent<DomElement>->Void = event ->
       event.preventDefault();
     final inheritedHtml = renderToStaticMarkup(<InheritedCard
@@ -146,9 +158,27 @@ class Main {
     final contextualClick = <button onClick={event -> event.preventDefault()}>Contextual</button>;
     renderToStaticMarkup(contextualClick);
 
-    // Element-specific intrinsic contracts retain React's refined change-event
-    // target, so Haxe validates this field access before TSX is generated.
-    final contextualInput = <input onChange={event -> trace(event.target.value)} />;
+    // Element-specific intrinsic contracts retain focused browser facades, so
+    // useful anchor APIs are checked before TSX exists.
+    final contextualAnchor = <a onClick={event -> {
+      event.currentTarget.download = "report.csv";
+      event.currentTarget.rel = "noopener";
+      event.currentTarget.focus();
+    }}>Download</a>;
+    renderToStaticMarkup(contextualAnchor);
+
+    // React optional DOM properties distinguish a supplied JavaScript
+    // undefined from Haxe null. The HXX checker accepts this explicit host
+    // sentinel, and React omits the absent attribute at runtime.
+    final absentHref: Undefinable<String> = Undefinable.absent();
+    final absentHrefHtml = renderToStaticMarkup(<a href={absentHref}>Absent href</a>);
+    if (absentHrefHtml != '<a>Absent href</a>')
+      throw 'Unexpected absent href HTML: ' + absentHrefHtml;
+
+    final contextualInput = <input onChange={event -> {
+      trace(event.target.value);
+      event.target.select();
+    }} />;
     renderToStaticMarkup(contextualInput);
 
     // React also accepts a callback that intentionally ignores its event.
@@ -233,3 +263,4 @@ class Main {
     });
   }
 }
+// @formatter:on

@@ -3,6 +3,7 @@ package genes;
 import haxe.macro.Context;
 import haxe.macro.Expr.Position;
 import haxe.macro.Type;
+import haxe.ds.ObjectMap;
 import genes.BindingIdentity.CompilerCapabilityId;
 
 using haxe.macro.TypedExprTools;
@@ -210,6 +211,7 @@ class JsxCapabilityPolicy {
 class JsxPlan {
   final localInitializers: Map<Int, TypedExpr> = [];
   final carrierLocalIds: Map<Int, Bool> = [];
+  final validatedComponentProps = new ObjectMap<TypedExpr, Type>();
   var intentCount = 0;
   var dynamicIntrinsic = false;
   var firstIntentPosition: Null<Position> = null;
@@ -221,6 +223,22 @@ class JsxPlan {
   /** True when a local exists only to retain a typed JSX carrier record. */
   public function isCarrierLocal(id: Int): Bool {
     return carrierLocalIds.exists(id);
+  }
+
+  /**
+   * Returns the Haxe-specialized property contract recorded by validation.
+   *
+   * The typed tag expression is the identity: the plan and emitter share the
+   * same compiler-owned AST object. Source positions remain diagnostic facts
+   * and are not used as keys, because generated expressions can legitimately
+   * share a position.
+   */
+  public function componentPropsType(tag: JsxTagIntent): Null<Type> {
+    return switch tag {
+      case ComponentTag(expression):
+        validatedComponentProps.get(expression);
+      default: null;
+    }
   }
 
   public static function build(module: Module): JsxPlan {
@@ -239,7 +257,14 @@ class JsxPlan {
         return;
       if (checker == null)
         checker = new JsxTypeChecker();
-      checker.validate(intent);
+      final componentPropsType = checker.validate(intent);
+      if (componentPropsType != null)
+        switch intent {
+          case ElementIntent(tag, _, _, _):
+            plan.validatedComponentProps.set(tagExpression(tag),
+              componentPropsType);
+          default:
+        }
       plan.intentCount++;
       final pos = intentPosition(intent);
       if (plan.firstIntentPosition == null)

@@ -207,12 +207,44 @@ node may contain `Array<Node>`. HXX follows the fields once, checks every
 concrete value it can observe, and recognizes the repeated typed declaration as
 recursion rather than mistaking it for an unresolved type.
 
+Property contracts must remain concrete all the way through their nested
+fields. HXX rejects `Dynamic`, Haxe's core `Any`, and `genes.ts.Unknown` in both
+supplied values and declared component or intrinsic schemas; supplied values
+also cannot rely on an unresolved monomorph. Fresh inference variables on a
+generic component are different: Haxe binds them from checked HXX arguments,
+so generic components retain their ordinary inference. Attribute-prefix
+declarations follow the same rule because their one field type is the complete
+contract for every matching property. A value typed as `Null<T>` fills only a
+nullable or union contract; it cannot fill a required non-null `T` merely
+because Haxe's JavaScript target can unify those types. `@:optional` spread
+fields remain distinct from explicit nullable values: they represent possible
+omission and are checked against required-field rules.
+
+HXX keeps three absence contracts separate:
+
+- `@:optional` means that an object may omit the property;
+- `Null<T>` means that a supplied value may be Haxe `null`;
+- `genes.ts.Undefinable<T>` means that a supplied host value may be JavaScript
+  `undefined`.
+
+For example, a required `Undefinable<String>` property must still be present,
+and `Null<String>` cannot fill it. The bundled React DOM provider opts into
+explicit `undefined` for its optional properties because React's TypeScript
+definitions accept that form. This opt-in removes only the outer `Null<T>` that
+Haxe adds internally for an optional field: a supplied Haxe `null` still fails
+when React expects `T | undefined`. A provider can spell
+`Undefinable<Null<T>>` when its real host contract intentionally accepts both.
+A custom intrinsic provider keeps ordinary Haxe optional/null behavior unless
+its class declares `@:genes.jsxOptionalValuesAllowUndefined`.
+
 An imported extern class can name a closed property contract directly. This is
 useful when `@:jsRequire` represents a React component as a class value rather
 than a Haxe function:
 
 ```haxe
-@:genes.compilerInternal typedef LinkProps = {
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef LinkProps = {
   final to: String;
   final children: genes.react.Node;
 }
@@ -225,7 +257,19 @@ extern class Link {}
 The string must be a fully qualified Haxe type path. It is resolved by Haxe at
 compile time; it is not emitted or interpreted at runtime. Both the generic
 index and type-path forms fail closed when the referenced contract is missing,
-open, or unsafe.
+open, or unsafe. `@:genes.compilerInternal` keeps an ordinary alias available
+to generated code while hiding it from exports and declarations.
+`@:genes.semanticOnly` is the narrower opt-in used above: it says the checker
+is the only consumer and no emitted annotation may name the alias. Do not add
+that second annotation to a type used by generated local code.
+
+Direct generic function components keep Haxe's inferred property type in the
+plain `.ts` createElement profile. For example, a checked call to
+`GenericValue<Int>` emits `createElement<GenericValueProps<number>>(...)`
+instead of allowing React's utility type to widen the generic argument to
+`unknown`. If HXX cannot determine every generic parameter, it leaves the
+specialization to React rather than printing a type parameter that is not in
+scope.
 
 Lowercase tags are resolved through the typed
 `genes.react.IntrinsicElements` provider. A JSX runtime can replace it with a
@@ -241,7 +285,12 @@ spelling—is the Haxe prop/value contract. Unknown tags and unresolved contract
 fail closed rather than falling back to a permissive top type. A provider also
 cannot declare the same prefix twice: competing value types would make the
 accepted contract depend on field order, so HXX reports
-`GTS-HXX-SCHEMA-007` at the duplicate declaration.
+`GTS-HXX-SCHEMA-007` at the duplicate declaration. A weak component, intrinsic,
+or prefix field fails with `GTS-HXX-SCHEMA-008` before its type can erase HXX's
+compile-time guarantees. Prefixes such as `data-` and `data-count-` may not
+overlap (`GTS-HXX-SCHEMA-009`), because the chosen contract would otherwise
+depend on provider field order. A schema-changing annotation may appear only
+once on a field (`GTS-HXX-SCHEMA-010`).
 
 The bundled provider is deliberately a reviewed common subset, not a loose
 copy of every version of `@types/react`. If an application needs another valid
@@ -254,7 +303,12 @@ Default React event contracts retain their element parameter. For example, an
 `genes.react.ChangeEvent<genes.react.InputElement>`, so
 `event.target.value` is checked in Haxe and is emitted as React's canonical
 `ChangeEvent<HTMLInputElement>`. Anchor events similarly retain
-`genes.react.AnchorElement`/`HTMLAnchorElement`. A callback may intentionally
+`genes.react.AnchorElement`/`HTMLAnchorElement`. These focused facades expose
+the browser fields covered by the built-in contract without pulling Haxe's
+complete DOM declaration graph into generated modules. An existing handler may
+still name the exact standard `js.html.AnchorElement` or
+`js.html.InputElement`; HXX compares their compiler-owned browser identities
+rather than a printed type string. A callback may intentionally
 omit supplied event parameters or return a value when the consumer expects
 `Void`, matching JavaScript/TypeScript callback subtyping. The reverse is not
 safe: a callback that requires an argument cannot fill a contract whose caller
@@ -286,10 +340,11 @@ final bad = <Button label={123} />;
 ```
 
 The repository covers tag typos, component identity/return types, missing,
-extra, duplicate and wrong props, unsafe keys and nested values, handler target/optionality,
-required and unexpected children, non-renderable children, and invalid spreads
-before any TypeScript lane runs. The harness checks the exact authored HXX line,
-not merely the source filename. Positive alias, generic, inherited-interface,
-wrapper, prefix, custom-provider, packed-release, and runtime fixtures run
-beside them. Provider coverage is explicit and extensible; it is not a claim
-that every third-party JSX namespace is built in.
+extra, duplicate and wrong props, unsafe keys, weak schemas and nested values,
+nullable-to-required assignments, handler target/optionality, required and
+unexpected children, non-renderable children, and invalid spreads before any
+TypeScript lane runs. The harness checks the exact authored HXX line, not merely
+the source filename. Positive alias, generic, inherited-interface, wrapper,
+nullable, recursive, prefix, custom-provider, packed-release, and runtime
+fixtures run beside them. Provider coverage is explicit and extensible; it is
+not a claim that every third-party JSX namespace is built in.

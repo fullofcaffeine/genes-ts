@@ -7,13 +7,16 @@ export type Obj = {
   b?: Nested;
   d?: number;
   e?: number;
+  nullable?: number | null;
 };
 
 export function main(): void {
-  const obj: Obj = { a: 1, b: { c: "hi" }, d: 4, e: 5 };
+  const obj: Obj = { a: 1, b: { c: "hi" }, d: 4, e: 5, nullable: null };
 
   const { a, b: { c = "fallback" } = {}, ...rest } = obj;
   const { d: dd = 9 } = obj;
+  const { nullable = 12 } = obj;
+  if (nullable !== null) throw new Error("destructuring default replaced null");
 
   let x: number = 0;
   ({ a: x = 0 } = obj);
