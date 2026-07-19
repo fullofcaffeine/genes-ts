@@ -57,6 +57,11 @@ class Main {
   static function main() {
     final title = "Hi";
 
+    // Load the complete standard anchor extern before the intrinsic schema.
+    // HXX contextual typing must remain deterministic in either module order.
+    final standardAnchorHandler: MouseEvent<js.html.AnchorElement>->Void =
+      event -> event.preventDefault();
+
     // NodeNext-friendly specifier: TS resolves `./components/Button.js` to
     // `./components/Button.tsx` at compile time, and emitted JS imports `.js`.
     final Button: ({label: String}) -> Element = Imports.defaultImport("./components/Button.js");
@@ -158,14 +163,24 @@ class Main {
     final contextualClick = <button onClick={event -> event.preventDefault()}>Contextual</button>;
     renderToStaticMarkup(contextualClick);
 
-    // Element-specific intrinsic contracts retain focused browser facades, so
-    // useful anchor APIs are checked before TSX exists.
+    // Element-specific intrinsic contracts retain Haxe's complete standard DOM
+    // externs, including APIs absent from Genes' compatibility facade. Every
+    // access below is checked before TSX exists.
     final contextualAnchor = <a onClick={event -> {
       event.currentTarget.download = "report.csv";
       event.currentTarget.rel = "noopener";
+      event.currentTarget.protocol = "https:";
       event.currentTarget.focus();
     }}>Download</a>;
     renderToStaticMarkup(contextualAnchor);
+
+    renderToStaticMarkup(<a onClick={standardAnchorHandler}>Standard DOM</a>);
+
+    // Existing handlers that name the smaller Genes facade remain compatible
+    // because both types carry the same browser element identity.
+    final compatibleAnchorHandler: MouseEvent<genes.react.AnchorElement>->Void =
+      event -> event.preventDefault();
+    renderToStaticMarkup(<a onClick={compatibleAnchorHandler}>Compatible</a>);
 
     // React optional DOM properties distinguish a supplied JavaScript
     // undefined from Haxe null. The HXX checker accepts this explicit host
@@ -178,6 +193,7 @@ class Main {
     final contextualInput = <input onChange={event -> {
       trace(event.target.value);
       event.target.select();
+      event.target.setSelectionRange(0, 0);
     }} />;
     renderToStaticMarkup(contextualInput);
 

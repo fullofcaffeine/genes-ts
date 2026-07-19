@@ -13,6 +13,8 @@
 /tests/side-effect-import/out
 /tests/module-directives/out
 /tests/internal-types/out
+/tests/type-roots/out
+/tests/type-roots/out-classic
 /tests/array-index-strict/out
 /tests/finally-completion/out
 /tests/deep-nullish-alias/out

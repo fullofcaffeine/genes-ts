@@ -426,6 +426,7 @@ rmrf("tests/genes-ts/snapshot/react/out/dual-disabled");
 rmrf("tests/genes-ts/snapshot/react/out/negative");
 rmrf("tests/genes-ts/snapshot/react/out/custom-provider");
 rmrf("tests/genes-ts/snapshot/react/out/packed-consumer");
+rmrf("tests/genes-ts/snapshot/react/out/context-first-dom");
 
 assertHaxeHxxNegatives();
 ok(!existsSync(path.join(
@@ -482,6 +483,28 @@ const customProviderSource = readFileSync(
 );
 ok(customProviderSource.includes('createElement("x-card"'));
 
+// Unlike the main fixture, this source never names a standard DOM type before
+// HXX contextualizes the callback. It proves both Haxe module-load orders and
+// ensures the richer ambient type remains a checker input, not generated code.
+run("haxe", ["tests/genes-ts/snapshot/react/build-context-first-dom.hxml"]);
+assertNoGeneratedDomSupportGraph(
+  "tests/genes-ts/snapshot/react/out/context-first-dom/src-gen"
+);
+const contextFirstDomSource = readFileSync(
+  path.join(
+    repoRoot,
+    "tests/genes-ts/snapshot/react/out/context-first-dom/src-gen/ContextFirstDomMain.tsx"
+  ),
+  "utf8"
+);
+ok(contextFirstDomSource.includes('event.currentTarget.protocol = "https:"'),
+  "context-first HXX exposes the complete standard anchor API");
+ok(contextFirstDomSource.includes("MouseEvent<HTMLAnchorElement>"),
+  "context-first HXX emits the ambient browser identity");
+runGeneratedTypeScriptMatrix(
+  "tests/genes-ts/snapshot/react/tsconfig.context-first-dom.json"
+);
+
 run("haxe", ["tests/genes-ts/snapshot/react/build-tsx.hxml"]);
 assertNoGeneratedDomSupportGraph(
   "tests/genes-ts/snapshot/react/out/tsx/src-gen"
@@ -497,6 +520,10 @@ ok(automaticTsxSource.includes(
 ok(automaticTsxSource.includes(
   "ChangeEvent<HTMLInputElement>"
 ), "TSX preserves the complete input event target as an ambient DOM type");
+ok(automaticTsxSource.includes('event.currentTarget.protocol = "https:"'),
+  "HXX exposes anchor APIs beyond the focused compatibility facade");
+ok(automaticTsxSource.includes("event.target.setSelectionRange(0, 0)"),
+  "HXX exposes the complete standard input API");
 ok(!automaticTsxSource.includes("./js/html"));
 ok(automaticTsxSource.includes(
   "<Main.RequiredChild {...optionalChildren}>{optionalChildSpreadHtml}</Main.RequiredChild>"

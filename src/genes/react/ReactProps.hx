@@ -16,10 +16,11 @@ package genes.react;
  * and hides them from public output. `@:genes.semanticOnly` additionally says
  * generated code never names these aliases, so their local TypeScript
  * declarations may also be omitted. `HtmlPropsOf` carries the exact element
- * type into React event callbacks. The anchor and input schemas use focused
- * element facades with the common fields HXX checks today; other tags use the
- * shared `DomElement` boundary. These facades print the canonical browser names
- * in TypeScript without retaining Haxe's much larger DOM declaration graph.
+ * type into React event callbacks. Anchor and input schemas use focused browser
+ * identities; `JsxContext` projects them to Haxe's complete standard DOM
+ * externs when typing inline callbacks. Type-only reachability treats
+ * compiler-loaded aliases as dependencies rather than roots, so contextual
+ * typing does not publish the browser extern's unrelated support graph.
  */
 @:genes.compilerInternal
 @:genes.semanticOnly

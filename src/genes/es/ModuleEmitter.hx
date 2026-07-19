@@ -117,9 +117,10 @@ class ModuleEmitter extends ExprEmitter {
     }
   }
 
-  function emitExport(export: ModuleExport, from: String, ?extension: String) {
+  function emitExport(export: ModuleExport, from: String, ?extension: String,
+      typeOnly = false) {
     writeNewline();
-    write('export {');
+    write(typeOnly ? 'export type {' : 'export {');
     write(export.name);
     write('} from ');
     #if genes.no_extension

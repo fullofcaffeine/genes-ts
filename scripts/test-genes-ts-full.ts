@@ -168,31 +168,7 @@ const fullProfileHaxeRuntimeBoundaryFiles = [
   "haxe/PosInfos.ts",
   "haxe/ValueException.ts",
   "haxe/ds/EnumValueMap.ts",
-  "js/Boot.ts",
-  "js/lib/Map.ts"
-] as const;
-
-// These declarations come from hxnodejs and describe flexible Node APIs such
-// as callbacks, option bags, and writable streams. They are runtime boundaries
-// owned by that host extern contract, not evidence that ordinary generated
-// application modules may expose `any`.
-const fullProfileNodeRuntimeBoundaryFiles = [
-  "js/node/Assert.ts",
-  "js/node/ChildProcess.ts",
-  "js/node/Util.ts",
-  "js/node/stream/Writable.ts"
-] as const;
-
-// The full regression fixture imports Haxe's compiler/display data structures
-// to exercise difficult compiler types. These are compile-time fixture inputs,
-// not a public runtime API that genes-ts promises to redesign.
-const fullProfileCompilerApiFixtureFiles = [
-  "haxe/display/Diagnostic.ts",
-  "haxe/display/Display.ts",
-  "haxe/display/JsonModuleTypes.ts",
-  "haxe/macro/Compiler.ts",
-  "haxe/macro/Expr.ts",
-  "haxe/macro/PlatformConfig.ts"
+  "js/Boot.ts"
 ] as const;
 
 // These files intentionally exercise raw interop or legacy Dynamic behavior.
@@ -211,14 +187,12 @@ const fullProfileRegressionFixtureFiles = [
 // external library's published API.
 const fullProfileTinkFixtureFiles = [
   "tink/CoreApi.ts",
-  "tink/core/Annex.ts",
   "tink/core/Any.ts",
   "tink/core/Error.ts",
   "tink/core/Future.ts",
   "tink/core/Promise.ts",
   "tink/core/Signal.ts",
   "tink/streams/IdealStream.ts",
-  "tink/streams/RealStream.ts",
   "tink/streams/Stream.ts",
   "tink/streams/nodejs/NodejsStream.ts",
   "tink/streams/nodejs/WrappedReadable.ts",
@@ -248,16 +222,6 @@ assertExportedSurfacePolicy({
         fullProfileHaxeRuntimeBoundaryFiles,
         "runtime-boundary",
         "Haxe's JavaScript runtime intentionally accepts values whose concrete type is known only at runtime."
-      ),
-      ...classifyOwnedSurfaceFiles(
-        fullProfileNodeRuntimeBoundaryFiles,
-        "runtime-boundary",
-        "The generated module preserves an hxnodejs host-API contract whose callbacks or option values are intentionally dynamic."
-      ),
-      ...classifyOwnedSurfaceFiles(
-        fullProfileCompilerApiFixtureFiles,
-        "fixture-boundary",
-        "The full regression fixture imports Haxe compiler/display structures to test code generation; it does not publish them as a Genes application API."
       ),
       ...classifyOwnedSurfaceFiles(
         fullProfileRegressionFixtureFiles,

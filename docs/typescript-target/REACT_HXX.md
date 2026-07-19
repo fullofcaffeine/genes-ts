@@ -348,14 +348,17 @@ type string: those approaches would move the error past Haxe again.
 
 Default React event contracts retain their element parameter. For example, an
 `<input>` callback contextually receives
-`genes.react.ChangeEvent<genes.react.InputElement>`, so
-`event.target.value` is checked in Haxe and is emitted as React's canonical
+`genes.react.ChangeEvent<js.html.InputElement>`, so the complete standard Haxe
+DOM surface—including methods such as `setSelectionRange`—is checked before
+output exists and is emitted as React's canonical
 `ChangeEvent<HTMLInputElement>`. Anchor events similarly retain
-`genes.react.AnchorElement`/`HTMLAnchorElement`. These focused facades expose
-the browser fields covered by the built-in contract without pulling Haxe's
-complete DOM declaration graph into generated modules. An existing handler may
-still name the exact standard `js.html.AnchorElement` or
-`js.html.InputElement`; HXX compares their compiler-owned browser identities
+`js.html.AnchorElement`/`HTMLAnchorElement`. Genes' focused compatibility
+facades provide stable schema identities, while contextual inline callbacks are
+projected to those complete standard externs. Genes does not publish browser
+typedef modules merely because Haxe loaded them while resolving an ambient
+extern: a type-only module must be named by emitted syntax or explicitly
+exported before it becomes reachable. Existing annotated handlers may name the
+standard DOM extern directly. HXX compares compiler-owned browser identities
 rather than a printed type string. A callback may intentionally
 omit supplied event parameters or return a value when the consumer expects
 `Void`, matching JavaScript/TypeScript callback subtyping. The reverse is not

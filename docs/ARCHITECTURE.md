@@ -129,6 +129,12 @@ capability diagnostic in classic mode.
 - Runtime, type-only, and declaration-only edges remain distinct. A type import
   must not introduce a runtime side effect; a declaration-only type must not
   broaden classic DCE.
+- TypeScript implementation roots are declarations that independently own an
+  emitted program surface: concrete types, interfaces, enums, the main
+  expression, and explicit exports. A module containing only typedefs is
+  retained through an actual type edge from emitted syntax, not merely because
+  Haxe loaded it while resolving an ambient extern. `yarn test:type-roots`
+  proves both sides with compiler-owned type identity and no path heuristic.
 - Type-only planning also owns type syntax that appears inside executable
   TypeScript. For example, when Genes must print an inferred enum constructor
   argument such as `Yield.Data<Assertion, tink.Error>`, it retains the authored
@@ -233,7 +239,7 @@ layer when a change affects more than one contract.
 | Exported-surface rejection | `tests/typing-policy/`, `tests/publicsurface/` | `yarn test:types:exports` |
 | Classic `.d.ts` consumer behavior | `tests/classic-dts/` | `yarn test:classic:dts` |
 | Nullish/map/iterator contract | `tests/nullish/`, `tests/deep-nullish-alias/` | Owning genes-ts/full/exported-surface gates and `yarn test:deep-nullish-alias` |
-| Type-only reachability and DCE | `tests/typeonly/` | Owning genes-ts/full and dual-output gates |
+| Type-only reachability and DCE | `tests/typeonly/`, `tests/type-roots/` | Owning genes-ts/full, dual-output, and `yarn test:type-roots` gates |
 | Same-source TS/classic parity | `tests/output-modes/` | `yarn test:dual-output` |
 | String literal code units and escaping | `tests/string-literals/` | `yarn test:string-literals` |
 | Reusable package surface | `tests/library-profile/` | `yarn test:library-profile` |
