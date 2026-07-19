@@ -1,0 +1,8 @@
+-lib genes-ts
+-cp tests/hxx-event-variance/src
+--main hxx_event_variance.Main
+-js tests/hxx-event-variance/out/classic/index.js
+-D genes.react.inline_markup
+-D no-deprecation-warnings
+-D js-es=6
+-dce full

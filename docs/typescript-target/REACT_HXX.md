@@ -395,6 +395,23 @@ the caller has explicitly promised not to read that result; this lets an event
 handler start a typed async boundary without exposing the boundary value as a
 component property.
 
+Contravariance also applies inside the reviewed React event wrappers. An
+anchor click supplies `MouseEvent<AnchorElement>`, so all of these handlers are
+safe: the exact type, `MouseEvent<DomElement>`,
+`SyntheticEvent<AnchorElement>`, and `SyntheticEvent<DomElement>`. Each handler
+can receive every value the anchor property may send. The reverse directions
+remain errors: a generic DOM event cannot satisfy a handler that requires an
+anchor, and a generic synthetic event cannot satisfy one that requires a mouse
+event. Sibling event families and sibling element targets are unrelated. HXX
+uses the typed event and element inheritance graphs plus its explicit mapping
+between Genes' small facades and Haxe's standard DOM externs; it never guesses
+from generated TypeScript names or the fields present on an empty extern.
+
+`yarn test:hxx-event-variance` owns this boundary. It exercises broader event
+families, browser and ordinary Haxe target inheritance, narrow/sibling
+rejection, canonical TypeScript 5/6/7 output, both runtimes, and failed-build
+rollback.
+
 Renderable children include the closed `genes.react.OneOf*` carriers and
 standard `haxe.extern.EitherType` unions. Domain abstracts backed by a React
 scalar remain renderable without erasing their Haxe identity.

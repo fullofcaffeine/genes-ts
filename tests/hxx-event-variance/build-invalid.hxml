@@ -1,0 +1,7 @@
+-lib genes-ts
+-cp tests/hxx-event-variance/invalid
+--main Invalid
+-js tests/hxx-event-variance/out/invalid/index.tsx
+-D genes.ts
+-D no-deprecation-warnings
+-dce full

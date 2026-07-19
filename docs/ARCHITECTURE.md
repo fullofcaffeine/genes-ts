@@ -237,6 +237,7 @@ layer when a change affects more than one contract.
 | Minimal-runtime behavior | `tests/genes-ts/snapshot/minimal/` and minimal fixture | `yarn test:genes-ts:minimal` |
 | JSX profiles and prop/child typing | React snapshot fixture and TSX consumers | `yarn test:genes-ts:tsx` |
 | Local HXX carrier ownership | `tests/hxx-carrier-immutability/` | `yarn test:hxx-carrier-immutability` |
+| React event callback variance | `tests/hxx-event-variance/` | `yarn test:hxx-event-variance` |
 | Exported-surface rejection | `tests/typing-policy/`, `tests/publicsurface/` | `yarn test:types:exports` |
 | Classic `.d.ts` consumer behavior | `tests/classic-dts/` | `yarn test:classic:dts` |
 | Nullish/map/iterator contract | `tests/nullish/`, `tests/deep-nullish-alias/` | Owning genes-ts/full/exported-surface gates and `yarn test:deep-nullish-alias` |
