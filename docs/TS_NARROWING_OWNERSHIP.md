@@ -35,6 +35,8 @@ See also:
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) for the complete compiler ownership map;
 - [`ARCHITECTURE_ROADMAP.md`](ARCHITECTURE_ROADMAP.md) for the incremental
   extract-shadow-switch rule;
+- [`TS_NARROWING_ORACLE_DISPOSITION.md`](TS_NARROWING_ORACLE_DISPOSITION.md)
+  for the evidence-backed disposition of the later implementation brief;
 - `yarn test:ts-narrowing` for the executable reduction and regression gate.
 
 ## Evidence boundary
@@ -71,10 +73,10 @@ walks one function; the emitter only reads the finished decisions.
 | Recognition of `value == null`, `value != null`, boolean `&&`/`||`/`!`, and `Map.exists(key)` | `TypedExpr` condition | `TsNarrowingPlan` condition facts | `if` statements, conditional expressions, and same-block continuation | TypeScript-specific proof | One typed owner. Unsupported conditions introduce no fact. |
 | Branch-local and continuing non-null facts | Recognized guard plus selected branch or an exiting statement | Function-local plan state and immutable decisions at stable program points | Local initializers, optional-field reads, and map reads | TypeScript-specific proof | Extracted. The emitter asks a question at the read; it no longer pushes facts while writing braces. |
 | Invalidation after assignment | Exact typed assignment receiver | `TsNarrowValueIdentityTools.dependsOn` plus `ValueChanged` | Every later read in the function | TypeScript-specific proof | A receiver change also ends child-field and dependent map/key facts. No rendered-name parsing is involved. |
-| Map mutation | Stable typed map/key plus `remove` or `clear` | `MapEntryRemoved` and `MapCleared` invalidations | Later `Map.get` reads | TypeScript-specific proof | `remove` ends one exact entry proof; `clear` ends every fact for that exact map. Nullable map value types never gain presence-as-non-null facts. |
+| Map mutation | Stable typed map plus exact or computed removal key, or `clear` | `MapEntryRemoved`, `MapEntryPossiblyRemoved`, and `MapCleared` invalidations | Later `Map.get` reads | TypeScript-specific proof | Exact `remove` ends one entry proof. A computed key ends every entry proof for that exact map because it may name any of them. `clear` does the same. Facts for other maps survive, and nullable map value types never gain presence-as-non-null facts. |
 | Stable identity for locals, `this`, constants, field paths, and map reads | `TypedExpr` and Haxe local IDs | Closed `TsNarrowValueIdentity` enum | Guard matching, map presence, and invalidation | TypeScript-specific proof built from shared typed facts | Source positions and generated names are deliberately excluded from equality. |
 | `map.keys()` iterator provenance | Iterator and yielded-key locals | Function-local iterator origins in `TsNarrowingPlan` | Direct `map.get(key)` reads during the same loop | TypeScript-specific proof | A nested callback starts with an empty function state, so a key proof cannot leak into delayed work. |
-| Loop entry and back-edge safety | Loop kind plus mutations found in the bounded loop body | Exact loop mutation summary applied before the shared body program point | Reads in and after loops | TypeScript-specific proof | A `while` condition can narrow its body, while a `do...while` condition cannot narrow the first body execution. The summary models assignments and map mutation only; it is not a general CFG or alias analysis. |
+| Loop entry, back-edge, and post-test exit safety | Loop kind plus mutations found in the bounded loop body | Exact loop mutation summary applied before the shared body program point and conservative post-test exit | Reads in and after loops | TypeScript-specific proof | A `while` condition can narrow its body, while a `do...while` condition cannot narrow the first body execution. An early `break` cannot export a later skipped guard. Incoming facts that survive the loop remain available. The summary models assignments and map mutation only; it is not a general CFG or alias analysis. |
 | Reset at a nested function | A `TFunction` boundary | A fresh function-local builder state | Callback bodies | TypeScript-specific proof | Outer facts and iterator provenance never enter a delayed callback. |
 | Final TypeScript syntax (`!`, `?? null`, direct read, or contained runtime assertion) | Nullish contract plus a proven fact | `TsModuleEmitter` | Generated `.ts`/`.tsx` tokens and source maps | TypeScript syntax | Keep in the emitter. The plan answers whether a fact is valid; the emitter chooses the TypeScript spelling. |
 
@@ -150,6 +152,9 @@ their extraction.
   key exists;
 - loop-entry and loop-back-edge invalidation;
 - `do...while` first-iteration ordering, where the condition has not run yet;
+- early post-test `break`/`continue` paths that skip a later guard, plus an
+  unchanged incoming fact that must remain concise;
+- computed-key `Map.remove`, exact-key precision, and isolation between maps;
 - assignment later in a compound condition ending an earlier guard fact.
 
 These cases define the bounded function-local proof. General alias analysis,

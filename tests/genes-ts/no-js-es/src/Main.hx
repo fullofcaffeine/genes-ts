@@ -125,6 +125,9 @@ class Main {
     trace('receiver-reassignment:${reassignedOptional == null}:${genes.ts.Undefinable.isAbsent(reassignedOptional)}');
     trace('map-remove:${mapGetAfterRemove("alpha") == null}');
     trace('map-clear:${mapGetAfterClear("alpha") == null}');
+    trace('map-unknown-remove:${mapGetAfterUnknownRemove() == null}');
+    trace('map-exact-remove-keeps-other:${mapGetOtherKeyAfterRemove()}');
+    trace('map-unknown-remove-keeps-other-map:${mapGetUnrelatedMapAfterUnknownRemove()}');
     final branchReassigned = optionalInsideNarrowedBranch();
     trace('branch-reassignment:${branchReassigned == null}:${genes.ts.Undefinable.isAbsent(branchReassigned)}');
     final nestedReassigned = optionalAfterNestedReceiverReassignment();
@@ -139,6 +142,11 @@ class Main {
     trace('loop-reassignment:${loopReassigned == null}:${genes.ts.Undefinable.isAbsent(loopReassigned)}');
     final doWhileFirstRead = optionalBeforeDoWhileCondition();
     trace('do-while-first-read:${doWhileFirstRead == null}:${genes.ts.Undefinable.isAbsent(doWhileFirstRead)}');
+    final doWhileBreak = optionalAfterDoWhileEarlyBreak(true, false);
+    trace('do-while-break:${doWhileBreak == null}:${genes.ts.Undefinable.isAbsent(doWhileBreak)}');
+    final doWhileContinue = optionalAfterDoWhileEarlyContinue(true, false);
+    trace('do-while-continue:${doWhileContinue == null}:${genes.ts.Undefinable.isAbsent(doWhileContinue)}');
+    trace('do-while-stable:${optionalAfterDoWhileStableBreak(true, false)}');
     final conditionReassigned = optionalAfterConditionReassignment();
     trace('condition-reassignment:${conditionReassigned == null}:${genes.ts.Undefinable.isAbsent(conditionReassigned)}');
     trace(inlineValueTemps());
@@ -343,6 +351,60 @@ class Main {
   }
 
   /**
+   * A computed removal key may name any entry in this map.
+   *
+   * Why: `Map.exists("alpha")` proves that one read is currently present, but
+   * the compiler cannot look inside an arbitrary key-producing call. If that
+   * call returns `"alpha"`, the proof ends just as it would for a literal key.
+   *
+   * What/How: the fixture keeps the map receiver stable while making only the
+   * removal key unrecognizable to the narrowing plan. The later read must be
+   * treated as nullable instead of receiving a stale TypeScript `!`.
+   */
+  static function mapGetAfterUnknownRemove(): Null<NamedItem> {
+    final holder = buildMapHolder(["alpha"]);
+    if (!holder.named.exists("alpha"))
+      return null;
+    holder.named.remove(computedRemovalKey());
+    return holder.named.get("alpha");
+  }
+
+  /** A call is intentionally not a stable key identity for flow proofs. */
+  static function computedRemovalKey(): String {
+    return "alpha";
+  }
+
+  /**
+   * Removing one known key must not discard a proof about a different key.
+   * This guards the useful precision of exact-key invalidation while the
+   * computed-key case above becomes more conservative.
+   */
+  static function mapGetOtherKeyAfterRemove(): String {
+    final holder = buildMapHolder(["alpha", "beta"]);
+    if (!holder.named.exists("alpha"))
+      return "missing-alpha";
+    if (!holder.named.exists("beta"))
+      return "missing-beta";
+    holder.named.remove("alpha");
+    return holder.named.get("beta").name;
+  }
+
+  /**
+   * An unknown removal key affects only its exact stable map receiver.
+   * A presence proof for another map remains valid and concise.
+   */
+  static function mapGetUnrelatedMapAfterUnknownRemove(): String {
+    final changed = buildMapHolder(["alpha"]);
+    final unchanged = buildMapHolder(["beta"]);
+    if (!changed.named.exists("alpha"))
+      return "missing-alpha";
+    if (!unchanged.named.exists("beta"))
+      return "missing-beta";
+    changed.named.remove(computedRemovalKey());
+    return unchanged.named.get("beta").name;
+  }
+
+  /**
    * Reassigning a receiver inside the guarded branch ends that branch's proof.
    *
    * This differs from `optionalAfterReceiverReassignment`: the assignment
@@ -499,6 +561,71 @@ class Main {
       firstIteration = false;
     } while (firstIteration && item.name != null);
     return observed;
+  }
+
+  /**
+   * An early `break` can leave a `do...while` before a later null guard runs.
+   *
+   * Why: the loop body has one typed source location even though it may follow
+   * different paths. A proof learned on the path that reaches the second `if`
+   * cannot describe the path that exits at `break`.
+   *
+   * What/How: `visits++` prevents Haxe from rewriting this into a pre-test
+   * loop, so the fixture exercises the real post-test order. When `skipGuard`
+   * is true, the result must use ordinary optional-field normalization and be
+   * literal Haxe `null`, not JavaScript `undefined` hidden by `!`.
+   */
+  static function optionalAfterDoWhileEarlyBreak(skipGuard: Bool,
+      repeat: Bool): Null<String> {
+    final item: OptionalNamedItem = {};
+    var visits = 0;
+    do {
+      visits++;
+      if (skipGuard)
+        break;
+      if (item.name == null)
+        return null;
+    } while (repeat);
+    if (visits == 0)
+      return "impossible";
+    return item.name;
+  }
+
+  /**
+   * `continue` reaches a post-test loop's condition before the later guard.
+   *
+   * With `repeat == false`, that condition immediately exits the loop. The
+   * skipped guard therefore cannot justify a non-null assertion after it.
+   */
+  static function optionalAfterDoWhileEarlyContinue(skipGuard: Bool,
+      repeat: Bool): Null<String> {
+    final item: OptionalNamedItem = {};
+    var visits = 0;
+    do {
+      visits++;
+      if (skipGuard)
+        continue;
+      if (item.name == null)
+        return null;
+    } while (repeat);
+    if (visits == 0)
+      return "impossible";
+    return item.name;
+  }
+
+  /** Incoming facts remain valid when neither the body nor condition ends them. */
+  static function optionalAfterDoWhileStableBreak(skipBody: Bool,
+      repeat: Bool): String {
+    final item: OptionalNamedItem = {name: "stable"};
+    if (item.name == null)
+      return "missing";
+    var visits = 0;
+    do {
+      visits++;
+      if (skipBody)
+        break;
+    } while (repeat);
+    return item.name;
   }
 
   /**

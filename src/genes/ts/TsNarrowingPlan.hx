@@ -60,6 +60,13 @@ enum TsNarrowProofKind {
 enum TsNarrowInvalidationKind {
   ValueChanged(value: TsNarrowValueIdentity);
   MapEntryRemoved(map: TsNarrowValueIdentity, key: TsNarrowValueIdentity);
+  /**
+   * A removal ran on this map, but its computed key has no stable identity.
+   * Any previously proved entry on this exact receiver may be the one that
+   * disappeared, so all of those entry proofs end. Facts for other maps stay
+   * valid; this is not a whole-program alias or call-effect assumption.
+   */
+  MapEntryPossiblyRemoved(map: TsNarrowValueIdentity);
   MapCleared(map: TsNarrowValueIdentity);
 }
 
@@ -407,7 +414,7 @@ private final class TsNarrowingState {
         next.iteratorOrigins.resize(0);
         for (origin in origins)
           next.iteratorOrigins.push(origin);
-      case MapEntryRemoved(_) | MapCleared(_):
+      case MapEntryRemoved(_) | MapEntryPossiblyRemoved(_) | MapCleared(_):
     }
     return next;
   }
@@ -468,7 +475,7 @@ private final class TsNarrowingState {
               && TsNarrowValueIdentityTools.equals(key, factKey);
           default: false;
         }
-      case MapCleared(map):
+      case MapEntryPossiblyRemoved(map) | MapCleared(map):
         switch fact {
           case MapReadValue(factMap, _):
             TsNarrowValueIdentityTools.equals(map, factMap);
@@ -522,6 +529,8 @@ private final class TsNarrowingState {
       case [MapEntryRemoved(aMap, aKey), MapEntryRemoved(bMap, bKey)]:
         TsNarrowValueIdentityTools.equals(aMap, bMap)
           && TsNarrowValueIdentityTools.equals(aKey, bKey);
+      case [MapEntryPossiblyRemoved(a), MapEntryPossiblyRemoved(b)]:
+        TsNarrowValueIdentityTools.equals(a, b);
       case [MapCleared(a), MapCleared(b)]:
         TsNarrowValueIdentityTools.equals(a, b);
       default: false;
@@ -602,6 +611,18 @@ private final class TsNarrowingPlanBuilder {
       state.facts.copy(), state.invalidated.copy()));
   }
 
+  /**
+   * Walks one typed expression in its real control/evaluation order.
+   *
+   * Why: a new Haxe expression kind can introduce a branch, function boundary,
+   * or write. Silently treating it as an ordinary leaf could keep a proof past
+   * the point where it stopped being true.
+   *
+   * How: every current `TypedExprDef` kind appears below. Control-flow and
+   * mutation kinds have dedicated handlers; ordinary kinds use Haxe's ordered
+   * child walk. This exhaustive switch intentionally makes a future Haxe enum
+   * addition a compile error until its narrowing behavior is reviewed.
+   */
   function analyze(expression: TypedExpr,
       state: TsNarrowingState): TsNarrowFlow {
     record(expression, state);
@@ -637,7 +658,12 @@ private final class TsNarrowingPlanBuilder {
       case TSwitch(subject, cases, defaultExpression):
         analyzeSwitch(subject, cases, defaultExpression, state);
       case TTry(body, catches): analyzeTry(body, catches, state);
-      default: analyzeChildren(expression, state);
+      case TConst(_) | TLocal(_) | TArray(_, _) | TField(_, _)
+        | TTypeExpr(_) | TParenthesis(_) | TObjectDecl(_)
+        | TArrayDecl(_) | TNew(_, _, _) | TBinop(_, _, _)
+        | TUnop(_, _, _) | TCast(_, _) | TMeta(_, _)
+        | TEnumParameter(_, _, _) | TEnumIndex(_) | TIdent(_):
+        analyzeChildren(expression, state);
     }
   }
 
@@ -700,7 +726,18 @@ private final class TsNarrowingPlanBuilder {
         ? new TsNarrowingState()
         : bodyFlow.normal;
       final conditionFlow = analyze(condition, afterBody);
-      return new TsNarrowFlow(conditionFlow.normal,
+      /**
+       * A `break` can leave this loop before a guard later in the body runs.
+       * `bodyFlow.normal` describes only paths that reached the condition, so
+       * facts learned on those paths cannot automatically describe every loop
+       * exit. Keep only facts that were already true on entry and survive every
+       * direct body/condition mutation. This is deliberately conservative and
+       * avoids a general control-flow graph; if future output needs facts first
+       * established inside a post-test body, its break/continue exits must be
+       * modeled explicitly before those facts can flow past the loop.
+       */
+      final safeExit = stableEntry.applyAll(conditionFlow.effects);
+      return new TsNarrowFlow(safeExit,
         appendEffects(loopEffects,
           appendEffects(bodyFlow.effects, conditionFlow.effects)));
     }
@@ -1110,8 +1147,9 @@ private final class TsNarrowingPlanBuilder {
           [];
         } else if (name == "remove" && arguments.length == 1) {
           final key = stableValue(arguments[0]);
-          key == null ? [] : [new TsNarrowInvalidation(
-            MapEntryRemoved(map, key), expression.pos)];
+          [new TsNarrowInvalidation(key == null
+            ? MapEntryPossiblyRemoved(map)
+            : MapEntryRemoved(map, key), expression.pos)];
         } else if (name == "clear" && arguments.length == 0) {
           [new TsNarrowInvalidation(MapCleared(map), expression.pos)];
         } else {
@@ -1125,6 +1163,9 @@ private final class TsNarrowingPlanBuilder {
       expression: TypedExpr): Array<TsNarrowInvalidation> {
     final effects: Array<TsNarrowInvalidation> = [];
     function visit(current: TypedExpr): Void {
+      // Keep this inventory exhaustive for the same reason as `analyze`: a new
+      // typed expression kind must be reviewed before loop summaries can assume
+      // that walking its children finds every direct mutation.
       switch current.expr {
         case TFunction(_):
           // Creating a callback does not execute its body in this scope.
@@ -1140,7 +1181,14 @@ private final class TsNarrowingPlanBuilder {
         case TCall(_, _):
           for (effect in callEffects(current))
             effects.push(effect);
-        default:
+        case TConst(_) | TLocal(_) | TArray(_, _) | TField(_, _)
+          | TTypeExpr(_) | TParenthesis(_) | TObjectDecl(_)
+          | TArrayDecl(_) | TNew(_, _, _) | TBinop(_, _, _)
+          | TUnop(_, _, _) | TVar(_, _) | TBlock(_) | TFor(_, _, _)
+          | TIf(_, _, _) | TWhile(_, _, _) | TSwitch(_, _, _)
+          | TTry(_, _) | TReturn(_) | TBreak | TContinue | TThrow(_)
+          | TCast(_, _) | TMeta(_, _) | TEnumParameter(_, _, _)
+          | TEnumIndex(_) | TIdent(_):
       }
       current.iter(visit);
     }

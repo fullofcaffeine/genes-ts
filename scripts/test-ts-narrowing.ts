@@ -72,6 +72,21 @@ function main(): void {
     /\bstatic mapGetAfterClear\(id: string\): NamedItem \| null \{[\s\S]*?\n\t\}/,
     "map-clear"
   );
+  const mapUnknownRemove = methodBlock(
+    generated,
+    /\bstatic mapGetAfterUnknownRemove\(\): NamedItem \| null \{[\s\S]*?\n\t\}/,
+    "map-unknown-remove"
+  );
+  const mapExactRemoveKeepsOther = methodBlock(
+    generated,
+    /\bstatic mapGetOtherKeyAfterRemove\(\): string \{[\s\S]*?\n\t\}/,
+    "map-exact-remove-keeps-other"
+  );
+  const mapUnknownRemoveKeepsOtherMap = methodBlock(
+    generated,
+    /\bstatic mapGetUnrelatedMapAfterUnknownRemove\(\): string \{[\s\S]*?\n\t\}/,
+    "map-unknown-remove-keeps-other-map"
+  );
   const branchReassignment = methodBlock(
     generated,
     /\bstatic optionalInsideNarrowedBranch\(\): string \| null \{[\s\S]*?\n\t\}/,
@@ -122,6 +137,21 @@ function main(): void {
     /\bstatic optionalBeforeDoWhileCondition\(\): string \| null \{[\s\S]*?\n\t\}/,
     "do-while-first-read"
   );
+  const doWhileBreak = methodBlock(
+    generated,
+    /\bstatic optionalAfterDoWhileEarlyBreak\(skipGuard: boolean, repeat: boolean\): string \| null \{[\s\S]*?\n\t\}/,
+    "do-while-break"
+  );
+  const doWhileContinue = methodBlock(
+    generated,
+    /\bstatic optionalAfterDoWhileEarlyContinue\(skipGuard: boolean, repeat: boolean\): string \| null \{[\s\S]*?\n\t\}/,
+    "do-while-continue"
+  );
+  const doWhileStable = methodBlock(
+    generated,
+    /\bstatic optionalAfterDoWhileStableBreak\(skipBody: boolean, repeat: boolean\): string \{[\s\S]*?\n\t\}/,
+    "do-while-stable"
+  );
   const conditionReassignment = methodBlock(
     generated,
     /\bstatic optionalAfterConditionReassignment\(\): string \| null \{[\s\S]*?\n\t\}/,
@@ -151,6 +181,21 @@ function main(): void {
   if (mapClear.includes("named.get(id)!")) {
     staleFacts.push("Map.clear kept the earlier Map.exists presence proof");
   }
+  if (/named\.get\("alpha"\)!/.test(mapUnknownRemove)) {
+    staleFacts.push(
+      "Map.remove with a computed key kept a possibly removed entry proof"
+    );
+  }
+  if (!/named\.get\("beta"\)!/.test(mapExactRemoveKeepsOther)) {
+    staleFacts.push(
+      "exact-key Map.remove discarded the proof for a different entry"
+    );
+  }
+  if (!/named\.get\("beta"\)!/.test(mapUnknownRemoveKeepsOtherMap)) {
+    staleFacts.push(
+      "unknown-key Map.remove discarded a proof owned by another map"
+    );
+  }
   if (branchReassignment.includes("return (item.name!);")) {
     staleFacts.push(
       "receiver reassignment inside a narrowed branch kept the branch proof"
@@ -161,12 +206,16 @@ function main(): void {
       "branch-local reassignment skipped optional-field null normalization"
     );
   }
-  if (nestedReceiverReassignment.includes("return (holder_item.name!);")) {
+  if (/return \(holder(?:_item|\.item)\.name!\);/.test(
+    nestedReceiverReassignment
+  )) {
     staleFacts.push(
       "nested receiver reassignment kept a proof about the replaced child"
     );
   }
-  if (!nestedReceiverReassignment.includes("return (holder_item.name ?? null);")) {
+  if (!/return \(holder(?:_item|\.item)\.name \?\? null\);/.test(
+    nestedReceiverReassignment
+  )) {
     staleFacts.push(
       "nested receiver reassignment skipped optional-field null normalization"
     );
@@ -217,6 +266,31 @@ function main(): void {
       "the first do-while body read skipped optional-field null normalization"
     );
   }
+  if (doWhileBreak.includes("return (item.name!);")) {
+    staleFacts.push(
+      "an early do-while break leaked a guard from the normally completed path"
+    );
+  }
+  if (!doWhileBreak.includes("return (item.name ?? null);")) {
+    staleFacts.push(
+      "the early-break exit skipped optional-field null normalization"
+    );
+  }
+  if (doWhileContinue.includes("return (item.name!);")) {
+    staleFacts.push(
+      "an early do-while continue leaked a guard from the normally completed path"
+    );
+  }
+  if (!doWhileContinue.includes("return (item.name ?? null);")) {
+    staleFacts.push(
+      "the early-continue exit skipped optional-field null normalization"
+    );
+  }
+  if (!doWhileStable.includes("return (item.name!);")) {
+    staleFacts.push(
+      "a post-test loop discarded an incoming field proof that no loop path changes"
+    );
+  }
   if (conditionReassignment.includes("return (item.name!);")) {
     staleFacts.push(
       "a later assignment in one condition revived an earlier field proof"
@@ -243,12 +317,18 @@ function main(): void {
     "nested-reassignment:true:false",
     "map-receiver-reassignment:true",
     "map-key-reassignment:true",
+    "map-unknown-remove:true",
+    "map-exact-remove-keeps-other:beta",
+    "map-unknown-remove-keeps-other-map:beta",
     "delayed-map-key:true",
     "nested-return-throw:alpha",
     "nested-break-continue:alpha",
     "nullable-map-value:true",
     "loop-reassignment:true:false",
     "do-while-first-read:true:false",
+    "do-while-break:true:false",
+    "do-while-continue:true:false",
+    "do-while-stable:stable",
     "condition-reassignment:true:false"
   ]) {
     if (!transcript.includes(expected)) {
