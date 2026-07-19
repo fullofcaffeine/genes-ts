@@ -40,8 +40,8 @@ This is an evidence contract, not a cached CI-success badge. `blocking` and `non
 
 | Surface | Lane | Pin | Contract |
 | --- | --- | --- | --- |
-| Node | stable | 20 | blocking runtime lane |
-| Node | next LTS | 22 | blocking runtime lane |
+| Node | stable | 22 | blocking runtime lane |
+| Node | latest LTS | 24 | blocking runtime lane |
 | Haxe | stable | 4.3.7 | blocking compiler lane |
 | Haxe | preview | 5.0.0-preview.1 | nonblocking early warning |
 | TypeScript | legacyFloor | 5.5.4 | generated-output |

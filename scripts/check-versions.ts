@@ -214,10 +214,34 @@ if (haxercVersion !== toolchains.haxe.stable) {
   );
 }
 
-const nodeMajor = process.versions.node.split(".")[0];
-if (![toolchains.node.stable, toolchains.node.nextLts].includes(nodeMajor)) {
+function nodeMajor(value: string, label: string): number {
+  if (!/^[0-9]+$/.test(value)) {
+    throw new Error(`Expected ${label} to be a Node major version, got ${value}`);
+  }
+  return Number(value);
+}
+
+const supportedNodeFloor = nodeMajor(toolchains.node.stable, "node.stable");
+const latestNodeLts = nodeMajor(toolchains.node.nextLts, "node.nextLts");
+if (supportedNodeFloor >= latestNodeLts) {
   throw new Error(
-    `Node ${process.versions.node} is outside manifest lanes ${toolchains.node.stable}/${toolchains.node.nextLts}`
+    `Expected node.stable (${supportedNodeFloor}) to precede node.nextLts (${latestNodeLts})`
+  );
+}
+
+const runningNodeMajor = nodeMajor(
+  process.versions.node.split(".")[0],
+  "running Node major"
+);
+
+// CI owns both LTS endpoints. An intervening odd major may keep a local
+// checkout working during migration, but docs do not present it as LTS or as a
+// hosted support lane. Future majors still fail until CI deliberately moves
+// the upper bound.
+if (runningNodeMajor < supportedNodeFloor || runningNodeMajor > latestNodeLts) {
+  throw new Error(
+    `Node ${process.versions.node} is outside the admitted major range `
+      + `${toolchains.node.stable}-${toolchains.node.nextLts}`
   );
 }
 
