@@ -152,6 +152,13 @@ export class Main {
 		if (booleanAndArrayHtml != "<button disabled=\"\" aria-pressed=\"true\">AB</button>") {
 			throw Exception.thrown("Unexpected boolean/array HTML: " + booleanAndArrayHtml);
 		};
+		let dashPattern: string = "8 4";
+		let dashOffset: number = 2.5;
+		let dashedCircleHtml: JSX.Element = React__genes_jsx.createElement("circle", ({cx: 5, cy: 5, r: 4, strokeDasharray: dashPattern, strokeDashoffset: dashOffset} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"circle"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
+		let dashedCircleHtml1: string = renderToStaticMarkup(React__genes_jsx.createElement("svg", ({viewBox: "0 0 10 10"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"svg"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), dashedCircleHtml));
+		if (dashedCircleHtml1 != "<svg viewBox=\"0 0 10 10\"><circle cx=\"5\" cy=\"5\" r=\"4\" stroke-dasharray=\"8 4\" stroke-dashoffset=\"2.5\"></circle></svg>") {
+			throw Exception.thrown("Unexpected dashed SVG HTML: " + dashedCircleHtml1);
+		};
 		let listHtml: string = renderToStaticMarkup(Main.renderChildList("ready", "queued"));
 		if (listHtml != "<div><span>ready</span><strong>queued</strong><button>Save</button><em>done</em><span>ready:1</span><strong>queued:2</strong><span>ready:3</span><strong>queued:4</strong><span>ready:5</span><strong>queued:6</strong><span>ready:7</span><strong>queued:8</strong></div>") {
 			throw Exception.thrown("Unexpected list HTML: " + listHtml);
@@ -187,7 +194,7 @@ export class Main {
 			throw Exception.thrown("Unexpected absent href HTML: " + absentHrefHtml);
 		};
 		let contextualInput: JSX.Element = React__genes_jsx.createElement("input", ({onChange: function (event: import('react').ChangeEvent<HTMLInputElement>) {
-			console.log("tests/genes-ts/snapshot/react/src/Main.hx:194:",event.target.value);
+			console.log("tests/genes-ts/snapshot/react/src/Main.hx:210:",event.target.value);
 			event.target.select();
 			event.target.setSelectionRange(0, 0);
 		}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"input"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));

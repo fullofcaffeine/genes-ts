@@ -9,6 +9,7 @@ typedef DualJsxTranscript = {
   final optionalSpreadOverrideHtml: String;
   final arrayValueChildHtml: String;
   final multipleRequiredChildrenHtml: String;
+  final dashedSvgHtml: String;
   final dynamicHtml: String;
   final evaluatedHtml: String;
   final arrayPropHtml: String;
@@ -92,6 +93,14 @@ class DualJsxMain {
         <em key="nested-a">nested A</em>
         <strong key="nested-b">nested B</strong>
       </RequiredChildListHost>;
+    final dashPattern = "8 4";
+    final dashOffset = 2.5;
+    final dashedSvgElement = <svg viewBox="0 0 10 10">
+      <circle cx={5} cy={5} r={4}
+        strokeDasharray={dashPattern}
+        strokeDashoffset={dashOffset}
+      />
+    </svg>;
 
     final runtimeTag = "aside";
     final dynamicElement = Jsx.__jsx(runtimeTag, {
@@ -140,6 +149,7 @@ class DualJsxMain {
       arrayValueChildHtml: renderToStaticMarkup(arrayValueChildElement),
       multipleRequiredChildrenHtml:
         renderToStaticMarkup(multipleRequiredChildrenElement),
+      dashedSvgHtml: renderToStaticMarkup(dashedSvgElement),
       dynamicHtml: renderToStaticMarkup(dynamicElement),
       evaluatedHtml: renderToStaticMarkup(evaluatedElement),
       arrayPropHtml: renderToStaticMarkup(arrayPropElement),

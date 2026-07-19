@@ -146,6 +146,22 @@ class Main {
     if (booleanAndArrayHtml != '<button disabled="" aria-pressed="true">AB</button>')
       throw 'Unexpected boolean/array HTML: ' + booleanAndArrayHtml;
 
+    // React spells SVG presentation properties in camelCase while authoring,
+    // then writes their native dash-separated names into rendered markup.
+    // Both string patterns and numeric offsets stay Haxe-checked here.
+    final dashPattern = "8 4";
+    final dashOffset = 2.5;
+    final dashedCircleHtml = renderToStaticMarkup(
+      <svg viewBox="0 0 10 10">
+        <circle cx={5} cy={5} r={4}
+          strokeDasharray={dashPattern}
+          strokeDashoffset={dashOffset}
+        />
+      </svg>
+    );
+    if (dashedCircleHtml != '<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" stroke-dasharray="8 4" stroke-dashoffset="2.5"></circle></svg>')
+      throw 'Unexpected dashed SVG HTML: ' + dashedCircleHtml;
+
     final listHtml = renderToStaticMarkup(renderChildList("ready", "queued"));
     if (listHtml != '<div><span>ready</span><strong>queued</strong><button>Save</button><em>done</em><span>ready:1</span><strong>queued:2</strong><span>ready:3</span><strong>queued:4</strong><span>ready:5</span><strong>queued:6</strong><span>ready:7</span><strong>queued:8</strong></div>')
       throw 'Unexpected list HTML: ' + listHtml;
