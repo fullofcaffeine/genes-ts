@@ -46,6 +46,15 @@ function primaryWorktree(cwd: string): string {
  * refusal before the real `bd export` boundary is reached.
  */
 export function validateBeadsSnapshotContext(cwd: string): BeadsSnapshotContext {
+  for (const variable of ["BEADS_DIR", "BEADS_DB"] as const) {
+    const value = process.env[variable];
+    if (value && value.trim().length > 0) {
+      throw new Error(
+        `${variable} is set; unset Beads database overrides before publishing the repository snapshot`
+      );
+    }
+  }
+
   const repoRoot = normalizedExistingPath(git(cwd, ["rev-parse", "--show-toplevel"]));
   const primaryRoot = primaryWorktree(cwd);
   if (repoRoot !== primaryRoot) {
@@ -120,11 +129,16 @@ function pathsChangedAfterExport(repoRoot: string): string[] {
 /** Publishes the reviewed issue snapshot without staging or committing it. */
 export function exportBeadsSnapshot(cwd: string): void {
   const context = validateBeadsSnapshotContext(cwd);
-  const env = {
-    ...process.env,
-    BD_EXPORT_AUTO: "false",
-    BD_EXPORT_GIT_ADD: "false"
-  };
+  // A developer may use these overrides for a one-off Beads operation. They
+  // must not redirect the repository-owned publication command to another
+  // project's database, so publication always lets Beads discover this
+  // checkout's own database.
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  delete env.BEADS_DIR;
+  delete env.BEADS_DB;
+  env.BD_EXPORT_AUTO = "false";
+  env.BD_EXPORT_GIT_ADD = "false";
+  const indexTreeBefore = git(context.repoRoot, ["write-tree"]);
   const result = spawnSync("bd", ["export", "-o", context.snapshotPath], {
     cwd: context.repoRoot,
     env,
@@ -134,6 +148,13 @@ export function exportBeadsSnapshot(cwd: string): void {
   if (result.status !== 0) {
     throw new Error(
       `bd export failed with status ${String(result.status)}\n${result.stdout}${result.stderr}`
+    );
+  }
+
+  const indexTreeAfter = git(context.repoRoot, ["write-tree"]);
+  if (indexTreeAfter !== indexTreeBefore) {
+    throw new Error(
+      "Beads snapshot publication unexpectedly changed the Git staging index"
     );
   }
 

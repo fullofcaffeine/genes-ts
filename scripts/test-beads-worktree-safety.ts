@@ -1,10 +1,12 @@
 import { ok, strictEqual, throws } from "node:assert";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
+  existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -81,6 +83,10 @@ function assertRepositoryConfiguration(): void {
  */
 function assertRealWorktreeHookBoundary(): void {
   const env = cleanEnvironment();
+  const originalBeadsDir = process.env.BEADS_DIR;
+  const originalBeadsDb = process.env.BEADS_DB;
+  delete process.env.BEADS_DIR;
+  delete process.env.BEADS_DB;
   const bdVersion = spawnSync("bd", ["version"], { env, encoding: "utf8" });
   if (bdVersion.status !== 0) {
     throw new Error("The focused Beads worktree test requires bd on PATH");
@@ -117,6 +123,20 @@ function assertRealWorktreeHookBoundary(): void {
     bd(primary, ["config", "set", "export.auto", "false"], configEnv);
     bd(primary, ["config", "set", "export.git-add", "false"], configEnv);
     bd(primary, ["hooks", "install"], configEnv);
+    const commonGitDir = path.resolve(
+      primary,
+      git(primary, ["rev-parse", "--git-common-dir"], env)
+    );
+    const preCommitHook = path.join(commonGitDir, "hooks", "pre-commit");
+    ok(existsSync(preCommitHook), "Beads did not install the managed pre-commit hook");
+    ok(
+      (statSync(preCommitHook).mode & 0o111) !== 0,
+      "managed pre-commit hook is not executable"
+    );
+    ok(
+      readFileSync(preCommitHook, "utf8").includes("bd hooks run pre-commit"),
+      "installed pre-commit hook does not dispatch to Beads"
+    );
     bd(primary, ["create", "Baseline issue", "--priority", "2"], env);
     bd(primary, ["export", "-o", path.join(primary, ".beads/issues.jsonl")], env);
 
@@ -136,10 +156,37 @@ function assertRealWorktreeHookBoundary(): void {
     const issueId = created.match(/safety-[a-z0-9]+/)?.[0];
     ok(issueId, `Could not read the created issue ID from: ${created}`);
 
+    const cleanSnapshot = readFileSync(
+      path.join(primary, ".beads/issues.jsonl"),
+      "utf8"
+    );
+    writeFileSync(
+      path.join(primary, ".beads/issues.jsonl"),
+      `${cleanSnapshot}\n`
+    );
+    git(primary, ["add", ".beads/issues.jsonl"], env);
+    writeFileSync(
+      path.join(primary, ".beads/issues.jsonl"),
+      `${cleanSnapshot}\n\n`
+    );
     const beforeCommit = snapshotHashes(primary, env);
+    ok(
+      beforeCommit[0] !== beforeCommit[1],
+      "fixture did not create distinct working and staged snapshot states"
+    );
+
     writeFileSync(path.join(linked, "feature.txt"), "feature-only change\n");
     git(linked, ["add", "feature.txt"], env);
-    git(linked, ["commit", "-m", "test: commit from linked worktree"], env);
+    const commitTrace = path.join(root, "linked-commit.trace");
+    git(
+      linked,
+      ["commit", "-m", "test: commit from linked worktree"],
+      { ...env, GIT_TRACE: commitTrace }
+    );
+    ok(
+      readFileSync(commitTrace, "utf8").includes("hooks/pre-commit"),
+      "Git trace does not show the managed pre-commit hook running"
+    );
     const afterCommit = snapshotHashes(primary, env);
     strictEqual(afterCommit[0], beforeCommit[0], "primary working snapshot changed");
     strictEqual(afterCommit[1], beforeCommit[1], "primary staged snapshot changed");
@@ -150,15 +197,36 @@ function assertRealWorktreeHookBoundary(): void {
     strictEqual(committedPaths.join(","), "feature.txt");
     ok(bd(primary, ["show", issueId, "--json"], env).includes(issueId));
 
+    // Restore only this disposable fixture so the strict publication command
+    // can prove its separate clean-primary path. Production recovery must
+    // inspect both diffs first, as docs/BEADS_WORKTREES.md explains.
+    git(
+      primary,
+      ["restore", "--staged", "--worktree", ".beads/issues.jsonl"],
+      env
+    );
+    strictEqual(
+      git(primary, ["status", "--porcelain=v1", "--untracked-files=all"], env),
+      ""
+    );
+    const beforePublication = snapshotHashes(primary, env);
+
+    process.env.BEADS_DIR = linked;
+    throws(() => exportBeadsSnapshot(primary), /BEADS_DIR is set/);
+    delete process.env.BEADS_DIR;
+    process.env.BEADS_DB = path.join(linked, ".beads", "wrong.db");
+    throws(() => exportBeadsSnapshot(primary), /BEADS_DB is set/);
+    delete process.env.BEADS_DB;
+
     exportBeadsSnapshot(primary);
     const afterPublication = snapshotHashes(primary, env);
     ok(
-      afterPublication[0] !== beforeCommit[0],
+      afterPublication[0] !== beforePublication[0],
       "deliberate publication did not refresh the primary working snapshot"
     );
     strictEqual(
       afterPublication[1],
-      beforeCommit[1],
+      beforePublication[1],
       "deliberate publication staged the snapshot"
     );
     ok(readFileSync(path.join(primary, ".beads/issues.jsonl"), "utf8").includes(issueId));
@@ -168,6 +236,10 @@ function assertRealWorktreeHookBoundary(): void {
       /primary checkout must be completely clean/
     );
   } finally {
+    if (originalBeadsDir === undefined) delete process.env.BEADS_DIR;
+    else process.env.BEADS_DIR = originalBeadsDir;
+    if (originalBeadsDb === undefined) delete process.env.BEADS_DB;
+    else process.env.BEADS_DB = originalBeadsDb;
     rmSync(root, { recursive: true, force: true });
   }
 }

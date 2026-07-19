@@ -107,11 +107,15 @@ requires all of the following:
 - the current branch is `main`;
 - local `HEAD` equals the fetched `origin/main` reference;
 - the primary checkout has no staged, unstaged, or untracked files;
-- both automatic-export settings are explicitly disabled.
+- both automatic-export settings are explicitly disabled;
+- neither `BEADS_DIR` nor `BEADS_DB` redirects discovery to another database.
 
 The command exports regular issue records only. It does not use `--all`, because
 that could publish infrastructure records or persistent memories that do not
-belong in the roadmap snapshot. It never stages or commits the result.
+belong in the roadmap snapshot. It refuses ambient `BEADS_DIR` and `BEADS_DB`
+overrides so a one-off shell setting cannot publish another project's
+database. It also verifies that Beads left the Git index unchanged, and never
+stages or commits the result itself.
 
 ## Temporary containment on an incorrectly configured checkout
 
@@ -163,10 +167,11 @@ yarn test:beads-worktrees
 
 The test creates a disposable repository with a primary checkout and linked
 worktree, initializes a real Beads database and managed hook, changes the shared
-database, commits from the linked worktree, and verifies that both the primary
-working snapshot and primary staging index remain byte-identical. It also
-proves that the repository-owned export command refuses linked and dirty
-contexts.
+database, gives the primary snapshot different staged and unstaged bytes,
+commits from the linked worktree, and verifies that both primary states remain
+byte-identical. It then restores only the disposable fixture and proves that
+the repository-owned export command works from clean primary `main` while
+refusing linked and dirty contexts.
 
 See also:
 
