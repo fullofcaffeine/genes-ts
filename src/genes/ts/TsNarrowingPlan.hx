@@ -700,7 +700,18 @@ private final class TsNarrowingPlanBuilder {
         ? new TsNarrowingState()
         : bodyFlow.normal;
       final conditionFlow = analyze(condition, afterBody);
-      return new TsNarrowFlow(conditionFlow.normal,
+      /**
+       * A `break` can leave this loop before a guard later in the body runs.
+       * `bodyFlow.normal` describes only paths that reached the condition, so
+       * facts learned on those paths cannot automatically describe every loop
+       * exit. Keep only facts that were already true on entry and survive every
+       * direct body/condition mutation. This is deliberately conservative and
+       * avoids a general control-flow graph; if future output needs facts first
+       * established inside a post-test body, its break/continue exits must be
+       * modeled explicitly before those facts can flow past the loop.
+       */
+      final safeExit = stableEntry.applyAll(conditionFlow.effects);
+      return new TsNarrowFlow(safeExit,
         appendEffects(loopEffects,
           appendEffects(bodyFlow.effects, conditionFlow.effects)));
     }

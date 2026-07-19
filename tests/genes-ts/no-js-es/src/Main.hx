@@ -139,6 +139,11 @@ class Main {
     trace('loop-reassignment:${loopReassigned == null}:${genes.ts.Undefinable.isAbsent(loopReassigned)}');
     final doWhileFirstRead = optionalBeforeDoWhileCondition();
     trace('do-while-first-read:${doWhileFirstRead == null}:${genes.ts.Undefinable.isAbsent(doWhileFirstRead)}');
+    final doWhileBreak = optionalAfterDoWhileEarlyBreak(true, false);
+    trace('do-while-break:${doWhileBreak == null}:${genes.ts.Undefinable.isAbsent(doWhileBreak)}');
+    final doWhileContinue = optionalAfterDoWhileEarlyContinue(true, false);
+    trace('do-while-continue:${doWhileContinue == null}:${genes.ts.Undefinable.isAbsent(doWhileContinue)}');
+    trace('do-while-stable:${optionalAfterDoWhileStableBreak(true, false)}');
     final conditionReassigned = optionalAfterConditionReassignment();
     trace('condition-reassignment:${conditionReassigned == null}:${genes.ts.Undefinable.isAbsent(conditionReassigned)}');
     trace(inlineValueTemps());
@@ -499,6 +504,71 @@ class Main {
       firstIteration = false;
     } while (firstIteration && item.name != null);
     return observed;
+  }
+
+  /**
+   * An early `break` can leave a `do...while` before a later null guard runs.
+   *
+   * Why: the loop body has one typed source location even though it may follow
+   * different paths. A proof learned on the path that reaches the second `if`
+   * cannot describe the path that exits at `break`.
+   *
+   * What/How: `visits++` prevents Haxe from rewriting this into a pre-test
+   * loop, so the fixture exercises the real post-test order. When `skipGuard`
+   * is true, the result must use ordinary optional-field normalization and be
+   * literal Haxe `null`, not JavaScript `undefined` hidden by `!`.
+   */
+  static function optionalAfterDoWhileEarlyBreak(skipGuard: Bool,
+      repeat: Bool): Null<String> {
+    final item: OptionalNamedItem = {};
+    var visits = 0;
+    do {
+      visits++;
+      if (skipGuard)
+        break;
+      if (item.name == null)
+        return null;
+    } while (repeat);
+    if (visits == 0)
+      return "impossible";
+    return item.name;
+  }
+
+  /**
+   * `continue` reaches a post-test loop's condition before the later guard.
+   *
+   * With `repeat == false`, that condition immediately exits the loop. The
+   * skipped guard therefore cannot justify a non-null assertion after it.
+   */
+  static function optionalAfterDoWhileEarlyContinue(skipGuard: Bool,
+      repeat: Bool): Null<String> {
+    final item: OptionalNamedItem = {};
+    var visits = 0;
+    do {
+      visits++;
+      if (skipGuard)
+        continue;
+      if (item.name == null)
+        return null;
+    } while (repeat);
+    if (visits == 0)
+      return "impossible";
+    return item.name;
+  }
+
+  /** Incoming facts remain valid when neither the body nor condition ends them. */
+  static function optionalAfterDoWhileStableBreak(skipBody: Bool,
+      repeat: Bool): String {
+    final item: OptionalNamedItem = {name: "stable"};
+    if (item.name == null)
+      return "missing";
+    var visits = 0;
+    do {
+      visits++;
+      if (skipBody)
+        break;
+    } while (repeat);
+    return item.name;
   }
 
   /**

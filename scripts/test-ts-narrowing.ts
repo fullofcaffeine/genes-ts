@@ -122,6 +122,21 @@ function main(): void {
     /\bstatic optionalBeforeDoWhileCondition\(\): string \| null \{[\s\S]*?\n\t\}/,
     "do-while-first-read"
   );
+  const doWhileBreak = methodBlock(
+    generated,
+    /\bstatic optionalAfterDoWhileEarlyBreak\(skipGuard: boolean, repeat: boolean\): string \| null \{[\s\S]*?\n\t\}/,
+    "do-while-break"
+  );
+  const doWhileContinue = methodBlock(
+    generated,
+    /\bstatic optionalAfterDoWhileEarlyContinue\(skipGuard: boolean, repeat: boolean\): string \| null \{[\s\S]*?\n\t\}/,
+    "do-while-continue"
+  );
+  const doWhileStable = methodBlock(
+    generated,
+    /\bstatic optionalAfterDoWhileStableBreak\(skipBody: boolean, repeat: boolean\): string \{[\s\S]*?\n\t\}/,
+    "do-while-stable"
+  );
   const conditionReassignment = methodBlock(
     generated,
     /\bstatic optionalAfterConditionReassignment\(\): string \| null \{[\s\S]*?\n\t\}/,
@@ -217,6 +232,31 @@ function main(): void {
       "the first do-while body read skipped optional-field null normalization"
     );
   }
+  if (doWhileBreak.includes("return (item.name!);")) {
+    staleFacts.push(
+      "an early do-while break leaked a guard from the normally completed path"
+    );
+  }
+  if (!doWhileBreak.includes("return (item.name ?? null);")) {
+    staleFacts.push(
+      "the early-break exit skipped optional-field null normalization"
+    );
+  }
+  if (doWhileContinue.includes("return (item.name!);")) {
+    staleFacts.push(
+      "an early do-while continue leaked a guard from the normally completed path"
+    );
+  }
+  if (!doWhileContinue.includes("return (item.name ?? null);")) {
+    staleFacts.push(
+      "the early-continue exit skipped optional-field null normalization"
+    );
+  }
+  if (!doWhileStable.includes("return (item.name!);")) {
+    staleFacts.push(
+      "a post-test loop discarded an incoming field proof that no loop path changes"
+    );
+  }
   if (conditionReassignment.includes("return (item.name!);")) {
     staleFacts.push(
       "a later assignment in one condition revived an earlier field proof"
@@ -249,6 +289,9 @@ function main(): void {
     "nullable-map-value:true",
     "loop-reassignment:true:false",
     "do-while-first-read:true:false",
+    "do-while-break:true:false",
+    "do-while-continue:true:false",
+    "do-while-stable:stable",
     "condition-reassignment:true:false"
   ]) {
     if (!transcript.includes(expected)) {
