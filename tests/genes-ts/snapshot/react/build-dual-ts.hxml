@@ -1,0 +1,11 @@
+-lib genes-ts
+
+-cp tests/genes-ts/snapshot/react/src
+--main DualJsxMain
+
+# Same source as TSX and classic mode; plain TypeScript lowers every tag to
+# typed createElement calls, including the tag selected by a runtime String.
+-js tests/genes-ts/snapshot/react/out/dual-ts/src-gen/index.ts
+-D genes.ts
+
+-dce full

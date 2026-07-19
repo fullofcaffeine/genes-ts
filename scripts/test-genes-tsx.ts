@@ -418,6 +418,7 @@ rmrf("tests/genes-ts/snapshot/react/out/tsx-jsx-source");
 rmrf("tests/genes-ts/snapshot/react/out/tsx-classic");
 rmrf("tests/genes-ts/snapshot/react/out/ts");
 rmrf("tests/genes-ts/snapshot/react/out/dual-tsx");
+rmrf("tests/genes-ts/snapshot/react/out/dual-ts");
 rmrf("tests/genes-ts/snapshot/react/out/dual-classic");
 rmrf("tests/genes-ts/snapshot/react/out/dual-jsx");
 rmrf("tests/genes-ts/snapshot/react/out/dual-jsx-dist");
@@ -637,6 +638,24 @@ runGeneratedTypeScriptMatrix(
   "tests/genes-ts/snapshot/react/tsconfig.dual-tsx.json"
 );
 
+// The same marker must remain typed when a runtime String selects the
+// intrinsic tag in plain `.ts` createElement output. Static intrinsic and
+// component tags keep their stricter tag-specific property contracts.
+run("haxe", ["tests/genes-ts/snapshot/react/build-dual-ts.hxml"]);
+const dualTsSource = readFileSync(
+  path.join(repoRoot, "tests/genes-ts/snapshot/react/out/dual-ts/src-gen/DualJsxMain.ts"),
+  "utf8"
+);
+ok(dualTsSource.includes(
+  'React__genes_jsx.createElement(runtimeTag, {"data-mode": "dynamic"}, "D")'
+), "typed createElement preserves the exact checked properties and child");
+ok(!dualTsSource.includes(
+  "ComponentPropsWithoutRef<typeof runtimeTag>"
+), "runtime string props do not claim one statically known intrinsic contract");
+runGeneratedTypeScriptMatrix(
+  "tests/genes-ts/snapshot/react/tsconfig.dual-ts.json"
+);
+
 run("haxe", ["tests/genes-ts/snapshot/react/build-dual-classic.hxml"]);
 const dualClassicSource = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/react/out/dual-classic/DualJsxMain.js"),
@@ -681,6 +700,9 @@ const expectedTranscript = {
 const tsxTranscript = parseTranscript(
   capture("node", ["tests/genes-ts/snapshot/react/out/dual-tsx/dist/index.js"])
 );
+const tsTranscript = parseTranscript(
+  capture("node", ["tests/genes-ts/snapshot/react/out/dual-ts/dist/index.js"])
+);
 const classicTranscript = parseTranscript(
   capture("node", ["tests/genes-ts/snapshot/react/out/dual-classic/index.js"])
 );
@@ -688,6 +710,7 @@ const jsxTranscript = parseTranscript(
   capture("node", ["tests/genes-ts/snapshot/react/out/dual-jsx-dist/index.js"])
 );
 deepStrictEqual(tsxTranscript, expectedTranscript);
+deepStrictEqual(tsTranscript, expectedTranscript);
 deepStrictEqual(classicTranscript, expectedTranscript);
 deepStrictEqual(jsxTranscript, expectedTranscript);
 
