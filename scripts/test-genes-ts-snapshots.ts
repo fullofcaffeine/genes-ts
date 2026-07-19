@@ -65,6 +65,13 @@ const cases: ReadonlyArray<SnapshotCase> = [
     fileExts: [".ts", ".tsx"]
   },
   {
+    name: "react/tsx-type-only-jsx",
+    buildHxml: "tests/genes-ts/snapshot/react/build-tsx-type-only-jsx.hxml",
+    outDir: "tests/genes-ts/snapshot/react/out/tsx-type-only-jsx/src-gen",
+    intendedDir: "tests/genes-ts/snapshot/react/intended/tsx-type-only-jsx",
+    fileExts: [".ts", ".tsx"]
+  },
+  {
     name: "react/tsx-classic",
     buildHxml: "tests/genes-ts/snapshot/react/build-tsx-classic.hxml",
     outDir: "tests/genes-ts/snapshot/react/out/tsx-classic/src-gen",

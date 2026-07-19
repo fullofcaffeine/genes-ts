@@ -194,6 +194,10 @@ The macro result is typed as `genes.react.Element`, which maps to TypeScript’s
 `JSX.Element` in generated TS.
 
 You can annotate your APIs with `genes.react.Element` to keep signatures clean.
+When `genes.ts.jsx_import_source` is configured, Genes also emits the matching
+type-only `JSX` namespace import for modules that use `Element` only in an API
+or local annotation. Such a module does not need to contain HXX markup merely
+to make `JSX.Element` resolvable under strict TypeScript settings.
 
 ## Consuming existing components (TSX/JSX)
 

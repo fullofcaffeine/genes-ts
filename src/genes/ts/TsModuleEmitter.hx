@@ -162,7 +162,8 @@ class TsModuleEmitter extends JsModuleEmitter {
     narrowingPlan = module.tsNarrowingPlan;
     final jsxPlan = module.jsxPlan;
     final jsxCapability = JsxCapabilityPolicy.current();
-    final usesReactJsxMarkers = jsxPlan.hasIntents;
+    final needsJsxNamespaceImport = jsxPlan.hasIntents
+      || module.dependencyPlan.usesJsxNamespaceType;
 
     // Runtime and type-only bindings share one collision-safe allocator, while
     // only the ordered runtime request array controls ESM evaluation order.
@@ -179,9 +180,11 @@ class TsModuleEmitter extends JsModuleEmitter {
 
     // Some automatic JSX runtimes expose `JSX` as a module export instead of a
     // global namespace. In TSX mode this optional import keeps generated
-    // `JSX.Element` annotations resolvable without forcing React globals.
+    // `JSX.Element` annotations resolvable without forcing React globals. A
+    // module can need the type even when it contains no markup, so the typed
+    // dependency plan contributes independently from `JsxPlan` marker intent.
     final jsxImportSource = haxe.macro.Context.definedValue('genes.ts.jsx_import_source');
-    if (usesReactJsxMarkers
+    if (needsJsxNamespaceImport
       && jsxEmitTsx
       && jsxImportSource != null
       && jsxImportSource.length > 0) {

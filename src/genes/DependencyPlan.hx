@@ -281,9 +281,11 @@ class DependencyPlan {
   final edgeValues: Array<DependencyEdge>;
 
   public var edges(get, never): ReadOnlyArray<DependencyEdge>;
+  public final usesJsxNamespaceType: Bool;
 
-  public function new(edges: Array<DependencyEdge>) {
+  public function new(edges: Array<DependencyEdge>, usesJsxNamespaceType: Bool) {
     edgeValues = edges.copy();
+    this.usesJsxNamespaceType = usesJsxNamespaceType;
   }
 
   function get_edges(): ReadOnlyArray<DependencyEdge> {
