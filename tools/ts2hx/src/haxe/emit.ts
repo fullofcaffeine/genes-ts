@@ -1009,6 +1009,29 @@ function canDotAccessField(name: string): boolean {
   return isValidHaxeIdentifier(name) && !HAXE_RESERVED.has(name);
 }
 
+/**
+ * Emits the value of a JavaScript destructuring default without confusing null
+ * with undefined.
+ *
+ * JavaScript runs `{value = fallback}` only when `value` is exactly undefined;
+ * an explicit null stays null. Haxe's ordinary `== null` check treats both host
+ * values alike, so it cannot model this boundary. The exact `isAbsent` guard
+ * preserves JavaScript semantics. When TypeScript says the post-default target
+ * cannot be null, `Present.require` also gives Haxe the precise non-null type;
+ * targets whose declared result still includes null keep that nullable value.
+ */
+function emitDefaultedBindingValue(
+  ctx: EmitContext,
+  rawValue: string,
+  fallback: string,
+  target: ts.Node
+): string {
+  const presentValue = typeIncludesNull(ctx.checker.getTypeAtLocation(target))
+    ? rawValue
+    : `genes.ts.Present.require(${rawValue})`;
+  return `(genes.ts.Undefinable.isAbsent(${rawValue}) ? ${fallback} : ${presentValue})`;
+}
+
 function emitDestructureFromBindingName(opts: {
   ctx: EmitContext;
   mode: BindingMode;
@@ -1062,7 +1085,7 @@ function emitDestructureFromBindingName(opts: {
       if (el.initializer) {
         const def = emitExpression(ctx, el.initializer);
         if (!def) return null;
-        effectiveValue = `(${rawTmp} == null ? ${def} : ${rawTmp})`;
+        effectiveValue = emitDefaultedBindingValue(ctx, rawTmp, def, el.name);
       }
 
       const targetName = el.name;
@@ -1109,7 +1132,7 @@ function emitDestructureFromBindingName(opts: {
       if (el.initializer) {
         const def = emitExpression(ctx, el.initializer);
         if (!def) return null;
-        effectiveValue = `(${rawTmp} == null ? ${def} : ${rawTmp})`;
+        effectiveValue = emitDefaultedBindingValue(ctx, rawTmp, def, el.name);
       }
 
       if (ts.isIdentifier(el.name)) {
@@ -1166,7 +1189,13 @@ function emitDestructureAssignmentFromExpression(opts: {
         if (prop.objectAssignmentInitializer) {
           const def = emitExpression(ctx, prop.objectAssignmentInitializer);
           if (!def) return null;
-          out.push(`${indent}${key} = (${rawTmp} == null ? ${def} : ${rawTmp});`);
+          const effectiveValue = emitDefaultedBindingValue(
+            ctx,
+            rawTmp,
+            def,
+            prop.name
+          );
+          out.push(`${indent}${key} = ${effectiveValue};`);
         } else {
           out.push(`${indent}${key} = ${rawTmp};`);
         }
@@ -1191,7 +1220,12 @@ function emitDestructureAssignmentFromExpression(opts: {
           out.push(`${indent}var ${rhsTmp} = ${access};`);
           const def = emitExpression(ctx, prop.initializer.right);
           if (!def) return null;
-          const effectiveValue = `(${rhsTmp} == null ? ${def} : ${rhsTmp})`;
+          const effectiveValue = emitDefaultedBindingValue(
+            ctx,
+            rhsTmp,
+            def,
+            prop.initializer.left
+          );
 
           const left = prop.initializer.left;
           if (ts.isObjectLiteralExpression(left) || ts.isArrayLiteralExpression(left)) {
@@ -1253,7 +1287,12 @@ function emitDestructureAssignmentFromExpression(opts: {
         out.push(`${indent}var ${rhsTmp} = ${access};`);
         const def = emitExpression(ctx, el.right);
         if (!def) return null;
-        const effectiveValue = `(${rhsTmp} == null ? ${def} : ${rhsTmp})`;
+        const effectiveValue = emitDefaultedBindingValue(
+          ctx,
+          rhsTmp,
+          def,
+          el.left
+        );
 
         const left = el.left;
         if (ts.isObjectLiteralExpression(left) || ts.isArrayLiteralExpression(left)) {
@@ -1625,8 +1664,12 @@ function emitJsxTag(ctx: EmitContext, tagName: ts.JsxTagNameExpression): string 
   return null;
 }
 
-function emitJsxProps(ctx: EmitContext, attrs: ts.JsxAttributes): string[] | null {
-  const out: string[] = [];
+type EmittedJsxProp =
+  | { readonly kind: "named"; readonly name: string; readonly value: string }
+  | { readonly kind: "spread"; readonly value: string };
+
+function emitJsxProps(ctx: EmitContext, attrs: ts.JsxAttributes): EmittedJsxProp[] | null {
+  const out: EmittedJsxProp[] = [];
   for (const prop of attrs.properties) {
     if (ts.isJsxAttribute(prop)) {
       const name = ts.isIdentifier(prop.name)
@@ -1650,20 +1693,39 @@ function emitJsxProps(ctx: EmitContext, attrs: ts.JsxAttributes): string[] | nul
         return null;
       }
       if (!valueExpr) return null;
-      out.push(`{ name: ${JSON.stringify(name)}, value: ${valueExpr} }`);
+      out.push({ kind: "named", name, value: valueExpr });
       continue;
     }
 
     if (ts.isJsxSpreadAttribute(prop)) {
       const spread = emitExpression(ctx, prop.expression);
       if (!spread) return null;
-      out.push(`{ spread: ${spread} }`);
+      out.push({ kind: "spread", value: spread });
       continue;
     }
 
     return null;
   }
   return out;
+}
+
+function emitJsxPropsCarrier(props: readonly EmittedJsxProp[]): string {
+  let carrier = "{ __genesJsxPropsEnd: true }";
+  for (let index = props.length - 1; index >= 0; index -= 1) {
+    const prop = props[index];
+    carrier = prop.kind === "spread"
+      ? `{ __genesJsxSpreadValue: ${prop.value}, __genesJsxPropNext: ${carrier} }`
+      : `{ __genesJsxPropName: ${JSON.stringify(prop.name)}, __genesJsxPropValue: ${prop.value}, __genesJsxPropNext: ${carrier} }`;
+  }
+  return carrier;
+}
+
+function emitJsxChildrenCarrier(children: readonly string[]): string {
+  let carrier = "{ __genesJsxChildrenEnd: true }";
+  for (let index = children.length - 1; index >= 0; index -= 1) {
+    carrier = `{ __genesJsxChildValue: ${children[index]}, __genesJsxChildNext: ${carrier} }`;
+  }
+  return carrier;
 }
 
 function emitJsxChildren(ctx: EmitContext, children: readonly ts.JsxChild[]): string[] | null {
@@ -1722,11 +1784,16 @@ function typeIncludesUndefined(type: ts.Type): boolean {
   return type.isUnion() && type.types.some(typeIncludesUndefined);
 }
 
+function typeIncludesNull(type: ts.Type): boolean {
+  if ((type.getFlags() & ts.TypeFlags.Null) !== 0) return true;
+  return type.isUnion() && type.types.some(typeIncludesNull);
+}
+
 function emitJsxRoot(ctx: EmitContext, expr: ts.JsxElement | ts.JsxSelfClosingElement | ts.JsxFragment): string | null {
   if (ts.isJsxFragment(expr)) {
     const children = emitJsxChildren(ctx, expr.children);
     if (!children) return null;
-    return `genes.react.internal.Jsx.__frag([${children.join(", ")}])`;
+    return `genes.react.internal.Jsx.__frag(${emitJsxChildrenCarrier(children)})`;
   }
 
   if (ts.isJsxSelfClosingElement(expr)) {
@@ -1734,7 +1801,7 @@ function emitJsxRoot(ctx: EmitContext, expr: ts.JsxElement | ts.JsxSelfClosingEl
     if (!tag) return null;
     const props = emitJsxProps(ctx, expr.attributes);
     if (!props) return null;
-    return `genes.react.internal.Jsx.__jsx(${tag}, [${props.join(", ")}], [])`;
+    return `genes.react.internal.Jsx.__jsx(${tag}, ${emitJsxPropsCarrier(props)}, ${emitJsxChildrenCarrier([])})`;
   }
 
   // JsxElement
@@ -1744,7 +1811,7 @@ function emitJsxRoot(ctx: EmitContext, expr: ts.JsxElement | ts.JsxSelfClosingEl
   if (!props) return null;
   const children = emitJsxChildren(ctx, expr.children);
   if (!children) return null;
-  return `genes.react.internal.Jsx.__jsx(${tag}, [${props.join(", ")}], [${children.join(", ")}])`;
+  return `genes.react.internal.Jsx.__jsx(${tag}, ${emitJsxPropsCarrier(props)}, ${emitJsxChildrenCarrier(children)})`;
 }
 
 type EmittedLValue = {

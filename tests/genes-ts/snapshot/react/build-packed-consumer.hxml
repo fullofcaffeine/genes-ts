@@ -1,0 +1,13 @@
+-lib helder.set
+
+-cp tests/genes-ts/snapshot/react/out/packed-consumer/package/src
+-cp tests/genes-ts/snapshot/react/packed
+--main PackedHxxMain
+
+-js tests/genes-ts/snapshot/react/out/packed-consumer/src-gen/index.tsx
+-D genes.ts
+
+# Load the exact compiler activation shipped in the release archive.
+tests/genes-ts/snapshot/react/out/packed-consumer/package/extraParams.hxml
+
+-dce full

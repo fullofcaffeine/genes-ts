@@ -6,6 +6,17 @@ type LinkNode = {
   children: LinkNode[] | null;
 };
 
+// This is ordinary DOM code, not a React event target. ts2hx must retain the
+// complete standard anchor surface instead of replacing it with a thin React
+// wrapper just because the TypeScript name is HTMLAnchorElement.
+export function configureAnchor(anchor: HTMLAnchorElement): string {
+  anchor.download = "report.csv";
+  anchor.rel = "noopener";
+  anchor.protocol = "https:";
+  anchor.focus();
+  return anchor.protocol;
+}
+
 export function NestedLinks({
   items,
   disabled,

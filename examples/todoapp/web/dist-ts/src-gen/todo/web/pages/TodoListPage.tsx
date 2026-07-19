@@ -7,13 +7,13 @@ import {Client} from "../Client"
 import {StringTools} from "../../../StringTools"
 import {Link} from "react-router-dom"
 import {Register} from "../../../genes/Register"
-import type {ReactComponent1, ReactElement, ReactChild, ChangeEvent} from "../ReactTypes"
+import type {ReactComponent1, ReactChild, ChangeEvent} from "../ReactTypes"
 import type {Todo} from "../../shared/Todo"
 
 export class TodoListPage {
 	declare static PrettyButton: ReactComponent1<PrettyButtonProps>;
 	declare static interopBanner: (() => string);
-	static Component(): ReactElement {
+	static Component(): JSX.Element {
 		let _keepTodoText: string = TodoText.interopBanner();
 		let todosState: [ Todo[], import('react').Dispatch<import('react').SetStateAction<Todo[]>> ] = useState<Todo[]>([]);
 		let todos: Todo[] = (todosState[0] ?? null);
@@ -84,7 +84,7 @@ export class TodoListPage {
 				return todo.title;
 			};
 		};
-		let renderTodoItem: ((todo: Todo) => ReactElement) = function (todo: Todo) {
+		let renderTodoItem: ((todo: Todo) => JSX.Element) = function (todo: Todo) {
 			return <li key={todo.id} style={{"display": "flex", "alignItems": "center", "gap": "8px", "padding": "8px 0", "borderBottom": "1px solid #eee"}}><input type="checkbox" checked={todo.completed} onChange={function () {
 				return Client.updateTodo(todo.id, {"completed": !todo.completed}).then(function (updated: Todo) {
 					replaceTodo(updated);
@@ -106,8 +106,8 @@ export class TodoListPage {
 			onAdd();
 		}} variant="primary" />;
 		let div: JSX.Element = <div style={{"display": "flex", "gap": "8px", "marginBottom": "12px"}}>{input}{tmp2}</div>;
-		let f: ((arg0: Todo) => ReactElement) = renderTodoItem;
-		let result: ReactElement[] = new Array(todos.length);
+		let f: ((arg0: Todo) => JSX.Element) = renderTodoItem;
+		let result: JSX.Element[] = new Array(todos.length);
 		let _g_2: number = 0;
 		let _g1_2: number = todos.length;
 		while (_g_2 < _g1_2) {
@@ -116,7 +116,8 @@ export class TodoListPage {
 		};
 		let ul: JSX.Element = <ul style={{"listStyle": "none", "padding": "0", "margin": "0"}}>{result}</ul>;
 		let tmp5: string = TodoListPage.interopBanner();
-		return <div>{h2}{errorView}{div}{ul}<p style={{"marginTop": "16px", "color": "#666", "fontSize": "12px"}}>{tmp5}</p></div>;
+		let p: JSX.Element = <p style={{"marginTop": "16px", "color": "#666", "fontSize": "12px"}}>{tmp5}</p>;
+		return <div>{h2}{errorView}{div}{ul}{p}</div>;
 	}
 	static get __name__(): string {
 		return "todo.web.pages.TodoListPage"

@@ -19,8 +19,11 @@ typedef SideEffectImportMarkerCall = {
  * What: `@:genes.compilerInternal` removes an already-typed field from every
  * implementation/declaration printer. On a top-level type it instead requests
  * a local-only implementation with no export, declaration, runtime registry,
- * or source position. The side-effect marker predicate identifies calls that
- * are consumed by dependency planning and must not reach expression output.
+ * or source position. A compiler-owned typedef may additionally use
+ * `@:genes.semanticOnly` when it exists only as input to a semantic checker and
+ * no emitted expression or annotation can name it. The side-effect marker
+ * predicate identifies calls that are consumed by dependency planning and
+ * must not reach expression output.
  *
  * How: `Module` deliberately keeps internal fields in its semantic member
  * inventory so dependency planning can traverse their expressions. Emitters
@@ -48,6 +51,7 @@ class CompilerInternal {
   public static inline final GENERATOR_ACTIVE_DEFINE = 'genes.generator.active';
 
   public static inline final FIELD_METADATA = ':genes.compilerInternal';
+  public static inline final SEMANTIC_ONLY_METADATA = ':genes.semanticOnly';
   public static inline final SIDE_EFFECT_MARKER_MODULE = 'genes.internal.SideEffectImportMarker';
 
   /** Returns whether one typed field is semantic-only compiler evidence. */
@@ -65,6 +69,24 @@ class CompilerInternal {
    */
   public static function isType(meta:Null<MetaAccess>):Bool {
     return meta != null && meta.has(FIELD_METADATA);
+  }
+
+  /**
+   * Returns whether a compiler-internal typedef is analysis input only.
+   *
+   * Why: HXX intrinsic schemas must survive Haxe typing so the compiler can
+   * check markup, but no generated program refers to their typedef names.
+   * Ordinary compiler-internal typedefs are different: local generated TypeScript
+   * may still use their aliases and therefore needs them emitted.
+   *
+   * What/How: `Module.memberProjection` erases a typedef only when both this
+   * metadata and `@:genes.compilerInternal` are present. Classes, enums, and
+   * fields never acquire erasure from this flag. Keeping the two annotations
+   * separate prevents a schema implementation detail from changing the
+   * established local-only contract of `@:genes.compilerInternal`.
+   */
+  public static function isSemanticOnlyType(meta:Null<MetaAccess>):Bool {
+    return meta != null && meta.has(SEMANTIC_ONLY_METADATA);
   }
 
   /**

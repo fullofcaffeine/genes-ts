@@ -21,6 +21,41 @@ export type StatusProps = {
 	value: string
 }
 
+export type RequiredChildProps = {
+	children: JSX.Element
+}
+
+export type GenericValueProps<T> = {
+	render: (arg0: T) => string,
+	value: T
+}
+
+/**
+ * Base properties inherited by an extern component contract.
+ */
+export interface InheritedBaseProps {
+	label: string;
+	onSelect: ((arg0: import('react').MouseEvent<HTMLElement>) => void);
+}
+export const InheritedBaseProps = function() {};
+InheritedBaseProps.__isInterface__ = true;
+
+/**
+ * Proves that HXX reads inherited fields, not only fields declared here.
+ */
+export interface InheritedCardProps extends InheritedBaseProps {
+	tone: string;
+}
+export const InheritedCardProps = function() {};
+InheritedCardProps.__isInterface__ = true;
+
+/**
+ * Positive React HXX fixture shared by typed TSX and createElement profiles.
+ *
+ * It proves local, imported, aliased, generic, and inherited component
+ * contracts alongside intrinsic props, callbacks, spreads, and children. The
+ * harness type-checks and executes the generated output.
+ */
 export class Main {
 	static main(): void {
 		let title: string = "Hi";
@@ -28,22 +63,36 @@ export class Main {
 			label: string
 		}) => JSX.Element) = __genes_import_Button;
 		let el: JSX.Element = React__genes_jsx.createElement("span", null, 2);
-		let el1: JSX.Element = React__genes_jsx.createElement("div", ({className: "root", "data-test-id": "x"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"div"> & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), title, el);
+		let el1: JSX.Element = React__genes_jsx.createElement("div", ({className: "root", "data-test-id": "x"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"div"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), title, el);
 		let renderToStaticMarkup: ((arg0: JSX.Element) => string) = __genes_import_renderToStaticMarkup;
 		let html: string = renderToStaticMarkup(el1);
 		if (html != "<div class=\"root\" data-test-id=\"x\">Hi<span>2</span></div>") {
 			throw Exception.thrown("Unexpected HTML: " + html);
 		};
-		let buttonEl: JSX.Element = React__genes_jsx.createElement(Button, ({label: "Save"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Button> & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
+		let buttonEl: JSX.Element = React__genes_jsx.createElement(Button, ({label: "Save"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Button> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
 		let buttonHtml: string = renderToStaticMarkup(buttonEl);
 		if (buttonHtml != "<button>Save</button>") {
 			throw Exception.thrown("Unexpected button HTML: " + buttonHtml);
+		};
+		let AliasedButton: ((arg0: {
+			label: string
+		}) => JSX.Element) = Button;
+		let aliasHtml: string = renderToStaticMarkup(React__genes_jsx.createElement(AliasedButton, ({label: "Alias"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof AliasedButton> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
+		if (aliasHtml != "<button>Alias</button>") {
+			throw Exception.thrown("Unexpected alias HTML: " + aliasHtml);
+		};
+		let TypedButton: import('react').ComponentType<{
+			label: string
+		}> = __genes_import_Button;
+		let typedButtonHtml: string = renderToStaticMarkup(React__genes_jsx.createElement(TypedButton, ({label: "Typed", key: 1.5} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof TypedButton> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
+		if (typedButtonHtml != "<button>Typed</button>") {
+			throw Exception.thrown("Unexpected typed button HTML: " + typedButtonHtml);
 		};
 		let divProps: {
 			className: string,
 			id: string
 		} = {"className": "spread", "id": "x"};
-		let divWithSpread: JSX.Element = React__genes_jsx.createElement("div", ({...divProps} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"div"> & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Z");
+		let divWithSpread: JSX.Element = React__genes_jsx.createElement("div", ({...divProps} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"div"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Z");
 		let divWithSpreadHtml: string = renderToStaticMarkup(divWithSpread);
 		if (divWithSpreadHtml != "<div class=\"spread\" id=\"x\">Z</div>") {
 			throw Exception.thrown("Unexpected spread HTML: " + divWithSpreadHtml);
@@ -51,7 +100,7 @@ export class Main {
 		let buttonProps: {
 			label: string
 		} = {"label": "Spread"};
-		let buttonSpreadEl: JSX.Element = React__genes_jsx.createElement(Button, ({...buttonProps} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Button> & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
+		let buttonSpreadEl: JSX.Element = React__genes_jsx.createElement(Button, ({...buttonProps} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Button> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
 		let buttonSpreadHtml: string = renderToStaticMarkup(buttonSpreadEl);
 		if (buttonSpreadHtml != "<button>Spread</button>") {
 			throw Exception.thrown("Unexpected spread button HTML: " + buttonSpreadHtml);
@@ -64,12 +113,41 @@ export class Main {
 		let summary: StringAccessor = createMemo(function () {
 			return "items:" + count.get();
 		});
-		let statusEl: string = summary();
-		let statusEl1: JSX.Element = React__genes_jsx.createElement("span", null, count.get());
-		let statusEl2: JSX.Element = React__genes_jsx.createElement(Status, ({label: "Count", value: statusEl} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Status> & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), statusEl1);
+		let statusEl = {"__genesJsxPropName": "label", "__genesJsxPropValue": "Count", "__genesJsxPropNext": {"__genesJsxPropName": "value", "__genesJsxPropValue": summary(), "__genesJsxPropNext": {"__genesJsxPropsEnd": true}}};
+		let statusEl1: string = count.get();
+		let statusEl2: JSX.Element = React__genes_jsx.createElement(Status, ({label: statusEl.__genesJsxPropValue, value: statusEl.__genesJsxPropNext.__genesJsxPropValue} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Status> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), React__genes_jsx.createElement("span", null, statusEl1));
 		let statusHtml: string = renderToStaticMarkup(statusEl2);
 		if (statusHtml != "<section data-label=\"Count\"><strong>items:2</strong><span>2</span></section>") {
 			throw Exception.thrown("Unexpected status HTML: " + statusHtml);
+		};
+		let GenericInt: ((arg0: GenericValueProps<number>) => JSX.Element) = Main.GenericValue;
+		let genericHtml: string = renderToStaticMarkup(React__genes_jsx.createElement(GenericInt, ({value: 7, render: function (value: number) {
+			return "n:" + value;
+		}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof GenericInt> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
+		if (genericHtml != "<span>n:7</span>") {
+			throw Exception.thrown("Unexpected generic HTML: " + genericHtml);
+		};
+		let directGenericHtml: string = renderToStaticMarkup(React__genes_jsx.createElement<GenericValueProps<number>>(Main.GenericValue, ({value: 8, render: function (value: number) {
+			return "n:" + value;
+		}} satisfies (GenericValueProps<number> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
+		if (directGenericHtml != "<span>n:8</span>") {
+			throw Exception.thrown("Unexpected direct generic HTML: " + directGenericHtml);
+		};
+		let broadHandler: ((arg0: import('react').SyntheticEvent<HTMLElement>) => void) = function (event: import('react').SyntheticEvent<HTMLElement>) {
+			event.preventDefault();
+		};
+		let inheritedHtml: string = renderToStaticMarkup(React__genes_jsx.createElement(Main.InheritedCard, ({label: "Inherited", tone: "warm", onSelect: broadHandler} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Main.InheritedCard> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
+		if (inheritedHtml != "<aside data-tone=\"warm\">Inherited</aside>") {
+			throw Exception.thrown("Unexpected inherited component HTML: " + inheritedHtml);
+		};
+		let requiredChildHtml: JSX.Element = React__genes_jsx.createElement("strong", null, "required");
+		let requiredChildHtml1: string = renderToStaticMarkup(React__genes_jsx.createElement(Main.RequiredChild, null, requiredChildHtml));
+		if (requiredChildHtml1 != "<section><strong>required</strong></section>") {
+			throw Exception.thrown("Unexpected required child HTML: " + requiredChildHtml1);
+		};
+		let booleanAndArrayHtml: string = renderToStaticMarkup(React__genes_jsx.createElement("button", ({disabled: true, "aria-pressed": true} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"button"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), ["A", "B"]));
+		if (booleanAndArrayHtml != "<button disabled=\"\" aria-pressed=\"true\">AB</button>") {
+			throw Exception.thrown("Unexpected boolean/array HTML: " + booleanAndArrayHtml);
 		};
 		let listHtml: string = renderToStaticMarkup(Main.renderChildList("ready", "queued"));
 		if (listHtml != "<div><span>ready</span><strong>queued</strong><button>Save</button><em>done</em><span>ready:1</span><strong>queued:2</strong><span>ready:3</span><strong>queued:4</strong><span>ready:5</span><strong>queued:6</strong><span>ready:7</span><strong>queued:8</strong></div>") {
@@ -84,32 +162,63 @@ export class Main {
 		if (fragHtml != "<span>A</span><span>B</span>") {
 			throw Exception.thrown("Unexpected fragment HTML: " + fragHtml);
 		};
+		let contextualClick: JSX.Element = React__genes_jsx.createElement("button", ({onClick: function (event: import('react').MouseEvent<HTMLElement>) {
+			event.preventDefault();
+		}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"button"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Contextual");
+		renderToStaticMarkup(contextualClick);
+		let contextualAnchor: JSX.Element = React__genes_jsx.createElement("a", ({onClick: function (event: import('react').MouseEvent<HTMLAnchorElement>) {
+			event.currentTarget.download = "report.csv";
+			event.currentTarget.rel = "noopener";
+			event.currentTarget.focus();
+		}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"a"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Download");
+		renderToStaticMarkup(contextualAnchor);
+		let absentHref: string | undefined = undefined;
+		let absentHrefHtml: string = renderToStaticMarkup(React__genes_jsx.createElement("a", ({href: absentHref} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"a"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Absent href"));
+		if (absentHrefHtml != "<a>Absent href</a>") {
+			throw Exception.thrown("Unexpected absent href HTML: " + absentHrefHtml);
+		};
+		let contextualInput: JSX.Element = React__genes_jsx.createElement("input", ({onChange: function (event: import('react').ChangeEvent<HTMLInputElement>) {
+			console.log("tests/genes-ts/snapshot/react/src/Main.hx:179:",event.target.value);
+			event.target.select();
+		}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"input"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
+		renderToStaticMarkup(contextualInput);
 		let okHandler: (() => void) = function () {
 			return;
 		};
-		let okClick: JSX.Element = React__genes_jsx.createElement("button", ({onClick: okHandler} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"button"> & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Click");
+		let okClick: JSX.Element = React__genes_jsx.createElement("button", ({onClick: okHandler} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"button"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Click");
 		renderToStaticMarkup(okClick);
-		let badHandler: string = "nope";
-		// @ts-expect-error;
-		let badClick: JSX.Element = React__genes_jsx.createElement("button", ({onClick: badHandler} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"button"> & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Bad");
-		renderToStaticMarkup(badClick);
-		// @ts-expect-error;
-		let badButton: JSX.Element = React__genes_jsx.createElement(Button, ({label: 123} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Button> & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
-		renderToStaticMarkup(badButton);
-		// @ts-expect-error;
-		let bad: JSX.Element = React__genes_jsx.createElement("div", ({href: "nope"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"div"> & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
-		renderToStaticMarkup(bad);
-		let invalidChild: {
-			label: string
-		} = {"label": "not-a-react-child"};
-		// @ts-expect-error;
-		let badChild: JSX.Element = React__genes_jsx.createElement("div", null, invalidChild);
+		let ignoredEvent: JSX.Element = React__genes_jsx.createElement("button", ({onClick: function () {
+			return "ignored";
+		}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"button"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Ignored");
+		renderToStaticMarkup(ignoredEvent);
 	}
 	static renderChildList(first: string, second: string): JSX.Element {
 		let Button: ((arg0: {
 			label: string
 		}) => JSX.Element) = __genes_import_Button;
-		return React__genes_jsx.createElement("div", null, React__genes_jsx.createElement("span", null, first), React__genes_jsx.createElement("strong", null, second), React__genes_jsx.createElement(Button, ({label: "Save"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Button> & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))), React__genes_jsx.createElement("em", null, "done"), React__genes_jsx.createElement("span", null, first + ":1"), React__genes_jsx.createElement("strong", null, second + ":2"), React__genes_jsx.createElement("span", null, first + ":3"), React__genes_jsx.createElement("strong", null, second + ":4"), React__genes_jsx.createElement("span", null, first + ":5"), React__genes_jsx.createElement("strong", null, second + ":6"), React__genes_jsx.createElement("span", null, first + ":7"), React__genes_jsx.createElement("strong", null, second + ":8"));
+		let tmp: JSX.Element = React__genes_jsx.createElement("span", null, first);
+		let tmp1: JSX.Element = React__genes_jsx.createElement("strong", null, second);
+		let tmp2: JSX.Element = React__genes_jsx.createElement(Button, ({label: "Save"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Button> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
+		let tmp3: JSX.Element = React__genes_jsx.createElement("em", null, "done");
+		let tmp4: JSX.Element = React__genes_jsx.createElement("span", null, first + ":1");
+		let tmp5: JSX.Element = React__genes_jsx.createElement("strong", null, second + ":2");
+		let tmp6: JSX.Element = React__genes_jsx.createElement("span", null, first + ":3");
+		let tmp7: JSX.Element = React__genes_jsx.createElement("strong", null, second + ":4");
+		let tmp8: JSX.Element = React__genes_jsx.createElement("span", null, first + ":5");
+		let tmp9: JSX.Element = React__genes_jsx.createElement("strong", null, second + ":6");
+		let tmp10: JSX.Element = React__genes_jsx.createElement("span", null, first + ":7");
+		let tmp11: JSX.Element = React__genes_jsx.createElement("strong", null, second + ":8");
+		return React__genes_jsx.createElement("div", null, tmp, tmp1, tmp2, tmp3, tmp4, tmp5, tmp6, tmp7, tmp8, tmp9, tmp10, tmp11);
+	}
+	static GenericValue<T>(props: GenericValueProps<T>): JSX.Element {
+		let tmp: string = props.render(props.value);
+		return React__genes_jsx.createElement("span", null, tmp);
+	}
+	static InheritedCard(props: InheritedCardProps): JSX.Element {
+		return React__genes_jsx.createElement("aside", ({"data-tone": props.tone, onClick: props.onSelect} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"aside"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), props.label);
+	}
+	static RequiredChild(props: RequiredChildProps): JSX.Element {
+		return React__genes_jsx.createElement("section", null, props.children);
 	}
 	static renderLoweredChildList(first: string, second: string): JSX.Element {
 		let tmp: JSX.Element = React__genes_jsx.createElement("span", null, first);

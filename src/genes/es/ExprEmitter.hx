@@ -17,9 +17,11 @@ import genes.TempPlan.LoweredForIterator;
 import genes.NullishContract;
 import genes.JsxPlan;
 import genes.JsxPlan.JsxCapabilityPolicy;
+import genes.JsxPlan.JsxEmissionProfile;
 import genes.JsxPlan.JsxIntent;
 import genes.JsxPlan.JsxChildIntent;
 import genes.JsxPlan.JsxPropIntent;
+import genes.JsxPlan.JsxTagIntent;
 import genes.JsxPlan.JsxValueAccess;
 import genes.JsxPlan.JsxValueSource;
 import genes.TemplateLiteralPlan;
@@ -127,6 +129,7 @@ class ExprEmitter extends Emitter {
   var jsxPlan: Null<JsxPlan> = null;
   var templateLiteralPlan: Null<TemplateLiteralPlan> = null;
   var jsxRuntimeBinding: Null<String> = null;
+  var jsxEmissionProfile: Null<JsxEmissionProfile> = null;
   var namePlan: Null<NamePlan> = null;
   var tempPlan: Null<TempPlan> = null;
   var directImportLocals: Array<String> = [];
@@ -144,7 +147,13 @@ class ExprEmitter extends Emitter {
   public function configureJsx(plan: JsxPlan,
       capability: JsxCapabilityPolicy, dependencies: Dependencies): Void {
     jsxPlan = plan;
+    jsxEmissionProfile = capability.profile;
     jsxRuntimeBinding = capability.resolveRuntimeBinding(dependencies, plan);
+  }
+
+  /** Whether Haxe introduced this local solely for the typed JSX carrier. */
+  function isJsxCarrierLocal(id: Int): Bool {
+    return jsxPlan != null && jsxPlan.isCarrierLocal(id);
   }
 
   /** Installs the validated target-neutral string-template plan. */
@@ -888,14 +897,25 @@ class ExprEmitter extends Emitter {
   }
 
   /**
-   * Classic JavaScript lowering for target-neutral JSX intent.
+   * JavaScript lowering for target-neutral JSX intent.
    *
-   * Both classic JS and plain `.ts` ultimately use the same React-compatible
-   * runtime contract. The TypeScript emitter overrides this hook only to add
-   * TSX syntax and compile-time prop checking; evaluation order and runtime
-   * calls remain identical to this baseline.
+   * `.jsx` keeps source markup after Haxe types are erased. Classic `.js` and
+   * plain `.ts` use the same React-compatible runtime contract. The TypeScript
+   * emitter reuses the source-markup methods for `.tsx`, so syntax behavior
+   * cannot drift between the two JSX-preserving profiles.
    */
   function emitJsxIntent(intent: JsxIntent): Void {
+    if (jsxEmissionProfile == JavaScriptJsxAutomatic) {
+      switch intent {
+        case ElementIntent(tag, props, children, pos):
+          emitPos(pos);
+          emitJsxSourceElement(tag, props, children);
+        case FragmentIntent(children, pos):
+          emitPos(pos);
+          emitJsxSourceFragment(children);
+      }
+      return;
+    }
     final runtime = requireJsxRuntimeBinding(intent);
     switch intent {
       case ElementIntent(tag, props, children, pos):
@@ -921,6 +941,114 @@ class ExprEmitter extends Emitter {
           emitJsxChildValue(child);
         }
         write(')');
+    }
+  }
+
+  /** Shared syntax printer for type-preserving TSX and type-erased JSX. */
+  function emitJsxSourceFragment(children: Array<JsxChildIntent>): Void {
+    write('<>');
+    emitJsxSourceChildren(children);
+    write('</>');
+  }
+
+  /** Shared syntax printer for type-preserving TSX and type-erased JSX. */
+  function emitJsxSourceElement(tag: JsxTagIntent,
+      props: Array<JsxPropIntent>, children: Array<JsxChildIntent>): Void {
+    switch tag {
+      case DynamicIntrinsicTag(_):
+        emitJsxDynamicIntrinsicElement(tag, props, children);
+        return;
+      default:
+    }
+    write('<');
+    emitJsxSourceTagName(tag);
+    emitJsxSourceAttributes(props);
+    if (children.length == 0) {
+      write(' />');
+      return;
+    }
+    write('>');
+    emitJsxSourceChildren(children);
+    write('</');
+    emitJsxSourceTagName(tag);
+    write('>');
+  }
+
+  function emitJsxDynamicIntrinsicElement(tag: JsxTagIntent,
+      props: Array<JsxPropIntent>, children: Array<JsxChildIntent>): Void {
+    final runtime = jsxRuntimeBinding;
+    if (runtime == null)
+      CompilerDiagnostic.fail('[GTS-JSX-CAPABILITY-005] Dynamic intrinsic '
+        + 'tag has no planned JSX runtime namespace.',
+        JsxPlan.tagExpression(tag).pos);
+    write(runtime);
+    write('.createElement(');
+    emitValue(JsxPlan.tagExpression(tag));
+    write(', ');
+    emitClassicJsxProps(props);
+    for (child in children) {
+      write(', ');
+      emitJsxChildValue(child);
+    }
+    write(')');
+  }
+
+  function emitJsxSourceTagName(tag: JsxTagIntent): Void {
+    switch tag {
+      case IntrinsicTag(name, _):
+        write(name);
+      case ComponentTag(expression):
+        emitValue(expression);
+      case DynamicIntrinsicTag(expression):
+        CompilerDiagnostic.fail('[GTS-JSX-CAPABILITY-006] Dynamic intrinsic '
+          + 'tag reached JSX tag-name printing instead of createElement.',
+          expression.pos);
+    }
+  }
+
+  function emitJsxSourceAttributes(props: Array<JsxPropIntent>): Void {
+    for (prop in props) {
+      switch prop {
+        case SpreadProp(expression, source):
+          write(' {...');
+          emitJsxValue(expression, source);
+          write('}');
+        case NamedProp(name, value, source):
+          write(' ');
+          write(name);
+          switch [source, JsxPlan.unwrap(value).expr] {
+            case [DirectValue, TConst(TBool(true))]:
+              // JSX boolean shorthand.
+            case [DirectValue, TConst(TString(text))]:
+              write('=');
+              emitString(text);
+            default:
+              write('={');
+              emitJsxValue(value, source);
+              write('}');
+          }
+      }
+    }
+  }
+
+  function emitJsxSourceChildren(children: Array<JsxChildIntent>): Void {
+    for (child in children) {
+      switch child {
+        case ChildIntent(expression, source):
+          if (source.match(DirectValue)
+            && JsxPlan.isMarkerCallExpression(expression)) {
+            emitValue(expression);
+            continue;
+          }
+          switch [source, JsxPlan.unwrap(expression).expr] {
+            case [DirectValue, TConst(TString(value))]:
+              write(value);
+            default:
+              write('{');
+              emitJsxValue(expression, source);
+              write('}');
+          }
+      }
     }
   }
 
@@ -960,8 +1088,6 @@ class ExprEmitter extends Emitter {
         emitValue(root);
         for (access in path) {
           switch access {
-            case JsxArrayIndex(index):
-              write('[$index]');
             case JsxObjectField(name):
               emitField(name);
           }

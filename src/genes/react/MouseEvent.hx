@@ -12,6 +12,4 @@ package genes.react;
  * no runtime value, cast, or dynamic storage is introduced.
  */
 @:ts.type("import('react').MouseEvent<$0>")
-extern class MouseEvent<T> {
-  public function preventDefault(): Void;
-}
+extern class MouseEvent<T> extends SyntheticEvent<T> {}

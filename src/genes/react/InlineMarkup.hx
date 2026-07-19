@@ -12,7 +12,7 @@ import haxe.macro.ExprTools;
  *
  * WHAT
  * - Enables Haxe inline markup (`return <div>...</div>`) as the preferred
- *   HHX-style authoring surface for React/TSX output.
+ *   HXX-style authoring surface for React/TSX output.
  * - Rewrites parser-produced `@:markup "<div>...</div>"` expressions into
  *   `genes.react.JSX.jsx("...")`, which then lowers into typed JSX marker calls.
  *
@@ -21,8 +21,8 @@ import haxe.macro.ExprTools;
  *   around a string payload. The normal typer rejects that expression unless a
  *   build macro rewrites it first.
  * - Keeping markup at Haxe expression level lets `{...}` children and attribute
- *   values become real Haxe expressions, so Haxe and TypeScript both get a
- *   chance to validate the component/prop surface.
+ *   values become real Haxe expressions, so Haxe validates the component/prop
+ *   surface before TypeScript independently checks generated output parity.
  *
  * HOW
  * - `extraParams.hxml` installs this build macro globally.

@@ -116,6 +116,10 @@ ok(typescript.includes('Register.setHxClass("internaltypes._Main.LocalBox"'),
   "ordinary private classes retain genes-ts runtime registration");
 ok(typescript.includes('Register.setHxEnum("internaltypes._Main.LocalState"'),
   "ordinary private enums retain genes-ts runtime registration");
+ok(typescript.includes("type InternalRecord ="),
+  "genes-ts keeps a compiler-internal typedef needed by local annotations");
+ok(!typescript.includes("export type InternalRecord ="),
+  "genes-ts does not export the compiler-internal typedef");
 ok(!typescript.includes('Register.setHxEnum("internaltypes._Main.InternalResult"'),
   "genes-ts does not register the compiler-internal enum");
 ok(typescript.includes("export declare namespace PublicSibling"),
@@ -124,6 +128,8 @@ ok(typescript.includes("export declare namespace PublicSibling"),
 const declaration = readFileSync(declarationPath, "utf8");
 ok(!declaration.includes("InternalResult"),
   "classic declarations omit the compiler-internal type");
+ok(!declaration.includes("InternalRecord"),
+  "classic declarations omit the compiler-internal typedef");
 ok(declaration.includes("export declare class Main"),
   "classic declarations retain the public neighboring type");
 ok(declaration.includes("export declare type PublicSibling"),
@@ -133,6 +139,11 @@ assertInternalIntervalUnmapped(
   "classic/internaltypes/Main.js",
   "const InternalResult =",
   "export const Main ="
+);
+assertInternalIntervalUnmapped(
+  "ts/src-gen/internaltypes/Main.ts",
+  "type InternalRecord =",
+  "export declare namespace LocalState"
 );
 assertInternalIntervalUnmapped(
   "ts/src-gen/internaltypes/Main.ts",

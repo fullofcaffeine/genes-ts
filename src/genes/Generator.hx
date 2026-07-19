@@ -156,6 +156,12 @@ class Generator {
       addModule(module, types);
     }
     final tsMode = Context.defined('genes.ts');
+    if (tsMode && Genes.outExtension == '.jsx')
+      CompilerDiagnostic.fail('[GTS-JSX-CAPABILITY-007] `.jsx` is the '
+        + 'type-erased JSX profile and cannot be combined with `-D genes.ts`. '
+        + 'Remove that define for `.jsx`, or emit `.tsx` to preserve Haxe-derived '
+        + 'TypeScript types.',
+        Context.currentPos());
 
     final initialNames = [for (name in modules.keys()) name];
     initialNames.sort(Reflect.compare);
@@ -293,7 +299,8 @@ class Generator {
       // orphan source map for text that no longer existed.
       if (tsMode && module.path == 'StdTypes')
         continue;
-      if (tsMode || hasClassicImplementation(module))
+      if ((tsMode && hasImplementation(module))
+        || (!tsMode && hasClassicImplementation(module)))
         generateImplementation(api, module, outputDir, outputTransaction);
     }
 
@@ -362,6 +369,16 @@ class Generator {
     return false;
   }
 
+  /** True when at least one member survives the final implementation policy. */
+  static function hasImplementation(module: Module): Bool {
+    if (module.expose.length > 0)
+      return true;
+    for (member in module.members)
+      if (Module.memberProjection(member).emitImplementation)
+        return true;
+    return false;
+  }
+
   static function typesPerModule(types: Array<Type>) {
     final modules = new Map<String, Array<Type>>();
     for (type in types) {
@@ -409,7 +426,13 @@ class Generator {
       case false:
         final emitter = new ModuleEmitter(ctx,
           outputTransaction.writer(path));
-        emitter.emitModule(module, Genes.outExtension);
+        // JSX source is consumed by a JSX transform which writes `.js` files.
+        // NodeNext and modern bundlers resolve a source-side `.js` specifier to
+        // the sibling `.jsx` module, then preserve the runtime-correct suffix.
+        final importExtension = Genes.outExtension == '.jsx'
+          ? '.js'
+          : Genes.outExtension;
+        emitter.emitModule(module, importExtension);
         emitter;
     }
     #if (debug || js_source_map)
