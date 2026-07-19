@@ -1,7 +1,7 @@
 # TypeScript narrowing ownership inventory
 
-This document records one focused architecture experiment. It does not propose
-a second compiler or a replacement for Haxe's typed syntax tree.
+This document records one completed, focused architecture extraction. It does
+not propose a second compiler or a replacement for Haxe's typed syntax tree.
 
 ## The practical problem
 
@@ -25,25 +25,25 @@ receiver, removes an entry from a map, or enters a callback that runs later,
 the old proof may no longer be true. Ending an outdated proof is called
 **invalidation**.
 
-At v1.36.7, these decisions are made while `TsModuleEmitter` writes tokens. The
-output is often correct, but the proof cannot be inspected independently of
-printing. The focused probe in this change demonstrates two stale proofs, so a
-bounded TypeScript-only plan is justified.
+At v1.36.7, these decisions were made while `TsModuleEmitter` wrote tokens. The
+output was often correct, but the proof could not be inspected independently of
+printing. The focused baseline probe demonstrated stale proofs. They are now
+owned by a bounded TypeScript-only `TsNarrowingPlan` built before printing.
 
 See also:
 
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) for the complete compiler ownership map;
 - [`ARCHITECTURE_ROADMAP.md`](ARCHITECTURE_ROADMAP.md) for the incremental
   extract-shadow-switch rule;
-- `yarn probe:ts-narrowing-invalidation` for the executable reduction.
+- `yarn test:ts-narrowing` for the executable reduction and regression gate.
 
 ## Evidence boundary
 
 The reviewed baseline is commit `25a5e3015f8b0f0e4447b8fd0590124548f132da`
 (`v1.36.7`). The ordinary `yarn test:genes-ts` gate passes on that commit.
 
-The new probe deliberately fails on the baseline after all generated files
-successfully compile with TypeScript 5.5, 6, and 7. It observes:
+The original probe deliberately failed on the baseline after all generated
+files successfully compiled with TypeScript 5.5, 6, and 7. It observed:
 
 1. A guard proves `item.name` present. The program then assigns a new empty
    record to `item`. Generated TypeScript still prints `item.name!`, and the
@@ -53,27 +53,29 @@ successfully compile with TypeScript 5.5, 6, and 7. It observes:
    `map.remove(id)` or `map.clear()`. Generated TypeScript still prints
    `map.get(id)!`, even though the runtime correctly returns `null`.
 
-These observations prove that the current invalidation model is incomplete.
-They do not prove that every neighboring flow rule is wrong, and they do not
-authorize a general control-flow graph or SSA rewrite.
+The passing owner gate now proves that these facts end after mutation and that
+the runtime sees Haxe `null`, not raw JavaScript `undefined`. The observations
+did not prove every neighboring flow rule wrong, and the fix does not introduce
+a general control-flow graph or SSA rewrite.
 
-## Current ownership inventory
+## Final ownership inventory
 
 The table separates shared language meaning from TypeScript-only proof and
-spelling. “Mutable state” means information that changes as the emitter walks a
-function.
+spelling. “Mutable state” means information that changes while the plan builder
+walks one function; the emitter only reads the finished decisions.
 
 | Decision | Current input | Current owner/state | Consumers | Profile boundary | Evidence and disposition |
 | --- | --- | --- | --- | --- | --- |
 | Whether a type means Haxe `null`, JavaScript `undefined`, an omitted property, or a missing map entry | Haxe `Type` and field metadata | `NullishContract` | TS implementation, classic runtime paths, declarations | Shared semantic fact | Keep. The narrowing work must consume this contract and must not recreate nullish policy. |
 | Whether Haxe introduced a temporary and what stable local name it receives | Typed expressions and `TVar.id` | `TempPlan` and `NamePlan` | Both implementation profiles | Shared lowering fact | Keep. A narrowing plan may refer to their typed identities but must not allocate names or temporaries. |
-| Recognition of `value == null`, `value != null`, boolean `&&`/`||`/`!`, and `Map.exists(key)` | `TypedExpr` condition | `TsModuleEmitter.nullNarrowCheck` | `if` statements and conditional expressions | TypeScript-specific proof | Extract. Several consumers depend on one decision, but it has no independent typed result today. |
-| Branch-local non-null facts | Recognized guard plus selected true/false branch | `narrowedNonNullKeys:Array<String>` and `emitNullNarrowedBranch` | Local initializers, optional-field reads, and map reads | TypeScript-specific proof | Extract. The push/pop stack cannot express mutation that occurs inside an already narrowed branch. |
-| Facts that remain after an exiting guard | A guard and `return`, `throw`, `continue`, or `break` | `continuationNonNullKeys`, `definitelyExits`, and block-local `activeKeys` | Statements later in the same block | TypeScript-specific proof | Extract. Existing return/continue evidence is useful, but propagation and invalidation are one combined printer loop. |
-| Invalidation after assignment | Assignment expression | `assignedNarrowKeys` removes exact encoded strings | Later statements in a block | TypeScript-specific proof | Correct while extracting. Exact removal misses child fields after receiver assignment, and calls such as `Map.remove`/`clear` are not represented. |
-| Stable identity for locals, `this`, constants, field paths, and map reads | `TypedExpr`, local IDs, and printed field names | `stableValueKey`, `optionalFieldNarrowKey`, and `mapGetNarrowKeyFromParts` produce strings | Guard matching, map presence, and invalidation | TypeScript-specific proof built from shared typed facts | Replace with a closed typed identity. Source positions and rendered names must not become identity. |
-| `map.keys()` iterator provenance | Iterator locals and loop variables | `mapKeyIteratorOrigins` and `mapKeyLocalOrigins` maps | Direct `map.get(key)` reads inside key iteration | TypeScript-specific proof | Extract with loop scope. Existing fixtures prove the common immediate loop body, not delayed callbacks or mutation. |
-| Reset at a nested function | A `TFunction` boundary | The emitter temporarily replaces `narrowedNonNullKeys` with an empty array | Callback bodies | TypeScript-specific proof | Preserve and strengthen. The main fact stack resets, but iterator-origin maps are separate state and need a focused delayed-callback experiment. |
+| Recognition of `value == null`, `value != null`, boolean `&&`/`||`/`!`, and `Map.exists(key)` | `TypedExpr` condition | `TsNarrowingPlan` condition facts | `if` statements, conditional expressions, and same-block continuation | TypeScript-specific proof | One typed owner. Unsupported conditions introduce no fact. |
+| Branch-local and continuing non-null facts | Recognized guard plus selected branch or an exiting statement | Function-local plan state and immutable decisions at stable program points | Local initializers, optional-field reads, and map reads | TypeScript-specific proof | Extracted. The emitter asks a question at the read; it no longer pushes facts while writing braces. |
+| Invalidation after assignment | Exact typed assignment receiver | `TsNarrowValueIdentityTools.dependsOn` plus `ValueChanged` | Every later read in the function | TypeScript-specific proof | A receiver change also ends child-field and dependent map/key facts. No rendered-name parsing is involved. |
+| Map mutation | Stable typed map/key plus `remove` or `clear` | `MapEntryRemoved` and `MapCleared` invalidations | Later `Map.get` reads | TypeScript-specific proof | `remove` ends one exact entry proof; `clear` ends every fact for that exact map. Nullable map value types never gain presence-as-non-null facts. |
+| Stable identity for locals, `this`, constants, field paths, and map reads | `TypedExpr` and Haxe local IDs | Closed `TsNarrowValueIdentity` enum | Guard matching, map presence, and invalidation | TypeScript-specific proof built from shared typed facts | Source positions and generated names are deliberately excluded from equality. |
+| `map.keys()` iterator provenance | Iterator and yielded-key locals | Function-local iterator origins in `TsNarrowingPlan` | Direct `map.get(key)` reads during the same loop | TypeScript-specific proof | A nested callback starts with an empty function state, so a key proof cannot leak into delayed work. |
+| Loop entry and back-edge safety | Loop kind plus mutations found in the bounded loop body | Exact loop mutation summary applied before the shared body program point | Reads in and after loops | TypeScript-specific proof | A `while` condition can narrow its body, while a `do...while` condition cannot narrow the first body execution. The summary models assignments and map mutation only; it is not a general CFG or alias analysis. |
+| Reset at a nested function | A `TFunction` boundary | A fresh function-local builder state | Callback bodies | TypeScript-specific proof | Outer facts and iterator provenance never enter a delayed callback. |
 | Final TypeScript syntax (`!`, `?? null`, direct read, or contained runtime assertion) | Nullish contract plus a proven fact | `TsModuleEmitter` | Generated `.ts`/`.tsx` tokens and source maps | TypeScript syntax | Keep in the emitter. The plan answers whether a fact is valid; the emitter chooses the TypeScript spelling. |
 
 ## Why extraction is justified now
@@ -90,14 +92,13 @@ File size is not the reason. The evidence is:
 - final source text cannot reveal whether two printer paths reached the same
   result for different or contradictory reasons.
 
-The go decision is therefore to design a small **`TsNarrowingPlan`**. The name
-is intentionally target-specific: classic JavaScript remains a runtime
-differential oracle but does not need TypeScript's `!` or control-flow type
-proofs.
+The completed design is a small **`TsNarrowingPlan`**. The name is intentionally
+target-specific: classic JavaScript remains a runtime differential oracle but
+does not need TypeScript's `!` or control-flow type proofs.
 
-## Boundary for the next phase
+## Implemented boundary
 
-The next phase may model only facts the current TypeScript emitter needs:
+The plan models only facts the TypeScript emitter needs:
 
 - a closed typed identity for a local, `this`, a field path, or a map read;
 - where a fact starts and where it ends inside one function;
@@ -112,10 +113,12 @@ temporary allocation to `TempPlan`. It must carry no TypeScript text fragments.
 `TsModuleEmitter` continues to own token layout, source maps, `!`, and
 `?? null`.
 
-Before switching authority, the legacy path and the new plan should run
-together. Compare semantic facts, not only final text. For fixtures where the
-baseline is already demonstrated wrong, record the reviewed correction instead
-of forcing the new plan to reproduce the bug.
+Before authority switched, the legacy path and the new plan ran together across
+the generated matrix. The comparison used facts at deterministic function and
+expression ordinals, not only final text. Every ordinary existing decision
+matched. The reviewed stale cases differed only after the plan recorded the
+exact assignment or map mutation that invalidated the legacy fact. The legacy
+string keys and emitter proof stack were then removed.
 
 ## Explicit stop conditions
 
@@ -134,10 +137,9 @@ Neighboring emitter seams—signatures, private-member lowering, and class/membe
 declaration projection—remain deferred. This inventory does not pre-authorize
 their extraction.
 
-## Evidence still required before authority switches
+## Passing focused evidence
 
-The focused probe covers receiver reassignment, `Map.remove`, and `Map.clear`.
-The next phase still needs passing characterization for:
+`yarn test:ts-narrowing` now covers:
 
 - mutation inside a narrowed branch, not only after an exiting guard;
 - assignment to a nested receiver and reassignment of a map local;
@@ -146,7 +148,10 @@ The next phase still needs passing characterization for:
 - early `return`, `throw`, `continue`, and `break` at nested depths;
 - nullable map value types, which must never become non-null merely because a
   key exists;
-- loop-entry and loop-back-edge invalidation.
+- loop-entry and loop-back-edge invalidation;
+- `do...while` first-iteration ordering, where the condition has not run yet;
+- assignment later in a compound condition ending an earlier guard fact.
 
-These cases define a bounded function-local proof. If they instead require
-general alias analysis, the stop condition above applies.
+These cases define the bounded function-local proof. General alias analysis,
+unknown call effects, and richer whole-program flow remain outside this plan;
+if a future case requires one of them, the stop condition above still applies.

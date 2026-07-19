@@ -128,13 +128,19 @@ current emitter, compare the new plan against current output in shadow mode,
 switch one consumer, and retain semantic/snapshot gates throughout. Do not begin
 with a new all-language IR or separate TS and classic compiler engines.
 
-The next evidence-backed candidate is TypeScript null-narrowing proof. The
+The TypeScript null-narrowing extraction followed this rule. The
 [ownership inventory](TS_NARROWING_OWNERSHIP.md) separates shared
-`NullishContract` meaning from TS-only branch facts, records two reproduced
-invalidation defects, and defines the boundary for a function-local
-`TsNarrowingPlan`. This is a go decision for a shadow plan, not approval for a
-general control-flow graph, SSA, alias-analysis framework, or classic/TS shared
-flow IR.
+`NullishContract` meaning from TS-only branch facts, records the reproduced
+invalidation defects, and documents the function-local `TsNarrowingPlan` that
+now owns them. The old emitter inference ran in shadow across the generated
+matrix before the plan became authoritative. The result remains deliberately
+smaller than a control-flow graph, SSA or alias-analysis framework, and it is
+not shared with classic JavaScript merely for symmetry.
+
+Signature planning, private-member lowering, and class/member declaration
+projection remain separate possible seams. This completed extraction does not
+pre-authorize any of them; each still needs its own concrete failure or repeated
+decision evidence.
 
 ### Shared facts
 

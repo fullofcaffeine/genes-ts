@@ -94,6 +94,7 @@ class Module {
   public final directivePlan: ModuleDirectivePlan;
   public var jsxPlan(get, null): JsxPlan;
   public var templateLiteralPlan(get, null): TemplateLiteralPlan;
+  public var tsNarrowingPlan(get, null): genes.ts.TsNarrowingPlan;
   public var dependencyPlan(get, null): DependencyPlan;
   public var typeDependencies(get, null): Dependencies;
   public var declarationDependencies(get, null): Dependencies;
@@ -135,6 +136,20 @@ class Module {
     if (templateLiteralPlan == null)
       templateLiteralPlan = TemplateLiteralPlan.build(this);
     return templateLiteralPlan;
+  }
+
+  /**
+   * Returns the function-local null/map facts consumed only by TypeScript.
+   *
+   * Classic JavaScript does not need TypeScript's non-null assertions, so this
+   * plan remains lazy and target-specific. Haxe's typed expressions stay the
+   * source of truth; the plan only records when an already typed value can be
+   * printed without a defensive TypeScript assertion or null normalization.
+   */
+  function get_tsNarrowingPlan(): genes.ts.TsNarrowingPlan {
+    if (tsNarrowingPlan == null)
+      tsNarrowingPlan = genes.ts.TsNarrowingPlan.build(this);
+    return tsNarrowingPlan;
   }
 
   /**
@@ -199,6 +214,7 @@ class Module {
     }
     if (changed) {
       jsxPlan = null;
+      tsNarrowingPlan = null;
       dependencyPlan = null;
       typeDependencies = null;
       declarationDependencies = null;

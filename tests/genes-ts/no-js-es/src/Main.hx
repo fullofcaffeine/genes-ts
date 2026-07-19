@@ -38,6 +38,11 @@ typedef NamedCallback = {
   final read: () -> String;
 }
 
+/** A callback whose map lookup may be missing when the callback runs later. */
+typedef NullableNamedCallback = {
+  final read: () -> Null<NamedItem>;
+}
+
 /**
  * A small record whose `name` field may be missing at runtime.
  *
@@ -52,6 +57,11 @@ typedef NamedCallback = {
  */
 typedef OptionalNamedItem = {
   @:optional final name: String;
+}
+
+/** A mutable outer record used to prove nested receiver invalidation. */
+typedef NestedOptionalNamedItem = {
+  var item: OptionalNamedItem;
 }
 
 typedef MessageBatch = {
@@ -115,6 +125,22 @@ class Main {
     trace('receiver-reassignment:${reassignedOptional == null}:${genes.ts.Undefinable.isAbsent(reassignedOptional)}');
     trace('map-remove:${mapGetAfterRemove("alpha") == null}');
     trace('map-clear:${mapGetAfterClear("alpha") == null}');
+    final branchReassigned = optionalInsideNarrowedBranch();
+    trace('branch-reassignment:${branchReassigned == null}:${genes.ts.Undefinable.isAbsent(branchReassigned)}');
+    final nestedReassigned = optionalAfterNestedReceiverReassignment();
+    trace('nested-reassignment:${nestedReassigned == null}:${genes.ts.Undefinable.isAbsent(nestedReassigned)}');
+    trace('map-receiver-reassignment:${mapGetAfterReceiverReassignment("alpha") == null}');
+    trace('map-key-reassignment:${mapGetAfterKeyReassignment("alpha") == null}');
+    trace('delayed-map-key:${mapKeyCallbackAfterClear() == null}');
+    trace('nested-return-throw:${nestedReturnOrThrow("alpha", false)}');
+    trace('nested-break-continue:${nestedBreakOrContinue(["missing", "alpha", "stop", "alpha"]).join(",")}');
+    trace('nullable-map-value:${nullableMapValueAfterExists("alpha") == null}');
+    final loopReassigned = optionalAfterLoopReassignment();
+    trace('loop-reassignment:${loopReassigned == null}:${genes.ts.Undefinable.isAbsent(loopReassigned)}');
+    final doWhileFirstRead = optionalBeforeDoWhileCondition();
+    trace('do-while-first-read:${doWhileFirstRead == null}:${genes.ts.Undefinable.isAbsent(doWhileFirstRead)}');
+    final conditionReassigned = optionalAfterConditionReassignment();
+    trace('condition-reassignment:${conditionReassigned == null}:${genes.ts.Undefinable.isAbsent(conditionReassigned)}');
     trace(inlineValueTemps());
     trace(mapAfterResultParameter({messages: ["one", "three"]}).join(","));
     trace(recordConstructionTemps("alpha", {name: "Alpha"}, null));
@@ -304,8 +330,8 @@ class Main {
   /**
    * Clearing a map ends every presence fact learned for that map.
    *
-   * Unlike `remove`, `clear` does not name one key. The future narrowing plan
-   * must therefore invalidate all facts whose receiver is this map while
+   * Unlike `remove`, `clear` does not name one key. The narrowing plan
+   * therefore invalidates all facts whose receiver is this map while
    * leaving facts for unrelated maps intact.
    */
   static function mapGetAfterClear(id: String): Null<NamedItem> {
@@ -314,6 +340,179 @@ class Main {
       return null;
     holder.named.clear();
     return holder.named.get(id);
+  }
+
+  /**
+   * Reassigning a receiver inside the guarded branch ends that branch's proof.
+   *
+   * This differs from `optionalAfterReceiverReassignment`: the assignment
+   * happens while the `item.name != null` branch is still active. A printer
+   * stack that simply keeps the branch fact until the closing brace will use
+   * the old record's proof for the new empty record.
+   */
+  static function optionalInsideNarrowedBranch(): Null<String> {
+    var item: OptionalNamedItem = {name: "before"};
+    if (item.name != null) {
+      item = {};
+      return item.name;
+    }
+    return null;
+  }
+
+  /**
+   * Assigning a nested receiver ends proofs about fields below that receiver.
+   *
+   * The guard describes `holder.item.name`. Replacing `holder.item` does not
+   * assign `name` directly, but the old `name` proof is still invalid because
+   * the path now reaches a different record.
+   */
+  static function optionalAfterNestedReceiverReassignment(): Null<String> {
+    final holder: NestedOptionalNamedItem = {
+      item: {name: "before"}
+    };
+    if (holder.item.name == null)
+      return null;
+    holder.item = {};
+    return holder.item.name;
+  }
+
+  /** Reassigning the map local ends every presence proof for the old map. */
+  static function mapGetAfterReceiverReassignment(id: String): Null<NamedItem> {
+    var named = buildMapHolder(["alpha"]).named;
+    if (!named.exists(id))
+      return null;
+    named = new Map<String, NamedItem>();
+    return named.get(id);
+  }
+
+  /** Reassigning the checked key ends the proof for the earlier key value. */
+  static function mapGetAfterKeyReassignment(id: String): Null<NamedItem> {
+    final named = buildMapHolder(["alpha"]).named;
+    var key = id;
+    if (!named.exists(key))
+      return null;
+    key = "missing";
+    return named.get(key);
+  }
+
+  /**
+   * A callback created during key iteration runs in a new function scope.
+   *
+   * `map.keys()` proves that the key exists only while the loop body is
+   * executing. The callback is invoked after `clear`, so it must perform an
+   * ordinary nullable lookup rather than inherit the loop's temporary proof.
+   */
+  static function mapKeyCallbackAfterClear(): Null<NamedItem> {
+    final named = buildMapHolder(["alpha"]).named;
+    final callbacks: Array<NullableNamedCallback> = [];
+    for (id in named.keys()) {
+      callbacks.push({
+        read: () -> named.get(id)
+      });
+    }
+    named.clear();
+    return callbacks[0].read();
+  }
+
+  /**
+   * A nested branch whose alternatives both exit proves the following value.
+   *
+   * One missing-value path throws and the other returns. Neither can reach the
+   * final field read, so the successful path still has a valid non-null proof.
+   */
+  static function nestedReturnOrThrow(id: String, throwMissing: Bool): String {
+    final item = buildMapHolder(["alpha"]).named.get(id);
+    if (item == null) {
+      if (throwMissing)
+        throw "missing";
+      return "missing";
+    }
+    return item.name;
+  }
+
+  /**
+   * Nested `break` and `continue` exits preserve the proof on the fall-through
+   * path in the same loop iteration.
+   */
+  static function nestedBreakOrContinue(ids: Array<String>): Array<String> {
+    final named = buildMapHolder(["alpha"]).named;
+    final out: Array<String> = [];
+    for (id in ids) {
+      final item = named.get(id);
+      if (item == null) {
+        if (id == "stop")
+          break;
+        continue;
+      }
+      out.push(item.name);
+    }
+    return out;
+  }
+
+  /**
+   * Key presence does not prove a nullable map value is non-null.
+   *
+   * The key exists and deliberately stores `null`. Generated TypeScript must
+   * keep the nullable read even though an `exists` guard precedes it.
+   */
+  static function nullableMapValueAfterExists(id: String): Null<NamedItem> {
+    final named = new Map<String, Null<NamedItem>>();
+    named.set(id, null);
+    if (!named.exists(id))
+      return namedItem("missing");
+    return named.get(id);
+  }
+
+  /**
+   * A loop assignment invalidates an earlier field proof on every later path.
+   *
+   * The loop may execute and replace `item`, so neither the loop back-edge nor
+   * the statement after the loop may reuse the guard's proof about the old
+   * record.
+   */
+  static function optionalAfterLoopReassignment(): Null<String> {
+    var item: OptionalNamedItem = {name: "before"};
+    if (item.name == null)
+      return null;
+    var remaining = 1;
+    while (remaining > 0) {
+      item = {};
+      remaining--;
+    }
+    return item.name;
+  }
+
+  /**
+   * A `do...while` body runs once before its condition is checked.
+   *
+   * The condition could prove `item.name` present for a later iteration, but
+   * it cannot prove anything about this first read. A function-local plan has
+   * one shared program point for the body, so it must keep that point safe for
+   * the first iteration instead of borrowing the later condition's proof.
+   */
+  static function optionalBeforeDoWhileCondition(): Null<String> {
+    final item: OptionalNamedItem = {};
+    var observed: Null<String> = null;
+    var firstIteration = true;
+    do {
+      observed = item.name;
+      firstIteration = false;
+    } while (firstIteration && item.name != null);
+    return observed;
+  }
+
+  /**
+   * A later part of one condition can end a fact learned by an earlier part.
+   *
+   * The left side proves the old record's `name` exists. The right side then
+   * replaces that record before the branch begins, so the branch must not use
+   * the proof that belonged to the old value.
+   */
+  static function optionalAfterConditionReassignment(): Null<String> {
+    var item: OptionalNamedItem = {name: "before"};
+    if (item.name != null && (item = {}) != null)
+      return item.name;
+    return null;
   }
 
   static function namedItem(name: String): NamedItem {
