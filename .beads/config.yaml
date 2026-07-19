@@ -15,3 +15,11 @@ issue-prefix: "genes"
 
 # NOTE: Do not set `sync-branch` in this repo. There is intentionally no `beads-sync` branch.
 # sync-branch: ""
+
+# All linked Git worktrees share this Beads database. An automatic export from
+# one worktree can therefore rewrite the primary checkout while somebody is
+# editing it. Keep the database as the live source of truth and publish the
+# tracked JSONL snapshot only through `yarn beads:export` from a clean, current
+# primary checkout. See docs/BEADS_WORKTREES.md.
+export.auto: false
+export.git-add: false
