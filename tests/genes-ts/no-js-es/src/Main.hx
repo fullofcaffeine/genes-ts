@@ -125,6 +125,9 @@ class Main {
     trace('receiver-reassignment:${reassignedOptional == null}:${genes.ts.Undefinable.isAbsent(reassignedOptional)}');
     trace('map-remove:${mapGetAfterRemove("alpha") == null}');
     trace('map-clear:${mapGetAfterClear("alpha") == null}');
+    trace('map-unknown-remove:${mapGetAfterUnknownRemove() == null}');
+    trace('map-exact-remove-keeps-other:${mapGetOtherKeyAfterRemove()}');
+    trace('map-unknown-remove-keeps-other-map:${mapGetUnrelatedMapAfterUnknownRemove()}');
     final branchReassigned = optionalInsideNarrowedBranch();
     trace('branch-reassignment:${branchReassigned == null}:${genes.ts.Undefinable.isAbsent(branchReassigned)}');
     final nestedReassigned = optionalAfterNestedReceiverReassignment();
@@ -345,6 +348,60 @@ class Main {
       return null;
     holder.named.clear();
     return holder.named.get(id);
+  }
+
+  /**
+   * A computed removal key may name any entry in this map.
+   *
+   * Why: `Map.exists("alpha")` proves that one read is currently present, but
+   * the compiler cannot look inside an arbitrary key-producing call. If that
+   * call returns `"alpha"`, the proof ends just as it would for a literal key.
+   *
+   * What/How: the fixture keeps the map receiver stable while making only the
+   * removal key unrecognizable to the narrowing plan. The later read must be
+   * treated as nullable instead of receiving a stale TypeScript `!`.
+   */
+  static function mapGetAfterUnknownRemove(): Null<NamedItem> {
+    final holder = buildMapHolder(["alpha"]);
+    if (!holder.named.exists("alpha"))
+      return null;
+    holder.named.remove(computedRemovalKey());
+    return holder.named.get("alpha");
+  }
+
+  /** A call is intentionally not a stable key identity for flow proofs. */
+  static function computedRemovalKey(): String {
+    return "alpha";
+  }
+
+  /**
+   * Removing one known key must not discard a proof about a different key.
+   * This guards the useful precision of exact-key invalidation while the
+   * computed-key case above becomes more conservative.
+   */
+  static function mapGetOtherKeyAfterRemove(): String {
+    final holder = buildMapHolder(["alpha", "beta"]);
+    if (!holder.named.exists("alpha"))
+      return "missing-alpha";
+    if (!holder.named.exists("beta"))
+      return "missing-beta";
+    holder.named.remove("alpha");
+    return holder.named.get("beta").name;
+  }
+
+  /**
+   * An unknown removal key affects only its exact stable map receiver.
+   * A presence proof for another map remains valid and concise.
+   */
+  static function mapGetUnrelatedMapAfterUnknownRemove(): String {
+    final changed = buildMapHolder(["alpha"]);
+    final unchanged = buildMapHolder(["beta"]);
+    if (!changed.named.exists("alpha"))
+      return "missing-alpha";
+    if (!unchanged.named.exists("beta"))
+      return "missing-beta";
+    changed.named.remove(computedRemovalKey());
+    return unchanged.named.get("beta").name;
   }
 
   /**

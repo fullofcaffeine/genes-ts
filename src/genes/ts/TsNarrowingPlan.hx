@@ -60,6 +60,13 @@ enum TsNarrowProofKind {
 enum TsNarrowInvalidationKind {
   ValueChanged(value: TsNarrowValueIdentity);
   MapEntryRemoved(map: TsNarrowValueIdentity, key: TsNarrowValueIdentity);
+  /**
+   * A removal ran on this map, but its computed key has no stable identity.
+   * Any previously proved entry on this exact receiver may be the one that
+   * disappeared, so all of those entry proofs end. Facts for other maps stay
+   * valid; this is not a whole-program alias or call-effect assumption.
+   */
+  MapEntryPossiblyRemoved(map: TsNarrowValueIdentity);
   MapCleared(map: TsNarrowValueIdentity);
 }
 
@@ -407,7 +414,7 @@ private final class TsNarrowingState {
         next.iteratorOrigins.resize(0);
         for (origin in origins)
           next.iteratorOrigins.push(origin);
-      case MapEntryRemoved(_) | MapCleared(_):
+      case MapEntryRemoved(_) | MapEntryPossiblyRemoved(_) | MapCleared(_):
     }
     return next;
   }
@@ -468,7 +475,7 @@ private final class TsNarrowingState {
               && TsNarrowValueIdentityTools.equals(key, factKey);
           default: false;
         }
-      case MapCleared(map):
+      case MapEntryPossiblyRemoved(map) | MapCleared(map):
         switch fact {
           case MapReadValue(factMap, _):
             TsNarrowValueIdentityTools.equals(map, factMap);
@@ -522,6 +529,8 @@ private final class TsNarrowingState {
       case [MapEntryRemoved(aMap, aKey), MapEntryRemoved(bMap, bKey)]:
         TsNarrowValueIdentityTools.equals(aMap, bMap)
           && TsNarrowValueIdentityTools.equals(aKey, bKey);
+      case [MapEntryPossiblyRemoved(a), MapEntryPossiblyRemoved(b)]:
+        TsNarrowValueIdentityTools.equals(a, b);
       case [MapCleared(a), MapCleared(b)]:
         TsNarrowValueIdentityTools.equals(a, b);
       default: false;
@@ -1121,8 +1130,9 @@ private final class TsNarrowingPlanBuilder {
           [];
         } else if (name == "remove" && arguments.length == 1) {
           final key = stableValue(arguments[0]);
-          key == null ? [] : [new TsNarrowInvalidation(
-            MapEntryRemoved(map, key), expression.pos)];
+          [new TsNarrowInvalidation(key == null
+            ? MapEntryPossiblyRemoved(map)
+            : MapEntryRemoved(map, key), expression.pos)];
         } else if (name == "clear" && arguments.length == 0) {
           [new TsNarrowInvalidation(MapCleared(map), expression.pos)];
         } else {

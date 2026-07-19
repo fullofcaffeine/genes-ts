@@ -72,6 +72,21 @@ function main(): void {
     /\bstatic mapGetAfterClear\(id: string\): NamedItem \| null \{[\s\S]*?\n\t\}/,
     "map-clear"
   );
+  const mapUnknownRemove = methodBlock(
+    generated,
+    /\bstatic mapGetAfterUnknownRemove\(\): NamedItem \| null \{[\s\S]*?\n\t\}/,
+    "map-unknown-remove"
+  );
+  const mapExactRemoveKeepsOther = methodBlock(
+    generated,
+    /\bstatic mapGetOtherKeyAfterRemove\(\): string \{[\s\S]*?\n\t\}/,
+    "map-exact-remove-keeps-other"
+  );
+  const mapUnknownRemoveKeepsOtherMap = methodBlock(
+    generated,
+    /\bstatic mapGetUnrelatedMapAfterUnknownRemove\(\): string \{[\s\S]*?\n\t\}/,
+    "map-unknown-remove-keeps-other-map"
+  );
   const branchReassignment = methodBlock(
     generated,
     /\bstatic optionalInsideNarrowedBranch\(\): string \| null \{[\s\S]*?\n\t\}/,
@@ -165,6 +180,21 @@ function main(): void {
   }
   if (mapClear.includes("named.get(id)!")) {
     staleFacts.push("Map.clear kept the earlier Map.exists presence proof");
+  }
+  if (/named\.get\("alpha"\)!/.test(mapUnknownRemove)) {
+    staleFacts.push(
+      "Map.remove with a computed key kept a possibly removed entry proof"
+    );
+  }
+  if (!/named\.get\("beta"\)!/.test(mapExactRemoveKeepsOther)) {
+    staleFacts.push(
+      "exact-key Map.remove discarded the proof for a different entry"
+    );
+  }
+  if (!/named\.get\("beta"\)!/.test(mapUnknownRemoveKeepsOtherMap)) {
+    staleFacts.push(
+      "unknown-key Map.remove discarded a proof owned by another map"
+    );
   }
   if (branchReassignment.includes("return (item.name!);")) {
     staleFacts.push(
@@ -283,6 +313,9 @@ function main(): void {
     "nested-reassignment:true:false",
     "map-receiver-reassignment:true",
     "map-key-reassignment:true",
+    "map-unknown-remove:true",
+    "map-exact-remove-keeps-other:beta",
+    "map-unknown-remove-keeps-other-map:beta",
     "delayed-map-key:true",
     "nested-return-throw:alpha",
     "nested-break-continue:alpha",
