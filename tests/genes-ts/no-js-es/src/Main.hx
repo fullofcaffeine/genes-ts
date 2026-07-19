@@ -137,6 +137,10 @@ class Main {
     trace('nullable-map-value:${nullableMapValueAfterExists("alpha") == null}');
     final loopReassigned = optionalAfterLoopReassignment();
     trace('loop-reassignment:${loopReassigned == null}:${genes.ts.Undefinable.isAbsent(loopReassigned)}');
+    final doWhileFirstRead = optionalBeforeDoWhileCondition();
+    trace('do-while-first-read:${doWhileFirstRead == null}:${genes.ts.Undefinable.isAbsent(doWhileFirstRead)}');
+    final conditionReassigned = optionalAfterConditionReassignment();
+    trace('condition-reassignment:${conditionReassigned == null}:${genes.ts.Undefinable.isAbsent(conditionReassigned)}');
     trace(inlineValueTemps());
     trace(mapAfterResultParameter({messages: ["one", "three"]}).join(","));
     trace(recordConstructionTemps("alpha", {name: "Alpha"}, null));
@@ -476,6 +480,39 @@ class Main {
       remaining--;
     }
     return item.name;
+  }
+
+  /**
+   * A `do...while` body runs once before its condition is checked.
+   *
+   * The condition could prove `item.name` present for a later iteration, but
+   * it cannot prove anything about this first read. A function-local plan has
+   * one shared program point for the body, so it must keep that point safe for
+   * the first iteration instead of borrowing the later condition's proof.
+   */
+  static function optionalBeforeDoWhileCondition(): Null<String> {
+    final item: OptionalNamedItem = {};
+    var observed: Null<String> = null;
+    var firstIteration = true;
+    do {
+      observed = item.name;
+      firstIteration = false;
+    } while (firstIteration && item.name != null);
+    return observed;
+  }
+
+  /**
+   * A later part of one condition can end a fact learned by an earlier part.
+   *
+   * The left side proves the old record's `name` exists. The right side then
+   * replaces that record before the branch begins, so the branch must not use
+   * the proof that belonged to the old value.
+   */
+  static function optionalAfterConditionReassignment(): Null<String> {
+    var item: OptionalNamedItem = {name: "before"};
+    if (item.name != null && (item = {}) != null)
+      return item.name;
+    return null;
   }
 
   static function namedItem(name: String): NamedItem {

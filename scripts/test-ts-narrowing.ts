@@ -117,6 +117,16 @@ function main(): void {
     /\bstatic optionalAfterLoopReassignment\(\): string \| null \{[\s\S]*?\n\t\}/,
     "loop-reassignment"
   );
+  const doWhileFirstRead = methodBlock(
+    generated,
+    /\bstatic optionalBeforeDoWhileCondition\(\): string \| null \{[\s\S]*?\n\t\}/,
+    "do-while-first-read"
+  );
+  const conditionReassignment = methodBlock(
+    generated,
+    /\bstatic optionalAfterConditionReassignment\(\): string \| null \{[\s\S]*?\n\t\}/,
+    "condition-reassignment"
+  );
 
   const transcript = execFileSync(
     process.execPath,
@@ -197,6 +207,26 @@ function main(): void {
       "loop reassignment skipped optional-field null normalization"
     );
   }
+  if (doWhileFirstRead.includes("observed = item.name!;")) {
+    staleFacts.push(
+      "a do-while condition incorrectly narrowed the first body iteration"
+    );
+  }
+  if (!doWhileFirstRead.includes("observed = (item.name ?? null);")) {
+    staleFacts.push(
+      "the first do-while body read skipped optional-field null normalization"
+    );
+  }
+  if (conditionReassignment.includes("return (item.name!);")) {
+    staleFacts.push(
+      "a later assignment in one condition revived an earlier field proof"
+    );
+  }
+  if (!conditionReassignment.includes("return (item.name ?? null);")) {
+    staleFacts.push(
+      "condition reassignment skipped optional-field null normalization"
+    );
+  }
   if (!transcript.includes("receiver-reassignment:true:false")) {
     staleFacts.push(
       "the reassigned optional field returned raw undefined instead of Haxe null"
@@ -217,7 +247,9 @@ function main(): void {
     "nested-return-throw:alpha",
     "nested-break-continue:alpha",
     "nullable-map-value:true",
-    "loop-reassignment:true:false"
+    "loop-reassignment:true:false",
+    "do-while-first-read:true:false",
+    "condition-reassignment:true:false"
   ]) {
     if (!transcript.includes(expected)) {
       staleFacts.push(`runtime transcript did not contain ${expected}`);

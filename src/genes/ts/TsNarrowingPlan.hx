@@ -231,8 +231,9 @@ final class TsNarrowValueIdentityTools {
  * ----
  * This plan records the facts valid before each typed expression. It models
  * direct null guards, `Map.exists`, exiting branches, exact assignments,
- * `Map.remove`/`clear`, map-key iteration, loop mutation, and nested function
- * boundaries. Unsupported shapes simply receive no proof.
+ * `Map.remove`/`clear`, map-key iteration, pre-test versus post-test loop
+ * ordering, loop mutation, and nested function boundaries. Unsupported shapes
+ * simply receive no proof.
  *
  * How
  * ---
@@ -608,8 +609,8 @@ private final class TsNarrowingPlanBuilder {
       case TBlock(elements): analyzeBlock(elements, state);
       case TIf(condition, thenExpression, elseExpression):
         analyzeIf(condition, thenExpression, elseExpression, state);
-      case TWhile(condition, body, _):
-        analyzeWhile(condition, body, state);
+      case TWhile(condition, body, normalWhile):
+        analyzeWhile(condition, body, normalWhile, state);
       case TFor(variable, iteratorExpression, body):
         analyzeFor(variable, iteratorExpression, body, state);
       case TFunction(func):
@@ -663,7 +664,8 @@ private final class TsNarrowingPlanBuilder {
     final afterCondition = conditionFlow.normal == null
       ? new TsNarrowingState()
       : conditionFlow.normal;
-    final facts = conditionFacts(condition);
+    final facts = conditionFactsAfterEvaluation(condition,
+      conditionFlow.effects);
     final thenFlow = analyze(thenExpression,
       afterCondition.addFacts(facts.whenTrue));
     final elseFlow = elseExpression == null
@@ -682,17 +684,32 @@ private final class TsNarrowingPlanBuilder {
   }
 
   function analyzeWhile(condition: TypedExpr, body: TypedExpr,
-      state: TsNarrowingState): TsNarrowFlow {
+      normalWhile: Bool, state: TsNarrowingState): TsNarrowFlow {
     // A single typed loop body represents every iteration. Apply mutations the
     // body can perform before recording its entry state, so a proof from an
     // earlier iteration cannot survive at the same program point.
     final loopEffects = collectEffects(body);
     final stableEntry = state.applyAll(loopEffects);
+    if (!normalWhile) {
+      // A do-while loop executes its body before checking its condition. The
+      // body has one shared program point for every iteration, so a condition
+      // fact learned after the first iteration cannot be used there: it was
+      // not true when that same source expression ran the first time.
+      final bodyFlow = analyze(body, stableEntry);
+      final afterBody = bodyFlow.normal == null
+        ? new TsNarrowingState()
+        : bodyFlow.normal;
+      final conditionFlow = analyze(condition, afterBody);
+      return new TsNarrowFlow(conditionFlow.normal,
+        appendEffects(loopEffects,
+          appendEffects(bodyFlow.effects, conditionFlow.effects)));
+    }
     final conditionFlow = analyze(condition, stableEntry);
     final afterCondition = conditionFlow.normal == null
       ? new TsNarrowingState()
       : conditionFlow.normal;
-    final facts = conditionFacts(condition);
+    final facts = conditionFactsAfterEvaluation(condition,
+      conditionFlow.effects);
     final bodyFlow = analyze(body, afterCondition.addFacts(facts.whenTrue));
     final afterLoop = afterCondition.applyAll(loopEffects);
     return new TsNarrowFlow(afterLoop,
@@ -910,6 +927,32 @@ private final class TsNarrowingPlanBuilder {
   }
 
   /**
+   * Keeps only condition facts that remain true after the whole condition ran.
+   *
+   * A compound condition can first check a value and then assign to that same
+   * value in a later operand. Treating the earlier check as a branch fact would
+   * revive a proof that the assignment already ended. Filtering all observed
+   * condition mutations is intentionally conservative: a later check may be
+   * able to prove the value again, but skipping that optimization is safer than
+   * guessing about evaluation order.
+   */
+  function conditionFactsAfterEvaluation(expression: TypedExpr,
+      effects: Array<TsNarrowInvalidation>): TsNarrowCondition {
+    final facts = conditionFacts(expression);
+    return {
+      whenTrue: factsAfterEffects(facts.whenTrue, effects),
+      whenFalse: factsAfterEffects(facts.whenFalse, effects)
+    };
+  }
+
+  static function factsAfterEffects(facts: Array<TsNarrowFact>,
+      effects: Array<TsNarrowInvalidation>): Array<TsNarrowFact> {
+    if (facts.length == 0 || effects.length == 0)
+      return facts;
+    return new TsNarrowingState(facts).applyAll(effects).facts;
+  }
+
+  /**
    * Preserves the legacy bounded continuation rule at statement boundaries.
    *
    * An `if (value == null) return` statement proves the next statement sees a
@@ -920,7 +963,8 @@ private final class TsNarrowingPlanBuilder {
     return switch unwrap(expression).expr {
       case TIf(condition, thenExpression, null)
         if (definitelyExits(thenExpression)):
-        conditionFacts(condition).whenFalse;
+        conditionFactsAfterEvaluation(condition,
+          collectEffects(condition)).whenFalse;
       default: [];
     }
   }
