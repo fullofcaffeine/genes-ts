@@ -48,6 +48,13 @@ export interface InheritedCardProps extends InheritedBaseProps {
 export const InheritedCardProps = function() {};
 InheritedCardProps.__isInterface__ = true;
 
+/**
+ * Positive React HXX fixture shared by typed TSX and createElement profiles.
+ *
+ * It proves local, imported, aliased, generic, and inherited component
+ * contracts alongside intrinsic props, callbacks, spreads, and children. The
+ * harness type-checks and executes the generated output.
+ */
 export class Main {
 	static main(): void {
 		let title: string = "Hi";
@@ -119,9 +126,10 @@ export class Main {
 		if (genericHtml != "<span>n:7</span>") {
 			throw Exception.thrown("Unexpected generic HTML: " + genericHtml);
 		};
-		let inheritedHtml: string = renderToStaticMarkup(<Main.InheritedCard label="Inherited" tone="warm" onSelect={function (event: import('react').MouseEvent<HTMLElement>) {
+		let broadHandler: ((arg0: import('react').SyntheticEvent<HTMLElement>) => void) = function (event: import('react').SyntheticEvent<HTMLElement>) {
 			event.preventDefault();
-		}} />);
+		};
+		let inheritedHtml: string = renderToStaticMarkup(<Main.InheritedCard label="Inherited" tone="warm" onSelect={broadHandler} />);
 		if (inheritedHtml != "<aside data-tone=\"warm\">Inherited</aside>") {
 			throw Exception.thrown("Unexpected inherited component HTML: " + inheritedHtml);
 		};
@@ -152,7 +160,7 @@ export class Main {
 		}}>Contextual</button>;
 		renderToStaticMarkup(contextualClick);
 		let contextualInput: JSX.Element = <input onChange={function (event: import('react').ChangeEvent<HTMLInputElement>) {
-			console.log("tests/genes-ts/snapshot/react/src/Main.hx:141:",event.target.value);
+			console.log("tests/genes-ts/snapshot/react/src/Main.hx:151:",event.target.value);
 		}} />;
 		renderToStaticMarkup(contextualInput);
 		let okHandler: (() => void) = function () {
