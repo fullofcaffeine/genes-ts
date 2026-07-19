@@ -11,6 +11,8 @@ using StringTools;
 using haxe.macro.TypeTools;
 
 private typedef IncludeType = (type:ModuleType, rule:String, pos:Position)->Void;
+private typedef ObserveTypeOverride = (template:String, rule:String,
+  pos:Position)->Void;
 
 /**
  * Extracts importable declarations from a target type projection.
@@ -36,10 +38,13 @@ private typedef IncludeType = (type:ModuleType, rule:String, pos:Position)->Void
  */
 class TypeReferenceCollector {
   final includeType: IncludeType;
+  final observeTypeOverride: Null<ObserveTypeOverride>;
   final stack = new Map<String, Bool>();
 
-  public function new(includeType: IncludeType) {
+  public function new(includeType: IncludeType,
+      ?observeTypeOverride: ObserveTypeOverride) {
     this.includeType = includeType;
+    this.observeTypeOverride = observeTypeOverride;
   }
 
   /** Collects applied parameters and, when requested, generic constraints. */
@@ -263,6 +268,56 @@ class TypeReferenceCollector {
     };
   }
 
+  /** Records an already-extracted raw type spelling without rendering it. */
+  public function observeOverrideTemplate(template: String, rule: String,
+      pos: Position): Void {
+    if (observeTypeOverride != null)
+      observeTypeOverride(template, rule, pos);
+  }
+
+  /** Records a metadata-owned type spelling when the declaration has one. */
+  public function observeOverrideMeta(meta: MetaAccess, rule: String,
+      pos: Position): Void {
+    if (!hasTypeOverride(meta))
+      return;
+    final template = typeOverride(meta);
+    if (template == null) {
+      CompilerDiagnostic.fail(
+        '@:ts.type/@:genes.type needs a string expression', pos);
+      return;
+    }
+    observeOverrideTemplate(template, rule, pos);
+  }
+
+  /**
+   * Reports whether a raw type contract names one qualified namespace.
+   *
+   * This inspects the authored `@:ts.type` contract before emission. It never
+   * searches generated TypeScript, so import planning remains deterministic
+   * and does not depend on printer output.
+   */
+  public static function overrideReferencesNamespace(template: String,
+      namespace: String): Bool {
+    final needle = '$namespace.';
+    var from = 0;
+    while (from < template.length) {
+      final index = template.indexOf(needle, from);
+      if (index == -1)
+        return false;
+      if (index == 0 || !isIdentifierPart(template.charCodeAt(index - 1)))
+        return true;
+      from = index + needle.length;
+    }
+    return false;
+  }
+
+  static function isIdentifierPart(code: Int): Bool {
+    return (code >= 'a'.code && code <= 'z'.code)
+      || (code >= 'A'.code && code <= 'Z'.code)
+      || (code >= '0'.code && code <= '9'.code)
+      || code == '_'.code || code == '$'.code;
+  }
+
   /** Traverses only `$0`, `$1`, ... arguments interpolated by a raw override. */
   function collectOverride(meta: MetaAccess, params: Array<Type>, rule: String,
       pos: Position): Void {
@@ -272,6 +327,7 @@ class TypeReferenceCollector {
         '@:ts.type/@:genes.type needs a string expression', pos);
       return;
     }
+    observeOverrideTemplate(template, rule, pos);
     var index = 0;
     while (index < template.length) {
       final marker = template.indexOf('$', index);

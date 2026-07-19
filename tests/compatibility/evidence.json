@@ -77,7 +77,7 @@
           "kind": "source-pattern",
           "path": "scripts/test-genes-ts-snapshots.ts",
           "match": "\\n\\s*name:\\s*\"",
-          "expected": 7
+          "expected": 8
         },
         {
           "id": "checked-in-examples",
@@ -228,7 +228,7 @@
           "kind": "source-pattern",
           "path": "scripts/test-genes-ts-snapshots.ts",
           "match": "\\n\\s*name:\\s*\"",
-          "expected": 7
+          "expected": 8
         },
         {
           "id": "ts2hx-snapshot-files",

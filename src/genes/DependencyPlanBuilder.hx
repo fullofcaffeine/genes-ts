@@ -45,6 +45,7 @@ using haxe.macro.TypedExprTools;
 class DependencyPlanBuilder {
   final module: Module;
   final edges: Array<DependencyEdge> = [];
+  var usesJsxNamespaceType = false;
 
   public static function build(module: Module): DependencyPlan {
     final builder = new DependencyPlanBuilder(module);
@@ -53,7 +54,7 @@ class DependencyPlanBuilder {
       builder.collectTypeEdges(TypeOnly, true);
     if (Context.defined('dts'))
       builder.collectTypeEdges(DeclarationOnly, false);
-    return new DependencyPlan(builder.edges);
+    return new DependencyPlan(builder.edges, builder.usesJsxNamespaceType);
   }
 
   function new(module: Module) {
@@ -381,8 +382,14 @@ class DependencyPlanBuilder {
 
   function collectTypeEdges(kind: DependencyEdgeKind,
       includeExpressionLocals: Bool): Void {
-    final collector = new TypeReferenceCollector((type, rule, pos) ->
-      addReference(kind, type, rule, pos));
+    final collector = new TypeReferenceCollector(
+      (type, rule, pos) -> addReference(kind, type, rule, pos),
+      (template, _, _) -> {
+        if (kind == TypeOnly
+          && TypeReferenceCollector.overrideReferencesNamespace(template,
+            'JSX'))
+          usesJsxNamespaceType = true;
+      });
 
     /**
      * Reports whether TypeScript emission may print this call's enum result.
@@ -425,19 +432,27 @@ class DependencyPlanBuilder {
           expression.pos);
       switch expression.expr {
         case TVar(variable, _):
+          collector.observeOverrideMeta(variable.meta,
+            'type.local-variable-override', expression.pos);
           collector.collect(variable.t, 'type.local-variable', expression.pos);
         case TFunction(functionType):
-          for (argument in functionType.args)
+          for (argument in functionType.args) {
+            collector.observeOverrideMeta(argument.v.meta,
+              'type.local-argument-override', expression.pos);
             collector.collect(argument.v.t, 'type.local-argument',
               expression.pos);
+          }
         default:
       }
       expression.iter(collectLocalTypes);
     }
 
     function collectSignature(field: Field): Void {
-      if (field.tsType != null)
+      if (field.tsType != null) {
+        collector.observeOverrideTemplate(field.tsType,
+          '$kind.member-signature-override', field.pos);
         return;
+      }
       collector.collectParams(field.params.map(parameter -> parameter.t), true,
         '$kind.member-parameters', field.pos);
       collector.collect(field.type, '$kind.member-signature', field.pos);

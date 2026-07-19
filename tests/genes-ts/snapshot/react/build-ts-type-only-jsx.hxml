@@ -1,0 +1,11 @@
+-lib genes-ts
+
+-cp tests/genes-ts/snapshot/react/src
+--main TypeOnlyJsxMain
+
+# Plain TypeScript with a module-scoped JSX namespace and no authored markup.
+-js tests/genes-ts/snapshot/react/out/ts-type-only-jsx/src-gen/index.ts
+-D genes.ts
+-D genes.ts.jsx_import_source=react
+
+-dce full

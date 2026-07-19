@@ -420,6 +420,8 @@ strictEqual(/<\s+GenericInt/.test(authoredHxxSource), false);
 
 rmrf("tests/genes-ts/snapshot/react/out/tsx");
 rmrf("tests/genes-ts/snapshot/react/out/tsx-jsx-source");
+rmrf("tests/genes-ts/snapshot/react/out/tsx-type-only-jsx");
+rmrf("tests/genes-ts/snapshot/react/out/ts-type-only-jsx");
 rmrf("tests/genes-ts/snapshot/react/out/tsx-classic");
 rmrf("tests/genes-ts/snapshot/react/out/ts");
 rmrf("tests/genes-ts/snapshot/react/out/dual-tsx");
@@ -566,6 +568,42 @@ runGeneratedTypeScriptMatrix(
   "tests/genes-ts/snapshot/react/tsconfig.tsx-jsx-source.json"
 );
 run("node", ["tests/genes-ts/snapshot/react/out/tsx-jsx-source/dist/index.js"]);
+
+// A module can use Genes' React element type without containing HXX markup.
+// The emitted annotation still names the module-scoped JSX namespace, so the
+// import must follow type use rather than `JsxPlan` marker presence alone.
+run("haxe", ["tests/genes-ts/snapshot/react/build-tsx-type-only-jsx.hxml"]);
+const typeOnlyJsxSource = readFileSync(
+  path.join(
+    repoRoot,
+    "tests/genes-ts/snapshot/react/out/tsx-type-only-jsx/src-gen/TypeOnlyJsxMain.tsx"
+  ),
+  "utf8"
+);
+ok(typeOnlyJsxSource.startsWith('import type {JSX} from "react"\n'));
+ok(typeOnlyJsxSource.includes("JSX.Element"));
+ok(!typeOnlyJsxSource.includes('import * as React'));
+runGeneratedTypeScriptMatrix(
+  "tests/genes-ts/snapshot/react/tsconfig.tsx-type-only-jsx.json"
+);
+
+// `genes.react.Element` has the same `JSX.Element` type spelling in ordinary
+// `.ts` output. A module-scoped JSX namespace therefore needs the same
+// type-only import even though this profile cannot contain TSX syntax.
+run("haxe", ["tests/genes-ts/snapshot/react/build-ts-type-only-jsx.hxml"]);
+const typeOnlyJsxTsSource = readFileSync(
+  path.join(
+    repoRoot,
+    "tests/genes-ts/snapshot/react/out/ts-type-only-jsx/src-gen/TypeOnlyJsxMain.ts"
+  ),
+  "utf8"
+);
+ok(typeOnlyJsxTsSource.startsWith('import type {JSX} from "react"\n'));
+ok(typeOnlyJsxTsSource.includes("JSX.Element"));
+ok(!typeOnlyJsxTsSource.includes('import * as React'));
+runGeneratedTypeScriptMatrix(
+  "tests/genes-ts/snapshot/react/tsconfig.ts-type-only-jsx.json"
+);
 
 rmrf("tests/genes-ts/snapshot/react/out/tsx-classic");
 run("haxe", ["tests/genes-ts/snapshot/react/build-tsx-classic.hxml"]);

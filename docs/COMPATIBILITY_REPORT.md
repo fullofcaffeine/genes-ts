@@ -13,7 +13,7 @@ This is an evidence contract, not a cached CI-success badge. `blocking` and `non
 | Evidence class | Metric | Exact count | Disposition |
 | --- | --- | ---: | --- |
 | Compile inventory | Classic Haxe test modules | 47 | `blocking` |
-| Compile inventory | Generated TypeScript snapshot profiles | 7 | `blocking` |
+| Compile inventory | Generated TypeScript snapshot profiles | 8 | `blocking` |
 | Compile inventory | Examples with TS and classic profiles | 2 | `blocking` |
 | Strict public typing | Strict positive/negative consumer sources | 10 | `blocking` |
 | Strict public typing | Explicitly owned exported-surface boundaries | 28 | `blocking` |
@@ -22,7 +22,7 @@ This is an evidence contract, not a cached CI-success badge. `blocking` and `non
 | Semantic differential | TS/classic/declaration and JS oracle profiles | 5 | `blocking` |
 | Semantic differential | Stable dual-output runtime trace events | 19 | `blocking` |
 | Semantic differential | ts2hx supported and fail-closed semantic input modules | 55 | `blocking` |
-| Snapshot stability | genes-ts snapshot profiles | 7 | `blocking` |
+| Snapshot stability | genes-ts snapshot profiles | 8 | `blocking` |
 | Snapshot stability | ts2hx reviewed snapshot files | 50 | `blocking` |
 | Runtime smoke and E2E | Same-source dual-profile examples | 2 | `blocking` |
 | Runtime smoke and E2E | Todoapp browser journeys run in each profile | 3 | `blocking` |
