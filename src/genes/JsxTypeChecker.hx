@@ -750,7 +750,7 @@ class JsxTypeChecker {
     // accept a value that can actually be null.
     if (nullableInner(resolvedActual) != null || literalNull)
       return false;
-    final eventCompatibility = reactEventCompatibility(resolvedActual,
+    final eventCompatibility = reactEventAssignability(resolvedActual,
       resolvedExpected, depth + 1);
     if (eventCompatibility != null)
       return eventCompatibility;
@@ -1181,41 +1181,166 @@ class JsxTypeChecker {
   }
 
   /**
-   * Keeps a React event's target type instead of treating it as decoration.
+   * Checks one directional React event assignment without erasing its target.
    *
-   * Haxe may consider two instances of a phantom generic extern compatible
-   * when the type parameter has no runtime field. React still uses that
-   * parameter in generated TypeScript (`MouseEvent<HTMLButtonElement>`), so
-   * HXX compares it explicitly before Haxe's general unifier runs.
+   * Why: a callback parameter is checked in the opposite direction from its
+   * callback value. An anchor click may be passed to a handler that accepts a
+   * general synthetic DOM event, but a general event may not be passed to a
+   * handler that requires an anchor mouse event. Haxe can otherwise treat the
+   * generic parameter on these externs as decoration because it adds no
+   * runtime field.
+   *
+   * What: `actual` is the event value the caller may provide and `expected` is
+   * the event type the destination can receive. The actual event family must
+   * be the same declaration or inherit from the expected family. Its element
+   * parameter must likewise be the same target or a real subtype.
+   *
+   * How: the walk follows compiler-owned class relations and substitutes their
+   * type parameters before comparing them. It never relies on emitted React
+   * names or structural unification. `Null` means neither side is one of the
+   * closed Genes React event contracts, so normal HXX assignability continues.
    */
-  static function reactEventCompatibility(left: Type, right: Type,
+  static function reactEventAssignability(actual: Type, expected: Type,
       depth: Int): Null<Bool> {
     if (depth > 64)
       return false;
-    return switch [resolveAliases(left), resolveAliases(right)] {
-      case [TInst(leftRef, leftParameters), TInst(rightRef, rightParameters)]:
-        final leftType = leftRef.get();
-        final rightType = rightRef.get();
-        final family = ['ChangeEvent', 'MouseEvent', 'KeyboardEvent', 'FocusEvent', 'SyntheticEvent'];
-        if (leftType.pack.join('.') != 'genes.react'
-          || rightType.pack.join('.') != 'genes.react'
-          || family.indexOf(leftType.name) == -1
-          || family.indexOf(rightType.name) == -1) null; else
-          if (leftParameters.length != rightParameters.length) false; else {
-          var compatible = true;
-          for (index in 0...leftParameters.length)
-            if (!sameInvariantType(leftParameters[index],
-              rightParameters[index], depth + 1)) {
-              compatible = false;
-              break;
-            }
-          if (!compatible)
+    return switch [resolveAliases(actual), resolveAliases(expected)] {
+      case [TInst(actualRef, actualParameters),
+        TInst(expectedRef, expectedParameters)]:
+        final actualType = actualRef.get();
+        final expectedType = expectedRef.get();
+        if (!isReactEventType(actualType) || !isReactEventType(expectedType))
+          null;
+        else if (sameClassIdentity(actualType, expectedType)) {
+          if (actualParameters.length != expectedParameters.length)
             false;
-          else
-            leftType.name == rightType.name ? true : null;
+          else {
+            var compatible = true;
+            for (index in 0...actualParameters.length)
+              if (!reactEventTargetAssignable(actualParameters[index],
+                expectedParameters[index], depth + 1)) {
+                compatible = false;
+                break;
+              }
+            compatible;
+          }
+        } else if (actualType.superClass == null) {
+          false;
+        } else {
+          final relation = actualType.superClass;
+          final parentParameters = [
+            for (parameter in relation.params)
+              TypeTools.applyTypeParameters(parameter, actualType.params,
+                actualParameters)
+          ];
+          reactEventAssignability(TInst(relation.t, parentParameters),
+            TInst(expectedRef, expectedParameters), depth + 1) == true;
         }
       default: null;
     }
+  }
+
+  /**
+   * Returns whether this is one of the five event declarations we reviewed.
+   *
+   * Why: the covariance proof belongs to these declarations, not to their
+   * familiar package or class names. Haxe 4.3.7 rejects a loaded duplicate
+   * such as another `genes.react.MouseEvent`, but this semantic owner should
+   * still state the exact declaration boundary instead of depending on that
+   * separate name-collision rule.
+   *
+   * How: a Haxe class is identified by both its module and declaration name.
+   * Matching the exact pair keeps the rule closed and makes future module
+   * resolution changes fail safely.
+   */
+  static function isReactEventType(type: ClassType): Bool {
+    return switch [type.module, type.name] {
+      case ['genes.react.ChangeEvent', 'ChangeEvent'] |
+        ['genes.react.MouseEvent', 'MouseEvent'] |
+        ['genes.react.KeyboardEvent', 'KeyboardEvent'] |
+        ['genes.react.FocusEvent', 'FocusEvent'] |
+        ['genes.react.SyntheticEvent', 'SyntheticEvent']:
+        true;
+      default: false;
+    }
+  }
+
+  /** Compares compiler declaration identity without using generated names. */
+  static function sameClassIdentity(left: ClassType,
+      right: ClassType): Bool {
+    return left.module == right.module && left.name == right.name;
+  }
+
+  /**
+   * Checks the target parameter carried by a reviewed React event facade.
+   *
+   * The bundled facades expose the target only through read-only event fields,
+   * so a concrete target may safely flow to a handler accepting its base type.
+   * The compiler follows nominal Haxe inheritance instead of structural
+   * unification: two empty externs are not related merely because neither has
+   * a runtime field.
+   */
+  static function reactEventTargetAssignable(actual: Type, expected: Type,
+      depth: Int): Bool {
+    if (depth > 64)
+      return false;
+    final actualBrowser = browserElementIdentity(actual);
+    final expectedBrowser = browserElementIdentity(expected);
+    if (actualBrowser != null || expectedBrowser != null)
+      return actualBrowser != null && expectedBrowser != null
+        && browserElementAssignable(actualBrowser, expectedBrowser);
+    return switch [resolveAliases(actual), resolveAliases(expected)] {
+      case [TInst(actualRef, actualParameters),
+        TInst(expectedRef, expectedParameters)]:
+        classTargetAssignable(actualRef, actualParameters, expectedRef,
+          expectedParameters, depth + 1);
+      default: sameInvariantType(actual, expected, depth + 1);
+    }
+  }
+
+  /** Follows real class/interface relations for a non-browser event target. */
+  static function classTargetAssignable(actualRef: Ref<ClassType>,
+      actualParameters: Array<Type>, expectedRef: Ref<ClassType>,
+      expectedParameters: Array<Type>, depth: Int): Bool {
+    if (depth > 64)
+      return false;
+    final actualType = actualRef.get();
+    final expectedType = expectedRef.get();
+    if (sameClassIdentity(actualType, expectedType))
+      return sameTypeParameters(actualParameters, expectedParameters,
+        depth + 1);
+    if (actualType.superClass != null) {
+      final relation = actualType.superClass;
+      final parentParameters = [
+        for (parameter in relation.params)
+          TypeTools.applyTypeParameters(parameter, actualType.params,
+            actualParameters)
+      ];
+      if (reactEventTargetAssignable(TInst(relation.t, parentParameters),
+        TInst(expectedRef, expectedParameters), depth + 1))
+        return true;
+    }
+    for (relation in actualType.interfaces) {
+      final interfaceParameters = [
+        for (parameter in relation.params)
+          TypeTools.applyTypeParameters(parameter, actualType.params,
+            actualParameters)
+      ];
+      if (reactEventTargetAssignable(TInst(relation.t, interfaceParameters),
+        TInst(expectedRef, expectedParameters), depth + 1))
+        return true;
+    }
+    return false;
+  }
+
+  /** Directional relationship shared by Genes and standard DOM identities. */
+  static function browserElementAssignable(
+      actual: JsxBrowserElementIdentity,
+      expected: JsxBrowserElementIdentity): Bool {
+    if (actual == expected)
+      return true;
+    return expected == HtmlElement
+      && (actual == AnchorElement || actual == InputElement);
   }
 
   static function sameInvariantType(left: Type, right: Type, depth: Int): Bool {

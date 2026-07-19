@@ -19,6 +19,7 @@
 /tests/finally-completion/out
 /tests/deep-nullish-alias/out
 /tests/hxx-carrier-immutability/out
+/tests/hxx-event-variance/out
 /tests/library-profile/out
 /tests/ts2hx-bootstrap/out
 /examples/typescript-target/src-gen
