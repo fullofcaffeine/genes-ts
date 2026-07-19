@@ -1,0 +1,10 @@
+-lib genes-ts
+
+-cp tests/genes-ts/snapshot/react/src
+--main ContextFirstDomMain
+
+# The source intentionally does not mention js.html before its HXX callback.
+-js tests/genes-ts/snapshot/react/out/context-first-dom/src-gen/index.tsx
+-D genes.ts
+
+-dce full
