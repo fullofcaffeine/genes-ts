@@ -137,7 +137,21 @@ need fragment roots (`<>...</>`) or tags that aren’t valid XML names.
 named/spread props, children, fragments, source provenance, and capability
 selection before either printer runs. It also distinguishes a direct value
 from a Haxe-lifted marker local, so property and child side effects are read
-from their evaluated path instead of executing twice. The identical-source fixture
+from their evaluated path instead of executing twice.
+
+Those local linked records are compiler scaffolding, not mutable application
+objects. Prepare ordinary values first, then use the carrier only in the linked
+record path consumed by its marker. Reading it elsewhere, changing one of its
+fields, or letting it escape that path fails with `GTS-JSX-INTENT-010`. A pure
+pass-through alias remains valid, but mutating the carrier through that alias
+does not. This rule matters because property names and list links are checked
+at compile time while property and child values are read at runtime; allowing
+the record to change could make those two views disagree. The focused
+`yarn test:hxx-carrier-immutability` fixture proves that untouched local
+carriers still evaluate side effects exactly once in TypeScript and classic
+JavaScript, while unsafe use fails before prior output is replaced.
+
+The identical-source fixture
 `DualJsxMain.hx` renders through TSX, typed createElement, type-erased JSX, and
 classic JS under `yarn test:genes-ts:tsx` and compares the resulting HTML
 transcript.
@@ -407,5 +421,8 @@ unexpected children, non-renderable children, and invalid spreads before any
 TypeScript lane runs. The harness checks the exact authored HXX line, not merely
 the source filename. Positive alias, generic, inherited-interface, wrapper,
 nullable, recursive, prefix, custom-provider, packed-release, and runtime
-fixtures run beside them. Provider coverage is explicit and extensible; it is
-not a claim that every third-party JSX namespace is built in.
+fixtures run beside them. A separate carrier-ownership fixture rejects
+post-construction prop/child mutation, including mutation through a
+marker-bound alias, with `GTS-JSX-INTENT-010` while retaining the last committed
+output. Provider coverage is explicit and
+extensible; it is not a claim that every third-party JSX namespace is built in.

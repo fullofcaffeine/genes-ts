@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "types": ["node", "react", "react-dom"],
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "rootDir": "./out/ts/src-gen",
+    "outDir": "./out/ts/dist",
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": false
+  },
+  "include": ["out/ts/src-gen/**/*.ts"]
+}

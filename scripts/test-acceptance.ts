@@ -31,6 +31,7 @@ run("node", ["scripts/dist/test-genes-tsx.js"]);
 run("node", ["scripts/dist/test-package-shapes.js"]);
 run("node", ["scripts/dist/probe-binding-identity.js"]);
 run("node", ["scripts/dist/test-ts-narrowing.js"]);
+run("node", ["scripts/dist/test-hxx-carrier-immutability.js"]);
 run("node", ["scripts/dist/test-genes-ts-sourcemaps.js"]);
 run("node", ["scripts/dist/test-genes-ts-snapshots.js"]);
 run("node", ["scripts/dist/test-output-modes.js"]);
