@@ -18,6 +18,7 @@
 /tests/array-index-strict/out
 /tests/finally-completion/out
 /tests/deep-nullish-alias/out
+/tests/hxx-carrier-immutability/out
 /tests/library-profile/out
 /tests/ts2hx-bootstrap/out
 /examples/typescript-target/src-gen

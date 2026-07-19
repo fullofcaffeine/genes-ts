@@ -203,19 +203,23 @@ class JsxCapabilityPolicy {
  * migration code—may lift marker containers into locals. Their field values
  * must then be read, not inlined and evaluated a second time.
  *
- * How: `build` performs two deterministic typed-AST passes. The first captures
- * every initializer by stable `TVar.id`; the second validates every marker and
- * freezes module capability facts. `intentForCall` is reused during printing,
- * but performs no target choice. Invalid marker shapes fail with stable IDs and
- * their original Haxe source position.
+ * How: `build` performs three deterministic typed-AST passes. The first
+ * captures every initializer by stable `TVar.id`; the second validates every
+ * marker, records its permitted carrier-local path, and freezes module
+ * capability facts. The third rejects any extra read, write, or escape of a
+ * carrier local before output starts. `intentForCall` is reused during
+ * printing, but performs no target choice. Invalid marker shapes or ownership
+ * violations fail with stable IDs and their original Haxe source position.
  */
 class JsxPlan {
   final localInitializers: Map<Int, TypedExpr> = [];
   final carrierLocalIds: Map<Int, Bool> = [];
+  final allowedCarrierUses = new ObjectMap<TypedExpr, Bool>();
   final validatedComponentProps = new ObjectMap<TypedExpr, Type>();
   final requiredNestedChildren = new ObjectMap<TypedExpr, Bool>();
   var intentCount = 0;
   var dynamicIntrinsic = false;
+  var collectingCarrierUses = false;
   var firstIntentPosition: Null<Position> = null;
 
   public var hasIntents(get, never): Bool;
@@ -271,6 +275,7 @@ class JsxPlan {
         default:
       }
     });
+    plan.collectingCarrierUses = true;
     plan.visitModuleExpressions(module, expression -> {
       final intent = plan.intentForExpression(expression);
       if (intent == null)
@@ -301,6 +306,9 @@ class JsxPlan {
         default:
       }
     });
+    plan.collectingCarrierUses = false;
+    if (plan.carrierLocalIds.iterator().hasNext())
+      plan.validateCarrierOwnership(module);
     return plan;
   }
 
@@ -549,7 +557,7 @@ class JsxPlan {
     final candidate = unwrap(expression);
     return switch candidate.expr {
       case TLocal(variable) if (localInitializers.exists(variable.id)):
-        carrierLocalIds.set(variable.id, true);
+        allowCarrierUse(candidate, variable);
         candidate;
       default:
         null;
@@ -566,11 +574,74 @@ class JsxPlan {
           if (!seen.exists(variable.id)
             && localInitializers.exists(variable.id)):
           seen.set(variable.id, true);
+          allowCarrierUse(current, variable);
           current = unwrap(localInitializers.get(variable.id));
         default:
           return current;
       }
     }
+  }
+
+  /**
+   * Records one compiler-recognized use of a local carrier record.
+   *
+   * Why: a local lets Haxe evaluate a property or child once before the JSX
+   * marker is emitted. The same record also contains property names and linked
+   * list structure that `JsxPlan` reads at compile time. If application code
+   * changes the record or uses it outside its marker chain, runtime data can
+   * disagree with the JSX that was already checked and printed.
+   *
+   * What/How: the exact typed `TLocal` expression is the permission. Planning
+   * records only occurrences followed while resolving a marker argument or its
+   * linked carrier nodes, then seals the set. Repeated emitter lookup may use
+   * those same expressions but cannot add a late permission. Any other
+   * occurrence is an authored read, write, or escape and fails before an output
+   * writer is opened. Typed expression identity is safe here because all
+   * passes share one Haxe AST; source positions are retained for diagnostics
+   * but are not identity.
+   */
+  function allowCarrierUse(expression: TypedExpr, variable: TVar): Void {
+    if (!collectingCarrierUses) {
+      if (carrierLocalIds.exists(variable.id)
+        && allowedCarrierUses.exists(expression))
+        return;
+      markerError('GTS-JSX-INTENT-011',
+        'A JSX carrier reached emission without being recorded during JSX '
+        + 'planning. This is a compiler planning error',
+        expression.pos);
+    }
+    carrierLocalIds.set(variable.id, true);
+    allowedCarrierUses.set(expression, true);
+  }
+
+  /**
+   * Enforces one-owner semantics for local HXX carrier scaffolding.
+   *
+   * The check deliberately rejects every use outside the marker's carrier
+   * chain rather than attempting general alias and mutation analysis. A simple
+   * pass-through alias remains part of that chain, but reading or changing the
+   * carrier elsewhere does not. Carrier records are an internal compiler
+   * protocol, so application data should be prepared first and then copied
+   * into an untouched carrier. This keeps ordinary values fully typed,
+   * preserves one-time evaluation, and prevents a printer from guessing which
+   * post-construction mutations changed compile-time JSX meaning.
+   */
+  function validateCarrierOwnership(module: Module): Void {
+    visitModuleExpressions(module, expression -> {
+      switch expression.expr {
+        case TLocal(variable)
+          if (carrierLocalIds.exists(variable.id)
+            && !allowedCarrierUses.exists(expression)):
+          markerError('GTS-JSX-INTENT-010',
+            'A local JSX carrier may only be passed through the compiler-owned '
+            + 'carrier chain into its JSX marker. This record was read, changed, '
+            + 'or shared elsewhere, so its runtime contents could disagree with '
+            + 'the JSX structure checked at compile time. Prepare ordinary '
+            + 'application data first, then build and consume an untouched carrier',
+            expression.pos);
+        default:
+      }
+    });
   }
 
   static function isStringType(type: Type): Bool {

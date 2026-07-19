@@ -1,0 +1,7 @@
+-lib genes-ts
+-cp tests/hxx-carrier-immutability/src
+--main hxx_carrier.Main
+-js tests/hxx-carrier-immutability/out/classic/index.js
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
