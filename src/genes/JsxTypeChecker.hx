@@ -478,7 +478,7 @@ class JsxTypeChecker {
   function requireAssignable(actual: Type, expected: Type,
       bindings: Map<String, Type>, allowAbsent: Bool, id: String,
       message: String, pos: Position): Void {
-    rejectUnsafe(actual, pos);
+    rejectUnsafeForExpected(actual, expected, pos);
     if (!isAssignable(actual, expected, bindings, allowAbsent, 0))
       fail(id, message, pos);
   }
@@ -1008,6 +1008,57 @@ class JsxTypeChecker {
         'HXX values must have a resolved concrete Haxe ' +
         'type; received `${typeName(type)}`',
         pos);
+  }
+
+  /**
+   * Rejects weak types only where the property contract can observe them.
+   *
+   * Why: Haxe and TypeScript both allow a callback that returns a value where
+   * a `Void` callback is expected. Event handlers commonly use this to start
+   * an async operation; React ignores the returned promise. The promise may
+   * contain an `Unknown` value from a typed network boundary, but that value is
+   * not the HXX property's value and is never exposed through the callback
+   * contract.
+   *
+   * How: callback parameters and every non-ignored result are still checked
+   * recursively. Only the actual result paired with an expected `Void` result
+   * is skipped. Other values continue through the strict deep check below, so
+   * containers such as `Array<Dynamic>` remain rejected.
+   */
+  static function rejectUnsafeForExpected(actual: Type, expected: Type,
+      pos: Position): Void {
+    if (hasObservableUnsafeType(actual, expected, 0))
+      fail('GTS-HXX-TYPE-001',
+        'HXX values must have a resolved concrete Haxe ' +
+        'type; received `${typeName(actual)}`',
+        pos);
+  }
+
+  static function hasObservableUnsafeType(actual: Type, expected: Type,
+      depth: Int): Bool {
+    if (depth > 64)
+      return true;
+    final absentExpected = undefinableInner(expected);
+    if (absentExpected != null)
+      return hasObservableUnsafeType(actual, absentExpected, depth + 1);
+    final nullableExpected = nullableInner(expected);
+    if (nullableExpected != null)
+      return hasObservableUnsafeType(actual, nullableExpected, depth + 1);
+    final absentActual = undefinableInner(actual);
+    if (absentActual != null)
+      return hasObservableUnsafeType(absentActual, expected, depth + 1);
+    return switch [resolveAliases(actual), resolveAliases(expected)] {
+      case [TFun(actualArgs, actualResult), TFun(_, expectedResult)]:
+        var unsafe = false;
+        for (argument in actualArgs)
+          if (isUnsafe(argument.t, depth + 1)) {
+            unsafe = true;
+            break;
+          }
+        unsafe || (!isVoid(expectedResult)
+          && hasObservableUnsafeType(actualResult, expectedResult, depth + 1));
+      default: isUnsafe(actual, depth);
+    }
   }
 
   /** Rejects weak types even when they are nested inside a safe container. */

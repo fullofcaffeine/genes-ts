@@ -1,6 +1,7 @@
 import genes.react.Element;
 import genes.react.MouseEvent;
 import genes.react.SyntheticEvent;
+import genes.ts.Unknown;
 
 typedef RequiredProps = {
   final label: String;
@@ -86,6 +87,17 @@ class Negative {
     return {};
   }
 
+  /**
+   * Models an async boundary whose result React deliberately ignores.
+   *
+   * `Unknown` stays inside the returned promise and never becomes the event
+   * property's value. The positive branch below proves HXX checks the callback
+   * arguments while respecting the expected `Void` result contract.
+   */
+  static function ignoredAsyncResult(): js.lib.Promise<Unknown> {
+    return js.lib.Promise.resolve(Unknown.fromBoundary("ignored result"));
+  }
+
   static function main(): Void {
     #if hxx_negative_unknown_intrinsic
     final value = <dvi />;
@@ -152,6 +164,8 @@ class Negative {
     final value = <StringList values={unsafeValues} />;
     #elseif hxx_negative_duplicate_prefix
     final value = <x-duplicate />;
+    #elseif hxx_positive_ignored_callback_result
+    final value = <button onClick={() -> ignoredAsyncResult()} />;
     #end
   }
 }

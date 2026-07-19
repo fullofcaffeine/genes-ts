@@ -6,7 +6,11 @@ import {Register} from "../../genes/Register"
  * `useParams()` is typed in TS as:
  * `Readonly<Record<string, string | undefined>>`.
  *
- * We represent it as a dynamic string-keyed map on the Haxe side.
+ * We represent it as `DynamicAccess<String>` because route parameter names are
+ * chosen by each application's URL patterns and cannot be enumerated in this
+ * small generic extern. The value type remains `String`, and the weak key
+ * boundary is confined to this return type rather than leaking through the
+ * component property contracts.
  * In TS output, `@:ts.type` ensures consumers see the correct Router type.
  */
 export type Params = Readonly<Record<string, string | undefined>>

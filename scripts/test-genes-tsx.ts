@@ -157,6 +157,21 @@ function assertHaxeHxxNegatives(): void {
   const duplicateOutput = `${duplicateResult.stdout}${duplicateResult.stderr}`;
   ok(duplicateOutput.includes("[GTS-HXX-SCHEMA-007]"));
   ok(duplicateOutput.includes(`DuplicatePrefixElements.hx:${duplicateLine}:`));
+
+  const ignoredCallbackResult = spawnSync(
+    "haxe",
+    [
+      "tests/genes-ts/snapshot/react/build-negative.hxml",
+      "-D",
+      "hxx_positive_ignored_callback_result"
+    ],
+    { cwd: repoRoot, encoding: "utf8" }
+  );
+  strictEqual(
+    ignoredCallbackResult.status,
+    0,
+    `A Void event contract should ignore the callback result:\n${ignoredCallbackResult.stdout}${ignoredCallbackResult.stderr}`
+  );
 }
 
 const authoredHxxSource = readFileSync(

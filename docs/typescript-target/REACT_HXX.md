@@ -257,7 +257,11 @@ omit supplied event parameters or return a value when the consumer expects
 safe: a callback that requires an argument cannot fill a contract whose caller
 may omit that argument. Declared parameters are checked contravariantly, and
 incompatible event targets fail in Haxe even when their extern wrappers have no
-runtime fields.
+runtime fields. HXX still rejects weak callback parameters and observable
+return values. It ignores only a result paired with an expected `Void`, because
+the caller has explicitly promised not to read that result; this lets an event
+handler start a typed async boundary without exposing the boundary value as a
+component property.
 
 Renderable children include the closed `genes.react.OneOf*` carriers and
 standard `haxe.extern.EitherType` unions. Domain abstracts backed by a React
