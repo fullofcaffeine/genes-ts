@@ -497,6 +497,10 @@ ok(automaticTsxSource.includes(
 ok(automaticTsxSource.includes(
   "ChangeEvent<HTMLInputElement>"
 ), "TSX preserves the complete input event target as an ambient DOM type");
+ok(automaticTsxSource.includes('event.currentTarget.protocol = "https:"'),
+  "HXX exposes anchor APIs beyond the focused compatibility facade");
+ok(automaticTsxSource.includes("event.target.setSelectionRange(0, 0)"),
+  "HXX exposes the complete standard input API");
 ok(!automaticTsxSource.includes("./js/html"));
 ok(automaticTsxSource.includes(
   "<Main.RequiredChild {...optionalChildren}>{optionalChildSpreadHtml}</Main.RequiredChild>"

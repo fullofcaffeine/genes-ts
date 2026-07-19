@@ -165,6 +165,9 @@ class Generator {
 
     final initialNames = [for (name in modules.keys()) name];
     initialNames.sort(Reflect.compare);
+    final explicitlyExposedModules = new Map<String, Bool>();
+    for (item in expose)
+      explicitlyExposedModules.set(item.module, true);
 
     /**
      * Expands one output profile from compiler-owned dependency refs.
@@ -267,7 +270,9 @@ class Generator {
     }
 
     final implementationRoots = if (tsMode)
-      initialNames
+      [for (name in initialNames)
+        if (isTypedImplementationRoot(modules.get(name),
+          explicitlyExposedModules.exists(name))) name]
     else
       [for (name in initialNames)
         if (needsGen(modules.get(name))) name];
@@ -356,6 +361,34 @@ class Generator {
           return true;
       }
     }
+    return false;
+  }
+
+  /**
+   * Selects declarations that independently root a TypeScript source module.
+   *
+   * Why: Haxe may load ordinary typedef modules only while resolving the
+   * fields of a host extern. Those aliases are not part of the emitted program
+   * when the extern itself projects to an ambient TypeScript type, but rooting
+   * every compiler-loaded typedef publishes the extern's entire support graph.
+   *
+   * What: concrete declarations, interfaces, enums, the main expression, and
+   * explicit package exports remain roots. A module containing only typedefs
+   * instead enters output through a real type edge from emitted syntax (or
+   * through an explicit export), so user-authored aliases remain available
+   * exactly when generated TypeScript can name them.
+   *
+   * How: this is deliberately provenance- and package-neutral. Reachability
+   * still uses compiler-owned `ModuleType` references; no Haxe std path,
+   * browser package, generated filename, or target spelling is inspected.
+   */
+  static function isTypedImplementationRoot(module: Module,
+      explicitlyExposed: Bool): Bool {
+    if (explicitlyExposed || module.expose.length > 0)
+      return true;
+    for (member in module.members)
+      if (!member.match(MType(_, _)))
+        return true;
     return false;
   }
 

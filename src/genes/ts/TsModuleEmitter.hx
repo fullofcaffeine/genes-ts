@@ -266,8 +266,8 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
 
     for (export in module.expose)
-      if (!export.isType)
-        emitExport(export, module.toPath(export.module), importExtension);
+      emitExport(export, module.toPath(export.module), importExtension,
+        export.isType);
 
     return endTimer();
   }

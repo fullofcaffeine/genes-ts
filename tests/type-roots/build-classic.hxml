@@ -1,0 +1,10 @@
+-lib genes-ts
+
+-cp tests/type-roots/src
+--main type_roots.Main
+--macro include('type_roots')
+
+-js tests/type-roots/out-classic/index.js
+-D dts
+
+-dce full

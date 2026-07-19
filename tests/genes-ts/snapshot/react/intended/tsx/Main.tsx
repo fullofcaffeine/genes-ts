@@ -58,6 +58,9 @@ InheritedCardProps.__isInterface__ = true;
 export class Main {
 	static main(): void {
 		let title: string = "Hi";
+		let standardAnchorHandler: ((arg0: import('react').MouseEvent<HTMLAnchorElement>) => void) = function (event: import('react').MouseEvent<HTMLAnchorElement>) {
+			event.preventDefault();
+		};
 		let Button: ((arg0: {
 			label: string
 		}) => JSX.Element) = __genes_import_Button;
@@ -168,17 +171,24 @@ export class Main {
 		let contextualAnchor: JSX.Element = <a onClick={function (event: import('react').MouseEvent<HTMLAnchorElement>) {
 			event.currentTarget.download = "report.csv";
 			event.currentTarget.rel = "noopener";
+			event.currentTarget.protocol = "https:";
 			event.currentTarget.focus();
 		}}>Download</a>;
 		renderToStaticMarkup(contextualAnchor);
+		renderToStaticMarkup(<a onClick={standardAnchorHandler}>Standard DOM</a>);
+		let compatibleAnchorHandler: ((arg0: import('react').MouseEvent<HTMLAnchorElement>) => void) = function (event: import('react').MouseEvent<HTMLAnchorElement>) {
+			event.preventDefault();
+		};
+		renderToStaticMarkup(<a onClick={compatibleAnchorHandler}>Compatible</a>);
 		let absentHref: string | undefined = undefined;
 		let absentHrefHtml: string = renderToStaticMarkup(<a href={absentHref}>Absent href</a>);
 		if (absentHrefHtml != "<a>Absent href</a>") {
 			throw Exception.thrown("Unexpected absent href HTML: " + absentHrefHtml);
 		};
 		let contextualInput: JSX.Element = <input onChange={function (event: import('react').ChangeEvent<HTMLInputElement>) {
-			console.log("tests/genes-ts/snapshot/react/src/Main.hx:179:",event.target.value);
+			console.log("tests/genes-ts/snapshot/react/src/Main.hx:194:",event.target.value);
 			event.target.select();
+			event.target.setSelectionRange(0, 0);
 		}} />;
 		renderToStaticMarkup(contextualInput);
 		let okHandler: (() => void) = function () {

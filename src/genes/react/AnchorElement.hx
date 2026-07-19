@@ -6,10 +6,10 @@ package genes.react;
  * Why: React's `MouseEvent<T>` keeps its element type in generated TypeScript,
  * so HXX must not erase an anchor handler to the generic `HTMLElement` shape.
  *
- * What: callbacks for the built-in `<a>` contract receive this focused type
- * and can use the stable anchor fields below during Haxe type checking. The
- * checker also recognizes Haxe's standard `js.html.AnchorElement` as the same
- * browser identity when an existing handler names that full extern directly.
+ * What: existing annotations may keep using this focused compatibility facade.
+ * Inline HXX callbacks are contextually projected to Haxe's complete
+ * `js.html.AnchorElement`; the checker recognizes both as the same generated
+ * browser identity without making unrelated extern classes interchangeable.
  *
  * How: this is a type-only extern. `@:ts.type` prints the browser's canonical
  * `HTMLAnchorElement` name; it creates no runtime class or conversion.

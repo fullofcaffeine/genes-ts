@@ -3,6 +3,9 @@ package genes.react.internal;
 #if macro
 import haxe.macro.Context;
 import haxe.macro.Expr;
+import haxe.macro.Expr.ComplexType;
+import haxe.macro.Expr.TypeParam;
+import haxe.macro.Expr.TypePath;
 import haxe.macro.Type;
 import haxe.macro.TypeTools;
 
@@ -65,7 +68,7 @@ class JsxContext {
         continue;
       if (!hasMatchingFunctionArity(prop.value, contextual))
         continue;
-      final complex = TypeTools.toComplexType(contextual);
+      final complex = contextualComplexType(contextual);
       if (complex == null)
         continue;
       out.set(prop.index, {
@@ -74,6 +77,93 @@ class JsxContext {
       });
     }
     return out;
+  }
+
+  /**
+   * Projects focused React event facades to Haxe's complete DOM externs.
+   *
+   * Haxe gives the library's intrinsic schema a stable, target-neutral facade,
+   * but an inline callback should still see the complete browser API. Loading
+   * the standard module first and then using the compiler-reported source or
+   * native identity also avoids Haxe's order-sensitive lookup of `@:native`
+   * main module types: both an already-used DOM type and a context-first HXX
+   * callback resolve to the same class identity.
+   */
+  static function contextualComplexType(type: Type): Null<ComplexType> {
+    final complex = TypeTools.toComplexType(type);
+    return complex == null ? null : projectBrowserFacades(complex);
+  }
+
+  static function projectBrowserFacades(type: ComplexType): ComplexType {
+    return switch type {
+      case TPath(path):
+        final projected = projectTypePath(path);
+        TPath(projected);
+      case TFunction(arguments, result):
+        TFunction([for (argument in arguments)
+          projectBrowserFacades(argument)], projectBrowserFacades(result));
+      case TParent(inner):
+        TParent(projectBrowserFacades(inner));
+      case TOptional(inner):
+        TOptional(projectBrowserFacades(inner));
+      case TNamed(name, inner):
+        TNamed(name, projectBrowserFacades(inner));
+      case TIntersection(types):
+        TIntersection([for (member in types)
+          projectBrowserFacades(member)]);
+      case TAnonymous(_) | TExtend(_, _):
+        // This projection is applied only to a function property's contextual
+        // type. Anonymous structures cannot contain the function's argument
+        // path without first appearing in one of the recursive forms above.
+        type;
+    };
+  }
+
+  static function projectTypePath(path: TypePath): TypePath {
+    final qualified = path.pack.concat([path.name]).join('.');
+    if (path.sub == null && qualified == 'genes.react.AnchorElement')
+      return standardDomTypePath('js.html.AnchorElement',
+        'HTMLAnchorElement');
+    if (path.sub == null && qualified == 'genes.react.InputElement')
+      return standardDomTypePath('js.html.InputElement', 'HTMLInputElement');
+    return {
+      pack: path.pack.copy(),
+      name: path.name,
+      params: path.params == null ? null : [for (parameter in path.params)
+        switch parameter {
+          case TPType(parameterType):
+            TPType(projectBrowserFacades(parameterType));
+          case TPExpr(expression):
+            TPExpr(expression);
+        }],
+      sub: path.sub
+    };
+  }
+
+  static function standardDomTypePath(modulePath: String,
+      nativeName: String): TypePath {
+    final segments = modulePath.split('.');
+    final moduleName = segments[segments.length - 1];
+    segments.pop();
+    var resolvedName: Null<String> = null;
+    for (candidate in Context.getModule(modulePath)) {
+      switch candidate {
+        case TInst(classRef, _):
+          final owner = classRef.get();
+          if (owner.module == modulePath
+            && (owner.name == moduleName || owner.name == nativeName))
+            resolvedName = owner.name;
+        default:
+      }
+    }
+    if (resolvedName == null)
+      Context.error('Genes HXX could not resolve the standard DOM type '
+        + '$modulePath.$nativeName', Context.currentPos());
+    return {
+      pack: segments,
+      name: moduleName,
+      sub: resolvedName == nativeName ? nativeName : null
+    };
   }
 
   static function componentPropsType(type: Type): Null<Type> {

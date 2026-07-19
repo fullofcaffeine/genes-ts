@@ -59,6 +59,9 @@ InheritedCardProps.__isInterface__ = true;
 export class Main {
 	static main(): void {
 		let title: string = "Hi";
+		let standardAnchorHandler: ((arg0: import('react').MouseEvent<HTMLAnchorElement>) => void) = function (event: import('react').MouseEvent<HTMLAnchorElement>) {
+			event.preventDefault();
+		};
 		let Button: ((arg0: {
 			label: string
 		}) => JSX.Element) = __genes_import_Button;
@@ -169,17 +172,24 @@ export class Main {
 		let contextualAnchor: JSX.Element = React__genes_jsx.createElement("a", ({onClick: function (event: import('react').MouseEvent<HTMLAnchorElement>) {
 			event.currentTarget.download = "report.csv";
 			event.currentTarget.rel = "noopener";
+			event.currentTarget.protocol = "https:";
 			event.currentTarget.focus();
 		}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"a"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Download");
 		renderToStaticMarkup(contextualAnchor);
+		renderToStaticMarkup(React__genes_jsx.createElement("a", ({onClick: standardAnchorHandler} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"a"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Standard DOM"));
+		let compatibleAnchorHandler: ((arg0: import('react').MouseEvent<HTMLAnchorElement>) => void) = function (event: import('react').MouseEvent<HTMLAnchorElement>) {
+			event.preventDefault();
+		};
+		renderToStaticMarkup(React__genes_jsx.createElement("a", ({onClick: compatibleAnchorHandler} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"a"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Compatible"));
 		let absentHref: string | undefined = undefined;
 		let absentHrefHtml: string = renderToStaticMarkup(React__genes_jsx.createElement("a", ({href: absentHref} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"a"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Absent href"));
 		if (absentHrefHtml != "<a>Absent href</a>") {
 			throw Exception.thrown("Unexpected absent href HTML: " + absentHrefHtml);
 		};
 		let contextualInput: JSX.Element = React__genes_jsx.createElement("input", ({onChange: function (event: import('react').ChangeEvent<HTMLInputElement>) {
-			console.log("tests/genes-ts/snapshot/react/src/Main.hx:179:",event.target.value);
+			console.log("tests/genes-ts/snapshot/react/src/Main.hx:194:",event.target.value);
 			event.target.select();
+			event.target.setSelectionRange(0, 0);
 		}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"input"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
 		renderToStaticMarkup(contextualInput);
 		let okHandler: (() => void) = function () {

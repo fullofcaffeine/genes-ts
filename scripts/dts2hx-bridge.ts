@@ -442,16 +442,6 @@ export function runDts2hxBridge(options: Dts2hxBridgeOptions): void {
           file: "genes/Register.ts",
           disposition: "runtime-boundary",
           reason: "Haxe's reflection registry intentionally contains heterogeneous host values."
-        },
-        {
-          file: "js/node/Util.ts",
-          disposition: "fixture-boundary",
-          reason: "The dts2hx bridge transitively emits the Haxe Node extern's open inspect-options host contract."
-        },
-        {
-          file: "js/node/stream/Writable.ts",
-          disposition: "fixture-boundary",
-          reason: "The dts2hx bridge transitively emits the Haxe Node writable-options host contract."
         }
       ]
     }],

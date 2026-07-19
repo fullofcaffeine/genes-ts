@@ -6,9 +6,10 @@ package genes.react;
  * Why: input handlers commonly read `event.target.value` or `checked`, and
  * those accesses should be checked by Haxe before TypeScript is generated.
  *
- * What: callbacks for the built-in `<input>` contract receive this focused
- * type. The checker also recognizes Haxe's standard `js.html.InputElement` as
- * the same browser identity when an existing handler names that extern.
+ * What: existing annotations may keep using this focused compatibility facade.
+ * Inline HXX callbacks are contextually projected to Haxe's complete
+ * `js.html.InputElement`; the checker recognizes both as the same generated
+ * browser identity without weakening other event comparisons.
  *
  * How: `@:ts.type` preserves the canonical `HTMLInputElement` spelling in
  * TypeScript while this extern remains a compile-time-only Haxe contract.
