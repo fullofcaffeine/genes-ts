@@ -1,3 +1,11 @@
+## [1.36.9](https://github.com/fullofcaffeine/genes-ts/compare/v1.36.8...v1.36.9) (2026-07-19)
+
+
+### Bug Fixes
+
+* **ts:** invalidate computed map removals ([17e1dfc](https://github.com/fullofcaffeine/genes-ts/commit/17e1dfcd3dad6a8d4fd303976ef5863c18ca31a2))
+* **ts:** preserve sound post-test loop exits ([d4377ee](https://github.com/fullofcaffeine/genes-ts/commit/d4377ee284a74f1f081b1a614ea72b95a451c353))
+
 ## [1.36.8](https://github.com/fullofcaffeine/genes-ts/compare/v1.36.7...v1.36.8) (2026-07-19)
 
 
