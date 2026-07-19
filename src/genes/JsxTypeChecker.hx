@@ -62,6 +62,48 @@ private typedef JsxFunctionArgument = {
 }
 
 /**
+ * Records the small set of HXX facts needed after type validation finishes.
+ *
+ * Why: TypeScript's low-level `createElement` declarations check only the
+ * property-object argument when deciding whether a required `children` field
+ * is present. They do not use later child arguments for that check, even
+ * though React uses those arguments as the component's children at runtime.
+ *
+ * What: `componentPropsType` retains an inferred generic component contract,
+ * while `nestedChildrenSupplyRequiredProperty` says that authored nested HXX
+ * content is the value of a required `children` property.
+ *
+ * How: `JsxPlan` stores these immutable facts beside the tag's typed
+ * expression. The TypeScript createElement printer can then choose legal
+ * syntax without rediscovering the component schema or weakening its types.
+ */
+typedef JsxValidationResult = {
+  final componentPropsType: Null<Type>;
+  final nestedChildrenSupplyRequiredProperty: Bool;
+}
+
+/**
+ * Describes whether HXX knows that a `children` property exists at runtime.
+ *
+ * Why: an optional field in a spread may be absent. Treating it as definitely
+ * present rejects valid markup such as `<Card {...maybeChildren}>nested</Card>`
+ * and can also let the same uncertain field satisfy a required child.
+ *
+ * What: a named property or required spread field is `Definite`; an optional
+ * spread field is only `Possible`; `Absent` means no property source has
+ * mentioned `children`.
+ *
+ * How: only `Definite` conflicts with nested HXX children. `Possible` follows
+ * the nested-child path, so authored nested content supplies the value and an
+ * omitted required child still reports the ordinary missing-child diagnostic.
+ */
+private enum JsxChildrenPresence {
+  Absent;
+  Possible;
+  Definite;
+}
+
+/**
  * Canonical browser identity shared by Haxe's DOM externs and React facades.
  *
  * React's small event-target facades and Haxe's full `js.html` externs emit the
@@ -100,7 +142,7 @@ class JsxTypeChecker {
     loadIntrinsicProviders();
   }
 
-  public function validate(intent: JsxIntent): Null<Type> {
+  public function validate(intent: JsxIntent): JsxValidationResult {
     return switch intent {
       case ElementIntent(tag, props, children, _):
         switch tag {
@@ -111,33 +153,49 @@ class JsxTypeChecker {
                 'Unknown intrinsic tag `<$name>`. ' +
                 'Add it to a typed intrinsic provider or correct the tag name',
                 expression.pos);
-            validateProps('<$name>', contract.schema, contract.prefixes,
-              props, children, [], expression.pos);
-            null;
+            final nestedChildrenSupplyRequiredProperty = validateProps(
+              '<$name>', contract.schema, contract.prefixes, props, children,
+              [], expression.pos);
+            {
+              componentPropsType: null,
+              nestedChildrenSupplyRequiredProperty:
+                nestedChildrenSupplyRequiredProperty
+            };
           case ComponentTag(expression):
             final contract = componentContract(expression);
-            validateProps('component `${componentName(expression)}`',
+            final nestedChildrenSupplyRequiredProperty = validateProps(
+              'component `${componentName(expression)}`',
               contract.schema, [], props, children, contract.bindings,
               expression.pos);
-            specializedComponentPropsType(contract);
+            {
+              componentPropsType: specializedComponentPropsType(contract),
+              nestedChildrenSupplyRequiredProperty:
+                nestedChildrenSupplyRequiredProperty
+            };
           case DynamicIntrinsicTag(_):
             // The low-level internal marker retains runtime-string support for
             // compiler migrations. HXX source itself always has a static tag.
             validateDynamicMarker(props, children);
-            null;
+            {
+              componentPropsType: null,
+              nestedChildrenSupplyRequiredProperty: false
+            };
         }
       case FragmentIntent(children, _):
         validateRenderableChildren('fragment', children);
-        null;
+        {
+          componentPropsType: null,
+          nestedChildrenSupplyRequiredProperty: false
+        };
     };
   }
 
   function validateProps(label: String, schema: JsxPropSchema,
       acceptedPrefixes: Array<JsxPrefixContract>, props: Array<JsxPropIntent>,
       children: Array<JsxChildIntent>, bindings: Map<String, Type>,
-      tagPos: Position): Void {
+      tagPos: Position): Bool {
     final provided: Map<String, Bool> = [];
-    var namedChildren = false;
+    var childrenPresence = Absent;
 
     for (prop in props) {
       switch prop {
@@ -147,7 +205,7 @@ class JsxTypeChecker {
               value.pos);
           provided.set(name, true);
           if (name == 'children')
-            namedChildren = true;
+            childrenPresence = Definite;
           final field = schema.fields.get(name);
           if (field != null) {
             requireAssignable(value.t, field.type, bindings,
@@ -185,7 +243,8 @@ class JsxTypeChecker {
                 expression.pos);
             provided.set(name, !actual.optional);
             if (name == 'children')
-              namedChildren = true;
+              childrenPresence = combineChildrenPresence(childrenPresence,
+                actual.optional ? Possible : Definite);
             final expected = schema.fields.get(name);
             if (expected != null) {
               // An optional spread field cannot satisfy a required property,
@@ -232,14 +291,14 @@ class JsxTypeChecker {
       }
     }
 
-    if (namedChildren && children.length > 0)
+    if (childrenPresence == Definite && children.length > 0)
       fail('GTS-HXX-CHILD-004',
         '$label cannot combine a `children` property ' +
         'with nested HXX children',
         childExpression(children[0]).pos);
 
     final childField = schema.fields.get('children');
-    if (!namedChildren)
+    if (childrenPresence != Definite)
       validateNestedChildren(label, childField, children, bindings, tagPos);
 
     for (name => field in schema.fields) {
@@ -249,6 +308,18 @@ class JsxTypeChecker {
         fail('GTS-HXX-PROP-004',
           '$label is missing required property `$name`', tagPos);
     }
+
+    return childField != null && !childField.optional
+      && childrenPresence != Definite && children.length > 0;
+  }
+
+  static function combineChildrenPresence(current: JsxChildrenPresence,
+      incoming: JsxChildrenPresence): JsxChildrenPresence {
+    return switch [current, incoming] {
+      case [Definite, _] | [_, Definite]: Definite;
+      case [Possible, _] | [_, Possible]: Possible;
+      case _: Absent;
+    };
   }
 
   function validateNestedChildren(label: String, field: Null<JsxPropField>,
@@ -276,6 +347,30 @@ class JsxTypeChecker {
     }
     final elementType = arrayElement(expected);
     if (elementType != null) {
+      // JSX gives an array-shaped `children` property either one authored
+      // array expression or an array assembled from several nested children.
+      // One scalar child stays scalar at runtime, so accepting it here would
+      // promise the component an array that React never creates.
+      if (children.length == 1) {
+        final expression = childExpression(children[0]);
+        rejectUnsafeForExpected(expression.t, expected, expression.pos,
+          isNullLiteral(expression));
+        final directBindings: Map<String, Type> = [
+          for (key => value in bindings)
+            key => value
+        ];
+        if (!isAssignable(expression.t, expected, directBindings, 0, false,
+          isNullLiteral(expression)))
+          fail('GTS-HXX-CHILD-003',
+            '$label requires an array-valued child compatible with ' +
+            '`${typeName(expected)}` when only one child is nested. ' +
+            'Supply the array expression itself, or provide two or more ' +
+            'separate children compatible with `${typeName(elementType)}`',
+            expression.pos);
+        for (key => value in directBindings)
+          bindings.set(key, value);
+        return;
+      }
       for (child in children) {
         final expression = childExpression(child);
         requireAssignable(expression.t, elementType, bindings,

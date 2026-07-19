@@ -191,6 +191,31 @@ export class Main {
 			return "ignored";
 		}}>Ignored</button>;
 		renderToStaticMarkup(ignoredEvent);
+		let optionalChildren: MainOptionalSpreadChildProps = {};
+		let optionalChildSpreadHtml: JSX.Element = <strong>nested child</strong>;
+		let optionalChildSpreadHtml1: string = renderToStaticMarkup(<Main.RequiredChild {...optionalChildren}>{optionalChildSpreadHtml}</Main.RequiredChild>);
+		if (optionalChildSpreadHtml1 != "<section><strong>nested child</strong></section>") {
+			throw Exception.thrown("Unexpected optional child spread HTML: " + optionalChildSpreadHtml1);
+		};
+		let previousChild: JSX.Element = <em>spread child</em>;
+		let presentOptionalChildren: MainOptionalSpreadChildProps = {"children": previousChild};
+		let optionalChildOverrideHtml: JSX.Element = <strong>nested child</strong>;
+		let optionalChildOverrideHtml1: string = renderToStaticMarkup(<Main.RequiredChild {...presentOptionalChildren}>{optionalChildOverrideHtml}</Main.RequiredChild>);
+		if (optionalChildOverrideHtml1 != "<section><strong>nested child</strong></section>") {
+			throw Exception.thrown("Unexpected optional child override HTML: " + optionalChildOverrideHtml1);
+		};
+		let childArray: JSX.Element[] = [<em key="array-a">array A</em>, <strong key="array-b">array B</strong>];
+		let arrayValueChildHtml: string = renderToStaticMarkup(<Main.RequiredChildList>{childArray}</Main.RequiredChildList>);
+		if (arrayValueChildHtml != "<section><em>array A</em><strong>array B</strong></section>") {
+			throw Exception.thrown("Unexpected array-valued child HTML: " + arrayValueChildHtml);
+		};
+		let optionalChildList: MainOptionalSpreadChildListProps = {};
+		let multipleRequiredChildrenHtml: JSX.Element = <em key="nested-a">nested A</em>;
+		let multipleRequiredChildrenHtml1: JSX.Element = <strong key="nested-b">nested B</strong>;
+		let multipleRequiredChildrenHtml2: string = renderToStaticMarkup(<Main.RequiredChildList {...optionalChildList}>{multipleRequiredChildrenHtml}{multipleRequiredChildrenHtml1}</Main.RequiredChildList>);
+		if (multipleRequiredChildrenHtml2 != "<section><em>nested A</em><strong>nested B</strong></section>") {
+			throw Exception.thrown("Unexpected multiple required children HTML: " + multipleRequiredChildrenHtml2);
+		};
 	}
 	static renderChildList(first: string, second: string): JSX.Element {
 		let Button: ((arg0: {
@@ -220,6 +245,13 @@ export class Main {
 	static RequiredChild(props: RequiredChildProps): JSX.Element {
 		return <section>{props.children}</section>;
 	}
+
+	/**
+	 * Renders the ordered array required by this component contract.
+	 */
+	static RequiredChildList(props: MainRequiredChildListProps): JSX.Element {
+		return <section>{props.children}</section>;
+	}
 	static renderLoweredChildList(first: string, second: string): JSX.Element {
 		let span: JSX.Element = <span>{first}</span>;
 		let strong: JSX.Element = <strong>{second}</strong>;
@@ -236,3 +268,30 @@ export class Main {
 	}
 }
 Register.setHxClass("Main", Main);
+
+/**
+ * Property bag proving that an HXX spread may omit `children`.
+ *
+ * `@:optional` allows omission in Haxe, which is the presence fact exercised
+ * here. `@:ts.optional` is deliberately absent because it controls the
+ * generated value's null/undefined spelling, not whether the field can be
+ * missing. Nested HXX content must be the required child's final value whether
+ * this spread omits `children` or supplies an older value.
+ */
+export type MainOptionalSpreadChildProps = {
+	children?: JSX.Element | null
+}
+
+/**
+ * Component contract that requires an array rather than one scalar child.
+ */
+export type MainRequiredChildListProps = {
+	children: JSX.Element[]
+}
+
+/**
+ * Optional spread counterpart used before several nested children.
+ */
+export type MainOptionalSpreadChildListProps = {
+	children?: JSX.Element[] | null
+}

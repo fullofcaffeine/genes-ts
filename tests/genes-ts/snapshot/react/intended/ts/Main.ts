@@ -141,7 +141,7 @@ export class Main {
 			throw Exception.thrown("Unexpected inherited component HTML: " + inheritedHtml);
 		};
 		let requiredChildHtml: JSX.Element = React__genes_jsx.createElement("strong", null, "required");
-		let requiredChildHtml1: string = renderToStaticMarkup(React__genes_jsx.createElement(Main.RequiredChild, null, requiredChildHtml));
+		let requiredChildHtml1: string = renderToStaticMarkup(React__genes_jsx.createElement(Main.RequiredChild, ({children: requiredChildHtml} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Main.RequiredChild> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
 		if (requiredChildHtml1 != "<section><strong>required</strong></section>") {
 			throw Exception.thrown("Unexpected required child HTML: " + requiredChildHtml1);
 		};
@@ -191,6 +191,31 @@ export class Main {
 			return "ignored";
 		}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"button"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Ignored");
 		renderToStaticMarkup(ignoredEvent);
+		let optionalChildren: MainOptionalSpreadChildProps = {};
+		let optionalChildSpreadHtml: JSX.Element = React__genes_jsx.createElement("strong", null, "nested child");
+		let optionalChildSpreadHtml1: string = renderToStaticMarkup(React__genes_jsx.createElement(Main.RequiredChild, ({...optionalChildren, children: optionalChildSpreadHtml} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Main.RequiredChild> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
+		if (optionalChildSpreadHtml1 != "<section><strong>nested child</strong></section>") {
+			throw Exception.thrown("Unexpected optional child spread HTML: " + optionalChildSpreadHtml1);
+		};
+		let previousChild: JSX.Element = React__genes_jsx.createElement("em", null, "spread child");
+		let presentOptionalChildren: MainOptionalSpreadChildProps = {"children": previousChild};
+		let optionalChildOverrideHtml: JSX.Element = React__genes_jsx.createElement("strong", null, "nested child");
+		let optionalChildOverrideHtml1: string = renderToStaticMarkup(React__genes_jsx.createElement(Main.RequiredChild, ({...presentOptionalChildren, children: optionalChildOverrideHtml} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Main.RequiredChild> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
+		if (optionalChildOverrideHtml1 != "<section><strong>nested child</strong></section>") {
+			throw Exception.thrown("Unexpected optional child override HTML: " + optionalChildOverrideHtml1);
+		};
+		let childArray: JSX.Element[] = [React__genes_jsx.createElement("em", ({key: "array-a"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"em"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "array A"), React__genes_jsx.createElement("strong", ({key: "array-b"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"strong"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "array B")];
+		let arrayValueChildHtml: string = renderToStaticMarkup(React__genes_jsx.createElement(Main.RequiredChildList, ({children: childArray} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Main.RequiredChildList> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
+		if (arrayValueChildHtml != "<section><em>array A</em><strong>array B</strong></section>") {
+			throw Exception.thrown("Unexpected array-valued child HTML: " + arrayValueChildHtml);
+		};
+		let optionalChildList: MainOptionalSpreadChildListProps = {};
+		let multipleRequiredChildrenHtml: JSX.Element = React__genes_jsx.createElement("em", ({key: "nested-a"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"em"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "nested A");
+		let multipleRequiredChildrenHtml1: JSX.Element = React__genes_jsx.createElement("strong", ({key: "nested-b"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"strong"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "nested B");
+		let multipleRequiredChildrenHtml2: string = renderToStaticMarkup(React__genes_jsx.createElement(Main.RequiredChildList, ({...optionalChildList, children: [multipleRequiredChildrenHtml, multipleRequiredChildrenHtml1]} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Main.RequiredChildList> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
+		if (multipleRequiredChildrenHtml2 != "<section><em>nested A</em><strong>nested B</strong></section>") {
+			throw Exception.thrown("Unexpected multiple required children HTML: " + multipleRequiredChildrenHtml2);
+		};
 	}
 	static renderChildList(first: string, second: string): JSX.Element {
 		let Button: ((arg0: {
@@ -220,6 +245,13 @@ export class Main {
 	static RequiredChild(props: RequiredChildProps): JSX.Element {
 		return React__genes_jsx.createElement("section", null, props.children);
 	}
+
+	/**
+	 * Renders the ordered array required by this component contract.
+	 */
+	static RequiredChildList(props: MainRequiredChildListProps): JSX.Element {
+		return React__genes_jsx.createElement("section", null, props.children);
+	}
 	static renderLoweredChildList(first: string, second: string): JSX.Element {
 		let tmp: JSX.Element = React__genes_jsx.createElement("span", null, first);
 		let tmp1: JSX.Element = React__genes_jsx.createElement("strong", null, second);
@@ -236,3 +268,30 @@ export class Main {
 	}
 }
 Register.setHxClass("Main", Main);
+
+/**
+ * Property bag proving that an HXX spread may omit `children`.
+ *
+ * `@:optional` allows omission in Haxe, which is the presence fact exercised
+ * here. `@:ts.optional` is deliberately absent because it controls the
+ * generated value's null/undefined spelling, not whether the field can be
+ * missing. Nested HXX content must be the required child's final value whether
+ * this spread omits `children` or supplies an older value.
+ */
+export type MainOptionalSpreadChildProps = {
+	children?: JSX.Element | null
+}
+
+/**
+ * Component contract that requires an array rather than one scalar child.
+ */
+export type MainRequiredChildListProps = {
+	children: JSX.Element[]
+}
+
+/**
+ * Optional spread counterpart used before several nested children.
+ */
+export type MainOptionalSpreadChildListProps = {
+	children?: JSX.Element[] | null
+}

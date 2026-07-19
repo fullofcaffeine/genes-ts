@@ -190,6 +190,45 @@ class Main {
     // is the same sound callback-subtyping rule used by TypeScript/React.
     final ignoredEvent = <button onClick={() -> "ignored"}>Ignored</button>;
     renderToStaticMarkup(ignoredEvent);
+
+    final optionalChildren: MainOptionalSpreadChildProps = {};
+    final optionalChildSpreadHtml = renderToStaticMarkup(
+      <RequiredChild {...optionalChildren}>
+        <strong>nested child</strong>
+      </RequiredChild>
+    );
+    if (optionalChildSpreadHtml != '<section><strong>nested child</strong></section>')
+      throw 'Unexpected optional child spread HTML: ' + optionalChildSpreadHtml;
+    final previousChild = <em>spread child</em>;
+    final presentOptionalChildren: MainOptionalSpreadChildProps = {
+      children: previousChild
+    };
+    final optionalChildOverrideHtml = renderToStaticMarkup(
+      <RequiredChild {...presentOptionalChildren}>
+        <strong>nested child</strong>
+      </RequiredChild>
+    );
+    if (optionalChildOverrideHtml != '<section><strong>nested child</strong></section>')
+      throw 'Unexpected optional child override HTML: ' + optionalChildOverrideHtml;
+
+    final childArray = [
+      <em key="array-a">array A</em>,
+      <strong key="array-b">array B</strong>
+    ];
+    final arrayValueChildHtml = renderToStaticMarkup(
+      <RequiredChildList>{childArray}</RequiredChildList>
+    );
+    if (arrayValueChildHtml != '<section><em>array A</em><strong>array B</strong></section>')
+      throw 'Unexpected array-valued child HTML: ' + arrayValueChildHtml;
+    final optionalChildList: MainOptionalSpreadChildListProps = {};
+    final multipleRequiredChildrenHtml = renderToStaticMarkup(
+      <RequiredChildList {...optionalChildList}>
+        <em key="nested-a">nested A</em>
+        <strong key="nested-b">nested B</strong>
+      </RequiredChildList>
+    );
+    if (multipleRequiredChildrenHtml != '<section><em>nested A</em><strong>nested B</strong></section>')
+      throw 'Unexpected multiple required children HTML: ' + multipleRequiredChildrenHtml;
   }
 
   static function renderChildList(first:String, second:String):Element {
@@ -221,6 +260,11 @@ class Main {
   }
 
   static function RequiredChild(props: RequiredChildProps): Element {
+    return <section>{props.children}</section>;
+  }
+
+  /** Renders the ordered array required by this component contract. */
+  static function RequiredChildList(props: MainRequiredChildListProps): Element {
     return <section>{props.children}</section>;
   }
 
@@ -264,3 +308,28 @@ class Main {
   }
 }
 // @formatter:on
+
+/**
+ * Property bag proving that an HXX spread may omit `children`.
+ *
+ * `@:optional` allows omission in Haxe, which is the presence fact exercised
+ * here. `@:ts.optional` is deliberately absent because it controls the
+ * generated value's null/undefined spelling, not whether the field can be
+ * missing. Nested HXX content must be the required child's final value whether
+ * this spread omits `children` or supplies an older value.
+ */
+typedef MainOptionalSpreadChildProps = {
+  @:optional
+  var children: Element;
+}
+
+/** Component contract that requires an array rather than one scalar child. */
+typedef MainRequiredChildListProps = {
+  final children: Array<Element>;
+}
+
+/** Optional spread counterpart used before several nested children. */
+typedef MainOptionalSpreadChildListProps = {
+  @:optional
+  var children: Array<Element>;
+}
