@@ -7,6 +7,8 @@ import genes.JsxPlan.JsxTagIntent;
 import haxe.macro.Context;
 import haxe.macro.Expr;
 import haxe.macro.Type;
+import haxe.macro.Type.DefType;
+import haxe.macro.Type.Ref;
 import haxe.macro.TypeTools;
 
 private typedef JsxPropField = {
@@ -41,6 +43,17 @@ private typedef JsxComponentContract = {
 private typedef JsxStringMetadata = {
   var value: String;
   var pos: Position;
+}
+
+private typedef JsxUnsafeVisit = {
+  var owner: Ref<DefType>;
+  var arguments: Array<String>;
+}
+
+private typedef JsxFunctionArgument = {
+  var name: String;
+  var opt: Bool;
+  var t: Type;
 }
 
 /**
@@ -1047,42 +1060,100 @@ class JsxTypeChecker {
     final absentActual = undefinableInner(actual);
     if (absentActual != null)
       return hasObservableUnsafeType(absentActual, expected, depth + 1);
-    return switch [resolveAliases(actual), resolveAliases(expected)] {
+    switch [resolveAliases(actual), resolveAliases(expected)] {
       case [TFun(actualArgs, actualResult), TFun(_, expectedResult)]:
-        var unsafe = false;
-        for (argument in actualArgs)
-          if (isUnsafe(argument.t, depth + 1)) {
-            unsafe = true;
-            break;
-          }
-        unsafe || (!isVoid(expectedResult)
-          && hasObservableUnsafeType(actualResult, expectedResult, depth + 1));
-      default: isUnsafe(actual, depth);
+        return hasUnsafeFunctionArgument(actualArgs, depth + 1)
+          || (!isVoid(expectedResult)
+            && hasObservableUnsafeType(actualResult, expectedResult,
+              depth + 1));
+      default:
     }
+    return isUnsafe(actual, depth);
   }
 
-  /** Rejects weak types even when they are nested inside a safe container. */
-  static function isUnsafe(type: Type, depth = 0): Bool {
+  static function hasUnsafeFunctionArgument(arguments: Array<JsxFunctionArgument>,
+    depth: Int): Bool {
+    for (argument in arguments)
+      if (isUnsafe(argument.t, depth))
+        return true;
+    return false;
+  }
+
+  /**
+   * Rejects weak types even when they are nested inside a safe container.
+   *
+   * Recursive typedefs are legal closed contracts. While a typedef is already
+   * being inspected, seeing that same typedef with the same type arguments
+   * means the walk has returned to a shape it is currently checking; it does
+   * not mean the type is unresolved. The active stack uses Haxe's typed typedef
+   * reference plus readable argument spellings only as a recursion guard. It
+   * never decides assignability or generated names.
+   */
+  static function isUnsafe(type: Type, depth = 0,
+      visiting: Null<Array<JsxUnsafeVisit>> = null): Bool {
     if (depth > 64)
       return true;
-    final resolved = resolveAliases(type);
-    return switch resolved {
+    final active = visiting == null ? [] : visiting;
+    return switch type {
+      case TType(typeRef, parameters):
+        final arguments = [
+          for (parameter in parameters)
+            TypeTools.toString(parameter)
+        ];
+        var recursive = false;
+        for (visit in active)
+          if (sameTypedefOwner(visit.owner, typeRef)
+            && sameStrings(visit.arguments, arguments)) {
+            recursive = true;
+            break;
+          }
+        if (recursive) false; else {
+          active.push({owner: typeRef, arguments: arguments});
+          final unsafe = isUnsafe(Context.follow(type), depth + 1, active);
+          active.pop();
+          unsafe;
+        }
+      case TLazy(resolve): isUnsafe(resolve(), depth + 1, active);
+      case TMono(reference): isUnsafeMonomorph(reference, depth + 1, active);
       case TDynamic(_): true;
-      case TMono(reference): reference.get() == null;
       case TAbstract(abstractRef, _): abstractRef.get()
           .pack.join('.') == 'genes.ts' && abstractRef.get()
-          .name == 'Unknown' ? true : hasUnsafeChild(resolved, depth + 1);
-      default: hasUnsafeChild(resolved, depth + 1);
+          .name == 'Unknown' ? true : hasUnsafeChild(type, depth + 1, active);
+      default: hasUnsafeChild(type, depth + 1, active);
     }
   }
 
-  static function hasUnsafeChild(type: Type, depth: Int): Bool {
+  static function hasUnsafeChild(type: Type, depth: Int,
+      visiting: Array<JsxUnsafeVisit>): Bool {
     var unsafe = false;
     TypeTools.iter(type, child -> {
-      if (!unsafe && isUnsafe(child, depth))
+      if (!unsafe && isUnsafe(child, depth, visiting))
         unsafe = true;
     });
     return unsafe;
+  }
+
+  static function isUnsafeMonomorph(reference: Ref<Null<Type>>, depth: Int,
+      visiting: Array<JsxUnsafeVisit>): Bool {
+    final resolved = reference.get();
+    return resolved == null || isUnsafe(resolved, depth, visiting);
+  }
+
+  static function sameStrings(left: Array<String>, right: Array<String>): Bool {
+    if (left.length != right.length)
+      return false;
+    for (index in 0...left.length)
+      if (left[index] != right[index])
+        return false;
+    return true;
+  }
+
+  static function sameTypedefOwner(left: Ref<DefType>,
+      right: Ref<DefType>): Bool {
+    final leftType = left.get();
+    final rightType = right.get();
+    return leftType.module == rightType.module
+      && leftType.name == rightType.name;
   }
 
   static function typeParameterKey(type: ClassType): String {

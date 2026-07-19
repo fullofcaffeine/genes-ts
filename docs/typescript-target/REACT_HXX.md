@@ -202,7 +202,10 @@ check required, optional, extra, duplicate, spread, and `children` values.
 Extern and ordinary Haxe interfaces may extend other property interfaces; HXX
 collects their public inherited fields before it checks the tag. This matters
 for library contracts that keep common accessibility or callback properties in
-a base interface.
+a base interface. Closed recursive typedefs are valid too—for example, a tree
+node may contain `Array<Node>`. HXX follows the fields once, checks every
+concrete value it can observe, and recognizes the repeated typed declaration as
+recursion rather than mistaking it for an unresolved type.
 
 An imported extern class can name a closed property contract directly. This is
 useful when `@:jsRequire` represents a React component as a class value rather

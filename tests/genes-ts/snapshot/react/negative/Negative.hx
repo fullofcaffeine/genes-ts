@@ -34,6 +34,25 @@ typedef StringListProps = {
   final values: Array<String>;
 }
 
+typedef RecursiveItem = {
+  final label: String;
+  final children: Null<Array<RecursiveItem>>;
+}
+
+typedef RecursiveItemsProps = {
+  final items: Array<RecursiveItem>;
+}
+
+typedef RecursiveUnsafeItem = {
+  final children: Null<Array<RecursiveUnsafeItem>>;
+  // Deliberately weak: the negative fixture proves recursion cannot hide it.
+  final payload: Dynamic;
+}
+
+typedef RecursiveUnsafeItemsProps = {
+  final items: Array<RecursiveUnsafeItem>;
+}
+
 extern interface InheritedRequiredProps {
   var label: String;
 }
@@ -71,6 +90,14 @@ class Negative {
 
   static function StringList(props: StringListProps): Element {
     return <span>{props.values.join(",")}</span>;
+  }
+
+  static function RecursiveItems(props: RecursiveItemsProps): Element {
+    return <span>{props.items.length}</span>;
+  }
+
+  static function RecursiveUnsafeItems(props: RecursiveUnsafeItemsProps): Element {
+    return <span>{props.items.length}</span>;
   }
 
   static function InheritedCard(props: InheritedExtraProps): Element {
@@ -162,10 +189,26 @@ class Negative {
     // not hide an unsafe value from HXX validation.
     final unsafeValues: Array<Dynamic> = ["unsafe"];
     final value = <StringList values={unsafeValues} />;
+    #elseif hxx_negative_recursive_unsafe
+    // The recursive edge is valid, but it must not hide this deliberately
+    // weak payload from HXX's deep property validation.
+    final item: RecursiveUnsafeItem = {
+      children: null,
+      payload: "unsafe"
+    };
+    final value = <RecursiveUnsafeItems items={[item]} />;
     #elseif hxx_negative_duplicate_prefix
     final value = <x-duplicate />;
     #elseif hxx_positive_ignored_callback_result
+    // @formatter:off
     final value = <button onClick={() -> ignoredAsyncResult()} />;
+    // @formatter:on
+    #elseif hxx_positive_recursive_props
+    final item: RecursiveItem = {
+      label: "root",
+      children: null
+    };
+    final value = <RecursiveItems items={[item]} />;
     #end
   }
 }

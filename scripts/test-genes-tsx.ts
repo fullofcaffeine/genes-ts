@@ -102,7 +102,8 @@ function assertHaxeHxxNegatives(): void {
     ["hxx_negative_inherited_event_target", "GTS-HXX-PROP-002"],
     ["hxx_negative_optional_callback", "GTS-HXX-PROP-002"],
     ["hxx_negative_inherited_missing", "GTS-HXX-PROP-004"],
-    ["hxx_negative_nested_unsafe", "GTS-HXX-TYPE-001"]
+    ["hxx_negative_nested_unsafe", "GTS-HXX-TYPE-001"],
+    ["hxx_negative_recursive_unsafe", "GTS-HXX-TYPE-001"]
   ];
   for (const [define, diagnostic] of cases) {
     const branchLine = negativeSource.findIndex((line) =>
@@ -171,6 +172,21 @@ function assertHaxeHxxNegatives(): void {
     ignoredCallbackResult.status,
     0,
     `A Void event contract should ignore the callback result:\n${ignoredCallbackResult.stdout}${ignoredCallbackResult.stderr}`
+  );
+
+  const recursiveProps = spawnSync(
+    "haxe",
+    [
+      "tests/genes-ts/snapshot/react/build-negative.hxml",
+      "-D",
+      "hxx_positive_recursive_props"
+    ],
+    { cwd: repoRoot, encoding: "utf8" }
+  );
+  strictEqual(
+    recursiveProps.status,
+    0,
+    `A closed recursive property contract should compile:\n${recursiveProps.stdout}${recursiveProps.stderr}`
   );
 }
 
