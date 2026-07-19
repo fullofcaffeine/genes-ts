@@ -1,3 +1,18 @@
+# [1.37.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.36.9...v1.37.0) (2026-07-19)
+
+
+### Bug Fixes
+
+* **react:** close HXX soundness gaps ([b13960f](https://github.com/fullofcaffeine/genes-ts/commit/b13960f8ce2d4624640bc51d1beef8930a90b259))
+* **react:** handle optional children spreads ([4de8810](https://github.com/fullofcaffeine/genes-ts/commit/4de8810989eef0623396773c5fa6530817ae92c6))
+* **react:** respect ignored callback results ([b358d1a](https://github.com/fullofcaffeine/genes-ts/commit/b358d1a0dfbf06a57e97f623e3caa4443f2c03e1))
+* **react:** validate recursive HXX contracts ([af0706b](https://github.com/fullofcaffeine/genes-ts/commit/af0706b44f31ce3281a952c4367212a1d5679677))
+
+
+### Features
+
+* **react:** type-check HXX in Haxe ([d117086](https://github.com/fullofcaffeine/genes-ts/commit/d117086246d27228b40b35771df2571280b84861))
+
 ## [1.36.9](https://github.com/fullofcaffeine/genes-ts/compare/v1.36.8...v1.36.9) (2026-07-19)
 
 
