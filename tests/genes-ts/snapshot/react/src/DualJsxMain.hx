@@ -5,11 +5,45 @@ import genes.ts.Imports;
 
 typedef DualJsxTranscript = {
   final staticHtml: String;
+  final optionalSpreadHtml: String;
+  final optionalSpreadOverrideHtml: String;
+  final arrayValueChildHtml: String;
+  final multipleRequiredChildrenHtml: String;
   final dynamicHtml: String;
   final evaluatedHtml: String;
   final arrayPropHtml: String;
   final arrayChildHtml: String;
   final propEvaluations: Int;
+}
+
+/**
+ * Property bag used to prove that an optional spread does not definitely
+ * provide React children.
+ *
+ * `@:optional` permits the field to be omitted in Haxe, which is the only fact
+ * this presence test needs. `@:ts.optional` is deliberately absent: that
+ * separate annotation controls how an optional value is written in generated
+ * TypeScript, not whether the property exists at runtime.
+ */
+typedef OptionalSpreadChildProps = {
+  @:optional
+  var children: Element;
+}
+
+/** Component contract whose child must be supplied by spread or nesting. */
+typedef RequiredSpreadChildProps = {
+  final children: Element;
+}
+
+/** Component contract that requires an array rather than one scalar child. */
+typedef RequiredSpreadChildListProps = {
+  final children: Array<Element>;
+}
+
+/** Spread whose entire child array may be absent. */
+typedef OptionalSpreadChildListProps = {
+  @:optional
+  var children: Array<Element>;
 }
 
 /**
@@ -34,6 +68,30 @@ class DualJsxMain {
     final rootProps = {className: "shared", id: "root"};
     final fragment = jsx('<><span>A</span><span>B</span></>');
     final tree = <main {...rootProps}><h1>{heading}</h1>{fragment}</main>;
+    final optionalChildren: OptionalSpreadChildProps = {};
+    final optionalSpreadElement = <RequiredChildHost {...optionalChildren}>
+      <strong>nested child</strong>
+    </RequiredChildHost>;
+    final previousChild = <em>spread child</em>;
+    final presentOptionalChildren: OptionalSpreadChildProps = {
+      children: previousChild
+    };
+    final optionalSpreadOverrideElement =
+      <RequiredChildHost {...presentOptionalChildren}>
+        <strong>nested child</strong>
+      </RequiredChildHost>;
+    final childArray = [
+      <em key="array-a">array A</em>,
+      <strong key="array-b">array B</strong>
+    ];
+    final arrayValueChildElement =
+      <RequiredChildListHost>{childArray}</RequiredChildListHost>;
+    final optionalChildList: OptionalSpreadChildListProps = {};
+    final multipleRequiredChildrenElement =
+      <RequiredChildListHost {...optionalChildList}>
+        <em key="nested-a">nested A</em>
+        <strong key="nested-b">nested B</strong>
+      </RequiredChildListHost>;
 
     final runtimeTag = "aside";
     final dynamicElement = Jsx.__jsx(runtimeTag, {
@@ -76,12 +134,29 @@ class DualJsxMain {
 
     print({
       staticHtml: renderToStaticMarkup(tree),
+      optionalSpreadHtml: renderToStaticMarkup(optionalSpreadElement),
+      optionalSpreadOverrideHtml:
+        renderToStaticMarkup(optionalSpreadOverrideElement),
+      arrayValueChildHtml: renderToStaticMarkup(arrayValueChildElement),
+      multipleRequiredChildrenHtml:
+        renderToStaticMarkup(multipleRequiredChildrenElement),
       dynamicHtml: renderToStaticMarkup(dynamicElement),
       evaluatedHtml: renderToStaticMarkup(evaluatedElement),
       arrayPropHtml: renderToStaticMarkup(arrayPropElement),
       arrayChildHtml: renderToStaticMarkup(arrayChildElement),
       propEvaluations: propEvaluations
     });
+  }
+
+  /** Renders the one child required by this component's property contract. */
+  static function RequiredChildHost(props: RequiredSpreadChildProps): Element {
+    return <section>{props.children}</section>;
+  }
+
+  /** Renders the ordered array required by this component's contract. */
+  static function RequiredChildListHost(
+      props: RequiredSpreadChildListProps): Element {
+    return <section>{props.children}</section>;
   }
 
   /** Proves a lifted marker property value is evaluated exactly once. */

@@ -237,6 +237,54 @@ when React expects `T | undefined`. A provider can spell
 A custom intrinsic provider keeps ordinary Haxe optional/null behavior unless
 its class declares `@:genes.jsxOptionalValuesAllowUndefined`.
 
+HXX also distinguishes a child that **might** come from a spread from one that
+is **definitely** present. This matters when the component requires a child.
+For example, this `Card` always needs one React element:
+
+```haxe
+typedef CardProps = {
+  final children: genes.react.Element;
+}
+
+typedef MaybeChildren = {
+  @:optional
+  var children: genes.react.Element;
+}
+
+function Card(props: CardProps): genes.react.Element {
+  return <section>{props.children}</section>;
+}
+
+final props: MaybeChildren = {};
+final card = <Card {...props}><strong>nested child</strong></Card>;
+```
+
+`@:optional` means the field may be missing, so the spread alone cannot satisfy
+`Card`'s required child. The nested `<strong>` supplies that required value. If
+`props.children` is present, the nested child still wins because it comes after
+the spread. TSX keeps that source order; typed `createElement` output places the
+nested value last in the checked property object; classic `createElement`
+passes it after the property object. All three forms therefore give `Card` the
+same final child.
+
+`@:ts.optional` is not needed for this presence rule. That separate annotation
+controls whether an optional value is represented with JavaScript
+`undefined` in generated TypeScript. A direct `children={...}` property or a
+required `children` field in a spread is definitely present, so combining
+either one with nested markup still reports `GTS-HXX-CHILD-004`.
+
+Array-shaped child contracts follow React's actual runtime shape. With
+`children: Array<Item>`, one nested expression must itself be an `Array<Item>`:
+
+```haxe
+<List>{items}</List>
+```
+
+Two or more separately written children are collected into that array. One
+scalar child is rejected because React would pass the scalar directly; it does
+not create a one-item array automatically. Write `{[item]}` when a one-item
+array is intended.
+
 An imported extern class can name a closed property contract directly. This is
 useful when `@:jsRequire` represents a React component as a class value rather
 than a Haxe function:

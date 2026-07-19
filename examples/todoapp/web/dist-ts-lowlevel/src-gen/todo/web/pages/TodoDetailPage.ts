@@ -58,14 +58,14 @@ export class TodoDetailPage {
 		};
 		if (error != "") {
 			let tmp: JSX.Element = React__genes_jsx.createElement("p", ({style: {"color": "crimson"}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"p"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), error);
-			let tmp1: JSX.Element = React__genes_jsx.createElement(Link, ({to: "/"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Link> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Back");
+			let tmp1: JSX.Element = React__genes_jsx.createElement(Link, ({to: "/", children: "Back"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Link> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
 			return React__genes_jsx.createElement("div", null, tmp, tmp1);
 		};
 		if (todo == null) {
 			return React__genes_jsx.createElement("p", null, "Loading...");
 		};
 		let todoValue: Todo = todo;
-		let tmp_1: JSX.Element = React__genes_jsx.createElement(Link, ({to: "/"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Link> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "← Back");
+		let tmp_1: JSX.Element = React__genes_jsx.createElement(Link, ({to: "/", children: "← Back"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Link> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
 		let tmp1_1: JSX.Element = React__genes_jsx.createElement("p", null, tmp_1);
 		let tmp2: JSX.Element = React__genes_jsx.createElement("h2", null, "Todo");
 		let tmp3: JSX.Element = React__genes_jsx.createElement("b", null, "ID:");

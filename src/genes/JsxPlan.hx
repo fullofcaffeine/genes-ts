@@ -198,9 +198,10 @@ class JsxCapabilityPolicy {
  *
  * What: the plan classifies intrinsic, dynamic-intrinsic, and component tags;
  * ordered named/spread properties; fragments; children; evaluation origins;
- * and marker provenance. It records local initializers because the typer—or
- * reviewed migration code—may lift marker containers into locals. Their field
- * values must then be read, not inlined and evaluated a second time.
+ * marker provenance; and whether nested markup fills a required `children`
+ * property. It records local initializers because the typer—or reviewed
+ * migration code—may lift marker containers into locals. Their field values
+ * must then be read, not inlined and evaluated a second time.
  *
  * How: `build` performs two deterministic typed-AST passes. The first captures
  * every initializer by stable `TVar.id`; the second validates every marker and
@@ -212,6 +213,7 @@ class JsxPlan {
   final localInitializers: Map<Int, TypedExpr> = [];
   final carrierLocalIds: Map<Int, Bool> = [];
   final validatedComponentProps = new ObjectMap<TypedExpr, Type>();
+  final requiredNestedChildren = new ObjectMap<TypedExpr, Bool>();
   var intentCount = 0;
   var dynamicIntrinsic = false;
   var firstIntentPosition: Null<Position> = null;
@@ -241,6 +243,24 @@ class JsxPlan {
     }
   }
 
+  /**
+   * Reports when nested markup supplies a required `children` property.
+   *
+   * Why: React accepts children either in the property object or as later
+   * `createElement` arguments, but TypeScript's low-level overload checks a
+   * required `children` field only in the property object. HXX already proved
+   * the nested values satisfy that field, so the createElement printer needs
+   * this fact to preserve the same legal contract as TSX.
+   *
+   * What/How: validation records the fact against the original typed tag
+   * expression. This lookup exposes only the result; printers do not inspect
+   * component fields or optional-spread metadata again.
+   */
+  public function nestedChildrenSupplyRequiredProperty(
+      tag: JsxTagIntent): Bool {
+    return requiredNestedChildren.exists(tagExpression(tag));
+  }
+
   public static function build(module: Module): JsxPlan {
     final plan = new JsxPlan();
     var checker: Null<JsxTypeChecker> = null;
@@ -257,12 +277,18 @@ class JsxPlan {
         return;
       if (checker == null)
         checker = new JsxTypeChecker();
-      final componentPropsType = checker.validate(intent);
-      if (componentPropsType != null)
+      final validation = checker.validate(intent);
+      if (validation.componentPropsType != null)
         switch intent {
           case ElementIntent(tag, _, _, _):
             plan.validatedComponentProps.set(tagExpression(tag),
-              componentPropsType);
+              validation.componentPropsType);
+          default:
+        }
+      if (validation.nestedChildrenSupplyRequiredProperty)
+        switch intent {
+          case ElementIntent(tag, _, _, _):
+            plan.requiredNestedChildren.set(tagExpression(tag), true);
           default:
         }
       plan.intentCount++;

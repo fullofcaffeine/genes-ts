@@ -785,6 +785,14 @@ class TsModuleEmitter extends JsModuleEmitter {
   function emitCreateElement(runtime: String, tag: JsxTagIntent,
       props: Array<JsxPropIntent>, children: Array<JsxChildIntent>) {
     final functionPropsType = validatedFunctionPropsType(tag);
+    // React accepts nested children as later createElement arguments, but its
+    // TypeScript overloads do not count those arguments when checking a
+    // required `children` property. When HXX has already proved that nested
+    // markup supplies that property, write it last in the property object.
+    // This evaluates it once and preserves React's rule that nested content
+    // overrides an earlier optional spread value.
+    final childrenBelongInProps = jsxPlan != null
+      && jsxPlan.nestedChildrenSupplyRequiredProperty(tag);
     write(runtime);
     write('.createElement');
     if (functionPropsType != null) {
@@ -795,10 +803,13 @@ class TsModuleEmitter extends JsModuleEmitter {
     write('(');
     emitValue(JsxPlan.tagExpression(tag));
     write(', ');
-    emitCreateElementProps(runtime, tag, props, functionPropsType);
-    for (child in children) {
-      write(', ');
-      emitJsxChildValue(child);
+    emitCreateElementProps(runtime, tag, props, functionPropsType,
+      childrenBelongInProps ? children : []);
+    if (!childrenBelongInProps) {
+      for (child in children) {
+        write(', ');
+        emitJsxChildValue(child);
+      }
     }
     write(')');
   }
@@ -817,8 +828,9 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   function emitCreateElementProps(runtime: String, tag: JsxTagIntent,
-      props: Array<JsxPropIntent>, functionPropsType: Null<Type>) {
-    if (props.length == 0) {
+      props: Array<JsxPropIntent>, functionPropsType: Null<Type>,
+      requiredChildren: Array<JsxChildIntent>) {
+    if (props.length == 0 && requiredChildren.length == 0) {
       write('null');
       return;
     }
@@ -833,6 +845,19 @@ class TsModuleEmitter extends JsModuleEmitter {
           emitObjectKey(name);
           write(': ');
           emitJsxValue(value, source);
+      }
+    }
+    if (requiredChildren.length > 0) {
+      if (props.length > 0)
+        write(', ');
+      write('children: ');
+      if (requiredChildren.length == 1) {
+        emitJsxChildValue(requiredChildren[0]);
+      } else {
+        write('[');
+        for (child in join(requiredChildren, write.bind(', ')))
+          emitJsxChildValue(child);
+        write(']');
       }
     }
     write('}');

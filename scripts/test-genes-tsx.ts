@@ -95,7 +95,11 @@ function assertHaxeHxxNegatives(): void {
     ["hxx_negative_unexpected_child", "GTS-HXX-CHILD-001"],
     ["hxx_negative_wrong_child", "GTS-HXX-CHILD-003"],
     ["hxx_negative_missing_child", "GTS-HXX-CHILD-002"],
+    ["hxx_negative_scalar_for_array_child", "GTS-HXX-CHILD-003"],
+    ["hxx_negative_unsafe_array_child", "GTS-HXX-TYPE-001"],
     ["hxx_negative_named_and_nested_child", "GTS-HXX-CHILD-004"],
+    ["hxx_negative_required_spread_and_nested_child", "GTS-HXX-CHILD-004"],
+    ["hxx_negative_optional_spread_missing_child", "GTS-HXX-CHILD-002"],
     ["hxx_negative_intrinsic_child", "GTS-HXX-CHILD-003"],
     ["hxx_negative_spread_non_object", "GTS-HXX-SPREAD-001"],
     ["hxx_negative_spread_extra", "GTS-HXX-SPREAD-003"],
@@ -494,6 +498,15 @@ ok(automaticTsxSource.includes(
   "ChangeEvent<HTMLInputElement>"
 ), "TSX preserves the complete input event target as an ambient DOM type");
 ok(!automaticTsxSource.includes("./js/html"));
+ok(automaticTsxSource.includes(
+  "<Main.RequiredChild {...optionalChildren}>{optionalChildSpreadHtml}</Main.RequiredChild>"
+), "TSX lets nested markup satisfy required children after an optional spread");
+ok(automaticTsxSource.includes(
+  "<Main.RequiredChild {...presentOptionalChildren}>{optionalChildOverrideHtml}</Main.RequiredChild>"
+), "TSX keeps nested children after and therefore above a present spread child");
+ok(automaticTsxSource.includes(
+  "<Main.RequiredChildList>{childArray}</Main.RequiredChildList>"
+), "TSX preserves one array-valued child for an array children contract");
 assertNoUnsafeTypes({
   repoRoot,
   generatedDir: "tests/genes-ts/snapshot/react/out/tsx/src-gen",
@@ -559,6 +572,18 @@ ok(typedCreateElementSource.includes(
 ok(typedCreateElementSource.includes(
   "ComponentPropsWithoutRef<typeof TypedButton>"
 ), "metadata-backed component wrappers keep their emitted React prop contract");
+ok(typedCreateElementSource.includes(
+  "createElement(Main.RequiredChild, ({...optionalChildren, children: optionalChildSpreadHtml}"
+), "typed createElement puts a required nested child in the checked property object");
+ok(typedCreateElementSource.includes(
+  "createElement(Main.RequiredChild, ({...presentOptionalChildren, children: optionalChildOverrideHtml}"
+), "typed createElement emits nested children after an optional spread value");
+ok(typedCreateElementSource.includes(
+  "createElement(Main.RequiredChildList, ({children: childArray}"
+), "typed createElement preserves one array-valued child without wrapping it again");
+ok(typedCreateElementSource.includes(
+  "children: [multipleRequiredChildrenHtml, multipleRequiredChildrenHtml1]"
+), "typed createElement aggregates several children for a required array contract");
 assertNoUnsafeTypes({
   repoRoot,
   generatedDir: "tests/genes-ts/snapshot/react/out/ts/src-gen",
@@ -592,6 +617,12 @@ const dualClassicSource = readFileSync(
 );
 ok(dualClassicSource.includes('import * as React__genes_jsx from "react"'));
 ok(dualClassicSource.includes("React__genes_jsx.createElement(\"main\""));
+ok(dualClassicSource.includes(
+  "createElement(DualJsxMain.RequiredChildHost, {...presentOptionalChildren}, optionalSpreadOverrideElement)"
+), "classic createElement passes nested children after a present spread child");
+ok(dualClassicSource.includes(
+  "createElement(DualJsxMain.RequiredChildListHost, null, childArray)"
+), "classic createElement preserves one array-valued child");
 strictEqual(dualClassicSource.includes("Jsx.__jsx"), false);
 
 run("haxe", ["tests/genes-ts/snapshot/react/build-dual-jsx.hxml"]);
@@ -610,6 +641,10 @@ runTypeScript("apiBridge", [
 
 const expectedTranscript = {
   staticHtml: '<main class="shared" id="root"><h1>dual</h1><span>A</span><span>B</span></main>',
+  optionalSpreadHtml: '<section><strong>nested child</strong></section>',
+  optionalSpreadOverrideHtml: '<section><strong>nested child</strong></section>',
+  arrayValueChildHtml: '<section><em>array A</em><strong>array B</strong></section>',
+  multipleRequiredChildrenHtml: '<section><em>nested A</em><strong>nested B</strong></section>',
   dynamicHtml: '<aside data-mode="dynamic">D</aside>',
   evaluatedHtml: '<div title="evaluated-once">E</div>',
   arrayPropHtml: '<div data-array="evaluated-once">P</div>',

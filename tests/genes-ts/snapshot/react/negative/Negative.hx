@@ -13,6 +13,23 @@ typedef TextChildProps = {
   final children: String;
 }
 
+typedef TextChildListProps = {
+  final children: Array<String>;
+}
+
+/**
+ * Models a spread whose `children` field may be absent at runtime.
+ *
+ * `@:optional` tells Haxe the object can omit the field, which is the exact
+ * fact this diagnostic exercises. `@:ts.optional` is deliberately absent:
+ * that separate metadata changes null/undefined output for a supplied value,
+ * not the property's runtime presence.
+ */
+typedef OptionalTextChildSpreadProps = {
+  @:optional
+  var children: String;
+}
+
 typedef MaybeRequiredProps = {
   @:optional var label: String;
 }
@@ -96,6 +113,10 @@ class Negative {
   }
 
   static function TextChild(props: TextChildProps): Element {
+    return <span>{props.children}</span>;
+  }
+
+  static function TextChildList(props: TextChildListProps): Element {
     return <span>{props.children}</span>;
   }
 
@@ -202,8 +223,21 @@ class Negative {
     final value = <TextChild><span>wrong</span></TextChild>;
     #elseif hxx_negative_missing_child
     final value = <TextChild />;
+    #elseif hxx_negative_scalar_for_array_child
+    final value = <TextChildList>one</TextChildList>;
+    #elseif hxx_negative_unsafe_array_child
+    // This intentionally weak boundary proves that using one array expression
+    // for `children` still performs HXX's normal deep type-safety check.
+    final unsafeChildren: Array<Dynamic> = ["unsafe"];
+    final value = <TextChildList>{unsafeChildren}</TextChildList>;
     #elseif hxx_negative_named_and_nested_child
     final value = <TextChild children="one">two</TextChild>;
+    #elseif hxx_negative_required_spread_and_nested_child
+    final props: TextChildProps = {children: "one"};
+    final value = <TextChild {...props}>two</TextChild>;
+    #elseif hxx_negative_optional_spread_missing_child
+    final props: OptionalTextChildSpreadProps = {};
+    final value = <TextChild {...props} />;
     #elseif hxx_negative_intrinsic_child
     final invalid = {label: "not a React child"};
     final value = <div>{invalid}</div>;
