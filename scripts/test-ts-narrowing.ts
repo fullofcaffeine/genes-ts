@@ -206,12 +206,16 @@ function main(): void {
       "branch-local reassignment skipped optional-field null normalization"
     );
   }
-  if (nestedReceiverReassignment.includes("return (holder_item.name!);")) {
+  if (/return \(holder(?:_item|\.item)\.name!\);/.test(
+    nestedReceiverReassignment
+  )) {
     staleFacts.push(
       "nested receiver reassignment kept a proof about the replaced child"
     );
   }
-  if (!nestedReceiverReassignment.includes("return (holder_item.name ?? null);")) {
+  if (!/return \(holder(?:_item|\.item)\.name \?\? null\);/.test(
+    nestedReceiverReassignment
+  )) {
     staleFacts.push(
       "nested receiver reassignment skipped optional-field null normalization"
     );
