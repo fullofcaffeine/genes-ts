@@ -1,4 +1,8 @@
-import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
+import {
+  execFileSync,
+  spawnSync,
+  type ExecFileSyncOptions
+} from "node:child_process";
 import { readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,6 +32,58 @@ function methodBlock(source: string, signature: RegExp, label: string): string {
 }
 
 /**
+ * Proves whether emitter narrowing queries still refer to typed source nodes.
+ *
+ * The narrowing plan and this test-only source inventory are independent. A
+ * source expression missing from the plan is therefore distinguishable from a
+ * wrapper created later by the emitter. Normal builds do not collect or print
+ * this inventory.
+ */
+function runLookupInventory(): {
+  planned: number;
+  synthesized: number;
+  missing: number;
+} {
+  const result = spawnSync(
+    "haxe",
+    [
+      "tests/genes-ts/no-js-es/build.hxml",
+      "-D",
+      "genes.ts.narrowing_inventory"
+    ],
+    { cwd: repoRoot, encoding: "utf8" }
+  );
+  const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+  if (result.status !== 0) {
+    throw new Error(`narrowing lookup inventory failed:\n${output}`);
+  }
+  const count = (label: string): number =>
+    output.match(new RegExp(`\\[GTS-NARROW-INVENTORY\\] ${label}`, "g"))
+      ?.length ?? 0;
+  const inventory = {
+    planned: count("planned-source-expression"),
+    synthesized: count("emitter-synthesized-expression"),
+    missing: count("missing-source-program-point")
+  };
+  if (inventory.planned === 0) {
+    throw new Error("narrowing lookup inventory observed no plan queries");
+  }
+  if (inventory.synthesized !== 0 || inventory.missing !== 0) {
+    throw new Error(
+      [
+        "narrowing lookup provenance changed:",
+        `- planned source expressions: ${inventory.planned}`,
+        `- emitter-synthesized expressions: ${inventory.synthesized}`,
+        `- missing source program points: ${inventory.missing}`,
+        "",
+        output
+      ].join("\n")
+    );
+  }
+  return inventory;
+}
+
+/**
  * Reproduces the bounded places where a TypeScript non-null proof can outlive
  * the local, receiver, map entry, or loop iteration that made it true.
  *
@@ -49,6 +105,7 @@ function methodBlock(source: string, signature: RegExp, label: string): string {
 function main(): void {
   const outputRoot = path.join(repoRoot, "tests/genes-ts/no-js-es/out");
   rmSync(outputRoot, { recursive: true, force: true });
+  const inventory = runLookupInventory();
   run("haxe", ["tests/genes-ts/no-js-es/build.hxml"]);
 
   runGeneratedTypeScriptMatrix("tests/genes-ts/no-js-es/tsconfig.json");
@@ -385,6 +442,9 @@ function main(): void {
     );
   }
 
+  process.stdout.write(
+    `ts-narrowing-inventory:planned=${inventory.planned},synthesized=0,missing=0\n`
+  );
   process.stdout.write("ts-narrowing:ok\n");
 }
 

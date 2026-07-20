@@ -70,7 +70,7 @@ walks one function; the emitter only reads the finished decisions.
 | --- | --- | --- | --- | --- | --- |
 | Whether a type means Haxe `null`, JavaScript `undefined`, an omitted property, or a missing map entry | Haxe `Type` and field metadata | `NullishContract` | TS implementation, classic runtime paths, declarations | Shared semantic fact | Keep. The narrowing work must consume this contract and must not recreate nullish policy. |
 | Whether Haxe introduced a temporary and what stable local name it receives | Typed expressions and `TVar.id` | `TempPlan` and `NamePlan` | Both implementation profiles | Shared lowering fact | Keep. A narrowing plan may refer to their typed identities but must not allocate names or temporaries. |
-| Recognition of `value == null`, `value != null`, boolean `&&`/`||`/`!`, and `Map.exists(key)` | `TypedExpr` condition | `TsNarrowingPlan` condition facts | `if` statements, conditional expressions, and same-block continuation | TypeScript-specific proof | One typed owner. Unsupported conditions introduce no fact. |
+| Recognition of `value == null`, `value != null`, boolean `&&`/`||`/`!`, and `Map.exists(key)` | `TypedExpr` condition | `TsNarrowingPlan` condition facts | `if` statements, short-circuit right operands, conditional expressions, and same-block continuation | TypeScript-specific proof | One typed owner. The right side of `&&` receives facts from the true left path; the right side of `||` receives facts from the false left path. Unsupported conditions introduce no fact. |
 | Branch-local and continuing non-null facts | Recognized guard plus selected branch or an exiting statement | Function-local plan state and immutable decisions at stable program points | Local initializers, optional-field reads, and map reads | TypeScript-specific proof | Extracted. The emitter asks a question at the read; it no longer pushes facts while writing braces. |
 | Invalidation after assignment | Exact typed assignment receiver | `TsNarrowValueIdentityTools.dependsOn` plus `ValueChanged` | Every later read in the function | TypeScript-specific proof | A receiver change also ends child-field and dependent map/key facts. No rendered-name parsing is involved. |
 | Whether a local may keep a narrower initializer-inferred TS type | Haxe `TVar.id` plus direct assignments/increments found by the same exhaustive walk | `TsNarrowingPlan.isLocalReassigned` | Explicit generic call-site local emission | TypeScript-specific mutation fact | An unmodified local may infer the precise preserved call result. A reassigned local keeps its wider Haxe annotation so a later Haxe-valid assignment is not rejected by TypeScript. This is direct syntactic mutation tracking, not alias analysis. |
@@ -79,6 +79,7 @@ walks one function; the emitter only reads the finished decisions.
 | `map.keys()` iterator provenance | Iterator and yielded-key locals | Function-local iterator origins in `TsNarrowingPlan` | Direct `map.get(key)` reads during the same loop | TypeScript-specific proof | A nested callback starts with an empty function state, so a key proof cannot leak into delayed work. |
 | Loop entry, back-edge, and post-test exit safety | Loop kind plus mutations found in the bounded loop body | Exact loop mutation summary applied before the shared body program point and conservative post-test exit | Reads in and after loops | TypeScript-specific proof | A `while` condition can narrow its body, while a `do...while` condition cannot narrow the first body execution. An early `break` cannot export a later skipped guard. Incoming facts that survive the loop remain available. The summary models assignments and map mutation only; it is not a general CFG or alias analysis. |
 | Reset at a nested function | A `TFunction` boundary | A fresh function-local builder state | Callback bodies | TypeScript-specific proof | Outer facts and iterator provenance never enter a delayed callback. |
+| Whether a narrowing lookup has a matching program point | Original `TypedExpr` object passed by the emitter | `TsNarrowingPlan` plus a focused test-only source inventory | TypeScript implementation emission | TypeScript planning invariant | Current lookups all refer to original typed source expressions. A missing point fails with `GTS-NARROW-PLAN-002`; the focused inventory distinguishes a source-planning omission from a future emitter-created wrapper. Normal builds do not collect the extra inventory. |
 | Final TypeScript syntax (`!`, `?? null`, direct read, or contained runtime assertion) | Nullish contract plus a proven fact | `TsModuleEmitter` | Generated `.ts`/`.tsx` tokens and source maps | TypeScript syntax | Keep in the emitter. The plan answers whether a fact is valid; the emitter chooses the TypeScript spelling. |
 
 ## Why extraction is justified now
@@ -110,6 +111,8 @@ The plan models only facts the TypeScript emitter needs:
   delayed function bodies;
 - a direct-local reassignment inventory reused when initializer-only
   TypeScript inference would otherwise make a mutable Haxe variable too narrow;
+- short-circuit entry facts that apply only while the right operand is actually
+  reachable, then disappear again before the expression rejoins;
 - the source position plus a deterministic traversal identity used to explain
   the first shadow mismatch.
 
@@ -158,7 +161,11 @@ their extraction.
 - early post-test `break`/`continue` paths that skip a later guard, plus an
   unchanged incoming fact that must remain concise;
 - computed-key `Map.remove`, exact-key precision, and isolation between maps;
-- assignment later in a compound condition ending an earlier guard fact.
+- assignment later in a compound condition ending an earlier guard fact;
+- `&&` and `||` right operands receiving the exact local or `Map.exists` fact
+  guaranteed by short-circuit order, without leaking that fact afterward;
+- an executable provenance inventory showing current emitter queries have
+  planned source program points rather than relying on synthesized wrappers.
 
 These cases define the bounded function-local proof. General alias analysis,
 unknown call effects, and richer whole-program flow remain outside this plan;

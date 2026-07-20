@@ -2874,12 +2874,30 @@ class TsModuleEmitter extends JsModuleEmitter {
   /**
    * Reads the semantic plan instead of inferring control flow while printing.
    *
-   * A missing entry is intentionally conservative. It can occur for the small
-   * default-argument checks synthesized by `getFunctionBody`; those generated
-   * checks do not establish source-level facts for later expressions.
+   * Every current lookup uses an original typed Haxe expression. A focused
+   * inventory also covers the default-argument wrappers created later by
+   * `getFunctionBody`: those wrappers are emitted, but none is passed to this
+   * semantic query. A missing program point is therefore a planning error, not
+   * permission to guess. If a future emitter-owned wrapper genuinely needs a
+   * lookup, it must carry explicit source provenance before being admitted.
    */
   function isNarrowedNonNull(e: TypedExpr): Bool {
     final plan = narrowingPlan;
+    #if genes.ts.narrowing_inventory
+    if (plan != null) {
+      switch plan.lookupProvenance(e) {
+        case PlannedSourceExpression:
+          haxe.macro.Context.info(
+            "[GTS-NARROW-INVENTORY] planned-source-expression", e.pos);
+        case MissingSourceProgramPoint:
+          haxe.macro.Context.info(
+            "[GTS-NARROW-INVENTORY] missing-source-program-point", e.pos);
+        case EmitterSynthesizedExpression:
+          haxe.macro.Context.info(
+            "[GTS-NARROW-INVENTORY] emitter-synthesized-expression", e.pos);
+      }
+    }
+    #end
     return plan != null && plan.isKnownNonNull(e);
   }
 
