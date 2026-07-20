@@ -3,6 +3,7 @@ import genes.react.ComponentType;
 import genes.react.DomElement;
 import genes.react.Element;
 import genes.react.MouseEvent;
+import genes.react.Node;
 import genes.react.SyntheticEvent;
 import genes.react.internal.Jsx;
 import genes.ts.Imports;
@@ -26,6 +27,10 @@ typedef StatusProps = {
 
 typedef RequiredChildProps = {
   final children: Element;
+}
+
+typedef BroadNodeProps = {
+  final children: Node;
 }
 
 typedef GenericValueProps<T> = {
@@ -150,6 +155,14 @@ class Main {
     final requiredChildHtml = renderToStaticMarkup(<RequiredChild><strong>required</strong></RequiredChild>);
     if (requiredChildHtml != '<section><strong>required</strong></section>')
       throw 'Unexpected required child HTML: ' + requiredChildHtml;
+
+    // `Node` deliberately remains the broad renderable contract. This is the
+    // control for RequiredChild's exact one-Element property above.
+    final broadNodeHtml = renderToStaticMarkup(
+      <BroadNode>text child<strong key="broad-element">element child</strong></BroadNode>
+    );
+    if (broadNodeHtml != '<section>text child<strong>element child</strong></section>')
+      throw 'Unexpected broad node HTML: ' + broadNodeHtml;
 
     final booleanAndArrayHtml = renderToStaticMarkup(<button disabled aria-pressed={true}>{["A", "B"]}</button>);
     if (booleanAndArrayHtml != '<button disabled="" aria-pressed="true">AB</button>')
@@ -316,6 +329,10 @@ class Main {
   }
 
   static function RequiredChild(props: RequiredChildProps): Element {
+    return <section>{props.children}</section>;
+  }
+
+  static function BroadNode(props: BroadNodeProps): Element {
     return <section>{props.children}</section>;
   }
 

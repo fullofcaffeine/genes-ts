@@ -26,6 +26,10 @@ export type RequiredChildProps = {
 	children: JSX.Element
 }
 
+export type BroadNodeProps = {
+	children: React.ReactNode
+}
+
 export type GenericValueProps<T> = {
 	render: (arg0: T) => string,
 	value: T
@@ -156,6 +160,11 @@ export class Main {
 		if (requiredChildHtml1 != "<section><strong>required</strong></section>") {
 			throw Exception.thrown("Unexpected required child HTML: " + requiredChildHtml1);
 		};
+		let broadNodeHtml: JSX.Element = React__genes_jsx.createElement("strong", ({key: "broad-element"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"strong"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "element child");
+		let broadNodeHtml1: string = renderToStaticMarkup(React__genes_jsx.createElement(Main.BroadNode, ({children: ["text child", broadNodeHtml]} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Main.BroadNode> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
+		if (broadNodeHtml1 != "<section>text child<strong>element child</strong></section>") {
+			throw Exception.thrown("Unexpected broad node HTML: " + broadNodeHtml1);
+		};
 		let booleanAndArrayHtml: string = renderToStaticMarkup(React__genes_jsx.createElement("button", ({disabled: true, "aria-pressed": true} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"button"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), ["A", "B"]));
 		if (booleanAndArrayHtml != "<button disabled=\"\" aria-pressed=\"true\">AB</button>") {
 			throw Exception.thrown("Unexpected boolean/array HTML: " + booleanAndArrayHtml);
@@ -210,7 +219,7 @@ export class Main {
 			throw Exception.thrown("Unexpected absent href HTML: " + absentHrefHtml);
 		};
 		let contextualInput: JSX.Element = React__genes_jsx.createElement("input", ({onChange: function (event: import('react').ChangeEvent<HTMLInputElement>) {
-			console.log("tests/genes-ts/snapshot/react/src/Main.hx:234:",event.target.value);
+			console.log("tests/genes-ts/snapshot/react/src/Main.hx:247:",event.target.value);
 			event.target.select();
 			event.target.setSelectionRange(0, 0);
 		}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"input"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
@@ -276,6 +285,9 @@ export class Main {
 		return React__genes_jsx.createElement("aside", ({"data-tone": props.tone, onClick: props.onSelect} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"aside"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), props.label);
 	}
 	static RequiredChild(props: RequiredChildProps): JSX.Element {
+		return React__genes_jsx.createElement("section", null, props.children);
+	}
+	static BroadNode(props: BroadNodeProps): JSX.Element {
 		return React__genes_jsx.createElement("section", null, props.children);
 	}
 

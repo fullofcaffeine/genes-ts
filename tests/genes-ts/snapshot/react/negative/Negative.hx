@@ -17,6 +17,10 @@ typedef TextChildListProps = {
   final children: Array<String>;
 }
 
+typedef ElementChildProps = {
+  final children: Element;
+}
+
 /**
  * Models a spread whose `children` field may be absent at runtime.
  *
@@ -162,6 +166,10 @@ class Negative {
     return <span>{props.children}</span>;
   }
 
+  static function ElementChild(props: ElementChildProps): Element {
+    return <span>{props.children}</span>;
+  }
+
   static function BadReturn(): NotReactNode {
     return {label: "not an element"};
   }
@@ -300,6 +308,12 @@ class Negative {
     final value = <TextChild><span>wrong</span></TextChild>;
     #elseif hxx_negative_missing_child
     final value = <TextChild />;
+    #elseif hxx_negative_element_text_child
+    final value = <ElementChild>text is not an element</ElementChild>;
+    #elseif hxx_negative_element_multiple_children
+    final value = <ElementChild><span>one</span><strong>two</strong></ElementChild>;
+    #elseif hxx_negative_element_missing_child
+    final value = <ElementChild />;
     #elseif hxx_negative_scalar_for_array_child
     final value = <TextChildList>one</TextChildList>;
     #elseif hxx_negative_unsafe_array_child

@@ -875,7 +875,8 @@ class JsxTypeChecker {
           return false;
       return union.length > 0;
     }
-    if (isNodeContract(resolved) || isScalarNode(resolved, depth + 1))
+    if (isNodeContract(resolved) || isElementContract(resolved)
+      || isScalarNode(resolved, depth + 1))
       return true;
     final element = arrayElement(resolved);
     if (element != null)
@@ -1126,6 +1127,35 @@ class JsxTypeChecker {
         hasMeta(classRef.get().meta, 'genes.jsxNode');
       case TAbstract(abstractRef, _):
         hasMeta(abstractRef.get().meta, 'genes.jsxNode');
+      default: false;
+    }
+  }
+
+  /**
+   * Identifies an exact JSX-element type that is renderable but not broad.
+   *
+   * Why: `@:genes.jsxNode` is the open ReactNode-style contract. Treating the
+   * concrete `genes.react.Element` facade as that same contract caused a
+   * property typed `Element` to accept text and several nested children.
+   *
+   * What: `@:genes.jsxElement` marks a nominal class or abstract as a
+   * renderable element. It does not change normal Haxe assignability or child
+   * cardinality when that type appears as a component property.
+   *
+   * How: renderability calls this helper explicitly, while `isNodeContract`
+   * remains the only entry into the broad child algebra. Nullable values are
+   * followed here for the same reason they are followed by the node marker.
+   */
+  static function isElementContract(type: Type): Bool {
+    final resolved = resolveAliases(type);
+    final nullable = nullableInner(resolved);
+    if (nullable != null)
+      return isElementContract(nullable);
+    return switch resolved {
+      case TInst(classRef, _):
+        hasMeta(classRef.get().meta, 'genes.jsxElement');
+      case TAbstract(abstractRef, _):
+        hasMeta(abstractRef.get().meta, 'genes.jsxElement');
       default: false;
     }
   }

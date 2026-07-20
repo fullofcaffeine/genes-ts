@@ -26,6 +26,10 @@ export type RequiredChildProps = {
 	children: JSX.Element
 }
 
+export type BroadNodeProps = {
+	children: React.ReactNode
+}
+
 export type GenericValueProps<T> = {
 	render: (arg0: T) => string,
 	value: T
@@ -156,6 +160,11 @@ export class Main {
 		if (requiredChildHtml1 != "<section><strong>required</strong></section>") {
 			throw Exception.thrown("Unexpected required child HTML: " + requiredChildHtml1);
 		};
+		let broadNodeHtml: JSX.Element = <strong key="broad-element">element child</strong>;
+		let broadNodeHtml1: string = renderToStaticMarkup(<Main.BroadNode>text child{broadNodeHtml}</Main.BroadNode>);
+		if (broadNodeHtml1 != "<section>text child<strong>element child</strong></section>") {
+			throw Exception.thrown("Unexpected broad node HTML: " + broadNodeHtml1);
+		};
 		let booleanAndArrayHtml: string = renderToStaticMarkup(<button disabled aria-pressed>{["A", "B"]}</button>);
 		if (booleanAndArrayHtml != "<button disabled=\"\" aria-pressed=\"true\">AB</button>") {
 			throw Exception.thrown("Unexpected boolean/array HTML: " + booleanAndArrayHtml);
@@ -210,7 +219,7 @@ export class Main {
 			throw Exception.thrown("Unexpected absent href HTML: " + absentHrefHtml);
 		};
 		let contextualInput: JSX.Element = <input onChange={function (event: import('react').ChangeEvent<HTMLInputElement>) {
-			console.log("tests/genes-ts/snapshot/react/src/Main.hx:234:",event.target.value);
+			console.log("tests/genes-ts/snapshot/react/src/Main.hx:247:",event.target.value);
 			event.target.select();
 			event.target.setSelectionRange(0, 0);
 		}} />;
@@ -276,6 +285,9 @@ export class Main {
 		return <aside data-tone={props.tone} onClick={props.onSelect}>{props.label}</aside>;
 	}
 	static RequiredChild(props: RequiredChildProps): JSX.Element {
+		return <section>{props.children}</section>;
+	}
+	static BroadNode(props: BroadNodeProps): JSX.Element {
 		return <section>{props.children}</section>;
 	}
 
