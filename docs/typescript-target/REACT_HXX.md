@@ -17,6 +17,13 @@ Key properties:
 - TypeScript source profiles use `-D genes.ts`; classic ESM omits it.
 - Install `react` and `react-dom` for runtime execution.
 - TypeScript source profiles also need `@types/react` and `@types/react-dom`.
+- React 19 projects should add `-D genes.ts.jsx_import_source=react`. Both the
+  `.tsx` and typed `.ts` profiles can emit `JSX.Element` annotations; this
+  define adds the canonical module-scoped `import type {JSX} from "react"`
+  instead of depending on the global namespace removed by React 19. Add the
+  same define to classic JavaScript builds that use `-D dts`; their generated
+  declarations receive the import while the runtime JavaScript stays
+  unchanged.
 - Classic inline markup is opt-in with `@:jsx_inline_markup`,
   `-D genes.react.inline_markup`, or `-D genes.react.inline_markup_all`.
   The explicit `jsx("...")` macro already creates marker intent without that
@@ -47,10 +54,12 @@ Selection is based on the `-js` output filename extension:
 # TSX mode
 -js src-gen/index.tsx
 -D genes.ts
+-D genes.ts.jsx_import_source=react
 
 # Low-level mode
 -js src-gen/index.ts
 -D genes.ts
+-D genes.ts.jsx_import_source=react
 
 # Type-erased JSX mode
 -js src-gen/index.jsx
@@ -59,6 +68,8 @@ Selection is based on the `-js` output filename extension:
 # Classic JavaScript mode
 -js src-gen/index.js
 -D genes.react.inline_markup
+# Required with React 19 when this profile also enables `-D dts`.
+-D genes.ts.jsx_import_source=react
 ```
 
 ## Basic usage: `jsx("...")` template
@@ -434,6 +445,61 @@ from generated TypeScript names or the fields present on an empty extern.
 families, browser and ordinary Haxe target inheritance, narrow/sibling
 rejection, canonical TypeScript 5/6/7 output, both runtimes, and failed-build
 rollback.
+
+## React 19 form actions
+
+React 19 accepts either a URL or a function on `<form action>`,
+`<button formAction>`, and `<input formAction>`. The function receives exactly
+one browser `FormData` value and may return `Void` or `Promise<Void>`. Genes
+models that complete union in the intrinsic schema, so Haxe validates the
+action before TSX or `createElement` output exists:
+
+```haxe
+static function save(data: js.html.FormData): js.lib.Promise<Void> {
+  data.has("title");
+  return js.lib.Promise.resolve();
+}
+
+final form = <form action={save}></form>;
+final alternate = <button formAction={save}>Save</button>;
+```
+
+String actions remain valid:
+
+```haxe
+final form = <form action="/search"></form>;
+```
+
+The callback result is one function returning a closed union—not a union of
+separate functions. This distinction ensures that an invalid
+`Promise<String>` result cannot be accepted by the ordinary rule that permits
+callers to ignore a synchronous callback result. Wrong parameter types, extra
+required parameters, and structurally similar but unrelated host facades fail
+with `GTS-HXX-PROP-002` at the authored attribute.
+
+Sometimes a library needs a focused facade for a browser global whose Haxe
+standard-library declaration is older or broader. Such an extern can declare
+the same native host identity explicitly:
+
+```haxe
+@:native("FormData")
+@:ts.type("globalThis.FormData")
+extern class PreciseFormData {
+  function has(name: String): Bool;
+}
+```
+
+Two extern classes with the same literal global `@:native` name and no
+`@:jsRequire` are treated as views of the same host type. Generic arguments
+remain invariant. Matching method names alone do not establish identity, and a
+different native global such as `URLSearchParams` remains incompatible. This
+rule is framework-neutral and never compares generated TypeScript strings.
+
+This support was added after a Next.js Server Function form—valid under React
+19—failed early in HXX because the bundled intrinsic schema still allowed only
+a string action. The implementation remains a general React/host-extern
+capability; it contains no Next.js-specific behavior. See React's official
+[`<form>` reference](https://react.dev/reference/react-dom/components/form).
 
 Renderable children include the closed `genes.react.OneOf*` carriers and
 standard `haxe.extern.EitherType` unions. Domain abstracts backed by a React

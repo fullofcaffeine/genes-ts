@@ -6,5 +6,6 @@
 # Low-level mode: emit `.ts` and keep `React.createElement(...)` calls.
 -js tests/genes-ts/snapshot/react/out/ts/src-gen/index.ts
 -D genes.ts
+-D genes.ts.jsx_import_source=react
 
 -dce full

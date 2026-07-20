@@ -1,3 +1,4 @@
+import type {JSX} from "react"
 import __genes_import_PrettyButton from "../../../../src-ts/components/PrettyButton"
 import {interopBanner as __genes_import_interopBanner} from "../../../../src-ts/interop/haxeInterop"
 import {useState, useEffect} from "react"

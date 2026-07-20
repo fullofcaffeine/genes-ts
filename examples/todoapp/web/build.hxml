@@ -6,6 +6,7 @@
 # Emit TypeScript via genes-ts (still uses -js because we compile on the JS platform)
 -js examples/todoapp/web/src-gen/index.tsx
 -D genes.ts
+-D genes.ts.jsx_import_source=react
 
 # Bundler-friendly imports (extensionless)
 -D genes.ts.no_extension

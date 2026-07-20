@@ -3,5 +3,6 @@
 --main hxx_event_variance.Main
 -js tests/hxx-event-variance/out/ts/src-gen/index.tsx
 -D genes.ts
+-D genes.ts.jsx_import_source=react
 -D no-deprecation-warnings
 -dce full

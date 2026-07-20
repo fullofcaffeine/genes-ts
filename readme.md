@@ -287,6 +287,14 @@ contracts preserve the concrete element target (for example,
 `ChangeEvent<InputElement>` on `<input>`), including contextual callback
 typing at the HXX source position.
 
+React 19 form actions are checked at the same boundary: `action` and
+`formAction` accept either a string or a one-argument `FormData` callback whose
+result is `Void | Promise<Void>`. Add
+`-D genes.ts.jsx_import_source=react` to React 19 typed profiles so both TSX and
+typed `createElement` output import the module-scoped `JSX` namespace. The same
+define also protects classic `-D dts` declarations when a JavaScript profile
+publishes `JSX.Element` types.
+
 Inline markup rewriting is default-on in `-D genes.ts` builds. Disable it for a
 build with `-D genes.react.no_inline_markup`, or for one class with
 `@:jsx_no_inline_markup`. Outside TypeScript mode, `@:jsx_inline_markup`,
@@ -429,6 +437,10 @@ See `docs/SECURITY.md`.
 - `-D genes.library` — retain `@:genes.library` public roots and their
   signature-reachable public graph. Classic output also requires `-D dts`.
 - `-D genes.ts.jsx_classic` — when emitting `.tsx`, also emit `import * as React from "react"` so the output compiles under TypeScript `jsx: "react"` (classic runtime). Default expects `jsx: "react-jsx"`.
+- `-D genes.ts.jsx_import_source=<module>` — when typed output or classic
+  `-D dts` declarations contain an unqualified `JSX` type, import that module's
+  `JSX` namespace. Use `react` with React 19; unrelated modules receive no
+  import.
 
 React/markup:
 - `-D genes.react.no_inline_markup` — disable the default inline-markup rewrite.

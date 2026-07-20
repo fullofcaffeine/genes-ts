@@ -90,6 +90,11 @@ function assertHaxeHxxNegatives(): void {
     ["hxx_negative_svg_dash_type", "GTS-HXX-PROP-002"],
     ["hxx_negative_intrinsic_null", "GTS-HXX-PROP-002"],
     ["hxx_negative_handler", "GTS-HXX-PROP-002"],
+    ["hxx_negative_form_action_parameter", "GTS-HXX-PROP-002"],
+    ["hxx_negative_form_action_arity", "GTS-HXX-PROP-002"],
+    ["hxx_negative_form_action_result", "GTS-HXX-PROP-002"],
+    ["hxx_negative_form_action_structural_facade", "GTS-HXX-PROP-002"],
+    ["hxx_negative_form_action_wrong_host", "GTS-HXX-PROP-002"],
     ["hxx_negative_component_missing", "GTS-HXX-PROP-004"],
     ["hxx_negative_component_extra", "GTS-HXX-PROP-001"],
     ["hxx_negative_component_wrong", "GTS-HXX-PROP-002"],
@@ -525,6 +530,8 @@ const automaticTsxSource = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/react/out/tsx/src-gen/Main.tsx"),
   "utf8"
 );
+ok(automaticTsxSource.startsWith('import type {JSX} from "react"'),
+  "typed TSX imports the configured module-scoped JSX namespace");
 ok(automaticTsxSource.includes(
   "MouseEvent<HTMLAnchorElement>"
 ), "TSX preserves the complete anchor event target as an ambient DOM type");
@@ -548,6 +555,20 @@ ok(automaticTsxSource.includes(
 ok(automaticTsxSource.includes(
   "strokeDasharray={dashPattern} strokeDashoffset={dashOffset}"
 ), "TSX preserves canonical checked React SVG dash properties");
+ok(automaticTsxSource.includes(
+  "<form action={Main.syncFormAction} />"
+), "TSX preserves a named synchronous React 19 form action");
+ok(automaticTsxSource.includes(
+  "<form action={Main.asyncFormAction} />"
+), "TSX preserves a named asynchronous React 19 form action");
+ok(automaticTsxSource.includes(
+  "<form action={function (formData: FormData) {"
+), "a form-action union contextually types the inline FormData parameter");
+ok(automaticTsxSource.includes(
+  "<button formAction={Main.syncFormAction}>Save</button>"
+) && automaticTsxSource.includes(
+  '<input type="submit" formAction={Main.asyncFormAction} />'
+), "button and input preserve the same checked React 19 formAction contract");
 assertNoUnsafeTypes({
   repoRoot,
   generatedDir: "tests/genes-ts/snapshot/react/out/tsx/src-gen",
@@ -637,6 +658,8 @@ const typedCreateElementSource = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/react/out/ts/src-gen/Main.ts"),
   "utf8"
 );
+ok(typedCreateElementSource.startsWith('import type {JSX} from "react"'),
+  "typed createElement output imports the configured JSX namespace too");
 ok(typedCreateElementSource.includes(
   "createElement<GenericValueProps<number>>(Main.GenericValue"
 ), "typed createElement preserves the Haxe-inferred generic component props");
@@ -664,6 +687,12 @@ ok(typedCreateElementSource.includes(
 ok(typedCreateElementSource.includes(
   "strokeDasharray: dashPattern, strokeDashoffset: dashOffset"
 ), "typed createElement preserves checked React SVG dash properties");
+ok(typedCreateElementSource.includes(
+  'createElement("form", ({action: Main.syncFormAction} satisfies'
+), "typed createElement preserves a named synchronous form action");
+ok(typedCreateElementSource.includes(
+  'createElement("form", ({action: Main.asyncFormAction} satisfies'
+), "typed createElement preserves a named asynchronous form action");
 assertNoUnsafeTypes({
   repoRoot,
   generatedDir: "tests/genes-ts/snapshot/react/out/ts/src-gen",
@@ -730,6 +759,12 @@ ok(dualClassicSource.includes(
 ok(dualClassicSource.includes(
   '"strokeDasharray": dashPattern, "strokeDashoffset": dashOffset'
 ), "classic createElement preserves checked React SVG dash properties");
+ok(dualClassicSource.includes(
+  'createElement("form", {"action": DualJsxMain.syncFormAction})'
+), "classic createElement preserves a function-valued form action");
+ok(dualClassicSource.includes(
+  'createElement("button", {"formAction": DualJsxMain.syncFormAction}, "Save")'
+), "classic createElement preserves a button formAction without a helper");
 strictEqual(dualClassicSource.includes("Jsx.__jsx"), false);
 
 run("haxe", ["tests/genes-ts/snapshot/react/build-dual-jsx.hxml"]);

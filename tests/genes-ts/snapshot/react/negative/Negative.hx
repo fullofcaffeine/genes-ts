@@ -49,6 +49,17 @@ typedef RequiredCallbackProps = {
 extern class FirstEventTarget {}
 extern class SecondEventTarget {}
 
+/** Same visible method as FormData, but no explicit shared host identity. */
+extern class StructuralFormData {
+  function has(name: String): Bool;
+}
+
+/** Explicitly points at a different native global and must stay incompatible. */
+@:native("URLSearchParams")
+extern class WrongHostFormData {
+  function has(name: String): Bool;
+}
+
 typedef EventProps = {
   final onClick: MouseEvent<FirstEventTarget>->Void;
 }
@@ -178,6 +189,20 @@ class Negative {
 
   static function wrongAnchorEventTarget(event: MouseEvent<InputElement>): Void {}
 
+  static function wrongFormActionParameter(value: Int): Void {}
+
+  static function tooManyFormActionArguments(data: js.html.FormData,
+      required: String): Void {}
+
+  static function wrongAsyncFormActionResult(
+      data: js.html.FormData): js.lib.Promise<String> {
+    return js.lib.Promise.resolve("not void");
+  }
+
+  static function structuralFormAction(data: StructuralFormData): Void {}
+
+  static function wrongHostFormAction(data: WrongHostFormData): Void {}
+
   static function maybeRequiredProps(): MaybeRequiredProps {
     return {};
   }
@@ -211,6 +236,18 @@ class Negative {
     final value = <a href={null}>Invalid null href</a>;
     #elseif hxx_negative_handler
     final value = <button onClick="not-a-handler" />;
+    #elseif hxx_negative_form_action_parameter
+    final value = <form action={wrongFormActionParameter}></form>;
+    #elseif hxx_negative_form_action_arity
+    final value = <form action={tooManyFormActionArguments}></form>;
+    #elseif hxx_negative_form_action_result
+    final value = <form action={wrongAsyncFormActionResult}></form>;
+    #elseif hxx_negative_form_action_structural_facade
+    // Matching methods do not prove that two externs name one host object.
+    final value = <button formAction={structuralFormAction}>Save</button>;
+    #elseif hxx_negative_form_action_wrong_host
+    // A different explicit native identity must not match FormData.
+    final value = <input type="submit" formAction={wrongHostFormAction} />;
     #elseif hxx_negative_component_missing
     final value = <Button />;
     #elseif hxx_negative_component_extra

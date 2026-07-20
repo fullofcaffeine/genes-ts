@@ -1,3 +1,4 @@
+import type {JSX} from "react"
 import * as React__genes_jsx from "react"
 import {TodoListPage} from "./pages/TodoListPage"
 import {TodoDetailPage} from "./pages/TodoDetailPage"

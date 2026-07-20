@@ -57,6 +57,13 @@ InheritedCardProps.__isInterface__ = true;
  * harness type-checks and executes the generated output.
  */
 export class Main {
+	static syncFormAction(data: globalThis.FormData): void {
+		data.has("title");
+	}
+	static asyncFormAction(data: globalThis.FormData): Promise<void> {
+		data.has("title");
+		return Promise.resolve();
+	}
 	static main(): void {
 		let title: string = "Hi";
 		let standardAnchorHandler: ((arg0: import('react').MouseEvent<HTMLAnchorElement>) => void) = function (event: import('react').MouseEvent<HTMLAnchorElement>) {
@@ -152,6 +159,14 @@ export class Main {
 		if (booleanAndArrayHtml != "<button disabled=\"\" aria-pressed=\"true\">AB</button>") {
 			throw Exception.thrown("Unexpected boolean/array HTML: " + booleanAndArrayHtml);
 		};
+		let stringFormAction: JSX.Element = <form action="/save" />;
+		let syncFormActionElement: JSX.Element = <form action={Main.syncFormAction} />;
+		let asyncFormActionElement: JSX.Element = <form action={Main.asyncFormAction} />;
+		let contextualFormAction: JSX.Element = <form action={function (formData: FormData) {
+			formData.has("title");
+		}} />;
+		let buttonFormAction: JSX.Element = <button formAction={Main.syncFormAction}>Save</button>;
+		let inputFormAction: JSX.Element = <input type="submit" formAction={Main.asyncFormAction} />;
 		let dashPattern: string = "8 4";
 		let dashOffset: number = 2.5;
 		let dashedCircleHtml: JSX.Element = <circle cx={5} cy={5} r={4} strokeDasharray={dashPattern} strokeDashoffset={dashOffset} />;
@@ -194,7 +209,7 @@ export class Main {
 			throw Exception.thrown("Unexpected absent href HTML: " + absentHrefHtml);
 		};
 		let contextualInput: JSX.Element = <input onChange={function (event: import('react').ChangeEvent<HTMLInputElement>) {
-			console.log("tests/genes-ts/snapshot/react/src/Main.hx:210:",event.target.value);
+			console.log("tests/genes-ts/snapshot/react/src/Main.hx:234:",event.target.value);
 			event.target.select();
 			event.target.setSelectionRange(0, 0);
 		}} />;

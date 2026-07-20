@@ -6,6 +6,7 @@
 
 -js tests/genes-ts/snapshot/react/out/packed-consumer/src-gen/index.tsx
 -D genes.ts
+-D genes.ts.jsx_import_source=react
 
 # Load the exact compiler activation shipped in the release archive.
 tests/genes-ts/snapshot/react/out/packed-consumer/package/extraParams.hxml

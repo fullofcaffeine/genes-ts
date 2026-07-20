@@ -6,6 +6,7 @@
 # TSX classic mode: keep `.tsx` and bind React for TypeScript's classic JSX transform.
 -js tests/genes-ts/snapshot/react/out/tsx-classic/src-gen/index.tsx
 -D genes.ts
+-D genes.ts.jsx_import_source=react
 -D genes.ts.jsx_classic
 
 -dce full

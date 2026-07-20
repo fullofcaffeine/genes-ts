@@ -15,6 +15,11 @@ typedef JsxContextProp = {
   var value: Expr;
 }
 
+private typedef JsxContextFunction = {
+  var type: Type;
+  var argumentsOnly: Bool;
+}
+
 /**
  * Gives inline HXX callbacks their expected Haxe argument types.
  *
@@ -23,9 +28,11 @@ typedef JsxContextProp = {
  * useful editor/compiler feedback is lost.
  *
  * What: the inline-markup macro asks this helper for the property contract,
- * including inherited interface fields and generic substitutions. Only
- * function literals are rewritten with an `ECheckType`; runtime expressions
- * and evaluation order are unchanged.
+ * including inherited interface fields, closed union arms, and generic
+ * substitutions. Plain function properties receive an `ECheckType`. A
+ * function inside a union receives only argument annotations, leaving its
+ * result inferred for the later union-aware checker. Runtime expressions and
+ * evaluation order are unchanged.
  *
  * How: safe property expressions may be typed once to bind a component's
  * generic parameters. Function bodies are then typed against the substituted
@@ -66,15 +73,24 @@ class JsxContext {
       final contextual = unwrapNullable(substitute(expected, bindings, 0));
       if (containsTypeParameter(contextual, 0))
         continue;
-      if (!hasMatchingFunctionArity(prop.value, contextual))
+      final arity = functionArity(prop.value);
+      if (arity == null)
         continue;
-      final complex = contextualComplexType(contextual);
-      if (complex == null)
+      final callback = contextualFunction(contextual, arity, false, 0);
+      if (callback == null)
         continue;
-      out.set(prop.index, {
-        expr: ECheckType(prop.value, complex),
-        pos: prop.value.pos
-      });
+      if (callback.argumentsOnly) {
+        final rewritten = annotateFunctionArguments(prop.value, callback.type);
+        if (rewritten != null)
+          out.set(prop.index, rewritten);
+      } else {
+        final complex = contextualComplexType(callback.type);
+        if (complex != null)
+          out.set(prop.index, {
+            expr: ECheckType(prop.value, complex),
+            pos: prop.value.pos
+          });
+      }
     }
     return out;
   }
@@ -100,8 +116,10 @@ class JsxContext {
         final projected = projectTypePath(path);
         TPath(projected);
       case TFunction(arguments, result):
-        TFunction([for (argument in arguments)
-          projectBrowserFacades(argument)], projectBrowserFacades(result));
+        TFunction([
+          for (argument in arguments)
+            projectBrowserFacades(argument)
+        ], projectBrowserFacades(result));
       case TParent(inner):
         TParent(projectBrowserFacades(inner));
       case TOptional(inner):
@@ -109,8 +127,10 @@ class JsxContext {
       case TNamed(name, inner):
         TNamed(name, projectBrowserFacades(inner));
       case TIntersection(types):
-        TIntersection([for (member in types)
-          projectBrowserFacades(member)]);
+        TIntersection([
+          for (member in types)
+            projectBrowserFacades(member)
+        ]);
       case TAnonymous(_) | TExtend(_, _):
         // This projection is applied only to a function property's contextual
         // type. Anonymous structures cannot contain the function's argument
@@ -122,20 +142,21 @@ class JsxContext {
   static function projectTypePath(path: TypePath): TypePath {
     final qualified = path.pack.concat([path.name]).join('.');
     if (path.sub == null && qualified == 'genes.react.AnchorElement')
-      return standardDomTypePath('js.html.AnchorElement',
-        'HTMLAnchorElement');
+      return standardDomTypePath('js.html.AnchorElement', 'HTMLAnchorElement');
     if (path.sub == null && qualified == 'genes.react.InputElement')
       return standardDomTypePath('js.html.InputElement', 'HTMLInputElement');
     return {
       pack: path.pack.copy(),
       name: path.name,
-      params: path.params == null ? null : [for (parameter in path.params)
-        switch parameter {
-          case TPType(parameterType):
-            TPType(projectBrowserFacades(parameterType));
-          case TPExpr(expression):
-            TPExpr(expression);
-        }],
+      params: path.params == null ? null : [
+        for (parameter in path.params)
+          switch parameter {
+            case TPType(parameterType):
+              TPType(projectBrowserFacades(parameterType));
+            case TPExpr(expression):
+              TPExpr(expression);
+          }
+      ],
       sub: path.sub
     };
   }
@@ -158,7 +179,8 @@ class JsxContext {
     }
     if (resolvedName == null)
       Context.error('Genes HXX could not resolve the standard DOM type '
-        + '$modulePath.$nativeName', Context.currentPos());
+        + '$modulePath.$nativeName',
+        Context.currentPos());
     return {
       pack: segments,
       name: moduleName,
@@ -394,15 +416,91 @@ class JsxContext {
     }
   }
 
-  static function hasMatchingFunctionArity(expression: Expr,
-      expected: Type): Bool {
-    final actualArity = functionArity(expression);
-    if (actualArity == null)
-      return false;
-    return switch resolveAliases(expected) {
-      case TFun(arguments, _): actualArity == arguments.length;
-      default: false;
-    }
+  /**
+   * Selects the one callback arm that can contextually type a Haxe lambda.
+   *
+   * A closed property union such as `String | FormAction` has one callable
+   * member. Its arguments are safe to project into the lambda, but its return
+   * union must stay inferred: Haxe cannot use a host-style `Void | Promise`
+   * class as a whole-function type hint. The later `JsxTypeChecker` still
+   * validates the complete inferred function against every union arm.
+   */
+  static function contextualFunction(type: Type, arity: Int,
+      insideUnion: Bool, depth: Int): Null<JsxContextFunction> {
+    if (depth > 64)
+      return null;
+    final resolved = resolveAliases(type);
+    return switch resolved {
+      case TFun(arguments, _) if (arguments.length == arity): {
+          type: resolved,
+          argumentsOnly: insideUnion
+        };
+      default:
+        final members = unionMembers(resolved);
+        if (members == null) null; else {
+          final matches: Array<JsxContextFunction> = [];
+          for (member in members) {
+            final found = contextualFunction(member, arity, true, depth + 1);
+            if (found != null)
+              matches.push(found);
+          }
+          matches.length == 1 ? matches[0] : null;
+        }
+    };
+  }
+
+  /** Adds expected parameter types without constraining an inferred result. */
+  static function annotateFunctionArguments(expression: Expr,
+      expected: Type): Null<Expr> {
+    final arguments = switch resolveAliases(expected) {
+      case TFun(found, _): found;
+      default: return null;
+    };
+    return switch expression.expr {
+      case EFunction(kind, fn) if (fn.args.length == arguments.length):
+        final rewritten: Array<FunctionArg> = [];
+        for (index in 0...fn.args.length) {
+          final argument = fn.args[index];
+          final complex = contextualComplexType(arguments[index].t);
+          if (complex == null)
+            return null;
+          rewritten.push({
+            name: argument.name,
+            opt: argument.opt,
+            type: complex,
+            value: argument.value,
+            meta: argument.meta
+          });
+        }
+        {
+          expr: EFunction(kind, {
+            args: rewritten,
+            ret: fn.ret,
+            expr: fn.expr,
+            params: fn.params
+          }),
+          pos: expression.pos
+        };
+      case EParenthesis(inner):
+        final rewritten = annotateFunctionArguments(inner, expected);
+        rewritten == null ? null : {
+          expr: EParenthesis(rewritten),
+          pos: expression.pos
+        };
+      case EMeta(meta, inner):
+        final rewritten = annotateFunctionArguments(inner, expected);
+        rewritten == null ? null : {
+          expr: EMeta(meta, rewritten),
+          pos: expression.pos
+        };
+      case ECheckType(inner, checked):
+        final rewritten = annotateFunctionArguments(inner, expected);
+        rewritten == null ? null : {
+          expr: ECheckType(rewritten, checked),
+          pos: expression.pos
+        };
+      default: null;
+    };
   }
 
   static function functionArity(expression: Expr): Null<Int> {
@@ -421,6 +519,20 @@ class JsxContext {
           && abstractRef.get().name == 'Null'):
         unwrapNullable(inner);
       case resolved: resolved;
+    }
+  }
+
+  /** Closed HXX unions share the checker contract used by `JsxTypeChecker`. */
+  static function unionMembers(type: Type): Null<Array<Type>> {
+    return switch resolveAliases(type) {
+      case TInst(classRef, parameters)
+        if (hasMeta(classRef.get().meta, 'genes.jsxUnion')):
+        parameters;
+      case TAbstract(abstractRef, parameters)
+        if (abstractRef.get().pack.join('.') == 'haxe.extern'
+          && abstractRef.get().name == 'EitherType'):
+        parameters;
+      default: null;
     }
   }
 

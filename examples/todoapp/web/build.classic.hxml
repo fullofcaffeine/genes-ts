@@ -8,6 +8,7 @@
 # or compiler-only marker survives at runtime.
 -js examples/todoapp/web/classic-src-gen/index.js
 -D genes.react.inline_markup
+-D genes.ts.jsx_import_source=react
 -D js-es=6
 -D dts
 

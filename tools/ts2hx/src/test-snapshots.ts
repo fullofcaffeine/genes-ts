@@ -573,7 +573,9 @@ function main(): number {
           "-js",
           path.join(tsxDir, "index.tsx"),
           "-D",
-          "genes.ts"
+          "genes.ts",
+          "-D",
+          "genes.ts.jsx_import_source=react"
         ],
         repoRoot
       );

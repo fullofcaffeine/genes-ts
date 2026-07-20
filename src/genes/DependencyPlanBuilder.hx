@@ -385,9 +385,11 @@ class DependencyPlanBuilder {
     final collector = new TypeReferenceCollector(
       (type, rule, pos) -> addReference(kind, type, rule, pos),
       (template, _, _) -> {
-        if (kind == TypeOnly
-          && TypeReferenceCollector.overrideReferencesNamespace(template,
-            'JSX'))
+        // Both typed implementations and classic declarations can print a raw
+        // `JSX.*` projection. Record one shared semantic fact so neither
+        // emitter has to rediscover type use from formatted output.
+        if (TypeReferenceCollector.overrideReferencesNamespace(template,
+          'JSX'))
           usesJsxNamespaceType = true;
       });
 
