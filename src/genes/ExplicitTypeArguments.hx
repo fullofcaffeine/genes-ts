@@ -154,7 +154,10 @@ class ExplicitTypeArguments {
    * source span and returns the original call expression unchanged. The typed
    * emitter later resolves that same span to a reviewed extern field carrying
    * `@:ts.explicitTypeArguments`, validates arity and precision, and prints the
-   * registered arguments. Classic JavaScript never queries this registry.
+   * registered arguments. When a library macro duplicates one source call,
+   * identical witnesses may safely share the record; conflicting witnesses at
+   * one span fail instead of depending on printer order. Classic JavaScript
+   * never queries this registry.
    */
   public static function registerCall(expression: Expr,
       witnesses: Array<Expr>): Expr {
@@ -178,9 +181,14 @@ class ExplicitTypeArguments {
       });
     }
     final key = positionKey(calleePosition);
-    if (explicitCallSites.exists(key)) {
-      fail('TypeArguments.call(...) registered the same direct call more than once',
-        expression.pos);
+    final previous = explicitCallSites.get(key);
+    if (previous != null) {
+      if (!sameExplicitArguments(previous.arguments, arguments)) {
+        fail('TypeArguments.call(...) found different type witnesses for calls '
+          + 'that share one generated source span; the generating macro must '
+          + 'give those callees distinct source positions', expression.pos);
+      }
+      return expression;
     }
     explicitCallSites.set(key, {
       arguments: arguments,
@@ -204,6 +212,19 @@ class ExplicitTypeArguments {
   static function positionKey(position: Position): String {
     final info = Context.getPosInfos(position);
     return '${info.file}:${info.min}:${info.max}';
+  }
+
+  /** True when repeated macro expansion preserved exactly the same type fact. */
+  static function sameExplicitArguments(left: Array<ExplicitTypeArgument>,
+      right: Array<ExplicitTypeArgument>): Bool {
+    if (left.length != right.length)
+      return false;
+    for (index in 0...left.length) {
+      if (left[index].tsType != right[index].tsType
+        || !sameType(left[index].type, right[index].type))
+        return false;
+    }
+    return true;
   }
 
   /**

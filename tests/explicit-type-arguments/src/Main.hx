@@ -77,6 +77,11 @@ class Main {
       true);
     final phase: Cell<CellPhase> = genes.ts.TypeArguments.call(GenericCellModule.makeCell(CellPhase.Pending),
       CellPhase.Pending);
+    var mutablePhase: Cell<String> = genes.ts.TypeArguments.call(GenericCellModule.makeCell(CellPhase.Pending),
+      CellPhase.Pending);
+    mutablePhase = GenericCellModule.makeCell("other");
+    final generatedPhases: Array<Cell<CellPhase>> = CellMacro.twice(GenericCellModule.makeCell(CellPhase.Pending),
+      CellPhase.Pending);
 
     nullable.replace("ready");
     absent.value;
@@ -84,6 +89,8 @@ class Main {
     pair.left;
     pair.right;
     phase.replace(CellPhase.Ready);
+    mutablePhase.replace("still mutable");
+    generatedPhases[0].replace(CellPhase.Ready);
     preserveGeneric("generic").replace("still typed");
   }
 }

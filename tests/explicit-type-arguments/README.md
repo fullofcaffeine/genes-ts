@@ -14,6 +14,13 @@ witness is checked at compile time and never evaluated; it preserves the closed
 infers the local from that call, avoiding a redundant `Cell<string>` annotation
 that would discard the preserved contract. This lower-level helper is intended
 for typed library macros and reduced interop seams, not ordinary generic calls.
+The fixture also reassigns a wider mutable local. That local retains its Haxe
+annotation so TypeScript does not freeze the initializer's narrower type and
+reject a later assignment that Haxe already accepted.
+One test-only library macro duplicates the same call template and proves that
+equivalent witnesses remain valid at a shared generated source span. A negative
+macro uses conflicting witnesses at one span and must fail deterministically;
+the compiler never lets emission order decide which type wins.
 
 The negative programs pin malformed declaration annotations, non-extern and
 non-generic declarations, unmarked or aliased call-site targets, wrong witness

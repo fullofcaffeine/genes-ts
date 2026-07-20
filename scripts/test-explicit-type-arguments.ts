@@ -68,10 +68,30 @@ requireText(
   'let phase = makeCell<"pending" | "ready">("pending")',
   "a call-site witness must preserve a closed enum abstract after Haxe erasure"
 );
+requireText(
+  generatedTs,
+  'let mutablePhase: import("./generic-cell.js").Cell<string> = makeCell<"pending" | "ready">("pending")',
+  "a reassigned local must keep the wider Haxe type accepted by later writes"
+);
+requireText(
+  generatedTs,
+  'mutablePhase = makeCell<string>("other")',
+  "a later valid Haxe assignment must remain valid TypeScript"
+);
+requireText(
+  generatedTs,
+  'let generatedPhases_0 = makeCell<"pending" | "ready">("pending")',
+  "the first library-macro expansion must retain its precise witness"
+);
+requireText(
+  generatedTs,
+  'let generatedPhases_1 = makeCell<"pending" | "ready">("pending")',
+  "a second expansion at the same source span must share an equivalent witness"
+);
 rejectText(
   generatedTs,
-  "Cell<string> = makeCell",
-  "a redundant erased local annotation must not widen the explicit call result"
+  'let phase: import("./generic-cell.js").Cell<string>',
+  "an unmodified local must infer the preserved narrow call result"
 );
 requireText(
   generatedTs,
@@ -104,6 +124,21 @@ requireText(
   generatedJs,
   'makeCell("pending")',
   "classic JS must erase the enum-abstract type witness"
+);
+requireText(
+  generatedJs,
+  'mutablePhase = makeCell("other")',
+  "classic JS must preserve the later mutable-local assignment"
+);
+requireText(
+  generatedJs,
+  'generatedPhases_0 = makeCell("pending")',
+  "classic JS must preserve the first macro-generated call"
+);
+requireText(
+  generatedJs,
+  'generatedPhases_1 = makeCell("pending")',
+  "classic JS must preserve the second macro-generated call"
 );
 rejectText(
   generatedJs,
@@ -144,6 +179,10 @@ const negativeCases = [
   {
     hxml: "tests/explicit-type-arguments/build-call-site-not-call.hxml",
     expected: "GENES-TS-EXPLICIT-TYPE-ARGS-001: TypeArguments.call(...) expects a direct call expression"
+  },
+  {
+    hxml: "tests/explicit-type-arguments/build-call-site-conflicting-span.hxml",
+    expected: "GENES-TS-EXPLICIT-TYPE-ARGS-001: TypeArguments.call(...) found different type witnesses for calls that share one generated source span; the generating macro must give those callees distinct source positions"
   }
 ] as const;
 

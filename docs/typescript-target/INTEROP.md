@@ -359,13 +359,22 @@ an erased Haxe annotation cannot widen it again:
 const phase = makeCell<"pending" | "ready">("pending");
 ```
 
+That annotation is omitted only when the local is never assigned again. A
+mutable Haxe local keeps its declared TypeScript type, while the initializer
+still carries the precise call-site argument. This matters when Haxe accepts a
+later wider value: letting TypeScript infer only from the first initializer
+would make the generated variable too narrow and reject otherwise valid Haxe.
+
 This is a narrow compiler/library boundary, not a replacement for ordinary
 inference. The callee must remain a direct generic extern field annotated with
 `@:ts.explicitTypeArguments`; runtime aliases are rejected because they have
 lost declaration identity. Witness count must equal method-generic arity, every
 witness type must be closed, and enum-abstract unions come from the compiler's
 reviewed declaration-time literal projection—not a user-written assertion or
-raw TypeScript string. Classic Genes emits only `makeCell("pending")`.
+raw TypeScript string. A library macro may duplicate one source call when every
+copy uses the same witness types. If copies sharing one source span request
+different types, genes-ts reports a stable diagnostic instead of letting
+printer order choose a result. Classic Genes emits only `makeCell("pending")`.
 
 The package-neutral positive, negative, strict-TypeScript, and classic-JS
 evidence lives in [`tests/explicit-type-arguments`](../../tests/explicit-type-arguments/README.md).

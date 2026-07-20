@@ -1915,11 +1915,13 @@ class TsModuleEmitter extends JsModuleEmitter {
     final narrowedNonNullInit = eo != null && typeAllowsNull(v.t)
       && isNarrowedNonNull(eo);
     // TypeArguments.call(...) has already fixed the exact generic result in
-    // the emitted call. Let TypeScript infer the local from that canonical
-    // expression instead of reintroducing Haxe's erased backing type in a
-    // redundant annotation (for example `Cell<string>` beside
-    // `makeCell<"pending" | "ready">(...)`).
-    final inferExplicitCallType = eo != null
+    // the emitted call. An unmodified local can safely infer that narrower
+    // result instead of reintroducing Haxe's erased backing type. A reassigned
+    // local keeps its declared annotation: otherwise TypeScript would freeze
+    // the first narrow result and reject a later assignment Haxe accepted.
+    final plan = narrowingPlan;
+    final inferExplicitCallType = eo != null && plan != null
+      && !plan.isLocalReassigned(v)
       && ExplicitTypeArguments.infersPreciseLocalType(eo);
     final emittedType = (narrowedOptionalInit || narrowedNonNullInit) ? stripNull(v.t) : v.t;
     final emittedTypeOverride = (narrowedOptionalInit || narrowedNonNullInit
