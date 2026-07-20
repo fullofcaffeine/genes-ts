@@ -280,6 +280,11 @@ Haxe validates intrinsic/component tags, exact props, callbacks, spreads, and
 children before generation. TypeScript remains an independent consumer check
 for `.tsx` and `.ts`, not the first typechecker.
 
+React 19 async components returning `js.lib.Promise<genes.react.Element>` are
+accepted after HXX validates the promised node type. Closed object abstracts
+also retain their exact fields in component props and spreads; non-object
+abstracts and wrong inner field types still fail in Haxe.
+
 Callable components derive props from their Haxe argument. Generic wrappers use
 `@:genes.jsxComponentProps(index)`, while `@:jsRequire` extern component classes
 can use `@:genes.jsxComponentProps("fully.qualified.Props")`. Intrinsic event

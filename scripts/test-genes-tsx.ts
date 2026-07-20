@@ -116,9 +116,11 @@ function assertHaxeHxxNegatives(): void {
     ["hxx_negative_spread_non_object", "GTS-HXX-SPREAD-001"],
     ["hxx_negative_spread_extra", "GTS-HXX-SPREAD-003"],
     ["hxx_negative_spread_wrong", "GTS-HXX-SPREAD-002"],
+    ["hxx_negative_abstract_spread_wrong", "GTS-HXX-SPREAD-002"],
     ["hxx_negative_spread_optional_required", "GTS-HXX-PROP-004"],
     ["hxx_negative_non_component", "GTS-HXX-TAG-002"],
     ["hxx_negative_component_return", "GTS-HXX-TAG-003"],
+    ["hxx_negative_async_component_return", "GTS-HXX-TAG-003"],
     ["hxx_negative_unsafe_key", "GTS-HXX-PROP-002"],
     ["hxx_negative_event_target", "GTS-HXX-PROP-002"],
     ["hxx_negative_inherited_event_target", "GTS-HXX-PROP-002"],
@@ -367,6 +369,21 @@ function assertHaxeHxxNegatives(): void {
     `A Void event contract should ignore the callback result:\n${ignoredCallbackResult.stdout}${ignoredCallbackResult.stderr}`
   );
 
+  const asyncComponentResult = spawnSync(
+    "haxe",
+    [
+      "tests/genes-ts/snapshot/react/build-negative.hxml",
+      "-D",
+      "hxx_positive_async_component_return"
+    ],
+    { cwd: repoRoot, encoding: "utf8" }
+  );
+  strictEqual(
+    asyncComponentResult.status,
+    0,
+    `A Promise of a React node should be a valid component result:\n${asyncComponentResult.stdout}${asyncComponentResult.stderr}`
+  );
+
   const recursiveProps = spawnSync(
     "haxe",
     [
@@ -402,7 +419,8 @@ function assertHaxeHxxNegatives(): void {
     ["hxx_positive_literal_null", "a literal null should fill a nullable contract"],
     ["hxx_positive_undefinable_prop", "a supplied Undefinable value should fill an explicit Undefinable contract"],
     ["hxx_positive_optional_nullable_spread", "an optional nullable spread should preserve its nullable payload"],
-    ["hxx_positive_optional_trailing_callback", "a safe trailing optional callback parameter should be accepted"]
+    ["hxx_positive_optional_trailing_callback", "a safe trailing optional callback parameter should be accepted"],
+    ["hxx_positive_abstract_spread", "a closed object abstract should preserve its typed spread fields"]
   ] as const) {
     const result = spawnSync(
       "haxe",

@@ -247,6 +247,44 @@ node may contain `Array<Node>`. HXX follows the fields once, checks every
 concrete value it can observe, and recognizes the repeated typed declaration as
 recursion rather than mistaking it for an unresolved type.
 
+A callable component may return a React node directly or a
+`js.lib.Promise<Node>`, matching React 19's async component contract. HXX checks
+the value inside the promise, so the valid and invalid cases remain distinct
+before TypeScript exists:
+
+```haxe
+static function AsyncPanel():js.lib.Promise<genes.react.Element> {
+  return js.lib.Promise.resolve(<section>Ready</section>);
+}
+
+final panel = <AsyncPanel />; // accepted
+```
+
+A `Promise<{ label:String }>` is rejected with `GTS-HXX-TAG-003` because the
+resolved value is not renderable. Haxe 4.3 reports the standard Promise through
+its canonical `js.lib.Promise` module while leaving the class package array
+empty; Genes deliberately uses that compiler-owned module identity rather than
+guessing from the printed type name.
+
+Zero-runtime Haxe abstracts over a closed property structure preserve that
+structure in component arguments and spreads. This makes a typed host facade
+usable without exposing an open record:
+
+```haxe
+typedef ButtonFields = { final label:String; }
+
+@:forward
+abstract ButtonProps(ButtonFields) from ButtonFields {}
+
+final props:ButtonProps = { label: "Save" };
+final button = <Button {...props} />;
+```
+
+HXX follows only the abstract's typed runtime representation. A scalar or
+callable abstract is still not spreadable, and a closed abstract carrying
+`label:Int` still fails against `label:String` with `GTS-HXX-SPREAD-002`.
+There is no reflective field discovery, cast, or permissive catch-all.
+
 Property contracts must remain concrete all the way through their nested
 fields. HXX rejects `Dynamic`, Haxe's core `Any`, and `genes.ts.Unknown` in both
 supplied values and declared component or intrinsic schemas; supplied values

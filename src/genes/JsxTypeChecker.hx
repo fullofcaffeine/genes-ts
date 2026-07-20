@@ -596,6 +596,17 @@ class JsxTypeChecker {
             if (!classType.isExtern && !classType.isInterface) null; else
               fieldsFromClass(classType, parameters, 0);
         }
+      case TAbstract(abstractRef, parameters):
+        final abstractType = abstractRef.get();
+        // A Haxe abstract has the runtime representation of its underlying
+        // type. Following that typed representation lets a closed object
+        // abstract participate in HXX props/spreads without treating its
+        // forwarded API as an open reflective object. Scalar, callable, and
+        // otherwise non-object abstracts still recurse to `null` and fail.
+        objectFields(TypeTools.applyTypeParameters(abstractType.type,
+          abstractType.params, parameters),
+          allowTypeParameter, depth
+          + 1);
       default:
         null;
     }
@@ -1516,9 +1527,13 @@ class JsxTypeChecker {
     final nullable = nullableInner(resolved);
     if (nullable != null)
       return promiseElement(nullable);
+    // Haxe 4.3 exposes the standard js.lib.Promise class with an empty `pack`
+    // even though its canonical module is `js.lib.Promise`. Module identity is
+    // therefore the stable compiler fact; using `pack` rejects every
+    // Promise-of-node component.
     return switch resolved {
       case TInst(classRef, [element])
-        if (classRef.get().pack.join('.') == 'js.lib'
+        if (classRef.get().module == 'js.lib.Promise'
           && classRef.get().name == 'Promise'):
         element;
       default: null;
