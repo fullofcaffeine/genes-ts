@@ -22,6 +22,19 @@ equivalent witnesses remain valid at a shared generated source span. A negative
 macro uses conflicting witnesses at one span and must fail deterministically;
 the compiler never lets emission order decide which type wins.
 
+A second library macro returns a fluent expression whose inner `makeCell` call
+uses the witness and whose outer `seal()` call is ordinary. Haxe assigns both
+typed callees the macro invocation's source span, then can relocate the inner
+call to the macro definition. A source-span-only registry cannot distinguish
+those values. `TypeArguments.call` therefore adds a typed compiler-internal
+identity carrier around the reviewed call. Its deterministic key selects the
+registration, and the resolved extern owner, field, and static/instance kind
+must still match. Both emitters remove the carrier and key, so only `makeCell`
+receives `<"pending" | "ready">`, while `seal()` remains non-generic. An
+unused reviewed call proves that erasure does not remove runtime evaluation.
+This mechanism applies to any fluent interop API; it does not recognize package
+or framework names.
+
 The negative programs pin malformed declaration annotations, non-extern and
 non-generic declarations, unmarked or aliased call-site targets, wrong witness
 arity, unresolved witnesses, and non-call input to one source-positioned

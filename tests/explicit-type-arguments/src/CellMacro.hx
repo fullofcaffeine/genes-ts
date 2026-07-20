@@ -19,4 +19,17 @@ class CellMacro {
       genes.ts.TypeArguments.call($call, $witness)
     ];
   }
+
+  /**
+   * Wraps the reviewed generic call in an ordinary fluent method call.
+   *
+   * Why: Haxe assigns both callees the enclosing macro invocation's source
+   * span. A span-only registry mistakes `seal` for the opted-in generic field.
+   * What/How: the compiler must bind the witness to the exact extern target,
+   * emit it on `makeCell`, and leave `seal()` ordinary in both output modes.
+   */
+  public static macro function seal(call: haxe.macro.Expr,
+      witness: haxe.macro.Expr): haxe.macro.Expr {
+    return macro genes.ts.TypeArguments.call($call, $witness).seal();
+  }
 }

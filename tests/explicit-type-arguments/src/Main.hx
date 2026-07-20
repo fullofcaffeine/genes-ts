@@ -11,6 +11,7 @@
 private extern class Cell<Value> {
   final value: Value;
   function replace(value: Value): Void;
+  function seal(): Cell<Value>;
 }
 
 /** Type-only two-parameter projection used to prove ordered generic binding. */
@@ -82,6 +83,10 @@ class Main {
     mutablePhase = GenericCellModule.makeCell("other");
     final generatedPhases: Array<Cell<CellPhase>> = CellMacro.twice(GenericCellModule.makeCell(CellPhase.Pending),
       CellPhase.Pending);
+    final fluentPhase: Cell<CellPhase> = CellMacro.seal(GenericCellModule.makeCell(CellPhase.Pending),
+      CellPhase.Pending);
+    genes.ts.TypeArguments.call(GenericCellModule.makeCell(CellPhase.Ready),
+      CellPhase.Ready);
 
     nullable.replace("ready");
     absent.value;
@@ -91,6 +96,7 @@ class Main {
     phase.replace(CellPhase.Ready);
     mutablePhase.replace("still mutable");
     generatedPhases[0].replace(CellPhase.Ready);
+    fluentPhase.replace(CellPhase.Ready);
     preserveGeneric("generic").replace("still typed");
   }
 }

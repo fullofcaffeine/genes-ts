@@ -1,6 +1,7 @@
 export interface Cell<Value> {
   value: Value;
   replace(value: Value): void;
+  seal(): Cell<Value>;
 }
 
 export declare function makeCell<Value>(initial: Value): Cell<Value>;

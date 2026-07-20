@@ -409,6 +409,13 @@ class ExprEmitter extends Emitter {
   }
 
   public function emitExpr(e: TypedExpr) {
+    // TypeArguments.call(...) uses a typed carrier so nested macro output keeps
+    // its registry identity. Classic JS emits only the original statement.
+    final explicitTypeArgumentCall = genes.ExplicitTypeArguments.callSiteMarker(e);
+    if (explicitTypeArgumentCall != null) {
+      emitExpr(explicitTypeArgumentCall.value);
+      return;
+    }
     if (CompilerInternal.isSideEffectImportMarkerCall(e))
       return;
     emitPos(e.pos);
@@ -1245,6 +1252,12 @@ class ExprEmitter extends Emitter {
   }
 
   function emitValue(e: TypedExpr):Void {
+    // The carrier and deterministic key are compiler-only in value position too.
+    final explicitTypeArgumentCall = genes.ExplicitTypeArguments.callSiteMarker(e);
+    if (explicitTypeArgumentCall != null) {
+      emitValue(explicitTypeArgumentCall.value);
+      return;
+    }
     if (CompilerInternal.isSideEffectImportMarkerCall(e)) {
       CompilerDiagnostic.fail(
         'GENES-SIDE-EFFECT-IMPORT-CONTEXT-001: compiler marker must be a direct statement',

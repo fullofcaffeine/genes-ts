@@ -365,6 +365,25 @@ still carries the precise call-site argument. This matters when Haxe accepts a
 later wider value: letting TypeScript infer only from the first initializer
 would make the generated variable too narrow and reject otherwise valid Haxe.
 
+Library macros may compose the reviewed call with an ordinary fluent method:
+
+```haxe
+return macro genes.ts.TypeArguments.call($call, $witness).seal();
+```
+
+Haxe can give both calls one macro source span and relocate the inner call to
+the macro definition. genes-ts carries a deterministic registration identity
+through the typed tree and verifies the exact extern owner, field, and
+static/instance kind before printing the witness. The compiler-owned carrier is
+removed in both output modes, so the result remains ordinary handwritten code:
+
+```ts
+const phase = makeCell<"pending" | "ready">("pending").seal();
+```
+
+Classic Genes emits `makeCell("pending").seal()`. Neither output contains a
+carrier import, helper call, registry key, assertion, or extra evaluation.
+
 This is a narrow compiler/library boundary, not a replacement for ordinary
 inference. The callee must remain a direct generic extern field annotated with
 `@:ts.explicitTypeArguments`; runtime aliases are rejected because they have
