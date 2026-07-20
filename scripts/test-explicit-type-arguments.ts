@@ -1,11 +1,20 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { runTypeScript } from "./toolchains.js";
 
+/**
+ * Proves the opt-in generic-call contract in both output profiles.
+ *
+ * The positive fixture checks the exact TypeScript syntax, strict type checking,
+ * and classic-JavaScript erasure. Each negative fixture must report its stable
+ * diagnostic and leave no generated files behind, because validation failures
+ * are part of the compiler's transactional publication boundary.
+ */
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const fixtureRoot = path.join(repoRoot, "tests/explicit-type-arguments");
+const negativeOutputRoot = path.join(fixtureRoot, "out/negative");
 
 function run(command: string, args: ReadonlyArray<string>): void {
   execFileSync(command, [...args], { cwd: repoRoot, stdio: "inherit" });
@@ -99,6 +108,7 @@ const negativeCases = [
 ] as const;
 
 for (const testCase of negativeCases) {
+  rmSync(negativeOutputRoot, { recursive: true, force: true });
   const result = spawnSync("haxe", [testCase.hxml], {
     cwd: repoRoot,
     encoding: "utf8"
@@ -108,6 +118,11 @@ for (const testCase of negativeCases) {
     throw new Error(`negative fixture unexpectedly compiled: ${testCase.hxml}`);
   }
   requireText(output, testCase.expected, `negative fixture changed: ${testCase.hxml}`);
+  if (existsSync(negativeOutputRoot) && readdirSync(negativeOutputRoot).length > 0) {
+    throw new Error(
+      `failed compilation published output instead of rolling back: ${testCase.hxml}`
+    );
+  }
 }
 
 console.log("explicit generic-call argument fixture passed");
