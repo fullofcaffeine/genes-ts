@@ -1,3 +1,29 @@
+## [1.37.1](https://github.com/fullofcaffeine/genes-ts/compare/v1.37.0...v1.37.1) (2026-07-20)
+
+
+### Bug Fixes
+
+* **deps:** patch CPU denial-of-service advisories ([127bb73](https://github.com/fullofcaffeine/genes-ts/commit/127bb73d8fc1001de3ff4eca9b55dc9632081ed8))
+* **deps:** patch tar denial-of-service flaws ([f97269b](https://github.com/fullofcaffeine/genes-ts/commit/f97269b00f089561ed532dbe678ad4cfc7fc8c5f))
+* **hxx:** accept safe React event handlers ([a998725](https://github.com/fullofcaffeine/genes-ts/commit/a998725101d18bf555ccd4daef727558c6789edb))
+* **hxx:** accept typed async components and object abstracts ([b7a04c9](https://github.com/fullofcaffeine/genes-ts/commit/b7a04c98633db97d7fe99707af71731657887cf9))
+* **hxx:** preserve exact element child contracts ([8039f12](https://github.com/fullofcaffeine/genes-ts/commit/8039f12d4ae99d99323c6cecafa0b228811eac97))
+* **hxx:** preserve nominal scalar abstracts ([0b4d78d](https://github.com/fullofcaffeine/genes-ts/commit/0b4d78d9e12ef2320a63f9043d351734cd371f1a))
+* **hxx:** reject mutable carrier use ([9c54438](https://github.com/fullofcaffeine/genes-ts/commit/9c544381a53f003f4e14591baeacd676e9426c0c))
+* **hxx:** type React 19 form actions ([0423a96](https://github.com/fullofcaffeine/genes-ts/commit/0423a964ca81f45fe86a60d9adc0c80119da4891))
+* **react:** import JSX for type-only elements ([ae8643b](https://github.com/fullofcaffeine/genes-ts/commit/ae8643bc7093343cf4f9b1d95d8d965d50d578d4))
+* **react:** import JSX types in plain TypeScript ([fa9e04e](https://github.com/fullofcaffeine/genes-ts/commit/fa9e04ec98ef5465d35540632f4c81917e32e23d))
+* **react:** type runtime string createElement tags ([8836f13](https://github.com/fullofcaffeine/genes-ts/commit/8836f13cb04d3649d3c4ddcc553bae42b53d86e4))
+* **react:** type SVG dash properties ([7be282f](https://github.com/fullofcaffeine/genes-ts/commit/7be282f7d866c1a80921b5710984e97a9546baff))
+* **todoapp:** isolate generated interop paths ([d119bfd](https://github.com/fullofcaffeine/genes-ts/commit/d119bfddb3f269dcfae06fb7a0303e5c8a515f57))
+* **tooling:** isolate Beads worktree exports ([c45fbce](https://github.com/fullofcaffeine/genes-ts/commit/c45fbce434d69c5dbfb48d9eb3a606de0e22fb7b))
+* **ts:** emit exact projected null literals directly ([7200240](https://github.com/fullofcaffeine/genes-ts/commit/720024009ab500b50da3233bb33a9917f2f35b6b))
+* **ts:** preserve contextual extern type arguments ([a22b020](https://github.com/fullofcaffeine/genes-ts/commit/a22b020a62cf494cd468be90a9b725243d613177))
+* **ts:** preserve erased call-site type arguments ([b02e18d](https://github.com/fullofcaffeine/genes-ts/commit/b02e18d268540f1cb32cdf136cf05a6af8c93ec0))
+* **ts:** preserve explicit call-site assignment semantics ([453c0f1](https://github.com/fullofcaffeine/genes-ts/commit/453c0f1e00b823cfe4f94ecc068129ce96795ffc))
+* **ts:** preserve short-circuit narrowing facts ([e6a91ff](https://github.com/fullofcaffeine/genes-ts/commit/e6a91ff5f37f1c3080aac8e367ad6104faf6426d))
+* **ts:** prune incidental typedef roots ([d948885](https://github.com/fullofcaffeine/genes-ts/commit/d94888562c075a85ae3f93bb0dccb02e49229260))
+
 # [1.37.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.36.9...v1.37.0) (2026-07-19)
 
 
