@@ -280,6 +280,21 @@ Haxe validates intrinsic/component tags, exact props, callbacks, spreads, and
 children before generation. TypeScript remains an independent consumer check
 for `.tsx` and `.ts`, not the first typechecker.
 
+Source-preserving `.tsx` and `.jsx` profiles also recover the nested tree the
+author wrote. Haxe may introduce one-use element locals while typing nested
+HXX; Genes removes only compiler-owned, reorder-safe scaffolding, so this:
+
+```haxe
+return <div><span>{title}</span><Button label="Save" /></div>;
+```
+
+stays the same readable tree in generated TSX instead of becoming a sequence
+of `let span`, `let Button`, and parent-element temporaries. Authored locals,
+shared elements, and values that protect evaluation order remain explicit.
+Typed `.ts` and classic `.js` keep their established ordered
+`createElement(...)` lowering. See the “Canonical source JSX trees” section in
+`docs/typescript-target/REACT_HXX.md` for the exact safety contract and tests.
+
 React 19 async components returning `js.lib.Promise<genes.react.Element>` are
 accepted after HXX validates the promised node type. Closed object abstracts
 also retain their exact fields in component props and spreads; non-object

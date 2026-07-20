@@ -156,6 +156,33 @@ class ExprEmitter extends Emitter {
     return jsxPlan != null && jsxPlan.isCarrierLocal(id);
   }
 
+  /** True only when this printer preserves JSX syntax in emitted source. */
+  function emitsJsxSource(): Bool {
+    return jsxEmissionProfile == JavaScriptJsxAutomatic;
+  }
+
+  /** Resolves one planned source-only JSX local without affecting call output. */
+  function sourceInlineJsxValue(expression: TypedExpr): TypedExpr {
+    if (!emitsJsxSource() || jsxPlan == null)
+      return expression;
+    return switch JsxPlan.unwrap(expression).expr {
+      case TLocal(local):
+        final initializer = jsxPlan.sourceInlineInitializer(local);
+        initializer == null ? expression : initializer;
+      default: expression;
+    }
+  }
+
+  /** Whether a macro-created JSX declaration is replaced at its sole child use. */
+  function skipsSourceInlineJsxDeclaration(expression: TypedExpr): Bool {
+    if (!emitsJsxSource() || jsxPlan == null)
+      return false;
+    return switch JsxPlan.unwrap(expression).expr {
+      case TVar(local, _): jsxPlan.sourceInlineInitializer(local) != null;
+      default: false;
+    }
+  }
+
   /** Installs the validated target-neutral string-template plan. */
   public function configureTemplateLiterals(plan:TemplateLiteralPlan):Void {
     templateLiteralPlan = plan;
@@ -1035,9 +1062,12 @@ class ExprEmitter extends Emitter {
     for (child in children) {
       switch child {
         case ChildIntent(expression, source):
+          final emittedExpression = source.match(DirectValue)
+            ? sourceInlineJsxValue(expression)
+            : expression;
           if (source.match(DirectValue)
-            && JsxPlan.isMarkerCallExpression(expression)) {
-            emitValue(expression);
+            && JsxPlan.isMarkerCallExpression(emittedExpression)) {
+            emitValue(emittedExpression);
             continue;
           }
           switch [source, JsxPlan.unwrap(expression).expr] {
@@ -1083,7 +1113,7 @@ class ExprEmitter extends Emitter {
   function emitJsxValue(expression: TypedExpr, source: JsxValueSource): Void {
     switch source {
       case DirectValue:
-        emitValue(expression);
+        emitValue(sourceInlineJsxValue(expression));
       case RuntimeValuePath(root, path):
         emitValue(root);
         for (access in path) {
@@ -1412,6 +1442,8 @@ class ExprEmitter extends Emitter {
 
   function emitBlockElement(e: TypedExpr, after = false) {
     if (CompilerInternal.isSideEffectImportMarkerCall(e))
+      return;
+    if (skipsSourceInlineJsxDeclaration(e))
       return;
     emitPos(e.pos);
     switch e.expr {

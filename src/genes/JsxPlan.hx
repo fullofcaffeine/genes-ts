@@ -213,6 +213,7 @@ class JsxCapabilityPolicy {
  */
 class JsxPlan {
   final localInitializers: Map<Int, TypedExpr> = [];
+  final sourceInlineInitializers: Map<Int, TypedExpr> = [];
   final carrierLocalIds: Map<Int, Bool> = [];
   final allowedCarrierUses = new ObjectMap<TypedExpr, Bool>();
   final validatedComponentProps = new ObjectMap<TypedExpr, Type>();
@@ -229,6 +230,25 @@ class JsxPlan {
   /** True when a local exists only to retain a typed JSX carrier record. */
   public function isCarrierLocal(id: Int): Bool {
     return carrierLocalIds.exists(id);
+  }
+
+  /**
+   * Returns compiler-owned JSX scaffolding that source-markup output may inline.
+   *
+   * Why: HXX lowers a nested element into a temporary before its parent so the
+   * Haxe typer can validate every intermediate value. Keeping every one-use
+   * temporary in `.tsx` / `.jsx` output obscures the authored tree even when
+   * the declaration exists only because of that lowering.
+   *
+   * What: only a marker initializer proven by `planSourceInlineLocals` is
+   * returned. Authored locals, shared values, effectful spans, carrier records,
+   * and createElement profiles retain their declarations.
+   *
+   * How: emitters ask by stable `TVar.id`; the original `TypedExpr` is retained
+   * so nested JSX keeps its Haxe type and source position when printed in place.
+   */
+  public function sourceInlineInitializer(local: TVar): Null<TypedExpr> {
+    return sourceInlineInitializers.get(local.id);
   }
 
   /**
@@ -309,6 +329,7 @@ class JsxPlan {
     plan.collectingCarrierUses = false;
     if (plan.carrierLocalIds.iterator().hasNext())
       plan.validateCarrierOwnership(module);
+    plan.planSourceInlineLocals(module);
     return plan;
   }
 
@@ -642,6 +663,321 @@ class JsxPlan {
         default:
       }
     });
+  }
+
+  /**
+   * Plans safe source-only removal of one-use nested JSX temporaries.
+   *
+   * Why: the HXX macro assigns a nested element its own typed local even when
+   * the author wrote one expression tree. TypeScript/JavaScript source JSX can
+   * represent that tree directly, but deleting an arbitrary local would change
+   * evaluation order, exception timing, sharing, or an authored debugging seam.
+   *
+   * What: a candidate must be used exactly once as a direct child, be declared
+   * in the same block before its parent, have the exact source range of its JSX
+   * initializer, and sit strictly inside the parent's source range. The equal
+   * declaration/initializer range is the typed-AST signature of macro-created
+   * expression scaffolding; an authored `final child = <span />` includes the
+   * declaration tokens and therefore has a wider range. Every crossed block
+   * element and both JSX intents must also be reorder-safe.
+   *
+   * How: planning is target-neutral and keyed by `TVar.id`. Source JSX printers
+   * may omit the declaration and substitute its original marker expression.
+   * Typed createElement and classic-JS printers deliberately ignore this map,
+   * retaining their established lowering and runtime transcript.
+   */
+  function planSourceInlineLocals(module: Module): Void {
+    final uses: Map<Int, Int> = [];
+    visitModuleExpressions(module, expression -> {
+      switch unwrap(expression).expr {
+        case TLocal(local):
+          uses.set(local.id, (uses.exists(local.id) ? uses.get(local.id) : 0) + 1);
+        default:
+      }
+    });
+
+    function visitBlocks(expression: TypedExpr): Void {
+      switch unwrap(expression).expr {
+        case TBlock(elements):
+          planSourceInlineBlock(elements, uses);
+          for (element in elements)
+            visitBlocks(element);
+        case TFunction(func):
+          visitBlocks(func.expr);
+        default:
+          expression.iter(visitBlocks);
+      }
+    }
+
+    for (member in module.members) {
+      switch member {
+        case MClass(owner, _, fields):
+          for (field in fields)
+            if (field.expr != null)
+              visitBlocks(field.expr);
+          if (owner.init != null)
+            visitBlocks(owner.init);
+        case MMain(expression):
+          visitBlocks(expression);
+        case MEnum(_, _) | MType(_, _):
+      }
+    }
+  }
+
+  /** Plans candidates whose declaration and sole parent use share one block. */
+  function planSourceInlineBlock(elements: Array<TypedExpr>,
+      uses: Map<Int, Int>): Void {
+    final declarations: Map<Int, {
+      final index: Int;
+      final declaration: TypedExpr;
+      final initializer: TypedExpr;
+    }> = [];
+    for (index in 0...elements.length) {
+      switch unwrap(elements[index]).expr {
+        case TVar(local, initializer) if (initializer != null):
+          declarations.set(local.id, {
+            index: index,
+            declaration: elements[index],
+            initializer: initializer
+          });
+        default:
+      }
+    }
+
+    for (parentIndex in 0...elements.length) {
+      visitMarkersInBlockElement(elements[parentIndex], parentExpression -> {
+        final parentIntent = intentForExpression(parentExpression);
+        if (parentIntent == null || !isSourceInlineSafeIntent(parentIntent))
+          return;
+        final children = switch parentIntent {
+          case ElementIntent(_, _, found, _) | FragmentIntent(found, _): found;
+        };
+        // Plan from right to left. An earlier child may cross a later
+        // compiler-created JSX declaration only after that later declaration
+        // has itself been proven removable. This preserves sibling evaluation
+        // order when one of the later values must retain a local.
+        for (offset in 0...children.length) {
+          final child = children[children.length - offset - 1];
+          switch child {
+            case ChildIntent(value, DirectValue):
+              final local = directLocal(value);
+              if (local == null || !declarations.exists(local.id))
+                continue;
+              final candidate = declarations.get(local.id);
+              if (candidate.index >= parentIndex
+                || (uses.exists(local.id) ? uses.get(local.id) : 0) != 1
+                || !sameSourceRange(candidate.declaration.pos,
+                  candidate.initializer.pos)
+                || !strictlyContains(parentExpression.pos,
+                  candidate.initializer.pos)
+                || !isSourceInlineSafeMarker(candidate.initializer)
+                || !safeInterveningElements(elements, candidate.index,
+                  parentIndex))
+                continue;
+              sourceInlineInitializers.set(local.id, candidate.initializer);
+            case ChildIntent(_, RuntimeValuePath(_, _)):
+          }
+        }
+      });
+    }
+  }
+
+  /** Visits markers owned by one block element without crossing a child scope. */
+  function visitMarkersInBlockElement(expression: TypedExpr,
+      visit: TypedExpr->Void): Void {
+    final unwrapped = unwrap(expression);
+    if (intentForExpression(unwrapped) != null)
+      visit(unwrapped);
+    switch unwrapped.expr {
+      // Every nested block receives its own `planSourceInlineBlock` pass. Never
+      // let an outer declaration appear same-block merely because a bare block
+      // is itself one element of the outer block.
+      case TFunction(_) | TBlock(_):
+      default:
+        unwrapped.iter(child -> visitMarkersInBlockElement(child, visit));
+    }
+  }
+
+  /** True when moving a value across the exclusive block interval is inert. */
+  function safeInterveningElements(elements: Array<TypedExpr>, start: Int,
+      end: Int): Bool {
+    for (index in start + 1...end) {
+      final element = unwrap(elements[index]);
+      switch element.expr {
+        case TVar(local, initializer) if (initializer != null):
+          // A JSX marker becomes a runtime jsx/createElement call. It is safe
+          // to cross only when it is compiler scaffolding already planned for
+          // substitution at its own sole child use. Authored or retained JSX
+          // locals remain observable sequencing boundaries.
+          if (isMarkerCallExpression(initializer)) {
+            if (isGeneratedJsxDeclaration(element, initializer)
+              && sourceInlineInitializers.exists(local.id))
+              continue;
+            return false;
+          }
+          if (isSourceInlineSafeValue(initializer))
+            continue;
+          return false;
+        default:
+          return false;
+      }
+    }
+    return true;
+  }
+
+  function isGeneratedJsxDeclaration(declaration: TypedExpr,
+      initializer: TypedExpr): Bool {
+    return sameSourceRange(declaration.pos, initializer.pos)
+      && isMarkerCallExpression(initializer);
+  }
+
+  function isSourceInlineSafeMarker(expression: TypedExpr): Bool {
+    final intent = intentForExpression(expression);
+    return intent != null && isSourceInlineSafeIntent(intent);
+  }
+
+  /** Conservative purity contract for moving one JSX allocation into a tree. */
+  function isSourceInlineSafeIntent(intent: JsxIntent): Bool {
+    return switch intent {
+      case ElementIntent(tag, props, children, _):
+        if (!isSourceInlineSafeTag(tag))
+          false;
+        else {
+          var safe = true;
+          for (prop in props) {
+            switch prop {
+              case NamedProp(_, value, DirectValue):
+                safe = safe && isSourceInlineSafeValue(value);
+              case NamedProp(_, _, RuntimeValuePath(_, _)):
+              case SpreadProp(value, DirectValue):
+                safe = safe && isSourceInlineSafeSpread(value);
+              case SpreadProp(_, RuntimeValuePath(_, _)):
+                safe = false;
+            }
+          }
+          for (child in children) {
+            switch child {
+              case ChildIntent(value, DirectValue):
+                safe = safe && (isMarkerCallExpression(value)
+                  ? isSourceInlineSafeMarker(value)
+                  : isSourceInlineSafeValue(value));
+              case ChildIntent(_, RuntimeValuePath(_, _)):
+            }
+          }
+          safe;
+        }
+      case FragmentIntent(children, _):
+        var safe = true;
+        for (child in children) {
+          switch child {
+            case ChildIntent(value, DirectValue):
+              safe = safe && (isMarkerCallExpression(value)
+                ? isSourceInlineSafeMarker(value)
+                : isSourceInlineSafeValue(value));
+            case ChildIntent(_, RuntimeValuePath(_, _)):
+          }
+        }
+        safe;
+    }
+  }
+
+  static function isSourceInlineSafeTag(tag: JsxTagIntent): Bool {
+    return switch tag {
+      case IntrinsicTag(_, _): true;
+      case DynamicIntrinsicTag(_): false;
+      case ComponentTag(expression):
+        switch unwrap(expression).expr {
+          case TLocal(_) | TTypeExpr(_): true;
+          case TField(_, FEnum(_, _)): true;
+          case TField(_, FStatic(_, field)):
+            switch field.get().kind {
+              case FMethod(_): true;
+              default: false;
+            }
+          default: false;
+        }
+    }
+  }
+
+  /**
+   * Accepts only direct values whose evaluation has no calls, mutation, or
+   * control flow. Property/array reads are deliberately excluded because a JS
+   * interop value may implement them with a getter or Proxy trap.
+   */
+  function isSourceInlineSafeValue(expression: TypedExpr): Bool {
+    final value = unwrap(expression);
+    return switch value.expr {
+      case TConst(_) | TLocal(_) | TTypeExpr(_) | TFunction(_): true;
+      case TArrayDecl(values):
+        values.filter(candidate -> !isSourceInlineSafeValue(candidate)).length == 0;
+      case TObjectDecl(fields):
+        fields.filter(field -> !isSourceInlineSafeValue(field.expr)).length == 0;
+      case TBinop(OpAssign | OpAssignOp(_), _, _): false;
+      case TBinop(_, left, right):
+        isSourceInlinePrimitive(left.t)
+        && isSourceInlinePrimitive(right.t)
+        && isSourceInlineSafeValue(left)
+        && isSourceInlineSafeValue(right);
+      case TUnop(OpIncrement | OpDecrement, _, _): false;
+      case TUnop(_, _, inner):
+        isSourceInlinePrimitive(inner.t)
+        && isSourceInlineSafeValue(inner);
+      case TField(_, FEnum(_, _)): true;
+      case TCall(_, _) if (isMarkerCallExpression(value)):
+        isSourceInlineSafeMarker(value);
+      default: false;
+    }
+  }
+
+  /** A spread is movable only when it resolves to a known plain object literal. */
+  function isSourceInlineSafeSpread(expression: TypedExpr): Bool {
+    final seen: Map<Int, Bool> = [];
+    function resolve(value: TypedExpr): Bool {
+      return switch unwrap(value).expr {
+        case TObjectDecl(fields):
+          fields.filter(field -> !isSourceInlineSafeValue(field.expr)).length == 0;
+        case TLocal(local)
+          if (!seen.exists(local.id) && localInitializers.exists(local.id)):
+          seen.set(local.id, true);
+          resolve(localInitializers.get(local.id));
+        default: false;
+      }
+    }
+    return resolve(expression);
+  }
+
+  /** Primitive operators cannot invoke a user-defined JS coercion hook. */
+  static function isSourceInlinePrimitive(type: Type): Bool {
+    return switch Context.followWithAbstracts(type) {
+      case TInst(_.get() => {pack: [], name: 'String'}, _): true;
+      case TAbstract(_.get() => {pack: [], name: 'Int' | 'Float' | 'Bool'}, _):
+        true;
+      default: false;
+    }
+  }
+
+  static function directLocal(expression: TypedExpr): Null<TVar> {
+    return switch unwrap(expression).expr {
+      case TLocal(local): local;
+      default: null;
+    }
+  }
+
+  static function sameSourceRange(left: Position, right: Position): Bool {
+    final leftInfo = Context.getPosInfos(left);
+    final rightInfo = Context.getPosInfos(right);
+    return leftInfo.file == rightInfo.file
+      && leftInfo.min == rightInfo.min
+      && leftInfo.max == rightInfo.max;
+  }
+
+  static function strictlyContains(outer: Position, inner: Position): Bool {
+    final outerInfo = Context.getPosInfos(outer);
+    final innerInfo = Context.getPosInfos(inner);
+    return outerInfo.file == innerInfo.file
+      && outerInfo.min <= innerInfo.min
+      && innerInfo.max <= outerInfo.max
+      && (outerInfo.min < innerInfo.min || innerInfo.max < outerInfo.max);
   }
 
   static function isStringType(type: Type): Bool {

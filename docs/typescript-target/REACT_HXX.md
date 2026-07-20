@@ -162,6 +162,82 @@ the record to change could make those two views disagree. The focused
 carriers still evaluate side effects exactly once in TypeScript and classic
 JavaScript, while unsafe use fails before prior output is replaced.
 
+## Canonical source JSX trees
+
+Haxe sometimes lifts nested HXX elements into locals while it types the linked
+property and child records. Those locals are useful to the Haxe typer, but in a
+source-preserving `.tsx` or `.jsx` file they can make a single authored tree
+look machine-generated.
+
+For example, this Haxe:
+
+```haxe
+return <div>
+  <span>{first}</span>
+  <strong>{second}</strong>
+</div>;
+```
+
+previously retained the compiler's intermediate shape:
+
+```tsx
+let span: JSX.Element = <span>{first}</span>;
+let strong: JSX.Element = <strong>{second}</strong>;
+return <div>{span}{strong}</div>;
+```
+
+Source JSX profiles now emit the canonical tree:
+
+```tsx
+return <div><span>{first}</span><strong>{second}</strong></div>;
+```
+
+This is not general-purpose local-variable optimization. `JsxPlan` permits the
+rewrite only when all of these facts are present in the typed Haxe tree:
+
+- the local is used once, directly as a JSX child;
+- its declaration and parent marker are in the same block, in source order;
+- the declaration and marker initializer have the same exact source range,
+  which is the signature left by HXX's compiler-created expression lowering;
+- that range is strictly inside the parent HXX range;
+- the child and parent contain only values that are safe to move; and
+- every block element crossed by the move is reorder-safe. Later generated JSX
+  siblings are crossed from right to left only after they are independently
+  proven removable.
+
+The safety check deliberately rejects calls, mutation, control flow, dynamic
+tags, property and array reads that could invoke JavaScript getters or Proxy
+traps, and unresolved spreads. A spread is movable only when it resolves to a
+known plain object literal whose values pass the same check. JSX values already
+captured by the HXX carrier stay on their evaluated runtime path.
+
+Authored locals remain authored locals, even when they are used once:
+
+```haxe
+final child = <span>{label}</span>;
+return <div>{child}</div>;
+```
+
+Shared children also keep one declaration and multiple reads. If a child would
+cross an effectful expression, Genes retains the necessary local and only
+normalizes later children that are independently safe. This preserves call,
+exception, and property-evaluation order rather than making JSX readability an
+optimization that can change behavior.
+
+The normalization is intentionally limited to profiles that preserve JSX
+syntax. Typed `.ts` and classic `.js` still emit the established explicit
+`createElement(...)` sequence, so their runtime and snapshot contracts do not
+silently change. Both source profiles keep the nested element's original HXX
+source-map position.
+
+Verification is owned by:
+
+```bash
+yarn test:genes-ts:tsx
+yarn test:genes-ts:snapshots
+yarn test:genes-ts:sourcemaps
+```
+
 The identical-source fixture
 `DualJsxMain.hx` renders through TSX, typed createElement, type-erased JSX, and
 classic JS under `yarn test:genes-ts:tsx` and compares the resulting HTML
