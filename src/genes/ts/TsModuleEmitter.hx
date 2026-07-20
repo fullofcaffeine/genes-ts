@@ -5,6 +5,7 @@ import genes.SourceMapGenerator.SourcePosition;
 import genes.Dependencies;
 import genes.CompilerDiagnostic;
 import genes.CompilerInternal;
+import genes.ExplicitTypeArguments;
 import genes.Module;
 import genes.TypeAccessor;
 import genes.Module.Field as GenesField;
@@ -442,6 +443,12 @@ class TsModuleEmitter extends JsModuleEmitter {
         return;
       default:
     }
+    // An annotated generic extern asks TypeScript to reuse Haxe's already
+    // checked instantiation. This is intentionally declaration-driven: an
+    // ordinary generic call keeps native TS inference, and classic JS never
+    // enters this emitter. See `ExplicitTypeArguments` for validation and the
+    // structural type-parameter binding contract.
+    final explicitTypeArguments = ExplicitTypeArguments.forCall(e);
     final expectedEnumParams = expectedEnumCallParams(e,
       currentExpectedValueType);
     if (expectedEnumParams != null
@@ -568,7 +575,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       }
       if (needsCasts && isPlainCall) {
         emitPos(e.pos);
-        emitValue(e);
+        emitCallCallee(e, explicitTypeArguments);
         write('(');
         for (i in 0...params.length) {
           if (i > 0)
@@ -625,9 +632,23 @@ class TsModuleEmitter extends JsModuleEmitter {
     if (isJsPromiseResolveCallee(e)
       && params.exists(param -> isNullConst(unwrapExpr(param)))) {
       emitPromiseResolveCall(e, params, inValue);
+    } else if (explicitTypeArguments != null) {
+      emitPos(e.pos);
+      emitCallCallee(e, explicitTypeArguments);
+      write('(');
+      emitCallParams(e, params);
+      write(')');
     } else {
       super.emitCall(e, params, inValue);
     }
+  }
+
+  /** Emits one typed callee plus an optional explicit TS instantiation. */
+  function emitCallCallee(callee: TypedExpr,
+      arguments: Null<Array<Type>>): Void {
+    emitValue(callee);
+    if (arguments != null)
+      TypeEmitter.emitParams(this, arguments, false);
   }
 
   /**
@@ -1902,9 +1923,6 @@ class TsModuleEmitter extends JsModuleEmitter {
         }
       case e:
         write(' = ');
-        if (tryEmitReactUseStateCall(v.t, e)) {
-          return;
-        }
         if (!narrowedOptionalInit && !narrowedNonNullInit && !isNarrowedNonNull(e)
           && !NullishContract.forType(emittedType).preservesUndefined
           && !typeAllowsNull(emittedType)
@@ -2129,55 +2147,6 @@ class TsModuleEmitter extends JsModuleEmitter {
       default:
     }
     return true;
-  }
-
-  static function extractTypeArgs(t: Type): Array<Type> {
-    return switch t {
-      case TAbstract(_, params) | TType(_, params) | TInst(_, params) |
-        TEnum(_, params):
-        params;
-      case TMono(tref):
-        final inner = tref.get();
-        inner == null ? [] : extractTypeArgs(inner);
-      default:
-        [];
-    };
-  }
-
-  static function isUseStateCallee(callee: TypedExpr): Bool {
-    return switch unwrapExpr(callee).expr {
-      case TField(_, f):
-        fieldAccessName(f) == "useState";
-      case TLocal(v):
-        v.name == "useState";
-      case TIdent(name):
-        name == "useState";
-      default:
-        false;
-    }
-  }
-
-  function tryEmitReactUseStateCall(varType: Type, init: TypedExpr): Bool {
-    final unwrapped = unwrapExpr(init);
-    return switch unwrapped.expr {
-      case TCall(callee, args)
-        if (isUseStateCallee(callee) && args.length == 1):
-        final typeArgs = extractTypeArgs(varType);
-        final stateTypeArg = (typeArgs.length == 1) ? typeArgs[0] : null;
-        // Avoid leaking explicit `any` type arguments into user modules.
-        if (stateTypeArg == null || typeEmitsAny(stateTypeArg)) {
-          return false;
-        }
-        emitValue(callee);
-        write('<');
-        TypeEmitter.emitType(this, stateTypeArg);
-        write('>(');
-        emitValue(args[0]);
-        write(')');
-        true;
-      default:
-        false;
-    }
   }
 
   static function typeAllowsNull(t: Type): Bool {

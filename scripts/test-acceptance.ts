@@ -25,6 +25,7 @@ if (!skipClassic) {
 }
 
 run("node", ["scripts/dist/test-genes-ts.js"]);
+run("node", ["scripts/dist/test-explicit-type-arguments.js"]);
 run("node", ["scripts/dist/test-genes-ts-minimal.js"]);
 run("node", ["scripts/dist/test-genes-ts-full.js"]);
 run("node", ["scripts/dist/test-genes-tsx.js"]);

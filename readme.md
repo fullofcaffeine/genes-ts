@@ -168,6 +168,11 @@ Examples of these helpers:
   declaration exposes the instance through a merged namespace, and for package
   constructors whose native `String` or `RegExp` name would otherwise be
   mistaken for a JavaScript built-in in public types.
+- `@:ts.explicitTypeArguments` for the uncommon generic extern where Haxe uses
+  a destination type that TypeScript cannot recover from `null`, an empty
+  argument list, or another weak call-site value. It emits the precise
+  Haxe-selected `<...>` arguments in TS and erases in classic JS; ordinary
+  extern calls keep native TypeScript inference.
 
 They are useful when the JavaScript/TypeScript ecosystem has a real contract that Haxe does not express directly. The helper gives that contract a Haxe name, keeps the unsafety or TS-specific syntax in one maintained place, and lets the compiler choose the right output for each target.
 
