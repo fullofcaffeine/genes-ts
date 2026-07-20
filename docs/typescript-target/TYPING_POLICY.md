@@ -44,6 +44,11 @@ cannot see.
 - Function-valued optional properties are grouped as
   `field?: ((...) => T) | undefined`; the undefined member belongs to the
   property, not to the function return type.
+- A literal passed to a boundary whose explicit `@:ts.type` projection is
+  exactly `null` remains the ordinary `null` expression. This does not weaken
+  normal nullability: passing a nullable local to a non-nullable parameter
+  still receives the contained compatibility assertion required by strict
+  TypeScript.
 - Everything else is emitted as non-null unless it is explicitly modeled as
   nullable in the Haxe type.
 
