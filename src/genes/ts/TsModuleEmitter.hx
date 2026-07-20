@@ -80,6 +80,18 @@ class TsModuleEmitter extends JsModuleEmitter {
   var suppressOptionalFieldNullNormalization: Bool = false;
   var suppressPromiseResolveNullThenableCast: Bool = false;
 
+  /**
+   * Registration scoped to the value inside one compiler-owned identity call.
+   *
+   * Nested macro output can share or lose source positions, so the emitter uses
+   * this deterministic key plus exact extern-field identity instead. The first
+   * matching direct call consumes the registration, which prevents a nested
+   * call to the same extern method from borrowing the outer call's type. The
+   * previous scope is restored after the carried value and never reaches
+   * output.
+   */
+  var currentExplicitTypeArgumentCallSite: Null<String> = null;
+
   function typeEmitsAny(t: Type): Bool {
     final fast = switch t {
       case TDynamic(null):
@@ -486,7 +498,15 @@ class TsModuleEmitter extends JsModuleEmitter {
     // ordinary generic call keeps native TS inference, and classic JS never
     // enters this emitter. See `ExplicitTypeArguments` for validation and the
     // structural type-parameter binding contract.
-    final explicitTypeArguments = ExplicitTypeArguments.forCall(e);
+    final explicitCallSite = currentExplicitTypeArgumentCallSite;
+    final explicitTypeArguments = ExplicitTypeArguments.forCall(e,
+      explicitCallSite);
+    if (explicitCallSite != null && explicitTypeArguments != null) {
+      // A carrier belongs to one direct call occurrence. Clear it as soon as
+      // that call claims the witness so a nested call to the same extern field
+      // cannot accidentally receive the outer call's type argument.
+      currentExplicitTypeArgumentCallSite = null;
+    }
     final expectedEnumParams = expectedEnumCallParams(e,
       currentExpectedValueType);
     if (expectedEnumParams != null
@@ -2445,6 +2465,15 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   override public function emitValue(e: TypedExpr) {
+    // Emit only the carried value while its exact generic witness is in scope.
+    final explicitTypeArgumentCall = ExplicitTypeArguments.callSiteMarker(e);
+    if (explicitTypeArgumentCall != null) {
+      final previous = currentExplicitTypeArgumentCallSite;
+      currentExplicitTypeArgumentCallSite = explicitTypeArgumentCall.id;
+      emitValue(explicitTypeArgumentCall.value);
+      currentExplicitTypeArgumentCallSite = previous;
+      return;
+    }
     if (inRawSyntaxTemplate) {
       super.emitValue(e);
       return;
@@ -2538,6 +2567,15 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   override public function emitExpr(e: TypedExpr) {
+    // Statement-position calls need the same erasure and scoped registration.
+    final explicitTypeArgumentCall = ExplicitTypeArguments.callSiteMarker(e);
+    if (explicitTypeArgumentCall != null) {
+      final previous = currentExplicitTypeArgumentCallSite;
+      currentExplicitTypeArgumentCallSite = explicitTypeArgumentCall.id;
+      emitExpr(explicitTypeArgumentCall.value);
+      currentExplicitTypeArgumentCallSite = previous;
+      return;
+    }
     if (CompilerInternal.isSideEffectImportMarkerCall(e))
       return;
     if (inRawSyntaxTemplate) {
