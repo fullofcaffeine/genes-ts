@@ -134,9 +134,27 @@ run("npx", [
     "--sourcemap",
     "--format=esm",
     "--platform=browser",
+    "--tsconfig=examples/todoapp/web/tsconfig.json",
+    "--metafile=examples/todoapp/web/dist/esbuild-meta.json",
     "--outfile=examples/todoapp/web/dist/assets/app.js"
   ].join(" ")
 ]);
+
+const typedBundleMetadata = readFileSync(
+  path.join(exampleRoot, "web/dist/esbuild-meta.json"),
+  "utf8"
+);
+assert.ok(
+  typedBundleMetadata.includes(
+    "examples/todoapp/web/src-gen/todo/shared/TodoText.tsx"
+  ),
+  "The TypeScript bundle must load TodoText from src-gen"
+);
+assert.ok(
+  !typedBundleMetadata.includes("examples/todoapp/web/classic-src-gen/"),
+  "The TypeScript bundle must not read the classic profile's generated tree"
+);
+rmSync(path.join(exampleRoot, "web/dist/esbuild-meta.json"));
 
 // Server: minimal runtime is typechecked only (avoid overwriting the runnable build output).
 rmrf("server/src-gen");

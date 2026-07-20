@@ -27,7 +27,8 @@ yarn example:todoapp:classic
 Both servers default to `http://localhost:8787`. Build without starting a
 server with `yarn build:example:todoapp` or
 `yarn build:example:todoapp:classic`; use the matching `:run` command after a
-build.
+build. Each build command is self-contained: neither command needs the other
+profile's generated files to exist first.
 
 Run the complete example matrix with:
 
@@ -53,6 +54,28 @@ authored TS/TSX ecosystem modules used by the TS profile. This is intentional:
 classic mode removes the generated-TypeScript stage; it does not forbid an
 application from consuming existing npm or TS-authored modules through its
 normal bundler.
+
+## Profile-independent generated imports
+
+The authored `web/src-ts/interop/haxeInterop.ts` module deliberately imports a
+Haxe-generated value. A relative import such as `../../src-gen/...` would tie
+that shared source file to the TypeScript profile and would make a clean classic
+build fail unless the TypeScript build happened to run first.
+
+Instead, authored code imports the stable name
+`@todoapp/generated/todo/shared/TodoText`. The selected build configuration
+resolves that name to exactly one generated tree:
+
+| Build | Configuration | Resolved tree |
+| --- | --- | --- |
+| TypeScript/TSX | `web/tsconfig.json` | `web/src-gen` |
+| Classic ESM | `web/tsconfig.classic-interop.json` | `web/classic-src-gen` |
+
+The same configuration is passed to TypeScript and esbuild, so type checking
+and runtime bundling cannot silently choose different modules. Each build also
+checks esbuild's input report and fails if it consumed the other profile's
+tree. This keeps the direct “authored TypeScript imports generated Haxe” example
+while allowing both build commands to start from a fresh checkout.
 
 ## What the harness verifies
 
@@ -99,7 +122,8 @@ second large checked-in source tree.
 - `src/todo.web.*` — React Router UI authored in Haxe;
 - `src/todo.server.*` — Express API and persistence authored in Haxe;
 - `web/src-ts/components/PrettyButton.tsx` — authored TSX imported by Haxe;
-- `web/src-ts/interop/haxeInterop.ts` — authored TS importing generated Haxe;
+- `web/src-ts/interop/haxeInterop.ts` — authored TS importing generated Haxe
+  through the active profile mapping described above;
 - `web/build*.hxml`, `server/build*.hxml` — explicit compiler profiles;
 - `e2e/src/` — Playwright specs authored in Haxe and compiled through genes-ts.
 
