@@ -1970,6 +1970,32 @@ class TsModuleEmitter extends JsModuleEmitter {
     write('>');
   }
 
+  /**
+   * Remembers a local's exact emitted TypeScript type when Haxe may erase it.
+   *
+   * Why: closed enum abstracts can become their primitive backing type in a
+   * later expression node even though the local or parameter declaration was
+   * already printed as a literal union. Forgetting that declaration makes the
+   * expected-type writer add a redundant `as` expression.
+   *
+   * What: only an explicit declaration-time override or a compiler-derived
+   * enum-abstract literal union is recorded. Broad strings and other ordinary
+   * locals contribute no fact, so their existing compatibility assertions are
+   * preserved.
+   *
+   * How: Haxe local IDs are stable within one emitted module. Later local reads
+   * compare the recorded TypeScript spelling with the expected union before
+   * deciding whether an assertion is necessary. This changes TypeScript
+   * syntax only; classic JavaScript never uses this emitter state.
+   */
+  function rememberEmittedLocalType(variable: TVar, haxeType: Type,
+      typeOverride: Null<String>): Void {
+    final exactType = typeOverride
+      ?? SignatureCache.enumAbstractLiteralUnionTsType(haxeType);
+    if (exactType != null)
+      localTsTypeOverrides.set(variable.id, exactType);
+  }
+
   override public function emitVar(v: TVar, eo: Null<TypedExpr>) {
     if (eo != null && isJsxCarrierLocal(v.id)) {
       // The linked HXX carrier is compiler-owned scaffolding, not a public
@@ -2002,8 +2028,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     final emittedType = (narrowedOptionalInit || narrowedNonNullInit) ? stripNull(v.t) : v.t;
     final emittedTypeOverride = (narrowedOptionalInit
       || narrowedNonNullInit || inferExplicitCallType) ? null : localTsTypeOverride(eo);
-    if (emittedTypeOverride != null)
-      localTsTypeOverrides.set(v.id, emittedTypeOverride);
+    rememberEmittedLocalType(v, emittedType, emittedTypeOverride);
     write('$declare ');
     emitLocalVar(v);
     if (!inferExplicitCallType) {
@@ -2182,10 +2207,21 @@ class TsModuleEmitter extends JsModuleEmitter {
           default:
             null;
         }
-      case TField(_, FInstance(_.get() => cl, _, _.get() => field)):
+      case TField(_, FInstance(_.get() => cl, parameters, _.get() => field)):
         switch field.kind {
           case FVar(_, _):
-            SignatureCache.getFieldTsType(cl, false, field.name);
+            // A generic field declaration only contains its owner's type
+            // parameter, so the declaration cache cannot know the concrete
+            // literal union. Apply the receiver's actual parameters first.
+            // This proves expressions such as `pair.first` already carry the
+            // same exact TS type as `Pair<ClosedDomain>`; no assertion is
+            // needed. If substitution cannot recover a literal union, retain
+            // the declaration-time cache and its conservative behavior.
+            final instantiatedType = parameters.length == cl.params.length
+              ? field.type.applyTypeParameters(cl.params, parameters)
+              : field.type;
+            SignatureCache.enumAbstractLiteralUnionTsType(instantiatedType)
+              ?? SignatureCache.getFieldTsType(cl, false, field.name);
           default:
             null;
         }
@@ -2882,6 +2918,7 @@ class TsModuleEmitter extends JsModuleEmitter {
               write('?');
             write(': ');
             TypeEmitter.emitType(this, nullish.emittedType);
+            rememberEmittedLocalType(arg.v, nullish.emittedType, null);
             if (nullish.usesNullDefault)
               write(' = null');
           }
@@ -3522,6 +3559,8 @@ class TsModuleEmitter extends JsModuleEmitter {
           write(': ');
           final cachedType = cachedArgs != null ? cachedArgs[i].tsType : null;
           emitArgTsType(field, f, i, nullish.emittedType, cachedType);
+          rememberEmittedLocalType(f.args[i].v, nullish.emittedType,
+            cachedType);
           if (usesNullDefault)
             write(' = null');
         }

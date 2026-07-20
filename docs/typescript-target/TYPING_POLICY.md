@@ -123,6 +123,17 @@ In genes-ts mode, when values are known, we emit **TypeScript literal unions**:
 If values cannot be determined (e.g. unusual extern patterns), we fall back to
 the underlying type.
 
+Exact literal-union provenance also survives ordinary expression flow. A
+nested function parameter already emitted as the enum union, or a field read
+from a generic host value instantiated with that union, is passed and returned
+directly—genes-ts does not add a no-op `as` expression. A contained assertion
+is still required when Haxe lowering has genuinely widened a mutable runtime
+temporary to `string`; removing that assertion would claim a guarantee the
+generated TypeScript value does not have. The paired positive and broad-string
+control live in the
+[exact enum-abstract projection repro](../../tests/genes-ts/repros/exact-enum-abstract-projections/README.md)
+and the basic `EnumAbstract.arrayLoopDemo` snapshot.
+
 ### `Dynamic`
 
 - Legacy default: `Dynamic` → `any`, matching the explicitly dynamic Haxe
