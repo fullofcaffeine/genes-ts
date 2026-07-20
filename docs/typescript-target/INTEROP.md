@@ -571,10 +571,19 @@ The fullstack todoapp exercises both directions from one Haxe source tree:
 1. Haxe emits `todo.shared.TodoText` as a typed ESM value.
 2. Authored
    [`haxeInterop.ts`](../../examples/todoapp/web/src-ts/interop/haxeInterop.ts)
-   imports that generated Haxe module and calls it.
+   imports that generated Haxe module through the stable
+   `@todoapp/generated/...` name and calls it.
 3. Haxe imports the authored `interopBanner` function with
    `Imports.namedImport`.
 4. The same UI builds and runs as generated TSX or direct classic ESM JS.
+
+The stable name is important because the two profiles write different folders.
+`web/tsconfig.json` maps it to `src-gen`, while
+`web/tsconfig.classic-interop.json` maps it to `classic-src-gen`. Each build
+passes its selected config to both TypeScript and esbuild, then verifies the
+bundle did not read the other profile's output. A direct relative import of
+`src-gen` would create a hidden build-order dependency: classic output would
+work only after a TypeScript build left that directory behind.
 
 The authored TypeScript call is invisible to Haxe DCE, so the Haxe source keeps
 `TodoText` reachable explicitly. Invocation happens after module
@@ -612,6 +621,11 @@ the upstream JavaScript implementation. Read
 - Include the generated and authored roots in the same TS/bundler graph.
 - Ensure `rootDir` contains both roots.
 - Use extensionless imports only when the configured bundler/resolver owns them.
+- In a dual-output application, do not point shared authored code directly at
+  one profile's generated directory. Give the generated module a stable local
+  specifier and map it to the selected profile in the same configuration used
+  by both the type checker and bundler. The todoapp's
+  `@todoapp/generated/*` mapping is the executable example.
 
 ### A Haxe export disappeared
 

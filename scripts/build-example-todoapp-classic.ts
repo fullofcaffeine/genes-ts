@@ -26,7 +26,11 @@ import { runGeneratedTypeScriptMatrix } from "./toolchains.js";
  *
  * How: shared JSX intent lowers to `React.createElement`; `genes.ts.Imports`
  * becomes ordinary ESM imports; raw TS type metadata affects only `.d.ts` and
- * disappears from JavaScript. Runtime parity is owned by `qa-todoapp.ts`.
+ * disappears from JavaScript. The classic interop tsconfig maps the shared
+ * `@todoapp/generated` name to `classic-src-gen`, so authored TypeScript never
+ * reads output left behind by the TypeScript compiler profile. The esbuild
+ * metadata assertion below makes that independence executable evidence.
+ * Runtime parity is owned by `qa-todoapp.ts`.
  */
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -73,6 +77,10 @@ assertNoUnsafeTypes({
 runGeneratedTypeScriptMatrix("examples/todoapp/tsconfig.classic.json", {
   emit: false
 });
+runGeneratedTypeScriptMatrix(
+  "examples/todoapp/web/tsconfig.classic-interop.json",
+  { emit: false }
+);
 assertExportedSurfacePolicy({
   repoRoot,
   tsconfigPath: "examples/todoapp/tsconfig.classic.json",
@@ -193,9 +201,27 @@ run("npx", [
     "--sourcemap",
     "--format=esm",
     "--platform=browser",
+    "--tsconfig=examples/todoapp/web/tsconfig.classic-interop.json",
+    "--metafile=examples/todoapp/web/classic-dist/esbuild-meta.json",
     "--outfile=examples/todoapp/web/classic-dist/assets/app.js"
   ].join(" ")
 ]);
+
+const classicBundleMetadata = readFileSync(
+  path.join(exampleRoot, "web/classic-dist/esbuild-meta.json"),
+  "utf8"
+);
+ok(
+  classicBundleMetadata.includes(
+    "examples/todoapp/web/classic-src-gen/todo/shared/TodoText.js"
+  ),
+  "The classic bundle must load TodoText from classic-src-gen"
+);
+ok(
+  !classicBundleMetadata.includes("examples/todoapp/web/src-gen/"),
+  "The classic bundle must not read the TypeScript profile's generated tree"
+);
+rmSync(path.join(exampleRoot, "web/classic-dist/esbuild-meta.json"));
 
 mkdirSync(path.join(exampleRoot, "web/classic-dist"), {recursive: true});
 copyFileSync(

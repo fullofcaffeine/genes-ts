@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@todoapp/generated/*": ["./classic-src-gen/*"]
+    }
+  },
+  "include": [
+    "src-ts/interop/haxeInterop.ts",
+    "classic-src-gen/**/*.d.ts"
+  ]
+}

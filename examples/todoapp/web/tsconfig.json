@@ -10,7 +10,10 @@
     "noEmit": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": false,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "paths": {
+      "@todoapp/generated/*": ["./src-gen/*"]
+    }
   },
   "include": ["src-gen/**/*", "src-ts/**/*"]
 }
