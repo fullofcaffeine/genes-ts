@@ -8,6 +8,7 @@ import {JsonAlias} from "./foo/JsonAlias.js"
 import {ServerCallbacks} from "./foo/ServerCallbacks.js"
 import {Narrowing} from "./foo/Narrowing.js"
 import {TypedCatch} from "./foo/TypedCatch.js"
+import {ProjectedNullCall} from "./foo/ProjectedNullCall.js"
 import {Register} from "./genes/Register.js"
 
 type JsonPrimitive = null | boolean | number | string
@@ -66,6 +67,7 @@ export class Main {
 		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:46:",TypedCatch.recover("fixture"));
 		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:47:",TypedCatch.recover("plain"));
 		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:48:",Main.Theme.name + ":" + Main.Theme.accent);
+		ProjectedNullCall.demo(null);
 	}
 	static get __name__(): string {
 		return "Main"

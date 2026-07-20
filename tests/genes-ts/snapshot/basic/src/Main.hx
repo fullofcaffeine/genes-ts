@@ -46,5 +46,6 @@ class Main {
     trace(TypedCatch.recover("fixture"));
     trace(TypedCatch.recover("plain"));
     trace(Theme.name + ":" + Theme.accent);
+    foo.ProjectedNullCall.demo(null);
   }
 }

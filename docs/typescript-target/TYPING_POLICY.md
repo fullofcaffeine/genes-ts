@@ -44,6 +44,13 @@ cannot see.
 - Function-valued optional properties are grouped as
   `field?: ((...) => T) | undefined`; the undefined member belongs to the
   property, not to the function return type.
+- A literal passed to a boundary whose nominal Haxe type explicitly declares
+  `@:ts.type("null")` (or its `@:genes.type` compatibility alias) remains the
+  ordinary `null` expression. This narrow rule applies to metadata on the type
+  itself and ordinary calls, not an unrelated parameter override or a special
+  call that has its own lowering. It does not weaken normal nullability:
+  passing a nullable local to a non-nullable parameter still receives the
+  contained compatibility assertion required by strict TypeScript.
 - Everything else is emitted as non-null unless it is explicitly modeled as
   nullable in the Haxe type.
 
