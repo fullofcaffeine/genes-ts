@@ -147,6 +147,8 @@ class JsxContext {
       return standardDomTypePath('js.html.DialogElement', 'HTMLDialogElement');
     if (path.sub == null && qualified == 'genes.react.InputElement')
       return standardDomTypePath('js.html.InputElement', 'HTMLInputElement');
+    if (path.sub == null && qualified == 'genes.react.SvgElement')
+      return standardDomTypePath('js.html.svg.Element', 'SVGElement');
     return {
       pack: path.pack.copy(),
       name: path.name,
@@ -519,6 +521,14 @@ class JsxContext {
       case TAbstract(abstractRef, [inner])
         if (abstractRef.get().pack.length == 0
           && abstractRef.get().name == 'Null'):
+        unwrapNullable(inner);
+      case TAbstract(abstractRef, [inner])
+        if (abstractRef.get().module == 'genes.ts.Undefinable'
+          && abstractRef.get().name == 'Undefinable'):
+        // `undefined` and `null` are non-callable alternatives around the ref
+        // callback. Remove only those absence wrappers while choosing a
+        // contextual function arm; the later HXX checker still validates the
+        // complete property union and keeps explicit null distinct.
         unwrapNullable(inner);
       case resolved: resolved;
     }

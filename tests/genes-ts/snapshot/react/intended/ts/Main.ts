@@ -79,13 +79,13 @@ export class Main {
 			label: string
 		}) => JSX.Element) = __genes_import_Button;
 		let el: JSX.Element = React__genes_jsx.createElement("span", null, 2);
-		let el1: JSX.Element = React__genes_jsx.createElement("div", ({className: "root", "data-test-id": "x"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"div"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), title, el);
+		let el1: JSX.Element = React__genes_jsx.createElement("div", ({className: "root", "data-test-id": "x"} satisfies (React__genes_jsx.ComponentPropsWithRef<"div"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), title, el);
 		let renderToStaticMarkup: ((arg0: JSX.Element) => string) = __genes_import_renderToStaticMarkup;
 		let html: string = renderToStaticMarkup(el1);
 		if (html != "<div class=\"root\" data-test-id=\"x\">Hi<span>2</span></div>") {
 			throw Exception.thrown("Unexpected HTML: " + html);
 		};
-		let buttonEl: JSX.Element = React__genes_jsx.createElement(Button, ({label: "Save"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Button> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
+		let buttonEl: JSX.Element = React__genes_jsx.createElement(Button, ({label: "Save"} satisfies (React__genes_jsx.ComponentPropsWithRef<typeof Button> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
 		let buttonHtml: string = renderToStaticMarkup(buttonEl);
 		if (buttonHtml != "<button>Save</button>") {
 			throw Exception.thrown("Unexpected button HTML: " + buttonHtml);
@@ -93,14 +93,14 @@ export class Main {
 		let AliasedButton: ((arg0: {
 			label: string
 		}) => JSX.Element) = Button;
-		let aliasHtml: string = renderToStaticMarkup(React__genes_jsx.createElement(AliasedButton, ({label: "Alias"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof AliasedButton> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
+		let aliasHtml: string = renderToStaticMarkup(React__genes_jsx.createElement(AliasedButton, ({label: "Alias"} satisfies (React__genes_jsx.ComponentPropsWithRef<typeof AliasedButton> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
 		if (aliasHtml != "<button>Alias</button>") {
 			throw Exception.thrown("Unexpected alias HTML: " + aliasHtml);
 		};
 		let TypedButton: import('react').ComponentType<{
 			label: string
 		}> = __genes_import_Button;
-		let typedButtonHtml: string = renderToStaticMarkup(React__genes_jsx.createElement(TypedButton, ({label: "Typed", key: 1.5} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof TypedButton> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
+		let typedButtonHtml: string = renderToStaticMarkup(React__genes_jsx.createElement(TypedButton, ({label: "Typed", key: 1.5} satisfies (React__genes_jsx.ComponentPropsWithRef<typeof TypedButton> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
 		if (typedButtonHtml != "<button>Typed</button>") {
 			throw Exception.thrown("Unexpected typed button HTML: " + typedButtonHtml);
 		};
@@ -108,7 +108,7 @@ export class Main {
 			className: string,
 			id: string
 		} = {"className": "spread", "id": "x"};
-		let divWithSpread: JSX.Element = React__genes_jsx.createElement("div", ({...divProps} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"div"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Z");
+		let divWithSpread: JSX.Element = React__genes_jsx.createElement("div", ({...divProps} satisfies (React__genes_jsx.ComponentPropsWithRef<"div"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Z");
 		let divWithSpreadHtml: string = renderToStaticMarkup(divWithSpread);
 		if (divWithSpreadHtml != "<div class=\"spread\" id=\"x\">Z</div>") {
 			throw Exception.thrown("Unexpected spread HTML: " + divWithSpreadHtml);
@@ -116,7 +116,7 @@ export class Main {
 		let buttonProps: {
 			label: string
 		} = {"label": "Spread"};
-		let buttonSpreadEl: JSX.Element = React__genes_jsx.createElement(Button, ({...buttonProps} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Button> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
+		let buttonSpreadEl: JSX.Element = React__genes_jsx.createElement(Button, ({...buttonProps} satisfies (React__genes_jsx.ComponentPropsWithRef<typeof Button> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
 		let buttonSpreadHtml: string = renderToStaticMarkup(buttonSpreadEl);
 		if (buttonSpreadHtml != "<button>Spread</button>") {
 			throw Exception.thrown("Unexpected spread button HTML: " + buttonSpreadHtml);
@@ -131,7 +131,7 @@ export class Main {
 		});
 		let statusEl = {"__genesJsxPropName": "label", "__genesJsxPropValue": "Count", "__genesJsxPropNext": {"__genesJsxPropName": "value", "__genesJsxPropValue": summary(), "__genesJsxPropNext": {"__genesJsxPropsEnd": true}}};
 		let statusEl1: string = count.get();
-		let statusEl2: JSX.Element = React__genes_jsx.createElement(Status, ({label: statusEl.__genesJsxPropValue, value: statusEl.__genesJsxPropNext.__genesJsxPropValue} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Status> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), React__genes_jsx.createElement("span", null, statusEl1));
+		let statusEl2: JSX.Element = React__genes_jsx.createElement(Status, ({label: statusEl.__genesJsxPropValue, value: statusEl.__genesJsxPropNext.__genesJsxPropValue} satisfies (React__genes_jsx.ComponentPropsWithRef<typeof Status> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), React__genes_jsx.createElement("span", null, statusEl1));
 		let statusHtml: string = renderToStaticMarkup(statusEl2);
 		if (statusHtml != "<section data-label=\"Count\"><strong>items:2</strong><span>2</span></section>") {
 			throw Exception.thrown("Unexpected status HTML: " + statusHtml);
@@ -139,7 +139,7 @@ export class Main {
 		let GenericInt: ((arg0: GenericValueProps<number>) => JSX.Element) = Main.GenericValue;
 		let genericHtml: string = renderToStaticMarkup(React__genes_jsx.createElement(GenericInt, ({value: 7, render: function (value: number) {
 			return "n:" + value;
-		}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof GenericInt> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
+		}} satisfies (React__genes_jsx.ComponentPropsWithRef<typeof GenericInt> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
 		if (genericHtml != "<span>n:7</span>") {
 			throw Exception.thrown("Unexpected generic HTML: " + genericHtml);
 		};
@@ -152,36 +152,36 @@ export class Main {
 		let broadHandler: ((arg0: import('react').SyntheticEvent<HTMLElement>) => void) = function (event: import('react').SyntheticEvent<HTMLElement>) {
 			event.preventDefault();
 		};
-		let inheritedHtml: string = renderToStaticMarkup(React__genes_jsx.createElement(Main.InheritedCard, ({label: "Inherited", tone: "warm", onSelect: broadHandler} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Main.InheritedCard> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
+		let inheritedHtml: string = renderToStaticMarkup(React__genes_jsx.createElement(Main.InheritedCard, ({label: "Inherited", tone: "warm", onSelect: broadHandler} satisfies (React__genes_jsx.ComponentPropsWithRef<typeof Main.InheritedCard> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
 		if (inheritedHtml != "<aside data-tone=\"warm\">Inherited</aside>") {
 			throw Exception.thrown("Unexpected inherited component HTML: " + inheritedHtml);
 		};
 		let requiredChildHtml: JSX.Element = React__genes_jsx.createElement("strong", null, "required");
-		let requiredChildHtml1: string = renderToStaticMarkup(React__genes_jsx.createElement(Main.RequiredChild, ({children: requiredChildHtml} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Main.RequiredChild> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
+		let requiredChildHtml1: string = renderToStaticMarkup(React__genes_jsx.createElement(Main.RequiredChild, ({children: requiredChildHtml} satisfies (React__genes_jsx.ComponentPropsWithRef<typeof Main.RequiredChild> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
 		if (requiredChildHtml1 != "<section><strong>required</strong></section>") {
 			throw Exception.thrown("Unexpected required child HTML: " + requiredChildHtml1);
 		};
-		let broadNodeHtml: JSX.Element = React__genes_jsx.createElement("strong", ({key: "broad-element"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"strong"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "element child");
-		let broadNodeHtml1: string = renderToStaticMarkup(React__genes_jsx.createElement(Main.BroadNode, ({children: ["text child", broadNodeHtml]} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Main.BroadNode> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
+		let broadNodeHtml: JSX.Element = React__genes_jsx.createElement("strong", ({key: "broad-element"} satisfies (React__genes_jsx.ComponentPropsWithRef<"strong"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "element child");
+		let broadNodeHtml1: string = renderToStaticMarkup(React__genes_jsx.createElement(Main.BroadNode, ({children: ["text child", broadNodeHtml]} satisfies (React__genes_jsx.ComponentPropsWithRef<typeof Main.BroadNode> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
 		if (broadNodeHtml1 != "<section>text child<strong>element child</strong></section>") {
 			throw Exception.thrown("Unexpected broad node HTML: " + broadNodeHtml1);
 		};
-		let booleanAndArrayHtml: string = renderToStaticMarkup(React__genes_jsx.createElement("button", ({disabled: true, "aria-pressed": true} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"button"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), ["A", "B"]));
+		let booleanAndArrayHtml: string = renderToStaticMarkup(React__genes_jsx.createElement("button", ({disabled: true, "aria-pressed": true} satisfies (React__genes_jsx.ComponentPropsWithRef<"button"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), ["A", "B"]));
 		if (booleanAndArrayHtml != "<button disabled=\"\" aria-pressed=\"true\">AB</button>") {
 			throw Exception.thrown("Unexpected boolean/array HTML: " + booleanAndArrayHtml);
 		};
-		let stringFormAction: JSX.Element = React__genes_jsx.createElement("form", ({action: "/save"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"form"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
-		let syncFormActionElement: JSX.Element = React__genes_jsx.createElement("form", ({action: Main.syncFormAction} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"form"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
-		let asyncFormActionElement: JSX.Element = React__genes_jsx.createElement("form", ({action: Main.asyncFormAction} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"form"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
+		let stringFormAction: JSX.Element = React__genes_jsx.createElement("form", ({action: "/save"} satisfies (React__genes_jsx.ComponentPropsWithRef<"form"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
+		let syncFormActionElement: JSX.Element = React__genes_jsx.createElement("form", ({action: Main.syncFormAction} satisfies (React__genes_jsx.ComponentPropsWithRef<"form"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
+		let asyncFormActionElement: JSX.Element = React__genes_jsx.createElement("form", ({action: Main.asyncFormAction} satisfies (React__genes_jsx.ComponentPropsWithRef<"form"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
 		let contextualFormAction: JSX.Element = React__genes_jsx.createElement("form", ({action: function (formData: FormData) {
 			formData.has("title");
-		}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"form"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
-		let buttonFormAction: JSX.Element = React__genes_jsx.createElement("button", ({formAction: Main.syncFormAction} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"button"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Save");
-		let inputFormAction: JSX.Element = React__genes_jsx.createElement("input", ({type: "submit", formAction: Main.asyncFormAction} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"input"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
+		}} satisfies (React__genes_jsx.ComponentPropsWithRef<"form"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
+		let buttonFormAction: JSX.Element = React__genes_jsx.createElement("button", ({formAction: Main.syncFormAction} satisfies (React__genes_jsx.ComponentPropsWithRef<"button"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Save");
+		let inputFormAction: JSX.Element = React__genes_jsx.createElement("input", ({type: "submit", formAction: Main.asyncFormAction} satisfies (React__genes_jsx.ComponentPropsWithRef<"input"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
 		let dashPattern: string = "8 4";
 		let dashOffset: number = 2.5;
-		let dashedCircleHtml: JSX.Element = React__genes_jsx.createElement("circle", ({cx: 5, cy: 5, r: 4, strokeDasharray: dashPattern, strokeDashoffset: dashOffset} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"circle"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
-		let dashedCircleHtml1: string = renderToStaticMarkup(React__genes_jsx.createElement("svg", ({viewBox: "0 0 10 10"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"svg"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), dashedCircleHtml));
+		let dashedCircleHtml: JSX.Element = React__genes_jsx.createElement("circle", ({cx: 5, cy: 5, r: 4, strokeDasharray: dashPattern, strokeDashoffset: dashOffset} satisfies (React__genes_jsx.ComponentPropsWithRef<"circle"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
+		let dashedCircleHtml1: string = renderToStaticMarkup(React__genes_jsx.createElement("svg", ({viewBox: "0 0 10 10"} satisfies (React__genes_jsx.ComponentPropsWithRef<"svg"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), dashedCircleHtml));
 		if (dashedCircleHtml1 != "<svg viewBox=\"0 0 10 10\"><circle cx=\"5\" cy=\"5\" r=\"4\" stroke-dasharray=\"8 4\" stroke-dashoffset=\"2.5\"></circle></svg>") {
 			throw Exception.thrown("Unexpected dashed SVG HTML: " + dashedCircleHtml1);
 		};
@@ -216,22 +216,22 @@ export class Main {
 		};
 		let contextualClick: JSX.Element = React__genes_jsx.createElement("button", ({onClick: function (event: import('react').MouseEvent<HTMLElement>) {
 			event.preventDefault();
-		}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"button"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Contextual");
+		}} satisfies (React__genes_jsx.ComponentPropsWithRef<"button"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Contextual");
 		renderToStaticMarkup(contextualClick);
 		let contextualAnchor: JSX.Element = React__genes_jsx.createElement("a", ({onClick: function (event: import('react').MouseEvent<HTMLAnchorElement>) {
 			event.currentTarget.download = "report.csv";
 			event.currentTarget.rel = "noopener";
 			event.currentTarget.protocol = "https:";
 			event.currentTarget.focus();
-		}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"a"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Download");
+		}} satisfies (React__genes_jsx.ComponentPropsWithRef<"a"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Download");
 		renderToStaticMarkup(contextualAnchor);
-		renderToStaticMarkup(React__genes_jsx.createElement("a", ({onClick: standardAnchorHandler} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"a"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Standard DOM"));
+		renderToStaticMarkup(React__genes_jsx.createElement("a", ({onClick: standardAnchorHandler} satisfies (React__genes_jsx.ComponentPropsWithRef<"a"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Standard DOM"));
 		let compatibleAnchorHandler: ((arg0: import('react').MouseEvent<HTMLAnchorElement>) => void) = function (event: import('react').MouseEvent<HTMLAnchorElement>) {
 			event.preventDefault();
 		};
-		renderToStaticMarkup(React__genes_jsx.createElement("a", ({onClick: compatibleAnchorHandler} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"a"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Compatible"));
+		renderToStaticMarkup(React__genes_jsx.createElement("a", ({onClick: compatibleAnchorHandler} satisfies (React__genes_jsx.ComponentPropsWithRef<"a"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Compatible"));
 		let absentHref: string | undefined = undefined;
-		let absentHrefHtml: string = renderToStaticMarkup(React__genes_jsx.createElement("a", ({href: absentHref} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"a"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Absent href"));
+		let absentHrefHtml: string = renderToStaticMarkup(React__genes_jsx.createElement("a", ({href: absentHref} satisfies (React__genes_jsx.ComponentPropsWithRef<"a"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Absent href"));
 		if (absentHrefHtml != "<a>Absent href</a>") {
 			throw Exception.thrown("Unexpected absent href HTML: " + absentHrefHtml);
 		};
@@ -239,39 +239,39 @@ export class Main {
 			console.log("tests/genes-ts/snapshot/react/src/Main.hx:264:",event.target.value);
 			event.target.select();
 			event.target.setSelectionRange(0, 0);
-		}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"input"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
+		}} satisfies (React__genes_jsx.ComponentPropsWithRef<"input"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
 		renderToStaticMarkup(contextualInput);
 		let okHandler: (() => void) = function () {
 			return;
 		};
-		let okClick: JSX.Element = React__genes_jsx.createElement("button", ({onClick: okHandler} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"button"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Click");
+		let okClick: JSX.Element = React__genes_jsx.createElement("button", ({onClick: okHandler} satisfies (React__genes_jsx.ComponentPropsWithRef<"button"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Click");
 		renderToStaticMarkup(okClick);
 		let ignoredEvent: JSX.Element = React__genes_jsx.createElement("button", ({onClick: function () {
 			return "ignored";
-		}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"button"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Ignored");
+		}} satisfies (React__genes_jsx.ComponentPropsWithRef<"button"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "Ignored");
 		renderToStaticMarkup(ignoredEvent);
 		let optionalChildren: MainOptionalSpreadChildProps = {};
 		let optionalChildSpreadHtml: JSX.Element = React__genes_jsx.createElement("strong", null, "nested child");
-		let optionalChildSpreadHtml1: string = renderToStaticMarkup(React__genes_jsx.createElement(Main.RequiredChild, ({...optionalChildren, children: optionalChildSpreadHtml} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Main.RequiredChild> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
+		let optionalChildSpreadHtml1: string = renderToStaticMarkup(React__genes_jsx.createElement(Main.RequiredChild, ({...optionalChildren, children: optionalChildSpreadHtml} satisfies (React__genes_jsx.ComponentPropsWithRef<typeof Main.RequiredChild> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
 		if (optionalChildSpreadHtml1 != "<section><strong>nested child</strong></section>") {
 			throw Exception.thrown("Unexpected optional child spread HTML: " + optionalChildSpreadHtml1);
 		};
 		let previousChild: JSX.Element = React__genes_jsx.createElement("em", null, "spread child");
 		let presentOptionalChildren: MainOptionalSpreadChildProps = {"children": previousChild};
 		let optionalChildOverrideHtml: JSX.Element = React__genes_jsx.createElement("strong", null, "nested child");
-		let optionalChildOverrideHtml1: string = renderToStaticMarkup(React__genes_jsx.createElement(Main.RequiredChild, ({...presentOptionalChildren, children: optionalChildOverrideHtml} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Main.RequiredChild> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
+		let optionalChildOverrideHtml1: string = renderToStaticMarkup(React__genes_jsx.createElement(Main.RequiredChild, ({...presentOptionalChildren, children: optionalChildOverrideHtml} satisfies (React__genes_jsx.ComponentPropsWithRef<typeof Main.RequiredChild> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
 		if (optionalChildOverrideHtml1 != "<section><strong>nested child</strong></section>") {
 			throw Exception.thrown("Unexpected optional child override HTML: " + optionalChildOverrideHtml1);
 		};
-		let childArray: JSX.Element[] = [React__genes_jsx.createElement("em", ({key: "array-a"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"em"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "array A"), React__genes_jsx.createElement("strong", ({key: "array-b"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"strong"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "array B")];
-		let arrayValueChildHtml: string = renderToStaticMarkup(React__genes_jsx.createElement(Main.RequiredChildList, ({children: childArray} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Main.RequiredChildList> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
+		let childArray: JSX.Element[] = [React__genes_jsx.createElement("em", ({key: "array-a"} satisfies (React__genes_jsx.ComponentPropsWithRef<"em"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "array A"), React__genes_jsx.createElement("strong", ({key: "array-b"} satisfies (React__genes_jsx.ComponentPropsWithRef<"strong"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "array B")];
+		let arrayValueChildHtml: string = renderToStaticMarkup(React__genes_jsx.createElement(Main.RequiredChildList, ({children: childArray} satisfies (React__genes_jsx.ComponentPropsWithRef<typeof Main.RequiredChildList> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
 		if (arrayValueChildHtml != "<section><em>array A</em><strong>array B</strong></section>") {
 			throw Exception.thrown("Unexpected array-valued child HTML: " + arrayValueChildHtml);
 		};
 		let optionalChildList: MainOptionalSpreadChildListProps = {};
-		let multipleRequiredChildrenHtml: JSX.Element = React__genes_jsx.createElement("em", ({key: "nested-a"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"em"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "nested A");
-		let multipleRequiredChildrenHtml1: JSX.Element = React__genes_jsx.createElement("strong", ({key: "nested-b"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"strong"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "nested B");
-		let multipleRequiredChildrenHtml2: string = renderToStaticMarkup(React__genes_jsx.createElement(Main.RequiredChildList, ({...optionalChildList, children: [multipleRequiredChildrenHtml, multipleRequiredChildrenHtml1]} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Main.RequiredChildList> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
+		let multipleRequiredChildrenHtml: JSX.Element = React__genes_jsx.createElement("em", ({key: "nested-a"} satisfies (React__genes_jsx.ComponentPropsWithRef<"em"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "nested A");
+		let multipleRequiredChildrenHtml1: JSX.Element = React__genes_jsx.createElement("strong", ({key: "nested-b"} satisfies (React__genes_jsx.ComponentPropsWithRef<"strong"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), "nested B");
+		let multipleRequiredChildrenHtml2: string = renderToStaticMarkup(React__genes_jsx.createElement(Main.RequiredChildList, ({...optionalChildList, children: [multipleRequiredChildrenHtml, multipleRequiredChildrenHtml1]} satisfies (React__genes_jsx.ComponentPropsWithRef<typeof Main.RequiredChildList> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
 		if (multipleRequiredChildrenHtml2 != "<section><em>nested A</em><strong>nested B</strong></section>") {
 			throw Exception.thrown("Unexpected multiple required children HTML: " + multipleRequiredChildrenHtml2);
 		};
@@ -282,7 +282,7 @@ export class Main {
 		}) => JSX.Element) = __genes_import_Button;
 		let tmp: JSX.Element = React__genes_jsx.createElement("span", null, first);
 		let tmp1: JSX.Element = React__genes_jsx.createElement("strong", null, second);
-		let tmp2: JSX.Element = React__genes_jsx.createElement(Button, ({label: "Save"} satisfies (React__genes_jsx.ComponentPropsWithoutRef<typeof Button> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
+		let tmp2: JSX.Element = React__genes_jsx.createElement(Button, ({label: "Save"} satisfies (React__genes_jsx.ComponentPropsWithRef<typeof Button> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
 		let tmp3: JSX.Element = React__genes_jsx.createElement("em", null, "done");
 		let tmp4: JSX.Element = React__genes_jsx.createElement("span", null, first + ":1");
 		let tmp5: JSX.Element = React__genes_jsx.createElement("strong", null, second + ":2");
@@ -304,7 +304,7 @@ export class Main {
 		let tmp1: string = Main.recordJsxEvaluation("first");
 		let tmp2: JSX.Element = React__genes_jsx.createElement("span", null, tmp1);
 		let tmp3: string = Main.recordJsxEvaluation("second");
-		return React__genes_jsx.createElement("div", ({"data-order": tmp.__genesJsxPropValue} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"div"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), tmp2, React__genes_jsx.createElement("strong", null, tmp3));
+		return React__genes_jsx.createElement("div", ({"data-order": tmp.__genesJsxPropValue} satisfies (React__genes_jsx.ComponentPropsWithRef<"div"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), tmp2, React__genes_jsx.createElement("strong", null, tmp3));
 	}
 
 	/**
@@ -331,7 +331,7 @@ export class Main {
 		return React__genes_jsx.createElement("span", null, tmp);
 	}
 	static InheritedCard(props: InheritedCardProps): JSX.Element {
-		return React__genes_jsx.createElement("aside", ({"data-tone": props.tone, onClick: props.onSelect} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"aside"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), props.label);
+		return React__genes_jsx.createElement("aside", ({"data-tone": props.tone, onClick: props.onSelect} satisfies (React__genes_jsx.ComponentPropsWithRef<"aside"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), props.label);
 	}
 	static RequiredChild(props: RequiredChildProps): JSX.Element {
 		return React__genes_jsx.createElement("section", null, props.children);

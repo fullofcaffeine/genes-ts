@@ -74,6 +74,46 @@ const cases: ReadonlyArray<DiagnosticRangeCase> = [
     rangeMarker: "wrongDialogEventTarget"
   },
   {
+    name: "ref value",
+    define: "hxx_negative_ref_value",
+    diagnostic: "GTS-HXX-PROP-002",
+    sourceFile: "tests/genes-ts/snapshot/react/negative/Negative.hx",
+    lineMarker: 'final value = <input ref="not-a-ref" />;',
+    rangeMarker: 'ref="not-a-ref"'
+  },
+  {
+    name: "ref target",
+    define: "hxx_negative_ref_target",
+    diagnostic: "GTS-HXX-PROP-002",
+    sourceFile: "tests/genes-ts/snapshot/react/negative/Negative.hx",
+    lineMarker: "final value = <input ref={wrongInputRefTarget} />;",
+    rangeMarker: "wrongInputRefTarget"
+  },
+  {
+    name: "ref cleanup result",
+    define: "hxx_negative_ref_result",
+    diagnostic: "GTS-HXX-PROP-002",
+    sourceFile: "tests/genes-ts/snapshot/react/negative/Negative.hx",
+    lineMarker: "final value = <input ref={wrongInputRefResult} />;",
+    rangeMarker: "wrongInputRefResult"
+  },
+  {
+    name: "ref object target",
+    define: "hxx_negative_ref_object_target",
+    diagnostic: "GTS-HXX-PROP-002",
+    sourceFile: "tests/genes-ts/snapshot/react/negative/Negative.hx",
+    lineMarker: "final value = <input ref={anchorRef} />;",
+    rangeMarker: "anchorRef"
+  },
+  {
+    name: "SVG ref target",
+    define: "hxx_negative_svg_ref_target",
+    diagnostic: "GTS-HXX-PROP-002",
+    sourceFile: "tests/genes-ts/snapshot/react/negative/Negative.hx",
+    lineMarker: "final value = <svg ref={wrongSvgRefTarget} />;",
+    rangeMarker: "wrongSvgRefTarget"
+  },
+  {
     name: "spread expression",
     define: "hxx_negative_spread_wrong",
     diagnostic: "GTS-HXX-SPREAD-002",

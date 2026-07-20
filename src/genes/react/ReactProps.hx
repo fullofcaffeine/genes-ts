@@ -1,5 +1,7 @@
 package genes.react;
 
+import genes.ts.Undefinable;
+
 /**
  * Typed property building blocks for the default React intrinsic provider.
  *
@@ -15,10 +17,11 @@ package genes.react;
  * How: `@:genes.compilerInternal` keeps the schemas available through typing
  * and hides them from public output. `@:genes.semanticOnly` additionally says
  * generated code never names these aliases, so their local TypeScript
- * declarations may also be omitted. `HtmlPropsOf` carries the exact element
- * type into React event callbacks. Anchor and input schemas use focused browser
- * identities; `JsxContext` projects them to Haxe's complete standard DOM
- * externs when typing inline callbacks. Type-only reachability treats
+ * declarations may also be omitted. `HtmlPropsOf` carries the schema's element
+ * boundary into React events and refs. Anchor, dialog, and input schemas use
+ * exact focused identities; ordinary HTML and SVG schemas use their safe
+ * browser-family base. `JsxContext` projects those facades to Haxe's complete
+ * standard DOM externs when typing inline callbacks. Type-only reachability treats
  * compiler-loaded aliases as dependencies rather than roots, so contextual
  * typing does not publish the browser extern's unrelated support graph.
  */
@@ -123,6 +126,12 @@ typedef HtmlProps = HtmlPropsOf<DomElement>;
 typedef HtmlPropsOf<T> = {
   @:optional var children: Node;
   @:optional var key: Key;
+  /**
+   * React distinguishes an omitted ref, JavaScript `undefined`, and an
+   * explicitly supplied `null`. `Undefinable` protects the authored inner
+   * `Null` from Haxe's optional-field wrapper so HXX can validate all three.
+   */
+  @:optional var ref: Undefinable<ReactRef<T>>;
   @:optional var id: String;
   @:optional var className: String;
   @:optional var title: String;
@@ -416,7 +425,7 @@ typedef IframeProps = {
 @:genes.compilerInternal
 @:genes.semanticOnly
 typedef SvgProps = {
-  > HtmlProps,
+  > HtmlPropsOf<SvgElement>,
   @:optional var fill: String;
   @:optional var stroke: String;
 

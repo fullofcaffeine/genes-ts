@@ -336,6 +336,11 @@ function assertHaxeHxxNegatives(): void {
     ["hxx_negative_intrinsic_prop_type", "GTS-HXX-PROP-002"],
     ["hxx_negative_dialog_open_type", "GTS-HXX-PROP-002"],
     ["hxx_negative_dialog_event_target", "GTS-HXX-PROP-002"],
+    ["hxx_negative_ref_value", "GTS-HXX-PROP-002"],
+    ["hxx_negative_ref_target", "GTS-HXX-PROP-002"],
+    ["hxx_negative_ref_result", "GTS-HXX-PROP-002"],
+    ["hxx_negative_ref_object_target", "GTS-HXX-PROP-002", "final value ="],
+    ["hxx_negative_svg_ref_target", "GTS-HXX-PROP-002"],
     ["hxx_negative_svg_dash_type", "GTS-HXX-PROP-002"],
     ["hxx_negative_intrinsic_null", "GTS-HXX-PROP-002"],
     ["hxx_negative_handler", "GTS-HXX-PROP-002"],
@@ -779,6 +784,8 @@ try {
     "src/genes/react/DialogElement.hx",
     "src/genes/react/IntrinsicElements.hx",
     "src/genes/react/ReactProps.hx",
+    "src/genes/react/ReactRef.hx",
+    "src/genes/react/SvgElement.hx",
     "src/genes/react/internal/JsxContext.hx"
   ]) {
     ok(existsSync(path.join(
@@ -1018,13 +1025,13 @@ ok(typedCreateElementSource.includes(
   "createElement<GenericValueProps<number>>(Main.GenericValue"
 ), "typed createElement preserves the Haxe-inferred generic component props");
 ok(!typedCreateElementSource.includes(
-  "ComponentPropsWithoutRef<typeof Main.GenericValue>"
+  "ComponentPropsWithRef<typeof Main.GenericValue>"
 ), "typed createElement does not widen a generic component contract to unknown");
 ok(typedCreateElementSource.includes(
-  "ComponentPropsWithoutRef<typeof Button>"
+  "ComponentPropsWithRef<typeof Button>"
 ), "concrete function components keep React's concise utility-type path");
 ok(typedCreateElementSource.includes(
-  "ComponentPropsWithoutRef<typeof TypedButton>"
+  "ComponentPropsWithRef<typeof TypedButton>"
 ), "metadata-backed component wrappers keep their emitted React prop contract");
 ok(typedCreateElementSource.includes(
   "createElement(Main.RequiredChild, ({...optionalChildren, children: optionalChildSpreadHtml}"
@@ -1163,6 +1170,18 @@ ok(dualTsxSource.includes(
 ok(dualTsxSource.includes(
   "onClose={DualJsxMain.handleDialogClose}"
 ), "TSX accepts a safely broader named dialog event handler");
+ok(dualTsxSource.includes(
+  '<input aria-label="Ref target" ref={function (element: HTMLInputElement | null)'
+), "TSX preserves the checked callback ref and exact input target");
+ok(dualTsxSource.includes(
+  'ref={DualJsxMain.handleInputRef}'
+), "TSX preserves a reusable named input ref without an adapter");
+ok(dualTsxSource.includes(
+  '<input aria-label="Null ref" ref={null}'
+), "TSX distinguishes an explicit null ref from property omission");
+ok(dualTsxSource.includes(
+  '<svg aria-label="SVG ref" ref={function (element: SVGElement | null)'
+), "TSX gives SVG refs their own browser element family");
 runGeneratedTypeScriptMatrix(
   "tests/genes-ts/snapshot/react/tsconfig.dual-tsx.json"
 );
@@ -1213,7 +1232,7 @@ ok(dualTsSource.includes(
   'React__genes_jsx.createElement(runtimeTag, {"data-mode": "dynamic"}, "D")'
 ), "typed createElement preserves the exact checked properties and child");
 ok(!dualTsSource.includes(
-  "ComponentPropsWithoutRef<typeof runtimeTag>"
+  "ComponentPropsWithRef<typeof runtimeTag>"
 ), "runtime string props do not claim one statically known intrinsic contract");
 strictEqual(dualTsSource.includes("__hxxChild"), false,
   "the parser-only child marker normalizes in typed createElement output");
@@ -1223,6 +1242,18 @@ ok(dualTsSource.includes(
 ok(dualTsSource.includes(
   "onClose: DualJsxMain.handleDialogClose"
 ), "typed createElement retains the broader named dialog event handler");
+ok(dualTsSource.includes(
+  'createElement("input", ({"aria-label": "Ref target", ref: function (element: HTMLInputElement | null)'
+), "typed createElement preserves the checked callback ref and exact input target");
+ok(dualTsSource.includes(
+  'ref: DualJsxMain.handleInputRef'
+), "typed createElement preserves a reusable named input ref");
+ok(dualTsSource.includes(
+  'createElement("input", ({"aria-label": "Null ref", ref: null}'
+), "typed createElement preserves an explicit null ref");
+ok(dualTsSource.includes(
+  'createElement("svg", ({"aria-label": "SVG ref", ref: function (element: SVGElement | null)'
+), "typed createElement keeps SVG refs out of the HTMLElement family");
 runGeneratedTypeScriptMatrix(
   "tests/genes-ts/snapshot/react/tsconfig.dual-ts.json"
 );
@@ -1264,6 +1295,18 @@ ok(dualClassicSource.includes(
 ok(dualClassicSource.includes(
   '"onClose": DualJsxMain.handleDialogClose'
 ), "classic createElement retains the same named dialog event handler");
+ok(dualClassicSource.includes(
+  'createElement("input", {"aria-label": "Ref target", "ref": function (element)'
+), "classic createElement preserves the same callback-ref runtime prop");
+ok(dualClassicSource.includes(
+  '"ref": DualJsxMain.handleInputRef'
+), "classic createElement preserves the same named ref callback");
+ok(dualClassicSource.includes(
+  'createElement("input", {"aria-label": "Null ref", "ref": null})'
+), "classic createElement preserves an explicit null ref");
+ok(dualClassicSource.includes(
+  'createElement("svg", {"aria-label": "SVG ref", "ref": function (element)'
+), "classic createElement preserves the same SVG callback");
 strictEqual(dualClassicSource.includes("Jsx.__jsx"), false);
 strictEqual(dualClassicSource.includes("__hxxChild"), false);
 
@@ -1291,6 +1334,18 @@ ok(dualJsxSource.includes(
 ok(dualJsxSource.includes(
   "onClose={DualJsxMain.handleDialogClose}"
 ), "type-erased JSX retains the same named dialog event handler");
+ok(dualJsxSource.includes(
+  '<input aria-label="Ref target" ref={function (element)'
+), "type-erased JSX preserves canonical callback-ref markup");
+ok(dualJsxSource.includes(
+  'ref={DualJsxMain.handleInputRef}'
+), "type-erased JSX preserves the named ref callback");
+ok(dualJsxSource.includes(
+  '<input aria-label="Null ref" ref={null}'
+), "type-erased JSX preserves an explicit null ref");
+ok(dualJsxSource.includes(
+  '<svg aria-label="SVG ref" ref={function (element)'
+), "type-erased JSX preserves the SVG callback without type syntax");
 strictEqual(dualJsxSource.includes("Jsx.__jsx"), false);
 strictEqual(dualJsxSource.includes("__hxxChild"), false);
 strictEqual(dualJsxSource.includes(": JSX.Element"), false);
@@ -1317,6 +1372,13 @@ const expectedTranscript = {
   multipleRequiredChildrenHtml: '<section><em>nested A</em><strong>nested B</strong></section>',
   dashedSvgHtml: '<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" stroke-dasharray="8 4" stroke-dashoffset="2.5"></circle></svg>',
   dialogHtml: '<dialog open="" closedby="any">Dialog content</dialog>',
+  inputRefHtml: '<input aria-label="Ref target"/>',
+  namedRefHtml: '<input aria-label="Named ref"/>',
+  cleanupRefHtml: '<input aria-label="Cleanup ref"/>',
+  objectRefHtml: '<input aria-label="Object ref"/>',
+  nullRefHtml: '<input aria-label="Null ref"/>',
+  svgRefHtml: '<svg aria-label="SVG ref"></svg>',
+  focusedChangeHtml: '<input aria-label="Focused change"/>',
   dynamicHtml: '<aside data-mode="dynamic">D</aside>',
   evaluatedHtml: '<div title="evaluated-once">E</div>',
   arrayPropHtml: '<div data-array="evaluated-once">P</div>',

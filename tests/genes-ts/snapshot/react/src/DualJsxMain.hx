@@ -3,6 +3,8 @@ import genes.react.Element;
 import genes.react.JSX.*;
 import genes.react.SyntheticEvent;
 import genes.react.internal.Jsx;
+import genes.react.InputElement;
+import genes.react.ReactRef.RefObject;
 import genes.ts.Imports;
 
 typedef DualJsxTranscript = {
@@ -19,11 +21,25 @@ typedef DualJsxTranscript = {
   final multipleRequiredChildrenHtml: String;
   final dashedSvgHtml: String;
   final dialogHtml: String;
+  final inputRefHtml: String;
+  final namedRefHtml: String;
+  final cleanupRefHtml: String;
+  final objectRefHtml: String;
+  final nullRefHtml: String;
+  final svgRefHtml: String;
+  final focusedChangeHtml: String;
   final dynamicHtml: String;
   final evaluatedHtml: String;
   final arrayPropHtml: String;
   final arrayChildHtml: String;
   final propEvaluations: Int;
+}
+
+/** Small reusable event view that consumes only the field this handler needs. */
+typedef FocusedInputChange = {
+  final target: {
+    final value: String;
+  };
 }
 
 /**
@@ -87,6 +103,18 @@ class DualJsxMain {
     event.preventDefault();
   }
 
+  /**
+   * Reusable input ref whose named type must stay attached to the `<input>`.
+   *
+   * Hook and library APIs normally return a callback value instead of an
+   * inline lambda. Keeping this named case beside the inline case proves HXX
+   * validates both authoring shapes with the same exact input target.
+   */
+  static function handleInputRef(element: Null<InputElement>): Void {
+    if (element != null)
+      element.select();
+  }
+
   static function main(): Void {
     final renderToStaticMarkup: Element->String = Imports.namedImport(
       "react-dom/server", "renderToStaticMarkup");
@@ -146,6 +174,36 @@ class DualJsxMain {
       onCancel={event -> event.currentTarget.close()}
       onClose={handleDialogClose}
     >Dialog content</dialog>;
+    // Intrinsic refs are checked at HXX authoring time. The callback receives
+    // the exact input element, while React still owns attachment and cleanup.
+    final inputRefElement = <input aria-label="Ref target" ref={element -> {
+      if (element != null)
+        element.select();
+    }} />;
+    final namedInputRefElement = <input aria-label="Named ref"
+      ref={handleInputRef}
+    />;
+    final cleanupRefElement = <input aria-label="Cleanup ref" ref={element -> {
+      if (element != null)
+        element.select();
+      return () -> {};
+    }} />;
+    final createRef: Void->RefObject<InputElement> = Imports.namedImport(
+      "react", "createRef");
+    final inputRefObject = createRef();
+    final objectRefElement = <input aria-label="Object ref" ref={inputRefObject} />;
+    final nullRefElement = <input aria-label="Null ref" ref={null} />;
+    // HTML and SVG are separate browser families. A broad SVG callback is safe
+    // for every SVG tag, but it must never be mislabeled as `HTMLElement`.
+    final svgRefElement = <svg aria-label="SVG ref" ref={element -> {
+      if (element != null)
+        element.focus();
+    }} />;
+    // A direct browser-identity relation for refs must not make existing,
+    // deliberately focused structural event handlers nominal-only.
+    final focusedChangeElement = <input aria-label="Focused change"
+      onChange={focusedInputChange}
+    />;
 
     final runtimeTag = "aside";
     final dynamicElement = Jsx.__jsx(runtimeTag, {
@@ -202,6 +260,13 @@ class DualJsxMain {
         renderToStaticMarkup(multipleRequiredChildrenElement),
       dashedSvgHtml: renderToStaticMarkup(dashedSvgElement),
       dialogHtml: renderToStaticMarkup(dialogElement),
+      inputRefHtml: renderToStaticMarkup(inputRefElement),
+      namedRefHtml: renderToStaticMarkup(namedInputRefElement),
+      cleanupRefHtml: renderToStaticMarkup(cleanupRefElement),
+      objectRefHtml: renderToStaticMarkup(objectRefElement),
+      nullRefHtml: renderToStaticMarkup(nullRefElement),
+      svgRefHtml: renderToStaticMarkup(svgRefElement),
+      focusedChangeHtml: renderToStaticMarkup(focusedChangeElement),
       dynamicHtml: renderToStaticMarkup(dynamicElement),
       evaluatedHtml: renderToStaticMarkup(evaluatedElement),
       arrayPropHtml: renderToStaticMarkup(arrayPropElement),
@@ -319,6 +384,11 @@ class DualJsxMain {
 
   static function AfterMutationChild(_: EmptyComponentProps): Element {
     return <span>after</span>;
+  }
+
+  /** Consumes a safe structural subset of React's complete input event. */
+  static function focusedInputChange(event: FocusedInputChange): Void {
+    event.target.value;
   }
 
   /** Renders the one child required by this component's property contract. */
