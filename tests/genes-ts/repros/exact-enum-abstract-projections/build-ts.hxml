@@ -1,0 +1,9 @@
+-lib genes-ts
+
+-cp tests/genes-ts/repros/exact-enum-abstract-projections/src
+--main Main
+
+-js tests/genes-ts/repros/exact-enum-abstract-projections/out/typescript/src-gen/index.ts
+-D genes.ts
+
+-dce full

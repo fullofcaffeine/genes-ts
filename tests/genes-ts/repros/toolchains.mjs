@@ -9,9 +9,20 @@ const repoRoot = path.resolve(
 
 /** Runs repro consumers on the repository's manifest-defined TS floor. */
 export function runLegacyTypeScript(args) {
+  runTypeScript("legacyFloor", args);
+}
+
+/** Runs one repro consumer on all manifest-owned TypeScript compatibility lanes. */
+export function runTypeScriptMatrix(args) {
+  for (const lane of ["legacyFloor", "apiBridge", "current"]) {
+    runTypeScript(lane, args);
+  }
+}
+
+function runTypeScript(lane, args) {
   execFileSync(
     process.execPath,
-    [path.join(repoRoot, "scripts/run-typescript.mjs"), "legacyFloor", ...args],
+    [path.join(repoRoot, "scripts/run-typescript.mjs"), lane, ...args],
     { cwd: repoRoot, stdio: "inherit" }
   );
 }
