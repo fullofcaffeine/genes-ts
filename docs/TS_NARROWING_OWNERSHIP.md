@@ -73,6 +73,7 @@ walks one function; the emitter only reads the finished decisions.
 | Recognition of `value == null`, `value != null`, boolean `&&`/`||`/`!`, and `Map.exists(key)` | `TypedExpr` condition | `TsNarrowingPlan` condition facts | `if` statements, conditional expressions, and same-block continuation | TypeScript-specific proof | One typed owner. Unsupported conditions introduce no fact. |
 | Branch-local and continuing non-null facts | Recognized guard plus selected branch or an exiting statement | Function-local plan state and immutable decisions at stable program points | Local initializers, optional-field reads, and map reads | TypeScript-specific proof | Extracted. The emitter asks a question at the read; it no longer pushes facts while writing braces. |
 | Invalidation after assignment | Exact typed assignment receiver | `TsNarrowValueIdentityTools.dependsOn` plus `ValueChanged` | Every later read in the function | TypeScript-specific proof | A receiver change also ends child-field and dependent map/key facts. No rendered-name parsing is involved. |
+| Whether a local may keep a narrower initializer-inferred TS type | Haxe `TVar.id` plus direct assignments/increments found by the same exhaustive walk | `TsNarrowingPlan.isLocalReassigned` | Explicit generic call-site local emission | TypeScript-specific mutation fact | An unmodified local may infer the precise preserved call result. A reassigned local keeps its wider Haxe annotation so a later Haxe-valid assignment is not rejected by TypeScript. This is direct syntactic mutation tracking, not alias analysis. |
 | Map mutation | Stable typed map plus exact or computed removal key, or `clear` | `MapEntryRemoved`, `MapEntryPossiblyRemoved`, and `MapCleared` invalidations | Later `Map.get` reads | TypeScript-specific proof | Exact `remove` ends one entry proof. A computed key ends every entry proof for that exact map because it may name any of them. `clear` does the same. Facts for other maps survive, and nullable map value types never gain presence-as-non-null facts. |
 | Stable identity for locals, `this`, constants, field paths, and map reads | `TypedExpr` and Haxe local IDs | Closed `TsNarrowValueIdentity` enum | Guard matching, map presence, and invalidation | TypeScript-specific proof built from shared typed facts | Source positions and generated names are deliberately excluded from equality. |
 | `map.keys()` iterator provenance | Iterator and yielded-key locals | Function-local iterator origins in `TsNarrowingPlan` | Direct `map.get(key)` reads during the same loop | TypeScript-specific proof | A nested callback starts with an empty function state, so a key proof cannot leak into delayed work. |
@@ -107,6 +108,8 @@ The plan models only facts the TypeScript emitter needs:
 - branch selection and continuation after a definitely exiting statement;
 - conservative invalidation for assignment, map removal/clear, loops, and
   delayed function bodies;
+- a direct-local reassignment inventory reused when initializer-only
+  TypeScript inference would otherwise make a mutable Haxe variable too narrow;
 - the source position plus a deterministic traversal identity used to explain
   the first shadow mismatch.
 

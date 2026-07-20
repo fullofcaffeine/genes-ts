@@ -6,6 +6,7 @@ import genes.Dependencies;
 import genes.CompilerDiagnostic;
 import genes.CompilerInternal;
 import genes.ExplicitTypeArguments;
+import genes.ExplicitTypeArguments.ExplicitTypeArgument;
 import genes.Module;
 import genes.TypeAccessor;
 import genes.Module.Field as GenesField;
@@ -645,10 +646,22 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   /** Emits one typed callee plus an optional explicit TS instantiation. */
   function emitCallCallee(callee: TypedExpr,
-      arguments: Null<Array<Type>>): Void {
+      arguments: Null<Array<ExplicitTypeArgument>>): Void {
     emitValue(callee);
-    if (arguments != null)
-      TypeEmitter.emitParams(this, arguments, false);
+    if (arguments != null) {
+      write('<');
+      for (index in 0...arguments.length) {
+        if (index > 0)
+          write(', ');
+        final argument = arguments[index];
+        if (argument.tsType == null) {
+          TypeEmitter.emitType(this, argument.type);
+        } else {
+          write(argument.tsType);
+        }
+      }
+      write('>');
+    }
   }
 
   /**
@@ -1901,14 +1914,26 @@ class TsModuleEmitter extends JsModuleEmitter {
       && isNarrowedOptionalField(eo);
     final narrowedNonNullInit = eo != null && typeAllowsNull(v.t)
       && isNarrowedNonNull(eo);
+    // TypeArguments.call(...) has already fixed the exact generic result in
+    // the emitted call. An unmodified local can safely infer that narrower
+    // result instead of reintroducing Haxe's erased backing type. A reassigned
+    // local keeps its declared annotation: otherwise TypeScript would freeze
+    // the first narrow result and reject a later assignment Haxe accepted.
+    final plan = narrowingPlan;
+    final inferExplicitCallType = eo != null && plan != null
+      && !plan.isLocalReassigned(v)
+      && ExplicitTypeArguments.infersPreciseLocalType(eo);
     final emittedType = (narrowedOptionalInit || narrowedNonNullInit) ? stripNull(v.t) : v.t;
-    final emittedTypeOverride = (narrowedOptionalInit || narrowedNonNullInit) ? null : localTsTypeOverride(eo);
+    final emittedTypeOverride = (narrowedOptionalInit || narrowedNonNullInit
+      || inferExplicitCallType) ? null : localTsTypeOverride(eo);
     if (emittedTypeOverride != null)
       localTsTypeOverrides.set(v.id, emittedTypeOverride);
     write('$declare ');
     emitLocalVar(v);
-    write(': ');
-    emitLocalType(emittedType, emittedTypeOverride);
+    if (!inferExplicitCallType) {
+      write(': ');
+      emitLocalType(emittedType, emittedTypeOverride);
+    }
     switch (eo) {
       case null:
       case {expr: TConst(TNull)}:

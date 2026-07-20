@@ -172,7 +172,11 @@ Examples of these helpers:
   a destination type that TypeScript cannot recover from `null`, an empty
   argument list, or another weak call-site value. It emits the precise
   Haxe-selected `<...>` arguments in TS and erases in classic JS; ordinary
-  extern calls keep native TypeScript inference.
+  extern calls keep native TypeScript inference. When Haxe erases a
+  primitive-backed abstract before the call reaches the emitter, a typed
+  library macro may use `genes.ts.TypeArguments.call(externCall, witness...)`
+  to preserve that pre-erasure type on the same direct call with no runtime
+  helper or target assertion.
 
 They are useful when the JavaScript/TypeScript ecosystem has a real contract that Haxe does not express directly. The helper gives that contract a Haxe name, keeps the unsafety or TS-specific syntax in one maintained place, and lets the compiler choose the right output for each target.
 
