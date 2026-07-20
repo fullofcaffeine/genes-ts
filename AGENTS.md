@@ -5,6 +5,39 @@ This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get sta
 The repo tracks the roadmap in `.beads/issues.jsonl` so a fresh checkout includes the current plan.
 Local runtime state (SQLite DB, daemon logs, etc) remains untracked.
 
+## Beads and linked Git worktrees
+
+Beads has two different kinds of state in this repository:
+
+- the Dolt database under `.beads/` is the live issue tracker and is shared by
+  every linked Git worktree;
+- `.beads/issues.jsonl` is a reviewed Git snapshot that lets a fresh checkout
+  recover the roadmap. It is not the live database and is not a full backup.
+
+Automatic JSONL export and staging are intentionally disabled in
+`.beads/config.yaml`. A Git hook running in one linked worktree must never
+rewrite or stage the primary checkout's roadmap file. Do not re-enable
+`export.auto` or `export.git-add`, and do not edit the Beads-managed hook files
+as a workaround; reinstalling or upgrading Beads replaces managed hook logic.
+
+Normal `bd create`, `bd update`, and `bd close` commands may run from any
+worktree because they update the shared database. Publish the tracked snapshot
+only as a deliberate second step:
+
+1. Finish and merge the feature worktree.
+2. Use the clean, current primary `main` checkout.
+3. Run `yarn beads:export`.
+4. Review only `.beads/issues.jsonl`, then commit and push that tracker update.
+
+`yarn beads:export` fails closed in a linked worktree, on a non-`main` branch,
+when `main` is not equal to `origin/main`, or when the primary checkout is
+already dirty. Never use `bd export` directly from a feature worktree. If a
+worktree commit unexpectedly mentions an export, stop and follow the recovery
+guide instead of resetting or overwriting files.
+
+See [docs/BEADS_WORKTREES.md](docs/BEADS_WORKTREES.md) for the practical model,
+safe commands, upgrade procedure, regression test, and recovery checklist.
+
 `../genes-vanilla` is the read-only reference for the original upstream Genes implementation. Use it to compare original ES/JS behavior and architecture, especially for performance-oriented ES6 output, but do not patch it from this repo's compiler work. The source of truth for genes-ts/compiler changes is this `../genes` checkout.
 
 ## Compiler Independence
@@ -275,7 +308,10 @@ For `../genes` specifically, keep the branch current with origin whenever landin
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
    git pull --rebase
-   bd sync
+   # If Beads state changed, publish it separately from a clean primary main:
+   yarn beads:export
+   git add .beads/issues.jsonl
+   git commit -m "chore(beads): publish roadmap state"
    git push
    git status  # MUST show "up to date with origin"
    ```

@@ -44,6 +44,45 @@ jobs:
             "The required **Vulnerabilities (OSV)** job remains the security gate for the pinned dependency set." \
             >> "$GITHUB_STEP_SUMMARY"
 
+  beads-worktree-safety:
+    name: Beads worktree safety (${{ matrix.beads-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - beads-version: "1.0.4"
+            beads-sha256: "643e602e27f666c8726abff0f22001e2b5883988fa960204bde20a3129d448a5"
+          - beads-version: "1.1.0"
+            beads-sha256: "b0f3dd607c3fb989ee08d0a6854fba80d0402971eb108f9af6170bc14d491a34"
+    steps:
+      - uses: actions/checkout@v4
+      - id: toolchains
+        run: node scripts/emit-toolchain-outputs.mjs
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.toolchains.outputs.node-stable }}
+          cache: yarn
+          cache-dependency-path: yarn.lock
+      - run: corepack enable
+      - run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
+      - run: yarn install --frozen-lockfile
+      - name: Install verified Beads ${{ matrix.beads-version }} release
+        env:
+          BEADS_VERSION: ${{ matrix.beads-version }}
+          BEADS_SHA256: ${{ matrix.beads-sha256 }}
+        run: |
+          archive="beads_${BEADS_VERSION}_linux_amd64.tar.gz"
+          archive_path="${RUNNER_TEMP}/${archive}"
+          curl --fail --location --silent --show-error \
+            --output "$archive_path" \
+            "https://github.com/gastownhall/beads/releases/download/v${BEADS_VERSION}/${archive}"
+          printf '%s  %s\n' "$BEADS_SHA256" "$archive_path" | sha256sum --check --strict
+          tar -xzf "$archive_path" -C "$RUNNER_TEMP" bd
+          sudo install -m 0755 "$RUNNER_TEMP/bd" /usr/local/bin/bd
+          bd version
+      - run: yarn test:beads-worktrees
+
   secrets:
     name: Secrets (gitleaks)
     runs-on: ubuntu-latest
