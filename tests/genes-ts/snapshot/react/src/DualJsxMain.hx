@@ -10,6 +10,7 @@ typedef DualJsxTranscript = {
   final arrayValueChildHtml: String;
   final multipleRequiredChildrenHtml: String;
   final dashedSvgHtml: String;
+  final dialogHtml: String;
   final dynamicHtml: String;
   final evaluatedHtml: String;
   final arrayPropHtml: String;
@@ -110,6 +111,14 @@ class DualJsxMain {
     final formActionElement = <form action={syncFormAction}></form>;
     final buttonFormActionElement =
       <button formAction={syncFormAction}>Save</button>;
+    // Dialog-specific properties stay closed and useful in Haxe. In
+    // particular, the contextual event target is the native DialogElement,
+    // so this `close()` call is checked before any target profile is emitted.
+    final dialogElement = <dialog
+      open
+      closedby="any"
+      onCancel={event -> event.currentTarget.close()}
+    >Dialog content</dialog>;
 
     final runtimeTag = "aside";
     final dynamicElement = Jsx.__jsx(runtimeTag, {
@@ -159,6 +168,7 @@ class DualJsxMain {
       multipleRequiredChildrenHtml:
         renderToStaticMarkup(multipleRequiredChildrenElement),
       dashedSvgHtml: renderToStaticMarkup(dashedSvgElement),
+      dialogHtml: renderToStaticMarkup(dialogElement),
       dynamicHtml: renderToStaticMarkup(dynamicElement),
       evaluatedHtml: renderToStaticMarkup(evaluatedElement),
       arrayPropHtml: renderToStaticMarkup(arrayPropElement),

@@ -114,6 +114,7 @@ private enum JsxChildrenPresence {
 private enum abstract JsxBrowserElementIdentity(String) {
   var HtmlElement = 'html-element';
   var AnchorElement = 'anchor-element';
+  var DialogElement = 'dialog-element';
   var InputElement = 'input-element';
 }
 
@@ -1504,7 +1505,8 @@ class JsxTypeChecker {
     if (actual == expected)
       return true;
     return expected == HtmlElement
-      && (actual == AnchorElement || actual == InputElement);
+      && (actual == AnchorElement || actual == DialogElement
+        || actual == InputElement);
   }
 
   static function sameInvariantType(left: Type, right: Type, depth: Int): Bool {
@@ -1550,6 +1552,9 @@ class JsxTypeChecker {
           case ['genes.react.AnchorElement', 'AnchorElement'] |
             ['js.html.AnchorElement', 'HTMLAnchorElement']:
             AnchorElement;
+          case ['genes.react.DialogElement', 'DialogElement'] |
+            ['js.html.DialogElement', 'HTMLDialogElement']:
+            DialogElement;
           case ['genes.react.InputElement', 'InputElement'] |
             ['js.html.InputElement', 'HTMLInputElement']:
             InputElement;

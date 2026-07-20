@@ -95,6 +95,8 @@ function assertHaxeHxxNegatives(): void {
     ["hxx_negative_unknown_custom_intrinsic", "GTS-HXX-TAG-001"],
     ["hxx_negative_intrinsic_prop", "GTS-HXX-PROP-001"],
     ["hxx_negative_intrinsic_prop_type", "GTS-HXX-PROP-002"],
+    ["hxx_negative_dialog_open_type", "GTS-HXX-PROP-002"],
+    ["hxx_negative_dialog_event_target", "GTS-HXX-PROP-002"],
     ["hxx_negative_svg_dash_type", "GTS-HXX-PROP-002"],
     ["hxx_negative_intrinsic_null", "GTS-HXX-PROP-002"],
     ["hxx_negative_handler", "GTS-HXX-PROP-002"],
@@ -517,6 +519,7 @@ try {
   ]);
   for (const packagedSource of [
     "src/genes/JsxTypeChecker.hx",
+    "src/genes/react/DialogElement.hx",
     "src/genes/react/IntrinsicElements.hx",
     "src/genes/react/ReactProps.hx",
     "src/genes/react/internal/JsxContext.hx"
@@ -820,6 +823,9 @@ ok(dualTsxSource.includes(
 ), "TSX removes the compiler-only heading local and restores the authored tree name");
 strictEqual(dualTsxSource.includes("let tree1: JSX.Element ="), false);
 ok(dualTsxSource.includes("React__genes_jsx.createElement(runtimeTag"));
+ok(dualTsxSource.includes(
+  "<dialog open closedby=\"any\" onCancel={function (event: import('react').SyntheticEvent<HTMLDialogElement>)"
+), "TSX preserves canonical dialog props and the exact event target");
 runGeneratedTypeScriptMatrix(
   "tests/genes-ts/snapshot/react/tsconfig.dual-tsx.json"
 );
@@ -844,6 +850,9 @@ ok(dualTsSource.includes(
 ok(!dualTsSource.includes(
   "ComponentPropsWithoutRef<typeof runtimeTag>"
 ), "runtime string props do not claim one statically known intrinsic contract");
+ok(dualTsSource.includes(
+  'createElement("dialog", ({open: true, closedby: "any", onCancel: function (event: import(\'react\').SyntheticEvent<HTMLDialogElement>)'
+), "typed createElement preserves checked dialog props and event typing");
 runGeneratedTypeScriptMatrix(
   "tests/genes-ts/snapshot/react/tsconfig.dual-ts.json"
 );
@@ -875,6 +884,9 @@ ok(dualClassicSource.includes(
 ok(dualClassicSource.includes(
   'createElement("button", {"formAction": DualJsxMain.syncFormAction}, "Save")'
 ), "classic createElement preserves a button formAction without a helper");
+ok(dualClassicSource.includes(
+  'createElement("dialog", {"open": true, "closedby": "any", "onCancel": function (event)'
+), "classic createElement preserves the same checked dialog runtime props");
 strictEqual(dualClassicSource.includes("Jsx.__jsx"), false);
 
 run("haxe", ["tests/genes-ts/snapshot/react/build-dual-jsx.hxml"]);
@@ -887,6 +899,9 @@ ok(dualJsxSource.includes(
   "let tree = <main {...rootProps}><h1>{heading}</h1>{fragment}</main>"
 ), "type-erased JSX applies the same safe source-tree normalization");
 ok(dualJsxSource.includes("React__genes_jsx.createElement(runtimeTag"));
+ok(dualJsxSource.includes(
+  '<dialog open closedby="any" onCancel={function (event)'
+), "type-erased JSX preserves canonical dialog markup without type syntax");
 strictEqual(dualJsxSource.includes("Jsx.__jsx"), false);
 strictEqual(dualJsxSource.includes(": JSX.Element"), false);
 runTypeScript("apiBridge", [
@@ -901,6 +916,7 @@ const expectedTranscript = {
   arrayValueChildHtml: '<section><em>array A</em><strong>array B</strong></section>',
   multipleRequiredChildrenHtml: '<section><em>nested A</em><strong>nested B</strong></section>',
   dashedSvgHtml: '<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" stroke-dasharray="8 4" stroke-dashoffset="2.5"></circle></svg>',
+  dialogHtml: '<dialog open="" closedby="any">Dialog content</dialog>',
   dynamicHtml: '<aside data-mode="dynamic">D</aside>',
   evaluatedHtml: '<div title="evaluated-once">E</div>',
   arrayPropHtml: '<div data-array="evaluated-once">P</div>',
