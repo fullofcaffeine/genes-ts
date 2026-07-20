@@ -188,6 +188,13 @@ literal unions** to avoid “stringly” APIs.
 Example:
 - `js.html.RequestCache` → `"default" | "no-store" | ..."`
 
+Closed enum-abstract leaves remain literal unions when nested under functions,
+arrays, nullability, aliases, anonymous structures, and generic applications.
+This is a source-type invariant: Haxe validates the nominal domain first, and
+TypeScript output preserves it without `as`, a runtime wrapper, or a widened
+`string` intermediary. Generic type declarations retain their own parameters;
+one concrete use must never specialize a shared declaration.
+
 ## Runtime profiles
 
 ### Default profile: Haxe runtime compatibility

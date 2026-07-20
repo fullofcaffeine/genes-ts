@@ -27,6 +27,24 @@ typedef TypeWriter = {
 }
 
 class TypeEmitter {
+  /**
+   * True only while printing a source type retained by SignatureCache.
+   *
+   * Ordinary generator-time types must keep their existing conservative
+   * projection after DCE. A captured type, by contrast, is an explicit proof
+   * that its enum-abstract leaf existed before erasure, so it may consult the
+   * frozen literal spelling while this narrowly scoped flag is active.
+   */
+  static var emittingCapturedSourceType = false;
+
+  public static function emitCapturedSourceType(writer: TypeWriter, type: Type,
+      wrap = true): Void {
+    final previous = emittingCapturedSourceType;
+    emittingCapturedSourceType = true;
+    emitType(writer, type, wrap);
+    emittingCapturedSourceType = previous;
+  }
+
   static function unwrapExpr(e: TypedExpr): TypedExpr {
     var cur = e;
     while (cur != null) {
@@ -254,6 +272,17 @@ class TypeEmitter {
         TAbstract(_.get() => {pack: ["haxe", "extern"], name: "EitherType"},
           _):
         true;
+      case TAbstract(_.get() => ab, _) if (ab.meta.has(':enum')):
+        final values = enumAbstractLiteralUnion(ab);
+        if (values != null) {
+          values.length > 1;
+        } else {
+          final cached = emittingCapturedSourceType
+            && Context.defined('genes.ts')
+            ? genes.ts.SignatureCache.getEnumAbstractTsType(ab)
+            : null;
+          cached != null && cached.indexOf('|') != -1;
+        }
       case TInst(_.get().meta => meta, _) |
         TAbstract(_.get().meta => meta, _) |
         TType(_.get().meta => meta, _):
@@ -579,6 +608,19 @@ class TypeEmitter {
               write(v);
             return;
           }
+          // DCE may remove the abstract implementation fields that carry enum
+          // values before target emission. SignatureCache freezes the ordinary
+          // literal spelling after typing, while those declarations still
+          // exist, so a recursively recovered source type can remain closed at
+          // any depth without a target assertion or a second type printer.
+          final cachedEnumType = emittingCapturedSourceType
+            ? genes.ts.SignatureCache.getEnumAbstractTsType(ab)
+            : null;
+          if (cachedEnumType != null) {
+            emitPos(ab.pos);
+            write(cachedEnumType);
+            return;
+          }
         }
         switch [ab, params] {
           case [{module: "js.lib.Symbol", name: "Symbol"}, _]:
@@ -691,18 +733,24 @@ class TypeEmitter {
             }
             // Anonymous typedef fields can carry enum abstracts whose typed
             // expression form later looks like the primitive backing type. In
-            // genes-ts mode, reuse the declaration-time literal union captured
-            // by SignatureCache so type aliases stay as precise as method
-            // signatures and class fields.
+            // genes-ts mode, reuse the declaration-time source type and let
+            // this same recursive printer handle functions, containers, and
+            // nullability. The direct string cache remains the narrow fallback
+            // for a singleton/top-level literal projection.
+            final cachedFieldSourceType = Context.defined('genes.ts')
+              ? genes.ts.SignatureCache.getAnonFieldSourceType(field.pos)
+              : null;
             final cachedFieldType = Context.defined('genes.ts')
               ? genes.ts.SignatureCache.getAnonFieldTsType(field.pos)
               : null;
             emitNullishProjection(writer, fieldNullish, () -> {
-              if (cachedFieldType != null)
+              if (cachedFieldSourceType != null)
+                emitCapturedSourceType(writer, cachedFieldSourceType, false);
+              else if (cachedFieldType != null)
                 write(cachedFieldType);
               else
                 emitType(writer, fieldType, false);
-            }, cachedFieldType != null);
+            }, cachedFieldSourceType != null || cachedFieldType != null);
           }
           writer.decreaseIndent();
           writer.writeNewline();

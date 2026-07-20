@@ -1,0 +1,8 @@
+-lib genes-ts
+
+-cp tests/genes-ts/repros/exact-enum-abstract-projections/src
+-cp tests/genes-ts/repros/exact-enum-abstract-projections/negative
+--main WrongReviewState
+
+-js tests/genes-ts/repros/exact-enum-abstract-projections/out/negative/index.ts
+-D genes.ts

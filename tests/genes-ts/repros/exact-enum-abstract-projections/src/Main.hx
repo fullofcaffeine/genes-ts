@@ -17,6 +17,37 @@ enum abstract Phase(String) to String {
   final Published = "published";
 }
 
+/** Closed domain without an explicit TypeScript spelling override. */
+enum abstract ReviewState(String) to String {
+  final Pending = "pending";
+  final Approved = "approved";
+}
+
+/** Named alias proves the closed leaf survives typedef resolution. */
+typedef ReviewStateAlias = ReviewState;
+
+/** A named generic container proves nested enum-abstract type arguments. */
+typedef Envelope<Value> = {
+  final value: Value;
+}
+
+/**
+ * Structural positions that must retain the exact source-level domain.
+ *
+ * The callback, array, nullable callback, alias, and generic-container fields
+ * all contain `ReviewState` below their outer type. Later Haxe generator phases
+ * may expose the String backing type at those leaves; genes-ts must recover the
+ * typed declaration captured before that erasure rather than widening them.
+ */
+typedef ReviewModel = {
+  final state: ReviewState;
+  final aliased: ReviewStateAlias;
+  final select: ReviewState->Void;
+  final selectMany: Array<ReviewState>->Array<ReviewState>;
+  final optionalSelect: Null<ReviewState->Void>;
+  final envelope: Envelope<ReviewState>;
+}
+
 /**
  * Zero-runtime view of a host-owned two-element tuple.
  *
@@ -53,8 +84,35 @@ typedef DomainModel = {
 
 /** Exercises exact nested-parameter and tuple-projection expression types. */
 class Main {
+  static var selectedReview: ReviewState = ReviewState.Pending;
+
   static function replaceFromMethod(state: HostState<Phase>, next: Phase): Void {
     state.replace(next);
+  }
+
+  static function preserveReviews(values: Array<ReviewState>,
+      transform: ReviewState->ReviewState): Array<ReviewState> {
+    transform(ReviewState.Pending);
+    return values;
+  }
+
+  static function reviewModel(): ReviewModel {
+    final select = function(next: ReviewState): Void {
+      selectedReview = next;
+    };
+    final selectMany = function(next: Array<ReviewState>): Array<ReviewState> {
+      return next;
+    };
+    final optionalSelect: Null<ReviewState->Void> = select;
+    final envelope: Envelope<ReviewState> = {value: ReviewState.Pending};
+    return {
+      state: ReviewState.Pending,
+      aliased: ReviewState.Approved,
+      select: select,
+      selectMany: selectMany,
+      optionalSelect: optionalSelect,
+      envelope: envelope
+    };
   }
 
   static function model(): DomainModel {
@@ -72,6 +130,12 @@ class Main {
   static function main(): Void {
     final current = model();
     current.select(Phase.Published);
+    final review = reviewModel();
+    review.select(ReviewState.Approved);
+    final reviewed = review.selectMany([ReviewState.Pending, ReviewState.Approved]);
+    preserveReviews(reviewed, state -> state);
+    if (selectedReview != ReviewState.Approved || reviewed.length != 2)
+      throw "structural projection changed runtime behavior";
     trace(current.phase == Phase.Draft ? "projection-ok" : "projection-failed");
   }
 }

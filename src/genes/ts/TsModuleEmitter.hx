@@ -2020,11 +2020,13 @@ class TsModuleEmitter extends JsModuleEmitter {
     // Haxe often creates `_g` temporaries while lowering loops. If such a temp
     // is initialized from an optional field already narrowed by a null guard,
     // emit the temp as non-null so generated TS matches the guarded branch.
+    final capturedLocalSourceType = SignatureCache.getLocalSourceType(v);
+    final declaredType = capturedLocalSourceType ?? v.t;
     final narrowedOptionalInit = eo != null
       && requireTempPlan().tempForLocal(v) != null
-      && typeAllowsNull(v.t)
+      && typeAllowsNull(declaredType)
       && isNarrowedOptionalField(eo);
-    final narrowedNonNullInit = eo != null && typeAllowsNull(v.t)
+    final narrowedNonNullInit = eo != null && typeAllowsNull(declaredType)
       && isNarrowedNonNull(eo);
     // TypeArguments.call(...) has already fixed the exact generic result in
     // the emitted call. An unmodified local can safely infer that narrower
@@ -2035,7 +2037,9 @@ class TsModuleEmitter extends JsModuleEmitter {
     final inferExplicitCallType = eo != null && plan != null
       && !plan.isLocalReassigned(v)
       && ExplicitTypeArguments.infersPreciseLocalType(eo);
-    final emittedType = (narrowedOptionalInit || narrowedNonNullInit) ? stripNull(v.t) : v.t;
+    final emittedType = (narrowedOptionalInit || narrowedNonNullInit)
+      ? stripNull(declaredType)
+      : declaredType;
     final emittedTypeOverride = (narrowedOptionalInit
       || narrowedNonNullInit || inferExplicitCallType) ? null : localTsTypeOverride(eo);
     rememberEmittedLocalType(v, emittedType, emittedTypeOverride);
@@ -2043,7 +2047,8 @@ class TsModuleEmitter extends JsModuleEmitter {
     emitLocalVar(v);
     if (!inferExplicitCallType) {
       write(': ');
-      emitLocalType(emittedType, emittedTypeOverride);
+      emitLocalType(emittedType, emittedTypeOverride,
+        capturedLocalSourceType != null);
     }
     switch (eo) {
       case null:
@@ -2067,7 +2072,8 @@ class TsModuleEmitter extends JsModuleEmitter {
           && typeAllowsNull(e.t)) {
           write(ctx.typeAccessor(TypeUtil.registerType));
           write('.unsafeCast<');
-          emitLocalType(emittedType, emittedTypeOverride);
+          emitLocalType(emittedType, emittedTypeOverride,
+            capturedLocalSourceType != null);
           write('>(');
           emitValueWithExpectedType(emittedType, e);
           write(')');
@@ -2208,7 +2214,57 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
   }
 
-  function cachedFieldValueTsType(expr: TypedExpr): Null<String> {
+  /** Source type retained for a local before Haxe's generator erases leaves. */
+  static function cachedReceiverSourceType(expr: TypedExpr): Null<Type> {
+    return switch expr.expr {
+      case TLocal(variable):
+        SignatureCache.getLocalSourceType(variable);
+      case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, _):
+        cachedReceiverSourceType(inner);
+      default:
+        null;
+    }
+  }
+
+  /**
+   * Resolves only outer typedef/abstract shells to one expected class owner.
+   *
+   * A semantic zero-runtime abstract can retain exact source type arguments
+   * even when its emitted receiver is the underlying extern class. Applying
+   * those arguments to the accessed field proves a value already has the
+   * literal union expected by TypeScript and avoids an unnecessary assertion.
+   */
+  static function sourceInstanceParameters(type: Type, owner: ClassType,
+      depth = 0): Null<Array<Type>> {
+    if (depth > 64)
+      return null;
+    return switch type {
+      case TInst(reference, parameters):
+        final sourceOwner = reference.get();
+        sourceOwner.module == owner.module && sourceOwner.name == owner.name
+          ? parameters
+          : null;
+      case TType(reference, parameters):
+        final alias = reference.get();
+        sourceInstanceParameters(
+          alias.type.applyTypeParameters(alias.params, parameters), owner,
+          depth + 1);
+      case TAbstract(reference, parameters):
+        final abstraction = reference.get();
+        sourceInstanceParameters(
+          abstraction.type.applyTypeParameters(abstraction.params, parameters),
+          owner, depth + 1);
+      case TLazy(resolve):
+        sourceInstanceParameters(resolve(), owner, depth + 1);
+      case TMono(reference) if (reference.get() != null):
+        sourceInstanceParameters(reference.get(), owner, depth + 1);
+      default:
+        null;
+    }
+  }
+
+  function cachedFieldValueTsType(expr: TypedExpr,
+      ?expectedTsType: String): Null<String> {
     return switch expr.expr {
       case TField(_, FStatic(_.get() => cl, _.get() => field)):
         switch field.kind {
@@ -2217,7 +2273,8 @@ class TsModuleEmitter extends JsModuleEmitter {
           default:
             null;
         }
-      case TField(_, FInstance(_.get() => cl, parameters, _.get() => field)):
+      case TField(receiver,
+        FInstance(_.get() => cl, parameters, _.get() => field)):
         switch field.kind {
           case FVar(_, _):
             // A generic field declaration only contains its owner's type
@@ -2227,8 +2284,15 @@ class TsModuleEmitter extends JsModuleEmitter {
             // same exact TS type as `Pair<ClosedDomain>`; no assertion is
             // needed. If substitution cannot recover a literal union, retain
             // the declaration-time cache and its conservative behavior.
-            final instantiatedType = parameters.length == cl.params.length
-              ? field.type.applyTypeParameters(cl.params, parameters)
+            final sourceParameters = switch cachedReceiverSourceType(receiver) {
+              case null: null;
+              case source: sourceInstanceParameters(source, cl);
+            };
+            final effectiveParameters = sourceParameters != null
+              ? sourceParameters
+              : parameters;
+            final instantiatedType = effectiveParameters.length == cl.params.length
+              ? field.type.applyTypeParameters(cl.params, effectiveParameters)
               : field.type;
             SignatureCache.enumAbstractLiteralUnionTsType(instantiatedType)
               ?? SignatureCache.getFieldTsType(cl, false, field.name);
@@ -2236,17 +2300,33 @@ class TsModuleEmitter extends JsModuleEmitter {
             null;
         }
       case TField(_, FAnon(_.get() => field)):
-        SignatureCache.getAnonFieldTsType(field.pos);
+        // Inline abstracts can synthesize an anonymous storage field after the
+        // declaration cache was collected. Its typed field still carries the
+        // nominal source leaf; use the frozen enum values before falling back
+        // to a declaration-position lookup.
+        final cached = SignatureCache.getAnonFieldTsType(field.pos);
+        final direct = SignatureCache.enumAbstractLiteralUnionTsType(field.type);
+        if (expectedTsType == null)
+          cached;
+        else if (direct == expectedTsType)
+          direct;
+        else if (cached == expectedTsType)
+          cached;
+        else
+          cached ?? direct;
       case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, _):
-        cachedFieldValueTsType(inner);
+        cachedFieldValueTsType(inner, expectedTsType);
       default:
         null;
     }
   }
 
-  function emitLocalType(type: Type, typeOverride: Null<String>): Void {
+  function emitLocalType(type: Type, typeOverride: Null<String>,
+      capturedSourceType = false): Void {
     if (typeOverride != null)
       write(typeOverride);
+    else if (capturedSourceType)
+      TypeEmitter.emitCapturedSourceType(this, type);
     else
       TypeEmitter.emitType(this, type);
   }
@@ -2289,7 +2369,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         if (cachedCallableReturnTsType(callee) == expectedTsType)
           return false;
       case TField(_, _):
-        if (cachedFieldValueTsType(unwrapped) == expectedTsType)
+        if (cachedFieldValueTsType(unwrapped, expectedTsType) == expectedTsType)
           return false;
       case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, _):
         return needsEnumAbstractExpectedAssertion(expectedTsType, inner);
@@ -2931,7 +3011,9 @@ class TsModuleEmitter extends JsModuleEmitter {
         write('function (');
         for (i in joinIt(0...f.args.length, write.bind(', '))) {
           final arg = f.args[i];
-          final t = i < args.length ? args[i].t : arg.v.t;
+          final capturedSourceType = SignatureCache.getLocalSourceType(arg.v);
+          final t = capturedSourceType
+            ?? (i < args.length ? args[i].t : arg.v.t);
           if (genes.util.TypeUtil.isRest(t))
             write('...');
           emitLocalVar(arg.v);
@@ -2945,7 +3027,10 @@ class TsModuleEmitter extends JsModuleEmitter {
             if (nullish.emitOptionalSyntax && !nullish.usesNullDefault)
               write('?');
             write(': ');
-            TypeEmitter.emitType(this, nullish.emittedType);
+            if (capturedSourceType != null)
+              TypeEmitter.emitCapturedSourceType(this, nullish.emittedType);
+            else
+              TypeEmitter.emitType(this, nullish.emittedType);
             rememberEmittedLocalType(arg.v, nullish.emittedType, null);
             if (nullish.usesNullDefault)
               write(' = null');
@@ -3572,7 +3657,11 @@ class TsModuleEmitter extends JsModuleEmitter {
         for (i in genes.util.IteratorUtil.joinIt(0...args.length,
           write.bind(', '))) {
           final arg = args[i];
-          final argType = (i >= 0 && i < f.args.length) ? f.args[i].v.t : arg.t;
+          final cachedSourceType = cachedArgs != null
+            ? cachedArgs[i].sourceType
+            : null;
+          final argType = cachedSourceType
+            ?? ((i >= 0 && i < f.args.length) ? f.args[i].v.t : arg.t);
           final opt = cachedArgs != null ? cachedArgs[i].opt : arg.opt;
           if (genes.util.TypeUtil.isRest(arg.t))
             write('...');
@@ -3586,7 +3675,8 @@ class TsModuleEmitter extends JsModuleEmitter {
             write('?');
           write(': ');
           final cachedType = cachedArgs != null ? cachedArgs[i].tsType : null;
-          emitArgTsType(field, f, i, nullish.emittedType, cachedType);
+          emitArgTsType(field, f, i, nullish.emittedType, cachedType,
+            cachedSourceType != null);
           rememberEmittedLocalType(f.args[i].v, nullish.emittedType,
             cachedType);
           if (usesNullDefault)
@@ -3624,7 +3714,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   function emitArgTsType(field: GenesField, f: TFunc, index: Int, type: Type,
-      fallbackType: Null<String>) {
+      fallbackType: Null<String>, capturedSourceType = false) {
     // TS `strict` enables `useUnknownInCatchVariables`, so catch variables are
     // `unknown`. Avoid emitting `Register.unsafeCast<any>(...)` in user modules
     // by making `haxe.Exception.caught` accept `unknown` in TS.
@@ -3691,7 +3781,10 @@ class TsModuleEmitter extends JsModuleEmitter {
       write(fallbackType);
       return;
     }
-    emitType(type);
+    if (capturedSourceType)
+      TypeEmitter.emitCapturedSourceType(this, type);
+    else
+      emitType(type);
   }
 
   function emitReturnTsType(field: GenesField, f: TFunc,
@@ -3709,6 +3802,10 @@ class TsModuleEmitter extends JsModuleEmitter {
       field.isStatic, field.name) : null;
     if (cachedSig != null && cachedSig.retTsType != null) {
       write(cachedSig.retTsType);
+      return;
+    }
+    if (cachedSig != null && cachedSig.retSourceType != null) {
+      TypeEmitter.emitCapturedSourceType(this, cachedSig.retSourceType);
       return;
     }
 
@@ -3731,6 +3828,17 @@ class TsModuleEmitter extends JsModuleEmitter {
     if (field.tsType != null) {
       TypeEmitter.emitNullishProjection(this, nullish,
         () -> write(field.tsType), true);
+      return;
+    }
+
+    final cachedFieldSourceType = currentClass == null
+      ? null
+      : SignatureCache.getFieldSourceType(currentClass, field.isStatic,
+        field.name);
+    if (cachedFieldSourceType != null) {
+      TypeEmitter.emitNullishProjection(this, nullish,
+        () -> TypeEmitter.emitCapturedSourceType(this, cachedFieldSourceType),
+        true);
       return;
     }
 
@@ -4271,8 +4379,14 @@ class TsModuleEmitter extends JsModuleEmitter {
     };
     if (typeOverride != null)
       write(typeOverride);
-    else
-      emitType(PublicSurface.forTypedef(def).aliasTypeFor(params));
+    else {
+      final capturedSourceType = SignatureCache.getTypedefSourceType(def,
+        params);
+      if (capturedSourceType != null)
+        TypeEmitter.emitCapturedSourceType(this, capturedSourceType);
+      else
+        emitType(PublicSurface.forTypedef(def).aliasTypeFor(params));
+    }
     writeNewline();
   }
 

@@ -123,6 +123,36 @@ In genes-ts mode, when values are known, we emit **TypeScript literal unions**:
 If values cannot be determined (e.g. unusual extern patterns), we fall back to
 the underlying type.
 
+The projection is recursive, not only top-level. If Haxe accepts a closed
+domain inside a callback, array, nullable type, typedef alias, anonymous field,
+or generic argument, the emitted TypeScript retains that same domain:
+
+```haxe
+enum abstract Phase(String) {
+  final Draft = "draft";
+  final Published = "published";
+}
+
+typedef Model = {
+  final select: Phase->Void;
+  final history: Array<Phase>;
+}
+```
+
+```ts
+export type Model = {
+  select: (arg0: "draft" | "published") => void;
+  history: ("draft" | "published")[];
+};
+```
+
+Generic declarations remain generic: a use such as `Envelope<Phase>` must not
+rewrite the declaration into `Envelope<"draft" | "published">`. Only that use
+site receives the closed argument. This matters because Haxe DCE can remove the
+enum implementation fields before emission; genes-ts freezes the literal set
+after typing and reuses the ordinary recursive type printer rather than
+specializing declarations or adding TypeScript assertions.
+
 Exact literal-union provenance also survives ordinary expression flow. A
 nested function parameter already emitted as the enum union, or a field read
 from a generic host value instantiated with that union, is passed and returned
