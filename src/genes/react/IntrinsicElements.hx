@@ -3,6 +3,7 @@ package genes.react;
 import genes.react.ReactProps.AnchorProps;
 import genes.react.ReactProps.AttributeValue;
 import genes.react.ReactProps.ButtonProps;
+import genes.react.ReactProps.DialogProps;
 import genes.react.ReactProps.FormProps;
 import genes.react.ReactProps.HtmlProps;
 import genes.react.ReactProps.IframeProps;
@@ -50,6 +51,7 @@ extern class IntrinsicElements {
 
   @:genes.jsxIntrinsic("a") public static var tagA: AnchorProps;
   @:genes.jsxIntrinsic("button") public static var tagButton: ButtonProps;
+  @:genes.jsxIntrinsic("dialog") public static var tagDialog: DialogProps;
   @:genes.jsxIntrinsic("form") public static var tagForm: FormProps;
   @:genes.jsxIntrinsic("iframe") public static var tagIframe: IframeProps;
   @:genes.jsxIntrinsic("img") public static var tagImg: ImgProps;
@@ -87,7 +89,6 @@ extern class IntrinsicElements {
   @:genes.jsxIntrinsic("del") public static var tagDel: HtmlProps;
   @:genes.jsxIntrinsic("details") public static var tagDetails: HtmlProps;
   @:genes.jsxIntrinsic("dfn") public static var tagDfn: HtmlProps;
-  @:genes.jsxIntrinsic("dialog") public static var tagDialog: HtmlProps;
   @:genes.jsxIntrinsic("div") public static var tagDiv: HtmlProps;
   @:genes.jsxIntrinsic("dl") public static var tagDl: HtmlProps;
   @:genes.jsxIntrinsic("dt") public static var tagDt: HtmlProps;

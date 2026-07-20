@@ -143,6 +143,8 @@ class JsxContext {
     final qualified = path.pack.concat([path.name]).join('.');
     if (path.sub == null && qualified == 'genes.react.AnchorElement')
       return standardDomTypePath('js.html.AnchorElement', 'HTMLAnchorElement');
+    if (path.sub == null && qualified == 'genes.react.DialogElement')
+      return standardDomTypePath('js.html.DialogElement', 'HTMLDialogElement');
     if (path.sub == null && qualified == 'genes.react.InputElement')
       return standardDomTypePath('js.html.InputElement', 'HTMLInputElement');
     return {

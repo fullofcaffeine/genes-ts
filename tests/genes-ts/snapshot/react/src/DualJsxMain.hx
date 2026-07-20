@@ -1,5 +1,7 @@
+import genes.react.DomElement;
 import genes.react.Element;
 import genes.react.JSX.*;
+import genes.react.SyntheticEvent;
 import genes.react.internal.Jsx;
 import genes.ts.Imports;
 
@@ -16,6 +18,7 @@ typedef DualJsxTranscript = {
   final arrayValueChildHtml: String;
   final multipleRequiredChildrenHtml: String;
   final dashedSvgHtml: String;
+  final dialogHtml: String;
   final dynamicHtml: String;
   final evaluatedHtml: String;
   final arrayPropHtml: String;
@@ -72,6 +75,18 @@ class DualJsxMain {
     data.has("title");
   }
 
+  /**
+   * Handles any event whose current target is an ordinary HTML element.
+   *
+   * A dialog is a more specific kind of HTML element, so this broader handler
+   * is safe for `onClose`. The fixture protects that useful relationship: HXX
+   * should accept the handler while still rejecting one that requires an
+   * unrelated element such as an input.
+   */
+  static function handleDialogClose(event: SyntheticEvent<DomElement>): Void {
+    event.preventDefault();
+  }
+
   static function main(): Void {
     final renderToStaticMarkup: Element->String = Imports.namedImport(
       "react-dom/server", "renderToStaticMarkup");
@@ -122,6 +137,15 @@ class DualJsxMain {
     final formActionElement = <form action={syncFormAction}></form>;
     final buttonFormActionElement =
       <button formAction={syncFormAction}>Save</button>;
+    // Dialog-specific properties stay closed and useful in Haxe. In
+    // particular, the contextual event target is the native DialogElement,
+    // so this `close()` call is checked before any target profile is emitted.
+    final dialogElement = <dialog
+      open
+      closedby="any"
+      onCancel={event -> event.currentTarget.close()}
+      onClose={handleDialogClose}
+    >Dialog content</dialog>;
 
     final runtimeTag = "aside";
     final dynamicElement = Jsx.__jsx(runtimeTag, {
@@ -177,6 +201,7 @@ class DualJsxMain {
       multipleRequiredChildrenHtml:
         renderToStaticMarkup(multipleRequiredChildrenElement),
       dashedSvgHtml: renderToStaticMarkup(dashedSvgElement),
+      dialogHtml: renderToStaticMarkup(dialogElement),
       dynamicHtml: renderToStaticMarkup(dynamicElement),
       evaluatedHtml: renderToStaticMarkup(evaluatedElement),
       arrayPropHtml: renderToStaticMarkup(arrayPropElement),

@@ -189,6 +189,24 @@ typedef ButtonProps = {
   @:optional var value: FormValue;
 }
 
+/**
+ * React's standard properties for the native HTML dialog element.
+ *
+ * The concrete `DialogElement` target keeps `onCancel` and `onClose`
+ * callbacks useful in Haxe: their `currentTarget` exposes dialog operations
+ * such as `close()` before any TypeScript is emitted. `closedby` follows the
+ * lowercase property spelling in React 19's `DialogHTMLAttributes` contract.
+ */
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef DialogProps = {
+  > HtmlPropsOf<DialogElement>,
+  @:optional var closedby: String;
+  @:optional var onCancel: SyntheticEvent<DialogElement>->Void;
+  @:optional var onClose: SyntheticEvent<DialogElement>->Void;
+  @:optional var open: Bool;
+}
+
 @:genes.compilerInternal
 @:genes.semanticOnly
 typedef FormProps = {

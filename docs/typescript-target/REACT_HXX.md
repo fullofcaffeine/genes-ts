@@ -593,6 +593,32 @@ Haxe checks both values before output. TSX keeps `strokeDasharray` and
 other unrelated value fails at its HXX attribute rather than being deferred to
 TypeScript.
 
+Native dialogs have a similarly focused contract. The bundled provider accepts
+React 19's `open`, `closedby`, `onCancel`, and `onClose` properties while still
+rejecting undeclared fields:
+
+```haxe
+final modal = <dialog
+  open
+  closedby="any"
+  onCancel={event -> event.currentTarget.close()}
+  onClose={handleAnyElementClose}
+>Review changes</dialog>;
+```
+
+`open` is a checked `Bool`, so `<dialog open="yes">` fails with
+`GTS-HXX-PROP-002` at the HXX attribute. The lifecycle callbacks receive
+`SyntheticEvent<js.html.DialogElement>` in Haxe and preserve React's
+`SyntheticEvent<HTMLDialogElement>` spelling in typed output. This is a
+compile-time schema only: TSX/JSX keep the native `<dialog>` markup, and typed
+or classic `createElement` profiles pass the same ordinary property object
+without a wrapper or helper.
+
+A named callback that accepts `SyntheticEvent<genes.react.DomElement>` is also
+safe: every dialog is an HTML element, so the broader handler can work with the
+more specific event. HXX accepts that direction but rejects a callback that
+requires an unrelated target such as `InputElement`.
+
 Default React event contracts retain their element parameter. For example, an
 `<input>` callback contextually receives
 `genes.react.ChangeEvent<js.html.InputElement>`, so the complete standard Haxe
