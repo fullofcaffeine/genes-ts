@@ -53,6 +53,18 @@ typedef WrongAbstractSpreadFields = {
 abstract WrongAbstractSpreadProps(WrongAbstractSpreadFields)
   from WrongAbstractSpreadFields {}
 
+/** Nominal string-backed value whose constructors are the only valid tones. */
+enum abstract ButtonTone(String) {
+  final Primary = "primary";
+}
+
+typedef ToneProps = {
+  final tone: ButtonTone;
+}
+
+/** Scalar abstract used to prove a shared String runtime is not an object. */
+abstract ScalarLabel(String) from String {}
+
 typedef OptionalCallbackProps = {
   final onValue: (?value: String) -> Void;
 }
@@ -136,6 +148,10 @@ extern interface InheritedExtraProps extends InheritedRequiredProps {
 class Negative {
   static function Button(props: RequiredProps): Element {
     return <button>{props.label}</button>;
+  }
+
+  static function ToneButton(props: ToneProps): Element {
+    return <button>{props.tone}</button>;
   }
 
   static function TextChild(props: TextChildProps): Element {
@@ -314,6 +330,11 @@ class Negative {
     #elseif hxx_negative_abstract_spread_wrong
     final props: WrongAbstractSpreadProps = {label: 42};
     final value = <Button {...props} />;
+    #elseif hxx_negative_abstract_spread_non_object
+    final label: ScalarLabel = "not an object";
+    final value = <div {...label} />;
+    #elseif hxx_negative_enum_abstract_prop
+    final value = <ToneButton tone="idle" />;
     #elseif hxx_negative_spread_optional_required
     final value = <Button {...maybeRequiredProps()} />;
     #elseif hxx_negative_non_component

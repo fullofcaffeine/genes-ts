@@ -280,10 +280,13 @@ final props:ButtonProps = { label: "Save" };
 final button = <Button {...props} />;
 ```
 
-HXX follows only the abstract's typed runtime representation. A scalar or
-callable abstract is still not spreadable, and a closed abstract carrying
-`label:Int` still fails against `label:String` with `GTS-HXX-SPREAD-002`.
-There is no reflective field discovery, cast, or permissive catch-all.
+HXX follows only a non-core abstract chain that terminates in an anonymous
+record. It does not structurally erase nominal enum abstracts into their shared
+primitive representation: a string literal outside an enum abstract's closed
+constructors still fails the declared property contract. A scalar or callable
+abstract is not spreadable, and a closed record abstract carrying `label:Int`
+still fails against `label:String` with `GTS-HXX-SPREAD-002`. There is no
+reflective field discovery, cast, or permissive catch-all.
 
 Property contracts must remain concrete all the way through their nested
 fields. HXX rejects `Dynamic`, Haxe's core `Any`, and `genes.ts.Unknown` in both

@@ -117,6 +117,8 @@ function assertHaxeHxxNegatives(): void {
     ["hxx_negative_spread_extra", "GTS-HXX-SPREAD-003"],
     ["hxx_negative_spread_wrong", "GTS-HXX-SPREAD-002"],
     ["hxx_negative_abstract_spread_wrong", "GTS-HXX-SPREAD-002"],
+    ["hxx_negative_abstract_spread_non_object", "GTS-HXX-SPREAD-001"],
+    ["hxx_negative_enum_abstract_prop", "GTS-HXX-PROP-002"],
     ["hxx_negative_spread_optional_required", "GTS-HXX-PROP-004"],
     ["hxx_negative_non_component", "GTS-HXX-TAG-002"],
     ["hxx_negative_component_return", "GTS-HXX-TAG-003"],
