@@ -30,6 +30,12 @@ private extern class Pair<Left, Right> {
 @:ts.type("undefined")
 private extern class UndefinedValue {}
 
+/** Closed primitive-backed domain type used to expose Haxe's generic erasure. */
+private enum abstract CellPhase(String) to String {
+  final Pending = "pending";
+  final Ready = "ready";
+}
+
 /** Precise bindings for the local, package-neutral generic fixture module. */
 private extern class GenericCellModule {
   /**
@@ -69,12 +75,15 @@ class Main {
     final inferred = GenericCellModule.inferCell(42);
     final pair: Pair<Null<String>, Bool> = GenericCellModule.makePair(null,
       true);
+    final phase: Cell<CellPhase> = genes.ts.TypeArguments.call(GenericCellModule.makeCell(CellPhase.Pending),
+      CellPhase.Pending);
 
     nullable.replace("ready");
     absent.value;
     inferred.replace(43);
     pair.left;
     pair.right;
+    phase.replace(CellPhase.Ready);
     preserveGeneric("generic").replace("still typed");
   }
 }

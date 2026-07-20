@@ -1,6 +1,7 @@
 package genes;
 
 import haxe.macro.Context;
+import haxe.macro.Expr;
 import haxe.macro.Expr.Position;
 import haxe.macro.Type;
 import haxe.macro.TypeTools;
@@ -9,6 +10,16 @@ private typedef ExplicitTypeArgumentField = {
   final owner: ClassType;
   final field: ClassField;
   final isStatic: Bool;
+}
+
+typedef ExplicitTypeArgument = {
+  final type: Type;
+  final tsType: Null<String>;
+}
+
+private typedef ExplicitCallSite = {
+  final arguments: Array<ExplicitTypeArgument>;
+  final position: Position;
 }
 
 /**
@@ -43,17 +54,30 @@ class ExplicitTypeArguments {
   public static inline final METADATA = ':ts.explicitTypeArguments';
   static inline final DIAGNOSTIC = 'GENES-TS-EXPLICIT-TYPE-ARGS-001';
   static inline final MAX_TYPE_DEPTH = 64;
+  static final explicitCallSites: Map<String, ExplicitCallSite> = [];
 
   /** Returns the exact type arguments for an opted-in direct extern call. */
-  public static function forCall(callee: TypedExpr): Null<Array<Type>> {
+  public static function forCall(callee: TypedExpr): Null<Array<ExplicitTypeArgument>> {
+    final callSite = explicitCallSites.get(positionKey(callee.pos));
     final resolved = resolveField(callee);
-    if (resolved == null)
+    if (resolved == null) {
+      if (callSite != null) {
+        fail('TypeArguments.call(...) requires a direct extern callable',
+          callSite.position);
+      }
       return null;
+    }
 
     final declaration = metadataDeclaration(resolved.owner, resolved.field,
       resolved.isStatic);
-    if (declaration == null)
+    if (declaration == null) {
+      if (callSite != null) {
+        fail('TypeArguments.call(...) requires a generic extern callable '
+          + 'annotated with @:ts.explicitTypeArguments',
+          callSite.position);
+      }
       return null;
+    }
 
     final entries = declaration.meta.extract(METADATA);
     switch entries {
@@ -74,6 +98,17 @@ class ExplicitTypeArguments {
         declaration.pos);
     }
 
+    if (callSite != null) {
+      if (callSite.arguments.length != declaration.params.length) {
+        fail('TypeArguments.call(...) requires exactly '
+          + '${declaration.params.length} type witness'
+          + (declaration.params.length == 1 ? '' : 'es')
+          + ', received ${callSite.arguments.length}',
+          callSite.position);
+      }
+      return callSite.arguments;
+    }
+
     final parameterKeys: Map<String, Bool> = [];
     for (parameter in declaration.params)
       parameterKeys.set(typeParameterKey(parameter.t), true);
@@ -81,7 +116,7 @@ class ExplicitTypeArguments {
     final bindings: Map<String, Type> = [];
     bindTypeParameters(declaration.type, callee.t, parameterKeys, bindings, 0);
 
-    final arguments = new Array<Type>();
+    final arguments = new Array<ExplicitTypeArgument>();
     for (parameter in declaration.params) {
       final key = typeParameterKey(parameter.t);
       final argument = bindings.get(key);
@@ -96,9 +131,79 @@ class ExplicitTypeArguments {
           + 'type arguments must remain precise',
           callee.pos);
       }
-      arguments.push(argument);
+      arguments.push({type: argument, tsType: null});
     }
     return arguments;
+  }
+
+  /**
+   * Registers pre-erasure Haxe types for one direct generic extern call.
+   *
+   * Why: Haxe intentionally erases primitive-backed abstracts in some generic
+   * applications. Once that happens, neither the callee nor destination type
+   * retains enough information to emit a narrower TypeScript type argument. A
+   * compile-time witness lets a library macro preserve that already checked
+   * type without adding a target assertion or changing the call.
+   *
+   * What: `genes.ts.TypeArguments.call(externCall, witness...)` emits only the
+   * original call, but TypeScript receives each witness type as the explicit
+   * generic argument in declaration order. Witness expressions are typed and
+   * discarded; they are never evaluated.
+   *
+   * How: the public macro records the types against the direct callee's exact
+   * source span and returns the original call expression unchanged. The typed
+   * emitter later resolves that same span to a reviewed extern field carrying
+   * `@:ts.explicitTypeArguments`, validates arity and precision, and prints the
+   * registered arguments. Classic JavaScript never queries this registry.
+   */
+  public static function registerCall(expression: Expr,
+      witnesses: Array<Expr>): Expr {
+    final calleePosition = switch expression.expr {
+      case ECall(callee, _): callee.pos;
+      default:
+        fail('TypeArguments.call(...) expects a direct call expression',
+          expression.pos);
+    }
+    final arguments = new Array<ExplicitTypeArgument>();
+    for (index in 0...witnesses.length) {
+      final argument = Context.typeof(witnesses[index]);
+      if (containsUnsafeType(argument)) {
+        fail('TypeArguments.call(...) witness ${index + 1} is unresolved or broad; '
+          + 'explicit TypeScript type arguments must remain precise',
+          witnesses[index].pos);
+      }
+      arguments.push({
+        type: argument,
+        tsType: genes.ts.SignatureCache.enumAbstractLiteralUnionTsType(argument)
+      });
+    }
+    final key = positionKey(calleePosition);
+    if (explicitCallSites.exists(key)) {
+      fail('TypeArguments.call(...) registered the same direct call more than once',
+        expression.pos);
+    }
+    explicitCallSites.set(key, {
+      arguments: arguments,
+      position: expression.pos
+    });
+    return expression;
+  }
+
+  /** Whether one typed initializer is a registered explicit generic call. */
+  public static function infersPreciseLocalType(expression: TypedExpr): Bool {
+    return switch expression.expr {
+      case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, null):
+        infersPreciseLocalType(inner);
+      case TCall(callee, _):
+        explicitCallSites.exists(positionKey(callee.pos));
+      default:
+        false;
+    }
+  }
+
+  static function positionKey(position: Position): String {
+    final info = Context.getPosInfos(position);
+    return '${info.file}:${info.min}:${info.max}';
   }
 
   /**
@@ -213,8 +318,8 @@ class ExplicitTypeArguments {
           case TAnonymous(actualRef):
             final actualFields = actualRef.get().fields;
             for (declaredField in declaredRef.get().fields) {
-              final actualField = Lambda.find(actualFields, candidate ->
-                candidate.name == declaredField.name);
+              final actualField = Lambda.find(actualFields,
+                candidate -> candidate.name == declaredField.name);
               if (actualField != null)
                 bindTypeParameters(declaredField.type, actualField.type,
                   parameterKeys, bindings, depth + 1);

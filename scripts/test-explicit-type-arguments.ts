@@ -65,6 +65,16 @@ requireText(
 );
 requireText(
   generatedTs,
+  'let phase = makeCell<"pending" | "ready">("pending")',
+  "a call-site witness must preserve a closed enum abstract after Haxe erasure"
+);
+rejectText(
+  generatedTs,
+  "Cell<string> = makeCell",
+  "a redundant erased local annotation must not widen the explicit call result"
+);
+requireText(
+  generatedTs,
   "inferCell(42)",
   "ordinary generic extern calls must retain TypeScript inference"
 );
@@ -90,6 +100,16 @@ const generatedJs = readFileSync(
 requireText(generatedJs, "makeCell(null)", "classic JS must preserve the nullable call");
 requireText(generatedJs, "makeCell()", "classic JS must preserve the no-argument call");
 requireText(generatedJs, "makePair(null, true)", "classic JS must preserve argument order");
+requireText(
+  generatedJs,
+  'makeCell("pending")',
+  "classic JS must erase the enum-abstract type witness"
+);
+rejectText(
+  generatedJs,
+  "TypeArguments",
+  "the compile-time type witness helper must have no classic-JS runtime"
+);
 rejectText(generatedJs, "<undefined>", "TS-only type arguments must erase in classic JS");
 
 const negativeCases = [
@@ -104,6 +124,26 @@ const negativeCases = [
   {
     hxml: "tests/explicit-type-arguments/build-non-generic.hxml",
     expected: "GENES-TS-EXPLICIT-TYPE-ARGS-001: @:ts.explicitTypeArguments requires a generic extern callable"
+  },
+  {
+    hxml: "tests/explicit-type-arguments/build-call-site-unmarked.hxml",
+    expected: "GENES-TS-EXPLICIT-TYPE-ARGS-001: TypeArguments.call(...) requires a generic extern callable annotated with @:ts.explicitTypeArguments"
+  },
+  {
+    hxml: "tests/explicit-type-arguments/build-call-site-wrong-arity.hxml",
+    expected: "GENES-TS-EXPLICIT-TYPE-ARGS-001: TypeArguments.call(...) requires exactly 2 type witnesses, received 1"
+  },
+  {
+    hxml: "tests/explicit-type-arguments/build-call-site-unresolved.hxml",
+    expected: "GENES-TS-EXPLICIT-TYPE-ARGS-001: TypeArguments.call(...) witness 1 is unresolved or broad; explicit TypeScript type arguments must remain precise"
+  },
+  {
+    hxml: "tests/explicit-type-arguments/build-call-site-alias.hxml",
+    expected: "GENES-TS-EXPLICIT-TYPE-ARGS-001: TypeArguments.call(...) requires a direct extern callable"
+  },
+  {
+    hxml: "tests/explicit-type-arguments/build-call-site-not-call.hxml",
+    expected: "GENES-TS-EXPLICIT-TYPE-ARGS-001: TypeArguments.call(...) expects a direct call expression"
   }
 ] as const;
 

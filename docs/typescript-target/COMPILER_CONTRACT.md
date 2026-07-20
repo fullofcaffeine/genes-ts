@@ -263,6 +263,13 @@ TS-specific overrides:
   not follow runtime function-value aliases that have lost field identity, and
   erases completely in classic JavaScript. See
   [INTEROP.md](INTEROP.md#preserve-a-contextual-generic-extern-call).
+- `genes.ts.TypeArguments.call(externCall, witness...)` — compile-time-only
+  preservation for a declaration-opted-in direct extern call whose exact Haxe
+  type was erased before generic emission. Witnesses supply closed type facts,
+  are never evaluated, must match generic declaration arity, and cause the TS
+  local to infer from the specialized call instead of printing a wider erased
+  annotation. The helper is absent from classic JavaScript. See
+  [INTEROP.md](INTEROP.md#preserve-a-contextual-generic-extern-call).
 
 Compatibility aliases (optional):
 - `@:genes.type` and `@:genes.returnType` are supported as aliases for the TS metadata above.
