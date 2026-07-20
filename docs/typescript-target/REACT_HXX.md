@@ -541,6 +541,32 @@ compile-time schema only: TSX/JSX keep the native `<dialog>` markup, and typed
 or classic `createElement` profiles pass the same ordinary property object
 without a wrapper or helper.
 
+Intrinsic refs use the same Haxe-first contract. A callback receives the
+mounted element or `null`, with the exact element identity selected by the
+tag:
+
+```haxe
+final field = <input ref={element -> {
+  if (element != null)
+    element.select();
+}} />;
+```
+
+Here Haxe checks `element` as `Null<js.html.InputElement>` before output.
+Passing a string, an anchor-only callback, or another incompatible target
+fails with `GTS-HXX-PROP-002` at the `ref` value. The closed schema also models
+React ref objects and React 19's optional callback cleanup result. In TSX and
+JSX, the authored `ref={...}` stays ordinary markup. Typed `createElement`
+uses `ComponentPropsWithRef<typeof Tag>` so strict React declarations verify
+the same property independently; classic JavaScript passes the callback
+unchanged. No wrapper component, ref adapter, or runtime class is generated.
+
+This capability was added after an accessible headless drag-and-drop Hook in
+NextJsHx returned callback refs that HXX could not attach to native elements.
+The fix is deliberately React-generic: the intrinsic schema and browser
+element identity relationship contain no package or downstream framework
+knowledge.
+
 Default React event contracts retain their element parameter. For example, an
 `<input>` callback contextually receives
 `genes.react.ChangeEvent<js.html.InputElement>`, so the complete standard Haxe

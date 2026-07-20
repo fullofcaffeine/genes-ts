@@ -97,6 +97,8 @@ function assertHaxeHxxNegatives(): void {
     ["hxx_negative_intrinsic_prop_type", "GTS-HXX-PROP-002"],
     ["hxx_negative_dialog_open_type", "GTS-HXX-PROP-002"],
     ["hxx_negative_dialog_event_target", "GTS-HXX-PROP-002"],
+    ["hxx_negative_ref_value", "GTS-HXX-PROP-002"],
+    ["hxx_negative_ref_target", "GTS-HXX-PROP-002"],
     ["hxx_negative_svg_dash_type", "GTS-HXX-PROP-002"],
     ["hxx_negative_intrinsic_null", "GTS-HXX-PROP-002"],
     ["hxx_negative_handler", "GTS-HXX-PROP-002"],
@@ -759,13 +761,13 @@ ok(typedCreateElementSource.includes(
   "createElement<GenericValueProps<number>>(Main.GenericValue"
 ), "typed createElement preserves the Haxe-inferred generic component props");
 ok(!typedCreateElementSource.includes(
-  "ComponentPropsWithoutRef<typeof Main.GenericValue>"
+  "ComponentPropsWithRef<typeof Main.GenericValue>"
 ), "typed createElement does not widen a generic component contract to unknown");
 ok(typedCreateElementSource.includes(
-  "ComponentPropsWithoutRef<typeof Button>"
+  "ComponentPropsWithRef<typeof Button>"
 ), "concrete function components keep React's concise utility-type path");
 ok(typedCreateElementSource.includes(
-  "ComponentPropsWithoutRef<typeof TypedButton>"
+  "ComponentPropsWithRef<typeof TypedButton>"
 ), "metadata-backed component wrappers keep their emitted React prop contract");
 ok(typedCreateElementSource.includes(
   "createElement(Main.RequiredChild, ({...optionalChildren, children: optionalChildSpreadHtml}"
@@ -826,6 +828,9 @@ ok(dualTsxSource.includes("React__genes_jsx.createElement(runtimeTag"));
 ok(dualTsxSource.includes(
   "<dialog open closedby=\"any\" onCancel={function (event: import('react').SyntheticEvent<HTMLDialogElement>)"
 ), "TSX preserves canonical dialog props and the exact event target");
+ok(dualTsxSource.includes(
+  '<input aria-label="Ref target" ref={function (element: HTMLInputElement | null)'
+), "TSX preserves the checked callback ref and exact input target");
 runGeneratedTypeScriptMatrix(
   "tests/genes-ts/snapshot/react/tsconfig.dual-tsx.json"
 );
@@ -848,11 +853,14 @@ ok(dualTsSource.includes(
   'React__genes_jsx.createElement(runtimeTag, {"data-mode": "dynamic"}, "D")'
 ), "typed createElement preserves the exact checked properties and child");
 ok(!dualTsSource.includes(
-  "ComponentPropsWithoutRef<typeof runtimeTag>"
+  "ComponentPropsWithRef<typeof runtimeTag>"
 ), "runtime string props do not claim one statically known intrinsic contract");
 ok(dualTsSource.includes(
   'createElement("dialog", ({open: true, closedby: "any", onCancel: function (event: import(\'react\').SyntheticEvent<HTMLDialogElement>)'
 ), "typed createElement preserves checked dialog props and event typing");
+ok(dualTsSource.includes(
+  'createElement("input", ({"aria-label": "Ref target", ref: function (element: HTMLInputElement | null)'
+), "typed createElement preserves the checked callback ref and exact input target");
 runGeneratedTypeScriptMatrix(
   "tests/genes-ts/snapshot/react/tsconfig.dual-ts.json"
 );
@@ -887,6 +895,9 @@ ok(dualClassicSource.includes(
 ok(dualClassicSource.includes(
   'createElement("dialog", {"open": true, "closedby": "any", "onCancel": function (event)'
 ), "classic createElement preserves the same checked dialog runtime props");
+ok(dualClassicSource.includes(
+  'createElement("input", {"aria-label": "Ref target", "ref": function (element)'
+), "classic createElement preserves the same callback-ref runtime prop");
 strictEqual(dualClassicSource.includes("Jsx.__jsx"), false);
 
 run("haxe", ["tests/genes-ts/snapshot/react/build-dual-jsx.hxml"]);
@@ -902,6 +913,9 @@ ok(dualJsxSource.includes("React__genes_jsx.createElement(runtimeTag"));
 ok(dualJsxSource.includes(
   '<dialog open closedby="any" onCancel={function (event)'
 ), "type-erased JSX preserves canonical dialog markup without type syntax");
+ok(dualJsxSource.includes(
+  '<input aria-label="Ref target" ref={function (element)'
+), "type-erased JSX preserves canonical callback-ref markup");
 strictEqual(dualJsxSource.includes("Jsx.__jsx"), false);
 strictEqual(dualJsxSource.includes(": JSX.Element"), false);
 runTypeScript("apiBridge", [
@@ -917,6 +931,10 @@ const expectedTranscript = {
   multipleRequiredChildrenHtml: '<section><em>nested A</em><strong>nested B</strong></section>',
   dashedSvgHtml: '<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" stroke-dasharray="8 4" stroke-dashoffset="2.5"></circle></svg>',
   dialogHtml: '<dialog open="" closedby="any">Dialog content</dialog>',
+  inputRefHtml: '<input aria-label="Ref target"/>',
+  cleanupRefHtml: '<input aria-label="Cleanup ref"/>',
+  objectRefHtml: '<input aria-label="Object ref"/>',
+  focusedChangeHtml: '<input aria-label="Focused change"/>',
   dynamicHtml: '<aside data-mode="dynamic">D</aside>',
   evaluatedHtml: '<div title="evaluated-once">E</div>',
   arrayPropHtml: '<div data-array="evaluated-once">P</div>',

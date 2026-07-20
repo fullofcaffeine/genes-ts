@@ -976,7 +976,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     write('}');
     // A runtime String tells React which intrinsic to create only when this
     // code executes. There is therefore no single tag-specific
-    // `ComponentPropsWithoutRef` contract that TypeScript can honestly check
+    // `ComponentPropsWithRef` contract that TypeScript can honestly check
     // here. HXX has already rejected unsafe values and non-object spreads, and
     // the exact object literal keeps its inferred TypeScript type for React's
     // string-tag overload. Static intrinsic and component tags continue below
@@ -987,7 +987,12 @@ class TsModuleEmitter extends JsModuleEmitter {
     write('(');
     if (functionPropsType == null) {
       write(runtime);
-      write('.ComponentPropsWithoutRef<');
+      // React treats `ref` as a checked property of intrinsic elements and,
+      // in React 19, of components that declare it. `ComponentPropsWithRef`
+      // keeps that host contract visible in typed createElement output. HXX
+      // has already validated the same closed property before this printer
+      // runs, so the utility is an independent parity check, not a cast.
+      write('.ComponentPropsWithRef<');
       emitComponentPropsTypeArgForTag(tag);
       write('>');
     } else {
@@ -1011,7 +1016,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   /**
    * Returns Haxe's already-inferred property type for a function component.
    *
-   * React's `ComponentPropsWithoutRef<typeof GenericComponent>` necessarily
+   * React's `ComponentPropsWithRef<typeof GenericComponent>` necessarily
    * substitutes `unknown` for a still-generic function. The typed Haxe tag has
    * already been unified with its HXX values, so carrying that exact argument
    * type into `createElement<P>` preserves inference without a cast or wrapper

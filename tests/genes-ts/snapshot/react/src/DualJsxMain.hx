@@ -1,6 +1,8 @@
 import genes.react.Element;
 import genes.react.JSX.*;
 import genes.react.internal.Jsx;
+import genes.react.InputElement;
+import genes.react.ReactRef.RefObject;
 import genes.ts.Imports;
 
 typedef DualJsxTranscript = {
@@ -11,11 +13,22 @@ typedef DualJsxTranscript = {
   final multipleRequiredChildrenHtml: String;
   final dashedSvgHtml: String;
   final dialogHtml: String;
+  final inputRefHtml: String;
+  final cleanupRefHtml: String;
+  final objectRefHtml: String;
+  final focusedChangeHtml: String;
   final dynamicHtml: String;
   final evaluatedHtml: String;
   final arrayPropHtml: String;
   final arrayChildHtml: String;
   final propEvaluations: Int;
+}
+
+/** Small reusable event view that consumes only the field this handler needs. */
+typedef FocusedInputChange = {
+  final target: {
+    final value: String;
+  };
 }
 
 /**
@@ -119,6 +132,26 @@ class DualJsxMain {
       closedby="any"
       onCancel={event -> event.currentTarget.close()}
     >Dialog content</dialog>;
+    // Intrinsic refs are checked at HXX authoring time. The callback receives
+    // the exact input element, while React still owns attachment and cleanup.
+    final inputRefElement = <input aria-label="Ref target" ref={element -> {
+      if (element != null)
+        element.select();
+    }} />;
+    final cleanupRefElement = <input aria-label="Cleanup ref" ref={element -> {
+      if (element != null)
+        element.select();
+      return () -> {};
+    }} />;
+    final createRef: Void->RefObject<InputElement> = Imports.namedImport(
+      "react", "createRef");
+    final inputRefObject = createRef();
+    final objectRefElement = <input aria-label="Object ref" ref={inputRefObject} />;
+    // A direct browser-identity relation for refs must not make existing,
+    // deliberately focused structural event handlers nominal-only.
+    final focusedChangeElement = <input aria-label="Focused change"
+      onChange={focusedInputChange}
+    />;
 
     final runtimeTag = "aside";
     final dynamicElement = Jsx.__jsx(runtimeTag, {
@@ -169,12 +202,21 @@ class DualJsxMain {
         renderToStaticMarkup(multipleRequiredChildrenElement),
       dashedSvgHtml: renderToStaticMarkup(dashedSvgElement),
       dialogHtml: renderToStaticMarkup(dialogElement),
+      inputRefHtml: renderToStaticMarkup(inputRefElement),
+      cleanupRefHtml: renderToStaticMarkup(cleanupRefElement),
+      objectRefHtml: renderToStaticMarkup(objectRefElement),
+      focusedChangeHtml: renderToStaticMarkup(focusedChangeElement),
       dynamicHtml: renderToStaticMarkup(dynamicElement),
       evaluatedHtml: renderToStaticMarkup(evaluatedElement),
       arrayPropHtml: renderToStaticMarkup(arrayPropElement),
       arrayChildHtml: renderToStaticMarkup(arrayChildElement),
       propEvaluations: propEvaluations
     });
+  }
+
+  /** Consumes a safe structural subset of React's complete input event. */
+  static function focusedInputChange(event: FocusedInputChange): Void {
+    event.target.value;
   }
 
   /** Renders the one child required by this component's property contract. */

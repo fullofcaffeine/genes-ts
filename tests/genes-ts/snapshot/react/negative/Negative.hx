@@ -238,6 +238,8 @@ class Negative {
 
   static function wrongDialogEventTarget(event: SyntheticEvent<InputElement>): Void {}
 
+  static function wrongInputRefTarget(element: Null<genes.react.AnchorElement>): Void {}
+
   static function wrongFormActionParameter(value: Int): Void {}
 
   static function tooManyFormActionArguments(data: js.html.FormData,
@@ -279,6 +281,10 @@ class Negative {
     final value = <dialog open="yes">Invalid dialog</dialog>;
     #elseif hxx_negative_dialog_event_target
     final value = <dialog onCancel={wrongDialogEventTarget}>Invalid target</dialog>;
+    #elseif hxx_negative_ref_value
+    final value = <input ref="not-a-ref" />;
+    #elseif hxx_negative_ref_target
+    final value = <input ref={wrongInputRefTarget} />;
     #elseif hxx_negative_svg_dash_type
     final value = <circle strokeDashoffset={false} />;
     #elseif hxx_negative_intrinsic_null

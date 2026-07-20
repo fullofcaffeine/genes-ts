@@ -443,7 +443,7 @@ class JsxTypeChecker {
         {
           schema: schema,
           bindings: new Map<String, Type>(),
-          // React's normal `ComponentPropsWithoutRef<typeof Tag>` path is
+          // React's normal `ComponentPropsWithRef<typeof Tag>` path is
           // concise and already correct for concrete functions and aliases.
           // Only a direct open generic needs HXX's inferred Haxe type carried
           // into `createElement<T>`; otherwise React would widen it to unknown.
@@ -766,6 +766,10 @@ class JsxTypeChecker {
     // accept a value that can actually be null.
     if (nullableInner(resolvedActual) != null || literalNull)
       return false;
+    final browserElementCompatibility = browserElementValueAssignability(
+      resolvedActual, resolvedExpected);
+    if (browserElementCompatibility != null)
+      return browserElementCompatibility;
     final nativeGlobalCompatibility = nativeGlobalAssignability(resolvedActual,
       resolvedExpected, depth
       + 1);
@@ -1072,7 +1076,7 @@ class JsxTypeChecker {
    * Reports whether a direct function component still needs generic inference.
    *
    * Why: concrete component functions should keep React's short, established
-   * `ComponentPropsWithoutRef<typeof Tag>` output. A direct generic function is
+   * `ComponentPropsWithRef<typeof Tag>` output. A direct generic function is
    * different: React cannot recover the Haxe type chosen from its HXX values,
    * so the compiler must carry that one specialization into `createElement`.
    *
@@ -1462,6 +1466,35 @@ class JsxTypeChecker {
           expectedParameters, depth + 1);
       default: sameInvariantType(actual, expected, depth + 1);
     }
+  }
+
+  /**
+   * Relates the focused Genes and standard-library views of browser elements.
+   *
+   * Why: contextual HXX callbacks are projected to Haxe's complete `js.html`
+   * externs, while reusable callback values can retain the stable
+   * `genes.react` facade from the intrinsic schema. React refs carry that
+   * element directly rather than nesting it inside a synthetic event, so the
+   * existing event-target comparison was never reached.
+   *
+   * What: when both sides are reviewed browser identities, they follow the
+   * same directional element-subtype relationship used by React events. When
+   * only one side is a browser identity, ordinary assignability must continue:
+   * a deliberately smaller structural callback parameter can safely consume
+   * an element or event target that provides every field it requires.
+   *
+   * How: the comparison reads Haxe compiler identities only. It does not use
+   * generated TypeScript names, structural unification, reflection, or a
+   * runtime conversion. `null` means this closed browser-to-browser rule does
+   * not apply and ordinary assignability should continue.
+   */
+  static function browserElementValueAssignability(actual: Type,
+      expected: Type): Null<Bool> {
+    final actualBrowser = browserElementIdentity(actual);
+    final expectedBrowser = browserElementIdentity(expected);
+    if (actualBrowser == null || expectedBrowser == null)
+      return null;
+    return browserElementAssignable(actualBrowser, expectedBrowser);
   }
 
   /** Follows real class/interface relations for a non-browser event target. */

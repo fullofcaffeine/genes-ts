@@ -123,6 +123,7 @@ typedef HtmlProps = HtmlPropsOf<DomElement>;
 typedef HtmlPropsOf<T> = {
   @:optional var children: Node;
   @:optional var key: Key;
+  @:optional var ref: ReactRef<T>;
   @:optional var id: String;
   @:optional var className: String;
   @:optional var title: String;
