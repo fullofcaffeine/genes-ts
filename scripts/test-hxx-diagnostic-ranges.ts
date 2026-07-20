@@ -70,6 +70,23 @@ const cases: ReadonlyArray<DiagnosticRangeCase> = [
     rangeMarker: "<span>wrong</span>"
   },
   {
+    name: "second child for exact element",
+    define: "hxx_negative_element_multiple_children",
+    diagnostic: "GTS-HXX-CHILD-003",
+    sourceFile: "tests/genes-ts/snapshot/react/negative/Negative.hx",
+    lineMarker:
+      "final value = <ExactElementComponent><span>one</span><strong>two</strong></ExactElementComponent>;",
+    rangeMarker: "<strong>two</strong>"
+  },
+  {
+    name: "missing exact element child",
+    define: "hxx_negative_element_missing_child",
+    diagnostic: "GTS-HXX-CHILD-002",
+    sourceFile: "tests/genes-ts/snapshot/react/negative/Negative.hx",
+    lineMarker: "final value = <ExactElementComponent />;",
+    rangeMarker: "ExactElementComponent"
+  },
+  {
     name: "provider metadata",
     define: "hxx_negative_unknown_custom_intrinsic",
     diagnostic: "GTS-HXX-SCHEMA-010",

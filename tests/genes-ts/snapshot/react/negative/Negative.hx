@@ -17,6 +17,26 @@ typedef TextChildListProps = {
   final children: Array<String>;
 }
 
+typedef ElementChildProps = {
+  final children: Element;
+}
+
+/**
+ * Gives the negative HXX cases an extern component with an exact child type.
+ *
+ * Why: a plain Haxe function already carries its property schema in its
+ * argument type, but an extern component value needs an explicit link to the
+ * schema that HXX should validate.
+ *
+ * What: `@:genes.jsxComponentProps` selects `ElementChildProps`, whose required
+ * `children` field accepts exactly one `Element`.
+ *
+ * How: the metadata is read only while HXX checks these compile-failure
+ * fixtures. It adds no runtime constructor, import, or JavaScript behavior.
+ */
+@:genes.jsxComponentProps("Negative.ElementChildProps")
+extern class ExactElementComponent {}
+
 /**
  * Models a spread whose `children` field may be absent at runtime.
  *
@@ -300,6 +320,17 @@ class Negative {
     final value = <TextChild><span>wrong</span></TextChild>;
     #elseif hxx_negative_missing_child
     final value = <TextChild />;
+    #elseif hxx_negative_element_text_child
+    final value = <ExactElementComponent>text is not an element</ExactElementComponent>;
+    #elseif hxx_negative_element_multiple_children
+    final value = <ExactElementComponent><span>one</span><strong>two</strong></ExactElementComponent>;
+    #elseif hxx_negative_element_missing_child
+    final value = <ExactElementComponent />;
+    #elseif hxx_negative_element_named_text_child
+    final value = <ExactElementComponent children="text is not an element" />;
+    #elseif hxx_negative_element_spread_text_child
+    final props = {children: "text is not an element"};
+    final value = <ExactElementComponent {...props} />;
     #elseif hxx_negative_scalar_for_array_child
     final value = <TextChildList>one</TextChildList>;
     #elseif hxx_negative_unsafe_array_child
