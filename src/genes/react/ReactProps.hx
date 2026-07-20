@@ -375,6 +375,9 @@ typedef SvgProps = {
   > HtmlProps,
   @:optional var fill: String;
   @:optional var stroke: String;
+  /** React's camelCase spellings for SVG dash presentation attributes. */
+  @:optional var strokeDasharray: NumberLike;
+  @:optional var strokeDashoffset: NumberLike;
   @:optional var strokeWidth: NumberLike;
   @:optional var viewBox: String;
   @:optional var xmlns: String;

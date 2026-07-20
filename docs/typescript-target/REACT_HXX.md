@@ -375,6 +375,24 @@ attribute, extend a typed provider or contribute the missing generic contract.
 Do not work around a missing field with `Dynamic`, a cast, or a raw TypeScript
 type string: those approaches would move the error past Haxe again.
 
+The common SVG contract uses React's camelCase authoring names and accepts the
+same closed string-or-number shape for dash presentation values:
+
+```haxe
+final pattern = "8 4";
+final offset = 2.5;
+final gauge = <circle
+  strokeDasharray={pattern}
+  strokeDashoffset={offset}
+/>;
+```
+
+Haxe checks both values before output. TSX keeps `strokeDasharray` and
+`strokeDashoffset`, while React writes the native `stroke-dasharray` and
+`stroke-dashoffset` names when rendering DOM or server markup. A Boolean or
+other unrelated value fails at its HXX attribute rather than being deferred to
+TypeScript.
+
 Default React event contracts retain their element parameter. For example, an
 `<input>` callback contextually receives
 `genes.react.ChangeEvent<js.html.InputElement>`, so the complete standard Haxe

@@ -87,6 +87,7 @@ function assertHaxeHxxNegatives(): void {
     ["hxx_negative_unknown_custom_intrinsic", "GTS-HXX-TAG-001"],
     ["hxx_negative_intrinsic_prop", "GTS-HXX-PROP-001"],
     ["hxx_negative_intrinsic_prop_type", "GTS-HXX-PROP-002"],
+    ["hxx_negative_svg_dash_type", "GTS-HXX-PROP-002"],
     ["hxx_negative_intrinsic_null", "GTS-HXX-PROP-002"],
     ["hxx_negative_handler", "GTS-HXX-PROP-002"],
     ["hxx_negative_component_missing", "GTS-HXX-PROP-004"],
@@ -544,6 +545,9 @@ ok(automaticTsxSource.includes(
 ok(automaticTsxSource.includes(
   "<Main.RequiredChildList>{childArray}</Main.RequiredChildList>"
 ), "TSX preserves one array-valued child for an array children contract");
+ok(automaticTsxSource.includes(
+  "strokeDasharray={dashPattern} strokeDashoffset={dashOffset}"
+), "TSX preserves canonical checked React SVG dash properties");
 assertNoUnsafeTypes({
   repoRoot,
   generatedDir: "tests/genes-ts/snapshot/react/out/tsx/src-gen",
@@ -657,6 +661,9 @@ ok(typedCreateElementSource.includes(
 ok(typedCreateElementSource.includes(
   "children: [multipleRequiredChildrenHtml, multipleRequiredChildrenHtml1]"
 ), "typed createElement aggregates several children for a required array contract");
+ok(typedCreateElementSource.includes(
+  "strokeDasharray: dashPattern, strokeDashoffset: dashOffset"
+), "typed createElement preserves checked React SVG dash properties");
 assertNoUnsafeTypes({
   repoRoot,
   generatedDir: "tests/genes-ts/snapshot/react/out/ts/src-gen",
@@ -720,6 +727,9 @@ ok(dualClassicSource.includes(
 ok(dualClassicSource.includes(
   "createElement(DualJsxMain.RequiredChildListHost, null, childArray)"
 ), "classic createElement preserves one array-valued child");
+ok(dualClassicSource.includes(
+  '"strokeDasharray": dashPattern, "strokeDashoffset": dashOffset'
+), "classic createElement preserves checked React SVG dash properties");
 strictEqual(dualClassicSource.includes("Jsx.__jsx"), false);
 
 run("haxe", ["tests/genes-ts/snapshot/react/build-dual-jsx.hxml"]);
@@ -742,6 +752,7 @@ const expectedTranscript = {
   optionalSpreadOverrideHtml: '<section><strong>nested child</strong></section>',
   arrayValueChildHtml: '<section><em>array A</em><strong>array B</strong></section>',
   multipleRequiredChildrenHtml: '<section><em>nested A</em><strong>nested B</strong></section>',
+  dashedSvgHtml: '<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" stroke-dasharray="8 4" stroke-dashoffset="2.5"></circle></svg>',
   dynamicHtml: '<aside data-mode="dynamic">D</aside>',
   evaluatedHtml: '<div title="evaluated-once">E</div>',
   arrayPropHtml: '<div data-array="evaluated-once">P</div>',

@@ -202,6 +202,8 @@ class Negative {
     final value = <div href="/wrong" />;
     #elseif hxx_negative_intrinsic_prop_type
     final value = <button disabled="yes" />;
+    #elseif hxx_negative_svg_dash_type
+    final value = <circle strokeDashoffset={false} />;
     #elseif hxx_negative_intrinsic_null
     // React's `href?: string | undefined` accepts omission or an explicit
     // JavaScript undefined value. Haxe null is a different supplied value and
