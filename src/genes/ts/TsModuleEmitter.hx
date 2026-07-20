@@ -113,6 +113,46 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   /**
+   * Whether one authored null literal already matches an exact TS projection.
+   *
+   * This is intentionally narrower than general union parsing. It only removes
+   * a compiler-inserted assertion when the actual expression is literally
+   * `null` and the expected Haxe boundary prints as exactly `null`. Nullable
+   * locals flowing to ordinary non-null parameters retain their existing
+   * strict-TypeScript safeguard. The shared literal check unwraps only inert
+   * compile-time wrappers; a checked `cast(value, Type)` remains executable.
+   */
+  function acceptsExactProjectedNull(expected: Type, actual: TypedExpr): Bool {
+    return TypeUtil.isNullConstant(actual)
+      && explicitTypeProjection(expected) == 'null';
+  }
+
+  /**
+   * Reads an explicit host projection without invoking the type printer.
+   *
+   * Why: expression emission runs after dependency planning, so probing a
+   * general imported type through `TypeEmitter` can request an unplanned
+   * accessor. What: only metadata owned by the expected nominal type is
+   * relevant to the exact-null exception. How: inspect instance/abstract
+   * metadata directly and unwrap only compiler-lazy shells; typedefs remain
+   * their own named TypeScript boundary rather than borrowing an underlying
+   * projection.
+   */
+  static function explicitTypeProjection(type: Type): Null<String> {
+    return switch type {
+      case TInst(_.get().meta => meta, _) | TAbstract(_.get().meta => meta, _):
+        extractStringMeta(meta,
+          ':ts.type') ?? extractStringMeta(meta, ':genes.type');
+      case TLazy(resolve):
+        explicitTypeProjection(resolve());
+      case TMono(reference) if (reference.get() != null):
+        explicitTypeProjection(reference.get());
+      default:
+        null;
+    }
+  }
+
+  /**
    * Decides whether a raw JavaScript `undefined` literal should become `null`.
    *
    * Why: ordinary Haxe nullable values use `null`, while JavaScript host APIs
@@ -186,8 +226,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     // binding. A module can need the type even when it contains no markup, so
     // the typed dependency plan contributes independently from `JsxPlan`.
     final jsxImportSource = haxe.macro.Context.definedValue('genes.ts.jsx_import_source');
-    if (needsJsxNamespaceImport
-      && jsxImportSource != null
+    if (needsJsxNamespaceImport && jsxImportSource != null
       && jsxImportSource.length > 0) {
       write('import type {JSX} from ');
       emitString(jsxImportSource);
@@ -532,6 +571,13 @@ class TsModuleEmitter extends JsModuleEmitter {
           final expected = args[i].t;
           final actual = params[i];
           final actualUnwrapped = unwrapExpr(actual);
+          // Route exact projected nulls through the plain-call argument writer
+          // below. A generic TCast would otherwise emit a redundant assertion
+          // before this expected-type fact can be observed.
+          if (acceptsExactProjectedNull(expected, actual)) {
+            needsCasts = true;
+            break;
+          }
           if (isUnresolvedMono(expected) && isNullConst(actualUnwrapped)) {
             needsCasts = true;
             break;
@@ -582,7 +628,10 @@ class TsModuleEmitter extends JsModuleEmitter {
           final expectedTsType = i < cachedArgTsTypes.length ? cachedArgTsTypes[i] : null;
           final actual = params[i];
           final actualUnwrapped = unwrapExpr(actual);
-          if (expectedTsType != null
+          if (expected != null && acceptsExactProjectedNull(expected, actual)) {
+            emitPos(actual.pos);
+            write('null');
+          } else if (expectedTsType != null
             && needsEnumAbstractExpectedAssertion(expectedTsType, actual)) {
             write('(');
             emitValue(actual);
@@ -620,7 +669,11 @@ class TsModuleEmitter extends JsModuleEmitter {
               write(')');
             }
           } else {
-            emitValue(actual);
+            // One sibling may have selected this manual argument loop. Keep
+            // the normal expected-type context for every untouched argument;
+            // object literals need it for host field names and optional
+            // null-to-undefined writes.
+            emitValueWithExpectedType(expected, actual);
           }
         }
         write(')');
@@ -1915,7 +1968,8 @@ class TsModuleEmitter extends JsModuleEmitter {
     // local keeps its declared annotation: otherwise TypeScript would freeze
     // the first narrow result and reject a later assignment Haxe accepted.
     final plan = narrowingPlan;
-    final inferExplicitCallType = eo != null && plan != null
+    final inferExplicitCallType = eo != null
+      && plan != null
       && !plan.isLocalReassigned(v)
       && ExplicitTypeArguments.infersPreciseLocalType(eo);
     final emittedType = (narrowedOptionalInit || narrowedNonNullInit) ? stripNull(v.t) : v.t;
@@ -2884,14 +2938,14 @@ class TsModuleEmitter extends JsModuleEmitter {
     if (plan != null) {
       switch plan.lookupProvenance(e) {
         case PlannedSourceExpression:
-          haxe.macro.Context.info(
-            "[GTS-NARROW-INVENTORY] planned-source-expression", e.pos);
+          haxe.macro.Context.info("[GTS-NARROW-INVENTORY] planned-source-expression",
+            e.pos);
         case MissingSourceProgramPoint:
-          haxe.macro.Context.info(
-            "[GTS-NARROW-INVENTORY] missing-source-program-point", e.pos);
+          haxe.macro.Context.info("[GTS-NARROW-INVENTORY] missing-source-program-point",
+            e.pos);
         case EmitterSynthesizedExpression:
-          haxe.macro.Context.info(
-            "[GTS-NARROW-INVENTORY] emitter-synthesized-expression", e.pos);
+          haxe.macro.Context.info("[GTS-NARROW-INVENTORY] emitter-synthesized-expression",
+            e.pos);
       }
     }
     #end
