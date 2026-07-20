@@ -21,6 +21,10 @@ typedef ElementChildProps = {
   final children: Element;
 }
 
+/** Extern-class control for exact component names in HXX diagnostics. */
+@:genes.jsxComponentProps("Negative.ElementChildProps")
+extern class ExactElementComponent {}
+
 /**
  * Models a spread whose `children` field may be absent at runtime.
  *
@@ -166,10 +170,6 @@ class Negative {
     return <span>{props.children}</span>;
   }
 
-  static function ElementChild(props: ElementChildProps): Element {
-    return <span>{props.children}</span>;
-  }
-
   static function BadReturn(): NotReactNode {
     return {label: "not an element"};
   }
@@ -309,11 +309,11 @@ class Negative {
     #elseif hxx_negative_missing_child
     final value = <TextChild />;
     #elseif hxx_negative_element_text_child
-    final value = <ElementChild>text is not an element</ElementChild>;
+    final value = <ExactElementComponent>text is not an element</ExactElementComponent>;
     #elseif hxx_negative_element_multiple_children
-    final value = <ElementChild><span>one</span><strong>two</strong></ElementChild>;
+    final value = <ExactElementComponent><span>one</span><strong>two</strong></ExactElementComponent>;
     #elseif hxx_negative_element_missing_child
-    final value = <ElementChild />;
+    final value = <ExactElementComponent />;
     #elseif hxx_negative_scalar_for_array_child
     final value = <TextChildList>one</TextChildList>;
     #elseif hxx_negative_unsafe_array_child

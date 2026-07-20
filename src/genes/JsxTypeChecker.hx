@@ -991,6 +991,22 @@ class JsxTypeChecker {
     return null;
   }
 
+  /**
+   * Returns the authored component identity used in HXX diagnostics.
+   *
+   * Why: function components usually arrive as locals or fields, while an
+   * extern-class component such as a direct npm binding arrives as a Haxe
+   * `TTypeExpr`. Falling through for that form produced the unhelpful label
+   * `expression` exactly where an interop author needs the native type name.
+   *
+   * What: every statically named Haxe module type contributes its declared
+   * name. Truly computed component expressions retain the conservative
+   * fallback because they have no single source-level identity to report.
+   *
+   * How: this only changes diagnostic presentation. Component resolution,
+   * typing, imports, and emitted TypeScript/JavaScript continue to use the
+   * original typed expression.
+   */
   static function componentName(expression: TypedExpr): String {
     return switch JsxPlan.unwrap(expression).expr {
       case TLocal(variable): variable.name;
@@ -999,6 +1015,12 @@ class JsxTypeChecker {
             FClosure(_, field): field.get().name;
           case FDynamic(name): name;
           case FEnum(_, field): field.name;
+        }
+      case TTypeExpr(moduleType): switch moduleType {
+          case TClassDecl(classRef): classRef.get().name;
+          case TEnumDecl(enumRef): enumRef.get().name;
+          case TTypeDecl(typeRef): typeRef.get().name;
+          case TAbstract(abstractRef): abstractRef.get().name;
         }
       default: 'expression';
     }
