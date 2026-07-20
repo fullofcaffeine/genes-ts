@@ -59,6 +59,8 @@ interface InheritedCardProps extends InheritedBaseProps {
 // The Haxe formatter does not yet understand component HXX reliably.
 // @formatter:off
 class Main {
+  static var jsxEvaluationOrder: Array<String> = [];
+
   static function syncFormAction(data: PreciseFormData): Void {
     data.has("title");
   }
@@ -206,6 +208,21 @@ class Main {
     if (loweredHtml != '<div><span>ready</span><strong>queued</strong><em>done</em><span>ready:1</span><strong>queued:2</strong></div>')
       throw 'Unexpected lowered list HTML: ' + loweredHtml;
 
+    jsxEvaluationOrder = [];
+    final orderedHtml = renderToStaticMarkup(renderOrderedChildList());
+    if (orderedHtml != '<div data-order="parent"><span>first</span><strong>second</strong></div>')
+      throw 'Unexpected ordered HTML: ' + orderedHtml;
+    if (jsxEvaluationOrder.join(">") != "parent>first>second")
+      throw 'Unexpected JSX evaluation order: ' + jsxEvaluationOrder.join(">");
+
+    final authoredChildHtml = renderToStaticMarkup(renderAuthoredChild("named"));
+    if (authoredChildHtml != '<div><span>named</span></div>')
+      throw 'Unexpected authored child HTML: ' + authoredChildHtml;
+
+    final sharedChildHtml = renderToStaticMarkup(renderSharedChild("shared"));
+    if (sharedChildHtml != '<div><span>shared</span><span>shared</span></div>')
+      throw 'Unexpected shared child HTML: ' + sharedChildHtml;
+
     final frag = jsx('<><span>A</span><span>B</span></>');
     final fragHtml = renderToStaticMarkup(frag);
     if (fragHtml != '<span>A</span><span>B</span>')
@@ -316,6 +333,34 @@ class Main {
       <span>{first + ":7"}</span>
       <strong>{second + ":8"}</strong>
     </div>;
+  }
+
+  /**
+   * Keeps effectful values in explicit sequence while source JSX recovers the
+   * pure nested element tree around those already-evaluated locals.
+   */
+  static function renderOrderedChildList(): Element {
+    return <div data-order={recordJsxEvaluation("parent")}>
+      <span>{recordJsxEvaluation("first")}</span>
+      <strong>{recordJsxEvaluation("second")}</strong>
+    </div>;
+  }
+
+  /** One-use authored locals remain visible even when their value is pure. */
+  static function renderAuthoredChild(label: String): Element {
+    final child = <span>{label}</span>;
+    return <div>{child}</div>;
+  }
+
+  /** Shared JSX values retain one declaration and two reads. */
+  static function renderSharedChild(label: String): Element {
+    final child = <span>{label}</span>;
+    return <div>{child}{child}</div>;
+  }
+
+  static function recordJsxEvaluation(label: String): String {
+    jsxEvaluationOrder.push(label);
+    return label;
   }
 
   static function GenericValue<T>(props: GenericValueProps<T>): Element {

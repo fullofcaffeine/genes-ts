@@ -50,6 +50,14 @@ function parseTranscript(output: string): unknown {
   return JSON.parse(line) as unknown;
 }
 
+function sourceSection(source: string, start: string, end: string): string {
+  const startIndex = source.indexOf(start);
+  ok(startIndex >= 0, `missing source section start: ${start}`);
+  const endIndex = source.indexOf(end, startIndex + start.length);
+  ok(endIndex >= 0, `missing source section end: ${end}`);
+  return source.slice(startIndex, endIndex);
+}
+
 function copyTsxFixtures(intoRelDir: string): void {
   const fixturesDir = path.join(repoRoot, "tests/genes-ts/snapshot/react/fixtures");
   const destDir = path.join(repoRoot, intoRelDir);
@@ -597,10 +605,10 @@ ok(automaticTsxSource.includes("event.target.setSelectionRange(0, 0)"),
   "HXX exposes the complete standard input API");
 ok(!automaticTsxSource.includes("./js/html"));
 ok(automaticTsxSource.includes(
-  "<Main.RequiredChild {...optionalChildren}>{optionalChildSpreadHtml}</Main.RequiredChild>"
+  "<Main.RequiredChild {...optionalChildren}><strong>nested child</strong></Main.RequiredChild>"
 ), "TSX lets nested markup satisfy required children after an optional spread");
 ok(automaticTsxSource.includes(
-  "<Main.RequiredChild {...presentOptionalChildren}>{optionalChildOverrideHtml}</Main.RequiredChild>"
+  "<Main.RequiredChild {...presentOptionalChildren}><strong>nested child</strong></Main.RequiredChild>"
 ), "TSX keeps nested children after and therefore above a present spread child");
 ok(automaticTsxSource.includes(
   "<Main.RequiredChildList>{childArray}</Main.RequiredChildList>"
@@ -622,6 +630,49 @@ ok(automaticTsxSource.includes(
 ) && automaticTsxSource.includes(
   '<input type="submit" formAction={Main.asyncFormAction} />'
 ), "button and input preserve the same checked React 19 formAction contract");
+const canonicalChildTree = sourceSection(
+  automaticTsxSource,
+  "static renderChildList(",
+  "static renderOrderedChildList("
+);
+ok(canonicalChildTree.includes(
+  "return <div><span>{first}</span><strong>{second}</strong><Button label=\"Save\" />"
+), "pure one-use HXX children remain one canonical nested TSX tree");
+strictEqual(canonicalChildTree.includes("let span: JSX.Element"), false);
+strictEqual(canonicalChildTree.includes("let strong: JSX.Element"), false);
+
+const orderedChildTree = sourceSection(
+  automaticTsxSource,
+  "static renderOrderedChildList(",
+  "static renderAuthoredChild("
+);
+ok(orderedChildTree.includes(
+  'Main.recordJsxEvaluation("parent")'
+) && orderedChildTree.includes(
+  'Main.recordJsxEvaluation("first")'
+) && orderedChildTree.includes(
+  'Main.recordJsxEvaluation("second")'
+), "effectful JSX values retain explicit evaluation steps");
+ok(orderedChildTree.includes("let span: JSX.Element = <span>{tmp1}</span>"),
+  "a child that cannot cross a later effectful sibling retains its local");
+ok(orderedChildTree.includes("{span}<strong>{tmp3}</strong>"),
+  "only the final reorder-safe child is inlined around sequenced values");
+
+const authoredChildTree = sourceSection(
+  automaticTsxSource,
+  "static renderAuthoredChild(",
+  "static renderSharedChild("
+);
+ok(authoredChildTree.includes("let child: JSX.Element = <span>{label}</span>"),
+  "a one-use authored JSX local remains an authored local");
+const sharedChildTree = sourceSection(
+  automaticTsxSource,
+  "static renderSharedChild(",
+  "static recordJsxEvaluation("
+);
+ok(sharedChildTree.includes("let child: JSX.Element = <span>{label}</span>"));
+ok(sharedChildTree.includes("return <div>{child}{child}</div>"),
+  "a shared JSX value retains one declaration and both reads");
 assertNoUnsafeTypes({
   repoRoot,
   generatedDir: "tests/genes-ts/snapshot/react/out/tsx/src-gen",
@@ -746,6 +797,16 @@ ok(typedCreateElementSource.includes(
 ok(typedCreateElementSource.includes(
   'createElement("form", ({action: Main.asyncFormAction} satisfies'
 ), "typed createElement preserves a named asynchronous form action");
+const typedCreateElementChildren = sourceSection(
+  typedCreateElementSource,
+  "static renderChildList(",
+  "static renderOrderedChildList("
+);
+ok(typedCreateElementChildren.includes(
+  'let tmp: JSX.Element = React__genes_jsx.createElement("span", null, first)'
+) && typedCreateElementChildren.includes(
+  'return React__genes_jsx.createElement("div", null, tmp, tmp1'
+), "plain TypeScript createElement output retains its established lowering");
 assertNoUnsafeTypes({
   repoRoot,
   generatedDir: "tests/genes-ts/snapshot/react/out/ts/src-gen",
@@ -766,7 +827,10 @@ const dualTsxSource = readFileSync(
   "utf8"
 );
 ok(dualTsxSource.includes("<main {...rootProps}>"));
-ok(dualTsxSource.includes("let tree1: JSX.Element ="));
+ok(dualTsxSource.includes(
+  "let tree: JSX.Element = <main {...rootProps}><h1>{heading}</h1>{fragment}</main>"
+), "TSX removes the compiler-only heading local and restores the authored tree name");
+strictEqual(dualTsxSource.includes("let tree1: JSX.Element ="), false);
 ok(dualTsxSource.includes("React__genes_jsx.createElement(runtimeTag"));
 runGeneratedTypeScriptMatrix(
   "tests/genes-ts/snapshot/react/tsconfig.dual-tsx.json"
@@ -804,6 +868,11 @@ const dualClassicSource = readFileSync(
 ok(dualClassicSource.includes('import * as React__genes_jsx from "react"'));
 ok(dualClassicSource.includes("React__genes_jsx.createElement(\"main\""));
 ok(dualClassicSource.includes(
+  'let tree = React__genes_jsx.createElement("h1", null, heading)'
+) && dualClassicSource.includes(
+  'let tree1 = React__genes_jsx.createElement("main", {...rootProps}, tree, fragment)'
+), "classic JavaScript retains the pre-existing explicit element sequence");
+ok(dualClassicSource.includes(
   "createElement(DualJsxMain.RequiredChildHost, {...presentOptionalChildren}, optionalSpreadOverrideElement)"
 ), "classic createElement passes nested children after a present spread child");
 ok(dualClassicSource.includes(
@@ -826,6 +895,9 @@ const dualJsxSource = readFileSync(
   "utf8"
 );
 ok(dualJsxSource.includes("<main {...rootProps}>"));
+ok(dualJsxSource.includes(
+  "let tree = <main {...rootProps}><h1>{heading}</h1>{fragment}</main>"
+), "type-erased JSX applies the same safe source-tree normalization");
 ok(dualJsxSource.includes("React__genes_jsx.createElement(runtimeTag"));
 strictEqual(dualJsxSource.includes("Jsx.__jsx"), false);
 strictEqual(dualJsxSource.includes(": JSX.Element"), false);

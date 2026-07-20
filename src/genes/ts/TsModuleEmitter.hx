@@ -855,6 +855,11 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
   }
 
+  /** `.tsx` preserves JSX source; plain `.ts` retains createElement lowering. */
+  override function emitsJsxSource(): Bool {
+    return jsxEmitTsx;
+  }
+
   /** JSX props preserve explicit `undefined`; omission is not Haxe `null`. */
   override function emitJsxValue(expression: TypedExpr,
       source: JsxValueSource): Void {

@@ -48,7 +48,8 @@ class NamePlan {
 
   public static function build(module: Module, temps: TempPlan,
       profile: NamePlanProfile, jsxEmitTsx = false): NamePlan {
-    return new NamePlanBuilder(temps, profile, jsxEmitTsx).build(module);
+    return new NamePlanBuilder(temps, profile, jsxEmitTsx,
+      module.jsxPlan).build(module);
   }
 
   public function new(names: Map<Int, String>) {
@@ -82,15 +83,17 @@ private class NamePlanBuilder {
   final temps: TempPlan;
   final profile: NamePlanProfile;
   final jsxEmitTsx: Bool;
+  final jsxPlan: JsxPlan;
   final names: Map<Int, String> = [];
   final generatedCounts: Map<String, Int> = [];
   final plannedFunctions = new ObjectMap<TFunc, Bool>();
 
   public function new(temps: TempPlan, profile: NamePlanProfile,
-      jsxEmitTsx: Bool) {
+      jsxEmitTsx: Bool, jsxPlan: JsxPlan) {
     this.temps = temps;
     this.profile = profile;
     this.jsxEmitTsx = jsxEmitTsx;
+    this.jsxPlan = jsxPlan;
   }
 
   public function build(module: Module): NamePlan {
@@ -146,9 +149,11 @@ private class NamePlanBuilder {
     switch expression.expr {
       case TBlock(elements):
         final blockPreferences = copyPreferences(preferences);
-        if (profile == TypeScriptReadable) {
+        if (profile == TypeScriptReadable)
           addObjectConstructionPreferences(elements, blockPreferences);
-          if (jsxEmitTsx)
+        if (jsxEmitTsx) {
+          addSourceInlineOwnerPreferences(elements, blockPreferences);
+          if (profile == TypeScriptReadable)
             addTsxElementPreferences(elements, blockPreferences);
         }
         for (element in elements)
@@ -195,6 +200,15 @@ private class NamePlanBuilder {
       preferences: Map<Int, String>): Void {
     if (names.exists(local.id))
       return;
+    if (jsxEmitTsx && jsxPlan.sourceInlineInitializer(local) != null)
+      return;
+    if (jsxEmitTsx && profile == ClassicStable
+      && preferences.exists(local.id)) {
+      final preferred = preferences.get(local.id);
+      final count = countAndIncrement(scope.counts, preferred);
+      names.set(local.id, suffix(preferred, count));
+      return;
+    }
     if (profile == ClassicStable) {
       names.set(local.id, local.name);
       return;
@@ -306,6 +320,43 @@ private class NamePlanBuilder {
           final preferred = preferredNameForJsxElement(initializer);
           if (preferred != null)
             preferences.set(local.id, preferred);
+        default:
+      }
+    }
+  }
+
+  /**
+   * Restores the authored owner name after removing nested JSX scaffolding.
+   *
+   * HXX gives the first lowered child the surrounding declaration's requested
+   * name and suffixes the actual parent (`tree`, then `tree1`). Once the child
+   * declaration is omitted, keeping `tree1` would expose a phantom collision.
+   * A parent may reclaim the unsuffixed name only when its initializer contains
+   * that exact planned inline local; ordinary numbered locals are untouched.
+   */
+  function addSourceInlineOwnerPreferences(elements: Array<TypedExpr>,
+      preferences: Map<Int, String>): Void {
+    for (element in elements) {
+      switch unwrap(element).expr {
+        case TVar(owner, initializer) if (initializer != null):
+          final parts = numberedLocalName(owner.name);
+          if (parts == null || parts.index == null)
+            continue;
+          var reclaimsPrefix = false;
+          function visit(expression: TypedExpr): Void {
+            switch unwrap(expression).expr {
+              case TLocal(local)
+                if (local.name == parts.prefix
+                  && jsxPlan.sourceInlineInitializer(local) != null):
+                reclaimsPrefix = true;
+              default:
+            }
+            if (!reclaimsPrefix)
+              expression.iter(visit);
+          }
+          visit(initializer);
+          if (reclaimsPrefix)
+            preferences.set(owner.id, parts.prefix);
         default:
       }
     }
