@@ -82,7 +82,7 @@ function assertHaxeHxxNegatives(): void {
     path.join(repoRoot, "tests/genes-ts/snapshot/react/negative/Negative.hx"),
     "utf8"
   ).split(/\r?\n/);
-  const cases: ReadonlyArray<readonly [string, string, string?]> = [
+  const cases: ReadonlyArray<readonly [string, string, string?, string?]> = [
     ["hxx_negative_unknown_intrinsic", "GTS-HXX-TAG-001"],
     ["hxx_negative_unknown_custom_intrinsic", "GTS-HXX-TAG-001"],
     ["hxx_negative_intrinsic_prop", "GTS-HXX-PROP-001"],
@@ -102,6 +102,36 @@ function assertHaxeHxxNegatives(): void {
     ["hxx_negative_unexpected_child", "GTS-HXX-CHILD-001"],
     ["hxx_negative_wrong_child", "GTS-HXX-CHILD-003"],
     ["hxx_negative_missing_child", "GTS-HXX-CHILD-002"],
+    [
+      "hxx_negative_element_text_child",
+      "GTS-HXX-CHILD-003",
+      "final value =",
+      "component `ExactElementComponent`"
+    ],
+    [
+      "hxx_negative_element_multiple_children",
+      "GTS-HXX-CHILD-003",
+      "final value =",
+      "component `ExactElementComponent`"
+    ],
+    [
+      "hxx_negative_element_missing_child",
+      "GTS-HXX-CHILD-002",
+      "final value =",
+      "component `ExactElementComponent`"
+    ],
+    [
+      "hxx_negative_element_named_text_child",
+      "GTS-HXX-PROP-002",
+      "final value =",
+      "component `ExactElementComponent`"
+    ],
+    [
+      "hxx_negative_element_spread_text_child",
+      "GTS-HXX-SPREAD-002",
+      "final value =",
+      "component `ExactElementComponent`"
+    ],
     ["hxx_negative_scalar_for_array_child", "GTS-HXX-CHILD-003"],
     ["hxx_negative_unsafe_array_child", "GTS-HXX-TYPE-001"],
     ["hxx_negative_named_and_nested_child", "GTS-HXX-CHILD-004"],
@@ -137,7 +167,7 @@ function assertHaxeHxxNegatives(): void {
     ["hxx_negative_required_undefinable_missing", "GTS-HXX-PROP-004"],
     ["hxx_negative_null_to_undefinable", "GTS-HXX-PROP-002"]
   ];
-  for (const [define, diagnostic, sourceMarker = "final value ="] of cases) {
+  for (const [define, diagnostic, sourceMarker = "final value =", outputMarker] of cases) {
     const branchLine = negativeSource.findIndex((line) =>
       line.includes(`#if ${define}`) || line.includes(`#elseif ${define}`)
     );
@@ -155,6 +185,9 @@ function assertHaxeHxxNegatives(): void {
     strictEqual(result.status === 0, false, `${define} unexpectedly compiled`);
     const output = `${result.stdout}${result.stderr}`;
     ok(output.includes(`[${diagnostic}]`), `${define} did not report ${diagnostic}:\n${output}`);
+    if (outputMarker !== undefined) {
+      ok(output.includes(outputMarker), `${define} did not report ${outputMarker}:\n${output}`);
+    }
     ok(
       output.includes(`Negative.hx:${sourceLine}:`),
       `${define} did not retain the authored HXX line ${sourceLine}:\n${output}`

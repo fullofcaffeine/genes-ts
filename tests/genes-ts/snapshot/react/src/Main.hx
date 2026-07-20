@@ -3,6 +3,7 @@ import genes.react.ComponentType;
 import genes.react.DomElement;
 import genes.react.Element;
 import genes.react.MouseEvent;
+import genes.react.Node;
 import genes.react.SyntheticEvent;
 import genes.react.internal.Jsx;
 import genes.ts.Imports;
@@ -26,6 +27,10 @@ typedef StatusProps = {
 
 typedef RequiredChildProps = {
   final children: Element;
+}
+
+typedef BroadNodeProps = {
+  final children: Node;
 }
 
 typedef GenericValueProps<T> = {
@@ -150,6 +155,14 @@ class Main {
     final requiredChildHtml = renderToStaticMarkup(<RequiredChild><strong>required</strong></RequiredChild>);
     if (requiredChildHtml != '<section><strong>required</strong></section>')
       throw 'Unexpected required child HTML: ' + requiredChildHtml;
+
+    // `Node` deliberately remains the broad renderable contract. This is the
+    // control for RequiredChild's exact one-Element property above.
+    final broadNodeHtml = renderToStaticMarkup(
+      <BroadNode>text child<strong key="broad-element">element child</strong></BroadNode>
+    );
+    if (broadNodeHtml != '<section>text child<strong>element child</strong></section>')
+      throw 'Unexpected broad node HTML: ' + broadNodeHtml;
 
     final booleanAndArrayHtml = renderToStaticMarkup(<button disabled aria-pressed={true}>{["A", "B"]}</button>);
     if (booleanAndArrayHtml != '<button disabled="" aria-pressed="true">AB</button>')
@@ -319,6 +332,25 @@ class Main {
     return <section>{props.children}</section>;
   }
 
+  static function BroadNode(props: BroadNodeProps): Element {
+    return <section>{props.children}</section>;
+  }
+
+  /**
+   * Proves aliases and element subclasses remain renderable HXX values.
+   *
+   * The method is a compile-time type-checking control rather than runtime
+   * behavior. `ExactElementAlias` and `SpecializedElement` must each be
+   * accepted as one renderable value, while `BroadNodeAlias` retains the
+   * deliberately wider React-node contract.
+   */
+  static function elementContractControls(exact: ExactElementAlias,
+      specialized: SpecializedElement, broad: BroadNodeAlias): Element {
+    final exactChild = <BroadNode>{exact}</BroadNode>;
+    final specializedChild = <BroadNode>{specialized}</BroadNode>;
+    return <BroadNode>{[exactChild, specializedChild, broad]}</BroadNode>;
+  }
+
   /** Renders the ordered array required by this component contract. */
   static function RequiredChildList(props: MainRequiredChildListProps): Element {
     return <section>{props.children}</section>;
@@ -364,6 +396,43 @@ class Main {
   }
 }
 // @formatter:on
+/**
+ * Compile-only aliases for HXX's element and broad-node marker lookup.
+ *
+ * Why: aliases must preserve the same child contract as their underlying
+ * types, but publishing test-only aliases would add unrelated API surface to
+ * every generated React snapshot.
+ *
+ * What: `@:genes.compilerInternal` keeps each alias available while Haxe types
+ * the fixture and removes it at the final output boundary.
+ * `@:genes.semanticOnly` records that emitted code must not name the alias.
+ *
+ * How: `elementContractControls` makes HXX resolve these types before DCE. The
+ * generated TypeScript and classic JavaScript remain unchanged by the aliases.
+ */
+@:genes.compilerInternal
+@:genes.semanticOnly
+private typedef ExactElementAlias = Element;
+
+@:genes.compilerInternal
+@:genes.semanticOnly
+private typedef BroadNodeAlias = Node;
+
+/**
+ * Compile-only subtype control for inherited `@:genes.jsxElement`.
+ *
+ * Why: HXX should follow ordinary Haxe element subclassing without asking a
+ * library facade to repeat compiler metadata.
+ *
+ * What: this extern supplies a more specific static type without claiming a
+ * constructor or runtime value.
+ *
+ * How: the two internal markers keep the type available to HXX and remove it
+ * before output, matching the alias controls above.
+ */
+@:genes.compilerInternal
+@:genes.semanticOnly
+private extern class SpecializedElement extends Element {}
 
 /**
  * Property bag proving that an HXX spread may omit `children`.

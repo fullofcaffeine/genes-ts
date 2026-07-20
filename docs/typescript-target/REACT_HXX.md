@@ -348,6 +348,26 @@ nested value last in the checked property object; classic `createElement`
 passes it after the property object. All three forms therefore give `Card` the
 same final child.
 
+### Choose `Element` or `Node` based on the real child contract
+
+`genes.react.Element` and `genes.react.Node` answer different questions:
+
+- `Element` means exactly one JSX element, such as `<strong>Save</strong>`;
+- `Node` means anything React may render, including text, an element, an array,
+  a promise accepted by the selected React types, or several nested children.
+
+Use `Element` when the component genuinely requires one element wrapper. HXX
+then rejects text, a missing child, and several separately authored children.
+The rule also works through a typedef alias or a class that extends `Element`,
+so library-specific element facades keep normal Haxe subtype behavior.
+
+Use `Node` when the component deliberately accepts React's wider child
+algebra. Do not widen an exact property to `Node` merely to silence a child
+diagnostic; that changes the component's public contract. These checks happen
+while HXX validates the Haxe source. Generated TSX still uses the selected
+React runtime's ordinary `JSX.Element` and `ReactNode` types as a second,
+independent TypeScript check.
+
 `@:ts.optional` is not needed for this presence rule. That separate annotation
 controls whether an optional value is represented with JavaScript
 `undefined` in generated TypeScript. A direct `children={...}` property or a

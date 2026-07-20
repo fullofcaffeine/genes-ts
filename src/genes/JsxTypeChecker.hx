@@ -7,6 +7,7 @@ import genes.JsxPlan.JsxTagIntent;
 import haxe.macro.Context;
 import haxe.macro.Expr;
 import haxe.macro.Type;
+import haxe.macro.Type.ClassType;
 import haxe.macro.Type.DefType;
 import haxe.macro.Type.Ref;
 import haxe.macro.TypeTools;
@@ -875,7 +876,8 @@ class JsxTypeChecker {
           return false;
       return union.length > 0;
     }
-    if (isNodeContract(resolved) || isScalarNode(resolved, depth + 1))
+    if (isNodeContract(resolved) || isElementContract(resolved)
+      || isScalarNode(resolved, depth + 1))
       return true;
     final element = arrayElement(resolved);
     if (element != null)
@@ -990,6 +992,22 @@ class JsxTypeChecker {
     return null;
   }
 
+  /**
+   * Returns the authored component identity used in HXX diagnostics.
+   *
+   * Why: function components usually arrive as locals or fields, while an
+   * extern-class component such as a direct npm binding arrives as a Haxe
+   * `TTypeExpr`. Falling through for that form produced the unhelpful label
+   * `expression` exactly where an interop author needs the native type name.
+   *
+   * What: every statically named Haxe module type contributes its declared
+   * name. Truly computed component expressions retain the conservative
+   * fallback because they have no single source-level identity to report.
+   *
+   * How: this only changes diagnostic presentation. Component resolution,
+   * typing, imports, and emitted TypeScript/JavaScript continue to use the
+   * original typed expression.
+   */
   static function componentName(expression: TypedExpr): String {
     return switch JsxPlan.unwrap(expression).expr {
       case TLocal(variable): variable.name;
@@ -998,6 +1016,12 @@ class JsxTypeChecker {
             FClosure(_, field): field.get().name;
           case FDynamic(name): name;
           case FEnum(_, field): field.name;
+        }
+      case TTypeExpr(moduleType): switch moduleType {
+          case TClassDecl(classRef): classRef.get().name;
+          case TEnumDecl(enumRef): enumRef.get().name;
+          case TTypeDecl(typeRef): typeRef.get().name;
+          case TAbstract(abstractRef): abstractRef.get().name;
         }
       default: 'expression';
     }
@@ -1128,6 +1152,60 @@ class JsxTypeChecker {
         hasMeta(abstractRef.get().meta, 'genes.jsxNode');
       default: false;
     }
+  }
+
+  /**
+   * Identifies an exact JSX-element type that is renderable but not broad.
+   *
+   * Why: `@:genes.jsxNode` is the open ReactNode-style contract. Treating the
+   * concrete `genes.react.Element` facade as that same contract caused a
+   * property typed `Element` to accept text and several nested children.
+   *
+   * What: `@:genes.jsxElement` marks a nominal class or abstract as a
+   * renderable element. It does not change normal Haxe assignability or child
+   * cardinality when that type appears as a component property.
+   *
+   * How: renderability calls this helper explicitly, while `isNodeContract`
+   * remains the only entry into the broad child algebra. Typedef and nullable
+   * wrappers are followed, and a class inherits the exact-element promise
+   * from its superclass. The broad node marker is deliberately not inherited
+   * through this path: `Element` extends `Node`, but it must still mean one
+   * exact element when used as a component property.
+   */
+  static function isElementContract(type: Type): Bool {
+    final resolved = resolveAliases(type);
+    final nullable = nullableInner(resolved);
+    if (nullable != null)
+      return isElementContract(nullable);
+    return switch resolved {
+      case TInst(classRef, _):
+        classHasElementContract(classRef);
+      case TAbstract(abstractRef, _):
+        hasMeta(abstractRef.get().meta, 'genes.jsxElement');
+      default: false;
+    }
+  }
+
+  /**
+   * Follows ordinary class inheritance for the exact-element promise.
+   *
+   * Why: a library may expose a more specific element facade by extending
+   * `genes.react.Element`. Requiring every subclass to repeat compiler
+   * metadata would make normal Haxe subtyping unexpectedly stop at HXX.
+   *
+   * What: the first `@:genes.jsxElement` marker on the class or one of its
+   * superclasses makes the value renderable as one element.
+   *
+   * How: this walk checks only the exact-element marker. It never treats the
+   * inherited broad `@:genes.jsxNode` marker as an element contract, so
+   * `Element extends Node` cannot reopen text, array, or multiple-child input.
+   */
+  static function classHasElementContract(classRef: Ref<ClassType>): Bool {
+    final classType = classRef.get();
+    if (hasMeta(classType.meta, 'genes.jsxElement'))
+      return true;
+    final superClass = classType.superClass;
+    return superClass != null && classHasElementContract(superClass.t);
   }
 
   static function isScalarNode(type: Type, depth: Int): Bool {
