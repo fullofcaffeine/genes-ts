@@ -229,6 +229,11 @@ function main(): void {
     /\bstatic shortCircuitMap\(\): boolean \{[\s\S]*?\n\t\}/,
     "short-circuit-map"
   );
+  const shortCircuitNoLeak = methodBlock(
+    generated,
+    /\bstatic shortCircuitRightFactDoesNotLeak\(run: boolean\): string \| null \{[\s\S]*?\n\t\}/,
+    "short-circuit-no-leak"
+  );
 
   const transcript = execFileSync(
     process.execPath,
@@ -393,6 +398,11 @@ function main(): void {
       "the short-circuit map read lost the focused non-null assertion"
     );
   }
+  if (!shortCircuitNoLeak.includes("return (item.name ?? null)")) {
+    staleFacts.push(
+      "a fact learned only inside the right operand leaked past a skipped && path"
+    );
+  }
   if (!transcript.includes("receiver-reassignment:true:false")) {
     staleFacts.push(
       "the reassigned optional field returned raw undefined instead of Haxe null"
@@ -424,7 +434,8 @@ function main(): void {
     "condition-reassignment:true:false",
     "short-circuit-and:true",
     "short-circuit-or:true:true",
-    "short-circuit-map:true"
+    "short-circuit-map:true",
+    "short-circuit-no-leak:true:false"
   ]) {
     if (!transcript.includes(expected)) {
       staleFacts.push(`runtime transcript did not contain ${expected}`);

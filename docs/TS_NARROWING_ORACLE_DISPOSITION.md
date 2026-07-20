@@ -111,7 +111,7 @@ assuming the Oracle brief was still correct.
 
 The emitter does create default-argument wrappers, but the executable inventory
 found that no current narrowing query receives one. In the focused compilation,
-all 355 observed queries mapped to original typed expressions and planned
+all 365 observed queries mapped to original typed expressions and planned
 program points; zero were synthesized lookups and zero original expressions
 were missing.
 

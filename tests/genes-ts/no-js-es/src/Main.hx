@@ -152,6 +152,8 @@ class Main {
     trace('short-circuit-and:${shortCircuitAnd("alpha")}');
     trace('short-circuit-or:${shortCircuitOr(null)}:${shortCircuitOr("beta")}');
     trace('short-circuit-map:${shortCircuitMap()}');
+    final skippedRightSide = shortCircuitRightFactDoesNotLeak(false);
+    trace('short-circuit-no-leak:${skippedRightSide == null}:${genes.ts.Undefinable.isAbsent(skippedRightSide)}');
     trace(inlineValueTemps());
     trace(mapAfterResultParameter({messages: ["one", "three"]}).join(","));
     trace(recordConstructionTemps("alpha", {name: "Alpha"}, null));
@@ -676,6 +678,26 @@ class Main {
       && formatNamedItem(named.get("alpha")) == "alpha")
       return true;
     return false;
+  }
+
+  /**
+   * A fact learned inside the right side does not describe a skipped path.
+   *
+   * When `run` is false, JavaScript never evaluates the block on the right of
+   * `&&`. The later optional-field read must therefore keep its normal
+   * undefined-to-Haxe-null conversion. This catches an optimistic analysis
+   * that improves the right operand correctly but then leaks one of that
+   * operand's own facts past the complete boolean expression.
+   */
+  static function shortCircuitRightFactDoesNotLeak(
+      run: Bool): Null<String> {
+    final item: OptionalNamedItem = {};
+    if (run && {
+      if (item.name == null)
+        return "early";
+      nonNullStringLength(item.name) > 0;
+    }) {}
+    return item.name;
   }
 
   static function nonNullStringLength(value: String): Int {
