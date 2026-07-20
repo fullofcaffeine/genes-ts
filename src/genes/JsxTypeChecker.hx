@@ -599,14 +599,22 @@ class JsxTypeChecker {
       case TAbstract(abstractRef, parameters):
         final abstractType = abstractRef.get();
         // A Haxe abstract has the runtime representation of its underlying
-        // type. Following that typed representation lets a closed object
-        // abstract participate in HXX props/spreads without treating its
-        // forwarded API as an open reflective object. Scalar, callable, and
-        // otherwise non-object abstracts still recurse to `null` and fail.
-        objectFields(TypeTools.applyTypeParameters(abstractType.type,
-          abstractType.params, parameters),
-          allowTypeParameter, depth
-          + 1);
+        // type, but only an anonymous record is safe to compare structurally.
+        // In particular, following an enum/scalar abstract into `String`
+        // would reach Haxe's extern String class and wrongly admit arbitrary
+        // strings by their shared method surface. Nested non-core abstracts
+        // may continue only while searching for an anonymous record; class,
+        // scalar, callable, enum, and core representations fail closed.
+        if (hasMeta(abstractType.meta, ':enum')
+          || hasMeta(abstractType.meta, ':coreType')) null; else {
+          final underlying = TypeTools.applyTypeParameters(abstractType.type,
+            abstractType.params, parameters);
+          switch resolveAliases(underlying) {
+            case TAnonymous(_) | TAbstract(_, _):
+              objectFields(underlying, allowTypeParameter, depth + 1);
+            default: null;
+          }
+        }
       default:
         null;
     }
