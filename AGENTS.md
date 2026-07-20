@@ -164,6 +164,16 @@ Treat `@:ts.type(...)` / `@:genes.type(...)` as lower-level boundary overrides. 
 
 ## Documentation quality (hxdoc)
 
+Documentation is a release requirement, not follow-up cleanup. A compiler,
+runtime, macro, interop, or generated-output change is incomplete until the
+relevant public guide and nearby code contract explain it in beginner-friendly
+language. Land those docs in the same PR as the behavior they describe. Include
+the practical before/after outcome, why the design is sound, the exact boundary
+proved by tests, important unsupported or deferred cases, and the commands a
+future maintainer can run to verify it. Do not rely on an issue, review thread,
+Oracle transcript, or commit message as the only explanation of a non-obvious
+decision.
+
 Modules and classes should always have a short hxdoc/comment describing their
 purpose, boundary contract, and why they exist. Document functions once they
 cross a reasonable complexity threshold, especially when they hide validation,
