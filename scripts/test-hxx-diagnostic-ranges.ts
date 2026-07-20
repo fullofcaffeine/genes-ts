@@ -1,3 +1,10 @@
+/**
+ * Protects the source range that editors highlight for representative HXX
+ * errors. Haxe 4 and Haxe 5 format diagnostics differently, so this harness
+ * groups each reported location with its own message before checking the
+ * diagnostic ID. That prevents a range from one error being mistaken for the
+ * expected range merely because the expected ID appeared elsewhere.
+ */
 import { ok, strictEqual } from "node:assert";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
@@ -20,6 +27,13 @@ type DiagnosticRangeCase = {
   readonly lineMarker: string;
   readonly rangeMarker: string;
   readonly extraArgs?: ReadonlyArray<string>;
+};
+
+type ReportedRange = {
+  readonly sourceFile: string;
+  readonly line: number;
+  readonly start: number;
+  readonly end: number;
 };
 
 const cases: ReadonlyArray<DiagnosticRangeCase> = [
@@ -74,6 +88,61 @@ function normalized(value: string): string {
   return value.replaceAll("\\", "/");
 }
 
+/**
+ * Returns only locations whose own diagnostic block contains `diagnostic`.
+ *
+ * Haxe 4 puts the ID on the location line. Haxe 5 may put it on a following
+ * line after a source excerpt. Treating the text up to the next location as
+ * one block supports both layouts without accidentally combining two errors.
+ */
+function rangesForDiagnostic(
+  output: string,
+  diagnostic: string
+): ReadonlyArray<ReportedRange> {
+  const normalizedOutput = normalized(output);
+  const locationPattern =
+    /^(?:\[ERROR\] )?(.*):(\d+): characters (\d+)-(\d+)(?: :.*)?$/gm;
+  const matches = [...normalizedOutput.matchAll(locationPattern)];
+  const ranges: Array<ReportedRange> = [];
+  for (const [index, match] of matches.entries()) {
+    const blockStart = match.index ?? 0;
+    const blockEnd = matches[index + 1]?.index ?? normalizedOutput.length;
+    const block = normalizedOutput.slice(blockStart, blockEnd);
+    if (!block.includes(`[${diagnostic}]`)) {
+      continue;
+    }
+    ranges.push({
+      sourceFile: match[1],
+      line: Number(match[2]),
+      start: Number(match[3]),
+      end: Number(match[4])
+    });
+  }
+  return ranges;
+}
+
+/**
+ * Exercises the parser boundary with two diagnostics before invoking Haxe.
+ * The expected ID uses Haxe 5's multiline layout and must not inherit the
+ * earlier Haxe 4-style location.
+ */
+function assertDiagnosticBlockGrouping(): void {
+  const ranges = rangesForDiagnostic(
+    [
+      "Other.hx:1: characters 2-3 : [OTHER] Earlier diagnostic.",
+      "[ERROR] Target.hx:4: characters 5-8",
+      "",
+      "[EXPECTED] Target diagnostic."
+    ].join("\n"),
+    "EXPECTED"
+  );
+  strictEqual(ranges.length, 1, "diagnostic blocks were combined");
+  strictEqual(ranges[0].sourceFile, "Target.hx");
+  strictEqual(ranges[0].line, 4);
+  strictEqual(ranges[0].start, 5);
+  strictEqual(ranges[0].end, 8);
+}
+
 function publishedFiles(directory: string): ReadonlyArray<string> {
   if (!existsSync(directory)) {
     return [];
@@ -91,6 +160,7 @@ function publishedFiles(directory: string): ReadonlyArray<string> {
 }
 
 export function assertHxxDiagnosticRanges(): void {
+  assertDiagnosticBlockGrouping();
   for (const rangeCase of cases) {
     const sourcePath = path.join(repoRoot, rangeCase.sourceFile);
     const sourceLines = readFileSync(sourcePath, "utf8").split(/\r?\n/);
@@ -134,32 +204,23 @@ export function assertHxxDiagnosticRanges(): void {
       `${rangeCase.name} unexpectedly compiled`
     );
     const output = `${result.stdout}${result.stderr}`;
-    ok(
-      output.includes(`[${rangeCase.diagnostic}]`),
-      `${rangeCase.name} did not report ${rangeCase.diagnostic}:\n${output}`
-    );
     // Haxe 4 prints location and message on one line. Haxe 5's pretty formatter
     // prefixes the location with `[ERROR]` and renders the message below it.
     // Both expose the same source coordinates, which are the contract here.
-    const match =
-      /^(?:\[ERROR\] )?(.*):(\d+): characters (\d+)-(\d+)(?: :|$)/m.exec(
-        output
-      );
-    ok(
-      match !== null,
-      `${rangeCase.name} did not report a precise range:\n${output}`
-    );
-    ok(
-      normalized(match[1]).endsWith(normalized(rangeCase.sourceFile)),
-      `${rangeCase.name} pointed at ${match[1]} instead of ${rangeCase.sourceFile}`
-    );
-    strictEqual(Number(match[2]), expectedLine, `${rangeCase.name} line drifted`);
+    const ranges = rangesForDiagnostic(output, rangeCase.diagnostic);
     strictEqual(
-      Number(match[3]),
-      expectedStart,
-      `${rangeCase.name} start drifted`
+      ranges.length,
+      1,
+      `${rangeCase.name} did not report exactly one precise ${rangeCase.diagnostic} range:\n${output}`
     );
-    strictEqual(Number(match[4]), expectedEnd, `${rangeCase.name} end drifted`);
+    const reported = ranges[0];
+    ok(
+      reported.sourceFile.endsWith(normalized(rangeCase.sourceFile)),
+      `${rangeCase.name} pointed at ${reported.sourceFile} instead of ${rangeCase.sourceFile}`
+    );
+    strictEqual(reported.line, expectedLine, `${rangeCase.name} line drifted`);
+    strictEqual(reported.start, expectedStart, `${rangeCase.name} start drifted`);
+    strictEqual(reported.end, expectedEnd, `${rangeCase.name} end drifted`);
 
     const files = publishedFiles(negativeOutputDir);
     strictEqual(
