@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { assertNoUnsafeTypes } from "./typing-policy.js";
 import { runGeneratedTypeScriptMatrix, runTypeScript } from "./toolchains.js";
+import { assertHxxDiagnosticRanges } from "./test-hxx-diagnostic-ranges.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -436,6 +437,7 @@ rmrf("tests/genes-ts/snapshot/react/out/custom-provider");
 rmrf("tests/genes-ts/snapshot/react/out/packed-consumer");
 rmrf("tests/genes-ts/snapshot/react/out/context-first-dom");
 
+assertHxxDiagnosticRanges();
 assertHaxeHxxNegatives();
 ok(!existsSync(path.join(
   repoRoot,

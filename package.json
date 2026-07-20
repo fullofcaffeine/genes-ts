@@ -49,6 +49,7 @@
     "test:genes-ts": "yarn build:scripts && node scripts/dist/test-genes-ts.js",
     "test:genes-ts:snapshots": "yarn build:scripts && node scripts/dist/test-genes-ts-snapshots.js",
     "test:genes-ts:sourcemaps": "yarn build:scripts && node scripts/dist/test-genes-ts-sourcemaps.js",
+    "test:genes-ts:hxx-diagnostic-ranges": "yarn build:scripts && node scripts/dist/test-hxx-diagnostic-ranges.js",
     "test:genes-ts:tsx": "yarn build:scripts && node scripts/dist/test-genes-tsx.js",
     "test:genes-ts:minimal": "yarn build:scripts && node scripts/dist/test-genes-ts-minimal.js",
     "test:genes-ts:full": "yarn build:scripts && node scripts/dist/test-genes-ts-full.js",

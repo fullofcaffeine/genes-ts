@@ -440,11 +440,15 @@ The repository covers tag typos, component identity/return types, missing,
 extra, duplicate and wrong props, unsafe keys, weak schemas and nested values,
 nullable-to-required assignments, handler target/optionality, required and
 unexpected children, non-renderable children, and invalid spreads before any
-TypeScript lane runs. The harness checks the exact authored HXX line, not merely
-the source filename. Positive alias, generic, inherited-interface, wrapper,
-nullable, recursive, prefix, custom-provider, packed-release, and runtime
-fixtures run beside them. A separate carrier-ownership fixture rejects
-post-construction prop/child mutation, including mutation through a
-marker-bound alias, with `GTS-JSX-INTENT-010` while retaining the last committed
-output. Provider coverage is explicit and
-extensible; it is not a claim that every third-party JSX namespace is built in.
+TypeScript lane runs. The focused diagnostic-range gate checks the exact
+authored start and end columns for representative tag, property value, spread,
+nested-child, and provider-metadata failures—not merely the source filename or
+line. It runs on the supported Haxe release and the configured Haxe preview,
+and each failed compile must leave the output transaction empty. Positive
+alias, generic, inherited-interface, wrapper, nullable, recursive, prefix,
+custom-provider, packed-release, and runtime fixtures run beside the negative
+controls. A separate carrier-ownership fixture rejects post-construction
+prop/child mutation, including mutation through a marker-bound alias, with
+`GTS-JSX-INTENT-010` while retaining the last committed output. Provider
+coverage is explicit and extensible; it is not a claim that every third-party
+JSX namespace is built in.

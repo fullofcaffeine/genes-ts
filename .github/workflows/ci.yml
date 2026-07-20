@@ -274,6 +274,10 @@ jobs:
         name: Run import-origin suite against Haxe preview
         continue-on-error: true
         run: yarn test:binding-identity
+      - id: preview-hxx-diagnostic-ranges
+        name: Verify HXX diagnostic ranges against Haxe preview
+        continue-on-error: true
+        run: yarn test:genes-ts:hxx-diagnostic-ranges
       - name: Report Haxe preview compatibility
         if: always()
         env:
@@ -281,6 +285,7 @@ jobs:
           MINIMAL_OUTCOME: ${{ steps.preview-minimal.outcome }}
           TEMPLATE_LITERALS_OUTCOME: ${{ steps.preview-template-literals.outcome }}
           BINDING_IDENTITY_OUTCOME: ${{ steps.preview-binding-identity.outcome }}
+          HXX_DIAGNOSTIC_RANGES_OUTCOME: ${{ steps.preview-hxx-diagnostic-ranges.outcome }}
         run: |
           printf '%s\n' \
             "### Haxe preview compatibility (advisory)" \
@@ -289,7 +294,8 @@ jobs:
             "- Minimal generated suite: **$MINIMAL_OUTCOME**" \
             "- Template-literal suite: **$TEMPLATE_LITERALS_OUTCOME**" \
             "- Import-origin suite: **$BINDING_IDENTITY_OUTCOME**" \
+            "- HXX diagnostic ranges: **$HXX_DIAGNOSTIC_RANGES_OUTCOME**" \
             >> "$GITHUB_STEP_SUMMARY"
-          if [ "$BASELINE_OUTCOME" != "success" ] || [ "$MINIMAL_OUTCOME" != "success" ] || [ "$TEMPLATE_LITERALS_OUTCOME" != "success" ] || [ "$BINDING_IDENTITY_OUTCOME" != "success" ]; then
-            echo "::warning title=Haxe preview compatibility::baseline=$BASELINE_OUTCOME, minimal=$MINIMAL_OUTCOME, template-literals=$TEMPLATE_LITERALS_OUTCOME, import-origin=$BINDING_IDENTITY_OUTCOME. Supported Haxe remains authoritative."
+          if [ "$BASELINE_OUTCOME" != "success" ] || [ "$MINIMAL_OUTCOME" != "success" ] || [ "$TEMPLATE_LITERALS_OUTCOME" != "success" ] || [ "$BINDING_IDENTITY_OUTCOME" != "success" ] || [ "$HXX_DIAGNOSTIC_RANGES_OUTCOME" != "success" ]; then
+            echo "::warning title=Haxe preview compatibility::baseline=$BASELINE_OUTCOME, minimal=$MINIMAL_OUTCOME, template-literals=$TEMPLATE_LITERALS_OUTCOME, import-origin=$BINDING_IDENTITY_OUTCOME, hxx-diagnostic-ranges=$HXX_DIAGNOSTIC_RANGES_OUTCOME. Supported Haxe remains authoritative."
           fi
