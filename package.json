@@ -108,7 +108,7 @@
     "qs": "6.15.2",
     "@sigstore/core": "3.2.1",
     "sigstore": "4.1.1",
-    "tar": "7.5.16"
+    "tar": "7.5.19"
   },
   "release": {
     "branches": [
