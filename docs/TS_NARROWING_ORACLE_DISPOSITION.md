@@ -102,25 +102,44 @@ is a safe feature boundary, not a missing control-flow classification.
 | Key fields by compiler declaration objects | **Keep receiver plus runtime field-slot name.** | Narrowing tracks the value reached at runtime. An override/hide with the same emitted slot must invalidate the same place; distinct receivers already remain distinct. Generated local names and source positions are still excluded. |
 | Split map presence into a general `MapContains` fact | **Keep the existing non-null map-read fact.** | The only current consumer asks whether `Map.get` is non-null. The plan creates that fact only for non-nullable value types, so `Map<K, Null<V>>` stays conservative. Add a separate presence fact only if a future consumer needs presence independently of value nullability. |
 
-## Deferred experiments
+## Follow-up experiments resolved
 
-Bead `genes-da0` owns two lower-priority questions. Neither is required for the
-two demonstrated fixes:
+Bead `genes-da0` checked the two lower-priority questions separately instead of
+assuming the Oracle brief was still correct.
 
-- **Strict missing-plan lookup.** A missing source expression should usually be
-  suspicious, but the emitter intentionally creates small default-argument
-  checks that have no source program point. The experiment must distinguish
-  source-owned reads from these compiler-owned wrappers before a missing lookup
-  can fail closed.
-- **More precise short-circuit facts.** Current `&&`/`||` facts are safe but
-  conservative: only the outcome whose proof is true on all short-circuit paths
-  is retained, and mutations observed anywhere in the condition end affected
-  facts. A richer path result is justified only if a fixture shows useful,
-  sound output is being lost.
+### Narrowing queries use source expressions
 
-These remain P3 because no stale assertion or runtime mismatch was reproduced.
-If an experiment finds wrong code, its priority must be raised before work
-continues.
+The emitter does create default-argument wrappers, but the executable inventory
+found that no current narrowing query receives one. In the focused compilation,
+all 365 observed queries mapped to original typed expressions and planned
+program points; zero were synthesized lookups and zero original expressions
+were missing.
+
+The inventory is compiled only by the focused test. It independently records
+the typed source tree, including function-argument default values, and compares
+that set with the plan at each real emitter query. Normal compiler builds pay no
+extra traversal or storage cost. A missing production lookup now fails closed
+with `GTS-NARROW-PLAN-002`. A future emitter-created wrapper must carry explicit
+source provenance instead of silently receiving a conservative answer.
+
+### Short-circuit right operands had a measurable precision gap
+
+Three fail-first cases showed redundant runtime identity casts in generated
+TypeScript:
+
+```haxe
+value != null && consume(value)
+value == null || consume(value)
+map.exists(key) && consume(map.get(key))
+```
+
+The bounded fix analyzes the left operand first and gives the right operand only
+the facts guaranteed by its execution path: true facts for `&&`, false facts for
+`||`. Facts introduced solely for that path are removed after the right operand,
+while direct mutations from either operand still invalidate them. Existing
+condition-reassignment evidence proves an earlier guard is not revived after a
+later assignment. This is structured expression order, not a control-flow graph
+or alias analysis.
 
 ## Recommendations intentionally not implemented
 
@@ -142,7 +161,7 @@ continues.
 | P1 | `genes-8qg.1` | Post-test early-exit soundness fix; completed. |
 | P2 | `genes-8qg.2` | Unknown-key map removal invalidation; completed. |
 | P2 | `genes-8qg.3` | This disposition plus exhaustive flow classification. |
-| P3 | `genes-da0` | Evidence-gated strict lookup and short-circuit precision experiment; intentionally open. |
+| P3 | `genes-da0` | Strict lookup provenance and short-circuit precision experiment; completed with executable evidence. |
 
 ## Verification contract
 

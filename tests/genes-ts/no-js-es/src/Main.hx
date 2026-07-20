@@ -149,6 +149,11 @@ class Main {
     trace('do-while-stable:${optionalAfterDoWhileStableBreak(true, false)}');
     final conditionReassigned = optionalAfterConditionReassignment();
     trace('condition-reassignment:${conditionReassigned == null}:${genes.ts.Undefinable.isAbsent(conditionReassigned)}');
+    trace('short-circuit-and:${shortCircuitAnd("alpha")}');
+    trace('short-circuit-or:${shortCircuitOr(null)}:${shortCircuitOr("beta")}');
+    trace('short-circuit-map:${shortCircuitMap()}');
+    final skippedRightSide = shortCircuitRightFactDoesNotLeak(false);
+    trace('short-circuit-no-leak:${skippedRightSide == null}:${genes.ts.Undefinable.isAbsent(skippedRightSide)}');
     trace(inlineValueTemps());
     trace(mapAfterResultParameter({messages: ["one", "three"]}).join(","));
     trace(recordConstructionTemps("alpha", {name: "Alpha"}, null));
@@ -640,6 +645,63 @@ class Main {
     if (item.name != null && (item = {}) != null)
       return item.name;
     return null;
+  }
+
+  /**
+   * The right side of `&&` runs only after the left-side null check succeeds.
+   *
+   * TypeScript already understands this ordinary control-flow rule. The Genes
+   * narrowing plan should describe the same point so the emitter does not add
+   * a redundant identity cast around `value` at the helper-call boundary.
+   */
+  static function shortCircuitAnd(value: Null<String>): Bool {
+    if (value != null && nonNullStringLength(value) > 0)
+      return true;
+    return false;
+  }
+
+  /**
+   * The right side of `||` runs only when the left-side null comparison is
+   * false. In this example that means `value` is present before the helper is
+   * called, just as in the `&&` case above.
+   */
+  static function shortCircuitOr(value: Null<String>): Bool {
+    if (value == null || nonNullStringLength(value) > 0)
+      return true;
+    return false;
+  }
+
+  /** `Map.exists` similarly proves the matching right-side read is present. */
+  static function shortCircuitMap(): Bool {
+    final named = buildMapHolder(["alpha"]).named;
+    if (named.exists("alpha")
+      && formatNamedItem(named.get("alpha")) == "alpha")
+      return true;
+    return false;
+  }
+
+  /**
+   * A fact learned inside the right side does not describe a skipped path.
+   *
+   * When `run` is false, JavaScript never evaluates the block on the right of
+   * `&&`. The later optional-field read must therefore keep its normal
+   * undefined-to-Haxe-null conversion. This catches an optimistic analysis
+   * that improves the right operand correctly but then leaks one of that
+   * operand's own facts past the complete boolean expression.
+   */
+  static function shortCircuitRightFactDoesNotLeak(
+      run: Bool): Null<String> {
+    final item: OptionalNamedItem = {};
+    if (run && {
+      if (item.name == null)
+        return "early";
+      nonNullStringLength(item.name) > 0;
+    }) {}
+    return item.name;
+  }
+
+  static function nonNullStringLength(value: String): Int {
+    return value.length;
   }
 
   static function namedItem(name: String): NamedItem {

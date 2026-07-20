@@ -1,4 +1,8 @@
-import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
+import {
+  execFileSync,
+  spawnSync,
+  type ExecFileSyncOptions
+} from "node:child_process";
 import { readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,6 +32,58 @@ function methodBlock(source: string, signature: RegExp, label: string): string {
 }
 
 /**
+ * Proves whether emitter narrowing queries still refer to typed source nodes.
+ *
+ * The narrowing plan and this test-only source inventory are independent. A
+ * source expression missing from the plan is therefore distinguishable from a
+ * wrapper created later by the emitter. Normal builds do not collect or print
+ * this inventory.
+ */
+function runLookupInventory(): {
+  planned: number;
+  synthesized: number;
+  missing: number;
+} {
+  const result = spawnSync(
+    "haxe",
+    [
+      "tests/genes-ts/no-js-es/build.hxml",
+      "-D",
+      "genes.ts.narrowing_inventory"
+    ],
+    { cwd: repoRoot, encoding: "utf8" }
+  );
+  const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+  if (result.status !== 0) {
+    throw new Error(`narrowing lookup inventory failed:\n${output}`);
+  }
+  const count = (label: string): number =>
+    output.match(new RegExp(`\\[GTS-NARROW-INVENTORY\\] ${label}`, "g"))
+      ?.length ?? 0;
+  const inventory = {
+    planned: count("planned-source-expression"),
+    synthesized: count("emitter-synthesized-expression"),
+    missing: count("missing-source-program-point")
+  };
+  if (inventory.planned === 0) {
+    throw new Error("narrowing lookup inventory observed no plan queries");
+  }
+  if (inventory.synthesized !== 0 || inventory.missing !== 0) {
+    throw new Error(
+      [
+        "narrowing lookup provenance changed:",
+        `- planned source expressions: ${inventory.planned}`,
+        `- emitter-synthesized expressions: ${inventory.synthesized}`,
+        `- missing source program points: ${inventory.missing}`,
+        "",
+        output
+      ].join("\n")
+    );
+  }
+  return inventory;
+}
+
+/**
  * Reproduces the bounded places where a TypeScript non-null proof can outlive
  * the local, receiver, map entry, or loop iteration that made it true.
  *
@@ -49,6 +105,7 @@ function methodBlock(source: string, signature: RegExp, label: string): string {
 function main(): void {
   const outputRoot = path.join(repoRoot, "tests/genes-ts/no-js-es/out");
   rmSync(outputRoot, { recursive: true, force: true });
+  const inventory = runLookupInventory();
   run("haxe", ["tests/genes-ts/no-js-es/build.hxml"]);
 
   runGeneratedTypeScriptMatrix("tests/genes-ts/no-js-es/tsconfig.json");
@@ -156,6 +213,26 @@ function main(): void {
     generated,
     /\bstatic optionalAfterConditionReassignment\(\): string \| null \{[\s\S]*?\n\t\}/,
     "condition-reassignment"
+  );
+  const shortCircuitAnd = methodBlock(
+    generated,
+    /\bstatic shortCircuitAnd\(value: string \| null\): boolean \{[\s\S]*?\n\t\}/,
+    "short-circuit-and"
+  );
+  const shortCircuitOr = methodBlock(
+    generated,
+    /\bstatic shortCircuitOr\(value: string \| null\): boolean \{[\s\S]*?\n\t\}/,
+    "short-circuit-or"
+  );
+  const shortCircuitMap = methodBlock(
+    generated,
+    /\bstatic shortCircuitMap\(\): boolean \{[\s\S]*?\n\t\}/,
+    "short-circuit-map"
+  );
+  const shortCircuitNoLeak = methodBlock(
+    generated,
+    /\bstatic shortCircuitRightFactDoesNotLeak\(run: boolean\): string \| null \{[\s\S]*?\n\t\}/,
+    "short-circuit-no-leak"
   );
 
   const transcript = execFileSync(
@@ -301,6 +378,31 @@ function main(): void {
       "condition reassignment skipped optional-field null normalization"
     );
   }
+  if (shortCircuitAnd.includes("Register.unsafeCast<string>(value)")) {
+    staleFacts.push(
+      "the right side of && did not receive the left guard's non-null fact"
+    );
+  }
+  if (shortCircuitOr.includes("Register.unsafeCast<string>(value)")) {
+    staleFacts.push(
+      "the right side of || did not receive the false left path's non-null fact"
+    );
+  }
+  if (shortCircuitMap.includes("Register.unsafeCast<NamedItem>")) {
+    staleFacts.push(
+      "the right side of && did not receive the left Map.exists fact"
+    );
+  }
+  if (!shortCircuitMap.includes('named.get("alpha")!')) {
+    staleFacts.push(
+      "the short-circuit map read lost the focused non-null assertion"
+    );
+  }
+  if (!shortCircuitNoLeak.includes("return (item.name ?? null)")) {
+    staleFacts.push(
+      "a fact learned only inside the right operand leaked past a skipped && path"
+    );
+  }
   if (!transcript.includes("receiver-reassignment:true:false")) {
     staleFacts.push(
       "the reassigned optional field returned raw undefined instead of Haxe null"
@@ -329,7 +431,11 @@ function main(): void {
     "do-while-break:true:false",
     "do-while-continue:true:false",
     "do-while-stable:stable",
-    "condition-reassignment:true:false"
+    "condition-reassignment:true:false",
+    "short-circuit-and:true",
+    "short-circuit-or:true:true",
+    "short-circuit-map:true",
+    "short-circuit-no-leak:true:false"
   ]) {
     if (!transcript.includes(expected)) {
       staleFacts.push(`runtime transcript did not contain ${expected}`);
@@ -347,6 +453,9 @@ function main(): void {
     );
   }
 
+  process.stdout.write(
+    `ts-narrowing-inventory:planned=${inventory.planned},synthesized=0,missing=0\n`
+  );
   process.stdout.write("ts-narrowing:ok\n");
 }
 

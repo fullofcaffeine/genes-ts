@@ -300,7 +300,7 @@ export class BoundaryTypes {
 		return "missing";
 	}
 	static labelOrFallback(record: OptionalNameRecord): string {
-		if ((record.label ?? null) == null || (record.label ?? null) == "") {
+		if ((record.label ?? null) == null || (record.label!) == "") {
 			return "fallback";
 		} else {
 			return (record.label!);

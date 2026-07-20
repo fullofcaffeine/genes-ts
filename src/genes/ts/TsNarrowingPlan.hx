@@ -70,6 +70,31 @@ enum TsNarrowInvalidationKind {
   MapCleared(map: TsNarrowValueIdentity);
 }
 
+#if genes.ts.narrowing_inventory
+/**
+ * Classifies where one narrowing query came from during the focused test.
+ *
+ * Why
+ * ---
+ * A missing plan entry can mean two very different things: the analysis forgot
+ * an original Haxe expression, or the emitter created a new wrapper after the
+ * plan was built. Treating both as an ordinary false answer would hide the
+ * first compiler bug.
+ *
+ * What/How
+ * --------
+ * The test-only inventory independently records the original typed source tree.
+ * A query can therefore be matched to a planned source point, identified as an
+ * unplanned source point, or identified as emitter-created. This enum and the
+ * extra inventory do not exist in normal compiler builds.
+ */
+enum TsNarrowLookupProvenance {
+  PlannedSourceExpression;
+  MissingSourceProgramPoint;
+  EmitterSynthesizedExpression;
+}
+#end
+
 /**
  * A stable location in one source-ordered function walk.
  *
@@ -256,15 +281,24 @@ final class TsNarrowValueIdentityTools {
 final class TsNarrowingPlan {
   final decisions: ObjectMap<TypedExpr, TsNarrowDecision>;
   final reassignedLocalIds: Map<Int, Bool>;
+  #if genes.ts.narrowing_inventory
+  final sourceExpressions: ObjectMap<TypedExpr, Bool>;
+  #end
 
   public static function build(module: Module): TsNarrowingPlan {
     return new TsNarrowingPlanBuilder().build(module);
   }
 
   public function new(decisions: ObjectMap<TypedExpr, TsNarrowDecision>,
-      reassignedLocalIds: Map<Int, Bool>) {
+      reassignedLocalIds: Map<Int, Bool>
+      #if genes.ts.narrowing_inventory
+      , sourceExpressions: ObjectMap<TypedExpr, Bool>
+      #end) {
     this.decisions = decisions;
     this.reassignedLocalIds = reassignedLocalIds;
+    #if genes.ts.narrowing_inventory
+    this.sourceExpressions = sourceExpressions;
+    #end
   }
 
   /**
@@ -288,6 +322,25 @@ final class TsNarrowingPlan {
     return decisions.get(expression);
   }
 
+  #if genes.ts.narrowing_inventory
+  /**
+   * Tells the focused test whether a lookup came from typed source or emission.
+   *
+   * This inventory is compiled only for the focused experiment. It compares
+   * the plan's independently collected source-expression set with its program
+   * points, so a missing original expression is distinguishable from a small
+   * wrapper created later by the emitter.
+   */
+  public function lookupProvenance(
+      expression: TypedExpr): TsNarrowLookupProvenance {
+    if (decisions.exists(expression))
+      return PlannedSourceExpression;
+    return sourceExpressions.exists(expression)
+      ? MissingSourceProgramPoint
+      : EmitterSynthesizedExpression;
+  }
+  #end
+
   public function identityForRead(
       expression: TypedExpr): Null<TsNarrowValueIdentity> {
     return TsNarrowingPlanBuilder.narrowedReadIdentity(expression);
@@ -295,9 +348,13 @@ final class TsNarrowingPlan {
 
   public function isKnownNonNull(expression: TypedExpr): Bool {
     final decision = decisionAt(expression);
+    if (decision == null)
+      return CompilerDiagnostic.fail(
+        "[GTS-NARROW-PLAN-002] A TypeScript narrowing lookup reached an "
+        + "expression without a planned program point. Every current lookup "
+        + "must refer to the original typed Haxe expression.", expression.pos);
     final identity = identityForRead(expression);
-    return decision != null && identity != null
-      && decision.factFor(identity) != null;
+    return identity != null && decision.factFor(identity) != null;
   }
 
   /** Returns the mutation that explains a reviewed legacy/plan mismatch. */
@@ -580,6 +637,9 @@ private typedef TsNarrowCondition = {
 private final class TsNarrowingPlanBuilder {
   final decisions = new ObjectMap<TypedExpr, TsNarrowDecision>();
   final reassignedLocalIds: Map<Int, Bool> = [];
+  #if genes.ts.narrowing_inventory
+  final sourceExpressions = new ObjectMap<TypedExpr, Bool>();
+  #end
   var nextFunctionOrdinal = 0;
   var functionOrdinal = -1;
   var expressionOrdinal = 0;
@@ -590,18 +650,51 @@ private final class TsNarrowingPlanBuilder {
     for (member in module.members) {
       switch member {
         case MClass(classType, _, fields):
-          for (field in fields)
-            if (field.expr != null)
+          for (field in fields) {
+            if (field.expr != null) {
+              #if genes.ts.narrowing_inventory
+              inventorySourceExpression(field.expr);
+              #end
               analyzeMemberRoot(field.expr);
-          if (classType.init != null)
+            }
+          }
+          if (classType.init != null) {
+            #if genes.ts.narrowing_inventory
+            inventorySourceExpression(classType.init);
+            #end
             analyzeMemberRoot(classType.init);
+          }
         case MMain(expression):
+          #if genes.ts.narrowing_inventory
+          inventorySourceExpression(expression);
+          #end
           analyzeFunctionScope(expression);
         case MEnum(_, _) | MType(_, _):
       }
     }
-    return new TsNarrowingPlan(decisions, reassignedLocalIds);
+    return new TsNarrowingPlan(decisions, reassignedLocalIds
+      #if genes.ts.narrowing_inventory
+      , sourceExpressions
+      #end);
   }
+
+  #if genes.ts.narrowing_inventory
+  /** Collects source ownership without depending on the analysis walk. */
+  function inventorySourceExpression(expression: TypedExpr): Void {
+    if (sourceExpressions.exists(expression))
+      return;
+    sourceExpressions.set(expression, true);
+    switch expression.expr {
+      case TFunction(func):
+        for (argument in func.args)
+          if (argument.value != null)
+            inventorySourceExpression(argument.value);
+        inventorySourceExpression(func.expr);
+      default:
+        expression.iter(inventorySourceExpression);
+    }
+  }
+  #end
 
   function analyzeMemberRoot(expression: TypedExpr): Void {
     switch expression.expr {
@@ -675,6 +768,8 @@ private final class TsNarrowingPlanBuilder {
       case TBinop(OpAssign | OpAssignOp(_), left, right):
         recordReassignedLocal(left);
         analyzeAssignment(expression, left, right, state);
+      case TBinop(op = OpBoolAnd | OpBoolOr, left, right):
+        analyzeShortCircuit(op, left, right, state);
       case TUnop(OpIncrement | OpDecrement, _, target):
         recordReassignedLocal(target);
         analyzeMutationExpression(expression, target, state);
@@ -714,6 +809,43 @@ private final class TsNarrowingPlanBuilder {
       }
     }
     return new TsNarrowFlow(normal, effects);
+  }
+
+  /**
+   * Gives the right operand only the facts guaranteed by short-circuit order.
+   *
+   * Why: JavaScript evaluates the right side of `left && right` only when the
+   * left side is true, and the right side of `left || right` only when the left
+   * side is false. A null check or `Map.exists` on the left therefore applies
+   * while emitting the right-side call. Without this step, the emitter adds a
+   * redundant runtime identity cast even though TypeScript understands the
+   * same control-flow rule.
+   *
+   * How: analyze the left side first, filter out any proof ended by a left-side
+   * mutation, and add only the true (`&&`) or false (`||`) facts while walking
+   * the right side. Facts introduced solely for that path are removed again
+   * afterward. Existing facts remain, and mutations from either operand still
+   * flow outward exactly as before. This is structured expression order, not
+   * a general control-flow graph or alias analysis.
+   */
+  function analyzeShortCircuit(op: Binop, left: TypedExpr, right: TypedExpr,
+      state: TsNarrowingState): TsNarrowFlow {
+    final leftFlow = analyze(left, state);
+    final afterLeft = leftFlow.normal == null
+      ? new TsNarrowingState()
+      : leftFlow.normal;
+    final leftFacts = conditionFactsAfterEvaluation(left, leftFlow.effects);
+    final rightFacts = op == OpBoolAnd
+      ? leftFacts.whenTrue
+      : leftFacts.whenFalse;
+    final introducedFacts = [for (fact in rightFacts)
+      if (afterLeft.factFor(fact.value) == null) fact];
+    final rightFlow = analyze(right, afterLeft.addFacts(rightFacts));
+    final normal = rightFlow.normal == null
+      ? null
+      : rightFlow.normal.removeFacts(introducedFacts);
+    return new TsNarrowFlow(normal,
+      appendEffects(leftFlow.effects, rightFlow.effects));
   }
 
   function analyzeIf(condition: TypedExpr, thenExpression: TypedExpr,
