@@ -3,6 +3,7 @@
 --main Invalid
 -js tests/hxx-carrier-immutability/out/invalid/index.ts
 -D genes.ts
+-D genes.ts.jsx_import_source=react
 -D no-deprecation-warnings
 -D js-es=6
 -dce full

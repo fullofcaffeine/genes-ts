@@ -1,5 +1,6 @@
+import assert from "node:assert/strict";
 import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
-import { copyFileSync, mkdirSync, rmSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { assertDirSnapshots } from "./snapshots.js";
@@ -42,6 +43,28 @@ function assertSnapshots(spec: SnapshotSpec): void {
   });
 }
 
+/**
+ * Guards React 19's module-scoped JSX namespace without blanket imports.
+ *
+ * `ReactTypes` has no HXX expression of its own: its exported raw type
+ * projections are the only reason that module needs `JSX`. `Todo` is the
+ * negative control proving that configuring a JSX import source does not add
+ * the type-only import to unrelated generated modules.
+ */
+function assertPreciseJsxNamespaceImport(extension: ".ts" | ".tsx"): void {
+  const generated = path.join(exampleRoot, "web", "src-gen", "todo");
+  const reactTypes = readFileSync(
+    path.join(generated, "web", `ReactTypes${extension}`),
+    "utf8"
+  );
+  const todo = readFileSync(
+    path.join(generated, "shared", `Todo${extension}`),
+    "utf8"
+  );
+  assert.match(reactTypes, /^import type \{JSX\} from "react"\n/);
+  assert.doesNotMatch(todo, /^import type \{JSX\} from "react"\n/m);
+}
+
 rmrf("web/src-gen");
 rmrf("web/dist");
 rmrf("server/src-gen");
@@ -51,6 +74,7 @@ rmrf("server/dist");
 
 // Variant: low-level React output (.ts + React.createElement).
 run("haxe", ["examples/todoapp/web/build.lowlevel.hxml"]);
+assertPreciseJsxNamespaceImport(".ts");
 assertSnapshots({
   generatedDir: "examples/todoapp/web/src-gen",
   snapshotsDir: "examples/todoapp/web/dist-ts-lowlevel/src-gen",
@@ -66,6 +90,7 @@ runTypeScript("legacyFloor", ["-p", "examples/todoapp/web/tsconfig.json"]);
 // Variant: minimal runtime profile (still TSX output).
 rmrf("web/src-gen");
 run("haxe", ["examples/todoapp/web/build.minimal.hxml"]);
+assertPreciseJsxNamespaceImport(".tsx");
 assertSnapshots({
   generatedDir: "examples/todoapp/web/src-gen",
   snapshotsDir: "examples/todoapp/web/dist-ts-minimal/src-gen",
@@ -81,6 +106,7 @@ runTypeScript("legacyFloor", ["-p", "examples/todoapp/web/tsconfig.json"]);
 // Default build (runnable + bundled).
 rmrf("web/src-gen");
 run("haxe", ["examples/todoapp/web/build.hxml"]);
+assertPreciseJsxNamespaceImport(".tsx");
 assertSnapshots({
   generatedDir: "examples/todoapp/web/src-gen",
   snapshotsDir: "examples/todoapp/web/dist-ts/src-gen",

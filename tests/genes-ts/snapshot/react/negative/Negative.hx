@@ -38,6 +38,21 @@ typedef NotReactNode = {
   final label: String;
 }
 
+typedef AbstractSpreadFields = {
+  final label: String;
+}
+
+@:forward
+abstract AbstractSpreadProps(AbstractSpreadFields) from AbstractSpreadFields {}
+
+typedef WrongAbstractSpreadFields = {
+  final label: Int;
+}
+
+@:forward
+abstract WrongAbstractSpreadProps(WrongAbstractSpreadFields)
+  from WrongAbstractSpreadFields {}
+
 typedef OptionalCallbackProps = {
   final onValue: (?value: String) -> Void;
 }
@@ -48,6 +63,17 @@ typedef RequiredCallbackProps = {
 
 extern class FirstEventTarget {}
 extern class SecondEventTarget {}
+
+/** Same visible method as FormData, but no explicit shared host identity. */
+extern class StructuralFormData {
+  function has(name: String): Bool;
+}
+
+/** Explicitly points at a different native global and must stay incompatible. */
+@:native("URLSearchParams")
+extern class WrongHostFormData {
+  function has(name: String): Bool;
+}
 
 typedef EventProps = {
   final onClick: MouseEvent<FirstEventTarget>->Void;
@@ -124,6 +150,14 @@ class Negative {
     return {label: "not an element"};
   }
 
+  static function AsyncComponent(): js.lib.Promise<Element> {
+    return js.lib.Promise.resolve(<span>Async component</span>);
+  }
+
+  static function BadAsyncReturn(): js.lib.Promise<NotReactNode> {
+    return js.lib.Promise.resolve({label: "not an element"});
+  }
+
   static function OptionalCallback(props: OptionalCallbackProps): Element {
     return <span>optional callback</span>;
   }
@@ -178,6 +212,19 @@ class Negative {
 
   static function wrongAnchorEventTarget(event: MouseEvent<InputElement>): Void {}
 
+  static function wrongFormActionParameter(value: Int): Void {}
+
+  static function tooManyFormActionArguments(data: js.html.FormData,
+    required: String): Void {}
+
+  static function wrongAsyncFormActionResult(data: js.html.FormData): js.lib.Promise<String> {
+    return js.lib.Promise.resolve("not void");
+  }
+
+  static function structuralFormAction(data: StructuralFormData): Void {}
+
+  static function wrongHostFormAction(data: WrongHostFormData): Void {}
+
   static function maybeRequiredProps(): MaybeRequiredProps {
     return {};
   }
@@ -211,6 +258,18 @@ class Negative {
     final value = <a href={null}>Invalid null href</a>;
     #elseif hxx_negative_handler
     final value = <button onClick="not-a-handler" />;
+    #elseif hxx_negative_form_action_parameter
+    final value = <form action={wrongFormActionParameter}></form>;
+    #elseif hxx_negative_form_action_arity
+    final value = <form action={tooManyFormActionArguments}></form>;
+    #elseif hxx_negative_form_action_result
+    final value = <form action={wrongAsyncFormActionResult}></form>;
+    #elseif hxx_negative_form_action_structural_facade
+    // Matching methods do not prove that two externs name one host object.
+    final value = <button formAction={structuralFormAction}>Save</button>;
+    #elseif hxx_negative_form_action_wrong_host
+    // A different explicit native identity must not match FormData.
+    final value = <input type="submit" formAction={wrongHostFormAction} />;
     #elseif hxx_negative_component_missing
     final value = <Button />;
     #elseif hxx_negative_component_extra
@@ -252,6 +311,9 @@ class Negative {
     #elseif hxx_negative_spread_wrong
     final invalid = {label: 42};
     final value = <Button {...invalid} />;
+    #elseif hxx_negative_abstract_spread_wrong
+    final props: WrongAbstractSpreadProps = {label: 42};
+    final value = <Button {...props} />;
     #elseif hxx_negative_spread_optional_required
     final value = <Button {...maybeRequiredProps()} />;
     #elseif hxx_negative_non_component
@@ -259,6 +321,8 @@ class Negative {
     final value = <NotComponent />;
     #elseif hxx_negative_component_return
     final value = <BadReturn />;
+    #elseif hxx_negative_async_component_return
+    final value = <BadAsyncReturn />;
     #elseif hxx_negative_unsafe_key
     // This deliberately weak value exists only to prove HXX rejects an unsafe
     // boundary before anything is emitted. Successful fixtures never use it.
@@ -327,6 +391,14 @@ class Negative {
     // @formatter:off
     final value = <button onClick={() -> ignoredAsyncResult()} />;
     // @formatter:on
+    #elseif hxx_positive_async_component_return
+    // React 19 admits a Promise of a renderable node from a component. HXX
+    // checks the inner node type before any TypeScript output is generated.
+    final value = <AsyncComponent />;
+    #elseif hxx_positive_abstract_spread
+    // The abstract remains a zero-runtime typed view over one closed object.
+    final props: AbstractSpreadProps = {label: "abstract spread"};
+    final value = <Button {...props} />;
     #elseif hxx_positive_recursive_props
     final item: RecursiveItem = {
       label: "root",

@@ -6,5 +6,6 @@
 # Same source as classic mode; TSX keeps static intent as markup.
 -js tests/genes-ts/snapshot/react/out/dual-tsx/src-gen/index.tsx
 -D genes.ts
+-D genes.ts.jsx_import_source=react
 
 -dce full

@@ -1,3 +1,4 @@
+import type {JSX} from "react"
 import {Exception} from "../../haxe/Exception"
 import {App} from "./App"
 import * as ReactDomClient from "react-dom/client"

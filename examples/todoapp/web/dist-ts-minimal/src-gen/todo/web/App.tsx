@@ -1,3 +1,4 @@
+import type {JSX} from "react"
 import {TodoListPage} from "./pages/TodoListPage"
 import {TodoDetailPage} from "./pages/TodoDetailPage"
 import {Link, Route, Routes, BrowserRouter} from "react-router-dom"

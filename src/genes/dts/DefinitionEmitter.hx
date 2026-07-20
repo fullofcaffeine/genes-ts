@@ -21,6 +21,13 @@ class DefinitionEmitter extends ModuleEmitter {
       write(haxe.macro.Context.definedValue('genes.dts_banner'));
       writeNewline();
     }
+    final jsxImportSource = haxe.macro.Context.definedValue('genes.ts.jsx_import_source');
+    if (module.dependencyPlan.usesJsxNamespaceType
+      && jsxImportSource != null && jsxImportSource.length > 0) {
+      write('import type {JSX} from ');
+      emitString(jsxImportSource);
+      writeNewline();
+    }
     for (path => imports in dependencies.imports)
       emitImports(if (imports[0].external) path else module.toPath(path),
         imports, Genes.outExtension);

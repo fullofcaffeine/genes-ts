@@ -7,6 +7,7 @@
 # Low-level React output: `.ts` + `React.createElement(...)` (no TSX markup).
 -js examples/todoapp/web/src-gen/index.ts
 -D genes.ts
+-D genes.ts.jsx_import_source=react
 
 # Bundler-friendly imports (extensionless)
 -D genes.ts.no_extension
@@ -15,4 +16,3 @@
 -D genes.react.inline_markup
 
 -dce full
-

@@ -153,24 +153,21 @@ class JsxTypeChecker {
                 'Unknown intrinsic tag `<$name>`. ' +
                 'Add it to a typed intrinsic provider or correct the tag name',
                 expression.pos);
-            final nestedChildrenSupplyRequiredProperty = validateProps(
-              '<$name>', contract.schema, contract.prefixes, props, children,
+            final nestedChildrenSupplyRequiredProperty = validateProps('<$name>',
+              contract.schema, contract.prefixes, props, children,
               [], expression.pos);
             {
               componentPropsType: null,
-              nestedChildrenSupplyRequiredProperty:
-                nestedChildrenSupplyRequiredProperty
+              nestedChildrenSupplyRequiredProperty: nestedChildrenSupplyRequiredProperty
             };
           case ComponentTag(expression):
             final contract = componentContract(expression);
-            final nestedChildrenSupplyRequiredProperty = validateProps(
-              'component `${componentName(expression)}`',
-              contract.schema, [], props, children, contract.bindings,
-              expression.pos);
+            final nestedChildrenSupplyRequiredProperty = validateProps('component `${componentName(expression)}`',
+              contract.schema, [],
+              props, children, contract.bindings, expression.pos);
             {
               componentPropsType: specializedComponentPropsType(contract),
-              nestedChildrenSupplyRequiredProperty:
-                nestedChildrenSupplyRequiredProperty
+              nestedChildrenSupplyRequiredProperty: nestedChildrenSupplyRequiredProperty
             };
           case DynamicIntrinsicTag(_):
             // The low-level internal marker retains runtime-string support for
@@ -256,8 +253,8 @@ class JsxTypeChecker {
               // write to host undefined, so its present value is the precise
               // comparison type; an authored inner Null<T> remains intact.
               if (!actual.optional || expected.optional) {
-                final actualType = actual.optional && actual.allowsUndefined
-                  ? actual.presentType : actual.type;
+                final actualType = actual.optional
+                  && actual.allowsUndefined ? actual.presentType : actual.type;
                 requireAssignable(actualType, expected.type, bindings,
                   'GTS-HXX-SPREAD-002',
                   '$label spread property `$name` expects ' +
@@ -309,8 +306,10 @@ class JsxTypeChecker {
           '$label is missing required property `$name`', tagPos);
     }
 
-    return childField != null && !childField.optional
-      && childrenPresence != Definite && children.length > 0;
+    return childField != null
+      && !childField.optional
+      && childrenPresence != Definite
+      && children.length > 0;
   }
 
   static function combineChildrenPresence(current: JsxChildrenPresence,
@@ -362,10 +361,10 @@ class JsxTypeChecker {
         if (!isAssignable(expression.t, expected, directBindings, 0, false,
           isNullLiteral(expression)))
           fail('GTS-HXX-CHILD-003',
-            '$label requires an array-valued child compatible with ' +
-            '`${typeName(expected)}` when only one child is nested. ' +
-            'Supply the array expression itself, or provide two or more ' +
-            'separate children compatible with `${typeName(elementType)}`',
+            '$label requires an array-valued child compatible with '
+            + '`${typeName(expected)}` when only one child is nested. '
+            + 'Supply the array expression itself, or provide two or more '
+            + 'separate children compatible with `${typeName(elementType)}`',
             expression.pos);
         for (key => value in directBindings)
           bindings.set(key, value);
@@ -448,7 +447,7 @@ class JsxTypeChecker {
           // Only a direct open generic needs HXX's inferred Haxe type carried
           // into `createElement<T>`; otherwise React would widen it to unknown.
           emissionPropsType: arguments.length == 0
-            || !hasOpenComponentType(arguments[0].t) ? null : arguments[0].t
+          || !hasOpenComponentType(arguments[0].t) ? null : arguments[0].t
         };
       case TInst(classRef, parameters)
         if (hasMeta(classRef.get().meta, 'genes.jsxComponentProps')):
@@ -597,6 +596,17 @@ class JsxTypeChecker {
             if (!classType.isExtern && !classType.isInterface) null; else
               fieldsFromClass(classType, parameters, 0);
         }
+      case TAbstract(abstractRef, parameters):
+        final abstractType = abstractRef.get();
+        // A Haxe abstract has the runtime representation of its underlying
+        // type. Following that typed representation lets a closed object
+        // abstract participate in HXX props/spreads without treating its
+        // forwarded API as an open reflective object. Scalar, callable, and
+        // otherwise non-object abstracts still recurse to `null` and fail.
+        objectFields(TypeTools.applyTypeParameters(abstractType.type,
+          abstractType.params, parameters),
+          allowTypeParameter, depth
+          + 1);
       default:
         null;
     }
@@ -656,7 +666,7 @@ class JsxTypeChecker {
         presentType: presentType,
         optional: hasMeta(field.meta, 'optional'),
         allowsUndefined: hasMeta(field.meta, 'ts.optional')
-          || nullish.explicitUndefined,
+        || nullish.explicitUndefined,
         pos: field.pos
       });
     }
@@ -667,12 +677,10 @@ class JsxTypeChecker {
       bindings: Map<String, Type>, id: String, message: String, pos: Position,
       literalNull = false, allowUndefined = false): Void {
     final checkedActual = allowUndefined
-      && NullishContract.forType(actual).explicitUndefined
-      ? stripExplicitUndefined(actual)
-      : actual;
+      && NullishContract.forType(actual)
+        .explicitUndefined ? stripExplicitUndefined(actual) : actual;
     rejectUnsafeForExpected(checkedActual, expected, pos, literalNull);
-    if (!isAssignable(checkedActual, expected, bindings, 0, false,
-      literalNull))
+    if (!isAssignable(checkedActual, expected, bindings, 0, false, literalNull))
       fail(id, message, pos);
   }
 
@@ -684,9 +692,8 @@ class JsxTypeChecker {
     final resolvedExpected = substitute(resolveAliases(expected), bindings);
     final undefinedExpected = undefinableInner(resolvedExpected);
     if (undefinedExpected != null) {
-      final presentActual = NullishContract.forType(actual).explicitUndefined
-        ? stripExplicitUndefined(actual)
-        : actual;
+      final presentActual = NullishContract.forType(actual)
+        .explicitUndefined ? stripExplicitUndefined(actual) : actual;
       return isAssignable(presentActual, undefinedExpected, bindings,
         depth + 1, allowExtraObjectFields, literalNull);
     }
@@ -750,6 +757,11 @@ class JsxTypeChecker {
     // accept a value that can actually be null.
     if (nullableInner(resolvedActual) != null || literalNull)
       return false;
+    final nativeGlobalCompatibility = nativeGlobalAssignability(resolvedActual,
+      resolvedExpected, depth
+      + 1);
+    if (nativeGlobalCompatibility != null)
+      return nativeGlobalCompatibility;
     final eventCompatibility = reactEventAssignability(resolvedActual,
       resolvedExpected, depth + 1);
     if (eventCompatibility != null)
@@ -949,8 +961,7 @@ class JsxTypeChecker {
       intrinsics.set(entry.name, {
         name: entry.name,
         schema: propSchema(entry.type, entry.pos,
-          'intrinsic `${entry.name}` properties',
-          optionalValuesAllowUndefined),
+          'intrinsic `${entry.name}` properties', optionalValuesAllowUndefined),
         prefixes: localPrefixes,
         pos: entry.pos
       });
@@ -1018,8 +1029,7 @@ class JsxTypeChecker {
       default:
         var found = false;
         TypeTools.iter(type, child -> {
-          if (!found
-            && hasUnboundTypeParameter(child, bindings, depth + 1))
+          if (!found && hasUnboundTypeParameter(child, bindings, depth + 1))
             found = true;
         });
         found;
@@ -1042,9 +1052,9 @@ class JsxTypeChecker {
     if (depth > 64)
       return false;
     return switch type {
-      case TMono(reference):
-        final resolved = reference.get();
-        resolved == null || hasOpenComponentType(resolved, depth + 1);
+      case TMono(reference): final resolved = reference.get(); resolved == null || hasOpenComponentType(resolved,
+          depth
+          + 1);
       case TInst(parameterRef, _)
         if (parameterRef.get().kind.match(KTypeParameter(_))):
         true;
@@ -1067,8 +1077,7 @@ class JsxTypeChecker {
    * emitter may print. React's normal inference remains the safe fallback, so
    * this method returns no specialization until every printed part is concrete.
    */
-  static function specializedComponentPropsType(
-      contract: JsxComponentContract): Null<Type> {
+  static function specializedComponentPropsType(contract: JsxComponentContract): Null<Type> {
     final original = contract.emissionPropsType;
     if (original == null
       || hasUnboundTypeParameter(original, contract.bindings))
@@ -1181,6 +1190,104 @@ class JsxTypeChecker {
   }
 
   /**
+   * Recognizes two explicit extern views of one native global host type.
+   *
+   * Why: ecosystem libraries sometimes provide a focused Haxe extern for a
+   * browser global whose standard-library facade is outdated or deliberately
+   * broader. Haxe gives those two declarations different nominal identities,
+   * even when both explicitly bind to the same runtime constructor. A callback
+   * using the focused facade would otherwise fail HXX before its valid
+   * TypeScript projection exists.
+   *
+   * What: two extern classes with the same literal `@:native` identity and no
+   * package-owning `@:jsRequire` are treated as the same global host type.
+   * Generic arguments remain invariant. A missing or different global identity
+   * is incompatible unless a real Haxe class/interface edge relates the two;
+   * structural similarity alone is never treated as host identity.
+   *
+   * How: this reads typed declaration metadata only; it never compares emitted
+   * TypeScript strings or structurally unifies empty externs. The extern author
+   * remains responsible for accurately describing that host object, just as
+   * for every `@:native` boundary.
+   */
+  static function nativeGlobalAssignability(actual: Type, expected: Type,
+      depth: Int): Null<Bool> {
+    if (depth > 64)
+      return false;
+    return switch [resolveAliases(actual), resolveAliases(expected)] {
+      case [TInst(actualRef,
+        actualParameters), TInst(expectedRef, expectedParameters)]:
+        final actualIdentity = nativeGlobalIdentity(actualRef.get());
+        final expectedIdentity = nativeGlobalIdentity(expectedRef.get());
+        if (actualIdentity == null && expectedIdentity == null) null; else
+          if (actualIdentity != null
+          && actualIdentity == expectedIdentity)
+            sameTypeParameters(actualParameters, expectedParameters,
+            depth
+            + 1); else if (nominalClassRelated(actualRef, actualParameters,
+          expectedRef, expectedParameters, depth + 1)) null; else false;
+      default: null;
+    }
+  }
+
+  /** Preserves real Haxe inheritance when native global names differ. */
+  static function nominalClassRelated(leftRef: Ref<ClassType>,
+      leftParameters: Array<Type>, rightRef: Ref<ClassType>,
+      rightParameters: Array<Type>, depth: Int): Bool {
+    return nominalClassAssignable(leftRef, leftParameters, rightRef,
+      rightParameters, depth + 1)
+      || nominalClassAssignable(rightRef, rightParameters, leftRef,
+        leftParameters, depth + 1);
+  }
+
+  /** Follows declared class/interface edges without structural unification. */
+  static function nominalClassAssignable(actualRef: Ref<ClassType>,
+      actualParameters: Array<Type>, expectedRef: Ref<ClassType>,
+      expectedParameters: Array<Type>, depth: Int): Bool {
+    if (depth > 64)
+      return false;
+    final actualType = actualRef.get();
+    if (sameClassIdentity(actualType, expectedRef.get()))
+      return sameTypeParameters(actualParameters, expectedParameters,
+        depth + 1);
+    if (actualType.superClass != null) {
+      final relation = actualType.superClass;
+      final parentParameters = [
+        for (parameter in relation.params)
+          TypeTools.applyTypeParameters(parameter, actualType.params,
+            actualParameters)
+      ];
+      if (nominalClassAssignable(relation.t, parentParameters, expectedRef,
+        expectedParameters, depth + 1))
+        return true;
+    }
+    for (relation in actualType.interfaces) {
+      final interfaceParameters = [
+        for (parameter in relation.params)
+          TypeTools.applyTypeParameters(parameter, actualType.params,
+            actualParameters)
+      ];
+      if (nominalClassAssignable(relation.t, interfaceParameters, expectedRef,
+        expectedParameters, depth + 1))
+        return true;
+    }
+    return false;
+  }
+
+  /** Returns the explicit runtime-global path owned by one extern class. */
+  static function nativeGlobalIdentity(type: ClassType): Null<String> {
+    if (!type.isExtern || metadata(type.meta, 'jsRequire').length > 0)
+      return null;
+    final entries = metadata(type.meta, 'native');
+    return switch entries {
+      case [{params: [{expr: EConst(CString(value, _))}]}]
+        if (StringTools.trim(value).length > 0):
+        value;
+      default: null;
+    }
+  }
+
+  /**
    * Checks one directional React event assignment without erasing its target.
    *
    * Why: a callback parameter is checked in the opposite direction from its
@@ -1205,13 +1312,12 @@ class JsxTypeChecker {
     if (depth > 64)
       return false;
     return switch [resolveAliases(actual), resolveAliases(expected)] {
-      case [TInst(actualRef, actualParameters),
-        TInst(expectedRef, expectedParameters)]:
+      case [TInst(actualRef,
+        actualParameters), TInst(expectedRef, expectedParameters)]:
         final actualType = actualRef.get();
         final expectedType = expectedRef.get();
         if (!isReactEventType(actualType) || !isReactEventType(expectedType))
-          null;
-        else if (sameClassIdentity(actualType, expectedType)) {
+          null; else if (sameClassIdentity(actualType, expectedType)) {
           if (actualParameters.length != expectedParameters.length)
             false;
           else {
@@ -1266,8 +1372,7 @@ class JsxTypeChecker {
   }
 
   /** Compares compiler declaration identity without using generated names. */
-  static function sameClassIdentity(left: ClassType,
-      right: ClassType): Bool {
+  static function sameClassIdentity(left: ClassType, right: ClassType): Bool {
     return left.module == right.module && left.name == right.name;
   }
 
@@ -1290,8 +1395,8 @@ class JsxTypeChecker {
       return actualBrowser != null && expectedBrowser != null
         && browserElementAssignable(actualBrowser, expectedBrowser);
     return switch [resolveAliases(actual), resolveAliases(expected)] {
-      case [TInst(actualRef, actualParameters),
-        TInst(expectedRef, expectedParameters)]:
+      case [TInst(actualRef,
+        actualParameters), TInst(expectedRef, expectedParameters)]:
         classTargetAssignable(actualRef, actualParameters, expectedRef,
           expectedParameters, depth + 1);
       default: sameInvariantType(actual, expected, depth + 1);
@@ -1334,8 +1439,7 @@ class JsxTypeChecker {
   }
 
   /** Directional relationship shared by Genes and standard DOM identities. */
-  static function browserElementAssignable(
-      actual: JsxBrowserElementIdentity,
+  static function browserElementAssignable(actual: JsxBrowserElementIdentity,
       expected: JsxBrowserElementIdentity): Bool {
     if (actual == expected)
       return true;
@@ -1423,9 +1527,13 @@ class JsxTypeChecker {
     final nullable = nullableInner(resolved);
     if (nullable != null)
       return promiseElement(nullable);
+    // Haxe 4.3 exposes the standard js.lib.Promise class with an empty `pack`
+    // even though its canonical module is `js.lib.Promise`. Module identity is
+    // therefore the stable compiler fact; using `pack` rejects every
+    // Promise-of-node component.
     return switch resolved {
       case TInst(classRef, [element])
-        if (classRef.get().pack.join('.') == 'js.lib'
+        if (classRef.get().module == 'js.lib.Promise'
           && classRef.get().name == 'Promise'):
         element;
       default: null;

@@ -62,6 +62,10 @@ typedef OptionalSpreadChildListProps = {
 class DualJsxMain {
   static var propEvaluations = 0;
 
+  static function syncFormAction(data: PreciseFormData): Void {
+    data.has("title");
+  }
+
   static function main(): Void {
     final renderToStaticMarkup: Element->String = Imports.namedImport(
       "react-dom/server", "renderToStaticMarkup");
@@ -101,6 +105,11 @@ class DualJsxMain {
         strokeDashoffset={dashOffset}
       />
     </svg>;
+    // The same checked form action must erase to ordinary createElement props
+    // in classic JS while TSX retains native JSX syntax.
+    final formActionElement = <form action={syncFormAction}></form>;
+    final buttonFormActionElement =
+      <button formAction={syncFormAction}>Save</button>;
 
     final runtimeTag = "aside";
     final dynamicElement = Jsx.__jsx(runtimeTag, {

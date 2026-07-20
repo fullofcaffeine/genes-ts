@@ -1,3 +1,4 @@
+import type {JSX} from "react"
 import * as React__genes_jsx from "react"
 import {Exception} from "../../haxe/Exception"
 import {App} from "./App"

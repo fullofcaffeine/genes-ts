@@ -151,12 +151,27 @@ const classicServer = readFileSync(
   path.join(exampleRoot, "server/classic-src-gen/todo/server/Main.js"),
   "utf8"
 );
+const classicReactTypes = readFileSync(
+  path.join(exampleRoot, "web/classic-src-gen/todo/web/ReactTypes.d.ts"),
+  "utf8"
+);
+const classicComponentDeclaration = readFileSync(
+  path.join(exampleRoot, "web/classic-src-gen/todo/web/App.d.ts"),
+  "utf8"
+);
+const classicDomainDeclaration = readFileSync(
+  path.join(exampleRoot, "web/classic-src-gen/todo/shared/Todo.d.ts"),
+  "utf8"
+);
 
 match(classicWeb, /React__genes_jsx\.createElement\("h2"/);
 match(classicWeb, /from "\.\.\/\.\.\/\.\.\/\.\.\/src-ts\/components\/PrettyButton"/);
 match(classicWeb, /from "\.\.\/\.\.\/\.\.\/\.\.\/src-ts\/interop\/haxeInterop"/);
 doesNotMatch(classicWeb, /genes\.react\.internal\.Jsx/);
 doesNotMatch(classicWeb, /@:ts\.|satisfies\s/);
+match(classicReactTypes, /^import type \{JSX\} from "react"\n/);
+match(classicComponentDeclaration, /^import type \{JSX\} from "react"\n/);
+doesNotMatch(classicDomainDeclaration, /^import type \{JSX\} from "react"\n/m);
 match(classicServer, /import Express from "express"/);
 match(classicServer, /TODOAPP_WEB_DIST/);
 ok(

@@ -1,3 +1,4 @@
+import type {JSX} from "react"
 import {useState, useEffect} from "react"
 import {useNavigate, Link} from "react-router-dom"
 import {Router} from "../Router"

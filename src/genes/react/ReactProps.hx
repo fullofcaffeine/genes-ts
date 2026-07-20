@@ -29,12 +29,37 @@ typedef Key = OneOf3<String, Int, Float>;
 @:genes.compilerInternal
 @:genes.semanticOnly
 typedef AttributeValue = OneOf4<String, Int, Float, Bool>;
+
 @:genes.compilerInternal
 @:genes.semanticOnly
 typedef NumberLike = OneOf3<String, Int, Float>;
+
 @:genes.compilerInternal
 @:genes.semanticOnly
 typedef FormValue = OneOf3<String, Int, Array<String>>;
+
+/** Result React 19 permits from a native form action callback. */
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef FormActionResult = OneOf2<Void, js.lib.Promise<Void>>;
+
+/**
+ * Checked callback contract for React 19 form actions.
+ *
+ * The result union stays inside one function type to match React's
+ * `(formData: FormData) => void | Promise<void>` declaration. In particular,
+ * an async callback must resolve to `Void`; splitting this into separate
+ * function-union arms would let the ordinary ignored-`Void` callback rule hide
+ * an invalid `Promise<T>` result.
+ */
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef FormAction = js.html.FormData->FormActionResult;
+
+/** String URL or React 19 function action accepted by form controls. */
+@:genes.compilerInternal
+@:genes.semanticOnly
+typedef FormActionValue = OneOf2<String, FormAction>;
 
 /** A deliberately structural subset of React's typed style object. */
 @:genes.compilerInternal
@@ -154,7 +179,7 @@ typedef ButtonProps = {
   > HtmlProps,
   @:optional var disabled: Bool;
   @:optional var form: String;
-  @:optional var formAction: String;
+  @:optional var formAction: FormActionValue;
   @:optional var formEncType: String;
   @:optional var formMethod: String;
   @:optional var formNoValidate: Bool;
@@ -169,7 +194,7 @@ typedef ButtonProps = {
 typedef FormProps = {
   > HtmlProps,
   @:optional var acceptCharset: String;
-  @:optional var action: String;
+  @:optional var action: FormActionValue;
   @:optional var autoComplete: String;
   @:optional var encType: String;
   @:optional var method: String;
@@ -192,6 +217,7 @@ typedef InputProps = {
   @:optional var defaultValue: FormValue;
   @:optional var disabled: Bool;
   @:optional var form: String;
+  @:optional var formAction: FormActionValue;
   @:optional var height: NumberLike;
   @:optional var list: String;
   @:optional var max: NumberLike;
@@ -375,8 +401,10 @@ typedef SvgProps = {
   > HtmlProps,
   @:optional var fill: String;
   @:optional var stroke: String;
+
   /** React's camelCase spellings for SVG dash presentation attributes. */
   @:optional var strokeDasharray: NumberLike;
+
   @:optional var strokeDashoffset: NumberLike;
   @:optional var strokeWidth: NumberLike;
   @:optional var viewBox: String;

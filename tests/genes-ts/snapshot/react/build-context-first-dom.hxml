@@ -6,5 +6,6 @@
 # The source intentionally does not mention js.html before its HXX callback.
 -js tests/genes-ts/snapshot/react/out/context-first-dom/src-gen/index.tsx
 -D genes.ts
+-D genes.ts.jsx_import_source=react
 
 -dce full

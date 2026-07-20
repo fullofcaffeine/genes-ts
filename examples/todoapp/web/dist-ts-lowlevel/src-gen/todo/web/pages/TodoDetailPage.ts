@@ -1,3 +1,4 @@
+import type {JSX} from "react"
 import * as React__genes_jsx from "react"
 import {useState, useEffect} from "react"
 import {useNavigate, Link} from "react-router-dom"

@@ -1,3 +1,4 @@
+import type {JSX} from "react"
 import * as React__genes_jsx from "react"
 import {useState, useEffect} from "react"
 import __genes_import_PrettyButton from "../../../../src-ts/components/PrettyButton"

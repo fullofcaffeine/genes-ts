@@ -1,7 +1,6 @@
 package genes.ts;
 
 import genes.SourceMapGenerator.SourcePosition;
-
 import genes.Dependencies;
 import genes.CompilerDiagnostic;
 import genes.CompilerInternal;
@@ -132,14 +131,15 @@ class TsModuleEmitter extends JsModuleEmitter {
       && NullishContract.forType(currentExpectedValueType).preservesUndefined;
     final returnPreserves = currentReturnType != null
       && NullishContract.forType(currentReturnType).preservesUndefined;
-    return value.shouldNormalizeRawUndefinedToNull()
-      && !expectedPreserves && !returnPreserves;
+    return value.shouldNormalizeRawUndefinedToNull() && !expectedPreserves
+      && !returnPreserves;
   }
 
   function shouldNormalizeOptionalFieldRead(e: TypedExpr): Bool {
     final expected = currentExpectedValueType;
     final field = nullishFieldContract(e);
-    return field != null && field.normalizeUndefinedReadToNull
+    return field != null
+      && field.normalizeUndefinedReadToNull
       && expected != null
       && NullishContract.forType(expected).haxeAllowsNull
       && !NullishContract.forType(expected).preservesUndefined
@@ -202,9 +202,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       if (!declaration.typeOnly && requestPlan.bindings.length == 0)
         emitTsSideEffectImport(request, where, importExtension);
       else
-        emitTsImports(where,
-          [for (binding in requestPlan.bindings) binding], importExtension,
-          declaration.typeOnly);
+        emitTsImports(where, [for (binding in requestPlan.bindings) binding],
+          importExtension, declaration.typeOnly);
     }
     endImportTimer();
 
@@ -240,8 +239,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       emitTsMemberSourcePositions = memberProjection.emitSourcePosition;
       switch member {
         case MClass(cl, params, _) if (cl.isInterface):
-          emitTsInterface(cl, params,
-            memberProjection.exportImplementation);
+          emitTsInterface(cl, params, memberProjection.exportImplementation);
         case MClass(cl, _, fields):
           final emittableFields = Module.emittableFields(fields);
           final endClassTimer = timer('emitClass');
@@ -304,7 +302,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   function emitTsImports(where: String,
       imports: Array<genes.Dependencies.Dependency>, extension: Null<String>,
       typeOnly: Bool) {
-    final named:Array<genes.Dependencies.Dependency> = [];
+    final named: Array<genes.Dependencies.Dependency> = [];
     for (def in imports)
       switch def.type {
         case genes.Dependencies.DependencyType.DAsterisk | genes.Dependencies.DependencyType.DDefault:
@@ -462,8 +460,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       emitValue(e);
       TypeEmitter.emitParams(this, expectedEnumParams, false);
       write('(');
-      final enumArgs = expectedEnumConstructorArgTypes(e,
-        expectedEnumParams);
+      final enumArgs = expectedEnumConstructorArgTypes(e, expectedEnumParams);
       for (i in 0...params.length) {
         if (i > 0)
           write(', ');
@@ -556,8 +553,8 @@ class TsModuleEmitter extends JsModuleEmitter {
         final max = params.length < cachedArgTsTypes.length ? params.length : cachedArgTsTypes.length;
         for (i in 0...max) {
           final expectedTsType = cachedArgTsTypes[i];
-          if (expectedTsType != null && needsEnumAbstractExpectedAssertion(expectedTsType,
-            params[i])) {
+          if (expectedTsType != null
+            && needsEnumAbstractExpectedAssertion(expectedTsType, params[i])) {
             needsCasts = true;
             break;
           }
@@ -585,8 +582,8 @@ class TsModuleEmitter extends JsModuleEmitter {
           final expectedTsType = i < cachedArgTsTypes.length ? cachedArgTsTypes[i] : null;
           final actual = params[i];
           final actualUnwrapped = unwrapExpr(actual);
-          if (expectedTsType != null && needsEnumAbstractExpectedAssertion(expectedTsType,
-            actual)) {
+          if (expectedTsType != null
+            && needsEnumAbstractExpectedAssertion(expectedTsType, actual)) {
             write('(');
             emitValue(actual);
             write(' as ');
@@ -676,8 +673,7 @@ class TsModuleEmitter extends JsModuleEmitter {
    * surrounding expected type is not propagated into interpolations, preventing
    * a route-like destination from manufacturing assertions inside `${...}`.
    */
-  override function emitTemplateLiteralIntent(
-      intent:TemplateLiteralIntent):Void {
+  override function emitTemplateLiteralIntent(intent: TemplateLiteralIntent): Void {
     emitPos(intent.pos);
     if (intent.values.length == 0) {
       emitString(intent.chunks[0]);
@@ -702,7 +698,7 @@ class TsModuleEmitter extends JsModuleEmitter {
    * syntax. Control characters use explicit escapes so generated lines and
    * source-map columns stay deterministic, including authored multiline text.
    */
-  static function escapeTemplateLiteralChunk(value:String):String {
+  static function escapeTemplateLiteralChunk(value: String): String {
     final result = new StringBuf();
     var index = 0;
     while (index < value.length) {
@@ -994,8 +990,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   function emitTsClass(checkCycles: (module: String) -> Bool, cl: ClassType,
-      fields: Array<GenesField>, export = true,
-      registerRuntimeType = true) {
+      fields: Array<GenesField>, export = true, registerRuntimeType = true) {
     final prevClass = currentClass;
     currentClass = cl;
 
@@ -1374,7 +1369,8 @@ class TsModuleEmitter extends JsModuleEmitter {
           write('(this: ');
           emitIdent(className);
           if (cl.params.length > 0)
-            TypeEmitter.emitParams(this, cl.params.map(param -> param.t), false);
+            TypeEmitter.emitParams(this, cl.params.map(param -> param.t),
+              false);
           write(') { return this.get_');
           write(field.name);
           write('(); },');
@@ -1387,7 +1383,8 @@ class TsModuleEmitter extends JsModuleEmitter {
           write('(this: ');
           emitIdent(className);
           if (cl.params.length > 0)
-            TypeEmitter.emitParams(this, cl.params.map(param -> param.t), false);
+            TypeEmitter.emitParams(this, cl.params.map(param -> param.t),
+              false);
           write(', v: ');
           emitFieldTsType(field);
           write(') { this.set_');
@@ -1460,8 +1457,8 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
   }
 
-  function emitPrivateMethodRuntimeAssignment(cl: ClassType, field: GenesField,
-      helperName: String) {
+  function emitPrivateMethodRuntimeAssignment(cl: ClassType,
+      field: GenesField, helperName: String) {
     writeNewline();
     write(ctx.typeAccessor(TypeUtil.registerType));
     write('.unsafeCast<{');
@@ -1504,7 +1501,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       emitPos(signature.pos);
       if (field.isStatic)
         write('static ');
-      emitMemberName(field.isStatic ? staticName(cl, field) : moduleFieldName(field));
+      emitMemberName(field.isStatic ? staticName(cl,
+        field) : moduleFieldName(field));
       emitMethodTypeParams(signature);
       write('(');
       emitFunctionTypeArguments(signature.type);
@@ -1585,9 +1583,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     var noOptionalUntil = -1;
     var hadOptional = true;
     for (i in 0...canonicalArgs.length) {
-      final optional = cachedArgs != null
-        ? cachedArgs[i].opt
-        : canonicalArgs[i].opt;
+      final optional = cachedArgs != null ? cachedArgs[i].opt : canonicalArgs[i].opt;
       if (optional) {
         hadOptional = true;
       } else if (hadOptional) {
@@ -1611,15 +1607,13 @@ class TsModuleEmitter extends JsModuleEmitter {
           default:
         }
       }
-      final canonicalOptional = (cachedArgs != null
-        ? cachedArgs[i].opt
-        : canonicalArgs[i].opt) && i > noOptionalUntil;
+      final canonicalOptional = (cachedArgs != null ? cachedArgs[i].opt : canonicalArgs[i].opt)
+        && i > noOptionalUntil;
       final canonicalNullish = NullishContract.forParameter(f.args[i].v.t,
         canonicalOptional);
       final usesNullDefault = canonicalOptional
-        && (cachedArgs != null
-          ? (cachedArgs[i].allowsNull && !cachedArgs[i].preservesUndefined)
-          : canonicalNullish.usesNullDefault);
+        && (cachedArgs != null ? (cachedArgs[i].allowsNull
+          && !cachedArgs[i].preservesUndefined) : canonicalNullish.usesNullDefault);
       emitLocalVar(f.args[i].v);
       if ((missing || optional) && !usesNullDefault)
         write('?');
@@ -1630,13 +1624,11 @@ class TsModuleEmitter extends JsModuleEmitter {
           case TFun(args, _) if (i < args.length):
             if (emittedTypes++ > 0)
               write(' | ');
-            final fallbackType = signature == field && cachedArgs != null
-              ? cachedArgs[i].tsType
-              : null;
-            final argumentOverride = signature == field
-              ? (extractStringMeta(f.args[i].v.meta,
-                ':ts.type') ?? extractStringMeta(f.args[i].v.meta, ':genes.type'))
-              : null;
+            final fallbackType = signature == field
+              && cachedArgs != null ? cachedArgs[i].tsType : null;
+            final argumentOverride = signature == field ? (extractStringMeta(f.args[i].v.meta,
+              ':ts.type') ?? extractStringMeta(f.args[i].v.meta,
+                ':genes.type')) : null;
             final argumentNullish = NullishContract.forParameter(args[i].t,
               args[i].opt);
             final needsParens = args[i].t.match(TFun(_, _))
@@ -1704,7 +1696,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       if (index++ > 0)
         write(' | ');
       final returnOverride = extractStringMeta(signature.meta,
-        ':ts.returnType') ?? extractStringMeta(signature.meta, ':genes.returnType');
+        ':ts.returnType') ?? extractStringMeta(signature.meta,
+          ':genes.returnType');
       final needsParens = returnOverride != null || switch signature.type {
         case TFun(_, result): result.match(TFun(_, _));
         default: false;
@@ -1728,8 +1721,10 @@ class TsModuleEmitter extends JsModuleEmitter {
       return;
     }
     switch field.type {
-      case TFun(_, result): emitType(result);
-      default: write('never');
+      case TFun(_, result):
+        emitType(result);
+      default:
+        write('never');
     }
   }
 
@@ -1924,8 +1919,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       && !plan.isLocalReassigned(v)
       && ExplicitTypeArguments.infersPreciseLocalType(eo);
     final emittedType = (narrowedOptionalInit || narrowedNonNullInit) ? stripNull(v.t) : v.t;
-    final emittedTypeOverride = (narrowedOptionalInit || narrowedNonNullInit
-      || inferExplicitCallType) ? null : localTsTypeOverride(eo);
+    final emittedTypeOverride = (narrowedOptionalInit
+      || narrowedNonNullInit || inferExplicitCallType) ? null : localTsTypeOverride(eo);
     if (emittedTypeOverride != null)
       localTsTypeOverrides.set(v.id, emittedTypeOverride);
     write('$declare ');
@@ -1948,7 +1943,9 @@ class TsModuleEmitter extends JsModuleEmitter {
         }
       case e:
         write(' = ');
-        if (!narrowedOptionalInit && !narrowedNonNullInit && !isNarrowedNonNull(e)
+        if (!narrowedOptionalInit
+          && !narrowedNonNullInit
+          && !isNarrowedNonNull(e)
           && !NullishContract.forType(emittedType).preservesUndefined
           && !typeAllowsNull(emittedType)
           && typeAllowsNull(e.t)) {
@@ -2130,8 +2127,8 @@ class TsModuleEmitter extends JsModuleEmitter {
   override function emitValueWithExpectedType(expected: Null<Type>,
       expr: TypedExpr) {
     final expectedTsType = expected == null ? null : SignatureCache.enumAbstractLiteralUnionTsType(expected);
-    if (expectedTsType != null && needsEnumAbstractExpectedAssertion(expectedTsType,
-      expr)) {
+    if (expectedTsType != null
+      && needsEnumAbstractExpectedAssertion(expectedTsType, expr)) {
       write('(');
       emitValue(expr);
       write(' as ');
@@ -2624,12 +2621,12 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TField(_, f)
         if (!inAssignTarget && !suppressOptionalFieldNullNormalization
           && optionalFieldNeedsNullNormalization(f)):
-          // Optional anonymous structure fields may be absent at runtime (`undefined`)
-          // but Haxe treats access as `null` in most contexts. Normalize to `null`
-          // to avoid leaking `undefined` into TS types.
-          write('(');
-          super.emitExpr(e);
-          write(' ?? null)');
+        // Optional anonymous structure fields may be absent at runtime (`undefined`)
+        // but Haxe treats access as `null` in most contexts. Normalize to `null`
+        // to avoid leaking `undefined` into TS types.
+        write('(');
+        super.emitExpr(e);
+        write(' ?? null)');
       case TReturn(eo):
         switch eo {
           case null:
@@ -2923,8 +2920,7 @@ class TsModuleEmitter extends JsModuleEmitter {
    * next to access lowering prevents later expression branches from silently
    * reintroducing printer-local nullish policy.
    */
-  static function nullishFieldAccessContract(
-      f: FieldAccess): Null<NullishContract> {
+  static function nullishFieldAccessContract(f: FieldAccess): Null<NullishContract> {
     return switch f {
       case FAnon(cf) | FInstance(_, _, cf) | FStatic(_, cf):
         NullishContract.forField(cf.get());
@@ -2933,8 +2929,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
   }
 
-  static function nullishFieldContract(
-      e: TypedExpr): Null<NullishContract> {
+  static function nullishFieldContract(e: TypedExpr): Null<NullishContract> {
     return switch unwrapExpr(e).expr {
       case TField(_, f):
         nullishFieldAccessContract(f);
@@ -3024,8 +3019,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       emitPos(field.expr.pos);
       emitString(anonymousField == null ? field.name : TypeUtil.classFieldName(anonymousField));
       write(': ');
-      emitObjectDeclFieldValue(anonymousField, TypeUtil.anonymousFieldType(objectType,
-        field.name), field.expr);
+      emitObjectDeclFieldValue(anonymousField,
+        TypeUtil.anonymousFieldType(objectType, field.name), field.expr);
     }
     write('}');
   }
@@ -3044,8 +3039,10 @@ class TsModuleEmitter extends JsModuleEmitter {
       write(' ?? undefined)');
       return;
     }
-    if (expected != null && !typeAllowsNull(expected)
-      && typeAllowsNull(expr.t) && !isNarrowedNonNull(expr)) {
+    if (expected != null
+      && !typeAllowsNull(expected)
+      && typeAllowsNull(expr.t)
+      && !isNarrowedNonNull(expr)) {
       // Haxe is not null-safe by default and can intentionally place a nullable
       // value into a non-null anonymous field. Preserve the runtime value while
       // making that typed-AST decision explicit to strict TypeScript.
@@ -3197,9 +3194,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TField(_, FStatic(owner, cf)):
         final ownerType = owner.get();
         final field = cf.get();
-        if (!canLowerPrivateStaticClassField(ownerType, field))
-          null;
-        else {
+        if (!canLowerPrivateStaticClassField(ownerType, field)) null; else {
           owner: ownerType,
           field: field,
           receiver: null
@@ -3210,8 +3205,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   function isCurrentClass(cl: ClassType): Bool {
-    return currentClass != null
-      && cl.module == currentClass.module
+    return currentClass != null && cl.module == currentClass.module
       && cl.name == currentClass.name;
   }
 
@@ -3229,8 +3223,9 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   static function canLowerPrivateStaticGenesField(cl: ClassType,
       field: GenesField): Bool {
-    return field.isStatic && canLowerPrivateStaticFieldMeta(cl, field.name,
-      field.isPublic, field.kind.equals(Method), field.meta);
+    return field.isStatic
+      && canLowerPrivateStaticFieldMeta(cl, field.name, field.isPublic,
+        field.kind.equals(Method), field.meta);
   }
 
   static function canLowerPrivateStaticClassField(cl: ClassType,
@@ -3255,7 +3250,8 @@ class TsModuleEmitter extends JsModuleEmitter {
   function emitPrivateMethodCall(call: PrivateMethodCall,
       params: Array<TypedExpr>) {
     if (isCurrentClass(call.owner)) {
-      write(privateMethodHelperName(call.owner, TypeUtil.classFieldName(call.field)));
+      write(privateMethodHelperName(call.owner,
+        TypeUtil.classFieldName(call.field)));
       switch call.receiver {
         case null:
           write('(');
@@ -3282,7 +3278,8 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   function emitPrivateMethodValue(call: PrivateMethodCall) {
     if (isCurrentClass(call.owner)) {
-      write(privateMethodHelperName(call.owner, TypeUtil.classFieldName(call.field)));
+      write(privateMethodHelperName(call.owner,
+        TypeUtil.classFieldName(call.field)));
       switch call.receiver {
         case null:
         case receiver:
@@ -3312,14 +3309,16 @@ class TsModuleEmitter extends JsModuleEmitter {
     emitField(TypeUtil.classFieldName(call.field));
   }
 
-  static function privateMethodHelperName(cl: ClassType, fieldName: String): String {
+  static function privateMethodHelperName(cl: ClassType,
+      fieldName: String): String {
     return '__'
       + TypeUtil.className(cl).split('$').join('_')
       + '_'
       + fieldName.split('$').join('_');
   }
 
-  static function shouldEmitClassMethod(cl: ClassType, field: GenesField): Bool {
+  static function shouldEmitClassMethod(cl: ClassType,
+      field: GenesField): Bool {
     return field.isPublic
       || field.kind.equals(Constructor)
       || !field.isStatic
@@ -3435,9 +3434,8 @@ class TsModuleEmitter extends JsModuleEmitter {
           final optional = opt && i > noOptionalUntil;
           final nullish = NullishContract.forParameter(argType, optional);
           final usesNullDefault = optional
-            && (cachedArgs != null
-              ? (cachedArgs[i].allowsNull && !cachedArgs[i].preservesUndefined)
-              : nullish.usesNullDefault);
+            && (cachedArgs != null ? (cachedArgs[i].allowsNull
+              && !cachedArgs[i].preservesUndefined) : nullish.usesNullDefault);
           if (nullish.emitOptionalSyntax && !usesNullDefault)
             write('?');
           write(': ');
@@ -3649,8 +3647,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           writeNewline();
           emitPos(member.pos);
           emitMemberName(TypeUtil.nativeName(member.meta) ?? member.name);
-          final nullish = NullishContract.forProperty(member.type,
-            member.meta);
+          final nullish = NullishContract.forProperty(member.type, member.meta);
           if (nullish.emitOptionalSyntax)
             write('?');
           write(': ');
@@ -3669,7 +3666,8 @@ class TsModuleEmitter extends JsModuleEmitter {
           emitMemberName(TypeUtil.nativeName(member.meta) ?? member.name);
           if (member.parameters.length > 0)
             emitTypeParamDecls([
-              for (parameter in member.parameters) parameter.t
+              for (parameter in member.parameters)
+                parameter.t
             ], true);
           write('(');
           emitFunctionTypeArguments(member.type);
@@ -3722,8 +3720,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           if (genes.util.TypeUtil.isRest(arg.t))
             write('...');
           emitLocalIdent(arg.name != "" ? arg.name : 'arg');
-          final nullish = NullishContract.forParameter(arg.t,
-            arg.opt && i > noOptionalUntil);
+          final nullish = NullishContract.forParameter(arg.t, arg.opt && i > noOptionalUntil);
           if (nullish.emitOptionalSyntax)
             write('?');
           write(': ');
@@ -3742,8 +3739,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
   }
 
-  function emitTsEnum(et: EnumType, export = true,
-      registerRuntimeType = true) {
+  function emitTsEnum(et: EnumType, export = true, registerRuntimeType = true) {
     final discriminator = haxe.macro.Context.definedValue('genes.enum_discriminator');
     final id = et.pack.concat([et.name]).join('.');
     final enumParams = et.params != null ? et.params.map(p -> p.t) : [];
@@ -4133,7 +4129,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   /** Writes one module-level type alias prefix with projected ESM visibility. */
-  function emitTsTypeDeclarationPrefix(export:Bool):Void {
+  function emitTsTypeDeclarationPrefix(export: Bool): Void {
     if (export)
       write('export ');
     write('type ');

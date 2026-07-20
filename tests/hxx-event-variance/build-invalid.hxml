@@ -3,5 +3,6 @@
 --main Invalid
 -js tests/hxx-event-variance/out/invalid/index.tsx
 -D genes.ts
+-D genes.ts.jsx_import_source=react
 -D no-deprecation-warnings
 -dce full

@@ -6,5 +6,6 @@
 # TSX mode: emit `.tsx` and print TSX markup from JSX markers.
 -js tests/genes-ts/snapshot/react/out/tsx/src-gen/index.tsx
 -D genes.ts
+-D genes.ts.jsx_import_source=react
 
 -dce full

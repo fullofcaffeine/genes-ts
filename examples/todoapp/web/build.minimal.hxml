@@ -6,6 +6,7 @@
 # Emit TypeScript via genes-ts (still uses -js because we compile on the JS platform)
 -js examples/todoapp/web/src-gen/index.tsx
 -D genes.ts
+-D genes.ts.jsx_import_source=react
 
 # Opt-in: minimal runtime / no reflection profile.
 -D genes.ts.minimal_runtime
@@ -17,4 +18,3 @@
 -D genes.react.inline_markup
 
 -dce full
-

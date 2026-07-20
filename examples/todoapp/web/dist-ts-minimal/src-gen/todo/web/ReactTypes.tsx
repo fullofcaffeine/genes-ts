@@ -1,3 +1,4 @@
+import type {JSX} from "react"
 import {Register} from "../../genes/Register"
 
 export type ReactElement = JSX.Element

@@ -3,6 +3,7 @@
 --main hxx_carrier.Main
 -js tests/hxx-carrier-immutability/out/ts/src-gen/index.ts
 -D genes.ts
+-D genes.ts.jsx_import_source=react
 -D no-deprecation-warnings
 -D js-es=6
 -dce full

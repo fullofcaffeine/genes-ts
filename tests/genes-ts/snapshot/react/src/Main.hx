@@ -54,6 +54,15 @@ interface InheritedCardProps extends InheritedBaseProps {
 // The Haxe formatter does not yet understand component HXX reliably.
 // @formatter:off
 class Main {
+  static function syncFormAction(data: PreciseFormData): Void {
+    data.has("title");
+  }
+
+  static function asyncFormAction(data: PreciseFormData): js.lib.Promise<Void> {
+    data.has("title");
+    return js.lib.Promise.resolve();
+  }
+
   static function main() {
     final title = "Hi";
 
@@ -145,6 +154,21 @@ class Main {
     final booleanAndArrayHtml = renderToStaticMarkup(<button disabled aria-pressed={true}>{["A", "B"]}</button>);
     if (booleanAndArrayHtml != '<button disabled="" aria-pressed="true">AB</button>')
       throw 'Unexpected boolean/array HTML: ' + booleanAndArrayHtml;
+
+    // React 19 accepts either a URL or a function action. Named callbacks use
+    // a precise alternate extern for the same native FormData global; the
+    // inline callback proves the union still supplies contextual parameter
+    // typing before TypeScript exists. Button and input share the same host
+    // contract through `formAction`.
+    final stringFormAction = <form action="/save"></form>;
+    final syncFormActionElement = <form action={syncFormAction}></form>;
+    final asyncFormActionElement = <form action={asyncFormAction}></form>;
+    final contextualFormAction = <form action={formData -> {
+      formData.has("title");
+      return;
+    }}></form>;
+    final buttonFormAction = <button formAction={syncFormAction}>Save</button>;
+    final inputFormAction = <input type="submit" formAction={asyncFormAction} />;
 
     // React spells SVG presentation properties in camelCase while authoring,
     // then writes their native dash-separated names into rendered markup.

@@ -7,5 +7,6 @@
 # typed createElement calls, including the tag selected by a runtime String.
 -js tests/genes-ts/snapshot/react/out/dual-ts/src-gen/index.ts
 -D genes.ts
+-D genes.ts.jsx_import_source=react
 
 -dce full
