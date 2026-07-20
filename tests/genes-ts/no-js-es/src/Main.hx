@@ -149,6 +149,9 @@ class Main {
     trace('do-while-stable:${optionalAfterDoWhileStableBreak(true, false)}');
     final conditionReassigned = optionalAfterConditionReassignment();
     trace('condition-reassignment:${conditionReassigned == null}:${genes.ts.Undefinable.isAbsent(conditionReassigned)}');
+    trace('short-circuit-and:${shortCircuitAnd("alpha")}');
+    trace('short-circuit-or:${shortCircuitOr(null)}:${shortCircuitOr("beta")}');
+    trace('short-circuit-map:${shortCircuitMap()}');
     trace(inlineValueTemps());
     trace(mapAfterResultParameter({messages: ["one", "three"]}).join(","));
     trace(recordConstructionTemps("alpha", {name: "Alpha"}, null));
@@ -640,6 +643,43 @@ class Main {
     if (item.name != null && (item = {}) != null)
       return item.name;
     return null;
+  }
+
+  /**
+   * The right side of `&&` runs only after the left-side null check succeeds.
+   *
+   * TypeScript already understands this ordinary control-flow rule. The Genes
+   * narrowing plan should describe the same point so the emitter does not add
+   * a redundant identity cast around `value` at the helper-call boundary.
+   */
+  static function shortCircuitAnd(value: Null<String>): Bool {
+    if (value != null && nonNullStringLength(value) > 0)
+      return true;
+    return false;
+  }
+
+  /**
+   * The right side of `||` runs only when the left-side null comparison is
+   * false. In this example that means `value` is present before the helper is
+   * called, just as in the `&&` case above.
+   */
+  static function shortCircuitOr(value: Null<String>): Bool {
+    if (value == null || nonNullStringLength(value) > 0)
+      return true;
+    return false;
+  }
+
+  /** `Map.exists` similarly proves the matching right-side read is present. */
+  static function shortCircuitMap(): Bool {
+    final named = buildMapHolder(["alpha"]).named;
+    if (named.exists("alpha")
+      && formatNamedItem(named.get("alpha")) == "alpha")
+      return true;
+    return false;
+  }
+
+  static function nonNullStringLength(value: String): Int {
+    return value.length;
   }
 
   static function namedItem(name: String): NamedItem {

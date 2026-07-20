@@ -157,6 +157,21 @@ function main(): void {
     /\bstatic optionalAfterConditionReassignment\(\): string \| null \{[\s\S]*?\n\t\}/,
     "condition-reassignment"
   );
+  const shortCircuitAnd = methodBlock(
+    generated,
+    /\bstatic shortCircuitAnd\(value: string \| null\): boolean \{[\s\S]*?\n\t\}/,
+    "short-circuit-and"
+  );
+  const shortCircuitOr = methodBlock(
+    generated,
+    /\bstatic shortCircuitOr\(value: string \| null\): boolean \{[\s\S]*?\n\t\}/,
+    "short-circuit-or"
+  );
+  const shortCircuitMap = methodBlock(
+    generated,
+    /\bstatic shortCircuitMap\(\): boolean \{[\s\S]*?\n\t\}/,
+    "short-circuit-map"
+  );
 
   const transcript = execFileSync(
     process.execPath,
@@ -301,6 +316,26 @@ function main(): void {
       "condition reassignment skipped optional-field null normalization"
     );
   }
+  if (shortCircuitAnd.includes("Register.unsafeCast<string>(value)")) {
+    staleFacts.push(
+      "the right side of && did not receive the left guard's non-null fact"
+    );
+  }
+  if (shortCircuitOr.includes("Register.unsafeCast<string>(value)")) {
+    staleFacts.push(
+      "the right side of || did not receive the false left path's non-null fact"
+    );
+  }
+  if (shortCircuitMap.includes("Register.unsafeCast<NamedItem>")) {
+    staleFacts.push(
+      "the right side of && did not receive the left Map.exists fact"
+    );
+  }
+  if (!shortCircuitMap.includes('named.get("alpha")!')) {
+    staleFacts.push(
+      "the short-circuit map read lost the focused non-null assertion"
+    );
+  }
   if (!transcript.includes("receiver-reassignment:true:false")) {
     staleFacts.push(
       "the reassigned optional field returned raw undefined instead of Haxe null"
@@ -329,7 +364,10 @@ function main(): void {
     "do-while-break:true:false",
     "do-while-continue:true:false",
     "do-while-stable:stable",
-    "condition-reassignment:true:false"
+    "condition-reassignment:true:false",
+    "short-circuit-and:true",
+    "short-circuit-or:true:true",
+    "short-circuit-map:true"
   ]) {
     if (!transcript.includes(expected)) {
       staleFacts.push(`runtime transcript did not contain ${expected}`);
