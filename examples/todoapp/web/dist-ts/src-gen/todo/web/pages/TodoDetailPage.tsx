@@ -57,21 +57,24 @@ export class TodoDetailPage {
 			});
 		};
 		if (error != "") {
-			return <div><p style={{"color": "crimson"}}>{error}</p><Link to="/">Back</Link></div>;
+			let p: JSX.Element = <p style={{"color": "crimson"}}>{error}</p>;
+			let tmp1: JSX.Element = <Link to="/">Back</Link>;
+			return <div>{p}{tmp1}</div>;
 		};
 		if (todo == null) {
 			return <p>Loading...</p>;
 		};
 		let todoValue: Todo = todo;
-		let p: JSX.Element = <p><Link to="/">← Back</Link></p>;
+		let tmp: JSX.Element = <Link to="/">← Back</Link>;
+		let p_1: JSX.Element = <p>{tmp}</p>;
 		let h2: JSX.Element = <h2>Todo</h2>;
 		let b: JSX.Element = <b>ID:</b>;
-		let p_1: JSX.Element = <p>{b}{todoValue.id}</p>;
+		let p_2: JSX.Element = <p>{b}{todoValue.id}</p>;
 		let b_1: JSX.Element = <b>Created:</b>;
-		let p_2: JSX.Element = <p>{b_1}{todoValue.createdAt}</p>;
+		let p_3: JSX.Element = <p>{b_1}{todoValue.createdAt}</p>;
 		let b_2: JSX.Element = <b>Updated:</b>;
-		let p_3: JSX.Element = <p>{b_2}{todoValue.updatedAt}</p>;
-		return <div>{p}{h2}{p_1}{p_2}{p_3}<label style={{"display": "block", "marginTop": "12px"}}> Title <input value={title} onChange={function (e: ChangeEvent) {
+		let p_4: JSX.Element = <p>{b_2}{todoValue.updatedAt}</p>;
+		return <div>{p_1}{h2}{p_2}{p_3}{p_4}<label style={{"display": "block", "marginTop": "12px"}}> Title <input value={title} onChange={function (e: ChangeEvent) {
 			let setter: ((arg0: string) => void) = (titleState[1] ?? null);
 			setter(e.target.value);
 		}} style={{"display": "block", "width": "100%", "padding": "8px", "marginTop": "6px"}} /></label><div style={{"marginTop": "12px"}}><button onClick={function () {
