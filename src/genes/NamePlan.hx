@@ -48,7 +48,8 @@ class NamePlan {
 
   public static function build(module: Module, temps: TempPlan,
       profile: NamePlanProfile, jsxEmitTsx = false): NamePlan {
-    return new NamePlanBuilder(temps, profile, jsxEmitTsx).build(module);
+    return new NamePlanBuilder(temps, profile, jsxEmitTsx,
+      module.jsxPlan).build(module);
   }
 
   public function new(names: Map<Int, String>) {
@@ -82,15 +83,17 @@ private class NamePlanBuilder {
   final temps: TempPlan;
   final profile: NamePlanProfile;
   final jsxEmitTsx: Bool;
+  final jsxPlan: JsxPlan;
   final names: Map<Int, String> = [];
   final generatedCounts: Map<String, Int> = [];
   final plannedFunctions = new ObjectMap<TFunc, Bool>();
 
   public function new(temps: TempPlan, profile: NamePlanProfile,
-      jsxEmitTsx: Bool) {
+      jsxEmitTsx: Bool, jsxPlan: JsxPlan) {
     this.temps = temps;
     this.profile = profile;
     this.jsxEmitTsx = jsxEmitTsx;
+    this.jsxPlan = jsxPlan;
   }
 
   public function build(module: Module): NamePlan {
@@ -146,9 +149,10 @@ private class NamePlanBuilder {
     switch expression.expr {
       case TBlock(elements):
         final blockPreferences = copyPreferences(preferences);
-        if (profile == TypeScriptReadable) {
+        if (profile == TypeScriptReadable)
           addObjectConstructionPreferences(elements, blockPreferences);
-          if (jsxEmitTsx)
+        if (jsxEmitTsx) {
+          if (profile == TypeScriptReadable)
             addTsxElementPreferences(elements, blockPreferences);
         }
         for (element in elements)
@@ -195,6 +199,15 @@ private class NamePlanBuilder {
       preferences: Map<Int, String>): Void {
     if (names.exists(local.id))
       return;
+    if (jsxEmitTsx && jsxPlan.isSourceInlineChild(local))
+      return;
+    if (jsxEmitTsx && profile == ClassicStable
+      && preferences.exists(local.id)) {
+      final preferred = preferences.get(local.id);
+      final count = countAndIncrement(scope.counts, preferred);
+      names.set(local.id, suffix(preferred, count));
+      return;
+    }
     if (profile == ClassicStable) {
       names.set(local.id, local.name);
       return;

@@ -1,0 +1,15 @@
+-lib genes-ts
+
+-cp tests/genes-ts/snapshot/react/src
+--main DualJsxMain
+
+# This test-only profile keeps arbitrary expression metadata in Haxe's typed
+# tree. It proves source cleanup rejects an unreviewed TMeta wrapper rather than
+# treating it like harmless parentheses. Production profiles do not enable
+# broad metadata retention.
+-js tests/genes-ts/snapshot/react/out/dual-tsx-retain-meta/src-gen/index.tsx
+-D genes.ts
+-D genes.ts.jsx_import_source=react
+-D retain-untyped-meta
+
+-dce full

@@ -1,6 +1,22 @@
 import { deepStrictEqual, ok, strictEqual } from "node:assert";
-import { execFileSync, spawnSync, type ExecFileSyncOptions } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import {
+  execFileSync,
+  spawn,
+  spawnSync,
+  type ChildProcess,
+  type ExecFileSyncOptions
+} from "node:child_process";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync
+} from "node:fs";
+import { createServer } from "node:net";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { assertNoUnsafeTypes } from "./typing-policy.js";
@@ -38,6 +54,209 @@ function capture(cmd: string, args: ReadonlyArray<string>): string {
   });
 }
 
+/** Captures one generated tree so a failed compiler run can prove no publication. */
+function captureGeneratedTree(relPath: string): ReadonlyArray<readonly [string, string]> {
+  const root = path.join(repoRoot, relPath);
+  const files: Array<readonly [string, string]> = [];
+
+  function visit(directory: string): void {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        visit(absolute);
+      } else if (entry.isFile()) {
+        files.push([
+          path.relative(root, absolute),
+          readFileSync(absolute, "utf8")
+        ]);
+      }
+    }
+  }
+
+  visit(root);
+  return files.sort(([left], [right]) => left.localeCompare(right));
+}
+
+/** Reserves an unused local TCP port for one bounded Haxe compiler server. */
+async function unusedLocalPort(): Promise<number> {
+  return await new Promise((resolve, reject) => {
+    const probe = createServer();
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const address = probe.address();
+      if (address === null || typeof address === "string") {
+        probe.close();
+        reject(new Error("Haxe server probe did not receive a TCP port"));
+        return;
+      }
+      probe.close((error) => error === undefined
+        ? resolve(address.port)
+        : reject(error));
+    });
+  });
+}
+
+/** Waits until the compiler server accepts local connections or exits. */
+async function waitForCompilerServer(
+  server: ChildProcess,
+  logs: () => string
+): Promise<void> {
+  // A plain TCP connect is not a harmless readiness request: Haxe owns the
+  // bytes on that socket as its compiler protocol. Connecting and immediately
+  // closing can begin and abandon a macro context, which the Haxe 5 preview
+  // correctly exposes as an invalid test. Give the local process a small,
+  // bounded startup window, then let the first real compilation be its first
+  // client.
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  if (server.exitCode !== null)
+    throw new Error(`Haxe compiler server exited early:\n${logs()}`);
+}
+
+/** Stops the bounded compiler server without leaving a background process. */
+async function stopCompilerServer(server: ChildProcess): Promise<void> {
+  if (server.exitCode !== null)
+    return;
+  server.kill();
+  await Promise.race([
+    new Promise<void>((resolve) => server.once("exit", () => resolve())),
+    new Promise<void>((resolve) => setTimeout(resolve, 2_000))
+  ]);
+  if (server.exitCode === null)
+    server.kill("SIGKILL");
+}
+
+/**
+ * Proves source-inline facts never survive beyond their typed compiler tree.
+ *
+ * Why: a warm Haxe compiler server reuses one macro process across builds. The
+ * plan keys declarations and uses by typed-expression object identity, which
+ * is valid only for the current build. An accidental static cache could apply
+ * an old rewrite after a source edit.
+ *
+ * What/How: the test builds an inlineable tree, edits the generated fixture so
+ * its child becomes an authored local, then restores the first source—all in
+ * one server. The middle build must retain the local, and the final published
+ * tree must be byte-identical to the first.
+ */
+async function assertSourceInlineCompilerServerIsolation(): Promise<void> {
+  const fixtureRootRel =
+    "tests/genes-ts/snapshot/react/out/source-inline-server";
+  const fixtureRoot = path.join(repoRoot, fixtureRootRel);
+  const sourceRoot = path.join(fixtureRoot, "src");
+  const outputRootRel = `${fixtureRootRel}/src-gen`;
+  const sourceFile = path.join(sourceRoot, "ServerSourceInline.hx");
+  rmrf(fixtureRootRel);
+  mkdirSync(sourceRoot, { recursive: true });
+
+  const inlineable = `package;
+import genes.react.Element;
+
+/** Generated warm-server fixture; the test owns and rewrites this file. */
+class ServerSourceInline {
+  public static function render(label: String): Element {
+    return <div><span>{label}</span></div>;
+  }
+
+  static function main(): Void {
+    trace(render("warm"));
+  }
+}
+`;
+  const authoredLocal = inlineable.replace(
+    "return <div><span>{label}</span></div>;",
+    "final child = <span>{label}</span>;\n    return <div>{child}</div>;"
+  );
+  writeFileSync(sourceFile, inlineable, "utf8");
+
+  // Lix's `haxe` command is a version-selecting shim. That is ideal for normal
+  // builds, but its private selection argument is not part of Haxe's compiler-
+  // server protocol. Resolve the already-selected Lix binary—or the compiler
+  // beside an explicit preview `HAXE_STD_PATH`—so the server and all three
+  // clients speak the native protocol for one exact compiler lane.
+  const executable = process.platform === "win32" ? "haxe.exe" : "haxe";
+  const explicitStdPath = process.env.HAXE_STD_PATH;
+  const haxeBinary = explicitStdPath !== undefined
+    ? path.join(path.dirname(explicitStdPath), executable)
+    : path.join(
+      homedir(),
+      "haxe",
+      "versions",
+      capture("haxe", ["--version"]).trim(),
+      executable
+    );
+  ok(existsSync(haxeBinary),
+    `selected Haxe compiler binary does not exist: ${haxeBinary}`);
+
+  const port = await unusedLocalPort();
+  let serverLog = "";
+  const server = spawn(
+    haxeBinary,
+    ["--server-listen", `127.0.0.1:${port}`],
+    { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] }
+  );
+  server.stdout?.on("data", (chunk: Buffer) => {
+    serverLog = `${serverLog}${chunk.toString("utf8")}`.slice(-20_000);
+  });
+  server.stderr?.on("data", (chunk: Buffer) => {
+    serverLog = `${serverLog}${chunk.toString("utf8")}`.slice(-20_000);
+  });
+
+  const buildArguments = [
+    "--connect",
+    `127.0.0.1:${port}`,
+    "-lib",
+    "genes-ts",
+    "-cp",
+    `${fixtureRootRel}/src`,
+    "--main",
+    "ServerSourceInline",
+    "-js",
+    `${outputRootRel}/index.tsx`,
+    "-D",
+    "genes.ts",
+    "-D",
+    "genes.ts.jsx_import_source=react",
+    "-dce",
+    "full"
+  ];
+  const build = (): void => {
+    const result = spawnSync(haxeBinary, buildArguments, {
+      cwd: repoRoot,
+      encoding: "utf8"
+    });
+    strictEqual(result.status, 0,
+      `warm Haxe compiler build failed:\n${result.stdout}${result.stderr}${serverLog}`);
+  };
+
+  try {
+    await waitForCompilerServer(server, () => serverLog);
+    build();
+    const firstTree = captureGeneratedTree(outputRootRel);
+    const firstSource = readFileSync(
+      path.join(repoRoot, outputRootRel, "ServerSourceInline.tsx"),
+      "utf8"
+    );
+    ok(firstSource.includes("return <div><span>{label}</span></div>"),
+      "warm-server first build did not inline the parser-owned child");
+
+    writeFileSync(sourceFile, authoredLocal, "utf8");
+    build();
+    const editedSource = readFileSync(
+      path.join(repoRoot, outputRootRel, "ServerSourceInline.tsx"),
+      "utf8"
+    );
+    ok(editedSource.includes("let child: JSX.Element = <span>{label}</span>"),
+      "warm-server edit reused a stale parser-owned child fact");
+
+    writeFileSync(sourceFile, inlineable, "utf8");
+    build();
+    deepStrictEqual(captureGeneratedTree(outputRootRel), firstTree,
+      "warm-server edit/revert did not restore the original generated tree");
+  } finally {
+    await stopCompilerServer(server);
+  }
+}
+
 function parseTranscript(output: string): unknown {
   const line = output
     .split(/\r?\n/)
@@ -48,6 +267,14 @@ function parseTranscript(output: string): unknown {
     throw new Error("JSX differential fixture produced no transcript");
   }
   return JSON.parse(line) as unknown;
+}
+
+function sourceSection(source: string, start: string, end: string): string {
+  const startIndex = source.indexOf(start);
+  ok(startIndex >= 0, `missing source section start: ${start}`);
+  const endIndex = source.indexOf(end, startIndex + start.length);
+  ok(endIndex >= 0, `missing source section end: ${end}`);
+  return source.slice(startIndex, endIndex);
 }
 
 function copyTsxFixtures(intoRelDir: string): void {
@@ -70,6 +297,26 @@ function copyTsxFixtures(intoRelDir: string): void {
   }
 
   copyDir(fixturesDir);
+}
+
+/**
+ * Copies the observable static-component module beside one generated profile.
+ *
+ * The Haxe extern imports `./observable-components.js`. TypeScript profiles use
+ * the typed source and compile it with the generated module; JavaScript
+ * profiles use the equivalent ESM file directly. Keeping the two small files
+ * beside their consumer makes the getter/Proxy ordering probe independent of
+ * a package-manager install or machine-local module path.
+ */
+function copyObservableComponents(
+  intoRelDir: string,
+  sourceExtension: "ts" | "js"
+): void {
+  const fileName = `observable-components.${sourceExtension}`;
+  cpSync(
+    path.join(repoRoot, "tests/genes-ts/snapshot/react/fixtures", fileName),
+    path.join(repoRoot, intoRelDir, fileName)
+  );
 }
 
 function assertNoGeneratedDomSupportGraph(generatedRelDir: string): void {
@@ -470,6 +717,11 @@ function assertHaxeHxxNegatives(): void {
   }
 }
 
+if (process.argv.includes("--source-inline-server-only")) {
+  await assertSourceInlineCompilerServerIsolation();
+  process.exit(0);
+}
+
 const authoredHxxSource = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/react/src/Main.hx"),
   "utf8"
@@ -485,6 +737,7 @@ rmrf("tests/genes-ts/snapshot/react/out/ts-type-only-jsx");
 rmrf("tests/genes-ts/snapshot/react/out/tsx-classic");
 rmrf("tests/genes-ts/snapshot/react/out/ts");
 rmrf("tests/genes-ts/snapshot/react/out/dual-tsx");
+rmrf("tests/genes-ts/snapshot/react/out/dual-tsx-retain-meta");
 rmrf("tests/genes-ts/snapshot/react/out/dual-ts");
 rmrf("tests/genes-ts/snapshot/react/out/dual-classic");
 rmrf("tests/genes-ts/snapshot/react/out/dual-jsx");
@@ -597,11 +850,13 @@ ok(automaticTsxSource.includes("event.target.setSelectionRange(0, 0)"),
   "HXX exposes the complete standard input API");
 ok(!automaticTsxSource.includes("./js/html"));
 ok(automaticTsxSource.includes(
+  "let optionalChildSpreadHtml: JSX.Element = <strong>nested child</strong>"
+) && automaticTsxSource.includes(
   "<Main.RequiredChild {...optionalChildren}>{optionalChildSpreadHtml}</Main.RequiredChild>"
-), "TSX lets nested markup satisfy required children after an optional spread");
+), "a generated static component keeps its child-before-parent evaluation seam");
 ok(automaticTsxSource.includes(
   "<Main.RequiredChild {...presentOptionalChildren}>{optionalChildOverrideHtml}</Main.RequiredChild>"
-), "TSX keeps nested children after and therefore above a present spread child");
+), "required children remain typed after the conservative static-tag boundary");
 ok(automaticTsxSource.includes(
   "<Main.RequiredChildList>{childArray}</Main.RequiredChildList>"
 ), "TSX preserves one array-valued child for an array children contract");
@@ -622,6 +877,49 @@ ok(automaticTsxSource.includes(
 ) && automaticTsxSource.includes(
   '<input type="submit" formAction={Main.asyncFormAction} />'
 ), "button and input preserve the same checked React 19 formAction contract");
+const canonicalChildTree = sourceSection(
+  automaticTsxSource,
+  "static renderChildList(",
+  "static renderOrderedChildList("
+);
+ok(canonicalChildTree.includes(
+  "return <div><span>{first}</span><strong>{second}</strong><Button label=\"Save\" />"
+), "pure one-use HXX children remain one canonical nested TSX tree");
+strictEqual(canonicalChildTree.includes("let span: JSX.Element"), false);
+strictEqual(canonicalChildTree.includes("let strong: JSX.Element"), false);
+
+const orderedChildTree = sourceSection(
+  automaticTsxSource,
+  "static renderOrderedChildList(",
+  "static renderAuthoredChild("
+);
+ok(orderedChildTree.includes(
+  'Main.recordJsxEvaluation("parent")'
+) && orderedChildTree.includes(
+  'Main.recordJsxEvaluation("first")'
+) && orderedChildTree.includes(
+  'Main.recordJsxEvaluation("second")'
+), "effectful JSX values retain explicit evaluation steps");
+ok(orderedChildTree.includes("let span: JSX.Element = <span>{tmp1}</span>"),
+  "a child that cannot cross a later effectful sibling retains its local");
+ok(orderedChildTree.includes("{span}<strong>{tmp3}</strong>"),
+  "only the final reorder-safe child is inlined around sequenced values");
+
+const authoredChildTree = sourceSection(
+  automaticTsxSource,
+  "static renderAuthoredChild(",
+  "static renderSharedChild("
+);
+ok(authoredChildTree.includes("let child: JSX.Element = <span>{label}</span>"),
+  "a one-use authored JSX local remains an authored local");
+const sharedChildTree = sourceSection(
+  automaticTsxSource,
+  "static renderSharedChild(",
+  "static recordJsxEvaluation("
+);
+ok(sharedChildTree.includes("let child: JSX.Element = <span>{label}</span>"));
+ok(sharedChildTree.includes("return <div>{child}{child}</div>"),
+  "a shared JSX value retains one declaration and both reads");
 assertNoUnsafeTypes({
   repoRoot,
   generatedDir: "tests/genes-ts/snapshot/react/out/tsx/src-gen",
@@ -746,6 +1044,16 @@ ok(typedCreateElementSource.includes(
 ok(typedCreateElementSource.includes(
   'createElement("form", ({action: Main.asyncFormAction} satisfies'
 ), "typed createElement preserves a named asynchronous form action");
+const typedCreateElementChildren = sourceSection(
+  typedCreateElementSource,
+  "static renderChildList(",
+  "static renderOrderedChildList("
+);
+ok(typedCreateElementChildren.includes(
+  'let tmp: JSX.Element = React__genes_jsx.createElement("span", null, first)'
+) && typedCreateElementChildren.includes(
+  'return React__genes_jsx.createElement("div", null, tmp, tmp1'
+), "plain TypeScript createElement output retains its established lowering");
 assertNoUnsafeTypes({
   repoRoot,
   generatedDir: "tests/genes-ts/snapshot/react/out/ts/src-gen",
@@ -761,21 +1069,127 @@ run("node", ["tests/genes-ts/snapshot/react/out/ts/dist/index.js"]);
 // classic ESM. Static intent remains readable TSX, while a runtime string tag
 // deliberately exercises the shared createElement capability in both modes.
 run("haxe", ["tests/genes-ts/snapshot/react/build-dual-tsx.hxml"]);
+copyObservableComponents(
+  "tests/genes-ts/snapshot/react/out/dual-tsx/src-gen",
+  "ts"
+);
+const dualTsxTreeBeforeInjectedFailure = captureGeneratedTree(
+  "tests/genes-ts/snapshot/react/out/dual-tsx/src-gen"
+);
+const sourceInlineFailure = spawnSync(
+  "haxe",
+  [
+    "tests/genes-ts/snapshot/react/build-dual-tsx.hxml",
+    "-D",
+    "genes.jsx_source_inline_test_fail_after_emission"
+  ],
+  { cwd: repoRoot, encoding: "utf8" }
+);
+strictEqual(sourceInlineFailure.status === 0, false,
+  "the private source-inline consistency failure unexpectedly compiled");
+ok(`${sourceInlineFailure.stdout}${sourceInlineFailure.stderr}`.includes(
+  "[GTS-JSX-SOURCE-INLINE-004]"
+), "the injected source-inline failure lost its stable diagnostic");
+deepStrictEqual(
+  captureGeneratedTree("tests/genes-ts/snapshot/react/out/dual-tsx/src-gen"),
+  dualTsxTreeBeforeInjectedFailure,
+  "a late source-inline consistency failure changed the published TSX tree"
+);
 const dualTsxSource = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/react/out/dual-tsx/src-gen/DualJsxMain.tsx"),
   "utf8"
 );
 ok(dualTsxSource.includes("<main {...rootProps}>"));
-ok(dualTsxSource.includes("let tree1: JSX.Element ="));
+ok(dualTsxSource.includes(
+  "let tree1: JSX.Element = <main {...rootProps}><h1>{heading}</h1>{fragment}</main>"
+), "TSX removes the exact compiler child but does not guess why Haxe suffixed the parent name");
+strictEqual(dualTsxSource.includes(
+  "let tree: JSX.Element = <h1>{heading}</h1>"
+), false, "the parser-owned nested heading declaration is omitted");
 ok(dualTsxSource.includes("React__genes_jsx.createElement(runtimeTag"));
+const dualTsxCallArgument = sourceSection(
+  dualTsxSource,
+  "static renderSameExpressionOrder(",
+  "static renderNestedNameScope("
+);
+ok(dualTsxCallArgument.includes("let OrderedComponent_1: JSX.Element")
+  && dualTsxCallArgument.includes(
+    "return DualJsxMain.keepElement(tmp, <div>{OrderedComponent_1}</div>)"
+  ), "a parent nested in a call argument remains outside the closed rewrite grammar");
+const dualTsxStaticOrder = sourceSection(
+  dualTsxSource,
+  "static renderStaticTagReadOrder(",
+  "static mutateComponent("
+);
+ok(dualTsxStaticOrder.includes(
+  "let tmp: JSX.Element = <ObservableComponents.Child />"
+) && dualTsxStaticOrder.includes(
+  "return <ObservableComponents.Parent>{tmp}</ObservableComponents.Parent>"
+), "TSX retains the child local when an extern static tag read is observable");
+const dualTsxDirectAssignment = sourceSection(
+  dualTsxSource,
+  "static renderDirectAssignment(",
+  "static renderLocalComponentTags("
+);
+ok(dualTsxDirectAssignment.includes(
+  "result = <section><span>assigned</span></section>"
+) && !dualTsxDirectAssignment.includes("let span: JSX.Element"),
+"a direct local assignment consumes its exact generated child fact");
+const dualTsxLocalComponents = sourceSection(
+  dualTsxSource,
+  "static renderLocalComponentTags(",
+  "static renderCapturedChild("
+);
+ok(dualTsxLocalComponents.includes("return <Parent><Child /></Parent>")
+  && !dualTsxLocalComponents.includes("let Child_1: JSX.Element"),
+"component tags held in locals are safe lexical reads");
+const dualTsxCapturedChild = sourceSection(
+  dualTsxSource,
+  "static renderCapturedChild(",
+  "static LocalParent("
+);
+ok(dualTsxCapturedChild.includes(
+  "let child: JSX.Element = <span>captured</span>"
+) && dualTsxCapturedChild.includes("return <div>{child}</div>"),
+"a child captured by a callback retains its declaration");
+strictEqual(dualTsxSource.includes("__hxxChild"), false,
+  "the parser-only child marker never reaches TSX source");
 runGeneratedTypeScriptMatrix(
   "tests/genes-ts/snapshot/react/tsconfig.dual-tsx.json"
 );
+
+// Production builds deliberately do not retain arbitrary expression metadata.
+// This test-only lane does, so a future refactor cannot accidentally broaden
+// the closed wrapper grammar by calling the general JSX marker recognizer.
+run("haxe", [
+  "tests/genes-ts/snapshot/react/build-dual-tsx-retain-meta.hxml"
+]);
+const retainedMetadataTsxSource = readFileSync(
+  path.join(
+    repoRoot,
+    "tests/genes-ts/snapshot/react/out/dual-tsx-retain-meta/src-gen/DualJsxMain.tsx"
+  ),
+  "utf8"
+);
+const retainedMetadataAssignment = sourceSection(
+  retainedMetadataTsxSource,
+  "static renderDirectAssignment(",
+  "static renderLocalComponentTags("
+);
+ok(/let ([A-Za-z_$][\w$]*): JSX\.Element = <span>assigned<\/span>;[\s\S]*result = <section>{\1}<\/section>;/.test(
+  retainedMetadataAssignment
+), "an unreviewed typed metadata wrapper retains the generated child seam");
+strictEqual(retainedMetadataTsxSource.includes("__hxxChild"), false,
+  "the parser-only child marker never leaks from the metadata control");
 
 // The same marker must remain typed when a runtime String selects the
 // intrinsic tag in plain `.ts` createElement output. Static intrinsic and
 // component tags keep their stricter tag-specific property contracts.
 run("haxe", ["tests/genes-ts/snapshot/react/build-dual-ts.hxml"]);
+copyObservableComponents(
+  "tests/genes-ts/snapshot/react/out/dual-ts/src-gen",
+  "ts"
+);
 const dualTsSource = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/react/out/dual-ts/src-gen/DualJsxMain.ts"),
   "utf8"
@@ -792,17 +1206,28 @@ ok(dualTsSource.includes(
 ok(!dualTsSource.includes(
   "ComponentPropsWithoutRef<typeof runtimeTag>"
 ), "runtime string props do not claim one statically known intrinsic contract");
+strictEqual(dualTsSource.includes("__hxxChild"), false,
+  "the parser-only child marker normalizes in typed createElement output");
 runGeneratedTypeScriptMatrix(
   "tests/genes-ts/snapshot/react/tsconfig.dual-ts.json"
 );
 
 run("haxe", ["tests/genes-ts/snapshot/react/build-dual-classic.hxml"]);
+copyObservableComponents(
+  "tests/genes-ts/snapshot/react/out/dual-classic",
+  "js"
+);
 const dualClassicSource = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/react/out/dual-classic/DualJsxMain.js"),
   "utf8"
 );
 ok(dualClassicSource.includes('import * as React__genes_jsx from "react"'));
 ok(dualClassicSource.includes("React__genes_jsx.createElement(\"main\""));
+ok(dualClassicSource.includes(
+  'let tree = React__genes_jsx.createElement("h1", null, heading)'
+) && dualClassicSource.includes(
+  'let tree1 = React__genes_jsx.createElement("main", {...rootProps}, tree, fragment)'
+), "classic JavaScript retains the pre-existing explicit element sequence");
 ok(dualClassicSource.includes(
   "createElement(DualJsxMain.RequiredChildHost, {...presentOptionalChildren}, optionalSpreadOverrideElement)"
 ), "classic createElement passes nested children after a present spread child");
@@ -819,23 +1244,46 @@ ok(dualClassicSource.includes(
   'createElement("button", {"formAction": DualJsxMain.syncFormAction}, "Save")'
 ), "classic createElement preserves a button formAction without a helper");
 strictEqual(dualClassicSource.includes("Jsx.__jsx"), false);
+strictEqual(dualClassicSource.includes("__hxxChild"), false);
 
 run("haxe", ["tests/genes-ts/snapshot/react/build-dual-jsx.hxml"]);
+copyObservableComponents(
+  "tests/genes-ts/snapshot/react/out/dual-jsx",
+  "js"
+);
 const dualJsxSource = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/react/out/dual-jsx/DualJsxMain.jsx"),
   "utf8"
 );
 ok(dualJsxSource.includes("<main {...rootProps}>"));
+ok(dualJsxSource.includes(
+  "let tree1 = <main {...rootProps}><h1>{heading}</h1>{fragment}</main>"
+), "type-erased JSX consumes the same exact facts without reclaiming owner names");
 ok(dualJsxSource.includes("React__genes_jsx.createElement(runtimeTag"));
+ok(dualJsxSource.includes("let tree1 = function () {")
+  && !dualJsxSource.includes(
+    'let tree = "outer";\n\t\tlet tree = function () {'
+  ), "type-erased JSX keeps nested-function name cleanup inside its own scope");
 strictEqual(dualJsxSource.includes("Jsx.__jsx"), false);
+strictEqual(dualJsxSource.includes("__hxxChild"), false);
 strictEqual(dualJsxSource.includes(": JSX.Element"), false);
 runTypeScript("apiBridge", [
   "-p",
   "tests/genes-ts/snapshot/react/tsconfig.dual-jsx.json"
 ]);
+copyObservableComponents(
+  "tests/genes-ts/snapshot/react/out/dual-jsx-dist",
+  "js"
+);
 
 const expectedTranscript = {
   staticHtml: '<main class="shared" id="root"><h1>dual</h1><span>A</span><span>B</span></main>',
+  sameExpressionOrderHtml: '<div><span>after</span></div>',
+  nestedNameScopeHtml: '<section data-owner="outer"><div><span>inner</span></div></section>',
+  staticTagReadOrderHtml: '<section data-order="Child,Parent"><span>child</span></section>',
+  directAssignmentHtml: '<section><span>assigned</span></section>',
+  localComponentHtml: '<section><span>local</span></section>',
+  capturedChildHtml: '<div><span>captured</span></div>',
   optionalSpreadHtml: '<section><strong>nested child</strong></section>',
   optionalSpreadOverrideHtml: '<section><strong>nested child</strong></section>',
   arrayValueChildHtml: '<section><em>array A</em><strong>array B</strong></section>',
@@ -901,3 +1349,5 @@ const disabledOutput = path.join(
 if (existsSync(disabledOutput)) {
   deepStrictEqual(readdirSync(disabledOutput), []);
 }
+
+await assertSourceInlineCompilerServerIsolation();

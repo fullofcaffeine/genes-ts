@@ -11,8 +11,7 @@ export class App {
 		let TodoDetailComponent: ReactComponent = TodoDetailPage.Component;
 		let h1: JSX.Element = <h1 style={{"margin": "0"}}>Todoapp</h1>;
 		let tmp1: JSX.Element = <Link to="/" style={{"textDecoration": "none"}}>Home</Link>;
-		let nav: JSX.Element = <nav>{tmp1}</nav>;
-		let header: JSX.Element = <header style={{"display": "flex", "justifyContent": "space-between", "alignItems": "center"}}>{h1}{nav}</header>;
+		let header: JSX.Element = <header style={{"display": "flex", "justifyContent": "space-between", "alignItems": "center"}}>{h1}<nav>{tmp1}</nav></header>;
 		let hr: JSX.Element = <hr />;
 		let tmp5: JSX.Element = <Route path="/" element={<TodoListComponent />} />;
 		let tmp6: JSX.Element = <Route path="/todos/:id" element={<TodoDetailComponent />} />;

@@ -117,8 +117,7 @@ export class TodoListPage {
 		};
 		let ul: JSX.Element = <ul style={{"listStyle": "none", "padding": "0", "margin": "0"}}>{result}</ul>;
 		let tmp5: string = TodoListPage.interopBanner();
-		let p: JSX.Element = <p style={{"marginTop": "16px", "color": "#666", "fontSize": "12px"}}>{tmp5}</p>;
-		return <div>{h2}{errorView}{div}{ul}{p}</div>;
+		return <div>{h2}{errorView}{div}{ul}<p style={{"marginTop": "16px", "color": "#666", "fontSize": "12px"}}>{tmp5}</p></div>;
 	}
 	static get __name__(): string {
 		return "todo.web.pages.TodoListPage"

@@ -62,6 +62,7 @@ InheritedCardProps.__isInterface__ = true;
  * harness type-checks and executes the generated output.
  */
 export class Main {
+	declare static jsxEvaluationOrder: string[];
 	static syncFormAction(data: globalThis.FormData): void {
 		data.has("title");
 	}
@@ -77,8 +78,7 @@ export class Main {
 		let Button: ((arg0: {
 			label: string
 		}) => JSX.Element) = __genes_import_Button;
-		let el: JSX.Element = <span>{2}</span>;
-		let el1: JSX.Element = <div className="root" data-test-id="x">{title}{el}</div>;
+		let el1: JSX.Element = <div className="root" data-test-id="x">{title}<span>{2}</span></div>;
 		let renderToStaticMarkup: ((arg0: JSX.Element) => string) = __genes_import_renderToStaticMarkup;
 		let html: string = renderToStaticMarkup(el1);
 		if (html != "<div class=\"root\" data-test-id=\"x\">Hi<span>2</span></div>") {
@@ -192,6 +192,22 @@ export class Main {
 		if (loweredHtml != "<div><span>ready</span><strong>queued</strong><em>done</em><span>ready:1</span><strong>queued:2</strong></div>") {
 			throw Exception.thrown("Unexpected lowered list HTML: " + loweredHtml);
 		};
+		Main.jsxEvaluationOrder = [];
+		let orderedHtml: string = renderToStaticMarkup(Main.renderOrderedChildList());
+		if (orderedHtml != "<div data-order=\"parent\"><span>first</span><strong>second</strong></div>") {
+			throw Exception.thrown("Unexpected ordered HTML: " + orderedHtml);
+		};
+		if (Main.jsxEvaluationOrder.join(">") != "parent>first>second") {
+			throw Exception.thrown("Unexpected JSX evaluation order: " + Main.jsxEvaluationOrder.join(">"));
+		};
+		let authoredChildHtml: string = renderToStaticMarkup(Main.renderAuthoredChild("named"));
+		if (authoredChildHtml != "<div><span>named</span></div>") {
+			throw Exception.thrown("Unexpected authored child HTML: " + authoredChildHtml);
+		};
+		let sharedChildHtml: string = renderToStaticMarkup(Main.renderSharedChild("shared"));
+		if (sharedChildHtml != "<div><span>shared</span><span>shared</span></div>") {
+			throw Exception.thrown("Unexpected shared child HTML: " + sharedChildHtml);
+		};
 		let frag: JSX.Element = <><span>A</span><span>B</span></>;
 		let fragHtml: string = renderToStaticMarkup(frag);
 		if (fragHtml != "<span>A</span><span>B</span>") {
@@ -219,7 +235,7 @@ export class Main {
 			throw Exception.thrown("Unexpected absent href HTML: " + absentHrefHtml);
 		};
 		let contextualInput: JSX.Element = <input onChange={function (event: import('react').ChangeEvent<HTMLInputElement>) {
-			console.log("tests/genes-ts/snapshot/react/src/Main.hx:247:",event.target.value);
+			console.log("tests/genes-ts/snapshot/react/src/Main.hx:264:",event.target.value);
 			event.target.select();
 			event.target.setSelectionRange(0, 0);
 		}} />;
@@ -263,19 +279,39 @@ export class Main {
 		let Button: ((arg0: {
 			label: string
 		}) => JSX.Element) = __genes_import_Button;
-		let span: JSX.Element = <span>{first}</span>;
-		let strong: JSX.Element = <strong>{second}</strong>;
-		let Button_1: JSX.Element = <Button label="Save" />;
-		let em: JSX.Element = <em>done</em>;
-		let span_1: JSX.Element = <span>{first + ":1"}</span>;
-		let strong_1: JSX.Element = <strong>{second + ":2"}</strong>;
-		let span_2: JSX.Element = <span>{first + ":3"}</span>;
-		let strong_2: JSX.Element = <strong>{second + ":4"}</strong>;
-		let span_3: JSX.Element = <span>{first + ":5"}</span>;
-		let strong_3: JSX.Element = <strong>{second + ":6"}</strong>;
-		let span_4: JSX.Element = <span>{first + ":7"}</span>;
-		let strong_4: JSX.Element = <strong>{second + ":8"}</strong>;
-		return <div>{span}{strong}{Button_1}{em}{span_1}{strong_1}{span_2}{strong_2}{span_3}{strong_3}{span_4}{strong_4}</div>;
+		return <div><span>{first}</span><strong>{second}</strong><Button label="Save" /><em>done</em><span>{first + ":1"}</span><strong>{second + ":2"}</strong><span>{first + ":3"}</span><strong>{second + ":4"}</strong><span>{first + ":5"}</span><strong>{second + ":6"}</strong><span>{first + ":7"}</span><strong>{second + ":8"}</strong></div>;
+	}
+
+	/**
+	 * Keeps effectful values in explicit sequence while source JSX recovers the
+	 * pure nested element tree around those already-evaluated locals.
+	 */
+	static renderOrderedChildList(): JSX.Element {
+		let tmp = {"__genesJsxPropName": "data-order", "__genesJsxPropValue": Main.recordJsxEvaluation("parent"), "__genesJsxPropNext": {"__genesJsxPropsEnd": true}};
+		let tmp1: string = Main.recordJsxEvaluation("first");
+		let span: JSX.Element = <span>{tmp1}</span>;
+		let tmp3: string = Main.recordJsxEvaluation("second");
+		return <div data-order={tmp.__genesJsxPropValue}>{span}<strong>{tmp3}</strong></div>;
+	}
+
+	/**
+	 * One-use authored locals remain visible even when their value is pure.
+	 */
+	static renderAuthoredChild(label: string): JSX.Element {
+		let child: JSX.Element = <span>{label}</span>;
+		return <div>{child}</div>;
+	}
+
+	/**
+	 * Shared JSX values retain one declaration and two reads.
+	 */
+	static renderSharedChild(label: string): JSX.Element {
+		let child: JSX.Element = <span>{label}</span>;
+		return <div>{child}{child}</div>;
+	}
+	static recordJsxEvaluation(label: string): string {
+		Main.jsxEvaluationOrder.push(label);
+		return label;
 	}
 	static GenericValue<T>(props: GenericValueProps<T>): JSX.Element {
 		let tmp: string = props.render(props.value);
@@ -314,6 +350,8 @@ export class Main {
 }
 Register.setHxClass("Main", Main);
 
+
+Main.jsxEvaluationOrder = []
 /**
  * Property bag proving that an HXX spread may omit `children`.
  *

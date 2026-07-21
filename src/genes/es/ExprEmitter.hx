@@ -18,6 +18,7 @@ import genes.NullishContract;
 import genes.JsxPlan;
 import genes.JsxPlan.JsxCapabilityPolicy;
 import genes.JsxPlan.JsxEmissionProfile;
+import genes.JsxPlan.JsxSourceInlineConsumer;
 import genes.JsxPlan.JsxIntent;
 import genes.JsxPlan.JsxChildIntent;
 import genes.JsxPlan.JsxPropIntent;
@@ -130,6 +131,7 @@ class ExprEmitter extends Emitter {
   var templateLiteralPlan: Null<TemplateLiteralPlan> = null;
   var jsxRuntimeBinding: Null<String> = null;
   var jsxEmissionProfile: Null<JsxEmissionProfile> = null;
+  var jsxSourceInlineConsumer: Null<JsxSourceInlineConsumer> = null;
   var namePlan: Null<NamePlan> = null;
   var tempPlan: Null<TempPlan> = null;
   var directImportLocals: Array<String> = [];
@@ -149,11 +151,42 @@ class ExprEmitter extends Emitter {
     jsxPlan = plan;
     jsxEmissionProfile = capability.profile;
     jsxRuntimeBinding = capability.resolveRuntimeBinding(dependencies, plan);
+    jsxSourceInlineConsumer = emitsJsxSource()
+      ? plan.sourceInlineConsumer(capability.profile)
+      : null;
   }
 
   /** Whether Haxe introduced this local solely for the typed JSX carrier. */
   function isJsxCarrierLocal(id: Int): Bool {
     return jsxPlan != null && jsxPlan.isCarrierLocal(id);
+  }
+
+  /** True only when this printer preserves JSX syntax in emitted source. */
+  function emitsJsxSource(): Bool {
+    return jsxEmissionProfile == JavaScriptJsxAutomatic;
+  }
+
+  /** Resolves one planned source-only JSX local without affecting call output. */
+  function sourceInlineJsxValue(expression: TypedExpr): TypedExpr {
+    if (!emitsJsxSource() || jsxSourceInlineConsumer == null)
+      return expression;
+    final initializer = jsxSourceInlineConsumer.initializerForChildValue(
+      expression);
+    return initializer == null ? expression : initializer;
+  }
+
+  /** Whether a macro-created JSX declaration is replaced at its sole child use. */
+  function skipsSourceInlineJsxDeclaration(expression: TypedExpr): Bool {
+    if (!emitsJsxSource() || jsxSourceInlineConsumer == null)
+      return false;
+    return jsxSourceInlineConsumer.initializerForDeclaration(expression) != null;
+  }
+
+  /** Validates exact source-inline consumption before the writer is closed. */
+  override public function finish(): Void {
+    if (jsxSourceInlineConsumer != null)
+      jsxSourceInlineConsumer.validate();
+    super.finish();
   }
 
   /** Installs the validated target-neutral string-template plan. */
@@ -1035,9 +1068,12 @@ class ExprEmitter extends Emitter {
     for (child in children) {
       switch child {
         case ChildIntent(expression, source):
+          final emittedExpression = source.match(DirectValue)
+            ? sourceInlineJsxValue(expression)
+            : expression;
           if (source.match(DirectValue)
-            && JsxPlan.isMarkerCallExpression(expression)) {
-            emitValue(expression);
+            && JsxPlan.isMarkerCallExpression(emittedExpression)) {
+            emitValue(emittedExpression);
             continue;
           }
           switch [source, JsxPlan.unwrap(expression).expr] {
@@ -1083,7 +1119,7 @@ class ExprEmitter extends Emitter {
   function emitJsxValue(expression: TypedExpr, source: JsxValueSource): Void {
     switch source {
       case DirectValue:
-        emitValue(expression);
+        emitValue(sourceInlineJsxValue(expression));
       case RuntimeValuePath(root, path):
         emitValue(root);
         for (access in path) {
@@ -1412,6 +1448,8 @@ class ExprEmitter extends Emitter {
 
   function emitBlockElement(e: TypedExpr, after = false) {
     if (CompilerInternal.isSideEffectImportMarkerCall(e))
+      return;
+    if (skipsSourceInlineJsxDeclaration(e))
       return;
     emitPos(e.pos);
     switch e.expr {

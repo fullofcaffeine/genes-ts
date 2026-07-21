@@ -4,12 +4,14 @@ import { deepStrictEqual, ok, strictEqual } from "node:assert";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { SourceMapConsumer, type RawSourceMap } from "source-map";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "../..");
 const fixtureRoot = path.join(repoRoot, "tests/genes-ts/snapshot/basic");
 const overlappingFixtureRoot = path.join(repoRoot, "tests/source-map-paths/overlap");
+const reactFixtureRoot = path.join(repoRoot, "tests/genes-ts/snapshot/react");
 
 function rmrf(relPath: string): void {
   rmSync(path.join(repoRoot, relPath), { recursive: true, force: true });
@@ -170,6 +172,77 @@ function assertOverlappingClassPathIdentities(): void {
     "Two different overlapping-classpath sources received the same source-map identity");
 }
 
+function tokenPosition(source: string, token: string): { line: number; column: number } {
+  const index = source.indexOf(token);
+  ok(index >= 0, `Expected source token ${token}`);
+  const preceding = source.slice(0, index).split(/\r?\n/);
+  return {
+    line: preceding.length,
+    column: preceding.at(-1)?.length ?? 0
+  };
+}
+
+/** Decodes only the closed fields consumed by SourceMapConsumer. */
+function decodeRawSourceMap(text: string): RawSourceMap {
+  // JSON is the unavoidable untyped file boundary. Validate every consumed
+  // field here, then construct the closed library contract before use.
+  const value: unknown = JSON.parse(text);
+  ok(isRecord(value), "Expected inlined-child source-map JSON object");
+  ok(value.version === 3 || value.version === "3",
+    "Expected inlined-child source-map version 3");
+  ok(Array.isArray(value.sources)
+    && value.sources.every((source) => typeof source === "string"),
+  "Expected inlined-child source-map sources to be strings");
+  ok(Array.isArray(value.names)
+    && value.names.every((name) => typeof name === "string"),
+  "Expected inlined-child source-map names to be strings");
+  ok(typeof value.mappings === "string",
+    "Expected inlined-child source-map mappings string");
+  ok(value.file === undefined || typeof value.file === "string",
+    "Expected optional inlined-child source-map file to be a string");
+  ok(value.sourceRoot === undefined || typeof value.sourceRoot === "string",
+    "Expected optional inlined-child source-map root to be a string");
+
+  return {
+    version: String(value.version),
+    sources: value.sources.filter((source): source is string =>
+      typeof source === "string"),
+    names: value.names.filter((name): name is string => typeof name === "string"),
+    mappings: value.mappings,
+    ...(value.file === undefined ? {} : { file: value.file }),
+    ...(value.sourceRoot === undefined ? {} : { sourceRoot: value.sourceRoot })
+  };
+}
+
+/** Proves an inlined JSX child still maps to its exact authored HXX token. */
+function assertInlinedJsxChildMapping(): void {
+  rmrf("tests/genes-ts/snapshot/react/out/tsx");
+  run("haxe", [
+    "tests/genes-ts/snapshot/react/build-tsx.hxml",
+    "-debug"
+  ]);
+
+  const generatedPath = path.join(
+    reactFixtureRoot,
+    "out/tsx/src-gen/Main.tsx"
+  );
+  const originalPath = path.join(reactFixtureRoot, "src/Main.hx");
+  const token = "<strong>{second}</strong>";
+  const generatedPosition = tokenPosition(readFileSync(generatedPath, "utf8"), token);
+  const originalPosition = tokenPosition(readFileSync(originalPath, "utf8"), token);
+  const consumer = new SourceMapConsumer(decodeRawSourceMap(
+    readFileSync(`${generatedPath}.map`, "utf8")
+  ));
+  const mapped = consumer.originalPositionFor(generatedPosition);
+
+  ok(mapped.source?.endsWith("/src/Main.hx") === true,
+    "Inlined JSX child mapped to the authored HXX module");
+  strictEqual(mapped.line, originalPosition.line,
+    "Inlined JSX child changed its authored source line");
+  strictEqual(mapped.column, originalPosition.column,
+    "Inlined JSX child changed its authored source column");
+}
+
 run("haxe", [
   "-cp", path.join(repoRoot, "src"),
   "-cp", path.join(repoRoot, "tests/source-map-paths/src"),
@@ -238,6 +311,7 @@ try {
     "A relative genes.source_map_root changed the application source identities");
 
   assertOverlappingClassPathIdentities();
+  assertInlinedJsxChildMapping();
 
   console.log("ok");
 } finally {

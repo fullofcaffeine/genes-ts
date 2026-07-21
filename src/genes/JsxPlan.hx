@@ -79,6 +79,190 @@ enum JsxIntent {
   FragmentIntent(children: Array<JsxChildIntent>, pos: Position);
 }
 
+/** The four typed calls in the internal JSX marker protocol. */
+private enum JsxMarkerKind {
+  ElementMarker;
+  FragmentMarker;
+  HxxChildElementMarker;
+  HxxChildFragmentMarker;
+}
+
+/**
+ * Compiler-owned identity of one nested element or fragment created by HXX.
+ *
+ * Why: a source range says where an expression came from, not who created it.
+ * Authored code and another macro may legitimately share or copy that range.
+ * Removing a local therefore needs a fact that only the HXX child conversion
+ * creates.
+ *
+ * What/How: the parser emits a distinct extern static call for direct nested
+ * markup. Haxe retains the exact call, owner, and field objects in its typed
+ * tree. The plan records those objects for this compilation only; paths and
+ * names locate the internal protocol declaration but never authorize a local
+ * substitution by themselves.
+ */
+private typedef HxxChildMarkerIdentity = {
+  final kind: JsxMarkerKind;
+  final call: TypedExpr;
+  final owner: Ref<ClassType>;
+  final field: Ref<ClassField>;
+}
+
+/** Exact function-like owner used only while proving one source rewrite. */
+private enum SourceInlineFunctionOwner {
+  FunctionOwner(func: TFunc);
+  MemberRootOwner(root: TypedExpr);
+}
+
+/** Exact lexical region shared by a removable declaration and its sole use. */
+private typedef SourceInlineScope = {
+  final functionOwner: SourceInlineFunctionOwner;
+  final block: TypedExpr;
+  final functionOrdinal: Int;
+  final blockOrdinal: Int;
+}
+
+/** Closed set of parent statements admitted by the first sound rewrite. */
+private enum SourceInlineParentSite {
+  DirectReturn(statement: TypedExpr);
+  DirectLocalInitializer(owner: TVar, declaration: TypedExpr);
+  DirectLocalAssignment(owner: TVar, assignment: TypedExpr);
+}
+
+/**
+ * One exact HXX child declaration that a source-JSX profile may remove.
+ *
+ * Why: looking up an initializer by `TVar.id` allowed any occurrence of that
+ * local to trigger substitution. This record instead connects one declaration,
+ * one typed marker, and one direct child occurrence in one function and block.
+ *
+ * What: object-valued fields are occurrence identities from Haxe's typed tree;
+ * `childId` is the stable variable identity. Positions are retained only for
+ * source maps and diagnostics. They never decide ownership or equality.
+ *
+ * How: `JsxPlan` creates facts in deterministic traversal order. Source
+ * emitters consume them through exact declaration/child-expression maps, while
+ * createElement profiles never receive a consumer.
+ */
+@:noCompletion
+final class JsxSourceInlineFact {
+  public final child: TVar;
+  public final childId: Int;
+  public final declaration: TypedExpr;
+  public final initializer: TypedExpr;
+  public final marker: HxxChildMarkerIdentity;
+  public final childValue: TypedExpr;
+  public final soleLocalUse: TypedExpr;
+  public final parentMarker: TypedExpr;
+  public final parentSite: SourceInlineParentSite;
+  public final scope: SourceInlineScope;
+  public final declarationIndex: Int;
+  public final parentIndex: Int;
+  public final childOrdinal: Int;
+  public final mappingPos: Position;
+
+  public function new(child: TVar, declaration: TypedExpr,
+      initializer: TypedExpr, marker: HxxChildMarkerIdentity,
+      childValue: TypedExpr, soleLocalUse: TypedExpr,
+      parentMarker: TypedExpr, parentSite: SourceInlineParentSite,
+      scope: SourceInlineScope, declarationIndex: Int, parentIndex: Int,
+      childOrdinal: Int, mappingPos: Position) {
+    this.child = child;
+    childId = child.id;
+    this.declaration = declaration;
+    this.initializer = initializer;
+    this.marker = marker;
+    this.childValue = childValue;
+    this.soleLocalUse = soleLocalUse;
+    this.parentMarker = parentMarker;
+    this.parentSite = parentSite;
+    this.scope = scope;
+    this.declarationIndex = declarationIndex;
+    this.parentIndex = parentIndex;
+    this.childOrdinal = childOrdinal;
+    this.mappingPos = mappingPos;
+  }
+}
+
+/**
+ * Per-emitter accounting for exact source-inline facts.
+ *
+ * The semantic plan stays immutable and may serve both `.tsx` and `.jsx`.
+ * Each source emitter gets its own small consumer, which rejects duplicate or
+ * incomplete declaration/use consumption before the output transaction can
+ * commit. This mutable counter is publication validation, not a second source
+ * of rewrite semantics.
+ */
+@:noCompletion
+final class JsxSourceInlineConsumer {
+  final facts: Array<JsxSourceInlineFact>;
+  final byDeclaration = new ObjectMap<TypedExpr, JsxSourceInlineFact>();
+  final byChildValue = new ObjectMap<TypedExpr, JsxSourceInlineFact>();
+  final omitted = new ObjectMap<TypedExpr, Bool>();
+  final substituted = new ObjectMap<TypedExpr, Bool>();
+
+  public function new(facts: Array<JsxSourceInlineFact>) {
+    this.facts = facts;
+    for (fact in facts) {
+      byDeclaration.set(fact.declaration, fact);
+      byChildValue.set(fact.childValue, fact);
+    }
+  }
+
+  /** Returns the initializer only for the exact planned declaration object. */
+  public function initializerForDeclaration(
+      declaration: TypedExpr): Null<TypedExpr> {
+    final fact = byDeclaration.get(declaration);
+    if (fact == null)
+      return null;
+    if (omitted.exists(declaration))
+      return CompilerDiagnostic.fail(
+        '[GTS-JSX-SOURCE-INLINE-004] A planned HXX child declaration was '
+        + 'omitted more than once. This is a compiler emission error.',
+        fact.mappingPos);
+    omitted.set(declaration, true);
+    return fact.initializer;
+  }
+
+  /** Returns the initializer only for the exact planned direct child object. */
+  public function initializerForChildValue(
+      childValue: TypedExpr): Null<TypedExpr> {
+    final fact = byChildValue.get(childValue);
+    if (fact == null)
+      return null;
+    if (substituted.exists(childValue))
+      return CompilerDiagnostic.fail(
+        '[GTS-JSX-SOURCE-INLINE-004] A planned HXX child value was '
+        + 'substituted more than once. This is a compiler emission error.',
+        fact.mappingPos);
+    substituted.set(childValue, true);
+    return fact.initializer;
+  }
+
+  /** Ensures every accepted fact changed exactly one declaration and one use. */
+  public function validate(): Void {
+    #if genes.jsx_source_inline_test_fail_after_emission
+    // This private test hook fails after source emission has consumed a real
+    // fact. It lets the transaction fixture prove that even a late compiler
+    // consistency error cannot publish half-rewritten JSX. Normal builds never
+    // define it, so it cannot affect planning or generated source.
+    if (facts.length > 0)
+      CompilerDiagnostic.fail(
+        '[GTS-JSX-SOURCE-INLINE-004] Injected source-inline consumption '
+        + 'failure for output-transaction evidence.', facts[0].mappingPos);
+    #end
+    for (fact in facts) {
+      if (!omitted.exists(fact.declaration)
+        || !substituted.exists(fact.childValue)) {
+        CompilerDiagnostic.fail(
+          '[GTS-JSX-SOURCE-INLINE-004] A planned HXX child rewrite was only '
+          + 'partly emitted. Both its exact declaration and exact child use '
+          + 'must be consumed once.', fact.mappingPos);
+      }
+    }
+  }
+}
+
 /**
  * Explicit capability contract for emitting a `JsxPlan`.
  *
@@ -203,16 +387,25 @@ class JsxCapabilityPolicy {
  * migration code—may lift marker containers into locals. Their field values
  * must then be read, not inlined and evaluated a second time.
  *
- * How: `build` performs three deterministic typed-AST passes. The first
+ * How: `build` performs four deterministic typed-AST passes. The first
  * captures every initializer by stable `TVar.id`; the second validates every
  * marker, records its permitted carrier-local path, and freezes module
  * capability facts. The third rejects any extra read, write, or escape of a
- * carrier local before output starts. `intentForCall` is reused during
- * printing, but performs no target choice. Invalid marker shapes or ownership
- * violations fail with stable IDs and their original Haxe source position.
+ * carrier local. The fourth records exact parser-owned nested-child rewrites
+ * for source JSX only. `intentForCall` is reused during printing, but performs
+ * no target choice. Invalid marker shapes or ownership violations fail with
+ * stable IDs and their original Haxe source position.
  */
 class JsxPlan {
   final localInitializers: Map<Int, TypedExpr> = [];
+  final sourceInlineFacts: Array<JsxSourceInlineFact> = [];
+  final sourceInlineByChildId: Map<Int, JsxSourceInlineFact> = [];
+  final sourceInlineByDeclaration = new ObjectMap<TypedExpr,
+    JsxSourceInlineFact>();
+  final sourceInlineByChildValue = new ObjectMap<TypedExpr,
+    JsxSourceInlineFact>();
+  final sourceInlineByMarker = new ObjectMap<TypedExpr,
+    JsxSourceInlineFact>();
   final carrierLocalIds: Map<Int, Bool> = [];
   final allowedCarrierUses = new ObjectMap<TypedExpr, Bool>();
   final validatedComponentProps = new ObjectMap<TypedExpr, Type>();
@@ -229,6 +422,31 @@ class JsxPlan {
   /** True when a local exists only to retain a typed JSX carrier record. */
   public function isCarrierLocal(id: Int): Bool {
     return carrierLocalIds.exists(id);
+  }
+
+  /** True only for an exact local owned by a validated HXX child fact. */
+  public function isSourceInlineChild(local: TVar): Bool {
+    return sourceInlineByChildId.exists(local.id);
+  }
+
+  /**
+   * Creates one occurrence-based source-emission view of the immutable facts.
+   *
+   * Source-preserving `.tsx` and `.jsx` profiles call this once. Plain `.ts`
+   * and classic `.js` keep the established explicit createElement sequence and
+   * must not request a consumer.
+   */
+  public function sourceInlineConsumer(
+      profile: JsxEmissionProfile): JsxSourceInlineConsumer {
+    switch profile {
+      case TsxAutomatic | TsxClassic | JavaScriptJsxAutomatic:
+      case TypeScriptCreateElement | ClassicCreateElement:
+        return CompilerDiagnostic.fail(
+          '[GTS-JSX-SOURCE-INLINE-006] A createElement output profile '
+          + 'attempted to consume source-only HXX rewrite facts. This is a '
+          + 'compiler configuration error.', firstPosition);
+    }
+    return new JsxSourceInlineConsumer(sourceInlineFacts.copy());
   }
 
   /**
@@ -309,6 +527,8 @@ class JsxPlan {
     plan.collectingCarrierUses = false;
     if (plan.carrierLocalIds.iterator().hasNext())
       plan.validateCarrierOwnership(module);
+    plan.planSourceInlineLocals(module);
+    plan.validateSourceInlineFacts();
     return plan;
   }
 
@@ -331,8 +551,8 @@ class JsxPlan {
   /** Returns validated intent when `callee` is a marker, otherwise null. */
   public function intentForCall(callee: TypedExpr,
       arguments: Array<TypedExpr>): Null<JsxIntent> {
-    return switch markerName(callee) {
-      case '__jsx':
+    return switch markerKind(callee) {
+      case ElementMarker | HxxChildElementMarker:
         if (arguments.length != 3)
           markerError('GTS-JSX-INTENT-001',
             'Element marker expects tag, props, and children', callee.pos);
@@ -340,12 +560,12 @@ class JsxPlan {
         final props = propsIntent(arguments[1]);
         final children = childrenIntent(arguments[2]);
         ElementIntent(tag, props, children, arguments[0].pos);
-      case '__frag':
+      case FragmentMarker | HxxChildFragmentMarker:
         if (arguments.length != 1)
           markerError('GTS-JSX-INTENT-002',
             'Fragment marker expects one children array', callee.pos);
         FragmentIntent(childrenIntent(arguments[0]), arguments[0].pos);
-      case _:
+      case null:
         null;
     }
   }
@@ -360,14 +580,27 @@ class JsxPlan {
 
   /** Marker identity is based on the compiler-owned extern declaration. */
   public static function markerName(callee: TypedExpr): Null<String> {
+    return switch markerKind(callee) {
+      case ElementMarker | HxxChildElementMarker: '__jsx';
+      case FragmentMarker | HxxChildFragmentMarker: '__frag';
+      case null: null;
+    }
+  }
+
+  /** Classifies one exact field from the internal marker extern. */
+  static function markerKind(callee: TypedExpr): Null<JsxMarkerKind> {
     return switch unwrap(callee).expr {
       case TField(_, FStatic(_.get() => owner, _.get() => field))
         if (owner.pack.join('.') == 'genes.react.internal'
-          && owner.name == 'Jsx'
-          && (field.name == '__jsx' || field.name == '__frag')):
-        field.name;
-      default:
-        null;
+          && owner.name == 'Jsx'):
+        switch field.name {
+          case '__jsx': ElementMarker;
+          case '__frag': FragmentMarker;
+          case '__hxxChildJsx': HxxChildElementMarker;
+          case '__hxxChildFrag': HxxChildFragmentMarker;
+          default: null;
+        }
+      default: null;
     }
   }
 
@@ -642,6 +875,529 @@ class JsxPlan {
         default:
       }
     });
+  }
+
+  /**
+   * Plans safe source-only removal of one-use nested JSX temporaries.
+   *
+   * Why: the HXX macro assigns a nested element its own typed local even when
+   * the author wrote one expression tree. TypeScript/JavaScript source JSX can
+   * represent that tree directly, but deleting an arbitrary local would change
+   * evaluation order, exception timing, sharing, or an authored debugging seam.
+   *
+   * What: a candidate must carry the typed marker emitted only for a direct HXX
+   * nested child. Its one exact declaration and one exact direct child use must
+   * share a function and block, and its parent must be a direct return, local
+   * initializer, or assignment to a local. Every crossed block element and
+   * both JSX intents must also be reorder-safe.
+   *
+   * How: planning records exact typed-expression occurrences. Positions remain
+   * source-map facts only. Source JSX printers omit/substitute through exact
+   * occurrence maps; typed createElement and classic-JS printers deliberately
+   * keep their established lowering and runtime transcript.
+   */
+  function planSourceInlineLocals(module: Module): Void {
+    final uses: Map<Int, Array<TypedExpr>> = [];
+    visitModuleExpressions(module, expression -> {
+      switch expression.expr {
+        case TLocal(local):
+          final occurrences = uses.exists(local.id) ? uses.get(local.id) : [];
+          occurrences.push(expression);
+          uses.set(local.id, occurrences);
+        default:
+      }
+    });
+
+    var nextFunctionOrdinal = 0;
+    function visitScopes(expression: TypedExpr,
+        functionOwner: SourceInlineFunctionOwner, functionOrdinal: Int,
+        blockCounter: {var value: Int;}): Void {
+      final current = sourceInlineUnwrap(expression);
+      switch current.expr {
+        case TBlock(elements):
+          final scope: SourceInlineScope = {
+            functionOwner: functionOwner,
+            block: current,
+            functionOrdinal: functionOrdinal,
+            blockOrdinal: blockCounter.value++
+          };
+          planSourceInlineBlock(elements, uses, scope);
+          for (element in elements)
+            visitScopes(element, functionOwner, functionOrdinal, blockCounter);
+        case TFunction(func):
+          final nestedOrdinal = nextFunctionOrdinal++;
+          visitScopes(func.expr, FunctionOwner(func), nestedOrdinal, {value: 0});
+        default:
+          current.iter(child -> visitScopes(child, functionOwner,
+            functionOrdinal, blockCounter));
+      }
+    }
+
+    function visitRoot(root: TypedExpr): Void {
+      if (root == null)
+        return;
+      final rootOrdinal = nextFunctionOrdinal++;
+      visitScopes(root, MemberRootOwner(root), rootOrdinal, {value: 0});
+    }
+
+    for (member in module.members) {
+      if (!Module.memberProjection(member).emitImplementation)
+        continue;
+      switch member {
+        case MClass(owner, _, fields):
+          for (field in Module.emittableFields(fields))
+            if (field.expr != null)
+              visitRoot(field.expr);
+          if (owner.init != null)
+            visitRoot(owner.init);
+        case MMain(expression):
+          visitRoot(expression);
+        case MEnum(_, _) | MType(_, _):
+      }
+    }
+  }
+
+  /** Plans candidates whose declaration and sole parent use share one block. */
+  function planSourceInlineBlock(elements: Array<TypedExpr>,
+      uses: Map<Int, Array<TypedExpr>>, scope: SourceInlineScope): Void {
+    final declarations: Map<Int, {
+      final index: Int;
+      final declaration: TypedExpr;
+      final initializer: TypedExpr;
+      final marker: HxxChildMarkerIdentity;
+    }> = [];
+    for (index in 0...elements.length) {
+      switch sourceInlineUnwrap(elements[index]).expr {
+        case TVar(local, initializer) if (initializer != null):
+          final marker = hxxChildMarkerIdentity(initializer);
+          if (marker != null)
+            declarations.set(local.id, {
+              index: index,
+              declaration: elements[index],
+              initializer: initializer,
+              marker: marker
+            });
+        default:
+      }
+    }
+
+    for (parentIndex in 0...elements.length) {
+      final parent = directSourceInlineParent(elements[parentIndex]);
+      if (parent == null)
+        continue;
+      final parentIntent = intentForExpression(parent.marker);
+      if (parentIntent == null || !isSourceInlineSafeIntent(parentIntent))
+        continue;
+      final children = switch parentIntent {
+        case ElementIntent(_, _, found, _) | FragmentIntent(found, _): found;
+      };
+      // Plan from right to left. An earlier child may cross a later generated
+      // declaration only after that exact declaration has independently been
+      // proven removable.
+      for (offset in 0...children.length) {
+        final childOrdinal = children.length - offset - 1;
+        switch children[childOrdinal] {
+          case ChildIntent(value, DirectValue):
+            final occurrence = directLocalOccurrence(value);
+            if (occurrence == null || !declarations.exists(occurrence.local.id))
+              continue;
+            final candidate = declarations.get(occurrence.local.id);
+            final localUses = uses.get(occurrence.local.id);
+            if (candidate.index >= parentIndex
+              || localUses == null
+              || localUses.length != 1
+              || localUses[0] != occurrence.use
+              || !isSourceInlineSafeMarker(candidate.initializer)
+              || !safeInterveningElements(elements, candidate.index,
+                parentIndex))
+              continue;
+            final mappingInfo = Context.getPosInfos(candidate.marker.call.pos);
+            if (mappingInfo.file == null || mappingInfo.file.length == 0
+              || mappingInfo.max < mappingInfo.min)
+              continue;
+            recordSourceInlineFact(new JsxSourceInlineFact(
+              occurrence.local,
+              candidate.declaration,
+              candidate.initializer,
+              candidate.marker,
+              value,
+              occurrence.use,
+              parent.marker,
+              parent.site,
+              scope,
+              candidate.index,
+              parentIndex,
+              childOrdinal,
+              candidate.marker.call.pos
+            ));
+          case ChildIntent(_, RuntimeValuePath(_, _)):
+        }
+      }
+    }
+  }
+
+  /** Records one fact and rejects any ambiguous typed occurrence immediately. */
+  function recordSourceInlineFact(fact: JsxSourceInlineFact): Void {
+    if (sourceInlineByChildId.exists(fact.childId)
+      || sourceInlineByDeclaration.exists(fact.declaration)
+      || sourceInlineByChildValue.exists(fact.childValue)
+      || sourceInlineByMarker.exists(fact.marker.call)) {
+      CompilerDiagnostic.fail(
+        '[GTS-JSX-SOURCE-INLINE-001] One HXX child declaration, marker, or '
+        + 'direct child occurrence belongs to more than one source rewrite. '
+        + 'This is a compiler planning error.', fact.mappingPos);
+    }
+    sourceInlineFacts.push(fact);
+    sourceInlineByChildId.set(fact.childId, fact);
+    sourceInlineByDeclaration.set(fact.declaration, fact);
+    sourceInlineByChildValue.set(fact.childValue, fact);
+    sourceInlineByMarker.set(fact.marker.call, fact);
+  }
+
+  /**
+   * Rechecks every accepted fact before an output writer is opened.
+   *
+   * Why: rejecting an unsafe candidate is ordinary conservative behavior, but
+   * an accepted fact becomes permission to remove generated code. If its exact
+   * declaration, use, marker, parent, or scope no longer agrees, continuing
+   * would risk a partial or incorrect rewrite.
+   *
+   * What/How: this check follows only compiler-owned object identities already
+   * stored by planning. It never falls back to names or positions. A mismatch
+   * is an internal compiler diagnostic and therefore aborts the existing output
+   * transaction before public files can be replaced.
+   */
+  function validateSourceInlineFacts(): Void {
+    for (fact in sourceInlineFacts) {
+      final elements = switch fact.scope.block.expr {
+        case TBlock(found): found;
+        default:
+          return CompilerDiagnostic.fail(
+            '[GTS-JSX-SOURCE-INLINE-003] A planned HXX child block no longer '
+            + 'has its recorded typed structure.', fact.mappingPos);
+      };
+      if (fact.declarationIndex < 0
+        || fact.declarationIndex >= elements.length
+        || fact.parentIndex < 0
+        || fact.parentIndex >= elements.length
+        || elements[fact.declarationIndex] != fact.declaration
+        || elements[fact.parentIndex] != sourceInlineParentStatement(
+          fact.parentSite)) {
+        CompilerDiagnostic.fail(
+          '[GTS-JSX-SOURCE-INLINE-003] A planned HXX child declaration or '
+          + 'parent no longer occupies its exact recorded block occurrence.',
+          fact.mappingPos);
+      }
+
+      switch sourceInlineUnwrap(fact.declaration).expr {
+        case TVar(local, initializer)
+          if (local.id == fact.childId && initializer == fact.initializer):
+        default:
+          CompilerDiagnostic.fail(
+            '[GTS-JSX-SOURCE-INLINE-003] A planned HXX child declaration no '
+            + 'longer owns its exact local and initializer.', fact.mappingPos);
+      }
+
+      final marker = hxxChildMarkerIdentity(fact.initializer);
+      if (marker == null
+        || marker.call != fact.marker.call
+        || marker.owner != fact.marker.owner
+        || marker.field != fact.marker.field
+        || marker.kind != fact.marker.kind) {
+        CompilerDiagnostic.fail(
+          '[GTS-JSX-SOURCE-INLINE-007] A planned HXX child marker no longer '
+          + 'matches its exact typed call, owner, and field identity.',
+          fact.mappingPos);
+      }
+
+      final occurrence = directLocalOccurrence(fact.childValue);
+      if (occurrence == null
+        || occurrence.local.id != fact.childId
+        || occurrence.use != fact.soleLocalUse) {
+        CompilerDiagnostic.fail(
+          '[GTS-JSX-SOURCE-INLINE-002] A planned HXX child value no longer '
+          + 'contains its exact sole local occurrence.', fact.mappingPos);
+      }
+
+      final parent = directSourceInlineParent(
+        sourceInlineParentStatement(fact.parentSite));
+      if (parent == null || parent.marker != fact.parentMarker) {
+        CompilerDiagnostic.fail(
+          '[GTS-JSX-SOURCE-INLINE-003] A planned HXX child parent no longer '
+          + 'matches its direct return, local initializer, or local assignment.',
+          fact.mappingPos);
+      }
+      final parentIntent = intentForExpression(fact.parentMarker);
+      final children = parentIntent == null ? null : switch parentIntent {
+        case ElementIntent(_, _, found, _) | FragmentIntent(found, _): found;
+      };
+      if (children == null
+        || fact.childOrdinal < 0
+        || fact.childOrdinal >= children.length) {
+        CompilerDiagnostic.fail(
+          '[GTS-JSX-SOURCE-INLINE-003] A planned HXX child no longer occupies '
+          + 'its exact parent child slot.', fact.mappingPos);
+      }
+      switch children[fact.childOrdinal] {
+        case ChildIntent(value, DirectValue) if (value == fact.childValue):
+        default:
+          CompilerDiagnostic.fail(
+            '[GTS-JSX-SOURCE-INLINE-003] A planned HXX child no longer occupies '
+            + 'its exact parent child occurrence.', fact.mappingPos);
+      }
+    }
+  }
+
+  /** Returns the exact block statement carried by one admitted parent site. */
+  static function sourceInlineParentStatement(
+      site: SourceInlineParentSite): TypedExpr {
+    return switch site {
+      case DirectReturn(statement): statement;
+      case DirectLocalInitializer(_, declaration): declaration;
+      case DirectLocalAssignment(_, assignment): assignment;
+    }
+  }
+
+  /** Recognizes only direct parent statements with no observable prefix. */
+  function directSourceInlineParent(expression: TypedExpr): Null<{
+    final marker: TypedExpr;
+    final site: SourceInlineParentSite;
+  }> {
+    final statement = sourceInlineUnwrap(expression);
+    return switch statement.expr {
+      case TReturn(value) if (value != null):
+        final marker = directMarkerRoot(value);
+        marker == null ? null : {
+          marker: marker,
+          site: DirectReturn(expression)
+        };
+      case TVar(owner, initializer) if (initializer != null):
+        final marker = directMarkerRoot(initializer);
+        marker == null ? null : {
+          marker: marker,
+          site: DirectLocalInitializer(owner, expression)
+        };
+      case TBinop(OpAssign, left, right):
+        final owner = switch sourceInlineUnwrap(left).expr {
+          case TLocal(local): local;
+          default: null;
+        };
+        final marker = directMarkerRoot(right);
+        owner == null || marker == null ? null : {
+          marker: marker,
+          site: DirectLocalAssignment(owner, expression)
+        };
+      default: null;
+    }
+  }
+
+  /** Returns a marker only when approved non-evaluating wrappers surround it. */
+  static function directMarkerRoot(expression: TypedExpr): Null<TypedExpr> {
+    final root = sourceInlineUnwrap(expression);
+    return switch root.expr {
+      // Do not call `isMarkerCallExpression` here. That general JSX helper
+      // also unwraps `TMeta`, which is useful when recognizing marker meaning
+      // but is too broad for permission to move source code. Metadata can be
+      // owned by Haxe or another macro and may carry a boundary we have not
+      // proved transparent. The source-inline grammar therefore accepts only
+      // the parentheses and no-target cast removed by `sourceInlineUnwrap`.
+      case TCall(callee, _) if (markerKind(callee) != null): root;
+      default: null;
+    }
+  }
+
+  /** Retains the exact specialized HXX child call and typed field identity. */
+  static function hxxChildMarkerIdentity(
+      expression: TypedExpr): Null<HxxChildMarkerIdentity> {
+    final call = sourceInlineUnwrap(expression);
+    return switch call.expr {
+      case TCall(callee, _):
+        final kind = markerKind(callee);
+        switch [kind, sourceInlineUnwrap(callee).expr] {
+          case [HxxChildElementMarker | HxxChildFragmentMarker,
+            TField(_, FStatic(owner, field))]:
+            {kind: kind, call: call, owner: owner, field: field};
+          default: null;
+        }
+      default: null;
+    }
+  }
+
+  /** Finds one direct local and preserves both wrapper and local occurrences. */
+  static function directLocalOccurrence(expression: TypedExpr): Null<{
+    final local: TVar;
+    final use: TypedExpr;
+  }> {
+    final use = sourceInlineUnwrap(expression);
+    return switch use.expr {
+      case TLocal(local): {local: local, use: use};
+      default: null;
+    }
+  }
+
+  /**
+   * Removes only wrappers proved not to evaluate or change the represented
+   * value. Arbitrary `TMeta` is intentionally not transparent here: metadata
+   * may be compiler- or macro-owned and must receive a separate reviewed rule.
+   */
+  static function sourceInlineUnwrap(expression: TypedExpr): TypedExpr {
+    var current = expression;
+    while (current != null) {
+      switch current.expr {
+        case TCast(inner, null) | TParenthesis(inner): current = inner;
+        default: return current;
+      }
+    }
+    return expression;
+  }
+
+  /** True when moving a value across the exclusive block interval is inert. */
+  function safeInterveningElements(elements: Array<TypedExpr>, start: Int,
+      end: Int): Bool {
+    for (index in start + 1...end) {
+      final element = sourceInlineUnwrap(elements[index]);
+      switch element.expr {
+        case TVar(_, initializer) if (initializer != null):
+          // A JSX marker becomes a runtime jsx/createElement call. It is safe
+          // to cross only when it is compiler scaffolding already planned for
+          // substitution at its own sole child use. Authored or retained JSX
+          // locals remain observable sequencing boundaries.
+          if (isMarkerCallExpression(initializer)) {
+            if (sourceInlineByDeclaration.exists(elements[index]))
+              continue;
+            return false;
+          }
+          if (isSourceInlineSafeValue(initializer))
+            continue;
+          return false;
+        default:
+          return false;
+      }
+    }
+    return true;
+  }
+
+  function isSourceInlineSafeMarker(expression: TypedExpr): Bool {
+    final intent = intentForExpression(expression);
+    return intent != null && isSourceInlineSafeIntent(intent);
+  }
+
+  /** Conservative purity contract for moving one JSX allocation into a tree. */
+  function isSourceInlineSafeIntent(intent: JsxIntent): Bool {
+    return switch intent {
+      case ElementIntent(tag, props, children, _):
+        if (!isSourceInlineSafeTag(tag))
+          false;
+        else {
+          var safe = true;
+          for (prop in props) {
+            switch prop {
+              case NamedProp(_, value, DirectValue):
+                safe = safe && isSourceInlineSafeValue(value);
+              case NamedProp(_, _, RuntimeValuePath(_, _)):
+              case SpreadProp(value, DirectValue):
+                safe = safe && isSourceInlineSafeSpread(value);
+              case SpreadProp(_, RuntimeValuePath(_, _)):
+                safe = false;
+            }
+          }
+          for (child in children) {
+            switch child {
+              case ChildIntent(value, DirectValue):
+                safe = safe && (isMarkerCallExpression(value)
+                  ? isSourceInlineSafeMarker(value)
+                  : isSourceInlineSafeValue(value));
+              case ChildIntent(_, RuntimeValuePath(_, _)):
+            }
+          }
+          safe;
+        }
+      case FragmentIntent(children, _):
+        var safe = true;
+        for (child in children) {
+          switch child {
+            case ChildIntent(value, DirectValue):
+              safe = safe && (isMarkerCallExpression(value)
+                ? isSourceInlineSafeMarker(value)
+                : isSourceInlineSafeValue(value));
+            case ChildIntent(_, RuntimeValuePath(_, _)):
+          }
+        }
+        safe;
+    }
+  }
+
+  static function isSourceInlineSafeTag(tag: JsxTagIntent): Bool {
+    return switch tag {
+      case IntrinsicTag(_, _): true;
+      case DynamicIntrinsicTag(_): false;
+      case ComponentTag(expression):
+        // Only a lexical local read is proven inert across every supported JS
+        // host shape. Static/type/enum fields can become getters, native
+        // mappings, or Proxy traps, including fields generated by Haxe itself.
+        // Keeping their child temporary preserves child-before-parent reads.
+        switch sourceInlineUnwrap(expression).expr {
+          case TLocal(_): true;
+          default: false;
+        }
+    }
+  }
+
+  /**
+   * Accepts only direct values whose evaluation has no calls, mutation, or
+   * control flow. Property/array reads are deliberately excluded because a JS
+   * interop value may implement them with a getter or Proxy trap.
+   */
+  function isSourceInlineSafeValue(expression: TypedExpr): Bool {
+    final value = unwrap(expression);
+    return switch value.expr {
+      case TConst(_) | TLocal(_) | TTypeExpr(_) | TFunction(_): true;
+      case TArrayDecl(values):
+        values.filter(candidate -> !isSourceInlineSafeValue(candidate)).length == 0;
+      case TObjectDecl(fields):
+        fields.filter(field -> !isSourceInlineSafeValue(field.expr)).length == 0;
+      case TBinop(OpAssign | OpAssignOp(_), _, _): false;
+      case TBinop(_, left, right):
+        isSourceInlinePrimitive(left.t)
+        && isSourceInlinePrimitive(right.t)
+        && isSourceInlineSafeValue(left)
+        && isSourceInlineSafeValue(right);
+      case TUnop(OpIncrement | OpDecrement, _, _): false;
+      case TUnop(_, _, inner):
+        isSourceInlinePrimitive(inner.t)
+        && isSourceInlineSafeValue(inner);
+      case TField(_, FEnum(_, _)): true;
+      case TCall(_, _) if (isMarkerCallExpression(value)):
+        isSourceInlineSafeMarker(value);
+      default: false;
+    }
+  }
+
+  /** A spread is movable only when it resolves to a known plain object literal. */
+  function isSourceInlineSafeSpread(expression: TypedExpr): Bool {
+    final seen: Map<Int, Bool> = [];
+    function resolve(value: TypedExpr): Bool {
+      return switch unwrap(value).expr {
+        case TObjectDecl(fields):
+          fields.filter(field -> !isSourceInlineSafeValue(field.expr)).length == 0;
+        case TLocal(local)
+          if (!seen.exists(local.id) && localInitializers.exists(local.id)):
+          seen.set(local.id, true);
+          resolve(localInitializers.get(local.id));
+        default: false;
+      }
+    }
+    return resolve(expression);
+  }
+
+  /** Primitive operators cannot invoke a user-defined JS coercion hook. */
+  static function isSourceInlinePrimitive(type: Type): Bool {
+    return switch Context.followWithAbstracts(type) {
+      case TInst(_.get() => {pack: [], name: 'String'}, _): true;
+      case TAbstract(_.get() => {pack: [], name: 'Int' | 'Float' | 'Bool'}, _):
+        true;
+      default: false;
+    }
   }
 
   static function isStringType(type: Type): Bool {

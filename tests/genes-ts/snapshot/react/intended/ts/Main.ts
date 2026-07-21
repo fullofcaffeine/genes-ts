@@ -62,6 +62,7 @@ InheritedCardProps.__isInterface__ = true;
  * harness type-checks and executes the generated output.
  */
 export class Main {
+	declare static jsxEvaluationOrder: string[];
 	static syncFormAction(data: globalThis.FormData): void {
 		data.has("title");
 	}
@@ -192,6 +193,22 @@ export class Main {
 		if (loweredHtml != "<div><span>ready</span><strong>queued</strong><em>done</em><span>ready:1</span><strong>queued:2</strong></div>") {
 			throw Exception.thrown("Unexpected lowered list HTML: " + loweredHtml);
 		};
+		Main.jsxEvaluationOrder = [];
+		let orderedHtml: string = renderToStaticMarkup(Main.renderOrderedChildList());
+		if (orderedHtml != "<div data-order=\"parent\"><span>first</span><strong>second</strong></div>") {
+			throw Exception.thrown("Unexpected ordered HTML: " + orderedHtml);
+		};
+		if (Main.jsxEvaluationOrder.join(">") != "parent>first>second") {
+			throw Exception.thrown("Unexpected JSX evaluation order: " + Main.jsxEvaluationOrder.join(">"));
+		};
+		let authoredChildHtml: string = renderToStaticMarkup(Main.renderAuthoredChild("named"));
+		if (authoredChildHtml != "<div><span>named</span></div>") {
+			throw Exception.thrown("Unexpected authored child HTML: " + authoredChildHtml);
+		};
+		let sharedChildHtml: string = renderToStaticMarkup(Main.renderSharedChild("shared"));
+		if (sharedChildHtml != "<div><span>shared</span><span>shared</span></div>") {
+			throw Exception.thrown("Unexpected shared child HTML: " + sharedChildHtml);
+		};
 		let frag: JSX.Element = React__genes_jsx.createElement(React__genes_jsx.Fragment, null, React__genes_jsx.createElement("span", null, "A"), React__genes_jsx.createElement("span", null, "B"));
 		let fragHtml: string = renderToStaticMarkup(frag);
 		if (fragHtml != "<span>A</span><span>B</span>") {
@@ -219,7 +236,7 @@ export class Main {
 			throw Exception.thrown("Unexpected absent href HTML: " + absentHrefHtml);
 		};
 		let contextualInput: JSX.Element = React__genes_jsx.createElement("input", ({onChange: function (event: import('react').ChangeEvent<HTMLInputElement>) {
-			console.log("tests/genes-ts/snapshot/react/src/Main.hx:247:",event.target.value);
+			console.log("tests/genes-ts/snapshot/react/src/Main.hx:264:",event.target.value);
 			event.target.select();
 			event.target.setSelectionRange(0, 0);
 		}} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"input"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
@@ -277,6 +294,38 @@ export class Main {
 		let tmp11: JSX.Element = React__genes_jsx.createElement("strong", null, second + ":8");
 		return React__genes_jsx.createElement("div", null, tmp, tmp1, tmp2, tmp3, tmp4, tmp5, tmp6, tmp7, tmp8, tmp9, tmp10, tmp11);
 	}
+
+	/**
+	 * Keeps effectful values in explicit sequence while source JSX recovers the
+	 * pure nested element tree around those already-evaluated locals.
+	 */
+	static renderOrderedChildList(): JSX.Element {
+		let tmp = {"__genesJsxPropName": "data-order", "__genesJsxPropValue": Main.recordJsxEvaluation("parent"), "__genesJsxPropNext": {"__genesJsxPropsEnd": true}};
+		let tmp1: string = Main.recordJsxEvaluation("first");
+		let tmp2: JSX.Element = React__genes_jsx.createElement("span", null, tmp1);
+		let tmp3: string = Main.recordJsxEvaluation("second");
+		return React__genes_jsx.createElement("div", ({"data-order": tmp.__genesJsxPropValue} satisfies (React__genes_jsx.ComponentPropsWithoutRef<"div"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), tmp2, React__genes_jsx.createElement("strong", null, tmp3));
+	}
+
+	/**
+	 * One-use authored locals remain visible even when their value is pure.
+	 */
+	static renderAuthoredChild(label: string): JSX.Element {
+		let child: JSX.Element = React__genes_jsx.createElement("span", null, label);
+		return React__genes_jsx.createElement("div", null, child);
+	}
+
+	/**
+	 * Shared JSX values retain one declaration and two reads.
+	 */
+	static renderSharedChild(label: string): JSX.Element {
+		let child: JSX.Element = React__genes_jsx.createElement("span", null, label);
+		return React__genes_jsx.createElement("div", null, child, child);
+	}
+	static recordJsxEvaluation(label: string): string {
+		Main.jsxEvaluationOrder.push(label);
+		return label;
+	}
 	static GenericValue<T>(props: GenericValueProps<T>): JSX.Element {
 		let tmp: string = props.render(props.value);
 		return React__genes_jsx.createElement("span", null, tmp);
@@ -314,6 +363,8 @@ export class Main {
 }
 Register.setHxClass("Main", Main);
 
+
+Main.jsxEvaluationOrder = []
 /**
  * Property bag proving that an HXX spread may omit `children`.
  *
