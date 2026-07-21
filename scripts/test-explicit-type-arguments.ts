@@ -88,6 +88,26 @@ requireText(
   'let generatedPhases_1 = makeCell<"pending" | "ready">("pending")',
   "a second expansion at the same source span must share an equivalent witness"
 );
+requireText(
+  generatedTs,
+  'let fluentPhase = makeCell<"pending" | "ready">("pending").seal()',
+  "a fluent outer call sharing the macro span must not claim the inner generic witness"
+);
+requireText(
+  generatedTs,
+  'makeCell<"pending" | "ready">("ready")',
+  "an unused reviewed call must retain its runtime evaluation and exact argument"
+);
+requireText(
+  generatedTs,
+  'makeCell<import("./generic-cell.js").Cell<string>>(makeCell<string>("pending"))',
+  "one reviewed call must not specialize a nested call to the same extern field"
+);
+rejectText(
+  generatedTs,
+  'makeCell<import("./generic-cell.js").Cell<string>>(makeCell<import("./generic-cell.js").Cell<string>>',
+  "the compiler-only registration must be consumed by exactly one call"
+);
 rejectText(
   generatedTs,
   'let phase: import("./generic-cell.js").Cell<string>',
@@ -103,7 +123,13 @@ rejectText(
   "inferCell<number>(42)",
   "the opt-in contract must not specialize neighboring ordinary calls"
 );
-for (const unsafe of ["<any>", "<unknown>", " as "]) {
+for (const unsafe of [
+  "<any>",
+  "<unknown>",
+  " as ",
+  "ExplicitTypeArgumentCallSite",
+  "TypeArguments"
+]) {
   rejectText(generatedTs, unsafe, "the generated fixture must remain fully typed");
 }
 
@@ -140,10 +166,30 @@ requireText(
   'generatedPhases_1 = makeCell("pending")',
   "classic JS must preserve the second macro-generated call"
 );
+requireText(
+  generatedJs,
+  'fluentPhase = makeCell("pending").seal()',
+  "classic JS must preserve the fluent call without a type helper"
+);
+requireText(
+  generatedJs,
+  'makeCell("ready")',
+  "classic JS must preserve an unused reviewed call exactly once"
+);
+requireText(
+  generatedJs,
+  'makeCell(makeCell("pending"))',
+  "classic JS must preserve nested calls after erasing the outer type witness"
+);
 rejectText(
   generatedJs,
   "TypeArguments",
   "the compile-time type witness helper must have no classic-JS runtime"
+);
+rejectText(
+  generatedJs,
+  "ExplicitTypeArgumentCallSite",
+  "the compiler-owned identity carrier must have no classic-JS runtime"
 );
 rejectText(generatedJs, "<undefined>", "TS-only type arguments must erase in classic JS");
 

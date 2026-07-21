@@ -20,7 +20,10 @@ class TypeArguments {
    * type, records it in generic declaration order, and removes the witness from
    * runtime output. The direct extern callee must opt in with
    * `@:ts.explicitTypeArguments`; wrong arity, broad types, aliases, and ordinary
-   * functions fail closed. Classic JavaScript receives the original call.
+   * functions fail closed. A compiler-owned typed carrier keeps the registration
+   * attached when a library macro nests the call in a fluent expression; both
+   * emitters erase that carrier, so TypeScript and classic JavaScript receive
+   * only the original call and its ordinary composition.
    */
   public static macro function call(expression: Expr,
       witnesses: Array<Expr>): Expr {
