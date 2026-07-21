@@ -18,6 +18,7 @@ import genes.NullishContract;
 import genes.JsxPlan;
 import genes.JsxPlan.JsxCapabilityPolicy;
 import genes.JsxPlan.JsxEmissionProfile;
+import genes.JsxPlan.JsxSourceInlineConsumer;
 import genes.JsxPlan.JsxIntent;
 import genes.JsxPlan.JsxChildIntent;
 import genes.JsxPlan.JsxPropIntent;
@@ -130,6 +131,7 @@ class ExprEmitter extends Emitter {
   var templateLiteralPlan: Null<TemplateLiteralPlan> = null;
   var jsxRuntimeBinding: Null<String> = null;
   var jsxEmissionProfile: Null<JsxEmissionProfile> = null;
+  var jsxSourceInlineConsumer: Null<JsxSourceInlineConsumer> = null;
   var namePlan: Null<NamePlan> = null;
   var tempPlan: Null<TempPlan> = null;
   var directImportLocals: Array<String> = [];
@@ -149,6 +151,9 @@ class ExprEmitter extends Emitter {
     jsxPlan = plan;
     jsxEmissionProfile = capability.profile;
     jsxRuntimeBinding = capability.resolveRuntimeBinding(dependencies, plan);
+    jsxSourceInlineConsumer = emitsJsxSource()
+      ? plan.sourceInlineConsumer(capability.profile)
+      : null;
   }
 
   /** Whether Haxe introduced this local solely for the typed JSX carrier. */
@@ -163,24 +168,25 @@ class ExprEmitter extends Emitter {
 
   /** Resolves one planned source-only JSX local without affecting call output. */
   function sourceInlineJsxValue(expression: TypedExpr): TypedExpr {
-    if (!emitsJsxSource() || jsxPlan == null)
+    if (!emitsJsxSource() || jsxSourceInlineConsumer == null)
       return expression;
-    return switch JsxPlan.unwrap(expression).expr {
-      case TLocal(local):
-        final initializer = jsxPlan.sourceInlineInitializer(local);
-        initializer == null ? expression : initializer;
-      default: expression;
-    }
+    final initializer = jsxSourceInlineConsumer.initializerForChildValue(
+      expression);
+    return initializer == null ? expression : initializer;
   }
 
   /** Whether a macro-created JSX declaration is replaced at its sole child use. */
   function skipsSourceInlineJsxDeclaration(expression: TypedExpr): Bool {
-    if (!emitsJsxSource() || jsxPlan == null)
+    if (!emitsJsxSource() || jsxSourceInlineConsumer == null)
       return false;
-    return switch JsxPlan.unwrap(expression).expr {
-      case TVar(local, _): jsxPlan.sourceInlineInitializer(local) != null;
-      default: false;
-    }
+    return jsxSourceInlineConsumer.initializerForDeclaration(expression) != null;
+  }
+
+  /** Validates exact source-inline consumption before the writer is closed. */
+  override public function finish(): Void {
+    if (jsxSourceInlineConsumer != null)
+      jsxSourceInlineConsumer.validate();
+    super.finish();
   }
 
   /** Installs the validated target-neutral string-template plan. */

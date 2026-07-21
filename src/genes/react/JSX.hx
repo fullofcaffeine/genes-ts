@@ -33,8 +33,8 @@ class JSX {
    *
    * The string must be a literal so parsing and source positions stay
    * deterministic. The result is a typed call tree using
-   * `genes.react.internal.Jsx.__jsx/__frag`; `JsxPlan` validates and lowers it
-   * to typed TSX/createElement, type-erased JSX, or classic runtime calls.
+   * `genes.react.internal.Jsx` marker protocol; `JsxPlan` validates and lowers
+   * it to typed TSX/createElement, type-erased JSX, or classic runtime calls.
    */
   public static macro function jsx(template: Expr): Expr {
     final pos = template.pos;
@@ -124,7 +124,7 @@ private class Parser {
         withPosition(macro genes.react.internal.Jsx.__frag($e{childrenToCarrier(children)}),
           fragmentPos);
       case Element(el):
-        elementToExpr(el);
+        elementToExpr(el, false);
     }
   }
 
@@ -134,7 +134,7 @@ private class Parser {
       pos);
   }
 
-  function elementToExpr(el: JsxElement): Expr {
+  function elementToExpr(el: JsxElement, hxxNestedChild: Bool): Expr {
     final intrinsic = isIntrinsicTag(el.tag);
     final tagExpr: Expr = if (intrinsic) withPosition(macro $v{el.tag},
       el.tagPos) else
@@ -179,10 +179,38 @@ private class Parser {
     }
 
     final children = normalizeChildren(el.children);
-    return withPosition(macro genes.react.internal.Jsx.__jsx(
-      $tagExpr, $props,
-      $e{childrenToCarrier(children)}),
-      el.pos);
+    final childrenCarrier = childrenToCarrier(children);
+    final marker = hxxNestedChild
+      ? macro genes.react.internal.Jsx.__hxxChildJsx(
+        $tagExpr, $props, $childrenCarrier)
+      : macro genes.react.internal.Jsx.__jsx(
+        $tagExpr, $props, $childrenCarrier);
+    return withPosition(marker, el.pos);
+  }
+
+  /**
+   * Converts one direct child while retaining who created nested markup.
+   *
+   * Why: Haxe may lift a nested marker into a temporary. Source JSX can remove
+   * that temporary only when the HXX parser—not user code or another macro—owns
+   * it. Source positions cannot prove that ownership because generated and
+   * authored expressions may legitimately share a range.
+   *
+   * What/How: nested elements and fragments use distinct typed extern calls.
+   * Text and authored `{expression}` children keep their ordinary values. All
+   * marker variants have the same semantic result; only `JsxPlan` observes the
+   * provenance difference before an emitter chooses target syntax.
+   */
+  function childToCarrierValue(child: JsxChild): Expr {
+    return switch child {
+      case Element(element):
+        elementToExpr(element, true);
+      case Fragment(children, fragmentPos):
+        withPosition(macro genes.react.internal.Jsx.__hxxChildFrag(
+          $e{childrenToCarrier(children)}), fragmentPos);
+      case Text(_, _) | Expr(_):
+        childToExpr(child);
+    }
   }
 
   public function childrenToCarrier(children: Array<JsxChild>): Expr {
@@ -190,7 +218,7 @@ private class Parser {
     final reversed = children.copy();
     reversed.reverse();
     for (child in reversed) {
-      final value = childToExpr(child);
+      final value = childToCarrierValue(child);
       carrier = macro {
         __genesJsxChildValue: $value,
         __genesJsxChildNext: $carrier

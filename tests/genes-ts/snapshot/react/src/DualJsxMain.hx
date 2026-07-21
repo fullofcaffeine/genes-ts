@@ -8,6 +8,9 @@ typedef DualJsxTranscript = {
   final sameExpressionOrderHtml: String;
   final nestedNameScopeHtml: String;
   final staticTagReadOrderHtml: String;
+  final directAssignmentHtml: String;
+  final localComponentHtml: String;
+  final capturedChildHtml: String;
   final optionalSpreadHtml: String;
   final optionalSpreadOverrideHtml: String;
   final arrayValueChildHtml: String;
@@ -79,6 +82,9 @@ class DualJsxMain {
     final sameExpressionOrder = renderSameExpressionOrder();
     final nestedNameScope = renderNestedNameScope();
     final staticTagReadOrder = renderStaticTagReadOrder();
+    final directAssignment = renderDirectAssignment();
+    final localComponent = renderLocalComponentTags();
+    final capturedChild = renderCapturedChild();
     final optionalChildren: OptionalSpreadChildProps = {};
     final optionalSpreadElement = <RequiredChildHost {...optionalChildren}>
       <strong>nested child</strong>
@@ -161,6 +167,9 @@ class DualJsxMain {
       sameExpressionOrderHtml: renderToStaticMarkup(sameExpressionOrder),
       nestedNameScopeHtml: renderToStaticMarkup(nestedNameScope),
       staticTagReadOrderHtml: renderToStaticMarkup(staticTagReadOrder),
+      directAssignmentHtml: renderToStaticMarkup(directAssignment),
+      localComponentHtml: renderToStaticMarkup(localComponent),
+      capturedChildHtml: renderToStaticMarkup(capturedChild),
       optionalSpreadHtml: renderToStaticMarkup(optionalSpreadElement),
       optionalSpreadOverrideHtml:
         renderToStaticMarkup(optionalSpreadOverrideElement),
@@ -223,6 +232,41 @@ class DualJsxMain {
     return <ObservableComponents.Parent>
       <ObservableComponents.Child />
     </ObservableComponents.Parent>;
+  }
+
+  /** Proves a parent assigned directly to a local uses the closed grammar. */
+  static function renderDirectAssignment(): Element {
+    var result = <div>initial</div>;
+    result = <section><span>assigned</span></section>;
+    return result;
+  }
+
+  /**
+   * Proves component tags already held in locals are safe lexical reads.
+   *
+   * Any observable field lookup happens at these explicit assignments. Moving
+   * the generated nested child later changes only local-variable reads.
+   */
+  static function renderLocalComponentTags(): Element {
+    final Parent: ObservableParentProps->Element = LocalParent;
+    final Child: EmptyComponentProps->Element = LocalChild;
+    return <Parent><Child /></Parent>;
+  }
+
+  /** A captured child has two uses and must retain its declaration. */
+  static function renderCapturedChild(): Element {
+    final child = <span>captured</span>;
+    final capture = () -> child;
+    capture();
+    return <div>{child}</div>;
+  }
+
+  static function LocalParent(props: ObservableParentProps): Element {
+    return <section>{props.children}</section>;
+  }
+
+  static function LocalChild(_: EmptyComponentProps): Element {
+    return <span>local</span>;
   }
 
   static function mutateComponent(change: Void->Void): String {

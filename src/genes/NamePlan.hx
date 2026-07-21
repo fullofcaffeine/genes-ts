@@ -152,7 +152,6 @@ private class NamePlanBuilder {
         if (profile == TypeScriptReadable)
           addObjectConstructionPreferences(elements, blockPreferences);
         if (jsxEmitTsx) {
-          addSourceInlineOwnerPreferences(elements, blockPreferences);
           if (profile == TypeScriptReadable)
             addTsxElementPreferences(elements, blockPreferences);
         }
@@ -200,7 +199,7 @@ private class NamePlanBuilder {
       preferences: Map<Int, String>): Void {
     if (names.exists(local.id))
       return;
-    if (jsxEmitTsx && jsxPlan.sourceInlineInitializer(local) != null)
+    if (jsxEmitTsx && jsxPlan.isSourceInlineChild(local))
       return;
     if (jsxEmitTsx && profile == ClassicStable
       && preferences.exists(local.id)) {
@@ -320,50 +319,6 @@ private class NamePlanBuilder {
           final preferred = preferredNameForJsxElement(initializer);
           if (preferred != null)
             preferences.set(local.id, preferred);
-        default:
-      }
-    }
-  }
-
-  /**
-   * Restores the authored owner name after removing nested JSX scaffolding.
-   *
-   * HXX gives the first lowered child the surrounding declaration's requested
-   * name and suffixes the actual parent (`tree`, then `tree1`). Once the child
-   * declaration is omitted, keeping `tree1` would expose a phantom collision.
-   * A parent may reclaim the unsuffixed name only when its initializer contains
-   * that exact planned inline local in the same target function; ordinary
-   * numbered locals and evidence inside nested functions are untouched.
-   */
-  function addSourceInlineOwnerPreferences(elements: Array<TypedExpr>,
-      preferences: Map<Int, String>): Void {
-    for (element in elements) {
-      switch unwrap(element).expr {
-        case TVar(owner, initializer) if (initializer != null):
-          final parts = numberedLocalName(owner.name);
-          if (parts == null || parts.index == null)
-            continue;
-          var reclaimsPrefix = false;
-          function visit(expression: TypedExpr): Void {
-            switch unwrap(expression).expr {
-              // A nested function owns an independent target-name scope. Its
-              // removed HXX local cannot have caused a suffix on the caller's
-              // owner, so using it as reclamation evidence can create two
-              // declarations with the same JavaScript name in the outer scope.
-              case TFunction(_):
-                return;
-              case TLocal(local)
-                if (local.name == parts.prefix
-                  && jsxPlan.sourceInlineInitializer(local) != null):
-                reclaimsPrefix = true;
-              default:
-            }
-            if (!reclaimsPrefix)
-              expression.iter(visit);
-          }
-          visit(initializer);
-          if (reclaimsPrefix)
-            preferences.set(owner.id, parts.prefix);
         default:
       }
     }

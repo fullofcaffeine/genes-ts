@@ -77,9 +77,9 @@ export class Main {
 		let Button: ((arg0: {
 			label: string
 		}) => JSX.Element) = __genes_import_Button;
-		let el: JSX.Element = <div className="root" data-test-id="x">{title}<span>{2}</span></div>;
+		let el1: JSX.Element = <div className="root" data-test-id="x">{title}<span>{2}</span></div>;
 		let renderToStaticMarkup: ((arg0: JSX.Element) => string) = __genes_import_renderToStaticMarkup;
-		let html: string = renderToStaticMarkup(el);
+		let html: string = renderToStaticMarkup(el1);
 		if (html != "<div class=\"root\" data-test-id=\"x\">Hi<span>2</span></div>") {
 			throw Exception.thrown("Unexpected HTML: " + html);
 		};
@@ -154,13 +154,15 @@ export class Main {
 		if (inheritedHtml != "<aside data-tone=\"warm\">Inherited</aside>") {
 			throw Exception.thrown("Unexpected inherited component HTML: " + inheritedHtml);
 		};
-		let requiredChildHtml: string = renderToStaticMarkup(<Main.RequiredChild><strong>required</strong></Main.RequiredChild>);
-		if (requiredChildHtml != "<section><strong>required</strong></section>") {
-			throw Exception.thrown("Unexpected required child HTML: " + requiredChildHtml);
+		let requiredChildHtml: JSX.Element = <strong>required</strong>;
+		let requiredChildHtml1: string = renderToStaticMarkup(<Main.RequiredChild>{requiredChildHtml}</Main.RequiredChild>);
+		if (requiredChildHtml1 != "<section><strong>required</strong></section>") {
+			throw Exception.thrown("Unexpected required child HTML: " + requiredChildHtml1);
 		};
-		let broadNodeHtml: string = renderToStaticMarkup(<Main.BroadNode>text child<strong key="broad-element">element child</strong></Main.BroadNode>);
-		if (broadNodeHtml != "<section>text child<strong>element child</strong></section>") {
-			throw Exception.thrown("Unexpected broad node HTML: " + broadNodeHtml);
+		let broadNodeHtml: JSX.Element = <strong key="broad-element">element child</strong>;
+		let broadNodeHtml1: string = renderToStaticMarkup(<Main.BroadNode>text child{broadNodeHtml}</Main.BroadNode>);
+		if (broadNodeHtml1 != "<section>text child<strong>element child</strong></section>") {
+			throw Exception.thrown("Unexpected broad node HTML: " + broadNodeHtml1);
 		};
 		let booleanAndArrayHtml: string = renderToStaticMarkup(<button disabled aria-pressed>{["A", "B"]}</button>);
 		if (booleanAndArrayHtml != "<button disabled=\"\" aria-pressed=\"true\">AB</button>") {
@@ -176,9 +178,10 @@ export class Main {
 		let inputFormAction: JSX.Element = <input type="submit" formAction={Main.asyncFormAction} />;
 		let dashPattern: string = "8 4";
 		let dashOffset: number = 2.5;
-		let dashedCircleHtml: string = renderToStaticMarkup(<svg viewBox="0 0 10 10"><circle cx={5} cy={5} r={4} strokeDasharray={dashPattern} strokeDashoffset={dashOffset} /></svg>);
-		if (dashedCircleHtml != "<svg viewBox=\"0 0 10 10\"><circle cx=\"5\" cy=\"5\" r=\"4\" stroke-dasharray=\"8 4\" stroke-dashoffset=\"2.5\"></circle></svg>") {
-			throw Exception.thrown("Unexpected dashed SVG HTML: " + dashedCircleHtml);
+		let dashedCircleHtml: JSX.Element = <circle cx={5} cy={5} r={4} strokeDasharray={dashPattern} strokeDashoffset={dashOffset} />;
+		let dashedCircleHtml1: string = renderToStaticMarkup(<svg viewBox="0 0 10 10">{dashedCircleHtml}</svg>);
+		if (dashedCircleHtml1 != "<svg viewBox=\"0 0 10 10\"><circle cx=\"5\" cy=\"5\" r=\"4\" stroke-dasharray=\"8 4\" stroke-dashoffset=\"2.5\"></circle></svg>") {
+			throw Exception.thrown("Unexpected dashed SVG HTML: " + dashedCircleHtml1);
 		};
 		let listHtml: string = renderToStaticMarkup(Main.renderChildList("ready", "queued"));
 		if (listHtml != "<div><span>ready</span><strong>queued</strong><button>Save</button><em>done</em><span>ready:1</span><strong>queued:2</strong><span>ready:3</span><strong>queued:4</strong><span>ready:5</span><strong>queued:6</strong><span>ready:7</span><strong>queued:8</strong></div>") {
@@ -246,15 +249,17 @@ export class Main {
 		}}>Ignored</button>;
 		renderToStaticMarkup(ignoredEvent);
 		let optionalChildren: MainOptionalSpreadChildProps = {};
-		let optionalChildSpreadHtml: string = renderToStaticMarkup(<Main.RequiredChild {...optionalChildren}><strong>nested child</strong></Main.RequiredChild>);
-		if (optionalChildSpreadHtml != "<section><strong>nested child</strong></section>") {
-			throw Exception.thrown("Unexpected optional child spread HTML: " + optionalChildSpreadHtml);
+		let optionalChildSpreadHtml: JSX.Element = <strong>nested child</strong>;
+		let optionalChildSpreadHtml1: string = renderToStaticMarkup(<Main.RequiredChild {...optionalChildren}>{optionalChildSpreadHtml}</Main.RequiredChild>);
+		if (optionalChildSpreadHtml1 != "<section><strong>nested child</strong></section>") {
+			throw Exception.thrown("Unexpected optional child spread HTML: " + optionalChildSpreadHtml1);
 		};
 		let previousChild: JSX.Element = <em>spread child</em>;
 		let presentOptionalChildren: MainOptionalSpreadChildProps = {"children": previousChild};
-		let optionalChildOverrideHtml: string = renderToStaticMarkup(<Main.RequiredChild {...presentOptionalChildren}><strong>nested child</strong></Main.RequiredChild>);
-		if (optionalChildOverrideHtml != "<section><strong>nested child</strong></section>") {
-			throw Exception.thrown("Unexpected optional child override HTML: " + optionalChildOverrideHtml);
+		let optionalChildOverrideHtml: JSX.Element = <strong>nested child</strong>;
+		let optionalChildOverrideHtml1: string = renderToStaticMarkup(<Main.RequiredChild {...presentOptionalChildren}>{optionalChildOverrideHtml}</Main.RequiredChild>);
+		if (optionalChildOverrideHtml1 != "<section><strong>nested child</strong></section>") {
+			throw Exception.thrown("Unexpected optional child override HTML: " + optionalChildOverrideHtml1);
 		};
 		let childArray: JSX.Element[] = [<em key="array-a">array A</em>, <strong key="array-b">array B</strong>];
 		let arrayValueChildHtml: string = renderToStaticMarkup(<Main.RequiredChildList>{childArray}</Main.RequiredChildList>);
@@ -262,9 +267,11 @@ export class Main {
 			throw Exception.thrown("Unexpected array-valued child HTML: " + arrayValueChildHtml);
 		};
 		let optionalChildList: MainOptionalSpreadChildListProps = {};
-		let multipleRequiredChildrenHtml: string = renderToStaticMarkup(<Main.RequiredChildList {...optionalChildList}><em key="nested-a">nested A</em><strong key="nested-b">nested B</strong></Main.RequiredChildList>);
-		if (multipleRequiredChildrenHtml != "<section><em>nested A</em><strong>nested B</strong></section>") {
-			throw Exception.thrown("Unexpected multiple required children HTML: " + multipleRequiredChildrenHtml);
+		let multipleRequiredChildrenHtml: JSX.Element = <em key="nested-a">nested A</em>;
+		let multipleRequiredChildrenHtml1: JSX.Element = <strong key="nested-b">nested B</strong>;
+		let multipleRequiredChildrenHtml2: string = renderToStaticMarkup(<Main.RequiredChildList {...optionalChildList}>{multipleRequiredChildrenHtml}{multipleRequiredChildrenHtml1}</Main.RequiredChildList>);
+		if (multipleRequiredChildrenHtml2 != "<section><em>nested A</em><strong>nested B</strong></section>") {
+			throw Exception.thrown("Unexpected multiple required children HTML: " + multipleRequiredChildrenHtml2);
 		};
 	}
 	static renderChildList(first: string, second: string): JSX.Element {
