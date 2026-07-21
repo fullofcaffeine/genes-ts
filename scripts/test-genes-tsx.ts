@@ -737,6 +737,7 @@ rmrf("tests/genes-ts/snapshot/react/out/ts-type-only-jsx");
 rmrf("tests/genes-ts/snapshot/react/out/tsx-classic");
 rmrf("tests/genes-ts/snapshot/react/out/ts");
 rmrf("tests/genes-ts/snapshot/react/out/dual-tsx");
+rmrf("tests/genes-ts/snapshot/react/out/dual-tsx-retain-meta");
 rmrf("tests/genes-ts/snapshot/react/out/dual-ts");
 rmrf("tests/genes-ts/snapshot/react/out/dual-classic");
 rmrf("tests/genes-ts/snapshot/react/out/dual-jsx");
@@ -1156,6 +1157,30 @@ strictEqual(dualTsxSource.includes("__hxxChild"), false,
 runGeneratedTypeScriptMatrix(
   "tests/genes-ts/snapshot/react/tsconfig.dual-tsx.json"
 );
+
+// Production builds deliberately do not retain arbitrary expression metadata.
+// This test-only lane does, so a future refactor cannot accidentally broaden
+// the closed wrapper grammar by calling the general JSX marker recognizer.
+run("haxe", [
+  "tests/genes-ts/snapshot/react/build-dual-tsx-retain-meta.hxml"
+]);
+const retainedMetadataTsxSource = readFileSync(
+  path.join(
+    repoRoot,
+    "tests/genes-ts/snapshot/react/out/dual-tsx-retain-meta/src-gen/DualJsxMain.tsx"
+  ),
+  "utf8"
+);
+const retainedMetadataAssignment = sourceSection(
+  retainedMetadataTsxSource,
+  "static renderDirectAssignment(",
+  "static renderLocalComponentTags("
+);
+ok(/let ([A-Za-z_$][\w$]*): JSX\.Element = <span>assigned<\/span>;[\s\S]*result = <section>{\1}<\/section>;/.test(
+  retainedMetadataAssignment
+), "an unreviewed typed metadata wrapper retains the generated child seam");
+strictEqual(retainedMetadataTsxSource.includes("__hxxChild"), false,
+  "the parser-only child marker never leaks from the metadata control");
 
 // The same marker must remain typed when a runtime String selects the
 // intrinsic tag in plain `.ts` createElement output. Static intrinsic and

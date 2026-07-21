@@ -234,10 +234,20 @@ class DualJsxMain {
     </ObservableComponents.Parent>;
   }
 
-  /** Proves a parent assigned directly to a local uses the closed grammar. */
+  /**
+   * Proves a parent assigned directly to a local uses the closed grammar.
+   *
+   * The focused test suite also compiles this source with
+   * `retain-untyped-meta`, which keeps `@:genesSourceInlineBarrier` in Haxe's
+   * typed tree. Metadata is not one of the two wrappers the source-inline proof
+   * may ignore, so that test profile must retain the nested child even though
+   * ordinary local assignment is otherwise an admitted parent site. Normal
+   * builds discard this test-only metadata and continue to prove the positive
+   * direct-assignment optimization.
+   */
   static function renderDirectAssignment(): Element {
     var result = <div>initial</div>;
-    result = <section><span>assigned</span></section>;
+    result = @:genesSourceInlineBarrier <section><span>assigned</span></section>;
     return result;
   }
 

@@ -1194,7 +1194,16 @@ class JsxPlan {
   /** Returns a marker only when approved non-evaluating wrappers surround it. */
   static function directMarkerRoot(expression: TypedExpr): Null<TypedExpr> {
     final root = sourceInlineUnwrap(expression);
-    return isMarkerCallExpression(root) ? root : null;
+    return switch root.expr {
+      // Do not call `isMarkerCallExpression` here. That general JSX helper
+      // also unwraps `TMeta`, which is useful when recognizing marker meaning
+      // but is too broad for permission to move source code. Metadata can be
+      // owned by Haxe or another macro and may carry a boundary we have not
+      // proved transparent. The source-inline grammar therefore accepts only
+      // the parentheses and no-target cast removed by `sourceInlineUnwrap`.
+      case TCall(callee, _) if (markerKind(callee) != null): root;
+      default: null;
+    }
   }
 
   /** Retains the exact specialized HXX child call and typed field identity. */
