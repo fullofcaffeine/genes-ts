@@ -7,6 +7,9 @@ import genes.ts.Imports;
 
 typedef DualJsxTranscript = {
   final staticHtml: String;
+  final sameExpressionOrderHtml: String;
+  final nestedNameScopeHtml: String;
+  final staticTagReadOrderHtml: String;
   final optionalSpreadHtml: String;
   final optionalSpreadOverrideHtml: String;
   final arrayValueChildHtml: String;
@@ -87,6 +90,9 @@ class DualJsxMain {
     final rootProps = {className: "shared", id: "root"};
     final fragment = jsx('<><span>A</span><span>B</span></>');
     final tree = <main {...rootProps}><h1>{heading}</h1>{fragment}</main>;
+    final sameExpressionOrder = renderSameExpressionOrder();
+    final nestedNameScope = renderNestedNameScope();
+    final staticTagReadOrder = renderStaticTagReadOrder();
     final optionalChildren: OptionalSpreadChildProps = {};
     final optionalSpreadElement = <RequiredChildHost {...optionalChildren}>
       <strong>nested child</strong>
@@ -194,6 +200,9 @@ class DualJsxMain {
 
     print({
       staticHtml: renderToStaticMarkup(tree),
+      sameExpressionOrderHtml: renderToStaticMarkup(sameExpressionOrder),
+      nestedNameScopeHtml: renderToStaticMarkup(nestedNameScope),
+      staticTagReadOrderHtml: renderToStaticMarkup(staticTagReadOrder),
       optionalSpreadHtml: renderToStaticMarkup(optionalSpreadElement),
       optionalSpreadOverrideHtml:
         renderToStaticMarkup(optionalSpreadOverrideElement),
@@ -217,6 +226,72 @@ class DualJsxMain {
   /** Consumes a safe structural subset of React's complete input event. */
   static function focusedInputChange(event: FocusedInputChange): Void {
     event.target.value;
+  }
+
+  /**
+   * Proves how HXX preserves evaluation order when markup is a call argument.
+   *
+   * The first argument changes which component the local variable names. HXX
+   * lifts that mutation before the nested child declaration, matching Haxe's
+   * left-to-right argument order. Source-JSX cleanup may remove the child
+   * declaration, but the rendered result must still be "after" in every
+   * profile.
+   */
+  static function renderSameExpressionOrder(): Element {
+    var OrderedComponent: EmptyComponentProps->Element = BeforeMutationChild;
+    return keepElement(
+      mutateComponent(() -> OrderedComponent = AfterMutationChild),
+      <div><OrderedComponent /></div>
+    );
+  }
+
+  /**
+   * Proves that JSX name cleanup never treats a nested function as the same
+   * JavaScript scope as its caller.
+   *
+   * The outer `tree` and `tree1` are both legal Haxe locals. The callback has
+   * its own independent `tree` name. Source-JSX cleanup may simplify the
+   * callback's generated markup names, but it must not rename the outer
+   * `tree1` to `tree` and create two declarations with one JavaScript name.
+   */
+  static function renderNestedNameScope(): Element {
+    final tree = "outer";
+    final tree1 = () -> {
+      final tree = <div><span>inner</span></div>;
+      return tree;
+    };
+    return <section data-owner={tree}>{tree1()}</section>;
+  }
+
+  /**
+   * Proves that moving a nested static component preserves property-read order.
+   *
+   * The fixture module exposes `Parent` and `Child` through JavaScript getters.
+   * Reading either name is therefore observable even though Haxe types both as
+   * an ordinary static method. The child must still be read before the parent,
+   * matching the explicit temporary sequence used by classic Genes output.
+   */
+  static function renderStaticTagReadOrder(): Element {
+    return <ObservableComponents.Parent>
+      <ObservableComponents.Child />
+    </ObservableComponents.Parent>;
+  }
+
+  static function mutateComponent(change: Void->Void): String {
+    change();
+    return "changed";
+  }
+
+  static function keepElement(_: String, element: Element): Element {
+    return element;
+  }
+
+  static function BeforeMutationChild(_: EmptyComponentProps): Element {
+    return <span>before</span>;
+  }
+
+  static function AfterMutationChild(_: EmptyComponentProps): Element {
+    return <span>after</span>;
   }
 
   /** Renders the one child required by this component's property contract. */
@@ -244,4 +319,29 @@ class DualJsxMain {
     // boundary is therefore one statement, and only accepts a typed String.
     js.Syntax.code("console.log({0})", json);
   }
+}
+
+/** Empty properties used by the local component-order regression. */
+private typedef EmptyComponentProps = {}
+
+/** Properties accepted by the observable parent component fixture. */
+private typedef ObservableParentProps = {
+  final children: Element;
+}
+
+/**
+ * Typed view of a JavaScript module whose component properties are getters.
+ *
+ * Why: an extern static method looks pure in Haxe's typed tree, but JavaScript
+ * may provide that property through a getter or Proxy trap. The fixture makes
+ * those reads visible so source-JSX normalization cannot silently reorder them.
+ *
+ * What/How: `@:jsRequire` imports the module's default object. Haxe checks the
+ * component property contracts below; the companion TypeScript/JavaScript
+ * fixture records each actual property read at runtime.
+ */
+@:jsRequire("./observable-components.js", "default")
+private extern class ObservableComponents {
+  static function Parent(props: ObservableParentProps): Element;
+  static function Child(props: EmptyComponentProps): Element;
 }

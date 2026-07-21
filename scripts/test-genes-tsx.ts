@@ -80,6 +80,26 @@ function copyTsxFixtures(intoRelDir: string): void {
   copyDir(fixturesDir);
 }
 
+/**
+ * Copies the observable static-component module beside one generated profile.
+ *
+ * The Haxe extern imports `./observable-components.js`. TypeScript profiles use
+ * the typed source and compile it with the generated module; JavaScript
+ * profiles use the equivalent ESM file directly. Keeping the two small files
+ * beside their consumer makes the getter/Proxy ordering probe independent of
+ * a package-manager install or machine-local module path.
+ */
+function copyObservableComponents(
+  intoRelDir: string,
+  sourceExtension: "ts" | "js"
+): void {
+  const fileName = `observable-components.${sourceExtension}`;
+  cpSync(
+    path.join(repoRoot, "tests/genes-ts/snapshot/react/fixtures", fileName),
+    path.join(repoRoot, intoRelDir, fileName)
+  );
+}
+
 function assertNoGeneratedDomSupportGraph(generatedRelDir: string): void {
   ok(!existsSync(path.join(repoRoot, generatedRelDir, "js/html")),
     `${generatedRelDir} published browser typedef modules loaded only through ambient externs`);
@@ -815,6 +835,10 @@ run("node", ["tests/genes-ts/snapshot/react/out/ts/dist/index.js"]);
 // classic ESM. Static intent remains readable TSX, while a runtime string tag
 // deliberately exercises the shared createElement capability in both modes.
 run("haxe", ["tests/genes-ts/snapshot/react/build-dual-tsx.hxml"]);
+copyObservableComponents(
+  "tests/genes-ts/snapshot/react/out/dual-tsx/src-gen",
+  "ts"
+);
 const dualTsxSource = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/react/out/dual-tsx/src-gen/DualJsxMain.tsx"),
   "utf8"
@@ -831,6 +855,16 @@ ok(dualTsxSource.includes(
 ok(dualTsxSource.includes(
   '<input aria-label="Ref target" ref={function (element: HTMLInputElement | null)'
 ), "TSX preserves the checked callback ref and exact input target");
+const dualTsxStaticOrder = sourceSection(
+  dualTsxSource,
+  "static renderStaticTagReadOrder(",
+  "static mutateComponent("
+);
+ok(dualTsxStaticOrder.includes(
+  "let tmp: JSX.Element = <ObservableComponents.Child />"
+) && dualTsxStaticOrder.includes(
+  "return <ObservableComponents.Parent>{tmp}</ObservableComponents.Parent>"
+), "TSX retains the child local when an extern static tag read is observable");
 runGeneratedTypeScriptMatrix(
   "tests/genes-ts/snapshot/react/tsconfig.dual-tsx.json"
 );
@@ -839,6 +873,10 @@ runGeneratedTypeScriptMatrix(
 // intrinsic tag in plain `.ts` createElement output. Static intrinsic and
 // component tags keep their stricter tag-specific property contracts.
 run("haxe", ["tests/genes-ts/snapshot/react/build-dual-ts.hxml"]);
+copyObservableComponents(
+  "tests/genes-ts/snapshot/react/out/dual-ts/src-gen",
+  "ts"
+);
 const dualTsSource = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/react/out/dual-ts/src-gen/DualJsxMain.ts"),
   "utf8"
@@ -866,6 +904,10 @@ runGeneratedTypeScriptMatrix(
 );
 
 run("haxe", ["tests/genes-ts/snapshot/react/build-dual-classic.hxml"]);
+copyObservableComponents(
+  "tests/genes-ts/snapshot/react/out/dual-classic",
+  "js"
+);
 const dualClassicSource = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/react/out/dual-classic/DualJsxMain.js"),
   "utf8"
@@ -901,6 +943,10 @@ ok(dualClassicSource.includes(
 strictEqual(dualClassicSource.includes("Jsx.__jsx"), false);
 
 run("haxe", ["tests/genes-ts/snapshot/react/build-dual-jsx.hxml"]);
+copyObservableComponents(
+  "tests/genes-ts/snapshot/react/out/dual-jsx",
+  "js"
+);
 const dualJsxSource = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/react/out/dual-jsx/DualJsxMain.jsx"),
   "utf8"
@@ -916,15 +962,26 @@ ok(dualJsxSource.includes(
 ok(dualJsxSource.includes(
   '<input aria-label="Ref target" ref={function (element)'
 ), "type-erased JSX preserves canonical callback-ref markup");
+ok(dualJsxSource.includes("let tree1 = function () {")
+  && !dualJsxSource.includes(
+    'let tree = "outer";\n\t\tlet tree = function () {'
+  ), "type-erased JSX keeps nested-function name cleanup inside its own scope");
 strictEqual(dualJsxSource.includes("Jsx.__jsx"), false);
 strictEqual(dualJsxSource.includes(": JSX.Element"), false);
 runTypeScript("apiBridge", [
   "-p",
   "tests/genes-ts/snapshot/react/tsconfig.dual-jsx.json"
 ]);
+copyObservableComponents(
+  "tests/genes-ts/snapshot/react/out/dual-jsx-dist",
+  "js"
+);
 
 const expectedTranscript = {
   staticHtml: '<main class="shared" id="root"><h1>dual</h1><span>A</span><span>B</span></main>',
+  sameExpressionOrderHtml: '<div><span>after</span></div>',
+  nestedNameScopeHtml: '<section data-owner="outer"><div><span>inner</span></div></section>',
+  staticTagReadOrderHtml: '<section data-order="Child,Parent"><span>child</span></section>',
   optionalSpreadHtml: '<section><strong>nested child</strong></section>',
   optionalSpreadOverrideHtml: '<section><strong>nested child</strong></section>',
   arrayValueChildHtml: '<section><em>array A</em><strong>array B</strong></section>',

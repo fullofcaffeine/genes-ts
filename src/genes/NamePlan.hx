@@ -332,7 +332,8 @@ private class NamePlanBuilder {
    * name and suffixes the actual parent (`tree`, then `tree1`). Once the child
    * declaration is omitted, keeping `tree1` would expose a phantom collision.
    * A parent may reclaim the unsuffixed name only when its initializer contains
-   * that exact planned inline local; ordinary numbered locals are untouched.
+   * that exact planned inline local in the same target function; ordinary
+   * numbered locals and evidence inside nested functions are untouched.
    */
   function addSourceInlineOwnerPreferences(elements: Array<TypedExpr>,
       preferences: Map<Int, String>): Void {
@@ -345,6 +346,12 @@ private class NamePlanBuilder {
           var reclaimsPrefix = false;
           function visit(expression: TypedExpr): Void {
             switch unwrap(expression).expr {
+              // A nested function owns an independent target-name scope. Its
+              // removed HXX local cannot have caused a suffix on the caller's
+              // owner, so using it as reclamation evidence can create two
+              // declarations with the same JavaScript name in the outer scope.
+              case TFunction(_):
+                return;
               case TLocal(local)
                 if (local.name == parts.prefix
                   && jsxPlan.sourceInlineInitializer(local) != null):
