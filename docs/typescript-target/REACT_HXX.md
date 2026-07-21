@@ -211,6 +211,19 @@ traps, and unresolved spreads. A spread is movable only when it resolves to a
 known plain object literal whose values pass the same check. JSX values already
 captured by the HXX carrier stay on their evaluated runtime path.
 
+Component identities follow the same host-observability rule. A static method
+on a generated Haxe class is a stable emitted property and may participate in a
+safe rewrite. An extern static method is only a compile-time declaration: its
+JavaScript property may be supplied by a getter or Proxy. Genes therefore keeps
+that child local explicit so a nested rewrite cannot change `Child,Parent`
+property-read order into `Parent,Child`.
+
+Readable-name cleanup is scoped just as strictly. Removing an HXX temporary in
+a nested callback can reclaim a name only inside that callback; it is never
+evidence that an owner in the calling function may reuse the same JavaScript
+name. This keeps independently valid Haxe locals from becoming duplicate
+declarations in source JSX.
+
 Authored locals remain authored locals, even when they are used once:
 
 ```haxe

@@ -889,8 +889,15 @@ class JsxPlan {
         switch unwrap(expression).expr {
           case TLocal(_) | TTypeExpr(_): true;
           case TField(_, FEnum(_, _)): true;
-          case TField(_, FStatic(_, field)):
-            switch field.get().kind {
+          case TField(_, FStatic(owner, field)):
+            // A generated Haxe method is a stable property on its emitted
+            // class. An extern method is only a type declaration: the host may
+            // provide that same property through a getter or Proxy trap. Moving
+            // an extern child tag into its parent would then reorder observable
+            // property reads even though both fields look like FMethod here.
+            if (owner.get().isExtern)
+              false;
+            else switch field.get().kind {
               case FMethod(_): true;
               default: false;
             }
