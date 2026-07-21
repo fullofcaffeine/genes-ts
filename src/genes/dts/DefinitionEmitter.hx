@@ -96,8 +96,14 @@ class DefinitionEmitter extends ModuleEmitter {
     };
     if (typeOverride != null)
       write(typeOverride);
-    else
-      emitType(PublicSurface.forTypedef(def).aliasTypeFor(params));
+    else {
+      final capturedSourceType = genes.ts.SignatureCache.getTypedefSourceType(
+        def, params);
+      if (capturedSourceType != null)
+        TypeEmitter.emitCapturedSourceType(this, capturedSourceType);
+      else
+        emitType(PublicSurface.forTypedef(def).aliasTypeFor(params));
+    }
     writeNewline();
   }
 

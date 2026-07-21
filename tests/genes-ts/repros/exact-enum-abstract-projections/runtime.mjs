@@ -9,6 +9,9 @@ globalThis.DomainHost = {
   broadBox() {
     return { value: "published" };
   },
+  exactBox() {
+    return { value: "published" };
+  },
 };
 
 await import("./out/classic/index.js");

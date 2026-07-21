@@ -40,8 +40,11 @@ where multiple emitters or passes need the same semantic decision.
    Haxe cannot delete a previously good entry file after a generator error.
 2. Before Haxe DCE can erase source-level information, `PublicSurface`,
    `ModuleDirectivePlan`, and `genes.ts.SignatureCache` capture the facts needed
-   by TS interfaces, module prologues, and declarations. Directive capture adds
-   no roots or dependency edges.
+   by TS interfaces, module prologues, and declarations. For closed enum
+   abstracts, the signature cache retains only affected source type subtrees
+   and freezes their literal sets before dead-code elimination (DCE) removes
+   unused declarations; the ordinary type printer remains the single recursive
+   renderer. Directive capture adds no roots or dependency edges.
 3. `Generator` receives `JSGenApi`, groups typed types into `Module` values,
    records exposed/library roots, and creates shared plans.
 4. Runtime, type-only, and declaration-only reachability are expanded without

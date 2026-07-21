@@ -5,5 +5,6 @@
 
 -js tests/genes-ts/repros/exact-enum-abstract-projections/out/classic/index.js
 -D js-es=6
+-D dts
 
 -dce full
