@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "types": [],
+    "skipLibCheck": false,
+    "noEmit": true
+  },
+  "include": [
+    "ambient.d.ts",
+    "out/typescript/src-gen/**/*.ts"
+  ]
+}

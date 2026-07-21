@@ -1952,6 +1952,32 @@ class TsModuleEmitter extends JsModuleEmitter {
     write('>');
   }
 
+  /**
+   * Remembers a local's exact emitted TypeScript type when Haxe may erase it.
+   *
+   * Why: closed enum abstracts can become their primitive backing type in a
+   * later expression node even though the local or parameter declaration was
+   * already printed as a literal union. Forgetting that declaration makes the
+   * expected-type writer add a redundant `as` expression.
+   *
+   * What: only an explicit declaration-time override or a compiler-derived
+   * enum-abstract literal union is recorded. Broad strings and other ordinary
+   * locals contribute no fact, so their existing compatibility assertions are
+   * preserved.
+   *
+   * How: Haxe local IDs are stable within one emitted module. Later local reads
+   * compare the recorded TypeScript spelling with the expected union before
+   * deciding whether an assertion is necessary. This changes TypeScript
+   * syntax only; classic JavaScript never uses this emitter state.
+   */
+  function rememberEmittedLocalType(variable: TVar, haxeType: Type,
+      typeOverride: Null<String>): Void {
+    final exactType = typeOverride
+      ?? SignatureCache.enumAbstractLiteralUnionTsType(haxeType);
+    if (exactType != null)
+      localTsTypeOverrides.set(variable.id, exactType);
+  }
+
   override public function emitVar(v: TVar, eo: Null<TypedExpr>) {
     if (eo != null && isJsxCarrierLocal(v.id)) {
       // The linked HXX carrier is compiler-owned scaffolding, not a public
@@ -1985,8 +2011,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     final emittedType = (narrowedOptionalInit || narrowedNonNullInit) ? stripNull(v.t) : v.t;
     final emittedTypeOverride = (narrowedOptionalInit
       || narrowedNonNullInit || inferExplicitCallType) ? null : localTsTypeOverride(eo);
-    if (emittedTypeOverride != null)
-      localTsTypeOverrides.set(v.id, emittedTypeOverride);
+    rememberEmittedLocalType(v, emittedType, emittedTypeOverride);
     write('$declare ');
     emitLocalVar(v);
     if (!inferExplicitCallType) {
@@ -2161,24 +2186,48 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TField(_, FStatic(_.get() => cl, _.get() => field)):
         switch field.kind {
           case FVar(_, _):
-            SignatureCache.getFieldTsType(cl, true, field.name);
+            explicitFieldTsType(field)
+              ?? SignatureCache.getFieldTsType(cl, true, field.name);
           default:
             null;
         }
-      case TField(_, FInstance(_.get() => cl, _, _.get() => field)):
+      case TField(_, FInstance(_.get() => cl, parameters, _.get() => field)):
         switch field.kind {
           case FVar(_, _):
-            SignatureCache.getFieldTsType(cl, false, field.name);
+            // A generic field declaration only contains its owner's type
+            // parameter, so the declaration cache cannot know the concrete
+            // literal union. Apply the receiver's actual parameters first.
+            // This proves expressions such as `pair.first` already carry the
+            // same exact TS type as `Pair<ClosedDomain>`; no assertion is
+            // needed. If substitution cannot recover a literal union, retain
+            // the declaration-time cache and its conservative behavior.
+            final explicitType = explicitFieldTsType(field);
+            if (explicitType != null) {
+              explicitType;
+            } else {
+              final instantiatedType = parameters.length == cl.params.length
+                ? field.type.applyTypeParameters(cl.params, parameters)
+                : field.type;
+              SignatureCache.enumAbstractLiteralUnionTsType(instantiatedType)
+                ?? SignatureCache.getFieldTsType(cl, false, field.name);
+            }
           default:
             null;
         }
       case TField(_, FAnon(_.get() => field)):
-        SignatureCache.getAnonFieldTsType(field.pos);
+        explicitFieldTsType(field)
+          ?? SignatureCache.getAnonFieldTsType(field.pos);
       case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, _):
         cachedFieldValueTsType(inner);
       default:
         null;
     }
+  }
+
+  /** Returns a field's authored TS spelling before derived enum provenance. */
+  static function explicitFieldTsType(field: ClassField): Null<String> {
+    return extractStringMeta(field.meta, ':ts.type')
+      ?? extractStringMeta(field.meta, ':genes.type');
   }
 
   function emitLocalType(type: Type, typeOverride: Null<String>): Void {
@@ -2865,6 +2914,7 @@ class TsModuleEmitter extends JsModuleEmitter {
               write('?');
             write(': ');
             TypeEmitter.emitType(this, nullish.emittedType);
+            rememberEmittedLocalType(arg.v, nullish.emittedType, null);
             if (nullish.usesNullDefault)
               write(' = null');
           }
@@ -3504,7 +3554,10 @@ class TsModuleEmitter extends JsModuleEmitter {
             write('?');
           write(': ');
           final cachedType = cachedArgs != null ? cachedArgs[i].tsType : null;
-          emitArgTsType(field, f, i, nullish.emittedType, cachedType);
+          final emittedArgType = emitArgTsType(field, f, i,
+            nullish.emittedType, cachedType);
+          rememberEmittedLocalType(f.args[i].v, nullish.emittedType,
+            emittedArgType);
           if (usesNullDefault)
             write(' = null');
         }
@@ -3539,8 +3592,17 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
   }
 
+  /**
+   * Emits one parameter annotation and returns its exact known TS spelling.
+   *
+   * Why: parameter metadata has priority over the declaration cache. Returning
+   * the spelling chosen here prevents later expression emission from claiming
+   * that a broad `string` parameter was actually declared as a closed literal
+   * union. A `null` result means the ordinary Haxe type emitter owned a shape
+   * that this narrow enum-provenance check does not need to remember.
+   */
   function emitArgTsType(field: GenesField, f: TFunc, index: Int, type: Type,
-      fallbackType: Null<String>) {
+      fallbackType: Null<String>): Null<String> {
     // TS `strict` enables `useUnknownInCatchVariables`, so catch variables are
     // `unknown`. Avoid emitting `Register.unsafeCast<any>(...)` in user modules
     // by making `haxe.Exception.caught` accept `unknown` in TS.
@@ -3550,7 +3612,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       && field.name == 'caught'
       && index == 0) {
       write('unknown');
-      return;
+      return 'unknown';
     }
 
     // haxe.Exception/ValueException are part of the JS runtime surface.
@@ -3563,7 +3625,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         && field.kind.equals(Constructor)
         && index == 2) {
         write('unknown | null');
-        return;
+        return 'unknown | null';
       }
       if (currentClass.module == 'haxe.Exception'
         && currentClass.name == 'Exception'
@@ -3571,17 +3633,17 @@ class TsModuleEmitter extends JsModuleEmitter {
         && field.name == 'thrown'
         && index == 0) {
         write('unknown');
-        return;
+        return 'unknown';
       }
       if (currentClass.module == 'haxe.ValueException'
         && currentClass.name == 'ValueException') {
         if (field.kind.equals(Constructor) && index == 0) {
           write('unknown');
-          return;
+          return 'unknown';
         }
         if (field.kind.equals(Constructor) && index == 2) {
           write('unknown | null');
-          return;
+          return 'unknown | null';
         }
       }
     }
@@ -3601,13 +3663,14 @@ class TsModuleEmitter extends JsModuleEmitter {
     };
     if (typeOverride != null) {
       write(typeOverride);
-      return;
+      return typeOverride;
     }
     if (fallbackType != null) {
       write(fallbackType);
-      return;
+      return fallbackType;
     }
     emitType(type);
+    return SignatureCache.enumAbstractLiteralUnionTsType(type);
   }
 
   function emitReturnTsType(field: GenesField, f: TFunc,
