@@ -96,6 +96,7 @@
   },
   "resolutions": {
     "@typescript/old": "npm:typescript@6.0.3",
+    "body-parser": "1.20.6",
     "handlebars": "4.7.9",
     "ip-address": "10.2.0",
     "js-yaml": "4.3.0",
