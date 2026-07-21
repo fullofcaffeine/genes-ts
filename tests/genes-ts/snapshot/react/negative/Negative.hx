@@ -1,7 +1,11 @@
+import genes.react.AnchorElement;
+import genes.react.DomElement;
 import genes.react.Element;
 import genes.react.InputElement;
 import genes.react.MouseEvent;
+import genes.react.ReactRef.RefObject;
 import genes.react.SyntheticEvent;
+import genes.ts.Imports;
 import genes.ts.Undefinable;
 import genes.ts.Unknown;
 
@@ -250,6 +254,14 @@ class Negative {
 
   static function wrongDialogEventTarget(event: SyntheticEvent<InputElement>): Void {}
 
+  static function wrongInputRefTarget(element: Null<genes.react.AnchorElement>): Void {}
+
+  static function wrongInputRefResult(element: Null<InputElement>): String {
+    return "not-a-cleanup";
+  }
+
+  static function wrongSvgRefTarget(element: Null<DomElement>): Void {}
+
   static function wrongFormActionParameter(value: Int): Void {}
 
   static function tooManyFormActionArguments(data: js.html.FormData,
@@ -291,6 +303,21 @@ class Negative {
     final value = <dialog open="yes">Invalid dialog</dialog>;
     #elseif hxx_negative_dialog_event_target
     final value = <dialog onCancel={wrongDialogEventTarget}>Invalid target</dialog>;
+    #elseif hxx_negative_ref_value
+    final value = <input ref="not-a-ref" />;
+    #elseif hxx_negative_ref_target
+    final value = <input ref={wrongInputRefTarget} />;
+    #elseif hxx_negative_ref_result
+    final value = <input ref={wrongInputRefResult} />;
+    #elseif hxx_negative_ref_object_target
+    // Build a real typed React ref object without a cast. The test should fail
+    // because an anchor object cannot be attached to an input element.
+    final createRef: Void->RefObject<AnchorElement> = Imports.namedImport(
+      "react", "createRef");
+    final anchorRef = createRef();
+    final value = <input ref={anchorRef} />;
+    #elseif hxx_negative_svg_ref_target
+    final value = <svg ref={wrongSvgRefTarget} />;
     #elseif hxx_negative_svg_dash_type
     final value = <circle strokeDashoffset={false} />;
     #elseif hxx_negative_intrinsic_null

@@ -305,7 +305,11 @@ Callable components derive props from their Haxe argument. Generic wrappers use
 can use `@:genes.jsxComponentProps("fully.qualified.Props")`. Intrinsic event
 contracts preserve the concrete element target (for example,
 `ChangeEvent<InputElement>` on `<input>`), including contextual callback
-typing at the HXX source position.
+typing at the HXX source position. Intrinsic `ref` is checked there too:
+specialized tags receive their exact nullable element, other HTML and SVG tags
+receive their safe family base, React 19 cleanup callbacks and closed ref
+objects retain their host shape, explicit null remains distinct from omission,
+and typed `createElement` uses React's `ComponentPropsWithRef` parity contract.
 
 React 19 form actions are checked at the same boundary: `action` and
 `formAction` accept either a string or a one-argument `FormData` callback whose

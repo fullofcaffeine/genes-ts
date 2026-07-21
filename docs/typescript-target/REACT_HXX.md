@@ -619,6 +619,46 @@ safe: every dialog is an HTML element, so the broader handler can work with the
 more specific event. HXX accepts that direction but rejects a callback that
 requires an unrelated target such as `InputElement`.
 
+Intrinsic refs use the same Haxe-first contract. A callback receives the
+mounted element or `null`. Tags with a focused schema—currently anchors,
+dialogs, and inputs—carry that exact element identity:
+
+```haxe
+final field = <input ref={element -> {
+  if (element != null)
+    element.select();
+}} />;
+```
+
+Here Haxe checks `element` as `Null<js.html.InputElement>` before output.
+Passing a string, an anchor-only callback, or another incompatible target
+fails with `GTS-HXX-PROP-002` at the `ref` value. The closed schema also models
+React ref objects, an explicit `ref={null}`, and React 19's optional callback
+cleanup result. Omission, JavaScript `undefined`, and an authored `null` remain
+separate facts even though Haxe normally represents optional fields with an
+outer `Null`.
+
+The remaining HTML tags use the safe common `HTMLElement` boundary, while SVG
+tags use the separate `SVGElement` boundary. A callback accepting one of these
+broader family types is safe for every tag in that family; it does not pretend
+that a `<li>` is an input or that an SVG node is an HTML element. Object refs
+are accepted when their element type matches the tag schema's boundary. More
+tag-specific facades should be added only with a concrete authoring case and a
+focused fixture.
+
+In TSX and JSX, the authored `ref={...}` stays ordinary markup. Typed
+`createElement` uses `ComponentPropsWithRef<"input">` for this intrinsic (and
+`ComponentPropsWithRef<typeof Component>` for component values), so strict
+React declarations verify the same property independently. Classic JavaScript
+passes the callback unchanged. No wrapper component, ref adapter, or runtime
+class is generated.
+
+This capability was added after an accessible headless drag-and-drop Hook in
+NextJsHx returned callback refs that HXX could not attach to native elements.
+The fix is deliberately React-generic: the intrinsic schema and browser
+element identity relationship contain no package or downstream framework
+knowledge.
+
 Default React event contracts retain their element parameter. For example, an
 `<input>` callback contextually receives
 `genes.react.ChangeEvent<js.html.InputElement>`, so the complete standard Haxe

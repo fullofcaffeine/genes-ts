@@ -117,6 +117,7 @@ private enum abstract JsxBrowserElementIdentity(String) {
   var AnchorElement = 'anchor-element';
   var DialogElement = 'dialog-element';
   var InputElement = 'input-element';
+  var SvgElement = 'svg-element';
 }
 
 /**
@@ -444,7 +445,7 @@ class JsxTypeChecker {
         {
           schema: schema,
           bindings: new Map<String, Type>(),
-          // React's normal `ComponentPropsWithoutRef<typeof Tag>` path is
+          // React's normal `ComponentPropsWithRef<typeof Tag>` path is
           // concise and already correct for concrete functions and aliases.
           // Only a direct open generic needs HXX's inferred Haxe type carried
           // into `createElement<T>`; otherwise React would widen it to unknown.
@@ -699,7 +700,10 @@ class JsxTypeChecker {
       literalNull = false): Bool {
     if (depth > 64)
       return false;
-    final resolvedExpected = substitute(resolveAliases(expected), bindings);
+    final substitutedExpected = substitute(expected, bindings);
+    if (literalNull && allowsAuthoredNullLiteral(substitutedExpected))
+      return true;
+    final resolvedExpected = resolveAliases(substitutedExpected);
     final undefinedExpected = undefinableInner(resolvedExpected);
     if (undefinedExpected != null) {
       final presentActual = NullishContract.forType(actual)
@@ -767,6 +771,10 @@ class JsxTypeChecker {
     // accept a value that can actually be null.
     if (nullableInner(resolvedActual) != null || literalNull)
       return false;
+    final browserElementCompatibility = browserElementValueAssignability(
+      resolvedActual, resolvedExpected);
+    if (browserElementCompatibility != null)
+      return browserElementCompatibility;
     final nativeGlobalCompatibility = nativeGlobalAssignability(resolvedActual,
       resolvedExpected, depth
       + 1);
@@ -1073,7 +1081,7 @@ class JsxTypeChecker {
    * Reports whether a direct function component still needs generic inference.
    *
    * Why: concrete component functions should keep React's short, established
-   * `ComponentPropsWithoutRef<typeof Tag>` output. A direct generic function is
+   * `ComponentPropsWithRef<typeof Tag>` output. A direct generic function is
    * different: React cannot recover the Haxe type chosen from its HXX values,
    * so the compiler must carry that one specialization into `createElement`.
    *
@@ -1262,9 +1270,58 @@ class JsxTypeChecker {
 
   /** Returns whether this exact HXX value is the authored `null` constant. */
   static function isNullLiteral(expression: TypedExpr): Bool {
-    return switch JsxPlan.unwrap(expression).expr {
+    return switch expression.expr {
       case TConst(TNull): true;
+      // Haxe may add a typed cast while unifying `null` with a nested host
+      // boundary such as `Undefinable<ReactRef<T>>`. The runtime value is still
+      // the authored null constant, so follow only transparent wrappers rather
+      // than guessing from its broad `Null<Unknown>` inferred type.
+      case TMeta(_, inner) | TCast(inner, _) | TParenthesis(inner):
+        isNullLiteral(inner);
       default: false;
+    }
+  }
+
+  /**
+   * Preserves a host contract that Haxe's typed tree cannot retain by itself.
+   *
+   * Why: `Null<T>` remains visible for numbers and other value-like types, but
+   * Haxe erases it around a union of reference values. React's `Ref<T>` still
+   * distinguishes an explicit `null` from an omitted or `undefined` property,
+   * so relying only on the followed Haxe type would reject valid `ref={null}`.
+   *
+   * What/How: follow only transparent wrappers and the intentional
+   * `Undefinable` boundary until the compiler-owned `ReactRef` alias is found.
+   * Other reference aliases do not gain null acceptance. The check applies
+   * only to an authored null literal; ordinary values still pass through the
+   * complete structural and browser-identity validation above.
+   */
+  static function allowsAuthoredNullLiteral(type: Type, depth = 0): Bool {
+    if (depth > 64)
+      return false;
+    return switch type {
+      case TType(typeRef, _)
+        if (typeRef.get().module == 'genes.react.ReactRef'
+          && typeRef.get().name == 'ReactRef'):
+        true;
+      case TAbstract(abstractRef, [inner])
+        if ((abstractRef.get().pack.length == 0
+          && abstractRef.get().name == 'Null')
+          || (abstractRef.get().module == 'genes.ts.Undefinable'
+            && abstractRef.get().name == 'Undefinable')):
+        allowsAuthoredNullLiteral(inner, depth + 1);
+      case TType(typeRef, [inner])
+        if (typeRef.get().pack.length == 0
+          && typeRef.get().name == 'Null'):
+        allowsAuthoredNullLiteral(inner, depth + 1);
+      case TType(_, _):
+        allowsAuthoredNullLiteral(Context.follow(type), depth + 1);
+      case TMono(reference) if (reference.get() != null):
+        allowsAuthoredNullLiteral(reference.get(), depth + 1);
+      case TLazy(resolve):
+        allowsAuthoredNullLiteral(resolve(), depth + 1);
+      default:
+        false;
     }
   }
 
@@ -1490,6 +1547,35 @@ class JsxTypeChecker {
     }
   }
 
+  /**
+   * Relates the focused Genes and standard-library views of browser elements.
+   *
+   * Why: contextual HXX callbacks are projected to Haxe's complete `js.html`
+   * externs, while reusable callback values can retain the stable
+   * `genes.react` facade from the intrinsic schema. React refs carry that
+   * element directly rather than nesting it inside a synthetic event, so the
+   * existing event-target comparison was never reached.
+   *
+   * What: when both sides are reviewed browser identities, they follow the
+   * same directional element-subtype relationship used by React events. When
+   * only one side is a browser identity, ordinary assignability must continue:
+   * a deliberately smaller structural callback parameter can safely consume
+   * an element or event target that provides every field it requires.
+   *
+   * How: the comparison reads Haxe compiler identities only. It does not use
+   * generated TypeScript names, structural unification, reflection, or a
+   * runtime conversion. `null` means this closed browser-to-browser rule does
+   * not apply and ordinary assignability should continue.
+   */
+  static function browserElementValueAssignability(actual: Type,
+      expected: Type): Null<Bool> {
+    final actualBrowser = browserElementIdentity(actual);
+    final expectedBrowser = browserElementIdentity(expected);
+    if (actualBrowser == null || expectedBrowser == null)
+      return null;
+    return browserElementAssignable(actualBrowser, expectedBrowser);
+  }
+
   /** Follows real class/interface relations for a non-browser event target. */
   static function classTargetAssignable(actualRef: Ref<ClassType>,
       actualParameters: Array<Type>, expectedRef: Ref<ClassType>,
@@ -1584,6 +1670,9 @@ class JsxTypeChecker {
           case ['genes.react.InputElement', 'InputElement'] |
             ['js.html.InputElement', 'HTMLInputElement']:
             InputElement;
+          case ['genes.react.SvgElement', 'SvgElement'] |
+            ['js.html.svg.Element', 'SVGElement']:
+            SvgElement;
           default: null;
         }
       default: null;
