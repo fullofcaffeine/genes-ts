@@ -248,6 +248,8 @@ class Negative {
 
   static function wrongAnchorEventTarget(event: MouseEvent<InputElement>): Void {}
 
+  static function wrongDialogEventTarget(event: SyntheticEvent<InputElement>): Void {}
+
   static function wrongFormActionParameter(value: Int): Void {}
 
   static function tooManyFormActionArguments(data: js.html.FormData,
@@ -285,6 +287,10 @@ class Negative {
     final value = <div href="/wrong" />;
     #elseif hxx_negative_intrinsic_prop_type
     final value = <button disabled="yes" />;
+    #elseif hxx_negative_dialog_open_type
+    final value = <dialog open="yes">Invalid dialog</dialog>;
+    #elseif hxx_negative_dialog_event_target
+    final value = <dialog onCancel={wrongDialogEventTarget}>Invalid target</dialog>;
     #elseif hxx_negative_svg_dash_type
     final value = <circle strokeDashoffset={false} />;
     #elseif hxx_negative_intrinsic_null

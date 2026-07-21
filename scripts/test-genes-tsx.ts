@@ -334,6 +334,8 @@ function assertHaxeHxxNegatives(): void {
     ["hxx_negative_unknown_custom_intrinsic", "GTS-HXX-TAG-001"],
     ["hxx_negative_intrinsic_prop", "GTS-HXX-PROP-001"],
     ["hxx_negative_intrinsic_prop_type", "GTS-HXX-PROP-002"],
+    ["hxx_negative_dialog_open_type", "GTS-HXX-PROP-002"],
+    ["hxx_negative_dialog_event_target", "GTS-HXX-PROP-002"],
     ["hxx_negative_svg_dash_type", "GTS-HXX-PROP-002"],
     ["hxx_negative_intrinsic_null", "GTS-HXX-PROP-002"],
     ["hxx_negative_handler", "GTS-HXX-PROP-002"],
@@ -774,6 +776,7 @@ try {
   ]);
   for (const packagedSource of [
     "src/genes/JsxTypeChecker.hx",
+    "src/genes/react/DialogElement.hx",
     "src/genes/react/IntrinsicElements.hx",
     "src/genes/react/ReactProps.hx",
     "src/genes/react/internal/JsxContext.hx"
@@ -1154,6 +1157,12 @@ ok(dualTsxCapturedChild.includes(
 "a child captured by a callback retains its declaration");
 strictEqual(dualTsxSource.includes("__hxxChild"), false,
   "the parser-only child marker never reaches TSX source");
+ok(dualTsxSource.includes(
+  "<dialog open closedby=\"any\" onCancel={function (event: import('react').SyntheticEvent<HTMLDialogElement>)"
+), "TSX preserves canonical dialog props and the exact event target");
+ok(dualTsxSource.includes(
+  "onClose={DualJsxMain.handleDialogClose}"
+), "TSX accepts a safely broader named dialog event handler");
 runGeneratedTypeScriptMatrix(
   "tests/genes-ts/snapshot/react/tsconfig.dual-tsx.json"
 );
@@ -1208,6 +1217,12 @@ ok(!dualTsSource.includes(
 ), "runtime string props do not claim one statically known intrinsic contract");
 strictEqual(dualTsSource.includes("__hxxChild"), false,
   "the parser-only child marker normalizes in typed createElement output");
+ok(dualTsSource.includes(
+  'createElement("dialog", ({open: true, closedby: "any", onCancel: function (event: import(\'react\').SyntheticEvent<HTMLDialogElement>)'
+), "typed createElement preserves checked dialog props and event typing");
+ok(dualTsSource.includes(
+  "onClose: DualJsxMain.handleDialogClose"
+), "typed createElement retains the broader named dialog event handler");
 runGeneratedTypeScriptMatrix(
   "tests/genes-ts/snapshot/react/tsconfig.dual-ts.json"
 );
@@ -1243,6 +1258,12 @@ ok(dualClassicSource.includes(
 ok(dualClassicSource.includes(
   'createElement("button", {"formAction": DualJsxMain.syncFormAction}, "Save")'
 ), "classic createElement preserves a button formAction without a helper");
+ok(dualClassicSource.includes(
+  'createElement("dialog", {"open": true, "closedby": "any", "onCancel": function (event)'
+), "classic createElement preserves the same checked dialog runtime props");
+ok(dualClassicSource.includes(
+  '"onClose": DualJsxMain.handleDialogClose'
+), "classic createElement retains the same named dialog event handler");
 strictEqual(dualClassicSource.includes("Jsx.__jsx"), false);
 strictEqual(dualClassicSource.includes("__hxxChild"), false);
 
@@ -1264,6 +1285,12 @@ ok(dualJsxSource.includes("let tree1 = function () {")
   && !dualJsxSource.includes(
     'let tree = "outer";\n\t\tlet tree = function () {'
   ), "type-erased JSX keeps nested-function name cleanup inside its own scope");
+ok(dualJsxSource.includes(
+  '<dialog open closedby="any" onCancel={function (event)'
+), "type-erased JSX preserves canonical dialog markup without type syntax");
+ok(dualJsxSource.includes(
+  "onClose={DualJsxMain.handleDialogClose}"
+), "type-erased JSX retains the same named dialog event handler");
 strictEqual(dualJsxSource.includes("Jsx.__jsx"), false);
 strictEqual(dualJsxSource.includes("__hxxChild"), false);
 strictEqual(dualJsxSource.includes(": JSX.Element"), false);
@@ -1289,6 +1316,7 @@ const expectedTranscript = {
   arrayValueChildHtml: '<section><em>array A</em><strong>array B</strong></section>',
   multipleRequiredChildrenHtml: '<section><em>nested A</em><strong>nested B</strong></section>',
   dashedSvgHtml: '<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" stroke-dasharray="8 4" stroke-dashoffset="2.5"></circle></svg>',
+  dialogHtml: '<dialog open="" closedby="any">Dialog content</dialog>',
   dynamicHtml: '<aside data-mode="dynamic">D</aside>',
   evaluatedHtml: '<div title="evaluated-once">E</div>',
   arrayPropHtml: '<div data-array="evaluated-once">P</div>',

@@ -54,6 +54,26 @@ const cases: ReadonlyArray<DiagnosticRangeCase> = [
     rangeMarker: "123"
   },
   {
+    name: "dialog open value",
+    define: "hxx_negative_dialog_open_type",
+    diagnostic: "GTS-HXX-PROP-002",
+    sourceFile: "tests/genes-ts/snapshot/react/negative/Negative.hx",
+    lineMarker: 'final value = <dialog open="yes">Invalid dialog</dialog>;',
+    // Literal properties are reported as one authored attribute because the
+    // attribute name selects the expected schema type and the value violates
+    // it. Expression properties below point at the expression itself.
+    rangeMarker: 'open="yes"'
+  },
+  {
+    name: "dialog event handler",
+    define: "hxx_negative_dialog_event_target",
+    diagnostic: "GTS-HXX-PROP-002",
+    sourceFile: "tests/genes-ts/snapshot/react/negative/Negative.hx",
+    lineMarker:
+      "final value = <dialog onCancel={wrongDialogEventTarget}>Invalid target</dialog>;",
+    rangeMarker: "wrongDialogEventTarget"
+  },
+  {
     name: "spread expression",
     define: "hxx_negative_spread_wrong",
     diagnostic: "GTS-HXX-SPREAD-002",
