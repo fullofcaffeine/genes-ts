@@ -4,7 +4,6 @@ import haxe.macro.Expr;
 import haxe.macro.Context;
 import haxe.macro.Type;
 import haxe.ds.Option;
-import helder.Set;
 import genes.TypeAccessor;
 import genes.CompilerDiagnostic;
 import genes.CompilerInternal;
@@ -27,99 +26,13 @@ import genes.JsxPlan.JsxValueAccess;
 import genes.JsxPlan.JsxValueSource;
 import genes.TemplateLiteralPlan;
 import genes.TemplateLiteralPlan.TemplateLiteralIntent;
+import genes.IdentifierPolicy;
 import genes.util.TypeUtil.*;
 import genes.util.IteratorUtil.*;
 
 using haxe.macro.TypedExprTools;
 
 class ExprEmitter extends Emitter {
-  static final keywords = new Set([
-    'abstract',
-    'boolean',
-    'break',
-    'byte',
-    'case',
-    'catch',
-    'char',
-    'class',
-    'const',
-    'continue',
-    'debugger',
-    'default',
-    'delete',
-    'do',
-    'double',
-    'else',
-    'enum',
-    'export',
-    'extends',
-    'false',
-    'final',
-    'finally',
-    'float',
-    'for',
-    'function',
-    'goto',
-    'if',
-    'implements',
-    'import',
-    'in',
-    'instanceof',
-    'int',
-    'interface',
-    'long',
-    'native',
-    'new',
-    'null',
-    'package',
-    'private',
-    'protected',
-    'public',
-    'return',
-    'short',
-    'static',
-    'super',
-    'switch',
-    'synchronized',
-    'this',
-    'throw',
-    'throws',
-    'transient',
-    'true',
-    'try',
-    'typeof',
-    'var',
-    'void',
-    'volatile',
-    'while',
-    'with',
-    'arguments',
-    'eval',
-    'let',
-    'yield'
-  ]);
-  static final keywordsLocal = new Set([
-    "Infinity",
-    "NaN",
-    "decodeURI",
-    "decodeURIComponent",
-    "encodeURI",
-    "encodeURIComponent",
-    "escape",
-    "eval",
-    "isFinite",
-    "isNaN",
-    "parseFloat",
-    "parseInt",
-    "undefined",
-    "unescape",
-    "JSON",
-    "Number",
-    "Object",
-    "console",
-    "window",
-    "require"
-  ]);
 
   var indent: Int = 0;
   var valueIifeDepth: Int = 0;
@@ -208,8 +121,8 @@ class ExprEmitter extends Emitter {
    */
   public function configureLowering(module: Module, profile: NamePlanProfile,
       jsxEmitTsx = false): Void {
-    tempPlan = TempPlan.build(module);
-    namePlan = NamePlan.build(module, tempPlan, profile, jsxEmitTsx);
+    tempPlan = module.tempPlan;
+    namePlan = module.namePlan(profile, jsxEmitTsx);
   }
 
   /**
@@ -1528,7 +1441,7 @@ class ExprEmitter extends Emitter {
   }
 
   function transformIdent(name: String) {
-    return if (keywords.exists(name)) "$" + name; else name;
+    return if (IdentifierPolicy.isKeyword(name)) "$" + name; else name;
   }
 
   function emitIdent(name: String) {
@@ -1572,7 +1485,7 @@ class ExprEmitter extends Emitter {
   function emitField(name: String) {
     if (isComputedMemberName(name))
       write(name)
-    else if (keywords.exists(name))
+    else if (IdentifierPolicy.isKeyword(name))
       write('["${name}"]')
     else
       write('.${name}');
@@ -1581,7 +1494,7 @@ class ExprEmitter extends Emitter {
   public function emitMemberName(name: String) {
     if (isComputedMemberName(name))
       write(name);
-    else if (keywords.exists(name))
+    else if (IdentifierPolicy.isKeyword(name))
       write('["${name}"]');
     else
       write(name);
@@ -1786,7 +1699,6 @@ class ExprEmitter extends Emitter {
   }
 
   function getLocalIdent(name: String) {
-    return keywords.exists(name)
-      || keywordsLocal.exists(name) ? '$$$name' : name;
+    return IdentifierPolicy.isUnavailableLocal(name) ? '$$$name' : name;
   }
 }
