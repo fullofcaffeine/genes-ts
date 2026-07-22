@@ -446,6 +446,10 @@ class Generator {
 
   static function generateImplementation(api: JSGenApi, module: Module,
       outputDir: String, outputTransaction: OutputTransaction) {
+    // Validate exact module bindings before this module opens even a staged
+    // writer. OutputTransaction still protects earlier staged modules if a
+    // later module fails, while the diagnostic points at the source metadata.
+    module.moduleFunctionPlan;
     final path = Path.join([outputDir, module.path]) + Genes.outExtension;
     final ctx = module.createContext(api);
     final moduleEmitter = switch haxe.macro.Context.defined('genes.ts') {

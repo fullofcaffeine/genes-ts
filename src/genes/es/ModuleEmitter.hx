@@ -12,12 +12,16 @@ import genes.JsxPlan.JsxCapabilityPolicy;
 import genes.NamePlan.NamePlanProfile;
 import genes.DependencyPlan.DependencyModuleRequest;
 import genes.TypeAccessor;
+import genes.EmittedMemberName;
+import genes.ModuleFunctionPlan;
+import genes.ModuleFunctionPlan.ModuleFunctionEntry;
 
 using genes.util.TypeUtil;
 using Lambda;
 
 class ModuleEmitter extends ExprEmitter {
   var emitMemberSourcePositions = true;
+  var moduleFunctionPlan: Null<ModuleFunctionPlan> = null;
 
   /**
    * Suppresses provenance only while printing an invented compiler member.
@@ -36,6 +40,7 @@ class ModuleEmitter extends ExprEmitter {
 
   public function emitModule(module: Module, ?extension: String) {
     final projection = module.runtimeProjection;
+    moduleFunctionPlan = module.moduleFunctionPlan;
     final dependencies = projection.bindings;
     final endTimer = timer('emitModule');
     configureLowering(module, ClassicStable,
@@ -80,6 +85,7 @@ class ModuleEmitter extends ExprEmitter {
           emitInterface(cl, memberProjection.exportImplementation);
         case MClass(cl, _, fields):
           final emittableFields = Module.emittableFields(fields);
+          emitClassicModuleFunctions(cl);
           final endClassTimer = timer('emitClass');
           emitClass(module.isCyclic, cl, emittableFields,
             memberProjection.exportImplementation,
@@ -301,15 +307,7 @@ class ModuleEmitter extends ExprEmitter {
   }
 
   function staticName(cl: ClassType, field: Field)
-    return switch TypeUtil.nativeName(field.meta) {
-      case null:
-        switch [cl.isExtern, field.name] {
-      case [false, name = 'name' | 'length']: '$' + name;
-      default: field.name;
-    }
-      case native:
-        native;
-    }
+    return EmittedMemberName.staticField(cl, field);
 
   function memberName(field: Field): String {
     final native = TypeUtil.nativeName(field.meta);
@@ -376,6 +374,9 @@ class ModuleEmitter extends ExprEmitter {
 
   function emitClass(checkCycles: (module: String) -> Bool, cl: ClassType,
       fields: Array<Field>, export = true, registerRuntimeType = true) {
+    final selected = moduleFunctionPlan == null
+      ? []
+      : moduleFunctionPlan.entriesFor(cl);
     writeNewline();
     emitComment(cl.doc);
     emitPos(cl.pos);
@@ -387,7 +388,7 @@ class ModuleEmitter extends ExprEmitter {
       write('const ');
       write(TypeUtil.className(cl));
       write(' = ');
-      if (registerRuntimeType) {
+      if (registerRuntimeType && selected.length == 0) {
         writeGlobalVar("$hxClasses");
         write('[');
         emitString(id);
@@ -433,6 +434,22 @@ class ModuleEmitter extends ExprEmitter {
           switch field.expr {
             case null:
             case {expr: TFunction(f)}:
+              final selectedEntry = moduleFunctionPlan == null
+                ? null
+                : moduleFunctionPlan.entryFor(cl, field);
+              if (selectedEntry != null) {
+                writeMemberNewline(false);
+                write('static ');
+                write(selectedEntry.classPropertyName);
+                write('() {');
+                increaseIndent();
+                writeNewline();
+                write('throw this');
+                decreaseIndent();
+                writeNewline();
+                write('}');
+                continue;
+              }
               writeMemberNewline(field.doc != null);
               emitComment(field.doc);
               emitPos(field.pos);
@@ -548,6 +565,24 @@ class ModuleEmitter extends ExprEmitter {
     writeNewline();
     write('}');
 
+    for (entry in selected) {
+      writeNewline();
+      emitIdent(TypeUtil.className(cl));
+      emitField(entry.classPropertyName);
+      write(' = ');
+      write(entry.requestedName);
+    }
+
+    if (selected.length > 0 && registerRuntimeType
+      && id != 'genes.Register') {
+      writeNewline();
+      writeGlobalVar("$hxClasses");
+      write('[');
+      emitString(id);
+      write('] = ');
+      emitIdent(TypeUtil.className(cl));
+    }
+
     for (field in fields)
       switch field.kind {
         case Property:
@@ -564,6 +599,33 @@ class ModuleEmitter extends ExprEmitter {
 
     if (export)
       writeNewline();
+  }
+
+  /** Emits selected bodies once as analyzer-visible module declarations. */
+  function emitClassicModuleFunctions(cl:ClassType):Void {
+    if (moduleFunctionPlan == null)
+      return;
+    for (entry in moduleFunctionPlan.entriesFor(cl)) {
+      switch entry.field.expr {
+        case {expr: TFunction(functionBody)}:
+          writeNewline();
+          emitComment(entry.field.doc);
+          emitPos(entry.field.pos);
+          final isAsync = entry.field.meta != null
+            && (entry.field.meta.has(':jsAsync')
+              || entry.field.meta.has('jsAsync'));
+          if (isAsync)
+            write('async ');
+          write('function ');
+          write(entry.requestedName);
+          write('(');
+          emitFunctionArguments(functionBody);
+          write(') ');
+          emitFunctionBody(functionBody);
+        default:
+          // ModuleFunctionPlan rejects missing/non-function bodies.
+      }
+    }
   }
 
   function emitEnum(et: EnumType, export = true,

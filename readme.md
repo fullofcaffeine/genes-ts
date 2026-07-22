@@ -30,6 +30,7 @@ boundary and planned shared architecture.
 - `docs/typescript-target/IMPORTS.md` — handwritten and dts2hx-generated npm interop
 - `docs/TROUBLESHOOTING.md` — common failure modes + fixes
 - `docs/OUTPUT_MODES.md` — TS output vs classic Genes JS output
+- `docs/MODULE_FUNCTIONS.md` — analyzer-visible module functions without a delegating wrapper
 - `docs/ARCHITECTURE_ROADMAP.md` — readiness boundary and shared TS/JS architecture roadmap
 - `docs/TOOLCHAINS.md` — blocking and preview Haxe/Node/TypeScript lanes
 - `docs/ts2hx/USAGE.md` — ts2hx workflows (TS/JS → Haxe) + roundtrip harness
@@ -49,6 +50,10 @@ boundary and planned shared architecture.
 - **JS/TS interop helpers** via `genes.ts.Imports` (consume existing TS/TSX easily)
 - **Generic ESM directive prologues** via literal-only
   `@:genes.moduleDirective(...)`, shared by TypeScript and classic output
+- **Analyzer-visible module functions** via validated
+  `@:genes.moduleFunction("exactName")`, preserving the Haxe static-method API,
+  runtime property descriptor, initialization order, and declarations without
+  a delegating wrapper
 - **npm declaration ingestion** via a pinned, deterministic dts2hx bridge whose
   externs are exercised through both TS and classic JS output
 - **Async/await sugar** (`@:async` + `await(...)`) emitting native `async`/`await`
