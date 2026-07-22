@@ -24,6 +24,7 @@ enum FieldKind {
 
 typedef Field = {
   final kind: FieldKind;
+  final methodKind: Null<MethodKind>;
   final meta: Null<MetaAccess>;
   final name: String;
   final type: Type;
@@ -101,9 +102,12 @@ class Module {
   public var codeDependencies(get, null): Dependencies;
   public var runtimeProjection(get, null): DependencyProjection;
   public var implementationProjection(get, null): DependencyProjection;
+  public var tempPlan(get, null): TempPlan;
+  public var moduleFunctionPlan(get, null): ModuleFunctionPlan;
 
   final context: ModuleContext;
   final cycleCache = new Map<String, Bool>();
+  final namePlans = new Map<String, NamePlan>();
 
   public function new(context: ModuleContext, module, types: Array<Type>,
       ?main: TypedExpr, ?expose: Array<ModuleExport>) {
@@ -150,6 +154,30 @@ class Module {
     if (tsNarrowingPlan == null)
       tsNarrowingPlan = genes.ts.TsNarrowingPlan.build(this);
     return tsNarrowingPlan;
+  }
+
+  /** Returns the shared target-neutral temporary plan for this module. */
+  function get_tempPlan():TempPlan {
+    if (tempPlan == null)
+      tempPlan = TempPlan.build(this);
+    return tempPlan;
+  }
+
+  /** Returns one cached naming projection used by planning and printing. */
+  public function namePlan(profile:NamePlan.NamePlanProfile,
+      jsxEmitTsx = false):NamePlan {
+    final key = Std.string(profile) + ':' + (jsxEmitTsx ? 'tsx' : 'plain');
+    if (!namePlans.exists(key))
+      namePlans.set(key, NamePlan.build(this, tempPlan, profile,
+        jsxEmitTsx));
+    return namePlans.get(key);
+  }
+
+  /** Validates and returns the opt-in module-function lowering plan. */
+  function get_moduleFunctionPlan():ModuleFunctionPlan {
+    if (moduleFunctionPlan == null)
+      moduleFunctionPlan = ModuleFunctionPlan.build(this);
+    return moduleFunctionPlan;
   }
 
   /**
@@ -221,6 +249,9 @@ class Module {
       codeDependencies = null;
       runtimeProjection = null;
       implementationProjection = null;
+      tempPlan = null;
+      moduleFunctionPlan = null;
+      namePlans.clear();
       cycleCache.clear();
     }
     return changed;
@@ -422,6 +453,7 @@ class Module {
       if (member.isConstructor) {
         return {
           kind: Constructor,
+          methodKind: null,
           type: member.type,
           meta: member.meta,
           expr: member.expr,
@@ -451,6 +483,10 @@ class Module {
           case FVar(_, _): Property;
           case FMethod(_): Method;
         },
+        methodKind: switch member.kind {
+          case FMethod(kind): kind;
+          case FVar(_, _): null;
+        },
         meta: member.meta,
         name: member.name,
         type: member.type,
@@ -479,6 +515,10 @@ class Module {
         ? cl.params.map(parameter -> parameter.t)
         : surfaceParams;
       final constructor = publicSurface.constructorFor(concreteTypes);
+      function emittedPublicName(name:String, meta:Null<MetaAccess>):String {
+        final nativeName = TypeUtil.nativeName(meta);
+        return nativeName == null ? name : nativeName;
+      }
       function isRetained(member: PublicMember): Bool {
         return switch retainedFields {
           case null:
@@ -487,7 +527,9 @@ class Module {
             Lambda.exists(fieldsToMatch, field -> field.isStatic == member.isStatic
               && (member.isConstructor
                 ? field.kind.match(Constructor)
-                : field.name == member.name));
+                : field.name == member.name
+                  || emittedPublicName(field.name, field.meta)
+                    == emittedPublicName(member.name, member.meta)));
         };
       }
       if (constructor != null && isRetained(constructor))
@@ -510,6 +552,7 @@ class Module {
         final e = ctor.get().expr();
         fields.push({
           kind: Constructor,
+          methodKind: null,
           type: e.t,
           meta: null,
           expr: e,
@@ -540,6 +583,10 @@ class Module {
         kind: switch field.kind {
           case FVar(_, _): Property;
           case FMethod(_): Method;
+        },
+        methodKind: switch field.kind {
+          case FMethod(kind): kind;
+          case FVar(_, _): null;
         },
         meta: field.meta,
         name: field.name,
@@ -573,6 +620,10 @@ class Module {
         kind: switch field.kind {
           case FVar(_, _): Property;
           case FMethod(_): Method;
+        },
+        methodKind: switch field.kind {
+          case FMethod(kind): kind;
+          case FVar(_, _): null;
         },
         meta: field.meta,
         name: field.name,

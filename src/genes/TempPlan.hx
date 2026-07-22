@@ -134,6 +134,7 @@ class TempPlan {
   final localTemps: Map<Int, PlannedTemp>;
   final loweredFors: ObjectMap<TypedExpr, LoweredForStatement>;
   final loweredValues: ObjectMap<TypedExpr, LoweredValueExpression>;
+  final moduleBindings: Array<String>;
 
   public static function build(module: Module): TempPlan {
     return new TempPlanBuilder().build(module);
@@ -141,15 +142,22 @@ class TempPlan {
 
   public function new(localTemps: Map<Int, PlannedTemp>,
       loweredFors: ObjectMap<TypedExpr, LoweredForStatement>,
-      loweredValues: ObjectMap<TypedExpr, LoweredValueExpression>) {
+      loweredValues: ObjectMap<TypedExpr, LoweredValueExpression>,
+      moduleBindings:Array<String>) {
     this.localTemps = localTemps;
     this.loweredFors = loweredFors;
     this.loweredValues = loweredValues;
+    this.moduleBindings = moduleBindings.copy();
   }
 
   /** Returns the Haxe-generated classification for a local, if any. */
   public function tempForLocal(local: TVar): Null<PlannedTemp> {
     return localTemps.get(local.id);
+  }
+
+  /** Returns compiler-created temporaries emitted in module scope. */
+  public function moduleBindingNames():Array<String> {
+    return moduleBindings.copy();
   }
 
   /**
@@ -195,6 +203,7 @@ private class TempPlanBuilder {
   final localTemps: Map<Int, PlannedTemp> = [];
   final loweredFors = new ObjectMap<TypedExpr, LoweredForStatement>();
   final loweredValues = new ObjectMap<TypedExpr, LoweredValueExpression>();
+  final moduleBindings:Array<String> = [];
   var iteratorCounter = 0;
 
   public function new() {}
@@ -205,19 +214,20 @@ private class TempPlanBuilder {
         case MClass(cl, _, fields):
           for (field in fields)
             if (field.expr != null)
-              visit(field.expr);
+              visit(field.expr, true);
           if (cl.init != null)
-            visit(cl.init);
+            visit(cl.init, true);
         case MMain(expression):
-          visit(expression);
+          visit(expression, true);
         case MEnum(_, _) | MType(_, _):
       }
     }
-    return new TempPlan(localTemps, loweredFors, loweredValues);
+    return new TempPlan(localTemps, loweredFors, loweredValues,
+      moduleBindings);
   }
 
   /** Visits each typed node once and records facts before visiting its children. */
-  function visit(expression: TypedExpr): Void {
+  function visit(expression: TypedExpr, moduleContext:Bool): Void {
     if (requiresValueResult(expression)) {
       final result = new PlannedTemp("$r0", ValueResult, null, null,
         expression.pos, TempPlan.VALUE_RESULT_RULE);
@@ -228,13 +238,13 @@ private class TempPlanBuilder {
       case TVar(local, initializer):
         classifyLocal(local, expression.pos);
         if (initializer != null)
-          visit(initializer);
+          visit(initializer, moduleContext);
       case TFunction(func):
         for (argument in func.args)
           classifyLocal(argument.v, expression.pos);
-        visit(func.expr);
+        visit(func.expr, false);
       case TFor(variable, iteratorExpression, body):
-        visit(iteratorExpression);
+        visit(iteratorExpression, moduleContext);
         classifyLocal(variable, expression.pos);
         final iterator = switch iteratorExpression.expr {
           case TLocal(local):
@@ -245,20 +255,22 @@ private class TempPlanBuilder {
             final temp = new PlannedTemp(tempName,
               ForIterator, null, iteratorExpression, iteratorExpression.pos,
               TempPlan.FOR_ITERATOR_RULE);
+            if (moduleContext && moduleBindings.indexOf(tempName) == -1)
+              moduleBindings.push(tempName);
             TemporaryIterator(temp);
         };
         loweredFors.set(expression,
           new LoweredForStatement(variable, iteratorExpression, iterator, body,
             expression.pos));
-        visit(body);
+        visit(body, moduleContext);
       case TTry(body, catches):
-        visit(body);
+        visit(body, moduleContext);
         for (entry in catches) {
           classifyLocal(entry.v, entry.expr.pos);
-          visit(entry.expr);
+          visit(entry.expr, moduleContext);
         }
       default:
-        expression.iter(visit);
+        expression.iter(child -> visit(child, moduleContext));
     }
   }
 

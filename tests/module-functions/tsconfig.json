@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "declaration": true,
+    "jsx": "preserve",
+    "lib": ["ES2022", "DOM"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmitOnError": true,
+    "outDir": "out/ts/dist",
+    "rootDir": ".",
+    "skipLibCheck": false,
+    "strict": true,
+    "target": "ES2022",
+    "types": []
+  },
+  "include": [
+    "consumer.ts",
+    "out/ts/src-gen/**/*.ts",
+    "out/tsx/src-gen/**/*.tsx"
+  ]
+}
