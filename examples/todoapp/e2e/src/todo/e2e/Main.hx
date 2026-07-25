@@ -76,8 +76,11 @@ class Main {
       if (url.indexOf("/todos/") == -1)
         throw 'Expected /todos/:id URL, got ' + url;
 
-      // Detail page has exactly one <input>; reuse it to update the title.
-      await(page.locator("input").fill("Buy oat milk"));
+      // A committed URL can become visible before React Router finishes
+      // replacing the previous page. Waiting for the labeled detail-page
+      // textbox proves that navigation has rendered the control we intend to
+      // edit, and avoids accidentally matching the list page's checkbox.
+      await(page.getByRole("textbox", {name: "Title"}).fill("Buy oat milk"));
       await(page.getByRole("button", {name: "Save"}).click());
       await(page.waitForURL(baseUrl + "/", {waitUntil: "commit"}));
 

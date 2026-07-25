@@ -3,6 +3,11 @@
 # Keep exceptions narrow and time-bounded. Prefer upgrading dependencies over
 # ignoring vulnerabilities.
 
+[[IgnoredVulns]]
+id = "GHSA-qwww-vcr4-c8h2"
+ignoreUntil = 2026-09-30
+reason = "This advisory affects only React Router's unstable RSC APIs. The repository's Todo example uses Declarative Mode through BrowserRouter, Routes, Route, Link, useNavigate, and useParams; it does not import or enable the unstable RSC surface. React Router 7.18.1 is the newest react-router-dom release and fixes the other reported Router advisories. Revisit this exception while migrating the example to Router 8, which removes react-router-dom and raises the React/Node baselines."
+
 [[PackageOverrides]]
 name = "lix"
 ecosystem = "npm"
