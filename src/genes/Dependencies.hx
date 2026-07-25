@@ -216,6 +216,21 @@ class Dependencies {
   }
 
   /**
+   * Returns the final local names allocated for this import projection.
+   *
+   * An exact module-function name must not silently force an import alias (or
+   * be shadowed by one). Allocation therefore finishes first, and the semantic
+   * module-binding validator compares against this immutable snapshot before a
+   * printer writes source.
+   */
+  public function localBindingNames():Array<String> {
+    return [
+      for (dependency in allocated)
+        dependency.alias == null ? dependency.name : dependency.alias
+    ];
+  }
+
+  /**
    * Groups bindings that can legally share one ESM import declaration.
    *
    * Why: an import attribute belongs to the whole declaration, not to one

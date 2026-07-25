@@ -30,6 +30,7 @@ import genes.JsxPlan.JsxTagIntent;
 import genes.JsxPlan.JsxValueSource;
 import genes.TemplateLiteralPlan.TemplateLiteralIntent;
 import genes.JsonTypeSupport;
+import genes.ModuleFunctionPlan.ModuleFunctionEntry;
 import haxe.ds.Option;
 import haxe.macro.Expr;
 import haxe.macro.Type;
@@ -210,6 +211,7 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   public function emitTsModule(module: Module, importExtension: Null<String>) {
     final endTimer = timer('emitTsModule');
+    moduleFunctionPlan = module.moduleFunctionPlan;
     jsxEmitTsx = genes.Genes.outExtension == '.tsx';
     configureLowering(module, TypeScriptReadable, jsxEmitTsx);
     configureTemplateLiterals(module.templateLiteralPlan);
@@ -293,6 +295,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           emitTsInterface(cl, params, memberProjection.exportImplementation);
         case MClass(cl, _, fields):
           final emittableFields = Module.emittableFields(fields);
+          emitTsModuleFunctions(cl);
           final endClassTimer = timer('emitClass');
           emitTsClass(module.isCyclic, cl, emittableFields,
             memberProjection.exportImplementation,
@@ -1225,6 +1228,13 @@ class TsModuleEmitter extends JsModuleEmitter {
 
     // Emit methods/ctors with typed args/returns.
     for (field in fields) {
+      final moduleFunction = moduleFunctionPlan == null
+        ? null
+        : moduleFunctionPlan.entryFor(cl, field);
+      if (moduleFunction != null) {
+        emitTsModuleFunctionDescriptorSeed(cl, moduleFunction);
+        continue;
+      }
       if (!shouldEmitClassMethod(cl, field))
         continue;
       switch field.kind {
@@ -1412,6 +1422,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     writeNewline();
     write('}');
 
+    emitTsModuleFunctionBindings(cl);
     emitPrivateMethodHelpers(cl, fields);
 
     // Register class in $hxClasses registry (Genes runtime compatibility).
@@ -1491,6 +1502,125 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
 
     currentClass = prevClass;
+  }
+
+  /** Emits selected method bodies once as genuine typed module functions. */
+  function emitTsModuleFunctions(cl:ClassType):Void {
+    if (moduleFunctionPlan == null)
+      return;
+    final previousClass = currentClass;
+    currentClass = cl;
+    for (entry in moduleFunctionPlan.entriesFor(cl)) {
+      switch entry.field.expr {
+        case {expr: TFunction(functionBody)}:
+          writeNewline();
+          emitPos(entry.field.pos);
+          final isAsync = entry.field.meta != null
+            && (entry.field.meta.has(':jsAsync')
+              || entry.field.meta.has('jsAsync'));
+          if (isAsync)
+            write('async ');
+          write('function ');
+          write(entry.requestedName);
+          emitMethodTypeParams(entry.field);
+          write('(');
+          emitTypedFunctionArguments(functionBody, entry.field);
+          write('): ');
+          emitReturnTsType(entry.field, functionBody, null);
+          write(' ');
+          emitSelectedModuleFunctionBody(entry.field, functionBody);
+        default:
+          // ModuleFunctionPlan rejects missing/non-function bodies.
+      }
+    }
+    currentClass = previousClass;
+  }
+
+  /**
+   * Prints the moved body under the same return/nullability context as a method.
+   *
+   * The function keeps its original typed AST. In particular, recursive calls
+   * remain `Owner.field(...)`, so later reassignment has the same observable
+   * effect as it did before lowering.
+   */
+  function emitSelectedModuleFunctionBody(field:GenesField,
+      functionBody:TFunc):Void {
+    final body = getFunctionBody(functionBody);
+    final returnOverride = field.meta != null ? (switch extractStringMeta(
+      field.meta, ':ts.returnType') {
+      case null: extractStringMeta(field.meta, ':genes.returnType');
+      case value: value;
+    }) : null;
+    final previousReturn = currentReturnType;
+    final previousVoidLike = currentReturnIsVoidLike;
+    currentReturnType = switch field.type {
+      case TFun(_, result): result;
+      default: null;
+    };
+    currentReturnIsVoidLike = switch returnOverride {
+      case 'void' | 'Promise<void>': true;
+      default: currentReturnType != null && isVoidLike(currentReturnType);
+    };
+    emitExpr(body);
+    currentReturnType = previousReturn;
+    currentReturnIsVoidLike = previousVoidLike;
+  }
+
+  /**
+   * Keeps the original non-enumerable method slot without retaining its body.
+   *
+   * TypeScript exposes the real public signature as an overload. The following
+   * zero-argument `never` implementation creates the ordinary class-method
+   * descriptor in the original key position; it cannot be observed because
+   * the class property is replaced immediately after class evaluation.
+   */
+  function emitTsModuleFunctionDescriptorSeed(cl:ClassType,
+      entry:ModuleFunctionEntry):Void {
+    final field = entry.field;
+    switch field.expr {
+      case {expr: TFunction(functionBody)}:
+        writeMemberNewline(field.doc != null);
+        emitComment(field.doc);
+        emitPos(field.pos);
+        write('static ');
+        emitMemberName(entry.classPropertyName);
+        emitMethodTypeParams(field);
+        write('(');
+        // This declaration preserves the public method type but has no body.
+        // The real module function above owns default-value evaluation.
+        // TypeScript therefore needs only parameter names and types here:
+        // writing `= null` in an overload signature is a compile error.
+        emitTypedFunctionArguments(functionBody, field, false);
+        write('): ');
+        emitReturnTsType(field, functionBody, null);
+        write(';');
+        writeNewline();
+        write('static ');
+        emitMemberName(entry.classPropertyName);
+        write('(): never {');
+        increaseIndent();
+        writeNewline();
+        write('throw this;');
+        decreaseIndent();
+        writeNewline();
+        write('}');
+      default:
+        // ModuleFunctionPlan rejects missing/non-function bodies.
+    }
+  }
+
+  /** Installs the exact module function before helpers, registration, or init. */
+  function emitTsModuleFunctionBindings(cl:ClassType):Void {
+    if (moduleFunctionPlan == null)
+      return;
+    for (entry in moduleFunctionPlan.entriesFor(cl)) {
+      writeNewline();
+      emitIdent(TypeUtil.className(cl));
+      emitField(entry.classPropertyName);
+      write(' = ');
+      write(entry.requestedName);
+      write(';');
+    }
   }
 
   function emitPrivateMethodHelpers(cl: ClassType, fields: Array<GenesField>) {
@@ -3576,10 +3706,7 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   static function privateMethodHelperName(cl: ClassType,
       fieldName: String): String {
-    return '__'
-      + TypeUtil.className(cl).split('$').join('_')
-      + '_'
-      + fieldName.split('$').join('_');
+    return genes.ModuleFunctionPlan.privateHelperName(cl, fieldName);
   }
 
   static function shouldEmitClassMethod(cl: ClassType,
@@ -3661,12 +3788,13 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
   }
 
-  function emitTypedFunctionArguments(f: TFunc, field: GenesField) {
-    emitTypedFunctionArgumentsWithType(f, field, null);
+  function emitTypedFunctionArguments(f: TFunc, field: GenesField,
+      emitNullDefaults = true) {
+    emitTypedFunctionArgumentsWithType(f, field, null, emitNullDefaults);
   }
 
   function emitTypedFunctionArgumentsWithType(f: TFunc, field: GenesField,
-      declaredType: Null<Type>) {
+      declaredType: Null<Type>, emitNullDefaults = true) {
     final effectiveType = declaredType != null ? declaredType : field.type;
     final cachedSig = (currentClass != null) ? SignatureCache.getSig(currentClass,
       field.isStatic, field.name) : null;
@@ -3705,7 +3833,8 @@ class TsModuleEmitter extends JsModuleEmitter {
           final usesNullDefault = optional
             && (cachedArgs != null ? (cachedArgs[i].allowsNull
               && !cachedArgs[i].preservesUndefined) : nullish.usesNullDefault);
-          if (nullish.emitOptionalSyntax && !usesNullDefault)
+          if (nullish.emitOptionalSyntax
+            && (!usesNullDefault || !emitNullDefaults))
             write('?');
           write(': ');
           final cachedType = cachedArgs != null ? cachedArgs[i].tsType : null;
@@ -3714,7 +3843,7 @@ class TsModuleEmitter extends JsModuleEmitter {
             cachedSourceType != null);
           rememberEmittedLocalType(f.args[i].v, nullish.emittedType,
             emittedArgType);
-          if (usesNullDefault)
+          if (usesNullDefault && emitNullDefaults)
             write(' = null');
         }
       default:
