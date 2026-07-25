@@ -35,9 +35,28 @@ version):
 
 ### Exceptions / ignores
 
-OSV configuration lives in `.osv-scanner.toml`. Exceptions must be:
+OSV configuration lives in `.osv-scanner.toml`. Upgrade the affected package
+whenever a fixed release is compatible with the repository. An exception is
+appropriate only when the reported vulnerable feature is provably outside the
+repository's dependency usage and no compatible fixed release is available.
 
-- narrow (package-specific),
-- justified (include a reason),
-- time-bounded (`effectiveUntil`), and
-- reviewed regularly.
+Prefer an `[[IgnoredVulns]]` entry for one advisory ID. This keeps OSV checking
+the same package for every other current or future advisory. Use
+`ignoreUntil = YYYY-MM-DD`, include the exact unused feature or unreachable
+code path in `reason`, and create a Bead that owns removal before that date.
+
+A `[[PackageOverrides]]` entry is broader because it can suppress every
+vulnerability reported for a matching package. Use it only when the package as
+a whole is outside the repository's executable or publication boundary. Such
+an entry uses `effectiveUntil = YYYY-MM-DD` and must explain that boundary.
+
+After adding or renewing either kind of exception, run:
+
+```bash
+yarn test:vulns
+yarn test:ci
+```
+
+The scan output must name the filtered advisory and repeat the reason. This
+makes a passing result reviewable: it shows which risk was excluded instead of
+silently treating the entire dependency as safe.
