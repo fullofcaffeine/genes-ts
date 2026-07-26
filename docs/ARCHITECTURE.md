@@ -87,6 +87,7 @@ depend on formatting.
 | Null, undefined, and optionality | `src/genes/NullishContract.hx` | Keeps Haxe `Null<T>`, native `undefined`, optional fields, absent parameters, and unknown boundaries distinct. |
 | Dependency graphs and module-request order | `src/genes/DependencyPlan.hx`, `DependencyPlanBuilder.hx` | Records runtime-value, runtime-side-effect, type-only, and declaration-only edges with provenance; projects runtime requests by external/path/attribute identity into one ordered plan. |
 | Import bindings and aliases | `src/genes/BindingIdentity.hx`, `Dependencies.hx` | Keeps the requested module, selected export, requested local, and typed Haxe origin as separate facts; then allocates collision-safe locals. A binding-free request never invents a dependency name. `@:native` alone may identify a host global, while a declaration that also has `@:jsRequire` always resolves through its package binding and any normalized member path. |
+| Dynamic-import runtime requests | `src/genes/Genes.hx`, `src/genes/internal/DynamicImportMarker.hx`, `ExprEmitter.hx` | Carries an extension-free typed request from the macro to the shared emitter, which applies the current build's runtime suffix. Cached typing never owns `.ts`/`.tsx`/`.mjs` policy. |
 | JSX intent, carrier ownership, provenance, and capability | `src/genes/JsxPlan.hx` | Represents markup before choosing TSX, `createElement`, classic lowering, or an unsupported diagnostic. A local linked-record carrier may preserve one-time evaluation, but no other read, write, or escape may change the compiler-owned structure after it is recognized. HXX marks direct nested elements/fragments with a distinct typed call; exact declaration/use facts may remove only that parser-owned scaffolding in source-preserving `.tsx`/`.jsx`, while positions remain mapping facts rather than ownership. |
 | Names and required temporaries | `src/genes/NamePlan.hx`, `TempPlan.hx` | Preserves scopes and evaluation order while creating only necessary generated names. |
 | Reusable-library retention | `src/genes/LibraryProfile.hx` | Opts public package APIs into matched TS/classic/declaration surfaces without making every build library-shaped. |
@@ -121,6 +122,33 @@ An output profile decides how those facts are spelled:
 A profile must not silently redefine Haxe runtime semantics. If a helper has a
 rich TS surface, it also needs a real Haxe/runtime representation or a stable
 capability diagnostic in classic mode.
+
+## Warm compilation-server lifecycle
+
+A warm Haxe server may reuse typed declarations between requests, but it must
+not make generated output depend on request order. Compiler state therefore
+falls into explicit lifetimes:
+
+- typed carriers may survive typing caches only when they contain stable,
+  profile-independent facts; `DynamicImportMarker` carries an extension-free
+  path and authored position, while the active emitter chooses `.js`, `.mjs`,
+  or no suffix from the current generation;
+- `@:genes.generate` metadata is a request-membership stamp. Cached declarations
+  may retain older stamps, so generation checks for the current stamp instead
+  of requiring the metadata list to contain exactly one entry;
+- emitter plans, dependencies, names, mappings, writers, and output
+  transactions belong to one module or generation and are rebuilt;
+- compiler-owned output sentinels and private stages are removed on their
+  owning request's completion. They are never reusable semantic caches.
+
+`yarn test:dynamic-import-policy` owns the focused cold/warm proof for this
+boundary: one real compiler process repeats and switches TS, TSX, classic JS,
+JSX, MJS, and extensionless profiles; every warm tree must equal an isolated
+cold tree, source maps must point to the authored macro call, runtime loading
+must succeed, and the owned process/stages/sentinels must be gone afterward.
+The broader inventory and cross-project server characterization remain separate
+work; do not introduce process-persistent typed state without a documented
+reset/rebuild rule and a cold/warm equivalence fixture.
 
 ## Non-negotiable invariants
 

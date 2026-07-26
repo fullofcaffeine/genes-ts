@@ -2,10 +2,16 @@ package genes;
 
 import haxe.macro.Type.MetaAccess;
 import haxe.macro.Type.TypedExpr;
+import haxe.macro.Context;
 
 typedef SideEffectImportMarkerCall = {
   final method: String;
   final arguments: Array<TypedExpr>;
+}
+
+typedef DynamicImportMarkerCall = {
+  final path: String;
+  final pos: haxe.macro.Expr.Position;
 }
 
 /**
@@ -28,10 +34,13 @@ typedef SideEffectImportMarkerCall = {
  * How: `Module` deliberately keeps internal fields in its semantic member
  * inventory so dependency planning can traverse their expressions. Emitters
  * filter only at their output boundary. `Module.memberProjection` owns the
- * independent type-level visibility facts. Marker recognition uses the
- * compiler's typed owner/member identity, never a generated name or source
- * string. A producer must still prove its DCE and placement contract before
- * using this boundary; the metadata alone does not create a dependency edge.
+ * independent type-level visibility facts. The side-effect-import carrier is
+ * consumed by dependency planning; the dynamic-import carrier is consumed by
+ * expression emission after the current runtime suffix is known. Marker
+ * recognition uses the compiler's typed owner/member identity, never a
+ * generated name or source string. A producer must still prove its DCE and
+ * placement contract before using this boundary; the metadata alone does not
+ * create a dependency edge.
  */
 class CompilerInternal {
   /**
@@ -53,6 +62,8 @@ class CompilerInternal {
   public static inline final FIELD_METADATA = ':genes.compilerInternal';
   public static inline final SEMANTIC_ONLY_METADATA = ':genes.semanticOnly';
   public static inline final SIDE_EFFECT_MARKER_MODULE = 'genes.internal.SideEffectImportMarker';
+  public static inline final DYNAMIC_IMPORT_MARKER_MODULE =
+    'genes.internal.DynamicImportMarker';
 
   /** Returns whether one typed field is semantic-only compiler evidence. */
   public static function isField(meta:Null<MetaAccess>):Bool {
@@ -116,6 +127,114 @@ class CompilerInternal {
         {method: field.name, arguments: arguments};
       default:
         null;
+    }
+  }
+
+  /**
+   * Returns the extension-free request carried by the dynamic-import marker.
+   *
+   * Why: the marker must survive Haxe's typed-tree cache, but it must never
+   * become a runtime helper call. Exact typed owner/member recognition prevents
+   * an unrelated function named `load` from acquiring compiler behavior.
+   *
+   * What/How: the producer admits one literal path plus the authored file/range
+   * that Haxe macro reification would otherwise replace with the macro
+   * implementation position. A malformed call is left recognizable with a
+   * null result so the expression emitter can report a stable compiler-planning
+   * diagnostic instead of printing the fake extern.
+   */
+  public static function dynamicImportMarkerCall(
+      callee: TypedExpr,
+      arguments: Array<TypedExpr>): Null<DynamicImportMarkerCall> {
+    return switch [callee.expr, arguments] {
+      case [
+        TField(_, FStatic(_.get() => owner, _.get() => {name: 'load'})),
+        [
+          {expr: TConst(TString(path))},
+          {expr: TConst(TString(file))},
+          {expr: TConst(TInt(min))},
+          {expr: TConst(TInt(max))}
+        ]
+      ] if (owner.module == DYNAMIC_IMPORT_MARKER_MODULE):
+        {
+          path: path,
+          pos: Context.makePosition({file: file, min: min, max: max})
+        };
+      default:
+        null;
+    }
+  }
+
+  static function dynamicImportMarkerReceiver(
+      expression: TypedExpr): Null<DynamicImportMarkerCall> {
+    return switch expression.expr {
+      case TMeta(_, inner) | TParenthesis(inner) | TCast(inner, null):
+        dynamicImportMarkerReceiver(inner);
+      case TCall(callee, arguments):
+        final direct = dynamicImportMarkerCall(callee, arguments);
+        if (direct != null)
+          direct;
+        else
+          switch arguments {
+            // Multiple dynamic modules use `Promise.all([marker, ...])`.
+            case [{expr: TArrayDecl(values)}]:
+              var marker = null;
+              for (value in values) {
+                marker = dynamicImportMarkerReceiver(value);
+                if (marker != null)
+                  break;
+              }
+              marker;
+            default:
+              null;
+          }
+      default:
+        null;
+    }
+  }
+
+  /**
+   * Finds the marker that owns one generated dynamic-import expansion.
+   *
+   * Why: Haxe assigns the outer `.then(...)` expression to the macro
+   * implementation file even when its hidden marker retains the authored call
+   * range. If the emitter records that outer position first, ordinary
+   * source-map consumers choose it over the authored mapping at the same
+   * generated column.
+   *
+   * What/How: this recognizes only the closed expansion roots produced by
+   * `Genes.dynamicImport()`: a direct marker, or `.then(...)` whose receiver is
+   * a marker or `Promise.all([marker, ...])`. It does not search arbitrary
+   * callbacks or user expressions.
+   */
+  public static function dynamicImportExpansionMarker(
+      expression: TypedExpr): Null<DynamicImportMarkerCall> {
+    return switch expression.expr {
+      case TMeta(_, inner) | TParenthesis(inner) | TCast(inner, null):
+        dynamicImportExpansionMarker(inner);
+      case TCall(callee, arguments):
+        final direct = dynamicImportMarkerCall(callee, arguments);
+        if (direct != null)
+          direct;
+        else
+          switch callee.expr {
+            case TField(receiver, _):
+              dynamicImportMarkerReceiver(receiver);
+            default:
+              null;
+          }
+      default:
+        null;
+    }
+  }
+
+  /** Returns whether a callee is the exact compiler-owned marker field. */
+  public static function isDynamicImportMarkerCallee(callee: TypedExpr): Bool {
+    return switch callee.expr {
+      case TField(_, FStatic(_.get() => owner, _.get() => {name: 'load'})):
+        owner.module == DYNAMIC_IMPORT_MARKER_MODULE;
+      default:
+        false;
     }
   }
 }

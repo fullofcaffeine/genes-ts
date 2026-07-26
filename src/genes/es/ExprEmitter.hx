@@ -327,6 +327,23 @@ class ExprEmitter extends Emitter {
       write(')');
   }
 
+  /**
+   * Records the authored position that owns one emitted typed expression.
+   *
+   * Most expressions use their Haxe typed-tree position directly. A
+   * `Genes.dynamicImport()` expansion is different: Haxe assigns its generated
+   * promise chain to the macro implementation, while the compiler marker
+   * carries the user's call range. Both classic and TypeScript emitters call
+   * this shared helper so the authored mapping is recorded first.
+   */
+  function emitExpressionPos(expression: TypedExpr): Void {
+    final dynamicImportMarker =
+      CompilerInternal.dynamicImportExpansionMarker(expression);
+    emitPos(dynamicImportMarker == null
+      ? expression.pos
+      : dynamicImportMarker.pos);
+  }
+
   public function emitExpr(e: TypedExpr) {
     // TypeArguments.call(...) uses a typed carrier so nested macro output keeps
     // its registry identity. Classic JS emits only the original statement.
@@ -337,7 +354,7 @@ class ExprEmitter extends Emitter {
     }
     if (CompilerInternal.isSideEffectImportMarkerCall(e))
       return;
-    emitPos(e.pos);
+    emitExpressionPos(e);
     switch e.expr {
       case TConst(c):
         emitConstant(c);
@@ -707,6 +724,20 @@ class ExprEmitter extends Emitter {
       return;
     if (emitPlannedJsxCall(e, params))
       return;
+    if (CompilerInternal.isDynamicImportMarkerCallee(e)) {
+      final marker = CompilerInternal.dynamicImportMarkerCall(e, params);
+      if (marker == null)
+        CompilerDiagnostic.fail(
+          'GENES-DYNAMIC-IMPORT-MARKER-001: the compiler-owned dynamic '
+          + 'import marker requires a literal module path and source range.',
+          e.pos);
+      emitPos(marker.pos);
+      write('import(');
+      emitString(marker.path + Genes.runtimeImportExtension(
+        Genes.outExtension));
+      write(')');
+      return;
+    }
     emitPos(e.pos);
     switch [e.expr, params] {
       case [TIdent('`trace'), [e, info]]:
@@ -1183,7 +1214,7 @@ class ExprEmitter extends Emitter {
         e.pos);
       return;
     }
-    emitPos(e.pos);
+    emitExpressionPos(e);
     switch e.expr {
       case TMeta(_, e1):
         emitValue(e1);

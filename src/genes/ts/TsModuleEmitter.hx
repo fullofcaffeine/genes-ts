@@ -2717,7 +2717,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       return;
     }
 
-    emitPos(e.pos);
+    emitExpressionPos(e);
     final privateMethod = privateMethodCall(e);
     if (privateMethod != null) {
       emitPrivateMethodValue(privateMethod);
@@ -2821,7 +2821,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       return;
     }
 
-    emitPos(e.pos);
+    emitExpressionPos(e);
     switch e.expr {
       case TBlock(el):
         write('{');

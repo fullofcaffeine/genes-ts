@@ -19,6 +19,7 @@
 /tests/array-index-strict/out
 /tests/finally-completion/out
 /tests/deep-nullish-alias/out
+/tests/dynamic-import-policy/out
 /tests/hxx-carrier-immutability/out
 /tests/hxx-event-variance/out
 /tests/library-profile/out

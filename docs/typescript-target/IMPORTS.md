@@ -357,6 +357,35 @@ TypeScript’s `moduleResolution: "NodeNext"` supports resolving `.js` specifier
 to `.ts`/`.tsx` sources during type-checking, and after compilation Node will
 load the real `.js` file.
 
+`Genes.dynamicImport()` follows the same runtime rule even though its request
+is created by a Haxe macro instead of the normal import planner. The suffix
+names the file the JavaScript host will load:
+
+| Generated source | Runtime request |
+| --- | --- |
+| genes-ts `.ts` or `.tsx` | `.js` |
+| classic `.jsx` | `.js` after the JSX transform |
+| classic `.js` | `.js` |
+| classic `.mjs` | `.mjs` |
+
+This distinction matters in a warm Haxe compilation server. The macro carries
+an extension-free, compiler-only request through Haxe typing; the active Genes
+emitter adds the current build's runtime suffix. A cached `.mjs` macro expansion
+therefore cannot make a later `.jsx` build request `.mjs`, and the hidden
+carrier never appears in generated code. Use `-D genes.ts.no_extension` or
+`-D genes.no_extension` when the application resolver deliberately owns
+extensionless requests.
+
+The application must still retain each dynamically loaded module—for example
+with `--macro include("my.dynamic.Module")` or an equivalent application/bundler
+entry-point rule—because a runtime `import()` request is not a static Haxe
+dependency. The focused `yarn test:dynamic-import-policy` gate checks cold
+builds, profile switches, repeated warm requests, ordinary `.ts`/`.tsx` output
+on TS 5/6/7, runtime loading, exact source-map provenance, transaction
+cleanliness, and compiler-server shutdown. The extensionless TS profile is
+checked for exact spelling and cold/warm equality; its application or bundler
+owns resolution.
+
 ## Notes
 
 - `genes.ts.Imports` expects string literals (so the compiler can generate stable
