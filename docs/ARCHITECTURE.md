@@ -92,6 +92,7 @@ depend on formatting.
 | Names and required temporaries | `src/genes/NamePlan.hx`, `TempPlan.hx` | Preserves scopes and evaluation order while creating only necessary generated names. |
 | Reusable-library retention | `src/genes/LibraryProfile.hx` | Opts public package APIs into matched TS/classic/declaration surfaces without making every build library-shaped. |
 | Imported constructor instance/type identity | `src/genes/ExternTypeContract.hx` | Models value-derived constructor instances without downstream-specific import rules. Explicit metadata also keeps package-backed native `String`/`RegExp` values from being mistaken for host built-ins in public types. |
+| Type-reference projection and retention | `src/genes/TypeReferenceCollector.hx`, `src/genes/dts/TypeEmitter.hx`, `TypeUtil.enumConstructorApplication` | Keeps named Haxe declarations keyed by compiler-owned module/type identity, never by an unqualified spelling. The collector mirrors every type the printers may name, including destination-applied enum payloads, so an emitter cannot invent an unplanned import or weaken a missing declaration to `any`. |
 | TypeScript null-narrowing proof | `src/genes/ts/TsNarrowingPlan.hx` | Derives function-local null and map-presence facts from `TypedExpr`, then ends them after exact receiver/key assignment, `Map.remove`/`clear`, loop mutation, or a nested function boundary. It carries typed identities and no output text; the [ownership inventory](TS_NARROWING_OWNERSHIP.md) records the bounded design and evidence. |
 | TypeScript implementation syntax | `src/genes/ts/TsModuleEmitter.hx` | Prints TS/TSX annotations, type imports, interfaces, and TS-specific syntax from shared facts. |
 | Classic JavaScript syntax | `src/genes/es/ModuleEmitter.hx`, `ExprEmitter.hx` | Prints modern ESM JavaScript while preserving Haxe JS runtime behavior. |
@@ -112,6 +113,24 @@ The shared layer decides what a Haxe program means:
 - runtime, type-only, and declaration reachability;
 - symbol identity, ordered runtime module requests, collision-free names, JSX
   intent, and source spans.
+
+Named type identity is never inferred from a simple name. Two unrelated Haxe
+declarations may both be called `Result`, `Status`, or any other spelling. The
+dependency plan retains their exact `ModuleType` owners and the type printer
+uses the resulting collision-safe accessor. Compatibility with one library
+must therefore be expressed as a generic Haxe/TypeScript semantic rule, not a
+name allowlist or a fallback to `any`.
+
+One such generic boundary is Haxe's JavaScript-target relation between `T` and
+`Null<T>`. When destination inference applies `Null<T>` at the corresponding
+type-parameter slot inside an invariant enum payload, strict TypeScript cannot
+reproduce that relation structurally. `TypeUtil.enumConstructorApplication`
+gives planning and emission the same applied payload type; TypeScript emission
+contains the already-checked Haxe conversion in one identity
+`Register.unsafeCast<Expected>(value)`. A payload that already contains both
+`Null<T>` and plain `T` is unchanged and receives no assertion. Public types
+remain precise, classic JavaScript remains unchanged, and any newly named
+payload dependency is planned before a writer opens.
 
 An output profile decides how those facts are spelled:
 

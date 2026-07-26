@@ -429,9 +429,20 @@ class DependencyPlanBuilder {
     function collectLocalTypes(expression: TypedExpr): Void {
       if (expression == null)
         return;
-      if (isEnumConstructorCall(expression))
+      if (isEnumConstructorCall(expression)) {
         collector.collect(expression.t, 'type.enum-constructor-result',
           expression.pos);
+        switch expression.expr {
+          case TCall(callee, _):
+            final application = TypeUtil.enumConstructorApplication(callee,
+              expression.t);
+            if (application != null)
+              for (argumentType in application.argumentTypes)
+                collector.collect(argumentType,
+                  'type.enum-constructor-argument', expression.pos);
+          default:
+        }
+      }
       switch expression.expr {
         case TVar(variable, _):
           collector.observeOverrideMeta(variable.meta,

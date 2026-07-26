@@ -48,6 +48,18 @@ The build (`yarn build:example:todoapp`) regenerates `examples/todoapp/{web,serv
 
 This is intentionally larger/noisier than the snapshot cases and focuses on compatibility.
 
+It also owns the name-collision precision fixture under
+`tests/regroupidentity/`. The fixture uses ordinary generic declarations whose
+simple names match helpers from the pinned Tink stream library. Generated
+negative consumers prove neither the user declarations nor Tink's public
+signatures become `any`; the runtime suite proves the retained type graph does
+not change executable behavior. Run the paired profiles directly with:
+
+```bash
+yarn test:genes-ts:full
+yarn test:classic:dts
+```
+
 ## Package-shape interop
 
 `tests/genes-ts/package-shapes/` owns small, local npm packages whose declaration

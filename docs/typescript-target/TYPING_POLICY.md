@@ -113,6 +113,23 @@ Where TypeScript already has a well-known type with correct semantics, prefer it
 This reduces “stringly” outputs (like `status: string`) and avoids `any` where
 TypeScript already provides a better model.
 
+### Named Haxe declarations (preserve exact identity)
+
+A Haxe class, enum, typedef, or abstract keeps its compiler-owned module/type
+identity and generic arguments in generated TypeScript and classic
+declarations. An unqualified spelling is never enough to select a compatibility
+rule: unrelated libraries may both declare names such as `Result` or `Status`.
+
+If a referenced declaration is absent, the compiler must repair its generic
+reachability rule or report a precise unsupported construct. It must not keep
+the file compiling by silently replacing the reference with `any`.
+
+The strict consumers deliberately define ordinary `RegroupStatus<T>` and
+`RegroupResult<A, B, C>` classes outside Tink, then make invalid assignments
+through their public API. Those assignments must remain errors in TypeScript
+5/6/7. The same gates also require Tink's real `RegrouperBase` to retain its
+generic `RegroupStatus` and `RegroupResult` references.
+
 ### Enum abstracts (prefer literal unions)
 
 Haxe `enum abstract` types (especially JS/DOM enums like `js.html.RequestCache`)
