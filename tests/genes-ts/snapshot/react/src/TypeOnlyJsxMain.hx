@@ -9,6 +9,8 @@ import genes.react.Element;
  * markup intent in this module.
  */
 class TypeOnlyJsxMain {
+  // Export this method from the generated module as `renderWithoutMarkup`;
+  // without `@:expose`, it remains only a static member of this Haxe class.
   @:expose("renderWithoutMarkup")
   public static function render(renderer: Element->String,
       element: Element): String {
