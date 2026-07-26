@@ -18,6 +18,7 @@ const skipClassic = process.env.SKIP_CLASSIC === "1";
 const skipTodoapp = process.env.SKIP_TODOAPP === "1";
 const skipPlaywright = process.env.SKIP_PLAYWRIGHT === "1";
 const skipTs2hx = process.env.SKIP_TS2HX === "1";
+const skipCompilerServer = process.env.SKIP_COMPILER_SERVER === "1";
 
 if (!skipClassic) {
   run("npm", ["test"]);
@@ -29,6 +30,9 @@ run("node", ["scripts/dist/test-explicit-type-arguments.js"]);
 run("node", ["scripts/dist/test-genes-ts-minimal.js"]);
 run("node", ["scripts/dist/test-genes-ts-full.js"]);
 run("node", ["scripts/dist/test-dynamic-import-policy.js"]);
+if (!skipCompilerServer) {
+  run("node", ["scripts/dist/test-compiler-server.js"]);
+}
 run("node", ["scripts/dist/test-genes-tsx.js"]);
 run("node", ["scripts/dist/test-package-shapes.js"]);
 run("node", ["scripts/dist/probe-binding-identity.js"]);

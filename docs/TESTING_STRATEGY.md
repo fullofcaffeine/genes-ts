@@ -68,6 +68,7 @@ yarn test:output-transaction # failure atomicity and stale-file ownership
 yarn test:interop:module-shapes # npm declaration/runtime import contracts
 yarn test:library-profile # default DCE vs matched TS/classic library surfaces
 yarn test:dynamic-import-policy # cold/warm runtime-suffix equivalence
+yarn test:compiler-server # whole-compiler cold/warm lifecycle equivalence
 yarn benchmark:dependency-plan # report-only scaling experiment for large import graphs
 ```
 
@@ -128,6 +129,51 @@ rejects leaked transaction stages, output sentinels, or compiler-only carrier
 names. Injected failure, signal/interruption cleanup, and unrelated-process
 controls belong to the separate whole-compiler server-lifecycle gate rather
 than this suffix-policy fixture.
+
+The whole-compiler lifecycle gate is:
+
+```bash
+yarn test:compiler-server
+```
+
+It owns exactly one Haxe server child and never discovers or attaches to an
+ambient process. A real bounded compilation establishes readiness; every later
+client has a timeout and retained logs. Shutdown sends `SIGTERM`, escalates to
+`SIGKILL` after a bounded grace period, awaits the exact child, and checks that
+its PID is dead. Separate probes cover interruption cleanup and prove an
+unrelated local listener is neither contacted nor terminated.
+
+Each semantic request is also built in a fresh process. The gate compares
+sorted relative paths and raw-byte SHA-256 hashes for the entire warm and cold
+trees, then independently checks runtime transcripts, TS 5/6/7 consumers,
+classic declarations, source-map tokens, diagnostics, ownership manifests,
+private transaction stages, and output sentinels. Its sequence includes TS,
+classic MJS, TSX, changed output roots, edit/delete/restore, module directives,
+module functions, library/DCE surfaces, import forms and attributes,
+post-staging failure/recovery, an active-to-disabled capability transition, and
+two projects with identical Haxe module names but different typed contracts.
+
+Haxe 4.3.7 chooses native compiler-server caches from a compilation signature
+whose important inputs include the target and defines, not the classpath name.
+The two-project probe therefore supplies one private, behavior-neutral define
+per project. This prevents Haxe itself from returning the wrong project's
+typed module before Genes runs, while all `@:persistent` Genes macro state
+still shares the same owned server process. Do not remove that define or
+replace the cold/warm check with text-only snapshots.
+
+Stable Haxe 4.3.7 is blocking in the main acceptance job. Haxe preview runs the
+same owner in the advisory preview job; an unsupported native protocol or
+preview-only failure is reported explicitly and does not redefine the stable
+release contract. The secondary Node-version smoke skips this expensive owner
+with `SKIP_COMPILER_SERVER=1`; that lane checks Node compatibility, while the
+stable job owns compiler-server correctness.
+
+At the current checkpoint, `5.0.0-preview.1` accepts the native protocol but
+does not pass byte equivalence: its warm `genes/Register.ts` adds an
+`unsafeCast<{}>` around `cls.prototype` that its cold build does not emit.
+This remains visible in the advisory job for typed-state characterization; the
+stable assertion is not relaxed and no preview-specific output allowlist is
+used.
 
 ### Compatibility evidence and downstream pressure tests
 

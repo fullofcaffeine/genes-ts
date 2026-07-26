@@ -1,21 +1,20 @@
 import { deepStrictEqual, ok, strictEqual } from "node:assert";
-import {
-  execFileSync,
-  spawn,
-  type ChildProcess
-} from "node:child_process";
-import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import {
   existsSync,
   readFileSync,
-  readdirSync,
   rmSync
 } from "node:fs";
-import { createServer } from "node:net";
-import { homedir, tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { SourceMapConsumer, type RawSourceMap } from "source-map";
+import {
+  compilerOutputSentinel,
+  hashTree,
+  leakedOutputStages,
+  OwnedHaxeCompilerServer,
+  selectedHaxeCompiler
+} from "./compiler-server-lifecycle.js";
 import { runGeneratedTypeScriptMatrix } from "./toolchains.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -52,11 +51,6 @@ type Profile = {
   readonly artifactExtension: "js" | "jsx" | "mjs" | "ts" | "tsx";
   readonly expectedRuntimeExtension: "" | ".js" | ".mjs";
   readonly defines: ReadonlyArray<string>;
-};
-
-type TreeEntry = {
-  readonly path: string;
-  readonly sha256: string;
 };
 
 const profiles: ReadonlyArray<Profile> = [
@@ -110,25 +104,6 @@ function profile(name: ProfileName): Profile {
     throw new Error(`Unknown dynamic-import test profile: ${name}`);
   }
   return found;
-}
-
-function selectedHaxeBinary(): string {
-  const executable = process.platform === "win32" ? "haxe.exe" : "haxe";
-  const explicitStdPath = process.env.HAXE_STD_PATH;
-  const binary = explicitStdPath !== undefined
-    ? path.join(path.dirname(explicitStdPath), executable)
-    : path.join(
-      homedir(),
-      "haxe",
-      "versions",
-      execFileSync("haxe", ["--version"], {
-        cwd: repoRoot,
-        encoding: "utf8"
-      }).trim(),
-      executable
-    );
-  ok(existsSync(binary), `Selected Haxe compiler does not exist: ${binary}`);
-  return binary;
 }
 
 function outputRoot(mode: "cold" | "warm", current: Profile): string {
@@ -223,55 +198,6 @@ function assertRequest(mode: "cold" | "warm", current: Profile): void {
   );
 }
 
-function hashTree(relativeRoot: string): ReadonlyArray<TreeEntry> {
-  const root = path.join(repoRoot, relativeRoot);
-  const entries: TreeEntry[] = [];
-
-  function visit(directory: string): void {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const absolute = path.join(directory, entry.name);
-      if (entry.isDirectory()) {
-        visit(absolute);
-      } else if (entry.isFile()) {
-        entries.push({
-          path: path.relative(root, absolute).split(path.sep).join("/"),
-          sha256: createHash("sha256")
-            .update(readFileSync(absolute))
-            .digest("hex")
-        });
-      }
-    }
-  }
-
-  visit(root);
-  return entries.sort((left, right) => left.path.localeCompare(right.path));
-}
-
-/** Returns any private transaction stages still present below the fixture. */
-function leakedStages(): ReadonlyArray<string> {
-  const root = path.join(repoRoot, generatedRoot);
-  const stages: string[] = [];
-
-  function visit(directory: string): void {
-    if (!existsSync(directory)) {
-      return;
-    }
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const absolute = path.join(directory, entry.name);
-      if (entry.isDirectory()) {
-        if (/^\.genes-output-.*\.stage$/.test(entry.name)) {
-          stages.push(path.relative(root, absolute));
-        } else {
-          visit(absolute);
-        }
-      }
-    }
-  }
-
-  visit(root);
-  return stages.sort();
-}
-
 /**
  * Reconstructs the private Haxe output sentinel owned by `Generator`.
  *
@@ -284,158 +210,16 @@ function compilerSentinel(
   mode: "cold" | "warm",
   current: Profile
 ): string {
-  const destination = path.resolve(repoRoot, outputFile(mode, current))
-    .split(path.sep).join("/");
-  const key = createHash("sha256").update(destination).digest("hex")
-    .slice(0, 20);
-  return path.join(tmpdir(), `genes-haxe-output-${key}.tmp`);
-}
-
-async function unusedLocalPort(): Promise<number> {
-  return await new Promise((resolve, reject) => {
-    const probe = createServer();
-    probe.once("error", reject);
-    probe.listen(0, "127.0.0.1", () => {
-      const address = probe.address();
-      if (address === null || typeof address === "string") {
-        probe.close();
-        reject(new Error("Port reservation did not return a TCP address"));
-        return;
-      }
-      probe.close((error) => error === undefined
-        ? resolve(address.port)
-        : reject(error));
-    });
-  });
-}
-
-function runClient(
-  haxeBinary: string,
-  args: ReadonlyArray<string>,
-  timeoutMs: number
-): Promise<{ readonly stdout: string; readonly stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(haxeBinary, [...args], {
-      cwd: repoRoot,
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    let stdout = "";
-    let stderr = "";
-    child.stdout?.on("data", (chunk: Buffer) => {
-      stdout = `${stdout}${chunk.toString("utf8")}`.slice(-64_000);
-    });
-    child.stderr?.on("data", (chunk: Buffer) => {
-      stderr = `${stderr}${chunk.toString("utf8")}`.slice(-64_000);
-    });
-    const timeout = setTimeout(() => {
-      child.kill("SIGKILL");
-      reject(new Error(
-        `Haxe client timed out after ${timeoutMs}ms:\n${stdout}${stderr}`
-      ));
-    }, timeoutMs);
-    child.once("error", (error) => {
-      clearTimeout(timeout);
-      reject(error);
-    });
-    child.once("exit", (code, signal) => {
-      clearTimeout(timeout);
-      if (code === 0) {
-        resolve({ stdout, stderr });
-      } else {
-        reject(new Error(
-          `Haxe client exited with code ${String(code)}`
-          + ` signal ${String(signal)}:\n${stdout}${stderr}`
-        ));
-      }
-    });
-  });
-}
-
-function waitForExit(server: ChildProcess, timeoutMs: number): Promise<boolean> {
-  if (server.exitCode !== null || server.signalCode !== null) {
-    return Promise.resolve(true);
-  }
-  return new Promise((resolve) => {
-    const timeout = setTimeout(() => resolve(false), timeoutMs);
-    server.once("exit", () => {
-      clearTimeout(timeout);
-      resolve(true);
-    });
-  });
-}
-
-async function stopOwnedServer(server: ChildProcess): Promise<void> {
-  if (server.exitCode === null && server.signalCode === null) {
-    server.kill("SIGTERM");
-    if (!await waitForExit(server, 2_000)) {
-      server.kill("SIGKILL");
-      ok(await waitForExit(server, 2_000),
-        "Owned Haxe compiler server did not exit after SIGKILL");
-    }
-  }
-  const pid = server.pid;
-  if (pid !== undefined && process.platform !== "win32") {
-    let alive = true;
-    try {
-      process.kill(pid, 0);
-    } catch {
-      alive = false;
-    }
-    ok(!alive, `Owned Haxe compiler server process ${pid} is still alive`);
-  }
-}
-
-function isStartupConnectionFailure(message: string): boolean {
-  return /connect|connection|refused|reset|server/i.test(message);
-}
-
-async function compileWarm(
-  haxeBinary: string,
-  port: number,
-  current: Profile,
-  server: ChildProcess,
-  serverLogs: () => string
-): Promise<void> {
-  const args = buildArguments("warm", current, port);
-  const deadline = Date.now() + 10_000;
-  while (true) {
-    try {
-      const result = await runClient(haxeBinary, args, 60_000);
-      process.stdout.write(result.stdout);
-      process.stderr.write(result.stderr);
-      return;
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (server.exitCode !== null || server.signalCode !== null) {
-        throw new Error(`Haxe server exited before ${current.name}:\n${serverLogs()}`);
-      }
-      if (Date.now() >= deadline || !isStartupConnectionFailure(message)) {
-        throw new Error(
-          `Warm ${current.name} compilation failed:\n${message}\n${serverLogs()}`
-        );
-      }
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-  }
+  return compilerOutputSentinel(
+    path.join(repoRoot, outputFile(mode, current))
+  );
 }
 
 async function runWarmSequence(haxeBinary: string): Promise<void> {
-  const port = await unusedLocalPort();
-  let serverLog = "";
-  const server = spawn(
-    haxeBinary,
-    ["--server-listen", `127.0.0.1:${port}`],
-    { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] }
-  );
-  server.stdout?.on("data", (chunk: Buffer) => {
-    serverLog = `${serverLog}${chunk.toString("utf8")}`.slice(-64_000);
-  });
-  server.stderr?.on("data", (chunk: Buffer) => {
-    serverLog = `${serverLog}${chunk.toString("utf8")}`.slice(-64_000);
-  });
-  server.once("error", (error) => {
-    serverLog = `${serverLog}\nserver error: ${String(error)}`.slice(-64_000);
-  });
+  const compiler = selectedHaxeCompiler(repoRoot);
+  strictEqual(compiler.binary, haxeBinary);
+  const server = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
+  server.installSignalCleanup();
 
   const sequence: ReadonlyArray<ProfileName> = [
     "ts",
@@ -453,22 +237,28 @@ async function runWarmSequence(haxeBinary: string): Promise<void> {
   try {
     for (const name of sequence) {
       const current = profile(name);
-      await compileWarm(
-        haxeBinary,
-        port,
-        current,
-        server,
-        () => serverLog
+      const result = await server.compile(
+        buildArguments("warm", current),
+        `Warm dynamic-import ${name}`,
+        60_000
       );
+      ok(
+        result.code === 0,
+        `Warm ${name} compilation failed`
+        + `\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`
+        + `\nserver:\n${server.logs}`
+      );
+      process.stdout.write(result.stdout);
+      process.stderr.write(result.stderr);
       assertRequest("warm", current);
       deepStrictEqual(
-        hashTree(outputRoot("warm", current)),
-        hashTree(outputRoot("cold", current)),
+        hashTree(path.join(repoRoot, outputRoot("warm", current))),
+        hashTree(path.join(repoRoot, outputRoot("cold", current))),
         `Warm ${name} output differs from its isolated cold build`
       );
     }
   } finally {
-    await stopOwnedServer(server);
+    await server.stop();
   }
 }
 
@@ -479,7 +269,7 @@ async function main(): Promise<void> {
     maxRetries: 3,
     retryDelay: 50
   });
-  const haxeBinary = selectedHaxeBinary();
+  const haxeBinary = selectedHaxeCompiler(repoRoot).binary;
 
   for (const current of profiles) {
     execFileSync(haxeBinary, buildArguments("cold", current), {
@@ -508,7 +298,9 @@ async function main(): Promise<void> {
   ok(runtime.includes("dynamic-import-current"),
     `Classic .mjs runtime did not load the current module:\n${runtime}`);
 
-  deepStrictEqual(leakedStages(), [],
+  deepStrictEqual(
+    leakedOutputStages(path.join(repoRoot, generatedRoot)),
+    [],
     "Dynamic-import fixture left a private output-transaction stage");
   for (const mode of ["cold", "warm"] as const) {
     for (const current of profiles) {
