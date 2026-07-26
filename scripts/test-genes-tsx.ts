@@ -1,9 +1,7 @@
 import { deepStrictEqual, ok, strictEqual } from "node:assert";
 import {
   execFileSync,
-  spawn,
   spawnSync,
-  type ChildProcess,
   type ExecFileSyncOptions
 } from "node:child_process";
 import {
@@ -15,13 +13,15 @@ import {
   rmSync,
   writeFileSync
 } from "node:fs";
-import { createServer } from "node:net";
-import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { assertNoUnsafeTypes } from "./typing-policy.js";
 import { runGeneratedTypeScriptMatrix, runTypeScript } from "./toolchains.js";
 import { assertHxxDiagnosticRanges } from "./test-hxx-diagnostic-ranges.js";
+import {
+  OwnedHaxeCompilerServer,
+  selectedHaxeCompiler
+} from "./compiler-server-lifecycle.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -77,54 +77,6 @@ function captureGeneratedTree(relPath: string): ReadonlyArray<readonly [string, 
   return files.sort(([left], [right]) => left.localeCompare(right));
 }
 
-/** Reserves an unused local TCP port for one bounded Haxe compiler server. */
-async function unusedLocalPort(): Promise<number> {
-  return await new Promise((resolve, reject) => {
-    const probe = createServer();
-    probe.once("error", reject);
-    probe.listen(0, "127.0.0.1", () => {
-      const address = probe.address();
-      if (address === null || typeof address === "string") {
-        probe.close();
-        reject(new Error("Haxe server probe did not receive a TCP port"));
-        return;
-      }
-      probe.close((error) => error === undefined
-        ? resolve(address.port)
-        : reject(error));
-    });
-  });
-}
-
-/** Waits until the compiler server accepts local connections or exits. */
-async function waitForCompilerServer(
-  server: ChildProcess,
-  logs: () => string
-): Promise<void> {
-  // A plain TCP connect is not a harmless readiness request: Haxe owns the
-  // bytes on that socket as its compiler protocol. Connecting and immediately
-  // closing can begin and abandon a macro context, which the Haxe 5 preview
-  // correctly exposes as an invalid test. Give the local process a small,
-  // bounded startup window, then let the first real compilation be its first
-  // client.
-  await new Promise((resolve) => setTimeout(resolve, 250));
-  if (server.exitCode !== null)
-    throw new Error(`Haxe compiler server exited early:\n${logs()}`);
-}
-
-/** Stops the bounded compiler server without leaving a background process. */
-async function stopCompilerServer(server: ChildProcess): Promise<void> {
-  if (server.exitCode !== null)
-    return;
-  server.kill();
-  await Promise.race([
-    new Promise<void>((resolve) => server.once("exit", () => resolve())),
-    new Promise<void>((resolve) => setTimeout(resolve, 2_000))
-  ]);
-  if (server.exitCode === null)
-    server.kill("SIGKILL");
-}
-
 /**
  * Proves source-inline facts never survive beyond their typed compiler tree.
  *
@@ -168,42 +120,11 @@ class ServerSourceInline {
   );
   writeFileSync(sourceFile, inlineable, "utf8");
 
-  // Lix's `haxe` command is a version-selecting shim. That is ideal for normal
-  // builds, but its private selection argument is not part of Haxe's compiler-
-  // server protocol. Resolve the already-selected Lix binary—or the compiler
-  // beside an explicit preview `HAXE_STD_PATH`—so the server and all three
-  // clients speak the native protocol for one exact compiler lane.
-  const executable = process.platform === "win32" ? "haxe.exe" : "haxe";
-  const explicitStdPath = process.env.HAXE_STD_PATH;
-  const haxeBinary = explicitStdPath !== undefined
-    ? path.join(path.dirname(explicitStdPath), executable)
-    : path.join(
-      homedir(),
-      "haxe",
-      "versions",
-      capture("haxe", ["--version"]).trim(),
-      executable
-    );
-  ok(existsSync(haxeBinary),
-    `selected Haxe compiler binary does not exist: ${haxeBinary}`);
-
-  const port = await unusedLocalPort();
-  let serverLog = "";
-  const server = spawn(
-    haxeBinary,
-    ["--server-listen", `127.0.0.1:${port}`],
-    { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] }
-  );
-  server.stdout?.on("data", (chunk: Buffer) => {
-    serverLog = `${serverLog}${chunk.toString("utf8")}`.slice(-20_000);
-  });
-  server.stderr?.on("data", (chunk: Buffer) => {
-    serverLog = `${serverLog}${chunk.toString("utf8")}`.slice(-20_000);
-  });
+  const compiler = selectedHaxeCompiler(repoRoot);
+  const server = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
+  server.installSignalCleanup();
 
   const buildArguments = [
-    "--connect",
-    `127.0.0.1:${port}`,
     "-lib",
     "genes-ts",
     "-cp",
@@ -219,18 +140,22 @@ class ServerSourceInline {
     "-dce",
     "full"
   ];
-  const build = (): void => {
-    const result = spawnSync(haxeBinary, buildArguments, {
-      cwd: repoRoot,
-      encoding: "utf8"
-    });
-    strictEqual(result.status, 0,
-      `warm Haxe compiler build failed:\n${result.stdout}${result.stderr}${serverLog}`);
+  const build = async (): Promise<void> => {
+    const result = await server.compile(
+      buildArguments,
+      "HXX source-inline warm build",
+      compiler.version.startsWith("5.") ? 120_000 : 60_000
+    );
+    strictEqual(
+      result.code,
+      0,
+      `warm Haxe compiler build failed:`
+      + `\n${result.stdout}${result.stderr}${server.logs}`
+    );
   };
 
   try {
-    await waitForCompilerServer(server, () => serverLog);
-    build();
+    await build();
     const firstTree = captureGeneratedTree(outputRootRel);
     const firstSource = readFileSync(
       path.join(repoRoot, outputRootRel, "ServerSourceInline.tsx"),
@@ -240,7 +165,7 @@ class ServerSourceInline {
       "warm-server first build did not inline the parser-owned child");
 
     writeFileSync(sourceFile, authoredLocal, "utf8");
-    build();
+    await build();
     const editedSource = readFileSync(
       path.join(repoRoot, outputRootRel, "ServerSourceInline.tsx"),
       "utf8"
@@ -249,11 +174,11 @@ class ServerSourceInline {
       "warm-server edit reused a stale parser-owned child fact");
 
     writeFileSync(sourceFile, inlineable, "utf8");
-    build();
+    await build();
     deepStrictEqual(captureGeneratedTree(outputRootRel), firstTree,
       "warm-server edit/revert did not restore the original generated tree");
   } finally {
-    await stopCompilerServer(server);
+    await server.stop();
   }
 }
 

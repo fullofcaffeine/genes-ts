@@ -145,10 +145,28 @@ capability diagnostic in classic mode.
 ## Warm compilation-server lifecycle
 
 A warm Haxe server may reuse typed declarations between requests, but it must
-not make generated output depend on request order. Compiler state therefore
-falls into explicit lifetimes:
+not make generated output depend on request order. State has five practical
+lifetimes:
 
-- typed carriers may survive typing caches only when they contain stable,
+- **compiler-process state** is exceptional. A persistent macro scalar or map
+  must be refreshed by a documented request entrypoint, use compiler-owned
+  identity rather than generated names/positions, and have a cold/warm
+  equivalence fixture;
+- **request state** includes pre-DCE surfaces, signature witnesses,
+  directives, capability defines, and generation membership. Its owner
+  replaces or reinstalls it for every compilation before the first consumer;
+- **module state** includes dependency, JSX, template, narrowing, temporary,
+  naming, and projection plans. `Module.addTypes` invalidates plans whose typed
+  inputs can expand through declaration reachability;
+- **emitter state** includes writers, source-map buffers, and syntax-local
+  stacks. It is constructed for one artifact and never cached across requests;
+- **filesystem state** includes public output and ownership manifests.
+  `OutputTransaction` is request-local, while the manifest deliberately
+  survives as exact evidence for later stale-file cleanup.
+
+Concrete rules follow from those lifetimes:
+
+- typed carriers may survive Haxe typing caches only when they contain stable,
   profile-independent facts; `DynamicImportMarker` carries an extension-free
   path and authored position, while the active emitter chooses `.js`, `.mjs`,
   or no suffix from the current generation;
@@ -160,14 +178,31 @@ falls into explicit lifetimes:
 - compiler-owned output sentinels and private stages are removed on their
   owning request's completion. They are never reusable semantic caches.
 
-`yarn test:dynamic-import-policy` owns the focused cold/warm proof for this
-boundary: one real compiler process repeats and switches TS, TSX, classic JS,
-JSX, MJS, and extensionless profiles; every warm tree must equal an isolated
-cold tree, source maps must point to the authored macro call, runtime loading
-must succeed, and the owned process/stages/sentinels must be gone afterward.
-The broader inventory and cross-project server characterization remain separate
-work; do not introduce process-persistent typed state without a documented
-reset/rebuild rule and a cold/warm equivalence fixture.
+Two executable owners protect this boundary:
+
+- `yarn test:dynamic-import-policy` focuses on runtime import suffixes across
+  TS, TSX, classic JS/JSX/MJS, and extensionless profiles;
+- `yarn test:compiler-server` exercises the compiler as a whole across profile
+  switches, edits, deletion/restoration, metadata, DCE/public surfaces, import
+  forms, failure/recovery, disabled capabilities, and same-named projects.
+
+Both start the real selected Haxe binary, reserve a loopback port, establish
+readiness with a real bounded request, compare warm output to isolated cold
+output, and prove their exact child process died. They never attach to an
+ambient server. Stable Haxe is blocking; preview uses the same lifecycle as an
+advisory compatibility signal.
+
+Haxe's native cache context does not use classpath identity as a complete
+project boundary. The two-project fixture adds a private define per project so
+Haxe does not return another project's same-named typed module before Genes
+runs. This does not isolate Genes process-persistent macro state: both projects
+still execute inside one server process, which is the lifecycle under test.
+
+Do not add process-persistent typed state without documenting its producer,
+lifetime, key identity, reset/rebuild point, failure behavior, and focused
+cold/warm proof. Prefer an owner-local reset over a compiler-wide session or
+cache manager until several reproduced defects require coordinated lifecycle
+ownership.
 
 ## Non-negotiable invariants
 

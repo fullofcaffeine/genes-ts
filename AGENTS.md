@@ -419,6 +419,9 @@ npm run test:genes-ts:tsx
 npm run test:genes-ts:snapshots
 npm run test:genes-ts:sourcemaps
 
+# Warm Haxe compiler-server equivalence (stable blocking; preview advisory)
+npm run test:compiler-server
+
 # Full acceptance (compiler + todoapp E2E)
 npm run test:acceptance
 
