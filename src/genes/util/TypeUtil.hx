@@ -7,6 +7,18 @@ import haxe.macro.Context;
 using haxe.macro.TypeTools;
 using haxe.macro.TypedExprTools;
 
+/**
+ * Typed generic application selected for one Haxe enum constructor call.
+ *
+ * The result belongs to the destination enum, not merely to payload inference.
+ * Keeping the applied parameters and argument types together lets dependency
+ * planning retain every type that TypeScript emission may spell explicitly.
+ */
+typedef EnumConstructorApplication = {
+  final parameters:Array<Type>;
+  final argumentTypes:Array<Type>;
+}
+
 class TypeUtil {
   /**
    * Loads compiler-owned helper types at the earliest safe lifecycle point.
@@ -182,6 +194,76 @@ class TypeUtil {
         true;
       default:
         false;
+    }
+  }
+
+  /**
+   * Resolves the destination-driven generic application of an enum constructor.
+   *
+   * Why: Haxe may infer enum parameters from the destination rather than from
+   * constructor payloads. TypeScript sometimes needs those parameters and the
+   * resulting payload types written explicitly. If only the emitter computes
+   * them, an inserted annotation can name a type that dependency planning did
+   * not retain.
+   *
+   * What: for an exact typed `FEnum` callee and matching expected enum type,
+   * returns the destination parameters plus the constructor argument types
+   * after applying them. Nullable/typedef shells around the destination are
+   * transparent; unrelated enum types return `null`.
+   *
+   * How: both `DependencyPlanBuilder` and `TsModuleEmitter` call this helper on
+   * the same compiler-owned expressions. The planner collects the returned
+   * types before writers open, while the emitter owns only their TS spelling.
+   */
+  public static function enumConstructorApplication(callee:TypedExpr,
+      expected:Null<Type>):Null<EnumConstructorApplication> {
+    if (expected == null)
+      return null;
+    final enumRef = switch unwrapTransparent(callee).expr {
+      case TField(_, FEnum(ref, _)): ref;
+      default: return null;
+    };
+    function find(type:Type):Null<Array<Type>>
+      return switch type {
+        case TEnum(ref, params)
+          if (ref.get().module == enumRef.get().module
+            && ref.get().name == enumRef.get().name):
+          params;
+        case TAbstract(_.get() => {pack: [], name: "Null"}, [inner]) |
+          TType(_.get() => {pack: [], name: "Null"}, [inner]):
+          find(inner);
+        case TType(_, _):
+          find(Context.follow(type));
+        case TLazy(resolve):
+          find(resolve());
+        default:
+          null;
+      };
+    final parameters = find(expected);
+    if (parameters == null)
+      return null;
+    final argumentTypes = switch unwrapTransparent(callee).expr {
+      case TField(_, FEnum(owner, field)):
+        final enumType = owner.get();
+        final declaredField = enumType.constructs.get(field.name);
+        final applied = declaredField.type.applyTypeParameters(enumType.params,
+          parameters);
+        switch applied {
+          case TFun(args, _): [for (arg in args) arg.t];
+          default: [];
+        }
+      default:
+        [];
+    };
+    return {parameters: parameters, argumentTypes: argumentTypes};
+  }
+
+  static function unwrapTransparent(expression:TypedExpr):TypedExpr {
+    return switch expression.expr {
+      case TMeta(_, inner) | TCast(inner, null) | TParenthesis(inner):
+        unwrapTransparent(inner);
+      default:
+        expression;
     }
   }
 

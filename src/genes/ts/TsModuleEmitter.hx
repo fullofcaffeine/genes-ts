@@ -510,9 +510,9 @@ class TsModuleEmitter extends JsModuleEmitter {
       // cannot accidentally receive the outer call's type argument.
       currentExplicitTypeArgumentCallSite = null;
     }
-    final expectedEnumParams = expectedEnumCallParams(e,
+    final expectedEnumApplication = TypeUtil.enumConstructorApplication(e,
       currentExpectedValueType);
-    if (expectedEnumParams != null
+    if (expectedEnumApplication != null
       && !params.exists(param -> isNullConst(unwrapExpr(param)))) {
       // A Haxe enum constructor is a generic function in emitted TS. TypeScript
       // normally infers its parameters from the payload only, which loses type
@@ -520,9 +520,9 @@ class TsModuleEmitter extends JsModuleEmitter {
       // parameter of `Outcome.Success`). Reapply the destination enum arguments
       // so the constructor result honors the typed Haxe expression.
       emitValue(e);
-      TypeEmitter.emitParams(this, expectedEnumParams, false);
+      TypeEmitter.emitParams(this, expectedEnumApplication.parameters, false);
       write('(');
-      final enumArgs = expectedEnumConstructorArgTypes(e, expectedEnumParams);
+      final enumArgs = expectedEnumApplication.argumentTypes;
       for (i in 0...params.length) {
         if (i > 0)
           write(', ');
@@ -534,11 +534,19 @@ class TsModuleEmitter extends JsModuleEmitter {
         final erasedGenericCast = expectedParamKey != null
           && castSource != null
           && typeParamKey(castSource.t) != expectedParamKey;
-        if (expectedArg != null && expectedParamKey != null
-          && (expectedParamKey != actualParamKey || erasedGenericCast)) {
+        final nullableGenericCast = expectedArg != null
+          && hasNullableTypeParameterMismatch(expectedArg,
+            castSource == null ? actual.t : castSource.t);
+        if (expectedArg != null
+          && ((expectedParamKey != null
+            && (expectedParamKey != actualParamKey || erasedGenericCast))
+            || nullableGenericCast)) {
           // Haxe can erase an explicit cast to a generic enum payload before
-          // custom generation. The destination enum instantiation is still
-          // authoritative, so contain that assertion at the constructor call.
+          // custom generation. Haxe's JS model also treats `T` as compatible
+          // with `Null<T>`, while strict TypeScript makes a generic container
+          // invariant when it both accepts and returns `T`. The destination
+          // enum instantiation is authoritative in both cases, so contain the
+          // checked Haxe conversion at this exact constructor argument.
           write(ctx.typeAccessor(TypeUtil.registerType));
           write('.unsafeCast<');
           TypeEmitter.emitType(this, expectedArg);
@@ -797,50 +805,6 @@ class TsModuleEmitter extends JsModuleEmitter {
       index++;
     }
     return result.toString();
-  }
-
-  static function expectedEnumCallParams(callee: TypedExpr,
-      expected: Null<Type>): Null<Array<Type>> {
-    if (expected == null)
-      return null;
-    final enumRef = switch unwrapExpr(callee).expr {
-      case TField(_, FEnum(ref, _)): ref;
-      default: return null;
-    };
-    function find(type: Type): Null<Array<Type>>
-      return switch type {
-        case TEnum(ref, params)
-          if (ref.get().module == enumRef.get().module
-            && ref.get().name == enumRef.get().name):
-          params;
-        case TAbstract(_.get() => {pack: [], name: 'Null'}, [inner]) |
-          TType(_.get() => {pack: [], name: 'Null'}, [inner]):
-          find(inner);
-        case TType(_, _):
-          find(haxe.macro.Context.follow(type));
-        case TLazy(resolve):
-          find(resolve());
-        default:
-          null;
-      };
-    return find(expected);
-  }
-
-  static function expectedEnumConstructorArgTypes(callee: TypedExpr,
-      enumParams: Array<Type>): Array<Type> {
-    return switch unwrapExpr(callee).expr {
-      case TField(_, FEnum(enumRef, fieldRef)):
-        final enumType = enumRef.get();
-        final declaredField = enumType.constructs.get(fieldRef.name);
-        final fieldType = declaredField.type.applyTypeParameters(enumType.params,
-          enumParams);
-        switch fieldType {
-          case TFun(args, _): [for (arg in args) arg.t];
-          case _: [];
-        }
-      default:
-        [];
-    }
   }
 
   static function explicitErasedCastSource(expr: TypedExpr): Null<TypedExpr> {
@@ -1981,6 +1945,221 @@ class TsModuleEmitter extends JsModuleEmitter {
       default:
         null;
     }
+  }
+
+  /**
+   * Detects the generic nullability conversion that strict TypeScript cannot
+   * express structurally even though Haxe has already accepted it.
+   *
+   * Why: on the JavaScript target Haxe permits `T` where `Null<T>` is expected.
+   * Once `T` appears inside an invariant container, TypeScript correctly
+   * rejects the structural assignment. Tink's stream step is one real example:
+   * `Stream<T>` becomes a payload of `Step<Null<T>, Error>`.
+   *
+   * What: this returns true only when the expected enum-constructor payload has
+   * a type parameter below an explicit Haxe `Null` shell and the actual payload
+   * mentions that same compiler-owned type parameter. Ordinary concrete null
+   * unions and unrelated generic arguments do not qualify.
+   *
+   * How: callers emit one `Register.unsafeCast<Expected>(actual)` at the Haxe
+   * conversion boundary. The cast is the identity at runtime and does not
+   * weaken either public declaration; it merely carries Haxe's checked generic
+   * nullability relation into strict TypeScript.
+   */
+  static function hasNullableTypeParameterMismatch(expected: Type,
+      actual: Type): Bool {
+    return hasNullableTypeParameterDelta(expected, actual);
+  }
+
+  /**
+   * Finds an exact `T` -> `Null<T>` delta at one corresponding generic slot.
+   *
+   * A set-of-occurrences comparison is not enough: a type such as
+   * `Pair<Null<T>, T>` contains both nullable and plain occurrences while
+   * requiring no conversion. This walk first projects a concrete class through
+   * its typed superclass/interface chain, then compares matching type arguments.
+   * It uses the compiler-owned declaration's full module/name key as identity.
+   */
+  static function hasNullableTypeParameterDelta(expected: Type,
+      actual: Type, depth = 0): Bool {
+    // Recursive abstracts can expose their own public shape as an underlying
+    // type. This proof is optional, so an unexpectedly deep/cyclic comparison
+    // must fail closed instead of risking emitter recursion.
+    if (depth > 32)
+      return false;
+    final expectedNull = nullableTypeInner(expected);
+    if (expectedNull != null) {
+      final actualNull = nullableTypeInner(actual);
+      if (actualNull != null)
+        return hasNullableTypeParameterDelta(expectedNull, actualNull,
+          depth + 1);
+      return sameTypeParameter(expectedNull, actual);
+    }
+
+    return switch expected {
+      case TInst(expectedRef, expectedParams):
+        final actualParams = projectClassParameters(actual, expectedRef);
+        matchingTypeParametersContainDelta(expectedParams, actualParams,
+          depth + 1);
+      case TEnum(expectedRef, expectedParams):
+        switch unwrapType(actual) {
+          case TEnum(actualRef, actualParams)
+            if (sameEnumDeclaration(expectedRef, actualRef)):
+            matchingTypeParametersContainDelta(expectedParams, actualParams,
+              depth + 1);
+          default:
+            false;
+        }
+      case TAbstract(expectedRef, expectedParams):
+        switch unwrapType(actual) {
+          case TAbstract(actualRef, actualParams)
+            if (sameAbstractDeclaration(expectedRef, actualRef)):
+            matchingTypeParametersContainDelta(expectedParams, actualParams,
+              depth + 1);
+          default:
+            final abstractType = expectedRef.get();
+            final underlying = abstractType.type.applyTypeParameters(
+              abstractType.params, expectedParams);
+            hasNullableTypeParameterDelta(underlying, actual, depth + 1);
+        }
+      case TType(_, _):
+        hasNullableTypeParameterDelta(haxe.macro.Context.follow(expected),
+          actual, depth + 1);
+      case TMono(ref) if (ref.get() != null):
+        hasNullableTypeParameterDelta(ref.get(), actual, depth + 1);
+      case TLazy(resolve):
+        hasNullableTypeParameterDelta(resolve(), actual, depth + 1);
+      default:
+        false;
+    };
+  }
+
+  static function matchingTypeParametersContainDelta(expected: Array<Type>,
+      actual: Null<Array<Type>>, depth: Int): Bool {
+    if (actual == null || expected.length != actual.length)
+      return false;
+    for (i in 0...expected.length)
+      if (hasNullableTypeParameterDelta(expected[i], actual[i], depth))
+        return true;
+    return false;
+  }
+
+  static function nullableTypeInner(type: Type): Null<Type> {
+    return switch type {
+      case TAbstract(_.get() => {pack: [], name: "Null"}, [inner]) |
+        TType(_.get() => {pack: [], name: "Null"}, [inner]):
+        inner;
+      case TMono(ref) if (ref.get() != null):
+        nullableTypeInner(ref.get());
+      case TLazy(resolve):
+        nullableTypeInner(resolve());
+      default:
+        null;
+    };
+  }
+
+  static function sameTypeParameter(expected: Type, actual: Type): Bool {
+    return switch [unwrapType(expected), unwrapType(actual)] {
+      case [TInst(expectedRef, []), TInst(actualRef, [])]:
+        switch [expectedRef.get().kind, actualRef.get().kind] {
+          case [KTypeParameter(_), KTypeParameter(_)]:
+            sameClassDeclaration(expectedRef, actualRef);
+          default:
+            false;
+        }
+      default:
+        false;
+    };
+  }
+
+  static function projectClassParameters(type: Type,
+      expected: Ref<ClassType>,
+      ?seen: haxe.ds.ObjectMap<ClassType, Bool>): Null<Array<Type>> {
+    if (seen == null)
+      seen = new haxe.ds.ObjectMap();
+    return switch unwrapType(type) {
+      case TInst(actualRef, actualParams):
+        final actual = actualRef.get();
+        if (sameClassDeclaration(actualRef, expected))
+          actualParams;
+        else if (seen.exists(actual))
+          null;
+        else {
+          seen.set(actual, true);
+          var result: Null<Array<Type>> = null;
+          if (actual.superClass != null) {
+            final superType = actual.superClass;
+            final params = [
+              for (param in superType.params)
+                param.applyTypeParameters(actual.params, actualParams)
+            ];
+            result = projectClassParameters(TInst(superType.t, params),
+              expected, seen);
+          }
+          if (result == null)
+            for (implemented in actual.interfaces) {
+              final params = [
+                for (param in implemented.params)
+                  param.applyTypeParameters(actual.params, actualParams)
+              ];
+              result = projectClassParameters(TInst(implemented.t, params),
+                expected, seen);
+              if (result != null)
+                break;
+            }
+          result;
+        }
+      case TType(_, _):
+        projectClassParameters(haxe.macro.Context.follow(type), expected, seen);
+      case TMono(ref) if (ref.get() != null):
+        projectClassParameters(ref.get(), expected, seen);
+      case TLazy(resolve):
+        projectClassParameters(resolve(), expected, seen);
+      default:
+        null;
+    };
+  }
+
+  static function unwrapType(type: Type): Type {
+    return switch type {
+      case TType(_, _):
+        unwrapType(haxe.macro.Context.follow(type));
+      case TMono(ref) if (ref.get() != null):
+        unwrapType(ref.get());
+      case TLazy(resolve):
+        unwrapType(resolve());
+      default:
+        type;
+    }
+  }
+
+  /**
+   * Compares canonical typed declaration identity, not `Ref` wrapper identity.
+   *
+   * Haxe can expose distinct `Ref` wrappers while applying the same declaration
+   * through a superclass or interface. Module plus declaration name is the
+   * compiler's stable key here, matching the dependency plan's `ModuleType`
+   * identity and avoiding any comparison of emitted TypeScript spellings.
+   */
+  static function sameClassDeclaration(left: Ref<ClassType>,
+      right: Ref<ClassType>): Bool {
+    final leftType = left.get();
+    final rightType = right.get();
+    return leftType.module == rightType.module && leftType.name == rightType.name;
+  }
+
+  static function sameAbstractDeclaration(left: Ref<AbstractType>,
+      right: Ref<AbstractType>): Bool {
+    final leftType = left.get();
+    final rightType = right.get();
+    return leftType.module == rightType.module && leftType.name == rightType.name;
+  }
+
+  static function sameEnumDeclaration(left: Ref<EnumType>,
+      right: Ref<EnumType>): Bool {
+    final leftType = left.get();
+    final rightType = right.get();
+    return leftType.module == rightType.module && leftType.name == rightType.name;
   }
 
   /**

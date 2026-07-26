@@ -346,10 +346,9 @@ class TypeEmitter {
   /**
    * Emits a declaration's own collision-safe name and generic parameters.
    *
-   * Why: type-position projection may honestly replace an unsupported helper
-   * reference with `any`, but a declaration identifier is an identity, not a
-   * projected type. Applying that fallback after `export type` creates invalid
-   * TypeScript such as `export type any` and leaves its generics unbound.
+   * Why: a declaration identifier is an identity, not a projected type.
+   * Applying a type-position compatibility rule after `export type` can create
+   * an invalid or misleading declaration name and leave its generics unbound.
    *
    * What/How: declaration owners call this only for the left-hand name of a
    * type, class, interface, or enum declaration. The resolved accessor and
@@ -366,15 +365,6 @@ class TypeEmitter {
 
   public static function emitBaseType(writer: TypeWriter, type: BaseType,
       params: Array<Type>, withConstraints = false) {
-    final write = writer.write, emitPos = writer.emitPos;
-    final accessor = writer.typeAccessor(type);
-    // Some libraries reference helper types that may be stripped by DCE in runtime output.
-    // If a referenced type won't be emitted, fall back to `any` to keep TS compiling.
-    if (accessor == "RegroupStatus" || accessor == "RegroupResult") {
-      emitPos(type.pos);
-      write("any");
-      return;
-    }
     emitDeclarationBaseType(writer, type, params, withConstraints);
   }
 
@@ -457,12 +447,6 @@ class TypeEmitter {
     final write = writer.write, emitPos = writer.emitPos,
     includeType = writer.includeType;
     switch type {
-      case TInst(_.get() => {name: "RegroupStatus" | "RegroupResult", pos: pos}, _):
-        emitPos(pos);
-        write('any');
-      case TType(_.get() => {name: "RegroupStatus" | "RegroupResult", pos: pos}, _):
-        emitPos(pos);
-        write('any');
       case TInst(ref = _.get() => cl, params)
         if (ExternTypeContract.usesImportedInstanceType(cl)):
         // The semantic classifier owns when this projection is valid. The type
@@ -501,11 +485,6 @@ class TypeEmitter {
             // `Class<foo.Bar>` as a base type name. These don't map cleanly to
             // TS imports and are only used for type positions, so we fall back
             // to `any` for now.
-            emitPos(cl.pos);
-            write('any');
-          case [{name: "RegroupStatus" | "RegroupResult"}, _]:
-            // Some libraries reference internal helper types in public signatures, but those
-            // helpers may be stripped by DCE in runtime output. Fall back to `any`.
             emitPos(cl.pos);
             write('any');
           case [{name: name, kind: KTypeParameter(_)}, _]:
@@ -636,9 +615,6 @@ class TypeEmitter {
           case [{module: "js.lib.Symbol", name: "Symbol"}, _]:
             emitPos(ab.pos);
             write('symbol');
-          case [{name: "RegroupStatus" | "RegroupResult"}, _]:
-            emitPos(ab.pos);
-            write('any');
           case [{pack: [], name: "Int" | "Float"}, _]:
             emitPos(ab.pos);
             write('number');
@@ -791,11 +767,6 @@ class TypeEmitter {
             // Map to the TS builtin.
             emitPos(dt.pos);
             write('RegExpExecArray | null');
-          case [{name: "RegroupStatus" | "RegroupResult"}, _]:
-            // Some libraries reference internal helper types in public signatures, but those
-            // helpers may be stripped by DCE in runtime output. Fall back to `any`.
-            emitPos(dt.pos);
-            write('any');
           case [{name: name}, _] if (name.indexOf('<') > -1):
             emitPos(dt.pos);
             write('any');

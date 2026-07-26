@@ -119,6 +119,38 @@ if (!streamDeclaration.includes(
 )) {
   throw new Error("Classic declarations lost the generic RegroupResult name.");
 }
+if (!streamDeclaration.includes(
+  "status: RegroupStatus<Quality>) => Future<RegroupResult<In, Out, Quality>>"
+)) {
+  throw new Error(
+    "Classic declarations weakened Tink RegrouperBase helper references."
+  );
+}
+const regroupIdentityDeclaration = readFileSync(
+  path.join(
+    repoRoot,
+    "bin/tests/regroupidentity/RegroupIdentityApi.d.ts"
+  ),
+  "utf8"
+);
+if (
+  !regroupIdentityDeclaration.includes(
+    'import {RegroupStatus as Status} from "./status/RegroupStatus.js"'
+  ) ||
+  !regroupIdentityDeclaration.includes(
+    'import {RegroupResult as Result} from "./result/RegroupResult.js"'
+  ) ||
+  !regroupIdentityDeclaration.includes(
+    "static status(value: string): Status<string>"
+  ) ||
+  !regroupIdentityDeclaration.includes(
+    "static result(input: number, output: string, quality: boolean): Result<number, string, boolean>"
+  )
+) {
+  throw new Error(
+    "Classic declarations lost same-named Regroup imports or generic signatures."
+  );
+}
 
 // Classic implementation and declaration output share the registry contract
 // with genes-ts. The private construction helper must stay out of the public

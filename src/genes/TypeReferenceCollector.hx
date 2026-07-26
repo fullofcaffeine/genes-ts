@@ -82,10 +82,6 @@ class TypeReferenceCollector {
     }
 
     switch type {
-      case TInst(_.get() => {name: "RegroupStatus" | "RegroupResult"}, _) |
-        TType(_.get() => {name: "RegroupStatus" | "RegroupResult"}, _):
-        // These legacy helpers deliberately project to `any`.
-
       case TInst(ref = _.get() => cl, params)
         if (ExternTypeContract.usesImportedInstanceType(cl)):
         // Haxe can rewrite an extern whose native JavaScript name is
@@ -103,7 +99,6 @@ class TypeReferenceCollector {
       case TInst(ref = _.get() => cl, params):
         switch [cl, params] {
           case [{module: "js.node.Fs", name: "FsPath"}, _] |
-            [{name: "RegroupStatus" | "RegroupResult"}, _] |
             [{module: "js.lib.Promise", name: "Promise"}, []] |
             [{name: "RegExpMatch"}, _] |
             [{pack: [], name: "String"}, _] |
@@ -139,7 +134,6 @@ class TypeReferenceCollector {
           return;
         switch [abstractType, params] {
           case [{module: "js.lib.Symbol", name: "Symbol"}, _] |
-            [{name: "RegroupStatus" | "RegroupResult"}, _] |
             [{pack: [], name: "Int" | "Float" | "Bool" | "Void"}, _]:
           case [{pack: [], name: "Null"}, [underlying]] |
             [{pack: ["haxe", "extern"] | ["haxe"], name: "Rest"}, [underlying]]:
@@ -191,7 +185,7 @@ class TypeReferenceCollector {
             [{pack: [], name: "Null"}, [element]]:
             collect(element, '$rule.typedef-value', definition.pos);
           case [{module: "js.node.Fs", name: "FsPath"}, _] |
-            [{name: "RegExpMatch" | "RegroupStatus" | "RegroupResult"}, _]:
+            [{name: "RegExpMatch"}, _]:
           case [{name: name}, _] if (name.indexOf('<') > -1):
           case [{module: moduleName}, _]
             if (moduleName != null && moduleName.startsWith('haxe.macro')):

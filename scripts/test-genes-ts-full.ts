@@ -97,6 +97,31 @@ writeFileSync(
   ].join("\n")
 );
 
+// A past compatibility branch matched only the simple names RegroupStatus and
+// RegroupResult, so unrelated declarations silently became `any`. This
+// consumer uses ordinary user classes with those names. Unused
+// `@ts-expect-error` directives expose any future name-based weakening.
+writeFileSync(
+  path.join(repoRoot, "tests/genes-ts/full/out/src-gen/RegroupIdentityConsumer.ts"),
+  [
+    'import {RegroupIdentityApi} from "./tests/regroupidentity/RegroupIdentityApi.js";',
+    'const status = RegroupIdentityApi.status("flowing");',
+    'const result = RegroupIdentityApi.result(7, "converted", true);',
+    "const statusValue: string = status.value;",
+    "const resultInput: number = result.input;",
+    "const resultOutput: string = result.output;",
+    "const resultQuality: boolean = result.quality;",
+    "// @ts-expect-error RegroupStatus<String>.value is not a number.",
+    "const invalidStatusValue: number = status.value;",
+    "// @ts-expect-error RegroupResult<Int, String, Bool>.output is not a number.",
+    "const invalidResultOutput: number = result.output;",
+    "void statusValue; void resultInput; void resultOutput; void resultQuality;",
+    "void invalidStatusValue; void invalidResultOutput;",
+    "export {};",
+    ""
+  ].join("\n")
+);
+
 // Nullish contracts need negative programs under exact optional-property
 // semantics. Ordinary `strict` compilation would still accept explicit
 // `undefined` assignments to every `?` property and could not distinguish the
@@ -264,6 +289,60 @@ if (!abstractOutput.includes('import type {Error as Error__1} from "../tink/Core
 }
 if (!abstractOutput.includes("Yield.Data<Assertion, Error__1>")) {
   throw new Error("Inferred enum type arguments resolved through the JavaScript Error global.");
+}
+
+const regroupApiOutput = readFileSync(
+  path.join(
+    repoRoot,
+    "tests/genes-ts/full/out/src-gen/tests/regroupidentity/RegroupIdentityApi.ts"
+  ),
+  "utf8"
+);
+if (
+  !regroupApiOutput.includes("export type Status<T> = RegroupStatus<T>") ||
+  !regroupApiOutput.includes(
+    "export type Result<Input, Output, Quality> = RegroupResult<Input, Output, Quality>"
+  ) ||
+  !regroupApiOutput.includes(
+    "return MixedNullableStep.Mixed<T>(value)"
+  )
+) {
+  throw new Error(
+    "Regroup identity output lost exact generics or added an unnecessary mixed-payload assertion."
+  );
+}
+if (/unsafeCast<MixedNullable<T>>\(value\)/.test(regroupApiOutput)) {
+  throw new Error(
+    "An unchanged mixed nullable/plain payload received an over-broad assertion."
+  );
+}
+
+const tinkStreamOutput = readFileSync(
+  path.join(repoRoot, "tests/genes-ts/full/out/src-gen/tink/streams/Stream.ts"),
+  "utf8"
+);
+if (
+  !tinkStreamOutput.includes(
+    "status: RegroupStatus<Quality>) => Future__1<RegroupResult<In, Out, Quality>>"
+  )
+) {
+  throw new Error("Tink RegrouperBase still contains a weakened helper reference.");
+}
+const tinkNodeStreamOutput = readFileSync(
+  path.join(
+    repoRoot,
+    "tests/genes-ts/full/out/src-gen/tink/streams/nodejs/NodejsStream.ts"
+  ),
+  "utf8"
+);
+if (
+  !tinkNodeStreamOutput.includes(
+    "Register.unsafeCast<StreamObject<T | null, Error__1>>(new NodejsStream<T>(target))"
+  )
+) {
+  throw new Error(
+    "Haxe's checked T-to-Null<T> generic conversion lost its narrow TS boundary."
+  );
 }
 
 const reflectOutput = readFileSync(path.join(repoRoot, "tests/genes-ts/full/out/src-gen/Reflect.ts"), "utf8");
