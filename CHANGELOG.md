@@ -1,3 +1,25 @@
+# [1.38.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.37.1...v1.38.0) (2026-07-26)
+
+
+### Bug Fixes
+
+* **jsx:** bind source cleanup to typed HXX children ([149234b](https://github.com/fullofcaffeine/genes-ts/commit/149234bde041a22b3fc4e3430050e204ec491662))
+* **jsx:** inline safe generated child trees ([a04b214](https://github.com/fullofcaffeine/genes-ts/commit/a04b214eb99d5a70df98a8caa863eb5b48419631))
+* **jsx:** keep typed metadata as an inline boundary ([f72b7d6](https://github.com/fullofcaffeine/genes-ts/commit/f72b7d6b0471f5b27bc414871cde41b5dc83477a))
+* **jsx:** preserve source cleanup ordering ([41a5d96](https://github.com/fullofcaffeine/genes-ts/commit/41a5d96f9c9d57c580b8db8aebbe4705ea2519f1))
+* **react:** honor native HXX property names ([#42](https://github.com/fullofcaffeine/genes-ts/issues/42)) ([d0e9d39](https://github.com/fullofcaffeine/genes-ts/commit/d0e9d392811d18eef42e3bfc3c0ce1ec2a6abbf7))
+* **react:** type intrinsic refs in HXX ([1ce7748](https://github.com/fullofcaffeine/genes-ts/commit/1ce7748c9e1dcf636b739d50f877a8b8083043df))
+* **react:** type native dialog props in HXX ([7c238ef](https://github.com/fullofcaffeine/genes-ts/commit/7c238efd2011067777449f86ea485e9a07ef1b7b))
+* **security:** patch newly disclosed dependency advisories ([b3a569c](https://github.com/fullofcaffeine/genes-ts/commit/b3a569ce600cecabc7ae07e0cadfda13367b42a8))
+* **typescript:** preserve exact enum abstract expressions ([8a69285](https://github.com/fullofcaffeine/genes-ts/commit/8a69285b7cf625f20a2f61aebd9674f26c3c65af))
+* **typescript:** retain higher-order enum abstract types ([bbb79ca](https://github.com/fullofcaffeine/genes-ts/commit/bbb79ca0ac8b50ba98ecfc8cd6841791fa58954e))
+* **typescript:** retain nested explicit call identity ([e734ed6](https://github.com/fullofcaffeine/genes-ts/commit/e734ed63038a155d7b9d189d52b80e769b0909ab))
+
+
+### Features
+
+* lower selected methods to module functions ([f6f0aef](https://github.com/fullofcaffeine/genes-ts/commit/f6f0aef986927609393036b5ce6681e04676b84d))
+
 ## [1.37.1](https://github.com/fullofcaffeine/genes-ts/compare/v1.37.0...v1.37.1) (2026-07-20)
 
 
