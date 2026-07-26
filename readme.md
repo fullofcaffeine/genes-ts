@@ -21,6 +21,8 @@ boundary and planned shared architecture.
 
 ## Documentation
 
+- [`AGENTS.md`](AGENTS.md) — newcomer and agent quick start, source navigation,
+  workflow boundaries, and verification map
 - `docs/README.md` — documentation index (start here)
 - `docs/WORKFLOWS.md` — choose an end-to-end Haxe/TS/JS or ts2hx workflow
 - `docs/ARCHITECTURE.md` — compiler pipeline, ownership boundaries, and contributor fixture guide

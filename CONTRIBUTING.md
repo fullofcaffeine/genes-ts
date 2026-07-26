@@ -14,6 +14,11 @@ Thanks for helping improve **genes-ts**.
 
 ## Architecture and fixture ownership
 
+Start with [`AGENTS.md`](AGENTS.md) for the ten-minute repository orientation,
+end-to-end compiler/ts2hx commands, and source-owner map. More specific
+instructions apply under [`src/genes`](src/genes/AGENTS.md) and
+[`tools/ts2hx`](tools/ts2hx/AGENTS.md).
+
 Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) before changing compiler
 semantics or ts2hx lowering. It maps the shared TS/classic pipeline to its source
 owners and explains which snapshot, type-negative, runtime, package-shape,

@@ -8,6 +8,8 @@ feature surface beyond the quick examples in `readme.md`.
 ## Getting started
 
 - `../readme.md` — quick start + feature overview
+- [`../AGENTS.md`](../AGENTS.md) — agent/contributor first-ten-minutes guide,
+  source-owner map, and safe repository workflow
 - `WORKFLOWS.md` — choose Haxe → TS, Haxe → JS, TS → Haxe, or the roundtrip migration path
 - `ARCHITECTURE.md` — compiler pipeline, ownership boundaries, fixtures, snapshots, and contributor map
 - `OUTPUT_MODES.md` — TS output vs classic Genes JS output (and when to use each)
@@ -19,6 +21,17 @@ feature surface beyond the quick examples in `readme.md`.
 - `../examples/typescript-target/README.md` — minimal end-to-end Haxe → TS → JS example
 - `../examples/todoapp/` — real fullstack example (React Router + Express)
 - `TROUBLESHOOTING.md` — common failure modes + fixes
+
+## Scoped source guides
+
+These guides are instructions as well as navigation maps. Tools that support
+scoped `AGENTS.md` files may load the closest applicable file; when uncertain,
+agents and human contributors should read the scoped guide directly.
+
+- [`../src/genes/AGENTS.md`](../src/genes/AGENTS.md) — compiler source owners,
+  semantic boundaries, and how to prove a Haxe-to-TS/JS change
+- [`../tools/ts2hx/AGENTS.md`](../tools/ts2hx/AGENTS.md) — TypeScript compiler
+  facts, Haxe emission, fixture routing, and fail-closed migration rules
 
 ## TypeScript target (genes-ts mode)
 

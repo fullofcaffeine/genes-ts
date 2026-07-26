@@ -2,6 +2,134 @@
 
 This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
 
+## New agent: understand the repository first
+
+genes-ts is a Haxe compiler backend for the JavaScript platform. Haxe parses,
+types, and performs dead-code elimination on the program; Genes then reads that
+typed Haxe tree and publishes one of two first-class implementation profiles:
+
+```text
+Haxe source -> Haxe typed AST -> genes.Generator
+  -> TypeScript or TSX source          (-D genes.ts)
+  -> classic split ESM JavaScript      (default, optionally with -D dts)
+```
+
+The repository also contains `tools/ts2hx`, an experimental migration tool that
+uses the TypeScript compiler API to translate a proven subset of TypeScript or
+JavaScript implementation source into Haxe. The dependency is one-way:
+ts2hx may use Genes to compile and compare its generated Haxe, but Genes must
+remain buildable and correct without ts2hx.
+
+### First ten minutes
+
+1. Run `bd onboard`, `git status --short --branch`, and `git log -n 12 --oneline`.
+2. Read [`docs/BEADS_WORKTREES.md`](docs/BEADS_WORKTREES.md) before creating a
+   branch or worktree. Use `bd ready`, inspect the selected task with
+   `bd show <id>`, then claim it with `bd update <id> --status in_progress`.
+3. Read [`docs/README.md`](docs/README.md) for the documentation index.
+4. Choose the intended user workflow in
+   [`docs/WORKFLOWS.md`](docs/WORKFLOWS.md): Haxe to TypeScript, Haxe to
+   classic JavaScript, one-source dual output, or TypeScript to Haxe.
+5. Before changing compiler semantics, read
+   [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and the scoped
+   [`src/genes/AGENTS.md`](src/genes/AGENTS.md).
+6. Before changing ts2hx, read
+   [`tools/ts2hx/AGENTS.md`](tools/ts2hx/AGENTS.md) and
+   [`docs/ts2hx/USAGE.md`](docs/ts2hx/USAGE.md).
+7. Find the smallest owning fixture and focused command in
+   [`docs/TESTING_STRATEGY.md`](docs/TESTING_STRATEGY.md). A snapshot proves
+   source shape; runtime, type-negative, declaration-consumer, source-map, and
+   transaction claims need their corresponding evidence owner.
+
+### Use the compiler
+
+From a fresh checkout:
+
+```bash
+corepack enable
+yarn install
+
+# Build, type-check, and run the small maintained dual-output example.
+yarn build:example:genes-ts
+
+# Build all maintained examples in their declared profiles.
+yarn test:examples
+```
+
+The smallest maintained HXML files are:
+
+- [`examples/typescript-target/build.hxml`](examples/typescript-target/build.hxml)
+  for Haxe to TypeScript (`-D genes.ts`);
+- [`examples/typescript-target/build.classic.hxml`](examples/typescript-target/build.classic.hxml)
+  for Haxe to direct ESM JavaScript and declarations.
+
+Do not infer the output profile from a filename alone. The Haxe command still
+uses `-js` in both cases because Genes is installed as a custom JavaScript
+generator. `-D genes.ts` selects TypeScript source; omitting it selects classic
+Genes JavaScript. Read [`docs/OUTPUT_MODES.md`](docs/OUTPUT_MODES.md) for the
+complete contract.
+
+### Use ts2hx
+
+```bash
+yarn --cwd tools/ts2hx build
+node tools/ts2hx/dist/cli.js --help
+
+# Translate the smallest checked fixture into a disposable Haxe tree.
+node tools/ts2hx/dist/cli.js \
+  --project tools/ts2hx/fixtures/minimal-codegen/tsconfig.json \
+  --out /tmp/ts2hx-out \
+  --runtime-profile genes-esm \
+  --clean
+```
+
+Exit `0` means the encountered program fit ts2hx's currently verified subset;
+it does not claim arbitrary TypeScript support. Inspect
+`/tmp/ts2hx-out/ts2hx-manifest.json`, then read
+[`docs/ts2hx/LIMITATIONS.md`](docs/ts2hx/LIMITATIONS.md) before relying on the
+translation. Use dts2hx or handwritten externs—not ts2hx—when the input is an
+npm package's declaration-only `.d.ts` surface.
+
+### Navigate by ownership
+
+| Question | Start here | Why |
+| --- | --- | --- |
+| How does a build enter Genes and publish files? | `src/genes/Generator.hx`, `src/genes/OutputTransaction.hx` | Generator coordinates one compilation; the transaction owns complete-tree publication and rollback. |
+| Which modules and imports survive? | `src/genes/DependencyPlan*.hx`, `src/genes/BindingIdentity.hx`, `src/genes/PublicSurface.hx` | Runtime, type-only, declaration-only, and side-effect facts have different identities and reachability rules. |
+| How is TypeScript emitted? | `src/genes/ts/TsModuleEmitter.hx`, `src/genes/ts/TsNarrowingPlan.hx` | The emitter owns TS syntax; the narrowing plan owns function-local flow facts. |
+| How is classic JavaScript emitted? | `src/genes/es/ModuleEmitter.hx`, `src/genes/es/ExprEmitter.hx` | Classic output is direct split ESM JavaScript and remains a first-class runtime profile. |
+| How are classic declarations emitted? | `src/genes/dts/DefinitionEmitter.hx`, `src/genes/dts/TypeEmitter.hx` | Declaration reachability is separate from classic runtime DCE. |
+| Where do shared runtime semantics live? | `src/genes/Register.hx`, `src/genes/js/`, `src/haxe/` | These preserve Haxe JavaScript behavior shared by both profiles. |
+| How do HXX and JSX work? | `src/genes/react/`, `src/genes/JsxTypeChecker.hx`, `src/genes/JsxPlan.hx` | Haxe validates markup first; all four JSX/createElement profiles consume one checked semantic plan. |
+| How does TS become Haxe? | `tools/ts2hx/src/project.ts`, `tools/ts2hx/src/semantic/`, `tools/ts2hx/src/haxe/` | TypeScript facts are normalized before the Haxe emitter publishes a transactional tree. |
+
+Use `rg` before browsing broad directories. Search for the emitted token,
+diagnostic ID, metadata name, or fixture command; then follow the owning plan
+or emitter named by the nearest documentation. Do not begin by editing a
+printer if the same decision affects more than one output surface.
+
+### Documentation authority
+
+- [`readme.md`](readme.md): product overview and shortest installation example.
+- [`docs/WORKFLOWS.md`](docs/WORKFLOWS.md): end-to-end commands for every
+  supported direction.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): compiler phases, semantic
+  ownership, source layout, and fixture routing.
+- [`docs/typescript-target/COMPILER_CONTRACT.md`](docs/typescript-target/COMPILER_CONTRACT.md):
+  generated TypeScript file, import, and define contract.
+- [`docs/typescript-target/INTEROP.md`](docs/typescript-target/INTEROP.md):
+  consuming JavaScript/TypeScript from Haxe and consuming generated output.
+- [`docs/TESTING_STRATEGY.md`](docs/TESTING_STRATEGY.md): focused versus full
+  gates and what each kind of evidence proves.
+- [`docs/TOOLCHAINS.md`](docs/TOOLCHAINS.md): pinned Node, Haxe, and TypeScript
+  lanes.
+- [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md): common setup, output,
+  import, source-map, and migration failures.
+
+If these instructions disagree with a more specific guide, verify the live
+code and commands, then repair the stale documentation in the same change.
+Documentation is part of the compiler contract, not an optional follow-up.
+
 The repo tracks the roadmap in `.beads/issues.jsonl` so a fresh checkout includes the current plan.
 Local runtime state (SQLite DB, daemon logs, etc) remains untracked.
 

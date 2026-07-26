@@ -10,6 +10,26 @@ This repo follows the **testing trophy**:
 - **Some runtime integration tests** (Node execution)
 - **A small number of E2E tests** (Playwright) for the example app
 
+## Agent and contributor guide contract
+
+The root and scoped `AGENTS.md` files are executable navigation contracts, not
+standalone copies of the manuals. They identify the current compiler profiles,
+source owners, user workflows, and focused test commands, then link to the
+authoritative long-form guides.
+
+Run:
+
+```bash
+yarn test:agent-guides
+```
+
+The gate verifies that local links and heading anchors resolve, the compiler
+and ts2hx owner maps name their required entrypoints, and the selected critical
+onboarding commands still have package-script owners. It intentionally does
+not discover every shell command, score prose, or check external websites;
+review remains responsible for clear explanations, command examples, and
+truthful support boundaries.
+
 ## Compiler
 
 ### 1) Classic Genes JS mode (baseline semantics)
