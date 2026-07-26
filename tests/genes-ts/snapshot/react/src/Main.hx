@@ -11,6 +11,11 @@ import genes.ts.Undefinable;
 
 typedef StringAccessor = Void->String;
 
+/** Ecosystem-owned facade for React's special, non-prop key attribute. */
+@:ts.type("import('react').Key")
+abstract ExternalReactKey(haxe.extern.EitherType<String, Int>) from String
+  from Int {}
+
 typedef StringSignal = {
   final get: StringAccessor;
   final set: String->Void;
@@ -36,6 +41,22 @@ typedef BroadNodeProps = {
 typedef GenericValueProps<T> = {
   final value: T;
   final render: T->String;
+}
+
+/**
+ * Models target-owned property spellings that are not legal Haxe identifiers.
+ *
+ * `@:native` keeps author code and component bodies type-safe through
+ * `ariaControls` and `onValue`, while HXX and emitted object fields use the
+ * external `aria-controls` and `on-value` names.
+ */
+typedef NativeFieldProps = {
+  @:native("aria-controls")
+  final ariaControls: String;
+  @:native("on-value")
+  final onValue: String->Void;
+  @:optional
+  final key: ExternalReactKey;
 }
 
 /** Base properties inherited by an extern component contract. */
@@ -153,6 +174,30 @@ class Main {
     />);
     if (inheritedHtml != '<aside data-tone="warm">Inherited</aside>')
       throw 'Unexpected inherited component HTML: ' + inheritedHtml;
+
+    var namedNativeValue = "";
+    final nativeFieldHtml = renderToStaticMarkup(<NativeField
+      key="native-field"
+      aria-controls="named-panel"
+      on-value={value -> namedNativeValue = value}
+    />);
+    if (nativeFieldHtml != '<section aria-controls="named-panel">named-panel</section>')
+      throw 'Unexpected native-field component HTML: ' + nativeFieldHtml;
+    if (namedNativeValue != "named-panel")
+      throw 'Unexpected native-field callback value: ' + namedNativeValue;
+
+    var spreadNativeValue = "";
+    final nativeFieldProps: NativeFieldProps = {
+      ariaControls: "spread-panel",
+      onValue: value -> spreadNativeValue = value
+    };
+    final nativeFieldSpreadHtml = renderToStaticMarkup(
+      <NativeField {...nativeFieldProps} />
+    );
+    if (nativeFieldSpreadHtml != '<section aria-controls="spread-panel">spread-panel</section>')
+      throw 'Unexpected native-field spread HTML: ' + nativeFieldSpreadHtml;
+    if (spreadNativeValue != "spread-panel")
+      throw 'Unexpected native-field spread callback value: ' + spreadNativeValue;
 
     final requiredChildHtml = renderToStaticMarkup(<RequiredChild><strong>required</strong></RequiredChild>);
     if (requiredChildHtml != '<section><strong>required</strong></section>')
@@ -371,6 +416,13 @@ class Main {
     return <aside data-tone={props.tone} onClick={props.onSelect}>
       {props.label}
     </aside>;
+  }
+
+  static function NativeField(props: NativeFieldProps): Element {
+    props.onValue(props.ariaControls);
+    return <section aria-controls={props.ariaControls}>
+      {props.ariaControls}
+    </section>;
   }
 
   static function RequiredChild(props: RequiredChildProps): Element {

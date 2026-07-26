@@ -36,6 +36,19 @@ export type GenericValueProps<T> = {
 }
 
 /**
+ * Models target-owned property spellings that are not legal Haxe identifiers.
+ *
+ * `@:native` keeps author code and component bodies type-safe through
+ * `ariaControls` and `onValue`, while HXX and emitted object fields use the
+ * external `aria-controls` and `on-value` names.
+ */
+export type NativeFieldProps = {
+	"aria-controls": string,
+	key?: import('react').Key | null,
+	"on-value": (arg0: string) => void
+}
+
+/**
  * Base properties inherited by an extern component contract.
  */
 export interface InheritedBaseProps {
@@ -156,6 +169,27 @@ export class Main {
 		if (inheritedHtml != "<aside data-tone=\"warm\">Inherited</aside>") {
 			throw Exception.thrown("Unexpected inherited component HTML: " + inheritedHtml);
 		};
+		let namedNativeValue: string = "";
+		let nativeFieldHtml: string = renderToStaticMarkup(React__genes_jsx.createElement(Main.NativeField, ({key: "native-field", "aria-controls": "named-panel", "on-value": function (value: string) {
+			namedNativeValue = value;
+		}} satisfies (React__genes_jsx.ComponentPropsWithRef<typeof Main.NativeField> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
+		if (nativeFieldHtml != "<section aria-controls=\"named-panel\">named-panel</section>") {
+			throw Exception.thrown("Unexpected native-field component HTML: " + nativeFieldHtml);
+		};
+		if (namedNativeValue != "named-panel") {
+			throw Exception.thrown("Unexpected native-field callback value: " + namedNativeValue);
+		};
+		let spreadNativeValue: string = "";
+		let nativeFieldProps: NativeFieldProps = {"aria-controls": "spread-panel", "on-value": function (value: string) {
+			spreadNativeValue = value;
+		}};
+		let nativeFieldSpreadHtml: string = renderToStaticMarkup(React__genes_jsx.createElement(Main.NativeField, ({...nativeFieldProps} satisfies (React__genes_jsx.ComponentPropsWithRef<typeof Main.NativeField> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
+		if (nativeFieldSpreadHtml != "<section aria-controls=\"spread-panel\">spread-panel</section>") {
+			throw Exception.thrown("Unexpected native-field spread HTML: " + nativeFieldSpreadHtml);
+		};
+		if (spreadNativeValue != "spread-panel") {
+			throw Exception.thrown("Unexpected native-field spread callback value: " + spreadNativeValue);
+		};
 		let requiredChildHtml: JSX.Element = React__genes_jsx.createElement("strong", null, "required");
 		let requiredChildHtml1: string = renderToStaticMarkup(React__genes_jsx.createElement(Main.RequiredChild, ({children: requiredChildHtml} satisfies (React__genes_jsx.ComponentPropsWithRef<typeof Main.RequiredChild> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined }))));
 		if (requiredChildHtml1 != "<section><strong>required</strong></section>") {
@@ -236,7 +270,7 @@ export class Main {
 			throw Exception.thrown("Unexpected absent href HTML: " + absentHrefHtml);
 		};
 		let contextualInput: JSX.Element = React__genes_jsx.createElement("input", ({onChange: function (event: import('react').ChangeEvent<HTMLInputElement>) {
-			console.log("tests/genes-ts/snapshot/react/src/Main.hx:264:",event.target.value);
+			console.log("tests/genes-ts/snapshot/react/src/Main.hx:309:",event.target.value);
 			event.target.select();
 			event.target.setSelectionRange(0, 0);
 		}} satisfies (React__genes_jsx.ComponentPropsWithRef<"input"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
@@ -332,6 +366,10 @@ export class Main {
 	}
 	static InheritedCard(props: InheritedCardProps): JSX.Element {
 		return React__genes_jsx.createElement("aside", ({"data-tone": props.tone, onClick: props.onSelect} satisfies (React__genes_jsx.ComponentPropsWithRef<"aside"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), props.label);
+	}
+	static NativeField(props: NativeFieldProps): JSX.Element {
+		props["on-value"](props["aria-controls"]);
+		return React__genes_jsx.createElement("section", ({"aria-controls": props["aria-controls"]} satisfies (React__genes_jsx.ComponentPropsWithRef<"section"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), props["aria-controls"]);
 	}
 	static RequiredChild(props: RequiredChildProps): JSX.Element {
 		return React__genes_jsx.createElement("section", null, props.children);

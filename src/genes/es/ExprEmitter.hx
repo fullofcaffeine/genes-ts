@@ -1485,19 +1485,27 @@ class ExprEmitter extends Emitter {
   function emitField(name: String) {
     if (isComputedMemberName(name))
       write(name)
-    else if (IdentifierPolicy.isKeyword(name))
-      write('["${name}"]')
-    else
+    else if (IdentifierPolicy.isAsciiIdentifier(name)
+      && !IdentifierPolicy.isKeyword(name))
       write('.${name}');
+    else {
+      write('[');
+      emitString(name);
+      write(']');
+    }
   }
 
   public function emitMemberName(name: String) {
     if (isComputedMemberName(name))
       write(name);
-    else if (IdentifierPolicy.isKeyword(name))
-      write('["${name}"]');
-    else
+    else if (IdentifierPolicy.isAsciiIdentifier(name)
+      && !IdentifierPolicy.isKeyword(name))
       write(name);
+    else {
+      write('[');
+      emitString(name);
+      write(']');
+    }
   }
 
   static function isComputedMemberName(name: String): Bool {
