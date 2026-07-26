@@ -1,3 +1,11 @@
+## [1.38.2](https://github.com/fullofcaffeine/genes-ts/compare/v1.38.1...v1.38.2) (2026-07-26)
+
+
+### Bug Fixes
+
+* emit immutable locals as const ([#46](https://github.com/fullofcaffeine/genes-ts/issues/46)) ([f8b1e0c](https://github.com/fullofcaffeine/genes-ts/commit/f8b1e0ccc513035bf47ecf115289a420ce77508a))
+* **types:** preserve exact Regroup declaration identity ([#47](https://github.com/fullofcaffeine/genes-ts/issues/47)) ([3197036](https://github.com/fullofcaffeine/genes-ts/commit/3197036250018468320d66d1847dfd402bc293ab))
+
 ## [1.38.1](https://github.com/fullofcaffeine/genes-ts/compare/v1.38.0...v1.38.1) (2026-07-26)
 
 
