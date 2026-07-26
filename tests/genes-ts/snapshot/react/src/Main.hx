@@ -11,6 +11,11 @@ import genes.ts.Undefinable;
 
 typedef StringAccessor = Void->String;
 
+/** Ecosystem-owned facade for React's special, non-prop key attribute. */
+@:ts.type("import('react').Key")
+abstract ExternalReactKey(haxe.extern.EitherType<String, Int>) from String
+  from Int {}
+
 typedef StringSignal = {
   final get: StringAccessor;
   final set: String->Void;
@@ -50,6 +55,8 @@ typedef NativeFieldProps = {
   final ariaControls: String;
   @:native("on-value")
   final onValue: String->Void;
+  @:optional
+  final key: ExternalReactKey;
 }
 
 /** Base properties inherited by an extern component contract. */
@@ -170,6 +177,7 @@ class Main {
 
     var namedNativeValue = "";
     final nativeFieldHtml = renderToStaticMarkup(<NativeField
+      key="native-field"
       aria-controls="named-panel"
       on-value={value -> namedNativeValue = value}
     />);

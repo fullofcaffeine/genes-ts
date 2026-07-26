@@ -208,7 +208,13 @@ class JsxTypeChecker {
           if (name == 'children')
             childrenPresence = Definite;
           final field = schema.fields.get(name);
-          if (field != null) {
+          if (name == 'key') {
+            if (!isNullLiteral(value) && !isKey(value.t))
+              fail('GTS-HXX-PROP-002',
+                '$label property `key` expects ' +
+                '`String | Int | Float` but received `${typeName(value.t)}`',
+                value.pos);
+          } else if (field != null) {
             requireAssignable(value.t, field.type, bindings,
               'GTS-HXX-PROP-002',
               '$label property `$name` expects `${typeName(field.type)}` but ' +
@@ -216,12 +222,6 @@ class JsxTypeChecker {
               value.pos,
               isNullLiteral(value), field.optional && (field.allowsUndefined
                 || schema.optionalValuesAllowUndefined));
-          } else if (name == 'key') {
-            if (!isNullLiteral(value) && !isKey(value.t))
-              fail('GTS-HXX-PROP-002',
-                '$label property `key` expects ' +
-                '`String | Int` but received `${typeName(value.t)}`',
-                value.pos);
           } else {
             final prefix = matchingPrefix(name, acceptedPrefixes);
             if (prefix == null)
@@ -247,7 +247,14 @@ class JsxTypeChecker {
               childrenPresence = combineChildrenPresence(childrenPresence,
                 actual.optional ? Possible : Definite);
             final expected = schema.fields.get(name);
-            if (expected != null) {
+            if (name == 'key') {
+              if (!isKey(actual.type))
+                fail('GTS-HXX-SPREAD-002',
+                  '$label spread property `key` ' +
+                  'expects `String | Int | Float` but received ' +
+                  '`${typeName(actual.type)}`',
+                  expression.pos);
+            } else if (expected != null) {
               // An optional spread field cannot satisfy a required property,
               // regardless of its payload type. Leave it marked as missing so
               // the later required-property check reports the useful problem.
@@ -268,13 +275,6 @@ class JsxTypeChecker {
                   false, expected.optional && (expected.allowsUndefined
                     || schema.optionalValuesAllowUndefined));
               }
-            } else if (name == 'key') {
-              if (!isKey(actual.type))
-                fail('GTS-HXX-SPREAD-002',
-                  '$label spread property `key` ' +
-                  'expects `String | Int` but received ' +
-                  '`${typeName(actual.type)}`',
-                  expression.pos);
             } else {
               final prefix = matchingPrefix(name, acceptedPrefixes);
               if (prefix == null)

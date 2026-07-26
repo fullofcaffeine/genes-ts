@@ -43,6 +43,7 @@ export type GenericValueProps<T> = {
  */
 export type NativeFieldProps = {
 	"aria-controls": string,
+	key?: import('react').Key | null,
 	"on-value": (arg0: string) => void
 }
 
@@ -167,7 +168,7 @@ export class Main {
 			throw Exception.thrown("Unexpected inherited component HTML: " + inheritedHtml);
 		};
 		let namedNativeValue: string = "";
-		let nativeFieldHtml: string = renderToStaticMarkup(<Main.NativeField aria-controls="named-panel" on-value={function (value: string) {
+		let nativeFieldHtml: string = renderToStaticMarkup(<Main.NativeField key="native-field" aria-controls="named-panel" on-value={function (value: string) {
 			namedNativeValue = value;
 		}} />);
 		if (nativeFieldHtml != "<section aria-controls=\"named-panel\">named-panel</section>") {
@@ -267,7 +268,7 @@ export class Main {
 			throw Exception.thrown("Unexpected absent href HTML: " + absentHrefHtml);
 		};
 		let contextualInput: JSX.Element = <input onChange={function (event: import('react').ChangeEvent<HTMLInputElement>) {
-			console.log("tests/genes-ts/snapshot/react/src/Main.hx:301:",event.target.value);
+			console.log("tests/genes-ts/snapshot/react/src/Main.hx:309:",event.target.value);
 			event.target.select();
 			event.target.setSelectionRange(0, 0);
 		}} />;
