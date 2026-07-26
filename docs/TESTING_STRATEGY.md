@@ -67,6 +67,7 @@ yarn test:output-quality # exact maps, clean hashes, and reviewed budgets
 yarn test:output-transaction # failure atomicity and stale-file ownership
 yarn test:interop:module-shapes # npm declaration/runtime import contracts
 yarn test:library-profile # default DCE vs matched TS/classic library surfaces
+yarn test:dynamic-import-policy # cold/warm runtime-suffix equivalence
 yarn benchmark:dependency-plan # report-only scaling experiment for large import graphs
 ```
 
@@ -113,6 +114,20 @@ marked facade, signature-only classes, and required abstract runtime helpers in
 both classic JS/`.d.ts` and TypeScript implementation output. Strict consumers
 reject private or nonexistent members, both runtimes execute, and classic mode
 without `-D dts` must fail before publishing output.
+
+The dynamic-import policy gate owns one real Haxe compiler server rather than
+attaching to an ambient process. It builds `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`,
+and extensionless profiles cold and in a repeated warm sequence. Every warm
+tree must hash exactly like its isolated cold build; ordinary `.ts`/`.tsx`
+surfaces must pass TS 5/6/7, the classic `.mjs` request must execute, and the
+exact `import()` token must map to the authored Haxe macro call. The
+extensionless TS profile proves request spelling and cold/warm equality only,
+because its application or bundler owns module resolution. The harness uses
+`finally` to terminate its child after normal success or a handled failure and
+rejects leaked transaction stages, output sentinels, or compiler-only carrier
+names. Injected failure, signal/interruption cleanup, and unrelated-process
+controls belong to the separate whole-compiler server-lifecycle gate rather
+than this suffix-policy fixture.
 
 ### Compatibility evidence and downstream pressure tests
 

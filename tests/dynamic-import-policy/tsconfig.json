@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "jsx": "preserve",
+    "strict": true,
+    "types": ["node"],
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": false,
+    "noEmit": true
+  },
+  "include": [
+    "out/cold/ts/**/*.ts",
+    "out/cold/tsx/**/*.tsx"
+  ]
+}

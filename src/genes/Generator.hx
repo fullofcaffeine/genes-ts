@@ -345,6 +345,21 @@ class Generator {
     outputTransaction.commit();
   }
 
+  /**
+   * Returns whether one module belongs in the current generated output tree.
+   *
+   * Why: a warm Haxe compilation server may reuse typed declarations and their
+   * metadata across requests. `onGenerate` stamps every type with this
+   * generator's current request number, but older stamps can remain attached
+   * to a cached type. Requiring exactly one stamp caused later builds to omit
+   * otherwise current modules such as dynamic-import chunks and standard
+   * library support.
+   *
+   * What/How: exposed and main modules remain direct roots. Other declarations
+   * qualify when any `@:genes.generate` entry matches the current `generation`
+   * number. Old request stamps are ignored; they neither retain stale modules
+   * nor hide a type that was visited again in this request.
+   */
   static function needsGen(module: Module) {
     if (module.expose.length > 0)
       return true;
@@ -352,10 +367,13 @@ class Generator {
       switch member {
         case MClass({meta: meta}, _, _) | MEnum({meta: meta}, _) |
           MType({meta: meta}, _):
-          switch meta.extract(':genes.generate') {
-            case [{params: [{expr: EConst(CInt(gen))}]}]:
-              return true;
-            default:
+          for (entry in meta.extract(':genes.generate')) {
+            switch entry.params {
+              case [{expr: EConst(CInt(stampedGeneration))}]
+                if (stampedGeneration == Std.string(generation)):
+                return true;
+              default:
+            }
           }
         case MMain(_):
           return true;

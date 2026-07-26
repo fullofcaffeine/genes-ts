@@ -28,6 +28,7 @@ run("node", ["scripts/dist/test-genes-ts.js"]);
 run("node", ["scripts/dist/test-explicit-type-arguments.js"]);
 run("node", ["scripts/dist/test-genes-ts-minimal.js"]);
 run("node", ["scripts/dist/test-genes-ts-full.js"]);
+run("node", ["scripts/dist/test-dynamic-import-policy.js"]);
 run("node", ["scripts/dist/test-genes-tsx.js"]);
 run("node", ["scripts/dist/test-package-shapes.js"]);
 run("node", ["scripts/dist/probe-binding-identity.js"]);
