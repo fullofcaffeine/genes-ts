@@ -4,6 +4,7 @@ import genes.JsxPlan.JsxChildIntent;
 import genes.JsxPlan.JsxIntent;
 import genes.JsxPlan.JsxPropIntent;
 import genes.JsxPlan.JsxTagIntent;
+import genes.util.TypeUtil;
 import haxe.macro.Context;
 import haxe.macro.Expr;
 import haxe.macro.Type;
@@ -671,8 +672,9 @@ class JsxTypeChecker {
         parameters, concrete);
       final presentType = parameters.length == 0 ? nullish.valueType : TypeTools.applyTypeParameters(nullish.valueType,
         parameters, concrete);
-      out.set(field.name, {
-        name: field.name,
+      final emittedName = TypeUtil.classFieldName(field);
+      out.set(emittedName, {
+        name: emittedName,
         type: declaredType,
         presentType: presentType,
         optional: hasMeta(field.meta, 'optional'),

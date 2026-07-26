@@ -1,6 +1,7 @@
 package genes.react.internal;
 
 #if macro
+import genes.util.TypeUtil;
 import haxe.macro.Context;
 import haxe.macro.Expr;
 import haxe.macro.Expr.ComplexType;
@@ -260,7 +261,10 @@ class JsxContext {
   static function propertyFields(type: Type): Null<Map<String, Type>> {
     return switch resolveAliases(type) {
       case TAnonymous(anonymous):
-        [for (field in anonymous.get().fields) field.name => field.type];
+        [
+          for (field in anonymous.get().fields)
+            TypeUtil.classFieldName(field) => field.type
+        ];
       case TInst(classRef, parameters):
         final classType = classRef.get();
         if (!classType.isExtern && !classType.isInterface) null; else
@@ -294,7 +298,7 @@ class JsxContext {
     }
     for (field in classType.fields.get())
       if (field.isPublic)
-        out.set(field.name,
+        out.set(TypeUtil.classFieldName(field),
           TypeTools.applyTypeParameters(field.type, classType.params,
             parameters));
     return out;

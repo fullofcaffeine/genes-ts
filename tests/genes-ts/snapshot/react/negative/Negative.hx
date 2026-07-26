@@ -13,6 +13,11 @@ typedef RequiredProps = {
   final label: String;
 }
 
+typedef NativeFieldProps = {
+  @:native("aria-controls")
+  final ariaControls: String;
+}
+
 typedef TextChildProps = {
   final children: String;
 }
@@ -172,6 +177,10 @@ extern interface InheritedExtraProps extends InheritedRequiredProps {
 class Negative {
   static function Button(props: RequiredProps): Element {
     return <button>{props.label}</button>;
+  }
+
+  static function NativeField(props: NativeFieldProps): Element {
+    return <span>{props.ariaControls}</span>;
   }
 
   static function ToneButton(props: ToneProps): Element {
@@ -347,6 +356,8 @@ class Negative {
     final value = <Button label={123} />;
     #elseif hxx_negative_component_duplicate
     final value = <Button label="Save" label="Again" />;
+    #elseif hxx_negative_native_component_wrong
+    final value = <NativeField aria-controls={42} />;
     #elseif hxx_negative_unexpected_child
     final value = <Button label="Save">wrong</Button>;
     #elseif hxx_negative_wrong_child

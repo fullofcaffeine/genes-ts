@@ -2,6 +2,7 @@ package genes.dts;
 
 import genes.SourceMapGenerator;
 import genes.ExternTypeContract;
+import genes.IdentifierPolicy;
 import genes.NullishContract;
 import genes.NullishContract.NullishMissingValue;
 import haxe.macro.Type;
@@ -715,7 +716,12 @@ class TypeEmitter {
             emitPos(field.pos);
             if (field.doc != null)
               writer.emitComment(field.doc);
-            write(TypeUtil.classFieldName(field));
+            final fieldName = TypeUtil.classFieldName(field);
+            write((StringTools.startsWith(fieldName, "[")
+              && StringTools.endsWith(fieldName, "]"))
+              || IdentifierPolicy.isAsciiIdentifier(fieldName)
+              ? fieldName
+              : Json.stringify(fieldName));
             if (field.meta.has(':optional')
               || genes.ts.StdlibTypeOverrides.isOptionalAnonymousField(anon,
                 field))

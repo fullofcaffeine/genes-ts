@@ -353,6 +353,7 @@ function assertHaxeHxxNegatives(): void {
     ["hxx_negative_component_extra", "GTS-HXX-PROP-001"],
     ["hxx_negative_component_wrong", "GTS-HXX-PROP-002"],
     ["hxx_negative_component_duplicate", "GTS-HXX-PROP-003"],
+    ["hxx_negative_native_component_wrong", "GTS-HXX-PROP-002"],
     ["hxx_negative_unexpected_child", "GTS-HXX-CHILD-001"],
     ["hxx_negative_wrong_child", "GTS-HXX-CHILD-003"],
     ["hxx_negative_missing_child", "GTS-HXX-CHILD-002"],
