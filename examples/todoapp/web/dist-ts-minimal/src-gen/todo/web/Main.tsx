@@ -7,11 +7,11 @@ import type {ReactComponent} from "./ReactTypes"
 
 export class Main {
 	static main(): void {
-		let el: HTMLElement | null = window.document.getElementById("root");
+		const el: HTMLElement | null = window.document.getElementById("root");
 		if (el == null) {
 			throw Exception.thrown("Missing #root");
 		};
-		let AppComponent: ReactComponent = App.Component;
+		const AppComponent: ReactComponent = App.Component;
 		ReactDomClient.createRoot(el).render(<AppComponent />);
 	}
 	static get __name__(): string {

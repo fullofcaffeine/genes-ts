@@ -6,12 +6,12 @@ import type {HxRegistry} from "../../genes/Register.js"
 
 export class Main {
 	static main(): void {
-		let _: MyClass = new MyClass(1);
-		let __: MyEnum = MyEnum.B(2);
-		let hxClasses: HxRegistry = Register.global("$hxClasses");
-		let hxEnums: HxRegistry = Register.global("$hxEnums");
-		let classKey: string = "my.app.MyClass";
-		let enumKey: string = "my.app.MyEnum";
+		const _: MyClass = new MyClass(1);
+		const __: MyEnum = MyEnum.B(2);
+		const hxClasses: HxRegistry = Register.global("$hxClasses");
+		const hxEnums: HxRegistry = Register.global("$hxEnums");
+		const classKey: string = "my.app.MyClass";
+		const enumKey: string = "my.app.MyEnum";
 		if (Object.prototype.hasOwnProperty.call(hxClasses, classKey)) {
 			throw Exception.thrown("minimal_runtime should not register classes in $hxClasses");
 		};
@@ -24,7 +24,7 @@ export class Main {
 		if ((Register.hxEnums()[enumKey] ?? null) != null) {
 			throw Exception.thrown("minimal_runtime should make Type.resolveEnum(...) return null");
 		};
-		let className: string = MyClass.__name__;
+		const className: string = MyClass.__name__;
 		if (className != classKey) {
 			throw Exception.thrown("minimal_runtime should keep Type.getClassName working (got " + className + ")");
 		};

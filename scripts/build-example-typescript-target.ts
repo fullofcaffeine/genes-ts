@@ -97,8 +97,8 @@ const generatedClassic = readFileSync(
   path.join(exampleRoot, "classic-src-gen/my/app/Main.js"),
   "utf8"
 );
-match(generatedTs, /let g: Greeter = new Greeter/);
-match(generatedClassic, /let g = new Greeter/);
-doesNotMatch(generatedClassic, /let g: Greeter/);
+match(generatedTs, /const g: Greeter = new Greeter/);
+match(generatedClassic, /const g = new Greeter/);
+doesNotMatch(generatedClassic, /const g: Greeter/);
 
 console.log("typescript-target example passed (ts-strict + classic-esm).");

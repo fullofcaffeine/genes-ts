@@ -38,7 +38,7 @@ boundaries.
 | Complete-tree staging, stale cleanup, rollback | `OutputTransaction.hx`, `Writer.hx`, `SourceMapGenerator.hx` |
 | Runtime/type/declaration/side-effect dependencies | `DependencyPlan.hx`, `DependencyPlanBuilder.hx`, `Dependencies.hx`, `BindingIdentity.hx` |
 | Pre-DCE reusable/public contract | `PublicSurface.hx`, `LibraryProfile.hx`, `TypeReferenceCollector.hx` |
-| Deterministic emitted names and required temporaries | `NamePlan.hx`, `TempPlan.hx`, `EmittedMemberName.hx` |
+| Deterministic emitted names, local mutability, and required temporaries | `NamePlan.hx`, `LocalBindingPlan.hx`, `TempPlan.hx`, `EmittedMemberName.hx` |
 | Haxe `null`, JavaScript `undefined`, missing values | `NullishContract.hx` |
 | JSX meaning and Haxe-side validation | `JsxTypeChecker.hx`, `JsxPlan.hx`, `react/` |
 | TypeScript implementation syntax and flow narrowing | `ts/TsModuleEmitter.hx`, `ts/TsNarrowingPlan.hx`, `ts/SignatureCache.hx` |

@@ -8,6 +8,7 @@
     "iterator:6",
     "exception:boom",
     "evaluation:receiver>index>rhs:3",
+    "locals:fixed:after:later:captured:1:pattern!:2,4",
     "switch:two",
     "import:dual/mode",
     "resource:portable-resource",

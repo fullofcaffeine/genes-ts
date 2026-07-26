@@ -14,11 +14,11 @@ export class Register {
 	 * heterogeneous registries like `$hxClasses` and `$hxEnums`.
 	 */
 	static global(name: string): HxRegistry {
-		let existing: HxRegistry | null = (Register.globals[name] ?? null);
+		const existing: HxRegistry | null = (Register.globals[name] ?? null);
 		if (existing != null) {
 			return existing;
 		};
-		let created: HxRegistry = Object.create(null);
+		const created: HxRegistry = Object.create(null);
 		Register.globals[name] = created;
 		return created;
 	}
@@ -123,7 +123,7 @@ export class Register {
 				return Register.unsafeCast<(() => Iterator<T>)>(typeof a.iterator === "function" ? a.iterator.bind(a) : a.iterator);
 			} else {
 				return function () {
-					let keys: Iterator<any> = Register.unsafeCast<Iterator<any>>((a!).keys());
+					const keys: Iterator<any> = Register.unsafeCast<Iterator<any>>((a!).keys());
 					return {"hasNext": function () {
 						return keys.hasNext();
 					}, "next": function () {
@@ -132,7 +132,7 @@ export class Register {
 				};
 			};
 		} else {
-			let a1: T[] = a;
+			const a1: T[] = a;
 			return function () {
 				return Register.mkIter(a1);
 			};
@@ -143,7 +143,7 @@ export class Register {
 			if ("iterator" in a) {
 				return Register.unsafeCast<Iterator<T>>(a.iterator());
 			} else {
-				let keys: Iterator<any> = Register.unsafeCast<Iterator<any>>((a!).keys());
+				const keys: Iterator<any> = Register.unsafeCast<Iterator<any>>((a!).keys());
 				return {"hasNext": function () {
 					return keys.hasNext();
 				}, "next": function () {

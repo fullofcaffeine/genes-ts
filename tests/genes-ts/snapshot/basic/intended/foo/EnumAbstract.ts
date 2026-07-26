@@ -21,28 +21,28 @@ export class EnumAbstract {
 		return EnumAbstract.accepts("default");
 	}
 	static localDemo(): "default" | "force-cache" | "no-cache" | "no-store" | "only-if-cached" | "reload" {
-		let cache: "default" | "force-cache" | "no-cache" | "no-store" | "only-if-cached" | "reload" = EnumAbstract.select();
+		const cache: "default" | "force-cache" | "no-cache" | "no-store" | "only-if-cached" | "reload" = EnumAbstract.select();
 		return EnumAbstract.accepts(cache);
 	}
 	static fieldLocalDemo(): "default" | "force-cache" | "no-cache" | "no-store" | "only-if-cached" | "reload" {
-		let cache: "default" | "force-cache" | "no-cache" | "no-store" | "only-if-cached" | "reload" = EnumAbstract.ClassField;
+		const cache: "default" | "force-cache" | "no-cache" | "no-store" | "only-if-cached" | "reload" = EnumAbstract.ClassField;
 		return EnumAbstract.accepts(cache);
 	}
 	static recordValue(): CacheRecord {
 		return {"cache": "force-cache", "nested": {"cache": "only-if-cached"}};
 	}
 	static recordDemo(): string {
-		let records_0: CacheRecord = EnumAbstract.recordValue();
-		let cache: "default" | "force-cache" | "no-cache" | "no-store" | "only-if-cached" | "reload" = records_0.cache;
-		let nestedCache: "default" | "force-cache" | "no-cache" | "no-store" | "only-if-cached" | "reload" = records_0.nested.cache;
+		const records_0: CacheRecord = EnumAbstract.recordValue();
+		const cache: "default" | "force-cache" | "no-cache" | "no-store" | "only-if-cached" | "reload" = records_0.cache;
+		const nestedCache: "default" | "force-cache" | "no-cache" | "no-store" | "only-if-cached" | "reload" = records_0.nested.cache;
 		return EnumAbstract.accepts(EnumAbstract.ClassField) + ":" + EnumAbstract.accepts(cache) + ":" + EnumAbstract.accepts(nestedCache);
 	}
 	static arrayLoopDemo(): string {
 		let count: number = 0;
-		let cache: string = "default";
+		const cache: string = "default";
 		EnumAbstract.accepts((cache as "default" | "force-cache" | "no-cache" | "no-store" | "only-if-cached" | "reload"));
 		++count;
-		let cache1: string = "reload";
+		const cache1: string = "reload";
 		EnumAbstract.accepts((cache1 as "default" | "force-cache" | "no-cache" | "no-store" | "only-if-cached" | "reload"));
 		++count;
 		if (count == null) {

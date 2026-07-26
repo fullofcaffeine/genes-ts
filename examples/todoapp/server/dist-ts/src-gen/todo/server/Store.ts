@@ -31,9 +31,9 @@ export class Store extends Register.inherits() {
 	}
 	get(id: string): Todo | null {
 		let _g: number = 0;
-		let _g1: Todo[] = this.todos;
+		const _g1: Todo[] = this.todos;
 		while (_g < _g1.length) {
-			let t: Todo = _g1[_g]!;
+			const t: Todo = _g1[_g]!;
 			++_g;
 			if (t.id == id) {
 				return t;
@@ -42,14 +42,14 @@ export class Store extends Register.inherits() {
 		return null;
 	}
 	create(title: string): Todo {
-		let now: string = Store.nowIso();
-		let todo: Todo = {"id": TodoId.create(), "title": title, "completed": false, "createdAt": now, "updatedAt": now};
+		const now: string = Store.nowIso();
+		const todo: Todo = {"id": TodoId.create(), "title": title, "completed": false, "createdAt": now, "updatedAt": now};
 		this.todos.push(todo);
 		this.save();
 		return todo;
 	}
 	update(id: string, patch: UpdateTodoBody): Todo | null {
-		let todo: Todo | null = this.get(id);
+		const todo: Todo | null = this.get(id);
 		if (todo == null) {
 			return null;
 		};
@@ -65,9 +65,9 @@ export class Store extends Register.inherits() {
 	}
 	remove(id: string): boolean {
 		let _g_1: number = 0;
-		let _g1_1: number = this.todos.length;
+		const _g1_1: number = this.todos.length;
 		while (_g_1 < _g1_1) {
-			let i: number = _g_1++;
+			const i: number = _g_1++;
 			if (this.todos[i]!.id == id) {
 				this.todos.splice(i, 1);
 				this.save();
@@ -84,20 +84,20 @@ export class Store extends Register.inherits() {
 			if (!Fs.existsSync(Register.unsafeCast<import("node:fs").PathLike>(this.dataPath))) {
 				return;
 			};
-			let raw: string = Fs.readFileSync(Register.unsafeCast<import("node:fs").PathLike>(this.dataPath), "utf8");
-			let parsed: PersistedStore = JSON.parse(raw);
-			let arr: Todo[] = parsed.todos;
+			const raw: string = Fs.readFileSync(Register.unsafeCast<import("node:fs").PathLike>(this.dataPath), "utf8");
+			const parsed: PersistedStore = JSON.parse(raw);
+			const arr: Todo[] = parsed.todos;
 			if (arr == null) {
 				return;
 			};
 			let _g_2: number = 0;
 			while (_g_2 < arr.length) {
-				let t: Todo = arr[_g_2]!;
+				const t: Todo = arr[_g_2]!;
 				++_g_2;
 				this.todos.push(t);
 			};
 		}catch (_g_3) {
-			let e: Exception = Exception.caught(_g_3);
+			const e: Exception = Exception.caught(_g_3);
 			this.console.error("Failed to load data:", e);
 		};
 	}
@@ -106,12 +106,12 @@ export class Store extends Register.inherits() {
 			return;
 		};
 		try {
-			let payload: {
+			const payload: {
 				todos: Todo[]
 			} = {"todos": this.todos};
 			Fs.writeFileSync(Register.unsafeCast<import("node:fs").PathLike>(this.dataPath), JSON.stringify(payload, null, "  "), "utf8");
 		}catch (_g_4) {
-			let e: Exception = Exception.caught(_g_4);
+			const e: Exception = Exception.caught(_g_4);
 			this.console.error("Failed to save data:", e);
 		};
 	}

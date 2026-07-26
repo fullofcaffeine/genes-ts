@@ -28,7 +28,7 @@ export class Std {
 	 * digit, the result is unspecified.
 	 */
 	static parseInt(x: string): number | null {
-		let v: number = parseInt(x);
+		const v: number = parseInt(x);
 		if ((isNaN)(v)) {
 			return null;
 		};

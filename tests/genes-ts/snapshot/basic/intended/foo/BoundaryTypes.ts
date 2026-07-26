@@ -140,7 +140,7 @@ export class BoundaryTypes {
 		return {"name": undefined};
 	}
 	static localMissingName(): MaybeName {
-		let name: MaybeName = undefined;
+		const name: MaybeName = undefined;
 		return name;
 	}
 	static chooseName(present: boolean): MaybeName {
@@ -151,30 +151,30 @@ export class BoundaryTypes {
 		};
 	}
 	static assignMissingName(): MutableMaybeNameRecord {
-		let out: MutableMaybeNameRecord = {"name": "Ada"};
+		const out: MutableMaybeNameRecord = {"name": "Ada"};
 		out.name = undefined;
 		return out;
 	}
 	static assignChosenName(present: boolean): MutableMaybeNameRecord {
-		let out: MutableMaybeNameRecord = {"name": undefined};
+		const out: MutableMaybeNameRecord = {"name": undefined};
 		out.name = (present) ? "Ada" : undefined;
 		return out;
 	}
 	static conditionalFlagRecord(present: boolean): MaybeFlagRecord {
-		let enabled: boolean | null = (present) ? true : null;
+		const enabled: boolean | null = (present) ? true : null;
 		return {"enabled": (enabled == null) ? undefined : enabled};
 	}
 	static conditionalFlagBridge(present: boolean): { enabled: boolean | undefined } {
-		let enabled: boolean | null = (present) ? true : null;
+		const enabled: boolean | null = (present) ? true : null;
 		return {"enabled": (enabled == null) ? undefined : enabled};
 	}
 	static optionalMissingName(): OptionalMaybeNameRecord {
-		let out: OptionalMaybeNameRecord = {};
+		const out: OptionalMaybeNameRecord = {};
 		out.name = undefined;
 		return out;
 	}
 	static optionalDirectMissingName(): OptionalDirectUndefinableRecord {
-		let out: OptionalDirectUndefinableRecord = {};
+		const out: OptionalDirectUndefinableRecord = {};
 		out.name = undefined;
 		return out;
 	}
@@ -184,10 +184,10 @@ export class BoundaryTypes {
 		}, "nested": {"raw": "source"}};
 	}
 	static fieldOverrideSummary(record: FieldOverrideRecord): string {
-		let label: string | null = ((record.label ?? null) == null) ? "missing" : (record.label!);
-		let tagCount: number = ((record.tags ?? null) == null) ? 0 : (record.tags!).length;
-		let parsed: number = ((record.parse ?? null) == null) ? -1 : (record.parse!)("typed");
-		let nested: string = ((record.nested ?? null) == null) ? "missing" : (record.nested!).raw;
+		const label: string | null = ((record.label ?? null) == null) ? "missing" : (record.label!);
+		const tagCount: number = ((record.tags ?? null) == null) ? 0 : (record.tags!).length;
+		const parsed: number = ((record.parse ?? null) == null) ? -1 : (record.parse!)("typed");
+		const nested: string = ((record.nested ?? null) == null) ? "missing" : (record.nested!).raw;
 		return label + ":" + tagCount + ":" + parsed + ":" + nested;
 	}
 	static tsOptionalRecord(): TsOptionalRecord {
@@ -202,11 +202,11 @@ export class BoundaryTypes {
 		return {"label": ((record.label ?? null) ?? undefined), "tags": ((record.tags ?? null) ?? undefined), "nested": ((record.nested ?? null) ?? undefined), "kind": ((record.kind ?? null) ?? undefined)};
 	}
 	static tsOptionalSummary(record: TsOptionalRecord): string {
-		let label: string | null = ((record.label ?? null) == null) ? "missing" : (record.label!);
-		let tagCount: number = ((record.tags ?? null) == null) ? 0 : (record.tags!).length;
-		let parsed: number = ((record.parse ?? null) == null) ? -1 : (record.parse!)("typed");
-		let nested: string = ((record.nested ?? null) == null) ? "missing" : (record.nested!).raw;
-		let kind: string = ((record.kind ?? null) == null) ? "missing" : BoundaryTypes.optionalKindLabel((record.kind!));
+		const label: string | null = ((record.label ?? null) == null) ? "missing" : (record.label!);
+		const tagCount: number = ((record.tags ?? null) == null) ? 0 : (record.tags!).length;
+		const parsed: number = ((record.parse ?? null) == null) ? -1 : (record.parse!)("typed");
+		const nested: string = ((record.nested ?? null) == null) ? "missing" : (record.nested!).raw;
+		const kind: string = ((record.kind ?? null) == null) ? "missing" : BoundaryTypes.optionalKindLabel((record.kind!));
 		return label + ":" + tagCount + ":" + parsed + ":" + nested + ":" + kind;
 	}
 	static optionalKindLabel(kind: "primary" | "secondary"): string {
@@ -219,12 +219,12 @@ export class BoundaryTypes {
 		if (value == null) {
 			return undefined;
 		};
-		let present: string = value;
+		const present: string = value;
 		return present;
 	}
 	static guardedUpper(value: string | null): string {
 		if (value != null) {
-			let present: string = value;
+			const present: string = value;
 			return present.toUpperCase();
 		};
 		return "missing";
@@ -236,7 +236,7 @@ export class BoundaryTypes {
 		return "missing";
 	}
 	static record(value: unknown): UnknownMap {
-		let out: {[key: string]: unknown} = {};
+		const out: {[key: string]: unknown} = {};
 		out["payload"] = value;
 		return out;
 	}
@@ -260,17 +260,17 @@ export class BoundaryTypes {
 		if (record == null) {
 			return "missing-record";
 		};
-		let name: string | null = UnknownNarrow.string(Object.prototype.hasOwnProperty.call(record, "name") ? record["name"] : undefined);
-		let keys: string = (Object.keys(record)).join(",");
-		let tmp: string = (Object.prototype.hasOwnProperty.call(record, "age")) ? "age" : "no-age";
+		const name: string | null = UnknownNarrow.string(Object.prototype.hasOwnProperty.call(record, "name") ? record["name"] : undefined);
+		const keys: string = (Object.keys(record)).join(",");
+		const tmp: string = (Object.prototype.hasOwnProperty.call(record, "age")) ? "age" : "no-age";
 		return ((name == null) ? "missing-name" : name) + ":" + tmp + ":" + keys;
 	}
 	static decodeArraySummary(value: unknown): string {
-		let array: readonly unknown[] | null = UnknownNarrow.array(value);
+		const array: readonly unknown[] | null = UnknownNarrow.array(value);
 		if (array == null) {
 			return "missing-array";
 		};
-		let first: string | null | null = (array.length == 0) ? null : UnknownNarrow.string(array[0]);
+		const first: string | null | null = (array.length == 0) ? null : UnknownNarrow.string(array[0]);
 		return ((first == null) ? "missing-first" : first) + ":" + ("" + array.length);
 	}
 	static copyOptionalItems(record: OptionalArrayRecord): string[] {
@@ -281,12 +281,12 @@ export class BoundaryTypes {
 		};
 	}
 	static joinOptionalItems(record: OptionalArrayRecord): string {
-		let out: string[] = [];
+		const out: string[] = [];
 		if ((record.items ?? null) != null) {
 			let _g: number = 0;
-			let _g1: string[] = (record.items!);
+			const _g1: string[] = (record.items!);
 			while (_g < _g1.length) {
-				let item: string = _g1[_g]!;
+				const item: string = _g1[_g]!;
 				++_g;
 				out.push(item.toUpperCase());
 			};
@@ -332,7 +332,7 @@ export class BoundaryTypes {
 		return [{"function": {"name": "array_lookup", "arguments": "{\"id\":1}"}}];
 	}
 	static nativeFunctionRecordsViaPush(): NativeFunctionRecord[] {
-		let out: NativeFunctionRecord[] = [];
+		const out: NativeFunctionRecord[] = [];
 		out.push({"function": {"name": "push_lookup", "arguments": "{\"id\":2}"}});
 		return out;
 	}
@@ -355,49 +355,49 @@ export class BoundaryTypes {
 		return ((record.warnings ?? null)!)[0]!.feature;
 	}
 	static demo(): string {
-		let present: string | null = BoundaryTypes.normalize(BoundaryTypes.presentName());
-		let missing: string | null = BoundaryTypes.normalize(BoundaryTypes.missingName());
-		let recordMissing: string | null = BoundaryTypes.normalize(BoundaryTypes.missingRecord().name);
-		let localMissing: string | null = BoundaryTypes.normalize(BoundaryTypes.localMissingName());
-		let chosenMissing: string | null = BoundaryTypes.normalize(BoundaryTypes.chooseName(false));
-		let assignedMissing: string | null = BoundaryTypes.normalize(BoundaryTypes.assignMissingName().name);
-		let assignedChosen: string | null = BoundaryTypes.normalize(BoundaryTypes.assignChosenName(false).name);
-		let conditionalFlag: boolean | null = BoundaryTypes.conditionalFlagRecord(false).enabled ?? null;
-		let bridgeFlag: boolean | null = BoundaryTypes.conditionalFlagBridge(false).enabled ?? null;
-		let optionalMissing: string | null = BoundaryTypes.normalize(Register.unsafeCast<MaybeName>(BoundaryTypes.optionalMissingName().name));
-		let optionalDirectMissing: string | null = BoundaryTypes.normalize(Register.unsafeCast<MaybeName>(BoundaryTypes.optionalDirectMissingName().name));
-		let guardedPresent: string | null = BoundaryTypes.normalize(BoundaryTypes.guardedName("Ada"));
-		let guardedMissing: string | null = BoundaryTypes.normalize(BoundaryTypes.guardedName(null));
-		let guardedUpper: string = BoundaryTypes.guardedUpper("ada");
-		let guardedCallValue: string = BoundaryTypes.guardedCall("ada");
-		let payload: UnknownMap = BoundaryTypes.record(BoundaryTypes.unknownValue("typed boundary"));
-		let payloadStatus: string = (Object.prototype.hasOwnProperty.call(payload, "payload")) ? "payload" : "missing";
-		let narrowedString: string | null = BoundaryTypes.narrowString(BoundaryTypes.unknownValue("typed"));
-		let narrowedBool: boolean | null = BoundaryTypes.narrowBool(BoundaryTypes.unknownValue(true));
-		let narrowedFinite: number | null = BoundaryTypes.narrowFinite(BoundaryTypes.unknownValue(12.5));
-		let narrowedInt: number | null = BoundaryTypes.narrowInt32(BoundaryTypes.unknownValue(37));
-		let narrowedNativeError: Error | null = BoundaryTypes.narrowNativeError(BoundaryTypes.unknownValue(new Error("native")));
-		let narrowedRecord: string = BoundaryTypes.decodeRecordSummary(BoundaryTypes.unknownValue({"name": "Grace", "age": 37}));
-		let narrowedArray: string = BoundaryTypes.decodeArraySummary(BoundaryTypes.unknownValue(["first", "second"]));
-		let nullStatus: string = (((BoundaryTypes.unknownValue(null)) === null)) ? "null" : "not-null";
-		let undefinedStatus: string = (((undefined) === undefined)) ? "undefined" : "defined";
-		let optionalCopy: string = BoundaryTypes.copyOptionalItems({"items": ["a", "b"]}).join("");
-		let optionalJoin: string = BoundaryTypes.joinOptionalItems({"items": ["c", "d"]});
-		let optionalItemsCall: string = BoundaryTypes.guardedOptionalItemsCall({"items": ["e", "f"]});
-		let optionalLabel: string = BoundaryTypes.labelOrFallback({"label": "typed"});
-		let optionalParamLabel: string = BoundaryTypes.optionalLabelViaNullableParam({});
-		let optionalNestedParamLabel: string = BoundaryTypes.optionalNestedLabelViaNullableParam({"child": {}});
-		let nativeFunction: string = BoundaryTypes.nativeFunctionSummary(BoundaryTypes.nativeFunctionRecord());
-		let nativeArrayFunction: string = BoundaryTypes.nativeFunctionSummary(BoundaryTypes.nativeFunctionRecords()[0]!);
-		let nativePushFunction: string = BoundaryTypes.nativeFunctionSummary(BoundaryTypes.nativeFunctionRecordsViaPush()[0]!);
-		let nativeChoice: string = (BoundaryTypes.nativeFunctionChoiceObject() == null) ? "missing" : "choice";
-		let nativeOptional: string | null = BoundaryTypes.nativeOptionalDescription(BoundaryTypes.nativeOptionalRecord());
-		let nativeOptionalPresent: boolean = BoundaryTypes.nativeOptionalDescriptionPresent(BoundaryTypes.nativeOptionalRecord());
-		let warningFeature: string = BoundaryTypes.firstWarningFeature({"warnings": [{"feature": "topK"}]});
-		let fieldOverride: string = BoundaryTypes.fieldOverrideSummary(BoundaryTypes.fieldOverrideRecord());
-		let tsOptional: string = BoundaryTypes.tsOptionalSummary(BoundaryTypes.tsOptionalRecord());
-		let tsOptionalMissing: string = BoundaryTypes.tsOptionalSummary(BoundaryTypes.tsOptionalFromNullable());
-		let tsOptionalCopied: string = BoundaryTypes.tsOptionalSummary(BoundaryTypes.tsOptionalCopy(BoundaryTypes.tsOptionalRecord()));
+		const present: string | null = BoundaryTypes.normalize(BoundaryTypes.presentName());
+		const missing: string | null = BoundaryTypes.normalize(BoundaryTypes.missingName());
+		const recordMissing: string | null = BoundaryTypes.normalize(BoundaryTypes.missingRecord().name);
+		const localMissing: string | null = BoundaryTypes.normalize(BoundaryTypes.localMissingName());
+		const chosenMissing: string | null = BoundaryTypes.normalize(BoundaryTypes.chooseName(false));
+		const assignedMissing: string | null = BoundaryTypes.normalize(BoundaryTypes.assignMissingName().name);
+		const assignedChosen: string | null = BoundaryTypes.normalize(BoundaryTypes.assignChosenName(false).name);
+		const conditionalFlag: boolean | null = BoundaryTypes.conditionalFlagRecord(false).enabled ?? null;
+		const bridgeFlag: boolean | null = BoundaryTypes.conditionalFlagBridge(false).enabled ?? null;
+		const optionalMissing: string | null = BoundaryTypes.normalize(Register.unsafeCast<MaybeName>(BoundaryTypes.optionalMissingName().name));
+		const optionalDirectMissing: string | null = BoundaryTypes.normalize(Register.unsafeCast<MaybeName>(BoundaryTypes.optionalDirectMissingName().name));
+		const guardedPresent: string | null = BoundaryTypes.normalize(BoundaryTypes.guardedName("Ada"));
+		const guardedMissing: string | null = BoundaryTypes.normalize(BoundaryTypes.guardedName(null));
+		const guardedUpper: string = BoundaryTypes.guardedUpper("ada");
+		const guardedCallValue: string = BoundaryTypes.guardedCall("ada");
+		const payload: UnknownMap = BoundaryTypes.record(BoundaryTypes.unknownValue("typed boundary"));
+		const payloadStatus: string = (Object.prototype.hasOwnProperty.call(payload, "payload")) ? "payload" : "missing";
+		const narrowedString: string | null = BoundaryTypes.narrowString(BoundaryTypes.unknownValue("typed"));
+		const narrowedBool: boolean | null = BoundaryTypes.narrowBool(BoundaryTypes.unknownValue(true));
+		const narrowedFinite: number | null = BoundaryTypes.narrowFinite(BoundaryTypes.unknownValue(12.5));
+		const narrowedInt: number | null = BoundaryTypes.narrowInt32(BoundaryTypes.unknownValue(37));
+		const narrowedNativeError: Error | null = BoundaryTypes.narrowNativeError(BoundaryTypes.unknownValue(new Error("native")));
+		const narrowedRecord: string = BoundaryTypes.decodeRecordSummary(BoundaryTypes.unknownValue({"name": "Grace", "age": 37}));
+		const narrowedArray: string = BoundaryTypes.decodeArraySummary(BoundaryTypes.unknownValue(["first", "second"]));
+		const nullStatus: string = (((BoundaryTypes.unknownValue(null)) === null)) ? "null" : "not-null";
+		const undefinedStatus: string = (((undefined) === undefined)) ? "undefined" : "defined";
+		const optionalCopy: string = BoundaryTypes.copyOptionalItems({"items": ["a", "b"]}).join("");
+		const optionalJoin: string = BoundaryTypes.joinOptionalItems({"items": ["c", "d"]});
+		const optionalItemsCall: string = BoundaryTypes.guardedOptionalItemsCall({"items": ["e", "f"]});
+		const optionalLabel: string = BoundaryTypes.labelOrFallback({"label": "typed"});
+		const optionalParamLabel: string = BoundaryTypes.optionalLabelViaNullableParam({});
+		const optionalNestedParamLabel: string = BoundaryTypes.optionalNestedLabelViaNullableParam({"child": {}});
+		const nativeFunction: string = BoundaryTypes.nativeFunctionSummary(BoundaryTypes.nativeFunctionRecord());
+		const nativeArrayFunction: string = BoundaryTypes.nativeFunctionSummary(BoundaryTypes.nativeFunctionRecords()[0]!);
+		const nativePushFunction: string = BoundaryTypes.nativeFunctionSummary(BoundaryTypes.nativeFunctionRecordsViaPush()[0]!);
+		const nativeChoice: string = (BoundaryTypes.nativeFunctionChoiceObject() == null) ? "missing" : "choice";
+		const nativeOptional: string | null = BoundaryTypes.nativeOptionalDescription(BoundaryTypes.nativeOptionalRecord());
+		const nativeOptionalPresent: boolean = BoundaryTypes.nativeOptionalDescriptionPresent(BoundaryTypes.nativeOptionalRecord());
+		const warningFeature: string = BoundaryTypes.firstWarningFeature({"warnings": [{"feature": "topK"}]});
+		const fieldOverride: string = BoundaryTypes.fieldOverrideSummary(BoundaryTypes.fieldOverrideRecord());
+		const tsOptional: string = BoundaryTypes.tsOptionalSummary(BoundaryTypes.tsOptionalRecord());
+		const tsOptionalMissing: string = BoundaryTypes.tsOptionalSummary(BoundaryTypes.tsOptionalFromNullable());
+		const tsOptionalCopied: string = BoundaryTypes.tsOptionalSummary(BoundaryTypes.tsOptionalCopy(BoundaryTypes.tsOptionalRecord()));
 		return ((present == null) ? "none" : present) + ":" + ((missing == null) ? "none" : missing) + ":" + ((recordMissing == null) ? "none" : recordMissing) + ":" + ((localMissing == null) ? "none" : localMissing) + ":" + ((chosenMissing == null) ? "none" : chosenMissing) + ":" + ((assignedMissing == null) ? "none" : assignedMissing) + ":" + ((assignedChosen == null) ? "none" : assignedChosen) + ":" + ((conditionalFlag == null) ? "none" : (conditionalFlag) ? "true" : "false") + ":" + ((bridgeFlag == null) ? "none" : (bridgeFlag) ? "true" : "false") + ":" + ((optionalMissing == null) ? "none" : optionalMissing) + ":" + ((optionalDirectMissing == null) ? "none" : optionalDirectMissing) + ":" + ((guardedPresent == null) ? "none" : guardedPresent) + ":" + ((guardedMissing == null) ? "none" : guardedMissing) + ":" + guardedUpper + ":" + guardedCallValue + ":" + payloadStatus + ":" + ((narrowedString == null) ? "none" : narrowedString) + ":" + ((narrowedBool == null) ? "none" : (narrowedBool) ? "true" : "false") + ":" + ((narrowedFinite == null) ? "none" : "" + narrowedFinite) + ":" + ((narrowedInt == null) ? "none" : "" + narrowedInt) + ":" + ((narrowedNativeError == null) ? "none" : narrowedNativeError.message) + ":" + narrowedRecord + ":" + narrowedArray + ":" + nullStatus + ":" + undefinedStatus + ":" + optionalCopy + ":" + optionalJoin + ":" + optionalItemsCall + ":" + optionalLabel + ":" + optionalParamLabel + ":" + optionalNestedParamLabel + ":" + nativeFunction + ":" + nativeArrayFunction + ":" + nativePushFunction + ":" + nativeChoice + ":" + ((nativeOptional == null) ? "none" : nativeOptional) + ":" + ((nativeOptionalPresent) ? "present" : "missing") + ":" + warningFeature + ":" + fieldOverride + ":" + tsOptional + ":" + tsOptionalMissing + ":" + tsOptionalCopied;
 	}
 	static get __name__(): string {

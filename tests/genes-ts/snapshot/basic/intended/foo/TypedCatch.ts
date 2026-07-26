@@ -42,9 +42,9 @@ export class TypedCatch {
 			};
 			throw Exception.thrown("plain");
 		}catch (_g) {
-			let _g1: {} | null | undefined = Exception.caught(_g).unwrap();
+			const _g1: {} | null | undefined = Exception.caught(_g).unwrap();
 			if (((_g1) instanceof FixtureError)) {
-				let error: FixtureError = _g1;
+				const error: FixtureError = _g1;
 				return error.message;
 			} else {
 				return "fallback";

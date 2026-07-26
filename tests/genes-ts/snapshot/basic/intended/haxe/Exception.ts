@@ -79,7 +79,7 @@ export class Exception extends (Register.inherits(() => Error, true) as typeof E
 		} else if (((value) instanceof Error)) {
 			return value;
 		} else {
-			let e: ValueException = new ValueException(value);
+			const e: ValueException = new ValueException(value);
 			return e;
 		};
 	}

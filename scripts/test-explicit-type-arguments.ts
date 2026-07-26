@@ -65,7 +65,7 @@ requireText(
 );
 requireText(
   generatedTs,
-  'let phase = makeCell<"pending" | "ready">("pending")',
+  'const phase = makeCell<"pending" | "ready">("pending")',
   "a call-site witness must preserve a closed enum abstract after Haxe erasure"
 );
 requireText(
@@ -80,17 +80,17 @@ requireText(
 );
 requireText(
   generatedTs,
-  'let generatedPhases_0 = makeCell<"pending" | "ready">("pending")',
+  'const generatedPhases_0 = makeCell<"pending" | "ready">("pending")',
   "the first library-macro expansion must retain its precise witness"
 );
 requireText(
   generatedTs,
-  'let generatedPhases_1 = makeCell<"pending" | "ready">("pending")',
+  'const generatedPhases_1 = makeCell<"pending" | "ready">("pending")',
   "a second expansion at the same source span must share an equivalent witness"
 );
 requireText(
   generatedTs,
-  'let fluentPhase = makeCell<"pending" | "ready">("pending").seal()',
+  'const fluentPhase = makeCell<"pending" | "ready">("pending").seal()',
   "a fluent outer call sharing the macro span must not claim the inner generic witness"
 );
 requireText(
@@ -110,7 +110,7 @@ rejectText(
 );
 rejectText(
   generatedTs,
-  'let phase: import("./generic-cell.js").Cell<string>',
+  'phase: import("./generic-cell.js").Cell<string>',
   "an unmodified local must infer the preserved narrow call result"
 );
 requireText(

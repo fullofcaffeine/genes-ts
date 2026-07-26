@@ -43,7 +43,7 @@ const source = readFileSync(
 );
 requireFragment(
   source,
-  "let state: ['draft' | 'published', (value: 'draft' | 'published') => void] = DomainHost.make",
+  "const state: ['draft' | 'published', (value: 'draft' | 'published') => void] = DomainHost.make",
   "closed generic tuple",
 );
 requireFragment(source, "state[1](next);", "exact method argument");
@@ -107,7 +107,7 @@ requireFragment(
 );
 requireFragment(
   source,
-  'let select: ((next: "approved" | "pending") => void) = function (next: "approved" | "pending")',
+  'const select: ((next: "approved" | "pending") => void) = function (next: "approved" | "pending")',
   "closed local callback",
 );
 requireFragment(

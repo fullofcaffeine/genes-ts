@@ -12,16 +12,16 @@ export class AsyncFoo extends Register.inherits() {
 	[Register.new](): void {
 	}
 	async plusOneAsync(x: number): Promise<number> {
-		let v: number = await Promise.resolve(x);
+		const v: number = await Promise.resolve(x);
 		return v + 1;
 	}
 	async doubleWithAwaitMacro(x: number): Promise<number> {
-		let v: number = await Promise.resolve(x);
+		const v: number = await Promise.resolve(x);
 		return v * 2;
 	}
 	async metadataAwaitLocalScope(x: number): Promise<number> {
 		let pending: Promise<number> = Promise.resolve(x);
-		let v: number = await pending;
+		const v: number = await pending;
 		return v + 3;
 	}
 	async metadataAwaitOptionalParam(record: AsyncOptionalLabelRecord): Promise<string> {
@@ -44,7 +44,7 @@ export class AsyncFoo extends Register.inherits() {
 	}
 }
 async function __AsyncFoo_privateDoubleAsync(x: number): Promise<number> {
-	let value: number = await Promise.resolve(x);
+	const value: number = await Promise.resolve(x);
 	return value * 2;
 }
 Register.unsafeCast<{privateDoubleAsync: typeof __AsyncFoo_privateDoubleAsync}>(AsyncFoo).privateDoubleAsync = __AsyncFoo_privateDoubleAsync;

@@ -170,7 +170,7 @@ class ServerSourceInline {
       path.join(repoRoot, outputRootRel, "ServerSourceInline.tsx"),
       "utf8"
     );
-    ok(editedSource.includes("let child: JSX.Element = <span>{label}</span>"),
+    ok(editedSource.includes("const child: JSX.Element = <span>{label}</span>"),
       "warm-server edit reused a stale parser-owned child fact");
 
     writeFileSync(sourceFile, inlineable, "utf8");
@@ -786,7 +786,7 @@ ok(automaticTsxSource.includes("event.target.setSelectionRange(0, 0)"),
   "HXX exposes the complete standard input API");
 ok(!automaticTsxSource.includes("./js/html"));
 ok(automaticTsxSource.includes(
-  "let optionalChildSpreadHtml: JSX.Element = <strong>nested child</strong>"
+  "const optionalChildSpreadHtml: JSX.Element = <strong>nested child</strong>"
 ) && automaticTsxSource.includes(
   "<Main.RequiredChild {...optionalChildren}>{optionalChildSpreadHtml}</Main.RequiredChild>"
 ), "a generated static component keeps its child-before-parent evaluation seam");
@@ -821,8 +821,8 @@ const canonicalChildTree = sourceSection(
 ok(canonicalChildTree.includes(
   "return <div><span>{first}</span><strong>{second}</strong><Button label=\"Save\" />"
 ), "pure one-use HXX children remain one canonical nested TSX tree");
-strictEqual(canonicalChildTree.includes("let span: JSX.Element"), false);
-strictEqual(canonicalChildTree.includes("let strong: JSX.Element"), false);
+strictEqual(canonicalChildTree.includes("span: JSX.Element"), false);
+strictEqual(canonicalChildTree.includes("strong: JSX.Element"), false);
 
 const orderedChildTree = sourceSection(
   automaticTsxSource,
@@ -836,7 +836,7 @@ ok(orderedChildTree.includes(
 ) && orderedChildTree.includes(
   'Main.recordJsxEvaluation("second")'
 ), "effectful JSX values retain explicit evaluation steps");
-ok(orderedChildTree.includes("let span: JSX.Element = <span>{tmp1}</span>"),
+ok(orderedChildTree.includes("const span: JSX.Element = <span>{tmp1}</span>"),
   "a child that cannot cross a later effectful sibling retains its local");
 ok(orderedChildTree.includes("{span}<strong>{tmp3}</strong>"),
   "only the final reorder-safe child is inlined around sequenced values");
@@ -846,14 +846,14 @@ const authoredChildTree = sourceSection(
   "static renderAuthoredChild(",
   "static renderSharedChild("
 );
-ok(authoredChildTree.includes("let child: JSX.Element = <span>{label}</span>"),
+ok(authoredChildTree.includes("const child: JSX.Element = <span>{label}</span>"),
   "a one-use authored JSX local remains an authored local");
 const sharedChildTree = sourceSection(
   automaticTsxSource,
   "static renderSharedChild(",
   "static recordJsxEvaluation("
 );
-ok(sharedChildTree.includes("let child: JSX.Element = <span>{label}</span>"));
+ok(sharedChildTree.includes("const child: JSX.Element = <span>{label}</span>"));
 ok(sharedChildTree.includes("return <div>{child}{child}</div>"),
   "a shared JSX value retains one declaration and both reads");
 assertNoUnsafeTypes({
@@ -986,7 +986,7 @@ const typedCreateElementChildren = sourceSection(
   "static renderOrderedChildList("
 );
 ok(typedCreateElementChildren.includes(
-  'let tmp: JSX.Element = React__genes_jsx.createElement("span", null, first)'
+  'const tmp: JSX.Element = React__genes_jsx.createElement("span", null, first)'
 ) && typedCreateElementChildren.includes(
   'return React__genes_jsx.createElement("div", null, tmp, tmp1'
 ), "plain TypeScript createElement output retains its established lowering");
@@ -1037,10 +1037,10 @@ const dualTsxSource = readFileSync(
 );
 ok(dualTsxSource.includes("<main {...rootProps}>"));
 ok(dualTsxSource.includes(
-  "let tree1: JSX.Element = <main {...rootProps}><h1>{heading}</h1>{fragment}</main>"
+  "const tree1: JSX.Element = <main {...rootProps}><h1>{heading}</h1>{fragment}</main>"
 ), "TSX removes the exact compiler child but does not guess why Haxe suffixed the parent name");
 strictEqual(dualTsxSource.includes(
-  "let tree: JSX.Element = <h1>{heading}</h1>"
+  "const tree: JSX.Element = <h1>{heading}</h1>"
 ), false, "the parser-owned nested heading declaration is omitted");
 ok(dualTsxSource.includes("React__genes_jsx.createElement(runtimeTag"));
 const dualTsxCallArgument = sourceSection(
@@ -1048,7 +1048,7 @@ const dualTsxCallArgument = sourceSection(
   "static renderSameExpressionOrder(",
   "static renderNestedNameScope("
 );
-ok(dualTsxCallArgument.includes("let OrderedComponent_1: JSX.Element")
+ok(dualTsxCallArgument.includes("const OrderedComponent_1: JSX.Element")
   && dualTsxCallArgument.includes(
     "return DualJsxMain.keepElement(tmp, <div>{OrderedComponent_1}</div>)"
   ), "a parent nested in a call argument remains outside the closed rewrite grammar");
@@ -1058,7 +1058,7 @@ const dualTsxStaticOrder = sourceSection(
   "static mutateComponent("
 );
 ok(dualTsxStaticOrder.includes(
-  "let tmp: JSX.Element = <ObservableComponents.Child />"
+  "const tmp: JSX.Element = <ObservableComponents.Child />"
 ) && dualTsxStaticOrder.includes(
   "return <ObservableComponents.Parent>{tmp}</ObservableComponents.Parent>"
 ), "TSX retains the child local when an extern static tag read is observable");
@@ -1069,7 +1069,7 @@ const dualTsxDirectAssignment = sourceSection(
 );
 ok(dualTsxDirectAssignment.includes(
   "result = <section><span>assigned</span></section>"
-) && !dualTsxDirectAssignment.includes("let span: JSX.Element"),
+) && !dualTsxDirectAssignment.includes("span: JSX.Element"),
 "a direct local assignment consumes its exact generated child fact");
 const dualTsxLocalComponents = sourceSection(
   dualTsxSource,
@@ -1077,7 +1077,7 @@ const dualTsxLocalComponents = sourceSection(
   "static renderCapturedChild("
 );
 ok(dualTsxLocalComponents.includes("return <Parent><Child /></Parent>")
-  && !dualTsxLocalComponents.includes("let Child_1: JSX.Element"),
+  && !dualTsxLocalComponents.includes("Child_1: JSX.Element"),
 "component tags held in locals are safe lexical reads");
 const dualTsxCapturedChild = sourceSection(
   dualTsxSource,
@@ -1085,7 +1085,7 @@ const dualTsxCapturedChild = sourceSection(
   "static LocalParent("
 );
 ok(dualTsxCapturedChild.includes(
-  "let child: JSX.Element = <span>captured</span>"
+  "const child: JSX.Element = <span>captured</span>"
 ) && dualTsxCapturedChild.includes("return <div>{child}</div>"),
 "a child captured by a callback retains its declaration");
 strictEqual(dualTsxSource.includes("__hxxChild"), false,
@@ -1130,7 +1130,7 @@ const retainedMetadataAssignment = sourceSection(
   "static renderDirectAssignment(",
   "static renderLocalComponentTags("
 );
-ok(/let ([A-Za-z_$][\w$]*): JSX\.Element = <span>assigned<\/span>;[\s\S]*result = <section>{\1}<\/section>;/.test(
+ok(/const ([A-Za-z_$][\w$]*): JSX\.Element = <span>assigned<\/span>;[\s\S]*result = <section>{\1}<\/section>;/.test(
   retainedMetadataAssignment
 ), "an unreviewed typed metadata wrapper retains the generated child seam");
 strictEqual(retainedMetadataTsxSource.includes("__hxxChild"), false,
@@ -1196,9 +1196,9 @@ const dualClassicSource = readFileSync(
 ok(dualClassicSource.includes('import * as React__genes_jsx from "react"'));
 ok(dualClassicSource.includes("React__genes_jsx.createElement(\"main\""));
 ok(dualClassicSource.includes(
-  'let tree = React__genes_jsx.createElement("h1", null, heading)'
+  'const tree = React__genes_jsx.createElement("h1", null, heading)'
 ) && dualClassicSource.includes(
-  'let tree1 = React__genes_jsx.createElement("main", {...rootProps}, tree, fragment)'
+  'const tree1 = React__genes_jsx.createElement("main", {...rootProps}, tree, fragment)'
 ), "classic JavaScript retains the pre-existing explicit element sequence");
 ok(dualClassicSource.includes(
   "createElement(DualJsxMain.RequiredChildHost, {...presentOptionalChildren}, optionalSpreadOverrideElement)"
@@ -1247,12 +1247,12 @@ const dualJsxSource = readFileSync(
 );
 ok(dualJsxSource.includes("<main {...rootProps}>"));
 ok(dualJsxSource.includes(
-  "let tree1 = <main {...rootProps}><h1>{heading}</h1>{fragment}</main>"
+  "const tree1 = <main {...rootProps}><h1>{heading}</h1>{fragment}</main>"
 ), "type-erased JSX consumes the same exact facts without reclaiming owner names");
 ok(dualJsxSource.includes("React__genes_jsx.createElement(runtimeTag"));
-ok(dualJsxSource.includes("let tree1 = function () {")
+ok(dualJsxSource.includes("const tree1 = function () {")
   && !dualJsxSource.includes(
-    'let tree = "outer";\n\t\tlet tree = function () {'
+    'const tree = "outer";\n\t\tconst tree = function () {'
   ), "type-erased JSX keeps nested-function name cleanup inside its own scope");
 ok(dualJsxSource.includes(
   '<dialog open closedby="any" onCancel={function (event)'

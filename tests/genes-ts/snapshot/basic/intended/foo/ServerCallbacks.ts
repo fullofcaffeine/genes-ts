@@ -8,7 +8,7 @@ export type FixtureServerShape = {
 export class ServerCallbacks {
 	static callbackInitializedLater(server: FixtureServerShape): void {
 		let fail: ((arg0: string) => void) = null!;
-		let cleanup: (() => void) = function () {
+		const cleanup: (() => void) = function () {
 			server.off("error", fail);
 		};
 		fail = function (error: string) {
@@ -17,7 +17,7 @@ export class ServerCallbacks {
 		};
 	}
 	static optionalForwardedMethod(server: FixtureServerShape): void {
-		let closeAllConnections: ((() => void)) | null = Register.bind(server, server.closeAllConnections);
+		const closeAllConnections: ((() => void)) | null = Register.bind(server, server.closeAllConnections);
 		if (closeAllConnections != null) {
 			closeAllConnections();
 		};

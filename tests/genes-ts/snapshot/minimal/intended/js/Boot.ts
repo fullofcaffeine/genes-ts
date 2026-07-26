@@ -20,21 +20,21 @@ export class Boot {
 			}
 			case "object": {
 				if (o.__enum__) {
-					let e: any = Register.hxEnums()[o.__enum__]!;
-					let con: any = e.__constructs__[o._hx_index]!;
-					let n: string = con._hx_name;
+					const e: any = Register.hxEnums()[o.__enum__]!;
+					const con: any = e.__constructs__[o._hx_index]!;
+					const n: string = con._hx_name;
 					if (con.__params__) {
 						s = s + "\t";
 						return n + "(" + ((function($this) {var $r0
-							let _g: string[] = [];
+							const _g: string[] = [];
 							{
 								let _g1: number = 0;
-								let _g2: string[] = con.__params__;
+								const _g2: string[] = con.__params__;
 								while (true) {
 									if (!(_g1 < _g2.length)) {
 										break;
 									};
-									let p: string = _g2[_g1]!;
+									const p: string = _g2[_g1]!;
 									_g1 = _g1 + 1;
 									_g.push(Boot.__string_rec((o[p] ?? null), s));
 								};
@@ -49,9 +49,9 @@ export class Boot {
 					let str: string = "[";
 					s += "\t";
 					let _g_1: number = 0;
-					let _g1_1: number = o.length;
+					const _g1_1: number = o.length;
 					while (_g_1 < _g1_1) {
-						let i: number = _g_1++;
+						const i: number = _g_1++;
 						str += ((i > 0) ? "," : "") + Boot.__string_rec((o[i] ?? null), s);
 					};
 					str += "]";
@@ -64,14 +64,14 @@ export class Boot {
 					return "???";
 				};
 				if (tostr != null && tostr != Object.toString && typeof(tostr) == "function") {
-					let s2: string = o.toString();
+					const s2: string = o.toString();
 					if (s2 != "[object Object]") {
 						return s2;
 					};
 				};
 				let str_1: string = "{\n";
 				s += "\t";
-				let hasp: boolean = o.hasOwnProperty != null;
+				const hasp: boolean = o.hasOwnProperty != null;
 				let k: string = null!;
 				for( k in o ) {;
 				if (hasp && !o.hasOwnProperty(k)) {
