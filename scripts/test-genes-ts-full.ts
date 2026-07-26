@@ -365,7 +365,7 @@ if (!registerOutput.includes("Object.create(null)")) {
 }
 if (
   registerOutput.includes("Register.globals = {}") ||
-  registerOutput.includes("let created: HxRegistry = {}")
+  /(?:const|let) created: HxRegistry = \{\}/.test(registerOutput)
 ) {
   throw new Error("The runtime registry regressed to an inherited JavaScript object.");
 }

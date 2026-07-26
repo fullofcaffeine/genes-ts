@@ -15,8 +15,8 @@ import haxe.ds.StringMap;
  * both Genes emitters must preserve.
  *
  * What: classes, generics, interfaces, enums, nullable values, maps,
- * iterators, exceptions, evaluation order, expression-valued switch, a real
- * Node import, embedded resources, and reflection.
+ * iterators, exceptions, evaluation order, local mutability, expression-valued
+ * switch, a real Node import, embedded resources, and reflection.
  *
  * How: every observation becomes one deterministic string. Map keys are sorted
  * before recording so the oracle never relies on host enumeration order.
@@ -53,6 +53,7 @@ class CoreScenario {
     }
 
     events.push('evaluation:${evaluationOrder()}');
+    events.push('locals:${localDeclarations()}');
     final selected = switch 2 {
       case 1: "one";
       case 2: "two";
@@ -74,6 +75,48 @@ class CoreScenario {
     final events:Array<String> = [];
     final result = receiver(events)[index(events)] += rightHandSide(events);
     return '${events.join(">")}:$result';
+  }
+
+  /**
+   * Proves declaration mutability without relying on source `final` metadata.
+   *
+   * The public Haxe 4.3 typed-macro API omits that metadata, so Genes derives
+   * `const` from the stronger complete-tree fact that a binding has an
+   * initializer and no writes. This fixture keeps both negative controls:
+   * `mutable` is reassigned directly, while `closureMutable` is reassigned from
+   * a nested function. `assignedLater` has no declaration initializer and must
+   * remain `let` even though it receives only one later value.
+   */
+  static function localDeclarations():String {
+    final immutable = "fixed";
+    var mutable = "before";
+    mutable = "after";
+
+    var assignedLater:String;
+    if (chooseLater())
+      assignedLater = "later";
+    else
+      assignedLater = "fallback";
+
+    final captured = "captured";
+    final closure = () -> captured;
+    var closureMutable = 0;
+    final increment = () -> closureMutable++;
+    increment();
+
+    function decorate(value:String):String
+      return '$value!';
+
+    final doubled = [for (value in [1, 2]) value * 2];
+    final matched = switch {label: "pattern"} {
+      case {label: label}: label;
+    };
+    return '$immutable:$mutable:$assignedLater:${closure()}:$closureMutable:'
+      + '${decorate(matched)}:${doubled.join(",")}';
+  }
+
+  static function chooseLater():Bool {
+    return true;
   }
 
   static function receiver(events:Array<String>):Array<Int> {

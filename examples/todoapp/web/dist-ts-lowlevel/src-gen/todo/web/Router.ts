@@ -5,7 +5,7 @@ import type {Params} from "../extern/ReactRouterDom"
 
 export class Router {
 	static param(name: string): string | null {
-		let params: Params = useParams();
+		const params: Params = useParams();
 		return (params[name] ?? null);
 	}
 	static get __name__(): string {

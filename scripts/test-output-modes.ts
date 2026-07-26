@@ -561,6 +561,62 @@ const stdTypesTs = readFileSync(
   path.join(fixtureRoot, "out/ts/src-gen/StdTypes.ts"),
   "utf8"
 );
+const bootTs = readFileSync(
+  path.join(fixtureRoot, "out/ts/src-gen/js/Boot.ts"),
+  "utf8"
+);
+const bootClassic = readFileSync(
+  path.join(fixtureRoot, "out/classic/js/Boot.js"),
+  "utf8"
+);
+
+// Haxe 4.3's public typed-macro API omits source `final`, so both Genes
+// profiles consume one complete-tree write inventory. Initialized bindings
+// without writes become const; direct, captured, and initializer-free
+// negatives stay let. The closure and pattern/comprehension shapes ensure this
+// is a typed-tree decision rather than a source-text or declaration-name scan.
+for (const [profile, generated] of [
+  ["ts-strict", tsCore],
+  ["classic-esm", classicCore]
+] as const) {
+  ok(
+    generated.includes(
+      profile === "ts-strict"
+        ? 'const immutable: string = "fixed"'
+        : 'const immutable = "fixed"'
+    ),
+    `${profile} did not strengthen an initialized immutable local to const`
+  );
+  for (const declaration of profile === "ts-strict"
+    ? [
+        'let mutable: string = "before"',
+        "let assignedLater: string;",
+        "let closureMutable: number = 0"
+      ]
+    : [
+        'let mutable = "before"',
+        "let assignedLater;",
+        "let closureMutable = 0"
+      ]) {
+    ok(
+      generated.includes(declaration),
+      `${profile} incorrectly strengthened mutable local ${declaration}`
+    );
+  }
+  for (const immutableBinding of ["closure", "increment", "decorate", "doubled", "matched"]) {
+    ok(
+      generated.includes(`const ${immutableBinding}`),
+      `${profile} lost const for ${immutableBinding}`
+    );
+  }
+}
+
+// Raw syntax placeholders are an intentionally conservative boundary. The
+// Haxe standard library writes `k` through `{0}` inside js.Syntax.code, so a
+// typed-tree-only planner must keep the placeholder binding mutable.
+ok(bootTs.includes("let k: string = null!"));
+ok(bootClassic.includes("let k = null"));
+
 ok(tsCore.includes('from "node:path"'));
 ok(classicCore.includes('from "node:path"'));
 ok(tsApi.includes('import type {DualTypeOnly}'));

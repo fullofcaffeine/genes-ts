@@ -21,7 +21,7 @@ export class StringTools {
 	 * `s`, the result is false.
 	 */
 	static isSpace(s: string, pos: number): boolean {
-		let c: number | null = HxOverrides.cca(s, pos);
+		const c: number | null = HxOverrides.cca(s, pos);
 		if (!(Register.unsafeCast<number>(c) > 8 && Register.unsafeCast<number>(c) < 14)) {
 			return c == 32;
 		} else {
@@ -39,7 +39,7 @@ export class StringTools {
 	 * result is the empty String `""`.
 	 */
 	static ltrim(s: string): string {
-		let l: number = s.length;
+		const l: number = s.length;
 		let r: number = 0;
 		while (r < l && StringTools.isSpace(s, r)) ++r;
 		if (r > 0) {
@@ -59,7 +59,7 @@ export class StringTools {
 	 * result is the empty String `""`.
 	 */
 	static rtrim(s: string): string {
-		let l: number = s.length;
+		const l: number = s.length;
 		let r: number = 0;
 		while (r < l && StringTools.isSpace(s, l - r - 1)) ++r;
 		if (r > 0) {

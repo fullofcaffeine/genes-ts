@@ -189,6 +189,43 @@ now have one authoritative paired corpus. That evidence remains bounded. JSX
 is owned by a separate same-source React differential; complex package shapes
 and unrepresented language constructs are not implied by either transcript.
 
+### Immutable local declarations
+
+Both modern output profiles emit an initialized local as `const` when the
+complete typed Haxe module contains no assignment, assignment operator,
+increment, or decrement that rebinds it. A directly or closure-reassigned local
+remains `let`, as does a declaration that has no initializer:
+
+```haxe
+final name = "Ada";
+var count = 0;
+count++;
+var later:String;
+later = "ready";
+```
+
+```ts
+const name: string = "Ada";
+let count: number = 0;
+count++;
+let later: string;
+later = "ready";
+```
+
+The compiler derives this from `TVar.id` references in the typed tree rather
+than from source spelling. Haxe 4.3 internally knows whether a declaration used
+`final`, but its public custom-generator API does not expose that flag. The
+write inventory is therefore both implementable and stronger: an ordinary
+`var` that is never rebound can also become canonical `const` without changing
+runtime behavior. Assigning through an array or object stored in the local does
+not rebind the local and leaves `const` valid.
+
+A local passed to `js.Syntax.code` or legacy `__js__` is conservatively kept
+mutable because the opaque template may place its placeholder in a write
+position. Raw target text that guesses an emitted identifier is still outside
+typed-tree analysis and must not mutate a Haxe local; use ordinary typed Haxe
+assignment when local mutation is intended.
+
 For JS/TS ecosystem projects, the recommended authoring model is **TS-minded Haxe**. Write normal Haxe, but keep the TypeScript boundary contracts in mind: use Haxe typedefs, enums, abstracts, externs, and focused `genes.ts` helpers where they make DOM, Node, npm, or generated declaration shapes more precise.
 
 For TypeScript-specific ecosystem concepts, prefer small Haxe helper types instead of raw emitted strings.

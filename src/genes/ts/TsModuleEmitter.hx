@@ -2312,7 +2312,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       // The linked HXX carrier is compiler-owned scaffolding, not a public
       // application value. Let TypeScript infer its exact recursive object
       // shape instead of widening a synthetic anonymous carrier to `any`.
-      write('$declare ');
+      write('${localDeclaration(v, true)} ');
       emitLocalVar(v);
       write(' = ');
       emitValue(eo);
@@ -2334,10 +2334,10 @@ class TsModuleEmitter extends JsModuleEmitter {
     // result instead of reintroducing Haxe's erased backing type. A reassigned
     // local keeps its declared annotation: otherwise TypeScript would freeze
     // the first narrow result and reject a later assignment Haxe accepted.
-    final plan = narrowingPlan;
+    final plan = localBindingPlan;
     final inferExplicitCallType = eo != null
       && plan != null
-      && !plan.isLocalReassigned(v)
+      && !plan.isReassigned(v)
       && ExplicitTypeArguments.infersPreciseLocalType(eo);
     final emittedType = (narrowedOptionalInit || narrowedNonNullInit)
       ? stripNull(declaredType)
@@ -2345,7 +2345,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     final emittedTypeOverride = (narrowedOptionalInit
       || narrowedNonNullInit || inferExplicitCallType) ? null : localTsTypeOverride(eo);
     rememberEmittedLocalType(v, emittedType, emittedTypeOverride);
-    write('$declare ');
+    write('${localDeclaration(v, eo != null)} ');
     emitLocalVar(v);
     if (!inferExplicitCallType) {
       write(': ');
@@ -3288,7 +3288,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         write('.hasNext()) {');
         increaseIndent();
         writeNewline();
-        write('$declare ');
+        write('${localDeclaration(v, true)} ');
         emitLocalVar(v);
         write(' = ');
         emitIterator();

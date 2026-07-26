@@ -265,9 +265,8 @@ final class TsNarrowValueIdentityTools {
  * direct null guards, `Map.exists`, exiting branches, exact assignments,
  * `Map.remove`/`clear`, map-key iteration, pre-test versus post-test loop
  * ordering, loop mutation, and nested function boundaries. Unsupported shapes
- * simply receive no proof. The same walk also exposes whether a local is ever
- * reassigned, allowing the TypeScript emitter to preserve a wider declared
- * type when initializer-only inference would be too narrow.
+ * simply receive no proof. Shared local mutability belongs to
+ * `LocalBindingPlan`; this TypeScript-only plan owns only narrowing behavior.
  *
  * How
  * ---
@@ -280,7 +279,6 @@ final class TsNarrowValueIdentityTools {
  */
 final class TsNarrowingPlan {
   final decisions: ObjectMap<TypedExpr, TsNarrowDecision>;
-  final reassignedLocalIds: Map<Int, Bool>;
   #if genes.ts.narrowing_inventory
   final sourceExpressions: ObjectMap<TypedExpr, Bool>;
   #end
@@ -289,33 +287,14 @@ final class TsNarrowingPlan {
     return new TsNarrowingPlanBuilder().build(module);
   }
 
-  public function new(decisions: ObjectMap<TypedExpr, TsNarrowDecision>,
-      reassignedLocalIds: Map<Int, Bool>
+  public function new(decisions: ObjectMap<TypedExpr, TsNarrowDecision>
       #if genes.ts.narrowing_inventory
       , sourceExpressions: ObjectMap<TypedExpr, Bool>
       #end) {
     this.decisions = decisions;
-    this.reassignedLocalIds = reassignedLocalIds;
     #if genes.ts.narrowing_inventory
     this.sourceExpressions = sourceExpressions;
     #end
-  }
-
-  /**
-   * Whether source control flow writes this local after its declaration.
-   *
-   * Why: an explicit generic call can give TypeScript a narrower initializer
-   * type than Haxe retains after abstract erasure. Omitting the local annotation
-   * is safe while that value never changes, but it would incorrectly narrow a
-   * mutable Haxe variable and reject a later assignment that Haxe accepted.
-   *
-   * How: the same exhaustive function walk that invalidates narrowing facts
-   * records direct assignments and increments by Haxe's typed local ID. This is
-   * a syntactic mutation fact, not alias analysis; field writes do not count as
-   * reassigning their receiver local.
-   */
-  public function isLocalReassigned(local: TVar): Bool {
-    return reassignedLocalIds.exists(local.id);
   }
 
   public function decisionAt(expression: TypedExpr): Null<TsNarrowDecision> {
@@ -636,7 +615,6 @@ private typedef TsNarrowCondition = {
 /** Source-ordered builder for the bounded function-local plan. */
 private final class TsNarrowingPlanBuilder {
   final decisions = new ObjectMap<TypedExpr, TsNarrowDecision>();
-  final reassignedLocalIds: Map<Int, Bool> = [];
   #if genes.ts.narrowing_inventory
   final sourceExpressions = new ObjectMap<TypedExpr, Bool>();
   #end
@@ -672,7 +650,7 @@ private final class TsNarrowingPlanBuilder {
         case MEnum(_, _) | MType(_, _):
       }
     }
-    return new TsNarrowingPlan(decisions, reassignedLocalIds
+    return new TsNarrowingPlan(decisions
       #if genes.ts.narrowing_inventory
       , sourceExpressions
       #end);
@@ -766,12 +744,10 @@ private final class TsNarrowingPlanBuilder {
       case TVar(variable, initializer):
         analyzeVariable(expression, variable, initializer, state);
       case TBinop(OpAssign | OpAssignOp(_), left, right):
-        recordReassignedLocal(left);
         analyzeAssignment(expression, left, right, state);
       case TBinop(op = OpBoolAnd | OpBoolOr, left, right):
         analyzeShortCircuit(op, left, right, state);
       case TUnop(OpIncrement | OpDecrement, _, target):
-        recordReassignedLocal(target);
         analyzeMutationExpression(expression, target, state);
       case TCall(callee, arguments):
         analyzeCall(expression, callee, arguments, state);
@@ -784,13 +760,6 @@ private final class TsNarrowingPlanBuilder {
         | TUnop(_, _, _) | TCast(_, _) | TMeta(_, _)
         | TEnumParameter(_, _, _) | TEnumIndex(_) | TIdent(_):
         analyzeChildren(expression, state);
-    }
-  }
-
-  function recordReassignedLocal(target: TypedExpr): Void {
-    switch unwrap(target).expr {
-      case TLocal(local): reassignedLocalIds.set(local.id, true);
-      default:
     }
   }
 

@@ -25,8 +25,8 @@ export type ThemeFixture = {
 export class Main {
 	declare static Theme: ThemeFixture;
 	static main(): void {
-		let f: Foo = new Foo(1);
-		let asyncFoo: AsyncFoo = new AsyncFoo();
+		const f: Foo = new Foo(1);
+		const asyncFoo: AsyncFoo = new AsyncFoo();
 		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:23:",f.add(2));
 		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:24:",Foo.normalize("OK"));
 		AsyncFoo.demo().then(function (v: number) {
@@ -53,7 +53,7 @@ export class Main {
 		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:36:",EnumAbstract.recordDemo());
 		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:37:",EnumAbstract.arrayLoopDemo());
 		console.log("tests/genes-ts/snapshot/basic/src/Main.hx:38:",JsonAlias.passthrough({"metadata": null}).metadata);
-		let server: {
+		const server: {
 			closeAllConnections: () => void,
 			off: (event: string, handler: ((arg0: string) => void)) => void
 		} = {"off": function (event: string, handler: ((arg0: string) => void)) {

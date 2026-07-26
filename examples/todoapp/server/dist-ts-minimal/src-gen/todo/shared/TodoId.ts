@@ -3,9 +3,9 @@ import {Register} from "../../genes/Register.js"
 
 export class TodoId {
 	static create(): string {
-		let now: number = Date.now();
-		let rnd: number = Std.random(2147483647);
-		let this1: string = "" + (now | 0) + "-" + rnd;
+		const now: number = Date.now();
+		const rnd: number = Std.random(2147483647);
+		const this1: string = "" + (now | 0) + "-" + rnd;
 		return this1;
 	}
 	static get __name__(): string {

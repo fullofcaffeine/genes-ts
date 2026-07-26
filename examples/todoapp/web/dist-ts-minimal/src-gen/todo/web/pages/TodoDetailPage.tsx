@@ -12,70 +12,70 @@ import type {ChangeEvent} from "../ReactTypes"
 
 export class TodoDetailPage {
 	static Component(): JSX.Element {
-		let idStr: string | null = Router.param("id");
-		let id: string | null = (idStr == null) ? null : idStr;
-		let todoState: [ Todo | null, import('react').Dispatch<import('react').SetStateAction<Todo | null>> ] = useState<Todo | null>(null);
-		let todo: Todo | null = (todoState[0] ?? null);
-		let titleState: [ string, import('react').Dispatch<import('react').SetStateAction<string>> ] = useState<string>("");
-		let title: string = (titleState[0] ?? null);
-		let errorState: [ string, import('react').Dispatch<import('react').SetStateAction<string>> ] = useState<string>("");
-		let error: string = (errorState[0] ?? null);
-		let navigate: ((arg0: string) => void) = useNavigate();
+		const idStr: string | null = Router.param("id");
+		const id: string | null = (idStr == null) ? null : idStr;
+		const todoState: [ Todo | null, import('react').Dispatch<import('react').SetStateAction<Todo | null>> ] = useState<Todo | null>(null);
+		const todo: Todo | null = (todoState[0] ?? null);
+		const titleState: [ string, import('react').Dispatch<import('react').SetStateAction<string>> ] = useState<string>("");
+		const title: string = (titleState[0] ?? null);
+		const errorState: [ string, import('react').Dispatch<import('react').SetStateAction<string>> ] = useState<string>("");
+		const error: string = (errorState[0] ?? null);
+		const navigate: ((arg0: string) => void) = useNavigate();
 		useEffect(function () {
 			if (id == null) {
-				let setter: ((arg0: string) => void) = (errorState[1] ?? null);
+				const setter: ((arg0: string) => void) = (errorState[1] ?? null);
 				setter("Missing id");
 				return;
 			};
 			Client.getTodo(id).then(function (t: Todo) {
-				let setter: ((arg0: Todo | null) => void) = (todoState[1] ?? null);
+				const setter: ((arg0: Todo | null) => void) = (todoState[1] ?? null);
 				setter(t);
-				let setter1: ((arg0: string) => void) = (titleState[1] ?? null);
+				const setter1: ((arg0: string) => void) = (titleState[1] ?? null);
 				setter1(t.title);
 			})["catch"](function (_) {
-				let setter: ((arg0: string) => void) = (errorState[1] ?? null);
+				const setter: ((arg0: string) => void) = (errorState[1] ?? null);
 				setter("Todo not found");
 			});
 		}, [idStr]);
-		let onSave: (() => void) = function () {
+		const onSave: (() => void) = function () {
 			if (id == null) {
 				return;
 			};
-			let trimmed: string = StringTools.trim(title);
+			const trimmed: string = StringTools.trim(title);
 			if (trimmed.length == 0) {
-				let setter: ((arg0: string) => void) = (errorState[1] ?? null);
+				const setter: ((arg0: string) => void) = (errorState[1] ?? null);
 				setter("Title is required");
 				return;
 			};
 			Client.updateTodo(id, {"title": trimmed}).then(function (updated: Todo) {
-				let setter: ((arg0: Todo | null) => void) = (todoState[1] ?? null);
+				const setter: ((arg0: Todo | null) => void) = (todoState[1] ?? null);
 				setter(updated);
 				navigate("/");
 			})["catch"](function (_) {
-				let setter: ((arg0: string) => void) = (errorState[1] ?? null);
+				const setter: ((arg0: string) => void) = (errorState[1] ?? null);
 				setter("Failed to save");
 			});
 		};
 		if (error != "") {
-			let p: JSX.Element = <p style={{"color": "crimson"}}>{error}</p>;
-			let tmp1: JSX.Element = <Link to="/">Back</Link>;
+			const p: JSX.Element = <p style={{"color": "crimson"}}>{error}</p>;
+			const tmp1: JSX.Element = <Link to="/">Back</Link>;
 			return <div>{p}{tmp1}</div>;
 		};
 		if (todo == null) {
 			return <p>Loading...</p>;
 		};
-		let todoValue: Todo = todo;
-		let tmp: JSX.Element = <Link to="/">← Back</Link>;
-		let p_1: JSX.Element = <p>{tmp}</p>;
-		let h2: JSX.Element = <h2>Todo</h2>;
-		let b: JSX.Element = <b>ID:</b>;
-		let p_2: JSX.Element = <p>{b}{todoValue.id}</p>;
-		let b_1: JSX.Element = <b>Created:</b>;
-		let p_3: JSX.Element = <p>{b_1}{todoValue.createdAt}</p>;
-		let b_2: JSX.Element = <b>Updated:</b>;
-		let p_4: JSX.Element = <p>{b_2}{todoValue.updatedAt}</p>;
+		const todoValue: Todo = todo;
+		const tmp: JSX.Element = <Link to="/">← Back</Link>;
+		const p_1: JSX.Element = <p>{tmp}</p>;
+		const h2: JSX.Element = <h2>Todo</h2>;
+		const b: JSX.Element = <b>ID:</b>;
+		const p_2: JSX.Element = <p>{b}{todoValue.id}</p>;
+		const b_1: JSX.Element = <b>Created:</b>;
+		const p_3: JSX.Element = <p>{b_1}{todoValue.createdAt}</p>;
+		const b_2: JSX.Element = <b>Updated:</b>;
+		const p_4: JSX.Element = <p>{b_2}{todoValue.updatedAt}</p>;
 		return <div>{p_1}{h2}{p_2}{p_3}{p_4}<label style={{"display": "block", "marginTop": "12px"}}> Title <input value={title} onChange={function (e: ChangeEvent) {
-			let setter: ((arg0: string) => void) = (titleState[1] ?? null);
+			const setter: ((arg0: string) => void) = (titleState[1] ?? null);
 			setter(e.target.value);
 		}} style={{"display": "block", "width": "100%", "padding": "8px", "marginTop": "6px"}} /></label><div style={{"marginTop": "12px"}}><button onClick={function () {
 			onSave();

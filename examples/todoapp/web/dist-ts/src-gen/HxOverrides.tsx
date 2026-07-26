@@ -2,7 +2,7 @@ import {Register} from "./genes/Register"
 
 export class HxOverrides {
 	static cca(s: string, index: number): number | null {
-		let x: number | null = s.charCodeAt(index);
+		const x: number | null = s.charCodeAt(index);
 		if (x != x) {
 			return null;
 		};

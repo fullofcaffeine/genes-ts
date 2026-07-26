@@ -103,6 +103,7 @@ class Module {
   public var runtimeProjection(get, null): DependencyProjection;
   public var implementationProjection(get, null): DependencyProjection;
   public var tempPlan(get, null): TempPlan;
+  public var localBindingPlan(get, null): LocalBindingPlan;
   public var moduleFunctionPlan(get, null): ModuleFunctionPlan;
 
   final context: ModuleContext;
@@ -161,6 +162,13 @@ class Module {
     if (tempPlan == null)
       tempPlan = TempPlan.build(this);
     return tempPlan;
+  }
+
+  /** Returns shared local mutability facts for both implementation profiles. */
+  function get_localBindingPlan():LocalBindingPlan {
+    if (localBindingPlan == null)
+      localBindingPlan = LocalBindingPlan.build(this);
+    return localBindingPlan;
   }
 
   /** Returns one cached naming projection used by planning and printing. */
@@ -250,6 +258,7 @@ class Module {
       runtimeProjection = null;
       implementationProjection = null;
       tempPlan = null;
+      localBindingPlan = null;
       moduleFunctionPlan = null;
       namePlans.clear();
       cycleCache.clear();

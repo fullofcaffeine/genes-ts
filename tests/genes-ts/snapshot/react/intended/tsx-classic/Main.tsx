@@ -84,92 +84,92 @@ export class Main {
 		return Promise.resolve();
 	}
 	static main(): void {
-		let title: string = "Hi";
-		let standardAnchorHandler: ((arg0: import('react').MouseEvent<HTMLAnchorElement>) => void) = function (event: import('react').MouseEvent<HTMLAnchorElement>) {
+		const title: string = "Hi";
+		const standardAnchorHandler: ((arg0: import('react').MouseEvent<HTMLAnchorElement>) => void) = function (event: import('react').MouseEvent<HTMLAnchorElement>) {
 			event.preventDefault();
 		};
-		let Button: ((arg0: {
+		const Button: ((arg0: {
 			label: string
 		}) => JSX.Element) = __genes_import_Button;
-		let el1: JSX.Element = <div className="root" data-test-id="x">{title}<span>{2}</span></div>;
-		let renderToStaticMarkup: ((arg0: JSX.Element) => string) = __genes_import_renderToStaticMarkup;
-		let html: string = renderToStaticMarkup(el1);
+		const el1: JSX.Element = <div className="root" data-test-id="x">{title}<span>{2}</span></div>;
+		const renderToStaticMarkup: ((arg0: JSX.Element) => string) = __genes_import_renderToStaticMarkup;
+		const html: string = renderToStaticMarkup(el1);
 		if (html != "<div class=\"root\" data-test-id=\"x\">Hi<span>2</span></div>") {
 			throw Exception.thrown("Unexpected HTML: " + html);
 		};
-		let buttonEl: JSX.Element = <Button label="Save" />;
-		let buttonHtml: string = renderToStaticMarkup(buttonEl);
+		const buttonEl: JSX.Element = <Button label="Save" />;
+		const buttonHtml: string = renderToStaticMarkup(buttonEl);
 		if (buttonHtml != "<button>Save</button>") {
 			throw Exception.thrown("Unexpected button HTML: " + buttonHtml);
 		};
-		let AliasedButton: ((arg0: {
+		const AliasedButton: ((arg0: {
 			label: string
 		}) => JSX.Element) = Button;
-		let aliasHtml: string = renderToStaticMarkup(<AliasedButton label="Alias" />);
+		const aliasHtml: string = renderToStaticMarkup(<AliasedButton label="Alias" />);
 		if (aliasHtml != "<button>Alias</button>") {
 			throw Exception.thrown("Unexpected alias HTML: " + aliasHtml);
 		};
-		let TypedButton: import('react').ComponentType<{
+		const TypedButton: import('react').ComponentType<{
 			label: string
 		}> = __genes_import_Button;
-		let typedButtonHtml: string = renderToStaticMarkup(<TypedButton label="Typed" key={1.5} />);
+		const typedButtonHtml: string = renderToStaticMarkup(<TypedButton label="Typed" key={1.5} />);
 		if (typedButtonHtml != "<button>Typed</button>") {
 			throw Exception.thrown("Unexpected typed button HTML: " + typedButtonHtml);
 		};
-		let divProps: {
+		const divProps: {
 			className: string,
 			id: string
 		} = {"className": "spread", "id": "x"};
-		let divWithSpread: JSX.Element = <div {...divProps}>Z</div>;
-		let divWithSpreadHtml: string = renderToStaticMarkup(divWithSpread);
+		const divWithSpread: JSX.Element = <div {...divProps}>Z</div>;
+		const divWithSpreadHtml: string = renderToStaticMarkup(divWithSpread);
 		if (divWithSpreadHtml != "<div class=\"spread\" id=\"x\">Z</div>") {
 			throw Exception.thrown("Unexpected spread HTML: " + divWithSpreadHtml);
 		};
-		let buttonProps: {
+		const buttonProps: {
 			label: string
 		} = {"label": "Spread"};
-		let buttonSpreadEl: JSX.Element = <Button {...buttonProps} />;
-		let buttonSpreadHtml: string = renderToStaticMarkup(buttonSpreadEl);
+		const buttonSpreadEl: JSX.Element = <Button {...buttonProps} />;
+		const buttonSpreadHtml: string = renderToStaticMarkup(buttonSpreadEl);
 		if (buttonSpreadHtml != "<button>Spread</button>") {
 			throw Exception.thrown("Unexpected spread button HTML: " + buttonSpreadHtml);
 		};
-		let createSignal: ((arg0: string) => StringSignal) = __genes_import_createSignal;
-		let createMemo: CreateMemo = __genes_import_createMemo;
-		let Status: ((arg0: StatusProps) => JSX.Element) = __genes_import_Status;
-		let count: StringSignal = createSignal("1");
+		const createSignal: ((arg0: string) => StringSignal) = __genes_import_createSignal;
+		const createMemo: CreateMemo = __genes_import_createMemo;
+		const Status: ((arg0: StatusProps) => JSX.Element) = __genes_import_Status;
+		const count: StringSignal = createSignal("1");
 		count.set("2");
-		let summary: StringAccessor = createMemo(function () {
+		const summary: StringAccessor = createMemo(function () {
 			return "items:" + count.get();
 		});
-		let statusEl = {"__genesJsxPropName": "label", "__genesJsxPropValue": "Count", "__genesJsxPropNext": {"__genesJsxPropName": "value", "__genesJsxPropValue": summary(), "__genesJsxPropNext": {"__genesJsxPropsEnd": true}}};
-		let statusEl1: string = count.get();
-		let statusEl2: JSX.Element = <Status label={statusEl.__genesJsxPropValue} value={statusEl.__genesJsxPropNext.__genesJsxPropValue}><span>{statusEl1}</span></Status>;
-		let statusHtml: string = renderToStaticMarkup(statusEl2);
+		const statusEl = {"__genesJsxPropName": "label", "__genesJsxPropValue": "Count", "__genesJsxPropNext": {"__genesJsxPropName": "value", "__genesJsxPropValue": summary(), "__genesJsxPropNext": {"__genesJsxPropsEnd": true}}};
+		const statusEl1: string = count.get();
+		const statusEl2: JSX.Element = <Status label={statusEl.__genesJsxPropValue} value={statusEl.__genesJsxPropNext.__genesJsxPropValue}><span>{statusEl1}</span></Status>;
+		const statusHtml: string = renderToStaticMarkup(statusEl2);
 		if (statusHtml != "<section data-label=\"Count\"><strong>items:2</strong><span>2</span></section>") {
 			throw Exception.thrown("Unexpected status HTML: " + statusHtml);
 		};
-		let GenericInt: ((arg0: GenericValueProps<number>) => JSX.Element) = Main.GenericValue;
-		let genericHtml: string = renderToStaticMarkup(<GenericInt value={7} render={function (value: number) {
+		const GenericInt: ((arg0: GenericValueProps<number>) => JSX.Element) = Main.GenericValue;
+		const genericHtml: string = renderToStaticMarkup(<GenericInt value={7} render={function (value: number) {
 			return "n:" + value;
 		}} />);
 		if (genericHtml != "<span>n:7</span>") {
 			throw Exception.thrown("Unexpected generic HTML: " + genericHtml);
 		};
-		let directGenericHtml: string = renderToStaticMarkup(<Main.GenericValue value={8} render={function (value: number) {
+		const directGenericHtml: string = renderToStaticMarkup(<Main.GenericValue value={8} render={function (value: number) {
 			return "n:" + value;
 		}} />);
 		if (directGenericHtml != "<span>n:8</span>") {
 			throw Exception.thrown("Unexpected direct generic HTML: " + directGenericHtml);
 		};
-		let broadHandler: ((arg0: import('react').SyntheticEvent<HTMLElement>) => void) = function (event: import('react').SyntheticEvent<HTMLElement>) {
+		const broadHandler: ((arg0: import('react').SyntheticEvent<HTMLElement>) => void) = function (event: import('react').SyntheticEvent<HTMLElement>) {
 			event.preventDefault();
 		};
-		let inheritedHtml: string = renderToStaticMarkup(<Main.InheritedCard label="Inherited" tone="warm" onSelect={broadHandler} />);
+		const inheritedHtml: string = renderToStaticMarkup(<Main.InheritedCard label="Inherited" tone="warm" onSelect={broadHandler} />);
 		if (inheritedHtml != "<aside data-tone=\"warm\">Inherited</aside>") {
 			throw Exception.thrown("Unexpected inherited component HTML: " + inheritedHtml);
 		};
 		let namedNativeValue: string = "";
-		let nativeFieldHtml: string = renderToStaticMarkup(<Main.NativeField key="native-field" aria-controls="named-panel" on-value={function (value: string) {
+		const nativeFieldHtml: string = renderToStaticMarkup(<Main.NativeField key="native-field" aria-controls="named-panel" on-value={function (value: string) {
 			namedNativeValue = value;
 		}} />);
 		if (nativeFieldHtml != "<section aria-controls=\"named-panel\">named-panel</section>") {
@@ -179,79 +179,79 @@ export class Main {
 			throw Exception.thrown("Unexpected native-field callback value: " + namedNativeValue);
 		};
 		let spreadNativeValue: string = "";
-		let nativeFieldProps: NativeFieldProps = {"aria-controls": "spread-panel", "on-value": function (value: string) {
+		const nativeFieldProps: NativeFieldProps = {"aria-controls": "spread-panel", "on-value": function (value: string) {
 			spreadNativeValue = value;
 		}};
-		let nativeFieldSpreadHtml: string = renderToStaticMarkup(<Main.NativeField {...nativeFieldProps} />);
+		const nativeFieldSpreadHtml: string = renderToStaticMarkup(<Main.NativeField {...nativeFieldProps} />);
 		if (nativeFieldSpreadHtml != "<section aria-controls=\"spread-panel\">spread-panel</section>") {
 			throw Exception.thrown("Unexpected native-field spread HTML: " + nativeFieldSpreadHtml);
 		};
 		if (spreadNativeValue != "spread-panel") {
 			throw Exception.thrown("Unexpected native-field spread callback value: " + spreadNativeValue);
 		};
-		let requiredChildHtml: JSX.Element = <strong>required</strong>;
-		let requiredChildHtml1: string = renderToStaticMarkup(<Main.RequiredChild>{requiredChildHtml}</Main.RequiredChild>);
+		const requiredChildHtml: JSX.Element = <strong>required</strong>;
+		const requiredChildHtml1: string = renderToStaticMarkup(<Main.RequiredChild>{requiredChildHtml}</Main.RequiredChild>);
 		if (requiredChildHtml1 != "<section><strong>required</strong></section>") {
 			throw Exception.thrown("Unexpected required child HTML: " + requiredChildHtml1);
 		};
-		let broadNodeHtml: JSX.Element = <strong key="broad-element">element child</strong>;
-		let broadNodeHtml1: string = renderToStaticMarkup(<Main.BroadNode>text child{broadNodeHtml}</Main.BroadNode>);
+		const broadNodeHtml: JSX.Element = <strong key="broad-element">element child</strong>;
+		const broadNodeHtml1: string = renderToStaticMarkup(<Main.BroadNode>text child{broadNodeHtml}</Main.BroadNode>);
 		if (broadNodeHtml1 != "<section>text child<strong>element child</strong></section>") {
 			throw Exception.thrown("Unexpected broad node HTML: " + broadNodeHtml1);
 		};
-		let booleanAndArrayHtml: string = renderToStaticMarkup(<button disabled aria-pressed>{["A", "B"]}</button>);
+		const booleanAndArrayHtml: string = renderToStaticMarkup(<button disabled aria-pressed>{["A", "B"]}</button>);
 		if (booleanAndArrayHtml != "<button disabled=\"\" aria-pressed=\"true\">AB</button>") {
 			throw Exception.thrown("Unexpected boolean/array HTML: " + booleanAndArrayHtml);
 		};
-		let stringFormAction: JSX.Element = <form action="/save" />;
-		let syncFormActionElement: JSX.Element = <form action={Main.syncFormAction} />;
-		let asyncFormActionElement: JSX.Element = <form action={Main.asyncFormAction} />;
-		let contextualFormAction: JSX.Element = <form action={function (formData: FormData) {
+		const stringFormAction: JSX.Element = <form action="/save" />;
+		const syncFormActionElement: JSX.Element = <form action={Main.syncFormAction} />;
+		const asyncFormActionElement: JSX.Element = <form action={Main.asyncFormAction} />;
+		const contextualFormAction: JSX.Element = <form action={function (formData: FormData) {
 			formData.has("title");
 		}} />;
-		let buttonFormAction: JSX.Element = <button formAction={Main.syncFormAction}>Save</button>;
-		let inputFormAction: JSX.Element = <input type="submit" formAction={Main.asyncFormAction} />;
-		let dashPattern: string = "8 4";
-		let dashOffset: number = 2.5;
-		let dashedCircleHtml: JSX.Element = <circle cx={5} cy={5} r={4} strokeDasharray={dashPattern} strokeDashoffset={dashOffset} />;
-		let dashedCircleHtml1: string = renderToStaticMarkup(<svg viewBox="0 0 10 10">{dashedCircleHtml}</svg>);
+		const buttonFormAction: JSX.Element = <button formAction={Main.syncFormAction}>Save</button>;
+		const inputFormAction: JSX.Element = <input type="submit" formAction={Main.asyncFormAction} />;
+		const dashPattern: string = "8 4";
+		const dashOffset: number = 2.5;
+		const dashedCircleHtml: JSX.Element = <circle cx={5} cy={5} r={4} strokeDasharray={dashPattern} strokeDashoffset={dashOffset} />;
+		const dashedCircleHtml1: string = renderToStaticMarkup(<svg viewBox="0 0 10 10">{dashedCircleHtml}</svg>);
 		if (dashedCircleHtml1 != "<svg viewBox=\"0 0 10 10\"><circle cx=\"5\" cy=\"5\" r=\"4\" stroke-dasharray=\"8 4\" stroke-dashoffset=\"2.5\"></circle></svg>") {
 			throw Exception.thrown("Unexpected dashed SVG HTML: " + dashedCircleHtml1);
 		};
-		let listHtml: string = renderToStaticMarkup(Main.renderChildList("ready", "queued"));
+		const listHtml: string = renderToStaticMarkup(Main.renderChildList("ready", "queued"));
 		if (listHtml != "<div><span>ready</span><strong>queued</strong><button>Save</button><em>done</em><span>ready:1</span><strong>queued:2</strong><span>ready:3</span><strong>queued:4</strong><span>ready:5</span><strong>queued:6</strong><span>ready:7</span><strong>queued:8</strong></div>") {
 			throw Exception.thrown("Unexpected list HTML: " + listHtml);
 		};
-		let loweredHtml: string = renderToStaticMarkup(Main.renderLoweredChildList("ready", "queued"));
+		const loweredHtml: string = renderToStaticMarkup(Main.renderLoweredChildList("ready", "queued"));
 		if (loweredHtml != "<div><span>ready</span><strong>queued</strong><em>done</em><span>ready:1</span><strong>queued:2</strong></div>") {
 			throw Exception.thrown("Unexpected lowered list HTML: " + loweredHtml);
 		};
 		Main.jsxEvaluationOrder = [];
-		let orderedHtml: string = renderToStaticMarkup(Main.renderOrderedChildList());
+		const orderedHtml: string = renderToStaticMarkup(Main.renderOrderedChildList());
 		if (orderedHtml != "<div data-order=\"parent\"><span>first</span><strong>second</strong></div>") {
 			throw Exception.thrown("Unexpected ordered HTML: " + orderedHtml);
 		};
 		if (Main.jsxEvaluationOrder.join(">") != "parent>first>second") {
 			throw Exception.thrown("Unexpected JSX evaluation order: " + Main.jsxEvaluationOrder.join(">"));
 		};
-		let authoredChildHtml: string = renderToStaticMarkup(Main.renderAuthoredChild("named"));
+		const authoredChildHtml: string = renderToStaticMarkup(Main.renderAuthoredChild("named"));
 		if (authoredChildHtml != "<div><span>named</span></div>") {
 			throw Exception.thrown("Unexpected authored child HTML: " + authoredChildHtml);
 		};
-		let sharedChildHtml: string = renderToStaticMarkup(Main.renderSharedChild("shared"));
+		const sharedChildHtml: string = renderToStaticMarkup(Main.renderSharedChild("shared"));
 		if (sharedChildHtml != "<div><span>shared</span><span>shared</span></div>") {
 			throw Exception.thrown("Unexpected shared child HTML: " + sharedChildHtml);
 		};
-		let frag: JSX.Element = <><span>A</span><span>B</span></>;
-		let fragHtml: string = renderToStaticMarkup(frag);
+		const frag: JSX.Element = <><span>A</span><span>B</span></>;
+		const fragHtml: string = renderToStaticMarkup(frag);
 		if (fragHtml != "<span>A</span><span>B</span>") {
 			throw Exception.thrown("Unexpected fragment HTML: " + fragHtml);
 		};
-		let contextualClick: JSX.Element = <button onClick={function (event: import('react').MouseEvent<HTMLElement>) {
+		const contextualClick: JSX.Element = <button onClick={function (event: import('react').MouseEvent<HTMLElement>) {
 			event.preventDefault();
 		}}>Contextual</button>;
 		renderToStaticMarkup(contextualClick);
-		let contextualAnchor: JSX.Element = <a onClick={function (event: import('react').MouseEvent<HTMLAnchorElement>) {
+		const contextualAnchor: JSX.Element = <a onClick={function (event: import('react').MouseEvent<HTMLAnchorElement>) {
 			event.currentTarget.download = "report.csv";
 			event.currentTarget.rel = "noopener";
 			event.currentTarget.protocol = "https:";
@@ -259,58 +259,58 @@ export class Main {
 		}}>Download</a>;
 		renderToStaticMarkup(contextualAnchor);
 		renderToStaticMarkup(<a onClick={standardAnchorHandler}>Standard DOM</a>);
-		let compatibleAnchorHandler: ((arg0: import('react').MouseEvent<HTMLAnchorElement>) => void) = function (event: import('react').MouseEvent<HTMLAnchorElement>) {
+		const compatibleAnchorHandler: ((arg0: import('react').MouseEvent<HTMLAnchorElement>) => void) = function (event: import('react').MouseEvent<HTMLAnchorElement>) {
 			event.preventDefault();
 		};
 		renderToStaticMarkup(<a onClick={compatibleAnchorHandler}>Compatible</a>);
-		let absentHref: string | undefined = undefined;
-		let absentHrefHtml: string = renderToStaticMarkup(<a href={absentHref}>Absent href</a>);
+		const absentHref: string | undefined = undefined;
+		const absentHrefHtml: string = renderToStaticMarkup(<a href={absentHref}>Absent href</a>);
 		if (absentHrefHtml != "<a>Absent href</a>") {
 			throw Exception.thrown("Unexpected absent href HTML: " + absentHrefHtml);
 		};
-		let contextualInput: JSX.Element = <input onChange={function (event: import('react').ChangeEvent<HTMLInputElement>) {
+		const contextualInput: JSX.Element = <input onChange={function (event: import('react').ChangeEvent<HTMLInputElement>) {
 			console.log("tests/genes-ts/snapshot/react/src/Main.hx:309:",event.target.value);
 			event.target.select();
 			event.target.setSelectionRange(0, 0);
 		}} />;
 		renderToStaticMarkup(contextualInput);
-		let okHandler: (() => void) = function () {
+		const okHandler: (() => void) = function () {
 			return;
 		};
-		let okClick: JSX.Element = <button onClick={okHandler}>Click</button>;
+		const okClick: JSX.Element = <button onClick={okHandler}>Click</button>;
 		renderToStaticMarkup(okClick);
-		let ignoredEvent: JSX.Element = <button onClick={function () {
+		const ignoredEvent: JSX.Element = <button onClick={function () {
 			return "ignored";
 		}}>Ignored</button>;
 		renderToStaticMarkup(ignoredEvent);
-		let optionalChildren: MainOptionalSpreadChildProps = {};
-		let optionalChildSpreadHtml: JSX.Element = <strong>nested child</strong>;
-		let optionalChildSpreadHtml1: string = renderToStaticMarkup(<Main.RequiredChild {...optionalChildren}>{optionalChildSpreadHtml}</Main.RequiredChild>);
+		const optionalChildren: MainOptionalSpreadChildProps = {};
+		const optionalChildSpreadHtml: JSX.Element = <strong>nested child</strong>;
+		const optionalChildSpreadHtml1: string = renderToStaticMarkup(<Main.RequiredChild {...optionalChildren}>{optionalChildSpreadHtml}</Main.RequiredChild>);
 		if (optionalChildSpreadHtml1 != "<section><strong>nested child</strong></section>") {
 			throw Exception.thrown("Unexpected optional child spread HTML: " + optionalChildSpreadHtml1);
 		};
-		let previousChild: JSX.Element = <em>spread child</em>;
-		let presentOptionalChildren: MainOptionalSpreadChildProps = {"children": previousChild};
-		let optionalChildOverrideHtml: JSX.Element = <strong>nested child</strong>;
-		let optionalChildOverrideHtml1: string = renderToStaticMarkup(<Main.RequiredChild {...presentOptionalChildren}>{optionalChildOverrideHtml}</Main.RequiredChild>);
+		const previousChild: JSX.Element = <em>spread child</em>;
+		const presentOptionalChildren: MainOptionalSpreadChildProps = {"children": previousChild};
+		const optionalChildOverrideHtml: JSX.Element = <strong>nested child</strong>;
+		const optionalChildOverrideHtml1: string = renderToStaticMarkup(<Main.RequiredChild {...presentOptionalChildren}>{optionalChildOverrideHtml}</Main.RequiredChild>);
 		if (optionalChildOverrideHtml1 != "<section><strong>nested child</strong></section>") {
 			throw Exception.thrown("Unexpected optional child override HTML: " + optionalChildOverrideHtml1);
 		};
-		let childArray: JSX.Element[] = [<em key="array-a">array A</em>, <strong key="array-b">array B</strong>];
-		let arrayValueChildHtml: string = renderToStaticMarkup(<Main.RequiredChildList>{childArray}</Main.RequiredChildList>);
+		const childArray: JSX.Element[] = [<em key="array-a">array A</em>, <strong key="array-b">array B</strong>];
+		const arrayValueChildHtml: string = renderToStaticMarkup(<Main.RequiredChildList>{childArray}</Main.RequiredChildList>);
 		if (arrayValueChildHtml != "<section><em>array A</em><strong>array B</strong></section>") {
 			throw Exception.thrown("Unexpected array-valued child HTML: " + arrayValueChildHtml);
 		};
-		let optionalChildList: MainOptionalSpreadChildListProps = {};
-		let multipleRequiredChildrenHtml: JSX.Element = <em key="nested-a">nested A</em>;
-		let multipleRequiredChildrenHtml1: JSX.Element = <strong key="nested-b">nested B</strong>;
-		let multipleRequiredChildrenHtml2: string = renderToStaticMarkup(<Main.RequiredChildList {...optionalChildList}>{multipleRequiredChildrenHtml}{multipleRequiredChildrenHtml1}</Main.RequiredChildList>);
+		const optionalChildList: MainOptionalSpreadChildListProps = {};
+		const multipleRequiredChildrenHtml: JSX.Element = <em key="nested-a">nested A</em>;
+		const multipleRequiredChildrenHtml1: JSX.Element = <strong key="nested-b">nested B</strong>;
+		const multipleRequiredChildrenHtml2: string = renderToStaticMarkup(<Main.RequiredChildList {...optionalChildList}>{multipleRequiredChildrenHtml}{multipleRequiredChildrenHtml1}</Main.RequiredChildList>);
 		if (multipleRequiredChildrenHtml2 != "<section><em>nested A</em><strong>nested B</strong></section>") {
 			throw Exception.thrown("Unexpected multiple required children HTML: " + multipleRequiredChildrenHtml2);
 		};
 	}
 	static renderChildList(first: string, second: string): JSX.Element {
-		let Button: ((arg0: {
+		const Button: ((arg0: {
 			label: string
 		}) => JSX.Element) = __genes_import_Button;
 		return <div><span>{first}</span><strong>{second}</strong><Button label="Save" /><em>done</em><span>{first + ":1"}</span><strong>{second + ":2"}</strong><span>{first + ":3"}</span><strong>{second + ":4"}</strong><span>{first + ":5"}</span><strong>{second + ":6"}</strong><span>{first + ":7"}</span><strong>{second + ":8"}</strong></div>;
@@ -321,10 +321,10 @@ export class Main {
 	 * pure nested element tree around those already-evaluated locals.
 	 */
 	static renderOrderedChildList(): JSX.Element {
-		let tmp = {"__genesJsxPropName": "data-order", "__genesJsxPropValue": Main.recordJsxEvaluation("parent"), "__genesJsxPropNext": {"__genesJsxPropsEnd": true}};
-		let tmp1: string = Main.recordJsxEvaluation("first");
-		let span: JSX.Element = <span>{tmp1}</span>;
-		let tmp3: string = Main.recordJsxEvaluation("second");
+		const tmp = {"__genesJsxPropName": "data-order", "__genesJsxPropValue": Main.recordJsxEvaluation("parent"), "__genesJsxPropNext": {"__genesJsxPropsEnd": true}};
+		const tmp1: string = Main.recordJsxEvaluation("first");
+		const span: JSX.Element = <span>{tmp1}</span>;
+		const tmp3: string = Main.recordJsxEvaluation("second");
 		return <div data-order={tmp.__genesJsxPropValue}>{span}<strong>{tmp3}</strong></div>;
 	}
 
@@ -332,7 +332,7 @@ export class Main {
 	 * One-use authored locals remain visible even when their value is pure.
 	 */
 	static renderAuthoredChild(label: string): JSX.Element {
-		let child: JSX.Element = <span>{label}</span>;
+		const child: JSX.Element = <span>{label}</span>;
 		return <div>{child}</div>;
 	}
 
@@ -340,7 +340,7 @@ export class Main {
 	 * Shared JSX values retain one declaration and two reads.
 	 */
 	static renderSharedChild(label: string): JSX.Element {
-		let child: JSX.Element = <span>{label}</span>;
+		const child: JSX.Element = <span>{label}</span>;
 		return <div>{child}{child}</div>;
 	}
 	static recordJsxEvaluation(label: string): string {
@@ -348,7 +348,7 @@ export class Main {
 		return label;
 	}
 	static GenericValue<T>(props: GenericValueProps<T>): JSX.Element {
-		let tmp: string = props.render(props.value);
+		const tmp: string = props.render(props.value);
 		return <span>{tmp}</span>;
 	}
 	static InheritedCard(props: InheritedCardProps): JSX.Element {
@@ -372,11 +372,11 @@ export class Main {
 		return <section>{props.children}</section>;
 	}
 	static renderLoweredChildList(first: string, second: string): JSX.Element {
-		let span: JSX.Element = <span>{first}</span>;
-		let strong: JSX.Element = <strong>{second}</strong>;
-		let em: JSX.Element = <em>done</em>;
-		let span_1: JSX.Element = <span>{first + ":1"}</span>;
-		let strong_1: JSX.Element = <strong>{second + ":2"}</strong>;
+		const span: JSX.Element = <span>{first}</span>;
+		const strong: JSX.Element = <strong>{second}</strong>;
+		const em: JSX.Element = <em>done</em>;
+		const span_1: JSX.Element = <span>{first + ":1"}</span>;
+		const strong_1: JSX.Element = <strong>{second + ":2"}</strong>;
 		return <div>{span}{strong}{em}{span_1}{strong_1}</div>;
 	}
 	static get __name__(): string {

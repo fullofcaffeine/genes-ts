@@ -47,6 +47,7 @@ class ExprEmitter extends Emitter {
   var jsxSourceInlineConsumer: Null<JsxSourceInlineConsumer> = null;
   var namePlan: Null<NamePlan> = null;
   var tempPlan: Null<TempPlan> = null;
+  var localBindingPlan: Null<LocalBindingPlan> = null;
   var directImportLocals: Array<String> = [];
 
   var declare = #if (js_es == 6) 'let'; #else 'var'; #end
@@ -122,6 +123,7 @@ class ExprEmitter extends Emitter {
   public function configureLowering(module: Module, profile: NamePlanProfile,
       jsxEmitTsx = false): Void {
     tempPlan = module.tempPlan;
+    localBindingPlan = module.localBindingPlan;
     namePlan = module.namePlan(profile, jsxEmitTsx);
   }
 
@@ -664,7 +666,7 @@ class ExprEmitter extends Emitter {
         write('.hasNext()) {');
         increaseIndent();
         writeNewline();
-        write('$declare ');
+        write('${localDeclaration(lowered.variable, true)} ');
         emitLocalVar(lowered.variable);
         write(' = ');
         write(iteratorName);
@@ -1552,8 +1554,35 @@ class ExprEmitter extends Emitter {
     }
   }
 
+  /**
+   * Selects the strongest local declaration supported by the output profile.
+   *
+   * Why: Haxe's public typed-macro API does not expose source `final`, but the
+   * complete typed module does show every ordinary local write. Printing an
+   * initialized binding with no writes as `let` loses useful source information
+   * and makes generated TypeScript or modern JavaScript look more mutable than
+   * the Haxe program.
+   *
+   * What: an initialized local with no writes becomes `const` in the ES2015
+   * profile. Mutable locals and declarations without an initializer retain the
+   * surrounding `let`/`var` policy. Requiring the initializer is important:
+   * JavaScript does not permit a bare `const name;` declaration.
+   *
+   * How: both implementation emitters call this shared helper from their
+   * `TVar` path, so TypeScript, TSX, and classic ES2015 JavaScript agree on
+   * mutability without re-scanning assignment syntax in either printer.
+   */
+  function localDeclaration(v:TVar, hasInitializer:Bool):String {
+    #if (js_es == 6)
+    return localBindingPlan != null
+      && localBindingPlan.canUseConst(v, hasInitializer) ? 'const' : declare;
+    #else
+    return declare;
+    #end
+  }
+
   public function emitVar(v: TVar, eo: Null<TypedExpr>) {
-    write('$declare ');
+    write('${localDeclaration(v, eo != null)} ');
     emitLocalVar(v);
     switch (eo) {
       case null:
