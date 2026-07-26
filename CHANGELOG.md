@@ -1,3 +1,10 @@
+## [1.38.1](https://github.com/fullofcaffeine/genes-ts/compare/v1.38.0...v1.38.1) (2026-07-26)
+
+
+### Bug Fixes
+
+* **imports:** choose dynamic runtime suffix at emission ([#44](https://github.com/fullofcaffeine/genes-ts/issues/44)) ([627d796](https://github.com/fullofcaffeine/genes-ts/commit/627d796a8ba8c46f4755e049e8dc632b3f701f30))
+
 # [1.38.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.37.1...v1.38.0) (2026-07-26)
 
 
