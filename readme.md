@@ -55,7 +55,9 @@ boundary and planned shared architecture.
 - **Analyzer-visible module functions** via validated
   `@:genes.moduleFunction("exactName")`, preserving the Haxe static-method API,
   runtime property descriptor, initialization order, and declarations without
-  a delegating wrapper
+  a delegating wrapper; pair it with matching `@:expose("exactName")` to publish
+  that same function through stable owner-module and compilation-root ESM
+  bindings in both TypeScript and JavaScript profiles
 - **npm declaration ingestion** via a pinned, deterministic dts2hx bridge whose
   externs are exercised through both TS and classic JS output
 - **Async/await sugar** (`@:async` + `await(...)`) emitting native `async`/`await`

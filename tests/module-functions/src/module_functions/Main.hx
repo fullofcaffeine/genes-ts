@@ -10,6 +10,8 @@ class Main {
     final transcript = [
       Selected.before(),
       Selected.selected({label: "typed"}, null, "a", "b"),
+      Selected.publicIdentity({label: "public"}).label,
+      Std.string(Selected.publicByFieldName(1)),
       Std.string(Selected.recursive(3)),
       Std.string(Selected.sameName(1)),
       Std.string(Selected.callsCross(1)),

@@ -1480,6 +1480,8 @@ class TsModuleEmitter extends JsModuleEmitter {
           final isAsync = entry.field.meta != null
             && (entry.field.meta.has(':jsAsync')
               || entry.field.meta.has('jsAsync'));
+          if (entry.publicExportName != null)
+            write('export ');
           if (isAsync)
             write('async ');
           write('function ');

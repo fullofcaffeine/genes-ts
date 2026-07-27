@@ -1,6 +1,9 @@
 import type {JSX} from "react"
 import {Register} from "./genes/Register.js"
 
+export function renderWithoutMarkup(renderer: ((arg0: JSX.Element) => string), element: JSX.Element): string {
+	return renderer(element);
+}
 /**
  * Proves a React element type can appear in TypeScript without authored markup.
  *
@@ -10,8 +13,9 @@ import {Register} from "./genes/Register.js"
  * markup intent in this module.
  */
 export class TypeOnlyJsxMain {
-	static render(renderer: ((arg0: JSX.Element) => string), element: JSX.Element): string {
-		return renderer(element);
+	static render(renderer: ((arg0: JSX.Element) => string), element: JSX.Element): string;
+	static render(): never {
+		throw this;
 	}
 	static main(): void {
 	}
@@ -22,4 +26,5 @@ export class TypeOnlyJsxMain {
 		return TypeOnlyJsxMain
 	}
 }
+TypeOnlyJsxMain.render = renderWithoutMarkup;
 Register.setHxClass("TypeOnlyJsxMain", TypeOnlyJsxMain);

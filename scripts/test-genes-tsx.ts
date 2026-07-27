@@ -896,6 +896,7 @@ const typeOnlyJsxSource = readFileSync(
 );
 ok(typeOnlyJsxSource.startsWith('import type {JSX} from "react"\n'));
 ok(typeOnlyJsxSource.includes("JSX.Element"));
+ok(typeOnlyJsxSource.includes("export function renderWithoutMarkup"));
 ok(!typeOnlyJsxSource.includes('import * as React'));
 runGeneratedTypeScriptMatrix(
   "tests/genes-ts/snapshot/react/tsconfig.tsx-type-only-jsx.json"
@@ -914,6 +915,7 @@ const typeOnlyJsxTsSource = readFileSync(
 );
 ok(typeOnlyJsxTsSource.startsWith('import type {JSX} from "react"\n'));
 ok(typeOnlyJsxTsSource.includes("JSX.Element"));
+ok(typeOnlyJsxTsSource.includes("export function renderWithoutMarkup"));
 ok(!typeOnlyJsxTsSource.includes('import * as React'));
 runGeneratedTypeScriptMatrix(
   "tests/genes-ts/snapshot/react/tsconfig.ts-type-only-jsx.json"

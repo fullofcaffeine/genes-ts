@@ -97,6 +97,12 @@ function assertSourceMap(profile: "classic" | "ts" | "tsx",
   strictEqual(bodyOriginal.line,
     sourceLine(haxeSource, "return value.label + suffix + rest.length"),
     `${profile} moved body keeps its exact Haxe source line`);
+
+  const publicPoint = generatedPoint(source, "function publicIdentity");
+  const publicOriginal = map.originalPositionFor(publicPoint);
+  strictEqual(publicOriginal.line,
+    sourceLine(haxeSource, "public static function publicIdentity"),
+    `${profile} public module function maps to its Haxe method declaration`);
 }
 
 function assertImplementationShape(relative: string): void {
@@ -119,6 +125,12 @@ function assertImplementationShape(relative: string): void {
     `${relative} keeps a descriptor seed in the original class slot`);
   ok(!source.includes("export function useSemantic"),
     `${relative} does not broaden the ESM API`);
+  ok(source.includes("export function publicIdentity"),
+    `${relative} publishes the selected public module function directly`);
+  ok(source.includes("Selected.publicIdentity = publicIdentity"),
+    `${relative} keeps one exact Haxe/native public function identity`);
+  ok(source.includes("export function publicByFieldName"),
+    `${relative} supports zero-argument @:expose by field name`);
   ok(source.includes("function sameName")
     && source.includes("Selected.sameName = sameName"),
     `${relative} accepts an exact module name equal to its Haxe field`);
@@ -272,6 +284,25 @@ console.log(Selected.selected === __testUseSemantic ? "true" : "false");`;
   }
 }
 
+function exactPublicRuntimeIdentity(): boolean {
+  const program = `
+import {Selected, publicIdentity as ownerPublicIdentity} from "./tests/module-functions/out/classic/module_functions/Selected.js";
+import {publicIdentity as rootPublicIdentity} from "./tests/module-functions/out/classic/index.js";
+const value = {label: "public", detail: 42};
+console.log(
+  Selected.publicIdentity === ownerPublicIdentity
+  && ownerPublicIdentity === rootPublicIdentity
+  && rootPublicIdentity(value) === value
+  ? "true"
+  : "false"
+);`;
+  return execFileSync(process.execPath,
+    ["--input-type=module", "--eval", program], {
+      cwd: repoRoot,
+      encoding: "utf8"
+    }).trim().split(/\r?\n/).at(-1) === "true";
+}
+
 const negativeCases = [
   ["module_function_arity", "GENES-MODULE-FUNCTION-ARITY-001"],
   ["module_function_arity_multiple", "GENES-MODULE-FUNCTION-ARITY-001"],
@@ -302,6 +333,26 @@ const negativeCases = [
   [
     "module_function_global_collision",
     "GENES-MODULE-FUNCTION-COLLISION-005"
+  ],
+  [
+    "module_function_expose_mismatch",
+    "GENES-MODULE-FUNCTION-EXPOSE-NAME-016"
+  ],
+  [
+    "module_function_expose_arity",
+    "GENES-MODULE-FUNCTION-EXPOSE-ARITY-011"
+  ],
+  [
+    "module_function_expose_nonliteral",
+    "GENES-MODULE-FUNCTION-EXPOSE-LITERAL-012"
+  ],
+  [
+    "module_function_expose_empty",
+    "GENES-MODULE-FUNCTION-EXPOSE-EMPTY-013"
+  ],
+  [
+    "module_function_expose_identifier",
+    "GENES-MODULE-FUNCTION-EXPOSE-IDENTIFIER-014"
   ]
 ] as const;
 
@@ -386,6 +437,8 @@ assertSourceMap("tsx", "tsx");
 const runtime = runtimeEvidence();
 strictEqual(exactRuntimeIdentity(), true,
   "the final class property is the exact module-function object");
+strictEqual(exactPublicRuntimeIdentity(), true,
+  "owner, public binding, and root re-export share one function identity");
 deepStrictEqual(runtime.descriptor, {
   configurable: true,
   enumerable: false,
@@ -427,6 +480,14 @@ ok(classicDeclaration.includes("static renamedSelected(value: number): number"))
 ok(classicDeclaration.includes("export declare class SecondarySelected"));
 ok(!/(?:declare\s+)?function\s+useSemantic/.test(classicDeclaration),
   "classic declarations expose only the existing class method");
+ok(classicDeclaration.includes(
+  "export declare const publicIdentity: typeof Selected.publicIdentity"),
+  "classic declarations publish the generic binding from the class contract");
+const classicRootDeclaration = readFileSync(path.join(outputRoot,
+  "classic/index.d.ts"), "utf8");
+ok(classicRootDeclaration.includes(
+  'export {publicIdentity} from "./module_functions/Selected.js"'),
+  "classic root declarations re-export the stable public binding");
 const tsDeclaration = readFileSync(path.join(outputRoot,
   "ts/dist/out/ts/src-gen/module_functions/Selected.d.ts"), "utf8");
 ok(tsDeclaration.includes("static selected"));
@@ -435,6 +496,13 @@ ok(tsDeclaration.includes("static renamedSelected(value: number): number"));
 ok(tsDeclaration.includes("export declare class SecondarySelected"));
 ok(!/(?:declare\s+)?function\s+useSemantic/.test(tsDeclaration),
   "tsc declarations do not publish the private module function");
+ok(tsDeclaration.includes("export declare function publicIdentity"),
+  "tsc declarations publish the direct generic module function");
+const tsRootDeclaration = readFileSync(path.join(outputRoot,
+  "ts/dist/out/ts/src-gen/index.d.ts"), "utf8");
+ok(tsRootDeclaration.includes(
+  'export { publicIdentity } from "./module_functions/Selected.js"'),
+  "tsc root declarations re-export the stable public binding");
 const tsxDeclaration = readFileSync(path.join(outputRoot,
   "ts/dist/out/tsx/src-gen/module_functions/Selected.d.ts"), "utf8");
 strictEqual(tsxDeclaration, tsDeclaration,
