@@ -20,8 +20,9 @@ class TypeArguments {
    * type, records it in generic declaration order, and removes the witness from
    * runtime output. The direct extern callee must opt in with
    * `@:ts.explicitTypeArguments`; wrong arity, broad types, aliases, and ordinary
-   * functions fail closed. A compiler-owned typed carrier keeps the registration
-   * attached when a library macro nests the call in a fluent expression; both
+   * functions fail closed. A compiler-owned typed carrier keeps the witness
+   * attached to the exact call occurrence when a library macro nests it in a
+   * fluent expression or Haxe reuses a typed compiler-server tree. Both
    * emitters erase that carrier, so TypeScript and classic JavaScript receive
    * only the original call and its ordinary composition.
    */

@@ -22,7 +22,8 @@ The focused owner covers:
 - TypeScript, TSX, classic MJS, and classic declarations;
 - repeated requests and changed output roots;
 - source edits, deleted/restored modules, module directives, module functions,
-  DCE/library roots, generic extern witnesses, and import attributes;
+  DCE/library roots, occurrence-local generic extern witnesses, and import
+  attributes;
 - a successful build followed by a private post-staging failure and recovery;
 - active-Genes then `genes.disable` capability isolation;
 - source maps, strict TypeScript consumers, runtime transcripts, manifests,
@@ -32,3 +33,41 @@ The focused owner covers:
 The generated `.tmp` directory is disposable and intentionally ignored. Do not
 turn it into checked-in expected output; the cold build is the executable
 oracle for the warm build.
+
+## Macro-state checkpoint
+
+The fixture was extended after the architecture checkpoint because the earlier
+generic call used only `@:ts.explicitTypeArguments`. That path derives a type
+from the current callee and never consulted the lower-level
+`TypeArguments.call(...)` registry that the checkpoint had identified as
+suspicious.
+
+The reduced probe now compiles one exact call position as `String`, then `Int`,
+then `String` again. Before the correction, the first stable warm request
+failed because its cached carrier could not find the witness in the generator's
+macro context. The fix removed that static registry: inert typed facts now live
+on the exact carrier occurrence and both emitters erase them. Copied source
+positions can consequently carry different facts safely, and the server does
+not need a compiler-wide session or persistent typed cache.
+
+The checkpoint classifications are:
+
+| Owner | Executable evidence | Result |
+|---|---|---|
+| `ExplicitTypeArguments` | Same absolute call site with String → Int → String, plus two copied occurrences at one source span | **Defect reproduced and fixed.** Facts are occurrence-local in the typed tree; no mutable macro registry remains. |
+| Generator callbacks and `@:genes.generate` membership | Identical repeats, edit/delete/restore, profile changes, and a final return to the first tree | **No observable stale output.** Current-generation metadata continues to select the correct module inventory. |
+| `CompilerInternal.GENERATOR_ACTIVE_DEFINE` | Active Genes requests followed by `genes.disable`, then a successful request | **Request-scoped in the supported lane.** The disabled request fails at the authored carrier and publishes nothing. |
+| `PublicSurface` | Application/library DCE changes and two same-named projects with different public field types | **Explicit reset is effective.** Strict consumers observe only the current project's surface. |
+| `SignatureCache` | Same-named projects with String versus Int fields and generic arguments | **Explicit reset is effective.** Generated implementation and classic declarations equal isolated cold builds. |
+| `ModuleDirectivePlan` | Edited/restored directives and distinct same-named project prologues | **Explicit reset is effective.** Directive spelling/order follows the current request. |
+| `TypeUtil.registerType` / `bootType` | Complete stable cold/warm tree comparison across profiles and projects | **No stale helper declaration observed on Haxe 4.3.7.** Haxe 5 preview still has the separate DCE variance described below. |
+| Generator output path and sentinel fields | Changed roots, TS/classic extensions, staged failure/recovery, manifest and sentinel checks | **Current request wins.** Prior owners remain intact and private debris is removed. |
+
+On Haxe `5.0.0-preview.1`, exact preview output still fails before the longer
+matrix: after the compiler's casting stage, cold and warm `genes.Register` are
+equivalent, but after DCE the generic `js.lib.Object.defineProperty` monomorph
+is unresolved in the cold tree and resolved to `{}` in the warm tree. Genes
+therefore prints the warm request's checked `unsafeCast<{}>` and the cold
+request prints the direct value. This is a visible preview typed-AST variance,
+not a TypeUtil owner mismatch or a relaxed file allowlist. Preview remains
+advisory; stable Haxe 4.3.7 remains the blocking lifecycle contract.

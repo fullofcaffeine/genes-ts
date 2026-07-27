@@ -372,17 +372,20 @@ return macro genes.ts.TypeArguments.call($call, $witness).seal();
 ```
 
 Haxe can give both calls one macro source span and relocate the inner call to
-the macro definition. genes-ts carries a deterministic registration identity
-through the typed tree and verifies the exact extern owner, field, and
-static/instance kind before printing the witness. The compiler-owned carrier is
-removed in both output modes, so the result remains ordinary handwritten code:
+the macro definition. A source span therefore says where to map generated
+tokens, but it cannot identify which call owns a type witness. genes-ts instead
+stores each checked witness on the exact typed call occurrence: the
+compiler-owned carrier holds inert typed-null facts and the TypeScript emitter
+revalidates the direct, opted-in extern declaration before printing them. The
+carrier and its facts are removed in both output modes, so the result remains
+ordinary handwritten code:
 
 ```ts
 const phase = makeCell<"pending" | "ready">("pending").seal();
 ```
 
 Classic Genes emits `makeCell("pending").seal()`. Neither output contains a
-carrier import, helper call, registry key, assertion, or extra evaluation.
+carrier import, helper call, typed-null fact, assertion, or extra evaluation.
 The carrier is single-use: after the reviewed direct call claims its saved type
 argument, a nested call to the same extern method is handled from its own Haxe
 type. This prevents an outer call's witness from leaking into an unrelated
@@ -394,10 +397,11 @@ inference. The callee must remain a direct generic extern field annotated with
 lost declaration identity. Witness count must equal method-generic arity, every
 witness type must be closed, and enum-abstract unions come from the compiler's
 reviewed declaration-time literal projection—not a user-written assertion or
-raw TypeScript string. A library macro may duplicate one source call when every
-copy uses the same witness types. If copies sharing one source span request
-different types, genes-ts reports a stable diagnostic instead of letting
-printer order choose a result. Classic Genes emits only `makeCell("pending")`.
+raw TypeScript string. A library macro may duplicate one source call even when
+the copies use different witnesses at the same source span: each exact typed
+occurrence owns its own facts, so printer order cannot merge them. Source
+positions remain provenance for diagnostics and mappings, never witness
+identity. Classic Genes erases every witness and emits only the ordinary calls.
 
 The package-neutral positive, negative, strict-TypeScript, and classic-JS
 evidence lives in [`tests/explicit-type-arguments`](../../tests/explicit-type-arguments/README.md).

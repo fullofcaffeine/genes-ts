@@ -15,6 +15,7 @@ import { runTypeScript } from "./toolchains.js";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const fixtureRoot = path.join(repoRoot, "tests/explicit-type-arguments");
 const negativeOutputRoot = path.join(fixtureRoot, "out/negative");
+const sharedSpanOutputRoot = path.join(fixtureRoot, "out/shared-span");
 
 function run(command: string, args: ReadonlyArray<string>): void {
   execFileSync(command, [...args], { cwd: repoRoot, stdio: "inherit" });
@@ -225,12 +226,32 @@ const negativeCases = [
   {
     hxml: "tests/explicit-type-arguments/build-call-site-not-call.hxml",
     expected: "GENES-TS-EXPLICIT-TYPE-ARGS-001: TypeArguments.call(...) expects a direct call expression"
-  },
-  {
-    hxml: "tests/explicit-type-arguments/build-call-site-conflicting-span.hxml",
-    expected: "GENES-TS-EXPLICIT-TYPE-ARGS-001: TypeArguments.call(...) found different type witnesses for calls that share one generated source span; the generating macro must give those callees distinct source positions"
   }
 ] as const;
+
+rmSync(sharedSpanOutputRoot, { recursive: true, force: true });
+run("haxe", [
+  "tests/explicit-type-arguments/build-call-site-shared-span.hxml"
+]);
+const sharedSpanSource = readFileSync(
+  path.join(sharedSpanOutputRoot, "CallSiteSharedSpan.ts"),
+  "utf8"
+);
+requireText(
+  sharedSpanSource,
+  'CellModule.make<"pending" | "ready">("pending")',
+  "the first copied occurrence must retain its closed enum-abstract witness"
+);
+requireText(
+  sharedSpanSource,
+  'CellModule.make<string>("pending")',
+  "the second copied occurrence must retain its independent String witness"
+);
+rejectText(
+  sharedSpanSource,
+  "ExplicitTypeArgumentCallSite",
+  "occurrence-local type facts must remain compiler-only"
+);
 
 for (const testCase of negativeCases) {
   rmSync(negativeOutputRoot, { recursive: true, force: true });

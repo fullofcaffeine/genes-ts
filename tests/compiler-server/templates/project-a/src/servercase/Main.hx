@@ -96,7 +96,17 @@ class Main {
   }
 
   public static function main(): Void {
-    final current = RuntimePackage.identity(REVISION);
+    #if server_numeric_witness
+    final witness = 21;
+    #else
+    final witness = REVISION;
+    #end
+    // TypeArguments.call records a pre-erasure type witness on this typed call.
+    // The harness recompiles this exact call position with String, then Int,
+    // then String again so a cached typed tree must carry its own witness
+    // instead of depending on macro static state from a previous request.
+    final current = genes.ts.TypeArguments.call(
+      RuntimePackage.identity(witness), witness);
     var transcript = "project-a:" + current + ":" + Extra.value();
     #if server_removed
     transcript += ":" + Removed.value();

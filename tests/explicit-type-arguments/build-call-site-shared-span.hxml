@@ -1,0 +1,7 @@
+-lib genes-ts
+-cp tests/explicit-type-arguments/shared-span
+--main CallSiteSharedSpan
+-js tests/explicit-type-arguments/out/shared-span/call-site-shared-span.ts
+-D genes.ts
+-D js-es=6
+-dce full

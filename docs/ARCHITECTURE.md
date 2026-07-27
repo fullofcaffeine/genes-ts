@@ -88,6 +88,7 @@ depend on formatting.
 | Dependency graphs and module-request order | `src/genes/DependencyPlan.hx`, `DependencyPlanBuilder.hx` | Records runtime-value, runtime-side-effect, type-only, and declaration-only edges with provenance; projects runtime requests by external/path/attribute identity into one ordered plan. |
 | Import bindings and aliases | `src/genes/BindingIdentity.hx`, `Dependencies.hx` | Keeps the requested module, selected export, requested local, and typed Haxe origin as separate facts; then allocates collision-safe locals. A binding-free request never invents a dependency name. `@:native` alone may identify a host global, while a declaration that also has `@:jsRequire` always resolves through its package binding and any normalized member path. |
 | Dynamic-import runtime requests | `src/genes/Genes.hx`, `src/genes/internal/DynamicImportMarker.hx`, `ExprEmitter.hx` | Carries an extension-free typed request from the macro to the shared emitter, which applies the current build's runtime suffix. Cached typing never owns `.ts`/`.tsx`/`.mjs` policy. |
+| Explicit generic-call witnesses | `src/genes/ExplicitTypeArguments.hx`, `src/genes/ts/ExplicitTypeArgumentCallSite.hx` | Keeps a pre-erasure type fact on the exact typed call occurrence. The carrier uses inert typed-null placeholders, both emitters erase it, and cached compiler-server trees never depend on a macro static registry or source position as identity. |
 | JSX intent, carrier ownership, provenance, and capability | `src/genes/JsxPlan.hx` | Represents markup before choosing TSX, `createElement`, classic lowering, or an unsupported diagnostic. A local linked-record carrier may preserve one-time evaluation, but no other read, write, or escape may change the compiler-owned structure after it is recognized. HXX marks direct nested elements/fragments with a distinct typed call; exact declaration/use facts may remove only that parser-owned scaffolding in source-preserving `.tsx`/`.jsx`, while positions remain mapping facts rather than ownership. |
 | Names, local mutability, and required temporaries | `src/genes/NamePlan.hx`, `LocalBindingPlan.hx`, `TempPlan.hx` | Preserves scopes and evaluation order while creating only necessary generated names and selecting `const` only for initialized bindings with no typed writes. |
 | Reusable-library retention | `src/genes/LibraryProfile.hx` | Opts public package APIs into matched TS/classic/declaration surfaces without making every build library-shaped. |
@@ -152,7 +153,7 @@ lifetimes:
   must be refreshed by a documented request entrypoint, use compiler-owned
   identity rather than generated names/positions, and have a cold/warm
   equivalence fixture;
-- **request state** includes pre-DCE surfaces, signature witnesses,
+- **request state** includes pre-DCE surfaces, signature caches,
   directives, capability defines, and generation membership. Its owner
   replaces or reinstalls it for every compilation before the first consumer;
 - **module state** includes dependency, JSX, template, narrowing, temporary,
@@ -168,8 +169,13 @@ Concrete rules follow from those lifetimes:
 
 - typed carriers may survive Haxe typing caches only when they contain stable,
   profile-independent facts; `DynamicImportMarker` carries an extension-free
-  path and authored position, while the active emitter chooses `.js`, `.mjs`,
-  or no suffix from the current generation;
+  path and authored position, while `ExplicitTypeArgumentCallSite` carries
+  inert occurrence-local witness types. The active emitter chooses `.js`,
+  `.mjs`, or no dynamic-import suffix from the current generation;
+- a typed carrier must be self-contained when Haxe can reuse it. An ordinary
+  macro static map is not a valid companion store: the generator may execute
+  in a different macro context, and a persistent map would retain typed
+  objects without a safe eviction boundary;
 - `@:genes.generate` metadata is a request-membership stamp. Cached declarations
   may retain older stamps, so generation checks for the current stamp instead
   of requiring the metadata list to contain exactly one entry;
@@ -184,7 +190,8 @@ Two executable owners protect this boundary:
   TS, TSX, classic JS/JSX/MJS, and extensionless profiles;
 - `yarn test:compiler-server` exercises the compiler as a whole across profile
   switches, edits, deletion/restoration, metadata, DCE/public surfaces, import
-  forms, failure/recovery, disabled capabilities, and same-named projects.
+  forms, occurrence-local explicit type witnesses, failure/recovery, disabled
+  capabilities, and same-named projects.
 
 Both start the real selected Haxe binary, reserve a loopback port, establish
 readiness with a real bounded request, compare warm output to isolated cold
