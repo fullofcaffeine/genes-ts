@@ -67,6 +67,7 @@ yarn test:output-quality # exact maps, clean hashes, and reviewed budgets
 yarn test:output-transaction # failure atomicity and stale-file ownership
 yarn test:interop:module-shapes # npm declaration/runtime import contracts
 yarn test:library-profile # default DCE vs matched TS/classic library surfaces
+yarn test:react-hooks # semantic React state/deps, placement, analyzers, maps
 yarn test:dynamic-import-policy # cold/warm runtime-suffix equivalence
 yarn test:compiler-server # whole-compiler cold/warm lifecycle equivalence
 yarn test:compiler-server:rollback # raw/structured post-staging recovery
@@ -205,6 +206,10 @@ module functions, library/DCE surfaces, a `TypeArguments.call` witness rebuilt
 as String → Int → String at one exact source position, import forms and attributes,
 post-staging failure/recovery, an active-to-disabled capability transition, and
 two projects with identical Haxe module names but different typed contracts.
+Every request also installs the framework-neutral React diagnostics and
+analyzer-function passes, so their compilation-local callback guards are
+exercised across the same cold/warm sequence even when a scenario does not
+declare a React component.
 
 Haxe 4.3.7 chooses native compiler-server caches from a compilation signature
 whose important inputs include the target and defines, not the classpath name.

@@ -289,6 +289,16 @@ Haxe validates intrinsic/component tags, exact props, callbacks, spreads, and
 children before generation. TypeScript remains an independent consumer check
 for `.tsx` and `.ts`, not the first typechecker.
 
+For framework-neutral Hook authoring, `genes.react.React` adds allocation-free
+`State` and `Optimistic` views, inline closed dependency packaging, and
+Haxe-side component/custom-Hook placement checks. Import its module functions
+by name, such as `import genes.react.React.useState`, and mark the exact
+module-level function with `@:genes.reactComponent` or `@:genes.reactHook`;
+genes emits a genuine analyzer-visible module export that calls React directly.
+Static methods remain supported when a class has a real identity or host
+contract, but an all-static shell is unnecessary. See
+`docs/typescript-target/REACT_HOOKS.md`.
+
 Source-preserving `.tsx` and `.jsx` profiles also recover the nested tree the
 author wrote. Haxe may introduce one-use element locals while typing nested
 HXX; Genes removes only compiler-owned, reorder-safe scaffolding, so this:
