@@ -7,6 +7,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,6 +16,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "../..");
 const toolingRoot = path.join(repoRoot, "tooling");
+const reviewedInventoryPath = path.join(
+  repoRoot,
+  "config",
+  "tooling-package-files.json"
+);
 
 interface PackedFile {
   readonly path: string;
@@ -30,12 +36,49 @@ interface PackResult {
   readonly files: readonly PackedFile[];
 }
 
+interface TarballEntry {
+  readonly mode?: number;
+  readonly path: string;
+  readonly size: number;
+  readonly type: string;
+}
+
+interface TarballListOptions {
+  readonly file: string;
+  readonly onReadEntry: (entry: TarballEntry) => void;
+  readonly strict: boolean;
+  readonly sync: boolean;
+}
+
 function assert(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Loads the pinned tar parser through a narrow checked boundary.
+ *
+ * `tar` 7 supports this repository's Node 22+ runtime, but its declarations
+ * also mention Node's newer Zstandard APIs, which are absent from the
+ * deliberately older `@types/node` 20 compatibility surface used to compile
+ * every repository script. Importing those declarations would therefore
+ * weaken or globally upgrade an unrelated contract. We validate the one
+ * function used here and expose only the small synchronous-listing shape this
+ * verifier needs.
+ */
+function loadTarballList(): (options: TarballListOptions) => void {
+  const loaded: unknown = createRequire(import.meta.url)("tar");
+  assert(
+    isRecord(loaded) && typeof loaded.list === "function",
+    "pinned tar package does not expose list()"
+  );
+  const list = loaded.list;
+  return (options) => {
+    Reflect.apply(list, loaded, [options]);
+  };
 }
 
 function requiredString(
@@ -84,6 +127,89 @@ function parsePackResult(stdout: string): PackResult {
     version: requiredString(value, "version", "npm pack result"),
     files: files.map(parsePackedFile),
   };
+}
+
+function parseReviewedInventory(): readonly string[] {
+  const decoded: unknown = JSON.parse(
+    readFileSync(reviewedInventoryPath, "utf8")
+  );
+  assert(
+    Array.isArray(decoded) && decoded.every((value) => typeof value === "string"),
+    "config/tooling-package-files.json must be an array of file paths"
+  );
+  const paths = decoded as string[];
+  assert(paths.length > 0, "reviewed tooling package inventory must not be empty");
+  assert(
+    new Set(paths).size === paths.length,
+    "reviewed tooling package inventory contains a duplicate path"
+  );
+  assert(
+    [...paths].sort().join("\n") === paths.join("\n"),
+    "reviewed tooling package inventory must stay sorted"
+  );
+  return paths;
+}
+
+/**
+ * Reads the candidate archive itself instead of trusting npm's adjacent JSON
+ * report.
+ *
+ * The pack report is useful release evidence, but it is not the package users
+ * install. Reading both surfaces prevents a swapped or stale report from
+ * authorizing different tarball bytes. npm archives every package file below
+ * `package/`; links, directories, duplicate paths, and other entry kinds are
+ * rejected because this package contract consists only of immutable data
+ * files.
+ */
+function readTarballInventory(tarball: string): readonly PackedFile[] {
+  const files: PackedFile[] = [];
+  loadTarballList()({
+    file: tarball,
+    sync: true,
+    strict: true,
+    onReadEntry: (entry) => {
+      assert(entry.type === "File", `tarball contains ${entry.type}: ${entry.path}`);
+      assert(
+        entry.path.startsWith("package/"),
+        `tarball entry is outside the npm package root: ${entry.path}`
+      );
+      const relativePath = entry.path.slice("package/".length);
+      assert(
+        relativePath.length > 0 && !relativePath.startsWith("/"),
+        `tarball entry has an invalid package path: ${entry.path}`
+      );
+      assert(
+        entry.mode !== undefined,
+        `tarball entry has no file mode: ${entry.path}`
+      );
+      files.push({
+        path: relativePath,
+        size: entry.size,
+        mode: entry.mode,
+      });
+    },
+  });
+  assert(files.length > 0, "candidate tarball contains no package files");
+  assert(
+    new Set(files.map((file) => file.path)).size === files.length,
+    "candidate tarball contains a duplicate file path"
+  );
+  return files;
+}
+
+function comparePackedFiles(
+  archiveFiles: readonly PackedFile[],
+  reportedFiles: readonly PackedFile[]
+): void {
+  const normalize = (files: readonly PackedFile[]): string =>
+    [...files]
+      .sort((left, right) => left.path.localeCompare(right.path))
+      .map((file) => `${file.path}\t${file.size}\t${file.mode}`)
+      .join("\n");
+  assert(
+    normalize(archiveFiles) === normalize(reportedFiles),
+    "candidate tarball entries differ from npm pack metadata"
+  );
 }
 
 function expectFailure(action: () => void, message: string): void {
@@ -243,36 +369,6 @@ const expectedPublicExports = [
   "./watch-orchestration/v1/vectors.schema.json",
 ] as const;
 
-const forbiddenSegments = [
-  "crash-fixture",
-  "haxe-server-test",
-  "haxe-server-vector-test",
-  "hxml-test",
-  "loop-test",
-  "test",
-  "vector-fixture",
-  "vector-test",
-  "watch-test",
-  "watch-vector-test",
-];
-
-function isAllowedDistFile(file: string): boolean {
-  if (!file.startsWith("dist/")) return false;
-  if (
-    !(
-      file.endsWith(".js") ||
-      file.endsWith(".js.map") ||
-      file.endsWith(".d.ts") ||
-      file.endsWith(".d.ts.map")
-    )
-  ) {
-    return false;
-  }
-  return !forbiddenSegments.some((segment) =>
-    file.split("/").some((part) => part === segment)
-  );
-}
-
 function verifyInventory(result: PackResult): readonly string[] {
   assert(result.name === "@genes-ts/tooling", "packed package name changed");
   assert(
@@ -294,13 +390,12 @@ function verifyInventory(result: PackResult): readonly string[] {
   for (const file of result.files) {
     assert(file.size >= 0, `packed file has invalid size: ${file.path}`);
     assert(file.mode === 0o644, `packed file must be read-only data: ${file.path}`);
-    assert(
-      metadataFiles.has(file.path) ||
-        protocolFiles.has(file.path) ||
-        isAllowedDistFile(file.path),
-      `packed package contains an unreviewed path: ${file.path}`
-    );
   }
+  const reviewedPaths = parseReviewedInventory();
+  assert(
+    sorted.join("\n") === reviewedPaths.join("\n"),
+    "packed package file list differs from config/tooling-package-files.json"
+  );
   const requiredEntrypoints = [
     "dist/index.js",
     "dist/index.d.ts",
@@ -604,6 +699,7 @@ function verifySuppliedPackage(
     "supplied tarball bytes differ from npm pack integrity"
   );
   verifyInventory(result);
+  comparePackedFiles(readTarballInventory(supplied.tarball), result.files);
   verifyCleanConsumer(supplied.tarball, tempRoot);
 }
 
@@ -671,6 +767,35 @@ try {
           tempRoot
         ),
       "supplied-package verification accepted an unreviewed candidate path"
+    );
+    const mismatchedPackJson = path.join(tempRoot, "mismatched-pack.json");
+    const [firstFile, ...remainingFiles] = first.result.files;
+    assert(firstFile !== undefined, "packed candidate unexpectedly has no files");
+    writeFileSync(
+      mismatchedPackJson,
+      `${JSON.stringify(
+        [
+          {
+            ...first.result,
+            files: [
+              { ...firstFile, size: firstFile.size + 1 },
+              ...remainingFiles,
+            ],
+          },
+        ],
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    expectFailure(
+      () =>
+        verifySuppliedPackage(
+          { tarball: first.tarball, packJson: mismatchedPackJson },
+          expected,
+          tempRoot
+        ),
+      "supplied-package verification accepted metadata for different archive entries"
     );
     verifyReleaseEvidence(first, tempRoot);
     console.log(

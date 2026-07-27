@@ -119,38 +119,100 @@ jobs:
           test "$(node -p "require('./tooling/package.json').version")" = \
             "$RELEASE_VERSION"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
-      - name: Publish exact reviewed tarball with npm provenance
-        run: >-
-          npm publish "${{ steps.local-package.outputs.tarball }}"
-          --access public
-          --provenance
-      - name: Download and verify immutable registry bytes
+      - id: publish
+        name: Publish exact reviewed tarball with npm provenance
+        run: |
+          set -uo pipefail
+          evidence="${RUNNER_TEMP}/tooling-release-evidence"
+          mkdir -p "$evidence"
+          set +e
+          npm publish "${{ steps.local-package.outputs.tarball }}" \
+            --access public \
+            --provenance \
+            2>&1 | tee "$evidence/npm-publish.log"
+          publish_status="${PIPESTATUS[0]}"
+          set -e
+          printf 'exit-code=%s\n' "$publish_status" \
+            > "$evidence/npm-publish-status.txt"
+          exit "$publish_status"
+      - name: Capture and verify immutable registry state
+        if: ${{ always() && steps.publish.outcome != 'skipped' }}
         env:
           RELEASE_VERSION: ${{ inputs.version }}
+          PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
         run: |
-          set -euo pipefail
-          destination="${RUNNER_TEMP}/tooling-downloaded"
-          mkdir -p "$destination"
+          set -uo pipefail
+          evidence="${RUNNER_TEMP}/tooling-release-evidence"
+          status="$evidence/registry-status.txt"
+          mkdir -p "$evidence"
+          printf 'package=@genes-ts/tooling\nversion=%s\npublish-outcome=%s\n' \
+            "$RELEASE_VERSION" "$PUBLISH_OUTCOME" > "$status"
+
+          view_status=1
+          : > "$evidence/registry-view.log"
           for attempt in 1 2 3 4 5 6; do
-            if npm pack "@genes-ts/tooling@${RELEASE_VERSION}" \
-              --pack-destination "$destination"; then
+            printf 'attempt=%s\n' "$attempt" >> "$evidence/registry-view.log"
+            if npm view "@genes-ts/tooling@${RELEASE_VERSION}" \
+              name version dist.integrity dist.tarball --json \
+              > "$evidence/registry.json" \
+              2>> "$evidence/registry-view.log"; then
+              view_status=0
               break
-            fi
-            if test "$attempt" = 6; then
-              echo "published package was not independently downloadable" >&2
-              exit 1
             fi
             sleep 10
           done
+          printf 'registry-view-exit-code=%s\n' "$view_status" >> "$status"
+
+          if test "$view_status" != 0; then
+            printf 'download=not-run\nbyte-comparison=not-run\nconsumer-verification=not-run\n' \
+              >> "$status"
+            exit "$view_status"
+          fi
+
+          destination="${RUNNER_TEMP}/tooling-downloaded"
+          mkdir -p "$destination"
+          download_status=1
+          : > "$evidence/registry-download.log"
+          for attempt in 1 2 3 4 5 6; do
+            printf 'attempt=%s\n' "$attempt" >> "$evidence/registry-download.log"
+            if npm pack "@genes-ts/tooling@${RELEASE_VERSION}" \
+              --pack-destination "$destination" \
+              >> "$evidence/registry-download.log" 2>&1; then
+              download_status=0
+              break
+            fi
+            sleep 10
+          done
+          printf 'download-exit-code=%s\n' "$download_status" >> "$status"
+          if test "$download_status" != 0; then
+            printf 'byte-comparison=not-run\nconsumer-verification=not-run\n' \
+              >> "$status"
+            exit "$download_status"
+          fi
+
           downloaded="$(find "$destination" -maxdepth 1 -type f -name '*.tgz' -print)"
           test "$(printf '%s\n' "$downloaded" | sed '/^$/d' | wc -l)" = 1
-          cmp "${{ steps.local-package.outputs.tarball }}" "$downloaded"
+          set +e
+          cmp "${{ steps.local-package.outputs.tarball }}" "$downloaded" \
+            > "$evidence/registry-byte-comparison.log" 2>&1
+          comparison_status="$?"
+          set -e
+          printf 'byte-comparison-exit-code=%s\n' "$comparison_status" >> "$status"
+          if test "$comparison_status" != 0; then
+            printf 'consumer-verification=not-run\n' >> "$status"
+            exit "$comparison_status"
+          fi
+
+          set +e
           node scripts/dist/test-tooling-package.js \
             --tarball "$downloaded" \
-            --pack-json "${{ steps.local-package.outputs.pack-json }}"
-          npm view "@genes-ts/tooling@${RELEASE_VERSION}" \
-            name version dist.integrity dist.tarball --json \
-            > "${RUNNER_TEMP}/tooling-release-evidence/registry.json"
+            --pack-json "${{ steps.local-package.outputs.pack-json }}" \
+            > "$evidence/registry-consumer-verification.log" 2>&1
+          verification_status="$?"
+          set -e
+          printf 'consumer-verification-exit-code=%s\n' "$verification_status" \
+            >> "$status"
+          exit "$verification_status"
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:

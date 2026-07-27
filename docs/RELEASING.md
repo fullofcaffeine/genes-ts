@@ -25,6 +25,10 @@ genes-ts uses **semantic-release** to maintain:
   - `fix:` → patch
   - `feat:` → minor
   - `feat!:` / `fix!:` or `BREAKING CHANGE:` → major
+- The `tooling` scope is deliberately excluded: `feat(tooling):`,
+  `fix(tooling):`, and breaking `tooling` commits never create a compiler tag
+  or compiler release. They belong to the independently versioned
+  `@genes-ts/tooling` package described below.
 - During `prepare`, we:
   - sync versions via `scripts/release/sync-versions.ts`
   - build `submit.zip` via `yarn submit:zip`
@@ -87,15 +91,26 @@ package version is exact, and that the checkout is clean. It then:
 
 1. reruns the full repository gate;
 2. packs the npm package twice and proves byte-for-byte deterministic SHA-512
-   integrity and a reviewed file inventory;
+   integrity; the verifier reads the archive itself, compares its paths, sizes,
+   and modes with npm's pack report, and requires the exact reviewed list in
+   `config/tooling-package-files.json`;
 3. installs that tarball in a clean project, type-checks every code subpath, and
    imports every code and conformance-vector subpath at runtime;
 4. creates a deterministic release receipt and SPDX 2.3 SBOM;
 5. publishes those exact tarball bytes with npm provenance;
 6. downloads the immutable registry package, compares it byte-for-byte with the
    reviewed tarball, and repeats the clean-consumer check;
-7. retains the receipt, SBOM, pack inventory, and registry metadata as workflow
+7. retains the receipt, SBOM, pack inventory, npm publish output, registry
+   lookup/download logs, registry metadata, and verification status as workflow
    evidence.
+
+The registry lookup runs even when `npm publish` reports failure. This matters
+because a network or client failure can be ambiguous: the registry may already
+have accepted the immutable version even though the publishing command exited
+nonzero. The evidence bundle therefore records the publish exit code and then
+asks the registry what exists before recovery begins. A failure before
+download, byte comparison, or clean-consumer verification still leaves the
+earlier registry state and logs available to the operator.
 
 Local release-contract checks do not publish:
 
@@ -110,6 +125,10 @@ yarn test:tooling-package
 
 - Change `tooling/package.json` and `tooling/CHANGELOG.md` together in the
   reviewed release-preparation pull request.
+- When an intentional build change adds or removes a published file, update
+  `config/tooling-package-files.json` in the same review. The package test
+  rejects both undeclared additions and missing reviewed files; broad
+  `dist/**/*.js` admission is intentionally not used.
 - Use SemVer for the public exports, runtime behavior, and versioned
   conformance protocols. A breaking change to an existing subpath or protocol
   requires a major version; a new backward-compatible subpath is minor; a

@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +14,7 @@ const compilerWorkflow = readFileSync(
   path.join(repoRoot, ".github/workflows/release.yml"),
   "utf8"
 );
+const rootPackageJson = readFileSync(path.join(repoRoot, "package.json"), "utf8");
 
 function assert(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -34,6 +36,52 @@ function requireOrdered(
     beforeIndex >= 0 && afterIndex > beforeIndex,
     message
   );
+}
+
+/**
+ * Executes the repository's installed semantic-release analyzer with the
+ * checked-in configuration.
+ *
+ * Merely checking that the tooling workflow lacks compiler-release commands is
+ * not enough: `feat(tooling)` would otherwise be interpreted as a compiler
+ * feature when the normal post-CI semantic-release workflow reads main's
+ * commit history. This probe verifies both halves of the boundary—tooling
+ * commits are ignored by the compiler release line, while ordinary compiler
+ * feature and fix commits retain the default SemVer behavior.
+ */
+function analyzeCompilerCommit(message: string): string {
+  const program = `
+    import { readFileSync } from "node:fs";
+    import { analyzeCommits } from "@semantic-release/commit-analyzer";
+    const repoRoot = process.argv[1];
+    const message = process.argv[2];
+    const pkg = JSON.parse(readFileSync(repoRoot + "/package.json", "utf8"));
+    const analyzer = pkg.release.plugins.find(
+      (plugin) => Array.isArray(plugin) &&
+        plugin[0] === "@semantic-release/commit-analyzer"
+    );
+    if (!analyzer) throw new Error("configured commit analyzer was not found");
+    const result = await analyzeCommits(analyzer[1], {
+      commits: [{ hash: "1111111111111111111111111111111111111111", message }],
+      cwd: repoRoot,
+      logger: { log() {} },
+    });
+    process.stdout.write(result ?? "none");
+  `;
+  const result = spawnSync(
+    process.execPath,
+    ["--input-type=module", "--eval", program, repoRoot, message],
+    {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }
+  );
+  assert(
+    result.status === 0,
+    `semantic-release analysis failed for ${JSON.stringify(message)}\n${result.stdout}${result.stderr}`
+  );
+  return result.stdout;
 }
 
 /**
@@ -149,6 +197,23 @@ function verifyToolingReleaseWorkflow(source: string): void {
   );
   requireText(
     source,
+    "if: ${{ always() && steps.publish.outcome != 'skipped' }}",
+    "registry evidence must be attempted even when npm publish reports failure"
+  );
+  requireOrdered(
+    source,
+    "npm-publish.log",
+    "registry-status.txt",
+    "the workflow must retain publish output before recording registry state"
+  );
+  requireOrdered(
+    source,
+    'registry-view-exit-code=%s',
+    "registry-byte-comparison.log",
+    "registry metadata and its exit status must be retained before byte verification"
+  );
+  requireText(
+    source,
     "create-tooling-release-evidence.js",
     "release must produce a deterministic receipt and SPDX SBOM"
   );
@@ -175,6 +240,29 @@ assert(
   !compilerWorkflow.includes("npm publish") &&
     !compilerWorkflow.includes("@genes-ts/tooling"),
   "compiler semantic-release workflow must not publish the tooling npm package"
+);
+assert(
+  rootPackageJson.includes('"scope": "tooling"') &&
+    rootPackageJson.includes('"release": false'),
+  "compiler semantic-release must explicitly ignore tooling-scoped commits"
+);
+for (const toolingCommit of [
+  "feat(tooling): add a host integration",
+  "fix(tooling): correct package verification",
+  "feat(tooling)!: replace a tooling protocol",
+]) {
+  assert(
+    analyzeCompilerCommit(toolingCommit) === "none",
+    `${toolingCommit} would incorrectly release the compiler`
+  );
+}
+assert(
+  analyzeCompilerCommit("feat(compiler): add a language feature") === "minor",
+  "ordinary compiler features must still produce a minor release"
+);
+assert(
+  analyzeCompilerCommit("fix(compiler): correct generated output") === "patch",
+  "ordinary compiler fixes must still produce a patch release"
 );
 
 let rejected = false;
