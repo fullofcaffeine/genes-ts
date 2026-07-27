@@ -198,8 +198,15 @@ class Module {
    *
    * What/How: declarations are deduplicated by emitted member identity and use
    * the same member construction as initial runtime types. Any cached graph or
-   * import projection is invalidated. Callers emit implementation files before
-   * declaration-only expansion, preserving classic JS DCE.
+   * import projection whose input can grow is invalidated. Template literals
+   * are the deliberate exception: a type reached only through a TS/declaration
+   * signature has already lost executable field bodies to Haxe DCE, while
+   * retaining such a body puts it in the generator's initial typed inventory.
+   * There is therefore no late marker expression to discover. Callers emit
+   * implementation files before declaration-only expansion, preserving classic
+   * JS DCE.
+   *
+   * See `tests/template-literals` for both sides of that lifecycle proof.
    */
   public function addTypes(types: Array<Type>): Bool {
     var changed = false;
