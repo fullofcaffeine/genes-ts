@@ -367,13 +367,42 @@ job.
 
 ## Security scanning
 
-Secrets scanning is part of the standard gates:
+The repository owns three different security checks:
 
 ```bash
+yarn test:codeql-workflow
 yarn test:secrets
+yarn test:vulns
 ```
 
-This is also executed as part of `yarn test:ci` and in GitHub Actions.
+`test:secrets` scans the repository for committed credentials, while
+`test:vulns` checks the pinned dependency graph. Both execute locally and as
+separate GitHub jobs.
+
+CodeQL is different: GitHub's hosted `Analyze (JavaScript)` job builds the
+database, analyzes the JavaScript/TypeScript surface, and publishes its result.
+The local `test:codeql-workflow` command checks the policy around that hosted
+scan. It requires the Node 24-based CodeQL v4 and checkout v7 action majors,
+the ordinary `pull_request` event rather than the privileged
+`pull_request_target` event, the stable required-check name, and the reviewed
+least-privilege token permissions:
+
+```text
+actions: read
+contents: read
+security-events: write
+```
+
+The workflow intentionally does not run the compiler test matrix or install
+the repository's configured Node release. CodeQL's embedded Node 24 runtime is
+the implementation runtime of the GitHub actions themselves; it is independent
+from the Node 22.22.0 and Node 24 application lanes in
+`config/toolchains.json`. The local structural gate runs in `test:ci`, but a
+green hosted CodeQL check is still required before merging a workflow change.
+
+See also GitHub's
+[CodeQL v4 migration notice](https://github.blog/changelog/2025-10-28-upcoming-deprecation-of-codeql-action-v3/)
+and the [branch-protection check list](BRANCH_PROTECTION.md).
 
 ## ts2hx (experimental)
 

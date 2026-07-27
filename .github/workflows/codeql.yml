@@ -16,9 +16,10 @@ jobs:
     name: Analyze (JavaScript)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: github/codeql-action/init@v3
+      # These action majors run on Node 24. Keep them aligned with the
+      # structural policy in scripts/test-codeql-workflow.ts.
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
         with:
           languages: javascript
-      - uses: github/codeql-action/analyze@v3
-
+      - uses: github/codeql-action/analyze@v4
