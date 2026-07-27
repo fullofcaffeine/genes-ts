@@ -109,20 +109,20 @@ export interface RecoveryOutcome {
 }
 
 export type ArtifactCheckpoint =
-  | "after-lock"
   | "after-journal-prepared"
   | "after-phase-publishing"
   | `after-backup:${PortableRelativePath}`
+  | `before-publish:${PortableRelativePath}`
   | `after-publish:${PortableRelativePath}`
-  | "after-commit-marker"
   | "after-phase-published"
   | "after-phase-rolling-back"
   | `after-remove-next:${PortableRelativePath}`
+  | `before-restore-prior:${PortableRelativePath}`
   | `after-restore-prior:${PortableRelativePath}`
-  | "after-restore-commit-marker"
-  | "after-phase-committed"
-  | "after-journal-cleanup"
-  | "after-lock-cleanup";
+  | "after-cleanup:journal"
+  | "after-cleanup:work-root"
+  | "after-cleanup:lock"
+  | `inject-unexpected-live:${PortableRelativePath}`;
 
 export interface PublishOptions {
   readonly projectRoot: string;

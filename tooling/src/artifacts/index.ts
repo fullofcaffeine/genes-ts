@@ -12,4 +12,6 @@ export {
   validatePortableRelativePath,
   validatePublicationPlan,
 } from "./validate-plan.js";
+export { publishArtifacts } from "./publisher.js";
+export { recoverArtifacts } from "./recovery.js";
 export * from "./types.js";
