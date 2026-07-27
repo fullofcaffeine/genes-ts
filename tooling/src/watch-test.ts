@@ -156,9 +156,9 @@ async function main(): Promise<void> {
       /budget/u,
     );
 
-    const native: Array<ReconciledWatchChange<string>> = [];
-    const nativeSession = watchReconciledInputs({
-      inputs: [{ kind: "exact", path: exact, cause: "identity" }],
+    const native: Array<ReconciledWatchChange<string | null>> = [];
+    const nativeSession = watchReconciledInputs<string | null>({
+      inputs: [{ kind: "exact", path: exact, cause: null }],
       merge: (left) => left,
       onChange: (change) => native.push(change),
       onError: (error) => errors.push(error.message),
@@ -169,6 +169,7 @@ async function main(): Promise<void> {
     await waitUntil(() => native.length > 0);
     assert.equal(native[0]!.path, exact);
     assert.equal(native[0]!.origin, "native");
+    assert.equal(native[0]!.cause, null);
     nativeSession.close();
 
     symlinkSync("src", path.join(root, "linked-src"));

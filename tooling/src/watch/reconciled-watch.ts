@@ -287,12 +287,10 @@ function collectTreeDirectories<Cause>(
   return Object.freeze(directories);
 }
 
-function relevant<Cause>(
+function isRelevant<Cause>(
   inputs: readonly WatchInput<Cause>[],
   changedPath: string,
-  merge: (left: Cause, right: Cause) => Cause,
-): Cause | null {
-  let cause: Cause | null = null;
+): boolean {
   for (const input of inputs) {
     let matches = false;
     if (input.kind === "exact") {
@@ -310,10 +308,10 @@ function relevant<Cause>(
         (relative === "" || input.include(relative));
     }
     if (matches) {
-      cause = cause === null ? input.cause : merge(cause, input.cause);
+      return true;
     }
   }
-  return cause;
+  return false;
 }
 
 export function watchReconciledInputs<Cause>(
@@ -411,7 +409,7 @@ export function watchReconciledInputs<Cause>(
               decoded === null ? directory : path.resolve(directory, decoded);
             if (
               decoded === null ||
-              relevant(inputs, candidate, rawOptions.merge) !== null
+              isRelevant(inputs, candidate)
             ) {
               emitReconciliation("native");
               refreshNative();
