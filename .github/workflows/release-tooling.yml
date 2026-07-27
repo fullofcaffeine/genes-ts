@@ -37,13 +37,23 @@ jobs:
     timeout-minutes: 45
     environment: tooling-npm-production
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
-          ref: ${{ inputs.commit }}
+          ref: ${{ github.sha }}
+      - name: Verify protected source before running repository code
+        env:
+          RELEASE_COMMIT: ${{ inputs.commit }}
+        run: |
+          set -euo pipefail
+          test "$RELEASE_COMMIT" = "$(git rev-parse HEAD)"
+          git fetch --no-tags origin main
+          test "$RELEASE_COMMIT" = "$(git rev-parse origin/main)"
+      - name: Verify live production approval policy
+        run: node scripts/verify-tooling-release-environment.mjs --live
       - id: toolchains
         run: node scripts/emit-toolchain-outputs.mjs
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: ${{ steps.toolchains.outputs.node-next-lts }}
           registry-url: https://registry.npmjs.org
@@ -213,7 +223,7 @@ jobs:
           printf 'consumer-verification-exit-code=%s\n' "$verification_status" \
             >> "$status"
           exit "$verification_status"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: ${{ always() }}
         with:
           name: tooling-release-${{ inputs.version }}-evidence
