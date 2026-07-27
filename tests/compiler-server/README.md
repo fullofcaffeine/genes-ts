@@ -24,7 +24,8 @@ The focused owner covers:
 - source edits, deleted/restored modules, module directives, module functions,
   DCE/library roots, occurrence-local generic extern witnesses, and import
   attributes;
-- a successful build followed by a private post-staging failure and recovery;
+- a successful build followed by structured-diagnostic and raw-value
+  post-staging failures in TS and classic declaration profiles, then recovery;
 - active-Genes then `genes.disable` capability isolation;
 - source maps, strict TypeScript consumers, runtime transcripts, manifests,
   staging/sentinel cleanup, bounded clients, unrelated listeners, signal
@@ -33,6 +34,11 @@ The focused owner covers:
 The generated `.tmp` directory is disposable and intentionally ignored. Do not
 turn it into checked-in expected output; the cold build is the executable
 oracle for the warm build.
+
+Run the complete stable owner with `yarn test:compiler-server`. Use
+`yarn test:compiler-server:rollback` when changing exception handling,
+transaction cleanup, or the Haxe preview lane: it executes only the TS/classic
+post-staging failure and recovery contract.
 
 ## Macro-state checkpoint
 
@@ -62,6 +68,7 @@ The checkpoint classifications are:
 | `ModuleDirectivePlan` | Edited/restored directives and distinct same-named project prologues | **Explicit reset is effective.** Directive spelling/order follows the current request. |
 | `TypeUtil.registerType` / `bootType` | Complete stable cold/warm tree comparison across profiles and projects | **No stale helper declaration observed on Haxe 4.3.7.** Haxe 5 preview still has the separate DCE variance described below. |
 | Generator output path and sentinel fields | Changed roots, TS/classic extensions, staged failure/recovery, manifest and sentinel checks | **Current request wins.** Prior owners remain intact and private debris is removed. |
+| Raw generation throws | TS and classic declaration builds throw a plain Haxe string after every emitter has staged its files, in cold and warm processes | **Wrapped by the supported Haxe macro runtime.** The same `haxe.Exception` rollback boundary preserves the prior tree and removes the stage/sentinel before a corrected request. |
 
 On Haxe `5.0.0-preview.1`, exact preview output still fails before the longer
 matrix: after the compiler's casting stage, cold and warm `genes.Register` are
@@ -71,3 +78,10 @@ therefore prints the warm request's checked `unsafeCast<{}>` and the cold
 request prints the direct value. This is a visible preview typed-AST variance,
 not a TypeUtil owner mismatch or a relaxed file allowlist. Preview remains
 advisory; stable Haxe 4.3.7 remains the blocking lifecycle contract.
+
+`yarn test:compiler-server:rollback` isolates the publication boundary from
+that known variance. On preview it compares the corrected cold build with its
+own cold baseline and the corrected warm build with its own warm baseline; it
+does not pretend those two different typed trees are byte-identical. Stable
+Haxe continues to require cold/warm identity in both the focused rollback probe
+and the complete server matrix.

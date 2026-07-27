@@ -287,6 +287,10 @@ jobs:
         name: Verify warm compiler-server equivalence against Haxe preview
         continue-on-error: true
         run: yarn test:compiler-server
+      - id: preview-compiler-server-rollback
+        name: Verify raw-throw rollback against Haxe preview
+        continue-on-error: true
+        run: yarn test:compiler-server:rollback
       - name: Report Haxe preview compatibility
         if: always()
         env:
@@ -297,6 +301,7 @@ jobs:
           HXX_DIAGNOSTIC_RANGES_OUTCOME: ${{ steps.preview-hxx-diagnostic-ranges.outcome }}
           SOURCE_JSX_OUTCOME: ${{ steps.preview-source-jsx.outcome }}
           COMPILER_SERVER_OUTCOME: ${{ steps.preview-compiler-server.outcome }}
+          COMPILER_SERVER_ROLLBACK_OUTCOME: ${{ steps.preview-compiler-server-rollback.outcome }}
         run: |
           printf '%s\n' \
             "### Haxe preview compatibility (advisory)" \
@@ -308,7 +313,8 @@ jobs:
             "- HXX diagnostic ranges: **$HXX_DIAGNOSTIC_RANGES_OUTCOME**" \
             "- Source-preserving JSX: **$SOURCE_JSX_OUTCOME**" \
             "- Warm compiler server: **$COMPILER_SERVER_OUTCOME**" \
+            "- Raw-throw rollback: **$COMPILER_SERVER_ROLLBACK_OUTCOME**" \
             >> "$GITHUB_STEP_SUMMARY"
-          if [ "$BASELINE_OUTCOME" != "success" ] || [ "$MINIMAL_OUTCOME" != "success" ] || [ "$TEMPLATE_LITERALS_OUTCOME" != "success" ] || [ "$BINDING_IDENTITY_OUTCOME" != "success" ] || [ "$HXX_DIAGNOSTIC_RANGES_OUTCOME" != "success" ] || [ "$SOURCE_JSX_OUTCOME" != "success" ] || [ "$COMPILER_SERVER_OUTCOME" != "success" ]; then
-            echo "::warning title=Haxe preview compatibility::baseline=$BASELINE_OUTCOME, minimal=$MINIMAL_OUTCOME, template-literals=$TEMPLATE_LITERALS_OUTCOME, import-origin=$BINDING_IDENTITY_OUTCOME, hxx-diagnostic-ranges=$HXX_DIAGNOSTIC_RANGES_OUTCOME, source-jsx=$SOURCE_JSX_OUTCOME, compiler-server=$COMPILER_SERVER_OUTCOME. Supported Haxe remains authoritative."
+          if [ "$BASELINE_OUTCOME" != "success" ] || [ "$MINIMAL_OUTCOME" != "success" ] || [ "$TEMPLATE_LITERALS_OUTCOME" != "success" ] || [ "$BINDING_IDENTITY_OUTCOME" != "success" ] || [ "$HXX_DIAGNOSTIC_RANGES_OUTCOME" != "success" ] || [ "$SOURCE_JSX_OUTCOME" != "success" ] || [ "$COMPILER_SERVER_OUTCOME" != "success" ] || [ "$COMPILER_SERVER_ROLLBACK_OUTCOME" != "success" ]; then
+            echo "::warning title=Haxe preview compatibility::baseline=$BASELINE_OUTCOME, minimal=$MINIMAL_OUTCOME, template-literals=$TEMPLATE_LITERALS_OUTCOME, import-origin=$BINDING_IDENTITY_OUTCOME, hxx-diagnostic-ranges=$HXX_DIAGNOSTIC_RANGES_OUTCOME, source-jsx=$SOURCE_JSX_OUTCOME, compiler-server=$COMPILER_SERVER_OUTCOME, compiler-server-rollback=$COMPILER_SERVER_ROLLBACK_OUTCOME. Supported Haxe remains authoritative."
           fi
