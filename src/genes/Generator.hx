@@ -289,13 +289,17 @@ class Generator {
       return reachable;
     }
 
+    final hasPublicModuleFunctions = initialNames.exists(name ->
+      hasPublicModuleFunctionCandidate(modules.get(name)));
     final implementationRoots = if (tsMode)
       [for (name in initialNames)
         if (isTypedImplementationRoot(modules.get(name),
-          explicitlyExposedModules.exists(name))) name]
+          explicitlyExposedModules.exists(name))
+          || (name == output && hasPublicModuleFunctions)) name]
     else
       [for (name in initialNames)
-        if (needsGen(modules.get(name))) name];
+        if (needsGen(modules.get(name))
+          || (name == output && hasPublicModuleFunctions)) name];
     final implementationKinds = if (tsMode)
       [RuntimeValue, RuntimeSideEffect, TypeOnly]
     else
@@ -316,6 +320,27 @@ class Generator {
       // failures are diagnosed before any module writer is opened.
       jsxCapability.resolveRuntimeBinding(module.codeDependencies,
         module.jsxPlan);
+    }
+    // Public module functions must not force ModuleFunctionPlan ahead of other
+    // semantic plans: a malformed template/JSX carrier owns the earlier source
+    // diagnostic. Once every reachable module has passed those checks, collect
+    // validated public bindings before any emitter opens a staged writer.
+    final outputModule = modules.get(output);
+    for (moduleName in implementationNames) {
+      final module = modules.get(moduleName);
+      for (entry in module.moduleFunctionPlan.publicEntries()) {
+        final publicName = entry.publicExportName;
+        if (publicName == null)
+          continue;
+        final publicExport = {
+          name: publicName,
+          pos: entry.requestedPos,
+          isType: false,
+          module: moduleName
+        };
+        export(publicExport);
+        outputModule.expose.push(publicExport);
+      }
     }
     for (name in implementationNames) {
       final module = modules.get(name);
@@ -405,6 +430,33 @@ class Generator {
           }
         case MMain(_):
           return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Finds only the metadata pair needed to retain the compilation-root module.
+   *
+   * This deliberately does not parse or validate either annotation. Full
+   * validation remains in ModuleFunctionPlan after template/JSX planning, so a
+   * shallow root decision cannot mask an earlier semantic diagnostic.
+   */
+  static function hasPublicModuleFunctionCandidate(module:Module):Bool {
+    for (member in module.members) {
+      switch member {
+        case MClass(owner, _, fields):
+          #if (haxe_ver >= 4.2)
+          if (owner.kind.match(KModuleFields(_)))
+            continue;
+          #end
+          for (field in Module.emittableFields(fields)) {
+            if (field.meta != null
+              && field.meta.has(':genes.moduleFunction')
+              && field.meta.has(':expose'))
+              return true;
+          }
+        case MEnum(_, _) | MType(_, _) | MMain(_):
       }
     }
     return false;

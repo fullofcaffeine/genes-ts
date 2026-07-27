@@ -48,6 +48,26 @@ class Selected {
     return value.label + suffix + rest.length;
   }
 
+  /**
+   * Publishes the genuine generic module function without a wrapper.
+   *
+   * The exact same function value remains available through
+   * `Selected.publicIdentity` for Haxe callers and through the stable
+   * `publicIdentity` ESM binding for native callers.
+   */
+  @:expose("publicIdentity")
+  @:genes.moduleFunction("publicIdentity")
+  public static function publicIdentity<T: Labelled>(value: T): T {
+    return value;
+  }
+
+  /** Proves zero-argument `@:expose` uses the retained Haxe field name. */
+  @:expose
+  @:genes.moduleFunction("publicByFieldName")
+  public static function publicByFieldName(value:Int):Int {
+    return value + 1;
+  }
+
   @:genes.moduleFunction("recursiveModuleFunction")
   public static function recursive(value: Int): Int {
     return value <= 0 ? 0 : 1 + recursive(value - 1);

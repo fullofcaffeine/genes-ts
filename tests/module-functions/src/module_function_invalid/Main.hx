@@ -77,6 +77,22 @@ class Invalid {
   #elseif module_function_dynamic
   public static dynamic function selected(value: Int): Int {
   #else
+  #if module_function_expose_mismatch
+  @:expose("publicSelected")
+  @:genes.moduleFunction("privateSelected")
+  #elseif module_function_expose_arity
+  @:expose("first", "second")
+  @:genes.moduleFunction("selected")
+  #elseif module_function_expose_nonliteral
+  @:expose(BINDING)
+  @:genes.moduleFunction("selected")
+  #elseif module_function_expose_empty
+  @:expose("")
+  @:genes.moduleFunction("selected")
+  #elseif module_function_expose_identifier
+  @:expose("await")
+  @:genes.moduleFunction("selected")
+  #end
   public static function selected(value: Int): Int {
   #end
 #if !module_function_property

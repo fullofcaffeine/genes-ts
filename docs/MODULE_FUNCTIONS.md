@@ -2,8 +2,8 @@
 
 `@:genes.moduleFunction("name")` is an opt-in compiler capability for a narrow
 case: a supported public static Haxe method must remain callable as
-`Owner.field(...)`, but an external source analyzer needs the implementation
-body to be a genuine module-scope function.
+`Owner.field(...)`, but an external source analyzer or native consumer needs
+the implementation body to be a genuine module-scope function.
 
 This is an output-shape capability, not a React or framework feature. A linter,
 optimizer, instrumentation tool, code indexer, or host convention can attach
@@ -106,6 +106,63 @@ The module function is deliberately private to the generated ESM module.
 TypeScript and JavaScript consumers continue to use the existing exported class
 field, so the metadata does not broaden the package API or declaration files.
 
+## Publishing the genuine function
+
+Add `@:expose` with the same exact name when native ESM consumers need the
+module function itself:
+
+```haxe
+class Values {
+	@:expose("identity")
+	@:genes.moduleFunction("identity")
+	public static function identity<T>(value:T):T {
+		return value;
+	}
+}
+```
+
+Genes emits one function value, exports it from its owner module, and
+re-exports it from the compilation root:
+
+```ts
+export function identity<T>(value: T): T {
+  return value;
+}
+
+export class Values {
+  static identity<T>(value: T): T;
+  static identity(): never {
+    throw this;
+  }
+}
+
+Values.identity = identity;
+```
+
+```ts
+// compilation root
+export {identity} from "./Values.js";
+```
+
+`Values.identity`, the owner-module binding, and the root binding are the exact
+same function object. TypeScript output carries the direct generic signature.
+Classic JavaScript emits `export declare const identity: typeof
+Values.identity`, so its `.d.ts` derives the same closed generic contract
+without duplicating it.
+
+The two metadata names must match. This v1 constraint keeps the local binding,
+public name, stack name, analyzer identity, and declaration surface aligned.
+`@:expose` with no argument uses the Haxe field name. A class-member
+`@:expose` without `@:genes.moduleFunction` retains its existing Genes/Haxe
+behavior; it does not synthesize a wrapper or make an ES class property into a
+top-level ESM binding. Haxe module-field exports retain their existing
+behavior.
+
+This is intentionally framework-neutral. Genes owns genuine module functions,
+stable ESM bindings, root re-exports, declarations, source maps, DCE, and
+runtime identity. A host framework remains responsible for any convention
+module, directive, public path, or server/client policy it builds on top.
+
 ## What remains equivalent
 
 For admitted methods, Genes preserves:
@@ -121,7 +178,8 @@ For admitted methods, Genes preserves:
   dependency planning, declarations, and source provenance;
 - the same Haxe method API for other Haxe modules.
 
-The selected function is not exported and metadata is not a DCE root. If Haxe
+A private selected function is not exported and its module-function metadata is
+not a DCE root. `@:expose` is an explicit public root. Without it, if Haxe
 removes the field, Genes emits no function and reserves no requested name.
 
 ## Intentional function-object differences
@@ -195,6 +253,11 @@ called `Ready`. A collision reports the requested name, owner field, and prior
 binding kind at the metadata source position. It does not silently rename an
 unrelated import.
 
+Public member exports apply the same identifier policy to `@:expose`. They also
+participate in the compilation-root export inventory, so a collision with an
+exposed type, module field, or another public function fails before any output
+is published.
+
 For example, this fails before publishing output:
 
 ```haxe
@@ -227,10 +290,11 @@ yarn test:module-functions
 
 The harness compiles deterministic TypeScript, TSX, and classic JavaScript,
 checks both typed source profiles with the pinned TS 5/6/7 lanes, runs classic
-ESM behavior, inspects exact identity, descriptors, own-key order, registration,
-initialization, inheritance, and cyclic-module behavior, verifies DCE,
-declarations and source maps, and exercises exact diagnostics plus transactional
-rollback across the supported profiles.
+ESM behavior, inspects private and public exact identity, generic inference,
+root re-exports, descriptors, own-key order, registration, initialization,
+inheritance, and cyclic-module behavior, verifies DCE, declarations and source
+maps, and exercises exact diagnostics plus transactional rollback across the
+supported profiles.
 
 The complete compiler gate remains:
 

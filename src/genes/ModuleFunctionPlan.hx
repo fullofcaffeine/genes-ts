@@ -18,14 +18,17 @@ class ModuleFunctionEntry {
   public final requestedName: String;
   public final requestedPos: Position;
   public final classPropertyName: String;
+  public final publicExportName: Null<String>;
 
   public function new(owner: ClassType, field: Field, requestedName: String,
-      requestedPos: Position, classPropertyName: String) {
+      requestedPos: Position, classPropertyName: String,
+      publicExportName: Null<String>) {
     this.owner = owner;
     this.field = field;
     this.requestedName = requestedName;
     this.requestedPos = requestedPos;
     this.classPropertyName = classPropertyName;
+    this.publicExportName = publicExportName;
   }
 }
 
@@ -49,11 +52,14 @@ private typedef LexicalRejection = {
  * both output profiles choose the same explicit binding, and no hidden lexical
  * class privilege changes meaning.
  *
- * What: `@:genes.moduleFunction("name")` requests one unexported ES-module
- * function. The emitters retain a compiler-owned method descriptor in the
- * original class slot, then immediately replace only its value. This plan owns
- * metadata parsing, the intentionally narrow v1 eligibility contract, exact
- * name collisions, and source positions; printers only render validated facts.
+ * What: `@:genes.moduleFunction("name")` requests one ES-module function.
+ * It remains private unless the same method also has `@:expose("name")`, in
+ * which case the genuine function is exported under that exact binding and
+ * re-exported from the compilation root. The emitters retain a compiler-owned
+ * method descriptor in the original class slot, then immediately replace only
+ * its value. This plan owns metadata parsing, the intentionally narrow v1
+ * eligibility contract, exact name collisions, and source positions; printers
+ * only render validated facts.
  *
  * How: dependency aliases and local names are finalized first, then one shared
  * inventory is compared with each requested binding in source order. Metadata
@@ -72,6 +78,7 @@ private typedef LexicalRejection = {
  */
 class ModuleFunctionPlan {
   static final METADATA = ':genes.moduleFunction';
+  static final EXPOSE_METADATA = ':expose';
 
   final entries: Array<ModuleFunctionEntry>;
 
@@ -83,10 +90,17 @@ class ModuleFunctionPlan {
         case MClass(owner, _, fields):
           for (field in Module.emittableFields(fields)) {
             final metadata = field.meta == null ? [] : field.meta.extract(METADATA);
+            final exposeMetadata = field.meta == null
+              ? []
+              : field.meta.extract(EXPOSE_METADATA);
             if (metadata.length == 0)
               continue;
+            #if (haxe_ver >= 4.2)
+            if (owner.kind.match(KModuleFields(_)))
+              continue;
+            #end
             final entry = parseAndValidate(owner, field, metadata, bindings,
-              fields);
+              fields, exposeMetadata);
             entries.push(entry);
             bindings.push({
               name: entry.requestedName,
@@ -122,9 +136,15 @@ class ModuleFunctionPlan {
     return entries.length == 0;
   }
 
+  /** Returns every public module-function binding in deterministic plan order. */
+  public function publicEntries(): Array<ModuleFunctionEntry> {
+    return entries.filter(entry -> entry.publicExportName != null);
+  }
+
   static function parseAndValidate(owner: ClassType, field: Field,
       metadata: Array<MetadataEntry>, bindings: Array<ModuleBindingFact>,
-      ownerFields: Array<Field>): ModuleFunctionEntry {
+      ownerFields: Array<Field>,
+      exposeMetadata: Array<MetadataEntry>): ModuleFunctionEntry {
     final first = metadata[0];
     if (metadata.length != 1 || first.params.length != 1) {
       return
@@ -155,6 +175,14 @@ class ModuleFunctionPlan {
         + 'by ${owner.name}.${field.name} is not a valid non-reserved ASCII '
         + 'ES-module binding; use [A-Za-z_$][A-Za-z0-9_$]*',
         parameter.pos);
+    }
+    final publicExportName = parsePublicExport(owner, field, exposeMetadata);
+    if (publicExportName != null && publicExportName != requestedName) {
+      CompilerDiagnostic.fail('GENES-MODULE-FUNCTION-EXPOSE-NAME-016: @:expose on '
+        + '${owner.name}.${field.name} requests "${publicExportName}", but '
+        + '@:genes.moduleFunction requests "${requestedName}"; v1 requires '
+        + 'one exact name for the local and public ESM binding',
+        exposeMetadata[0].pos);
     }
 
     validateShape(owner, field, requestedName);
@@ -201,7 +229,43 @@ class ModuleFunctionPlan {
     }
 
     return new ModuleFunctionEntry(owner, field, requestedName, parameter.pos,
-      classPropertyName);
+      classPropertyName, publicExportName);
+  }
+
+  static function parsePublicExport(owner: ClassType, field: Field,
+      metadata: Array<MetadataEntry>): Null<String> {
+    if (metadata.length == 0)
+      return null;
+    final first = metadata[0];
+    if (metadata.length != 1 || first.params.length > 1) {
+      CompilerDiagnostic.fail('GENES-MODULE-FUNCTION-EXPOSE-ARITY-011: @:expose on '
+        + '${owner.name}.${field.name} must appear once with zero arguments '
+        + 'or one direct string-literal ESM name',
+        first.pos);
+    }
+    final name = if (first.params.length == 0)
+      field.name
+    else switch first.params[0].expr {
+      case EConst(CString(value)): value;
+      default:
+        return CompilerDiagnostic.fail(
+          'GENES-MODULE-FUNCTION-EXPOSE-LITERAL-012: @:expose on '
+          + '${owner.name}.${field.name} requires a direct string literal; '
+          + 'computed public names are not supported',
+          first.params[0].pos);
+    };
+    if (name.length == 0) {
+      CompilerDiagnostic.fail('GENES-MODULE-FUNCTION-EXPOSE-EMPTY-013: @:expose on '
+        + '${owner.name}.${field.name} requires a non-empty ESM name',
+        first.pos);
+    }
+    if (!IdentifierPolicy.isValidModuleBinding(name)) {
+      CompilerDiagnostic.fail('GENES-MODULE-FUNCTION-EXPOSE-IDENTIFIER-014: "${name}" requested '
+        + 'by @:expose on ${owner.name}.${field.name} is not a valid '
+        + 'non-reserved ASCII ESM binding',
+        first.pos);
+    }
+    return name;
   }
 
   static function validateShape(owner: ClassType, field: Field,

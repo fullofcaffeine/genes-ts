@@ -69,6 +69,19 @@ class DefinitionEmitter extends ModuleEmitter {
         default:
       }
     }
+    for (entry in module.moduleFunctionPlan.publicEntries()) {
+      final publicName = entry.publicExportName;
+      if (publicName == null)
+        continue;
+      writeNewline();
+      write('export declare const ');
+      write(publicName);
+      write(': typeof ');
+      write(TypeUtil.className(entry.owner));
+      write('.');
+      write(entry.classPropertyName);
+      writeNewline();
+    }
     for (export in module.expose)
       emitExport(export, module.toPath(export.module), Genes.outExtension);
     // Haxe's structural StdTypes module is the one declaration artifact every
