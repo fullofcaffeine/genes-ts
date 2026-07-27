@@ -319,13 +319,17 @@ export function parsePublicationJournal(bytes: string): PublicationJournal {
     plan,
   };
   const { journalDigest, ...withoutDigest } = journal;
-  if (
-    canonicalDigest(asCanonical(withoutDigest)) !== journalDigest ||
-    publicationPlanDigest(plan) !== journal.planDigest ||
-    journal.projectIdentity !== plan.projectIdentity ||
-    journal.authorizationDigest !== plan.authorizationDigest
-  ) {
+  if (canonicalDigest(asCanonical(withoutDigest)) !== journalDigest) {
     malformed("$.journal");
+  }
+  if (publicationPlanDigest(plan) !== journal.planDigest) {
+    malformed("planDigest");
+  }
+  if (journal.authorizationDigest !== plan.authorizationDigest) {
+    malformed("authorizationDigest");
+  }
+  if (journal.projectIdentity !== plan.projectIdentity) {
+    malformed("projectIdentity");
   }
   return journal;
 }

@@ -57,11 +57,11 @@ export function lstatPresent(candidate: string): Stats | null {
 export function canonicalProjectRoot(candidate: string): string {
   const absolute = path.resolve(candidate);
   const rootStats = lstatPresent(absolute);
+  if (rootStats?.isSymbolicLink()) {
+    artifactFailure("symlink-traversal", ".");
+  }
   if (rootStats === null || !rootStats.isDirectory()) {
     artifactFailure("filesystem-unsupported", candidate);
-  }
-  if (rootStats.isSymbolicLink()) {
-    artifactFailure("symlink-traversal", candidate);
   }
   let real: string;
   try {
@@ -70,7 +70,7 @@ export function canonicalProjectRoot(candidate: string): string {
     filesystemFailure(error, candidate);
   }
   if (path.normalize(real) !== path.normalize(absolute)) {
-    artifactFailure("symlink-traversal", candidate);
+    artifactFailure("symlink-traversal", ".");
   }
   return real;
 }
@@ -99,14 +99,17 @@ export function inspectParentsNoFollow(
   const segments = relative.split("/");
   const limit = includeLeaf ? segments.length : segments.length - 1;
   let current = root;
+  const traversed: string[] = [];
   for (let index = 0; index < limit; index += 1) {
-    current = path.join(current, segments[index]!);
+    const segment = segments[index]!;
+    traversed.push(segment);
+    current = path.join(current, segment);
     const stats = lstatPresent(current);
     if (stats === null) {
       return;
     }
     if (stats.isSymbolicLink()) {
-      artifactFailure("symlink-traversal", relative);
+      artifactFailure("symlink-traversal", traversed.join("/"));
     }
     if (!stats.isDirectory() && index < segments.length - 1) {
       artifactFailure("unexpected-live-state", relative);
@@ -120,7 +123,9 @@ export function ensureDirectoryNoFollow(
   mode: number,
 ): string {
   let current = root;
+  const traversed: string[] = [];
   for (const segment of relative.split("/")) {
+    traversed.push(segment);
     current = path.join(current, segment);
     const stats = lstatPresent(current);
     if (stats === null) {
@@ -139,7 +144,7 @@ export function ensureDirectoryNoFollow(
       continue;
     }
     if (stats.isSymbolicLink()) {
-      artifactFailure("symlink-traversal", relative);
+      artifactFailure("symlink-traversal", traversed.join("/"));
     }
     if (!stats.isDirectory()) {
       artifactFailure("control-path-collision", relative);
@@ -165,8 +170,11 @@ export function readFileState(
   if (stats.isSymbolicLink()) {
     artifactFailure("symlink-traversal", relative);
   }
-  if (!stats.isFile()) {
+  if (stats.isDirectory()) {
     artifactFailure(mismatchKind, relative);
+  }
+  if (!stats.isFile()) {
+    artifactFailure("filesystem-unsupported", relative);
   }
   let bytes: Buffer;
   try {

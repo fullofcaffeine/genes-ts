@@ -176,7 +176,12 @@ function acquireLock(
     } catch {
       artifactFailure("untrusted-lock", `${plan.transactionRoot}/${LOCK_FILE}`);
     }
-    const parsed = parsePublicationLock(existingBytes);
+    let parsed: ReturnType<typeof parsePublicationLock>;
+    try {
+      parsed = parsePublicationLock(existingBytes);
+    } catch {
+      artifactFailure("untrusted-lock", `${plan.transactionRoot}/${LOCK_FILE}`);
+    }
     if (
       parsed.projectIdentity !== plan.projectIdentity ||
       parsed.hostIdentity !== currentHostIdentity()
@@ -187,7 +192,10 @@ function acquireLock(
       artifactFailure("orphan-control-state", plan.transactionRoot);
     }
     if (pidIsLive(parsed.pid)) {
-      artifactFailure("active-writer", plan.transactionRoot);
+      artifactFailure(
+        "active-writer",
+        `${plan.transactionRoot}/${LOCK_FILE}`,
+      );
     }
     if (!allowDeadReclaim) {
       artifactFailure("untrusted-lock", `${plan.transactionRoot}/${LOCK_FILE}`);
@@ -239,6 +247,19 @@ function persistJournal(
   const control = absolutePath(root, plan.transactionRoot);
   const journalAbsolute = path.join(control, JOURNAL_FILE);
   const temporaryAbsolute = path.join(control, JOURNAL_TEMP_FILE);
+  const journalStats = lstatPresent(journalAbsolute);
+  if (journalStats?.isSymbolicLink()) {
+    artifactFailure(
+      "symlink-traversal",
+      `${plan.transactionRoot}/${JOURNAL_FILE}`,
+    );
+  }
+  if (journalStats !== null) {
+    artifactFailure(
+      "orphan-control-state",
+      `${plan.transactionRoot}/${JOURNAL_FILE}`,
+    );
+  }
   if (lstatPresent(temporaryAbsolute) !== null) {
     artifactFailure("control-path-collision", temporaryAbsolute);
   }
@@ -318,6 +339,20 @@ export function publishArtifacts(options: PublishOptions): PublicationOutcome {
     }
   }
   inspectParentsNoFollow(root, plan.transactionRoot, true);
+  const transactionRootStats = lstatPresent(
+    absolutePath(root, plan.transactionRoot),
+  );
+  if (
+    transactionRootStats !== null &&
+    !transactionRootStats.isDirectory()
+  ) {
+    artifactFailure("control-path-collision", plan.transactionRoot);
+  }
+  inspectParentsNoFollow(
+    root,
+    `${plan.transactionRoot}/${WORK_DIRECTORY}/backup`,
+    true,
+  );
   const disposition = liveDisposition(root, plan);
   if (disposition === "next") {
     return { action: "unchanged", transactionId: null };
@@ -370,14 +405,17 @@ export function publishArtifacts(options: PublishOptions): PublicationOutcome {
     checkpoint(options, "after-phase-published");
     updateJournal(root, plan, transactionId, "committed");
 
+    unlinkDurable(
+      absolutePath(root, `${plan.transactionRoot}/${JOURNAL_TEMP_FILE}`),
+    );
+    checkpoint(options, "after-cleanup:journal");
     removeTreeNoFollow(workRoot);
     checkpoint(options, "after-cleanup:work-root");
     lock.release();
-    checkpoint(options, "after-cleanup:lock");
     unlinkDurable(
       absolutePath(root, `${plan.transactionRoot}/${JOURNAL_FILE}`),
     );
-    checkpoint(options, "after-cleanup:journal");
+    checkpoint(options, "after-cleanup:lock");
     return { action: "published", transactionId };
   } catch (error) {
     if (!journalPrepared) {

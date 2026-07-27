@@ -35,7 +35,7 @@
   ],
   "scripts": {
     "build": "node ../scripts/run-typescript.mjs apiBridge -p tsconfig.json",
-    "test": "yarn build && node dist/test.js",
+    "test": "yarn build && node dist/test.js && node dist/vector-test.js",
     "pack:check": "yarn build && npm pack --dry-run"
   },
   "publishConfig": {

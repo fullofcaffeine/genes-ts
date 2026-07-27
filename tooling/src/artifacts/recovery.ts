@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import { artifactFailure } from "./error.js";
+import { ArtifactTransactionError, artifactFailure } from "./error.js";
 import {
   absolutePath,
   assertFileState,
@@ -194,6 +194,13 @@ function cleanupTerminal(
     root,
     `${journal.plan.transactionRoot}/${LOCK_FILE}`,
   );
+  unlinkDurable(
+    absolutePath(
+      root,
+      `${journal.plan.transactionRoot}/${JOURNAL_TEMP_FILE}`,
+    ),
+  );
+  faultInjector?.("after-cleanup:journal");
   removeTreeNoFollow(
     absolutePath(
       root,
@@ -203,10 +210,9 @@ function cleanupTerminal(
   faultInjector?.("after-cleanup:work-root");
   exactControlBytes(lockAbsolute, lockBytes);
   unlinkDurable(lockAbsolute);
-  faultInjector?.("after-cleanup:lock");
   exactControlBytes(journalAbsolute, encodeRecord(journal));
   unlinkDurable(journalAbsolute);
-  faultInjector?.("after-cleanup:journal");
+  faultInjector?.("after-cleanup:lock");
 }
 
 export function rollbackTransaction(
@@ -266,7 +272,10 @@ export async function recoverArtifacts(
     return { action: "none", transactionId: null };
   }
   if (journalPresent === null) {
-    artifactFailure("orphan-control-state", transactionRoot);
+    artifactFailure(
+      "orphan-control-state",
+      `${transactionRoot}/${LOCK_FILE}`,
+    );
   }
   if (journalPresent.isSymbolicLink()) {
     artifactFailure("symlink-traversal", transactionRoot);
@@ -280,7 +289,24 @@ export async function recoverArtifacts(
   } catch {
     artifactFailure("filesystem-permission", transactionRoot);
   }
-  const journal = parsePublicationJournal(journalBytes);
+  let journal: ReturnType<typeof parsePublicationJournal>;
+  try {
+    journal = parsePublicationJournal(journalBytes);
+  } catch (error) {
+    if (
+      error instanceof ArtifactTransactionError &&
+      error.failure.kind === "malformed-journal" &&
+      ["authorizationDigest", "planDigest", "projectIdentity"].includes(
+        error.failure.subject,
+      )
+    ) {
+      throw error;
+    }
+    artifactFailure(
+      "malformed-journal",
+      `${transactionRoot}/${JOURNAL_FILE}`,
+    );
+  }
   if (
     journal.plan.transactionRoot !== transactionRoot ||
     journal.projectIdentity !== options.projectIdentity
@@ -289,7 +315,10 @@ export async function recoverArtifacts(
   }
   if (lockPresent === null) {
     if (journal.phase !== "committed") {
-      artifactFailure("orphan-control-state", transactionRoot);
+      artifactFailure(
+        "orphan-control-state",
+        `${transactionRoot}/${JOURNAL_FILE}`,
+      );
     }
     const transitions = [
       ...journal.plan.artifacts,
@@ -330,21 +359,31 @@ export async function recoverArtifacts(
   } catch {
     artifactFailure("filesystem-permission", transactionRoot);
   }
-  const lock = parsePublicationLock(lockBytes);
+  let lock: ReturnType<typeof parsePublicationLock>;
+  try {
+    lock = parsePublicationLock(lockBytes);
+  } catch {
+    artifactFailure("untrusted-lock", `${transactionRoot}/${LOCK_FILE}`);
+  }
   if (
     lock.projectIdentity !== options.projectIdentity ||
     lock.transactionId !== journal.transactionId ||
     lock.hostIdentity !== currentHostIdentity()
   ) {
-    artifactFailure("untrusted-lock", transactionRoot);
+    artifactFailure("untrusted-lock", `${transactionRoot}/${LOCK_FILE}`);
   }
   if (lock.pid !== process.pid && pidIsLive(lock.pid)) {
-    artifactFailure("active-writer", transactionRoot);
+    artifactFailure("active-writer", `${transactionRoot}/${LOCK_FILE}`);
   }
   exactControlBytes(lockAbsolute, lockBytes);
   exactControlBytes(journalAbsolute, journalBytes);
 
   const transitions = [...journal.plan.artifacts, journal.plan.commitMarker];
+  for (const transition of transitions) {
+    options.faultInjector?.(
+      `inject-unexpected-live:${transition.path}`,
+    );
+  }
   const intended = transitions.every((transition) =>
     sameFileState(
       readFileState(root, transition.path, "recovery-conflict"),

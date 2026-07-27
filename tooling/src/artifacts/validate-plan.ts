@@ -113,27 +113,24 @@ function validateTransition(
   ) {
     artifactFailure("invalid-plan", subject);
   }
-  validatePortableRelativePath(transition.path, `${subject}.path`);
+  validatePortableRelativePath(transition.path);
   validateState(transition.prior, `${subject}.prior`);
   validateState(transition.next, `${subject}.next`);
   const changes = !sameState(transition.prior, transition.next);
   if (transition.next.kind === "file" && changes) {
     if (transition.stagedPath === null) {
-      artifactFailure("invalid-plan", `${subject}.stagedPath`);
+      artifactFailure("invalid-plan", transition.path);
     }
-    validatePortableRelativePath(
-      transition.stagedPath,
-      `${subject}.stagedPath`,
-    );
+    validatePortableRelativePath(transition.stagedPath);
     if (
       portableIdentity(transition.stagedPath) ===
         portableIdentity(stageRoot) ||
       !isWithin(stageRoot, transition.stagedPath)
     ) {
-      artifactFailure("invalid-plan", `${subject}.stagedPath`);
+      artifactFailure("invalid-plan", transition.path);
     }
   } else if (transition.stagedPath !== null) {
-    artifactFailure("invalid-plan", `${subject}.stagedPath`);
+    artifactFailure("invalid-plan", transition.path);
   }
 }
 
@@ -163,6 +160,13 @@ export function validatePublicationPlan(plan: PublicationPlan): PublicationPlan 
   ) {
     artifactFailure("invalid-plan", "$.stageRoot");
   }
+  if (
+    plan.artifacts.some(
+      (transition) => transition.path === plan.commitMarker.path,
+    )
+  ) {
+    artifactFailure("invalid-plan", plan.commitMarker.path);
+  }
 
   const transitions = [...plan.artifacts, plan.commitMarker];
   const liveIdentities = new Map<string, string>();
@@ -190,7 +194,7 @@ export function validatePublicationPlan(plan: PublicationPlan): PublicationPlan 
     if (previousLive !== undefined) {
       artifactFailure(
         "portable-path-collision",
-        `${previousLive} <> ${transition.path}`,
+        transition.path,
       );
     }
     liveIdentities.set(liveIdentity, transition.path);
@@ -198,7 +202,7 @@ export function validatePublicationPlan(plan: PublicationPlan): PublicationPlan 
     if (priorIdentity !== undefined) {
       artifactFailure(
         "portable-path-collision",
-        `${priorIdentity} <> ${transition.path}`,
+        transition.path,
       );
     }
     allIdentities.set(liveIdentity, transition.path);
@@ -208,7 +212,7 @@ export function validatePublicationPlan(plan: PublicationPlan): PublicationPlan 
       if (previousStaged !== undefined) {
         artifactFailure(
           "portable-path-collision",
-          `${previousStaged} <> ${transition.stagedPath}`,
+          transition.stagedPath,
         );
       }
       stagedIdentities.set(stagedIdentity, transition.stagedPath);
@@ -216,7 +220,7 @@ export function validatePublicationPlan(plan: PublicationPlan): PublicationPlan 
       if (priorStagedIdentity !== undefined) {
         artifactFailure(
           "portable-path-collision",
-          `${priorStagedIdentity} <> ${transition.stagedPath}`,
+          transition.stagedPath,
         );
       }
       allIdentities.set(stagedIdentity, transition.stagedPath);
@@ -225,14 +229,14 @@ export function validatePublicationPlan(plan: PublicationPlan): PublicationPlan 
 
   const artifactPaths = plan.artifacts.map((transition) => transition.path);
   const sortedPaths = [...artifactPaths].sort();
-  if (
-    artifactPaths.some((entry, index) => entry !== sortedPaths[index]) ||
-    artifactPaths.includes(plan.commitMarker.path)
-  ) {
+  if (artifactPaths.some((entry, index) => entry !== sortedPaths[index])) {
     artifactFailure("invalid-plan", "$.artifacts");
   }
+  if (artifactPaths.includes(plan.commitMarker.path)) {
+    artifactFailure("invalid-plan", plan.commitMarker.path);
+  }
   if (sameState(plan.commitMarker.prior, plan.commitMarker.next)) {
-    artifactFailure("invalid-plan", "$.commitMarker");
+    artifactFailure("invalid-plan", plan.commitMarker.path);
   }
   return plan;
 }
