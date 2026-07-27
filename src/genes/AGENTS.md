@@ -85,6 +85,10 @@ maps fixture locations to compiler surfaces.
 - Validation that can fail should run before public output is committed.
 - Compilation-server correctness requires request-local typed facts or an
   explicit reset/rebuild rule; never persist typed compiler objects casually.
+- A host-selected output destination is generic compiler configuration. Keep
+  it request-local through `-D genes.output=<path>` and let
+  `OutputTransaction` own the selected tree; never add framework names,
+  routes, environments, or application policy to output selection.
 
 If the correct semantic boundary remains ambiguous after a reduced fixture,
 stop and prepare the focused architecture review required by the root guide
