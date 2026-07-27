@@ -1,6 +1,7 @@
 import {deepStrictEqual, ok, strictEqual} from "node:assert";
+import {Buffer} from "node:buffer";
 import {execFileSync, spawnSync, type ExecFileSyncOptions} from "node:child_process";
-import {readFileSync, rmSync} from "node:fs";
+import {existsSync, readFileSync, readdirSync, rmSync} from "node:fs";
 import {fileURLToPath} from "node:url";
 import path from "node:path";
 import {runGeneratedTypeScriptMatrix} from "./toolchains.js";
@@ -53,10 +54,53 @@ function parseReport(output: string): unknown {
   return JSON.parse(line);
 }
 
+/** Captures every published byte below one fixture output directory. */
+function snapshotTree(root: string): Map<string, Buffer> {
+  const result = new Map<string, Buffer>();
+  function walk(directory: string): void {
+    if (!existsSync(directory)) return;
+    const entries = readdirSync(directory, {withFileTypes: true})
+      .sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        walk(absolute);
+      } else if (entry.isFile()) {
+        result.set(path.relative(root, absolute).split(path.sep).join("/"),
+          readFileSync(absolute));
+      }
+    }
+  }
+  walk(root);
+  return result;
+}
+
+/**
+ * Runs one late-materialization negative and returns its complete diagnostic.
+ *
+ * The optional blocker deliberately fails during implementation preflight.
+ * A retained malformed template body must be diagnosed earlier, while a body
+ * removed by Haxe DCE cannot become a late template-plan input.
+ */
+function lateFailure(hxml: string, keepMarker: boolean): string {
+  const defines = ["-D", "late_template_blocker"];
+  if (keepMarker) defines.push("-D", "late_template_keep_marker");
+  const result = spawnSync("haxe", [hxml, ...defines], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  strictEqual(result.status, 1, `${hxml}: late characterization must fail`);
+  return `${result.stdout}${result.stderr}`;
+}
+
 rmSync(path.join(fixtureRoot, "out"), {recursive: true, force: true});
 
 run("haxe", ["tests/template-literals/build-ts.hxml"]);
 run("haxe", ["tests/template-literals/build-classic.hxml"]);
+run("haxe", ["tests/template-literals/build-late-materialization.hxml"]);
+run("haxe", [
+  "tests/template-literals/build-late-materialization-classic.hxml"
+]);
 
 const tsSource = readFileSync(
   path.join(fixtureRoot, "out/ts/src-gen/template_literals/Main.ts"),
@@ -144,6 +188,68 @@ const classicReport = parseReport(
 deepStrictEqual(tsReport, expected);
 deepStrictEqual(classicReport, expected);
 
+for (const profile of [
+  {
+    name: "genes-ts",
+    hxml: "tests/template-literals/build-late-materialization.hxml",
+    output: path.join(fixtureRoot, "out/late"),
+    implementation: path.join(
+      fixtureRoot,
+      "out/late/template_late/ZLateOwner.ts"
+    )
+  },
+  {
+    name: "classic",
+    hxml: "tests/template-literals/build-late-materialization-classic.hxml",
+    output: path.join(fixtureRoot, "out/late-classic"),
+    implementation: path.join(
+      fixtureRoot,
+      "out/late-classic/template_late/ZLateOwner.js"
+    )
+  }
+] as const) {
+  const source = readFileSync(profile.implementation, "utf8");
+  ok(
+    source.includes("class ZLateTemplate"),
+    `${profile.name}: signature-only class was not materialized`
+  );
+  ok(
+    !source.includes("malformed()") && !source.includes("TemplateLiteralMarker"),
+    `${profile.name}: Haxe-DCE-removed method body entered late output`
+  );
+
+  const baseline = snapshotTree(profile.output);
+  const removedBodyFailure = lateFailure(profile.hxml, false);
+  ok(
+    removedBodyFailure.includes("GENES-MODULE-FUNCTION-SHAPE-006"),
+    `${profile.name}: control error did not reach implementation preflight`
+  );
+  ok(
+    !removedBodyFailure.includes("GENES-TEMPLATE-LITERAL-MARKER-002"),
+    `${profile.name}: removed body unexpectedly entered template planning`
+  );
+  deepStrictEqual(
+    snapshotTree(profile.output),
+    baseline,
+    `${profile.name}: failed control build changed the published tree`
+  );
+
+  const retainedBodyFailure = lateFailure(profile.hxml, true);
+  ok(
+    retainedBodyFailure.includes("GENES-TEMPLATE-LITERAL-MARKER-002"),
+    `${profile.name}: retained malformed body escaped initial template planning`
+  );
+  ok(
+    !retainedBodyFailure.includes("GENES-MODULE-FUNCTION-SHAPE-006"),
+    `${profile.name}: unrelated implementation preflight masked template validation`
+  );
+  deepStrictEqual(
+    snapshotTree(profile.output),
+    baseline,
+    `${profile.name}: malformed retained body changed the published tree`
+  );
+}
+
 const invalid = spawnSync("haxe", ["tests/template-literals/build-invalid.hxml"], {
   cwd: repoRoot,
   encoding: "utf8"
@@ -155,4 +261,6 @@ ok(
   `invalid input did not report the focused diagnostic:\n${invalidOutput}`
 );
 
-console.log("template-literals:ok (typed TS + classic runtime + invalid authoring)");
+console.log(
+  "template-literals:ok (typed TS + classic runtime + late-materialization boundary)"
+);
