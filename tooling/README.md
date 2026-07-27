@@ -3,6 +3,12 @@
 Framework-neutral host tooling shared by Haxe-to-JavaScript and
 Haxe-to-TypeScript projects.
 
+The package has an independent npm version and release lifecycle so multiple
+framework hosts can pin the same immutable tooling bytes. The compiler
+semantic-release workflow does not publish it. See the source repository's
+[`docs/RELEASING.md`](https://github.com/fullofcaffeine/genes-ts/blob/main/docs/RELEASING.md)
+for the manual, provenance-bearing release contract.
+
 The first public surface is `@genes-ts/tooling/artifacts`: a durable publisher
 for an already-authorized exact set of generated-file transitions. It does not
 decide ownership, validation, adoption, “last good” behavior, or user-facing
