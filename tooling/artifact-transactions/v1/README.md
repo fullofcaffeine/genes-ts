@@ -125,6 +125,7 @@ The runtime reports facts; a host turns those facts into its own diagnostics.
 | `filesystem-unsupported` | Required durable or same-device filesystem semantics are unavailable. |
 | `filesystem-permission` | Metadata, synchronization, rename, or cleanup was denied. |
 | `control-path-collision` | A reserved private transaction path contains an unexpected entry. |
+| `intended-state-rejected` | The host rejected the complete intended live state before commit. |
 
 Logical checkpoints name durable state-machine boundaries rather than
 particular syscalls. `after-backup:<path>`, `after-publish:<path>`,

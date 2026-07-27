@@ -43,6 +43,8 @@
 /test-results
 /playwright-report
 /scripts/dist
+/tooling/dist
+/tooling/*.tgz
 /tools/ts2hx/dist
 /tools/ts2hx/*.tsbuildinfo
 /tools/ts2hx/out

@@ -128,7 +128,8 @@
             "recovery-conflict",
             "filesystem-unsupported",
             "filesystem-permission",
-            "control-path-collision"
+            "control-path-collision",
+            "intended-state-rejected"
           ]
         },
         "subject": { "type": "string", "minLength": 1 }

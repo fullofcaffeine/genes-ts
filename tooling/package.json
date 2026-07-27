@@ -1,0 +1,44 @@
+{
+  "name": "@genes-ts/tooling",
+  "version": "0.1.0",
+  "description": "Framework-neutral host tooling for Haxe-to-JavaScript and Haxe-to-TypeScript projects.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./artifacts": {
+      "types": "./dist/artifacts/index.d.ts",
+      "import": "./dist/artifacts/index.js"
+    },
+    "./artifact-transactions/v1/protocol.schema.json": "./artifact-transactions/v1/protocol.schema.json",
+    "./artifact-transactions/v1/vectors.schema.json": "./artifact-transactions/v1/vectors.schema.json",
+    "./artifact-transactions/v1/vectors.json": "./artifact-transactions/v1/vectors.json"
+  },
+  "files": [
+    "dist/index.d.ts",
+    "dist/index.d.ts.map",
+    "dist/index.js",
+    "dist/index.js.map",
+    "dist/artifacts/**/*.d.ts",
+    "dist/artifacts/**/*.d.ts.map",
+    "dist/artifacts/**/*.js",
+    "dist/artifacts/**/*.js.map",
+    "artifact-transactions/v1/*.json",
+    "artifact-transactions/v1/README.md",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node ../scripts/run-typescript.mjs apiBridge -p tsconfig.json",
+    "test": "yarn build && node dist/test.js && node dist/vector-test.js",
+    "pack:check": "yarn build && npm pack --dry-run"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

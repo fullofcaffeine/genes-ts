@@ -382,6 +382,7 @@ const FAILURE_KINDS = [
   "filesystem-unsupported",
   "filesystem-permission",
   "control-path-collision",
+  "intended-state-rejected",
 ] as const;
 
 type StepFact = {
@@ -492,6 +493,7 @@ const REQUIRED_COVERAGE = [
   "cross-device-filesystem",
   "permission-failure",
   "control-path-collision",
+  "intended-state-admission",
   "authorization-binding",
   "plan-binding",
 ] as const;

@@ -243,6 +243,29 @@
       ]
     },
     {
+      "id": "reject-intended-state-admission",
+      "covers": ["intended-state-admission", "caught-error-rollback", "commit-marker-last"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": false,
+          "fault": null,
+          "expect": {
+            "outcome": "failed",
+            "failure": { "kind": "intended-state-rejected", "subject": "generated/owner.json" },
+            "live": "prior",
+            "control": "absent"
+          }
+        }
+      ]
+    },
+    {
       "id": "publish-marker-only",
       "covers": ["commit-marker-only", "commit-marker-last"],
       "plan": "marker-only",
