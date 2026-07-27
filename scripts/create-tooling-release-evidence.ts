@@ -63,6 +63,22 @@ function digest(bytes: Buffer, algorithm: "sha256" | "sha512"): string {
   return createHash(algorithm).update(bytes).digest("hex");
 }
 
+/**
+ * Encodes npm's scoped-package identity in the Package URL form used by SPDX.
+ *
+ * npm scopes are Package URL namespaces, so the slash between a scope and
+ * package name remains a path separator. Encoding the whole npm name would
+ * incorrectly turn `@genes-ts/tooling` into one `%2F`-containing name.
+ */
+function npmPackageUrl(name: string, version: string): string {
+  if (!name.startsWith("@")) {
+    return `pkg:npm/${encodeURIComponent(name)}@${encodeURIComponent(version)}`;
+  }
+  const match = /^(@[^/]+)\/([^/]+)$/.exec(name);
+  assert(match !== null, `invalid scoped npm package name: ${name}`);
+  return `pkg:npm/${encodeURIComponent(match[1])}/${encodeURIComponent(match[2])}@${encodeURIComponent(version)}`;
+}
+
 const options = parseArguments(process.argv.slice(2));
 const packageJson = readJsonObject(
   path.join(repoRoot, "tooling", "package.json"),
@@ -161,7 +177,7 @@ const spdx = {
         {
           referenceCategory: "PACKAGE-MANAGER",
           referenceType: "purl",
-          referenceLocator: `pkg:npm/${encodeURIComponent(name)}@${version}`,
+          referenceLocator: npmPackageUrl(name, version),
         },
       ],
     },

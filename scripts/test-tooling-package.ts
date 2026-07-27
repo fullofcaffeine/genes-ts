@@ -4,7 +4,6 @@ import {
   mkdtempSync,
   mkdirSync,
   readFileSync,
-  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -87,6 +86,16 @@ function parsePackResult(stdout: string): PackResult {
   };
 }
 
+function expectFailure(action: () => void, message: string): void {
+  let failed = false;
+  try {
+    action();
+  } catch {
+    failed = true;
+  }
+  assert(failed, message);
+}
+
 function run(
   command: string,
   args: readonly string[],
@@ -166,6 +175,21 @@ function verifyReleaseEvidence(
   assert(
     Array.isArray(spdx.packages) && spdx.packages.length === 1,
     "dependency-free tooling SBOM must describe exactly one package"
+  );
+  const spdxPackage = spdx.packages[0];
+  assert(isRecord(spdxPackage), "release SBOM package must be an object");
+  const externalRefs = spdxPackage.externalRefs;
+  assert(
+    Array.isArray(externalRefs) &&
+      externalRefs.some(
+        (reference) =>
+          isRecord(reference) &&
+          reference.referenceCategory === "PACKAGE-MANAGER" &&
+          reference.referenceType === "purl" &&
+          reference.referenceLocator ===
+            `pkg:npm/%40genes-ts/tooling@${packed.result.version}`
+      ),
+    "release SBOM must use the canonical scoped npm Package URL"
   );
 }
 
@@ -297,11 +321,47 @@ function verifyInventory(result: PackResult): readonly string[] {
   return sorted;
 }
 
-function verifyPackageMetadata(): void {
+function verifyChangelogVersion(version: string): void {
+  const changelog = readFileSync(
+    path.join(toolingRoot, "CHANGELOG.md"),
+    "utf8"
+  );
+  const releaseHeadings = [
+    ...changelog.matchAll(
+      /^## (\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\s*$/gm
+    ),
+  ].map((match) => match[1]);
+  assert(
+    releaseHeadings.length > 0,
+    "tooling/CHANGELOG.md must contain at least one SemVer release heading"
+  );
+  assert(
+    releaseHeadings[0] === version,
+    `tooling changelog starts at ${releaseHeadings[0]} instead of package version ${version}`
+  );
+  assert(
+    new Set(releaseHeadings).size === releaseHeadings.length,
+    "tooling changelog contains a duplicate release heading"
+  );
+}
+
+function verifyPackageMetadata(): { name: string; version: string } {
   const packageJson = readJsonObject(
     path.join(toolingRoot, "package.json"),
     "tooling/package.json"
   );
+  const name = requiredString(packageJson, "name", "tooling/package.json");
+  const version = requiredString(
+    packageJson,
+    "version",
+    "tooling/package.json"
+  );
+  assert(name === "@genes-ts/tooling", "tooling package name changed");
+  assert(
+    /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version),
+    "tooling package version must be an explicit SemVer identity"
+  );
+  verifyChangelogVersion(version);
   assert(
     packageJson.dependencies === undefined,
     "@genes-ts/tooling must remain dependency-free unless release policy is explicitly expanded"
@@ -322,6 +382,7 @@ function verifyPackageMetadata(): void {
     actualExports.join("\n") === [...expectedPublicExports].sort().join("\n"),
     "tooling public exports changed without extending the packed-consumer contract"
   );
+  return { name, version };
 }
 
 function pack(destination: string): { result: PackResult; tarball: string } {
@@ -492,27 +553,66 @@ console.log("tooling-packed-consumer:ok");
   run(process.execPath, ["runtime.mjs"], consumer, "run packed consumer");
 }
 
-function parseTarballArgument(args: readonly string[]): string | null {
-  if (args.length === 0) return null;
-  assert(
-    args.length === 2 && args[0] === "--tarball",
-    "usage: test-tooling-package [--tarball <package.tgz>]"
-  );
-  return path.resolve(args[1]);
+interface SuppliedPackage {
+  readonly tarball: string;
+  readonly packJson: string;
 }
 
-const suppliedTarball = parseTarballArgument(process.argv.slice(2));
+function parseSuppliedPackage(args: readonly string[]): SuppliedPackage | null {
+  if (args.length === 0) return null;
+  const values = new Map<string, string>();
+  for (let index = 0; index < args.length; index += 2) {
+    const key = args[index];
+    const value = args[index + 1];
+    assert(
+      key !== undefined &&
+        value !== undefined &&
+        (key === "--tarball" || key === "--pack-json") &&
+        !values.has(key),
+      "usage: test-tooling-package [--tarball <package.tgz> --pack-json <npm-pack.json>]"
+    );
+    values.set(key, value);
+  }
+  const tarball = values.get("--tarball");
+  const packJson = values.get("--pack-json");
+  assert(
+    tarball !== undefined && packJson !== undefined,
+    "--tarball and --pack-json must be supplied together"
+  );
+  return {
+    tarball: path.resolve(tarball),
+    packJson: path.resolve(packJson),
+  };
+}
+
+function verifySuppliedPackage(
+  supplied: SuppliedPackage,
+  expected: { name: string; version: string },
+  tempRoot: string
+): void {
+  const result = parsePackResult(readFileSync(supplied.packJson, "utf8"));
+  assert(
+    path.basename(supplied.tarball) === result.filename,
+    "supplied tarball filename differs from npm pack metadata"
+  );
+  assert(
+    result.name === expected.name && result.version === expected.version,
+    "supplied tarball identity differs from tooling/package.json"
+  );
+  assert(
+    sha512Integrity(supplied.tarball) === result.integrity,
+    "supplied tarball bytes differ from npm pack integrity"
+  );
+  verifyInventory(result);
+  verifyCleanConsumer(supplied.tarball, tempRoot);
+}
+
+const suppliedPackage = parseSuppliedPackage(process.argv.slice(2));
 const tempRoot = mkdtempSync(path.join(os.tmpdir(), "genes-tooling-package-"));
 try {
-  verifyPackageMetadata();
-  if (suppliedTarball !== null) {
-    assert(
-      readdirSync(path.dirname(suppliedTarball)).includes(
-        path.basename(suppliedTarball)
-      ),
-      `supplied tarball does not exist: ${suppliedTarball}`
-    );
-    verifyCleanConsumer(suppliedTarball, tempRoot);
+  const expected = verifyPackageMetadata();
+  if (suppliedPackage !== null) {
+    verifySuppliedPackage(suppliedPackage, expected, tempRoot);
   } else {
     const firstRoot = path.join(tempRoot, "pack-first");
     const secondRoot = path.join(tempRoot, "pack-second");
@@ -534,8 +634,45 @@ try {
       readFileSync(first.tarball).equals(readFileSync(second.tarball)),
       "repeated packs were not byte-identical"
     );
+    const suppliedPackJson = path.join(tempRoot, "supplied-pack.json");
+    writeFileSync(
+      suppliedPackJson,
+      `${JSON.stringify([first.result], null, 2)}\n`,
+      "utf8"
+    );
+    verifySuppliedPackage(
+      { tarball: first.tarball, packJson: suppliedPackJson },
+      expected,
+      tempRoot
+    );
+    const unreviewedPackJson = path.join(tempRoot, "unreviewed-pack.json");
+    writeFileSync(
+      unreviewedPackJson,
+      `${JSON.stringify(
+        [
+          {
+            ...first.result,
+            files: [
+              ...first.result.files,
+              { path: "unreviewed.txt", size: 1, mode: 0o644 },
+            ],
+          },
+        ],
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    expectFailure(
+      () =>
+        verifySuppliedPackage(
+          { tarball: first.tarball, packJson: unreviewedPackJson },
+          expected,
+          tempRoot
+        ),
+      "supplied-package verification accepted an unreviewed candidate path"
+    );
     verifyReleaseEvidence(first, tempRoot);
-    verifyCleanConsumer(first.tarball, tempRoot);
     console.log(
       `tooling-package:ok (${first.result.name}@${first.result.version}; ${first.result.files.length} files; ${first.result.integrity})`
     );

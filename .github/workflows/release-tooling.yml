@@ -78,6 +78,8 @@ jobs:
         name: Pack and independently verify candidate bytes
         run: |
           set -euo pipefail
+          yarn --cwd tooling build
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
           destination="${RUNNER_TEMP}/tooling-local"
           mkdir -p "$destination"
           npm pack ./tooling --json --pack-destination "$destination" \
@@ -90,7 +92,9 @@ jobs:
             process.stdout.write(result[0].filename);
           ' "${RUNNER_TEMP}/tooling-local-pack.json")"
           tarball="${destination}/${filename}"
-          node scripts/dist/test-tooling-package.js --tarball "$tarball"
+          node scripts/dist/test-tooling-package.js \
+            --tarball "$tarball" \
+            --pack-json "${RUNNER_TEMP}/tooling-local-pack.json"
           echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
           echo "pack-json=${RUNNER_TEMP}/tooling-local-pack.json" >> "$GITHUB_OUTPUT"
       - name: Create deterministic release receipt and SPDX SBOM
@@ -103,6 +107,18 @@ jobs:
             --tarball "${{ steps.local-package.outputs.tarball }}" \
             --pack-json "${{ steps.local-package.outputs.pack-json }}" \
             --output "${RUNNER_TEMP}/tooling-release-evidence"
+      - name: Revalidate main and clean candidate immediately before publication
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_COMMIT: ${{ inputs.commit }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          test "$RELEASE_COMMIT" = "$(git rev-parse HEAD)"
+          test "$RELEASE_COMMIT" = "$(git rev-parse origin/main)"
+          test "$(node -p "require('./tooling/package.json').version")" = \
+            "$RELEASE_VERSION"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
       - name: Publish exact reviewed tarball with npm provenance
         run: >-
           npm publish "${{ steps.local-package.outputs.tarball }}"
@@ -129,11 +145,14 @@ jobs:
           downloaded="$(find "$destination" -maxdepth 1 -type f -name '*.tgz' -print)"
           test "$(printf '%s\n' "$downloaded" | sed '/^$/d' | wc -l)" = 1
           cmp "${{ steps.local-package.outputs.tarball }}" "$downloaded"
-          node scripts/dist/test-tooling-package.js --tarball "$downloaded"
+          node scripts/dist/test-tooling-package.js \
+            --tarball "$downloaded" \
+            --pack-json "${{ steps.local-package.outputs.pack-json }}"
           npm view "@genes-ts/tooling@${RELEASE_VERSION}" \
             name version dist.integrity dist.tarball --json \
             > "${RUNNER_TEMP}/tooling-release-evidence/registry.json"
       - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
         with:
           name: tooling-release-${{ inputs.version }}-evidence
           path: |

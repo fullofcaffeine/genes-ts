@@ -99,16 +99,29 @@ function verifyToolingReleaseWorkflow(source: string): void {
     "expected=\"publish @genes-ts/tooling@${RELEASE_VERSION} from ${RELEASE_COMMIT}\"",
     "release must require the exact human authorization phrase"
   );
-  requireText(
-    source,
-    "test \"$RELEASE_COMMIT\" = \"$(git rev-parse origin/main)\"",
-    "release commit must equal the current remote main commit"
+  const remoteMainCheck =
+    "test \"$RELEASE_COMMIT\" = \"$(git rev-parse origin/main)\"";
+  assert(
+    source.split(remoteMainCheck).length - 1 === 2,
+    "release commit must equal current remote main both before testing and immediately before publication"
   );
   requireText(source, "run: yarn test:ci", "release must rerun the full repository gate");
   requireText(
     source,
-    "node scripts/dist/test-tooling-package.js --tarball \"$tarball\"",
-    "candidate tarball must pass a clean packed-consumer check"
+    "node scripts/dist/test-tooling-package.js \\\n            --tarball \"$tarball\" \\\n            --pack-json \"${RUNNER_TEMP}/tooling-local-pack.json\"",
+    "the exact candidate tarball and its npm pack metadata must pass inventory, integrity, and clean-consumer checks"
+  );
+  requireOrdered(
+    source,
+    "run: yarn test:ci",
+    "yarn --cwd tooling build",
+    "the candidate must be rebuilt from reviewed source after the full gate"
+  );
+  requireOrdered(
+    source,
+    "yarn --cwd tooling build",
+    "npm pack ./tooling --json",
+    "candidate packing must follow the final tooling build"
   );
   requireOrdered(
     source,
@@ -117,6 +130,12 @@ function verifyToolingReleaseWorkflow(source: string): void {
     "candidate verification must happen before publication"
   );
   requireText(source, "--provenance", "npm publication must produce provenance");
+  requireOrdered(
+    source,
+    "Revalidate main and clean candidate immediately before publication",
+    "Publish exact reviewed tarball with npm provenance",
+    "remote-main and clean-tree checks must be repeated after the long release gates"
+  );
   requireText(
     source,
     "cmp \"${{ steps.local-package.outputs.tarball }}\" \"$downloaded\"",
@@ -125,13 +144,18 @@ function verifyToolingReleaseWorkflow(source: string): void {
   requireOrdered(
     source,
     "npm publish \"${{ steps.local-package.outputs.tarball }}\"",
-    "node scripts/dist/test-tooling-package.js --tarball \"$downloaded\"",
+    "--tarball \"$downloaded\"",
     "published bytes must be downloaded and independently consumed"
   );
   requireText(
     source,
     "create-tooling-release-evidence.js",
     "release must produce a deterministic receipt and SPDX SBOM"
+  );
+  requireText(
+    source,
+    "- uses: actions/upload-artifact@v4\n        if: ${{ always() }}",
+    "release evidence must still upload when publication or registry verification fails"
   );
   for (const forbiddenAction of [
     "semantic-release",
@@ -166,7 +190,7 @@ assert(rejected, "tooling release policy accepted an automatic push trigger");
 rejected = false;
 try {
   verifyToolingReleaseWorkflow(
-    workflow.replace(
+    workflow.replaceAll(
       "test \"$RELEASE_COMMIT\" = \"$(git rev-parse origin/main)\"",
       "echo \"skip remote-main verification\""
     )
