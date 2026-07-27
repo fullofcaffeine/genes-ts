@@ -1,0 +1,1613 @@
+{
+  "protocol": "genes.tooling.artifact-transition-vectors",
+  "version": 1,
+  "blobs": [
+    {
+      "id": "old-update",
+      "utf8": "old update\n",
+      "sha256": "39868de026e031af1f6d3893180e4d77ae6cc768a6e360be14635903c37e4ad2",
+      "sizeBytes": 11
+    },
+    {
+      "id": "new-update",
+      "utf8": "new update\n",
+      "sha256": "dd3f61e433040cd12d6e619c58a24c8f680ca3e10cb436508cc7d05c4c07af05",
+      "sizeBytes": 11
+    },
+    {
+      "id": "old-remove",
+      "utf8": "old remove\n",
+      "sha256": "9d2caa37dd20074df5879677e36171d5b12d0dba48f0e617284e45de50f2456f",
+      "sizeBytes": 11
+    },
+    {
+      "id": "stable",
+      "utf8": "stable\n",
+      "sha256": "2b92ea252be0fbc26f70317cdaa7b6411ea634b50d55338cd8c495e4dbf25d1d",
+      "sizeBytes": 7
+    },
+    {
+      "id": "created",
+      "utf8": "created\n",
+      "sha256": "59134a4054b27a3fc30e1ac81d9b9168dc0561f65982151324a021fe8ce88d06",
+      "sizeBytes": 8
+    },
+    {
+      "id": "old-marker",
+      "utf8": "old marker\n",
+      "sha256": "441eaf36ec2536076757b814c6b87e2e3335d1c9156df85f697378d205b360af",
+      "sizeBytes": 11
+    },
+    {
+      "id": "new-marker",
+      "utf8": "new marker\n",
+      "sha256": "dd4a3ee2e52ca57ceb7dc37eb916b4314319090a6ca714366a5a4b8d769efc65",
+      "sizeBytes": 11
+    },
+    {
+      "id": "first-marker",
+      "utf8": "first marker\n",
+      "sha256": "958e124e95eba7aa025565ce4e6e9f45cd82cc70b533da21077f6d4b866cf989",
+      "sizeBytes": 13
+    },
+    {
+      "id": "alien",
+      "utf8": "alien\n",
+      "sha256": "3068c2db2f16df2b37a10837140a0d9e617f8f687caf550ebb85dfceeca0912b",
+      "sizeBytes": 6
+    }
+  ],
+  "plans": [
+    {
+      "id": "mixed",
+      "plan": {
+        "protocol": "genes.tooling.artifact-transition",
+        "version": 1,
+        "projectIdentity": "1111111111111111111111111111111111111111111111111111111111111111",
+        "authorizationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "transactionRoot": ".genes-tooling/transactions",
+        "stageRoot": ".genes-tooling/stage",
+        "artifacts": [
+          {
+            "path": "generated/create.js",
+            "prior": { "kind": "absent" },
+            "next": {
+              "kind": "file",
+              "sha256": "59134a4054b27a3fc30e1ac81d9b9168dc0561f65982151324a021fe8ce88d06",
+              "sizeBytes": 8,
+              "mode": 420
+            },
+            "stagedPath": ".genes-tooling/stage/generated/create.js"
+          },
+          {
+            "path": "generated/remove.js",
+            "prior": {
+              "kind": "file",
+              "sha256": "9d2caa37dd20074df5879677e36171d5b12d0dba48f0e617284e45de50f2456f",
+              "sizeBytes": 11,
+              "mode": 420
+            },
+            "next": { "kind": "absent" },
+            "stagedPath": null
+          },
+          {
+            "path": "generated/unchanged.js",
+            "prior": {
+              "kind": "file",
+              "sha256": "2b92ea252be0fbc26f70317cdaa7b6411ea634b50d55338cd8c495e4dbf25d1d",
+              "sizeBytes": 7,
+              "mode": 420
+            },
+            "next": {
+              "kind": "file",
+              "sha256": "2b92ea252be0fbc26f70317cdaa7b6411ea634b50d55338cd8c495e4dbf25d1d",
+              "sizeBytes": 7,
+              "mode": 420
+            },
+            "stagedPath": null
+          },
+          {
+            "path": "generated/update.js",
+            "prior": {
+              "kind": "file",
+              "sha256": "39868de026e031af1f6d3893180e4d77ae6cc768a6e360be14635903c37e4ad2",
+              "sizeBytes": 11,
+              "mode": 420
+            },
+            "next": {
+              "kind": "file",
+              "sha256": "dd3f61e433040cd12d6e619c58a24c8f680ca3e10cb436508cc7d05c4c07af05",
+              "sizeBytes": 11,
+              "mode": 493
+            },
+            "stagedPath": ".genes-tooling/stage/generated/update.js"
+          }
+        ],
+        "commitMarker": {
+          "path": "generated/owner.json",
+          "prior": {
+            "kind": "file",
+            "sha256": "441eaf36ec2536076757b814c6b87e2e3335d1c9156df85f697378d205b360af",
+            "sizeBytes": 11,
+            "mode": 384
+          },
+          "next": {
+            "kind": "file",
+            "sha256": "dd4a3ee2e52ca57ceb7dc37eb916b4314319090a6ca714366a5a4b8d769efc65",
+            "sizeBytes": 11,
+            "mode": 420
+          },
+          "stagedPath": ".genes-tooling/stage/generated/owner.json"
+        }
+      }
+    },
+    {
+      "id": "first-generation",
+      "plan": {
+        "protocol": "genes.tooling.artifact-transition",
+        "version": 1,
+        "projectIdentity": "1111111111111111111111111111111111111111111111111111111111111111",
+        "authorizationDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "transactionRoot": ".genes-tooling/transactions",
+        "stageRoot": ".genes-tooling/stage",
+        "artifacts": [
+          {
+            "path": "generated/create.js",
+            "prior": { "kind": "absent" },
+            "next": {
+              "kind": "file",
+              "sha256": "59134a4054b27a3fc30e1ac81d9b9168dc0561f65982151324a021fe8ce88d06",
+              "sizeBytes": 8,
+              "mode": 420
+            },
+            "stagedPath": ".genes-tooling/stage/generated/create.js"
+          }
+        ],
+        "commitMarker": {
+          "path": "generated/owner.json",
+          "prior": { "kind": "absent" },
+          "next": {
+            "kind": "file",
+            "sha256": "958e124e95eba7aa025565ce4e6e9f45cd82cc70b533da21077f6d4b866cf989",
+            "sizeBytes": 13,
+            "mode": 420
+          },
+          "stagedPath": ".genes-tooling/stage/generated/owner.json"
+        }
+      }
+    },
+    {
+      "id": "marker-only",
+      "plan": {
+        "protocol": "genes.tooling.artifact-transition",
+        "version": 1,
+        "projectIdentity": "1111111111111111111111111111111111111111111111111111111111111111",
+        "authorizationDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "transactionRoot": ".genes-tooling/transactions",
+        "stageRoot": ".genes-tooling/stage",
+        "artifacts": [],
+        "commitMarker": {
+          "path": "generated/owner.json",
+          "prior": {
+            "kind": "file",
+            "sha256": "441eaf36ec2536076757b814c6b87e2e3335d1c9156df85f697378d205b360af",
+            "sizeBytes": 11,
+            "mode": 384
+          },
+          "next": {
+            "kind": "file",
+            "sha256": "dd4a3ee2e52ca57ceb7dc37eb916b4314319090a6ca714366a5a4b8d769efc65",
+            "sizeBytes": 11,
+            "mode": 420
+          },
+          "stagedPath": ".genes-tooling/stage/generated/owner.json"
+        }
+      }
+    }
+  ],
+  "vectors": [
+    {
+      "id": "publish-mixed-success",
+      "covers": ["create", "replace", "remove", "unchanged", "mode-change", "commit-marker-last", "replacement-generation"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "published", "failure": null, "live": "next", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "publish-first-generation",
+      "covers": ["first-generation", "create", "absent-prior"],
+      "plan": "first-generation",
+      "planMutation": "none",
+      "initial": "absent",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "published", "failure": null, "live": "next", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "publish-marker-only",
+      "covers": ["commit-marker-only", "commit-marker-last"],
+      "plan": "marker-only",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "published", "failure": null, "live": "next", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "publish-already-next",
+      "covers": ["idempotent-publish", "unchanged"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "next",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "unchanged", "failure": null, "live": "next", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "reject-missing-stage",
+      "covers": ["missing-staged-file"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [
+        { "area": "stage", "path": ".genes-tooling/stage/generated/create.js", "entry": { "kind": "absent" } }
+      ],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": null,
+          "expect": {
+            "outcome": "failed",
+            "failure": { "kind": "unexpected-staged-state", "subject": ".genes-tooling/stage/generated/create.js" },
+            "live": "prior",
+            "control": "absent"
+          }
+        }
+      ]
+    },
+    {
+      "id": "reject-modified-stage",
+      "covers": ["modified-staged-file"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [
+        { "area": "stage", "path": ".genes-tooling/stage/generated/update.js", "entry": { "kind": "file", "blob": "alien", "mode": 493 } }
+      ],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": null,
+          "expect": {
+            "outcome": "failed",
+            "failure": { "kind": "unexpected-staged-state", "subject": ".genes-tooling/stage/generated/update.js" },
+            "live": "prior",
+            "control": "absent"
+          }
+        }
+      ]
+    },
+    {
+      "id": "reject-stage-mode-change",
+      "covers": ["modified-staged-mode", "mode-exactness"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [
+        { "area": "stage", "path": ".genes-tooling/stage/generated/update.js", "entry": { "kind": "file", "blob": "new-update", "mode": 420 } }
+      ],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": null,
+          "expect": {
+            "outcome": "failed",
+            "failure": { "kind": "unexpected-staged-state", "subject": ".genes-tooling/stage/generated/update.js" },
+            "live": "prior",
+            "control": "absent"
+          }
+        }
+      ]
+    },
+    {
+      "id": "reject-extra-stage",
+      "covers": ["undeclared-staged-file"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [
+        { "area": "stage", "path": ".genes-tooling/stage/generated/extra.js", "entry": { "kind": "file", "blob": "alien", "mode": 420 } }
+      ],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": null,
+          "expect": {
+            "outcome": "failed",
+            "failure": { "kind": "undeclared-staged-entry", "subject": ".genes-tooling/stage/generated/extra.js" },
+            "live": "prior",
+            "control": "absent"
+          }
+        }
+      ]
+    },
+    {
+      "id": "reject-unowned-live-collision",
+      "covers": ["unowned-live-collision"],
+      "plan": "first-generation",
+      "planMutation": "none",
+      "initial": "absent",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [
+        { "area": "live", "path": "generated/create.js", "entry": { "kind": "file", "blob": "alien", "mode": 420 } }
+      ],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": null,
+          "expect": {
+            "outcome": "failed",
+            "failure": { "kind": "unexpected-live-state", "subject": "generated/create.js" },
+            "live": "ambiguous",
+            "control": "absent"
+          }
+        }
+      ]
+    },
+    {
+      "id": "reject-live-race-after-preflight",
+      "covers": ["live-state-race"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [
+        { "at": "after-preflight", "area": "live", "path": "generated/update.js", "entry": { "kind": "file", "blob": "alien", "mode": 420 } }
+      ],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": null,
+          "expect": {
+            "outcome": "failed",
+            "failure": { "kind": "unexpected-live-state", "subject": "generated/update.js" },
+            "live": "ambiguous",
+            "control": "absent"
+          }
+        }
+      ]
+    },
+    {
+      "id": "reject-absolute-path",
+      "covers": ["absolute-path"],
+      "plan": "mixed",
+      "planMutation": "absolute-live-path",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "failed", "failure": { "kind": "path-escape", "subject": "/generated/create.js" }, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "reject-traversal-path",
+      "covers": ["lexical-traversal"],
+      "plan": "mixed",
+      "planMutation": "traversal-live-path",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "failed", "failure": { "kind": "path-escape", "subject": "../generated/create.js" }, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "reject-backslash-path",
+      "covers": ["backslash-path"],
+      "plan": "mixed",
+      "planMutation": "backslash-live-path",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "failed", "failure": { "kind": "path-escape", "subject": "generated\\create.js" }, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "reject-portable-case-collision",
+      "covers": ["portable-case-collision"],
+      "plan": "mixed",
+      "planMutation": "portable-case-collision",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "failed", "failure": { "kind": "portable-path-collision", "subject": "Generated/create.js" }, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "reject-duplicate-marker",
+      "covers": ["duplicate-commit-marker"],
+      "plan": "mixed",
+      "planMutation": "duplicate-commit-marker",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "failed", "failure": { "kind": "invalid-plan", "subject": "generated/owner.json" }, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "reject-stage-on-removal",
+      "covers": ["staged-path-on-absent-next"],
+      "plan": "mixed",
+      "planMutation": "staged-path-with-absent-next",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "failed", "failure": { "kind": "invalid-plan", "subject": "generated/remove.js" }, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "reject-missing-stage-path",
+      "covers": ["missing-staged-path-for-file"],
+      "plan": "mixed",
+      "planMutation": "missing-staged-path-for-file",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "failed", "failure": { "kind": "invalid-plan", "subject": "generated/create.js" }, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "reject-symlink-project-root",
+      "covers": ["symlink-project-root"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [
+        { "area": "project-root", "path": ".", "entry": { "kind": "symlink", "target": "../real-project" } }
+      ],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "failed", "failure": { "kind": "symlink-traversal", "subject": "." }, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "reject-symlink-live-parent",
+      "covers": ["symlink-live-parent"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [
+        { "area": "live", "path": "generated", "entry": { "kind": "symlink", "target": "../outside" } }
+      ],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "failed", "failure": { "kind": "symlink-traversal", "subject": "generated" }, "live": "ambiguous", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "reject-symlink-live-destination",
+      "covers": ["symlink-live-destination"],
+      "plan": "first-generation",
+      "planMutation": "none",
+      "initial": "absent",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [
+        { "area": "live", "path": "generated/create.js", "entry": { "kind": "symlink", "target": "../outside" } }
+      ],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "failed", "failure": { "kind": "symlink-traversal", "subject": "generated/create.js" }, "live": "ambiguous", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "reject-symlink-stage",
+      "covers": ["symlink-stage"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [
+        { "area": "stage", "path": ".genes-tooling/stage/generated/create.js", "entry": { "kind": "symlink", "target": "../../outside" } }
+      ],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "failed", "failure": { "kind": "symlink-traversal", "subject": ".genes-tooling/stage/generated/create.js" }, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "reject-symlink-backup",
+      "covers": ["symlink-backup"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [
+        { "area": "backup", "path": ".genes-tooling/transactions/work/backup", "entry": { "kind": "symlink", "target": "../../../outside" } }
+      ],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "failed", "failure": { "kind": "symlink-traversal", "subject": ".genes-tooling/transactions/work/backup" }, "live": "prior", "control": "preserved" }
+        }
+      ]
+    },
+    {
+      "id": "reject-symlink-lock",
+      "covers": ["symlink-lock"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [
+        { "area": "control", "path": ".genes-tooling/transactions/lock", "entry": { "kind": "symlink", "target": "../../outside" } }
+      ],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "failed", "failure": { "kind": "symlink-traversal", "subject": ".genes-tooling/transactions/lock" }, "live": "prior", "control": "preserved" }
+        }
+      ]
+    },
+    {
+      "id": "reject-symlink-journal",
+      "covers": ["symlink-journal"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [
+        { "area": "control", "path": ".genes-tooling/transactions/journal.json", "entry": { "kind": "symlink", "target": "../../outside" } }
+      ],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "failed", "failure": { "kind": "symlink-traversal", "subject": ".genes-tooling/transactions/journal.json" }, "live": "prior", "control": "preserved" }
+        }
+      ]
+    },
+    {
+      "id": "reject-active-writer",
+      "covers": ["active-writer"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "active-same-host", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "failed", "failure": { "kind": "active-writer", "subject": ".genes-tooling/transactions/lock" }, "live": "prior", "control": "preserved" }
+        }
+      ]
+    },
+    {
+      "id": "recover-dead-same-host-writer",
+      "covers": ["dead-same-host-writer"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "dead-same-host", "journal": "publishing" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": null,
+          "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "reject-foreign-writer",
+      "covers": ["foreign-writer"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "foreign-host", "journal": "publishing" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": null,
+          "expect": { "outcome": "failed", "failure": { "kind": "untrusted-lock", "subject": ".genes-tooling/transactions/lock" }, "live": "prior", "control": "preserved" }
+        }
+      ]
+    },
+    {
+      "id": "reject-malformed-lock",
+      "covers": ["malformed-lock", "unauthenticated-lock"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "malformed", "journal": "publishing" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": null,
+          "expect": { "outcome": "failed", "failure": { "kind": "untrusted-lock", "subject": ".genes-tooling/transactions/lock" }, "live": "prior", "control": "preserved" }
+        }
+      ]
+    },
+    {
+      "id": "reject-orphan-lock",
+      "covers": ["orphan-lock"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "orphan", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": null,
+          "expect": { "outcome": "failed", "failure": { "kind": "orphan-control-state", "subject": ".genes-tooling/transactions/lock" }, "live": "prior", "control": "preserved" }
+        }
+      ]
+    },
+    {
+      "id": "reject-orphan-journal",
+      "covers": ["orphan-journal"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "orphan" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": null,
+          "expect": { "outcome": "failed", "failure": { "kind": "orphan-control-state", "subject": ".genes-tooling/transactions/journal.json" }, "live": "prior", "control": "preserved" }
+        }
+      ]
+    },
+    {
+      "id": "reject-malformed-journal",
+      "covers": ["malformed-journal", "canonical-journal"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "dead-same-host", "journal": "malformed" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": null,
+          "expect": { "outcome": "failed", "failure": { "kind": "malformed-journal", "subject": ".genes-tooling/transactions/journal.json" }, "live": "prior", "control": "preserved" }
+        }
+      ]
+    },
+    {
+      "id": "reject-journal-authorization-mismatch",
+      "covers": ["authorization-binding"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "dead-same-host", "journal": "authorization-mismatch" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": null,
+          "expect": { "outcome": "failed", "failure": { "kind": "malformed-journal", "subject": "authorizationDigest" }, "live": "prior", "control": "preserved" }
+        }
+      ]
+    },
+    {
+      "id": "reject-journal-plan-digest-mismatch",
+      "covers": ["plan-binding"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "dead-same-host", "journal": "plan-digest-mismatch" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": null,
+          "expect": { "outcome": "failed", "failure": { "kind": "malformed-journal", "subject": "planDigest" }, "live": "prior", "control": "preserved" }
+        }
+      ]
+    },
+    {
+      "id": "recover-committed-journal-idempotently",
+      "covers": ["committed-journal", "idempotent-recovery"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "next",
+      "stage": "absent",
+      "control": { "lock": "dead-same-host", "journal": "committed" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "recover",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "committed", "failure": null, "live": "next", "control": "absent" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "none", "failure": null, "live": "next", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "recover-complete-intended-admitted",
+      "covers": ["complete-intended-finalization", "host-admission"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "next",
+      "stage": "absent",
+      "control": { "lock": "dead-same-host", "journal": "published" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "recover",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "committed", "failure": null, "live": "next", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "recover-complete-intended-rejected",
+      "covers": ["complete-intended-rollback", "host-admission"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "next",
+      "stage": "absent",
+      "control": { "lock": "dead-same-host", "journal": "published" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": null,
+          "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "recover-partial-even-when-admitted",
+      "covers": ["partial-state-rollback", "host-admission"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": { "kind": "process-exit", "at": "after-publish:generated/create.js" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "recoverable", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "recover-refuses-unexpected-live-state",
+      "covers": ["unexpected-live-recovery-refusal"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": { "kind": "process-exit", "at": "after-publish:generated/create.js" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "recoverable", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": { "kind": "io-error", "at": "inject-unexpected-live:generated/create.js" },
+          "expect": {
+            "outcome": "failed",
+            "failure": { "kind": "recovery-conflict", "subject": "generated/create.js" },
+            "live": "ambiguous",
+            "control": "preserved"
+          }
+        }
+      ]
+    },
+    {
+      "id": "crash-after-journal-prepared",
+      "covers": ["forward-crash", "journal-prepared"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": { "kind": "process-exit", "at": "after-journal-prepared" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "prior", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": null,
+          "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "crash-after-phase-publishing",
+      "covers": ["forward-crash", "publishing-phase"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": { "kind": "process-exit", "at": "after-phase-publishing" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "prior", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": null,
+          "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "crash-after-create-publish",
+      "covers": ["forward-crash", "artifact-publication"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": { "kind": "process-exit", "at": "after-publish:generated/create.js" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "recoverable", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": null,
+          "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "crash-after-remove-backup",
+      "covers": ["forward-crash", "artifact-backup"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": { "kind": "process-exit", "at": "after-backup:generated/remove.js" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "recoverable", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": null,
+          "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "crash-after-update-backup",
+      "covers": ["forward-crash", "artifact-backup"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": { "kind": "process-exit", "at": "after-backup:generated/update.js" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "recoverable", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": null,
+          "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "crash-after-update-publish",
+      "covers": ["forward-crash", "artifact-publication"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": { "kind": "process-exit", "at": "after-publish:generated/update.js" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "recoverable", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": null,
+          "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "crash-after-marker-backup",
+      "covers": ["forward-crash", "commit-marker-backup", "commit-marker-last"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": { "kind": "process-exit", "at": "after-backup:commit-marker" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "recoverable", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": null,
+          "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "crash-after-marker-publish",
+      "covers": ["forward-crash", "commit-marker-publication", "complete-intended-finalization"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": { "kind": "process-exit", "at": "after-publish:commit-marker" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "next", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "committed", "failure": null, "live": "next", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "crash-after-phase-published",
+      "covers": ["forward-crash", "published-phase"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": { "kind": "process-exit", "at": "after-phase-published" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "next", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "committed", "failure": null, "live": "next", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "crash-during-cleanup-work",
+      "covers": ["forward-crash", "cleanup-crash"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": { "kind": "process-exit", "at": "after-cleanup:work-root" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "next", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "committed", "failure": null, "live": "next", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "crash-during-cleanup-journal",
+      "covers": ["forward-crash", "cleanup-crash", "orphan-lock-cleanup"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": { "kind": "process-exit", "at": "after-cleanup:journal" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "next", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "committed", "failure": null, "live": "next", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "crash-during-cleanup-lock",
+      "covers": ["forward-crash", "cleanup-crash", "idempotent-recovery"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": { "kind": "process-exit", "at": "after-cleanup:lock" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "next", "control": "absent" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "none", "failure": null, "live": "next", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "rollback-crash-after-phase",
+      "covers": ["rollback-crash", "second-crash-recovery", "rolling-back-phase"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": { "kind": "process-exit", "at": "after-publish:commit-marker" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "next", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": { "kind": "process-exit", "at": "after-phase-rolling-back" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "next", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": null,
+          "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "rollback-crash-after-marker-remove",
+      "covers": ["rollback-crash", "second-crash-recovery", "marker-rollback"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": { "kind": "process-exit", "at": "after-publish:commit-marker" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "next", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": { "kind": "process-exit", "at": "after-remove-next:commit-marker" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "recoverable", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": null,
+          "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "rollback-crash-after-marker-restore",
+      "covers": ["rollback-crash", "second-crash-recovery", "marker-rollback"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": { "kind": "process-exit", "at": "after-publish:commit-marker" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "next", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": { "kind": "process-exit", "at": "after-restore-prior:commit-marker" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "recoverable", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": null,
+          "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "rollback-crash-after-create-remove",
+      "covers": ["rollback-crash", "second-crash-recovery", "create-rollback"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": { "kind": "process-exit", "at": "after-publish:commit-marker" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "next", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": { "kind": "process-exit", "at": "after-remove-next:generated/create.js" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "recoverable", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": null,
+          "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "rollback-crash-after-update-remove",
+      "covers": ["rollback-crash", "second-crash-recovery", "replace-rollback"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": { "kind": "process-exit", "at": "after-publish:commit-marker" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "next", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": { "kind": "process-exit", "at": "after-remove-next:generated/update.js" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "recoverable", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": null,
+          "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "rollback-crash-after-update-restore",
+      "covers": ["rollback-crash", "second-crash-recovery", "replace-rollback"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": { "kind": "process-exit", "at": "after-publish:commit-marker" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "next", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": { "kind": "process-exit", "at": "after-restore-prior:generated/update.js" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "recoverable", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": null,
+          "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "rollback-crash-after-remove-restore",
+      "covers": ["rollback-crash", "second-crash-recovery", "remove-rollback"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": { "kind": "process-exit", "at": "after-publish:commit-marker" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "next", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": { "kind": "process-exit", "at": "after-restore-prior:generated/remove.js" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "recoverable", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": null,
+          "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "rollback-crash-during-cleanup",
+      "covers": ["rollback-crash", "second-crash-recovery", "cleanup-crash", "idempotent-recovery"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": { "kind": "process-exit", "at": "after-publish:commit-marker" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "next", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": { "kind": "process-exit", "at": "after-cleanup:work-root" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "prior", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": { "kind": "process-exit", "at": "after-cleanup:journal" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "prior", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": { "kind": "process-exit", "at": "after-cleanup:lock" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "prior", "control": "absent" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": null,
+          "expect": { "outcome": "none", "failure": null, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "reject-control-path-collision",
+      "covers": ["control-path-collision"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [
+        { "area": "control", "path": ".genes-tooling/transactions", "entry": { "kind": "file", "blob": "alien", "mode": 420 } }
+      ],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "failed", "failure": { "kind": "control-path-collision", "subject": ".genes-tooling/transactions" }, "live": "prior", "control": "preserved" }
+        }
+      ]
+    },
+    {
+      "id": "reject-special-live-entry",
+      "covers": ["special-filesystem-entry"],
+      "plan": "first-generation",
+      "planMutation": "none",
+      "initial": "absent",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [
+        { "area": "live", "path": "generated/create.js", "entry": { "kind": "special" } }
+      ],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": null,
+          "expect": { "outcome": "failed", "failure": { "kind": "filesystem-unsupported", "subject": "generated/create.js" }, "live": "ambiguous", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "reject-cross-device-rename",
+      "covers": ["cross-device-filesystem"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": { "kind": "cross-device", "at": "before-publish:generated/create.js" },
+          "expect": { "outcome": "failed", "failure": { "kind": "filesystem-unsupported", "subject": "generated/create.js" }, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "reject-publication-permission",
+      "covers": ["permission-failure", "caught-error-rollback"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": { "kind": "permission-denied", "at": "before-publish:generated/update.js" },
+          "expect": { "outcome": "failed", "failure": { "kind": "filesystem-permission", "subject": "generated/update.js" }, "live": "prior", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "reject-recovery-permission",
+      "covers": ["permission-failure", "recovery-refusal"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "prior",
+      "stage": "complete",
+      "control": { "lock": "none", "journal": "none" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "publish",
+          "admitIntended": true,
+          "fault": { "kind": "process-exit", "at": "after-publish:generated/update.js" },
+          "expect": { "outcome": "crashed", "failure": null, "live": "recoverable", "control": "durable" }
+        },
+        {
+          "action": "recover",
+          "admitIntended": false,
+          "fault": { "kind": "permission-denied", "at": "before-restore-prior:generated/update.js" },
+          "expect": { "outcome": "failed", "failure": { "kind": "filesystem-permission", "subject": "generated/update.js" }, "live": "recoverable", "control": "preserved" }
+        }
+      ]
+    }
+  ]
+}

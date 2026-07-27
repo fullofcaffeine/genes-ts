@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://genes.dev/schemas/tooling/artifact-transition-protocol-v1.json",
+  "title": "Genes tooling durable artifact transition protocol v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "version", "projectIdentity", "authorizationDigest", "transactionRoot", "stageRoot", "artifacts", "commitMarker"],
+  "properties": {
+    "protocol": { "const": "genes.tooling.artifact-transition" },
+    "version": { "const": 1 },
+    "projectIdentity": { "$ref": "#/$defs/sha256" },
+    "authorizationDigest": { "$ref": "#/$defs/sha256" },
+    "transactionRoot": { "$ref": "#/$defs/path" },
+    "stageRoot": { "$ref": "#/$defs/path" },
+    "artifacts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/transition" }
+    },
+    "commitMarker": { "$ref": "#/$defs/transition" }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*\\\\)(?!.*\\u0000)[^/]+(?:/[^/]+)*$"
+    },
+    "fileState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "sha256", "sizeBytes", "mode"],
+      "properties": {
+        "kind": { "const": "file" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "sizeBytes": { "type": "integer", "minimum": 0 },
+        "mode": { "type": "integer", "minimum": 0, "maximum": 511 }
+      }
+    },
+    "absentState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "const": "absent" }
+      }
+    },
+    "expectedState": {
+      "oneOf": [
+        { "$ref": "#/$defs/absentState" },
+        { "$ref": "#/$defs/fileState" }
+      ]
+    },
+    "transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "prior", "next", "stagedPath"],
+      "properties": {
+        "path": { "$ref": "#/$defs/path" },
+        "prior": { "$ref": "#/$defs/expectedState" },
+        "next": { "$ref": "#/$defs/expectedState" },
+        "stagedPath": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/path" }
+          ]
+        }
+      }
+    },
+    "phase": {
+      "enum": ["prepared", "publishing", "published", "rolling-back", "committed"]
+    },
+    "journal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "version", "canonicalization", "journalDigestAlgorithm", "journalDigest", "transactionId", "projectIdentity", "authorizationDigest", "phase", "planDigest", "plan"],
+      "properties": {
+        "protocol": { "const": "genes.tooling.artifact-transition-journal" },
+        "version": { "const": 1 },
+        "canonicalization": { "const": "rfc8785-jcs" },
+        "journalDigestAlgorithm": { "const": "sha256-rfc8785-without-journalDigest-v1" },
+        "journalDigest": { "$ref": "#/$defs/sha256" },
+        "transactionId": { "$ref": "#/$defs/sha256" },
+        "projectIdentity": { "$ref": "#/$defs/sha256" },
+        "authorizationDigest": { "$ref": "#/$defs/sha256" },
+        "phase": { "$ref": "#/$defs/phase" },
+        "planDigest": { "$ref": "#/$defs/sha256" },
+        "plan": { "$ref": "#" }
+      }
+    },
+    "lock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "version", "canonicalization", "lockDigestAlgorithm", "lockDigest", "transactionId", "projectIdentity", "hostIdentity", "pid", "nonce"],
+      "properties": {
+        "protocol": { "const": "genes.tooling.artifact-transition-lock" },
+        "version": { "const": 1 },
+        "canonicalization": { "const": "rfc8785-jcs" },
+        "lockDigestAlgorithm": { "const": "sha256-rfc8785-without-lockDigest-v1" },
+        "lockDigest": { "$ref": "#/$defs/sha256" },
+        "transactionId": { "$ref": "#/$defs/sha256" },
+        "projectIdentity": { "$ref": "#/$defs/sha256" },
+        "hostIdentity": { "$ref": "#/$defs/sha256" },
+        "pid": { "type": "integer", "minimum": 1 },
+        "nonce": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "failureFact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "subject"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "invalid-plan",
+            "unexpected-staged-state",
+            "undeclared-staged-entry",
+            "unexpected-live-state",
+            "path-escape",
+            "portable-path-collision",
+            "symlink-traversal",
+            "active-writer",
+            "untrusted-lock",
+            "malformed-journal",
+            "orphan-control-state",
+            "recovery-conflict",
+            "filesystem-unsupported",
+            "filesystem-permission",
+            "control-path-collision"
+          ]
+        },
+        "subject": { "type": "string", "minLength": 1 }
+      }
+    },
+    "publicationOutcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "transactionId"],
+      "properties": {
+        "action": { "enum": ["published", "unchanged"] },
+        "transactionId": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/sha256" }
+          ]
+        }
+      }
+    },
+    "recoveryOutcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "transactionId"],
+      "properties": {
+        "action": { "enum": ["none", "committed", "rolled-back"] },
+        "transactionId": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/sha256" }
+          ]
+        }
+      }
+    }
+  }
+}

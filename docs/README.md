@@ -48,6 +48,7 @@ agents and human contributors should read the scoped guide directly.
 
 - `ARCHITECTURE.md#compiler-fixture-guide` — where each compiler/ts2hx test belongs
 - `TESTING_STRATEGY.md` — compiler harnesses, todoapp E2E, and “one command” gates
+- [`../tooling/artifact-transactions/v1/README.md`](../tooling/artifact-transactions/v1/README.md) — framework-neutral durable generated-artifact protocol and shared conformance vectors
 - `COMPATIBILITY_REPORT.md` — generated, deterministic evidence inventory with exact scope and counts
 - `TOOLCHAINS.md` — centralized TypeScript, Haxe, and Node compatibility lanes
 - `SECURITY.md` — local + CI secret scanning (gitleaks)
