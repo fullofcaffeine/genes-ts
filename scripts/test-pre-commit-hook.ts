@@ -184,6 +184,12 @@ function verifyPreCommitBoundary(): void {
     ok(installedHook.includes("user-hook"), "reinstall discarded user hook content");
 
     const realBd = run(primary, "sh", ["-c", "command -v bd"], environment);
+    const realHaxelib = run(
+      repositoryRoot,
+      "sh",
+      ["-c", "command -v haxelib"],
+      environment
+    );
     const shimDirectory = path.join(root, "bin");
     const beadsTrace = path.join(root, "beads-hook.trace");
     mkdirSync(shimDirectory);
@@ -193,6 +199,20 @@ function verifyPreCommitBoundary(): void {
         "#!/usr/bin/env sh",
         `printf '%s\\n' "$*" >> "${beadsTrace}"`,
         `exec "${realBd}" "$@"`,
+        ""
+      ].join("\n")
+    );
+    writeExecutable(
+      path.join(shimDirectory, "haxelib"),
+      [
+        "#!/usr/bin/env sh",
+        "set -eu",
+        // Lix's haxelib shim resolves the selected Haxe installation from the
+        // current project. Keep that real Genes project context while the
+        // disposable repository supplies only the files needed by this hook
+        // test; absolute formatter input paths still target the fixture.
+        `cd "${repositoryRoot}"`,
+        `exec "${realHaxelib}" "$@"`,
         ""
       ].join("\n")
     );
