@@ -16,9 +16,23 @@
       "types": "./dist/artifacts/index.d.ts",
       "import": "./dist/artifacts/index.js"
     },
+    "./loop": {
+      "types": "./dist/loop/index.d.ts",
+      "import": "./dist/loop/index.js"
+    },
+    "./hxml": {
+      "types": "./dist/hxml/index.d.ts",
+      "import": "./dist/hxml/index.js"
+    },
+    "./watch": {
+      "types": "./dist/watch/index.d.ts",
+      "import": "./dist/watch/index.js"
+    },
     "./artifact-transactions/v1/protocol.schema.json": "./artifact-transactions/v1/protocol.schema.json",
     "./artifact-transactions/v1/vectors.schema.json": "./artifact-transactions/v1/vectors.schema.json",
-    "./artifact-transactions/v1/vectors.json": "./artifact-transactions/v1/vectors.json"
+    "./artifact-transactions/v1/vectors.json": "./artifact-transactions/v1/vectors.json",
+    "./watch-orchestration/v1/vectors.schema.json": "./watch-orchestration/v1/vectors.schema.json",
+    "./watch-orchestration/v1/vectors.json": "./watch-orchestration/v1/vectors.json"
   },
   "files": [
     "dist/index.d.ts",
@@ -29,13 +43,27 @@
     "dist/artifacts/**/*.d.ts.map",
     "dist/artifacts/**/*.js",
     "dist/artifacts/**/*.js.map",
+    "dist/loop/**/*.d.ts",
+    "dist/loop/**/*.d.ts.map",
+    "dist/loop/**/*.js",
+    "dist/loop/**/*.js.map",
+    "dist/hxml/**/*.d.ts",
+    "dist/hxml/**/*.d.ts.map",
+    "dist/hxml/**/*.js",
+    "dist/hxml/**/*.js.map",
+    "dist/watch/**/*.d.ts",
+    "dist/watch/**/*.d.ts.map",
+    "dist/watch/**/*.js",
+    "dist/watch/**/*.js.map",
     "artifact-transactions/v1/*.json",
     "artifact-transactions/v1/README.md",
+    "watch-orchestration/v1/*.json",
+    "watch-orchestration/v1/README.md",
     "README.md"
   ],
   "scripts": {
     "build": "node ../scripts/run-typescript.mjs apiBridge -p tsconfig.json",
-    "test": "yarn build && node dist/test.js && node dist/vector-test.js",
+    "test": "yarn build && node dist/test.js && node dist/vector-test.js && node dist/loop-test.js && node dist/hxml-test.js && node dist/watch-test.js && node dist/watch-vector-test.js",
     "pack:check": "yarn build && npm pack --dry-run"
   },
   "publishConfig": {

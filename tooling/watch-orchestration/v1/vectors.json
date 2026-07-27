@@ -1,0 +1,188 @@
+{
+  "protocol": "genes.tooling.watch-orchestration-vectors",
+  "version": 1,
+  "vectors": [
+    {
+      "id": "hxml-nested-cwd-cycle",
+      "family": "hxml",
+      "covers": ["nested-hxml", "ordered-cwd", "cycle"],
+      "description": "Nested HXML follows ordered cwd changes and terminates a repeated-file cycle.",
+      "expected": "success"
+    },
+    {
+      "id": "hxml-quotes-escapes-comments",
+      "family": "hxml",
+      "covers": ["quotes", "escapes", "comments"],
+      "description": "Quoted and escaped arguments retain their value while an unquoted comment suffix is ignored.",
+      "expected": "success"
+    },
+    {
+      "id": "hxml-classpath-resource",
+      "family": "hxml",
+      "covers": ["class-path", "resource"],
+      "description": "Class-path and resource requests resolve from the effective cwd and resource aliases are excluded from paths.",
+      "expected": "success"
+    },
+    {
+      "id": "hxml-environment",
+      "family": "hxml",
+      "covers": ["environment-expansion"],
+      "description": "Environment placeholders resolve only through the caller-provided resolver.",
+      "expected": "success"
+    },
+    {
+      "id": "hxml-library",
+      "family": "hxml",
+      "covers": ["library-request", "library-resolver", "library-version"],
+      "description": "A library request preserves its name/version and follows only absolute HXML files returned by the caller resolver.",
+      "expected": "success"
+    },
+    {
+      "id": "hxml-missing-input",
+      "family": "hxml",
+      "covers": ["missing-input"],
+      "description": "A missing entry or nested HXML fails closed.",
+      "expected": "failure"
+    },
+    {
+      "id": "hxml-missing-environment",
+      "family": "hxml",
+      "covers": ["missing-environment"],
+      "description": "An unresolved environment placeholder fails instead of disappearing from the inventory.",
+      "expected": "failure"
+    },
+    {
+      "id": "hxml-invalid-syntax",
+      "family": "hxml",
+      "covers": ["unterminated-quote", "missing-option-value"],
+      "description": "An unterminated quote, escape, or required option value fails at its source.",
+      "expected": "failure"
+    },
+    {
+      "id": "hxml-path-escape",
+      "family": "hxml",
+      "covers": ["allowed-root", "path-escape"],
+      "description": "A discovered input outside all caller-authorized roots is rejected.",
+      "expected": "failure"
+    },
+    {
+      "id": "hxml-symlink",
+      "family": "hxml",
+      "covers": ["symlink-traversal"],
+      "description": "HXML and resolved input paths do not traverse a symbolic link below an allowed root.",
+      "expected": "failure"
+    },
+    {
+      "id": "hxml-resolver-failure",
+      "family": "hxml",
+      "covers": ["resolver-throw", "relative-resolver-result"],
+      "description": "A thrown resolver error or relative library HXML result is reported as a resolver failure.",
+      "expected": "failure"
+    },
+    {
+      "id": "hxml-budget",
+      "family": "hxml",
+      "covers": ["file-budget", "argument-budget"],
+      "description": "Caller-selected HXML file and argument budgets stop expansion deterministically.",
+      "expected": "failure"
+    },
+    {
+      "id": "watch-poll-exact",
+      "family": "watch",
+      "covers": ["polling-only", "exact-input", "edit"],
+      "description": "Polling alone observes an exact-file edit when no native event is available.",
+      "expected": "success"
+    },
+    {
+      "id": "watch-poll-tree-create-remove",
+      "family": "watch",
+      "covers": ["tree-input", "create", "remove"],
+      "description": "Polling observes matching file creation and removal inside a tree.",
+      "expected": "success"
+    },
+    {
+      "id": "watch-filter-ignore",
+      "family": "watch",
+      "covers": ["include-filter", "ignored-root"],
+      "description": "A nonmatching file and a matching file below an ignored subtree produce no change.",
+      "expected": "success"
+    },
+    {
+      "id": "watch-registration-gap",
+      "family": "watch",
+      "covers": ["registration-gap"],
+      "description": "A change after the baseline and before completed registration is emitted by the mandatory second snapshot.",
+      "expected": "success"
+    },
+    {
+      "id": "watch-native-exact",
+      "family": "watch",
+      "covers": ["native-event", "exact-input"],
+      "description": "A native exact-file event refreshes the authoritative snapshot and reports the typed caller cause.",
+      "expected": "success"
+    },
+    {
+      "id": "watch-missing-tree",
+      "family": "watch",
+      "covers": ["missing-root", "later-root"],
+      "description": "A missing tree is watched through its nearest real parent and becomes active after creation.",
+      "expected": "success"
+    },
+    {
+      "id": "watch-symlink-input",
+      "family": "watch",
+      "covers": ["symlink-traversal"],
+      "description": "An exact or tree input whose path traverses a symbolic link is rejected before registration.",
+      "expected": "failure"
+    },
+    {
+      "id": "watch-snapshot-budget",
+      "family": "watch",
+      "covers": ["snapshot-budget"],
+      "description": "A snapshot exceeding the caller-selected entry budget fails before a session is returned.",
+      "expected": "failure"
+    },
+    {
+      "id": "loop-burst-merge",
+      "family": "loop",
+      "covers": ["debounce", "caller-merge", "single-active-run"],
+      "description": "A request burst becomes one run with the caller-merged cause.",
+      "expected": "success"
+    },
+    {
+      "id": "loop-dirty-during-run",
+      "family": "loop",
+      "covers": ["dirty-during-run", "newest-state-follow-up"],
+      "description": "Requests received during an active run become exactly one serialized follow-up.",
+      "expected": "success"
+    },
+    {
+      "id": "loop-error-recovery",
+      "family": "loop",
+      "covers": ["run-error", "subsequent-run"],
+      "description": "A failed run reaches the caller error handler and does not prevent a later request.",
+      "expected": "success"
+    },
+    {
+      "id": "loop-close-pending",
+      "family": "loop",
+      "covers": ["close", "pending-cancellation"],
+      "description": "Closing during debounce cancels the pending run and future requests are ignored.",
+      "expected": "success"
+    },
+    {
+      "id": "loop-wait-after-close",
+      "family": "loop",
+      "covers": ["closed-wait"],
+      "description": "Waiting for idle after close resolves immediately instead of leaving an unsettled promise.",
+      "expected": "success"
+    },
+    {
+      "id": "loop-invalid-debounce",
+      "family": "loop",
+      "covers": ["invalid-option"],
+      "description": "A negative or noninteger debounce interval is rejected.",
+      "expected": "failure"
+    }
+  ]
+}
