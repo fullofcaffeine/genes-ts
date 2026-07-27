@@ -70,6 +70,52 @@ the TypeScript profile:
 Use an `.tsx` entry path when the module should retain JSX syntax. Ordinary
 Haxe modules are split under the entry directory either way.
 
+### Let a host select an isolated output target
+
+A build tool that owns several generated profiles can reuse the same HXML
+without appending another `-js` target:
+
+```bash
+haxe build.hxml -D genes.output=.generated/review/index.ts
+```
+
+`genes.output` is a compile-request-local override of the Genes destination,
+not a second Haxe target. Its `.ts` or `.tsx` extension must agree with
+`-D genes.ts`; classic output accepts `.js`, `.jsx`, or `.mjs`. The selected
+filename becomes the exact transactional owner for implementations,
+declarations, source maps, and the ownership manifest. A failed build leaves
+both the HXML destination and the selected tree unchanged.
+
+Use the documented lowercase extensions exactly: generated filenames and
+runtime import requests are case-sensitive, so variants such as `.TSX` or
+`.MJS` are rejected. Supply `genes.output` and the `genes.ts` profile define
+once, as part of the Haxe request. Do not change either setting after
+`genes.Generator.use()`: ordinary late mutation fails with
+`GENES-OUTPUT-TARGET-003` before public output is opened. If a build invokes
+`Generator.use()` again after changing the value, that repeated installation
+may report the more specific value/profile diagnostic `001` or `002` first.
+Every path fails before publication. Haxe itself stores defines by name, so if
+a command repeats `-D genes.output=...`, Haxe keeps only the final value before
+Genes runs; host tools should therefore construct one unambiguous define.
+
+`GENES-OUTPUT-TARGET-004` is a fail-closed compiler-server safeguard. It means
+Haxe presented Genes' private sentinel as a new request's authored `-js`
+destination, so the real owner could not be recovered safely. Restart that
+owned compiler server and retry the request; Genes will not guess a public
+path or publish into its private temporary area.
+
+This is framework-neutral host tooling. For example, a Gutenberg-oriented
+Haxe tool can generate an isolated TSX inspection tree while its normal HXML
+continues to name the production entrypoint:
+
+```bash
+haxe build.hxml -D genes.output=.generated/gutenberg-review/index.tsx
+```
+
+The host still selects ordinary Genes defines and later bundler steps. Genes
+does not know about WordPress, Gutenberg, routes, environments, or application
+configuration.
+
 ### 2. Compile the generated TypeScript
 
 A Node ESM project can use a conventional strict config:

@@ -39,11 +39,31 @@ using StringTools;
  * stack unwinding always crosses the transaction cleanup boundary.
  */
 class Generator {
+  /**
+   * Selects the exact Genes-owned output entrypoint for one compilation.
+   *
+   * Why: a host tool may need to reuse one checked HXML plan while generating
+   * an isolated TypeScript, TSX, JavaScript, JSX, or ESM comparison tree.
+   * Adding a second `-js` argument is not an override: Haxe rejects it as a
+   * second target before Genes can install its transactional generator.
+   *
+   * What/How: `-D genes.output=<path>` replaces only the configured Genes
+   * destination. Haxe's original `-js` path is redirected to the same private
+   * compiler sentinel as every other Genes build, while `OutputTransaction`
+   * owns the selected path and its exact extension. Compiler defines belong to
+   * one request, so a warm compiler cannot retain another request's override.
+   */
+  public static inline final OUTPUT_DEFINE = 'genes.output';
+
   @:persistent static var generation = 0;
   static var configuredOutputFile: Null<String>;
   static var compilerSentinelFile: Null<String>;
+  static var configuredOutputOverridePresent = false;
+  static var configuredOutputOverride: Null<String>;
+  static var configuredTypeScriptProfile = false;
 
   static function generate(api: JSGenApi) {
+    validateOutputOverrideTiming();
     final outputFile = configuredOutputFile == null
       ? api.outputFile
       : configuredOutputFile;
@@ -524,8 +544,10 @@ class Generator {
   public static function use() {
     #if !genes.disable
     if (Context.defined('js')) {
+      final alreadyInstalled = Context.defined(
+        CompilerInternal.GENERATOR_ACTIVE_DEFINE);
       Compiler.define(CompilerInternal.GENERATOR_ACTIVE_DEFINE);
-      isolateCompilerOutput();
+      isolateCompilerOutput(alreadyInstalled);
       LibraryProfile.validate();
       ModuleDirectivePlan.install();
       // TypeScript implementation output and classic declaration output both
@@ -574,18 +596,42 @@ class Generator {
    *
    * How: the sentinel key hashes the absolute destination, so independent
    * outputs do not collide while concurrent writers to the same destination
-   * retain the same unavoidable serialization requirement. Repeated `use()`
-   * calls in one compilation recognize the already-installed sentinel.
+   * retain the same unavoidable serialization requirement. The request-local
+   * generator capability distinguishes a repeated `use()` call in one
+   * compilation from a later compiler-server request; process-persistent
+   * sentinel state alone cannot establish that boundary after a failed macro.
    */
-  static function isolateCompilerOutput(): Void {
-    final output = Compiler.getOutput();
-    if (output == null || output.length == 0)
+  static function isolateCompilerOutput(alreadyInstalled: Bool): Void {
+    final compilerOutput = Compiler.getOutput();
+    if (compilerOutput == null || compilerOutput.length == 0)
       return;
 
-    if (compilerSentinelFile != null && output == compilerSentinelFile)
-      return;
+    final overridePresent = Context.defined(OUTPUT_DEFINE);
+    final overrideValue = Context.definedValue(OUTPUT_DEFINE);
+    final requestedOutput = switch overrideValue {
+      case null:
+        compilerOutput;
+      case value:
+        value;
+    }
+    if (compilerSentinelFile != null && compilerOutput == compilerSentinelFile) {
+      if (alreadyInstalled) {
+        // Validate on every call. A previous implementation returned as soon
+        // as it saw the sentinel, allowing a later invalid define to bypass
+        // the public host contract.
+        validateConfiguredOutput(requestedOutput);
+        return;
+      }
+      if (!overridePresent) {
+        removeCompilerSentinel();
+        Context.error('[GENES-OUTPUT-TARGET-004] Haxe reused Genes\' private '
+          + 'compiler sentinel as a new request\'s configured `-js` output. '
+          + 'Restart the compilation server so the authored target can be '
+          + 'captured safely.',
+          Context.currentPos());
+      }
+    }
 
-    configuredOutputFile = output;
     final temporaryRoot = switch Sys.getEnv('TMPDIR') {
       case null | '':
         switch Sys.getEnv('TEMP') {
@@ -594,12 +640,98 @@ class Generator {
         }
       case value: value;
     }
-    final key = Sha256.encode(absolutePath(output)).substr(0, 20);
+    // Redirect Haxe before validating the host-selected path. A macro
+    // diagnostic can make Haxe clean its compiler-owned output, and that
+    // cleanup must never touch either the authored HXML destination or a
+    // previously good Genes tree.
+    final sentinelSeed = requestedOutput.trim().length == 0
+      || requestedOutput.indexOf('\x00') >= 0
+      ? compilerOutput
+      : requestedOutput;
+    final key = Sha256.encode(absolutePath(sentinelSeed)).substr(0, 20);
     compilerSentinelFile = Path.join([
       temporaryRoot,
       'genes-haxe-output-$key.tmp'
     ]);
     Compiler.setOutput(compilerSentinelFile);
+    validateConfiguredOutput(requestedOutput);
+    configuredOutputFile = requestedOutput;
+    configuredOutputOverridePresent = overridePresent;
+    configuredOutputOverride = overrideValue;
+    configuredTypeScriptProfile = Context.defined('genes.ts');
+  }
+
+  /**
+   * Validates only the explicit host override, preserving legacy HXML policy.
+   *
+   * Existing direct `-js` builds keep their established extension behavior.
+   * The new override is intentionally closed because it is a reusable tooling
+   * API: a misspelled extension must not publish a syntactically incompatible
+   * tree under an arbitrary filename.
+   */
+  static function validateConfiguredOutput(output: String): Void {
+    if (!Context.defined(OUTPUT_DEFINE))
+      return;
+    // Haxe represents a valueless `-D name` as the string "1".
+    if (output == '1' || output.trim().length == 0
+      || output.indexOf('\x00') >= 0) {
+      removeCompilerSentinel();
+      Context.error('[GENES-OUTPUT-TARGET-001] -D $OUTPUT_DEFINE=<path> '
+        + 'requires one explicit, non-empty output path.',
+        Context.currentPos());
+    }
+
+    // The suffix is later used verbatim for generated files and import
+    // requests. Accepting `.MJS` as though it were `.mjs` would pass this
+    // validation but still produce case-sensitive paths that Node rejects.
+    final extension = Path.extension(output);
+    final supported = if (Context.defined('genes.ts'))
+      extension == 'ts' || extension == 'tsx'
+    else
+      extension == 'js' || extension == 'jsx' || extension == 'mjs';
+    if (!supported) {
+      removeCompilerSentinel();
+      final expected = Context.defined('genes.ts')
+        ? '.ts or .tsx'
+        : '.js, .jsx, or .mjs';
+      Context.error('[GENES-OUTPUT-TARGET-002] -D $OUTPUT_DEFINE="$output" '
+        + 'does not match the active Genes profile; expected $expected.',
+        Context.currentPos());
+    }
+  }
+
+  /**
+   * Rejects a macro that changes output ownership after generator installation.
+   *
+   * Why: `isolateCompilerOutput()` redirects Haxe and captures the public
+   * transaction owner before typing. Accepting a later macro mutation would
+   * make the sentinel, transaction, and generated tree disagree about which
+   * destination they protect.
+   *
+   * What/How: compare the output define and the `genes.ts` profile flag with
+   * the exact request-local snapshot taken during installation. Both choose
+   * the syntax and legal filename family, so changing either one later could
+   * publish TypeScript under `.js` or classic JavaScript under `.ts`.
+   * Ordinary command-line defines are already available at installation. A
+   * later macro change fails before an `OutputTransaction` or public writer is
+   * created.
+   */
+  static function validateOutputOverrideTiming(): Void {
+    final currentPresent = Context.defined(OUTPUT_DEFINE);
+    final currentValue = Context.definedValue(OUTPUT_DEFINE);
+    final currentTypeScriptProfile = Context.defined('genes.ts');
+    if (currentPresent == configuredOutputOverridePresent
+      && currentValue == configuredOutputOverride
+      && currentTypeScriptProfile == configuredTypeScriptProfile) {
+      return;
+    }
+
+    removeCompilerSentinel();
+    Context.error('[GENES-OUTPUT-TARGET-003] -D $OUTPUT_DEFINE and '
+      + '`-D genes.ts` must be configured before genes.Generator.use(); a '
+      + 'macro changed output-selection policy after Genes captured the '
+      + 'transactional owner and profile.',
+      Context.currentPos());
   }
 
   /** Removes only the private file path installed by `isolateCompilerOutput`. */

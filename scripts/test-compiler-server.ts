@@ -44,7 +44,7 @@ const genesVersion = (
 
 type ProjectName = "project-a" | "project-b";
 type Mode = "cold" | "warm";
-type ArtifactExtension = "ts" | "tsx" | "js" | "mjs";
+type ArtifactExtension = "ts" | "tsx" | "js" | "jsx" | "mjs";
 
 type Profile = {
   readonly extension: ArtifactExtension;
@@ -56,6 +56,10 @@ type Scenario = {
   readonly project: ProjectName;
   readonly profile: Profile;
   readonly defines?: ReadonlyArray<string>;
+  readonly outputOverride?: boolean;
+  readonly lateOutputOverride?: string;
+  readonly lateTypeScriptProfile?: boolean;
+  readonly repeatGeneratorUse?: boolean;
 };
 
 const tsProfile: Profile = {
@@ -64,7 +68,12 @@ const tsProfile: Profile = {
 };
 const tsxProfile: Profile = {
   extension: "tsx",
-  defines: ["genes.ts"]
+  defines: [
+    "genes.ts",
+    "genes.ts.jsx_import_source=react",
+    "genes.react.inline_markup",
+    "server_jsx"
+  ]
 };
 const classicProfile: Profile = {
   extension: "mjs",
@@ -73,6 +82,15 @@ const classicProfile: Profile = {
 const classicDeclarationProfile: Profile = {
   extension: "js",
   defines: ["dts"]
+};
+const classicJsxProfile: Profile = {
+  extension: "jsx",
+  defines: [
+    "dts",
+    "genes.ts.jsx_import_source=react",
+    "genes.react.inline_markup",
+    "server_jsx"
+  ]
 };
 
 function workspace(project: ProjectName): string {
@@ -88,6 +106,35 @@ function scenarioOutput(mode: Mode, scenario: Scenario): string {
     scenarioRoot(mode, scenario),
     `index.${scenario.profile.extension}`
   );
+}
+
+function haxeConfiguredOutput(mode: Mode, scenario: Scenario): string {
+  if (!scenario.outputOverride) return scenarioOutput(mode, scenario);
+  return path.join(
+    outputRoot,
+    mode,
+    ".haxe-configured",
+    scenario.id,
+    "index.js"
+  );
+}
+
+function configuredOutputMarker(mode: Mode, scenario: Scenario): string {
+  return `hxml-owned:${mode}:${scenario.id}\n`;
+}
+
+/**
+ * Seeds the HXML destination with user-owned bytes before an override build.
+ *
+ * Why: merely asserting that Haxe did not create a file misses the more
+ * important rollback case where a host already has a valid tree at the
+ * authored HXML destination. The override must leave those bytes untouched.
+ */
+function seedConfiguredOutput(mode: Mode, scenario: Scenario): void {
+  if (!scenario.outputOverride) return;
+  const output = haxeConfiguredOutput(mode, scenario);
+  mkdirSync(path.dirname(output), { recursive: true });
+  writeFileSync(output, configuredOutputMarker(mode, scenario), "utf8");
 }
 
 function moduleFile(mode: Mode, scenario: Scenario): string {
@@ -161,6 +208,23 @@ function buildArguments(mode: Mode, scenario: Scenario): string[] {
     `genes-ts=${genesVersion}`,
     "--macro",
     "genes.Generator.use()",
+    ...(scenario.lateOutputOverride === undefined
+      ? []
+      : [
+          "--macro",
+          `haxe.macro.Compiler.define("genes.output", ${
+            JSON.stringify(scenario.lateOutputOverride)
+          })`
+        ]),
+    ...(scenario.lateTypeScriptProfile === true
+      ? [
+          "--macro",
+          'haxe.macro.Compiler.define("genes.ts", "1")'
+        ]
+      : []),
+    ...(scenario.repeatGeneratorUse === true
+      ? ["--macro", "genes.Generator.use()"]
+      : []),
     "--macro",
     "genes.js.Async.enable()",
     "--macro",
@@ -172,7 +236,7 @@ function buildArguments(mode: Mode, scenario: Scenario): string[] {
     "--main",
     "servercase.Main",
     "-js",
-    scenarioOutput(mode, scenario),
+    haxeConfiguredOutput(mode, scenario),
     "-D",
     "js-es=6",
     "-D",
@@ -187,7 +251,13 @@ function buildArguments(mode: Mode, scenario: Scenario): string[] {
     "-dce",
     "full",
     "-debug",
-    ...[...scenario.profile.defines, ...(scenario.defines ?? [])]
+    ...[
+      ...scenario.profile.defines,
+      ...(scenario.outputOverride
+        ? [`genes.output=${scenarioOutput(mode, scenario)}`]
+        : []),
+      ...(scenario.defines ?? [])
+    ]
       .flatMap((define) => ["-D", define])
   ];
 }
@@ -217,6 +287,13 @@ function assertNoPrivateDebris(mode: Mode, scenario: Scenario): void {
     false,
     `${mode} ${scenario.id} left its private Haxe output sentinel`
   );
+  if (scenario.outputOverride) {
+    strictEqual(
+      readFileSync(haxeConfiguredOutput(mode, scenario), "utf8"),
+      configuredOutputMarker(mode, scenario),
+      `${mode} ${scenario.id} changed the HXML-configured output`
+    );
+  }
 }
 
 function assertManifest(mode: Mode, scenario: Scenario): void {
@@ -267,6 +344,8 @@ async function compilePair(
 ): Promise<ReadonlyArray<TreeEntry>> {
   rmSync(scenarioRoot("cold", scenario), { recursive: true, force: true });
   rmSync(scenarioRoot("warm", scenario), { recursive: true, force: true });
+  seedConfiguredOutput("cold", scenario);
+  seedConfiguredOutput("warm", scenario);
   const cold = await compileCold(compiler, scenario, timeoutMs);
   assertSuccess(cold, `Cold ${scenario.id}`);
   const warm = await compileWarm(server, scenario, timeoutMs);
@@ -355,18 +434,20 @@ import {LibraryApi as ProjectAApi} from "./out/cold/a-classic-library/servercase
 import {SharedValue as ProjectAValue} from "./out/cold/a-classic-library/servercase/SharedValue.js";
 import {LibraryApi as ProjectBApi} from "./out/cold/b-classic/servercase/Main.js";
 import {SharedValue as ProjectBValue} from "./out/cold/b-classic/servercase/SharedValue.js";
+import {Main as OverrideMain} from "./out/cold/a-output-override-classic-js/servercase/Main.js";
 
 const projectAResult: string =
   new ProjectAApi().label(new ProjectAValue("current-a"));
 const projectBResult: number =
   new ProjectBApi().count(new ProjectBValue(21));
+const overrideResult: string = OverrideMain.transform("override");
 
 // @ts-expect-error Project A must not inherit Project B's numeric value type.
 new ProjectAValue(21);
 // @ts-expect-error Project B must not inherit Project A's string value type.
 new ProjectBValue("stale-b");
 
-void [projectAResult, projectBResult];
+void [projectAResult, projectBResult, overrideResult];
 `.trimStart(), "utf8");
   writeFileSync(matrix, JSON.stringify({
     compilerOptions: {
@@ -384,6 +465,8 @@ void [projectAResult, projectBResult];
     },
     include: [
       "out/cold/a-ts-baseline/**/*.ts",
+      "out/cold/a-output-override-ts/**/*.ts",
+      "out/cold/a-output-override-tsx/**/*.tsx",
       "out/cold/a-tsx/**/*.tsx",
       "out/cold/a-library/**/*.ts",
       "out/cold/a-explicit-witness-int/**/*.ts",
@@ -391,6 +474,7 @@ void [projectAResult, projectBResult];
       "out/cold/b-ts/**/*.ts",
       "out/cold/a-return-final/**/*.ts",
       "out/cold/a-classic-library/**/*.d.ts",
+      "out/cold/a-output-override-classic-js/**/*.d.ts",
       "out/cold/b-classic/**/*.d.ts",
       "classic-declaration-consumer.ts"
     ]
@@ -415,6 +499,7 @@ void [projectAResult, projectBResult];
 
 async function runRuntimeEvidence(
   classicScenario: Scenario,
+  overriddenClassicScenario: Scenario,
   configs: ReturnType<typeof writeTypeScriptConfigs>
 ): Promise<void> {
   const classic = runBoundedProcess(
@@ -424,6 +509,15 @@ async function runRuntimeEvidence(
       cwd: repoRoot,
       timeoutMs: 60_000,
       label: "Classic compiler-server runtime"
+    }
+  );
+  const overriddenClassic = runBoundedProcess(
+    process.execPath,
+    [scenarioOutput("cold", overriddenClassicScenario)],
+    {
+      cwd: repoRoot,
+      timeoutMs: 60_000,
+      label: "Classic overridden-output compiler-server runtime"
     }
   );
   const runtimeDist = path.join(tempRoot, "runtime-dist");
@@ -446,13 +540,15 @@ async function runRuntimeEvidence(
     }
   );
 
-  const results = await Promise.all([classic, typed]);
+  const results = await Promise.all([classic, overriddenClassic, typed]);
   for (const [index, result] of results.entries()) {
     assertSuccess(
       result,
-      index === 0
-        ? "Classic compiler-server runtime"
-        : "TypeScript compiler-server runtime"
+      [
+        "Classic compiler-server runtime",
+        "Classic overridden-output compiler-server runtime",
+        "TypeScript compiler-server runtime"
+      ][index]
     );
     ok(
       resultText(result).includes("project-a:a1:extra-a-v1"),
@@ -487,10 +583,13 @@ async function assertFailureRollback(
     const good: Scenario = {
       id: `failure-state-${profile.id}`,
       project: "project-a",
-      profile: profile.profile
+      profile: profile.profile,
+      outputOverride: true
     };
     rmSync(scenarioRoot("cold", good), { recursive: true, force: true });
     rmSync(scenarioRoot("warm", good), { recursive: true, force: true });
+    seedConfiguredOutput("cold", good);
+    seedConfiguredOutput("warm", good);
     const coldInitial = await compileCold(compiler, good, timeoutMs);
     const warmInitial = await compileWarm(server, good, timeoutMs);
     assertSuccess(coldInitial, `Cold ${profile.id} transaction baseline`);
@@ -649,6 +748,123 @@ async function assertCapabilityIsolation(
   );
   assertNoPrivateDebris("cold", scenario);
   assertNoPrivateDebris("warm", scenario);
+}
+
+async function assertInvalidOutputOverride(
+  compiler: ReturnType<typeof selectedHaxeCompiler>,
+  server: OwnedHaxeCompilerServer,
+  timeoutMs: number
+): Promise<void> {
+  const baseline: Scenario = {
+    id: "invalid-output-override",
+    project: "project-a",
+    profile: tsProfile
+  };
+  await compilePair(compiler, server, baseline, timeoutMs);
+  const coldBefore = hashTree(scenarioRoot("cold", baseline));
+  const warmBefore = hashTree(scenarioRoot("warm", baseline));
+  const invalidOutput = path.join(tempRoot, "invalid-output", "index.js");
+  const uppercaseOutput = path.join(tempRoot, "uppercase-output", "index.MJS");
+  const lateOutput = path.join(tempRoot, "late-output", "index.ts");
+  const failures = [
+    {
+      label: "valueless",
+      scenario: { ...baseline, defines: ["genes.output"] },
+      diagnostic: "GENES-OUTPUT-TARGET-001",
+      selectedOutput: null
+    },
+    {
+      label: "profile mismatch",
+      scenario: {
+        ...baseline,
+        defines: [`genes.output=${invalidOutput}`]
+      },
+      diagnostic: "GENES-OUTPUT-TARGET-002",
+      selectedOutput: invalidOutput
+    },
+    {
+      label: "uppercase extension",
+      scenario: {
+        ...baseline,
+        profile: classicProfile,
+        defines: [`genes.output=${uppercaseOutput}`]
+      },
+      diagnostic: "GENES-OUTPUT-TARGET-002",
+      selectedOutput: uppercaseOutput
+    },
+    {
+      label: "repeated generator validation",
+      scenario: {
+        ...baseline,
+        profile: classicProfile,
+        outputOverride: true,
+        lateOutputOverride: uppercaseOutput,
+        repeatGeneratorUse: true
+      },
+      diagnostic: "GENES-OUTPUT-TARGET-002",
+      selectedOutput: uppercaseOutput
+    },
+    {
+      label: "late macro mutation",
+      scenario: { ...baseline, lateOutputOverride: lateOutput },
+      diagnostic: "GENES-OUTPUT-TARGET-003",
+      selectedOutput: lateOutput
+    },
+    {
+      label: "late TypeScript profile mutation",
+      scenario: {
+        ...baseline,
+        profile: classicDeclarationProfile,
+        lateTypeScriptProfile: true
+      },
+      diagnostic: "GENES-OUTPUT-TARGET-003",
+      selectedOutput: null
+    }
+  ] as const;
+
+  for (const failure of failures) {
+    seedConfiguredOutput("cold", failure.scenario);
+    seedConfiguredOutput("warm", failure.scenario);
+    const cold = await compileCold(compiler, failure.scenario, timeoutMs);
+    const warm = await compileWarm(server, failure.scenario, timeoutMs);
+    for (const [mode, result] of [["cold", cold], ["warm", warm]] as const) {
+      ok(
+        result.code !== 0,
+        `${mode} ${failure.label} override succeeded`
+        + `\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`
+        + (mode === "warm" ? `\nserver:\n${server.logs}` : "")
+      );
+      ok(
+        resultText(result).includes(failure.diagnostic),
+        `${mode} ${failure.label} override omitted ${failure.diagnostic}:\n`
+        + resultText(result)
+      );
+    }
+    deepStrictEqual(
+      hashTree(scenarioRoot("cold", baseline)),
+      coldBefore,
+      `${failure.label} cold override changed the HXML-owned tree`
+    );
+    deepStrictEqual(
+      hashTree(scenarioRoot("warm", baseline)),
+      warmBefore,
+      `${failure.label} warm override changed the HXML-owned tree`
+    );
+    assertNoPrivateDebris("cold", failure.scenario);
+    assertNoPrivateDebris("warm", failure.scenario);
+    if (failure.selectedOutput !== null) {
+      strictEqual(
+        existsSync(failure.selectedOutput),
+        false,
+        `${failure.label} override published its selected entrypoint`
+      );
+      strictEqual(
+        existsSync(compilerOutputSentinel(failure.selectedOutput)),
+        false,
+        `${failure.label} override left a private Haxe sentinel`
+      );
+    }
+  }
 }
 
 type UnrelatedListener = {
@@ -858,6 +1074,7 @@ async function main(): Promise<void> {
   };
   let baselineTree: ReadonlyArray<TreeEntry> = [];
   let classicRuntime: Scenario | null = null;
+  let overriddenClassicRuntime: Scenario | null = null;
   try {
     baselineTree = await compilePair(compiler, server, baseline, timeoutMs);
     assertContains(moduleFile("cold", baseline), '"server-project-a-v1"');
@@ -870,6 +1087,63 @@ async function main(): Promise<void> {
       baselineTree,
       "Identical warm TypeScript request changed generated bytes"
     );
+
+    const overriddenProfiles = [
+      { id: "ts", profile: tsProfile },
+      { id: "tsx", profile: tsxProfile },
+      { id: "classic-js", profile: classicDeclarationProfile },
+      { id: "classic-jsx", profile: classicJsxProfile },
+      { id: "classic-mjs", profile: classicProfile }
+    ] as const;
+    for (const overriddenProfile of overriddenProfiles) {
+      const overridden: Scenario = {
+        id: `a-output-override-${overriddenProfile.id}`,
+        project: "project-a",
+        profile: overriddenProfile.profile,
+        outputOverride: true
+      };
+      await compilePair(compiler, server, overridden, timeoutMs);
+      const importExtension = overriddenProfile.id === "classic-mjs"
+        ? ".mjs"
+        : ".js";
+      ok(
+        existsSync(scenarioOutput("cold", overridden)),
+        `Cold ${overriddenProfile.id} request did not publish its override`
+      );
+      ok(
+        existsSync(scenarioOutput("warm", overridden)),
+        `Warm ${overriddenProfile.id} request did not publish its override`
+      );
+      assertContains(
+        moduleFile("cold", overridden),
+        `from "./Extra${importExtension}"`
+      );
+      if (overriddenProfile.id === "tsx"
+        || overriddenProfile.id === "classic-jsx") {
+        assertContains(
+          moduleFile("cold", overridden),
+          '<section data-server-profile="source">'
+        );
+        assertContains(
+          moduleFile("cold", overridden),
+          "<span>server-jsx</span>"
+        );
+      }
+      assertModuleFunctionSourceMap(overridden);
+      if (overriddenProfile.profile.defines.includes("dts")) {
+        ok(
+          existsSync(path.join(
+            scenarioRoot("cold", overridden),
+            "servercase",
+            "Main.d.ts"
+          )),
+          `Cold ${overriddenProfile.id} override emitted no declaration`
+        );
+      }
+      if (overriddenProfile.id === "classic-mjs")
+        overriddenClassicRuntime = overridden;
+    }
+    await assertInvalidOutputOverride(compiler, server, timeoutMs);
 
     classicRuntime = {
       id: "a-classic",
@@ -1099,12 +1373,16 @@ async function main(): Promise<void> {
   }
 
   ok(classicRuntime !== null, "Classic runtime scenario was not built");
+  ok(
+    overriddenClassicRuntime !== null,
+    "Classic overridden-output runtime scenario was not built"
+  );
   const configs = writeTypeScriptConfigs();
   runGeneratedTypeScriptMatrix(
     path.relative(repoRoot, configs.matrix),
     { emit: false }
   );
-  await runRuntimeEvidence(classicRuntime, configs);
+  await runRuntimeEvidence(classicRuntime, overriddenClassicRuntime, configs);
   deepStrictEqual(
     leakedOutputStages(outputRoot),
     [],
@@ -1112,8 +1390,8 @@ async function main(): Promise<void> {
   );
   process.stdout.write(
     `compiler-server:ok (Haxe ${compiler.version}; `
-    + "cold/warm profiles, typed witnesses, edits, projects, rollback, "
-    + "capability, cleanup)\n"
+    + "cold/warm profiles, output overrides, typed witnesses, edits, "
+    + "projects, rollback, capability, cleanup)\n"
   );
 }
 
