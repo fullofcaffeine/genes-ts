@@ -1,6 +1,10 @@
 import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import {
+  acceptanceOwnedFocusedGates,
+  assertFocusedGateOwnership
+} from "./acceptance-gate-ownership.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,6 +23,8 @@ const skipTodoapp = process.env.SKIP_TODOAPP === "1";
 const skipPlaywright = process.env.SKIP_PLAYWRIGHT === "1";
 const skipTs2hx = process.env.SKIP_TS2HX === "1";
 const skipCompilerServer = process.env.SKIP_COMPILER_SERVER === "1";
+
+assertFocusedGateOwnership(repoRoot);
 
 if (!skipClassic) {
   run("npm", ["test"]);
@@ -52,6 +58,9 @@ run("node", ["scripts/dist/test-internal-types.js"]);
 run("node", ["scripts/dist/test-type-roots.js"]);
 run("node", ["scripts/dist/test-finally-completion.js"]);
 run("node", ["scripts/dist/test-deep-nullish-alias.js"]);
+for (const gate of acceptanceOwnedFocusedGates) {
+  run("node", [gate.compiledScript]);
+}
 
 if (!skipTs2hx) {
   run("yarn", ["--cwd", "tools/ts2hx", "test"]);

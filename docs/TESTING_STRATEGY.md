@@ -267,11 +267,38 @@ Run the full acceptance gate locally:
 npm run test:acceptance
 ```
 
+`test:acceptance` is the normal stable pull-request owner for the focused
+module-function and strict-array-index contracts. Module functions exercise a
+single Haxe module's exported functions across TypeScript, TSX, classic
+JavaScript, declarations, runtime registration, DCE, and source maps. Strict
+array indexing proves that generated TypeScript remains valid with
+`noUncheckedIndexedAccess` while preserving the classic and standard Haxe
+runtime result.
+
+Those two tests used to run only as separate steps inside `test:ci`. GitHub's
+normal stable compiler job calls `test:acceptance` directly, so that arrangement
+could discover a regression during release validation rather than on the pull
+request that introduced it. Acceptance now runs each focused owner once. A
+structural assertion invoked by `scripts/test-acceptance.ts` rejects a duplicate
+direct invocation from `test:ci` or either GitHub workflow, while the standalone
+`yarn test:module-functions` and `yarn test:array-index-strict` commands remain
+available for fast local iteration.
+
+Run the composition check alone with:
+
+```bash
+yarn test:ci-gate-ownership
+```
+
 To mirror the CI split locally (classic tests + acceptance without rerunning classic):
 
 ```bash
 npm run test:ci
 ```
+
+`test:ci` delegates these two focused contracts to its acceptance phase, so the
+release workflow also runs each one exactly once rather than repeating them
+before the aggregate gate.
 
 Toolchain compatibility is split by responsibility:
 
