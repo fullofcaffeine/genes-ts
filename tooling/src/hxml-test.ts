@@ -163,6 +163,62 @@ async function main(): Promise<void> {
         }),
       "budget-exceeded",
     );
+
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["missing.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+        }),
+      "missing-input",
+    );
+
+    write(root, "missing-option.hxml", "--class-path\n");
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["missing-option.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+        }),
+      "invalid-syntax",
+    );
+
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["build.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+          maxArguments: 1,
+        }),
+      "budget-exceeded",
+    );
+
+    write(root, "relative-library.hxml", "-lib sample\n");
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["relative-library.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+          resolveLibrary: () => ["relative.hxml"],
+        }),
+      "resolver-failure",
+    );
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["relative-library.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+          resolveLibrary: () => {
+            throw new Error("resolver failed");
+          },
+        }),
+      "resolver-failure",
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -418,7 +418,11 @@ export function watchReconciledInputs<Cause>(
             }
           },
         );
-        watcher.on("error", reportError);
+        watcher.on("error", (error) => {
+          watcher.close();
+          watchers.delete(directory);
+          reportError(error);
+        });
         watchers.set(directory, watcher);
       } catch (error) {
         reportError(error);

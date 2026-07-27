@@ -30,6 +30,17 @@ async function waitUntil(predicate: () => boolean): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  assert.throws(
+    () =>
+      new SerializedDirtyLoop<string>({
+        debounceMs: -1,
+        merge: (left) => left,
+        run: async () => {},
+        onError: () => {},
+      }),
+    /non-negative integer/u,
+  );
+
   const gates = [deferred(), deferred()];
   const runs: string[][] = [];
   const errors: string[] = [];
@@ -90,6 +101,20 @@ async function main(): Promise<void> {
   await failureLoop.waitForIdle();
   assert.equal(failureLoop.state, "closed");
   assert.deepEqual(recovered, ["good"]);
+
+  const cancelled: string[] = [];
+  const cancelledLoop = new SerializedDirtyLoop<string>({
+    debounceMs: 1_000,
+    merge: (left, right) => `${left}+${right}`,
+    run: async (cause) => {
+      cancelled.push(cause);
+    },
+    onError: () => {},
+  });
+  cancelledLoop.request("pending");
+  await cancelledLoop.close();
+  assert.deepEqual(cancelled, []);
+  await cancelledLoop.waitForIdle();
 
   await loop.close();
   console.log("genes tooling serialized dirty loop: ok");

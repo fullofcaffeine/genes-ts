@@ -5,6 +5,7 @@ import {
   realpathSync,
   rmSync,
   symlinkSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import os from "node:os";
@@ -61,6 +62,24 @@ async function main(): Promise<void> {
     assert.equal(polled.some((change) => change.path === source), true);
     assert.equal(polled.every((change) => change.origin === "poll"), true);
 
+    const created = path.join(root, "src", "Created.hx");
+    writeFileSync(created, "class Created {}\n", "utf8");
+    await waitUntil(() => polled.some((change) => change.path === created));
+    unlinkSync(created);
+    const createdChanges = polled.filter(
+      (change) => change.path === created,
+    ).length;
+    await waitUntil(
+      () =>
+        polled.filter((change) => change.path === created).length >
+        createdChanges,
+    );
+
+    writeFileSync(path.join(root, "src", "ignored.txt"), "ignored\n", "utf8");
+    const beforeFiltered = polled.length;
+    await new Promise<void>((resolve) => setTimeout(resolve, 60));
+    assert.equal(polled.length, beforeFiltered);
+
     mkdirSync(path.join(root, "src", "ignored"), { recursive: true });
     writeFileSync(
       path.join(root, "src", "ignored", "Ignored.hx"),
@@ -92,6 +111,50 @@ async function main(): Promise<void> {
       [{ path: exact, cause: "identity", origin: "registration" }],
     );
     registration.close();
+
+    const missingChanges: Array<ReconciledWatchChange<string>> = [];
+    const missingRoot = path.join(root, "later");
+    const missingSession = watchReconciledInputs({
+      inputs: [
+        {
+          kind: "tree",
+          path: missingRoot,
+          cause: "source",
+          include: (relative) => relative.endsWith(".hx"),
+        },
+      ],
+      merge: (left) => left,
+      onChange: (change) => missingChanges.push(change),
+      onError: (error) => errors.push(error.message),
+      nativeEvents: false,
+      pollIntervalMs: 20,
+    });
+    mkdirSync(missingRoot);
+    const later = path.join(missingRoot, "Later.hx");
+    writeFileSync(later, "class Later {}\n", "utf8");
+    await waitUntil(() =>
+      missingChanges.some((change) => change.path === later),
+    );
+    missingSession.close();
+
+    assert.throws(
+      () =>
+        watchReconciledInputs({
+          inputs: [
+            {
+              kind: "tree",
+              path: path.join(root, "src"),
+              cause: "source",
+              include: (relative) => relative.endsWith(".hx"),
+            },
+          ],
+          merge: (left) => left,
+          onChange: () => {},
+          onError: () => {},
+          maxSnapshotEntries: 1,
+        }),
+      /budget/u,
+    );
 
     const native: Array<ReconciledWatchChange<string>> = [];
     const nativeSession = watchReconciledInputs({
