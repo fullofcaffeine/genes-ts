@@ -65,3 +65,81 @@ The host remains responsible for:
 - generating and validating all staged files;
 - defining its manifest, adoption, release, and “last good” behavior;
 - mapping structured failures to its own diagnostics and recovery commands.
+
+## HXML inventory
+
+`inventoryHxml` resolves the Haxe inputs that are stated by one or more HXML
+entry files. It understands nested HXML, ordered `--cwd`, class paths,
+resources, libraries, comments, quoting, escaping, and explicit environment
+expansion. The host supplies allowed roots plus environment and library
+resolvers:
+
+```ts
+import { inventoryHxml } from "@genes-ts/tooling/hxml";
+
+const inventory = await inventoryHxml({
+  entryFiles: ["build.hxml"],
+  workingDirectory: projectRoot,
+  allowedRoots: [projectRoot, haxeLibraryCache],
+  environment: (name) => configuredEnvironment.get(name) ?? null,
+  resolveLibrary: (request) => resolveLibraryHxml(request),
+});
+```
+
+The result is a deterministic inventory of HXML files, class paths, resources,
+and library requests. It contains no framework config files or watch policy.
+Missing values, unsafe paths, links, malformed syntax, resolver failures, and
+budgets fail through `HxmlInventoryError`.
+
+## Reconciled watching
+
+Native filesystem notifications can be coalesced or lost. A generated-code
+host must therefore treat them as a latency hint, not as the record of truth.
+`watchReconciledInputs` combines nonrecursive native subscriptions with a
+deterministic polling snapshot:
+
+```ts
+import { watchReconciledInputs } from "@genes-ts/tooling/watch";
+
+const session = watchReconciledInputs({
+  inputs: [
+    { kind: "exact", path: hxmlFile, cause: "identity" },
+    {
+      kind: "tree",
+      path: sourceRoot,
+      cause: "source",
+      include: (relative) => relative.endsWith(".hx"),
+    },
+  ],
+  merge: (left, right) =>
+    left === "identity" || right === "identity" ? "identity" : "source",
+  onChange: schedule,
+  onError: report,
+});
+```
+
+The initial snapshot is taken before subscriptions; an immediate second
+snapshot closes the registration gap. Polling independently detects edits,
+new or removed inputs, and directory changes. Tree traversal never follows a
+symbolic link. Causes and their merge rule belong to the caller.
+
+## Serialized dirty runs
+
+`SerializedDirtyLoop<Cause>` debounces bursts, permits at most one active run,
+and guarantees one newest-state follow-up when requests arrive while that run
+is active:
+
+```ts
+import { SerializedDirtyLoop } from "@genes-ts/tooling/loop";
+
+const loop = new SerializedDirtyLoop({
+  debounceMs: 100,
+  merge: mergeHostCauses,
+  run: rebuildNewestState,
+  onError: report,
+});
+```
+
+The loop does not define source-versus-identity changes, changed-path sets,
+compiler commands, last-good output, services, or diagnostic wording. Those
+are host policy.
