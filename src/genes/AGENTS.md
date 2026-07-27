@@ -88,7 +88,9 @@ maps fixture locations to compiler surfaces.
 - A host-selected output destination is generic compiler configuration. Keep
   it request-local through `-D genes.output=<path>` and let
   `OutputTransaction` own the selected tree; never add framework names,
-  routes, environments, or application policy to output selection.
+  routes, environments, or application policy to output selection. Capture
+  both the path and `genes.ts` profile before typing, reject later macro
+  mutation, and validate the exact case-sensitive suffix that emitters use.
 
 If the correct semantic boundary remains ambiguous after a reduced fixture,
 stop and prepare the focused architecture review required by the root guide

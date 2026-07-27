@@ -1,6 +1,9 @@
 package servercase;
 
 import genes.ts.Imports;
+#if server_jsx
+import genes.react.Element;
+#end
 
 /**
  * Project A's reusable public facade.
@@ -95,6 +98,22 @@ class Main {
     return value;
   }
 
+  #if server_jsx
+  /**
+   * Keeps real inline markup reachable in the `.tsx` and `.jsx` server lanes.
+   *
+   * Why: merely naming those extensions proves file selection but not the
+   * source-preserving JSX policy. The harness inspects the generated markup so
+   * an override cannot silently choose createElement syntax or a plain
+   * TypeScript/JavaScript module under a JSX filename.
+   */
+  static function profileElement(): Element {
+    return <section data-server-profile="source">
+      <span>server-jsx</span>
+    </section>;
+  }
+  #end
+
   public static function main(): Void {
     #if server_numeric_witness
     final witness = 21;
@@ -114,6 +133,11 @@ class Main {
     #if server_import_matrix
     transcript += ":" + DefaultMarker.value + ":" + NamedMarker.value
       + ":" + ConfigMarker.project;
+    #end
+    #if server_jsx
+    // Retain the checked markup under full DCE without imposing a browser or
+    // React runtime step on this compiler-server lifecycle fixture.
+    profileElement();
     #end
     trace(transform(transcript));
   }

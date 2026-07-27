@@ -46,7 +46,7 @@ Minimal invocation:
 --main my.app.Main
 
 # IMPORTANT: still uses -js because we compile on the JS platform.
-# The output filename defines the output directory and the “main module” name.
+# By default this filename defines the output directory and “main module”.
 -js src-gen/index.ts
 
 # Enable TS emission
@@ -60,12 +60,31 @@ To emit TSX (so JSX markers print real TSX markup), use a `.tsx` output:
 -D genes.ts
 ```
 
+Host tooling that needs an isolated destination can keep this checked HXML and
+select one request-local Genes owner:
+
+```bash
+haxe build.hxml -D genes.output=.generated/review/index.tsx
+```
+
+This is not a second Haxe target. Haxe still writes only to a private compiler
+sentinel, while Genes transactionally publishes the selected implementation,
+declarations, source maps, support files, and ownership manifest. The authored
+`-js` destination remains untouched. Use one exact lowercase suffix: `.ts` or
+`.tsx` with `genes.ts`; classic output accepts `.js`, `.jsx`, or `.mjs`.
+Configure both `genes.output` and `genes.ts` before
+`genes.Generator.use()`—late macro mutation fails before publication.
+
+See [Compiler workflows](../WORKFLOWS.md#let-a-host-select-an-isolated-output-target)
+for the complete host contract, failure behavior, and repeated-define caveat.
+
 ## Output layout
 
-- Output directory is derived from the `-js <path>` argument.
+- Output directory is derived from the selected Genes destination: normally
+  `-js <path>`, or `-D genes.output=<path>` for an isolated host request.
   - Example: `-js src-gen/index.ts` causes files to be written under `src-gen/`.
 - Output is **file-per-module** (like Genes today), using ESM.
-- Entry module is the basename of the `-js` output file (e.g. `index`).
+- Entry module is the selected output basename (e.g. `index`).
 - One compilation is published transactionally. Implementations, declarations,
   source maps, and TS support files become visible only after every planned
   artifact has emitted successfully.
@@ -226,6 +245,10 @@ Tradeoff: some Haxe reflection APIs may not work or may become partial.
 
 Enable the target:
 - `-D genes.ts` — emit TypeScript instead of JS
+- `-D genes.output=<path>` — let a host select one request-local transactional
+  destination without adding a second `-js` target. Use `.ts`/`.tsx` with
+  `genes.ts`, or `.js`/`.jsx`/`.mjs` in classic mode; suffixes are lowercase
+  and case-sensitive.
 
 Import mode:
 - `-D genes.ts.no_extension` — emit extensionless import specifiers (bundler-first). Default is `.js` specifiers.

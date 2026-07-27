@@ -86,8 +86,11 @@ filename becomes the exact transactional owner for implementations,
 declarations, source maps, and the ownership manifest. A failed build leaves
 both the HXML destination and the selected tree unchanged.
 
-Supply the define once, as part of the Haxe request. A macro that changes it
-after `genes.Generator.use()` fails with `GENES-OUTPUT-TARGET-003` before public
+Use the documented lowercase extensions exactly: generated filenames and
+runtime import requests are case-sensitive, so variants such as `.TSX` or
+`.MJS` are rejected. Supply `genes.output` and the `genes.ts` profile define
+once, as part of the Haxe request. A macro that changes either setting after
+`genes.Generator.use()` fails with `GENES-OUTPUT-TARGET-003` before public
 output is opened. Haxe itself stores defines by name, so if a command repeats
 `-D genes.output=...`, Haxe keeps only the final value before Genes runs; host
 tools should therefore construct one unambiguous define.

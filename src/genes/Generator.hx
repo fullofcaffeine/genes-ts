@@ -60,6 +60,7 @@ class Generator {
   static var compilerSentinelFile: Null<String>;
   static var configuredOutputOverridePresent = false;
   static var configuredOutputOverride: Null<String>;
+  static var configuredTypeScriptProfile = false;
 
   static function generate(api: JSGenApi) {
     validateOutputOverrideTiming();
@@ -543,8 +544,10 @@ class Generator {
   public static function use() {
     #if !genes.disable
     if (Context.defined('js')) {
+      final alreadyInstalled = Context.defined(
+        CompilerInternal.GENERATOR_ACTIVE_DEFINE);
       Compiler.define(CompilerInternal.GENERATOR_ACTIVE_DEFINE);
-      isolateCompilerOutput();
+      isolateCompilerOutput(alreadyInstalled);
       LibraryProfile.validate();
       ModuleDirectivePlan.install();
       // TypeScript implementation output and classic declaration output both
@@ -593,15 +596,14 @@ class Generator {
    *
    * How: the sentinel key hashes the absolute destination, so independent
    * outputs do not collide while concurrent writers to the same destination
-   * retain the same unavoidable serialization requirement. Repeated `use()`
-   * calls in one compilation recognize the already-installed sentinel.
+   * retain the same unavoidable serialization requirement. The request-local
+   * generator capability distinguishes a repeated `use()` call in one
+   * compilation from a later compiler-server request; process-persistent
+   * sentinel state alone cannot establish that boundary after a failed macro.
    */
-  static function isolateCompilerOutput(): Void {
+  static function isolateCompilerOutput(alreadyInstalled: Bool): Void {
     final compilerOutput = Compiler.getOutput();
     if (compilerOutput == null || compilerOutput.length == 0)
-      return;
-
-    if (compilerSentinelFile != null && compilerOutput == compilerSentinelFile)
       return;
 
     final overridePresent = Context.defined(OUTPUT_DEFINE);
@@ -612,6 +614,23 @@ class Generator {
       case value:
         value;
     }
+    // Validate on every call, including a repeated Generator.use(). A previous
+    // implementation returned as soon as it saw the sentinel, allowing a
+    // later invalid define to bypass the public host contract.
+    validateConfiguredOutput(requestedOutput);
+    if (compilerSentinelFile != null && compilerOutput == compilerSentinelFile) {
+      if (alreadyInstalled)
+        return;
+      if (!overridePresent) {
+        removeCompilerSentinel();
+        Context.error('[GENES-OUTPUT-TARGET-004] Haxe reused Genes\' private '
+          + 'compiler sentinel as a new request\'s configured `-js` output. '
+          + 'Restart the compilation server so the authored target can be '
+          + 'captured safely.',
+          Context.currentPos());
+      }
+    }
+
     final temporaryRoot = switch Sys.getEnv('TMPDIR') {
       case null | '':
         switch Sys.getEnv('TEMP') {
@@ -634,10 +653,10 @@ class Generator {
       'genes-haxe-output-$key.tmp'
     ]);
     Compiler.setOutput(compilerSentinelFile);
-    validateConfiguredOutput(requestedOutput);
     configuredOutputFile = requestedOutput;
     configuredOutputOverridePresent = overridePresent;
     configuredOutputOverride = overrideValue;
+    configuredTypeScriptProfile = Context.defined('genes.ts');
   }
 
   /**
@@ -659,7 +678,10 @@ class Generator {
         Context.currentPos());
     }
 
-    final extension = Path.extension(output).toLowerCase();
+    // The suffix is later used verbatim for generated files and import
+    // requests. Accepting `.MJS` as though it were `.mjs` would pass this
+    // validation but still produce case-sensitive paths that Node rejects.
+    final extension = Path.extension(output);
     final supported = if (Context.defined('genes.ts'))
       extension == 'ts' || extension == 'tsx'
     else
@@ -682,23 +704,29 @@ class Generator {
    * make the sentinel, transaction, and generated tree disagree about which
    * destination they protect.
    *
-   * What/How: compare the define's current presence and value with the exact
-   * request-local snapshot taken during installation. Ordinary command-line
-   * defines are already available at that point. A later macro change fails
-   * before an `OutputTransaction` or public writer is created.
+   * What/How: compare the output define and the `genes.ts` profile flag with
+   * the exact request-local snapshot taken during installation. Both choose
+   * the syntax and legal filename family, so changing either one later could
+   * publish TypeScript under `.js` or classic JavaScript under `.ts`.
+   * Ordinary command-line defines are already available at installation. A
+   * later macro change fails before an `OutputTransaction` or public writer is
+   * created.
    */
   static function validateOutputOverrideTiming(): Void {
     final currentPresent = Context.defined(OUTPUT_DEFINE);
     final currentValue = Context.definedValue(OUTPUT_DEFINE);
+    final currentTypeScriptProfile = Context.defined('genes.ts');
     if (currentPresent == configuredOutputOverridePresent
-      && currentValue == configuredOutputOverride) {
+      && currentValue == configuredOutputOverride
+      && currentTypeScriptProfile == configuredTypeScriptProfile) {
       return;
     }
 
     removeCompilerSentinel();
-    Context.error('[GENES-OUTPUT-TARGET-003] -D $OUTPUT_DEFINE must be '
-      + 'configured before genes.Generator.use(); a macro changed it after '
-      + 'Genes captured the transactional output owner.',
+    Context.error('[GENES-OUTPUT-TARGET-003] -D $OUTPUT_DEFINE and '
+      + '`-D genes.ts` must be configured before genes.Generator.use(); a '
+      + 'macro changed output-selection policy after Genes captured the '
+      + 'transactional owner and profile.',
       Context.currentPos());
   }
 

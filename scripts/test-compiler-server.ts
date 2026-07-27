@@ -58,6 +58,8 @@ type Scenario = {
   readonly defines?: ReadonlyArray<string>;
   readonly outputOverride?: boolean;
   readonly lateOutputOverride?: string;
+  readonly lateTypeScriptProfile?: boolean;
+  readonly repeatGeneratorUse?: boolean;
 };
 
 const tsProfile: Profile = {
@@ -66,7 +68,12 @@ const tsProfile: Profile = {
 };
 const tsxProfile: Profile = {
   extension: "tsx",
-  defines: ["genes.ts"]
+  defines: [
+    "genes.ts",
+    "genes.ts.jsx_import_source=react",
+    "genes.react.inline_markup",
+    "server_jsx"
+  ]
 };
 const classicProfile: Profile = {
   extension: "mjs",
@@ -78,7 +85,12 @@ const classicDeclarationProfile: Profile = {
 };
 const classicJsxProfile: Profile = {
   extension: "jsx",
-  defines: ["dts"]
+  defines: [
+    "dts",
+    "genes.ts.jsx_import_source=react",
+    "genes.react.inline_markup",
+    "server_jsx"
+  ]
 };
 
 function workspace(project: ProjectName): string {
@@ -204,6 +216,15 @@ function buildArguments(mode: Mode, scenario: Scenario): string[] {
             JSON.stringify(scenario.lateOutputOverride)
           })`
         ]),
+    ...(scenario.lateTypeScriptProfile === true
+      ? [
+          "--macro",
+          'haxe.macro.Compiler.define("genes.ts", "1")'
+        ]
+      : []),
+    ...(scenario.repeatGeneratorUse === true
+      ? ["--macro", "genes.Generator.use()"]
+      : []),
     "--macro",
     "genes.js.Async.enable()",
     "--macro",
@@ -743,6 +764,7 @@ async function assertInvalidOutputOverride(
   const coldBefore = hashTree(scenarioRoot("cold", baseline));
   const warmBefore = hashTree(scenarioRoot("warm", baseline));
   const invalidOutput = path.join(tempRoot, "invalid-output", "index.js");
+  const uppercaseOutput = path.join(tempRoot, "uppercase-output", "index.MJS");
   const lateOutput = path.join(tempRoot, "late-output", "index.ts");
   const failures = [
     {
@@ -761,10 +783,42 @@ async function assertInvalidOutputOverride(
       selectedOutput: invalidOutput
     },
     {
+      label: "uppercase extension",
+      scenario: {
+        ...baseline,
+        profile: classicProfile,
+        defines: [`genes.output=${uppercaseOutput}`]
+      },
+      diagnostic: "GENES-OUTPUT-TARGET-002",
+      selectedOutput: uppercaseOutput
+    },
+    {
+      label: "repeated generator validation",
+      scenario: {
+        ...baseline,
+        profile: classicProfile,
+        outputOverride: true,
+        lateOutputOverride: uppercaseOutput,
+        repeatGeneratorUse: true
+      },
+      diagnostic: "GENES-OUTPUT-TARGET-002",
+      selectedOutput: uppercaseOutput
+    },
+    {
       label: "late macro mutation",
       scenario: { ...baseline, lateOutputOverride: lateOutput },
       diagnostic: "GENES-OUTPUT-TARGET-003",
       selectedOutput: lateOutput
+    },
+    {
+      label: "late TypeScript profile mutation",
+      scenario: {
+        ...baseline,
+        profile: classicDeclarationProfile,
+        lateTypeScriptProfile: true
+      },
+      diagnostic: "GENES-OUTPUT-TARGET-003",
+      selectedOutput: null
     }
   ] as const;
 
@@ -772,7 +826,12 @@ async function assertInvalidOutputOverride(
     const cold = await compileCold(compiler, failure.scenario, timeoutMs);
     const warm = await compileWarm(server, failure.scenario, timeoutMs);
     for (const [mode, result] of [["cold", cold], ["warm", warm]] as const) {
-      ok(result.code !== 0, `${mode} ${failure.label} override succeeded`);
+      ok(
+        result.code !== 0,
+        `${mode} ${failure.label} override succeeded`
+        + `\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`
+        + (mode === "warm" ? `\nserver:\n${server.logs}` : "")
+      );
       ok(
         resultText(result).includes(failure.diagnostic),
         `${mode} ${failure.label} override omitted ${failure.diagnostic}:\n`
@@ -789,6 +848,8 @@ async function assertInvalidOutputOverride(
       warmBefore,
       `${failure.label} warm override changed the HXML-owned tree`
     );
+    assertNoPrivateDebris("cold", failure.scenario);
+    assertNoPrivateDebris("warm", failure.scenario);
     if (failure.selectedOutput !== null) {
       strictEqual(
         existsSync(failure.selectedOutput),
@@ -1055,6 +1116,17 @@ async function main(): Promise<void> {
         moduleFile("cold", overridden),
         `from "./Extra${importExtension}"`
       );
+      if (overriddenProfile.id === "tsx"
+        || overriddenProfile.id === "classic-jsx") {
+        assertContains(
+          moduleFile("cold", overridden),
+          '<section data-server-profile="source">'
+        );
+        assertContains(
+          moduleFile("cold", overridden),
+          "<span>server-jsx</span>"
+        );
+      }
       assertModuleFunctionSourceMap(overridden);
       if (overriddenProfile.profile.defines.includes("dts")) {
         ok(
