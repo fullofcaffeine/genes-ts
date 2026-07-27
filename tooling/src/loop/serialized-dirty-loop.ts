@@ -25,7 +25,8 @@ function asError(error: unknown): Error {
 export class SerializedDirtyLoop<Cause> {
   readonly #options: SerializedDirtyLoopOptions<Cause>;
   #state: SerializedDirtyLoopState = "idle";
-  #pending: Cause | null = null;
+  #pending!: Cause;
+  #hasPending = false;
   #lastRequestAt = 0;
   #timer: NodeJS.Timeout | null = null;
   #active: Promise<void> | null = null;
@@ -48,10 +49,10 @@ export class SerializedDirtyLoop<Cause> {
     if (this.#state === "closed") {
       return;
     }
-    this.#pending =
-      this.#pending === null
-        ? cause
-        : this.#options.merge(this.#pending, cause);
+    this.#pending = this.#hasPending
+      ? this.#options.merge(this.#pending, cause)
+      : cause;
+    this.#hasPending = true;
     this.#lastRequestAt = Date.now();
     if (this.#state === "running") {
       return;
@@ -72,7 +73,7 @@ export class SerializedDirtyLoop<Cause> {
         clearTimeout(this.#timer);
         this.#timer = null;
       }
-      this.#pending = null;
+      this.#hasPending = false;
       this.#state = "closed";
     }
     if (this.#active !== null) {
@@ -84,7 +85,7 @@ export class SerializedDirtyLoop<Cause> {
   #isIdle(): boolean {
     return (
       this.#state === "idle" &&
-      this.#pending === null &&
+      !this.#hasPending &&
       this.#timer === null &&
       this.#active === null
     );
@@ -105,13 +106,13 @@ export class SerializedDirtyLoop<Cause> {
     if (this.#state === "closed" || this.#active !== null) {
       return;
     }
-    const cause = this.#pending;
-    if (cause === null) {
+    if (!this.#hasPending) {
       this.#state = "idle";
       this.#resolveIdle();
       return;
     }
-    this.#pending = null;
+    const cause = this.#pending;
+    this.#hasPending = false;
     this.#state = "running";
     const active = Promise.resolve()
       .then(() => this.#options.run(cause))
@@ -122,7 +123,7 @@ export class SerializedDirtyLoop<Cause> {
           this.#resolveIdle();
           return;
         }
-        if (this.#pending === null) {
+        if (!this.#hasPending) {
           this.#state = "idle";
           this.#resolveIdle();
           return;

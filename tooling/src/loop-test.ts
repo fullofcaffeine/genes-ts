@@ -116,6 +116,20 @@ async function main(): Promise<void> {
   assert.deepEqual(cancelled, []);
   await cancelledLoop.waitForIdle();
 
+  const nullableRuns: Array<string | null> = [];
+  const nullableLoop = new SerializedDirtyLoop<string | null>({
+    debounceMs: 0,
+    merge: (_left, right) => right,
+    run: async (cause) => {
+      nullableRuns.push(cause);
+    },
+    onError: () => {},
+  });
+  nullableLoop.request(null);
+  await nullableLoop.waitForIdle();
+  assert.deepEqual(nullableRuns, [null]);
+  await nullableLoop.close();
+
   await loop.close();
   console.log("genes tooling serialized dirty loop: ok");
 }
