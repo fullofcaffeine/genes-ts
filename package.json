@@ -36,6 +36,7 @@
     "test:output-transaction": "yarn build:scripts && node scripts/dist/test-output-transaction.js",
     "test:artifact-transaction-protocol": "yarn build:scripts && node scripts/dist/test-artifact-transaction-protocol.js",
     "test:artifact-tooling": "yarn --cwd tooling test",
+    "test:tooling-package": "yarn build:scripts && yarn --cwd tooling build && node scripts/dist/test-tooling-package.js",
     "test:side-effect-import:evidence": "yarn build:scripts && node scripts/dist/test-side-effect-import-evidence.js",
     "test:module-directives": "yarn build:scripts && node scripts/dist/test-module-directives.js",
     "test:module-functions": "yarn build:scripts && node scripts/dist/test-module-functions.js",
@@ -53,12 +54,13 @@
     "test:matrix:generated": "yarn build:scripts && node scripts/dist/test-genes-ts-full.js && node scripts/dist/test-genes-tsx.js && node scripts/dist/test-package-shapes.js && node scripts/dist/probe-binding-identity.js && node scripts/dist/test-ts-narrowing.js && node scripts/dist/test-hxx-carrier-immutability.js && node scripts/dist/test-hxx-event-variance.js && node scripts/dist/test-output-modes.js && node scripts/dist/test-string-literals.js && node scripts/dist/test-template-literals.js && node scripts/dist/test-async-await-evidence.js && node scripts/dist/test-output-quality.js && node scripts/dist/test-output-transaction.js && node scripts/dist/test-side-effect-import-evidence.js && node scripts/dist/test-module-directives.js && node scripts/dist/test-module-functions.js && node scripts/dist/test-internal-types.js && node scripts/dist/test-type-roots.js && node scripts/dist/test-array-index-strict.js && node scripts/dist/test-finally-completion.js && node scripts/dist/test-deep-nullish-alias.js && node scripts/dist/test-classic-dts.js && node scripts/dist/test-library-profile.js",
     "test:matrix:api": "yarn build:scripts && yarn --cwd tools/ts2hx build && node scripts/dist/test-typescript-api-lane.js && node tools/ts2hx/dist/test-effective-module-requests.js && node scripts/dist/test-ts2hx-bootstrap.js",
     "test:codeql-workflow": "yarn build:scripts && node scripts/dist/test-codeql-workflow.js",
+    "test:tooling-release-workflow": "yarn build:scripts && node scripts/dist/test-tooling-release-workflow.js",
     "test:secrets": "yarn build:scripts && node scripts/dist/secret-scan.js",
     "test:vulns": "yarn build:scripts && node scripts/dist/osv-scan.js",
     "test:acceptance": "yarn build:scripts && node scripts/dist/test-acceptance.js",
     "test:ts2hx": "yarn --cwd tools/ts2hx test",
     "test:array-index-strict": "yarn build:scripts && node scripts/dist/test-array-index-strict.js",
-    "test:ci": "yarn test:codeql-workflow && yarn test:main-protection-policy && yarn test:secrets && yarn test:vulns && yarn test:versions && yarn test:agent-guides && yarn test:artifact-transaction-protocol && yarn test:artifact-tooling && yarn test:compatibility-report && yarn test:matrix:api && yarn test:types:exports && yarn test && yarn test:template-literals && yarn test:classic:dts && yarn test:library-profile && cross-env SKIP_CLASSIC=1 SKIP_TS2HX=1 yarn test:acceptance && yarn test:ts2hx",
+    "test:ci": "yarn test:codeql-workflow && yarn test:main-protection-policy && yarn test:tooling-release-workflow && yarn test:secrets && yarn test:vulns && yarn test:versions && yarn test:agent-guides && yarn test:artifact-transaction-protocol && yarn test:artifact-tooling && yarn test:tooling-package && yarn test:compatibility-report && yarn test:matrix:api && yarn test:types:exports && yarn test && yarn test:template-literals && yarn test:classic:dts && yarn test:library-profile && cross-env SKIP_CLASSIC=1 SKIP_TS2HX=1 yarn test:acceptance && yarn test:ts2hx",
     "test:genes-ts": "yarn build:scripts && node scripts/dist/test-genes-ts.js",
     "test:explicit-type-arguments": "yarn build:scripts && node scripts/dist/test-explicit-type-arguments.js",
     "test:genes-ts:snapshots": "yarn build:scripts && node scripts/dist/test-genes-ts-snapshots.js",
@@ -97,6 +99,7 @@
     "react-router": "^8.3.0",
     "rimraf": "^6.1.2",
     "source-map": "0.6.1",
+    "tar": "7.5.22",
     "@typescript/legacy": "npm:typescript@5.5.4",
     "@typescript/native": "npm:typescript@7.0.2",
     "typescript": "npm:@typescript/typescript6@6.0.2",
@@ -130,7 +133,17 @@
       "main"
     ],
     "plugins": [
-      "@semantic-release/commit-analyzer",
+      [
+        "@semantic-release/commit-analyzer",
+        {
+          "releaseRules": [
+            {
+              "scope": "tooling",
+              "release": false
+            }
+          ]
+        }
+      ],
       "@semantic-release/release-notes-generator",
       "@semantic-release/changelog",
       [

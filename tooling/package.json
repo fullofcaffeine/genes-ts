@@ -4,6 +4,15 @@
   "description": "Framework-neutral host tooling for Haxe-to-JavaScript and Haxe-to-TypeScript projects.",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fullofcaffeine/genes-ts.git",
+    "directory": "tooling"
+  },
+  "homepage": "https://github.com/fullofcaffeine/genes-ts/tree/main/tooling",
+  "bugs": {
+    "url": "https://github.com/fullofcaffeine/genes-ts/issues"
+  },
   "engines": {
     "node": ">=20.9.0"
   },
@@ -41,6 +50,8 @@
     "./watch-orchestration/v1/vectors.json": "./watch-orchestration/v1/vectors.json"
   },
   "files": [
+    "CHANGELOG.md",
+    "LICENSE",
     "dist/index.d.ts",
     "dist/index.d.ts.map",
     "dist/index.js",
@@ -76,7 +87,7 @@
   "scripts": {
     "build": "node ../scripts/run-typescript.mjs apiBridge -p tsconfig.json",
     "test": "yarn build && node dist/test.js && node dist/vector-test.js && node dist/loop-test.js && node dist/hxml-test.js && node dist/watch-test.js && node dist/watch-vector-test.js && node dist/haxe-server-test.js && node dist/haxe-server-vector-test.js",
-    "pack:check": "yarn build && npm pack --dry-run"
+    "pack:check": "yarn build && node ../scripts/dist/test-tooling-package.js"
   },
   "publishConfig": {
     "access": "public"

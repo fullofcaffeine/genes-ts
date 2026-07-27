@@ -1,0 +1,224 @@
+name: Release tooling npm package
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact unpublished @genes-ts/tooling SemVer
+        required: true
+        type: string
+      commit:
+        description: Exact forty-character commit currently at origin/main
+        required: true
+        type: string
+      authorization:
+        description: "Type: publish @genes-ts/tooling@VERSION from COMMIT"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: release-tooling-npm
+  cancel-in-progress: false
+
+env:
+  YARN_VERSION: "1.22.22"
+  NPM_RELEASE_VERSION: "11.18.0"
+  NPM_RELEASE_INTEGRITY: "sha512-T67M4L5wNm0cZ7EBLErcEkY1SmzEW/WJ+SADBzsFUY1UdAPfFHXFQtZ6SEXiK0+vzXysCvAsepbMaBTwnrAD+w=="
+
+jobs:
+  publish:
+    name: Publish @genes-ts/tooling
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: tooling-npm-production
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.commit }}
+      - id: toolchains
+        run: node scripts/emit-toolchain-outputs.mjs
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ steps.toolchains.outputs.node-next-lts }}
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Install the pinned trusted-publishing npm CLI
+        run: |
+          set -euo pipefail
+          test "$(npm view "npm@${NPM_RELEASE_VERSION}" dist.integrity)" = \
+            "$NPM_RELEASE_INTEGRITY"
+          npm install --global "npm@${NPM_RELEASE_VERSION}"
+          test "$(npm --version)" = "$NPM_RELEASE_VERSION"
+      - run: corepack enable
+      - run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
+      - run: yarn install --frozen-lockfile
+      - name: Verify explicit release authorization and protected source
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_COMMIT: ${{ inputs.commit }}
+          RELEASE_AUTHORIZATION: ${{ inputs.authorization }}
+        run: |
+          set -euo pipefail
+          expected="publish @genes-ts/tooling@${RELEASE_VERSION} from ${RELEASE_COMMIT}"
+          test "$RELEASE_AUTHORIZATION" = "$expected"
+          test "$RELEASE_COMMIT" = "$(git rev-parse HEAD)"
+          git fetch --no-tags origin main
+          test "$RELEASE_COMMIT" = "$(git rev-parse origin/main)"
+          test "$(node -p "require('./tooling/package.json').version")" = "$RELEASE_VERSION"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+      - name: Run full release gates
+        run: yarn test:ci
+      - id: local-package
+        name: Pack and independently verify candidate bytes
+        run: |
+          set -euo pipefail
+          yarn --cwd tooling build
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          destination="${RUNNER_TEMP}/tooling-local"
+          mkdir -p "$destination"
+          npm pack ./tooling --json --pack-destination "$destination" \
+            > "${RUNNER_TEMP}/tooling-local-pack.json"
+          filename="$(node -e '
+            const fs = require("node:fs");
+            const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            if (!Array.isArray(result) || result.length !== 1 ||
+                typeof result[0]?.filename !== "string") process.exit(1);
+            process.stdout.write(result[0].filename);
+          ' "${RUNNER_TEMP}/tooling-local-pack.json")"
+          tarball="${destination}/${filename}"
+          node scripts/dist/test-tooling-package.js \
+            --tarball "$tarball" \
+            --pack-json "${RUNNER_TEMP}/tooling-local-pack.json"
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+          echo "pack-json=${RUNNER_TEMP}/tooling-local-pack.json" >> "$GITHUB_OUTPUT"
+      - name: Create deterministic release receipt and SPDX SBOM
+        env:
+          GENES_RELEASE_COMMIT: ${{ inputs.commit }}
+        run: |
+          set -euo pipefail
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          node scripts/dist/create-tooling-release-evidence.js \
+            --tarball "${{ steps.local-package.outputs.tarball }}" \
+            --pack-json "${{ steps.local-package.outputs.pack-json }}" \
+            --output "${RUNNER_TEMP}/tooling-release-evidence"
+      - name: Revalidate main and clean candidate immediately before publication
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_COMMIT: ${{ inputs.commit }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          test "$RELEASE_COMMIT" = "$(git rev-parse HEAD)"
+          test "$RELEASE_COMMIT" = "$(git rev-parse origin/main)"
+          test "$(node -p "require('./tooling/package.json').version")" = \
+            "$RELEASE_VERSION"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+      - id: publish
+        name: Publish exact reviewed tarball with npm provenance
+        run: |
+          set -uo pipefail
+          evidence="${RUNNER_TEMP}/tooling-release-evidence"
+          mkdir -p "$evidence"
+          set +e
+          npm publish "${{ steps.local-package.outputs.tarball }}" \
+            --access public \
+            --provenance \
+            2>&1 | tee "$evidence/npm-publish.log"
+          publish_status="${PIPESTATUS[0]}"
+          set -e
+          printf 'exit-code=%s\n' "$publish_status" \
+            > "$evidence/npm-publish-status.txt"
+          exit "$publish_status"
+      - name: Capture and verify immutable registry state
+        if: ${{ always() && steps.publish.outcome != 'skipped' }}
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
+        run: |
+          set -uo pipefail
+          evidence="${RUNNER_TEMP}/tooling-release-evidence"
+          status="$evidence/registry-status.txt"
+          mkdir -p "$evidence"
+          printf 'package=@genes-ts/tooling\nversion=%s\npublish-outcome=%s\n' \
+            "$RELEASE_VERSION" "$PUBLISH_OUTCOME" > "$status"
+
+          view_status=1
+          : > "$evidence/registry-view.log"
+          for attempt in 1 2 3 4 5 6; do
+            printf 'attempt=%s\n' "$attempt" >> "$evidence/registry-view.log"
+            if npm view "@genes-ts/tooling@${RELEASE_VERSION}" \
+              name version dist.integrity dist.tarball --json \
+              > "$evidence/registry.json" \
+              2>> "$evidence/registry-view.log"; then
+              view_status=0
+              break
+            fi
+            sleep 10
+          done
+          printf 'registry-view-exit-code=%s\n' "$view_status" >> "$status"
+
+          if test "$view_status" != 0; then
+            printf 'download=not-run\nbyte-comparison=not-run\nconsumer-verification=not-run\n' \
+              >> "$status"
+            exit "$view_status"
+          fi
+
+          destination="${RUNNER_TEMP}/tooling-downloaded"
+          mkdir -p "$destination"
+          download_status=1
+          : > "$evidence/registry-download.log"
+          for attempt in 1 2 3 4 5 6; do
+            printf 'attempt=%s\n' "$attempt" >> "$evidence/registry-download.log"
+            if npm pack "@genes-ts/tooling@${RELEASE_VERSION}" \
+              --pack-destination "$destination" \
+              >> "$evidence/registry-download.log" 2>&1; then
+              download_status=0
+              break
+            fi
+            sleep 10
+          done
+          printf 'download-exit-code=%s\n' "$download_status" >> "$status"
+          if test "$download_status" != 0; then
+            printf 'byte-comparison=not-run\nconsumer-verification=not-run\n' \
+              >> "$status"
+            exit "$download_status"
+          fi
+
+          downloaded="$(find "$destination" -maxdepth 1 -type f -name '*.tgz' -print)"
+          test "$(printf '%s\n' "$downloaded" | sed '/^$/d' | wc -l)" = 1
+          set +e
+          cmp "${{ steps.local-package.outputs.tarball }}" "$downloaded" \
+            > "$evidence/registry-byte-comparison.log" 2>&1
+          comparison_status="$?"
+          set -e
+          printf 'byte-comparison-exit-code=%s\n' "$comparison_status" >> "$status"
+          if test "$comparison_status" != 0; then
+            printf 'consumer-verification=not-run\n' >> "$status"
+            exit "$comparison_status"
+          fi
+
+          set +e
+          node scripts/dist/test-tooling-package.js \
+            --tarball "$downloaded" \
+            --pack-json "${{ steps.local-package.outputs.pack-json }}" \
+            > "$evidence/registry-consumer-verification.log" 2>&1
+          verification_status="$?"
+          set -e
+          printf 'consumer-verification-exit-code=%s\n' "$verification_status" \
+            >> "$status"
+          exit "$verification_status"
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: tooling-release-${{ inputs.version }}-evidence
+          path: |
+            ${{ steps.local-package.outputs.pack-json }}
+            ${{ runner.temp }}/tooling-release-evidence
+          if-no-files-found: error
+          retention-days: 90
