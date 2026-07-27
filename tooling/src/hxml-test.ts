@@ -1,0 +1,172 @@
+import assert from "node:assert/strict";
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import {
+  HxmlInventoryError,
+  inventoryHxml,
+} from "./hxml/index.js";
+
+function write(root: string, relative: string, content: string): string {
+  const absolute = path.join(root, relative);
+  mkdirSync(path.dirname(absolute), { recursive: true });
+  writeFileSync(absolute, content, "utf8");
+  return absolute;
+}
+
+async function expectFailure(
+  action: () => Promise<unknown>,
+  kind: HxmlInventoryError["failure"]["kind"],
+): Promise<void> {
+  await assert.rejects(action, (error: unknown) => {
+    assert.equal(error instanceof HxmlInventoryError, true);
+    assert.equal((error as HxmlInventoryError).failure.kind, kind);
+    return true;
+  });
+}
+
+async function main(): Promise<void> {
+  const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-hxml-")),
+  );
+  try {
+    mkdirSync(path.join(root, "src"), { recursive: true });
+    mkdirSync(path.join(root, "shared dir"), { recursive: true });
+    write(root, "assets/data.json", "{}\n");
+    write(
+      root,
+      "build.hxml",
+      [
+        "# comment",
+        "--class-path src",
+        "--cwd nested",
+        "'nested build.hxml'",
+        "-lib sample:1.2.3",
+        "",
+      ].join("\n"),
+    );
+    write(
+      root,
+      "nested/nested build.hxml",
+      [
+        "--cwd ..",
+        "--class-path \"${SHARED}\"",
+        "--resource assets/data.json@data",
+        "cycle.hxml",
+        "",
+      ].join("\n"),
+    );
+    write(root, "cycle.hxml", "build.hxml\n");
+    const library = write(
+      root,
+      "libraries/sample.hxml",
+      "--class-path ../src\n",
+    );
+
+    const inventory = await inventoryHxml({
+      entryFiles: ["build.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+      environment: (name) => (name === "SHARED" ? "shared dir" : null),
+      resolveLibrary: (request) => {
+        assert.equal(request.name, "sample");
+        assert.equal(request.version, "1.2.3");
+        return [library];
+      },
+    });
+    assert.deepEqual(
+      inventory.hxmlFiles.map((file) => path.relative(root, file)),
+      [
+        "build.hxml",
+        "cycle.hxml",
+        path.join("libraries", "sample.hxml"),
+        path.join("nested", "nested build.hxml"),
+      ].sort(),
+    );
+    assert.deepEqual(
+      inventory.classPaths.map((file) => path.relative(root, file)).sort(),
+      ["shared dir", "src"].sort(),
+    );
+    assert.deepEqual(
+      inventory.resourceInputs.map((file) => path.relative(root, file)),
+      [path.join("assets", "data.json")],
+    );
+    assert.deepEqual(
+      inventory.libraries.map(({ request, name, version }) => ({
+        request,
+        name,
+        version,
+      })),
+      [{ request: "sample:1.2.3", name: "sample", version: "1.2.3" }],
+    );
+
+    write(root, "missing-env.hxml", "-cp ${ABSENT}\n");
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["missing-env.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+        }),
+      "missing-environment",
+    );
+
+    write(root, "bad-quote.hxml", "-cp 'unterminated\n");
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["bad-quote.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+        }),
+      "invalid-syntax",
+    );
+
+    write(root, "outside.hxml", "../outside.hxml\n");
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["outside.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+        }),
+      "unsafe-input",
+    );
+
+    write(root, "real.hxml", "");
+    symlinkSync("real.hxml", path.join(root, "linked.hxml"));
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["linked.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+        }),
+      "unsafe-input",
+    );
+
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["build.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+          maxHxmlFiles: 1,
+        }),
+      "budget-exceeded",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+  console.log("genes tooling HXML inventory: ok");
+}
+
+await main();
