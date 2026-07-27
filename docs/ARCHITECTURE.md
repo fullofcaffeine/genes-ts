@@ -184,6 +184,37 @@ Concrete rules follow from those lifetimes:
 - compiler-owned output sentinels and private stages are removed on their
   owning request's completion. They are never reusable semantic caches.
 
+### State-owner ledger
+
+The table below is the review checklist for mutable compiler state. “Key”
+means the identity that prevents one declaration, request, or output owner from
+being mistaken for another; it is not necessarily a `Map` key in the code.
+Immutable keyword tables and generated-program statics such as
+`genes.Register.fid` are omitted: the former never change, and the latter live
+in the emitted application rather than the Haxe compiler process.
+
+| Owner | Purpose and lifetime | Refresh, identity, and failure rule | Executable proof |
+|---|---|---|---|
+| `Genes.outExtension` | Process-visible scalar holding the current implementation artifact suffix for emitters. It is **not** the runtime-import policy. | `Generator.generateTransactional` assigns it from the current configured output before creating modules or emitters. Runtime imports instead carry extension-free typed markers and call `Genes.runtimeImportExtension` with the active artifact extension, so a cached macro expansion cannot preserve `.ts`, `.tsx`, or an earlier request's suffix. | `yarn test:dynamic-import-policy`; `yarn test:compiler-server` |
+| `Generator.generation` and `@:genes.generate` | Monotonic process-visible request stamp used only to decide which typed modules participated in the current generation. | The request's `onGenerate` callback increments the stamp and adds it to each current type. A module matches when **any** metadata entry has the current number; older entries on a Haxe-cached declaration are ignored. A failed request cannot make an old stamp current again. | `yarn test:compiler-server` |
+| `Generator.configuredOutputFile` and `compilerSentinelFile` | Installation-time paths that isolate Haxe's own `-js` cleanup from Genes' public output transaction. | `Generator.use` calls `isolateCompilerOutput` for the current request. The configured destination owns the output; a SHA-256 of its absolute path identifies Haxe's private sentinel. Normal completion, generator failure, and the after-generate hook remove the sentinel. Public publication still belongs only to `OutputTransaction`. | `yarn test:output-transaction`; `yarn test:compiler-server` |
+| `ModuleDirectivePlan` | Request-local ordered module-prologue facts stored in `@:persistent` maps because capture happens before generation. | Every `install()` replaces all maps and the finalized flag, then registers the current request's `onAfterTyping` capture. Full typed module/field owner keys establish identity; source positions only order directives. Validation fails before emitters open. | `yarn test:module-directives`; `yarn test:compiler-server` |
+| `PublicSurface` | Request-local pre-DCE public API records, including compiler-owned `Type` values needed by TS and declarations. | Every `install()` replaces the map before registering `onAfterTyping`. Full Haxe module/type identity is the key; consumers substitute current type parameters. Post-DCE fallback capture is confined to the current map. | `yarn test:library-profile`; `yarn test:compiler-server` |
+| `genes.ts.SignatureCache` | Request-local pre-DCE signature and enum-abstract facts used when later JS-oriented typing has erased a precise TS surface. It contains compiler-owned `Type` values. | Every `install()` replaces all maps before registering `onAfterTyping`. Named declarations use full owner identity; anonymous/local entries may use positions or `TVar.id` only inside that reset boundary. A cached source type is printed through the normal type emitter, not a second renderer. | `yarn test:types:exports`; `yarn test:compiler-server` |
+| Explicit type-argument carriers | Occurrence-local typed facts for `TypeArguments.call` and `@:ts.explicitTypeArguments`; deliberately **no** process registry exists. | The exact typed call occurrence carries inert witness types. Emitters revalidate the declaration and erase the carrier. Neither copied positions nor same-named projects can retrieve another occurrence's fact, and a cached typed tree remains self-contained. | `yarn test:explicit-type-arguments`; `yarn test:compiler-server` |
+| `TypeUtil.registerType` / `bootType` | Compiler-owned helper declaration references used by dependency planning. | Haxe 4 initializes them at the proven eager macro point; Haxe 5 fills them in `onAfterInitMacros`, when lookups are legal. They are never indexed by emitted spelling. Stable cold/warm trees prove request correctness; preview's separate post-DCE variance remains advisory. | `yarn test:compiler-server` |
+| `CompilerInternal.GENERATOR_ACTIVE_DEFINE` | Compilation-local capability proving that the active JS request installed Genes and can consume compiler-only carriers. | `Generator.use` defines it only in the JS, non-`genes.disable` branch. A disabled or non-JS request must fail at the carrier boundary and publish nothing; it may not inherit capability from an earlier warm request. | `yarn test:compiler-server` |
+| `TypeEmitter.emittingCapturedSourceType` | Narrow printer dynamic scope, not a semantic cache. It permits a retained source type to preserve enum-abstract literals while that one type is printed. | `emitCapturedSourceType` saves and restores the previous Boolean on success and on `haxe.Exception`. It carries no declaration key and must never remain enabled for a later type or request. Transaction and warm failure/recovery tests protect the surrounding cleanup boundary; raw non-`haxe.Exception` behavior remains a separate characterization task. | `yarn test:types:exports`; `yarn test:output-transaction`; `yarn test:compiler-server` |
+| `Module` lazy plans | Module-local typed facts: dependency/projection, JSX, TS narrowing, temp, local binding, module-function, naming, and cycle plans. | Each `Module` owns its maps and compiler refs. `Module.addTypes` clears every plan whose inputs can change when declaration reachability materializes more types. No plan or `TypedExpr` object is stored process-wide. Template-literal late-materialization coverage is tracked separately and must not be claimed from the general server gate. | `yarn test:output-quality`; `yarn test:compiler-server` |
+| `OutputTransaction`, writers, and source maps | One-generation staging and one-artifact emission state. The ownership manifest is the only filesystem-persistent part. | A transaction key is the exact normalized output basename, including extension, plus a collision-resistant scope. Commit publishes the whole owned set; abort restores the previous public bytes and removes private stages. Writers and mapping buffers are newly constructed and never reused. | `yarn test:output-transaction`; `yarn test:compiler-server` |
+
+Haxe macro callbacks are installed by `Generator.use()` and the owner-specific
+`install()` methods for the current compilation. Do not rely on callback
+registration itself to clear a process-visible map: replace the map before
+registering the callback, as the three pre-DCE owners above do. Conversely, do
+not add a reset for generated-program runtime state or immutable lookup tables;
+those values do not belong to the compiler lifecycle.
+
 Two executable owners protect this boundary:
 
 - `yarn test:dynamic-import-policy` focuses on runtime import suffixes across

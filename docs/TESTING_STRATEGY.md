@@ -72,6 +72,41 @@ yarn test:compiler-server # whole-compiler cold/warm lifecycle equivalence
 yarn benchmark:dependency-plan # report-only scaling experiment for large import graphs
 ```
 
+Direct builds are the correctness baseline. They prove that a clean compiler
+process can type, plan, emit, publish, type-check, and run the requested
+profile. The compiler-server gate answers a different question: whether those
+same results stay byte-for-byte and behaviorally identical when Haxe reuses one
+process across requests. A green server run does not replace the ordinary
+classic, TypeScript, declaration, source-map, or transaction owners, and users
+do not need a server to use Genes correctly.
+
+When changing compiler lifecycle state, run the smallest semantic owner first,
+then the server owner. For example, a dynamic-import change starts with
+`yarn test:dynamic-import-policy`; a pre-DCE signature change starts with its
+type/declaration fixture. Finish with:
+
+```bash
+yarn test:compiler-server
+yarn test:ci
+```
+
+The server command selects the real configured Haxe executable, starts exactly
+one child on a reserved loopback port, and never attaches to an existing
+process. Readiness is a real compilation with a 10-second startup deadline,
+not a successful TCP connection. Stable clients have a 60-second timeout;
+preview clients have 120 seconds. On every success, failure, timeout, or
+interrupt, cleanup sends `SIGTERM`, escalates to `SIGKILL` after two seconds,
+awaits the exact child, and verifies that its PID is gone. Logs are retained
+for a bounded failure report.
+
+Stable Haxe 4.3.7 is the blocking warm-build contract. Haxe
+`5.0.0-preview.1` runs the same command in the advisory CI job: it currently
+accepts the native server protocol but exposes a cold/warm post-DCE monomorph
+difference in `genes/Register.ts`. That result remains visible and is not
+allowlisted, but it does not weaken the stable release gate. The latest-Node
+smoke sets `SKIP_COMPILER_SERVER=1` because that lane owns Node compatibility;
+the main stable acceptance job owns compiler-server correctness.
+
 The quality manifest measures the bounded dual corpus. It uses exact module,
 temporary, and import baselines plus 5% byte/token ceilings; it is not a
 whole-language performance benchmark.
