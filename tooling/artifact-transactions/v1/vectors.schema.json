@@ -1,0 +1,219 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://genes.dev/schemas/tooling/artifact-transition-vectors-v1.json",
+  "title": "Genes tooling durable artifact conformance vectors v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "version", "blobs", "plans", "vectors"],
+  "properties": {
+    "protocol": { "const": "genes.tooling.artifact-transition-vectors" },
+    "version": { "const": 1 },
+    "blobs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/blob" }
+    },
+    "plans": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/namedPlan" }
+    },
+    "vectors": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/vector" }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "blob": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "utf8", "sha256", "sizeBytes"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "utf8": { "type": "string" },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "sizeBytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "namedPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "plan"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "plan": {
+          "$ref": "protocol.schema.json"
+        }
+      }
+    },
+    "entryMutation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["area", "path", "entry"],
+      "properties": {
+        "at": { "enum": ["setup", "after-preflight"] },
+        "area": { "enum": ["project-root", "live", "stage", "backup", "control"] },
+        "path": { "type": "string", "minLength": 1 },
+        "entry": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind"],
+              "properties": { "kind": { "const": "absent" } }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "blob", "mode"],
+              "properties": {
+                "kind": { "const": "file" },
+                "blob": { "$ref": "#/$defs/id" },
+                "mode": { "type": "integer", "minimum": 0, "maximum": 511 }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "target"],
+              "properties": {
+                "kind": { "const": "symlink" },
+                "target": { "type": "string" }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind"],
+              "properties": {
+                "kind": { "enum": ["directory", "special"] }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "control": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lock", "journal"],
+      "properties": {
+        "lock": {
+          "enum": ["none", "active-same-host", "dead-same-host", "foreign-host", "malformed", "orphan"]
+        },
+        "journal": {
+          "enum": ["none", "prepared", "publishing", "published", "rolling-back", "committed", "malformed", "orphan", "authorization-mismatch", "plan-digest-mismatch"]
+        }
+      }
+    },
+    "fault": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "at"],
+      "properties": {
+        "kind": { "enum": ["process-exit", "permission-denied", "cross-device", "io-error"] },
+        "at": { "type": "string", "minLength": 1 }
+      }
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "admitIntended", "fault", "expect"],
+      "properties": {
+        "action": { "enum": ["publish", "recover"] },
+        "admitIntended": { "type": "boolean" },
+        "fault": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/fault" }
+          ]
+        },
+        "expect": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["outcome", "failure", "live", "control"],
+          "properties": {
+            "outcome": { "enum": ["published", "unchanged", "committed", "rolled-back", "none", "crashed", "failed"] },
+            "failure": {
+              "oneOf": [
+                { "type": "null" },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "subject"],
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "invalid-plan",
+                        "unexpected-staged-state",
+                        "undeclared-staged-entry",
+                        "unexpected-live-state",
+                        "path-escape",
+                        "portable-path-collision",
+                        "symlink-traversal",
+                        "active-writer",
+                        "untrusted-lock",
+                        "malformed-journal",
+                        "orphan-control-state",
+                        "recovery-conflict",
+                        "filesystem-unsupported",
+                        "filesystem-permission",
+                        "control-path-collision"
+                      ]
+                    },
+                    "subject": { "type": "string", "minLength": 1 }
+                  }
+                }
+              ]
+            },
+            "live": { "enum": ["prior", "next", "recoverable", "ambiguous"] },
+            "control": { "enum": ["absent", "durable", "preserved"] }
+          }
+        }
+      }
+    },
+    "vector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "covers", "plan", "planMutation", "initial", "stage", "control", "mutations", "steps"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "covers": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/id" }
+        },
+        "plan": { "$ref": "#/$defs/id" },
+        "planMutation": {
+          "enum": [
+            "none",
+            "absolute-live-path",
+            "traversal-live-path",
+            "backslash-live-path",
+            "portable-case-collision",
+            "duplicate-commit-marker",
+            "staged-path-with-absent-next",
+            "missing-staged-path-for-file"
+          ]
+        },
+        "initial": { "enum": ["prior", "next", "absent"] },
+        "stage": { "enum": ["complete", "absent"] },
+        "control": { "$ref": "#/$defs/control" },
+        "mutations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/entryMutation" }
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/step" }
+        }
+      }
+    }
+  }
+}
