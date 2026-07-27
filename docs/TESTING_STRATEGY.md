@@ -404,6 +404,27 @@ See also GitHub's
 [CodeQL v4 migration notice](https://github.blog/changelog/2025-10-28-upcoming-deprecation-of-codeql-action-v3/)
 and the [branch-protection check list](BRANCH_PROTECTION.md).
 
+## Main protection contract
+
+GitHub's active **Main branch quality gate** ruleset requires the stable
+compiler, security, and CodeQL checks before a pull request can update `main`.
+Run the repository-side structural proof with:
+
+```bash
+yarn test:main-protection-policy
+```
+
+This test deliberately checks both workflow triggers and exact job names.
+Required checks must be created for every pull request, including a
+roadmap-only `.beads/issues.jsonl` update; a workflow skipped by a path filter
+would leave that pull request waiting forever. The test also protects the
+non-blocking Haxe preview and macOS policies.
+
+Repository settings cannot be proved from a checkout. Use the API commands in
+[Main branch protection](BRANCH_PROTECTION.md#verify-the-live-rule) to confirm
+the active ruleset, required GitHub Actions contexts, strict up-to-date policy,
+and empty bypass list.
+
 ## ts2hx (experimental)
 
 The repository also contains an experimental TS/JS → Haxe transpiler under `tools/ts2hx/`.

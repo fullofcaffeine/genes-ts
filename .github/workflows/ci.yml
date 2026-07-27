@@ -3,11 +3,7 @@ name: genes-ts CI
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - ".beads/**"
   pull_request:
-    paths-ignore:
-      - ".beads/**"
   workflow_dispatch:
 
 concurrency:
@@ -189,6 +185,10 @@ jobs:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('yarn.lock') }}
       - run: yarn install --frozen-lockfile
+      # This job is a required status. Run the structural policy here so a
+      # required-check rename or matrix change is rejected on the PR that
+      # proposes it, before GitHub settings and workflow output can diverge.
+      - run: yarn test:main-protection-policy
       - run: yarn lix install haxe ${{ steps.toolchains.outputs.haxe-stable }}
       - run: yarn lix use haxe ${{ steps.toolchains.outputs.haxe-stable }}
       - run: yarn test:acceptance

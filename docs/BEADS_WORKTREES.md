@@ -83,22 +83,44 @@ They update the shared Dolt database. They should not modify or stage
 `.beads/issues.jsonl`.
 
 Feature commits and feature pushes should contain the feature itself. A Beads
-status change is published afterward from primary `main`; this avoids combining
-a shared tracker snapshot with a branch that may be rebased or discarded.
+status change is published afterward from primary `main`, then proposed through
+its own short-lived branch and pull request. This avoids combining a shared
+tracker snapshot with a feature branch that may be rebased or discarded while
+respecting the rule that every `main` update arrives through a pull request.
 
 ## Publishing the roadmap snapshot
 
 After a feature has merged and its Bead status is final:
 
 ```bash
-# Run from the primary checkout, on main.
-git pull --rebase
+# Enter the primary checkout even when the completed feature used a linked
+# worktree. Git does not allow main to be checked out in two worktrees.
+PRIMARY_WORKTREE="$(
+  git worktree list --porcelain |
+    awk '/^worktree / { print substr($0, 10); exit }'
+)"
+cd "$PRIMARY_WORKTREE"
+
+# Run from the clean primary checkout, on main.
+git pull --ff-only
 yarn beads:export
 git diff -- .beads/issues.jsonl
+git switch -c chore/beads-roadmap-<issue-id>
 git add .beads/issues.jsonl
 git commit -m "chore(beads): publish roadmap state"
-git push
+git push -u origin chore/beads-roadmap-<issue-id>
+gh pr create --fill
+gh pr checks --watch
+gh pr merge --squash --delete-branch
+git switch main
+git pull --ff-only
 ```
+
+Do not push the snapshot commit directly to `main`. The active repository
+ruleset rejects that update, including for administrators. Roadmap-only pull
+requests still run the required compiler and security checks because GitHub
+would otherwise leave path-filtered required checks pending forever. See
+[Main branch protection](BRANCH_PROTECTION.md).
 
 `yarn beads:export` is intentionally strict. Before invoking `bd export`, it
 requires all of the following:

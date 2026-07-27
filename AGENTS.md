@@ -155,7 +155,9 @@ only as a deliberate second step:
 1. Finish and merge the feature worktree.
 2. Use the clean, current primary `main` checkout.
 3. Run `yarn beads:export`.
-4. Review only `.beads/issues.jsonl`, then commit and push that tracker update.
+4. Review only `.beads/issues.jsonl`.
+5. Create a dedicated roadmap branch, commit the snapshot, and merge it through
+   a pull request after the required checks pass.
 
 `yarn beads:export` fails closed in a linked worktree, on a non-`main` branch,
 when `main` is not equal to `origin/main`, or when the primary checkout is
@@ -438,33 +440,60 @@ npm run build:example:todoapp
 
 ## Landing the Plane (Session Completion)
 
-**After each completed task**, commit and push the relevant repo before moving on to the next task. If work spans multiple repos, each repo gets its own focused commit and successful push. Do not batch completed tasks into a later session-level push.
+**After each completed task**, commit, push, and merge the relevant pull request
+before moving on to the next task. If work spans multiple repos, each repo gets
+its own focused commit and protected merge. Do not batch completed tasks into a
+later session-level push.
 
-For `../genes` specifically, keep the branch current with origin whenever landing compiler work: run `git pull --rebase` before the final push, resolve any upstream drift in the compiler repo itself, then push the focused genes commit. Downstream work may depend on local `../genes`, so do not leave compiler changes stranded or only documented elsewhere.
+For `../genes` specifically, keep the feature branch current with origin whenever landing compiler work: rebase it onto `origin/main` before the final push, resolve any upstream drift in the compiler repo itself, then push and merge the focused pull request. Downstream work may depend on local `../genes`, so do not leave compiler changes stranded or only documented elsewhere. The active `main` ruleset rejects direct pushes, including roadmap-only updates.
 
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+**When ending a work session**, you MUST complete ALL steps below. Work is NOT
+complete until the required pull request(s) merge and local `main` matches
+`origin/main`.
 
 **MANDATORY WORKFLOW:**
 
 1. **File issues for remaining work** - Create issues for anything that needs follow-up
 2. **Run quality gates** (if code changed) - Tests, linters, builds
 3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
+4. **PUSH AND MERGE THROUGH PULL REQUESTS** - This is MANDATORY:
    ```bash
-   git pull --rebase
+   # Feature branch/worktree:
+   git fetch origin main
+   git rebase origin/main
+   git push -u origin <feature-branch>
+   gh pr create --fill
+   gh pr checks --watch
+   gh pr merge --squash --delete-branch
+
    # If Beads state changed, publish it separately from a clean primary main:
+   PRIMARY_WORKTREE="$(
+     git worktree list --porcelain |
+       awk '/^worktree / { print substr($0, 10); exit }'
+   )"
+   cd "$PRIMARY_WORKTREE"
+   git switch main
+   git pull --ff-only
    yarn beads:export
+   git switch -c chore/beads-roadmap-<issue-id>
    git add .beads/issues.jsonl
    git commit -m "chore(beads): publish roadmap state"
-   git push
-   git status  # MUST show "up to date with origin"
+   git push -u origin chore/beads-roadmap-<issue-id>
+   gh pr create --fill
+   gh pr checks --watch
+   gh pr merge --squash --delete-branch
+   git switch main
+   git pull --ff-only
+   git status  # MUST show main up to date with origin
    ```
 5. **Clean up** - Clear stashes, prune remote branches
 6. **Verify** - All changes committed AND pushed
 7. **Hand off** - Provide context for next session
 
 **CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
+- Work is NOT complete until the required pull request(s) merge and local
+  `main` is synchronized with `origin/main`
 - NEVER stop before pushing - that leaves work stranded locally
 - NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
+- If a push, required check, or merge fails, resolve it and retry until the
+  protected workflow succeeds

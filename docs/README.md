@@ -52,7 +52,7 @@ agents and human contributors should read the scoped guide directly.
 - `COMPATIBILITY_REPORT.md` — generated, deterministic evidence inventory with exact scope and counts
 - `TOOLCHAINS.md` — centralized TypeScript, Haxe, and Node compatibility lanes
 - `SECURITY.md` — local + CI secret scanning (gitleaks)
-- `BRANCH_PROTECTION.md` — recommended GitHub branch protection / required checks
+- `BRANCH_PROTECTION.md` — enforced GitHub ruleset, required checks, and recovery
 - `RELEASING.md` — semver, changelog, GitHub Releases (semantic-release)
 
 ## Product / planning
