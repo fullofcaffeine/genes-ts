@@ -15,8 +15,9 @@ import genes.react.Node;
  * - A tiny extern surface: the components/hooks used by the example.
  *
  * How:
- * - `@:jsRequire("react-router-dom", "...")` forces the proper imports in
- *   generated TS/TSX output.
+ * - React Router 8 removed the compatibility-only `react-router-dom` package.
+ *   `@:jsRequire("react-router", "...")` binds these Declarative Mode APIs to
+ *   their canonical ESM package in generated TS/TSX and classic JS output.
  * - `@:genes.jsxComponentProps("...")` points HXX at a closed Haxe property
  *   type. The string is resolved at compile time, so missing or wrong Router
  *   properties fail in Haxe before JSX is emitted.
@@ -63,23 +64,23 @@ typedef LinkProps = {
   @:optional final style: LinkStyle;
 }
 
-@:jsRequire("react-router-dom", "BrowserRouter")
-@:genes.jsxComponentProps("todo.extern.ReactRouterDom.BrowserRouterProps")
+@:jsRequire("react-router", "BrowserRouter")
+@:genes.jsxComponentProps("todo.extern.ReactRouter.BrowserRouterProps")
 extern class BrowserRouter {}
 
-@:jsRequire("react-router-dom", "Routes")
-@:genes.jsxComponentProps("todo.extern.ReactRouterDom.RoutesProps")
+@:jsRequire("react-router", "Routes")
+@:genes.jsxComponentProps("todo.extern.ReactRouter.RoutesProps")
 extern class Routes {}
 
-@:jsRequire("react-router-dom", "Route")
-@:genes.jsxComponentProps("todo.extern.ReactRouterDom.RouteProps")
+@:jsRequire("react-router", "Route")
+@:genes.jsxComponentProps("todo.extern.ReactRouter.RouteProps")
 extern class Route {}
 
-@:jsRequire("react-router-dom", "Link")
-@:genes.jsxComponentProps("todo.extern.ReactRouterDom.LinkProps")
+@:jsRequire("react-router", "Link")
+@:genes.jsxComponentProps("todo.extern.ReactRouter.LinkProps")
 extern class Link {}
 
-@:jsRequire("react-router-dom", "useNavigate")
+@:jsRequire("react-router", "useNavigate")
 extern function useNavigate(): String->Void;
 
 /**
@@ -98,5 +99,5 @@ extern function useNavigate(): String->Void;
 @:ts.type("Readonly<Record<string, string | undefined>>")
 typedef Params = DynamicAccess<String>;
 
-@:jsRequire("react-router-dom", "useParams")
+@:jsRequire("react-router", "useParams")
 extern function useParams(): Params;

@@ -2,6 +2,9 @@
   "type": "module",
   "version": "1.39.0",
   "license": "MIT",
+  "engines": {
+    "node": ">=22.22.0"
+  },
   "scripts": {
     "submit:zip": "bestzip submit.zip src/* haxelib.json readme.md extraParams.hxml",
     "submit": "yarn submit:zip && haxelib submit submit.zip && rm submit.zip",
@@ -85,9 +88,9 @@
     "dts2hx": "0.34.0",
     "express": "^4.22.2",
     "lix": "^16.0.2",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "react-router-dom": "^7.18.1",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-router": "^8.3.0",
     "rimraf": "^6.1.2",
     "source-map": "0.6.1",
     "@typescript/legacy": "npm:typescript@5.5.4",

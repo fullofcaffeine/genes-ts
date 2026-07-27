@@ -321,11 +321,11 @@
         },
         {
           "id": "node-lanes",
-          "label": "Pinned Node lanes",
+          "label": "Pinned Node lane and runtime-floor fields",
           "kind": "json-object-keys",
           "path": "config/toolchains.json",
           "pointer": ["node"],
-          "expected": 2
+          "expected": 3
         }
       ],
       "proves": "Generated code and API consumers are checked against their explicitly different compatibility contracts, and ts2hx request evidence records the exact pinned TypeScript engine and configured transform behavior.",

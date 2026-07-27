@@ -28,7 +28,7 @@ This is an evidence contract, not a cached CI-success badge. `blocking` and `non
 | Runtime smoke and E2E | Todoapp browser journeys run in each profile | 3 | `blocking` |
 | Toolchain compatibility | Pinned TypeScript lanes | 3 | `blocking` |
 | Toolchain compatibility | Pinned Haxe lanes | 2 | `blocking` |
-| Toolchain compatibility | Pinned Node lanes | 2 | `blocking` |
+| Toolchain compatibility | Pinned Node lane and runtime-floor fields | 3 | `blocking` |
 | Package-shape interoperability | Local package-shape fixtures | 4 | `blocking` |
 | Package-shape interoperability | dts2hx declaration entrypoints | 3 | `blocking` |
 | Package-shape interoperability | dts2hx package roots | 2 | `blocking` |
@@ -40,7 +40,7 @@ This is an evidence contract, not a cached CI-success badge. `blocking` and `non
 
 | Surface | Lane | Pin | Contract |
 | --- | --- | --- | --- |
-| Node | stable | 22 | blocking runtime lane |
+| Node | stable | 22.22.0+ (Node 22 lane) | blocking runtime lane |
 | Node | latest LTS | 24 | blocking runtime lane |
 | Haxe | stable | 4.3.7 | blocking compiler lane |
 | Haxe | preview | 5.0.0-preview.1 | nonblocking early warning |

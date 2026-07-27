@@ -15,14 +15,18 @@ commands or workflow matrices.
 | dts2hx | declaration ingestion | 0.34.0 with TypeScript 5.9.3 | Deterministic `.d.ts` → Haxe extern bridge; exact source-audit revision is in the manifest |
 | Haxe | `stable` | 4.3.7 | Blocking compiler/runtime contract for classic JS and TS output |
 | Haxe | `preview` | 5.0.0-preview.1 | Visible, non-blocking early-warning lane |
-| Node | `stable` / `nextLts` | 22 / 24 | Blocking supported floor plus a reduced latest-LTS smoke lane |
+| Node | `stable` / `nextLts` | 22.22+ / 24 | Blocking supported floor plus a reduced latest-LTS smoke lane |
 
 Node 24 is the recommended local runtime and is selected by `.nvmrc`; the full
-local upgrade gate was run with Node 24.18.0. Node 22 remains the supported
-floor and has its own blocking CI coverage. The version guard also admits Node
-23 because it lies between those two tested majors, which lets developers
-finish migrating an existing environment. Node 23 is already end-of-life: it
-receives no security fixes, has no dedicated hosted lane here, and is **not** a
+local upgrade gate was run with Node 24.18.0. Node 22.22 is the exact supported
+floor because React Router 8—the Todo browser example's routing dependency—
+requires Node 22.22 or newer. `config/toolchains.json` records the stable major
+for policy comparisons and the exact minimum runtime; the blocking stable CI
+lane runs that exact `22.22.0` release. `package.json` records the matching
+`>=22.22.0` installation contract. The version guard also admits Node 23
+because it lies between the two tested majors, which lets developers finish
+migrating an existing environment. Node 23 is already end-of-life: it receives
+no security fixes, has no dedicated hosted lane here, and is **not** a
 production recommendation or long-term support promise. Majors outside the
 closed 22–24 range fail until the manifest and CI deliberately admit them.
 

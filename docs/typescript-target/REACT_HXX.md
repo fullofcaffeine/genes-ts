@@ -526,7 +526,7 @@ typedef LinkProps = {
   final children: genes.react.Node;
 }
 
-@:jsRequire("react-router-dom", "Link")
+@:jsRequire("react-router", "Link")
 @:genes.jsxComponentProps("my.extern.ReactRouter.LinkProps")
 extern class Link {}
 ```
