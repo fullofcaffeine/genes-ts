@@ -143,3 +143,39 @@ const loop = new SerializedDirtyLoop({
 The loop does not define source-versus-identity changes, changed-path sets,
 compiler commands, last-good output, services, or diagnostic wording. Those
 are host policy.
+
+## Owned Haxe wait server
+
+`OwnedHaxeWaitServer` manages one project-local Haxe `--wait` process through
+caller-provided start, probe, connected-compile, and direct-compile operations.
+It reserves isolated loopback capacity, authenticates an exact project and
+compatibility lease, reuses only its compatible owned process, falls back to
+direct compilation when the cache is unavailable, and bounds shutdown through
+`SIGTERM` followed by `SIGKILL`.
+
+```ts
+import { OwnedHaxeWaitServer } from "@genes-ts/tooling/haxe-server";
+
+const server = new OwnedHaxeWaitServer({
+  projectRoot,
+  leasePath: ".host/runtime/haxe-server.json",
+  projectIdentity,
+  ownerPid: process.pid,
+  isProcessAlive,
+  start: startHaxeWait,
+  probe: probeHaxeWait,
+  compileConnected,
+  compileDirect,
+  onEvent: reportHostEvent,
+});
+
+await server.ensure(compatibilityDigest);
+await server.compile(compatibilityDigest);
+```
+
+The host decides how Haxe is located, which inputs form the compatibility
+digest, how compiler output is presented, and which non-Haxe services it owns.
+The tooling runtime never adopts or stops a foreign process. It removes a
+lease only when its project identity is trusted, both recorded processes are
+provably stale, or its bytes still exactly match the lease written by this
+instance. The host creates the real parent directory for `leasePath`.

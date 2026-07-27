@@ -1,0 +1,114 @@
+{
+  "protocol": "genes.tooling.haxe-wait-server-vectors",
+  "version": 1,
+  "vectors": [
+    {
+      "id": "bounded-shutdown",
+      "covers": ["sigterm", "sigkill", "bounded-close", "owned-process", "live-lease-retention"],
+      "description": "A non-exiting owned process receives SIGTERM, then SIGKILL; lifecycle work remains bounded, starts no replacement, and retains the live lease.",
+      "expected": "direct"
+    },
+    {
+      "id": "closed-idempotent",
+      "covers": ["close", "idempotence", "direct-fallback"],
+      "description": "Closing twice is harmless and later ensure requests remain on direct compilation without starting a process.",
+      "expected": "direct"
+    },
+    {
+      "id": "compatible-reuse",
+      "covers": ["compatibility-digest", "owned-reuse"],
+      "description": "A ready owned process with the same compatibility digest is reused without another reservation or start.",
+      "expected": "connected"
+    },
+    {
+      "id": "connected-compile-error-live-server",
+      "covers": ["compile-error", "readiness-probe", "error-preservation"],
+      "description": "A connected compile error is preserved when a follow-up probe proves that the owned server remains responsive.",
+      "expected": "failure"
+    },
+    {
+      "id": "concurrent-ensure-serialization",
+      "covers": ["serialized-lifecycle", "owned-reuse", "single-start"],
+      "description": "Concurrent ensure requests are serialized so one compatible owned process is started and then reused.",
+      "expected": "connected"
+    },
+    {
+      "id": "direct-fallback-cache",
+      "covers": ["fallback-digest", "retry-suppression"],
+      "description": "A failed compatibility digest remains on direct compilation instead of repeatedly attempting the same unavailable cache.",
+      "expected": "direct"
+    },
+    {
+      "id": "exact-byte-cleanup",
+      "covers": ["lease-cleanup", "exact-bytes", "foreign-preservation"],
+      "description": "Shutdown removes only the exact lease bytes written by this instance and preserves a replacement owner.",
+      "expected": "connected"
+    },
+    {
+      "id": "incompatible-restart",
+      "covers": ["compatibility-digest", "owned-restart"],
+      "description": "A changed compatibility digest stops the old owned process before starting and leasing a replacement.",
+      "expected": "connected"
+    },
+    {
+      "id": "lease-write-collision",
+      "covers": ["exclusive-lease", "collision", "owned-stop"],
+      "description": "A lease created after startup probing prevents admission, preserves the foreign bytes, stops the owned process, and falls back.",
+      "expected": "direct"
+    },
+    {
+      "id": "live-foreign-lease",
+      "covers": ["process-liveness", "foreign-lease", "no-adoption"],
+      "description": "A trusted lease whose owner or server process is alive is preserved and forces direct compilation without starting or adopting its process.",
+      "expected": "direct"
+    },
+    {
+      "id": "malformed-lease",
+      "covers": ["canonical-lease", "fail-closed", "foreign-preservation"],
+      "description": "Malformed or noncanonical lease bytes are preserved and force direct compilation.",
+      "expected": "direct"
+    },
+    {
+      "id": "path-escape",
+      "covers": ["project-containment", "symlink-refusal", "configuration"],
+      "description": "An escaping or link-traversing lease path fails before lifecycle work begins.",
+      "expected": "failure"
+    },
+    {
+      "id": "port-reservation-failure",
+      "covers": ["loopback-reservation", "direct-fallback"],
+      "description": "Failure to reserve isolated loopback capacity starts no process and selects direct compilation.",
+      "expected": "direct"
+    },
+    {
+      "id": "readiness-timeout",
+      "covers": ["readiness-bound", "probe", "owned-stop"],
+      "description": "A process that never becomes probe-ready is stopped within the startup bound and direct compilation is selected.",
+      "expected": "direct"
+    },
+    {
+      "id": "stale-exact-lease",
+      "covers": ["process-liveness", "stale-lease", "exact-bytes"],
+      "description": "A trusted exact lease with a provably dead owner is removed before a new owned server is started.",
+      "expected": "connected"
+    },
+    {
+      "id": "startup-exit",
+      "covers": ["early-exit", "direct-fallback", "owned-process"],
+      "description": "A process that exits before readiness is not leased and selects direct compilation.",
+      "expected": "direct"
+    },
+    {
+      "id": "unexpected-exit-restart",
+      "covers": ["unexpected-exit", "lease-cleanup", "owned-restart"],
+      "description": "Unexpected exit clears only the owned lease and a later ensure starts a replacement for the same digest.",
+      "expected": "connected"
+    },
+    {
+      "id": "unresponsive-connected-fallback",
+      "covers": ["connected-compile", "failed-probe", "direct-fallback"],
+      "description": "A connected compile failure followed by a failed probe stops the owned process and retries through direct compilation.",
+      "expected": "direct"
+    }
+  ]
+}

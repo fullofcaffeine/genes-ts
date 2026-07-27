@@ -24,6 +24,12 @@
       "types": "./dist/hxml/index.d.ts",
       "import": "./dist/hxml/index.js"
     },
+    "./haxe-server": {
+      "types": "./dist/haxe-server/index.d.ts",
+      "import": "./dist/haxe-server/index.js"
+    },
+    "./haxe-wait-server/v1/vectors.schema.json": "./haxe-wait-server/v1/vectors.schema.json",
+    "./haxe-wait-server/v1/vectors.json": "./haxe-wait-server/v1/vectors.json",
     "./watch": {
       "types": "./dist/watch/index.d.ts",
       "import": "./dist/watch/index.js"
@@ -51,6 +57,12 @@
     "dist/hxml/**/*.d.ts.map",
     "dist/hxml/**/*.js",
     "dist/hxml/**/*.js.map",
+    "dist/haxe-server/**/*.d.ts",
+    "dist/haxe-server/**/*.d.ts.map",
+    "dist/haxe-server/**/*.js",
+    "dist/haxe-server/**/*.js.map",
+    "haxe-wait-server/v1/*.json",
+    "haxe-wait-server/v1/README.md",
     "dist/watch/**/*.d.ts",
     "dist/watch/**/*.d.ts.map",
     "dist/watch/**/*.js",
@@ -63,7 +75,7 @@
   ],
   "scripts": {
     "build": "node ../scripts/run-typescript.mjs apiBridge -p tsconfig.json",
-    "test": "yarn build && node dist/test.js && node dist/vector-test.js && node dist/loop-test.js && node dist/hxml-test.js && node dist/watch-test.js && node dist/watch-vector-test.js",
+    "test": "yarn build && node dist/test.js && node dist/vector-test.js && node dist/loop-test.js && node dist/hxml-test.js && node dist/watch-test.js && node dist/watch-vector-test.js && node dist/haxe-server-test.js && node dist/haxe-server-vector-test.js",
     "pack:check": "yarn build && npm pack --dry-run"
   },
   "publishConfig": {
