@@ -89,11 +89,14 @@ both the HXML destination and the selected tree unchanged.
 Use the documented lowercase extensions exactly: generated filenames and
 runtime import requests are case-sensitive, so variants such as `.TSX` or
 `.MJS` are rejected. Supply `genes.output` and the `genes.ts` profile define
-once, as part of the Haxe request. A macro that changes either setting after
-`genes.Generator.use()` fails with `GENES-OUTPUT-TARGET-003` before public
-output is opened. Haxe itself stores defines by name, so if a command repeats
-`-D genes.output=...`, Haxe keeps only the final value before Genes runs; host
-tools should therefore construct one unambiguous define.
+once, as part of the Haxe request. Do not change either setting after
+`genes.Generator.use()`: ordinary late mutation fails with
+`GENES-OUTPUT-TARGET-003` before public output is opened. If a build invokes
+`Generator.use()` again after changing the value, that repeated installation
+may report the more specific value/profile diagnostic `001` or `002` first.
+Every path fails before publication. Haxe itself stores defines by name, so if
+a command repeats `-D genes.output=...`, Haxe keeps only the final value before
+Genes runs; host tools should therefore construct one unambiguous define.
 
 `GENES-OUTPUT-TARGET-004` is a fail-closed compiler-server safeguard. It means
 Haxe presented Genes' private sentinel as a new request's authored `-js`
