@@ -30,7 +30,9 @@
     },
     "./artifact-transactions/v1/protocol.schema.json": "./artifact-transactions/v1/protocol.schema.json",
     "./artifact-transactions/v1/vectors.schema.json": "./artifact-transactions/v1/vectors.schema.json",
-    "./artifact-transactions/v1/vectors.json": "./artifact-transactions/v1/vectors.json"
+    "./artifact-transactions/v1/vectors.json": "./artifact-transactions/v1/vectors.json",
+    "./watch-orchestration/v1/vectors.schema.json": "./watch-orchestration/v1/vectors.schema.json",
+    "./watch-orchestration/v1/vectors.json": "./watch-orchestration/v1/vectors.json"
   },
   "files": [
     "dist/index.d.ts",
@@ -55,11 +57,13 @@
     "dist/watch/**/*.js.map",
     "artifact-transactions/v1/*.json",
     "artifact-transactions/v1/README.md",
+    "watch-orchestration/v1/*.json",
+    "watch-orchestration/v1/README.md",
     "README.md"
   ],
   "scripts": {
     "build": "node ../scripts/run-typescript.mjs apiBridge -p tsconfig.json",
-    "test": "yarn build && node dist/test.js && node dist/vector-test.js && node dist/loop-test.js && node dist/hxml-test.js && node dist/watch-test.js",
+    "test": "yarn build && node dist/test.js && node dist/vector-test.js && node dist/loop-test.js && node dist/hxml-test.js && node dist/watch-test.js && node dist/watch-vector-test.js",
     "pack:check": "yarn build && npm pack --dry-run"
   },
   "publishConfig": {

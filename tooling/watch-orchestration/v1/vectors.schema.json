@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://genes-ts.dev/schemas/watch-orchestration-vectors-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "version", "vectors"],
+  "properties": {
+    "protocol": {
+      "const": "genes.tooling.watch-orchestration-vectors"
+    },
+    "version": {
+      "const": 1
+    },
+    "vectors": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "family", "covers", "description", "expected"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "family": {
+            "enum": ["hxml", "watch", "loop"]
+          },
+          "covers": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+            }
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "expected": {
+            "enum": ["success", "failure"]
+          }
+        }
+      }
+    }
+  }
+}
