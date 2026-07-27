@@ -389,8 +389,9 @@ class DependencyPlanBuilder {
         // `JSX.*` projection. Record one shared semantic fact so neither
         // emitter has to rediscover type use from formatted output.
         if (TypeReferenceCollector.overrideReferencesNamespace(template,
-          'JSX'))
+          'JSX')) {
           usesJsxNamespaceType = true;
+        }
       });
 
     /**
@@ -526,6 +527,28 @@ class DependencyPlanBuilder {
             fields;
           for (field in signatureFields)
             collectSignature(field);
+          /*
+           * A module-function body keeps a compiler-owned descriptor in its
+           * original class slot. The TypeScript emitter nevertheless prints
+           * the source-level overload before assigning the genuine module
+           * function. Haxe's post-DCE field can therefore be weaker than the
+           * signature captured by PublicSurface.
+           *
+           * Collect the retained source signature for those exact fields so a
+           * projected type such as `JSX.Element` still plans its `JSX` import.
+           * This is a type-only supplement: it adds no runtime edge and does
+           * not retain an otherwise dead module function.
+           */
+          if (kind == TypeOnly
+            && Lambda.exists(fields, field -> field.meta != null
+              && field.meta.has(':genes.moduleFunction'))) {
+            final sourceFields = Module.fieldsOf(cl, publicSurface, params,
+              true, fields);
+            for (field in sourceFields)
+              if (field.meta != null && field.meta.has(':genes.moduleFunction')) {
+                collectSignature(field);
+              }
+          }
           if (includeExpressionLocals) {
             for (field in fields)
               collectLocalTypes(field.expr);

@@ -95,10 +95,6 @@ class ModuleFunctionPlan {
               : field.meta.extract(EXPOSE_METADATA);
             if (metadata.length == 0)
               continue;
-            #if (haxe_ver >= 4.2)
-            if (owner.kind.match(KModuleFields(_)))
-              continue;
-            #end
             final entry = parseAndValidate(owner, field, metadata, bindings,
               fields, exposeMetadata);
             entries.push(entry);
@@ -234,8 +230,16 @@ class ModuleFunctionPlan {
 
   static function parsePublicExport(owner: ClassType, field: Field,
       metadata: Array<MetadataEntry>): Null<String> {
-    if (metadata.length == 0)
+    if (metadata.length == 0) {
+      #if (haxe_ver >= 4.2)
+      // Haxe module-level functions are public ESM fields by construction.
+      // Their synthetic KModuleFields class is compiler machinery, so the
+      // genuine module function replaces the ordinary `export const` alias.
+      if (owner.kind.match(KModuleFields(_)) && field.isPublic)
+        return field.name;
+      #end
       return null;
+    }
     final first = metadata[0];
     if (metadata.length != 1 || first.params.length > 1) {
       CompilerDiagnostic.fail('GENES-MODULE-FUNCTION-EXPOSE-ARITY-011: @:expose on '
@@ -270,9 +274,14 @@ class ModuleFunctionPlan {
 
   static function validateShape(owner: ClassType, field: Field,
       requestedName: String): Void {
-    if (owner.isExtern || owner.isInterface || !owner.kind.match(KNormal)) {
+    final supportedOwner = owner.kind.match(KNormal)
+      #if (haxe_ver >= 4.2)
+      || owner.kind.match(KModuleFields(_))
+      #end
+      ;
+    if (owner.isExtern || owner.isInterface || !supportedOwner) {
       CompilerDiagnostic.fail('GENES-MODULE-FUNCTION-OWNER-007: "${requestedName}" requires a '
-        + 'concrete, non-extern KNormal class owner; ${owner.name} is '
+        + 'concrete, non-extern class or module-field owner; ${owner.name} is '
         + Std.string(owner.kind),
         owner.pos);
     }
@@ -418,7 +427,8 @@ class ModuleFunctionPlan {
           #if (haxe_ver >= 4.2)
           if (owner.kind.match(KModuleFields(_))) {
             for (field in Module.emittableFields(fields))
-              if (field.isStatic && field.isPublic)
+              if (field.isStatic && field.isPublic
+                && (field.meta == null || !field.meta.has(METADATA)))
                 add(field.name, 'public module field ${field.name}', field.pos);
           }
           #end

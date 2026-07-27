@@ -70,6 +70,13 @@ class DefinitionEmitter extends ModuleEmitter {
       }
     }
     for (entry in module.moduleFunctionPlan.publicEntries()) {
+      #if (haxe_ver >= 4.2)
+      // Public KModuleFields already receive their exact callable declaration
+      // from emitModuleStatics; adding the class-slot projection would
+      // duplicate the same ESM binding.
+      if (entry.owner.kind.match(KModuleFields(_)))
+        continue;
+      #end
       final publicName = entry.publicExportName;
       if (publicName == null)
         continue;

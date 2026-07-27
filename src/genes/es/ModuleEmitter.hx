@@ -294,7 +294,9 @@ class ModuleEmitter extends ExprEmitter {
     writeNewline();
     for (field in fields)
       switch field {
-        case {isStatic: true, isPublic: true}:
+        case {isStatic: true, isPublic: true}
+          if (moduleFunctionPlan == null
+            || moduleFunctionPlan.entryFor(cl, field) == null):
           write('export const ');
           emitIdent(field.name);
           write(' = ');

@@ -230,6 +230,8 @@ function buildArguments(mode: Mode, scenario: Scenario): string[] {
     "--macro",
     "genes.react.InlineMarkup.enable()",
     "--macro",
+    "genes.react.ReactDiagnosticsMacro.install()",
+    "--macro",
     "addMetadata('@:genes.disableNativeAccessors', 'haxe.Exception')",
     "-cp",
     path.join(workspace(scenario.project), "src"),

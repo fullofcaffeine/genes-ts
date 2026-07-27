@@ -273,6 +273,24 @@ North star: Haxe code that uses genes-provided TypeScript helper abstractions sh
 
 For any Haxe-to-target compiler or framework layer, target compatibility is the floor, not the Haxe API design ceiling. Target-shaped Haxe APIs are fine, and sometimes the right canonical surface, when that shape is intentional: migration ergonomics, interop, differential testing, generated-output inspection, predictable target behavior, or preserving a widely understood host API. When there is no strong target-shaped reason, canonical APIs should default to leveraging Haxe's strengths: types, macros, generated refs, properties, editor completion, and compile-time diagnostics. Keep 1:1 target facades available at runtime/library boundaries and as escape hatches, then prefer semantic Haxe wrappers when they improve readability or safety without changing target behavior. Compiler fixtures should preserve both surfaces where useful: direct target-shaped examples prove compatibility, while Haxe-native wrappers prove the better authoring experience.
 
+For JavaScript-first collection code, prefer familiar typed operations such as
+`map`, `filter`, `find`, `findIndex`, `some`, `every`, `flatMap`, `reduce`,
+`reduceRight`, and `at` when their Haxe contract and generated ES/TS remain
+faithful and idiomatic. Check the Haxe standard library and existing Genes
+surfaces before adding anything. When an ECMAScript operation is genuinely
+missing, keep two contracts distinct:
+a precise `genes.js` API for authors who deliberately want native JavaScript
+semantics such as `undefined`, sparse-array behavior, callback arguments, and
+mutation visibility; and a semantics-preserving compiler lowering for portable
+Haxe APIs such as `Lambda.find`, whose `Null<T>` result must not silently become
+JavaScript `undefined`. Inspect generated output before preferring a fluent call:
+retaining an indirect Lambda/helper module is not an ergonomic improvement over
+a clear loop. Functional pipelines are preferred when their transformations
+and accumulator type remain easy to follow; keep loops when they better express
+indexed mutation, multiple mutable accumulators, allocation control, evaluation
+order, or early control flow.
+Node bindings such as hxnodejs are not the owner of ECMAScript language APIs.
+
 Prefer Haxe module-level functions when behavior is naturally module-scoped and no class identity, inheritance, interface implementation, or runtime export shape requires a class. Avoid unnecessary “shell” classes that only collect `public static` helpers; they add verbosity without improving the generated TypeScript or Haxe authoring experience.
 
 Document every module and class with its purpose once it is more than a trivial DTO/fixture shim. Document functions when their control flow, boundary behavior, type modeling, error policy, or generated-output implications exceed what a reader can infer locally in a few lines. Keep docs useful and concise: explain why the abstraction exists, what contract it preserves, and any important boundary assumptions; do not add noise comments that merely restate names or assignments.

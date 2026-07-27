@@ -41,6 +41,8 @@ agents and human contributors should read the scoped guide directly.
 - `typescript-target/INTEROP.md` — bidirectional cookbook: Haxe consuming JS/TS and TS consuming generated Haxe
 - `typescript-target/IMPORTS.md` — consuming existing JS/TS/TSX via `genes.ts.Imports`
 - `typescript-target/REACT_HXX.md` — React/TSX authoring in Haxe (`genes.react.JSX`)
+- `typescript-target/REACT_HOOKS.md` — framework-neutral semantic state,
+  dependencies, optimistic state, component/Hook identity, and placement checks
 - `typescript-target/ASYNC_AWAIT.md` — typed `@:async` + `await(...)`, native Genes output, and the exact anonymous/named stock-Haxe boundary
 - `typescript-target/DEBUGGING.md` — source maps and debugging workflow
 

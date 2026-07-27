@@ -1,0 +1,10 @@
+-lib genes-ts
+-cp tests/react-hooks/src
+-main react_hooks.Main
+-js tests/react-hooks/out/ts/src-gen/index.ts
+-D genes.ts
+-D genes.ts.jsx_import_source=react
+-D dts
+-D js-es=6
+-dce full
+-debug

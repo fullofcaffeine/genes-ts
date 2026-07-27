@@ -1,0 +1,8 @@
+-lib genes-ts
+-cp tests/react-hooks/src
+-main react_hooks.CallableState
+-js tests/react-hooks/out/negative/index.ts
+-D genes.ts
+-D genes.ts.jsx_import_source=react
+-D js-es=6
+-dce full
