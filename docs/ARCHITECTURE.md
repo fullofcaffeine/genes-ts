@@ -204,7 +204,7 @@ in the emitted application rather than the Haxe compiler process.
 | Explicit type-argument carriers | Occurrence-local typed facts for `TypeArguments.call` and `@:ts.explicitTypeArguments`; deliberately **no** process registry exists. | The exact typed call occurrence carries inert witness types. Emitters revalidate the declaration and erase the carrier. Neither copied positions nor same-named projects can retrieve another occurrence's fact, and a cached typed tree remains self-contained. | `yarn test:explicit-type-arguments`; `yarn test:compiler-server` |
 | `TypeUtil.registerType` / `bootType` | Compiler-owned helper declaration references used by dependency planning. | Haxe 4 initializes them at the proven eager macro point; Haxe 5 fills them in `onAfterInitMacros`, when lookups are legal. They are never indexed by emitted spelling. Stable cold/warm trees prove request correctness; preview's separate post-DCE variance remains advisory. | `yarn test:compiler-server` |
 | `CompilerInternal.GENERATOR_ACTIVE_DEFINE` | Compilation-local capability proving that the active JS request installed Genes and can consume compiler-only carriers. | `Generator.use` defines it only in the JS, non-`genes.disable` branch. A disabled or non-JS request must fail at the carrier boundary and publish nothing; it may not inherit capability from an earlier warm request. | `yarn test:compiler-server` |
-| `TypeEmitter.emittingCapturedSourceType` | Narrow printer dynamic scope, not a semantic cache. It permits a retained source type to preserve enum-abstract literals while that one type is printed. | `emitCapturedSourceType` saves and restores the previous Boolean on success and on `haxe.Exception`. It carries no declaration key and must never remain enabled for a later type or request. Transaction and warm failure/recovery tests protect the surrounding cleanup boundary; raw non-`haxe.Exception` behavior remains a separate characterization task. | `yarn test:types:exports`; `yarn test:output-transaction`; `yarn test:compiler-server` |
+| `TypeEmitter.emittingCapturedSourceType` | Narrow printer dynamic scope, not a semantic cache. It permits a retained source type to preserve enum-abstract literals while that one type is printed. | `emitCapturedSourceType` saves and restores the previous Boolean on success and on `haxe.Exception`. It carries no declaration key and must never remain enabled for a later type or request. The rollback probe directly proves that the supported stable and preview macro runtimes wrap an intentionally thrown plain Haxe string as `haxe.Exception` at the outer transaction boundary. That runtime behavior also supports this narrow typed catch, although the probe does not inject the throw while this flag is enabled. | `yarn test:types:exports`; `yarn test:compiler-server:rollback`; `yarn test:compiler-server` |
 | `Module` lazy plans | Module-local typed facts: dependency/projection, JSX, TS narrowing, temp, local binding, module-function, naming, and cycle plans. | Each `Module` owns its maps and compiler refs. `Module.addTypes` clears every plan whose inputs can change when declaration reachability materializes more types. No plan or `TypedExpr` object is stored process-wide. Template-literal late-materialization coverage is tracked separately and must not be claimed from the general server gate. | `yarn test:output-quality`; `yarn test:compiler-server` |
 | `OutputTransaction`, writers, and source maps | One-generation staging and one-artifact emission state. The ownership manifest is the only filesystem-persistent part. | A transaction key is the exact normalized output basename, including extension, plus a collision-resistant scope. Commit publishes the whole owned set; abort restores the previous public bytes and removes private stages. Writers and mapping buffers are newly constructed and never reused. | `yarn test:output-transaction`; `yarn test:compiler-server` |
 
@@ -229,6 +229,17 @@ readiness with a real bounded request, compare warm output to isolated cold
 output, and prove their exact child process died. They never attach to an
 ambient server. Stable Haxe is blocking; preview uses the same lifecycle as an
 advisory compatibility signal.
+
+`yarn test:compiler-server:rollback` is the smaller failure-only owner. It
+throws both a `CompilerDiagnostic` and a plain Haxe string after TS or classic
+emitters have privately staged implementations, declarations, and maps. The
+plain value is intentionally not normalized by Genes: the pinned stable and
+preview Haxe macro runtimes wrap it as `haxe.Exception`, so the existing
+generator catch retains the original diagnostic while restoring the
+transaction. The same wrapping contract is what the narrow type-printer catch
+relies on, but this command does not inject a throw inside that printer scope.
+If a future supported Haxe lane stops honoring the outer contract, this focused
+command fails before a release can leave partial output.
 
 Haxe's native cache context does not use classpath identity as a complete
 project boundary. The two-project fixture adds a private define per project so

@@ -422,6 +422,9 @@ npm run test:genes-ts:sourcemaps
 # Warm Haxe compiler-server equivalence (stable blocking; preview advisory)
 npm run test:compiler-server
 
+# Raw/structured post-staging failure rollback (stable + preview)
+npm run test:compiler-server:rollback
+
 # Full acceptance (compiler + todoapp E2E)
 npm run test:acceptance
 

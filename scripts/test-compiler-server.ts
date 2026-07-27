@@ -466,59 +466,129 @@ async function assertFailureRollback(
   server: OwnedHaxeCompilerServer,
   timeoutMs: number
 ): Promise<void> {
-  const good: Scenario = {
-    id: "failure-state",
-    project: "project-a",
-    profile: tsProfile
-  };
-  await compilePair(compiler, server, good, timeoutMs);
-  const coldBefore = hashTree(scenarioRoot("cold", good));
-  const warmBefore = hashTree(scenarioRoot("warm", good));
-  const failing: Scenario = {
-    ...good,
-    defines: ["genes.output_transaction_test_fail_before_commit"]
-  };
-  const coldFailure = await runBoundedProcess(
-    compiler.binary,
-    buildArguments("cold", failing),
+  const profiles = [
+    { id: "ts", profile: tsProfile },
+    { id: "classic", profile: classicDeclarationProfile }
+  ] as const;
+  const failures = [
     {
-      cwd: workspace(failing.project),
-      timeoutMs,
-      label: "Cold injected transaction failure"
+      id: "diagnostic",
+      define: "genes.output_transaction_test_fail_before_commit",
+      message: "Genes output transaction test failure before publication"
+    },
+    {
+      id: "raw",
+      define: "genes.output_transaction_test_raw_throw_before_commit",
+      message: "Genes raw output transaction test failure before publication"
     }
-  );
-  const warmFailure = await server.compile(
-    buildArguments("warm", failing),
-    "Warm injected transaction failure",
-    timeoutMs,
-    workspace(failing.project)
-  );
-  for (const [label, result] of [
-    ["cold", coldFailure],
-    ["warm", warmFailure]
-  ] as const) {
-    ok(result.code !== 0, `${label} injected transaction failure succeeded`);
-    ok(
-      resultText(result).includes(
-        "Genes output transaction test failure before publication"
-      ),
-      `${label} failure omitted the transaction diagnostic:\n${resultText(result)}`
-    );
-  }
-  deepStrictEqual(hashTree(scenarioRoot("cold", good)), coldBefore);
-  deepStrictEqual(hashTree(scenarioRoot("warm", good)), warmBefore);
-  assertNoPrivateDebris("cold", good);
-  assertNoPrivateDebris("warm", good);
+  ] as const;
 
-  const coldRecovery = await compileCold(compiler, good, timeoutMs);
-  const warmRecovery = await compileWarm(server, good, timeoutMs);
-  assertSuccess(coldRecovery, "Cold transaction recovery");
-  assertSuccess(warmRecovery, "Warm transaction recovery", server.logs);
-  deepStrictEqual(
-    hashTree(scenarioRoot("warm", good)),
-    hashTree(scenarioRoot("cold", good)),
-    "Corrected warm request differs from corrected cold output"
-  );
+  for (const profile of profiles) {
+    const good: Scenario = {
+      id: `failure-state-${profile.id}`,
+      project: "project-a",
+      profile: profile.profile
+    };
+    rmSync(scenarioRoot("cold", good), { recursive: true, force: true });
+    rmSync(scenarioRoot("warm", good), { recursive: true, force: true });
+    const coldInitial = await compileCold(compiler, good, timeoutMs);
+    const warmInitial = await compileWarm(server, good, timeoutMs);
+    assertSuccess(coldInitial, `Cold ${profile.id} transaction baseline`);
+    assertSuccess(
+      warmInitial,
+      `Warm ${profile.id} transaction baseline`,
+      server.logs
+    );
+    assertManifest("cold", good);
+    assertManifest("warm", good);
+    assertNoPrivateDebris("cold", good);
+    assertNoPrivateDebris("warm", good);
+    const coldBefore = hashTree(scenarioRoot("cold", good));
+    const warmBefore = hashTree(scenarioRoot("warm", good));
+    if (compiler.version === toolchains.haxe.stable) {
+      deepStrictEqual(
+        warmBefore,
+        coldBefore,
+        `Stable warm ${profile.id} baseline differs from its cold build`
+      );
+    }
+
+    for (const failure of failures) {
+      const failing: Scenario = {
+        ...good,
+        defines: [failure.define]
+      };
+      const coldFailure = await runBoundedProcess(
+        compiler.binary,
+        buildArguments("cold", failing),
+        {
+          cwd: workspace(failing.project),
+          timeoutMs,
+          label: `Cold ${profile.id} ${failure.id} transaction failure`
+        }
+      );
+      const warmFailure = await server.compile(
+        buildArguments("warm", failing),
+        `Warm ${profile.id} ${failure.id} transaction failure`,
+        timeoutMs,
+        workspace(failing.project)
+      );
+      for (const [mode, result] of [
+        ["cold", coldFailure],
+        ["warm", warmFailure]
+      ] as const) {
+        ok(
+          result.code !== 0,
+          `${mode} ${profile.id} ${failure.id} failure succeeded`
+        );
+        ok(
+          resultText(result).includes(failure.message),
+          `${mode} ${profile.id} ${failure.id} failure omitted its diagnostic`
+          + `:\n${resultText(result)}`
+        );
+      }
+      deepStrictEqual(
+        hashTree(scenarioRoot("cold", good)),
+        coldBefore,
+        `Cold ${profile.id} ${failure.id} failure changed the prior tree`
+      );
+      deepStrictEqual(
+        hashTree(scenarioRoot("warm", good)),
+        warmBefore,
+        `Warm ${profile.id} ${failure.id} failure changed the prior tree`
+      );
+      assertNoPrivateDebris("cold", good);
+      assertNoPrivateDebris("warm", good);
+    }
+
+    const coldRecovery = await compileCold(compiler, good, timeoutMs);
+    const warmRecovery = await compileWarm(server, good, timeoutMs);
+    assertSuccess(coldRecovery, `Cold ${profile.id} transaction recovery`);
+    assertSuccess(
+      warmRecovery,
+      `Warm ${profile.id} transaction recovery`,
+      server.logs
+    );
+    assertNoPrivateDebris("cold", good);
+    assertNoPrivateDebris("warm", good);
+    deepStrictEqual(
+      hashTree(scenarioRoot("cold", good)),
+      coldBefore,
+      `Corrected cold ${profile.id} request differs from its last-good tree`
+    );
+    deepStrictEqual(
+      hashTree(scenarioRoot("warm", good)),
+      warmBefore,
+      `Corrected warm ${profile.id} request differs from its last-good tree`
+    );
+    if (compiler.version === toolchains.haxe.stable) {
+      deepStrictEqual(
+        hashTree(scenarioRoot("warm", good)),
+        hashTree(scenarioRoot("cold", good)),
+        `Corrected warm ${profile.id} request differs from corrected cold output`
+      );
+    }
+  }
 }
 
 async function assertCapabilityIsolation(
@@ -725,6 +795,45 @@ async function runSignalProbe(): Promise<void> {
   await new Promise(() => {
     // The parent sends SIGTERM after it has captured the exact server PID.
   });
+}
+
+/**
+ * Runs only the generation-failure contract on the selected Haxe lane.
+ *
+ * Why: Haxe preview currently has a separately documented cold/warm typed-AST
+ * variance in `genes/Register.ts`. The complete server matrix must keep
+ * reporting that difference, but it should not prevent us from observing
+ * whether preview wraps a raw thrown value and lets Genes restore each
+ * process's own last-good output.
+ *
+ * What/How: both TS and classic declaration profiles establish independent
+ * cold and warm baselines, fail after private staging, compare each tree with
+ * its own baseline, then compile successfully again. Stable Haxe additionally
+ * requires cold and warm trees to be identical.
+ */
+async function runRollbackProbe(): Promise<void> {
+  rmSync(tempRoot, { recursive: true, force: true });
+  resetProject("project-a");
+  const compiler = selectedHaxeCompiler(repoRoot);
+  const timeoutMs = compiler.version === toolchains.haxe.preview
+    ? 120_000
+    : 60_000;
+  const server = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
+  server.installSignalCleanup();
+  try {
+    await assertFailureRollback(compiler, server, timeoutMs);
+  } finally {
+    await server.stop();
+  }
+  deepStrictEqual(
+    leakedOutputStages(outputRoot),
+    [],
+    "Rollback probe left a private output stage"
+  );
+  process.stdout.write(
+    `compiler-server-rollback:ok (Haxe ${compiler.version}; `
+    + "TS/classic, structured/raw throws, cold/warm recovery)\n"
+  );
 }
 
 async function main(): Promise<void> {
@@ -1010,6 +1119,8 @@ async function main(): Promise<void> {
 
 if (process.argv.includes("--signal-probe")) {
   await runSignalProbe();
+} else if (process.argv.includes("--rollback-only")) {
+  await runRollbackProbe();
 } else {
   await main();
 }

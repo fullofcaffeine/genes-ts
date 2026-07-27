@@ -342,6 +342,14 @@ class Generator {
       'Genes output transaction test failure before publication',
       Context.currentPos());
     #end
+    // This private probe deliberately throws a plain Haxe value rather than a
+    // CompilerDiagnostic. It verifies that every supported macro runtime wraps
+    // such values as haxe.Exception before they cross generate()'s rollback
+    // boundary. Keep it after all emitters so a passing test proves that real
+    // staged TS/classic/declaration/map files are discarded.
+    #if genes.output_transaction_test_raw_throw_before_commit
+    throw 'Genes raw output transaction test failure before publication';
+    #end
     outputTransaction.commit();
   }
 

@@ -69,6 +69,7 @@ yarn test:interop:module-shapes # npm declaration/runtime import contracts
 yarn test:library-profile # default DCE vs matched TS/classic library surfaces
 yarn test:dynamic-import-policy # cold/warm runtime-suffix equivalence
 yarn test:compiler-server # whole-compiler cold/warm lifecycle equivalence
+yarn test:compiler-server:rollback # raw/structured post-staging recovery
 yarn benchmark:dependency-plan # report-only scaling experiment for large import graphs
 ```
 
@@ -106,6 +107,22 @@ difference in `genes/Register.ts`. That result remains visible and is not
 allowlisted, but it does not weaken the stable release gate. The latest-Node
 smoke sets `SKIP_COMPILER_SERVER=1` because that lane owns Node compatibility;
 the main stable acceptance job owns compiler-server correctness.
+
+`yarn test:compiler-server:rollback` focuses on one failure boundary within
+that lifecycle. It first publishes a known-good TS or classic
+JavaScript-plus-declarations tree, then throws after every generated file has
+been written into the private stage. One case uses the ordinary structured
+compiler diagnostic; the other throws a plain Haxe string. Both the isolated
+compiler and the warm server must report the original message, leave the
+public tree and ownership manifest byte-identical, remove the private stage and
+Haxe sentinel, and compile successfully afterward.
+
+Stable Haxe additionally requires the recovered warm tree to equal the cold
+tree. Preview compares each recovered process with its own prior tree because
+the complete server owner already exposes a separate cold/warm
+`genes/Register.ts` typed-AST variance. The focused comparison does not
+allowlist or normalize those files: `yarn test:compiler-server` continues to
+report the independent preview difference.
 
 The quality manifest measures the bounded dual corpus. It uses exact module,
 temporary, and import baselines plus 5% byte/token ceilings; it is not a

@@ -40,6 +40,7 @@
     "test:deep-nullish-alias": "yarn build:scripts && node scripts/dist/test-deep-nullish-alias.js",
     "test:dynamic-import-policy": "yarn build:scripts && node scripts/dist/test-dynamic-import-policy.js",
     "test:compiler-server": "yarn build:scripts && node scripts/dist/test-compiler-server.js",
+    "test:compiler-server:rollback": "yarn build:scripts && node scripts/dist/test-compiler-server.js --rollback-only",
     "test:ci-gate-ownership": "yarn build:scripts && node scripts/dist/test-ci-gate-ownership.js",
     "benchmark:dependency-plan": "yarn build:scripts && node scripts/dist/benchmark-dependency-plan.js",
     "test:ts2hx-bootstrap": "yarn build:scripts && node scripts/dist/test-ts2hx-bootstrap.js",
