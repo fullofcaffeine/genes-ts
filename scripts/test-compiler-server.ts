@@ -823,6 +823,8 @@ async function assertInvalidOutputOverride(
   ] as const;
 
   for (const failure of failures) {
+    seedConfiguredOutput("cold", failure.scenario);
+    seedConfiguredOutput("warm", failure.scenario);
     const cold = await compileCold(compiler, failure.scenario, timeoutMs);
     const warm = await compileWarm(server, failure.scenario, timeoutMs);
     for (const [mode, result] of [["cold", cold], ["warm", warm]] as const) {

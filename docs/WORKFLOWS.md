@@ -95,6 +95,12 @@ output is opened. Haxe itself stores defines by name, so if a command repeats
 `-D genes.output=...`, Haxe keeps only the final value before Genes runs; host
 tools should therefore construct one unambiguous define.
 
+`GENES-OUTPUT-TARGET-004` is a fail-closed compiler-server safeguard. It means
+Haxe presented Genes' private sentinel as a new request's authored `-js`
+destination, so the real owner could not be recovered safely. Restart that
+owned compiler server and retry the request; Genes will not guess a public
+path or publish into its private temporary area.
+
 This is framework-neutral host tooling. For example, a Gutenberg-oriented
 Haxe tool can generate an isolated TSX inspection tree while its normal HXML
 continues to name the production entrypoint:

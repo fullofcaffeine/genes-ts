@@ -614,13 +614,14 @@ class Generator {
       case value:
         value;
     }
-    // Validate on every call, including a repeated Generator.use(). A previous
-    // implementation returned as soon as it saw the sentinel, allowing a
-    // later invalid define to bypass the public host contract.
-    validateConfiguredOutput(requestedOutput);
     if (compilerSentinelFile != null && compilerOutput == compilerSentinelFile) {
-      if (alreadyInstalled)
+      if (alreadyInstalled) {
+        // Validate on every call. A previous implementation returned as soon
+        // as it saw the sentinel, allowing a later invalid define to bypass
+        // the public host contract.
+        validateConfiguredOutput(requestedOutput);
         return;
+      }
       if (!overridePresent) {
         removeCompilerSentinel();
         Context.error('[GENES-OUTPUT-TARGET-004] Haxe reused Genes\' private '
@@ -653,6 +654,7 @@ class Generator {
       'genes-haxe-output-$key.tmp'
     ]);
     Compiler.setOutput(compilerSentinelFile);
+    validateConfiguredOutput(requestedOutput);
     configuredOutputFile = requestedOutput;
     configuredOutputOverridePresent = overridePresent;
     configuredOutputOverride = overrideValue;
@@ -673,6 +675,7 @@ class Generator {
     // Haxe represents a valueless `-D name` as the string "1".
     if (output == '1' || output.trim().length == 0
       || output.indexOf('\x00') >= 0) {
+      removeCompilerSentinel();
       Context.error('[GENES-OUTPUT-TARGET-001] -D $OUTPUT_DEFINE=<path> '
         + 'requires one explicit, non-empty output path.',
         Context.currentPos());
@@ -687,6 +690,7 @@ class Generator {
     else
       extension == 'js' || extension == 'jsx' || extension == 'mjs';
     if (!supported) {
+      removeCompilerSentinel();
       final expected = Context.defined('genes.ts')
         ? '.ts or .tsx'
         : '.js, .jsx, or .mjs';
