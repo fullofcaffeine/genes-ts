@@ -73,7 +73,11 @@ class Main {
   }
 
   public static function main(): Void {
-    final current = RuntimePackage.identity(REVISION);
+    // This source occupies the same relative shape as Project A but lives in a
+    // different project root. The typed carrier must retain Project B's Int
+    // witness instead of a same-named prior compilation's String fact.
+    final current = genes.ts.TypeArguments.call(
+      RuntimePackage.identity(REVISION), REVISION);
     var transcript = "project-b:" + current + ":" + Extra.value();
     #if server_removed
     transcript += ":" + Removed.value();

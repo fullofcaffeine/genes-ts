@@ -149,7 +149,8 @@ trees, then independently checks runtime transcripts, TS 5/6/7 consumers,
 classic declarations, source-map tokens, diagnostics, ownership manifests,
 private transaction stages, and output sentinels. Its sequence includes TS,
 classic MJS, TSX, changed output roots, edit/delete/restore, module directives,
-module functions, library/DCE surfaces, import forms and attributes,
+module functions, library/DCE surfaces, a `TypeArguments.call` witness rebuilt
+as String → Int → String at one exact source position, import forms and attributes,
 post-staging failure/recovery, an active-to-disabled capability transition, and
 two projects with identical Haxe module names but different typed contracts.
 
@@ -171,9 +172,13 @@ stable job owns compiler-server correctness.
 At the current checkpoint, `5.0.0-preview.1` accepts the native protocol but
 does not pass byte equivalence: its warm `genes/Register.ts` adds an
 `unsafeCast<{}>` around `cls.prototype` that its cold build does not emit.
-This remains visible in the advisory job for typed-state characterization; the
-stable assertion is not relaxed and no preview-specific output allowlist is
-used.
+Record-mode compiler dumps localize the change to DCE resolving
+`js.lib.Object.defineProperty`'s generic monomorph differently in cold and warm
+trees; the earlier casting-stage trees agree. This remains visible in the
+advisory job for typed-state characterization. Stable assertions are not
+relaxed and no preview-specific output allowlist is used. The owner-by-owner
+checkpoint table is in
+[`tests/compiler-server/README.md`](../tests/compiler-server/README.md#macro-state-checkpoint).
 
 ### Compatibility evidence and downstream pressure tests
 

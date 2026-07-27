@@ -2,13 +2,13 @@
  * Reproduces how a library macro can reuse one checked call template.
  *
  * Why: both generated calls retain the input expression's same source span.
- * A registry that assumes every span belongs to exactly one expansion would
- * reject the second call even though its type witness is identical.
+ * Position-based ownership would merge the two expansions even though they
+ * are separate typed occurrences.
  *
  * What/How: `twice` copies the caller's direct extern call and witness into a
  * two-element array. `TypeArguments.call` still runs for each copy, so the
- * fixture proves that equivalent registrations share one semantic fact while
- * producing two ordinary runtime calls in source order.
+ * fixture proves both occurrence-local facts produce ordinary runtime calls in
+ * source order.
  */
 class CellMacro {
   /** Expands one checked call/witness pair twice without evaluating it early. */
@@ -24,7 +24,7 @@ class CellMacro {
    * Wraps the reviewed generic call in an ordinary fluent method call.
    *
    * Why: Haxe assigns both callees the enclosing macro invocation's source
-   * span. A span-only registry mistakes `seal` for the opted-in generic field.
+   * span. Span-only ownership mistakes `seal` for the opted-in generic field.
    * What/How: the compiler must bind the witness to the exact extern target,
    * emit it on `makeCell`, and leave `seal()` ordinary in both output modes.
    */

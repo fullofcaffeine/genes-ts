@@ -386,6 +386,7 @@ void [projectAResult, projectBResult];
       "out/cold/a-ts-baseline/**/*.ts",
       "out/cold/a-tsx/**/*.tsx",
       "out/cold/a-library/**/*.ts",
+      "out/cold/a-explicit-witness-int/**/*.ts",
       "out/cold/a-imports/**/*.ts",
       "out/cold/b-ts/**/*.ts",
       "out/cold/a-return-final/**/*.ts",
@@ -853,6 +854,22 @@ async function main(): Promise<void> {
     );
 
     restoreProject("project-a");
+    const alternateWitness: Scenario = {
+      id: "a-explicit-witness-int",
+      project: "project-a",
+      profile: tsProfile,
+      defines: ["server_numeric_witness"]
+    };
+    await compilePair(compiler, server, alternateWitness, timeoutMs);
+    assertContains(
+      moduleFile("cold", alternateWitness),
+      "identity<number>"
+    );
+    assertNotContains(
+      moduleFile("cold", alternateWitness),
+      "identity<string>"
+    );
+
     const restored: Scenario = {
       ...baseline,
       id: "a-restored"
@@ -986,7 +1003,8 @@ async function main(): Promise<void> {
   );
   process.stdout.write(
     `compiler-server:ok (Haxe ${compiler.version}; `
-    + "cold/warm profiles, edits, projects, rollback, capability, cleanup)\n"
+    + "cold/warm profiles, typed witnesses, edits, projects, rollback, "
+    + "capability, cleanup)\n"
   );
 }
 

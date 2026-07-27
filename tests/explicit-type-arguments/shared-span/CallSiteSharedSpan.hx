@@ -10,10 +10,10 @@ private extern class CellModule {
   static function make<Value>(value: Value): Cell<Value>;
 }
 
-/** Proves a macro cannot attach two different types to one generated call. */
-class CallSiteConflictingSpan {
+/** Proves copied positions do not merge two occurrence-local type witnesses. */
+class CallSiteSharedSpan {
   static function main(): Void {
-    ConflictingCallMacro.expand(CellModule.make(Phase.Pending),
+    SharedSpanCallMacro.expand(CellModule.make(Phase.Pending),
       Phase.Pending, "wider");
   }
 }

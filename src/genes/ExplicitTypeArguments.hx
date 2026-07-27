@@ -13,39 +13,21 @@ private typedef ExplicitTypeArgumentField = {
 }
 
 /**
- * Identifies the extern method that is allowed to receive saved type arguments.
+ * One occurrence-local TypeScript argument selected by checked Haxe typing.
  *
- * Why: two calls created by a macro can have the same source location even
- * when they call different methods. A location alone can therefore attach a
- * type argument to the wrong call.
- *
- * What/How: these fields describe the declaration Haxe resolved before the
- * program is emitted. The TypeScript emitter compares all four values before
- * using a saved argument. Generated names and source positions are deliberately
- * absent because neither one uniquely identifies a declaration.
+ * `type` is the compiler-owned Haxe identity used by the ordinary type printer.
+ * `tsType` is present only when Haxe would erase a source distinction such as
+ * a closed enum-abstract literal union before generation.
  */
-private typedef ExplicitTypeArgumentTarget = {
-  final ownerModule: String;
-  final ownerName: String;
-  final fieldName: String;
-  final isStatic: Bool;
-}
-
 typedef ExplicitTypeArgument = {
   final type: Type;
   final tsType: Null<String>;
 }
 
-/** The saved registration key and original value carried through Haxe typing. */
+/** The original value and occurrence-local type facts carried through typing. */
 typedef ExplicitTypeArgumentCallSite = {
-  final id: String;
   final value: TypedExpr;
-}
-
-private typedef ExplicitCallSite = {
   final arguments: Array<ExplicitTypeArgument>;
-  final position: Position;
-  final target: ExplicitTypeArgumentTarget;
 }
 
 /**
@@ -80,32 +62,23 @@ class ExplicitTypeArguments {
   public static inline final METADATA = ':ts.explicitTypeArguments';
   static inline final DIAGNOSTIC = 'GENES-TS-EXPLICIT-TYPE-ARGS-001';
   static inline final MAX_TYPE_DEPTH = 64;
-  static final explicitCallSites: Map<String, ExplicitCallSite> = [];
 
   /**
    * Returns the exact type arguments for an opted-in direct extern call.
    *
-   * When `id` is present, the call came from `TypeArguments.call`. The saved
-   * declaration must match the callee currently being emitted. A mismatch is a
-   * compiler-planning error: silently ignoring it would lose the precise type
-   * that the source macro asked Genes to preserve.
+   * When `carriedArguments` is present, the call came from
+   * `TypeArguments.call`. The carrier belongs to this exact typed occurrence,
+   * so a warm compilation can reuse the typed tree without consulting macro
+   * process state. The declaration is still revalidated before the facts are
+   * used; a cached or malformed carrier cannot authorize another callable.
    */
   public static function forCall(callee: TypedExpr,
-      id: Null<String> = null): Null<Array<ExplicitTypeArgument>> {
-    final callSite = id == null ? null : explicitCallSites.get(id);
-    if (id != null && callSite == null) {
-      fail('the compiler-owned call identity has no registered type witness',
-        callee.pos);
-    }
+      carriedArguments: Null<Array<ExplicitTypeArgument>> = null): Null<Array<ExplicitTypeArgument>> {
     final resolved = resolveField(callee);
-    if (callSite != null && !matchesTarget(callSite.target, resolved)) {
-      fail('the compiler-owned call identity no longer points to its reviewed '
-        + 'direct extern callable', callSite.position);
-    }
     if (resolved == null) {
-      if (callSite != null) {
+      if (carriedArguments != null) {
         fail('TypeArguments.call(...) requires a direct extern callable',
-          callSite.position);
+          callee.pos);
       }
       return null;
     }
@@ -113,10 +86,10 @@ class ExplicitTypeArguments {
     final declaration = metadataDeclaration(resolved.owner, resolved.field,
       resolved.isStatic);
     if (declaration == null) {
-      if (callSite != null) {
+      if (carriedArguments != null) {
         fail('TypeArguments.call(...) requires a generic extern callable '
           + 'annotated with @:ts.explicitTypeArguments',
-          callSite.position);
+          callee.pos);
       }
       return null;
     }
@@ -140,15 +113,22 @@ class ExplicitTypeArguments {
         declaration.pos);
     }
 
-    if (callSite != null) {
-      if (callSite.arguments.length != declaration.params.length) {
+    if (carriedArguments != null) {
+      if (carriedArguments.length != declaration.params.length) {
         fail('TypeArguments.call(...) requires exactly '
           + '${declaration.params.length} type witness'
           + (declaration.params.length == 1 ? '' : 'es')
-          + ', received ${callSite.arguments.length}',
-          callSite.position);
+          + ', received ${carriedArguments.length}',
+          callee.pos);
       }
-      return callSite.arguments;
+      for (index in 0...carriedArguments.length) {
+        if (containsUnsafeType(carriedArguments[index].type)) {
+          fail('TypeArguments.call(...) witness ${index + 1} is unresolved or broad; '
+            + 'explicit TypeScript type arguments must remain precise',
+            callee.pos);
+        }
+      }
+      return carriedArguments;
     }
 
     final parameterKeys: Map<String, Bool> = [];
@@ -192,16 +172,14 @@ class ExplicitTypeArguments {
    * generic argument in declaration order. Witness expressions are typed and
    * discarded; they are never evaluated.
    *
-   * How: the public macro records the types plus the direct extern owner,
-   * field, and static/instance kind under a deterministic key. It wraps the
-   * original call in a compiler-internal typed identity carrier containing
-   * that key, because Haxe can relocate nested macro source positions and
-   * discards arbitrary untyped expression metadata. Both emitters remove the
-   * carrier and its key. The TypeScript emitter additionally scopes the
-   * registration while it prints the original value and requires the exact
-   * declaration identity to match before applying the witness. Equivalent
-   * duplicated calls share one registration; conflicting witnesses still fail
-   * instead of depending on printer order.
+   * How: the public macro wraps the original call in a compiler-internal typed
+   * identity carrier. Each witness becomes an inert typed-null fact; a closed
+   * enum abstract also carries its pre-erasure TypeScript union spelling.
+   * Haxe can relocate source positions and discard arbitrary metadata, but the
+   * typed call occurrence survives both transformations and compiler-server
+   * caching. Both emitters remove the carrier and every fact. The TypeScript
+   * emitter additionally scopes the facts while it prints the original value
+   * and revalidates the exact extern declaration before applying them.
    */
   public static function registerCall(expression: Expr,
       witnesses: Array<Expr>): Expr {
@@ -216,8 +194,6 @@ class ExplicitTypeArguments {
     if (resolved == null)
       fail('TypeArguments.call(...) requires a direct extern callable',
         expression.pos);
-    final target = targetOf(resolved);
-    final calleePosition = callee.pos;
     final arguments = new Array<ExplicitTypeArgument>();
     for (index in 0...witnesses.length) {
       final argument = Context.typeof(witnesses[index]);
@@ -231,28 +207,7 @@ class ExplicitTypeArguments {
         tsType: genes.ts.SignatureCache.enumAbstractLiteralUnionTsType(argument)
       });
     }
-    final key = registrationKey(calleePosition, target);
-    final previous = explicitCallSites.get(key);
-    if (previous != null) {
-      if (!sameTarget(previous.target, target)) {
-        fail('TypeArguments.call(...) found different direct extern targets '
-          + 'for calls that share one generated source span; the generating '
-          + 'macro must give those callees distinct source positions',
-          expression.pos);
-      }
-      if (!sameExplicitArguments(previous.arguments, arguments)) {
-        fail('TypeArguments.call(...) found different type witnesses for calls '
-          + 'that share one generated source span; the generating macro must '
-          + 'give those callees distinct source positions', expression.pos);
-      }
-      return markCall(expression, callee, call.parameters, key);
-    }
-    explicitCallSites.set(key, {
-      arguments: arguments,
-      position: expression.pos,
-      target: target
-    });
-    return markCall(expression, callee, call.parameters, key);
+    return markCall(expression, callee, call.parameters, arguments);
   }
 
   /**
@@ -266,7 +221,7 @@ class ExplicitTypeArguments {
   public static function infersPreciseLocalType(expression: TypedExpr): Bool {
     final marker = callSiteMarker(expression);
     if (marker != null)
-      return explicitCallSites.exists(marker.id);
+      return true;
     return switch expression.expr {
       case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, null):
         infersPreciseLocalType(inner);
@@ -282,16 +237,36 @@ class ExplicitTypeArguments {
   /** Recognizes the compiler-only identity call around a reviewed expression. */
   public static function callSiteMarker(expression: TypedExpr): Null<ExplicitTypeArgumentCallSite> {
     return switch expression.expr {
-      case TCall(callee, [value, key]):
+      case TCall(callee, carrierArguments) if (carrierArguments.length >= 1):
         final resolved = resolveField(callee);
-        final id = typedString(key);
-        resolved != null
+        if (resolved != null
           && resolved.owner.pack.join('.') == 'genes.ts'
           && resolved.owner.name == 'ExplicitTypeArgumentCallSite'
-          && resolved.field.name == 'preserve'
-          && id != null
-          ? {id: id, value: value}
-          : null;
+          && resolved.field.name == 'preserve') {
+          final value = carrierArguments[0];
+          final encoded = carrierArguments.slice(1);
+          if (encoded.length % 2 != 0) {
+            fail('the compiler-owned call carrier has malformed type facts',
+              expression.pos);
+          }
+          final arguments = new Array<ExplicitTypeArgument>();
+          var index = 0;
+          while (index < encoded.length) {
+            final tsType = typedString(encoded[index + 1]);
+            if (tsType == null) {
+              fail('the compiler-owned call carrier has a non-literal type spelling',
+                encoded[index + 1].pos);
+            }
+            arguments.push({
+              type: encoded[index].t,
+              tsType: tsType.length == 0 ? null : tsType
+            });
+            index += 2;
+          }
+          {value: value, arguments: arguments};
+        } else {
+          null;
+        }
       case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, null):
         callSiteMarker(inner);
       default:
@@ -314,43 +289,43 @@ class ExplicitTypeArguments {
    *
    * Haxe may relocate nested macro source positions and discards arbitrary
    * untyped expression metadata. A real typed extern call survives both steps,
-   * so it carries the deterministic registry key to emission. Both Genes
+   * so it carries the occurrence-local witness types to emission. Both Genes
    * emitters recognize this compiler-internal field, emit only `expression`,
-   * and never evaluate or print the key.
+   * and never evaluate or print the typed-null facts.
    */
   static function markCall(expression: Expr, callee: Expr,
-      parameters: Array<Expr>, key: String): Expr {
+      parameters: Array<Expr>,
+      arguments: Array<ExplicitTypeArgument>): Expr {
     final original: Expr = {
       expr: ECall(callee, parameters),
       pos: expression.pos
     };
-    return macro @:pos(expression.pos) genes.ts.ExplicitTypeArgumentCallSite.preserve(
-      $original, $v{key});
-  }
-
-  static function positionKey(position: Position): String {
-    final info = Context.getPosInfos(position);
-    return '${info.file}:${info.min}:${info.max}';
-  }
-
-  static function registrationKey(position: Position,
-      target: ExplicitTypeArgumentTarget): String {
-    return positionKey(position)
-      + '|${target.ownerModule}:${target.ownerName}'
-      + ':${target.fieldName}:${target.isStatic}';
-  }
-
-  /** True when repeated macro expansion preserved exactly the same type fact. */
-  static function sameExplicitArguments(left: Array<ExplicitTypeArgument>,
-      right: Array<ExplicitTypeArgument>): Bool {
-    if (left.length != right.length)
-      return false;
-    for (index in 0...left.length) {
-      if (left[index].tsType != right[index].tsType
-        || !sameType(left[index].type, right[index].type))
-        return false;
+    final carrierArguments = [original];
+    for (argument in arguments) {
+      final complex = TypeTools.toComplexType(argument.type);
+      if (complex == null) {
+        fail('TypeArguments.call(...) cannot preserve this witness type in '
+          + 'the compiler-owned typed carrier', expression.pos);
+      }
+      carrierArguments.push({
+        expr: ECheckType({
+          expr: EConst(CIdent('null')),
+          pos: expression.pos
+        }, complex),
+        pos: expression.pos
+      });
+      carrierArguments.push({
+        expr: EConst(CString(argument.tsType ?? '')),
+        pos: expression.pos
+      });
     }
-    return true;
+    return {
+      expr: ECall(
+        macro @:pos(expression.pos) genes.ts.ExplicitTypeArgumentCallSite.preserve,
+        carrierArguments
+      ),
+      pos: expression.pos
+    };
   }
 
   /**
@@ -373,30 +348,6 @@ class ExplicitTypeArguments {
       default:
         null;
     }
-  }
-
-  /** Converts compiler references into a comparison-safe declaration key. */
-  static function targetOf(resolved: ExplicitTypeArgumentField): ExplicitTypeArgumentTarget {
-    return {
-      ownerModule: resolved.owner.module,
-      ownerName: resolved.owner.name,
-      fieldName: resolved.field.name,
-      isStatic: resolved.isStatic
-    };
-  }
-
-  /** True only for the exact extern field reviewed by the source macro. */
-  static function matchesTarget(target: ExplicitTypeArgumentTarget,
-      resolved: Null<ExplicitTypeArgumentField>): Bool {
-    return resolved != null && sameTarget(target, targetOf(resolved));
-  }
-
-  static function sameTarget(left: ExplicitTypeArgumentTarget,
-      right: ExplicitTypeArgumentTarget): Bool {
-    return left.ownerModule == right.ownerModule
-      && left.ownerName == right.ownerName
-      && left.fieldName == right.fieldName
-      && left.isStatic == right.isStatic;
   }
 
   /**

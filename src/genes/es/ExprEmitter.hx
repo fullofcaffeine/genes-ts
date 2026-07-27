@@ -348,7 +348,7 @@ class ExprEmitter extends Emitter {
 
   public function emitExpr(e: TypedExpr) {
     // TypeArguments.call(...) uses a typed carrier so nested macro output keeps
-    // its registry identity. Classic JS emits only the original statement.
+    // each occurrence's witness. Classic JS emits only the original statement.
     final explicitTypeArgumentCall = genes.ExplicitTypeArguments.callSiteMarker(e);
     if (explicitTypeArgumentCall != null) {
       emitExpr(explicitTypeArgumentCall.value);
@@ -1204,7 +1204,8 @@ class ExprEmitter extends Emitter {
   }
 
   function emitValue(e: TypedExpr):Void {
-    // The carrier and deterministic key are compiler-only in value position too.
+    // Explicit type witnesses affect TS syntax only; classic JS erases the
+    // compiler-owned carrier and emits the original runtime value unchanged.
     final explicitTypeArgumentCall = genes.ExplicitTypeArguments.callSiteMarker(e);
     if (explicitTypeArgumentCall != null) {
       emitValue(explicitTypeArgumentCall.value);
