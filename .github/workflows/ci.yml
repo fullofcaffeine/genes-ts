@@ -189,6 +189,9 @@ jobs:
       # required-check rename or matrix change is rejected on the PR that
       # proposes it, before GitHub settings and workflow output can diverge.
       - run: yarn test:main-protection-policy
+      # Release settings live outside Git. Keep their public live-policy check
+      # in this required job so a weakened environment blocks ordinary PRs.
+      - run: yarn test:tooling-release-workflow
       - run: yarn lix install haxe ${{ steps.toolchains.outputs.haxe-stable }}
       - run: yarn lix use haxe ${{ steps.toolchains.outputs.haxe-stable }}
       - run: yarn test:acceptance

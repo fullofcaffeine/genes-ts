@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "repository": "fullofcaffeine/genes-ts",
+  "environment": "tooling-npm-production",
+  "minimumRequiredReviewers": 1,
+  "preventSelfReview": true,
+  "canAdminsBypass": false,
+  "protectedBranches": true,
+  "customBranchPolicies": false
+}

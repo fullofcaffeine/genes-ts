@@ -64,8 +64,57 @@ OIDC use, repository administrators must configure:
 - npm trusted publishing for this repository and the
   `.github/workflows/release-tooling.yml` workflow;
 - a protected GitHub environment named `tooling-npm-production`, with required
-  reviewers and no unreviewed deployment branches;
+  reviewers, self-review disabled, administrator bypass disabled, and no
+  unreviewed deployment branches;
 - branch protection on `main`, including the normal CI and security checks.
+
+These are not ceremonial settings. The workflow can request a short-lived npm
+publishing identity through OpenID Connect (OIDC), so the workflow code and the
+human approval boundary together decide who can publish. Every third-party
+action in both release-capable workflows is therefore pinned to a full,
+reviewed commit SHA. A tag such as `actions/checkout@v6` is readable but
+mutable; the tag owner can move it after our review. The nearby `# v6.1.0`
+comment retains the understandable release name and lets Dependabot propose
+future SHA rotations.
+
+The environment policy is checked twice:
+
+1. normal CI reads GitHub's public environment API and compares it with
+   `config/tooling-release-environment-policy.json`;
+2. the release job repeats the same check before setting up the release
+   toolchain or requesting npm credentials.
+
+The policy requires at least one reviewer, prevents the person who dispatched
+the workflow from approving that same run, rejects administrator bypass, and
+admits only protected branches. If the triggering maintainer is the only
+eligible reviewer, the run intentionally cannot proceed. Before the first
+publication, grant an independent maintainer at least repository read access
+and add that person or their team to the environment's required reviewers.
+Never weaken self-review or administrator-bypass protection to work around a
+single-maintainer reviewer set.
+
+Audit the live, read-only policy without publishing anything:
+
+```bash
+node scripts/verify-tooling-release-environment.mjs --live
+yarn test:tooling-release-workflow
+```
+
+The expected result states that self-review and administrator bypass are off
+and protected branches are on. A network/API failure also fails closed; the
+checked-in policy is not treated as proof of the live GitHub setting.
+
+The tooling workflow also checks out the workflow's protected `main` commit,
+not the operator-supplied commit value. Before it executes any checked-in
+script, it proves that the supplied release commit equals both that checkout
+and current `origin/main`. This ordering matters: validating an arbitrary
+checkout only after running its scripts would give unreviewed code access to a
+release-capable job. Manual compiler releases likewise run only from the
+`main` workflow ref. Automatic compiler releases accept only successful
+`push` CI runs for this repository's own `main` branch. Checking all three
+facts—event, repository, and branch—is important because a pull request from a
+fork may also use a source branch named `main`; branch spelling alone does not
+make that code trusted enough for a job with release write permission.
 
 npm currently permits trusted-publisher configuration only after a package
 exists. `@genes-ts/tooling` is not yet published, so version `0.1.0` requires a
@@ -120,6 +169,45 @@ yarn test:tooling-package
 ```
 
 `yarn --cwd tooling pack:check` is the package-scoped equivalent.
+
+### Rotating pinned GitHub Actions
+
+Dependabot is configured for weekly GitHub Actions updates. For a proposed
+release-workflow action update:
+
+1. confirm that the commit belongs to the official action repository and is
+   the exact commit tagged by the version in the same-line comment;
+2. review that action release's notes and security/runtime changes;
+3. update the workflow SHA and version comment together;
+4. update the corresponding reviewed expectation in
+   `scripts/test-tooling-release-workflow.ts`;
+5. run `yarn test:tooling-release-workflow`, then the full `yarn test:ci`.
+
+Do not replace a full SHA with a major, floating, or branch reference to make a
+Dependabot change smaller. The test deliberately rejects mutable references in
+both `.github/workflows/release.yml` and
+`.github/workflows/release-tooling.yml`.
+
+### Changing production environment reviewers
+
+GitHub environment updates replace the submitted reviewer list, so inspect the
+current rule before changing it and reread it afterward:
+
+```bash
+gh api repos/fullofcaffeine/genes-ts/environments/tooling-npm-production \
+  > /tmp/tooling-npm-production.before.json
+
+# Make the reviewed environment change in GitHub settings or with the
+# Environments REST API, preserving every intended reviewer and branch rule.
+
+node scripts/verify-tooling-release-environment.mjs --live
+```
+
+The repository policy intentionally does not pin reviewer account IDs: reviewer
+rotation is an operational setting, while the invariant is that at least one
+eligible reviewer exists and the triggering actor cannot approve their own
+run. Record the before/after API evidence in the review that authorizes a
+rotation. Changing this policy does not authorize an npm publication.
 
 ### Version and changelog policy
 

@@ -1,5 +1,12 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -14,7 +21,67 @@ const compilerWorkflow = readFileSync(
   path.join(repoRoot, ".github/workflows/release.yml"),
   "utf8"
 );
+const ciWorkflow = readFileSync(
+  path.join(repoRoot, ".github/workflows/ci.yml"),
+  "utf8"
+);
 const rootPackageJson = readFileSync(path.join(repoRoot, "package.json"), "utf8");
+const environmentVerifier = path.join(
+  repoRoot,
+  "scripts/verify-tooling-release-environment.mjs"
+);
+
+type ActionPin = {
+  owner: string;
+  sha: string;
+  version: string;
+};
+
+const yamlModule: unknown = createRequire(import.meta.url)("js-yaml");
+assert(
+  typeof yamlModule === "object" &&
+    yamlModule !== null &&
+    "load" in yamlModule &&
+    typeof yamlModule.load === "function",
+  "js-yaml does not expose the required load function"
+);
+const parseYaml = yamlModule.load as (source: string) => unknown;
+
+const toolingActionPins: ActionPin[] = [
+  {
+    owner: "actions/checkout",
+    sha: "d23441a48e516b6c34aea4fa41551a30e30af803",
+    version: "v6.1.0",
+  },
+  {
+    owner: "actions/setup-node",
+    sha: "249970729cb0ef3589644e2896645e5dc5ba9c38",
+    version: "v6.5.0",
+  },
+  {
+    owner: "actions/upload-artifact",
+    sha: "ea165f8d65b6e75b540449e92b4886f43607fa02",
+    version: "v4.6.2",
+  },
+];
+
+const compilerActionPins: ActionPin[] = [
+  {
+    owner: "actions/checkout",
+    sha: "11d5960a326750d5838078e36cf38b85af677262",
+    version: "v4.4.0",
+  },
+  {
+    owner: "actions/setup-node",
+    sha: "49933ea5288caeca8642d1e84afbd3f7d6820020",
+    version: "v4.4.0",
+  },
+  {
+    owner: "actions/cache",
+    sha: "0057852bfaa89a56745cba8c7296529d2fc39830",
+    version: "v4.3.0",
+  },
+];
 
 function assert(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -35,6 +102,231 @@ function requireOrdered(
   assert(
     beforeIndex >= 0 && afterIndex > beforeIndex,
     message
+  );
+}
+
+/**
+ * Protects executable identity in workflows that can publish packages or
+ * create compiler releases.
+ *
+ * A major-version action tag such as `@v6` can be moved after review, while a
+ * full commit SHA identifies the exact action code that was approved. The
+ * human-readable release comment remains on the same line so Dependabot can
+ * propose reviewed SHA rotations without making the workflow opaque.
+ */
+function verifyPinnedActions(
+  source: string,
+  workflowName: string,
+  expected: ActionPin[]
+): void {
+  const parsedUses: string[] = [];
+  const visited = new WeakSet<object>();
+  const collectUses = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      for (const item of value) collectUses(item);
+      return;
+    }
+    if (typeof value !== "object" || value === null || visited.has(value))
+      return;
+
+    visited.add(value);
+    const record = value as Record<string, unknown>;
+    if (Object.prototype.hasOwnProperty.call(record, "uses")) {
+      assert(
+        typeof record.uses === "string",
+        `${workflowName} has a non-string uses: entry`
+      );
+      parsedUses.push(record.uses);
+    }
+    for (const [key, child] of Object.entries(record))
+      if (key !== "uses") collectUses(child);
+  };
+  collectUses(parseYaml(source));
+
+  const references = [...source.matchAll(
+    /^\s*(?:-\s*)?uses:\s*([^\s#]+)(?:\s+#\s+(\S+))?\s*$/gm
+  )].map((match) => {
+    const reference = match[1];
+    const separator = reference.lastIndexOf("@");
+    assert(
+      separator > 0,
+      `${workflowName} action ${reference} is not an owner/repository reference pinned to a SHA`
+    );
+    return {
+      owner: reference.slice(0, separator),
+      sha: reference.slice(separator + 1),
+      version: match[2],
+    };
+  });
+
+  assert(
+    references.length === parsedUses.length,
+    `${workflowName} has an unreviewed or non-canonical uses: entry`
+  );
+  assert(
+    references.length === expected.length,
+    `${workflowName} has an unexpected action reference`
+  );
+  for (let index = 0; index < references.length; index++) {
+    const actual = references[index];
+    const wanted = expected[index];
+    assert(
+      `${actual.owner}@${actual.sha}` === parsedUses[index],
+      `${workflowName} action parsing disagrees with its canonical source line`
+    );
+    assert(
+      /^[0-9a-f]{40}$/.test(actual.sha),
+      `${workflowName} action ${actual.owner} is not pinned to a full commit SHA`
+    );
+    assert(
+      actual.owner === wanted.owner &&
+        actual.sha === wanted.sha &&
+        actual.version === wanted.version,
+      `${workflowName} action pin ${actual.owner}@${actual.sha} # ${actual.version ?? "missing"} ` +
+        `does not match reviewed ${wanted.owner}@${wanted.sha} # ${wanted.version}`
+    );
+  }
+}
+
+type EnvironmentSnapshot = {
+  name: string;
+  can_admins_bypass: boolean;
+  protection_rules: Array<{
+    type: string;
+    prevent_self_review?: boolean;
+    reviewers?: Array<{ type: string; reviewer: { id: number } }>;
+  }>;
+  deployment_branch_policy: {
+    protected_branches: boolean;
+    custom_branch_policies: boolean;
+  };
+};
+
+function runEnvironmentVerifier(
+  arguments_: string[],
+  expectedSuccess: boolean,
+  message: string
+): void {
+  const result = spawnSync(process.execPath, [environmentVerifier, ...arguments_], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  assert(
+    (result.status === 0) === expectedSuccess,
+    `${message}\n${result.stdout}${result.stderr}`
+  );
+}
+
+/**
+ * Exercises the same environment-policy verifier used by the release job.
+ *
+ * Local mutation cases prove that each protection is independently required.
+ * The final public API read proves that the GitHub setting still matches the
+ * reviewed repository contract; a checked-in snapshot alone would miss live
+ * settings drift.
+ */
+function verifyProtectedEnvironment(): void {
+  const validPolicy = {
+    schemaVersion: 1,
+    repository: "fullofcaffeine/genes-ts",
+    environment: "tooling-npm-production",
+    minimumRequiredReviewers: 1,
+    preventSelfReview: true,
+    canAdminsBypass: false,
+    protectedBranches: true,
+    customBranchPolicies: false,
+  };
+  const valid: EnvironmentSnapshot = {
+    name: "tooling-npm-production",
+    can_admins_bypass: false,
+    protection_rules: [
+      {
+        type: "required_reviewers",
+        prevent_self_review: true,
+        reviewers: [{ type: "User", reviewer: { id: 1 } }],
+      },
+      { type: "branch_policy" },
+    ],
+    deployment_branch_policy: {
+      protected_branches: true,
+      custom_branch_policies: false,
+    },
+  };
+  const temporaryRoot = mkdtempSync(path.join(tmpdir(), "genes-release-environment-"));
+  try {
+    const snapshotPath = path.join(temporaryRoot, "environment.json");
+    const policyPath = path.join(temporaryRoot, "policy.json");
+    writeFileSync(policyPath, `${JSON.stringify(validPolicy)}\n`);
+    const runSnapshot = (
+      snapshot: EnvironmentSnapshot,
+      expectedSuccess: boolean,
+      message: string
+    ): void => {
+      writeFileSync(snapshotPath, `${JSON.stringify(snapshot)}\n`);
+      runEnvironmentVerifier(["--file", snapshotPath], expectedSuccess, message);
+    };
+
+    runSnapshot(valid, true, "valid protected environment was rejected");
+    runSnapshot(
+      { ...valid, can_admins_bypass: true },
+      false,
+      "environment verifier accepted administrator bypass"
+    );
+    runSnapshot(
+      {
+        ...valid,
+        protection_rules: valid.protection_rules.map((rule) =>
+          rule.type === "required_reviewers"
+            ? { ...rule, prevent_self_review: false }
+            : rule
+        ),
+      },
+      false,
+      "environment verifier accepted self-review"
+    );
+    runSnapshot(
+      {
+        ...valid,
+        protection_rules: valid.protection_rules.map((rule) =>
+          rule.type === "required_reviewers" ? { ...rule, reviewers: [] } : rule
+        ),
+      },
+      false,
+      "environment verifier accepted an empty reviewer set"
+    );
+    runSnapshot(
+      {
+        ...valid,
+        deployment_branch_policy: {
+          protected_branches: false,
+          custom_branch_policies: false,
+        },
+      },
+      false,
+      "environment verifier accepted unprotected deployment branches"
+    );
+    writeFileSync(
+      policyPath,
+      `${JSON.stringify({
+        ...validPolicy,
+        repository: "attacker-controlled/example",
+      })}\n`
+    );
+    writeFileSync(snapshotPath, `${JSON.stringify(valid)}\n`);
+    runEnvironmentVerifier(
+      ["--file", snapshotPath, "--policy", policyPath],
+      false,
+      "environment verifier accepted policy for a different repository"
+    );
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+
+  runEnvironmentVerifier(
+    ["--live"],
+    true,
+    "live tooling-npm-production environment does not match checked-in policy"
   );
 }
 
@@ -119,8 +411,40 @@ function verifyToolingReleaseWorkflow(source: string): void {
   );
   requireText(
     source,
+    "ref: ${{ github.sha }}",
+    "tooling release must check out the protected workflow ref, not an arbitrary commit input"
+  );
+  requireText(
+    source,
     "environment: tooling-npm-production",
     "release job must use the protected production environment"
+  );
+  requireText(
+    source,
+    `- uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          ref: \${{ github.sha }}
+      - name: Verify protected source before running repository code`,
+    "protected source verification must be the immediate first step after checkout"
+  );
+  requireOrdered(
+    source,
+    "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0",
+    "Verify protected source before running repository code",
+    "the checked-out commit must be verified before repository code runs"
+  );
+  requireOrdered(
+    source,
+    "Verify protected source before running repository code",
+    "node scripts/verify-tooling-release-environment.mjs --live",
+    "protected source must be proven before the checked-out verifier runs"
+  );
+  requireOrdered(
+    source,
+    "node scripts/verify-tooling-release-environment.mjs --live",
+    "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0",
+    "live approval policy must be checked before release toolchain setup"
   );
   requireText(
     source,
@@ -150,8 +474,8 @@ function verifyToolingReleaseWorkflow(source: string): void {
   const remoteMainCheck =
     "test \"$RELEASE_COMMIT\" = \"$(git rev-parse origin/main)\"";
   assert(
-    source.split(remoteMainCheck).length - 1 === 2,
-    "release commit must equal current remote main both before testing and immediately before publication"
+    source.split(remoteMainCheck).length - 1 === 3,
+    "release commit must equal current remote main before repository code, before testing, and immediately before publication"
   );
   requireText(source, "run: yarn test:ci", "release must rerun the full repository gate");
   requireText(
@@ -219,7 +543,7 @@ function verifyToolingReleaseWorkflow(source: string): void {
   );
   requireText(
     source,
-    "- uses: actions/upload-artifact@v4\n        if: ${{ always() }}",
+    "- uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2\n        if: ${{ always() }}",
     "release evidence must still upload when publication or registry verification fails"
   );
   for (const forbiddenAction of [
@@ -235,10 +559,68 @@ function verifyToolingReleaseWorkflow(source: string): void {
   }
 }
 
+function verifyCompilerReleaseWorkflow(source: string): void {
+  verifyPinnedActions(source, "compiler release workflow", compilerActionPins);
+  requireText(
+    source,
+    `workflow_run:
+    workflows: ["genes-ts CI"]
+    types: [completed]
+    branches: [main]`,
+    "automatic compiler releases must consume successful CI from main only"
+  );
+  requireText(
+    source,
+    `if: >-
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/main') ||
+      (github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.conclusion == 'success' &&`,
+    "compiler releases must reject manual non-main refs and untrusted workflow runs"
+  );
+}
+
+function verifyRequiredCiOwner(source: string): void {
+  const parsed: unknown = parseYaml(source);
+  assert(typeof parsed === "object" && parsed !== null, "CI workflow must be a mapping");
+  const workflowRecord = parsed as Record<string, unknown>;
+  assert(
+    typeof workflowRecord.jobs === "object" && workflowRecord.jobs !== null,
+    "CI workflow must define jobs"
+  );
+  const jobs = workflowRecord.jobs as Record<string, unknown>;
+  const requiredJob = jobs["genes-ts"];
+  assert(
+    typeof requiredJob === "object" && requiredJob !== null,
+    "CI workflow must define the required genes-ts job"
+  );
+  const requiredJobRecord = requiredJob as Record<string, unknown>;
+  assert(
+    Array.isArray(requiredJobRecord.steps),
+    "required genes-ts job must define steps"
+  );
+  assert(
+    requiredJobRecord.steps.some(
+      (step: unknown) =>
+        typeof step === "object" &&
+        step !== null &&
+        (step as Record<string, unknown>).run ===
+          "yarn test:tooling-release-workflow"
+    ),
+    "the required genes-ts PR job must run the live release-policy owner"
+  );
+}
+
+verifyPinnedActions(workflow, "tooling release workflow", toolingActionPins);
+verifyCompilerReleaseWorkflow(compilerWorkflow);
 verifyToolingReleaseWorkflow(workflow);
+verifyProtectedEnvironment();
+verifyRequiredCiOwner(ciWorkflow);
 assert(
   !compilerWorkflow.includes("npm publish") &&
-    !compilerWorkflow.includes("@genes-ts/tooling"),
+  !compilerWorkflow.includes("@genes-ts/tooling"),
   "compiler semantic-release workflow must not publish the tooling npm package"
 );
 assert(
@@ -288,6 +670,134 @@ try {
 }
 assert(rejected, "tooling release policy accepted an unpinned source commit");
 
+rejected = false;
+try {
+  verifyPinnedActions(
+    workflow.replace(
+      "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0",
+      "actions/checkout@v6"
+    ),
+    "mutated tooling release workflow",
+    toolingActionPins
+  );
+} catch {
+  rejected = true;
+}
+assert(rejected, "tooling release policy accepted a mutable action tag");
+
+for (const unauthorizedUse of [
+  "      - uses: ./unreviewed-local-action\n",
+  "      - uses: docker://example.invalid/release-helper:latest\n",
+  "      - { uses: ./unreviewed-inline-action }\n",
+  "      - \"uses\": ./unreviewed-quoted-action\n",
+]) {
+  rejected = false;
+  try {
+    verifyPinnedActions(
+      workflow.replace("    steps:\n", `    steps:\n${unauthorizedUse}`),
+      "mutated tooling release workflow",
+      toolingActionPins
+    );
+  } catch {
+    rejected = true;
+  }
+  assert(rejected, `tooling release policy accepted ${unauthorizedUse.trim()}`);
+}
+
+rejected = false;
+try {
+  verifyToolingReleaseWorkflow(
+    workflow.replace(
+      "      - name: Verify protected source before running repository code",
+      "      - run: node scripts/unreviewed-before-source-proof.mjs\n" +
+        "      - name: Verify protected source before running repository code"
+    )
+  );
+} catch {
+  rejected = true;
+}
+assert(rejected, "tooling release policy allowed repository code before source proof");
+
+rejected = false;
+try {
+  verifyToolingReleaseWorkflow(
+    workflow.replace(
+      "ref: ${{ github.sha }}",
+      "ref: ${{ inputs.commit }}"
+    )
+  );
+} catch {
+  rejected = true;
+}
+assert(rejected, "tooling release policy accepted repository code from an arbitrary commit input");
+
+rejected = false;
+try {
+  verifyCompilerReleaseWorkflow(
+    compilerWorkflow.replace(
+      `(github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/main')`,
+      "github.event_name == 'workflow_dispatch'"
+    )
+  );
+} catch {
+  rejected = true;
+}
+assert(rejected, "compiler release policy accepted manual dispatch from a non-main ref");
+
+rejected = false;
+try {
+  verifyCompilerReleaseWorkflow(
+    compilerWorkflow.replace("    branches: [main]\n", "")
+  );
+} catch {
+  rejected = true;
+}
+assert(rejected, "compiler release policy accepted workflow_run from an unprotected branch");
+
+for (const [trustedCondition, unsafeCondition, description] of [
+  [
+    "github.event.workflow_run.event == 'push'",
+    "github.event.workflow_run.event == 'pull_request'",
+    "a pull-request CI run",
+  ],
+  [
+    "github.event.workflow_run.head_repository.full_name == github.repository",
+    "true",
+    "a fork repository",
+  ],
+  [
+    "github.event.workflow_run.head_branch == 'main'",
+    "true",
+    "a non-main source branch",
+  ],
+]) {
+  rejected = false;
+  try {
+    verifyCompilerReleaseWorkflow(
+      compilerWorkflow.replace(trustedCondition, unsafeCondition)
+    );
+  } catch {
+    rejected = true;
+  }
+  assert(rejected, `compiler release policy accepted ${description}`);
+}
+
+rejected = false;
+try {
+  const command = "      - run: yarn test:tooling-release-workflow\n";
+  const withoutRequiredOwner = ciWorkflow.replace(command, "");
+  verifyRequiredCiOwner(
+    withoutRequiredOwner.replace("    steps:\n", `    steps:\n${command}`)
+  );
+} catch {
+  rejected = true;
+}
+assert(
+  rejected,
+  "CI policy accepted the live release check only in a non-required job"
+);
+
 console.log(
-  "tooling-release-workflow:ok (manual main-pinned OIDC publish + exact downloaded-byte verification)"
+  "tooling-release-workflow:ok (immutable actions + live independent approval + exact OIDC bytes)"
 );

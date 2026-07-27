@@ -425,6 +425,31 @@ Repository settings cannot be proved from a checkout. Use the API commands in
 the active ruleset, required GitHub Actions contexts, strict up-to-date policy,
 and empty bypass list.
 
+## Release workflow supply-chain contract
+
+The compiler and `@genes-ts/tooling` release workflows can create externally
+visible artifacts, so their executable action identities are stricter than
+ordinary CI: every `uses:` reference is a reviewed full commit SHA with a
+same-line release-version comment. The tooling workflow additionally depends
+on a live GitHub environment that prevents self-review and administrator
+bypass.
+
+Run the repository and live-settings proof with:
+
+```bash
+yarn test:tooling-release-workflow
+```
+
+The test rejects mutable action tags in both release-capable workflows,
+rejects compiler release runs originating from pull requests, forks, or
+non-main branches, exercises fail-closed environment-policy mutations, and
+reads the public live `tooling-npm-production` environment. It does not
+dispatch a workflow, request an npm identity, or publish bytes. A network/API
+failure is a test failure because a cached settings snapshot cannot prove the
+current approval boundary.
+See [Releasing genes-ts and `@genes-ts/tooling`](RELEASING.md) for the action
+rotation and reviewer-change procedures.
+
 ## ts2hx (experimental)
 
 The repository also contains an experimental TS/JS → Haxe transpiler under `tools/ts2hx/`.
