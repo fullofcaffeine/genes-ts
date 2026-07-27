@@ -1,3 +1,16 @@
+# [1.39.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.38.2...v1.39.0) (2026-07-27)
+
+
+### Bug Fixes
+
+* **generator:** clean invalid override sentinels ([7be0547](https://github.com/fullofcaffeine/genes-ts/commit/7be054742e95ec3e97f59d3cfce00339f15d6dff))
+* **ts:** carry explicit witnesses through warm builds ([#49](https://github.com/fullofcaffeine/genes-ts/issues/49)) ([525fcec](https://github.com/fullofcaffeine/genes-ts/commit/525fcec7bfb26febe027b73afc182522ac3822dc))
+
+
+### Features
+
+* **generator:** select a transactional output target ([535d4a3](https://github.com/fullofcaffeine/genes-ts/commit/535d4a3c4921f9a0f8bef0f9f78f7ecc25df53ff))
+
 ## [1.38.2](https://github.com/fullofcaffeine/genes-ts/compare/v1.38.1...v1.38.2) (2026-07-26)
 
 
