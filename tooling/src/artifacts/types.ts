@@ -91,7 +91,8 @@ export type ArtifactFailureKind =
   | "recovery-conflict"
   | "filesystem-unsupported"
   | "filesystem-permission"
-  | "control-path-collision";
+  | "control-path-collision"
+  | "intended-state-rejected";
 
 export interface ArtifactFailureFact {
   readonly kind: ArtifactFailureKind;
@@ -127,6 +128,13 @@ export type ArtifactCheckpoint =
 export interface PublishOptions {
   readonly projectRoot: string;
   readonly plan: PublicationPlan;
+  /**
+   * Host-owned validation after every intended live file exists and before
+   * the transaction is committed. `false` or a thrown error rolls back.
+   */
+  readonly admitIntended?: (
+    plan: PublicationPlan,
+  ) => boolean | Promise<boolean>;
   readonly faultInjector?: (checkpoint: ArtifactCheckpoint) => void;
 }
 

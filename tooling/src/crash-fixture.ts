@@ -16,7 +16,7 @@ if (projectRoot === undefined || planPath === undefined || crashAt === undefined
 }
 
 const plan = JSON.parse(readFileSync(planPath, "utf8")) as PublicationPlan;
-publishArtifacts({
+await publishArtifacts({
   projectRoot,
   plan,
   faultInjector: (point) => {

@@ -34,9 +34,10 @@ const faultInjector = (point: ArtifactCheckpoint): void => {
 try {
   const outcome =
     request.action === "publish"
-      ? publishArtifacts({
+      ? await publishArtifacts({
           projectRoot: request.projectRoot,
           plan: request.plan,
+          admitIntended: () => request.admitIntended,
           faultInjector,
         })
       : await recoverArtifacts({

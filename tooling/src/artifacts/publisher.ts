@@ -329,7 +329,9 @@ function publishTransition(
   }
 }
 
-export function publishArtifacts(options: PublishOptions): PublicationOutcome {
+export async function publishArtifacts(
+  options: PublishOptions,
+): Promise<PublicationOutcome> {
   const plan = validatePublicationPlan(options.plan);
   const root = canonicalProjectRoot(options.projectRoot);
   for (const transition of [...plan.artifacts, plan.commitMarker]) {
@@ -403,6 +405,12 @@ export function publishArtifacts(options: PublishOptions): PublicationOutcome {
     );
     updateJournal(root, plan, transactionId, "published");
     checkpoint(options, "after-phase-published");
+    if (
+      options.admitIntended !== undefined &&
+      !(await options.admitIntended(plan))
+    ) {
+      artifactFailure("intended-state-rejected", plan.commitMarker.path);
+    }
     updateJournal(root, plan, transactionId, "committed");
 
     unlinkDurable(

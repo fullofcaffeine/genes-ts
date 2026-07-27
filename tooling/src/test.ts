@@ -209,7 +209,7 @@ const publishRoot = mkdtempSync(
 try {
   materializeMixedFixture(publishRoot);
   const checkpoints: ArtifactCheckpoint[] = [];
-  const result = publishArtifacts({
+  const result = await publishArtifacts({
     projectRoot: publishRoot,
     plan: publishPlan,
     faultInjector: (point) => checkpoints.push(point),
@@ -227,7 +227,10 @@ try {
     true,
   );
   assert.equal(
-    publishArtifacts({ projectRoot: publishRoot, plan: publishPlan }).action,
+    (await publishArtifacts({
+      projectRoot: publishRoot,
+      plan: publishPlan,
+    })).action,
     "unchanged",
   );
 } finally {
@@ -239,7 +242,7 @@ const rollbackRoot = mkdtempSync(
 );
 try {
   materializeMixedFixture(rollbackRoot);
-  assert.throws(
+  await assert.rejects(
     () =>
       publishArtifacts({
         projectRoot: rollbackRoot,
@@ -285,6 +288,67 @@ try {
   );
 } finally {
   rmSync(rollbackRoot, { recursive: true, force: true });
+}
+
+for (const admission of [
+  {
+    readonlyName: "rejected",
+    admit: async (): Promise<boolean> => false,
+    expected: /intended-state-rejected/u,
+  },
+  {
+    readonlyName: "thrown",
+    admit: async (): Promise<boolean> => {
+      throw new Error("host validator failed");
+    },
+    expected: /host validator failed/u,
+  },
+] as const) {
+  const admissionRoot = mkdtempSync(
+    path.join(
+      realpathSync.native(tmpdir()),
+      `genes-tooling-admission-${admission.readonlyName}-`,
+    ),
+  );
+  try {
+    materializeMixedFixture(admissionRoot);
+    await assert.rejects(
+      () =>
+        publishArtifacts({
+          projectRoot: admissionRoot,
+          plan: publishPlan,
+          admitIntended: admission.admit,
+        }),
+      admission.expected,
+    );
+    assert.equal(
+      readFileSync(
+        path.join(admissionRoot, "generated/update.js"),
+        "utf8",
+      ),
+      "old update\n",
+    );
+    assert.equal(
+      readFileSync(
+        path.join(admissionRoot, "generated/remove.js"),
+        "utf8",
+      ),
+      "old remove\n",
+    );
+    assert.equal(
+      readFileSync(
+        path.join(admissionRoot, "generated/owner.json"),
+        "utf8",
+      ),
+      "old owner\n",
+    );
+    assert.equal(
+      existsSync(path.join(admissionRoot, "generated/create.js")),
+      false,
+    );
+  } finally {
+    rmSync(admissionRoot, { recursive: true, force: true });
+  }
 }
 
 function crashPublish(

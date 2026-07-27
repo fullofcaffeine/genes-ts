@@ -25,16 +25,20 @@ import {
 } from "@genes-ts/tooling/artifacts";
 
 const plan: PublicationPlan = authorizeGeneration();
-const outcome = publishArtifacts({
+const outcome = await publishArtifacts({
   projectRoot: "/real/project/root",
   plan,
+  admitIntended: async (intendedPlan) =>
+    validateLiveGeneratedProject(intendedPlan),
 });
 ```
 
 Before changing a live file, the publisher checks every live and staged state,
 takes a project-scoped lock, and writes a canonical durable journal. It moves
-the plan's opaque `commitMarker` last. A caught filesystem or validation error
-rolls back immediately. If the process exits, a later process calls
+the plan's opaque `commitMarker` last, then offers the exact intended live state
+to the optional host-owned `admitIntended` callback before committing. A
+rejection, caught filesystem error, or validator error rolls back immediately.
+If the process exits, a later process calls
 `recoverArtifacts`:
 
 ```ts

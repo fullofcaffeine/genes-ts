@@ -526,9 +526,10 @@ async function runDirect(
   try {
     const outcome =
       step.action === "publish"
-        ? publishArtifacts({
+        ? await publishArtifacts({
             projectRoot: root,
             plan,
+            admitIntended: () => step.admitIntended,
             faultInjector: directFault(root, step.fault),
           })
         : await recoverArtifacts({
