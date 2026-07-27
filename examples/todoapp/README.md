@@ -12,6 +12,24 @@ ecosystem without turning the source into a TypeScript-only dialect. It is
 still a bounded integration harness, not a claim that every Haxe/JS program is
 already equivalent across both profiles.
 
+## React Router 8 baseline
+
+The harness uses React Router 8.3 or newer in client-side Declarative Mode.
+Router 8 removed the transitional `react-router-dom` package, so the Haxe
+externs and every generated profile import `BrowserRouter`, `Routes`, `Route`,
+`Link`, `useNavigate`, and `useParams` from `react-router`.
+
+React Router 8.3 requires Node 22.22 or newer and React/React DOM 19.2.7 or
+newer. The repository declares those floors in `package.json`; CI exercises
+the supported Node 22 lane and the next-LTS Node 24 lane. The Todo harness does
+not use Router's unstable React Server Components APIs.
+
+This upgrade removed the time-bounded OSV exception for
+`GHSA-qwww-vcr4-c8h2`: the advisory marks React Router 8.3 as patched, so
+`yarn test:vulns` now passes without suppressing that Router finding. Run
+`yarn test:examples --playwright` to verify the same routing journeys through
+generated TS/TSX and direct classic ESM output.
+
 ## Build and run
 
 From the repository root:

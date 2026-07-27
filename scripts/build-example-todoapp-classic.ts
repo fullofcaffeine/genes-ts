@@ -155,6 +155,10 @@ const classicWeb = readFileSync(
   ),
   "utf8"
 );
+const classicApp = readFileSync(
+  path.join(exampleRoot, "web/classic-src-gen/todo/web/App.js"),
+  "utf8"
+);
 const classicServer = readFileSync(
   path.join(exampleRoot, "server/classic-src-gen/todo/server/Main.js"),
   "utf8"
@@ -173,6 +177,8 @@ const classicDomainDeclaration = readFileSync(
 );
 
 match(classicWeb, /React__genes_jsx\.createElement\("h2"/);
+match(`${classicApp}\n${classicWeb}`, /from "react-router"/);
+doesNotMatch(`${classicApp}\n${classicWeb}`, /react-router-dom/);
 match(classicWeb, /from "\.\.\/\.\.\/\.\.\/\.\.\/src-ts\/components\/PrettyButton"/);
 match(classicWeb, /from "\.\.\/\.\.\/\.\.\/\.\.\/src-ts\/interop\/haxeInterop"/);
 doesNotMatch(classicWeb, /genes\.react\.internal\.Jsx/);

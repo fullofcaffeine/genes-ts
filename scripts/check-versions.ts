@@ -1,6 +1,11 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
-import { generatedOutputLanes, repoRoot, toolchains } from "./toolchains.js";
+import {
+  generatedOutputLanes,
+  isStableVersionAtLeast,
+  repoRoot,
+  toolchains
+} from "./toolchains.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -295,6 +300,53 @@ function verifyNodeAdmissionBoundary(
 
 const supportedNodeFloor = nodeMajor(toolchains.node.stable, "node.stable");
 const latestNodeLts = nodeMajor(toolchains.node.nextLts, "node.nextLts");
+ensureSemver(toolchains.node.minimumRuntime);
+const minimumNodeMajor = nodeMajor(
+  toolchains.node.minimumRuntime.split(".")[0],
+  "node.minimumRuntime major"
+);
+if (minimumNodeMajor !== supportedNodeFloor) {
+  throw new Error(
+    `node.minimumRuntime (${toolchains.node.minimumRuntime}) must belong to `
+      + `the stable Node ${toolchains.node.stable} lane`
+  );
+}
+const engines = asObject(pkg.engines, "package.json engines");
+const expectedNodeEngine = `>=${toolchains.node.minimumRuntime}`;
+const actualNodeEngine = asString(engines.node, "package.json engines.node");
+if (actualNodeEngine !== expectedNodeEngine) {
+  throw new Error(
+    `Node engine mismatch: expected ${expectedNodeEngine}, got ${actualNodeEngine}`
+  );
+}
+const nodeVersionBoundaryCases: ReadonlyArray<readonly [string, boolean]> = [
+  [toolchains.node.minimumRuntime, true],
+  ["22.22.1", true],
+  ["22.23.0", true],
+  ["23.0.0", true],
+  ["22.21.99", false],
+  ["21.99.99", false]
+];
+for (const [candidate, expected] of nodeVersionBoundaryCases) {
+  const actual = isStableVersionAtLeast(candidate, toolchains.node.minimumRuntime);
+  if (actual !== expected) {
+    throw new Error(
+      `Node patch-floor comparison failed for ${candidate}: `
+        + `expected ${expected}, got ${actual}`
+    );
+  }
+}
+for (const malformed of ["22.22.0-rc.1", "22.22.0suffix", "22.22"]) {
+  try {
+    isStableVersionAtLeast(malformed, toolchains.node.minimumRuntime);
+    throw new Error(`Node patch-floor comparison admitted malformed version ${malformed}`);
+  } catch (error) {
+    if (error instanceof Error
+      && error.message === `Node patch-floor comparison admitted malformed version ${malformed}`) {
+      throw error;
+    }
+  }
+}
 if (supportedNodeFloor >= latestNodeLts) {
   throw new Error(
     `Expected node.stable (${supportedNodeFloor}) to precede node.nextLts (${latestNodeLts})`

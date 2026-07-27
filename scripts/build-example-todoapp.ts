@@ -65,6 +65,26 @@ function assertPreciseJsxNamespaceImport(extension: ".ts" | ".tsx"): void {
   assert.doesNotMatch(todo, /^import type \{JSX\} from "react"\n/m);
 }
 
+/**
+ * Proves the Todo externs follow React Router 8's canonical package boundary.
+ *
+ * Router 8 removed `react-router-dom`. A stale extern can still type-check
+ * against an old transitive install, so every generated web variant must show
+ * the new `react-router` request and must not retain the removed package name.
+ */
+function assertReactRouter8Imports(extension: ".ts" | ".tsx"): void {
+  const generated = path.join(exampleRoot, "web", "src-gen", "todo");
+  const modules = [
+    path.join(generated, "web", `App${extension}`),
+    path.join(generated, "web", `Router${extension}`),
+    path.join(generated, "web", "pages", `TodoDetailPage${extension}`),
+    path.join(generated, "web", "pages", `TodoListPage${extension}`)
+  ].map(file => readFileSync(file, "utf8")).join("\n");
+
+  assert.match(modules, /from "react-router"/);
+  assert.doesNotMatch(modules, /react-router-dom/);
+}
+
 rmrf("web/src-gen");
 rmrf("web/dist");
 rmrf("server/src-gen");
@@ -75,6 +95,7 @@ rmrf("server/dist");
 // Variant: low-level React output (.ts + React.createElement).
 run("haxe", ["examples/todoapp/web/build.lowlevel.hxml"]);
 assertPreciseJsxNamespaceImport(".ts");
+assertReactRouter8Imports(".ts");
 assertSnapshots({
   generatedDir: "examples/todoapp/web/src-gen",
   snapshotsDir: "examples/todoapp/web/dist-ts-lowlevel/src-gen",
@@ -91,6 +112,7 @@ runTypeScript("legacyFloor", ["-p", "examples/todoapp/web/tsconfig.json"]);
 rmrf("web/src-gen");
 run("haxe", ["examples/todoapp/web/build.minimal.hxml"]);
 assertPreciseJsxNamespaceImport(".tsx");
+assertReactRouter8Imports(".tsx");
 assertSnapshots({
   generatedDir: "examples/todoapp/web/src-gen",
   snapshotsDir: "examples/todoapp/web/dist-ts-minimal/src-gen",
@@ -107,6 +129,7 @@ runTypeScript("legacyFloor", ["-p", "examples/todoapp/web/tsconfig.json"]);
 rmrf("web/src-gen");
 run("haxe", ["examples/todoapp/web/build.hxml"]);
 assertPreciseJsxNamespaceImport(".tsx");
+assertReactRouter8Imports(".tsx");
 assertSnapshots({
   generatedDir: "examples/todoapp/web/src-gen",
   snapshotsDir: "examples/todoapp/web/dist-ts/src-gen",

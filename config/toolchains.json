@@ -2,6 +2,7 @@
   "schemaVersion": 1,
   "node": {
     "stable": "22",
+    "minimumRuntime": "22.22.0",
     "nextLts": "24"
   },
   "haxe": {

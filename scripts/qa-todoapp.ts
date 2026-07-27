@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { isStableVersionAtLeast, toolchains } from "./toolchains.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -131,8 +132,14 @@ if (profileValue !== "ts" && profileValue !== "classic") {
 }
 const profile: TodoappProfile = profileValue;
 
+if (!isStableVersionAtLeast(process.versions.node, toolchains.node.minimumRuntime)) {
+  throw new Error(
+    `Node ${toolchains.node.minimumRuntime}+ required by the React Router 8 Todo harness; `
+      + `found ${process.versions.node}.`
+  );
+}
 if (typeof fetch !== "function") {
-  throw new Error("Node 18+ required (global fetch missing).");
+  throw new Error("The supported Node runtime must provide global fetch.");
 }
 
 const skipBuild = args.has("--skip-build") || process.env.QA_SKIP_BUILD === "1";

@@ -24,6 +24,7 @@ export interface ToolchainManifest {
   readonly schemaVersion: 1;
   readonly node: {
     readonly stable: string;
+    readonly minimumRuntime: string;
     readonly nextLts: string;
   };
   readonly haxe: {
@@ -154,6 +155,7 @@ export function loadToolchains(): ToolchainManifest {
     schemaVersion: 1,
     node: {
       stable: nonEmptyString(node.stable, "node.stable"),
+      minimumRuntime: nonEmptyString(node.minimumRuntime, "node.minimumRuntime"),
       nextLts: nonEmptyString(node.nextLts, "node.nextLts")
     },
     haxe: {
@@ -175,6 +177,38 @@ export const generatedOutputLanes: ReadonlyArray<TypeScriptLaneName> = [
   "apiBridge",
   "current"
 ];
+
+function stableVersionParts(version: string, label: string): ReadonlyArray<number> {
+  const match = /^([0-9]+)\.([0-9]+)\.([0-9]+)$/.exec(version);
+  if (!match) {
+    throw new Error(`Expected ${label} to be a stable major.minor.patch version, got ${version}`);
+  }
+  return match.slice(1).map(part => Number.parseInt(part, 10));
+}
+
+/**
+ * Compares two stable semantic versions without accepting prereleases.
+ *
+ * Why: the exact Node floor is a runtime compatibility contract. A loose
+ * `parseInt` comparison would incorrectly admit values such as
+ * `22.22.0-rc.1`, which are lower than the stable `22.22.0` release.
+ *
+ * What/How: both inputs must be complete numeric `major.minor.patch` strings.
+ * Components are compared from left to right; malformed or prerelease strings
+ * fail closed instead of being partially parsed.
+ */
+export function isStableVersionAtLeast(
+  actual: string,
+  minimum: string
+): boolean {
+  const actualParts = stableVersionParts(actual, "actual version");
+  const minimumParts = stableVersionParts(minimum, "minimum version");
+  for (let index = 0; index < 3; index += 1) {
+    const difference = actualParts[index] - minimumParts[index];
+    if (difference !== 0) return difference > 0;
+  }
+  return true;
+}
 
 /** Runs one pinned compiler lane without shell interpolation. */
 export function runTypeScript(

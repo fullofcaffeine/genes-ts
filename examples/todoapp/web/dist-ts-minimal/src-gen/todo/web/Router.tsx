@@ -1,7 +1,7 @@
-import {useParams} from "react-router-dom"
-import {ReactRouterDom_Fields_} from "../extern/ReactRouterDom"
+import {useParams} from "react-router"
+import {ReactRouter_Fields_} from "../extern/ReactRouter"
 import {Register} from "../../genes/Register"
-import type {Params} from "../extern/ReactRouterDom"
+import type {Params} from "../extern/ReactRouter"
 
 export class Router {
 	static param(name: string): string | null {
