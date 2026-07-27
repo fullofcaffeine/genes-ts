@@ -93,6 +93,8 @@ function main(): void {
     "docs/WORKFLOWS.md",
     "docs/ARCHITECTURE.md",
     "docs/TESTING_STRATEGY.md",
+    "yarn hooks:install",
+    "yarn test:precommit-hook",
     "yarn build:example:genes-ts",
     "yarn --cwd tools/ts2hx build"
   ])
@@ -128,9 +130,11 @@ function main(): void {
   const scripts = packageJson.scripts ?? {};
   for (const command of [
     "build:example:genes-ts",
+    "hooks:install",
     "test:examples",
     "test:ci",
-    "test:agent-guides"
+    "test:agent-guides",
+    "test:precommit-hook"
   ])
     assert(typeof scripts[command] === "string",
       `AGENTS.md references missing package script: ${command}`);

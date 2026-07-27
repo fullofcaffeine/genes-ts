@@ -40,6 +40,11 @@ remain buildable and correct without ts2hx.
    [`docs/TESTING_STRATEGY.md`](docs/TESTING_STRATEGY.md). A snapshot proves
    source shape; runtime, type-negative, declaration-consumer, source-map, and
    transaction claims need their corresponding evidence owner.
+8. Install the repository pre-commit guard once per clone:
+   `yarn haxelib install formatter 1.18.0 --quiet && yarn hooks:install`.
+   It composes with Beads, formats complete staged `.hx` files, and scans the
+   final staged snapshot for credentials before Git creates a commit. See
+   [Local pre-commit protection](#local-pre-commit-protection).
 
 ### Use the compiler
 
@@ -130,6 +135,47 @@ If these instructions disagree with a more specific guide, verify the live
 code and commands, then repair the stale documentation in the same change.
 Documentation is part of the compiler contract, not an optional follow-up.
 
+## Local pre-commit protection
+
+The hosted `Secrets (gitleaks)` check is required before merge, but hosted CI
+starts only after a branch reaches GitHub. Install the repository hook so the
+first secret scan happens before Git creates the local commit:
+
+```bash
+yarn haxelib install formatter 1.18.0 --quiet
+yarn hooks:install
+```
+
+Installation is explicit because `yarn install` must not silently change a
+developer's Git configuration. The installer first asks Beads to install its
+supported common hook, then adds one separately marked Genes section. Repeating
+the command, or reinstalling/upgrading Beads, preserves both owners and any
+unrelated hook content. Do not hand-edit `.git/hooks/pre-commit`.
+
+On every commit, the hook:
+
+1. finds staged `.hx` files;
+2. rejects any staged Haxe file that also has unstaged edits, because automatic
+   `git add` would otherwise sweep hidden work into the commit;
+3. applies the existing `hxformat.json` policy and re-stages those complete
+   Haxe files; and
+4. runs the pinned gitleaks scanner against the final Git index.
+
+The hook formats only Haxe files participating in that commit. It does not
+bulk-reformat the historical source tree. A credential finding or missing
+formatter/scanner prerequisite fails closed. `--no-verify` bypasses this local
+boundary and is not a normal workflow; if an emergency requires it, run
+`yarn precommit:run` first and explain the bypass in the handoff.
+
+Verify installation, formatting, and linked-worktree behavior with:
+
+```bash
+yarn test:precommit-hook
+```
+
+The required full-history `yarn test:secrets` CI gate remains authoritative
+after push. See [`docs/SECURITY.md`](docs/SECURITY.md) for the distinction.
+
 The repo tracks the roadmap in `.beads/issues.jsonl` so a fresh checkout includes the current plan.
 Local runtime state (SQLite DB, daemon logs, etc) remains untracked.
 
@@ -146,7 +192,9 @@ Automatic JSONL export and staging are intentionally disabled in
 `.beads/config.yaml`. A Git hook running in one linked worktree must never
 rewrite or stage the primary checkout's roadmap file. Do not re-enable
 `export.auto` or `export.git-add`, and do not edit the Beads-managed hook files
-as a workaround; reinstalling or upgrading Beads replaces managed hook logic.
+as a workaround. Use `yarn hooks:install` for the separately marked repository
+pre-commit section; reinstalling or upgrading Beads replaces only its own
+managed marker.
 
 Normal `bd create`, `bd update`, and `bd close` commands may run from any
 worktree because they update the shared database. Publish the tracked snapshot

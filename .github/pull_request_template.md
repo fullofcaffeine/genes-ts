@@ -9,3 +9,4 @@
 - [ ] No new `untyped` / `Dynamic` in framework/test code
 - [ ] Generated TS typing policy preserved (no `any`/`unknown` leaks)
 - [ ] Security scans pass (`yarn test:secrets`, `yarn test:vulns`)
+- [ ] Pre-commit contract passes (`yarn test:precommit-hook`)

@@ -1,0 +1,13 @@
+#!/usr/bin/env sh
+set -eu
+
+repository_root="$(git rev-parse --show-toplevel)"
+
+if ! command -v yarn >/dev/null 2>&1; then
+  echo >&2 "[pre-commit] ERROR: Yarn 1.22.22 is required."
+  echo >&2 "[pre-commit] Install dependencies, then run: yarn hooks:install"
+  exit 1
+fi
+
+cd "$repository_root"
+exec yarn precommit:run
