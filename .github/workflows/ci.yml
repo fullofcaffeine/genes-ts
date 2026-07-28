@@ -77,7 +77,10 @@ jobs:
           tar -xzf "$archive_path" -C "$RUNNER_TEMP" bd
           sudo install -m 0755 "$RUNNER_TEMP/bd" /usr/local/bin/bd
           bd version
+      - name: Install Haxe formatter used by the pre-commit contract
+        run: yarn haxelib install formatter 1.18.0 --quiet
       - run: yarn test:beads-worktrees
+      - run: yarn test:precommit-hook
 
   secrets:
     name: Secrets (gitleaks)

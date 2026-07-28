@@ -31,16 +31,28 @@ contract before the full CI gate.
 ## Setup
 
 Prereqs:
-- Node.js 20+
+- Node.js 22.22+
 - Yarn (this repo pins Yarn via Corepack)
 - Haxe via `lix` (auto-downloaded on `yarn install`)
+- Beads 1.1.0 (`bd`) for issue tracking and shared Git-hook ownership
+- haxe-formatter 1.18.0 for staged Haxe formatting
 
 Install:
 
 ```bash
 corepack enable
 yarn install
+yarn haxelib install formatter 1.18.0 --quiet
+yarn hooks:install
 ```
+
+`hooks:install` composes the repository pre-commit checks with Beads instead of
+replacing its generated section. Before each commit, complete staged `.hx`
+files are formatted and re-staged, then the final staged snapshot is scanned
+for credentials. A partially staged Haxe file is rejected so formatting cannot
+pull unstaged edits into the commit. See
+[`docs/SECURITY.md`](docs/SECURITY.md#pre-commit-boundary) for setup, failure
+behavior, and the required CI backstop.
 
 ## Quality gates (run locally)
 
@@ -53,6 +65,7 @@ yarn test:ci
 Useful subsets:
 
 ```bash
+yarn test:precommit-hook
 yarn test:secrets
 yarn test:vulns
 yarn test:genes-ts

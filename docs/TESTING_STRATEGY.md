@@ -376,13 +376,23 @@ The repository owns three different security checks:
 
 ```bash
 yarn test:codeql-workflow
+yarn test:precommit-hook
 yarn test:secrets
 yarn test:vulns
 ```
 
-`test:secrets` scans the repository for committed credentials, while
-`test:vulns` checks the pinned dependency graph. Both execute locally and as
-separate GitHub jobs.
+`test:precommit-hook` creates a disposable primary checkout and linked worktree,
+installs the real Beads/Genes hook composition, and proves that staged
+credentials are rejected before commit creation. It also proves that complete
+staged Haxe files are formatted and re-staged, while partially staged Haxe
+files fail without changing either version. CI runs this focused contract in
+both supported Beads lanes.
+
+`test:secrets` scans the repository and committed history for credentials,
+while `test:vulns` checks the pinned dependency graph. Both execute locally and
+as separate GitHub jobs. The pre-commit scan reduces the chance of publishing a
+secret-bearing branch; the required full-history scan remains the hosted
+backstop when a local hook is absent or explicitly bypassed.
 
 CodeQL is different: GitHub's hosted `Analyze (JavaScript)` job builds the
 database, analyzes the JavaScript/TypeScript surface, and publishes its result.

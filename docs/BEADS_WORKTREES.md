@@ -61,13 +61,16 @@ upgrade, reinstall the managed hooks and recheck the settings:
 
 ```bash
 bd version
-bd hooks install
+yarn hooks:install
 bd config get export.auto
 bd config get export.git-add
 ```
 
-Do not hand-edit `.git/hooks/*` to encode this policy. Those files are generated
-by Beads, shared by all linked worktrees, and may be replaced during an upgrade.
+`yarn hooks:install` uses Beads' supported marker-preservation behavior. Beads
+owns its generated section; the repository owns a separate section that runs
+staged secret scanning and Haxe formatting. Both are installed in the common
+Git directory used by every linked worktree. Do not hand-edit `.git/hooks/*`;
+the installer is the only supported writer for the Genes section.
 
 ## Everyday issue work
 
@@ -185,6 +188,7 @@ configuration, or this workflow:
 
 ```bash
 yarn test:beads-worktrees
+yarn test:precommit-hook
 ```
 
 The test creates a disposable repository with a primary checkout and linked
@@ -194,6 +198,10 @@ commits from the linked worktree, and verifies that both primary states remain
 byte-identical. It then restores only the disposable fixture and proves that
 the repository-owned export command works from clean primary `main` while
 refusing linked and dirty contexts.
+
+The pre-commit test independently proves that a Beads reinstall preserves the
+repository section, that both owners execute, and that linked worktrees receive
+the same staged formatting and credential protection.
 
 CI runs this test against verified upstream Beads 1.0.4 and 1.1.0 release
 binaries. Their Linux archive hashes are pinned in `.github/workflows/ci.yml`,

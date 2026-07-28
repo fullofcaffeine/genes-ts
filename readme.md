@@ -65,7 +65,10 @@ boundary and planned shared architecture.
   async functions and a clear guard for named methods
 - **Layered harness**: snapshots, strict `tsc`, negative type consumers, runtime smoke, classic JS assertions, exact source-map/determinism/output-budget evidence, and todoapp E2E (Playwright)
 - **ts2hx experiment**: fail-closed TS/JS → Haxe subset migration plus explicitly lossy assisted scaffolding
-- **Secret scanning** in CI + local (`gitleaks`)
+- **Secret scanning** in required CI plus an installable staged pre-commit
+  guard (`gitleaks`)
+- **Staged Haxe formatting** through the repository's existing
+  `hxformat.json`, without sweeping partially staged edits into a commit
 - **Dependency vulnerability scanning** in CI + local (`osv-scanner`)
 
 ## Install

@@ -16,6 +16,53 @@ Why gitleaks (vs GitGuardian)?
 The scan runs against the git repository (commit history + current tree). In CI,
 the workflow checks out with `fetch-depth: 0` so history is available.
 
+### Pre-commit boundary
+
+CI can prevent a leaked credential from merging, but it cannot prevent the
+commit or branch from reaching GitHub in the first place. Install the local,
+repository-owned pre-commit boundary once per clone:
+
+```bash
+yarn haxelib install formatter 1.18.0 --quiet
+yarn hooks:install
+```
+
+The hook performs two ordered operations:
+
+1. It runs haxe-formatter on complete staged `.hx` files and re-stages the
+   formatted result. If a staged Haxe file also contains unstaged edits, the
+   hook stops before changing either the index or working file; stage the full
+   file or temporarily stash those edits.
+2. It scans the resulting Git index with the same pinned gitleaks executable
+   used by `yarn test:secrets`.
+
+The shared scanner owner verifies the downloaded gitleaks 8.18.2 release
+archive against its pinned upstream SHA-256 before caching the executable. A
+missing or mismatched archive fails closed.
+
+This is deliberately a staged-snapshot scan: unrelated working files do not
+participate in the commit and are not inspected. The required CI command still
+scans complete repository history after push, so the two checks are
+complementary rather than interchangeable.
+
+The installer does not run during `yarn install`; changing Git hooks is an
+explicit contributor action. It asks Beads to install/update its managed
+section, then writes only a separately marked Genes section. Beads upgrades
+preserve that section. Do not hand-edit `.git/hooks/pre-commit`.
+
+Use these checks when changing hook, formatter, or scanner behavior:
+
+```bash
+yarn test:precommit-hook
+yarn test:secrets
+```
+
+`test:precommit-hook` uses a disposable repository and linked worktree to prove
+installation idempotence, Beads coexistence, staged Haxe formatting, partial
+staging preservation, secret rejection, and fail-closed missing prerequisites.
+`git commit --no-verify` bypasses every local hook; it is an emergency escape
+hatch, not a substitute for either command.
+
 ### Handling false positives
 
 If a detection is a false positive, prefer fixing it by:
