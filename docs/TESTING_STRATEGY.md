@@ -90,7 +90,9 @@ installed before `Generator.use()` can load those types, and that every
 inventory. It also performs the stable Haxe compile. It does not prove emitted
 TypeScript nullability or JavaScript missing-value behavior; those remain owned
 by the strict TypeScript, dual-output, runtime, and nullish fixtures described
-in [`NULL_SAFETY.md`](NULL_SAFETY.md).
+in [`NULL_SAFETY.md`](NULL_SAFETY.md). The command runs in the required
+`genes-ts (TS output + todoapp E2E)` PR job as well as `test:ci`, so an ordinary
+compiler change cannot merge with a broadened or unreviewed escape.
 
 When changing compiler lifecycle state, run the smallest semantic owner first,
 then the server owner. For example, a dynamic-import change starts with
