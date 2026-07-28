@@ -34,8 +34,13 @@ where multiple emitters or passes need the same semantic decision.
 
 ## Compilation sequence
 
-1. `extraParams.hxml` installs `genes.Generator.use()` as the JS generator and
-   redirects Haxe's compiler-owned output slot to a private sentinel. The
+1. `extraParams.hxml` first applies recursive Haxe Loose null safety to the
+   compiler-owned `genes.*` package, then installs `genes.Generator.use()` as
+   the JS generator and redirects Haxe's compiler-owned output slot to a
+   private sentinel. The order matters because Haxe package metadata has no
+   effect after a type is loaded. This checks the compiler implementation; it
+   does not opt user packages into null safety or replace target
+   `null`/`undefined` lowering. The
    user-visible `-js` path belongs exclusively to the Genes transaction, so
    Haxe cannot delete a previously good entry file after a generator error.
 2. Before Haxe DCE can erase source-level information, `PublicSurface`,

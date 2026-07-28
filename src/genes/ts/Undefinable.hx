@@ -32,11 +32,15 @@ abstract Undefinable<T>(Null<T>) from T {
    * What: accepts a normal Haxe-nullable value as well as an
    * `Undefinable<T>` and returns true only for the raw host `undefined` value.
    *
-   * How: the one unavoidable target operation is contained here. Both
-   * genes-ts and classic Genes inline it to `value === undefined`; callers and
-   * generated Haxe remain typed and contain no raw syntax.
+   * How: Haxe types `js.Lib.undefined` through its ordinary `null` sentinel, so
+   * `js.Syntax.strictEq(value, js.Lib.undefined)` would incorrectly emit
+   * `value === null`. The one unavoidable target operation is contained here.
+   * `js.Syntax.code` accepts arguments as non-null `Any`, so the statement-local
+   * escape covers only that extern mismatch. Both Genes profiles still inline
+   * this helper to `value === undefined`, and callers remain typed.
    */
   public static inline function isAbsent<T>(value: Null<T>): Bool {
+    @:nullSafety(Off)
     return js.Syntax.code("({0}) === undefined", value);
   }
 
@@ -47,8 +51,19 @@ abstract Undefinable<T>(Null<T>) from T {
 
   /**
    * Converts JavaScript `undefined` absence into Haxe `null`.
+   *
+   * Why: this abstract is stored as `Null<T>` while Haxe types the program, but
+   * genes-ts deliberately projects it as `T | undefined`. Writing ordinary
+   * Haxe `this ?? null` here makes Haxe introduce a `Null<T>` temporary, which
+   * is the wrong TypeScript representation and rejects an actual `undefined`.
+   *
+   * How: preserve the target nullish-coalescing operator at this one interop
+   * boundary. Haxe's `js.Syntax.code` extern accepts arguments as non-null
+   * `Any`, so the statement-local escape covers only that extern mismatch; the
+   * declared `Null<T>` result immediately returns to normal typed Haxe code.
    */
   public inline function orNull(): Null<T> {
+    @:nullSafety(Off)
     return js.Syntax.code("{0} ?? null", this);
   }
 

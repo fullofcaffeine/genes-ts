@@ -132,6 +132,8 @@ printer if the same decision affects more than one output surface.
   gates and what each kind of evidence proves.
 - [`docs/TOOLCHAINS.md`](docs/TOOLCHAINS.md): pinned Node, Haxe, and TypeScript
   lanes.
+- [`docs/NULL_SAFETY.md`](docs/NULL_SAFETY.md): scoped Haxe source checking,
+  TypeScript strict nulls, JavaScript representation, and escape policy.
 - [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md): common setup, output,
   import, source-map, and migration failures.
 

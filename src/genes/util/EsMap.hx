@@ -55,6 +55,12 @@ class EsMap<K, V> {
     var done: Null<Bool>;
     function queue() {
       var data = from.next();
+      // JavaScript's iterator result omits `value` only when it reports
+      // completion. `hasNext` prevents that completed result from reaching
+      // `next`, but Haxe cannot express the correlation between the two
+      // properties. Keep the escape on the original state-machine assignment
+      // so property-read order and generated runtime behavior stay unchanged.
+      @:nullSafety(Off)
       value = data.value;
       // In TS lib types, `IteratorResult.done` is optional on yield results.
       // Treat `undefined` as `false` to avoid double-queueing.

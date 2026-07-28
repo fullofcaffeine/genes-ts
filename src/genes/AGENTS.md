@@ -85,6 +85,12 @@ maps fixture locations to compiler surfaces.
 - Validation that can fail should run before public output is committed.
 - Compilation-server correctness requires request-local typed facts or an
   explicit reset/rebuild rule; never persist typed compiler objects casually.
+- `extraParams.hxml` enables recursive Haxe Loose null safety for the owned
+  `genes.*` implementation before `Generator.use()` can load compiler types.
+  Keep any `@:nullSafety(Off)` statement local, documented at the mismatch, and
+  registered in `config/null-safety-escapes.json`; verify with
+  `yarn test:null-safety`. This source-quality gate does not replace
+  `NullishContract`, `TsBoundaryPlan`, or target runtime evidence.
 - A host-selected output destination is generic compiler configuration. Keep
   it request-local through `-D genes.output=<path>` and let
   `OutputTransaction` own the selected tree; never add framework names,
