@@ -79,13 +79,15 @@ class DependencyPlanBuilder {
 
   function addImport(kind: DependencyEdgeKind, dependency: DependencySpec,
       origin: BindingOriginKey, rule: String, pos: Position): Void {
-    addEdge(kind, null, Bound(new DependencyImport(dependency,
-      BindingIdentity.create(dependency, origin))), rule, pos);
+    addEdge(kind, null,
+      Bound(new DependencyImport(dependency,
+        BindingIdentity.create(dependency, origin))),
+      rule, pos);
   }
 
-  function addEdge(kind: DependencyEdgeKind,
-      referencedType: Null<ModuleType>, importSpec: Null<DependencyImportSpec>,
-      rule: String, pos: Position): Void {
+  function addEdge(kind: DependencyEdgeKind, referencedType: Null<ModuleType>,
+      importSpec: Null<DependencyImportSpec>, rule: String,
+      pos: Position): Void {
     // Keep the typed traversal's stable encounter order, including repeated
     // references. `Dependencies.push` owns import de-duplication and its alias
     // allocator historically observes those encounters when same-named symbols
@@ -115,8 +117,8 @@ class DependencyPlanBuilder {
         external: true,
         memberPath: [],
         pos: jsxPlan.firstPosition
-      }, BindingOriginKey.CompilerCapability(
-        CompilerCapabilityId.JsxRuntimeNamespace),
+      },
+        BindingOriginKey.CompilerCapability(CompilerCapabilityId.JsxRuntimeNamespace),
         JsxCapabilityPolicy.RUNTIME_IMPORT_RULE, jsxPlan.firstPosition);
     }
 
@@ -130,13 +132,11 @@ class DependencyPlanBuilder {
         pos: Position): Null<DependencySpec> {
       final attribute = Dependencies.extractImportAttributeType(meta);
       return switch meta.extract(':jsRequire') {
-        case [{params: [{expr: EConst(CString(path))}]}] |
-          [{
-            params: [
-              {expr: EConst(CString(path))},
-              {expr: EConst(CString('default'))}
-            ]
-          }]:
+        case [{params: [{expr: EConst(CString(path))}]}] | [
+          {
+            params: [{expr: EConst(CString(path))}, {expr: EConst(CString('default'))}]
+          }
+        ]:
           {
             type: DependencyType.DDefault,
             name: name,
@@ -146,12 +146,11 @@ class DependencyPlanBuilder {
             importAttributeType: attribute,
             pos: pos
           };
-        case [{
-          params: [
-            {expr: EConst(CString(path))},
-            {expr: EConst(CString(name))}
-          ]
-        }]:
+        case [
+          {
+            params: [{expr: EConst(CString(path))}, {expr: EConst(CString(name))}]
+          }
+        ]:
           final parts = name.split('.');
           {
             type: DependencyType.DName,
@@ -168,13 +167,13 @@ class DependencyPlanBuilder {
 
     function fieldOrigin(owner: ClassType,
         fieldName: String): BindingOriginKey {
-      return BindingOriginKey.StaticField(new StaticFieldOriginKey(
-        owner.module, owner.name, fieldName));
+      return
+        BindingOriginKey.StaticField(new StaticFieldOriginKey(owner.module,
+          owner.name, fieldName));
     }
 
     #if (haxe_ver >= 4.2)
-    function addModuleFieldRequires(cl: ClassType,
-        fields: Array<Field>): Void {
+    function addModuleFieldRequires(cl: ClassType, fields: Array<Field>): Void {
       if (!cl.kind.match(KModuleFields(_)))
         return;
       for (field in fields) {
@@ -228,8 +227,7 @@ class DependencyPlanBuilder {
         case TConst(TNull): null;
         case TConst(TString(value)) if (value.length > 0): value;
         default:
-          CompilerDiagnostic.fail(
-            'GENES-SIDE-EFFECT-IMPORT-ATTRIBUTE-001: import attribute type must be a non-empty string literal or null',
+          CompilerDiagnostic.fail('GENES-SIDE-EFFECT-IMPORT-ATTRIBUTE-001: import attribute type must be a non-empty string literal or null',
             expression.pos);
       }
     }
@@ -251,34 +249,30 @@ class DependencyPlanBuilder {
       switch marker.method {
         case 'external':
           if (marker.arguments.length != 2)
-            CompilerDiagnostic.fail(
-              'GENES-SIDE-EFFECT-IMPORT-INTERNAL-001: external marker requires a specifier and attribute',
+            CompilerDiagnostic.fail('GENES-SIDE-EFFECT-IMPORT-INTERNAL-001: external marker requires a specifier and attribute',
               expression.pos);
           final path = literalString(marker.arguments[0],
             'GENES-SIDE-EFFECT-IMPORT-LITERAL-001: module specifier must be a non-empty string literal');
           final attribute = optionalLiteralString(marker.arguments[1]);
-          addSideEffect(null, new DependencyModuleRequest(true, path,
-            attribute, expression.pos), 'runtime.side-effect.external',
-            expression.pos);
+          addSideEffect(null,
+            new DependencyModuleRequest(true, path, attribute, expression.pos),
+            'runtime.side-effect.external', expression.pos);
 
         case 'internal':
           if (marker.arguments.length != 1)
-            CompilerDiagnostic.fail(
-              'GENES-SIDE-EFFECT-IMPORT-INTERNAL-001: internal marker requires one typed target token',
+            CompilerDiagnostic.fail('GENES-SIDE-EFFECT-IMPORT-INTERNAL-001: internal marker requires one typed target token',
               expression.pos);
           final argument = unwrap(marker.arguments[0]);
           final targetType = switch argument.expr {
             case TField({expr: TTypeExpr(type)}, FStatic(_, _)): type;
             case TTypeExpr(type): type;
             default:
-              CompilerDiagnostic.fail(
-                'GENES-SIDE-EFFECT-IMPORT-INTERNAL-001: internal marker target must be a static field or type token',
+              CompilerDiagnostic.fail('GENES-SIDE-EFFECT-IMPORT-INTERNAL-001: internal marker target must be a static field or type token',
                 argument.pos);
           }
           final requests = Dependencies.requests(module, targetType);
           if (requests.length != 1 || requests[0].dependency.external)
-            CompilerDiagnostic.fail(
-              'GENES-SIDE-EFFECT-IMPORT-INTERNAL-001: internal marker target must resolve to one generated module',
+            CompilerDiagnostic.fail('GENES-SIDE-EFFECT-IMPORT-INTERNAL-001: internal marker target must resolve to one generated module',
               argument.pos);
           final target = requests[0];
           addSideEffect(target.referencedType,
@@ -287,8 +281,7 @@ class DependencyPlanBuilder {
             'runtime.side-effect.internal', expression.pos);
 
         default:
-          CompilerDiagnostic.fail(
-            'GENES-SIDE-EFFECT-IMPORT-INTERNAL-001: unknown compiler marker',
+          CompilerDiagnostic.fail('GENES-SIDE-EFFECT-IMPORT-INTERNAL-001: unknown compiler marker',
             expression.pos);
       }
     }
@@ -327,8 +320,7 @@ class DependencyPlanBuilder {
         return;
       if (!allowDirectMarkers) {
         if (containsMarker(expression))
-          CompilerDiagnostic.fail(
-            'GENES-SIDE-EFFECT-IMPORT-CONTEXT-001: compiler marker must be a direct static-initialization statement',
+          CompilerDiagnostic.fail('GENES-SIDE-EFFECT-IMPORT-CONTEXT-001: compiler marker must be a direct static-initialization statement',
             expression.pos);
         addOrdinaryExpression(expression);
         return;
@@ -345,8 +337,7 @@ class DependencyPlanBuilder {
           continue;
         }
         if (containsMarker(statement))
-          CompilerDiagnostic.fail(
-            'GENES-SIDE-EFFECT-IMPORT-CONTEXT-001: compiler marker must be a direct static-initialization statement',
+          CompilerDiagnostic.fail('GENES-SIDE-EFFECT-IMPORT-CONTEXT-001: compiler marker must be a direct static-initialization statement',
             statement.pos);
         addOrdinaryExpression(statement);
       }
@@ -382,8 +373,8 @@ class DependencyPlanBuilder {
 
   function collectTypeEdges(kind: DependencyEdgeKind,
       includeExpressionLocals: Bool): Void {
-    final collector = new TypeReferenceCollector(
-      (type, rule, pos) -> addReference(kind, type, rule, pos),
+    final collector = new TypeReferenceCollector((type, rule,
+        pos) -> addReference(kind, type, rule, pos),
       (template, _, _) -> {
         // Both typed implementations and classic declarations can print a raw
         // `JSX.*` projection. Record one shared semantic fact so neither
@@ -394,56 +385,18 @@ class DependencyPlanBuilder {
         }
       });
 
-    /**
-     * Reports whether TypeScript emission may print this call's enum result.
-     *
-     * Why: Haxe can infer an enum constructor's generic arguments from the
-     * destination. genes-ts sometimes has to print those arguments explicitly
-     * so TypeScript reaches the same result. A type used only in that inferred
-     * result (for example `Yield.Data<Assertion, tink.Error>`) is not a local
-     * variable or public signature, but it still needs a type-only import.
-     *
-     * How: unwrap only typed nodes that do not change the called value, matching
-     * the emitter's constructor recognition. The collector then traverses the
-     * already-typed result; it does not re-infer generic arguments or inspect
-     * generated text.
-     */
-    function isEnumConstructorCall(expression: TypedExpr): Bool {
-      function unwrap(value: TypedExpr): TypedExpr
-        return switch value.expr {
-          case TMeta(_, inner) | TParenthesis(inner) | TCast(inner, null):
-            unwrap(inner);
-          default:
-            value;
-        }
-
-      return switch expression.expr {
-        case TCall(callee, _):
-          switch unwrap(callee).expr {
-            case TField(_, FEnum(_, _)): true;
-            default: false;
-          }
-        default: false;
-      }
-    }
+    // The TypeScript boundary plan is the sole authority for assertion targets
+    // and explicit generic arguments that implementation emission may print.
+    // Collect every referenced type before binding allocation; the emitter must
+    // never discover another imported type after this point.
+    if (includeExpressionLocals)
+      for (reference in module.tsBoundaryPlan.referencedTypes())
+        collector.collect(reference.type,
+          'type.ts-boundary.${reference.rule}', reference.pos);
 
     function collectLocalTypes(expression: TypedExpr): Void {
       if (expression == null)
         return;
-      if (isEnumConstructorCall(expression)) {
-        collector.collect(expression.t, 'type.enum-constructor-result',
-          expression.pos);
-        switch expression.expr {
-          case TCall(callee, _):
-            final application = TypeUtil.enumConstructorApplication(callee,
-              expression.t);
-            if (application != null)
-              for (argumentType in application.argumentTypes)
-                collector.collect(argumentType,
-                  'type.enum-constructor-argument', expression.pos);
-          default:
-        }
-      }
       switch expression.expr {
         case TVar(variable, _):
           collector.observeOverrideMeta(variable.meta,
@@ -467,8 +420,8 @@ class DependencyPlanBuilder {
           '$kind.member-signature-override', field.pos);
         return;
       }
-      collector.collectParams(field.params.map(parameter -> parameter.t), true,
-        '$kind.member-parameters', field.pos);
+      collector.collectParams(field.params.map(parameter -> parameter.t),
+        true, '$kind.member-parameters', field.pos);
       collector.collect(field.type, '$kind.member-signature', field.pos);
       for (signature in field.overloads)
         collectSignature(signature);
@@ -518,13 +471,10 @@ class DependencyPlanBuilder {
           // a `.d.ts` must not promise a DCE-stripped value that the emitted JS
           // does not contain. Declaration-only reachability retains the types
           // named by those honest signatures without broadening classic JS.
-          final signatureFields = if (cl.isInterface)
-            Module.fieldsOf(cl, publicSurface, params,
-              kind == TypeOnly, null)
-          else if (kind == DeclarationOnly)
-            Module.fieldsOf(cl, publicSurface, params, false, fields)
-          else
-            fields;
+          final signatureFields = if (cl.isInterface) Module.fieldsOf(cl,
+            publicSurface, params, kind == TypeOnly,
+            null) else if (kind == DeclarationOnly) Module.fieldsOf(cl,
+            publicSurface, params, false, fields) else fields;
           for (field in signatureFields)
             collectSignature(field);
           /*
@@ -540,8 +490,9 @@ class DependencyPlanBuilder {
            * not retain an otherwise dead module function.
            */
           if (kind == TypeOnly
-            && Lambda.exists(fields, field -> field.meta != null
-              && field.meta.has(':genes.moduleFunction'))) {
+            && Lambda.exists(fields,
+              field -> field.meta != null
+                && field.meta.has(':genes.moduleFunction'))) {
             final sourceFields = Module.fieldsOf(cl, publicSurface, params,
               true, fields);
             for (field in sourceFields)
@@ -559,8 +510,8 @@ class DependencyPlanBuilder {
           collector.collectParams(params, true, '$kind.enum-parameters',
             enumType.pos);
           for (constructor in enumType.constructs) {
-            collector.collectParams(
-              constructor.params.map(parameter -> parameter.t), true,
+            collector.collectParams(constructor.params.map(parameter ->
+              parameter.t), true,
               '$kind.enum-constructor-parameters', constructor.pos);
             switch constructor.type {
               case TFun(arguments, _):

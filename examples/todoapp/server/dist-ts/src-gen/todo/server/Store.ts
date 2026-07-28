@@ -36,7 +36,7 @@ export class Store extends Register.inherits() {
 			const t: Todo = _g1[_g]!;
 			++_g;
 			if (t.id == id) {
-				return t;
+				return Register.unsafeCast<Todo | null>(t);
 			};
 		};
 		return null;
@@ -81,10 +81,10 @@ export class Store extends Register.inherits() {
 			return;
 		};
 		try {
-			if (!Fs.existsSync(Register.unsafeCast<import("node:fs").PathLike>(this.dataPath))) {
+			if (!Fs.existsSync(this.dataPath)) {
 				return;
 			};
-			const raw: string = Fs.readFileSync(Register.unsafeCast<import("node:fs").PathLike>(this.dataPath), "utf8");
+			const raw: string = Fs.readFileSync(this.dataPath, "utf8");
 			const parsed: PersistedStore = JSON.parse(raw);
 			const arr: Todo[] = parsed.todos;
 			if (arr == null) {
@@ -109,7 +109,7 @@ export class Store extends Register.inherits() {
 			const payload: {
 				todos: Todo[]
 			} = {"todos": this.todos};
-			Fs.writeFileSync(Register.unsafeCast<import("node:fs").PathLike>(this.dataPath), JSON.stringify(payload, null, "  "), "utf8");
+			Fs.writeFileSync(this.dataPath, JSON.stringify(payload, null, "  "), "utf8");
 		}catch (_g_4) {
 			const e: Exception = Exception.caught(_g_4);
 			this.console.error("Failed to save data:", e);

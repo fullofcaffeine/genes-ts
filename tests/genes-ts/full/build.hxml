@@ -14,3 +14,5 @@
 -D genes.ts
 
 -main tests.Run
+
+--macro tests.regroupidentity.BoundaryPlanProbe.validate()

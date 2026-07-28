@@ -243,6 +243,71 @@ function assertInlinedJsxChildMapping(): void {
     "Inlined JSX child changed its authored source column");
 }
 
+/**
+ * Proves a planned TypeScript identity wrapper and its inner value both retain
+ * the authored Haxe boundary. The wrapper maps to the whole call/return
+ * expression; the value still maps to its exact `nullable` token.
+ */
+function assertBoundaryWrapperMappings(): void {
+  const generatedPath = path.join(
+    fixtureRoot,
+    "out/src-gen/foo/ProjectedNullCall.ts"
+  );
+  const originalPath = path.join(
+    fixtureRoot,
+    "src/foo/ProjectedNullCall.hx"
+  );
+  const generated = readFileSync(generatedPath, "utf8");
+  const original = readFileSync(originalPath, "utf8");
+  const consumer = new SourceMapConsumer(decodeRawSourceMap(
+    readFileSync(`${generatedPath}.map`, "utf8")
+  ));
+
+  for (const boundary of [
+    {
+      generated:
+        "ProjectedNullCall.acceptRequired(Register.unsafeCast<string>(nullable))",
+      original: "acceptRequired(nullable)"
+    },
+    {
+      generated: "return Register.unsafeCast<string>(value)",
+      original: "return value"
+    }
+  ]) {
+    const generatedBoundary = tokenPosition(generated, boundary.generated);
+    const originalBoundary = tokenPosition(original, boundary.original);
+    const wrapperOffset = boundary.generated.indexOf("Register.unsafeCast");
+    const generatedValueToken = boundary.generated.endsWith("(nullable))")
+      ? "nullable"
+      : "value";
+    const generatedValueOffset = boundary.generated.lastIndexOf(
+      generatedValueToken
+    );
+    const originalValueOffset = boundary.original.lastIndexOf(
+      generatedValueToken
+    );
+
+    const wrapperMapped = consumer.originalPositionFor({
+      line: generatedBoundary.line,
+      column: generatedBoundary.column + wrapperOffset
+    });
+    const valueMapped = consumer.originalPositionFor({
+      line: generatedBoundary.line,
+      column: generatedBoundary.column + generatedValueOffset
+    });
+
+    ok(wrapperMapped.source?.endsWith("/src/foo/ProjectedNullCall.hx") === true,
+      "A planned TypeScript wrapper lost its authored Haxe module");
+    strictEqual(wrapperMapped.line, originalBoundary.line,
+      "A planned TypeScript wrapper changed its authored Haxe line");
+    strictEqual(valueMapped.line, originalBoundary.line,
+      "The value inside a planned wrapper changed its authored Haxe line");
+    strictEqual(valueMapped.column,
+      originalBoundary.column + originalValueOffset,
+      "The value inside a planned wrapper changed its authored Haxe column");
+  }
+}
+
 run("haxe", [
   "-cp", path.join(repoRoot, "src"),
   "-cp", path.join(repoRoot, "tests/source-map-paths/src"),
@@ -312,6 +377,7 @@ try {
 
   assertOverlappingClassPathIdentities();
   assertInlinedJsxChildMapping();
+  assertBoundaryWrapperMappings();
 
   console.log("ok");
 } finally {

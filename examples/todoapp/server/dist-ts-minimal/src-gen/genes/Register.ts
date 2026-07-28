@@ -97,7 +97,7 @@ export class Register {
 				value = get();
 				get = null;
 			};
-			return Register.unsafeCast<any>(value);
+			return value;
 		}, "set": function (v: any) {
 			if (get != null) {
 				value = get();
@@ -120,10 +120,10 @@ export class Register {
 	static iterator<T>(a: Array<T> | { iterator: () => Iterator<T> } | { keys: () => Iterator<any>; get: (k: any) => T | null }): any {
 		if (!Array.isArray(a)) {
 			if ("iterator" in a) {
-				return Register.unsafeCast<(() => Iterator<T>)>(typeof a.iterator === "function" ? a.iterator.bind(a) : a.iterator);
+				return typeof a.iterator === "function" ? a.iterator.bind(a) : a.iterator;
 			} else {
 				return function () {
-					const keys: Iterator<any> = Register.unsafeCast<Iterator<any>>((a!).keys());
+					const keys: Iterator<any> = (a!).keys();
 					return {"hasNext": function () {
 						return keys.hasNext();
 					}, "next": function () {
@@ -141,9 +141,9 @@ export class Register {
 	static getIterator<T>(a: Array<T> | { iterator: () => Iterator<T> } | { keys: () => Iterator<any>; get: (k: any) => T | null }): Iterator<T> {
 		if (!Array.isArray(a)) {
 			if ("iterator" in a) {
-				return Register.unsafeCast<Iterator<T>>(a.iterator());
+				return a.iterator();
 			} else {
-				const keys: Iterator<any> = Register.unsafeCast<Iterator<any>>((a!).keys());
+				const keys: Iterator<any> = (a!).keys();
 				return {"hasNext": function () {
 					return keys.hasNext();
 				}, "next": function () {

@@ -68,11 +68,11 @@ enum Member {
  * dependency planning and Haxe DCE have consumed the complete typed member.
  */
 typedef MemberProjection = {
-  final emitImplementation:Bool;
-  final exportImplementation:Bool;
-  final emitDeclaration:Bool;
-  final registerRuntimeType:Bool;
-  final emitSourcePosition:Bool;
+  final emitImplementation: Bool;
+  final exportImplementation: Bool;
+  final emitDeclaration: Bool;
+  final registerRuntimeType: Bool;
+  final emitSourcePosition: Bool;
 }
 
 typedef ModuleContext = {
@@ -96,6 +96,7 @@ class Module {
   public var jsxPlan(get, null): JsxPlan;
   public var templateLiteralPlan(get, null): TemplateLiteralPlan;
   public var tsNarrowingPlan(get, null): genes.ts.TsNarrowingPlan;
+  public var tsBoundaryPlan(get, null): genes.ts.TsBoundaryPlan;
   public var dependencyPlan(get, null): DependencyPlan;
   public var typeDependencies(get, null): Dependencies;
   public var declarationDependencies(get, null): Dependencies;
@@ -157,32 +158,44 @@ class Module {
     return tsNarrowingPlan;
   }
 
+  /**
+   * Returns TypeScript-only value-boundary decisions derived before imports.
+   *
+   * The plan owns exceptional conversions that typed Haxe accepted but strict
+   * TypeScript needs rendered explicitly. Dependency planning and expression
+   * emission consume the same immutable facts.
+   */
+  function get_tsBoundaryPlan(): genes.ts.TsBoundaryPlan {
+    if (tsBoundaryPlan == null)
+      tsBoundaryPlan = genes.ts.TsBoundaryPlan.build(this);
+    return tsBoundaryPlan;
+  }
+
   /** Returns the shared target-neutral temporary plan for this module. */
-  function get_tempPlan():TempPlan {
+  function get_tempPlan(): TempPlan {
     if (tempPlan == null)
       tempPlan = TempPlan.build(this);
     return tempPlan;
   }
 
   /** Returns shared local mutability facts for both implementation profiles. */
-  function get_localBindingPlan():LocalBindingPlan {
+  function get_localBindingPlan(): LocalBindingPlan {
     if (localBindingPlan == null)
       localBindingPlan = LocalBindingPlan.build(this);
     return localBindingPlan;
   }
 
   /** Returns one cached naming projection used by planning and printing. */
-  public function namePlan(profile:NamePlan.NamePlanProfile,
-      jsxEmitTsx = false):NamePlan {
+  public function namePlan(profile: NamePlan.NamePlanProfile,
+      jsxEmitTsx = false): NamePlan {
     final key = Std.string(profile) + ':' + (jsxEmitTsx ? 'tsx' : 'plain');
     if (!namePlans.exists(key))
-      namePlans.set(key, NamePlan.build(this, tempPlan, profile,
-        jsxEmitTsx));
+      namePlans.set(key, NamePlan.build(this, tempPlan, profile, jsxEmitTsx));
     return namePlans.get(key);
   }
 
   /** Validates and returns the opt-in module-function lowering plan. */
-  function get_moduleFunctionPlan():ModuleFunctionPlan {
+  function get_moduleFunctionPlan(): ModuleFunctionPlan {
     if (moduleFunctionPlan == null)
       moduleFunctionPlan = ModuleFunctionPlan.build(this);
     return moduleFunctionPlan;
@@ -212,8 +225,9 @@ class Module {
     var changed = false;
     for (type in types) {
       final base = TypeUtil.typeToBaseType(type);
-      if (base != null && (getMember(base.name) != null
-        || getMember(TypeUtil.baseTypeName(base)) != null))
+      if (base != null
+        && (getMember(base.name) != null
+          || getMember(TypeUtil.baseTypeName(base)) != null))
         continue;
       switch type {
         case TEnum(_.get() => enumType, params):
@@ -240,7 +254,7 @@ class Module {
             case TEnum(_.get() => followed, _):
               addIfConcrete(followed);
             case TInst(ref = _.get() => {
-              kind: KNormal
+              kind:KNormal
               #if (haxe_ver >= 4.2)
               | KModuleFields(_)
               #end
@@ -258,6 +272,7 @@ class Module {
     if (changed) {
       jsxPlan = null;
       tsNarrowingPlan = null;
+      tsBoundaryPlan = null;
       dependencyPlan = null;
       typeDependencies = null;
       declarationDependencies = null;
@@ -371,8 +386,8 @@ class Module {
    * changing Haxe privacy here would require a separate public-type
    * accessibility normalization rather than a printer flag.
    */
-  public static function memberProjection(member:Member):MemberProjection {
-    final base:Null<BaseType> = switch member {
+  public static function memberProjection(member: Member): MemberProjection {
+    final base: Null<BaseType> = switch member {
       case MClass(type, _, _): type;
       case MEnum(type, _): type;
       case MType(type, _): type;
@@ -413,7 +428,7 @@ class Module {
    * shared field boundary, after dependency planning has consumed the original
    * ordered array.
    */
-  public static function emittableFields(fields:Array<Field>):Array<Field> {
+  public static function emittableFields(fields: Array<Field>): Array<Field> {
     return fields.filter(field -> !CompilerInternal.isField(field.meta));
   }
 
@@ -460,7 +475,8 @@ class Module {
           [];
       }
       for (parameter in member.parameters) {
-        if (params.filter(existing -> existing.name == parameter.name).length == 0)
+        if (params.filter(existing -> existing.name == parameter.name)
+          .length == 0)
           params.push(parameter);
       }
       return params;
@@ -516,9 +532,9 @@ class Module {
         params: paramsFor(member),
         doc: member.doc,
         getter: !disableNativeAccessors && !isVar
-          && member.kind.match(FVar(AccCall, AccCall | AccNever)),
+        && member.kind.match(FVar(AccCall, AccCall | AccNever)),
         setter: !disableNativeAccessors && !isVar
-          && member.kind.match(FVar(AccCall | AccNever, AccCall)),
+        && member.kind.match(FVar(AccCall | AccNever, AccCall)),
         tsType: extractTsType(member.meta),
         overloads: [
           for (signature in member.overloads)
@@ -527,11 +543,10 @@ class Module {
       };
     }
     if (publicSurface != null) {
-      final concreteTypes = surfaceParams == null
-        ? cl.params.map(parameter -> parameter.t)
-        : surfaceParams;
+      final concreteTypes = surfaceParams == null ? cl.params.map(parameter ->
+        parameter.t) : surfaceParams;
       final constructor = publicSurface.constructorFor(concreteTypes);
-      function emittedPublicName(name:String, meta:Null<MetaAccess>):String {
+      function emittedPublicName(name: String, meta: Null<MetaAccess>): String {
         final nativeName = TypeUtil.nativeName(meta);
         return nativeName == null ? name : nativeName;
       }
@@ -540,12 +555,11 @@ class Module {
           case null:
             true;
           case fieldsToMatch:
-            Lambda.exists(fieldsToMatch, field -> field.isStatic == member.isStatic
-              && (member.isConstructor
-                ? field.kind.match(Constructor)
-                : field.name == member.name
-                  || emittedPublicName(field.name, field.meta)
-                    == emittedPublicName(member.name, member.meta)));
+            Lambda.exists(fieldsToMatch,
+              field -> field.isStatic == member.isStatic
+                && (member.isConstructor ? field.kind.match(Constructor) : field.name == member.name
+                  || emittedPublicName(field.name,
+                    field.meta) == emittedPublicName(member.name, member.meta)));
         };
       }
       if (constructor != null && isRetained(constructor))
@@ -654,10 +668,10 @@ class Module {
         params: {
           final params = switch cl.kind {
             case KAbstractImpl(_.get().params => params)
-              if (PublicSurface.ownershipFor(cl, field, true)
-                == AbstractInstance
-                || PublicSurface.ownershipFor(cl, field, true)
-                  == AbstractConstructor):
+              if (PublicSurface.ownershipFor(cl, field,
+                true) == AbstractInstance
+                || PublicSurface.ownershipFor(cl, field,
+                  true) == AbstractConstructor):
               params.copy();
             default: [];
           }
@@ -676,8 +690,8 @@ class Module {
         tsType: extractTsType(field.meta),
         overloads: [
           for (signature in field.overloads.get())
-            fieldFromPublicMember(PublicMember.capture(signature, true,
-              false, false, PublicSurface.ownershipFor(cl, signature, true)))
+            fieldFromPublicMember(PublicMember.capture(signature, true, false,
+              false, PublicSurface.ownershipFor(cl, signature, true)))
         ]
       });
     }

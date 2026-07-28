@@ -25,10 +25,14 @@ export class ProjectedNullCall {
 	}
 	static acceptRequired(value: string): void {
 	}
+	static returnRequired(value: string | null): string {
+		return Register.unsafeCast<string>(value);
+	}
 	static demo(nullable: string | null): void {
 		ProjectedNullCall.acceptProjected(null);
 		ProjectedNullCall.acceptPair(null, {"function": "kept", "note": (null ?? undefined)});
 		ProjectedNullCall.acceptRequired(Register.unsafeCast<string>(nullable));
+		ProjectedNullCall.returnRequired(nullable);
 	}
 	static get __name__(): string {
 		return "foo.ProjectedNullCall"

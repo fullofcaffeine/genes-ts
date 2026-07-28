@@ -316,6 +316,57 @@ if (/unsafeCast<MixedNullable<T>>\(value\)/.test(regroupApiOutput)) {
     "An unchanged mixed nullable/plain payload received an over-broad assertion."
   );
 }
+if (
+  !regroupApiOutput.includes(
+    "ConcreteBoundaryStep.Concrete(Register.unsafeCast<number>(value))"
+  )
+) {
+  throw new Error(
+    "A concrete nullable enum payload did not receive its exact planned boundary."
+  );
+}
+if (
+  !regroupApiOutput.includes(
+    "RegroupIdentityApi.acceptConcrete(Register.unsafeCast<number>(value))"
+  )
+) {
+  throw new Error(
+    "An ordinary nullable call argument did not receive its exact planned boundary."
+  );
+}
+const guardedArgumentCall = regroupApiOutput
+  .split("\n")
+  .find((line) =>
+    line.includes("return RegroupIdentityApi.acceptConcrete(value)")
+  );
+if (guardedArgumentCall == null || guardedArgumentCall.includes("unsafeCast")) {
+  throw new Error(
+    "A direct null guard received an unnecessary TypeScript assertion."
+  );
+}
+for (const expectedBoundary of [
+  "const concrete: number = Register.unsafeCast<number>(value)",
+  "concrete = Register.unsafeCast<number>(value)",
+  "new ConcreteHolder(Register.unsafeCast<number>(value))"
+]) {
+  if (!regroupApiOutput.includes(expectedBoundary)) {
+    throw new Error(
+      `A planned initializer, assignment, or constructor boundary is missing: ${expectedBoundary}`
+    );
+  }
+}
+if (
+  !regroupApiOutput.includes(
+    'import type {BoundaryCarrier, BoundaryOnlyTarget} from "./BoundaryImportFixture.js"'
+  ) ||
+  !regroupApiOutput.includes(
+    "BoundaryImportFactory.accept(Register.unsafeCast<BoundaryCarrier<BoundaryOnlyTarget>>(BoundaryImportFactory.nullable()))"
+  )
+) {
+  throw new Error(
+    "A planned class-to-parent boundary did not reserve its otherwise unreferenced type-only imports."
+  );
+}
 
 const tinkStreamOutput = readFileSync(
   path.join(repoRoot, "tests/genes-ts/full/out/src-gen/tink/streams/Stream.ts"),

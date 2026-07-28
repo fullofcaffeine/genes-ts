@@ -95,6 +95,7 @@ depend on formatting.
 | Imported constructor instance/type identity | `src/genes/ExternTypeContract.hx` | Models value-derived constructor instances without downstream-specific import rules. Explicit metadata also keeps package-backed native `String`/`RegExp` values from being mistaken for host built-ins in public types. |
 | Type-reference projection and retention | `src/genes/TypeReferenceCollector.hx`, `src/genes/dts/TypeEmitter.hx`, `TypeUtil.enumConstructorApplication` | Keeps named Haxe declarations keyed by compiler-owned module/type identity, never by an unqualified spelling. The collector mirrors every type the printers may name, including destination-applied enum payloads, so an emitter cannot invent an unplanned import or weaken a missing declaration to `any`. |
 | TypeScript null-narrowing proof | `src/genes/ts/TsNarrowingPlan.hx` | Derives function-local null and map-presence facts from `TypedExpr`, then ends them after exact receiver/key assignment, `Map.remove`/`clear`, loop mutation, or a nested function boundary. It carries typed identities and no output text; the [ownership inventory](TS_NARROWING_OWNERSHIP.md) records the bounded design and evidence. |
+| TypeScript value-boundary projection | `src/genes/ts/TsBoundaryPlan.hx` | Records the exceptional returns, initializers, assignments, call arguments, constructor arguments, and enum-constructor arguments where Haxe accepted a nullability-only conversion that strict TypeScript needs stated explicitly. It also exposes every assertion target to dependency planning before import aliases are allocated. |
 | TypeScript implementation syntax | `src/genes/ts/TsModuleEmitter.hx` | Prints TS/TSX annotations, type imports, interfaces, and TS-specific syntax from shared facts. |
 | Classic JavaScript syntax | `src/genes/es/ModuleEmitter.hx`, `ExprEmitter.hx` | Prints modern ESM JavaScript while preserving Haxe JS runtime behavior. |
 | Declaration syntax | `src/genes/dts/DefinitionEmitter.hx`, `TypeEmitter.hx` | Prints public declarations from the same API/nullish facts; it does not infer API semantics independently. |
@@ -122,16 +123,70 @@ uses the resulting collision-safe accessor. Compatibility with one library
 must therefore be expressed as a generic Haxe/TypeScript semantic rule, not a
 name allowlist or a fallback to `any`.
 
-One such generic boundary is Haxe's JavaScript-target relation between `T` and
-`Null<T>`. When destination inference applies `Null<T>` at the corresponding
-type-parameter slot inside an invariant enum payload, strict TypeScript cannot
-reproduce that relation structurally. `TypeUtil.enumConstructorApplication`
-gives planning and emission the same applied payload type; TypeScript emission
-contains the already-checked Haxe conversion in one identity
-`Register.unsafeCast<Expected>(value)`. A payload that already contains both
-`Null<T>` and plain `T` is unchanged and receives no assertion. Public types
-remain precise, classic JavaScript remains unchanged, and any newly named
-payload dependency is planned before a writer opens.
+One such boundary comes from ordinary Haxe nullability. Unless a project opts
+into additional null-safety rules, Haxe can accept a `Null<Int>` expression
+where an `Int` parameter is declared:
+
+```haxe
+static function acceptConcrete(value:Int):Int {
+  return value;
+}
+
+static function forward(value:Null<Int>):Int {
+  return acceptConcrete(value);
+}
+```
+
+The equivalent strict TypeScript types are `number | null` and `number`, so a
+direct translation fails with “`number | null` is not assignable to
+`number`”:
+
+```ts
+static forward(value: number | null): number {
+  return Example.acceptConcrete(value); // strict TypeScript error
+}
+```
+
+`TsBoundaryPlan` reads the already-checked Haxe abstract syntax tree (AST),
+which is the compiler's structured representation of the program after name
+resolution and type checking. It records the exact argument expression and
+parameter type before dependency and import planning. TypeScript emission then
+renders that one decision:
+
+```ts
+static forward(value: number | null): number {
+  return Example.acceptConcrete(
+    Register.unsafeCast<number>(value)
+  );
+}
+```
+
+`unsafeCast` is an identity assertion, not a runtime conversion: it evaluates
+`value` once and returns the same JavaScript value. The assertion only carries
+Haxe's accepted static relationship into TypeScript. If Haxe source first
+checks `value != null`, TypeScript understands the same guard and Genes emits
+the direct call without an assertion.
+
+The proof also works through generic declarations, but it compares every
+generic argument. `Pair<Null<Int>, String>` is not accepted as a
+nullability-only version of `Pair<Int, Int>` merely because the first argument
+qualifies; the unrelated `String`/`Int` sibling makes the whole relation
+incompatible. Unresolved compiler types, `Dynamic`, arbitrary structural
+objects, unrelated generics, and user-defined abstract conversions receive no
+boundary assertion.
+
+Enum constructors add one related inference problem. Haxe can take generic
+enum parameters from the destination type even when they are absent from the
+constructor payload. `TypeUtil.enumConstructorApplication` supplies the
+destination-applied enum and payload types to `TsBoundaryPlan`; planning and
+emission therefore use the same compiler-owned types for both explicit generic
+arguments and any exact payload assertion. A payload that already has the
+right nullable/plain shape is unchanged.
+
+Public declarations remain precise, classic JavaScript remains unchanged, and
+every type named only by an assertion or explicit enum argument is collected
+before import aliases are frozen. Expression printing is therefore a consumer
+of the decision, not a late type-inference pass.
 
 An output profile decides how those facts are spelled:
 
@@ -156,9 +211,10 @@ lifetimes:
 - **request state** includes pre-DCE surfaces, signature caches,
   directives, capability defines, and generation membership. Its owner
   replaces or reinstalls it for every compilation before the first consumer;
-- **module state** includes dependency, JSX, template, narrowing, temporary,
-  naming, and projection plans. `Module.addTypes` invalidates plans whose typed
-  inputs can expand through declaration reachability;
+- **module state** includes dependency, JSX, template, narrowing, TypeScript
+  value-boundary, temporary, naming, and projection plans. `Module.addTypes`
+  invalidates plans whose typed inputs can expand through declaration
+  reachability;
 - **emitter state** includes writers, source-map buffers, and syntax-local
   stacks. It is constructed for one artifact and never cached across requests;
 - **filesystem state** includes public output and ownership manifests.
