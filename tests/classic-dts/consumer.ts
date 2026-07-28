@@ -11,6 +11,16 @@ import {
 import type { DeclarationOnlyShape } from "../../bin/tests/typeonly/DeclarationOnlyShape.js";
 import type { WebIdlGapSurface } from "../../bin/tests/webidl/WebIdlGapSurface.js";
 import { ConstructorGeneric } from "../../bin/tests/classicdts/ConstructorGeneric.js";
+import {
+  InferredStaticFactory,
+  InferredStaticPayload,
+  StaticCallableSignatureApi
+} from "../../bin/tests/staticcallable/InferredStaticFactory.js";
+import {
+  ConstrainedStaticFactory,
+  ConstrainedStaticSignatureApi
+} from "../../bin/tests/staticcallable/ConstrainedStaticFactory.js";
+import type { StaticConstraint } from "../../bin/tests/staticcallable/StaticConstraint.js";
 
 declare const map: IMap<string, number>;
 declare const declarationOnlyShape: DeclarationOnlyShape;
@@ -64,6 +74,28 @@ const constructedGeneric: ConstructorGeneric<
 > = ConstructorGeneric.Payload("left", 1, { label: "typed" });
 // @ts-expect-error The constructor-local payload is not a number.
 const invalidGenericPayload: number = genericVariant.value;
+
+// A static method inferred through a generic Haxe call site still needs an
+// explicit generic scope in the generated declaration. These assignments also
+// prove ordinary method-declared parameters are not duplicated.
+const wrappedStatic: InferredStaticFactory<string> =
+  InferredStaticFactory.wrap(new InferredStaticPayload("typed"));
+const ordinaryStatic: number = StaticCallableSignatureApi.ordinary(7);
+const constrainedStaticValue: StaticConstraint<string> = {
+  get: () => "closed"
+};
+const constrainedStatic:
+  ConstrainedStaticFactory<StaticConstraint<string>> =
+  ConstrainedStaticSignatureApi.create<
+    string,
+    StaticConstraint<string>
+  >(constrainedStaticValue);
+// @ts-expect-error the retained static parameter is string, not number.
+const invalidWrappedStatic: InferredStaticFactory<number> =
+  InferredStaticFactory.wrap(new InferredStaticPayload("wrong"));
+// @ts-expect-error the ordinary declared method generic remains precise.
+const invalidOrdinaryStatic: number =
+  StaticCallableSignatureApi.ordinary("wrong");
 
 // Classic declaration interfaces should remain closed as well.
 // @ts-expect-error Unknown members are not part of haxe.Constraints.IMap.
@@ -131,6 +163,11 @@ void permissionDenied;
 void genericPayload;
 void constructedGeneric;
 void invalidGenericPayload;
+void wrappedStatic;
+void ordinaryStatic;
+void constrainedStatic;
+void invalidWrappedStatic;
+void invalidOrdinaryStatic;
 void inherited;
 void own;
 void convertedNumber;

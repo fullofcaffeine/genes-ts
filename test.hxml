@@ -14,3 +14,5 @@
 -D js-es=6
 
 -D genes.enum_discriminator=$kind
+
+--macro tests.staticcallable.CallableSignaturePlanProbe.validate()

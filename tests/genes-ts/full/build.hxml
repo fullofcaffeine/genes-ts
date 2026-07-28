@@ -16,3 +16,4 @@
 -main tests.Run
 
 --macro tests.regroupidentity.BoundaryPlanProbe.validate()
+--macro tests.staticcallable.CallableSignaturePlanProbe.validate()

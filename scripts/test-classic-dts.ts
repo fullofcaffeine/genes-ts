@@ -152,6 +152,43 @@ if (
   );
 }
 
+const staticCallableDeclaration = readFileSync(
+  path.join(
+    repoRoot,
+    "bin/tests/staticcallable/InferredStaticFactory.d.ts"
+  ),
+  "utf8"
+);
+if (
+  !staticCallableDeclaration.includes(
+    "static wrap<T>(payload: InferredStaticPayload<T>): InferredStaticFactory<T>"
+  ) ||
+  !staticCallableDeclaration.includes("static ordinary<T>(value: T): T")
+) {
+  throw new Error(
+    "Classic declarations and TypeScript implementation planning disagree on static callable generics."
+  );
+}
+const constrainedStaticCallableDeclaration = readFileSync(
+  path.join(
+    repoRoot,
+    "bin/tests/staticcallable/ConstrainedStaticFactory.d.ts"
+  ),
+  "utf8"
+);
+if (
+  !constrainedStaticCallableDeclaration.includes(
+    'import {StaticConstraint} from "./StaticConstraint.js"'
+  ) ||
+  !constrainedStaticCallableDeclaration.includes(
+    "static wrap<Value extends StaticConstraint<Element>, Element>(value: Value): ConstrainedStaticFactory<Value>"
+  )
+) {
+  throw new Error(
+    "Classic declarations lost a projected static parameter constraint or its dependency."
+  );
+}
+
 // Classic implementation and declaration output share the registry contract
 // with genes-ts. The private construction helper must stay out of the public
 // declaration, while the named registry values remain strongly classified.

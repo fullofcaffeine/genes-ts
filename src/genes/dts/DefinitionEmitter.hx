@@ -11,8 +11,11 @@ import genes.PublicSurface;
 import genes.NullishContract;
 import genes.StdTypesSupport;
 import genes.JsonTypeSupport;
+import genes.CallableSignaturePlan;
 
 class DefinitionEmitter extends ModuleEmitter {
+  var currentCallableSignature: Null<CallableSignaturePlan> = null;
+
   public function emitDefinition(module: Module) {
     final dependencies = module.declarationDependencies;
     final endTimer = timer('emitDefinition');
@@ -117,8 +120,8 @@ class DefinitionEmitter extends ModuleEmitter {
     if (typeOverride != null)
       write(typeOverride);
     else {
-      final capturedSourceType = genes.ts.SignatureCache.getTypedefSourceType(
-        def, params);
+      final capturedSourceType = genes.ts.SignatureCache.getTypedefSourceType(def,
+        params);
       if (capturedSourceType != null)
         TypeEmitter.emitCapturedSourceType(this, capturedSourceType);
       else
@@ -231,7 +234,8 @@ class DefinitionEmitter extends ModuleEmitter {
   function emitModuleStatics(cl: ClassType, fields: Array<Field>) {
     writeNewline();
     emitPos(cl.pos);
-    for (field in fields)
+    for (field in fields) {
+      currentCallableSignature = field.callableSignature;
       switch field {
         case {isStatic: true, isPublic: true}:
           emitPos(field.pos);
@@ -241,10 +245,12 @@ class DefinitionEmitter extends ModuleEmitter {
           if (field.tsType != null)
             write(field.tsType);
           else
-            emitType(field.type, field.params);
+            emitCallableType(field.type, field.callableSignature);
           writeNewline();
         default:
       }
+    }
+    currentCallableSignature = null;
   }
 
   function emitClassDefinition(cl: ClassType, publicSurface: PublicSurface,
@@ -264,14 +270,11 @@ class DefinitionEmitter extends ModuleEmitter {
         emitBaseType(parent.type.get(), parent.copyArguments());
     }
     final declaredInterfaces = publicSurface.interfacesFor(params);
-    final emittedInterfaces = cl.isInterface
-      ? declaredInterfaces
-      : [
-          for (contract in declaredInterfaces)
-            if (PublicSurface.runtimeSatisfiesInterface(cl,
-              contract.type.get()))
-              contract
-        ];
+    final emittedInterfaces = cl.isInterface ? declaredInterfaces : [
+      for (contract in declaredInterfaces)
+        if (PublicSurface.runtimeSatisfiesInterface(cl,
+          contract.type.get())) contract
+    ];
     switch emittedInterfaces {
       case null | []:
       case interfaces:
@@ -293,6 +296,10 @@ class DefinitionEmitter extends ModuleEmitter {
     for (field in fields)
       appendField(field);
     for (field in signatureFields) {
+      currentCallableSignature = switch field.kind {
+        case Constructor | Method: field.callableSignature;
+        case Property: null;
+      };
       switch field.kind {
         case Constructor | Method:
           switch field.type {
@@ -306,23 +313,22 @@ class DefinitionEmitter extends ModuleEmitter {
               emitPos(field.pos);
               write(if (field.kind.equals(Constructor)) 'constructor' else
                 TypeUtil.nativeName(field.meta) ?? field.name);
-              final tsType = field.meta != null
-                ? (switch field.meta.extract(':ts.type') {
-                  case [{params: [{expr: EConst(CString(type))}]}]:
-                    type;
-                  default:
-                    switch field.meta.extract(':genes.type') {
-                      case [{params: [{expr: EConst(CString(type))}]}]:
-                        type;
-                      default: null;
-                    }
-                })
-                : null;
+              final tsType = field.meta != null ? (switch field.meta.extract(':ts.type') {
+                case [{params: [{expr: EConst(CString(type))}]}]:
+                  type;
+                default:
+                  switch field.meta.extract(':genes.type') {
+                    case [{params: [{expr: EConst(CString(type))}]}]:
+                      type;
+                    default: null;
+                  }
+              }) : null;
               if (tsType != null) {
                 write(': $tsType');
               } else {
-                if (field.params.length > 0)
-                  emitParams(field.params.map(p -> p.t), true);
+                if (!field.callableSignature.isEmpty())
+                  TypeEmitter.emitParams(this,
+                    field.callableSignature.parameterTypes(), true);
                 write('(');
                 var optionalPos = args.length;
                 for (i in 0...args.length) {
@@ -337,8 +343,7 @@ class DefinitionEmitter extends ModuleEmitter {
                   if (TypeUtil.isRest(arg.t))
                     write('...');
                   emitIdent(arg.name);
-                  final nullish = NullishContract.forParameter(arg.t,
-                    arg.opt && i >= optionalPos);
+                  final nullish = NullishContract.forParameter(arg.t, arg.opt && i >= optionalPos);
                   if (nullish.emitOptionalSyntax)
                     write('?');
                   write(': ');
@@ -357,8 +362,7 @@ class DefinitionEmitter extends ModuleEmitter {
                           }
                       };
                       if (paramTypeOverride != null)
-                        write(paramTypeOverride);
-                      else
+                        write(paramTypeOverride); else
                         emitType(nullish.emittedType);
                     default:
                       emitType(nullish.emittedType);
@@ -381,9 +385,7 @@ class DefinitionEmitter extends ModuleEmitter {
                           }
                       };
                       if (returnTypeOverride != null)
-                        write(returnTypeOverride);
-                      else
-                        emitType(ret);
+                        write(returnTypeOverride); else emitType(ret);
                   }
                 }
               }
@@ -413,6 +415,7 @@ class DefinitionEmitter extends ModuleEmitter {
           }, field.tsType != null);
       }
     }
+    currentCallableSignature = null;
     decreaseIndent();
     writeNewline();
     write('}');
@@ -423,6 +426,16 @@ class DefinitionEmitter extends ModuleEmitter {
 
   public function typeAccessor(type: TypeAccessor)
     return ctx.typeAccessor(type);
+
+  /** Resolves exact callable-generic identity inside the active method scope. */
+  public function typeParameterName(parameter: ClassType): String {
+    if (currentCallableSignature != null) {
+      final planned = currentCallableSignature.nameFor(parameter);
+      if (planned != null)
+        return planned;
+    }
+    return parameter.name;
+  }
 
   function emitBaseType(type: BaseType, params: Array<Type>,
       withConstraints = false) {
@@ -440,6 +453,19 @@ class DefinitionEmitter extends ModuleEmitter {
     TypeEmitter.emitType(this, type, params == null);
   }
 
+  /**
+   * Emits a function type with its exact preplanned generic scope.
+   *
+   * Ordinary classic declaration helpers historically deduplicate parameters
+   * by readable name. A callable plan instead owns exact identities, order,
+   * and collision-safe names, so routing it through that helper could collapse
+   * two unrelated parameters both named `T`.
+   */
+  function emitCallableType(type: Type, plan: CallableSignaturePlan): Void {
+    TypeEmitter.emitParams(this, plan.parameterTypes(), true);
+    TypeEmitter.emitType(this, type, false);
+  }
+
   /** Normalizes classic parameter identity before shared enum alias spelling. */
   function emitEnumConstructorTypeParams(enumParams: Array<Type>,
       constructorParams: Array<Type>) {
@@ -447,18 +473,20 @@ class DefinitionEmitter extends ModuleEmitter {
     final enumParamNames = [
       for (param in normalizedEnumParams)
         switch param {
-          case TInst(_.get().name => name, _): name;
-          default: throw 'Expected an enum type parameter';
+          case TInst(_.get().name => name, _):
+            name;
+          default:
+            throw 'Expected an enum type parameter';
         }
     ];
     final normalizedConstructorParams = [
       for (param in uniqueParams(constructorParams))
         if (switch param {
-          case TInst(_.get().name => name, _):
-            enumParamNames.indexOf(name) == -1;
-          default:
-            true;
-        }) param
+            case TInst(_.get().name => name, _):
+              enumParamNames.indexOf(name) == -1;
+            default:
+              true;
+          }) param
     ];
     TypeEmitter.emitEnumConstructorTypeParams(this, normalizedEnumParams,
       normalizedConstructorParams);

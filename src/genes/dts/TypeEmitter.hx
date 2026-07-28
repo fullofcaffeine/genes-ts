@@ -25,6 +25,7 @@ typedef TypeWriter = {
   function emitPos(pos: SourcePosition): Void;
   function includeType(type: Type): Void;
   function typeAccessor(type: TypeAccessor): String;
+  function typeParameterName(parameter: ClassType): String;
 }
 
 class TypeEmitter {
@@ -39,13 +40,13 @@ class TypeEmitter {
    */
   static var emittingCapturedSourceType = false;
 
-  public static function emitCapturedSourceType(writer: TypeWriter, type: Type,
-      wrap = true): Void {
+  public static function emitCapturedSourceType(writer: TypeWriter,
+      type: Type, wrap = true): Void {
     final previous = emittingCapturedSourceType;
     emittingCapturedSourceType = true;
     try {
       emitType(writer, type, wrap);
-    } catch (error: haxe.Exception) {
+    } catch (error:haxe.Exception) {
       // A failed compiler-server build must not leave the next build in this
       // special mode. Restore the earlier state before the normal generator
       // transaction reports the original error and rolls back its files.
@@ -181,14 +182,14 @@ class TypeEmitter {
       final fullName = fullNameOf(ab);
       try {
         Context.getType(fullName);
-      } catch (_: Dynamic) {}
+      } catch (_:Dynamic) {}
       try {
         switch Context.getType(fullName) {
           case TAbstract(_.get() => reloaded, _):
             out = collectFrom(reloaded);
           default:
         }
-      } catch (_: Dynamic) {}
+      } catch (_:Dynamic) {}
     }
 
     if (out.length == 0)
@@ -262,7 +263,8 @@ class TypeEmitter {
       default: null;
     }
     final overrideType = tsOverride != null ? tsOverride : genesOverride;
-    if (overrideType == null && (meta.has(':ts.type') || meta.has(':genes.type')))
+    if (overrideType == null
+      && (meta.has(':ts.type') || meta.has(':genes.type')))
       throw '@:ts.type/@:genes.type needs an expression';
     return overrideType;
   }
@@ -279,8 +281,7 @@ class TypeEmitter {
     return switch t {
       case TAbstract(_.get() => {pack: [], name: "Null"}, _) |
         TType(_.get() => {pack: [], name: "Null"}, _) |
-        TAbstract(_.get() => {pack: ["haxe", "extern"], name: "EitherType"},
-          _):
+        TAbstract(_.get() => {pack: ["haxe", "extern"], name: "EitherType"}, _):
         true;
       case TAbstract(_.get() => ab, _) if (ab.meta.has(':enum')):
         final values = enumAbstractLiteralUnion(ab);
@@ -288,16 +289,12 @@ class TypeEmitter {
           values.length > 1;
         } else {
           final cached = emittingCapturedSourceType
-            && Context.defined('genes.ts')
-            ? genes.ts.SignatureCache.getEnumAbstractTsType(ab)
-            : null;
-          cached != null && cached.indexOf('|') != -1;
+            && Context.defined('genes.ts') ? genes.ts.SignatureCache.getEnumAbstractTsType(ab) : null;
+          cached != null && cached.indexOf('|') != -1
+          ;
         }
       case TInst(_.get().meta => meta, _) |
-        TAbstract(_.get().meta => meta, _) |
-        TType(_.get().meta => meta, _):
-        final overrideType = typeOverrideFromMeta(meta);
-        overrideType != null && overrideType.indexOf('|') != -1;
+        TAbstract(_.get().meta => meta, _) | TType(_.get().meta => meta, _): final overrideType = typeOverrideFromMeta(meta); overrideType != null && overrideType.indexOf('|') != -1;
       case TLazy(f):
         arrayElementNeedsParens(f());
       default:
@@ -442,8 +439,7 @@ class TypeEmitter {
     write('>');
   }
 
-  public static function emitType(writer: TypeWriter, type: Type,
-      wrap = true) {
+  public static function emitType(writer: TypeWriter, type: Type, wrap = true) {
     final write = writer.write, emitPos = writer.emitPos,
     includeType = writer.includeType;
     switch type {
@@ -487,33 +483,33 @@ class TypeEmitter {
             // to `any` for now.
             emitPos(cl.pos);
             write('any');
-          case [{name: name, kind: KTypeParameter(_)}, _]:
+          case [{kind: KTypeParameter(_)}, _]:
             emitPos(cl.pos);
-            write(name);
-          case [{module: module}, _] if (module != null && module.startsWith('haxe.macro')):
+            write(writer.typeParameterName(cl));
+          case [{module: module}, _]
+            if (module != null && module.startsWith('haxe.macro')):
             // Macro API types are not available at runtime and are often
             // stripped by DCE; emit `any` so TS can type-check runtime output.
             emitPos(cl.pos);
             write('any');
           case [{meta: meta}, _] if (switch meta.extract(':jsRequire') {
-            case [{
-              params: [
-                {expr: EConst(CString("buffer"))},
-                {expr: EConst(CString("Buffer"))}
-              ]
-            }]:
-              true;
-            default:
-              false;
-          }):
+              case [
+                {
+                  params: [{expr: EConst(CString("buffer"))}, {expr: EConst(CString("Buffer"))}]
+                }
+              ]:
+                true;
+              default:
+                false;
+            }):
             // Node's `buffer` module exports a value `Buffer` in older @types/node
             // versions; use the global `Buffer` type for compatibility.
             emitPos(cl.pos);
             write('globalThis.Buffer');
           case [{meta: meta}, _] if (switch meta.extract(':native') {
-            case [{params: [{expr: EConst(CString("RegExp"))}]}]: true;
-            default: false;
-          }):
+              case [{params: [{expr: EConst(CString("RegExp"))}]}]: true;
+              default: false;
+            }):
             emitPos(cl.pos);
             write('(RegExp & { m?: RegExpExecArray | null; s?: string })');
           case [{name: "RegExpMatch"}, _]:
@@ -602,9 +598,7 @@ class TypeEmitter {
           // literal spelling after typing, while those declarations still
           // exist, so a recursively recovered source type can remain closed at
           // any depth without a target assertion or a second type printer.
-          final cachedEnumType = emittingCapturedSourceType
-            ? genes.ts.SignatureCache.getEnumAbstractTsType(ab)
-            : null;
+          final cachedEnumType = emittingCapturedSourceType ? genes.ts.SignatureCache.getEnumAbstractTsType(ab) : null;
           if (cachedEnumType != null) {
             emitPos(ab.pos);
             write(cachedEnumType);
@@ -695,9 +689,7 @@ class TypeEmitter {
             final fieldName = TypeUtil.classFieldName(field);
             write((StringTools.startsWith(fieldName, "[")
               && StringTools.endsWith(fieldName, "]"))
-              || IdentifierPolicy.isAsciiIdentifier(fieldName)
-              ? fieldName
-              : Json.stringify(fieldName));
+              || IdentifierPolicy.isAsciiIdentifier(fieldName) ? fieldName : Json.stringify(fieldName));
             if (field.meta.has(':optional')
               || genes.ts.StdlibTypeOverrides.isOptionalAnonymousField(anon,
                 field))
@@ -719,7 +711,8 @@ class TypeEmitter {
             if (fieldTypeOverride != null) {
               emitNullishProjection(writer, fieldNullish,
                 () -> emitTypeOverride(writer, fieldTypeOverride,
-                  [for (param in field.params) param.t]), true);
+                  [for (param in field.params) param.t]),
+                true);
               continue;
             }
             // Anonymous typedef fields can carry enum abstracts whose typed
@@ -728,12 +721,8 @@ class TypeEmitter {
             // this same recursive printer handle functions, containers, and
             // nullability. The direct string cache remains the narrow fallback
             // for a singleton/top-level literal projection.
-            final cachedFieldSourceType = Context.defined('genes.ts')
-              ? genes.ts.SignatureCache.getAnonFieldSourceType(field.pos)
-              : null;
-            final cachedFieldType = Context.defined('genes.ts')
-              ? genes.ts.SignatureCache.getAnonFieldTsType(field.pos)
-              : null;
+            final cachedFieldSourceType = Context.defined('genes.ts') ? genes.ts.SignatureCache.getAnonFieldSourceType(field.pos) : null;
+            final cachedFieldType = Context.defined('genes.ts') ? genes.ts.SignatureCache.getAnonFieldTsType(field.pos) : null;
             emitNullishProjection(writer, fieldNullish, () -> {
               if (cachedFieldSourceType != null)
                 emitCapturedSourceType(writer, cachedFieldSourceType, false);
@@ -770,7 +759,8 @@ class TypeEmitter {
           case [{name: name}, _] if (name.indexOf('<') > -1):
             emitPos(dt.pos);
             write('any');
-          case [{module: module}, _] if (module != null && module.startsWith('haxe.macro')):
+          case [{module: module}, _]
+            if (module != null && module.startsWith('haxe.macro')):
             emitPos(dt.pos);
             write('any');
           case [{pack: [], name: "Null"}, [realT]]: // Haxe 3.x
@@ -847,7 +837,8 @@ class TypeEmitter {
       case TDynamic(null):
         // genes-ts default is `Dynamic -> any` (pragmatic).
         // Opt-in: map to `unknown` for stricter userland (forces narrowing/casts).
-        if (Context.defined('genes.ts') && Context.defined('genes.ts.dynamic_unknown'))
+        if (Context.defined('genes.ts')
+          && Context.defined('genes.ts.dynamic_unknown'))
           write('unknown');
         else
           write('any');
@@ -899,8 +890,7 @@ class TypeEmitter {
       if (TypeUtil.isRest(arg.t))
         write('...');
       write(if (arg.name != "") arg.name else 'arg$i');
-      final nullish = NullishContract.forParameter(arg.t,
-        arg.opt && i > noOptionalUntil);
+      final nullish = NullishContract.forParameter(arg.t, arg.opt && i > noOptionalUntil);
       if (nullish.emitOptionalSyntax)
         write("?");
       write(': ');

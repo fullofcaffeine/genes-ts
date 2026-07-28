@@ -38,6 +38,7 @@ boundaries.
 | Complete-tree staging, stale cleanup, rollback | `OutputTransaction.hx`, `Writer.hx`, `SourceMapGenerator.hx` |
 | Runtime/type/declaration/side-effect dependencies | `DependencyPlan.hx`, `DependencyPlanBuilder.hx`, `Dependencies.hx`, `BindingIdentity.hx` |
 | Pre-DCE reusable/public contract | `PublicSurface.hx`, `LibraryProfile.hx`, `TypeReferenceCollector.hx` |
+| Static callable generic scope shared by implementation and declarations | `CallableSignaturePlan.hx`, `Module.fieldsOf` |
 | Deterministic emitted names, local mutability, and required temporaries | `NamePlan.hx`, `LocalBindingPlan.hx`, `TempPlan.hx`, `EmittedMemberName.hx` |
 | Haxe `null`, JavaScript `undefined`, missing values | `NullishContract.hx` |
 | JSX meaning and Haxe-side validation | `JsxTypeChecker.hx`, `JsxPlan.hx`, `react/` |
