@@ -109,6 +109,7 @@ npm package's declaration-only `.d.ts` surface.
 | How are classic declarations emitted? | `src/genes/dts/DefinitionEmitter.hx`, `src/genes/dts/TypeEmitter.hx` | Declaration reachability is separate from classic runtime DCE. |
 | Where do shared runtime semantics live? | `src/genes/Register.hx`, `src/genes/js/`, `src/haxe/` | These preserve Haxe JavaScript behavior shared by both profiles. |
 | How do HXX and JSX work? | `src/genes/react/`, `src/genes/JsxTypeChecker.hx`, `src/genes/JsxPlan.hx` | Haxe validates markup first; all four JSX/createElement profiles consume one checked semantic plan. |
+| How can a host watch, rebuild, and publish Genes output safely? | `tooling/README.md`, `tooling/src/`, `tooling/AGENTS.md` | Optional Node-side primitives own generic lifecycle mechanics while framework policy stays in the host. |
 | How does TS become Haxe? | `tools/ts2hx/src/project.ts`, `tools/ts2hx/src/semantic/`, `tools/ts2hx/src/haxe/` | TypeScript facts are normalized before the Haxe emitter publishes a transactional tree. |
 
 Use `rg` before browsing broad directories. Search for the emitted token,

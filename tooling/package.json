@@ -85,9 +85,14 @@
     "README.md"
   ],
   "scripts": {
-    "build": "node ../scripts/run-typescript.mjs apiBridge -p tsconfig.json",
+    "build": "tsc6 -p tsconfig.json",
+    "prepare": "npm run build",
     "test": "yarn build && node dist/test.js && node dist/vector-test.js && node dist/loop-test.js && node dist/hxml-test.js && node dist/watch-test.js && node dist/watch-vector-test.js && node dist/haxe-server-test.js && node dist/haxe-server-vector-test.js",
     "pack:check": "yarn build && node ../scripts/dist/test-tooling-package.js"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.30",
+    "typescript": "npm:@typescript/typescript6@6.0.2"
   },
   "publishConfig": {
     "access": "public"

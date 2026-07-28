@@ -50,12 +50,31 @@ yarn test:versions
 
 The compiler workflow does not publish `@genes-ts/tooling`.
 
-## Framework-neutral tooling npm release
+## Framework-neutral tooling distribution (npm deferred)
 
-`tooling/package.json` owns the independent `@genes-ts/tooling` SemVer. Hosts
-such as NextJsHx, WordPressHx/Gutenberg, and other Haxe-to-JavaScript or
-Haxe-to-TypeScript projects consume this package by immutable npm identity; they
-must not depend on a sibling checkout or Git branch.
+`tooling/package.json` owns the independent `@genes-ts/tooling` SemVer. The
+package is optional host infrastructure; Genes compilation, generated
+applications, and ts2hx do not depend on it. It is currently unpublished, and
+no checked-in Genes workflow requires a registry copy.
+
+During repository development, use the workspace package or the deterministic
+tarball proved by `yarn test:tooling-package`. An external experiment may build
+and install one exact 40-character Git commit with npm 11.18.0's
+`#<commit>::path:tooling` selector. The subpackage's pinned build-only
+dependencies and `prepare` script produce its untracked `dist/` tree during
+installation. A plain GitHub dependency without `::path:tooling` selects the
+repository root package instead. If durable prebuilt GitHub-only distribution
+is needed before npm, publish a reviewed `.tgz` as an immutable,
+checksum-documented GitHub Release asset.
+
+npm 10.9.4 is explicitly unsupported for this Git-subdirectory path: it parses
+the selector but installs the repository root. Use the deterministic tarball
+path when npm 11.18.0 is unavailable or dependency build scripts are disabled.
+
+npm remains a possible future distribution channel when a concrete independent
+host is ready to adopt a reviewed public version. It is not required merely
+because the package exists. See [`../tooling/README.md`](../tooling/README.md)
+for the package boundary, examples, and pre-publication workflows.
 
 An ordinary merge never publishes tooling. Publication is available only
 through the manual **Release tooling npm package** workflow. Before its first
@@ -116,10 +135,14 @@ facts—event, repository, and branch—is important because a pull request from
 fork may also use a source branch named `main`; branch spelling alone does not
 make that code trusted enough for a job with release write permission.
 
-npm currently permits trusted-publisher configuration only after a package
-exists. `@genes-ts/tooling` is not yet published, so version `0.1.0` requires a
-one-time bootstrap by an authorized maintainer. That bootstrap must publish the
-exact tarball produced and verified by `yarn test:tooling-package`, use a
+npm publication is intentionally deferred. The workflow and policy checks stay
+in the repository so a future decision starts from a reviewed, fail-closed
+contract rather than an improvised release.
+
+If npm is later selected, npm currently permits trusted-publisher configuration
+only after a package exists. Version `0.1.0` would therefore require a one-time
+bootstrap by an explicitly authorized maintainer. That bootstrap must publish
+the exact tarball produced and verified by `yarn test:tooling-package`, use a
 narrowly scoped npm credential with 2FA/provenance from a GitHub-hosted runner,
 and retain the same receipt/SBOM/downloaded-byte evidence. Immediately
 afterward, configure `release-tooling.yml` as the sole trusted publisher,
