@@ -1,6 +1,7 @@
 # Agent Instructions
 
-This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
+This project uses **bd** (Beads) for issue tracking. Install the exact
+repository client with `yarn beads:install`, then run `yarn bd onboard`.
 
 ## New agent: understand the repository first
 
@@ -22,10 +23,12 @@ remain buildable and correct without ts2hx.
 
 ### First ten minutes
 
-1. Run `bd onboard`, `git status --short --branch`, and `git log -n 12 --oneline`.
+1. Run `yarn beads:install`, `yarn bd onboard`,
+   `git status --short --branch`, and `git log -n 12 --oneline`.
 2. Read [`docs/BEADS_WORKTREES.md`](docs/BEADS_WORKTREES.md) before creating a
-   branch or worktree. Use `bd ready`, inspect the selected task with
-   `bd show <id>`, then claim it with `bd update <id> --status in_progress`.
+   branch or worktree. Use `yarn bd ready`, inspect the selected task with
+   `yarn bd show <id>`, then claim it with
+   `yarn bd update <id> --status in_progress`.
 3. Read [`docs/README.md`](docs/README.md) for the documentation index.
 4. Choose the intended user workflow in
    [`docs/WORKFLOWS.md`](docs/WORKFLOWS.md): Haxe to TypeScript, Haxe to
@@ -196,9 +199,13 @@ as a workaround. Use `yarn hooks:install` for the separately marked repository
 pre-commit section; reinstalling or upgrading Beads replaces only its own
 managed marker.
 
-Normal `bd create`, `bd update`, and `bd close` commands may run from any
-worktree because they update the shared database. Publish the tracked snapshot
-only as a deliberate second step:
+Normal `yarn bd create`, `yarn bd update`, and `yarn bd close` commands may run
+from any worktree because the launcher resolves one verified client from Git's
+common directory and updates the shared database. Do not use ambient `bd` or a
+neighboring repository's cached binary: Beads database compatibility follows
+the compiled migration set and exact source commit, not just the displayed
+semantic version. Publish the tracked snapshot only as a deliberate second
+step:
 
 1. Finish and merge the feature worktree.
 2. Use the clean, current primary `main` checkout.
@@ -207,7 +214,8 @@ only as a deliberate second step:
 5. Create a dedicated roadmap branch, commit the snapshot, and merge it through
    a pull request after the required checks pass.
 
-`yarn beads:export` fails closed in a linked worktree, on a non-`main` branch,
+`yarn beads:export` also verifies the pinned client and fails closed in a linked
+worktree, on a non-`main` branch,
 when `main` is not equal to `origin/main`, or when the primary checkout is
 already dirty. Never use `bd export` directly from a feature worktree. If a
 worktree commit unexpectedly mentions an export, stop and follow the recovery
@@ -465,10 +473,10 @@ Examples that must be documented when used:
 ## Quick Reference
 
 ```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --status in_progress  # Claim work
-bd close <id>         # Complete work
+yarn bd ready              # Find available work
+yarn bd show <id>          # View issue details
+yarn bd update <id> --status in_progress  # Claim work
+yarn bd close <id>         # Complete work
 ```
 
 ## Key Commands

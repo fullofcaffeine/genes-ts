@@ -34,7 +34,7 @@ Prereqs:
 - Node.js 22.22+
 - Yarn (this repo pins Yarn via Corepack)
 - Haxe via `lix` (auto-downloaded on `yarn install`)
-- Beads 1.1.0 (`bd`) for issue tracking and shared Git-hook ownership
+- Go 1.26.5 for building the exact repository-owned Beads client
 - haxe-formatter 1.18.0 for staged Haxe formatting
 
 Install:
@@ -42,17 +42,26 @@ Install:
 ```bash
 corepack enable
 yarn install
+yarn beads:install
 yarn haxelib install formatter 1.18.0 --quiet
 yarn hooks:install
 ```
 
+`beads:install` builds a checksum-verified upstream commit into Git's common
+directory. That location is shared by every linked worktree, just like the live
+database. Use `yarn bd <command>` for issue work; an ambient `bd` may display a
+newer release number while understanding an older database schema.
+
 `hooks:install` composes the repository pre-commit checks with Beads instead of
-replacing its generated section. Before each commit, complete staged `.hx`
-files are formatted and re-staged, then the final staged snapshot is scanned
-for credentials. A partially staged Haxe file is rejected so formatting cannot
-pull unstaged edits into the commit. See
+replacing its generated section, and makes every managed Beads hook resolve the
+same pinned client. Before each commit, complete staged `.hx` files are
+formatted and re-staged, then the final staged snapshot is scanned for
+credentials. A partially staged Haxe file is rejected so formatting cannot pull
+unstaged edits into the commit. See
 [`docs/SECURITY.md`](docs/SECURITY.md#pre-commit-boundary) for setup, failure
-behavior, and the required CI backstop.
+behavior and the required CI backstop. See
+[`docs/BEADS_WORKTREES.md`](docs/BEADS_WORKTREES.md) for client identity,
+incident recovery and database-upgrade policy.
 
 ## Quality gates (run locally)
 
@@ -66,6 +75,7 @@ Useful subsets:
 
 ```bash
 yarn test:precommit-hook
+yarn test:beads-pin
 yarn test:secrets
 yarn test:vulns
 yarn test:genes-ts

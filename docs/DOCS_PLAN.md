@@ -166,4 +166,4 @@ Both directions must be covered:
 
 ## Beads tracking
 
-Implementation tasks are tracked in beads under an epic (see `bd list`).
+Implementation tasks are tracked in Beads under an epic (see `yarn bd list`).

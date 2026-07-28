@@ -91,6 +91,7 @@ function assertRealWorktreeHookBoundary(): void {
   if (bdVersion.status !== 0) {
     throw new Error("The focused Beads worktree test requires bd on PATH");
   }
+  const fixtureBeads = run(repoRoot, "sh", ["-c", "command -v bd"], env);
 
   const root = mkdtempSync(path.join(tmpdir(), "genes-beads-worktree-"));
   const remote = path.join(root, "remote.git");
@@ -156,7 +157,7 @@ function assertRealWorktreeHookBoundary(): void {
     validateBeadsSnapshotContext(primary);
     git(primary, ["worktree", "add", "-b", "feature", linked, "main"], env);
     throws(
-      () => exportBeadsSnapshot(linked),
+      () => exportBeadsSnapshot(linked, fixtureBeads),
       /only from the primary Git worktree/
     );
 
@@ -242,7 +243,7 @@ function assertRealWorktreeHookBoundary(): void {
     throws(() => exportBeadsSnapshot(primary), /BEADS_DB is set/);
     delete process.env.BEADS_DB;
 
-    exportBeadsSnapshot(primary);
+    exportBeadsSnapshot(primary, fixtureBeads);
     const afterPublication = snapshotHashes(primary, env);
     ok(
       afterPublication[0] !== beforePublication[0],

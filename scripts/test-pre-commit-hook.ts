@@ -102,6 +102,7 @@ function verifyPreCommitBoundary(): void {
   const root = mkdtempSync(path.join(tmpdir(), "genes-pre-commit-"));
   const primary = path.join(root, "primary");
   const linked = path.join(root, "linked");
+  const realBd = run(repositoryRoot, "sh", ["-c", "command -v bd"], environment);
   mkdirSync(primary);
 
   try {
@@ -162,7 +163,7 @@ function verifyPreCommitBoundary(): void {
     run(
       primary,
       process.execPath,
-      [hookInstaller, "--repo-root", primary],
+      [hookInstaller, "--repo-root", primary, "--beads-bin", realBd],
       environment
     );
     let installedHook = readFileSync(hookPath, "utf8");
@@ -174,7 +175,7 @@ function verifyPreCommitBoundary(): void {
     run(
       primary,
       process.execPath,
-      [hookInstaller, "--repo-root", primary],
+      [hookInstaller, "--repo-root", primary, "--beads-bin", realBd],
       environment
     );
     run(primary, "bd", ["hooks", "install", "--chain"], environment);
@@ -183,7 +184,6 @@ function verifyPreCommitBoundary(): void {
     strictEqual(count(installedHook, beadsMarker), 1, "reinstall duplicated Beads hook");
     ok(installedHook.includes("user-hook"), "reinstall discarded user hook content");
 
-    const realBd = run(primary, "sh", ["-c", "command -v bd"], environment);
     const realHaxelib = run(
       repositoryRoot,
       "sh",
