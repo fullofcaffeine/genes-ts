@@ -327,6 +327,15 @@ if (
 }
 if (
   !regroupApiOutput.includes(
+    "ConcreteBoundaryStep.Concrete(Register.unsafeCast<number>((source.value ?? null)))"
+  )
+) {
+  throw new Error(
+    "An optional enum payload did not preserve Haxe null normalization before its planned boundary."
+  );
+}
+if (
+  !regroupApiOutput.includes(
     "RegroupIdentityApi.acceptConcrete(Register.unsafeCast<number>(value))"
   )
 ) {

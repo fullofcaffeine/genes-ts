@@ -921,13 +921,25 @@ private class TsBoundaryPlanBuilder {
     return left.module == right.module && left.name == right.name;
   }
 
+  /**
+   * Correlates Haxe's re-encoded views of one generic type parameter.
+   *
+   * Why: superclass/interface substitution can expose the same logical
+   * parameter through different `Ref<ClassType>` wrapper objects. Comparing
+   * those wrappers physically loses checked conversions such as `T` to
+   * `Null<T>`. What: the parameter's typed owner spelling and complete source
+   * range form a request-local correlation key. How: this key never leaves the
+   * immutable per-module plan and never identifies ordinary declarations or
+   * survives a compiler-server request. The source range is a bounded Haxe
+   * macro-API fallback here, not a general declaration-identity policy.
+   */
   static function typeParameterIdentity(type: Type): Null<String> {
     return switch resolve(type) {
       case TInst(reference, [])
         if (reference.get().kind.match(KTypeParameter(_))):
         final parameter = reference.get();
         final position = Context.getPosInfos(parameter.pos);
-        '${parameter.module}:${parameter.name}:${position.file}:${position.min}';
+        '${parameter.module}:${parameter.name}:${position.file}:${position.min}:${position.max}';
       default:
         null;
     }

@@ -9,6 +9,14 @@ enum ConcreteBoundaryStep {
 }
 
 /**
+ * Ordinary optional field whose missing JavaScript value must first normalize
+ * to Haxe `null`, even when it crosses a planned non-null enum boundary.
+ */
+typedef OptionalBoundarySource = {
+  final ?value: Int;
+}
+
+/**
  * Two-parameter nominal value used by the incompatible-sibling control.
  */
 class BoundaryPair<Left, Right> {

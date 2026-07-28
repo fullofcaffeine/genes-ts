@@ -530,7 +530,11 @@ class TsModuleEmitter extends JsModuleEmitter {
           write('.unsafeCast<');
           TypeEmitter.emitType(this, bridge.target);
           write('>(');
-          emitValueWithExpectedType(expectedArg, bridge.source);
+          // Preserve the source value's own null/undefined contract before the
+          // planned TypeScript assertion. Passing the enum payload's non-null
+          // destination here would suppress `?? null` on an optional field and
+          // could expose raw JavaScript `undefined` to Haxe code.
+          emitValueWithExpectedType(null, bridge.source);
           write(')');
         } else {
           emitValueWithExpectedType(expectedArg, actual);

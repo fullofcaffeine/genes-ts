@@ -38,6 +38,11 @@ class TestRegroupTypeIdentity {
       case Concrete(value):
         asserts.assert(value == null);
     }
+    final optional = RegroupIdentityApi.concreteOptional({});
+    switch optional {
+      case Concrete(value):
+        asserts.assert(value == null);
+    }
     asserts.assert(RegroupIdentityApi.ordinaryNullableArgument(null) == null);
     asserts.assert(RegroupIdentityApi.guardedNullableArgument(null) == 0);
     asserts.assert(RegroupIdentityApi.guardedNullableArgument(7) == 7);

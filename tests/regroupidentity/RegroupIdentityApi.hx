@@ -4,6 +4,7 @@ import tests.regroupidentity.result.RegroupResult as Result;
 import tests.regroupidentity.status.RegroupStatus as Status;
 import tests.regroupidentity.BoundaryPlanStep.ConcreteBoundaryStep;
 import tests.regroupidentity.BoundaryPlanStep.ConcreteHolder;
+import tests.regroupidentity.BoundaryPlanStep.OptionalBoundarySource;
 import tests.regroupidentity.BoundaryImportFixture.BoundaryImportFactory;
 import tests.regroupidentity.MixedNullableStep.MixedNullable;
 
@@ -35,6 +36,13 @@ class RegroupIdentityApi {
    */
   public static function concreteNullable(value: Null<Int>): ConcreteBoundaryStep {
     return Concrete(value);
+  }
+
+  /**
+   * Normalizes a missing optional field before asserting the enum payload type.
+   */
+  public static function concreteOptional(source: OptionalBoundarySource): ConcreteBoundaryStep {
+    return Concrete(source.value);
   }
 
   /**
