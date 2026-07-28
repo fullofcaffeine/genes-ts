@@ -1,5 +1,7 @@
 package genes.ts;
 
+import genes.Register;
+
 /**
  * Type-only marker for a value that may be JavaScript `undefined`.
  *
@@ -34,7 +36,7 @@ abstract Undefinable<T>(Null<T>) from T {
    * genes-ts and classic Genes inline it to `value === undefined`; callers and
    * generated Haxe remain typed and contain no raw syntax.
    */
-  public static inline function isAbsent<T>(value:Null<T>):Bool {
+  public static inline function isAbsent<T>(value: Null<T>): Bool {
     return js.Syntax.code("({0}) === undefined", value);
   }
 
@@ -62,11 +64,14 @@ abstract Undefinable<T>(Null<T>) from T {
    * an exact absence check is a contract violation; it performs no fallback or
    * coercion.
    *
-   * How: both output modes inline a target identity expression. Keeping the
-   * operation here makes the proof boundary named and reviewable instead of
-   * spreading casts through generated Haxe.
+   * How: `Register.unsafeCast` is the shared runtime identity helper. Naming it
+   * here is important: the abstract's Haxe storage is `Null<T>`, so the emitted
+   * implementation operand has the TypeScript type `T | null` even though the
+   * helper result is `T`. A general boundary planner cannot approve every
+   * abstract representation change. The caller's exact absence check and this
+   * dedicated helper are the reviewed proof instead.
    */
-  public inline function assumePresent():T {
-    return js.Syntax.code("{0}", this);
+  public inline function assumePresent(): T {
+    return Register.unsafeCast(this);
   }
 }

@@ -77,6 +77,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   var currentReturnIsVoidLike: Bool = false;
   var localTsTypeOverrides: Map<Int, String> = [];
   var narrowingPlan: Null<TsNarrowingPlan> = null;
+  var boundaryPlan: Null<TsBoundaryPlan> = null;
   var inRawSyntaxTemplate: Bool = false;
   var suppressOptionalFieldNullNormalization: Bool = false;
   var suppressPromiseResolveNullThenableCast: Bool = false;
@@ -214,6 +215,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     configureLowering(module, TypeScriptReadable, jsxEmitTsx);
     configureTemplateLiterals(module.templateLiteralPlan);
     narrowingPlan = module.tsNarrowingPlan;
+    boundaryPlan = module.tsBoundaryPlan;
     final jsxPlan = module.jsxPlan;
     final jsxCapability = JsxCapabilityPolicy.current();
     final needsJsxNamespaceImport = jsxPlan.hasIntents
@@ -508,49 +510,31 @@ class TsModuleEmitter extends JsModuleEmitter {
       // cannot accidentally receive the outer call's type argument.
       currentExplicitTypeArguments = null;
     }
-    final expectedEnumApplication = TypeUtil.enumConstructorApplication(e,
-      currentExpectedValueType);
-    if (expectedEnumApplication != null
-      && !params.exists(param -> isNullConst(unwrapExpr(param)))) {
+    final enumDecision = boundaryPlan == null ? null : boundaryPlan.enumCall(e);
+    if (enumDecision != null) {
       // A Haxe enum constructor is a generic function in emitted TS. TypeScript
-      // normally infers its parameters from the payload only, which loses type
-      // arguments that occur solely in the destination (for example the error
-      // parameter of `Outcome.Success`). Reapply the destination enum arguments
-      // so the constructor result honors the typed Haxe expression.
+      // normally infers from payloads alone. The immutable boundary plan owns
+      // the exact destination application, payload bridges, and every type-only
+      // dependency this expression is allowed to print.
       emitValue(e);
-      TypeEmitter.emitParams(this, expectedEnumApplication.parameters, false);
+      TypeEmitter.emitParams(this, enumDecision.parameters, false);
       write('(');
-      final enumArgs = expectedEnumApplication.argumentTypes;
       for (i in 0...params.length) {
         if (i > 0)
           write(', ');
-        final expectedArg = i < enumArgs.length ? enumArgs[i] : null;
+        final expectedArg = i < enumDecision.argumentTypes.length ? enumDecision.argumentTypes[i] : null;
         final actual = params[i];
-        final expectedParamKey = expectedArg == null ? null : typeParamKey(expectedArg);
-        final actualParamKey = typeParamKey(actual.t);
-        final castSource = explicitErasedCastSource(actual);
-        final erasedGenericCast = expectedParamKey != null
-          && castSource != null
-          && typeParamKey(castSource.t) != expectedParamKey;
-        final nullableGenericCast = expectedArg != null
-          && hasNullableTypeParameterMismatch(expectedArg,
-            castSource == null ? actual.t : castSource.t);
-        if (expectedArg != null
-          && ((expectedParamKey != null
-            && (expectedParamKey != actualParamKey || erasedGenericCast))
-            || nullableGenericCast)) {
-          // Haxe can erase an explicit cast to a generic enum payload before
-          // custom generation. Haxe's JS model also treats `T` as compatible
-          // with `Null<T>`, while strict TypeScript makes a generic container
-          // invariant when it both accepts and returns `T`. The destination
-          // enum instantiation is authoritative in both cases, so contain the
-          // checked Haxe conversion at this exact constructor argument.
+        final bridge = enumDecision.bridgeAt(i);
+        if (bridge != null) {
           write(ctx.typeAccessor(TypeUtil.registerType));
           write('.unsafeCast<');
-          TypeEmitter.emitType(this, expectedArg);
+          TypeEmitter.emitType(this, bridge.target);
           write('>(');
-          emitValueWithExpectedType(expectedArg,
-            castSource == null ? actual : castSource);
+          // Preserve the source value's own null/undefined contract before the
+          // planned TypeScript assertion. Passing the enum payload's non-null
+          // destination here would suppress `?? null` on an optional field and
+          // could expose raw JavaScript `undefined` to Haxe code.
+          emitValueWithExpectedType(null, bridge.source);
           write(')');
         } else {
           emitValueWithExpectedType(expectedArg, actual);
@@ -559,12 +543,41 @@ class TsModuleEmitter extends JsModuleEmitter {
       write(')');
       return;
     }
-    // If a nullable value is passed to a non-nullable parameter, TS `strict`
-    // errors even though Haxe commonly allows this (not null-safe by default).
-    // Preserve Haxe semantics by inserting an unsafe cast at the call-site.
-    //
-    // We only do this for "plain" calls to avoid bypassing special call
-    // lowering in the JS emitter (`js.Syntax.*`, feature macros, etc).
+    final callDecision = boundaryPlan == null ? null : boundaryPlan.call(e);
+    if (callDecision != null) {
+      // The dependency planner has already reserved every assertion target.
+      // This branch only renders those immutable decisions and evaluates each
+      // original argument once.
+      emitPos(e.pos);
+      emitCallCallee(e, explicitTypeArguments);
+      write('(');
+      for (i in 0...params.length) {
+        if (i > 0)
+          write(', ');
+        final expectedArg = i < callDecision.argumentTypes.length ? callDecision.argumentTypes[i] : null;
+        final bridge = callDecision.bridgeAt(i);
+        if (bridge != null) {
+          write(ctx.typeAccessor(TypeUtil.registerType));
+          write('.unsafeCast<');
+          TypeEmitter.emitType(this, bridge.target);
+          write('>(');
+          // Emit the source value using its own null/undefined rules first.
+          // The assertion is a later TypeScript assignment boundary.
+          emitValueWithExpectedType(null, bridge.source);
+          write(')');
+        } else {
+          emitValueWithExpectedType(expectedArg, params[i]);
+        }
+      }
+      write(')');
+      return;
+    }
+    // A few established literal and metadata projections still need a custom
+    // argument writer: an unconstrained generic receiving literal `null`,
+    // an explicit host type override, or an authored type whose TypeScript
+    // projection is exactly `null`. These are not general Haxe-to-TypeScript
+    // conversions; nullability-only value conversions are owned by the
+    // immutable boundary plan above.
     final isEnumCtorCall = switch unwrapExpr(e).expr {
       case TField(_, FEnum(_, _)): true;
       default: false;
@@ -581,16 +594,6 @@ class TsModuleEmitter extends JsModuleEmitter {
           case TMono(r): r.get() == null;
           default: false;
         }
-      inline function isTypeParam(t: Type): Bool
-        return switch t {
-          case TInst(_.get() => {kind: KTypeParameter(_)}, _): true;
-          default: false;
-        }
-      inline function isPromiseResolveNullThenable(actual: TypedExpr,
-          expected: Type): Bool {
-        return isJsPromiseResolveCallee(e)
-          && isNullConst(unwrapExpr(actual)) && isPromiseThenableType(expected);
-      }
       var needsCasts = false;
       if (isEnumCtorCall && params.exists(p -> isNullConst(unwrapExpr(p))))
         needsCasts = true;
@@ -608,17 +611,6 @@ class TsModuleEmitter extends JsModuleEmitter {
             break;
           }
           if (isUnresolvedMono(expected) && isNullConst(actualUnwrapped)) {
-            needsCasts = true;
-            break;
-          }
-          // Reuse the branch-local null facts gathered from the surrounding
-          // condition. TS understands the same direct local/field guard, so a
-          // guarded value can flow to a non-nullable parameter without an
-          // emitter-inserted assertion.
-          if (!typeAllowsNull(expected)
-            && typeAllowsNull(actual.t)
-            && !isPromiseResolveNullThenable(actual, expected)
-            && !isNarrowedNonNull(actual)) {
             needsCasts = true;
             break;
           }
@@ -679,24 +671,6 @@ class TsModuleEmitter extends JsModuleEmitter {
             // to `never` avoids TS inferring `null` for generic params.
             write(ctx.typeAccessor(TypeUtil.registerType));
             write('.unsafeCast<never>(null)');
-          } else if (expected != null
-            && !typeAllowsNull(expected)
-            && typeAllowsNull(actual.t)
-            && !isPromiseResolveNullThenable(actual, expected)
-            && !isNarrowedNonNull(actual)
-            && !isTypeParam(expected)) {
-            // If the expected type is `any`, a cast is unnecessary and emitting
-            // `<any>` would violate the typing policy for user modules.
-            if (typeEmitsAny(expected)) {
-              emitValue(actual);
-            } else {
-              write(ctx.typeAccessor(TypeUtil.registerType));
-              write('.unsafeCast<');
-              TypeEmitter.emitType(this, expected);
-              write('>(');
-              emitValue(actual);
-              write(')');
-            }
           } else {
             // One sibling may have selected this manual argument loop. Keep
             // the normal expected-type context for every untouched argument;
@@ -1190,9 +1164,8 @@ class TsModuleEmitter extends JsModuleEmitter {
 
     // Emit methods/ctors with typed args/returns.
     for (field in fields) {
-      final moduleFunction = moduleFunctionPlan == null
-        ? null
-        : moduleFunctionPlan.entryFor(cl, field);
+      final moduleFunction = moduleFunctionPlan == null ? null : moduleFunctionPlan.entryFor(cl,
+        field);
       if (moduleFunction != null) {
         emitTsModuleFunctionDescriptorSeed(cl, moduleFunction);
         continue;
@@ -1467,7 +1440,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   /** Emits selected method bodies once as genuine typed module functions. */
-  function emitTsModuleFunctions(cl:ClassType):Void {
+  function emitTsModuleFunctions(cl: ClassType): Void {
     if (moduleFunctionPlan == null)
       return;
     final previousClass = currentClass;
@@ -1507,11 +1480,11 @@ class TsModuleEmitter extends JsModuleEmitter {
    * remain `Owner.field(...)`, so later reassignment has the same observable
    * effect as it did before lowering.
    */
-  function emitSelectedModuleFunctionBody(field:GenesField,
-      functionBody:TFunc):Void {
+  function emitSelectedModuleFunctionBody(field: GenesField,
+      functionBody: TFunc): Void {
     final body = getFunctionBody(functionBody);
-    final returnOverride = field.meta != null ? (switch extractStringMeta(
-      field.meta, ':ts.returnType') {
+    final returnOverride = field.meta != null ? (switch extractStringMeta(field.meta,
+      ':ts.returnType') {
       case null: extractStringMeta(field.meta, ':genes.returnType');
       case value: value;
     }) : null;
@@ -1538,8 +1511,8 @@ class TsModuleEmitter extends JsModuleEmitter {
    * descriptor in the original key position; it cannot be observed because
    * the class property is replaced immediately after class evaluation.
    */
-  function emitTsModuleFunctionDescriptorSeed(cl:ClassType,
-      entry:ModuleFunctionEntry):Void {
+  function emitTsModuleFunctionDescriptorSeed(cl: ClassType,
+      entry: ModuleFunctionEntry): Void {
     final field = entry.field;
     switch field.expr {
       case {expr: TFunction(functionBody)}:
@@ -1574,7 +1547,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   /** Installs the exact module function before helpers, registration, or init. */
-  function emitTsModuleFunctionBindings(cl:ClassType):Void {
+  function emitTsModuleFunctionBindings(cl: ClassType): Void {
     if (moduleFunctionPlan == null)
       return;
     for (entry in moduleFunctionPlan.entriesFor(cl)) {
@@ -1948,221 +1921,6 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   /**
-   * Detects the generic nullability conversion that strict TypeScript cannot
-   * express structurally even though Haxe has already accepted it.
-   *
-   * Why: on the JavaScript target Haxe permits `T` where `Null<T>` is expected.
-   * Once `T` appears inside an invariant container, TypeScript correctly
-   * rejects the structural assignment. Tink's stream step is one real example:
-   * `Stream<T>` becomes a payload of `Step<Null<T>, Error>`.
-   *
-   * What: this returns true only when the expected enum-constructor payload has
-   * a type parameter below an explicit Haxe `Null` shell and the actual payload
-   * mentions that same compiler-owned type parameter. Ordinary concrete null
-   * unions and unrelated generic arguments do not qualify.
-   *
-   * How: callers emit one `Register.unsafeCast<Expected>(actual)` at the Haxe
-   * conversion boundary. The cast is the identity at runtime and does not
-   * weaken either public declaration; it merely carries Haxe's checked generic
-   * nullability relation into strict TypeScript.
-   */
-  static function hasNullableTypeParameterMismatch(expected: Type,
-      actual: Type): Bool {
-    return hasNullableTypeParameterDelta(expected, actual);
-  }
-
-  /**
-   * Finds an exact `T` -> `Null<T>` delta at one corresponding generic slot.
-   *
-   * A set-of-occurrences comparison is not enough: a type such as
-   * `Pair<Null<T>, T>` contains both nullable and plain occurrences while
-   * requiring no conversion. This walk first projects a concrete class through
-   * its typed superclass/interface chain, then compares matching type arguments.
-   * It uses the compiler-owned declaration's full module/name key as identity.
-   */
-  static function hasNullableTypeParameterDelta(expected: Type,
-      actual: Type, depth = 0): Bool {
-    // Recursive abstracts can expose their own public shape as an underlying
-    // type. This proof is optional, so an unexpectedly deep/cyclic comparison
-    // must fail closed instead of risking emitter recursion.
-    if (depth > 32)
-      return false;
-    final expectedNull = nullableTypeInner(expected);
-    if (expectedNull != null) {
-      final actualNull = nullableTypeInner(actual);
-      if (actualNull != null)
-        return hasNullableTypeParameterDelta(expectedNull, actualNull,
-          depth + 1);
-      return sameTypeParameter(expectedNull, actual);
-    }
-
-    return switch expected {
-      case TInst(expectedRef, expectedParams):
-        final actualParams = projectClassParameters(actual, expectedRef);
-        matchingTypeParametersContainDelta(expectedParams, actualParams,
-          depth + 1);
-      case TEnum(expectedRef, expectedParams):
-        switch unwrapType(actual) {
-          case TEnum(actualRef, actualParams)
-            if (sameEnumDeclaration(expectedRef, actualRef)):
-            matchingTypeParametersContainDelta(expectedParams, actualParams,
-              depth + 1);
-          default:
-            false;
-        }
-      case TAbstract(expectedRef, expectedParams):
-        switch unwrapType(actual) {
-          case TAbstract(actualRef, actualParams)
-            if (sameAbstractDeclaration(expectedRef, actualRef)):
-            matchingTypeParametersContainDelta(expectedParams, actualParams,
-              depth + 1);
-          default:
-            final abstractType = expectedRef.get();
-            final underlying = abstractType.type.applyTypeParameters(
-              abstractType.params, expectedParams);
-            hasNullableTypeParameterDelta(underlying, actual, depth + 1);
-        }
-      case TType(_, _):
-        hasNullableTypeParameterDelta(haxe.macro.Context.follow(expected),
-          actual, depth + 1);
-      case TMono(ref) if (ref.get() != null):
-        hasNullableTypeParameterDelta(ref.get(), actual, depth + 1);
-      case TLazy(resolve):
-        hasNullableTypeParameterDelta(resolve(), actual, depth + 1);
-      default:
-        false;
-    };
-  }
-
-  static function matchingTypeParametersContainDelta(expected: Array<Type>,
-      actual: Null<Array<Type>>, depth: Int): Bool {
-    if (actual == null || expected.length != actual.length)
-      return false;
-    for (i in 0...expected.length)
-      if (hasNullableTypeParameterDelta(expected[i], actual[i], depth))
-        return true;
-    return false;
-  }
-
-  static function nullableTypeInner(type: Type): Null<Type> {
-    return switch type {
-      case TAbstract(_.get() => {pack: [], name: "Null"}, [inner]) |
-        TType(_.get() => {pack: [], name: "Null"}, [inner]):
-        inner;
-      case TMono(ref) if (ref.get() != null):
-        nullableTypeInner(ref.get());
-      case TLazy(resolve):
-        nullableTypeInner(resolve());
-      default:
-        null;
-    };
-  }
-
-  static function sameTypeParameter(expected: Type, actual: Type): Bool {
-    return switch [unwrapType(expected), unwrapType(actual)] {
-      case [TInst(expectedRef, []), TInst(actualRef, [])]:
-        switch [expectedRef.get().kind, actualRef.get().kind] {
-          case [KTypeParameter(_), KTypeParameter(_)]:
-            sameClassDeclaration(expectedRef, actualRef);
-          default:
-            false;
-        }
-      default:
-        false;
-    };
-  }
-
-  static function projectClassParameters(type: Type,
-      expected: Ref<ClassType>,
-      ?seen: haxe.ds.ObjectMap<ClassType, Bool>): Null<Array<Type>> {
-    if (seen == null)
-      seen = new haxe.ds.ObjectMap();
-    return switch unwrapType(type) {
-      case TInst(actualRef, actualParams):
-        final actual = actualRef.get();
-        if (sameClassDeclaration(actualRef, expected))
-          actualParams;
-        else if (seen.exists(actual))
-          null;
-        else {
-          seen.set(actual, true);
-          var result: Null<Array<Type>> = null;
-          if (actual.superClass != null) {
-            final superType = actual.superClass;
-            final params = [
-              for (param in superType.params)
-                param.applyTypeParameters(actual.params, actualParams)
-            ];
-            result = projectClassParameters(TInst(superType.t, params),
-              expected, seen);
-          }
-          if (result == null)
-            for (implemented in actual.interfaces) {
-              final params = [
-                for (param in implemented.params)
-                  param.applyTypeParameters(actual.params, actualParams)
-              ];
-              result = projectClassParameters(TInst(implemented.t, params),
-                expected, seen);
-              if (result != null)
-                break;
-            }
-          result;
-        }
-      case TType(_, _):
-        projectClassParameters(haxe.macro.Context.follow(type), expected, seen);
-      case TMono(ref) if (ref.get() != null):
-        projectClassParameters(ref.get(), expected, seen);
-      case TLazy(resolve):
-        projectClassParameters(resolve(), expected, seen);
-      default:
-        null;
-    };
-  }
-
-  static function unwrapType(type: Type): Type {
-    return switch type {
-      case TType(_, _):
-        unwrapType(haxe.macro.Context.follow(type));
-      case TMono(ref) if (ref.get() != null):
-        unwrapType(ref.get());
-      case TLazy(resolve):
-        unwrapType(resolve());
-      default:
-        type;
-    }
-  }
-
-  /**
-   * Compares canonical typed declaration identity, not `Ref` wrapper identity.
-   *
-   * Haxe can expose distinct `Ref` wrappers while applying the same declaration
-   * through a superclass or interface. Module plus declaration name is the
-   * compiler's stable key here, matching the dependency plan's `ModuleType`
-   * identity and avoiding any comparison of emitted TypeScript spellings.
-   */
-  static function sameClassDeclaration(left: Ref<ClassType>,
-      right: Ref<ClassType>): Bool {
-    final leftType = left.get();
-    final rightType = right.get();
-    return leftType.module == rightType.module && leftType.name == rightType.name;
-  }
-
-  static function sameAbstractDeclaration(left: Ref<AbstractType>,
-      right: Ref<AbstractType>): Bool {
-    final leftType = left.get();
-    final rightType = right.get();
-    return leftType.module == rightType.module && leftType.name == rightType.name;
-  }
-
-  static function sameEnumDeclaration(left: Ref<EnumType>,
-      right: Ref<EnumType>): Bool {
-    final leftType = left.get();
-    final rightType = right.get();
-    return leftType.module == rightType.module && leftType.name == rightType.name;
-  }
-
-  /**
    * Collects generic parameters referenced by a public callable signature.
    *
    * Why: recursive anonymous types can point back to themselves. Public-surface
@@ -2301,8 +2059,7 @@ class TsModuleEmitter extends JsModuleEmitter {
    */
   function rememberEmittedLocalType(variable: TVar, haxeType: Type,
       typeOverride: Null<String>): Void {
-    final exactType = typeOverride
-      ?? SignatureCache.enumAbstractLiteralUnionTsType(haxeType);
+    final exactType = typeOverride ?? SignatureCache.enumAbstractLiteralUnionTsType(haxeType);
     if (exactType != null)
       localTsTypeOverrides.set(variable.id, exactType);
   }
@@ -2339,9 +2096,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       && plan != null
       && !plan.isReassigned(v)
       && ExplicitTypeArguments.infersPreciseLocalType(eo);
-    final emittedType = (narrowedOptionalInit || narrowedNonNullInit)
-      ? stripNull(declaredType)
-      : declaredType;
+    final emittedType = (narrowedOptionalInit || narrowedNonNullInit) ? stripNull(declaredType) : declaredType;
     final emittedTypeOverride = (narrowedOptionalInit
       || narrowedNonNullInit || inferExplicitCallType) ? null : localTsTypeOverride(eo);
     rememberEmittedLocalType(v, emittedType, emittedTypeOverride);
@@ -2366,18 +2121,13 @@ class TsModuleEmitter extends JsModuleEmitter {
         }
       case e:
         write(' = ');
-        if (!narrowedOptionalInit
-          && !narrowedNonNullInit
-          && !isNarrowedNonNull(e)
-          && !NullishContract.forType(emittedType).preservesUndefined
-          && !typeAllowsNull(emittedType)
-          && typeAllowsNull(e.t)) {
+        final bridge = boundaryPlan == null ? null : boundaryPlan.initializerBridge(e);
+        if (bridge != null) {
           write(ctx.typeAccessor(TypeUtil.registerType));
           write('.unsafeCast<');
-          emitLocalType(emittedType, emittedTypeOverride,
-            capturedLocalSourceType != null);
+          TypeEmitter.emitType(this, bridge.target);
           write('>(');
-          emitValueWithExpectedType(emittedType, e);
+          emitValueWithExpectedType(null, bridge.source);
           write(')');
         } else {
           emitValueWithExpectedType(emittedType, e);
@@ -2528,9 +2278,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   function cachedReceiverSourceType(expr: TypedExpr): Null<Type> {
     return switch expr.expr {
       case TLocal(variable):
-        receiverHasEmittedTypeOverride(expr)
-          ? null
-          : SignatureCache.getLocalSourceType(variable);
+        receiverHasEmittedTypeOverride(expr) ? null : SignatureCache.getLocalSourceType(variable);
       case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, _):
         cachedReceiverSourceType(inner);
       default:
@@ -2563,21 +2311,19 @@ class TsModuleEmitter extends JsModuleEmitter {
     if (depth > 64)
       return null;
     return switch type {
-      case TInst(reference, parameters):
-        final sourceOwner = reference.get();
-        sourceOwner.module == owner.module && sourceOwner.name == owner.name
-          ? parameters
-          : null;
+      case TInst(reference, parameters): final sourceOwner = reference.get(); sourceOwner.module == owner.module && sourceOwner.name == owner.name ? parameters : null;
       case TType(reference, parameters):
         final alias = reference.get();
-        sourceInstanceParameters(
-          alias.type.applyTypeParameters(alias.params, parameters), owner,
-          depth + 1);
+        sourceInstanceParameters(alias.type.applyTypeParameters(alias.params,
+          parameters), owner,
+          depth
+          + 1);
       case TAbstract(reference, parameters):
         final abstraction = reference.get();
-        sourceInstanceParameters(
-          abstraction.type.applyTypeParameters(abstraction.params, parameters),
-          owner, depth + 1);
+        sourceInstanceParameters(abstraction.type.applyTypeParameters(abstraction.params,
+          parameters),
+          owner, depth
+          + 1);
       case TLazy(resolve):
         sourceInstanceParameters(resolve(), owner, depth + 1);
       case TMono(reference) if (reference.get() != null):
@@ -2593,8 +2339,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TField(_, FStatic(_.get() => cl, _.get() => field)):
         switch field.kind {
           case FVar(_, _):
-            explicitFieldTsType(field)
-              ?? SignatureCache.getFieldTsType(cl, true, field.name);
+            explicitFieldTsType(field) ?? SignatureCache.getFieldTsType(cl,
+              true, field.name);
           default:
             null;
         }
@@ -2619,14 +2365,11 @@ class TsModuleEmitter extends JsModuleEmitter {
                 case null: null;
                 case source: sourceInstanceParameters(source, cl);
               };
-              final effectiveParameters = sourceParameters != null
-                ? sourceParameters
-                : parameters;
-              final instantiatedType = effectiveParameters.length == cl.params.length
-                ? field.type.applyTypeParameters(cl.params, effectiveParameters)
-                : field.type;
-              SignatureCache.enumAbstractLiteralUnionTsType(instantiatedType)
-                ?? SignatureCache.getFieldTsType(cl, false, field.name);
+              final effectiveParameters = sourceParameters != null ? sourceParameters : parameters;
+              final instantiatedType = effectiveParameters.length == cl.params.length ? field.type.applyTypeParameters(cl.params,
+                effectiveParameters) : field.type;
+              SignatureCache.enumAbstractLiteralUnionTsType(instantiatedType) ?? SignatureCache.getFieldTsType(cl,
+                false, field.name);
             }
           default:
             null;
@@ -2639,18 +2382,11 @@ class TsModuleEmitter extends JsModuleEmitter {
         final explicit = explicitFieldTsType(field);
         final cached = SignatureCache.getAnonFieldTsType(field.pos);
         final direct = SignatureCache.enumAbstractLiteralUnionTsType(field.type);
-        if (explicit != null)
-          explicit;
-        else if (receiverHasEmittedTypeOverride(receiver))
-          null;
-        else if (expectedTsType == null)
-          cached;
-        else if (direct == expectedTsType)
-          direct;
-        else if (cached == expectedTsType)
-          cached;
-        else
-          cached ?? direct;
+        if (explicit != null) explicit; else
+          if (receiverHasEmittedTypeOverride(receiver)) null; else
+            if (expectedTsType == null) cached; else
+              if (direct == expectedTsType) direct; else
+                if (cached == expectedTsType) cached; else cached ?? direct;
       case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, _):
         cachedFieldValueTsType(inner, expectedTsType);
       default:
@@ -2660,8 +2396,8 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   /** Returns a field's authored TS spelling before derived enum provenance. */
   static function explicitFieldTsType(field: ClassField): Null<String> {
-    return extractStringMeta(field.meta, ':ts.type')
-      ?? extractStringMeta(field.meta, ':genes.type');
+    return extractStringMeta(field.meta,
+      ':ts.type') ?? extractStringMeta(field.meta, ':genes.type');
   }
 
   function emitLocalType(type: Type, typeOverride: Null<String>,
@@ -3015,6 +2751,35 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TObjectDecl(fields):
         emitObjectDeclWithFieldTypes(e, fields);
       case TNew(c, params, values)
+        if (boundaryPlan != null && boundaryPlan.constructor(e) != null):
+        final decision = boundaryPlan.constructor(e);
+        write(switch c.get().constructor {
+          case null: 'new ';
+          case _.get() => ctor if (ctor.meta.has(':selfCall')): '';
+          default: 'new ';
+        });
+        write(ctx.typeAccessor(TClassDecl(c)));
+        if (params.length > 0 && params.exists(typeUsesTypeParameter))
+          TypeEmitter.emitParams(this, params, false);
+        write('(');
+        for (index in 0...values.length) {
+          if (index > 0)
+            write(', ');
+          final expected = index < decision.argumentTypes.length ? decision.argumentTypes[index] : null;
+          final bridge = decision.bridgeAt(index);
+          if (bridge == null) {
+            emitValueWithExpectedType(expected, values[index]);
+          } else {
+            write(ctx.typeAccessor(TypeUtil.registerType));
+            write('.unsafeCast<');
+            TypeEmitter.emitType(this, bridge.target);
+            write('>(');
+            emitValueWithExpectedType(null, bridge.source);
+            write(')');
+          }
+        }
+        write(')');
+      case TNew(c, params, values)
         if (params.length > 0 && params.exists(typeUsesTypeParameter)):
         // Constructor inference cannot recover outer method/class parameters
         // from a polymorphic function argument (`new LazyFunc(Empty.make)` is a
@@ -3110,12 +2875,8 @@ class TsModuleEmitter extends JsModuleEmitter {
           write(')');
         }
       case TBinop(op = OpAssign, lhs, rhs)
-        if (!NullishContract.forType(lhs.t).preservesUndefined
-          && !typeAllowsNull(lhs.t)
-          && typeAllowsNull(rhs.t)
-          && !isNarrowedNonNull(rhs)):
-        // Haxe allows assigning nullable values to non-nullable types in many
-        // cases. Preserve that behavior under TS `strictNullChecks` by casting.
+        if (boundaryPlan != null && boundaryPlan.assignmentBridge(e) != null):
+        final bridge = boundaryPlan.assignmentBridge(e);
         inAssignTarget = true;
         emitValue(lhs);
         inAssignTarget = false;
@@ -3124,9 +2885,9 @@ class TsModuleEmitter extends JsModuleEmitter {
         writeSpace();
         write(ctx.typeAccessor(TypeUtil.registerType));
         write('.unsafeCast<');
-        TypeEmitter.emitType(this, lhs.t);
+        TypeEmitter.emitType(this, bridge.target);
         write('>(');
-        emitValueWithExpectedType(lhs.t, rhs);
+        emitValueWithExpectedType(null, bridge.source);
         write(')');
       case TBinop(op = OpAssign | OpAssignOp(_), lhs, rhs):
         // Avoid optional-field `?? null` rewrites on assignment targets.
@@ -3210,18 +2971,15 @@ class TsModuleEmitter extends JsModuleEmitter {
               write('return');
             } else {
               write('return ');
-              if (ret != null
-                && !typeAllowsNull(ret)
-                && typeAllowsNull(e1.t)
-                && isNarrowedNonNull(e1)) {
-                emitValueWithExpectedType(ret, e1);
-              } else if (ret != null && !typeAllowsNull(ret)
-                && typeAllowsNull(e1.t)) {
+              final bridge = boundaryPlan == null ? null : boundaryPlan.returnBridge(e);
+              if (bridge != null) {
                 write(ctx.typeAccessor(TypeUtil.registerType));
                 write('.unsafeCast<');
-                TypeEmitter.emitType(this, ret);
+                TypeEmitter.emitType(this, bridge.target);
                 write('>(');
-                emitValueWithExpectedType(ret, e1);
+                // Preserve the source expression's own null/undefined
+                // projection; the planned identity bridge is a later boundary.
+                emitValueWithExpectedType(null, bridge.source);
                 write(')');
               } else {
                 emitValueWithExpectedType(ret, e1);
@@ -3355,8 +3113,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         for (i in joinIt(0...f.args.length, write.bind(', '))) {
           final arg = f.args[i];
           final capturedSourceType = SignatureCache.getLocalSourceType(arg.v);
-          final t = capturedSourceType
-            ?? (i < args.length ? args[i].t : arg.v.t);
+          final t = capturedSourceType ?? (i < args.length ? args[i].t : arg.v.t);
           if (genes.util.TypeUtil.isRest(t))
             write('...');
           emitLocalVar(arg.v);
@@ -3998,11 +3755,8 @@ class TsModuleEmitter extends JsModuleEmitter {
         for (i in genes.util.IteratorUtil.joinIt(0...args.length,
           write.bind(', '))) {
           final arg = args[i];
-          final cachedSourceType = cachedArgs != null
-            ? cachedArgs[i].sourceType
-            : null;
-          final argType = cachedSourceType
-            ?? ((i >= 0 && i < f.args.length) ? f.args[i].v.t : arg.t);
+          final cachedSourceType = cachedArgs != null ? cachedArgs[i].sourceType : null;
+          final argType = cachedSourceType ?? ((i >= 0 && i < f.args.length) ? f.args[i].v.t : arg.t);
           final opt = cachedArgs != null ? cachedArgs[i].opt : arg.opt;
           if (genes.util.TypeUtil.isRest(arg.t))
             write('...');
@@ -4018,8 +3772,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           write(': ');
           final cachedType = cachedArgs != null ? cachedArgs[i].tsType : null;
           final emittedArgType = emitArgTsType(field, f, i,
-            nullish.emittedType, cachedType,
-            cachedSourceType != null);
+            nullish.emittedType, cachedType, cachedSourceType != null);
           rememberEmittedLocalType(f.args[i].v, nullish.emittedType,
             emittedArgType);
           if (usesNullDefault && emitNullDefaults)
@@ -4184,10 +3937,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       return;
     }
 
-    final cachedFieldSourceType = currentClass == null
-      ? null
-      : SignatureCache.getFieldSourceType(currentClass, field.isStatic,
-        field.name);
+    final cachedFieldSourceType = currentClass == null ? null : SignatureCache.getFieldSourceType(currentClass,
+      field.isStatic, field.name);
     if (cachedFieldSourceType != null) {
       TypeEmitter.emitNullishProjection(this, nullish,
         () -> TypeEmitter.emitCapturedSourceType(this, cachedFieldSourceType),

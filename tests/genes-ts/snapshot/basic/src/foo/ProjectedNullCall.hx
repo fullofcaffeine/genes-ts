@@ -43,9 +43,14 @@ class ProjectedNullCall {
 
   static function acceptRequired(value: String): Void {}
 
+  static function returnRequired(value: Null<String>): String {
+    return value;
+  }
+
   public static function demo(nullable: Null<String>): Void {
     acceptProjected(null);
     acceptPair(null, {label: "kept", note: null});
     acceptRequired(nullable);
+    returnRequired(nullable);
   }
 }
