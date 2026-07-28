@@ -3,10 +3,14 @@ import {ReactRouter_Fields_} from "../extern/ReactRouter"
 import {Register} from "../../genes/Register"
 import type {Params} from "../extern/ReactRouter"
 
+function useParam(name: string): string | null {
+	const params: Params = useParams();
+	return (params[name] ?? null);
+}
 export class Router {
-	static param(name: string): string | null {
-		const params: Params = useParams();
-		return (params[name] ?? null);
+	static useParam(name: string): string | null;
+	static useParam(): never {
+		throw this;
 	}
 	static get __name__(): string {
 		return "todo.web.Router"
@@ -15,4 +19,5 @@ export class Router {
 		return Router
 	}
 }
+Router.useParam = useParam;
 Register.setHxClass("todo.web.Router", Router);

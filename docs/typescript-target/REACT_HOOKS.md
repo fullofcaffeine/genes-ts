@@ -20,7 +20,7 @@ author's intent more precisely. The semantic layer separates the ambiguous
 operations and rejects locally provable Rule-of-Hooks errors before output.
 Generated code still imports and calls the real React functions directly.
 
-## State and dependencies
+## State, context, refs, effects, and dependencies
 
 ```haxe
 import genes.react.React.deps;
@@ -48,8 +48,50 @@ React would execute it as a lazy initializer. Use
 the semantic `State.set` method to store a callable value safely.
 
 `deps(...)` is compile-time packaging. It must appear directly in
-`useMemo` or `useCallback`; genes emits one inline, constant-length dependency
-array. Every dependency must have a closed, resolved Haxe type.
+`useMemo`, `useCallback`, or `useEffect`; genes emits one inline,
+constant-length dependency array. Every dependency must have a closed,
+resolved Haxe type.
+
+Common React boundaries use the same direct-import design:
+
+```haxe
+import genes.react.Context;
+import genes.react.React.deps;
+import genes.react.React.createContext;
+import genes.react.React.useContext;
+import genes.react.React.useEffect;
+import genes.react.React.useRef;
+
+final Theme:Context<String> = createContext("light");
+
+@:genes.reactHook
+function useButtonTheme():String {
+  final theme = useContext(Theme);
+  final button = useRef((null : Null<js.html.ButtonElement>));
+
+  useEffect(() -> {
+    final element = button.current;
+    if (element != null) element.setAttribute("data-theme", theme);
+  }, deps(button, theme));
+
+  return theme;
+}
+```
+
+`Context<Value>` and `RefObject<Value>` retain the selected value/element types
+and emit React's canonical TypeScript types. `useEffect` accepts a
+zero-argument callback returning either `Void` or one `Void->Void` cleanup
+callback; any other return fails with `GTS-REACT-EFFECT-001`. These APIs add no
+context, ref, or effect wrapper at runtime.
+
+Empty-array state also retains the Haxe-selected element type:
+
+```haxe
+final items = useState(([] : Array<Item>));
+```
+
+Genes emits `useState<Item[]>([])` so TypeScript does not independently infer
+the narrower `never[]`.
 
 When a dependency is a computed expression or an allocation-free tuple
 projection such as `state.value`, give the `useMemo` calculation one parameter
@@ -154,8 +196,9 @@ yarn test:react-hooks
 
 It compiles strict TypeScript across the supported TypeScript lanes and classic
 JavaScript/declarations, checks direct React imports and analyzer-visible
-functions, verifies computed-dependency exactly-once snapshots, deterministic
-output, and exact source-map mappings, and asserts callable-state,
+functions, verifies context/ref/effect typing, cleanup preservation,
+computed-dependency exactly-once snapshots, deterministic output, and exact
+source-map mappings, and asserts callable-state, effect-result,
 dependency-snapshot, and Hook-placement failures. The fixture includes an
 ordinary React component and a Gutenberg-shaped block editor with no
 framework-specific compiler knowledge.

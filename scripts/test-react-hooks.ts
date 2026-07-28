@@ -130,7 +130,9 @@ run(path.join(repositoryRoot, "node_modules/.bin/eslint"), [
 ]);
 
 const typed = source("out/ts/src-gen/react_hooks/Main.ts");
-ok(typed.includes('import {useState, useMemo, useCallback, useOptimistic} from "react"'),
+ok(typed.includes(
+  'import {createContext, useState, useContext, useRef, useMemo, useCallback, useOptimistic, useEffect} from "react"'
+),
   "TypeScript imports the canonical React Hook identities directly");
 ok(typed.includes("function useCounter(initial: number): CounterView"),
   "custom Hook body is one analyzer-visible module function");
@@ -138,6 +140,8 @@ ok(typed.includes("function Counter(props: CounterProps): JSX.Element"),
   "component body is one analyzer-visible module function");
 ok(typed.includes("const state: UseStateResult<number> = useState(initial)"),
   "semantic state remains React's native tuple");
+ok(typed.includes("return useState<string[]>([])"),
+  "empty-array state retains its Haxe-selected element type");
 ok(typed.includes("state[1](function (previous: number)"),
   "state update lowers directly to React's tuple dispatcher");
 ok(typed.includes("const current: number = state[0]"),
@@ -154,6 +158,17 @@ ok(typed.includes(
 ), "memo callback and dependency array share the same snapshot identities");
 ok(!typed.includes("new State") && !typed.includes("new Optimistic"),
   "semantic views allocate no wrapper objects");
+ok(typed.includes(
+  "declare static CounterLabel: import('react').Context<string>"
+) && typed.includes(
+  'Main_Fields_.CounterLabel = createContext("Counter")'
+), "context creation retains its exact React value type");
+ok(typed.includes(
+  "const button = useRef<HTMLButtonElement | null>(null)"
+),
+  "nullable ref initialization retains its selected element type");
+ok(typed.includes("return function ()"),
+  "cleanup-returning effects preserve React's native cleanup callback");
 
 const typeOnly = source(
   "out/ts/src-gen/react_hooks/TypeOnlyComponent.ts"
@@ -175,7 +190,7 @@ ok(gutenberg.includes("const selected: UseStateResult<boolean> = useState(false)
 
 const classic = source("out/classic/react_hooks/Main.js");
 ok(classic.includes(
-  'import {useState, useMemo, useCallback, useOptimistic} from "react"'
+  'import {createContext, useState, useContext, useRef, useMemo, useCallback, useOptimistic, useEffect} from "react"'
 ), "classic output imports the same canonical React identities");
 ok(classic.includes("function useCounter(initial)"),
   "classic output retains the analyzer-visible custom Hook");
@@ -238,6 +253,11 @@ expectHaxeFailure(
   ["tests/react-hooks/build-negative.hxml"],
   "GTS-REACT-STATE-001",
   "CallableState.hx"
+);
+expectHaxeFailure(
+  ["tests/react-hooks/build-effect-negative.hxml"],
+  "GTS-REACT-EFFECT-001",
+  "EffectNegative.hx"
 );
 expectHaxeFailure(
   ["tests/react-hooks/build-placement-negative.hxml"],
