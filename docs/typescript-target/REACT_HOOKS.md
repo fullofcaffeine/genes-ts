@@ -51,6 +51,26 @@ the semantic `State.set` method to store a callable value safely.
 `useMemo` or `useCallback`; genes emits one inline, constant-length dependency
 array. Every dependency must have a closed, resolved Haxe type.
 
+When a dependency is a computed expression or an allocation-free tuple
+projection such as `state.value`, give the `useMemo` calculation one parameter
+for each dependency:
+
+```haxe
+final summary = useMemo(
+  (current, normalizedLabel) -> '$normalizedLabel:${current * 2}',
+  deps(state.value, label.toUpperCase())
+);
+```
+
+Genes evaluates each dependency expression exactly once, assigns it to the
+corresponding typed render-local name, and uses that same name in both the
+zero-argument React calculation and its dependency array. This preserves
+evaluation order while making the relationship visible to React's official
+lint. A computed dependency used by a zero-argument calculation fails with
+`GTS-REACT-DEPS-002` rather than emitting analyzer-hostile code. Parameter
+arity, exact annotated types, optional/default/rest forms, and named recursive
+functions are also checked before output.
+
 `useOptimistic` returns an allocation-free `Optimistic<State, Action>`
 view with `value` and `apply(action)`.
 
@@ -134,7 +154,8 @@ yarn test:react-hooks
 
 It compiles strict TypeScript across the supported TypeScript lanes and classic
 JavaScript/declarations, checks direct React imports and analyzer-visible
-functions, verifies deterministic output and exact source-map mappings, and
-asserts callable-state plus Hook-placement failures. The fixture includes an
+functions, verifies computed-dependency exactly-once snapshots, deterministic
+output, and exact source-map mappings, and asserts callable-state,
+dependency-snapshot, and Hook-placement failures. The fixture includes an
 ordinary React component and a Gutenberg-shaped block editor with no
 framework-specific compiler knowledge.
