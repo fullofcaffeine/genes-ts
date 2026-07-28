@@ -41,7 +41,15 @@ class TestRegroupTypeIdentity {
     final optional = RegroupIdentityApi.concreteOptional({});
     switch optional {
       case Concrete(value):
-        asserts.assert(value == null);
+        #if genes.ts
+        // TypeScript needs an explicit nullable value before its planned
+        // assertion, so this profile normalizes the missing field to `null`.
+        asserts.assert(js.Syntax.strictEq(value, null));
+        #else
+        // Standard Haxe JavaScript leaves a missing optional field as exact
+        // `undefined`; classic Genes deliberately preserves that baseline.
+        asserts.assert(js.Syntax.strictEq(value, js.Lib.undefined));
+        #end
     }
     asserts.assert(RegroupIdentityApi.ordinaryNullableArgument(null) == null);
     asserts.assert(RegroupIdentityApi.guardedNullableArgument(null) == 0);

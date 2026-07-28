@@ -39,7 +39,10 @@ class RegroupIdentityApi {
   }
 
   /**
-   * Normalizes a missing optional field before asserting the enum payload type.
+   * Exercises the profile-specific representation of a missing optional field.
+   *
+   * TypeScript output normalizes `undefined` to `null` before its planned type
+   * assertion. Classic Genes preserves standard Haxe JavaScript's `undefined`.
    */
   public static function concreteOptional(source: OptionalBoundarySource): ConcreteBoundaryStep {
     return Concrete(source.value);
