@@ -496,7 +496,7 @@ ownership.
 | Public members or declarations | `PublicSurface`, then the relevant printers | Closed-surface negative tests and strict external declaration consumer |
 | Null/undefined/optional behavior | `NullishContract` and the native boundary | Strict nullish consumer plus runtime absent-value assertion in both modes |
 | Imports, DCE, or package shapes | `DependencyPlan*`, then `Dependencies` | Type-only/DCE or package-shape fixture with runtime import execution |
-| JSX or React Hook behavior | `JsxPlan` and the framework-neutral `genes.react` marker/macro layer | HXX/TSX type negatives, `yarn test:react-hooks`, and TS/classic runtime profiles |
+| JSX, React Hook, or React Flight value behavior | `JsxPlan` and the framework-neutral `genes.react` marker/macro/Flight layer | HXX/TSX type negatives, `yarn test:react-hooks`, `yarn test:react-flight`, and TS/classic runtime profiles |
 | Runtime metadata or Haxe stdlib behavior | `Register`, `genes/js`, or narrowly `src/haxe` | Haxe JS semantic assertion in both implementation profiles |
 | A broad emitter branch with repeated mutable reasoning | A narrowly scoped plan such as `TempPlan` | Evaluation-order differential and output-quality budget |
 
@@ -517,6 +517,7 @@ layer when a change affects more than one contract.
 | Minimal-runtime behavior | `tests/genes-ts/snapshot/minimal/` and minimal fixture | `yarn test:genes-ts:minimal` |
 | JSX profiles and prop/child typing | React snapshot fixture and TSX consumers | `yarn test:genes-ts:tsx` |
 | React components, Hooks, semantic state/dependencies, and placement | `tests/react-hooks/` | `yarn test:react-hooks` |
+| React 19 Flight value algebra, native identities, and host-proven extension policy | `tests/react-flight/` | `yarn test:react-flight` |
 | Local HXX carrier ownership | `tests/hxx-carrier-immutability/` | `yarn test:hxx-carrier-immutability` |
 | React event callback variance | `tests/hxx-event-variance/` | `yarn test:hxx-event-variance` |
 | Exported-surface rejection | `tests/typing-policy/`, `tests/publicsurface/` | `yarn test:types:exports` |

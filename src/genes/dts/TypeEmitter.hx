@@ -737,94 +737,103 @@ class TypeEmitter {
           write('}');
         }
       case TType(_.get() => dt, params):
-        switch [dt, params] {
-          case [{pack: ["haxe", "extern"] | ["haxe"], name: "Rest"}, [elemT]]:
-            emitPos(dt.pos);
-            if (arrayElementNeedsParens(elemT)) {
-              write('(');
-              emitType(writer, elemT);
-              write(')');
-            } else
-              emitType(writer, elemT);
-            write('[]');
-          case [{module: "js.node.Fs", name: "FsPath"}, _]:
-            // hxnodejs `FsPath` maps to Node's `fs.PathLike`.
-            emitPos(dt.pos);
-            write('import("node:fs").PathLike');
-          case [{name: "RegExpMatch"}, _]:
-            // Haxe std uses `RegExpMatch` for `RegExp#exec` results.
-            // Map to the TS builtin.
-            emitPos(dt.pos);
-            write('RegExpExecArray | null');
-          case [{name: name}, _] if (name.indexOf('<') > -1):
-            emitPos(dt.pos);
-            write('any');
-          case [{module: module}, _]
-            if (module != null && module.startsWith('haxe.macro')):
-            emitPos(dt.pos);
-            write('any');
-          case [{pack: [], name: "Null"}, [realT]]: // Haxe 3.x
-            if (Context.defined('genes.ts')
-              && Context.defined('genes.ts.no_null_union')) {
-              emitType(writer, realT);
-            } else {
-              final needsParens = switch realT {
-                case TFun(_, _): true;
-                default: false;
-              }
-              if (needsParens) {
+        if (CompilerInternal.isType(dt.meta)
+          && CompilerInternal.isSemanticOnlyType(dt.meta)) {
+          // A semantic-only alias exists for Haxe checking but is forbidden
+          // from every emitted annotation. Follow its applied body here as
+          // well as omitting its own declaration; otherwise a consumer field
+          // or local could import a type that intentionally has no output.
+          emitType(writer, dt.type.applyTypeParameters(dt.params, params),
+            wrap);
+        } else
+          switch [dt, params] {
+            case [{pack: ["haxe", "extern"] | ["haxe"], name: "Rest"}, [elemT]]:
+              emitPos(dt.pos);
+              if (arrayElementNeedsParens(elemT)) {
                 write('(');
-                emitType(writer, realT);
+                emitType(writer, elemT);
                 write(')');
-              } else {
+              } else
+                emitType(writer, elemT);
+              write('[]');
+            case [{module: "js.node.Fs", name: "FsPath"}, _]:
+              // hxnodejs `FsPath` maps to Node's `fs.PathLike`.
+              emitPos(dt.pos);
+              write('import("node:fs").PathLike');
+            case [{name: "RegExpMatch"}, _]:
+              // Haxe std uses `RegExpMatch` for `RegExp#exec` results.
+              // Map to the TS builtin.
+              emitPos(dt.pos);
+              write('RegExpExecArray | null');
+            case [{name: name}, _] if (name.indexOf('<') > -1):
+              emitPos(dt.pos);
+              write('any');
+            case [{module: module}, _]
+              if (module != null && module.startsWith('haxe.macro')):
+              emitPos(dt.pos);
+              write('any');
+            case [{pack: [], name: "Null"}, [realT]]: // Haxe 3.x
+              if (Context.defined('genes.ts')
+                && Context.defined('genes.ts.no_null_union')) {
                 emitType(writer, realT);
+              } else {
+                final needsParens = switch realT {
+                  case TFun(_, _): true;
+                  default: false;
+                }
+                if (needsParens) {
+                  write('(');
+                  emitType(writer, realT);
+                  write(')');
+                } else {
+                  emitType(writer, realT);
+                }
+                write(' | null');
               }
-              write(' | null');
-            }
-          case [{module: "js.lib.Iterator", name: "Iterator"}, [elemT]]:
-            emitPos(dt.pos);
-            write('IterableIterator<');
-            emitType(writer, elemT);
-            write('>');
-          case [{module: "js.lib.Iterator", name: "AsyncIterator"}, [elemT]]:
-            emitPos(dt.pos);
-            write('AsyncIterator<');
-            emitType(writer, elemT);
-            write('>');
-          case [{module: "js.lib.Iterator", name: "IteratorStep"}, [elemT]]:
-            emitPos(dt.pos);
-            write('IteratorResult<');
-            emitType(writer, elemT);
-            // Haxe std defines `js.lib.IteratorStep<T>` as a simple `{ done: Bool, ?value: T }`
-            // record. In TS, the equivalent and idiomatic type is the builtin `IteratorResult`
-            // (a discriminated union for yield/return results).
-            //
-            // The shared semantic plan identifies JavaScript iterator
-            // completion as `undefined`; this printer owns only TS spelling.
-            final completion = NullishContract.forIteratorCompletion(elemT);
-            switch completion.missingValue {
-              case MissingAsUndefined:
-                write(', undefined>');
-              case MissingAsNull:
-                write(', null>');
-              case NoMissingValue:
-                throw 'Iterator completion must have an explicit absence contract';
-            }
-          default:
-            switch dt.type {
-              case TInst(_.get() => {isExtern: true}, _):
-                emitType(writer,
-                  dt.type.applyTypeParameters(dt.params, params));
-              case TAbstract(t = _.get() => {
-                pack: ["haxe", "extern"],
-                name: "EitherType"
-              }, x) if (x.length == params.length):
-                emitType(writer, TAbstract(t, params));
-              default:
-                includeType(type);
-                emitBaseType(writer, dt, params);
-            }
-        }
+            case [{module: "js.lib.Iterator", name: "Iterator"}, [elemT]]:
+              emitPos(dt.pos);
+              write('IterableIterator<');
+              emitType(writer, elemT);
+              write('>');
+            case [{module: "js.lib.Iterator", name: "AsyncIterator"}, [elemT]]:
+              emitPos(dt.pos);
+              write('AsyncIterator<');
+              emitType(writer, elemT);
+              write('>');
+            case [{module: "js.lib.Iterator", name: "IteratorStep"}, [elemT]]:
+              emitPos(dt.pos);
+              write('IteratorResult<');
+              emitType(writer, elemT);
+              // Haxe std defines `js.lib.IteratorStep<T>` as a simple `{ done: Bool, ?value: T }`
+              // record. In TS, the equivalent and idiomatic type is the builtin `IteratorResult`
+              // (a discriminated union for yield/return results).
+              //
+              // The shared semantic plan identifies JavaScript iterator
+              // completion as `undefined`; this printer owns only TS spelling.
+              final completion = NullishContract.forIteratorCompletion(elemT);
+              switch completion.missingValue {
+                case MissingAsUndefined:
+                  write(', undefined>');
+                case MissingAsNull:
+                  write(', null>');
+                case NoMissingValue:
+                  throw 'Iterator completion must have an explicit absence contract';
+              }
+            default:
+              switch dt.type {
+                case TInst(_.get() => {isExtern: true}, _):
+                  emitType(writer,
+                    dt.type.applyTypeParameters(dt.params, params));
+                case TAbstract(t = _.get() => {
+                  pack: ["haxe", "extern"],
+                  name: "EitherType"
+                }, x) if (x.length == params.length):
+                  emitType(writer, TAbstract(t, params));
+                default:
+                  includeType(type);
+                  emitBaseType(writer, dt, params);
+              }
+          }
       case TFun(args, ret):
         if (wrap)
           write('(');
