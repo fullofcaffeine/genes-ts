@@ -30,6 +30,8 @@ agents and human contributors should read the scoped guide directly.
 
 - [`../src/genes/AGENTS.md`](../src/genes/AGENTS.md) — compiler source owners,
   semantic boundaries, and how to prove a Haxe-to-TS/JS change
+- [`../tooling/AGENTS.md`](../tooling/AGENTS.md) — optional Node host tooling,
+  framework-neutral ownership boundaries, package navigation, and focused tests
 - [`../tools/ts2hx/AGENTS.md`](../tools/ts2hx/AGENTS.md) — TypeScript compiler
   facts, Haxe emission, fixture routing, and fail-closed migration rules
 
@@ -50,6 +52,9 @@ agents and human contributors should read the scoped guide directly.
 
 - `ARCHITECTURE.md#compiler-fixture-guide` — where each compiler/ts2hx test belongs
 - `TESTING_STRATEGY.md` — compiler harnesses, todoapp E2E, and “one command” gates
+- [`../tooling/README.md`](../tooling/README.md) — what the optional
+  `@genes-ts/tooling` host library does, how its five primitives compose, and
+  how to test or consume it before any public npm release
 - [`../tooling/artifact-transactions/v1/README.md`](../tooling/artifact-transactions/v1/README.md) — framework-neutral durable generated-artifact protocol and shared conformance vectors
 - `COMPATIBILITY_REPORT.md` — generated, deterministic evidence inventory with exact scope and counts
 - `TOOLCHAINS.md` — centralized TypeScript, Haxe, and Node compatibility lanes

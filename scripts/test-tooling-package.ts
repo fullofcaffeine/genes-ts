@@ -461,6 +461,21 @@ function verifyPackageMetadata(): { name: string; version: string } {
     packageJson.dependencies === undefined,
     "@genes-ts/tooling must remain dependency-free unless release policy is explicitly expanded"
   );
+  const scripts = packageJson.scripts;
+  assert(
+    isRecord(scripts) &&
+      scripts.build === "tsc6 -p tsconfig.json" &&
+      scripts.prepare === "npm run build",
+    "Git-source installation must build the tooling subpackage without repository-root scripts"
+  );
+  const devDependencies = packageJson.devDependencies;
+  assert(
+    isRecord(devDependencies) &&
+      devDependencies["@types/node"] === "20.19.30" &&
+      devDependencies.typescript === "npm:@typescript/typescript6@6.0.2" &&
+      Object.keys(devDependencies).length === 2,
+    "Git-source build dependencies must stay exact and self-contained"
+  );
   const repository = packageJson.repository;
   assert(
     isRecord(repository) &&

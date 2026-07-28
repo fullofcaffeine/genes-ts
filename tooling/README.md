@@ -1,23 +1,237 @@
 # `@genes-ts/tooling`
 
-Framework-neutral host tooling shared by Haxe-to-JavaScript and
-Haxe-to-TypeScript projects.
+`@genes-ts/tooling` is an optional Node/TypeScript library for programs that
+*run* Genes during development. It helps a host CLI notice Haxe input changes,
+reuse an owned Haxe compilation server, serialize rebuilds, and publish the
+resulting files without exposing a half-written output tree.
 
-The package has an independent npm version and release lifecycle so multiple
-framework hosts can pin the same immutable tooling bytes. The compiler
-semantic-release workflow does not publish it. See the source repository's
-[`docs/RELEASING.md`](https://github.com/fullofcaffeine/genes-ts/blob/main/docs/RELEASING.md)
-for the manual, provenance-bearing release contract.
+It is not the Genes compiler, a compiler runtime, or a framework integration:
 
-The first public surface is `@genes-ts/tooling/artifacts`: a durable publisher
-for an already-authorized exact set of generated-file transitions. It does not
-decide ownership, validation, adoption, “last good” behavior, or user-facing
-diagnostics. Those remain host policy.
+- Haxe programs do not import it.
+- Generated TypeScript and JavaScript do not depend on it.
+- `genes.Generator` and `tools/ts2hx` do not depend on it.
+- Framework adapters still own their commands, diagnostics, dev servers,
+  validation, and “last good” policy.
+
+For example, NextJsHx and WordPressHx can share the mechanics of watching Haxe
+inputs and safely running `haxe --wait`, while keeping Next.js and WordPress
+behavior in their own repositories.
+
+## The development loop it supports
+
+The five public areas fit together like this:
+
+```text
+HXML inventory
+  -> exact files and source roots to watch
+  -> reconciled watch reports an edit
+  -> serialized dirty loop schedules one newest-state rebuild
+  -> owned Haxe wait server performs a warm or direct compile
+  -> host validates staged output
+  -> artifact transaction publishes the authorized files atomically
+```
+
+Each arrow is optional. A host can use only the artifact publisher, only the
+watch/loop pair, or only the owned Haxe server.
+
+| Public subpath | What it does | What the host still decides |
+| --- | --- | --- |
+| `@genes-ts/tooling/hxml` | Resolves declared HXML inputs deterministically | Environment values, library resolution, and allowed roots |
+| `@genes-ts/tooling/watch` | Reconciles fast native events with authoritative snapshots | Which paths matter and what kind of change each path means |
+| `@genes-ts/tooling/loop` | Debounces bursts and prevents overlapping rebuilds | How change causes merge and what one rebuild performs |
+| `@genes-ts/tooling/haxe-server` | Owns and safely reuses one compatible `haxe --wait` process | Haxe discovery, compiler arguments, diagnostics, and compatibility identity |
+| `@genes-ts/tooling/artifacts` | Publishes an exact authorized file transition with crash recovery | Generation, validation, file ownership, and adoption policy |
+
+## When to use it
+
+Use this package when you are building a long-running Node-based host around
+Genes and would otherwise need to implement process ownership, missed file
+events, rebuild serialization, or crash-safe generated-file publication.
+
+You usually do **not** need it when:
+
+- a project invokes `haxe build.hxml` directly or only in CI;
+- a bundler already has a sufficient one-shot Haxe integration;
+- you only want to compile Haxe to TypeScript or JavaScript;
+- you are translating TypeScript to Haxe with ts2hx.
+
+Start with the direct compiler workflow. Add host tooling only after the project
+has a concrete watch, warm-compilation, or publication requirement.
+
+## Availability before a public package release
+
+The package is currently developed and tested inside the Genes repository; it
+has not been published to npm. npm publication is intentionally deferred until
+a real external host is ready to adopt a reviewed version.
+
+Repository development uses:
+
+```bash
+yarn --cwd tooling build
+yarn --cwd tooling test
+yarn test:tooling-package
+```
+
+`yarn test:tooling-package` builds a deterministic tarball, installs it into a
+clean temporary project, type-checks every code subpath, imports every runtime
+and conformance-data subpath, and verifies the reviewed file inventory.
+
+Install an exact reviewed GitHub commit from another Node project with npm
+11.18.0:
+
+```json
+{
+  "dependencies": {
+    "@genes-ts/tooling": "github:fullofcaffeine/genes-ts#0123456789abcdef0123456789abcdef01234567::path:tooling"
+  }
+}
+```
+
+Replace the illustrative SHA with a full 40-character commit. The
+`::path:tooling` selector is essential because the Git repository's root
+package is Genes itself. npm installs the tooling subdirectory's pinned
+build-only dependencies and runs its `prepare` script, producing `dist/`
+without requiring generated JavaScript to be committed. Only use a Git source
+dependency from a commit you trust: installation executes that commit's
+package build.
+
+The repository verifies this path with npm 11.18.0. npm 10.9.4 parses the
+subdirectory attribute but installs the repository root instead, so it is not
+a supported Git-install client. Environments that use npm 10 or prohibit
+dependency build scripts should use a prebuilt tarball:
+
+```bash
+# In the Genes checkout:
+yarn --cwd tooling build
+TARBALL="$(cd tooling && npm pack --silent)"
+
+# In the consuming Node project:
+npm install "/absolute/path/to/genes/tooling/$TARBALL"
+```
+
+Use a 40-character Git commit when recording which source produced a tarball.
+A plain dependency without `::path:tooling` is **not** equivalent: it selects
+the repository-root package. If an external host later needs a prebuilt
+GitHub-only artifact, publish the reviewed `.tgz` as an immutable,
+checksum-documented GitHub Release asset and install that exact tarball URL.
+No such public tooling asset is promised by the repository today.
+
+The tooling package has independent version metadata so a future distribution
+does not create a compiler/Haxelib release. The dormant, explicitly authorized
+release contract is documented in
+[`docs/RELEASING.md`](https://github.com/fullofcaffeine/genes-ts/blob/main/docs/RELEASING.md).
+
+## How a host composes the pieces
+
+The following is an integration sketch, not a complete framework CLI. Names
+such as `startHaxeWait`, `compileConnected`, `authorizePublication`, and
+`validateGeneratedTree` are deliberately host-owned:
+
+```ts
+import {
+  OwnedHaxeWaitServer,
+  SerializedDirtyLoop,
+  inventoryHxml,
+  publishArtifacts,
+  recoverArtifacts,
+  watchReconciledInputs,
+  type PublicationPlan,
+} from "@genes-ts/tooling";
+
+type Cause = "source" | "identity";
+
+const mergeCause = (left: Cause, right: Cause): Cause =>
+  left === "identity" || right === "identity" ? "identity" : "source";
+
+const inventory = await inventoryHxml({
+  entryFiles: ["build.hxml"],
+  workingDirectory: projectRoot,
+  allowedRoots: [projectRoot, haxeLibraryCache],
+  environment: readConfiguredEnvironment,
+  resolveLibrary: resolveLibraryHxml,
+});
+
+// Recovery runs before a new build. The host validates the complete state
+// recorded by the durable journal; the tooling library never guesses.
+await recoverArtifacts({
+  projectRoot,
+  transactionRoot: ".my-host/transactions",
+  projectIdentity,
+  admitIntended: validateGeneratedTree,
+});
+
+const haxe = new OwnedHaxeWaitServer<CompileResult>({
+  projectRoot,
+  leasePath: ".my-host/runtime/haxe-server.json",
+  projectIdentity,
+  ownerPid: process.pid,
+  isProcessAlive,
+  start: startHaxeWait,
+  probe: probeHaxeWait,
+  compileConnected,
+  compileDirect,
+  onEvent: reportCompilerLifecycle,
+});
+
+const rebuilds = new SerializedDirtyLoop<Cause>({
+  debounceMs: 100,
+  merge: mergeCause,
+  run: async (cause) => {
+    const compatibilityDigest = await computeCompatibilityDigest({
+      cause,
+      inventory,
+    });
+    await haxe.ensure(compatibilityDigest);
+    const result = await haxe.compile(compatibilityDigest);
+
+    const plan: PublicationPlan = await authorizePublication(result);
+    await publishArtifacts({
+      projectRoot,
+      plan,
+      admitIntended: validateGeneratedTree,
+    });
+  },
+  onError: reportBuildFailure,
+});
+
+const watched = watchReconciledInputs<Cause>({
+  inputs: [
+    ...inventory.hxmlFiles.map((path) => ({
+      kind: "exact" as const,
+      path,
+      cause: "identity" as const,
+    })),
+    ...inventory.classPaths.map((path) => ({
+      kind: "tree" as const,
+      path,
+      cause: "source" as const,
+      include: (relative: string) => relative.endsWith(".hx"),
+    })),
+  ],
+  merge: mergeCause,
+  onChange: ({ cause }) => rebuilds.request(cause),
+  onError: reportWatchFailure,
+});
+
+// A real host performs this in signal/finally cleanup.
+watched.close();
+await rebuilds.close();
+await haxe.close();
+```
+
+The key boundary is authorization: the tooling library provides mechanisms,
+while the host decides what a change means, whether generated output is valid,
+and which exact files may become public.
+
+## Artifact transactions
+
+`@genes-ts/tooling/artifacts` is a durable publisher for an already-authorized
+exact set of generated-file transitions. It does not decide ownership,
+validation, adoption, “last good” behavior, or user-facing diagnostics. Those
+remain host policy.
 
 The versioned protocol and conformance corpus live in
 [`artifact-transactions/v1`](artifact-transactions/v1/README.md).
-
-## Artifact transactions
 
 `publishArtifacts` receives a closed `PublicationPlan`. Each transition states
 the exact bytes, size, and Unix mode expected before and after publication.

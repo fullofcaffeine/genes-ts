@@ -14,6 +14,7 @@ repository and run from its root unless a section says otherwise.
 | Haxe | Reviewable, typed source for a TS codebase or TS-native tooling | [Haxe → TypeScript → JavaScript](#haxe--typescript--javascript) |
 | Haxe | Direct modern ESM JavaScript with no generated-TS build step | [Haxe → classic JavaScript](#haxe--classic-javascript) |
 | One Haxe application | A choice of either output without source forks | [One source, both outputs](#one-source-both-outputs) |
+| A Node-based host CLI | Reliable watch, warm compilation, and generated-file publication | [Build host tooling around Genes](#build-host-tooling-around-genes) |
 | TypeScript/JavaScript implementation source | Haxe that will continue to run on JavaScript | [TypeScript → Haxe → JavaScript](#typescript--haxe--javascript) |
 | TypeScript implementation source | Haxe as an intermediate migration layer, then generated TS again | [TypeScript → Haxe → TypeScript](#typescript--haxe--typescript) |
 | npm `.d.ts` declarations | Haxe externs for an existing package | Use the [dts2hx workflow](typescript-target/INTEROP.md#generate-package-externs-with-dts2hx), not ts2hx |
@@ -271,6 +272,41 @@ and strongly typed when selected; classic output removes the generated-TS
 compilation step while preserving the exercised runtime behavior. The tests
 prove the checked application paths, not universal equivalence for every Haxe
 or JavaScript construct.
+
+## Build host tooling around Genes
+
+Start with direct `haxe build.hxml` commands. A Node-based host needs the
+optional [`@genes-ts/tooling` library](../tooling/README.md) only when it owns a
+long-running development loop—for example, a framework CLI that must watch
+Haxe inputs, reuse a compiler server, avoid overlapping rebuilds, and publish a
+complete generated tree after validation.
+
+The library supplies generic mechanics:
+
+```text
+inventory HXML inputs
+  -> reconcile file changes
+  -> serialize one newest-state build
+  -> compile through an owned warm Haxe server or direct fallback
+  -> publish the host-authorized artifacts transactionally
+```
+
+It does not select TS versus classic output, invent Haxe arguments, validate a
+framework application, manage a framework dev server, or decide which files
+the host owns. Those policies remain in the adapter.
+
+The package is currently internal to this repository and intentionally
+unpublished. Build and verify it locally with:
+
+```bash
+yarn --cwd tooling test
+yarn test:tooling-package
+```
+
+The package guide includes individual API examples, a complete composition
+sketch, local tarball installation, shutdown/recovery boundaries, and the
+GitHub-versus-npm distribution caveat. Neither ordinary Genes compilation nor
+ts2hx requires this library.
 
 ## TypeScript → Haxe → JavaScript
 

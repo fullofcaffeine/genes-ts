@@ -45,6 +45,7 @@
 /playwright-report
 /scripts/dist
 /tooling/dist
+/tooling/node_modules
 /tooling/*.tgz
 /tools/ts2hx/dist
 /tools/ts2hx/*.tsbuildinfo
