@@ -51,6 +51,25 @@ function useLazyLabel(seed: String): State<String> {
   return useStateLazy(() -> seed);
 }
 
+/**
+ * Names computed dependencies once so React sees the same scalar in the
+ * calculation body and dependency array.
+ *
+ * The calculation parameters are compile-time authoring syntax. Genes moves
+ * each dependency into one render-local final value and emits React's ordinary
+ * zero-argument `useMemo` callback.
+ */
+@:genes.reactHook
+function useComputedSummary(initial: Int, label: String,
+    enabled: Bool): String {
+  final state = useState(initial);
+  return useMemo(
+    (current, currentLabel, currentEnabled) ->
+      currentEnabled ? '$currentLabel:${current * 2}' : currentLabel,
+    deps(state.value, label.toUpperCase(), enabled)
+  );
+}
+
 /** Generic module component consuming the same semantic Hook surface. */
 @:genes.reactComponent
 function Counter(props: CounterProps): Element {
@@ -70,10 +89,12 @@ class Main {
   static function main(): Void {
     final counter = useCounter;
     final label = useLazyLabel;
+    final computed = useComputedSummary;
     final component = Counter;
     final typeOnlyComponent = TypeOnlyComponent.Identity;
     final blockEdit = GutenbergBlock.BlockEdit;
-    if (counter == null || label == null || component == null
+    if (counter == null || label == null || computed == null
+        || component == null
         || typeOnlyComponent == null || blockEdit == null) {
       throw "React Hook functions were not retained";
     }

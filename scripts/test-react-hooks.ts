@@ -140,6 +140,18 @@ ok(typed.includes("const state: UseStateResult<number> = useState(initial)"),
   "semantic state remains React's native tuple");
 ok(typed.includes("state[1](function (previous: number)"),
   "state update lowers directly to React's tuple dispatcher");
+ok(typed.includes("const current: number = state[0]"),
+  "computed state dependency receives one typed render-local snapshot");
+ok(typed.includes("const currentLabel: string = label.toUpperCase()"),
+  "effectful computed dependency is evaluated once before useMemo");
+strictEqual(
+  typed.match(/label\.toUpperCase\(\)/g)?.length,
+  1,
+  "computed dependency expression occurs exactly once"
+);
+ok(typed.includes(
+  "}, [current, currentLabel, currentEnabled])"
+), "memo callback and dependency array share the same snapshot identities");
 ok(!typed.includes("new State") && !typed.includes("new Optimistic"),
   "semantic views allocate no wrapper objects");
 
@@ -169,6 +181,18 @@ ok(classic.includes("function useCounter(initial)"),
   "classic output retains the analyzer-visible custom Hook");
 ok(classic.includes("function Counter(props)"),
   "classic output retains the analyzer-visible component");
+ok(classic.includes("const current = state[0]"),
+  "classic output preserves the computed state snapshot");
+ok(classic.includes("const currentLabel = label.toUpperCase()"),
+  "classic output evaluates the computed dependency exactly once");
+strictEqual(
+  classic.match(/label\.toUpperCase\(\)/g)?.length,
+  1,
+  "classic computed dependency expression occurs exactly once"
+);
+ok(classic.includes(
+  "}, [current, currentLabel, currentEnabled])"
+), "classic callback and dependency array share snapshot identities");
 ok(!/\b(?:Dynamic|untyped|any|unknown)\b/.test(typed),
   "typed implementation introduces no broad boundary type");
 
@@ -189,6 +213,12 @@ for (const profile of ["ts/src-gen", "classic"] as const) {
     "react_hooks/Main",
     "function Counter",
     "function Counter"
+  );
+  assertMappedFunction(
+    profile,
+    "react_hooks/Main",
+    "function useComputedSummary",
+    "function useComputedSummary"
   );
   assertMappedFunction(
     profile,
@@ -214,6 +244,22 @@ expectHaxeFailure(
   "GTS-REACT-HOOK-002",
   "HookPlacementNegative.hx"
 );
+for (const define of [
+  undefined,
+  "react_memo_snapshot_arity",
+  "react_memo_snapshot_named",
+  "react_memo_snapshot_rest",
+  "react_memo_snapshot_type"
+]) {
+  expectHaxeFailure(
+    [
+      "tests/react-hooks/build-memo-snapshot-negative.hxml",
+      ...(define === undefined ? [] : ["-D", define])
+    ],
+    "GTS-REACT-DEPS-002",
+    "MemoSnapshotNegative.hx"
+  );
+}
 for (const define of [
   "react_hook_loop",
   "react_hook_nested",

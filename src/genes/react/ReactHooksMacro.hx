@@ -31,6 +31,7 @@ using haxe.macro.TypeTools;
 #if macro
   private inline final STATE_DIAGNOSTIC = "GTS-REACT-STATE-001";
   private inline final DEPS_DIAGNOSTIC = "GTS-REACT-DEPS-001";
+  private inline final SNAPSHOT_DIAGNOSTIC = "GTS-REACT-DEPS-002";
 
   private function fail<T>(code: String, message: String,
       position: Position): T {
@@ -169,6 +170,227 @@ using haxe.macro.TypeTools;
     }
   }
 
+  private function identifier(name: String, position: Position): Expr {
+    return {expr: EConst(CIdent(name)), pos: position};
+  }
+
+  private function directIdentifier(expression: Expr): Null<String> {
+    return switch expression.expr {
+      case EParenthesis(inner) | EMeta(_, inner):
+        directIdentifier(inner);
+      case EConst(CIdent(name)):
+        name;
+      case _:
+        null;
+    }
+  }
+
+  private function abstractIdentity(type: Type, moduleName: String,
+      typeName: String, depth: Int = 0): Bool {
+    if (depth > 32) return false;
+    return switch type {
+      case TMono(reference):
+        final resolved = reference.get();
+        resolved != null
+          && abstractIdentity(resolved, moduleName, typeName, depth + 1);
+      case TLazy(resolve):
+        abstractIdentity(resolve(), moduleName, typeName, depth + 1);
+      case TType(reference, arguments):
+        final value = reference.get();
+        abstractIdentity(
+          applied(value.type, value.params, arguments),
+          moduleName,
+          typeName,
+          depth + 1
+        );
+      case TAbstract(reference, _):
+        final value = reference.get();
+        value.module == moduleName && value.name == typeName;
+      case _:
+        false;
+    }
+  }
+
+  private function isTupleProjection(expression: Expr): Bool {
+    final owner = switch expression.expr {
+      case EParenthesis(inner) | EMeta(_, inner):
+        return isTupleProjection(inner);
+      case EField(target, "value"):
+        target;
+      case _:
+        return false;
+    }
+    final type = try Context.typeof(owner) catch (_: haxe.Exception) return true;
+    return abstractIdentity(type, "genes.react.State", "State")
+      || abstractIdentity(type, "genes.react.Optimistic", "Optimistic");
+  }
+
+  /**
+   * Whether React's analyzer can compare the authored expression directly.
+   *
+   * Plain local and member chains remain recognizable after emission. Calls,
+   * operators, array access, and zero-runtime tuple projections need one named
+   * scalar shared by the calculation and dependency list.
+   */
+  private function isLintVisibleDependency(expression: Expr): Bool {
+    return switch expression.expr {
+      case EParenthesis(inner) | EMeta(_, inner):
+        isLintVisibleDependency(inner);
+      case EConst(CIdent(_)):
+        true;
+      case EField(owner, _) if (!isTupleProjection(expression)):
+        isLintVisibleDependency(owner);
+      case _:
+        false;
+    }
+  }
+
+  private function memoFunction(expression: Expr): Null<{
+    kind: FunctionKind,
+    value: Function
+  }> {
+    return switch expression.expr {
+      case EParenthesis(inner) | EMeta(_, inner):
+        memoFunction(inner);
+      case EFunction(kind, value):
+        {kind: kind, value: value};
+      case _:
+        null;
+    }
+  }
+
+  private function snapshotDeclaration(argument: FunctionArg,
+      dependency: Expr): Expr {
+    return {
+      expr: EVars([{
+        name: argument.name,
+        namePos: dependency.pos,
+        type: argument.type,
+        expr: dependency,
+        isFinal: true,
+        meta: null
+      }]),
+      pos: dependency.pos
+    };
+  }
+
+  /**
+   * Gives computed dependencies one exactly-once render-local identity.
+   *
+   * React lint needs the calculation body and dependency array to refer to the
+   * same scalar. A calculation parameter names that scalar in Haxe source; the
+   * macro moves the dependency expression into a final local and rewrites the
+   * calculation to React's required zero-argument function.
+   */
+  private function snapshotMemo(calculate: Expr, dependencies: Array<Expr>,
+      position: Position): {
+        declarations: Array<Expr>,
+        calculate: Expr,
+        dependencies: Array<Expr>
+      } {
+    final callback = memoFunction(calculate);
+    if (callback == null || callback.value.args.length == 0) {
+      final complex = dependencies.find(dependency ->
+        !isLintVisibleDependency(dependency));
+      if (complex != null) {
+        fail(SNAPSHOT_DIAGNOSTIC,
+          "Computed memo dependencies need a named scalar shared by the "
+          + "calculation and dependency list. Add one calculation parameter "
+          + "for each dependency, for example "
+          + "useMemo((current) -> current * 2, deps(state.value)).",
+          complex.pos);
+      }
+      return {
+        declarations: [],
+        calculate: calculate,
+        dependencies: dependencies
+      };
+    }
+    if (callback.value.params.length != 0) {
+      fail(SNAPSHOT_DIAGNOSTIC,
+        "Dependency-parameter memo calculations cannot declare local type "
+        + "parameters.",
+        calculate.pos);
+    }
+    switch callback.kind {
+      case FNamed(_, _):
+        fail(SNAPSHOT_DIAGNOSTIC,
+          "Dependency-parameter memo calculations cannot be named functions "
+          + "because relocating their parameters would change recursive "
+          + "calls. Use an anonymous function or arrow calculation.",
+          calculate.pos);
+      case FAnonymous | FArrow:
+    }
+    if (callback.value.args.length != dependencies.length) {
+      fail(SNAPSHOT_DIAGNOSTIC,
+        'Memo calculation declares ${callback.value.args.length} dependency '
+        + 'parameter(s), but deps(...) supplies ${dependencies.length}. '
+        + "Declare exactly one parameter for each dependency in the same "
+        + "order.",
+        calculate.pos);
+    }
+
+    final declarations: Array<Expr> = [];
+    final snapshots: Array<Expr> = [];
+    for (index in 0...dependencies.length) {
+      final argument = callback.value.args[index];
+      if (argument.opt || argument.value != null) {
+        fail(SNAPSHOT_DIAGNOSTIC,
+          'Memo dependency parameter `${argument.name}` cannot be optional '
+          + "or have a default value.",
+          calculate.pos);
+      }
+      final metadata = argument.meta;
+      if (metadata != null && metadata.length != 0) {
+        fail(SNAPSHOT_DIAGNOSTIC,
+          'Memo dependency parameter `${argument.name}` cannot carry '
+          + "parameter metadata or rest semantics because it becomes one "
+          + "render-local scalar.",
+          calculate.pos);
+      }
+      final dependency = dependencies[index];
+      if (argument.type != null) {
+        final actual = Context.typeof(dependency);
+        final expected = Context.resolveType(argument.type, calculate.pos);
+        if (abstractIdentity(expected, "haxe.Rest", "Rest")) {
+          fail(SNAPSHOT_DIAGNOSTIC,
+            'Memo dependency parameter `${argument.name}` cannot use rest '
+            + "semantics because it represents exactly one dependency scalar.",
+            calculate.pos);
+        }
+        if (!Context.unify(actual, expected)
+            || !Context.unify(expected, actual)) {
+          fail(SNAPSHOT_DIAGNOSTIC,
+            'Memo dependency parameter `${argument.name}` expects exactly '
+            + '${expected.toString()}, but its dependency has '
+            + '${actual.toString()}.',
+            dependency.pos);
+        }
+      }
+      final sameBinding = argument.type == null
+        && directIdentifier(dependency) == argument.name;
+      if (!sameBinding) {
+        declarations.push(snapshotDeclaration(argument, dependency));
+      }
+      snapshots.push(identifier(argument.name, dependency.pos));
+    }
+
+    final rewritten: Expr = {
+      expr: EFunction(callback.kind, {
+        args: [],
+        ret: callback.value.ret,
+        expr: callback.value.expr,
+        params: []
+      }),
+      pos: calculate.pos
+    };
+    return {
+      declarations: declarations,
+      calculate: rewritten,
+      dependencies: snapshots
+    };
+  }
+
   private function isNullLiteral(expression: Expr): Bool {
     return switch expression.expr {
       case EParenthesis(inner) | EMeta(_, inner) | ECheckType(inner, _)
@@ -264,13 +486,14 @@ using haxe.macro.TypeTools;
   function useMemo(calculate: Expr, dependencies: Expr): Expr {
     final arguments = dependencyArguments(dependencies, "useMemo");
     final elementType = dependencyType(arguments, dependencies.pos);
+    final snapshot = snapshotMemo(calculate, arguments, dependencies.pos);
     final dependencyList: ComplexType = TPath({
       pack: ["genes", "react"],
       name: "DependencyList",
       params: [TPType(elementType)]
     });
     final literal: Expr = {
-      expr: EArrayDecl(arguments),
+      expr: EArrayDecl(snapshot.dependencies),
       pos: dependencies.pos
     };
     final checked: Expr = {
@@ -278,8 +501,13 @@ using haxe.macro.TypeTools;
       pos: dependencies.pos
     };
     final position = Context.currentPos();
-    return macro @:pos(position)
-      genes.react.ReactHookBindings.useMemo($calculate, $checked);
+    final call = macro @:pos(position)
+      genes.react.ReactHookBindings.useMemo(${snapshot.calculate}, $checked);
+    if (snapshot.declarations.length == 0) return call;
+    return {
+      expr: EBlock(snapshot.declarations.concat([call])),
+      pos: position
+    };
   }
 
   function useCallback(callback: Expr,
