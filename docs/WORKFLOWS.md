@@ -48,6 +48,18 @@ The blocking toolchain and compatibility lanes are documented in
 example under its declared TypeScript and classic profiles, strictly consumes
 the generated declarations, and runs the application smoke checks.
 
+For code you own, enable Haxe null safety one package at a time before loading
+Genes, and keep TypeScript strict checking enabled independently:
+
+```hxml
+--macro haxe.macro.Compiler.nullSafety("my.application", Loose, true)
+-lib genes-ts
+```
+
+This does not change JavaScript missing-property behavior or replace Genes'
+`null`/`undefined` lowering. Read [`NULL_SAFETY.md`](NULL_SAFETY.md) before
+selecting a broad package prefix or adding an escape.
+
 ## Haxe → TypeScript → JavaScript
 
 Choose this path when generated `.ts` or `.tsx` belongs in your toolchain: for

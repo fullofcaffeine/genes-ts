@@ -32,6 +32,8 @@ boundary and planned shared architecture.
 - `docs/typescript-target/IMPORTS.md` — handwritten and dts2hx-generated npm interop
 - `docs/TROUBLESHOOTING.md` — common failure modes + fixes
 - `docs/OUTPUT_MODES.md` — TS output vs classic Genes JS output
+- `docs/NULL_SAFETY.md` — package-scoped Haxe null safety, TypeScript
+  `strictNullChecks`, and JavaScript `null`/`undefined` boundaries
 - `docs/MODULE_FUNCTIONS.md` — analyzer-visible module functions without a delegating wrapper
 - `docs/ARCHITECTURE_ROADMAP.md` — readiness boundary and shared TS/JS architecture roadmap
 - `docs/TOOLCHAINS.md` — blocking and preview Haxe/Node/TypeScript lanes

@@ -27,6 +27,7 @@ class Register {
    */
   @:ts.type("{[key: string]: HxRegistry}")
   static final globals: DynamicAccess<HxRegistry> = nullPrototypeDictionary();
+
   @:keep @:native('new')
   @:ts.type("unique symbol")
   static final construct = new js.lib.Symbol();
@@ -63,7 +64,7 @@ class Register {
    * the dictionary generic and cast-free. No arbitrary object operation is
    * exposed through the compatibility bridge.
    */
-  static inline function nullPrototypeDictionary<T>():DynamicAccess<T> {
+  static inline function nullPrototypeDictionary<T>(): DynamicAccess<T> {
     return NullPrototypeObject.createDictionary(null);
   }
 
@@ -155,6 +156,10 @@ class Register {
       enumerable: true,
       get: () -> {
         init();
+        // `ObjectPropertyDescriptor.get` is typed as `Void -> Any`, although
+        // JavaScript getters may return `null`. This lazy property deliberately
+        // exposes `Null<T>`, so keep the escape on this exact extern mismatch.
+        @:nullSafety(Off)
         return value;
       },
       set: v -> {
@@ -175,10 +180,12 @@ class Register {
    * keeping the unsafety confined to the runtime boundary.
    */
   @:keep @:ts.returnType("any")
-  public static function iterator<T>(@:ts.type("Array<T> | { iterator: () => Iterator<T> } | { keys: () => Iterator<any>; get: (k: any) => T | null }") a: Dynamic): Void->Iterator<T> {
+  public static function iterator<T>(@:ts.type("Array<T> | { iterator: () => Iterator<T> } | { keys: () => Iterator<any>; get: (k: any) => T | null }") a: Dynamic): Void->
+    Iterator<T> {
     return if (!(Syntax.code("Array.isArray({0})", a) : Bool)) {
       if ((Syntax.code('\"iterator\" in {0}', a) : Bool)) {
-        js.Syntax.code('typeof {0}.iterator === \"function\" ? {0}.iterator.bind({0}) : {0}.iterator', a);
+        js.Syntax.code('typeof {0}.iterator === \"function\" ? {0}.iterator.bind({0}) : {0}.iterator',
+          a);
       } else {
         // Map-like fallback: iterate values via `keys()` + `get()`.
         () -> {
@@ -374,7 +381,7 @@ class Register {
  */
 @:native("Object")
 private extern class NullPrototypeObject {
-  @:pure @:native("create") static function createDictionary<T>(prototype:Null<{}>):DynamicAccess<T>;
+  @:pure @:native("create") static function createDictionary<T>(prototype: Null<{}>): DynamicAccess<T>;
 }
 
 /**

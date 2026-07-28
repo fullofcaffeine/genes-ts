@@ -207,6 +207,13 @@ function buildArguments(mode: Mode, scenario: Scenario): string[] {
     "-D",
     `genes-ts=${genesVersion}`,
     "--macro",
+    // This harness loads Genes from the source classpath instead of through
+    // haxelib, so Haxe does not read `extraParams.hxml` for us. Repeat the
+    // production ordering explicitly: apply the package rule before
+    // `Generator.use()` can load compiler-owned `genes.*` types. Every cold
+    // and warm profile below therefore exercises the real null-safety policy.
+    'haxe.macro.Compiler.nullSafety("genes", Loose, true)',
+    "--macro",
     "genes.Generator.use()",
     ...(scenario.lateOutputOverride === undefined
       ? []

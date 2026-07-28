@@ -30,6 +30,14 @@ cannot see.
 
 ## Nullability profiles
 
+These profiles describe generated TypeScript. They are independent of Haxe's
+package-scoped source checker: enabling
+`haxe.macro.Compiler.nullSafety("my.application", Loose, true)` can reject
+unsafe Haxe, but it does not choose the emitted union or normalize JavaScript
+`undefined`. Use both checks for owned application code. See
+[`../NULL_SAFETY.md`](../NULL_SAFETY.md) for setup, migration, and the exact
+compiler/runtime boundary.
+
 ### Default: TS-strict (`strictNullChecks: true`)
 
 - `Null<T>` is emitted as `T | null`.

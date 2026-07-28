@@ -13,6 +13,8 @@ feature surface beyond the quick examples in `readme.md`.
 - `WORKFLOWS.md` — choose Haxe → TS, Haxe → JS, TS → Haxe, or the roundtrip migration path
 - `ARCHITECTURE.md` — compiler pipeline, ownership boundaries, fixtures, snapshots, and contributor map
 - `OUTPUT_MODES.md` — TS output vs classic Genes JS output (and when to use each)
+- `NULL_SAFETY.md` — Haxe package checking, TypeScript strict nulls, target
+  representation, migration guidance, and the compiler's reviewed escape policy
 - `OUTPUT_MODES.md#performance-oriented-es6-profile` — the explicit ES6 profile and planned comparison fixture
 - `OUTPUT_MODES.md#reusable-library-profile` — opt-in matched runtime and declaration surfaces for packages
 - `OUTPUT_MODES.md#typescript-aware-helpers-that-still-run-as-es6` — how TS-aware helper types erase to runnable ES6 without weakening TS output

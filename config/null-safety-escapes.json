@@ -1,0 +1,35 @@
+{
+  "scope": "genes",
+  "mode": "Loose",
+  "recursive": true,
+  "escapes": [
+    {
+      "path": "src/genes/Register.hx",
+      "owner": "Register.createStatic lazy property getter",
+      "statement": "return value;",
+      "reason": "The Haxe JavaScript extern declares ObjectPropertyDescriptor.get as Void -> Any even though a JavaScript getter may deliberately return null.",
+      "containment": "The escape applies only to the return statement after the lazy initializer has run; the public helper continues to expose Null<T>."
+    },
+    {
+      "path": "src/genes/ts/Undefinable.hx",
+      "owner": "Undefinable.isAbsent",
+      "statement": "return js.Syntax.code(\"({0}) === undefined\", value);",
+      "reason": "Haxe represents js.Lib.undefined through its null sentinel, so only the exact target identity expression preserves value === undefined.",
+      "containment": "Raw target syntax is limited to one boolean expression; callers receive an ordinary typed Bool."
+    },
+    {
+      "path": "src/genes/ts/Undefinable.hx",
+      "owner": "Undefinable.orNull",
+      "statement": "return js.Syntax.code(\"{0} ?? null\", this);",
+      "reason": "The Haxe storage type is Null<T>, but genes-ts projects this boundary as T | undefined and must preserve JavaScript nullish coalescing without a wrongly typed Haxe temporary.",
+      "containment": "Raw target syntax is limited to one expression and immediately returns a typed Null<T>."
+    },
+    {
+      "path": "src/genes/util/EsMap.hx",
+      "owner": "EsMap.adaptIterator queue",
+      "statement": "value = data.value;",
+      "reason": "JavaScript IteratorResult types correlate done with value presence, but Haxe cannot express that relationship across the iterator state machine.",
+      "containment": "The escape applies only to the value assignment; hasNext prevents a completed result from being consumed by next."
+    }
+  ]
+}
