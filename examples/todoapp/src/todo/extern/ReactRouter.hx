@@ -2,7 +2,6 @@ package todo.extern;
 
 import genes.react.Element;
 import genes.react.Node;
-
 /**
  * Minimal React Router externs used by the todoapp example.
  *
@@ -81,6 +80,7 @@ extern class Route {}
 extern class Link {}
 
 @:jsRequire("react-router", "useNavigate")
+@:genes.reactHook
 extern function useNavigate(): String->Void;
 
 /**
@@ -100,4 +100,5 @@ extern function useNavigate(): String->Void;
 typedef Params = DynamicAccess<String>;
 
 @:jsRequire("react-router", "useParams")
+@:genes.reactHook
 extern function useParams(): Params;

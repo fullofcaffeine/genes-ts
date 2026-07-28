@@ -1,0 +1,6 @@
+-cp src
+-cp tests/react-hooks/src
+-main react_hooks.EffectNegative
+-js tests/react-hooks/out/effect-negative.js
+-D genes.ts
+--dce full

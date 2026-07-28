@@ -1,8 +1,9 @@
 package todo.web.pages;
 
 import genes.react.JSX.*;
-import todo.extern.React.useEffect;
-import todo.extern.React.useState;
+import genes.react.React.deps;
+import genes.react.React.useEffect;
+import genes.react.React.useState;
 import todo.extern.ReactRouter.Link;
 import todo.extern.ReactRouter.useNavigate;
 import todo.shared.Todo;
@@ -14,9 +15,10 @@ import todo.web.ReactTypes.ReactElement;
 
 @:jsx_inline_markup
 class TodoDetailPage {
+  @:genes.reactComponent
   public static function Component(): ReactElement {
-    final idStr = Router.param("id");
-    final id: Null<TodoId> = idStr == null ? null : cast idStr;
+    final idStr = Router.useParam("id");
+    final id: Null<TodoId> = idStr;
 
     final todoState = useState((null : Null<Todo>));
     final todo = todoState.value;
@@ -40,7 +42,7 @@ class TodoDetailPage {
       }).catchError(_ -> {
         errorState.set("Todo not found");
       });
-    }, [idStr]);
+    }, deps(idStr));
 
     function onSave() {
       if (id == null)
@@ -67,7 +69,7 @@ class TodoDetailPage {
     if (todo == null)
       return <p>Loading...</p>;
 
-    final todoValue: Todo = cast todo;
+    final todoValue: Todo = todo;
 
     return <div>
       <p><Link to={"/"}>← Back</Link></p>

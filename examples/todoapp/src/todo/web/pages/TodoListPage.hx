@@ -1,9 +1,10 @@
 package todo.web.pages;
 
 import genes.react.JSX.*;
+import genes.react.React.deps;
+import genes.react.React.useEffect;
+import genes.react.React.useState;
 import genes.ts.Imports;
-import todo.extern.React.useEffect;
-import todo.extern.React.useState;
 import todo.extern.ReactRouter.Link;
 import todo.shared.Todo;
 import todo.shared.TodoId;
@@ -21,8 +22,7 @@ class TodoListPage {
    *
    * This is the “Haxe imports TS/TSX” direction of the interop story.
    */
-  static final PrettyButton: ReactComponent1<PrettyButtonProps> =
-    Imports.defaultImport("../../../../src-ts/components/PrettyButton");
+  static final PrettyButton: ReactComponent1<PrettyButtonProps> = Imports.defaultImport("../../../../src-ts/components/PrettyButton");
 
   /**
    * TS-authored function that imports and calls back into a Haxe-emitted value.
@@ -31,9 +31,11 @@ class TodoListPage {
    * `examples/todoapp/web/src-ts/interop/haxeInterop.ts` imports `TodoText` from
    * generated output and then re-exports a stable banner function.
    */
-  static final interopBanner: Void->String =
-    Imports.namedImport("../../../../src-ts/interop/haxeInterop", "interopBanner");
+  static final interopBanner: Void->
+    String = Imports.namedImport("../../../../src-ts/interop/haxeInterop",
+    "interopBanner");
 
+  @:genes.reactComponent
   public static function Component(): ReactElement {
     // Keep the Haxe-emitted symbol in the JS/TS output even though it's referenced
     // “indirectly” from TS-only code (Haxe DCE can't see TS imports).
@@ -54,7 +56,7 @@ class TodoListPage {
       }).catchError(_ -> {
         errorState.set("Failed to load todos");
       });
-    }, []);
+    }, deps());
 
     function replaceTodo(updated: Todo) {
       final next = [for (t in todos) t.id == updated.id ? updated : t];
@@ -84,10 +86,7 @@ class TodoListPage {
     final errorView: ReactChild = error != "" ? <p style={{color: "crimson"}}>{error}</p> : null;
 
     function renderTodoTitle(todo: Todo): ReactChild {
-      return if (todo.completed)
-        <s>{todo.title}</s>
-      else
-        todo.title;
+      return if (todo.completed) <s>{todo.title}</s> else todo.title;
     }
 
     function renderTodoItem(todo: Todo): ReactElement {
