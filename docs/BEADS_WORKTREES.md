@@ -52,18 +52,20 @@ feature worktree's Git commit.
 Check the effective values when diagnosing a machine:
 
 ```bash
-bd config get export.auto
-bd config get export.git-add
+yarn bd config get export.auto
+yarn bd config get export.git-add
 ```
 
-Both commands must print `false`. Beads 1.1.0 or newer is recommended. After an
-upgrade, reinstall the managed hooks and recheck the settings:
+Both commands must print `false`. Only the exact client installed by
+`yarn beads:install` is supported for the live Genes database. After changing
+the reviewed pin, reinstall the managed hooks and recheck the settings:
 
 ```bash
-bd version
+yarn beads:install
+yarn bd version
 yarn hooks:install
-bd config get export.auto
-bd config get export.git-add
+yarn bd config get export.auto
+yarn bd config get export.git-add
 ```
 
 `yarn hooks:install` uses Beads' supported marker-preservation behavior. Beads
@@ -77,9 +79,9 @@ the installer is the only supported writer for the Genes section.
 Issue commands still work normally from any worktree:
 
 ```bash
-bd ready
-bd update genes-123 --status in_progress
-bd close genes-123
+yarn bd ready
+yarn bd update genes-123 --status in_progress
+yarn bd close genes-123
 ```
 
 They update the shared Dolt database. They should not modify or stage
@@ -168,12 +170,12 @@ git hash-object .beads/issues.jsonl
 git rev-parse :0:.beads/issues.jsonl
 git diff -- .beads/issues.jsonl
 git diff --cached -- .beads/issues.jsonl
-bd show <important-issue-id> --json
+yarn bd show <important-issue-id> --json
 ```
 
 - `git hash-object` identifies the working-file bytes.
 - `git rev-parse :0:...` identifies the staged bytes.
-- `bd show` checks the live database independently of the JSONL snapshot.
+- `yarn bd show` checks the live database independently of the JSONL snapshot.
 
 Do not reset, restore, or overwrite the file until the two diffs have been
 reviewed and the unexpected lines are known. Preserve legitimate user edits and
@@ -189,6 +191,7 @@ configuration, or this workflow:
 ```bash
 yarn test:beads-worktrees
 yarn test:precommit-hook
+yarn test:beads-pin
 ```
 
 The test creates a disposable repository with a primary checkout and linked
@@ -212,3 +215,44 @@ See also:
 
 - [Beads configuration reference](https://github.com/gastownhall/beads/blob/main/docs/CONFIG.md)
 - [Beads releases and upgrade notes](https://github.com/gastownhall/beads/releases)
+
+## Why Genes pins an exact Beads commit
+
+On July 27, 2026, a repository-local Beads build from another project was used
+for writable Genes issue commands. The executable reported version `1.1.0`,
+but it came from later unreleased source commit
+`7eb428cde13c6d2c4743a76533be8df2d418aff5` and contained migrations through
+schema v59. Opening the embedded Genes database automatically applied those
+migrations. The official Beads 1.1.2 release was built from older source and
+understood only schema v53, so ordinary `bd` commands then refused the shared
+database.
+
+No issue corruption was established. The failure was client coordination:
+every linked worktree shared the upgraded database, but shell `PATH` still
+selected an incompatible client. A semantic version alone could not reveal the
+difference.
+
+Genes therefore owns three explicit boundaries:
+
+1. `yarn beads:install` verifies the upstream source archive checksum, requires
+   migration 0059, builds the exact commit with the `genes-pinned` label, and
+   installs it under the Git common directory.
+2. `yarn bd ...`, roadmap export and hook installation compare the exact build
+   label and commit before running a database command.
+3. `yarn hooks:install` prepends that shared binary directory before every
+   Beads-managed Git hook, including checkout hooks that run before a linked
+   worktree can execute repository scripts.
+
+The current pin is temporary. Replace it only with a reviewed source commit or
+official release that understands schema v59 or later. Update the source
+archive checksum, required migration, exact identity, focused tests and this
+section together. Test the candidate against a disposable copy or backup before
+opening the live database. Never manually lower `schema_migrations`, restore an
+older backup over newer issue work, or use `BD_IGNORE_SCHEMA_SKEW` for writes.
+
+The executable is intentionally not tracked and is never borrowed from another
+repository. Its default location is:
+
+```text
+$(git rev-parse --path-format=absolute --git-common-dir)/genes-tools/bd
+```

@@ -2,6 +2,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { requirePinnedBeads } from "./beads-client.js";
 
 export type BeadsSnapshotContext = {
   readonly repoRoot: string;
@@ -127,7 +128,10 @@ function pathsChangedAfterExport(repoRoot: string): string[] {
 }
 
 /** Publishes the reviewed issue snapshot without staging or committing it. */
-export function exportBeadsSnapshot(cwd: string): void {
+export function exportBeadsSnapshot(
+  cwd: string,
+  verifiedFixtureBeads?: string
+): void {
   const context = validateBeadsSnapshotContext(cwd);
   // A developer may use these overrides for a one-off Beads operation. They
   // must not redirect the repository-owned publication command to another
@@ -139,7 +143,12 @@ export function exportBeadsSnapshot(cwd: string): void {
   env.BD_EXPORT_AUTO = "false";
   env.BD_EXPORT_GIT_ADD = "false";
   const indexTreeBefore = git(context.repoRoot, ["write-tree"]);
-  const result = spawnSync("bd", ["export", "-o", context.snapshotPath], {
+  // The optional binary is an explicit disposable-fixture seam used by the
+  // upstream compatibility matrix. The command-line production path never
+  // supplies it and therefore always verifies the Genes-owned client.
+  const beadsBinary =
+    verifiedFixtureBeads ?? requirePinnedBeads(context.repoRoot);
+  const result = spawnSync(beadsBinary, ["export", "-o", context.snapshotPath], {
     cwd: context.repoRoot,
     env,
     encoding: "utf8"

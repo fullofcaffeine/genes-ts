@@ -82,6 +82,30 @@ jobs:
       - run: yarn test:beads-worktrees
       - run: yarn test:precommit-hook
 
+  beads-pinned-client:
+    name: Beads pinned client
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: toolchains
+        run: node scripts/emit-toolchain-outputs.mjs
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.toolchains.outputs.node-stable }}
+          cache: yarn
+          cache-dependency-path: yarn.lock
+      - uses: actions/setup-go@v5
+        with:
+          # The reviewed Beads source pin declares this toolchain in go.mod.
+          go-version: "1.26.5"
+          cache: false
+      - run: corepack enable
+      - run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
+      - run: yarn install --frozen-lockfile
+      - run: yarn beads:install
+      - run: yarn hooks:install
+      - run: yarn test:beads-pin
+
   secrets:
     name: Secrets (gitleaks)
     runs-on: ubuntu-latest

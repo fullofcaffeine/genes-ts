@@ -93,6 +93,8 @@ function main(): void {
     "docs/WORKFLOWS.md",
     "docs/ARCHITECTURE.md",
     "docs/TESTING_STRATEGY.md",
+    "yarn beads:install",
+    "yarn bd ready",
     "yarn hooks:install",
     "yarn test:precommit-hook",
     "yarn build:example:genes-ts",
@@ -130,10 +132,13 @@ function main(): void {
   const scripts = packageJson.scripts ?? {};
   for (const command of [
     "build:example:genes-ts",
+    "beads:install",
+    "bd",
     "hooks:install",
     "test:examples",
     "test:ci",
     "test:agent-guides",
+    "test:beads-pin",
     "test:precommit-hook"
   ])
     assert(typeof scripts[command] === "string",
