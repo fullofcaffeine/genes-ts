@@ -25,6 +25,13 @@
       "containment": "Raw target syntax is limited to one expression and immediately returns a typed Null<T>."
     },
     {
+      "path": "src/genes/ts/Undefinable.hx",
+      "owner": "Undefinable.assumePresent",
+      "statement": "return js.Syntax.code(#if genes.ts \"({0})!\" #else \"({0})\" #end, this);",
+      "reason": "The caller has already proved a T | undefined value present, but Haxe cannot spell TypeScript's type-only postfix non-null assertion or express the corresponding classic JavaScript identity through its nullable abstract storage.",
+      "containment": "Raw syntax is limited to one identity expression: TypeScript receives a type-only postfix assertion and classic JavaScript receives the unchanged operand."
+    },
+    {
       "path": "src/genes/util/EsMap.hx",
       "owner": "EsMap.adaptIterator queue",
       "statement": "value = data.value;",

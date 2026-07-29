@@ -17,6 +17,7 @@
   "helpers": [
     "json-import:dual-output",
     "undefined:true",
+    "present:ready",
     "unknown-record:Ada",
     "unknown-array:2",
     "api:2:Ada:true",

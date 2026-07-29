@@ -455,6 +455,21 @@ for (const [profile, relativePath] of [
     ),
     `${profile} dropped the JSON import attribute`
   );
+  if (profile === "ts-strict") {
+    ok(
+      generated.includes('events.push("present:" + (present)!);'),
+      "TypeScript Undefinable.assumePresent lost its idiomatic type-only assertion"
+    );
+  } else {
+    ok(
+      generated.includes('events.push("present:" + (present));'),
+      "classic Undefinable.assumePresent stopped being a plain runtime identity"
+    );
+  }
+  ok(
+    !generated.includes("Register.unsafeCast(present)"),
+    `${profile} leaked the old Undefinable runtime cast helper`
+  );
   strictEqual(
     generated.match(/import SharedProfile from "\.\.\/resources\/profile\.json" with \{ type: "json" \}/g)?.length ?? 0,
     1,

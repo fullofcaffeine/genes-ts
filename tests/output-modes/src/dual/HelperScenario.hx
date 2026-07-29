@@ -13,20 +13,25 @@ import dual.MixedNativeImportOwner.NativeGlobalPattern;
  * helper boundary without turning broad values into a domain model.
  */
 class HelperScenario {
-  public static function run():Array<String> {
-    final events:Array<String> = [];
-#if dual_import_attributes
+  public static function run(): Array<String> {
+    final events: Array<String> = [];
+    #if dual_import_attributes
     final profile = DualProfileResource.profile;
     final aliasesAgree = SameAliasProfileOne.profile == profile
       && SameAliasProfileTwo.profile == profile
       && FirstAliasProfile.profile == profile
       && SecondAliasProfile.profile == profile;
     events.push('json-import:${aliasesAgree ? profile : "alias-mismatch"}');
-#else
+    #else
     events.push("json-import:dual-output");
-#end
-    final absent:Undefinable<String> = Undefinable.absent();
+    #end
+    final absent: Undefinable<String> = Undefinable.absent();
     events.push('undefined:${UnknownNarrow.isUndefined(Unknown.fromBoundary(absent))}');
+
+    final present: Undefinable<String> = "ready";
+    final presentIsAbsent = Undefinable.isAbsent(present);
+    if (!presentIsAbsent)
+      events.push('present:${present.assumePresent()}');
 
     final boundary = Unknown.fromBoundary({name: "Ada"});
     final record = UnknownNarrow.record(boundary);
