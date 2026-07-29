@@ -97,7 +97,7 @@ class UnknownNarrow {
    * Converts only native JavaScript Error instances.
    */
   public static function nativeError(value: Unknown): Null<Error> {
-    return js.Syntax.code("({0}) instanceof Error ? ({0}) : null", value);
+    return js.Syntax.code("({0}) instanceof {1} ? ({0}) : null", value, Error);
   }
 
   /**

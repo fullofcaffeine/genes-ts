@@ -252,7 +252,7 @@ export class BoundaryTypes {
 	static narrowInt32(value: unknown): number | null {
 		return UnknownNarrow.int32(value);
 	}
-	static narrowNativeError(value: unknown): Error | null {
+	static narrowNativeError(value: unknown): globalThis.Error | null {
 		return UnknownNarrow.nativeError(value);
 	}
 	static decodeRecordSummary(value: unknown): string {
@@ -376,7 +376,7 @@ export class BoundaryTypes {
 		const narrowedBool: boolean | null = BoundaryTypes.narrowBool(BoundaryTypes.unknownValue(true));
 		const narrowedFinite: number | null = BoundaryTypes.narrowFinite(BoundaryTypes.unknownValue(12.5));
 		const narrowedInt: number | null = BoundaryTypes.narrowInt32(BoundaryTypes.unknownValue(37));
-		const narrowedNativeError: Error | null = BoundaryTypes.narrowNativeError(BoundaryTypes.unknownValue(new Error("native")));
+		const narrowedNativeError: globalThis.Error | null = BoundaryTypes.narrowNativeError(BoundaryTypes.unknownValue(new globalThis.Error("native")));
 		const narrowedRecord: string = BoundaryTypes.decodeRecordSummary(BoundaryTypes.unknownValue({"name": "Grace", "age": 37}));
 		const narrowedArray: string = BoundaryTypes.decodeArraySummary(BoundaryTypes.unknownValue(["first", "second"]));
 		const nullStatus: string = (((BoundaryTypes.unknownValue(null)) === null)) ? "null" : "not-null";

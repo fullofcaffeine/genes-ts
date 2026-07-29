@@ -231,7 +231,8 @@ class TsModuleEmitter extends JsModuleEmitter {
     // only the ordered runtime request array controls ESM evaluation order.
     final projection = module.implementationProjection;
     final deps = projection.bindings;
-    ctx.typeAccessor = deps.typeAccessor;
+    ctx.typeAccessor = type -> TypeAccessor.forTypeScript(type,
+      deps.typeAccessor);
     configureJsx(jsxPlan, jsxCapability, deps);
 
     emitDirectivePrologue(module);

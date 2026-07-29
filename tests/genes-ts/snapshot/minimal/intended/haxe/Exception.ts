@@ -42,7 +42,7 @@ import {Register} from "../genes/Register.js"
  * }
  * ```
  */
-export class Exception extends (Register.inherits(() => Error, true) as typeof Error) {
+export class Exception extends (Register.inherits(() => globalThis.Error, true) as typeof globalThis.Error) {
 	constructor(message: string, previous: Exception | null = null, $native: unknown | null = null) {
 		// @ts-ignore
 		super(message, previous, $native);
@@ -53,7 +53,7 @@ export class Exception extends (Register.inherits(() => Error, true) as typeof E
 	declare __previousException: Exception | null;
 	[Register.new](...args: never[]): void;
 	[Register.new](message: string, previous: Exception | null = null, $native: unknown | null = null): void {
-		Error.call(this, message);
+		globalThis.Error.call(this, message);
 		this.message = message;
 		this.__previousException = previous;
 		this.__nativeException = ($native != null) ? $native : this;
@@ -64,7 +64,7 @@ export class Exception extends (Register.inherits(() => Error, true) as typeof E
 	static thrown(value: unknown): unknown {
 		if (((value) instanceof Exception)) {
 			return value.get_native();
-		} else if (((value) instanceof Error)) {
+		} else if (((value) instanceof globalThis.Error)) {
 			return value;
 		} else {
 			const e: ValueException = new ValueException(value);
@@ -75,7 +75,7 @@ export class Exception extends (Register.inherits(() => Error, true) as typeof E
 		return "haxe.Exception"
 	}
 	static get __super__(): Function {
-		return Error
+		return globalThis.Error
 	}
 	get __class__(): Function {
 		return Exception

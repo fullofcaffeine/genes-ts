@@ -100,10 +100,14 @@ class TypeReferenceCollector {
       case TInst(ref = _.get() => cl, params):
         switch [cl, params] {
           case [{module: "js.node.Fs", name: "FsPath"}, _] |
-            [{module: "js.lib.Promise", name: "Promise"}, []] |
             [{name: "RegExpMatch"}, _] | [{pack: [], name: "String"}, _] |
             [{module: "js.lib.Symbol", name: "Symbol"}, _]:
             // Projected to a target/global type with no Haxe import.
+          case [host, arguments] if (TypeAccessor.hostGlobalName(host) != null):
+            // Host constructors are already available through `globalThis`;
+            // only their generic arguments can contribute dependencies.
+            collectParams(arguments, false, '$rule.host-global-arguments',
+              host.pos);
           case [{name: name}, _] if (name.indexOf('<') > -1):
           case [{kind: KTypeParameter(_)}, _]:
           case [{module: moduleName}, _]
@@ -111,7 +115,6 @@ class TypeReferenceCollector {
           case [{meta: meta}, _] if (isGlobalBuffer(meta)):
           case [{meta: meta}, _] if (isNativeRegExp(meta)):
           case [{module: "js.lib.Set", name: "Set"}, [element]] |
-            [{module: "js.lib.Promise", name: "Promise"}, [element]] |
             [{module: "js.lib.Iterator", name: "Iterator"}, [element]] |
             [{module: "js.lib.Iterator", name: "AsyncIterator"}, [element]] |
             [{pack: [], name: "Array"}, [element]]:

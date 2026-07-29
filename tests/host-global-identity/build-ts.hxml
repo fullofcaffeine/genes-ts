@@ -1,0 +1,9 @@
+-lib genes-ts
+-cp tests/host-global-identity/src
+--main hostglobals.Main
+-js tests/host-global-identity/out/ts/src-gen/index.ts
+-D genes.ts
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
+-debug

@@ -718,7 +718,8 @@ function assertStackProbe(spec: StackProbeSpec): void {
   const generated = readFileSync(generatedPath, "utf8");
   const needleOffset = generated.indexOf(spec.tsNeedle);
   ok(needleOffset !== -1, `TS stack needle not found: ${spec.tsNeedle}`);
-  const tokenOffset = needleOffset + spec.tsNeedle.indexOf("new Error");
+  const constructorNeedle = "new globalThis.Error";
+  const tokenOffset = needleOffset + spec.tsNeedle.indexOf(constructorNeedle);
   const generatedPosition = lineAndColumn(generated, tokenOffset);
   const tsStack = runStackProbe(spec.tsModule, spec);
   const expectedTsPath = slash(generatedPath);
