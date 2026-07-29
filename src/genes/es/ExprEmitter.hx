@@ -1237,11 +1237,9 @@ class ExprEmitter extends Emitter {
       }, [names, body]):
         withDirectImportLocals(names, () -> emitValue(body));
       case TCall(callee, params)
-        if (Context.defined('genes.ts') && params.length == 0 && switch callee.expr {
-          case TField(_, f): (fieldName(f) == "pop" || fieldName(f) == "shift");
-          default: false;
-        }):
-        // In TS mode, normalize JS `undefined` to Haxe `null` for Array#pop/#shift.
+        if (Context.defined('genes.ts') && isNativeArrayRemovalCall(e)):
+        // Only built-in Array removal crosses this undefined-to-null boundary.
+        // Same-named user methods retain their declared Haxe result semantics.
         write('(');
         emitCall(callee, params, true);
         write(' ?? null)');

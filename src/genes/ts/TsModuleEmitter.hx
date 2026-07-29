@@ -186,8 +186,9 @@ class TsModuleEmitter extends JsModuleEmitter {
       && NullishContract.forType(currentExpectedValueType).preservesUndefined;
     final returnPreserves = currentReturnType != null
       && NullishContract.forType(currentReturnType).preservesUndefined;
-    return value.shouldNormalizeRawUndefinedToNull() && !expectedPreserves
-      && !returnPreserves;
+    return !isVoidLike(t)
+      && value.shouldNormalizeRawUndefinedToNull()
+      && !expectedPreserves && !returnPreserves;
   }
 
   function shouldNormalizeOptionalFieldRead(e: TypedExpr): Bool {
@@ -2995,20 +2996,7 @@ class TsModuleEmitter extends JsModuleEmitter {
               }
             }
         }
-      case TCall({expr: TField(_, f)}, []) if (switch fieldAccessName(f) {
-          case "shift" | "pop": true;
-          default: false;
-        }):
-        // Normalize JS `undefined` to Haxe `null` for Array#shift/#pop.
-        // This keeps TS strict-null types aligned with Haxe semantics.
-        write('(');
-        super.emitExpr(e);
-        write(' ?? null)');
-      case TCall(fn = {expr: TCall({expr: TField(_, f)}, _)}, args)
-        if (switch fieldAccessName(f) {
-            case "shift" | "pop": true;
-            default: false;
-          }):
+      case TCall(fn, args) if (TypeUtil.isNativeArrayRemovalCall(fn)):
           // Array#shift/#pop returns `T | undefined` in TS. When the Haxe code
           // guarantees non-emptiness (e.g. checked `.length > 0`), allow calling
           // the returned function under `strict`.
