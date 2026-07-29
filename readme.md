@@ -305,6 +305,16 @@ Static methods remain supported when a class has a real identity or host
 contract, but an all-static shell is unnecessary. See
 `docs/typescript-target/REACT_HOOKS.md`.
 
+React 19 transport values are also framework-neutral. The versioned
+`genes.react.flight.v19` package preserves native `Date`, `ArrayBuffer`, typed
+array, `Map`, `Set`, and global `Symbol.for` identities while a reusable
+macro-time validator checks primitives, React nodes, arrays, closed records,
+null/undefined, and nested capabilities before output. Hosts such as Next.js or
+Gutenberg may extend only unknown nominal capabilities through a closed policy;
+Genes still rejects raw Promise, Symbol, function, broad, and unresolved
+shapes. See
+[React 19 Flight values](docs/typescript-target/REACT_FLIGHT_VALUES.md).
+
 Source-preserving `.tsx` and `.jsx` profiles also recover the nested tree the
 author wrote. Haxe may introduce one-use element locals while typing nested
 HXX; Genes removes only compiler-owned, reorder-safe scaffolding, so this:
