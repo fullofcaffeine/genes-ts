@@ -82,6 +82,38 @@ class ModuleFunctionPlan {
 
   final entries: Array<ModuleFunctionEntry>;
 
+  /** True only for Haxe's synthetic owner of genuine module-level fields. */
+  public static function isModuleFieldsOwner(owner:ClassType):Bool {
+    return #if (haxe_ver >= 4.2)
+      owner.kind.match(KModuleFields(_));
+    #else
+      false;
+    #end
+  }
+
+  /**
+   * Returns the requested binding from one syntactically valid marker.
+   *
+   * Dependency and expression planning need this fact before the complete
+   * per-module plan can be built. Full validation, collisions, and diagnostics
+   * remain centralized in `build`; this helper never admits an invalid marker.
+   */
+  public static function requestedName(field:ClassField):Null<String> {
+    return requestedNameFromMetadata(field.meta);
+  }
+
+  /** Metadata-only form shared by normalized module-field planning. */
+  public static function requestedNameFromMetadata(meta:MetaAccess):Null<String> {
+    final entries = meta.extract(METADATA);
+    return switch entries {
+      case [{params: [{expr: EConst(CString(value))}]}]
+        if (value.length > 0 && IdentifierPolicy.isValidModuleBinding(value)):
+        value;
+      default:
+        null;
+    }
+  }
+
   public static function build(module: Module): ModuleFunctionPlan {
     final bindings = bindingInventory(module);
     final entries: Array<ModuleFunctionEntry> = [];
@@ -130,9 +162,32 @@ class ModuleFunctionPlan {
     return entries.length == 0;
   }
 
+  /**
+   * Whether a compiler-synthetic module-fields class has no runtime purpose
+   * after its selected functions become direct ESM declarations.
+   */
+  public function canOmitSyntheticOwner(owner:ClassType,
+      fields:Array<Field>):Bool {
+    if (!isModuleFieldsOwner(owner))
+      return false;
+    final retained = Module.emittableFields(fields);
+    return retained.length > 0
+      && retained.filter(field -> entryFor(owner, field) == null).length == 0;
+  }
+
   /** Returns every public module-function binding in deterministic plan order. */
   public function publicEntries(): Array<ModuleFunctionEntry> {
     return entries.filter(entry -> entry.publicExportName != null);
+  }
+
+  /**
+   * Public functions that also belong in the compilation-root barrel.
+   *
+   * Genuine Haxe module fields already export from their own ESM module and
+   * therefore remain module-local; different modules may own the same binding.
+   */
+  public function rootPublicEntries():Array<ModuleFunctionEntry> {
+    return publicEntries().filter(entry -> !isModuleFieldsOwner(entry.owner));
   }
 
   static function parseAndValidate(owner: ClassType, field: Field,

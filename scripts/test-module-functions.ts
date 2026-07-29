@@ -198,6 +198,18 @@ function assertImplementationShape(relative: string): void {
     `${relative} proves a dead selected body adds no runtime import edge`);
 }
 
+function assertTopLevelImplementationShape(relative: string): void {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes(relative.endsWith(".js")
+    ? "export function topLevelIdentity(value)"
+    : "export function topLevelIdentity<T>(value: T): T"),
+    `${relative} emits the Haxe module function as one direct ESM function`);
+  ok(!source.includes("TopLevel_Fields_"),
+    `${relative} omits the compiler-synthetic module-fields class`);
+  ok(!source.includes("genes/Register"),
+    `${relative} does not retain registration machinery`);
+}
+
 interface RuntimeEvidence {
   readonly descriptor: {
     readonly configurable: boolean;
@@ -461,6 +473,36 @@ runGeneratedTypeScriptMatrix("tests/module-functions/tsconfig.json");
 assertImplementationShape("classic/module_functions/Selected.js");
 assertImplementationShape("ts/src-gen/module_functions/Selected.ts");
 assertImplementationShape("tsx/src-gen/module_functions/Selected.tsx");
+assertTopLevelImplementationShape(
+  "classic/module_functions/TopLevel.js");
+assertTopLevelImplementationShape(
+  "ts/src-gen/module_functions/TopLevel.ts");
+assertTopLevelImplementationShape(
+  "tsx/src-gen/module_functions/TopLevel.tsx");
+assertTopLevelImplementationShape(
+  "classic/module_functions/TopLevelSibling.js");
+assertTopLevelImplementationShape(
+  "ts/src-gen/module_functions/TopLevelSibling.ts");
+assertTopLevelImplementationShape(
+  "tsx/src-gen/module_functions/TopLevelSibling.tsx");
+for (const relative of [
+  "classic/module_functions/Main.js",
+  "ts/src-gen/module_functions/Main.ts",
+  "tsx/src-gen/module_functions/Main.tsx"
+]) {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes('import {topLevelIdentity} from "./TopLevel.js"'),
+    `${relative} imports the direct module binding`);
+  ok(source.includes(
+    'import {topLevelIdentity as topLevelIdentity__1} from "./TopLevelSibling.js"'),
+    `${relative} preserves same-named module-local ESM identity`);
+  ok(source.includes('topLevelIdentity("top-level")'),
+    `${relative} calls the direct module binding`);
+  ok(source.includes('topLevelIdentity__1("top-level-sibling")'),
+    `${relative} calls the aliased sibling module binding`);
+  ok(!source.includes("TopLevel_Fields_"),
+    `${relative} does not expose a synthetic owner to callers`);
+}
 for (const relative of [
   "classic/module_functions/CrossModule.js",
   "ts/src-gen/module_functions/CrossModule.ts",
@@ -538,6 +580,11 @@ const classicRootDeclaration = readFileSync(path.join(outputRoot,
 ok(classicRootDeclaration.includes(
   'export {publicIdentity} from "./module_functions/Selected.js"'),
   "classic root declarations re-export the stable public binding");
+const classicTopLevelDeclaration = readFileSync(path.join(outputRoot,
+  "classic/module_functions/TopLevel.d.ts"), "utf8");
+ok(classicTopLevelDeclaration.includes(
+  "export const topLevelIdentity: <T>(value: T) => T"),
+  "classic declarations preserve the direct generic module field");
 const tsDeclaration = readFileSync(path.join(outputRoot,
   "ts/dist/out/ts/src-gen/module_functions/Selected.d.ts"), "utf8");
 ok(tsDeclaration.includes("static selected"));
@@ -553,6 +600,11 @@ const tsRootDeclaration = readFileSync(path.join(outputRoot,
 ok(tsRootDeclaration.includes(
   'export { publicIdentity } from "./module_functions/Selected.js"'),
   "tsc root declarations re-export the stable public binding");
+const tsTopLevelDeclaration = readFileSync(path.join(outputRoot,
+  "ts/dist/out/ts/src-gen/module_functions/TopLevel.d.ts"), "utf8");
+ok(tsTopLevelDeclaration.includes(
+  "export declare function topLevelIdentity<T>(value: T): T"),
+  "tsc declarations preserve the direct generic module function");
 const tsxDeclaration = readFileSync(path.join(outputRoot,
   "ts/dist/out/tsx/src-gen/module_functions/Selected.d.ts"), "utf8");
 strictEqual(tsxDeclaration, tsDeclaration,

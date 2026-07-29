@@ -103,6 +103,8 @@ class DependencyPlanBuilder {
   }
 
   function collectRuntimeEdges(): Void {
+    var onlyDirectModuleFunctions = module.members.length > 0;
+    var hasDirectModuleFunctionOwner = false;
     // Validate compiler-owned string templates before output projection opens
     // any implementation writer. The plan itself adds no dependency edge.
     module.templateLiteralPlan;
@@ -200,6 +202,49 @@ class DependencyPlanBuilder {
         default:
       }
       expression.iter(addJsRequireFromExpr);
+    }
+
+    /**
+     * Projects a genuine Haxe module-level function as a named internal ESM
+     * import instead of importing its compiler-synthetic `_Fields_` owner.
+     */
+    function addModuleFunctionImports(expression:TypedExpr):Array<ClassType> {
+      final directOwners:Array<ClassType> = [];
+      if (expression == null)
+        return directOwners;
+      function visit(current:TypedExpr):Void {
+        switch current.expr {
+          case TField(_, FStatic(ownerRef, _.get() => field)):
+            final owner = ownerRef.get();
+            final requestedName = ModuleFunctionPlan.requestedName(field);
+            if (ModuleFunctionPlan.isModuleFieldsOwner(owner)
+              && requestedName != null) {
+              if (owner.module != module.module) {
+                final dependency:DependencySpec = {
+                  type: DependencyType.DName,
+                  name: requestedName,
+                  path: owner.module,
+                  external: false,
+                  memberPath: [],
+                  pos: field.pos
+                };
+                addEdge(RuntimeValue, TClassDecl(ownerRef),
+                  Bound(new DependencyImport(dependency,
+                    BindingIdentity.create(dependency,
+                      fieldOrigin(owner, field.name)))),
+                  'runtime.module-function', field.pos);
+              }
+              if (directOwners.filter(existing ->
+                existing.module == owner.module && existing.name == owner.name)
+                .length == 0)
+                directOwners.push(owner);
+            }
+          default:
+        }
+        current.iter(visit);
+      }
+      visit(expression);
+      return directOwners;
     }
 
     function unwrap(expression: TypedExpr): TypedExpr {
@@ -303,9 +348,15 @@ class DependencyPlanBuilder {
       if (expression == null)
         return;
       addJsRequireFromExpr(expression);
-      for (type in TypeUtil.typesInExpr(expression))
+      final directModuleOwners = addModuleFunctionImports(expression);
+      for (type in TypeUtil.typesInExpr(expression)) {
+        final base = DependencyPlan.moduleTypeBase(type);
+        if (base != null && directModuleOwners.filter(owner ->
+          owner.module == base.module && owner.name == base.name).length > 0)
+          continue;
         addReference(RuntimeValue, type, 'runtime.typed-expression',
           expression.pos);
+      }
     }
 
     /**
@@ -346,6 +397,17 @@ class DependencyPlanBuilder {
     for (member in module.members) {
       switch member {
         case MClass(cl, _, fields):
+          final emittableFields = Module.emittableFields(fields);
+          final directOwner = ModuleFunctionPlan.isModuleFieldsOwner(cl)
+            && emittableFields.length > 0
+            && emittableFields.filter(field ->
+              field.meta == null
+              || ModuleFunctionPlan.requestedNameFromMetadata(field.meta)
+                == null).length == 0;
+          if (directOwner)
+            hasDirectModuleFunctionOwner = true;
+          else
+            onlyDirectModuleFunctions = false;
           for (parent in cl.interfaces)
             addReference(RuntimeValue, TClassDecl(parent.t),
               'runtime.interface', cl.pos);
@@ -362,11 +424,15 @@ class DependencyPlanBuilder {
             addFromExpr(field.expr, CompilerInternal.isField(field.meta));
           addFromExpr(cl.init, true);
         case MMain(expression):
+          onlyDirectModuleFunctions = false;
           addFromExpr(expression);
-        default:
+        case MEnum(_, _):
+          onlyDirectModuleFunctions = false;
+        case MType(_, _):
       }
     }
-    if (module.module != 'genes.Register')
+    if (module.module != 'genes.Register'
+      && (!onlyDirectModuleFunctions || !hasDirectModuleFunctionOwner))
       addReference(RuntimeValue, TypeUtil.registerType,
         'runtime.registration', Context.currentPos());
   }
