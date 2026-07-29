@@ -74,3 +74,42 @@ class HostCallbacks {
     return new js.html.FileReader();
   }
 }
+
+#if host_callback_nullable_inline_negative
+/**
+ * Negative control for the interaction between inlining and host callbacks.
+ *
+ * Haxe inlines `installBuilt` and records the generated `_this` binding as
+ * nullable even though the individual receiver read is retagged non-null.
+ * Genes may emit `_this!.onerror` in value code, but it must not construct the
+ * invalid TypeScript type query `typeof _this!.onerror`.
+ */
+@:keep
+private class NullableReaderHolder {
+  final target: Null<ReaderWithInline>;
+
+  public function new(target: Null<ReaderWithInline>) {
+    this.target = target;
+  }
+
+  public function install(): Void {
+    target.installBuilt(buildMarker());
+  }
+
+  static function buildMarker(): Int {
+    return 1;
+  }
+}
+
+private class ReaderWithInline extends js.html.FileReader {
+  public function new() {
+    super();
+  }
+
+  public inline function installBuilt(_: Int): Void {
+    this.onerror = function(error: js.lib.Error): Void {
+      final _ = error.message;
+    };
+  }
+}
+#end

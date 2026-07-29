@@ -78,6 +78,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   var jsxEmitTsx: Bool = false;
   var inAssignTarget: Bool = false;
   var currentAssignmentTarget: Null<TypedExpr> = null;
+  var inTypeQueryEntityName: Bool = false;
   var currentClass: Null<ClassType> = null;
   var currentReturnIsVoidLike: Bool = false;
   var localTsTypeOverrides: Map<Int, String> = [];
@@ -2771,7 +2772,9 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
     switch e.expr {
       case TLocal(_)
-        if (currentAssignmentTarget != e && boundaryPlan != null
+        if (!inTypeQueryEntityName
+          && currentAssignmentTarget != e
+          && boundaryPlan != null
           && boundaryPlan.localReadNeedsNonNullAssertion(e)):
         // The binding remains honestly nullable. Haxe's checked AST proved
         // only this particular read has the payload type, so preserve that
@@ -3002,10 +3005,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         writeSpace();
         write(ctx.typeAccessor(TypeUtil.registerType));
         write('.unsafeCast<typeof ');
-        // The plan admits only a local-rooted entity name. A TypeScript type
-        // query does not evaluate that local again; it asks the host
-        // declaration for the authoritative callback property type.
-        emitAssignmentTarget(bridge.target);
+        emitTypeQueryEntityName(bridge.target);
         write('>(');
         emitValueWithExpectedType(null, bridge.source);
         write(')');
@@ -3362,6 +3362,32 @@ class TsModuleEmitter extends JsModuleEmitter {
     inAssignTarget = true;
     currentAssignmentTarget = target;
     emitValue(target);
+    currentAssignmentTarget = previousAssignmentTarget;
+    inAssignTarget = previousInAssignTarget;
+  }
+
+  /**
+   * Emits a host field as a legal TypeScript type-query entity name.
+   *
+   * Why: `typeof reader.onerror` asks TypeScript for the host declaration's
+   * property type without reading the property at runtime. Unlike ordinary
+   * value code, that grammar cannot contain a non-null assertion:
+   * `typeof reader!.onerror` is invalid TypeScript.
+   *
+   * What/How: the boundary plan admits only a non-null local declaration, and
+   * this separate printer scope prevents any value-use assertion from entering
+   * the entity name. Keeping both checks makes the syntax fail closed if either
+   * the local-read plan or host-callback plan changes later.
+   */
+  function emitTypeQueryEntityName(target: TypedExpr): Void {
+    final previousInAssignTarget = inAssignTarget;
+    final previousAssignmentTarget = currentAssignmentTarget;
+    final previousInTypeQueryEntityName = inTypeQueryEntityName;
+    inAssignTarget = true;
+    currentAssignmentTarget = target;
+    inTypeQueryEntityName = true;
+    emitValue(target);
+    inTypeQueryEntityName = previousInTypeQueryEntityName;
     currentAssignmentTarget = previousAssignmentTarget;
     inAssignTarget = previousInAssignTarget;
   }

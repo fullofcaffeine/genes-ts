@@ -1091,6 +1091,12 @@ private class TsBoundaryPlanBuilder {
    * reader.onerror`) without evaluating `reader` again. Restricting the rule to
    * exact `js.*` native extern ownership and Haxe's opaque Function constraint
    * keeps ordinary user properties and concrete callback signatures out.
+   *
+   * A local has two relevant types here. Its declaration records every value
+   * the binding may hold, while one typed occurrence may be retagged after
+   * Haxe inlines a call. Both must already exclude null: a non-null assertion
+   * is legal in value code (`reader!.onerror`) but cannot appear in the bare
+   * entity name required by a TypeScript type query.
    */
   function planHostCallbackBridge(parent: TypedExpr, target: TypedExpr,
       value: TypedExpr): Bool {
@@ -1130,7 +1136,15 @@ private class TsBoundaryPlanBuilder {
   }
 
   static function isBareTypeQueryReceiver(receiver: TypedExpr): Bool {
-    final contract = NullishContract.forType(receiver.t);
+    return switch receiver.expr {
+      case TLocal(variable): isBareTypeQueryReceiverType(receiver.t) && isBareTypeQueryReceiverType(variable.t);
+      default:
+        false;
+    }
+  }
+
+  static function isBareTypeQueryReceiverType(type: Type): Bool {
+    final contract = NullishContract.forType(type);
     return !contract.emittedAllowsNull
       && !contract.preservesUndefined
       && !contract.unknownBoundary
