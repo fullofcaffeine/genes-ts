@@ -101,7 +101,7 @@ depend on formatting.
 | Imported constructor instance/type identity | `src/genes/ExternTypeContract.hx` | Models value-derived constructor instances without downstream-specific import rules. Explicit metadata also keeps package-backed native `String`/`RegExp` values from being mistaken for host built-ins in public types. |
 | Type-reference projection and retention | `src/genes/TypeReferenceCollector.hx`, `src/genes/dts/TypeEmitter.hx`, `TypeUtil.enumConstructorApplication` | Keeps named Haxe declarations keyed by compiler-owned module/type identity, never by an unqualified spelling. The collector mirrors every type the printers may name, including destination-applied enum payloads, so an emitter cannot invent an unplanned import or weaken a missing declaration to `any`. |
 | TypeScript null-narrowing proof | `src/genes/ts/TsNarrowingPlan.hx` | Derives function-local null and map-presence facts from `TypedExpr`, then ends them after exact receiver/key assignment, `Map.remove`/`clear`, loop mutation, or a nested function boundary. It carries typed identities and no output text; the [ownership inventory](TS_NARROWING_OWNERSHIP.md) records the bounded design and evidence. |
-| TypeScript value-boundary projection | `src/genes/ts/TsBoundaryPlan.hx` | Records the exceptional returns, initializers, assignments, call arguments, constructor arguments, and enum-constructor arguments where Haxe accepted a nullability-only conversion that strict TypeScript needs stated explicitly. It also exposes every assertion target to dependency planning before import aliases are allocated. |
+| TypeScript value-boundary projection | `src/genes/ts/TsBoundaryPlan.hx` | Records the exceptional returns, initializers, assignments, call arguments, constructor arguments, enum-constructor arguments, native-host callbacks, and typed bindings after opaque Haxe runtime guards that strict TypeScript needs stated explicitly. It also exposes every assertion target to dependency planning before import aliases are allocated. |
 | TypeScript implementation syntax | `src/genes/ts/TsModuleEmitter.hx` | Prints TS/TSX annotations, type imports, interfaces, and TS-specific syntax from shared facts. |
 | Classic JavaScript syntax | `src/genes/es/ModuleEmitter.hx`, `ExprEmitter.hx` | Prints modern ESM JavaScript while preserving Haxe JS runtime behavior. |
 | Declaration syntax | `src/genes/dts/DefinitionEmitter.hx`, `TypeEmitter.hx` | Prints public declarations from the same API/nullish facts; it does not infer API semantics independently. |
@@ -248,6 +248,57 @@ receiver such as `makeReader()` can emit a call; neither is a legal entity name
 for this type query. Authored field type overrides keep their existing,
 more-specific emission branch. Classic JavaScript never consumes this
 TypeScript-only plan.
+
+### Opaque runtime guards and typed catch bindings
+
+Haxe lowers several typed `catch` arms to one broad unwrapped value followed by
+a runtime helper call. An enum catch is a representative example:
+
+```haxe
+try {
+  throw GuardedFailure.Rejected("no");
+} catch (failure:GuardedFailure) {
+  use(failure);
+}
+```
+
+The emitted runtime check is authoritative, but TypeScript cannot infer a type
+from a helper whose declaration returns only `boolean`:
+
+```ts
+const raw: {} | null | undefined = Exception.caught(caught).unwrap();
+
+if (Boot.__instanceof(raw, GuardedFailure)) {
+  const failure: GuardedFailure = raw; // strict TypeScript rejects this
+}
+```
+
+`TsBoundaryPlan` records a guarded binding only when the typed Haxe tree proves
+the complete lowered relationship: `raw` came from the exact
+`haxe.Exception.caught(...).unwrap()` sequence; the condition calls the exact
+compiler-owned `js.Boot.__instanceof` field; its target is an exact class or
+enum type expression; and the true branch initializes a local of that same type
+from the same `TVar` identity as its first expression. Haxe places that binding
+first when lowering the typed catch. Genes does not search later statements:
+doing so would require proving that calls and captured closures cannot replace
+the raw value after the guard.
+
+TypeScript emission consumes that immutable decision:
+
+```ts
+if (Boot.__instanceof(raw, GuardedFailure)) {
+  const failure: GuardedFailure =
+    Register.unsafeCast<GuardedFailure>(raw);
+}
+```
+
+`Register.unsafeCast` is a runtime identity operation; the existing Haxe guard
+still decides whether the branch runs. A class catch emitted with native
+JavaScript `instanceof` remains direct because TypeScript already narrows it.
+Arbitrary dynamic locals, user Boolean helpers, a different bound variable or
+type, a nested initializer, or any statement before the binding receive no
+assertion. Every planned target is collected before import binding allocation,
+and classic JavaScript does not consume this TypeScript-only decision.
 
 ### Static callable generic scope
 
