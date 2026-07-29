@@ -50,6 +50,10 @@ export const acceptanceOwnedFocusedGates = [
   {
     packageScript: "test:byte-buffer-cache",
     compiledScript: "scripts/dist/test-byte-buffer-cache.js"
+  },
+  {
+    packageScript: "test:nullable-temp-receivers",
+    compiledScript: "scripts/dist/test-nullable-temp-receivers.js"
   }
 ] as const;
 

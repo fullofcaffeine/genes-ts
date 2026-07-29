@@ -470,6 +470,37 @@ Haxe's accepted static relationship into TypeScript. If Haxe source first
 checks `value != null`, TypeScript understands the same guard and Genes emits
 the direct call without an assertion.
 
+Inline expansion can expose the same principle at a single local-variable
+read. For example, Haxe may preserve evaluation order for an inline receiver
+call by introducing a nullable temporary:
+
+```haxe
+receiver.push(build(value));
+
+// Conceptual typed lowering:
+var temporary:Null<Receiver> = receiver;
+var built = build(value);
+temporary.push(built);
+```
+
+The temporary declaration remains nullable, but Haxe can retag the exact later
+read as `Receiver`. `TsBoundaryPlan` records that original read node only, and
+TypeScript emission preserves the distinction:
+
+```ts
+const temporary: Receiver | null = this.receiver;
+const built: number = this.build(value);
+temporary!.values.push(built);
+```
+
+Here `!` is TypeScript's compile-time-only non-null assertion. It emits no
+JavaScript and does not make the binding globally non-null. Genes requires
+exact type identity after removing only the declaration's outer Haxe `Null`;
+dynamic, unknown, undefinable, unresolved, unrelated, and ordinary nullable
+reads receive no decision. The executable examples and negative controls live
+in
+[`tests/nullable-temp-receivers/README.md`](../tests/nullable-temp-receivers/README.md).
+
 The proof also works through generic declarations, but it compares every
 generic argument. `Pair<Null<Int>, String>` is not accepted as a
 nullability-only version of `Pair<Int, Int>` merely because the first argument

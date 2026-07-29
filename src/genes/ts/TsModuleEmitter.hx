@@ -2769,6 +2769,14 @@ class TsModuleEmitter extends JsModuleEmitter {
       return;
     }
     switch e.expr {
+      case TLocal(_)
+        if (!inAssignTarget && boundaryPlan != null
+          && boundaryPlan.localReadNeedsNonNullAssertion(e)):
+        // The binding remains honestly nullable. Haxe's checked AST proved
+        // only this particular read has the payload type, so preserve that
+        // per-read fact as TypeScript's erased non-null assertion (`local!`).
+        super.emitValue(e);
+        write('!');
       case TCall({
         expr: TField(_,
           FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))

@@ -344,6 +344,7 @@ class TsBoundaryPlan {
   final runtimeGuardDecisions: Array<TsRuntimeGuardBridge>;
   final runtimeByteCacheReads: ObjectMap<TypedExpr, TsRuntimeByteCacheRead>;
   final runtimeByteCacheReadDecisions: Array<TsRuntimeByteCacheRead>;
+  final retaggedLocalReads: ObjectMap<TypedExpr, Bool>;
   final valueBridges: Array<TsValueBridge>;
 
   public static function build(module: Module): TsBoundaryPlan {
@@ -407,6 +408,7 @@ class TsBoundaryPlan {
       runtimeGuardDecisions: Array<TsRuntimeGuardBridge>,
       runtimeByteCacheReads: ObjectMap<TypedExpr, TsRuntimeByteCacheRead>,
       runtimeByteCacheReadDecisions: Array<TsRuntimeByteCacheRead>,
+      retaggedLocalReads: ObjectMap<TypedExpr, Bool>,
       valueBridges: Array<TsValueBridge>) {
     this.enumCalls = enumCalls;
     this.enumDecisions = enumDecisions.copy();
@@ -424,6 +426,7 @@ class TsBoundaryPlan {
     this.runtimeGuardDecisions = runtimeGuardDecisions.copy();
     this.runtimeByteCacheReads = runtimeByteCacheReads;
     this.runtimeByteCacheReadDecisions = runtimeByteCacheReadDecisions.copy();
+    this.retaggedLocalReads = retaggedLocalReads;
     this.valueBridges = valueBridges.copy();
   }
 
@@ -475,6 +478,16 @@ class TsBoundaryPlan {
   /** Returns the exact Haxe runtime byte-cache decision for this field read. */
   public function runtimeByteCacheRead(expression: TypedExpr): Null<TsRuntimeByteCacheRead> {
     return runtimeByteCacheReads.get(expression);
+  }
+
+  /**
+   * Whether Haxe retagged this exact read of a nullable local as non-null.
+   *
+   * The local declaration deliberately stays nullable. Only this original
+   * typed-AST read may receive TypeScript's compile-time-only `!` assertion.
+   */
+  public function localReadNeedsNonNullAssertion(expression: TypedExpr): Bool {
+    return retaggedLocalReads.exists(expression);
   }
 
   /** Every planned type reference, in deterministic source order. */
@@ -559,6 +572,7 @@ private class TsBoundaryPlanBuilder {
   final runtimeByteCacheReads = new ObjectMap<TypedExpr,
     TsRuntimeByteCacheRead>();
   final runtimeByteCacheReadDecisions = new Array<TsRuntimeByteCacheRead>();
+  final retaggedLocalReads = new ObjectMap<TypedExpr, Bool>();
   final prototypeBackedLocals = new Map<Int, Type>();
   // Haxe lowering can clone TVar wrapper objects. The compiler-assigned id is
   // the stable, function-local identity also used by Genes' name/flow plans.
@@ -602,7 +616,7 @@ private class TsBoundaryPlanBuilder {
       constructorDecisions, returnBridges, initializerBridges,
       assignmentBridges, hostCallbackBridges, runtimeGuardBridges,
       runtimeGuardDecisions, runtimeByteCacheReads,
-      runtimeByteCacheReadDecisions, valueBridges);
+      runtimeByteCacheReadDecisions, retaggedLocalReads, valueBridges);
   }
 
   /**
@@ -617,6 +631,8 @@ private class TsBoundaryPlanBuilder {
     if (expression == null)
       return;
     switch expression.expr {
+      case TLocal(variable):
+        planRetaggedLocalRead(expression, variable);
       case TField(_, FEnum(_, _)):
         planEnumReference(expression, expected);
       case TFunction(fn):
@@ -704,6 +720,57 @@ private class TsBoundaryPlanBuilder {
       default:
         expression.iter(child -> visit(child, null, currentReturn));
     }
+  }
+
+  /**
+   * Preserves a non-null fact attached to one read of a nullable local.
+   *
+   * Why: inline expansion can introduce a temporary to evaluate a receiver
+   * once before evaluating a side-effectful argument. Haxe keeps the
+   * temporary's declaration nullable, but its checked AST can retag the exact
+   * later `TLocal` read as the non-null payload type. TypeScript sees only the
+   * nullable declaration and otherwise reports that the temporary may be
+   * `null`.
+   *
+   * For example, Haxe can lower this:
+   *
+   * ```haxe
+   * receiver.push(build(value));
+   * ```
+   *
+   * into the equivalent typed sequence:
+   *
+   * ```haxe
+   * var temporary:Null<Receiver> = receiver;
+   * var built = build(value);
+   * temporary.push(built); // this read is typed as Receiver
+   * ```
+   *
+   * What: record only that exact read node. The emitted declaration remains
+   * `Receiver | null`; assignment targets and other reads do not inherit the
+   * decision.
+   *
+   * How: require an ordinary Haxe `Null<T>` declaration, a read that no longer
+   * permits null, and exact type identity between the read and the declaration
+   * after removing only its outer Haxe `Null`. Dynamic, Unknown,
+   * Undefinable, and unresolved types fail closed. Existing flow facts also
+   * take precedence so Genes does not print a redundant assertion.
+   */
+  function planRetaggedLocalRead(expression: TypedExpr, variable: TVar): Void {
+    final declared = NullishContract.forType(variable.t);
+    final read = NullishContract.forType(expression.t);
+    if (!declared.haxeAllowsNull
+      || declared.preservesUndefined
+      || declared.dynamicBoundary
+      || read.haxeAllowsNull
+      || read.preservesUndefined
+      || read.dynamicBoundary
+      || !compareExactTypes(expression.t,
+        NullishContract.stripHaxeNull(variable.t))
+      || isKnownNonNull(expression))
+      return;
+
+    retaggedLocalReads.set(expression, true);
   }
 
   /**
