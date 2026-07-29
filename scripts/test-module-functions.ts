@@ -108,11 +108,12 @@ function assertSourceMap(profile: "classic" | "ts" | "tsx",
 
   const presentReturn = profile === "classic"
     ? "return (value);"
-    : "return (value as string | null);";
+    : "return ((value)! as string | null);";
   const presentPoint = generatedPoint(source, presentReturn);
   const presentValuePoint = {
     line: presentPoint.line,
-    column: presentPoint.column + "return (".length
+    column: presentPoint.column
+      + (profile === "classic" ? "return (".length : "return ((".length)
   };
   const presentOriginal = map.originalPositionFor(presentValuePoint);
   const expectedPresent = sourcePoint(haxeSource, "value.assumePresent()");
@@ -174,10 +175,10 @@ function assertImplementationShape(relative: string): void {
       "static nullableDefault(value?: string | null): string;"),
     `${relative} emits a type-only descriptor overload`);
     ok(source.includes(
-      "return (value as string | null);"),
+      "return ((value)! as string | null);"),
     `${relative} preserves nested null in the presence assertion`);
     assertionFreeCode = assertionFreeCode.replace(
-      "(value as string | null)",
+      "((value)! as string | null)",
       "value"
     );
   } else {

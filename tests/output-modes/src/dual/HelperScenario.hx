@@ -13,6 +13,10 @@ import dual.MixedNativeImportOwner.NativeGlobalPattern;
  * helper boundary without turning broad values into a domain model.
  */
 class HelperScenario {
+  static function presentValue(value: String): Undefinable<String> {
+    return value;
+  }
+
   /**
    * Produces a known-present host value with a type used only by the
    * `assumePresent()` assertion.
@@ -53,6 +57,20 @@ class HelperScenario {
     final nullablePresentIsAbsent = Undefinable.isAbsent(nullablePresent);
     if (!nullablePresentIsAbsent)
       events.push('present-null:${nullablePresent.assumePresent() == null}');
+
+    // A proof stored separately does not narrow the original local in
+    // TypeScript. When that local is initialized as absent, TypeScript instead
+    // regards it as exactly `undefined` and rejects a direct `as Bool` with
+    // TS2352. The compiler-owned presence marker must remain a type-only
+    // identity that still satisfies strict TypeScript in this branch.
+    final staticallyAbsent: Undefinable<Bool> = Undefinable.absent();
+    final staticallyAbsentProof = Undefinable.isAbsent(staticallyAbsent);
+    if (!staticallyAbsentProof)
+      events.push('unreachable-present:${staticallyAbsent.assumePresent()}');
+
+    // The proof applies to the complete conditional result, not only its last
+    // branch. This catches precedence bugs in the erased TypeScript assertion.
+    events.push('conditional-present:${(events.length > 0 ? presentValue("left") : presentValue("right")).assumePresent()}');
 
     events.push('present-type:${assertionOnlyPayload().assumePresent().length}');
 

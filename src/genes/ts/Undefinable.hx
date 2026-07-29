@@ -80,8 +80,9 @@ abstract Undefinable<T>(Null<T>) from T {
    * How: the active TypeScript profile retains one compiler-owned typed
    * marker, then replaces it with an assertion to the exact instantiated `T`.
    * Classic Genes and standard Haxe JavaScript emit the operand unchanged.
-   * This distinction matters for `Undefinable<Null<T>>`: a postfix `!` would
-   * incorrectly erase the nested `null` from the static type.
+   * This distinction matters for `Undefinable<Null<T>>`: a postfix `!` alone
+   * would incorrectly erase the nested `null` from the static type, so the
+   * TypeScript emitter follows it with an assertion to the exact `T`.
    */
   public inline function assumePresent(): T {
     #if (genes.ts && genes.generator.active)
