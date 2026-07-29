@@ -483,7 +483,7 @@ The required hosted `genes-ts` job runs all three checks. The release job then
 depends on both that job and same-run CodeQL, so neither untested release code
 nor an unfinished security scan can publish the current SHA.
 
-The live release job additionally runs:
+Repository administrators additionally run:
 
 ```bash
 node scripts/release/verify-host-controls.cjs fullofcaffeine/genes-ts
@@ -492,7 +492,11 @@ node scripts/release/verify-host-controls.cjs fullofcaffeine/genes-ts
 That read-only check requires immutable GitHub Releases plus an active `v*` tag
 ruleset that prevents deletion and non-fast-forward updates. A local unit
 fixture proves the interpretation; only the live API query proves the current
-repository setting.
+repository setting. The query needs repository `Administration: read`, which
+GitHub's workflow `GITHUB_TOKEN` cannot request. CI intentionally uses only
+`contents: write` and independently requires the final hosted Release to report
+`immutable: true`; storing an administrator token in Actions is not part of the
+release contract.
 
 The compiler release job and the independent `@genes-ts/tooling` release
 workflow can create externally visible artifacts, so their executable action

@@ -91,18 +91,38 @@ with full history and rebuilds from the frozen dependency graph. A newer push
 to `main` does not cancel an older release job: each completed CI graph is
 allowed to make its own ordered semantic-release decision.
 
-The job first verifies two repository-host controls:
+Two repository-host controls are mandatory:
 
 1. GitHub immutable Releases are enabled, so published assets and notes cannot
    be edited in place.
 2. The active **Immutable semantic version tags** ruleset covers
    `refs/tags/v*` and blocks tag deletion and non-fast-forward updates.
 
-These settings are part of the release contract, not optional hardening:
+Audit them before changing release infrastructure and during periodic
+repository administration:
 
 ```bash
 node scripts/release/verify-host-controls.cjs fullofcaffeine/genes-ts
 ```
+
+This operator command needs a GitHub credential with repository
+`Administration: read`. GitHub's short-lived workflow `GITHUB_TOKEN` cannot be
+granted that permission; the release job deliberately keeps the narrower
+`contents: write` permission instead of storing a long-lived administrator
+token in Actions.
+
+See GitHub's official
+[immutable-release endpoint permissions](https://docs.github.com/en/rest/repos/repos#check-if-immutable-releases-are-enabled-for-a-repository)
+and
+[`GITHUB_TOKEN` security model](https://docs.github.com/en/actions/concepts/security/github_token)
+for the platform boundary behind this split.
+
+CI therefore proves the parts available to a contents-scoped token. It checks
+the exact tested tag and hosted bytes, and its final authoritative Release
+query requires `immutable: true`. The operator audit proves the live settings
+that must already be in place. If that policy is accidentally disabled, final
+verification fails loudly; restore the policy and follow the incident/recovery
+procedure rather than weakening the verifier.
 
 ### Package and provenance checks
 
