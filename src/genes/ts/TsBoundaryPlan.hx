@@ -707,14 +707,16 @@ private class TsBoundaryPlanBuilder {
   }
 
   /**
-   * Plans reads of the three private cache properties written by Haxe's JS
-   * `Bytes` runtime and hxnodejs's zero-copy `Buffer.hxToBytes()` helper.
+   * Plans the two private cache reads whose runtime provenance survives in
+   * the typed AST produced from Haxe's JS `Bytes` implementation.
    *
    * Why: the ambient declarations must keep the fields optional for arbitrary
    * native buffers, but Haxe's untyped standard-library code carries a
    * stronger contract at specific reads. A nullable `hxBytes` lookup observes
-   * an absent JavaScript property as Haxe `null`; `bytes` and `bufferValue`
-   * reads occur only after the runtime has initialized them.
+   * an absent JavaScript property as Haxe `null`; a `bufferValue` read from a
+   * typed `Bytes` object's private storage follows its initialized backing
+   * buffer. The third cache, `bytes`, is declared but deliberately not planned
+   * because normal inlining erases the `Bytes.fastGet` call identity.
    *
    * How: require the original untyped `FDynamic` access, the exact property
    * name, and the compiler-owned API that establishes its meaning.
