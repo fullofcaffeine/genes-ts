@@ -1,0 +1,8 @@
+-lib genes-ts
+-cp tests/react-flight/src
+-main react_flight.Main
+-js tests/react-flight/out/classic/index.js
+-D dts
+-D js-es=6
+-dce full
+-debug

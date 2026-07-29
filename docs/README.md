@@ -47,6 +47,8 @@ agents and human contributors should read the scoped guide directly.
 - `typescript-target/REACT_HXX.md` — React/TSX authoring in Haxe (`genes.react.JSX`)
 - `typescript-target/REACT_HOOKS.md` — framework-neutral semantic state,
   dependencies, optimistic state, component/Hook identity, and placement checks
+- `typescript-target/REACT_FLIGHT_VALUES.md` — versioned native React Flight
+  values, recursive macro validation, and the fail-closed host extension seam
 - `typescript-target/ASYNC_AWAIT.md` — typed `@:async` + `await(...)`, native Genes output, and the exact anonymous/named stock-Haxe boundary
 - `typescript-target/DEBUGGING.md` — source maps and debugging workflow
 
