@@ -37,6 +37,27 @@ private enum abstract CellPhase(String) to String {
   final Ready = "ready";
 }
 
+/** Emitted generic result used to prove the mechanism is not extern-only. */
+private enum LocalResult<Value> {
+  Present(value: Value);
+}
+
+/**
+ * Ordinary Haxe callable whose source-level abstract argument needs the same
+ * occurrence-local witness used by a package extern.
+ */
+private class LocalFactory {
+  @:ts.explicitTypeArguments
+  public static function present<Value>(value: Value): LocalResult<Value> {
+    return Present(value);
+  }
+
+  /** Adds only an outer nullable contract, which TypeScript accepts directly. */
+  public static function maybe<Value>(value: Value): Null<Value> {
+    return value;
+  }
+}
+
 /** Precise bindings for the local, package-neutral generic fixture module. */
 private extern class GenericCellModule {
   /**
@@ -78,6 +99,9 @@ class Main {
       true);
     final phase: Cell<CellPhase> = genes.ts.TypeArguments.call(GenericCellModule.makeCell(CellPhase.Pending),
       CellPhase.Pending);
+    final localPhase: LocalResult<CellPhase> = genes.ts.TypeArguments.call(LocalFactory.present(CellPhase.Pending),
+      CellPhase.Pending);
+    final maybePhase: Null<CellPhase> = LocalFactory.maybe(CellPhase.Pending);
     var mutablePhase: Cell<String> = genes.ts.TypeArguments.call(GenericCellModule.makeCell(CellPhase.Pending),
       CellPhase.Pending);
     mutablePhase = GenericCellModule.makeCell("other");
@@ -85,8 +109,7 @@ class Main {
       CellPhase.Pending);
     final fluentPhase: Cell<CellPhase> = CellMacro.seal(GenericCellModule.makeCell(CellPhase.Pending),
       CellPhase.Pending);
-    final nestedPhase: Cell<Cell<CellPhase>> = genes.ts.TypeArguments.call(
-      GenericCellModule.makeCell(GenericCellModule.makeCell(CellPhase.Pending)),
+    final nestedPhase: Cell<Cell<CellPhase>> = genes.ts.TypeArguments.call(GenericCellModule.makeCell(GenericCellModule.makeCell(CellPhase.Pending)),
       phase);
     genes.ts.TypeArguments.call(GenericCellModule.makeCell(CellPhase.Ready),
       CellPhase.Ready);
@@ -97,6 +120,11 @@ class Main {
     pair.left;
     pair.right;
     phase.replace(CellPhase.Ready);
+    switch localPhase {
+      case Present(value):
+        value;
+    }
+    maybePhase;
     mutablePhase.replace("still mutable");
     generatedPhases[0].replace(CellPhase.Ready);
     fluentPhase.replace(CellPhase.Ready);

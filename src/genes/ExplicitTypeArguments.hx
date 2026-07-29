@@ -31,7 +31,7 @@ typedef ExplicitTypeArgumentCallSite = {
 }
 
 /**
- * Preserves a Haxe-selected generic extern instantiation in TypeScript calls.
+ * Preserves a Haxe-selected generic callable instantiation in TypeScript calls.
  *
  * Why: Haxe and TypeScript infer generic calls independently. Haxe may use the
  * destination type to select a narrow result, while the generated TypeScript
@@ -39,7 +39,7 @@ typedef ExplicitTypeArgumentCallSite = {
  * therefore chooses a different type. The generated assignment then fails
  * even though Haxe already proved the original program.
  *
- * What: `@:ts.explicitTypeArguments` opts one generic extern callable into
+ * What: `@:ts.explicitTypeArguments` opts one directly called generic callable into
  * emitting the exact method type arguments established by Haxe. For example,
  * a typed `channel(null)` call can become `channel<string | null>(null)`.
  * This is declaration-owned and framework-neutral; ordinary calls retain
@@ -49,12 +49,14 @@ typedef ExplicitTypeArgumentCallSite = {
  * the owning `ClassField` retains the declaration's method parameters. This
  * helper structurally matches those two checked types, binds every declared
  * method parameter, and returns the bindings in declaration order. It rejects
- * malformed metadata, non-extern/non-generic fields, unresolved monomorphs,
+ * malformed metadata, non-generic fields, unresolved monomorphs,
  * and broad dynamic arguments before the TypeScript emitter writes output.
  * The classic JavaScript emitter never calls this helper, so the annotation
  * has no runtime representation and cannot change evaluation behavior.
  *
- * Calls through a runtime function-valued local intentionally do not inherit
+ * The callable may be an extern supplied by a JavaScript package or an
+ * ordinary Haxe function that genes emits. Calls through a runtime
+ * function-valued local intentionally do not inherit
  * the annotation: that local has lost declaration identity. Haxe import aliases
  * still resolve to the same typed field and therefore retain the contract.
  */
@@ -64,7 +66,7 @@ class ExplicitTypeArguments {
   static inline final MAX_TYPE_DEPTH = 64;
 
   /**
-   * Returns the exact type arguments for an opted-in direct extern call.
+   * Returns the exact type arguments for an opted-in direct generic call.
    *
    * When `carriedArguments` is present, the call came from
    * `TypeArguments.call`. The carrier belongs to this exact typed occurrence,
@@ -77,7 +79,7 @@ class ExplicitTypeArguments {
     final resolved = resolveField(callee);
     if (resolved == null) {
       if (carriedArguments != null) {
-        fail('TypeArguments.call(...) requires a direct extern callable',
+        fail('TypeArguments.call(...) requires a direct generic callable',
           callee.pos);
       }
       return null;
@@ -87,7 +89,7 @@ class ExplicitTypeArguments {
       resolved.isStatic);
     if (declaration == null) {
       if (carriedArguments != null) {
-        fail('TypeArguments.call(...) requires a generic extern callable '
+        fail('TypeArguments.call(...) requires a generic callable '
           + 'annotated with @:ts.explicitTypeArguments',
           callee.pos);
       }
@@ -104,12 +106,8 @@ class ExplicitTypeArguments {
           declaration.pos);
     }
 
-    if (!resolved.owner.isExtern && !declaration.isExtern) {
-      fail('@:ts.explicitTypeArguments is only valid on extern callables',
-        declaration.pos);
-    }
     if (declaration.params.length == 0) {
-      fail('@:ts.explicitTypeArguments requires a generic extern callable',
+      fail('@:ts.explicitTypeArguments requires a generic callable',
         declaration.pos);
     }
 
@@ -159,7 +157,7 @@ class ExplicitTypeArguments {
   }
 
   /**
-   * Registers pre-erasure Haxe types for one direct generic extern call.
+   * Registers pre-erasure Haxe types for one direct generic call.
    *
    * Why: Haxe intentionally erases primitive-backed abstracts in some generic
    * applications. Once that happens, neither the callee nor destination type
@@ -167,7 +165,7 @@ class ExplicitTypeArguments {
    * compile-time witness lets a library macro preserve that already checked
    * type without adding a target assertion or changing the call.
    *
-   * What: `genes.ts.TypeArguments.call(externCall, witness...)` emits only the
+   * What: `genes.ts.TypeArguments.call(genericCall, witness...)` emits only the
    * original call, but TypeScript receives each witness type as the explicit
    * generic argument in declaration order. Witness expressions are typed and
    * discarded; they are never evaluated.
@@ -192,7 +190,7 @@ class ExplicitTypeArguments {
     final callee = call.callee;
     final resolved = resolveField(Context.typeExpr(callee));
     if (resolved == null)
-      fail('TypeArguments.call(...) requires a direct extern callable',
+      fail('TypeArguments.call(...) requires a direct generic callable',
         expression.pos);
     final arguments = new Array<ExplicitTypeArgument>();
     for (index in 0...witnesses.length) {
@@ -288,14 +286,13 @@ class ExplicitTypeArguments {
    * Wraps the reviewed call in a compiler-erased identity intrinsic.
    *
    * Haxe may relocate nested macro source positions and discards arbitrary
-   * untyped expression metadata. A real typed extern call survives both steps,
+   * untyped expression metadata. A real typed direct call survives both steps,
    * so it carries the occurrence-local witness types to emission. Both Genes
    * emitters recognize this compiler-internal field, emit only `expression`,
    * and never evaluate or print the typed-null facts.
    */
   static function markCall(expression: Expr, callee: Expr,
-      parameters: Array<Expr>,
-      arguments: Array<ExplicitTypeArgument>): Expr {
+      parameters: Array<Expr>, arguments: Array<ExplicitTypeArgument>): Expr {
     final original: Expr = {
       expr: ECall(callee, parameters),
       pos: expression.pos
@@ -305,7 +302,8 @@ class ExplicitTypeArguments {
       final complex = TypeTools.toComplexType(argument.type);
       if (complex == null) {
         fail('TypeArguments.call(...) cannot preserve this witness type in '
-          + 'the compiler-owned typed carrier', expression.pos);
+          + 'the compiler-owned typed carrier',
+          expression.pos);
       }
       carrierArguments.push({
         expr: ECheckType({
@@ -320,10 +318,8 @@ class ExplicitTypeArguments {
       });
     }
     return {
-      expr: ECall(
-        macro @:pos(expression.pos) genes.ts.ExplicitTypeArgumentCallSite.preserve,
-        carrierArguments
-      ),
+      expr: ECall(macro @:pos(expression.pos) genes.ts.ExplicitTypeArgumentCallSite.preserve,
+        carrierArguments),
       pos: expression.pos
     };
   }

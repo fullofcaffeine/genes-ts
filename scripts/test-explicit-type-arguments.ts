@@ -71,6 +71,21 @@ requireText(
 );
 requireText(
   generatedTs,
+  'LocalFactory.present<"pending" | "ready">("pending")',
+  "a call-site witness must preserve closed abstracts for emitted Haxe callables"
+);
+requireText(
+  generatedTs,
+  'const maybePhase: string | null = LocalFactory.maybe("pending")',
+  "a present generic value must widen directly to an outer nullable result"
+);
+rejectText(
+  generatedTs,
+  'unsafeCast<string | null>("pending")',
+  "TypeScript accepts T as T | null without a compiler assertion"
+);
+requireText(
+  generatedTs,
   'let mutablePhase: import("./generic-cell.js").Cell<string> = makeCell<"pending" | "ready">("pending")',
   "a reassigned local must keep the wider Haxe type accepted by later writes"
 );
@@ -154,6 +169,16 @@ requireText(
 );
 requireText(
   generatedJs,
+  'LocalFactory.present("pending")',
+  "classic JS must erase the witness for emitted Haxe callables"
+);
+requireText(
+  generatedJs,
+  'LocalFactory.maybe("pending")',
+  "classic JS must preserve the original outer-nullability call"
+);
+requireText(
+  generatedJs,
   'mutablePhase = makeCell("other")',
   "classic JS must preserve the later mutable-local assignment"
 );
@@ -200,16 +225,12 @@ const negativeCases = [
     expected: "GENES-TS-EXPLICIT-TYPE-ARGS-001: @:ts.explicitTypeArguments does not take arguments"
   },
   {
-    hxml: "tests/explicit-type-arguments/build-non-extern.hxml",
-    expected: "GENES-TS-EXPLICIT-TYPE-ARGS-001: @:ts.explicitTypeArguments is only valid on extern callables"
-  },
-  {
     hxml: "tests/explicit-type-arguments/build-non-generic.hxml",
-    expected: "GENES-TS-EXPLICIT-TYPE-ARGS-001: @:ts.explicitTypeArguments requires a generic extern callable"
+    expected: "GENES-TS-EXPLICIT-TYPE-ARGS-001: @:ts.explicitTypeArguments requires a generic callable"
   },
   {
     hxml: "tests/explicit-type-arguments/build-call-site-unmarked.hxml",
-    expected: "GENES-TS-EXPLICIT-TYPE-ARGS-001: TypeArguments.call(...) requires a generic extern callable annotated with @:ts.explicitTypeArguments"
+    expected: "GENES-TS-EXPLICIT-TYPE-ARGS-001: TypeArguments.call(...) requires a generic callable annotated with @:ts.explicitTypeArguments"
   },
   {
     hxml: "tests/explicit-type-arguments/build-call-site-wrong-arity.hxml",
@@ -221,7 +242,7 @@ const negativeCases = [
   },
   {
     hxml: "tests/explicit-type-arguments/build-call-site-alias.hxml",
-    expected: "GENES-TS-EXPLICIT-TYPE-ARGS-001: TypeArguments.call(...) requires a direct extern callable"
+    expected: "GENES-TS-EXPLICIT-TYPE-ARGS-001: TypeArguments.call(...) requires a direct generic callable"
   },
   {
     hxml: "tests/explicit-type-arguments/build-call-site-not-call.hxml",

@@ -262,7 +262,7 @@ Externs describe values that exist at runtime; they do not install or bundle
 the package. Keep package installation, export conditions, and host types in
 the owning application or library build.
 
-### Preserve a contextual generic extern call
+### Preserve a contextual generic call
 
 Haxe and TypeScript independently infer a generic call. Usually that is useful:
 the generated TypeScript remains concise and idiomatic. Occasionally Haxe can
@@ -311,7 +311,7 @@ const cell: Cell<string | null> = makeCell<string | null>(null);
 The same contract handles a no-argument overload whose exact result is fixed by
 Haxe and multiple method type parameters. It is deliberately opt-in: an
 unannotated neighboring generic extern continues to use TypeScript inference.
-The annotation is valid only on a generic extern callable, takes no arguments,
+The annotation is valid only on a generic callable, takes no arguments,
 and fails closed if genes-ts cannot recover a precise Haxe instantiation. A
 runtime function-valued local does not retain declaration metadata, so call the
 annotated extern field directly (Haxe import aliases still preserve field
@@ -351,13 +351,52 @@ final phase:Cell<CellPhase> = genes.ts.TypeArguments.call(
 ```
 
 The trailing expression is a compile-time type witness. It is checked but
-never evaluated or emitted. The original direct extern call becomes canonical
+never evaluated or emitted. The original direct call becomes canonical
 handwritten TypeScript, and the local deliberately uses TypeScript inference so
 an erased Haxe annotation cannot widen it again:
 
 ```ts
 const phase = makeCell<"pending" | "ready">("pending");
 ```
+
+The same witness works for an ordinary generic Haxe function emitted by genes;
+it is not an extern-only escape hatch:
+
+```haxe
+enum LocalResult<Value> {
+  Present(value:Value);
+}
+
+class LocalFactory {
+  @:ts.explicitTypeArguments
+  public static function present<Value>(value:Value):LocalResult<Value> {
+    return Present(value);
+  }
+}
+
+final localPhase:LocalResult<CellPhase> = genes.ts.TypeArguments.call(
+  LocalFactory.present(CellPhase.Pending),
+  CellPhase.Pending
+);
+```
+
+TypeScript keeps the Haxe-proven literal union on the normal emitted call:
+
+```ts
+const localPhase =
+  LocalFactory.present<"pending" | "ready">("pending");
+```
+
+Classic JavaScript keeps only the runtime operation:
+
+```js
+const localPhase = LocalFactory.present("pending");
+```
+
+Likewise, a compiler-inserted conversion from `T` to `Null<T>` emits no
+assertion: TypeScript already accepts `T` wherever `T | null` is expected.
+Nested generic conversions remain separately checked because variance can make
+those unsafe.
 
 That annotation is omitted only when the local is never assigned again. A
 mutable Haxe local keeps its declared TypeScript type, while the initializer
@@ -392,7 +431,7 @@ type. This prevents an outer call's witness from leaking into an unrelated
 nested call merely because both resolve to the same declaration.
 
 This is a narrow compiler/library boundary, not a replacement for ordinary
-inference. The callee must remain a direct generic extern field annotated with
+inference. The callee must remain a direct generic field annotated with
 `@:ts.explicitTypeArguments`; runtime aliases are rejected because they have
 lost declaration identity. Witness count must equal method-generic arity, every
 witness type must be closed, and enum-abstract unions come from the compiler's
