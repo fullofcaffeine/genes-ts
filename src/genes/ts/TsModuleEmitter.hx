@@ -2657,11 +2657,10 @@ class TsModuleEmitter extends JsModuleEmitter {
       && typeAllowsNull(e.t);
     final assertTypedResult = !inAssignTarget
       && !contract.preservesUndefined && !typeAllowsNull(e.t);
-    final preserveGenericResult = assertTypedResult
-      && isExactTypeParameter(e.t);
+    final exactGenericResult = assertTypedResult ? exactTypeParameter(e.t) : null;
     if (normalizeResult)
       write('(');
-    else if (preserveGenericResult)
+    else if (exactGenericResult != null)
       write('(');
     if (TypeUtil.rawSyntaxReceiverNeedsParens(receiver)) {
       // Preserve the dedicated raw-syntax precedence repair that originally
@@ -2676,16 +2675,16 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
     if (normalizeResult)
       write(' ?? null)');
-    else if (preserveGenericResult) {
+    else if (exactGenericResult != null) {
       write(' as ');
-      TypeEmitter.emitType(this, e.t);
+      TypeEmitter.emitType(this, exactGenericResult);
       write(')');
     } else if (assertTypedResult)
       write('!');
   }
 
   /**
-   * Whether an indexed read's complete Haxe type is one generic parameter.
+   * Returns the canonical type for an indexed read's bare generic parameter.
    *
    * Why: with TypeScript's `noUncheckedIndexedAccess`, reading `values[0]`
    * from `Array<T>` has the checker-only type `T | undefined`. The usual
@@ -2709,23 +2708,29 @@ class TsModuleEmitter extends JsModuleEmitter {
    * factory((values[0] as T));
    * ```
    *
-   * What/How: recognize only the compiler identity of a bare Haxe type
-   * parameter, including resolved compiler wrappers. The emitted `as T` is a
-   * TypeScript identity assertion: it returns the same JavaScript value and
-   * performs no conversion or runtime check. Concrete and nullable element
-   * types retain their established `!` and `?? null` projections.
+   * What/How: return only the canonical compiler type of a bare Haxe type
+   * parameter, including one reached through resolved compiler wrappers. The
+   * emitter must print that returned `TInst`, not the original `TMono` or
+   * `TLazy`: the general type printer deliberately treats unresolved wrappers
+   * conservatively, so passing the wrapper onward could spell this narrow
+   * repair as `as any`. The emitted `as T` is a TypeScript identity assertion:
+   * it returns the same JavaScript value and performs no conversion or runtime
+   * check. Concrete and nullable element types retain their established `!`
+   * and `?? null` projections.
    */
-  static function isExactTypeParameter(type: Type): Bool {
+  static function exactTypeParameter(type: Type, depth = 0): Null<Type> {
+    if (depth > 64)
+      return null;
     return switch type {
       case TInst(reference, _)
         if (reference.get().kind.match(KTypeParameter(_))):
-        true;
+        type;
       case TMono(reference) if (reference.get() != null):
-        isExactTypeParameter(reference.get());
+        exactTypeParameter(reference.get(), depth + 1);
       case TLazy(resolve):
-        isExactTypeParameter(resolve());
+        exactTypeParameter(resolve(), depth + 1);
       default:
-        false;
+        null;
     }
   }
 

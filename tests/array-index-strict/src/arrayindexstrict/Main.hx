@@ -31,6 +31,11 @@ class Main {
     return effectValues(value)[effectIndex()];
   }
 
+  /** Generic assignment control: the indexed target must remain writable. */
+  static function assignGeneric<T>(values: Array<T>, value: T): T {
+    return values[0] = value;
+  }
+
   /**
    * Keeps Haxe's exact generic element type through TypeScript inference.
    *
@@ -71,6 +76,7 @@ class Main {
     final genericResult = genericConditional(["generic"],
       new InvariantValue("fallback"), true);
     final genericEffectValue = genericEffects("effect-value");
+    final assignedGeneric = assignGeneric(["before"], "assigned");
     final numbers = replace([2, 3], 3, 5);
     final namedVoid = new NamedVoidRemovals();
     namedVoid.shift();
@@ -89,7 +95,10 @@ class Main {
           value.value;
       },
       ordinary(nullableValues, 0) == null ? "generic-null" : "unexpected",
+      Undefinable.isAbsent(ordinary(undefinedValues,
+        0)) ? "generic-undefined" : "unexpected",
       genericEffectValue == "effect-value" && genericReadEffects == 2 ? "effects-once" : "unexpected",
+      assignedGeneric,
       nullable([null], 0) == null ? "null" : "unexpected",
       Undefinable.isAbsent(explicitUndefined(undefinedValues,
         0)) ? "undefined" : "unexpected",

@@ -16,6 +16,14 @@ It also verifies that ordinary assignment targets are not decorated with a
 read-only TypeScript assertion and that classic/standard runtime behavior does
 not change.
 
+The compile-time controls resolve both a lazy compiler type and a monomorphic
+compiler placeholder to the fixture's exact type parameter. Genes must return
+that canonical parameter to the TypeScript printer; forwarding either wrapper
+would fall through the general conservative printer as `any`. An unresolved
+placeholder and an unexpectedly deep lazy chain fail closed. The fixture also
+checks the generated assertion's source-map line, a generic `Undefinable`
+instantiation, and a value-producing generic assignment target.
+
 ## Why a generic array read uses `as T`, not `!`
 
 Haxe types an indexed `Array<T>` read as `T`:

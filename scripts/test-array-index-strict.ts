@@ -1,15 +1,16 @@
-import { deepStrictEqual, ok } from "node:assert";
+import { deepStrictEqual, ok, strictEqual } from "node:assert";
 import { execFileSync } from "node:child_process";
 import { readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { SourceMapConsumer, type RawSourceMap } from "source-map";
 import { runGeneratedTypeScriptMatrix } from "./toolchains.js";
 
 const scriptRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptRoot, "../..");
 const fixtureRoot = path.join(repoRoot, "tests/array-index-strict");
 const expectedTranscript =
-  "typed|7|generic|generic-null|effects-once|null|undefined|3,5|missing|void-once|secondary-array-once|named-shift|named-pop|discarded";
+  "typed|7|generic|generic-null|generic-undefined|effects-once|assigned|null|undefined|3,5|missing|void-once|secondary-array-once|named-shift|named-pop|discarded";
 
 /** Runs one deterministic fixture command from the repository root. */
 function run(command: string, args: ReadonlyArray<string>): void {
@@ -22,6 +23,23 @@ function transcript(relativeFile: string): string {
     cwd: repoRoot,
     encoding: "utf8"
   }).trim();
+}
+
+function sourceLine(source: string, needle: string): number {
+  const offset = source.indexOf(needle);
+  ok(offset !== -1, `source contains ${needle}`);
+  return source.slice(0, offset).split("\n").length;
+}
+
+function generatedPoint(
+  source: string,
+  needle: string
+): { line: number; column: number } {
+  const offset = source.indexOf(needle);
+  ok(offset !== -1, `generated source contains ${needle}`);
+  const before = source.slice(0, offset);
+  const lines = before.split("\n");
+  return { line: lines.length, column: lines.at(-1)?.length ?? 0 };
 }
 
 rmSync(path.join(fixtureRoot, "out"), { recursive: true, force: true });
@@ -61,6 +79,10 @@ ok(typescript.includes("return (values[index] ?? null);"),
   "nullable array reads normalize JavaScript absence to Haxe null");
 ok(typescript.includes("return values[index];"),
   "explicit Undefinable array reads retain undefined without an assertion");
+ok(typescript.includes("return values[0] = value;"),
+  "generic assignment targets remain writable and assertion-free");
+ok(!typescript.includes("(values[0] as T) = value"),
+  "the exact generic read assertion is never applied to an assignment target");
 ok(typescript.includes("values[0] = first;"));
 ok(typescript.includes("values[1] = second;"));
 ok(!typescript.includes("values[0]! ="),
@@ -109,6 +131,34 @@ for (const relativeFile of [
     `${relativeFile} keeps JavaScript output free of TS-only assertions`);
 }
 
+const source = readFileSync(
+  path.join(fixtureRoot, "src/arrayindexstrict/Main.hx"),
+  "utf8"
+);
+const sourceMap = new SourceMapConsumer(
+  JSON.parse(
+    readFileSync(
+      path.join(fixtureRoot, "out/ts/src-gen/arrayindexstrict/Main.ts.map"),
+      "utf8"
+    )
+  ) as RawSourceMap
+);
+const assertionOrigin = sourceMap.originalPositionFor(
+  generatedPoint(typescript, "as T")
+);
+ok(
+  assertionOrigin.source?.endsWith(
+    "src/arrayindexstrict/Main.hx"
+  ),
+  "the generic assertion maps back to Main.hx"
+);
+strictEqual(
+  assertionOrigin.line,
+  sourceLine(source, "return values[index];"),
+  "the generic assertion preserves the authored indexed-read line"
+);
+
 process.stdout.write(
-  "array-index-strict:ok (TS noUncheckedIndexedAccess + classic + standard)\n"
+  "array-index-strict:ok "
+    + "(TS noUncheckedIndexedAccess + wrappers + classic + standard + maps)\n"
 );
