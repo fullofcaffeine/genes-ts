@@ -1,6 +1,7 @@
 package genes;
 
 import haxe.macro.Type.MetaAccess;
+import haxe.macro.Type.Type;
 import haxe.macro.Type.TypedExpr;
 import haxe.macro.Context;
 
@@ -12,6 +13,11 @@ typedef SideEffectImportMarkerCall = {
 typedef DynamicImportMarkerCall = {
   final path: String;
   final pos: haxe.macro.Expr.Position;
+}
+
+typedef UndefinablePresentMarkerCall = {
+  final value: TypedExpr;
+  final resultType: Type;
 }
 
 /**
@@ -36,11 +42,12 @@ typedef DynamicImportMarkerCall = {
  * filter only at their output boundary. `Module.memberProjection` owns the
  * independent type-level visibility facts. The side-effect-import carrier is
  * consumed by dependency planning; the dynamic-import carrier is consumed by
- * expression emission after the current runtime suffix is known. Marker
- * recognition uses the compiler's typed owner/member identity, never a
- * generated name or source string. A producer must still prove its DCE and
- * placement contract before using this boundary; the metadata alone does not
- * create a dependency edge.
+ * expression emission after the current runtime suffix is known; and the
+ * `Undefinable` presence carrier preserves one exact assertion result type for
+ * TypeScript dependency planning and emission. Marker recognition uses
+ * the compiler's typed owner/member identity, never a generated name or source
+ * string. A producer must still prove its DCE and placement contract before
+ * using this boundary; the metadata alone does not create a dependency edge.
  */
 class CompilerInternal {
   /**
@@ -62,11 +69,11 @@ class CompilerInternal {
   public static inline final FIELD_METADATA = ':genes.compilerInternal';
   public static inline final SEMANTIC_ONLY_METADATA = ':genes.semanticOnly';
   public static inline final SIDE_EFFECT_MARKER_MODULE = 'genes.internal.SideEffectImportMarker';
-  public static inline final DYNAMIC_IMPORT_MARKER_MODULE =
-    'genes.internal.DynamicImportMarker';
+  public static inline final DYNAMIC_IMPORT_MARKER_MODULE = 'genes.internal.DynamicImportMarker';
+  public static inline final UNDEFINABLE_PRESENT_MARKER_MODULE = 'genes.internal.UndefinablePresentMarker';
 
   /** Returns whether one typed field is semantic-only compiler evidence. */
-  public static function isField(meta:Null<MetaAccess>):Bool {
+  public static function isField(meta: Null<MetaAccess>): Bool {
     return meta != null && meta.has(FIELD_METADATA);
   }
 
@@ -78,7 +85,7 @@ class CompilerInternal {
    * after typing to keep the implementation local while suppressing public,
    * reflection, and provenance surfaces in both Genes output profiles.
    */
-  public static function isType(meta:Null<MetaAccess>):Bool {
+  public static function isType(meta: Null<MetaAccess>): Bool {
     return meta != null && meta.has(FIELD_METADATA);
   }
 
@@ -96,7 +103,7 @@ class CompilerInternal {
    * separate prevents a schema implementation detail from changing the
    * established local-only contract of `@:genes.compilerInternal`.
    */
-  public static function isSemanticOnlyType(meta:Null<MetaAccess>):Bool {
+  public static function isSemanticOnlyType(meta: Null<MetaAccess>): Bool {
     return meta != null && meta.has(SEMANTIC_ONLY_METADATA);
   }
 
@@ -107,13 +114,12 @@ class CompilerInternal {
    * Genes consumes it after typing; returning true here authorizes expression
    * erasure but does not itself decide request identity, order, or reachability.
    */
-  public static function isSideEffectImportMarkerCall(expression:TypedExpr):Bool {
+  public static function isSideEffectImportMarkerCall(expression: TypedExpr): Bool {
     return sideEffectImportMarkerCall(expression) != null;
   }
 
   /** Returns the exact marker member and typed arguments, or null. */
-  public static function sideEffectImportMarkerCall(
-      expression: TypedExpr): Null<SideEffectImportMarkerCall> {
+  public static function sideEffectImportMarkerCall(expression: TypedExpr): Null<SideEffectImportMarkerCall> {
     if (expression == null)
       return null;
     return switch expression.expr {
@@ -121,7 +127,8 @@ class CompilerInternal {
         sideEffectImportMarkerCall(inner);
       case TCall({
         expr: TField(_, FStatic(_.get() => owner, _.get() => field))
-      }, arguments)
+      },
+        arguments)
         if (owner.module == SIDE_EFFECT_MARKER_MODULE
           && (field.name == 'external' || field.name == 'internal')):
         {method: field.name, arguments: arguments};
@@ -143,8 +150,7 @@ class CompilerInternal {
    * null result so the expression emitter can report a stable compiler-planning
    * diagnostic instead of printing the fake extern.
    */
-  public static function dynamicImportMarkerCall(
-      callee: TypedExpr,
+  public static function dynamicImportMarkerCall(callee: TypedExpr,
       arguments: Array<TypedExpr>): Null<DynamicImportMarkerCall> {
     return switch [callee.expr, arguments] {
       case [
@@ -165,29 +171,25 @@ class CompilerInternal {
     }
   }
 
-  static function dynamicImportMarkerReceiver(
-      expression: TypedExpr): Null<DynamicImportMarkerCall> {
+  static function dynamicImportMarkerReceiver(expression: TypedExpr): Null<DynamicImportMarkerCall> {
     return switch expression.expr {
       case TMeta(_, inner) | TParenthesis(inner) | TCast(inner, null):
         dynamicImportMarkerReceiver(inner);
       case TCall(callee, arguments):
         final direct = dynamicImportMarkerCall(callee, arguments);
-        if (direct != null)
-          direct;
-        else
-          switch arguments {
-            // Multiple dynamic modules use `Promise.all([marker, ...])`.
-            case [{expr: TArrayDecl(values)}]:
-              var marker = null;
-              for (value in values) {
-                marker = dynamicImportMarkerReceiver(value);
-                if (marker != null)
-                  break;
-              }
-              marker;
-            default:
-              null;
-          }
+        if (direct != null) direct; else switch arguments {
+          // Multiple dynamic modules use `Promise.all([marker, ...])`.
+          case [{expr: TArrayDecl(values)}]:
+            var marker = null;
+            for (value in values) {
+              marker = dynamicImportMarkerReceiver(value);
+              if (marker != null)
+                break;
+            }
+            marker;
+          default:
+            null;
+        }
       default:
         null;
     }
@@ -207,22 +209,18 @@ class CompilerInternal {
    * a marker or `Promise.all([marker, ...])`. It does not search arbitrary
    * callbacks or user expressions.
    */
-  public static function dynamicImportExpansionMarker(
-      expression: TypedExpr): Null<DynamicImportMarkerCall> {
+  public static function dynamicImportExpansionMarker(expression: TypedExpr): Null<DynamicImportMarkerCall> {
     return switch expression.expr {
       case TMeta(_, inner) | TParenthesis(inner) | TCast(inner, null):
         dynamicImportExpansionMarker(inner);
       case TCall(callee, arguments):
         final direct = dynamicImportMarkerCall(callee, arguments);
-        if (direct != null)
-          direct;
-        else
-          switch callee.expr {
-            case TField(receiver, _):
-              dynamicImportMarkerReceiver(receiver);
-            default:
-              null;
-          }
+        if (direct != null) direct; else switch callee.expr {
+          case TField(receiver, _):
+            dynamicImportMarkerReceiver(receiver);
+          default:
+            null;
+        }
       default:
         null;
     }
@@ -233,6 +231,44 @@ class CompilerInternal {
     return switch callee.expr {
       case TField(_, FStatic(_.get() => owner, _.get() => {name: 'load'})):
         owner.module == DYNAMIC_IMPORT_MARKER_MODULE;
+      default:
+        false;
+    }
+  }
+
+  /**
+   * Returns one exact `Undefinable.assumePresent()` carrier.
+   *
+   * Why: the TypeScript emitter must remove only outer `undefined`, not a
+   * nested Haxe `null`. The instantiated marker return type is the exact `T`
+   * that Haxe already checked, so printers do not reconstruct it from text.
+   *
+   * What/How: one exact static marker field with one value is admitted. The
+   * function return from the typed callee supplies the assertion target.
+   * Malformed marker calls remain recognizable through
+   * `isUndefinablePresentMarkerCallee()` so emitters can fail closed.
+   */
+  public static function undefinablePresentMarkerCall(callee: TypedExpr,
+      arguments: Array<TypedExpr>): Null<UndefinablePresentMarkerCall> {
+    return switch [callee.expr, arguments, Context.follow(callee.t)] {
+      case [
+        TField(_,
+          FStatic(_.get() => owner, _.get() => {name: 'assumePresent'})),
+        [value],
+        TFun(_, resultType)
+      ] if (owner.module == UNDEFINABLE_PRESENT_MARKER_MODULE):
+        {value: value, resultType: resultType};
+      default:
+        null;
+    }
+  }
+
+  /** Returns whether a callee is the exact presence-proof marker field. */
+  public static function isUndefinablePresentMarkerCallee(callee: TypedExpr): Bool {
+    return switch callee.expr {
+      case TField(_,
+        FStatic(_.get() => owner, _.get() => {name: 'assumePresent'})):
+        owner.module == UNDEFINABLE_PRESENT_MARKER_MODULE;
       default:
         false;
     }

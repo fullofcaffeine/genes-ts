@@ -86,6 +86,12 @@ For example, `Undefinable.orNull()` must turn target `undefined` into Haxe
 only Genes can preserve the emitted `value ?? null` operation and its
 `T | undefined` input type.
 
+The inverse proof, `Undefinable.assumePresent()`, is also target-aware. After an
+exact absence check, TypeScript asserts the value to Haxe's exact instantiated
+`T`; classic output keeps a runtime identity. Genes cannot use TypeScript's
+postfix `!` here because it removes both `undefined` and `null`, while
+`Undefinable<Null<T>>` must retain a present Haxe `null`.
+
 This is also why enabling null safety does not replace `TsBoundaryPlan`.
 The plan records exact TypeScript-only boundary conversions that ordinary Haxe
 accepted, while classic JavaScript continues to follow Haxe's JavaScript

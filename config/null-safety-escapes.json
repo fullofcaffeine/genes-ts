@@ -25,6 +25,13 @@
       "containment": "Raw target syntax is limited to one expression and immediately returns a typed Null<T>."
     },
     {
+      "path": "src/genes/ts/Undefinable.hx",
+      "owner": "Undefinable.assumePresent",
+      "statement": "return js.Syntax.code(\"({0})\", this);",
+      "reason": "Outside the TypeScript profile, Haxe cannot express the caller's exact presence proof through the nullable abstract storage even though JavaScript needs only the unchanged operand.",
+      "containment": "The escape guards only the classic/standard identity expression. Active TypeScript builds use a typed compiler marker and need no null-safety escape."
+    },
+    {
       "path": "src/genes/util/EsMap.hx",
       "owner": "EsMap.adaptIterator queue",
       "statement": "value = data.value;",

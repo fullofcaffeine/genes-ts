@@ -21,22 +21,22 @@
       "budget": {
         "baseline": {
           "modules": 7,
-          "bytes": 16014,
-          "tokens": 2512,
+          "bytes": 16572,
+          "tokens": 2633,
           "temporaryDeclarations": 13,
           "valueImports": 26,
-          "typeImports": 4
+          "typeImports": 5
         },
         "maximum": {
-          "bytes": 16815,
-          "tokens": 2638,
+          "bytes": 17401,
+          "tokens": 2765,
           "temporaryDeclarations": 13,
           "valueImports": 26,
-          "typeImports": 4
+          "typeImports": 5
         },
         "review": {
-          "id": "GTS-BUDGET-BASELINE-006",
-          "reason": "Reviewed the local-mutability differential covering immutable, direct-write, captured-write, initializer-free, closure, comprehension, and pattern bindings. The fixture adds no modules or imports; any new lowering temporaries are recorded explicitly below."
+          "id": "GTS-BUDGET-BASELINE-007",
+          "reason": "Reviewed one assertion-only type import used to prove that Undefinable.assumePresent preserves an exact imported result type without creating a runtime dependency. The compiler fixture intentionally raises the TypeScript type-import count by one; classic JavaScript remains unchanged."
         }
       }
     },
@@ -47,22 +47,22 @@
       "budget": {
         "baseline": {
           "modules": 6,
-          "bytes": 12385,
-          "tokens": 1836,
+          "bytes": 12803,
+          "tokens": 1930,
           "temporaryDeclarations": 13,
           "valueImports": 25,
           "typeImports": 0
         },
         "maximum": {
-          "bytes": 13005,
-          "tokens": 1928,
+          "bytes": 13444,
+          "tokens": 2027,
           "temporaryDeclarations": 13,
           "valueImports": 25,
           "typeImports": 0
         },
         "review": {
-          "id": "GTS-BUDGET-BASELINE-006",
-          "reason": "Reviewed the local-mutability differential covering immutable, direct-write, captured-write, initializer-free, closure, comprehension, and pattern bindings. The fixture adds no modules or imports; any new lowering temporaries are recorded explicitly below."
+          "id": "GTS-BUDGET-BASELINE-007",
+          "reason": "Reviewed the Undefinable.assumePresent runtime and nested-null fixture additions. They add no classic imports or lowering temporaries; the larger source tree is the deliberate cost of proving exact null-versus-undefined behavior in both implementation profiles."
         }
       }
     },
@@ -73,22 +73,22 @@
       "budget": {
         "baseline": {
           "modules": 7,
-          "bytes": 5921,
+          "bytes": 6028,
           "tokens": 370,
           "temporaryDeclarations": 0,
           "valueImports": 1,
           "typeImports": 0
         },
         "maximum": {
-          "bytes": 6218,
+          "bytes": 6330,
           "tokens": 389,
           "temporaryDeclarations": 0,
           "valueImports": 1,
           "typeImports": 0
         },
         "review": {
-          "id": "GTS-BUDGET-BASELINE-004",
-          "reason": "Reviewed one retained recursive-JSON boundary and its module-local aliases, proving classic declarations remain self-contained under strict consumption."
+          "id": "GTS-BUDGET-BASELINE-007",
+          "reason": "Reviewed the declaration footprint of the Undefinable.assumePresent fixture additions. The public declaration graph and import counts remain unchanged while the implementation profiles gain exact boundary evidence."
         }
       }
     }

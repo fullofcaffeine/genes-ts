@@ -175,7 +175,7 @@
           "kind": "tracked-files",
           "path": "tests/output-modes/src",
           "match": "\\.hx$",
-          "expected": 17
+          "expected": 18
         },
         {
           "id": "dual-output-oracles-and-profiles",
@@ -191,7 +191,7 @@
           "kind": "json-array-total",
           "path": "tests/output-modes/expected-trace.json",
           "pointer": [],
-          "expected": 20
+          "expected": 23
         },
         {
           "id": "ts2hx-semantic-input-modules",

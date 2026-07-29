@@ -1,7 +1,5 @@
 package genes.ts;
 
-import genes.Register;
-
 /**
  * Type-only marker for a value that may be JavaScript `undefined`.
  *
@@ -79,14 +77,18 @@ abstract Undefinable<T>(Null<T>) from T {
    * an exact absence check is a contract violation; it performs no fallback or
    * coercion.
    *
-   * How: `Register.unsafeCast` is the shared runtime identity helper. Naming it
-   * here is important: the abstract's Haxe storage is `Null<T>`, so the emitted
-   * implementation operand has the TypeScript type `T | null` even though the
-   * helper result is `T`. A general boundary planner cannot approve every
-   * abstract representation change. The caller's exact absence check and this
-   * dedicated helper are the reviewed proof instead.
+   * How: the active TypeScript profile retains one compiler-owned typed
+   * marker, then replaces it with an assertion to the exact instantiated `T`.
+   * Classic Genes and standard Haxe JavaScript emit the operand unchanged.
+   * This distinction matters for `Undefinable<Null<T>>`: a postfix `!` would
+   * incorrectly erase the nested `null` from the static type.
    */
   public inline function assumePresent(): T {
-    return Register.unsafeCast(this);
+    #if (genes.ts && genes.generator.active)
+    return genes.internal.UndefinablePresentMarker.assumePresent(this);
+    #else
+    @:nullSafety(Off)
+    return js.Syntax.code("({0})", this);
+    #end
   }
 }

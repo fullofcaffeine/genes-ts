@@ -307,6 +307,13 @@ final record = UnknownNarrow.record(payload);
 final name = record == null ? null : UnknownNarrow.string(record.get("name"));
 ```
 
+After an exact `Undefinable.isAbsent(value)` check, `value.assumePresent()`
+returns the same runtime value with its original `T` view. TypeScript emits an
+erased assertion to that exact `T`, while classic Genes emits a plain identity
+expression. This deliberately preserves a nested `null` in
+`Undefinable<Null<T>>`; the proof removes only the outer JavaScript
+`undefined` contract.
+
 In TypeScript source output:
 
 - `Undefinable<T>` can emit as `T | undefined`.

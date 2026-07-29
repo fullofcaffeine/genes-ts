@@ -47,8 +47,10 @@ budget inputs live in `output-quality.json`; run that layer alone with
 The identical `dual.Main` source covers:
 
 - classes, interfaces, applied generics, enums, and reflection;
-- null, real JavaScript `undefined`, optional records, and immediate narrowing
-  of `genes.ts.Unknown`;
+- null, real JavaScript `undefined`, optional records, explicit
+  `Undefinable.assumePresent()` proof without a runtime cast helper, a present
+  nested Haxe `null` kept distinct from `undefined`, assertion-only type
+  dependency retention, and immediate narrowing of `genes.ts.Unknown`;
 - maps, iterators, exceptions, expression-valued switch, and receiver/index/RHS
   evaluation order;
 - a real `node:path` ESM value import and a type-only local dependency;

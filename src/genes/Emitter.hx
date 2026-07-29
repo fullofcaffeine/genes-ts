@@ -38,6 +38,23 @@ class Emitter {
     #end
   }
 
+  /**
+   * Maps a later generated token even when it reuses the current source span.
+   *
+   * Why: one Haxe expression can own several tokens on the same generated
+   * line. The ordinary `emitPos()` path coalesces repeated positions to keep
+   * maps compact, but that would leave a relocated token owned by an earlier
+   * statement keyword.
+   *
+   * What/How: invalidate only the line-based de-duplication hint, then route
+   * through the virtual `emitPos()` method. Profile emitters still control
+   * whether the current member is allowed to publish source provenance.
+   */
+  public function emitTokenPos(pos: SourcePosition) {
+    lastWriterLine = -1;
+    emitPos(pos);
+  }
+
   public function write(data: String) {
     writer.write(data);
   }

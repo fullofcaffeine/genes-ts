@@ -51,6 +51,14 @@ function sourceLine(source: string, needle: string): number {
   return source.slice(0, offset).split("\n").length;
 }
 
+function sourcePoint(source: string, needle: string): { line: number; column: number } {
+  const offset = source.indexOf(needle);
+  ok(offset !== -1, `source contains ${needle}`);
+  const before = source.slice(0, offset);
+  const lines = before.split("\n");
+  return { line: lines.length, column: lines.at(-1)?.length ?? 0 };
+}
+
 function generatedPoint(source: string, needle: string): { line: number; column: number } {
   const offset = source.indexOf(needle);
   ok(offset !== -1, `generated source contains ${needle}`);
@@ -98,6 +106,21 @@ function assertSourceMap(profile: "classic" | "ts" | "tsx",
     sourceLine(haxeSource, "return value.label + suffix + rest.length"),
     `${profile} moved body keeps its exact Haxe source line`);
 
+  const presentReturn = profile === "classic"
+    ? "return (value);"
+    : "return (value as string | null);";
+  const presentPoint = generatedPoint(source, presentReturn);
+  const presentValuePoint = {
+    line: presentPoint.line,
+    column: presentPoint.column + "return (".length
+  };
+  const presentOriginal = map.originalPositionFor(presentValuePoint);
+  const expectedPresent = sourcePoint(haxeSource, "value.assumePresent()");
+  strictEqual(presentOriginal.line, expectedPresent.line,
+    `${profile} relocated presence proof keeps its exact Haxe source line`);
+  strictEqual(presentOriginal.column, expectedPresent.column,
+    `${profile} relocated presence proof keeps its exact Haxe source column`);
+
   const publicPoint = generatedPoint(source, "function publicIdentity");
   const publicOriginal = map.originalPositionFor(publicPoint);
   strictEqual(publicOriginal.line,
@@ -108,6 +131,7 @@ function assertSourceMap(profile: "classic" | "ts" | "tsx",
 function assertImplementationShape(relative: string): void {
   const source = readFileSync(path.join(outputRoot, relative), "utf8");
   const code = source.replace(/\/\*[\s\S]*?\*\//g, "");
+  let assertionFreeCode = code;
   const functionIndex = source.indexOf("function useSemantic");
   const classIndex = source.indexOf("class Selected");
   const assignmentIndex = source.indexOf("Selected.selected = useSemantic");
@@ -149,11 +173,26 @@ function assertImplementationShape(relative: string): void {
     ok(source.includes(
       "static nullableDefault(value?: string | null): string;"),
     `${relative} emits a type-only descriptor overload`);
+    ok(source.includes(
+      "return (value as string | null);"),
+    `${relative} preserves nested null in the presence assertion`);
+    assertionFreeCode = assertionFreeCode.replace(
+      "(value as string | null)",
+      "value"
+    );
+  } else {
+    ok(
+      source.includes("return (value);"),
+      `${relative} erases the presence proof to a classic identity`);
   }
-  ok(!/\b(?:any|unknown|Dynamic|untyped)\b|unsafeCast|\sas\s/.test(code),
+  ok(!/\b(?:any|unknown|Dynamic|untyped)\b|unsafeCast|\sas\s/.test(
+    assertionFreeCode
+  ),
     `${relative} introduces no broad type or target assertion`);
   ok(!source.includes("DeadSelected"),
     `${relative} proves metadata does not root dead code`);
+  ok(!source.includes("UndefinablePresentMarker"),
+    `${relative} leaked the compiler-owned presence marker`);
   ok(!source.includes("module-function-import"),
     `${relative} proves a dead selected body adds no runtime import edge`);
 }
@@ -174,6 +213,8 @@ interface RuntimeEvidence {
   readonly nullableDefault: string;
   readonly safeAbsent: null;
   readonly safePresent: string;
+  readonly provedNull: null;
+  readonly provedPresent: string;
   readonly staticInitialized: string;
   readonly classInitialized: string;
   readonly crossModuleInitialized: number;
@@ -203,6 +244,8 @@ function isRuntimeEvidence(value: unknown): value is RuntimeEvidence {
     && typeof record.nullableDefault === "string"
     && record.safeAbsent === null
     && typeof record.safePresent === "string"
+    && record.provedNull === null
+    && typeof record.provedPresent === "string"
     && typeof record.staticInitialized === "string"
     && typeof record.classInitialized === "string"
     && typeof record.crossModuleInitialized === "number"
@@ -244,6 +287,8 @@ console.log(JSON.stringify({
   nullableDefault: Selected.nullableDefault(),
   safeAbsent: Selected.safeOptional(undefined),
   safePresent: Selected.safeOptional("present"),
+  provedNull: Selected.safePresent(null),
+  provedPresent: Selected.safePresent("proved"),
   staticInitialized: Selected.initialized,
   classInitialized: Selected.classInitialized,
   crossModuleInitialized: CrossModule.initialized,
@@ -463,6 +508,10 @@ strictEqual(runtime.safeAbsent, null,
   "a proved undefined helper retains its absence semantics after relocation");
 strictEqual(runtime.safePresent, "present",
   "a proved undefined helper retains its present value after relocation");
+strictEqual(runtime.provedNull, null,
+  "the relocated presence marker retains a nested Haxe null");
+strictEqual(runtime.provedPresent, "proved",
+  "the relocated presence marker retains an ordinary present value");
 strictEqual(runtime.staticInitialized, "static-init0");
 strictEqual(runtime.classInitialized, "class-init0");
 strictEqual(runtime.crossModuleInitialized, 13,

@@ -15,6 +15,7 @@ import {
 } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { SourceMapConsumer, type RawSourceMap } from "source-map";
 import { runGeneratedTypeScriptMatrix } from "./toolchains.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -41,6 +42,35 @@ function capture(cmd: string, args: ReadonlyArray<string>): string {
     cwd: repoRoot,
     encoding: "utf8"
   });
+}
+
+function sourceLine(source: string, needle: string): number {
+  const offset = source.indexOf(needle);
+  ok(offset !== -1, `source contains ${needle}`);
+  return source.slice(0, offset).split("\n").length;
+}
+
+function sourcePoint(source: string, needle: string): {
+  line: number;
+  column: number;
+} {
+  const offset = source.indexOf(needle);
+  ok(offset !== -1, `source contains ${needle}`);
+  const before = source.slice(0, offset);
+  const lines = before.split("\n");
+  return {line: lines.length, column: lines.at(-1)?.length ?? 0};
+}
+
+function generatedPoint(
+  source: string,
+  needle: string,
+  offsetWithinNeedle = 0
+): { line: number; column: number } {
+  const offset = source.indexOf(needle);
+  ok(offset !== -1, `generated source contains ${needle}`);
+  const before = source.slice(0, offset + offsetWithinNeedle);
+  const lines = before.split("\n");
+  return { line: lines.length, column: lines.at(-1)?.length ?? 0 };
 }
 
 /**
@@ -454,6 +484,125 @@ for (const [profile, relativePath] of [
       'from "../resources/profile.json" with { type: "json" }'
     ),
     `${profile} dropped the JSON import attribute`
+  );
+  if (profile === "ts-strict") {
+    ok(
+      generated.includes('events.push("present:" + (present as string));'),
+      "TypeScript Undefinable.assumePresent lost its exact presence assertion"
+    );
+  } else {
+    ok(
+      generated.includes('events.push("present:" + (present));'),
+      "classic Undefinable.assumePresent stopped being a plain runtime identity"
+    );
+  }
+  ok(
+    !generated.includes("Register.unsafeCast(present)"),
+    `${profile} leaked the old Undefinable runtime cast helper`
+  );
+  if (profile === "ts-strict") {
+    ok(
+      generated.includes("(nullablePresent as string | null) == null"),
+      "TypeScript lost the nested-null type and runtime identity control"
+    );
+    ok(
+      generated.includes(
+        'import type {Buffer} from "node:buffer"'
+      ),
+      "TypeScript did not reserve the assertion-only type dependency"
+    );
+    ok(
+      generated.includes(
+        '(({ length: 17 }) as Buffer).length'
+      ),
+      "TypeScript did not print the marker's exact imported result type"
+    );
+  } else {
+    ok(
+      generated.includes("(nullablePresent) == null"),
+      "classic lost the nested-null runtime identity control"
+    );
+    ok(
+      !generated.includes('from "node:buffer"'),
+      "classic retained a TypeScript-only assertion dependency"
+    );
+  }
+  ok(
+    !generated.includes("Register.unsafeCast(nullablePresent)"),
+    `${profile} leaked a runtime cast for the nested-null control`
+  );
+  ok(
+    !generated.includes("UndefinablePresentMarker"),
+    `${profile} leaked the compiler-owned presence marker`
+  );
+  const presenceExpression = profile === "ts-strict"
+    ? 'events.push("present:" + (present as string));'
+    : 'events.push("present:" + (present));';
+  const presenceOperand = profile === "ts-strict"
+    ? "(present as string)"
+    : "(present)";
+  // Map the `as string` assertion in TypeScript and the identity operand in
+  // classic JavaScript. Both tokens must retain the authored
+  // `assumePresent()` call as their provenance.
+  const presencePoint = generatedPoint(
+    generated,
+    presenceExpression,
+    presenceExpression.indexOf(presenceOperand)
+      + (profile === "ts-strict" ? "(present ".length : "(present".length)
+  );
+  const presenceMap = new SourceMapConsumer(JSON.parse(readFileSync(
+    path.join(repoRoot, `${relativePath}.map`),
+    "utf8"
+  )) as RawSourceMap);
+  const presenceOriginal = presenceMap.originalPositionFor(presencePoint);
+  const helperSource = readFileSync(
+    path.join(fixtureRoot, "src/dual/HelperScenario.hx"),
+    "utf8"
+  );
+  const authoredPresence = sourcePoint(helperSource, "present.assumePresent()");
+  ok(
+    presenceOriginal.source?.replaceAll("\\", "/")
+      .endsWith("/src/dual/HelperScenario.hx"),
+    `${profile} assumePresent expression maps to HelperScenario.hx`
+  );
+  strictEqual(
+    presenceOriginal.line,
+    authoredPresence.line,
+    `${profile} assumePresent expression maps to the authored Haxe call`
+  );
+  strictEqual(
+    presenceOriginal.column,
+    authoredPresence.column,
+    `${profile} assumePresent expression maps to the authored Haxe column`
+  );
+  const nullableExpression = profile === "ts-strict"
+    ? 'events.push("present-null:" + Std.string((nullablePresent as string | null) == null));'
+    : 'events.push("present-null:" + Std.string((nullablePresent) == null));';
+  const nullableOperand = profile === "ts-strict"
+    ? "(nullablePresent as string | null)"
+    : "(nullablePresent)";
+  const nullablePoint = generatedPoint(
+    generated,
+    nullableExpression,
+    nullableExpression.indexOf(nullableOperand)
+      + (profile === "ts-strict"
+        ? "(nullablePresent ".length
+        : "(nullablePresent".length)
+  );
+  const nullableOriginal = presenceMap.originalPositionFor(nullablePoint);
+  const authoredNullable = sourcePoint(
+    helperSource,
+    "nullablePresent.assumePresent()"
+  );
+  strictEqual(
+    nullableOriginal.line,
+    authoredNullable.line,
+    `${profile} nested-null assertion maps to the authored Haxe call`
+  );
+  strictEqual(
+    nullableOriginal.column,
+    authoredNullable.column,
+    `${profile} nested-null assertion maps to the authored Haxe column`
   );
   strictEqual(
     generated.match(/import SharedProfile from "\.\.\/resources\/profile\.json" with \{ type: "json" \}/g)?.length ?? 0,

@@ -38,6 +38,31 @@ class ModuleEmitter extends ExprEmitter {
       super.emitPos(pos);
   }
 
+  /**
+   * Gives the value inside a raw identity wrapper its exact token mapping.
+   *
+   * Why: Haxe can assign the wrapper and its argument the same source span.
+   * After module-function relocation, ordinary position coalescing would then
+   * map `(value)` back to the outer `return` keyword rather than the authored
+   * helper call.
+   *
+   * What/How: preserve the established `({0})` output byte-for-byte, but force
+   * one mapping at the placeholder token. Every other raw template continues
+   * through the shared parser and its existing conservative contract.
+   */
+  override public function emitSyntaxCodeWithArgs(args: Array<TypedExpr>): Bool {
+    switch args {
+      case [{expr: TConst(TString('({0})'))}, value]:
+        write('(');
+        emitTokenPos(value.pos);
+        emitRawSyntaxTemplateValue(value);
+        write(')');
+        return true;
+      default:
+        return super.emitSyntaxCodeWithArgs(args);
+    }
+  }
+
   public function emitModule(module: Module, ?extension: String) {
     final projection = module.runtimeProjection;
     moduleFunctionPlan = module.moduleFunctionPlan;
@@ -138,7 +163,7 @@ class ModuleEmitter extends ExprEmitter {
 
   function emitImports(module: String, imports: Array<Dependency>,
       ?extension: String) {
-    final named:Array<Dependency> = [];
+    final named: Array<Dependency> = [];
     for (def in imports)
       switch def.type {
         case DAsterisk | DDefault:
@@ -218,11 +243,12 @@ class ModuleEmitter extends ExprEmitter {
   /** Emits static initialization/bindings only when the class owns such output. */
   function emitStatics(checkCycles: (module: String) -> Bool, cl: ClassType,
       fields: Array<Field>) {
-    final isModuleFields = #if (haxe_ver >= 4.2)
+    final isModuleFields =
+      #if (haxe_ver >= 4.2)
       cl.kind.match(KModuleFields(_));
-    #else
+      #else
       false;
-    #end
+      #end
     function hasJsRequire(field: Field): Bool {
       if (!isModuleFields || !field.isStatic || field.meta == null)
         return false;
@@ -376,9 +402,7 @@ class ModuleEmitter extends ExprEmitter {
 
   function emitClass(checkCycles: (module: String) -> Bool, cl: ClassType,
       fields: Array<Field>, export = true, registerRuntimeType = true) {
-    final selected = moduleFunctionPlan == null
-      ? []
-      : moduleFunctionPlan.entriesFor(cl);
+    final selected = moduleFunctionPlan == null ? [] : moduleFunctionPlan.entriesFor(cl);
     writeNewline();
     emitComment(cl.doc);
     emitPos(cl.pos);
@@ -436,9 +460,8 @@ class ModuleEmitter extends ExprEmitter {
           switch field.expr {
             case null:
             case {expr: TFunction(f)}:
-              final selectedEntry = moduleFunctionPlan == null
-                ? null
-                : moduleFunctionPlan.entryFor(cl, field);
+              final selectedEntry = moduleFunctionPlan == null ? null : moduleFunctionPlan.entryFor(cl,
+                field);
               if (selectedEntry != null) {
                 writeMemberNewline(false);
                 write('static ');
@@ -455,7 +478,8 @@ class ModuleEmitter extends ExprEmitter {
               writeMemberNewline(field.doc != null);
               emitComment(field.doc);
               emitPos(field.pos);
-              final isAsync = field.meta != null && (field.meta.has(':jsAsync') || field.meta.has('jsAsync'));
+              final isAsync = field.meta != null
+                && (field.meta.has(':jsAsync') || field.meta.has('jsAsync'));
               if (field.isStatic) {
                 write('static ');
                 if (isAsync)
@@ -575,8 +599,7 @@ class ModuleEmitter extends ExprEmitter {
       write(entry.requestedName);
     }
 
-    if (selected.length > 0 && registerRuntimeType
-      && id != 'genes.Register') {
+    if (selected.length > 0 && registerRuntimeType && id != 'genes.Register') {
       writeNewline();
       writeGlobalVar("$hxClasses");
       write('[');
@@ -604,7 +627,7 @@ class ModuleEmitter extends ExprEmitter {
   }
 
   /** Emits selected bodies once as analyzer-visible module declarations. */
-  function emitClassicModuleFunctions(cl:ClassType):Void {
+  function emitClassicModuleFunctions(cl: ClassType): Void {
     if (moduleFunctionPlan == null)
       return;
     for (entry in moduleFunctionPlan.entriesFor(cl)) {
@@ -632,8 +655,7 @@ class ModuleEmitter extends ExprEmitter {
     }
   }
 
-  function emitEnum(et: EnumType, export = true,
-      registerRuntimeType = true) {
+  function emitEnum(et: EnumType, export = true, registerRuntimeType = true) {
     final discriminator = haxe.macro.Context.definedValue('genes.enum_discriminator');
     final id = et.pack.concat([et.name]).join('.');
     writeNewline();
