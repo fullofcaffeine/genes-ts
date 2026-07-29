@@ -286,7 +286,7 @@ TS-specific overrides:
   explicit contract for CommonJS `export =` const-plus-namespace constructors
   and package constructors whose `@:native` name overlaps `String` or
   `RegExp`; see `IMPORTS.md`.
-- `@:ts.explicitTypeArguments` — on a generic extern callable, emit the exact
+- `@:ts.explicitTypeArguments` — on a generic callable, emit the exact
   method type arguments already selected by Haxe at each direct call. Use this
   only when TypeScript cannot reconstruct the same instantiation from the
   runtime arguments, such as a destination-constrained `null` or no-argument
@@ -294,8 +294,8 @@ TS-specific overrides:
   not follow runtime function-value aliases that have lost field identity, and
   erases completely in classic JavaScript. See
   [INTEROP.md](INTEROP.md#preserve-a-contextual-generic-extern-call).
-- `genes.ts.TypeArguments.call(externCall, witness...)` — compile-time-only
-  preservation for a declaration-opted-in direct extern call whose exact Haxe
+- `genes.ts.TypeArguments.call(genericCall, witness...)` — compile-time-only
+  preservation for a declaration-opted-in direct call whose exact Haxe
   type was erased before generic emission. Witnesses supply closed type facts,
   are never evaluated, must match generic declaration arity, and cause the TS
   local to infer from the specialized call instead of printing a wider erased
