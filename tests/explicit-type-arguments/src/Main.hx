@@ -51,6 +51,11 @@ private class LocalFactory {
   public static function present<Value>(value: Value): LocalResult<Value> {
     return Present(value);
   }
+
+  /** Adds only an outer nullable contract, which TypeScript accepts directly. */
+  public static function maybe<Value>(value: Value): Null<Value> {
+    return value;
+  }
 }
 
 /** Precise bindings for the local, package-neutral generic fixture module. */
@@ -96,6 +101,7 @@ class Main {
       CellPhase.Pending);
     final localPhase: LocalResult<CellPhase> = genes.ts.TypeArguments.call(LocalFactory.present(CellPhase.Pending),
       CellPhase.Pending);
+    final maybePhase: Null<CellPhase> = LocalFactory.maybe(CellPhase.Pending);
     var mutablePhase: Cell<String> = genes.ts.TypeArguments.call(GenericCellModule.makeCell(CellPhase.Pending),
       CellPhase.Pending);
     mutablePhase = GenericCellModule.makeCell("other");
@@ -118,6 +124,7 @@ class Main {
       case Present(value):
         value;
     }
+    maybePhase;
     mutablePhase.replace("still mutable");
     generatedPhases[0].replace(CellPhase.Ready);
     fluentPhase.replace(CellPhase.Ready);

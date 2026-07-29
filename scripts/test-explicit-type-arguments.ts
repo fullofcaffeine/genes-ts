@@ -76,6 +76,16 @@ requireText(
 );
 requireText(
   generatedTs,
+  'const maybePhase: string | null = LocalFactory.maybe("pending")',
+  "a present generic value must widen directly to an outer nullable result"
+);
+rejectText(
+  generatedTs,
+  'unsafeCast<string | null>("pending")',
+  "TypeScript accepts T as T | null without a compiler assertion"
+);
+requireText(
+  generatedTs,
   'let mutablePhase: import("./generic-cell.js").Cell<string> = makeCell<"pending" | "ready">("pending")',
   "a reassigned local must keep the wider Haxe type accepted by later writes"
 );
@@ -161,6 +171,11 @@ requireText(
   generatedJs,
   'LocalFactory.present("pending")',
   "classic JS must erase the witness for emitted Haxe callables"
+);
+requireText(
+  generatedJs,
+  'LocalFactory.maybe("pending")',
+  "classic JS must preserve the original outer-nullability call"
 );
 requireText(
   generatedJs,

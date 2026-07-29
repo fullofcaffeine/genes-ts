@@ -2937,7 +2937,9 @@ class TsModuleEmitter extends JsModuleEmitter {
         // In the scoped `Promise.resolve(null)` path, TypeScript can choose its
         // value overload naturally, so Haxe's internal thenable-overload cast
         // would only make the generated code noisier and harder to import.
-        if (typeEmitsAny(e.t) || nullThenableCast
+        if (typeEmitsAny(e.t)
+          || nullThenableCast
+          || TsBoundaryPlan.acceptsTopLevelWidening(e.t, e1.t)
           || (!typeAllowsNull(e.t) && typeAllowsNull(e1.t)
             && isNarrowedNonNull(e1))) {
           emitValue(e1);

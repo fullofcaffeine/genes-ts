@@ -393,6 +393,11 @@ Classic JavaScript keeps only the runtime operation:
 const localPhase = LocalFactory.present("pending");
 ```
 
+Likewise, a compiler-inserted conversion from `T` to `Null<T>` emits no
+assertion: TypeScript already accepts `T` wherever `T | null` is expected.
+Nested generic conversions remain separately checked because variance can make
+those unsafe.
+
 That annotation is omitted only when the local is never assigned again. A
 mutable Haxe local keeps its declared TypeScript type, while the initializer
 still carries the precise call-site argument. This matters when Haxe accepts a

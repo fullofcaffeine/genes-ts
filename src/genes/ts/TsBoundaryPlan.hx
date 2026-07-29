@@ -251,6 +251,13 @@ class TsBoundaryPlan {
     return TsBoundaryPlanBuilder.compareBoundaryTypes(expected, actual);
   }
 
+  /** Whether TypeScript directly accepts this outer nullish widening. */
+  public static function acceptsTopLevelWidening(expected: Type,
+      actual: Type): Bool {
+    return TsBoundaryPlanBuilder.isTypeScriptAcceptedTopLevelWidening(expected,
+      actual);
+  }
+
   public function new(enumCalls: ObjectMap<TypedExpr, TsEnumCallDecision>,
       enumDecisions: Array<TsEnumCallDecision>,
       calls: ObjectMap<TypedExpr, TsCallDecision>,
@@ -584,7 +591,7 @@ private class TsBoundaryPlanBuilder {
    * Nested generic changes are different: `Box<T>` may not assign to
    * `Box<T | null>` when `Box` both accepts and returns `T`.
    */
-  static function isTypeScriptAcceptedTopLevelWidening(expected: Type,
+  public static function isTypeScriptAcceptedTopLevelWidening(expected: Type,
       actual: Type): Bool {
     final expectedNullish = NullishContract.forType(expected);
     final actualNullish = NullishContract.forType(actual);
