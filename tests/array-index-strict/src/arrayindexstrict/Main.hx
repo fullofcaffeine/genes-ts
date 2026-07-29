@@ -1,5 +1,6 @@
 package arrayindexstrict;
 
+import genes.js.ArrayCallbacks;
 import genes.ts.Undefinable;
 
 /** Same-source proof for Haxe array-read contracts under strict TypeScript. */
@@ -108,7 +109,9 @@ class Main {
       secondaryArray.calls == 2 ? "secondary-array-once" : "unexpected",
       namedValues.shift(),
       namedValues.pop(),
-      discarded.length == 0 ? "discarded" : "unexpected"
+      discarded.length == 0 ? "discarded" : "unexpected",
+      ArrayCallbacks.findIndex(["first", "match"],
+        value -> value == "match") == 1 ? "native-find-index" : "unexpected"
     ];
     NodeConsole.log(transcript.join("|"));
   }
