@@ -9,13 +9,13 @@ export type FetchRequestInit = {
 }
 
 export type FetchResponse = {
-	json: <T>() => Promise<T>,
+	json: <T>() => globalThis.Promise<T>,
 	ok: boolean,
 	status: number
 }
 
 export class Fetch {
-	static fetch(url: string, init: FetchRequestInit): Promise<FetchResponse> {
+	static fetch(url: string, init: FetchRequestInit): globalThis.Promise<FetchResponse> {
 		return fetch(url, init);
 	}
 	static get __name__(): string {
