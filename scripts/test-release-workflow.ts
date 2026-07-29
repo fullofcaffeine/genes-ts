@@ -151,12 +151,18 @@ assert.match(release, /ref: \$\{\{ github\.sha \}\}/);
 assert.match(release, /fetch-depth: 0/);
 assert.match(release, /RELEASE_SOURCE_SHA: \$\{\{ github\.sha \}\}/);
 assert.match(release, /git tag --points-at HEAD/);
-assert.match(
+assert.doesNotMatch(
   release,
-  /node scripts\/release\/verify-host-controls\.cjs "\$\{\{ github\.repository \}\}"/
+  /verify-host-controls/,
+  "GITHUB_TOKEN cannot read Administration-scoped repository settings"
 );
 assert.match(release, /semantic_status=\$\?/);
 assert.match(release, /node scripts\/release\/complete-release\.cjs "\$tag"/);
+assert.match(
+  release,
+  /authoritative final Release reports immutable=true/,
+  "workflow must explain how CI verifies immutability without an admin token"
+);
 assert.doesNotMatch(
   release,
   /workflow_run|workflow_dispatch|actions\/cache|upload-artifact|download-artifact|environment:/
