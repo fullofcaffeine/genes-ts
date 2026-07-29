@@ -88,6 +88,7 @@ depend on formatting.
 | Module/member inventory | `src/genes/Module.hx` | Presents one emitter-facing module view and materializes declaration-only members without changing the runtime graph. |
 | Top-level output projection | `Module.memberProjection`, `src/genes/CompilerInternal.hx` | Separates local implementation presence, ESM export, consumer declarations, Haxe runtime registration, and source provenance. Printers consume these facts instead of treating one visibility flag as every policy. |
 | Public API facts | `src/genes/PublicSurface.hx` | Captures visibility, inheritance, generics, overload identity, and complete closed interface members before DCE. |
+| Callable generic scope | `src/genes/CallableSignaturePlan.hx`, `Module.fieldsOf` | Declares every type parameter named by a static callable's final Haxe signature, including parameters retained through inference, while preserving ordinary method parameters, constraints, and collision-safe identity across implementation and declaration output. |
 | Module directive prologues | `src/genes/ModuleDirectivePlan.hx` | Captures literal module intent before DCE, validates single-owner source order, and exposes one immutable plan without changing reachability. |
 | Null, undefined, and optionality | `src/genes/NullishContract.hx` | Keeps Haxe `Null<T>`, native `undefined`, optional fields, absent parameters, and unknown boundaries distinct. |
 | Dependency graphs and module-request order | `src/genes/DependencyPlan.hx`, `DependencyPlanBuilder.hx` | Records runtime-value, runtime-side-effect, type-only, and declaration-only edges with provenance; projects runtime requests by external/path/attribute identity into one ordered plan. |
@@ -127,6 +128,89 @@ dependency plan retains their exact `ModuleType` owners and the type printer
 uses the resulting collision-safe accessor. Compatibility with one library
 must therefore be expressed as a generic Haxe/TypeScript semantic rule, not a
 name allowlist or a fallback to `any`.
+
+### Static callable generic scope
+
+A generic parameter is the placeholder inside angle brackets, such as `T` in
+`Box<T>`. On an instance method, the class's `T` is available through the
+instance. A static method belongs to the class value itself, before any
+`Box<String>` or `Box<Int>` instance has been chosen, so TypeScript does not
+allow that method to use the class parameter implicitly.
+
+Haxe inference can expose a less obvious version of the same representation
+gap. In this example, `wrap` declares no generic parameter in source:
+
+```haxe
+class Factory<T> {
+  final payload:Payload<T>;
+
+  function new(payload:Payload<T>) {
+    this.payload = payload;
+  }
+
+  public static function wrap(payload) {
+    return new Factory(payload);
+  }
+}
+
+class Api {
+  public static function create<T>(value:T):Factory<T> {
+    return Factory.wrap(new Payload(value));
+  }
+}
+```
+
+While checking `Api.create<T>`, Haxe completes `Factory.wrap`'s inferred
+signature with that call site's `T`. The final typed Haxe field is effectively
+`(Payload<T>) -> Factory<T>`, even though `wrap` itself has no source-level
+`<T>`. Emitting the signature directly produces invalid TypeScript:
+
+```ts
+class Factory<T> {
+  static wrap(payload: Payload<T>): Factory<T> {
+    return new Factory<T>(payload);
+  }
+}
+```
+
+TypeScript reports that a static member cannot reference a class type
+parameter. The readable letter is misleading here: the retained compiler
+parameter came from `Api.create`, not from `Factory`. Matching the word `T`
+would therefore join two unrelated declarations and would fail as soon as two
+different parameters share a name.
+
+`CallableSignaturePlan` examines the final typed function signature before
+printing. For a static callable, it finds every referenced compiler
+`KTypeParameter` that the method did not already declare, closes over any other
+parameters used by its constraints, and gives the resulting scope to both the
+TypeScript implementation and classic declaration emitters:
+
+```ts
+class Factory<T> {
+  static wrap<T>(payload: Payload<T>): Factory<T> {
+    return new Factory<T>(payload);
+  }
+}
+```
+
+The runtime JavaScript is unchanged because generic parameters are erased. The
+dependency plan collects the projected parameters and their constraints before
+import aliases are allocated, so a constraint type referenced nowhere else
+still receives its type import.
+
+Haxe can clone a type-parameter reference while specializing a public field.
+The plan prefers the exact compiler declaration and joins those clones by the
+declaration's module, name, and source position. It never uses the name alone.
+If a class parameter and method parameter are both written as `T`, their
+different declaration positions remain separate and the TypeScript names
+become `T` and `T_1`.
+
+The projection is deliberately limited to callable signatures. A static
+property cannot acquire method-level `<T>` syntax, and a parameter appearing
+only in a method body gives callers no type position from which to bind it.
+Those cases require a different representation or a focused diagnostic.
+Ordinary method-declared generics remain in their authored order and are not
+declared twice.
 
 One such boundary comes from ordinary Haxe nullability. Unless a project opts
 into additional null-safety rules, Haxe can accept a `Null<Int>` expression
@@ -437,6 +521,7 @@ layer when a change affects more than one contract.
 | React event callback variance | `tests/hxx-event-variance/` | `yarn test:hxx-event-variance` |
 | Exported-surface rejection | `tests/typing-policy/`, `tests/publicsurface/` | `yarn test:types:exports` |
 | Classic `.d.ts` consumer behavior | `tests/classic-dts/` | `yarn test:classic:dts` |
+| Static callable generic inference, constraints, and declaration parity | `tests/staticcallable/`, `tests/TestStaticCallableSignature.hx` | `yarn test:genes-ts:full`; `yarn test:classic:dts` |
 | Nullish/map/iterator contract | `tests/nullish/`, `tests/deep-nullish-alias/` | Owning genes-ts/full/exported-surface gates and `yarn test:deep-nullish-alias` |
 | Type-only reachability and DCE | `tests/typeonly/`, `tests/type-roots/` | Owning genes-ts/full, dual-output, and `yarn test:type-roots` gates |
 | Same-source TS/classic parity | `tests/output-modes/` | `yarn test:dual-output` |

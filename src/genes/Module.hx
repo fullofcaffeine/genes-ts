@@ -36,6 +36,7 @@ typedef Field = {
   #end
   final isPublic: Bool;
   final params: Array<TypeParameter>;
+  final callableSignature: CallableSignaturePlan;
   final doc: Null<String>;
   final setter: Bool;
   final getter: Bool;
@@ -483,6 +484,7 @@ class Module {
     }
     function fieldFromPublicMember(member: PublicMember): Field {
       if (member.isConstructor) {
+        final constructorParameters = member.copyParameters();
         return {
           kind: Constructor,
           methodKind: null,
@@ -496,7 +498,9 @@ class Module {
           isAbstract: false,
           #end
           isPublic: true,
-          params: member.copyParameters(),
+          params: constructorParameters,
+          callableSignature: CallableSignaturePlan.build(cl, member.type,
+            constructorParameters, false),
           doc: member.doc,
           getter: false,
           setter: false,
@@ -510,6 +514,7 @@ class Module {
       final isVar = member.meta.has(':isVar');
       final disableNativeAccessors = member.meta.has(':genes.disableNativeAccessors')
         || classDisableNativeAccessors;
+      final memberParameters = paramsFor(member);
       return {
         kind: switch member.kind {
           case FVar(_, _): Property;
@@ -529,7 +534,9 @@ class Module {
         isAbstract: member.isAbstract,
         #end
         isPublic: true,
-        params: paramsFor(member),
+        params: memberParameters,
+        callableSignature: CallableSignaturePlan.build(cl, member.type,
+          memberParameters, member.isStatic && member.kind.match(FMethod(_))),
         doc: member.doc,
         getter: !disableNativeAccessors && !isVar
         && member.kind.match(FVar(AccCall, AccCall | AccNever)),
@@ -594,6 +601,7 @@ class Module {
           #end
           isPublic: ctor.get().isPublic,
           params: [],
+          callableSignature: CallableSignaturePlan.build(cl, e.t, [], false),
           doc: null,
           getter: false,
           setter: false,
@@ -629,6 +637,8 @@ class Module {
         #end
         isPublic: field.isPublic,
         params: field.params,
+        callableSignature: CallableSignaturePlan.build(cl, field.type,
+          field.params, false),
         doc: field.doc,
         getter: !disableNativeAccessors && !isVar
         && field.kind.match(FVar(AccCall, AccCall | AccNever)),
@@ -646,6 +656,20 @@ class Module {
       final isVar = field.meta.has(':isVar');
       final disableNativeAccessors = field.meta.has(':genes.disableNativeAccessors')
         || classDisableNativeAccessors;
+      final fieldParams = switch cl.kind {
+        case KAbstractImpl(_.get().params => params)
+          if (PublicSurface.ownershipFor(cl, field, true) == AbstractInstance
+            || PublicSurface.ownershipFor(cl, field,
+              true) == AbstractConstructor):
+          params.copy();
+        default: [];
+      }
+      for (param in field.params) {
+        if (fieldParams.filter(existing -> existing.name == param.name)
+          .length > 0)
+          continue;
+        fieldParams.push(param);
+      }
       fields.push({
         kind: switch field.kind {
           case FVar(_, _): Property;
@@ -665,23 +689,9 @@ class Module {
         isAbstract: false,
         #end
         isPublic: field.isPublic,
-        params: {
-          final params = switch cl.kind {
-            case KAbstractImpl(_.get().params => params)
-              if (PublicSurface.ownershipFor(cl, field,
-                true) == AbstractInstance
-                || PublicSurface.ownershipFor(cl, field,
-                  true) == AbstractConstructor):
-              params.copy();
-            default: [];
-          }
-          for (param in field.params) {
-            if (params.filter(p -> p.name == param.name).length > 0)
-              continue;
-            params.push(param);
-          }
-          params;
-        },
+        params: fieldParams,
+        callableSignature: CallableSignaturePlan.build(cl, field.type,
+          fieldParams, field.kind.match(FMethod(_))),
         doc: field.doc,
         getter: !disableNativeAccessors && !isVar
         && field.kind.match(FVar(AccCall, AccCall | AccNever)),

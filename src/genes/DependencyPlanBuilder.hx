@@ -420,8 +420,8 @@ class DependencyPlanBuilder {
           '$kind.member-signature-override', field.pos);
         return;
       }
-      collector.collectParams(field.params.map(parameter -> parameter.t),
-        true, '$kind.member-parameters', field.pos);
+      collector.collectParams(field.callableSignature.parameterTypes(), true,
+        '$kind.member-parameters', field.pos);
       collector.collect(field.type, '$kind.member-signature', field.pos);
       for (signature in field.overloads)
         collectSignature(signature);

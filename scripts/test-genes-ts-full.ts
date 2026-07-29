@@ -122,6 +122,32 @@ writeFileSync(
   ].join("\n")
 );
 
+// Haxe can retain a generic call-site parameter in an inferred static method
+// even though that method did not declare the parameter in source. This
+// consumer proves the generated method owns a usable generic scope and that an
+// ordinary declared method parameter was not duplicated.
+writeFileSync(
+  path.join(repoRoot, "tests/genes-ts/full/out/src-gen/StaticCallableSignatureConsumer.ts"),
+  [
+    'import {InferredStaticFactory, InferredStaticPayload, StaticCallableSignatureApi} from "./tests/staticcallable/InferredStaticFactory.js";',
+    'import {ConstrainedStaticFactory, ConstrainedStaticSignatureApi} from "./tests/staticcallable/ConstrainedStaticFactory.js";',
+    'import type {StaticConstraint} from "./tests/staticcallable/StaticConstraint.js";',
+    'const wrapped: InferredStaticFactory<string> = InferredStaticFactory.wrap(new InferredStaticPayload("typed"));',
+    "const ordinary: number = StaticCallableSignatureApi.ordinary(7);",
+    'const constrainedValue: StaticConstraint<string> = {get: () => "closed"};',
+    "const constrained: ConstrainedStaticFactory<StaticConstraint<string>> =",
+    "  ConstrainedStaticSignatureApi.create<string, StaticConstraint<string>>(constrainedValue);",
+    "// @ts-expect-error the projected wrap parameter remains string, not number",
+    'const invalidWrapped: InferredStaticFactory<number> = InferredStaticFactory.wrap(new InferredStaticPayload("wrong"));',
+    "// @ts-expect-error the ordinary declared method generic remains precise",
+    'const invalidOrdinary: number = StaticCallableSignatureApi.ordinary("wrong");',
+    "void wrapped; void ordinary; void constrained;",
+    "void invalidWrapped; void invalidOrdinary;",
+    "export {};",
+    ""
+  ].join("\n")
+);
+
 // Nullish contracts need negative programs under exact optional-property
 // semantics. Ordinary `strict` compilation would still accept explicit
 // `undefined` assignments to every `?` property and could not distinguish the
@@ -388,6 +414,51 @@ if (
 ) {
   throw new Error("Tink RegrouperBase still contains a weakened helper reference.");
 }
+
+const staticCallableOutput = readFileSync(
+  path.join(
+    repoRoot,
+    "tests/genes-ts/full/out/src-gen/tests/staticcallable/InferredStaticFactory.ts"
+  ),
+  "utf8"
+);
+if (
+  !staticCallableOutput.includes(
+    "static wrap<T>(payload: InferredStaticPayload<T>): InferredStaticFactory<T>"
+  )
+) {
+  throw new Error(
+    "An inferred static callable did not declare its retained free type parameter."
+  );
+}
+if (
+  !staticCallableOutput.includes("static ordinary<T>(value: T): T") ||
+  /static ordinary<T,\s*T>/.test(staticCallableOutput)
+) {
+  throw new Error(
+    "An ordinary declared static method parameter was lost or declared twice."
+  );
+}
+const constrainedStaticCallableOutput = readFileSync(
+  path.join(
+    repoRoot,
+    "tests/genes-ts/full/out/src-gen/tests/staticcallable/ConstrainedStaticFactory.ts"
+  ),
+  "utf8"
+);
+if (
+  !constrainedStaticCallableOutput.includes(
+    'import type {StaticConstraint} from "./StaticConstraint.js"'
+  ) ||
+  !constrainedStaticCallableOutput.includes(
+    "static wrap<Value extends StaticConstraint<Element>, Element>(value: Value): ConstrainedStaticFactory<Value>"
+  )
+) {
+  throw new Error(
+    "A projected static parameter lost its transitive constraint or planned type import."
+  );
+}
+
 const tinkNodeStreamOutput = readFileSync(
   path.join(
     repoRoot,

@@ -59,7 +59,9 @@ class SignatureCache {
 
   static inline function classFullName(cl: ClassType): String {
     final declaredPath = cl.pack.concat([cl.name]).join('.');
-    return (declaredPath == cl.module) ? declaredPath : (cl.module + '.' + cl.name);
+    return (declaredPath == cl.module) ? declaredPath : (cl.module
+      + '.'
+      + cl.name);
   }
 
   static inline function keyFor(clFullName: String, isStatic: Bool,
@@ -73,9 +75,9 @@ class SignatureCache {
 
   static inline function typedefKey(def: DefType): String {
     final declaredPath = def.pack.concat([def.name]).join('.');
-    return declaredPath == def.module
-      ? declaredPath
-      : def.module + '.' + def.name;
+    return declaredPath == def.module ? declaredPath : def.module
+      + '.'
+      + def.name;
   }
 
   static function posKey(pos: Position): String {
@@ -151,8 +153,9 @@ class SignatureCache {
             false;
           } else {
             seen.set(key, true);
-            sourceTypeWithEnumAbstract(
-              ab.type.applyTypeParameters(ab.params, params), depth + 1,
+            sourceTypeWithEnumAbstract(ab.type.applyTypeParameters(ab.params,
+              params), depth
+              + 1,
               seen) != null;
           }
         }
@@ -228,12 +231,16 @@ class SignatureCache {
         final innerUnion = enumAbstractLiteralUnionTsType(inner);
         if (innerUnion == null)
           return null;
-        return Context.defined('genes.ts.no_null_union') ? innerUnion : (innerUnion + ' | null');
+        return
+          Context.defined('genes.ts.no_null_union') ? innerUnion : (innerUnion
+          + ' | null');
       case TType(_.get() => {pack: [], name: "Null"}, [inner]):
         final innerUnion = enumAbstractLiteralUnionTsType(inner);
         if (innerUnion == null)
           return null;
-        return Context.defined('genes.ts.no_null_union') ? innerUnion : (innerUnion + ' | null');
+        return
+          Context.defined('genes.ts.no_null_union') ? innerUnion : (innerUnion
+          + ' | null');
       case TAbstract(_.get() => ab, _):
         if (!ab.meta.has(':enum'))
           return null;
@@ -248,7 +255,8 @@ class SignatureCache {
           decreaseIndent: () -> {},
           emitPos: _ -> {},
           includeType: _ -> {},
-          typeAccessor: _ -> 'X'
+          typeAccessor: _ -> 'X',
+          typeParameterName: parameter -> parameter.name
         };
         genes.dts.TypeEmitter.emitType(writer, normalized);
         final out = buf.toString();
@@ -262,11 +270,8 @@ class SignatureCache {
   }
 
   static function isLiteralTsType(out: String): Bool {
-    return out.indexOf('|') > -1
-      || StringTools.startsWith(out, '"')
-      || out == 'true'
-      || out == 'false'
-      || ~/^-?[0-9]+(\.[0-9]+)?$/.match(out);
+    return out.indexOf('|') > -1 || StringTools.startsWith(out, '"')
+      || out == 'true' || out == 'false' || ~/^-?[0-9]+(\.[0-9]+)?$/.match(out);
   }
 
   static function storeSig(cl: ClassType, isStatic: Bool, fieldName: String,
@@ -274,16 +279,18 @@ class SignatureCache {
     switch unlazy(fnType) {
       case TFun(args, ret):
         sigs.set(keyFor(classFullName(cl), isStatic, fieldName), {
-          args: [for (a in args) {
-            final nullish = NullishContract.forType(a.t);
-            {
-              opt: a.opt,
-              allowsNull: nullish.haxeAllowsNull,
-              preservesUndefined: nullish.preservesUndefined,
-              tsType: enumAbstractLiteralUnionTsType(a.t),
-              sourceType: sourceTypeWithEnumAbstract(a.t)
+          args: [
+            for (a in args) {
+              final nullish = NullishContract.forType(a.t);
+              {
+                opt: a.opt,
+                allowsNull: nullish.haxeAllowsNull,
+                preservesUndefined: nullish.preservesUndefined,
+                tsType: enumAbstractLiteralUnionTsType(a.t),
+                sourceType: sourceTypeWithEnumAbstract(a.t)
+              }
             }
-          }],
+          ],
           retTsType: enumAbstractLiteralUnionTsType(ret),
           retSourceType: sourceTypeWithEnumAbstract(ret)
         });
@@ -293,12 +300,12 @@ class SignatureCache {
 
   static function storeFieldType(cl: ClassType, isStatic: Bool,
       field: ClassField): Void {
-    final tsType = enumAbstractLiteralUnionTsType(
-      NullishContract.forField(field).emittedType);
+    final tsType = enumAbstractLiteralUnionTsType(NullishContract.forField(field)
+      .emittedType);
     if (tsType != null)
       fieldTsTypes.set(keyFor(classFullName(cl), isStatic, field.name), tsType);
-    final sourceType = sourceTypeWithEnumAbstract(
-      NullishContract.forField(field).emittedType);
+    final sourceType = sourceTypeWithEnumAbstract(NullishContract.forField(field)
+      .emittedType);
     if (sourceType != null)
       fieldSourceTypes.set(keyFor(classFullName(cl), isStatic, field.name),
         sourceType);
@@ -499,9 +506,9 @@ class SignatureCache {
     final sourceType = typedefSourceTypes.get(typedefKey(def));
     if (sourceType == null)
       return null;
-    return parameters.length == def.params.length
-      ? sourceType.applyTypeParameters(def.params, parameters)
-      : null;
+    return
+      parameters.length == def.params.length ? sourceType.applyTypeParameters(def.params,
+        parameters) : null;
   }
 
   public static function getLocalSourceType(variable: TVar): Null<Type> {

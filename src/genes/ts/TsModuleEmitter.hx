@@ -31,6 +31,7 @@ import genes.JsxPlan.JsxValueSource;
 import genes.TemplateLiteralPlan.TemplateLiteralIntent;
 import genes.JsonTypeSupport;
 import genes.ModuleFunctionPlan.ModuleFunctionEntry;
+import genes.CallableSignaturePlan;
 import haxe.ds.Option;
 import haxe.macro.Expr;
 import haxe.macro.Type;
@@ -78,6 +79,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   var localTsTypeOverrides: Map<Int, String> = [];
   var narrowingPlan: Null<TsNarrowingPlan> = null;
   var boundaryPlan: Null<TsBoundaryPlan> = null;
+  var currentCallableSignature: Null<CallableSignaturePlan> = null;
   var inRawSyntaxTemplate: Bool = false;
   var suppressOptionalFieldNullNormalization: Bool = false;
   var suppressPromiseResolveNullThenableCast: Bool = false;
@@ -118,7 +120,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       decreaseIndent: noop,
       emitPos: function(_pos) {},
       includeType: function(_type: Type) {},
-      typeAccessor: ctx.typeAccessor
+      typeAccessor: ctx.typeAccessor,
+      typeParameterName: parameter -> parameter.name
     };
     TypeEmitter.emitType(writer, t);
     return out.toString() == 'any';
@@ -1107,6 +1110,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     for (field in fields) {
       switch field.kind {
         case Property:
+          currentCallableSignature = null;
           // Skip native accessors for now (handled by JS emitter behavior).
           // Still declare the property name as a field so TS knows it exists.
           writeNewline();
@@ -1155,7 +1159,8 @@ class TsModuleEmitter extends JsModuleEmitter {
             write('declare static ');
             emitMemberName(staticName(cl, field));
             write(': ');
-            emitType(field.type, field.params);
+            currentCallableSignature = field.callableSignature;
+            emitType(field.type, field.callableSignature.parameters());
             write(';');
           }
         default:
@@ -1302,6 +1307,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       }
     }
 
+    currentCallableSignature = null;
+
     // Keep Genes runtime identity helpers.
     writeNewline();
     write('static get __name__(): string {');
@@ -1436,6 +1443,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       }
     }
 
+    currentCallableSignature = null;
     currentClass = prevClass;
   }
 
@@ -1470,6 +1478,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           // ModuleFunctionPlan rejects missing/non-function bodies.
       }
     }
+    currentCallableSignature = null;
     currentClass = previousClass;
   }
 
@@ -1668,21 +1677,19 @@ class TsModuleEmitter extends JsModuleEmitter {
    *
    * Alternate Haxe signatures can introduce their own generic parameters. The
    * TypeScript implementation signature mentions a union of those argument and
-   * return types, so their names must also be in scope there. Parameters with
-   * the same source name are emitted once; each public overload declaration
-   * still retains its own independently scoped generic list.
+   * return types, so their names must also be in scope there. Exact parameter
+   * identities are emitted once; unrelated parameters with the same source
+   * name receive collision-safe names. Each public overload declaration still
+   * retains its own independently scoped generic list.
    */
   function emitOverloadedImplementationTypeParams(field: GenesField): Void {
-    final parameters: Array<TypeParameter> = [];
     final signatures = field.overloads.copy();
     signatures.push(field);
-    for (signature in signatures) {
-      for (parameter in signature.params) {
-        if (!parameters.exists(existing -> existing.name == parameter.name))
-          parameters.push(parameter);
-      }
-    }
-    emitTypeParamDecls([for (parameter in parameters) parameter.t], true);
+    currentCallableSignature = CallableSignaturePlan.merge([
+      for (signature in signatures)
+        signature.callableSignature
+    ]);
+    emitTypeParamDecls(currentCallableSignature.parameterTypes(), true);
   }
 
   /**
@@ -1879,9 +1886,10 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   function emitMethodTypeParams(field: GenesField) {
-    if (field.params == null || field.params.length == 0)
+    currentCallableSignature = field.callableSignature;
+    if (currentCallableSignature.isEmpty())
       return;
-    emitTypeParamDecls(field.params.map(p -> p.t), true);
+    emitTypeParamDecls(currentCallableSignature.parameterTypes(), true);
   }
 
   function emitTypeParamDecls(params: Array<Type>, withConstraints: Bool) {
@@ -2538,7 +2546,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       decreaseIndent: noop,
       emitPos: (_: Dynamic) -> {},
       includeType: (_: Type) -> {},
-      typeAccessor: ctx.typeAccessor
+      typeAccessor: ctx.typeAccessor,
+      typeParameterName: parameter -> typeParameterName(parameter)
     }
     TypeEmitter.emitType(writer, type);
     return buf.toString();
@@ -4505,6 +4514,16 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   public function typeAccessor(type: TypeAccessor)
     return ctx.typeAccessor(type);
+
+  /** Resolves exact callable-generic identity inside the active method scope. */
+  public function typeParameterName(parameter: ClassType): String {
+    if (currentCallableSignature != null) {
+      final planned = currentCallableSignature.nameFor(parameter);
+      if (planned != null)
+        return planned;
+    }
+    return parameter.name;
+  }
 
   function emitType(type: Type, ?params: Array<TypeParameter>) {
     if (params != null && params.length > 0)

@@ -16,9 +16,9 @@ class Run {
       new TestCycle2(), new TestComments(), new TestTsTypes(),
       new TestTypeOnlyDce(), new TestTsGenerics(), new TestTypeAlias(),
       new TestSyntax(), new TestAsyncAwait(), new TestImportHelper(),
-      new TestUnknownNarrowing(), new TestJsonValue(),
-      new TestPublicSurface(), new TestNullishContract(),
-      new TestWebIdlSupport(), new TestRegroupTypeIdentity(),
+      new TestUnknownNarrowing(), new TestJsonValue(), new TestPublicSurface(),
+      new TestNullishContract(), new TestWebIdlSupport(),
+      new TestRegroupTypeIdentity(), new TestStaticCallableSignature(),
       #end
       new TestAsterisk(),
       new TestBind(),
