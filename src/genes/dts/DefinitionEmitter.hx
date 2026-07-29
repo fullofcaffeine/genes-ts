@@ -12,6 +12,7 @@ import genes.NullishContract;
 import genes.StdTypesSupport;
 import genes.JsonTypeSupport;
 import genes.CallableSignaturePlan;
+import genes.TypeAccessor;
 
 class DefinitionEmitter extends ModuleEmitter {
   var currentCallableSignature: Null<CallableSignaturePlan> = null;
@@ -19,7 +20,8 @@ class DefinitionEmitter extends ModuleEmitter {
   public function emitDefinition(module: Module) {
     final dependencies = module.declarationDependencies;
     final endTimer = timer('emitDefinition');
-    ctx.typeAccessor = dependencies.typeAccessor;
+    ctx.typeAccessor = type -> TypeAccessor.forTypeScript(type,
+      dependencies.typeAccessor);
     if (haxe.macro.Context.defined('genes.dts_banner')) {
       write(haxe.macro.Context.definedValue('genes.dts_banner'));
       writeNewline();

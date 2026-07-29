@@ -6,7 +6,7 @@ import type {FetchHeaders, FetchRequestInit, FetchResponse} from "../extern/Fetc
 
 export class Client {
 	static requestJson<T>(method: string, url: string, body: {
-	} | null = null): Promise<T> {
+	} | null = null): globalThis.Promise<T> {
 		const headers: FetchHeaders = {};
 		headers["Content-Type"] = "application/json";
 		const opts: FetchRequestInit = {"method": method, "headers": headers};
@@ -15,51 +15,51 @@ export class Client {
 		};
 		return Fetch.fetch(url, opts).then(function (res: FetchResponse) {
 			if (res.status == 204) {
-				return Promise.reject({"error": "no_content"});
+				return globalThis.Promise.reject({"error": "no_content"});
 			};
 			if (res.ok) {
 				return res.json();
 			};
-			const jp: Promise<ErrorResponse> = res.json();
+			const jp: globalThis.Promise<ErrorResponse> = res.json();
 			return jp.then(function (err: ErrorResponse) {
-				return Promise.reject(err);
+				return globalThis.Promise.reject(err);
 			});
 		});
 	}
-	static listTodos(): Promise<Todo[]> {
-		const p: Promise<TodoListResponse> = Client.requestJson("GET", "/api/todos");
+	static listTodos(): globalThis.Promise<Todo[]> {
+		const p: globalThis.Promise<TodoListResponse> = Client.requestJson("GET", "/api/todos");
 		return p.then(function (res: TodoListResponse) {
 			return res.todos;
 		});
 	}
-	static getTodo(id: string): Promise<Todo> {
-		const p: Promise<TodoResponse> = Client.requestJson("GET", "/api/todos/" + id);
+	static getTodo(id: string): globalThis.Promise<Todo> {
+		const p: globalThis.Promise<TodoResponse> = Client.requestJson("GET", "/api/todos/" + id);
 		return p.then(function (res: TodoResponse) {
 			return res.todo;
 		});
 	}
-	static createTodo(title: string): Promise<Todo> {
+	static createTodo(title: string): globalThis.Promise<Todo> {
 		const body: CreateTodoBody = {"title": title};
-		const p: Promise<TodoResponse> = Client.requestJson("POST", "/api/todos", body);
+		const p: globalThis.Promise<TodoResponse> = Client.requestJson("POST", "/api/todos", body);
 		return p.then(function (res: TodoResponse) {
 			return res.todo;
 		});
 	}
-	static updateTodo(id: string, patch: UpdateTodoBody): Promise<Todo> {
-		const p: Promise<TodoResponse> = Client.requestJson("PATCH", "/api/todos/" + id, patch);
+	static updateTodo(id: string, patch: UpdateTodoBody): globalThis.Promise<Todo> {
+		const p: globalThis.Promise<TodoResponse> = Client.requestJson("PATCH", "/api/todos/" + id, patch);
 		return p.then(function (res: TodoResponse) {
 			return res.todo;
 		});
 	}
-	static deleteTodo(id: string): Promise<boolean> {
+	static deleteTodo(id: string): globalThis.Promise<boolean> {
 		const headers: FetchHeaders = {};
 		return Fetch.fetch("/api/todos/" + id, {"method": "DELETE", "headers": headers}).then(function (res: FetchResponse) {
 			if (res.status == 204) {
-				return Promise.resolve(true);
+				return globalThis.Promise.resolve(true);
 			};
-			const jp: Promise<ErrorResponse> = res.json();
+			const jp: globalThis.Promise<ErrorResponse> = res.json();
 			return jp.then(function (err: ErrorResponse) {
-				return Promise.reject(err);
+				return globalThis.Promise.reject(err);
 			});
 		});
 	}

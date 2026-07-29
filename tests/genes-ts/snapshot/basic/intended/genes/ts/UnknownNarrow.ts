@@ -61,8 +61,8 @@ export class UnknownNarrow {
 	/**
 	 * Converts only native JavaScript Error instances.
 	 */
-	static nativeError(value: unknown): Error | null {
-		return (value) instanceof Error ? (value) : null;
+	static nativeError(value: unknown): globalThis.Error | null {
+		return (value) instanceof globalThis.Error ? (value) : null;
 	}
 	static get __name__(): string {
 		return "genes.ts.UnknownNarrow"

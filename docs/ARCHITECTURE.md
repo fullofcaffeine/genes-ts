@@ -92,7 +92,7 @@ depend on formatting.
 | Module directive prologues | `src/genes/ModuleDirectivePlan.hx` | Captures literal module intent before DCE, validates single-owner source order, and exposes one immutable plan without changing reachability. |
 | Null, undefined, and optionality | `src/genes/NullishContract.hx` | Keeps Haxe `Null<T>`, native `undefined`, optional fields, absent parameters, and unknown boundaries distinct. |
 | Dependency graphs and module-request order | `src/genes/DependencyPlan.hx`, `DependencyPlanBuilder.hx` | Records runtime-value, runtime-side-effect, type-only, and declaration-only edges with provenance; projects runtime requests by external/path/attribute identity into one ordered plan. |
-| Import bindings and aliases | `src/genes/BindingIdentity.hx`, `Dependencies.hx` | Keeps the requested module, selected export, requested local, and typed Haxe origin as separate facts; then allocates collision-safe locals. A binding-free request never invents a dependency name. `@:native` alone may identify a host global, while a declaration that also has `@:jsRequire` always resolves through its package binding and any normalized member path. |
+| Import bindings, aliases, and host globals | `src/genes/BindingIdentity.hx`, `TypeAccessor.hx`, `Dependencies.hx` | Keeps the requested module, selected export, requested local, and typed Haxe origin as separate facts; then allocates collision-safe locals. Exact compiler-owned JavaScript globals retain semantic identity and TypeScript renders them through `globalThis`. A binding-free request never invents a dependency name. `@:native` alone may identify a direct host value, while a declaration that also has `@:jsRequire` always resolves through its package binding and any normalized member path. |
 | Dynamic-import runtime requests | `src/genes/Genes.hx`, `src/genes/internal/DynamicImportMarker.hx`, `ExprEmitter.hx` | Carries an extension-free typed request from the macro to the shared emitter, which applies the current build's runtime suffix. Cached typing never owns `.ts`/`.tsx`/`.mjs` policy. |
 | Explicit generic-call witnesses | `src/genes/ExplicitTypeArguments.hx`, `src/genes/ts/ExplicitTypeArgumentCallSite.hx` | Keeps a pre-erasure type fact on the exact typed call occurrence. The carrier uses inert typed-null placeholders, both emitters erase it, and cached compiler-server trees never depend on a macro static registry or source position as identity. |
 | JSX intent, carrier ownership, provenance, and capability | `src/genes/JsxPlan.hx` | Represents markup before choosing TSX, `createElement`, classic lowering, or an unsupported diagnostic. A local linked-record carrier may preserve one-time evaluation, but no other read, write, or escape may change the compiler-owned structure after it is recognized. HXX marks direct nested elements/fragments with a distinct typed call; exact declaration/use facts may remove only that parser-owned scaffolding in source-preserving `.tsx`/`.jsx`, while positions remain mapping facts rather than ownership. |
@@ -128,6 +128,66 @@ dependency plan retains their exact `ModuleType` owners and the type printer
 uses the resulting collision-safe accessor. Compatibility with one library
 must therefore be expressed as a generic Haxe/TypeScript semantic rule, not a
 name allowlist or a fallback to `any`.
+
+### Host-global identity
+
+Some Haxe externs represent constructors that JavaScript already provides on
+its global object. `js.lib.Promise` and `js.lib.Error` are two examples. A Haxe
+module may also declare unrelated user classes with the same short names:
+
+```haxe
+class Promise {
+  public static function marker():String {
+    return "local";
+  }
+}
+
+function load():js.lib.Promise<String> {
+  return js.lib.Promise.resolve("ready");
+}
+```
+
+If Genes printed only the word `Promise`, TypeScript would resolve both uses to
+the local class. The local class is not generic and does not own the built-in
+`resolve` method:
+
+```ts
+export class Promise {
+  static marker(): string {
+    return "local";
+  }
+}
+
+// Wrong: both names now mean the local class.
+function load(): Promise<string> {
+  return Promise.resolve("ready");
+}
+```
+
+`TypeAccessor` keeps exact compiler declaration identity until the output
+profile chooses a spelling. TypeScript implementations and declarations use
+`globalThis` for the reviewed host identities, while ordinary local references
+remain local:
+
+```ts
+function load(): globalThis.Promise<string> {
+  return globalThis.Promise.resolve("ready");
+}
+```
+
+The same accessor feeds annotations, class values, `new`, static access,
+`instanceof`, `extends`, and cyclic superclass thunks, so those positions
+cannot disagree. Dependency collection consumes the same identity and collects
+only generic argument types; it never allocates an import for a host
+constructor.
+
+Haxe's JavaScript standard library also uses private `@:native("Error")`
+externs when implementing `haxe.Exception` and V8 stack support. Haxe rewrites
+their short name to `Error` but retains their defining module. Genes recognizes
+those compiler-owned aliases by exact module identity. It does not classify
+every user-authored `@:native("Error")` extern as the built-in constructor.
+Classic JavaScript keeps its established unqualified runtime spelling;
+TypeScript-readable source and declarations use the collision-proof spelling.
 
 ### Static callable generic scope
 

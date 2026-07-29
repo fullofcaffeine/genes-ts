@@ -172,8 +172,12 @@ assertNativeAsync(
 );
 assertNativeAsync("classic Genes", classicSource);
 assertNativeAsync("genes-ts", tsSource);
-ok(tsSource.includes("static async staticAsync(value: number): Promise<number>"));
-ok(tsSource.includes("async instanceAsync(value: number): Promise<number>"));
+ok(tsSource.includes(
+  "static async staticAsync(value: number): globalThis.Promise<number>"
+));
+ok(tsSource.includes(
+  "async instanceAsync(value: number): globalThis.Promise<number>"
+));
 ok(tsSource.includes("async function (value: number)"));
 ok(tsSource.includes("(await Main.tracked(\"property\", 10)).label"));
 ok(tsSource.includes("(await Main.tracked(\"index\", 20)).values[1]"));

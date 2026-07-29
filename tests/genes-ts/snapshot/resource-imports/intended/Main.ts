@@ -9,7 +9,7 @@ export type ResourceModule = {
 export class Main {
 	declare static Prompt: string;
 	declare static Sound: string;
-	static loadParser(): Promise<ResourceModule> {
+	static loadParser(): globalThis.Promise<ResourceModule> {
 		return import("./resources/parser.wasm" as string, { with: { type: "wasm" } });
 	}
 	static main(): void {

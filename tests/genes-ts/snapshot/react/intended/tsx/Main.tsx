@@ -78,9 +78,9 @@ export class Main {
 	static syncFormAction(data: globalThis.FormData): void {
 		data.has("title");
 	}
-	static asyncFormAction(data: globalThis.FormData): Promise<void> {
+	static asyncFormAction(data: globalThis.FormData): globalThis.Promise<void> {
 		data.has("title");
-		return Promise.resolve();
+		return globalThis.Promise.resolve();
 	}
 	static main(): void {
 		const title: string = "Hi";

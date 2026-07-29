@@ -30,6 +30,10 @@ export const acceptanceOwnedFocusedGates = [
   {
     packageScript: "test:abstract-implementation-properties",
     compiledScript: "scripts/dist/test-abstract-implementation-properties.js"
+  },
+  {
+    packageScript: "test:host-global-identity",
+    compiledScript: "scripts/dist/test-host-global-identity.js"
   }
 ] as const;
 

@@ -153,6 +153,6 @@
     "classicModule": "tests/output-modes/out/classic/dual/Main.js",
     "tsModule": "tests/output-modes/out/ts/dist/dual/Main.js",
     "tsGenerated": "tests/output-modes/out/ts/src-gen/dual/Main.ts",
-    "tsNeedle": "throw new Error(\"GENES_SOURCE_MAP_PROBE\")"
+    "tsNeedle": "throw new globalThis.Error(\"GENES_SOURCE_MAP_PROBE\")"
   }
 }

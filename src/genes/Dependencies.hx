@@ -620,7 +620,7 @@ class Dependencies {
 
   public function typeAccessor(type: TypeAccessor)
     return switch type {
-      case CoreAbstract(name) | DirectValue(name): name;
+      case CoreAbstract(name) | DirectValue(name) | HostGlobal(name): name;
       case ImportedDeclaration(key, fallbackName, dependencyPath, external,
           pos):
         final origin = BindingOriginKey.HaxeDeclaration(key);

@@ -537,12 +537,14 @@ class TypeEmitter {
             write('>');
           case [{module: "js.lib.Promise", name: "Promise"}, [elemT]]:
             emitPos(cl.pos);
-            write('Promise<');
+            write(writer.typeAccessor(TClassDecl(ref)));
+            write('<');
             emitType(writer, elemT);
             write('>');
           case [{module: "js.lib.Promise", name: "Promise"}, []]:
             emitPos(cl.pos);
-            write('Promise<any>');
+            write(writer.typeAccessor(TClassDecl(ref)));
+            write('<any>');
           case [{module: "js.lib.Iterator", name: "Iterator"}, [elemT]]:
             emitPos(cl.pos);
             write('IterableIterator<');

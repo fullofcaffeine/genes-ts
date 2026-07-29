@@ -716,7 +716,7 @@ class Module {
 
   public function createContext(api: haxe.macro.JSGenApi): genes.Context {
     final typeAccessor = (type: TypeAccessor) -> switch type {
-      case CoreAbstract(name) | DirectValue(name): name;
+      case CoreAbstract(name) | DirectValue(name) | HostGlobal(name): name;
       case ImportedDeclaration(_, fallbackName, _, _, _): fallbackName;
       case ImportedAlias(_, fallbackName, _, _, _, _): fallbackName;
       case ImportedStaticField(_, fallbackName, _): fallbackName;
