@@ -154,6 +154,20 @@ function assertModuleValueSourceMap(profile: "classic" | "ts" | "tsx",
   strictEqual(initializer.line,
     sourceLine(haxeSource, 'title: "direct module value"'),
     `${profile} module value initializer keeps its exact Haxe source line`);
+
+  const asyncDeclaration = map.originalPositionFor(
+    generatedPoint(source, "async function topLevelAsync"));
+  strictEqual(asyncDeclaration.line,
+    sourceLine(haxeSource, "function topLevelAsync"),
+    `${profile} async module function maps to its Haxe declaration`);
+
+  const awaitedValue = map.originalPositionFor(
+    generatedPoint(source, profile === "classic"
+      ? "await Promise.resolve"
+      : "await globalThis.Promise.resolve"));
+  strictEqual(awaitedValue.line,
+    sourceLine(haxeSource, "final resolved = await"),
+    `${profile} relocated await keeps its Haxe source line`);
 }
 
 function assertImplementationShape(relative: string): void {
@@ -248,6 +262,17 @@ function assertTopLevelImplementationShape(relative: string): void {
     ok(!source.includes("deadMetadata")
       && !source.includes("must not reach output"),
       `${relative} proves module-value metadata does not create a DCE root`);
+    if (relative.endsWith(".js")) {
+      ok(source.includes("export async function topLevelAsync(value)")
+        && source.includes("const resolved = await Promise.resolve(value)"),
+        `${relative} emits one direct native async/await module function`);
+    } else {
+      ok(source.includes(
+        "export async function topLevelAsync(value: number): globalThis.Promise<number>")
+        && source.includes(
+          "const resolved: number = await globalThis.Promise.resolve(value)"),
+        `${relative} emits one direct typed native async/await module function`);
+    }
   }
 }
 
@@ -402,6 +427,17 @@ console.log(
     }).trim().split(/\r?\n/).at(-1) === "true";
 }
 
+function asyncModuleRuntime(): number {
+  const program = `
+import {topLevelAsync} from "./tests/module-functions/out/classic/module_functions/TopLevel.js";
+console.log(await topLevelAsync(41));`;
+  return Number(execFileSync(process.execPath,
+    ["--input-type=module", "--eval", program], {
+      cwd: repoRoot,
+      encoding: "utf8"
+    }).trim());
+}
+
 const negativeCases = [
   ["module_function_arity", "GENES-MODULE-FUNCTION-ARITY-001"],
   ["module_function_arity_multiple", "GENES-MODULE-FUNCTION-ARITY-001"],
@@ -418,6 +454,10 @@ const negativeCases = [
   ["module_function_generic_owner", "GENES-MODULE-FUNCTION-OWNER-007"],
   ["module_function_overload", "GENES-MODULE-FUNCTION-OVERLOAD-009"],
   ["module_function_raw_syntax", "GENES-MODULE-FUNCTION-LEXICAL-010"],
+  [
+    "module_function_non_async_await_syntax",
+    "GENES-MODULE-FUNCTION-LEXICAL-010"
+  ],
   ["module_function_property", "GENES-MODULE-FUNCTION-SHAPE-006"],
   ["module_function_prototype", "GENES-MODULE-FUNCTION-SHAPE-006"],
   ["module_function_duplicate_native", "GENES-MODULE-FUNCTION-SHAPE-006"],
@@ -560,7 +600,8 @@ for (const relative of [
     && source.includes("topLevelIdentity as topLevelIdentity__1"),
     `${relative} preserves same-named module-local ESM identity`);
   ok(source.includes('topLevelIdentity, metadata')
-    || source.includes('topLevelIdentity,metadata'),
+    || source.includes('topLevelIdentity,metadata')
+    || source.includes('topLevelAsync, topLevelIdentity, metadata'),
     `${relative} imports the direct module value with its sibling function`);
   ok(source.includes('metadata as metadata__1'),
     `${relative} aliases the sibling module value collision safely`);
@@ -602,6 +643,8 @@ strictEqual(exactRuntimeIdentity(), true,
   "the final class property is the exact module-function object");
 strictEqual(exactPublicRuntimeIdentity(), true,
   "owner, public binding, and root re-export share one function identity");
+strictEqual(asyncModuleRuntime(), 42,
+  "the direct classic module function preserves native async/await runtime behavior");
 deepStrictEqual(runtime.descriptor, {
   configurable: true,
   enumerable: false,
@@ -663,6 +706,9 @@ ok(classicTopLevelDeclaration.includes(
 ok(classicTopLevelDeclaration.includes(
   "export const metadata: ModuleMetadata"),
   "classic declarations preserve the direct typed module value");
+ok(classicTopLevelDeclaration.includes(
+  "export const topLevelAsync: (value: number) => globalThis.Promise<number>"),
+  "classic declarations preserve the direct async module function");
 const tsDeclaration = readFileSync(path.join(outputRoot,
   "ts/dist/out/ts/src-gen/module_functions/Selected.d.ts"), "utf8");
 ok(tsDeclaration.includes("static selected"));
@@ -686,6 +732,9 @@ ok(tsTopLevelDeclaration.includes(
 ok(tsTopLevelDeclaration.includes(
   "export declare const metadata: ModuleMetadata"),
   "tsc declarations preserve the direct typed module value");
+ok(tsTopLevelDeclaration.includes(
+  "export declare function topLevelAsync(value: number): globalThis.Promise<number>"),
+  "tsc declarations preserve the direct async module function");
 const tsxDeclaration = readFileSync(path.join(outputRoot,
   "ts/dist/out/tsx/src-gen/module_functions/Selected.d.ts"), "utf8");
 strictEqual(tsxDeclaration, tsDeclaration,

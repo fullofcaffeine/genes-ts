@@ -217,6 +217,49 @@ therefore export the same conventional name (for example `render`) without a
 false global collision; callers receive the ordinary collision-safe ESM import
 alias.
 
+### Async module functions
+
+Genes' typed async authoring composes with the same direct module shape:
+
+```haxe
+import genes.js.Async.await;
+import js.lib.Promise;
+
+@:async
+@:genes.moduleFunction("loadCount")
+function loadCount(value:Int):Promise<Int> {
+	final resolved = await(Promise.resolve(value));
+	return resolved + 1;
+}
+```
+
+TypeScript output remains one ordinary typed native function:
+
+```ts
+export async function loadCount(
+  value: number
+): globalThis.Promise<number> {
+  const resolved: number = await globalThis.Promise.resolve(value);
+  return resolved + 1;
+}
+```
+
+Classic output keeps the same runtime semantics without TypeScript types:
+
+```js
+export async function loadCount(value) {
+  const resolved = await Promise.resolve(value)
+  return resolved + 1
+}
+```
+
+`@:async` and `await(...)` are Genes language/tooling features, not a scheduler
+or Promise replacement. The async transform records the typed `:jsAsync`
+function fact; module-function validation then admits only its exact
+`await {0}` target template and still recursively checks the operand. The same
+template in a non-async method, any other raw target template, or an awaited
+operand containing a class-lexical escape still fails before publication.
+
 ## What remains equivalent
 
 For admitted methods, Genes preserves:
@@ -260,7 +303,7 @@ The supported shape accepts:
 - one retained public static `MethNormal` method with a typed function body;
 - method-local type parameters and constraints;
 - ordinary, optional/default, and rest arguments;
-- synchronous or `@:jsAsync` methods;
+- synchronous, `@:jsAsync`, or Genes-authored `@:async` methods;
 - simple ASCII `@:native` class-property spellings;
 - private static helper calls and Haxe local statics, which Haxe 4.3.7 has
   already lowered to ordinary owner-field access before Genes plans output;
@@ -273,11 +316,13 @@ raw target text could conceal `this`, `super`, or `new.target`, so the compiler
 cannot prove that changing lexical location is safe. The only admitted
 `js.Syntax` calls are an exact, arity-checked set of compiler-library
 identity/undefined templates (`undefined`, `{0}`, `{0} ?? null`, and
-`({0}) === undefined`) plus `construct` with a resolved Haxe type expression.
-The latter is required by Haxe's typed JavaScript `Array.map` implementation,
-which allocates its result as `js.Syntax.construct(Array, length)`. Constructor
-arguments remain part of the ordinary typed traversal, while string-named
-constructors remain opaque. The focused runtime suite covers both boundaries.
+`({0}) === undefined`), the exact `await {0}` template under an already typed
+native-async owner, plus `construct` with a resolved Haxe type expression. The
+latter is required by Haxe's typed JavaScript `Array.map` implementation, which
+allocates its result as `js.Syntax.construct(Array, length)`. Every admitted
+argument remains part of the ordinary typed traversal, while non-async await,
+string-named constructors, and arbitrary templates remain opaque. The focused
+runtime and rollback suite covers both admitted and rejected boundaries.
 Similar-looking or newly introduced raw templates still fail closed until they
 receive an explicit generalized proof.
 

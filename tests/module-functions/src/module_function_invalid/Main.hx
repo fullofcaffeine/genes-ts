@@ -51,6 +51,8 @@ class Invalid {
   @:overload(function(value: String): String {})
   #elseif module_function_raw_syntax
   @:genes.moduleFunction("rawSyntaxFunction")
+  #elseif module_function_non_async_await_syntax
+  @:genes.moduleFunction("nonAsyncAwaitSyntax")
   #elseif module_function_property
   @:genes.moduleFunction("propertyFunction")
   #elseif module_function_prototype
@@ -98,6 +100,8 @@ class Invalid {
 #if !module_function_property
 #if module_function_raw_syntax
 return js.Syntax.code("{0} + 1", value);
+#elseif module_function_non_async_await_syntax
+return js.Syntax.code("await {0}", value);
 #elseif module_function_import_collision
 return ImportedBinding.value();
 #elseif module_function_private_helper_collision
