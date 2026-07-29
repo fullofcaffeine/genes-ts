@@ -1,0 +1,10 @@
+-lib genes-ts
+-cp tests/byte-buffer-cache/src
+-cp tests/byte-buffer-cache/negative-src
+--main bytecache.negative.Main
+-js tests/byte-buffer-cache/out/negative/src-gen/index.ts
+-D genes.ts
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
+-debug

@@ -1,0 +1,10 @@
+-lib genes-ts
+-lib hxnodejs
+-cp tests/byte-buffer-cache/src
+--main bytecache.Main
+-js tests/byte-buffer-cache/out/standard/index.cjs
+-D genes.disable
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
+-debug

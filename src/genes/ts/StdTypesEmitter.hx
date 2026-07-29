@@ -23,9 +23,7 @@ class StdTypesEmitter {
    */
   public static function emit(path: String,
       ?outputTransaction: OutputTransaction): Void {
-    final writer = outputTransaction == null
-      ? Writer.bufferedFileWriter(path)
-      : outputTransaction.writer(path);
+    final writer = outputTransaction == null ? Writer.bufferedFileWriter(path) : outputTransaction.writer(path);
     final emitter = new StdTypesEmitter(writer);
     emitter.emitModule();
   }
@@ -76,10 +74,21 @@ class StdTypesEmitter {
     writer.write('  interface DateConstructor { __name__?: HxRuntimeName }\n');
     writer.write('  interface Date { __class__?: Function }\n');
     // `haxe.io.Bytes` caches Haxe wrappers and byte views directly on the
-    // native buffers it owns. These optional properties describe exactly the
-    // three writes in Haxe 4.3.7's JS stdlib; they are not general index
-    // signatures and do not make unrelated built-in members legal.
-    writer.write('  interface Uint8Array { bufferValue?: ArrayBuffer }\n');
+    // native buffers it owns. hxnodejs performs the same writes on Node
+    // `Buffer`, which is a true `Uint8Array` subclass:
+    //
+    // ```haxe
+    // data.hxBytes = bytes;
+    // data.bytes = byteView;
+    // byteView.bufferValue = data;
+    // ```
+    //
+    // The generated declarations stay optional because an arbitrary native
+    // buffer has not necessarily passed through either runtime. Exact Haxe
+    // cache reads receive a separate planned `?? null`, `!`, or identity
+    // assertion; making these global fields required would be dishonest.
+    // These named properties are not a broad index signature.
+    writer.write('  interface Uint8Array { bufferValue?: ArrayBuffer | Uint8Array; hxBytes?: object; bytes?: Uint8Array }\n');
     writer.write('  interface ArrayBuffer { hxBytes?: object; bytes?: Uint8Array }\n');
   }
 

@@ -11,7 +11,7 @@ declare global {
   interface ArrayConstructor { __name__?: HxRuntimeName }
   interface DateConstructor { __name__?: HxRuntimeName }
   interface Date { __class__?: Function }
-  interface Uint8Array { bufferValue?: ArrayBuffer }
+  interface Uint8Array { bufferValue?: ArrayBuffer | Uint8Array; hxBytes?: object; bytes?: Uint8Array }
   interface ArrayBuffer { hxBytes?: object; bytes?: Uint8Array }
   interface PositionError { readonly code: number; readonly message: string }
   var PositionError: { readonly PERMISSION_DENIED: 1; readonly POSITION_UNAVAILABLE: 2; readonly TIMEOUT: 3; readonly prototype: PositionError };

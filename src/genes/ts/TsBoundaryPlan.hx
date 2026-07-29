@@ -3,6 +3,7 @@ package genes.ts;
 #if macro
 import genes.Module;
 import genes.NullishContract;
+import genes.LocalBindingPlan;
 import genes.util.TypeUtil;
 import haxe.ds.ObjectMap;
 import haxe.macro.Context;
@@ -43,6 +44,42 @@ enum abstract TsBoundarySite(String) to String {
   var ConstructorArgument = "constructor-argument";
   var EnumConstructorArgument = "enum-constructor-argument";
   var RuntimeGuardedBinding = "runtime-guarded-binding";
+}
+
+/**
+ * TypeScript-only projection for one Haxe runtime byte-cache read.
+ *
+ * The host declarations keep these properties optional because an arbitrary
+ * JavaScript buffer has not necessarily passed through `haxe.io.Bytes`.
+ * Haxe's JS runtime nevertheless has two narrower read contracts:
+ *
+ * - `hxBytes` is a nullable cached `Bytes` wrapper, so JavaScript `undefined`
+ *   must first become Haxe `null` and then cross the typed boundary.
+ * - `bufferValue` is read from the private storage of a typed `haxe.io.Bytes`
+ *   instance, after the runtime has initialized it. TypeScript needs a
+ *   presence assertion and the exact Haxe destination because Haxe writes an
+ *   ArrayBuffer while hxnodejs writes a Uint8Array subclass.
+ *
+ * The optional `bytes` cache is intentionally not bridged. `Bytes.fastGet`
+ * is normally inlined before Genes sees the typed AST, so an arbitrary
+ * same-named native-buffer read cannot be proven to come from that API.
+ */
+enum TsRuntimeByteCacheReadAction {
+  NullableWrapper(target: Type);
+  InitializedValueAs(target: Type);
+}
+
+class TsRuntimeByteCacheRead {
+  public final expression: TypedExpr;
+  public final action: TsRuntimeByteCacheReadAction;
+  public final pos: Position;
+
+  public function new(expression: TypedExpr,
+      action: TsRuntimeByteCacheReadAction) {
+    this.expression = expression;
+    this.action = action;
+    this.pos = expression.pos;
+  }
 }
 
 /**
@@ -305,6 +342,8 @@ class TsBoundaryPlan {
   final hostCallbackBridges: ObjectMap<TypedExpr, TsHostCallbackBridge>;
   final runtimeGuardBridges: ObjectMap<TypedExpr, TsRuntimeGuardBridge>;
   final runtimeGuardDecisions: Array<TsRuntimeGuardBridge>;
+  final runtimeByteCacheReads: ObjectMap<TypedExpr, TsRuntimeByteCacheRead>;
+  final runtimeByteCacheReadDecisions: Array<TsRuntimeByteCacheRead>;
   final valueBridges: Array<TsValueBridge>;
 
   public static function build(module: Module): TsBoundaryPlan {
@@ -366,6 +405,8 @@ class TsBoundaryPlan {
       hostCallbackBridges: ObjectMap<TypedExpr, TsHostCallbackBridge>,
       runtimeGuardBridges: ObjectMap<TypedExpr, TsRuntimeGuardBridge>,
       runtimeGuardDecisions: Array<TsRuntimeGuardBridge>,
+      runtimeByteCacheReads: ObjectMap<TypedExpr, TsRuntimeByteCacheRead>,
+      runtimeByteCacheReadDecisions: Array<TsRuntimeByteCacheRead>,
       valueBridges: Array<TsValueBridge>) {
     this.enumCalls = enumCalls;
     this.enumDecisions = enumDecisions.copy();
@@ -381,6 +422,8 @@ class TsBoundaryPlan {
     this.hostCallbackBridges = hostCallbackBridges;
     this.runtimeGuardBridges = runtimeGuardBridges;
     this.runtimeGuardDecisions = runtimeGuardDecisions.copy();
+    this.runtimeByteCacheReads = runtimeByteCacheReads;
+    this.runtimeByteCacheReadDecisions = runtimeByteCacheReadDecisions.copy();
     this.valueBridges = valueBridges.copy();
   }
 
@@ -429,6 +472,11 @@ class TsBoundaryPlan {
     return runtimeGuardBridges.get(initializer);
   }
 
+  /** Returns the exact Haxe runtime byte-cache decision for this field read. */
+  public function runtimeByteCacheRead(expression: TypedExpr): Null<TsRuntimeByteCacheRead> {
+    return runtimeByteCacheReads.get(expression);
+  }
+
   /** Every planned type reference, in deterministic source order. */
   public function referencedTypes(): Array<TsBoundaryReference> {
     final result = new Array<TsBoundaryReference>();
@@ -472,6 +520,21 @@ class TsBoundaryPlan {
         pos: bridge.pos,
         rule: RuntimeGuardedBinding
       });
+    for (decision in runtimeByteCacheReadDecisions)
+      switch decision.action {
+        case NullableWrapper(target):
+          result.push({
+            type: target,
+            pos: decision.pos,
+            rule: "runtime-byte-cache-read"
+          });
+        case InitializedValueAs(target):
+          result.push({
+            type: target,
+            pos: decision.pos,
+            rule: "runtime-byte-cache-read"
+          });
+      }
     return result;
   }
 }
@@ -493,24 +556,43 @@ private class TsBoundaryPlanBuilder {
   final hostCallbackBridges = new ObjectMap<TypedExpr, TsHostCallbackBridge>();
   final runtimeGuardBridges = new ObjectMap<TypedExpr, TsRuntimeGuardBridge>();
   final runtimeGuardDecisions = new Array<TsRuntimeGuardBridge>();
+  final runtimeByteCacheReads = new ObjectMap<TypedExpr,
+    TsRuntimeByteCacheRead>();
+  final runtimeByteCacheReadDecisions = new Array<TsRuntimeByteCacheRead>();
+  final prototypeBackedLocals = new Map<Int, Type>();
   // Haxe lowering can clone TVar wrapper objects. The compiler-assigned id is
   // the stable, function-local identity also used by Genes' name/flow plans.
   final exceptionUnwrapLocals = new Map<Int, Bool>();
   final valueBridges = new Array<TsValueBridge>();
   var narrowingPlan: Null<TsNarrowingPlan>;
+  var localBindingPlan: Null<LocalBindingPlan>;
+  var currentOwnerModule: Null<String>;
+  var currentOwnerName: Null<String>;
+  var currentFieldName: Null<String>;
 
   public function new() {}
 
   public function build(module: Module): TsBoundaryPlan {
     narrowingPlan = module.tsNarrowingPlan;
+    localBindingPlan = module.localBindingPlan;
     for (member in module.members) {
       switch member {
         case MClass(classType, _, fields):
-          for (field in fields)
+          currentOwnerModule = classType.module;
+          currentOwnerName = classType.name;
+          for (field in fields) {
+            currentFieldName = field.name;
             visit(field.expr, field.type, null);
+          }
+          currentFieldName = null;
           if (classType.init != null)
             visit(classType.init, classType.init.t, null);
+          currentOwnerModule = null;
+          currentOwnerName = null;
         case MMain(expression):
+          currentOwnerModule = null;
+          currentOwnerName = null;
+          currentFieldName = null;
           visit(expression, expression.t, null);
         case MEnum(_, _) | MType(_, _):
       }
@@ -519,7 +601,8 @@ private class TsBoundaryPlanBuilder {
       enumReferenceDecisions, calls, callDecisions, constructors,
       constructorDecisions, returnBridges, initializerBridges,
       assignmentBridges, hostCallbackBridges, runtimeGuardBridges,
-      runtimeGuardDecisions, valueBridges);
+      runtimeGuardDecisions, runtimeByteCacheReads,
+      runtimeByteCacheReadDecisions, valueBridges);
   }
 
   /**
@@ -540,14 +623,20 @@ private class TsBoundaryPlanBuilder {
         visit(fn.expr, null, fn.t);
       case TReturn(value):
         if (value != null) {
-          planValueBridge(expression, ReturnValue, value, currentReturn,
-            returnBridges);
+          if (!planPrototypeBackedReturn(expression, value, currentReturn))
+            planValueBridge(expression, ReturnValue, value, currentReturn,
+              returnBridges);
           visit(value, currentReturn, currentReturn);
         }
       case TVar(variable, initializer):
         if (initializer != null) {
           if (isExceptionCaughtUnwrap(initializer))
             exceptionUnwrapLocals.set(variable.id, true);
+          final prototypeTarget = isCurrentField("js.node.buffer.Buffer",
+            "Helper",
+            "bytesOfBuffer") ? prototypeCreatedType(initializer) : null;
+          if (prototypeTarget != null)
+            prototypeBackedLocals.set(variable.id, prototypeTarget);
           planValueBridge(expression, VariableInitializer, initializer,
             variable.t, initializerBridges, initializer);
           visit(initializer, variable.t, currentReturn);
@@ -609,8 +698,200 @@ private class TsBoundaryPlanBuilder {
         final element = arrayElement(expected);
         for (value in values)
           visit(value, element, currentReturn);
+      case TField(receiver, field):
+        planRuntimeByteCacheRead(expression, receiver, field, expected);
+        visit(receiver, null, currentReturn);
       default:
         expression.iter(child -> visit(child, null, currentReturn));
+    }
+  }
+
+  /**
+   * Plans the two private cache reads whose runtime provenance survives in
+   * the typed AST produced from Haxe's JS `Bytes` implementation.
+   *
+   * Why: the ambient declarations must keep the fields optional for arbitrary
+   * native buffers, but Haxe's untyped standard-library code carries a
+   * stronger contract at specific reads. A nullable `hxBytes` lookup observes
+   * an absent JavaScript property as Haxe `null`; a `bufferValue` read from a
+   * typed `Bytes` object's private storage follows its initialized backing
+   * buffer. The third cache, `bytes`, is declared but deliberately not planned
+   * because normal inlining erases the `Bytes.fastGet` call identity.
+   *
+   * How: require the original untyped `FDynamic` access, the exact property
+   * name, and the compiler-owned API that establishes its meaning.
+   * `hxBytes` is limited to Haxe's `Bytes.ofData`; `bufferValue` must be read
+   * from the exact private storage field of a typed `haxe.io.Bytes` instance.
+   * A same-named read from a fresh native buffer has no proof and therefore
+   * receives no decision.
+   */
+  function planRuntimeByteCacheRead(expression: TypedExpr,
+      receiver: TypedExpr, field: FieldAccess, expected: Null<Type>): Void {
+    final name = switch field {
+      case FDynamic(value): value;
+      default: return;
+    };
+
+    final action: Null<TsRuntimeByteCacheReadAction> = switch name {
+      case "hxBytes"
+        if (isCurrentField("haxe.io.Bytes", "Bytes", "ofData")
+          && isArrayBufferStorage(receiver.t)):
+        if (expected != null && isNullableHaxeBytes(expected))
+          NullableWrapper(expected) else null;
+      case "bufferValue"
+        if (isUint8ArrayStorage(receiver.t)
+          && isHaxeBytesStorageField(receiver)):
+        final target = expected == null ? expression.t : expected;
+        if (isExactArrayBuffer(target)) InitializedValueAs(target) else null;
+      default:
+        null;
+    };
+    if (action == null)
+      return;
+
+    final decision = new TsRuntimeByteCacheRead(expression, action);
+    runtimeByteCacheReads.set(expression, decision);
+    runtimeByteCacheReadDecisions.push(decision);
+  }
+
+  static function isNullableHaxeBytes(type: Type): Bool {
+    final contract = NullishContract.forType(type);
+    if (!contract.haxeAllowsNull || contract.preservesUndefined)
+      return false;
+    return isExactHaxeBytes(NullishContract.stripHaxeNull(type));
+  }
+
+  static function isExactHaxeBytes(type: Type): Bool {
+    return switch resolve(type) {
+      case TInst(_.get() => {module: "haxe.io.Bytes", name: "Bytes"}, []):
+        true;
+      default:
+        false;
+    }
+  }
+
+  static function isArrayBufferStorage(type: Type): Bool {
+    return isClassOrSubclass(type, "js.lib.ArrayBuffer", "ArrayBuffer");
+  }
+
+  static function isExactArrayBuffer(type: Type): Bool {
+    return switch resolve(type) {
+      case TInst(_.get() => {
+        module: "js.lib.ArrayBuffer",
+        name: "ArrayBuffer"
+      }, []):
+        true;
+      default:
+        false;
+    }
+  }
+
+  static function isUint8ArrayStorage(type: Type): Bool {
+    return isClassOrSubclass(type, "js.lib.Uint8Array", "Uint8Array");
+  }
+
+  function isCurrentField(module: String, owner: String, field: String): Bool {
+    return currentOwnerModule == module && currentOwnerName == owner
+      && currentFieldName == field;
+  }
+
+  static function isHaxeBytesStorageField(expression: TypedExpr): Bool {
+    return switch erasedCastSource(expression).expr {
+      case TField(_,
+        FInstance(_.get() => {module: "haxe.io.Bytes", name: "Bytes"}, _,
+          _.get() => field)):
+        TypeUtil.classFieldName(field) == "b";
+      default:
+        false;
+    }
+  }
+
+  static function isClassOrSubclass(type: Type, module: String, name: String,
+      depth = 0): Bool {
+    if (depth > MAX_TYPE_DEPTH)
+      return false;
+    return switch type {
+      case TType(_, _) | TLazy(_):
+        isClassOrSubclass(Context.follow(type), module, name, depth + 1);
+      case TMono(reference) if (reference.get() != null):
+        isClassOrSubclass(reference.get(), module, name, depth + 1);
+      case TInst(reference, _):
+        final owner = reference.get();
+        if (owner.module == module && owner.name == name) true; else
+          if (owner.superClass != null) {
+          final parentType = TInst(owner.superClass.t, owner.superClass.params);
+          isClassOrSubclass(parentType, module, name, depth + 1);
+        } else false;
+      default:
+        false;
+    }
+  }
+
+  /**
+   * Bridges a local created from the exact prototype of its return class.
+   *
+   * hxnodejs constructs a zero-copy `Bytes` wrapper with
+   * `Object.create(Bytes.prototype)`, fills its storage fields, then returns
+   * that same local. JavaScript therefore has the correct runtime prototype,
+   * but TypeScript sees only the anonymous fields assigned afterward. This
+   * proof records the identity assertion only when the created prototype and
+   * declared return type are exactly `haxe.io.Bytes`. Other
+   * `Object.create(Target.prototype)` patterns remain outside this
+   * byte-runtime compatibility rule.
+   */
+  function planPrototypeBackedReturn(parent: TypedExpr, source: TypedExpr,
+      target: Null<Type>): Bool {
+    if (target == null)
+      return false;
+    final local = switch erasedCastSource(source).expr {
+      case TLocal(variable): variable;
+      default: return false;
+    };
+    final prototypeType = prototypeBackedLocals.get(local.id);
+    if (prototypeType == null
+      || !compareExactTypes(target, prototypeType)
+      || localBindingPlan == null
+      || localBindingPlan.isReassigned(local))
+      return false;
+
+    final bridge = new TsValueBridge(parent, ReturnValue, source, target);
+    returnBridges.set(parent, bridge);
+    valueBridges.push(bridge);
+    return true;
+  }
+
+  static function prototypeCreatedType(expression: TypedExpr): Null<Type> {
+    return switch erasedCastSource(expression).expr {
+      case TCall(callee, [prototype]) if (isObjectCreate(callee)):
+        final target = prototypeOwnerType(prototype);
+        if (target != null && isExactHaxeBytes(target)) target else null;
+      default:
+        null;
+    }
+  }
+
+  static function isObjectCreate(callee: TypedExpr): Bool {
+    return switch erasedCastSource(callee).expr {
+      case TField(_,
+        FStatic(_.get() => {module: "js.lib.Object", name: "Object"},
+          _.get() => field)):
+        TypeUtil.classFieldName(field) == "create";
+      default:
+        false;
+    }
+  }
+
+  static function prototypeOwnerType(expression: TypedExpr): Null<Type> {
+    return switch erasedCastSource(expression).expr {
+      case TField(owner, field) if (TypeUtil.fieldName(field) == "prototype"):
+        switch erasedCastSource(owner).expr {
+          case TTypeExpr(moduleType = TClassDecl(_)):
+            DependencyPlan.moduleTypeToType(moduleType);
+          default:
+            null;
+        }
+      default:
+        null;
     }
   }
 
