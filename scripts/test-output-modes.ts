@@ -15,6 +15,7 @@ import {
 } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { SourceMapConsumer, type RawSourceMap } from "source-map";
 import { runGeneratedTypeScriptMatrix } from "./toolchains.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -41,6 +42,24 @@ function capture(cmd: string, args: ReadonlyArray<string>): string {
     cwd: repoRoot,
     encoding: "utf8"
   });
+}
+
+function sourceLine(source: string, needle: string): number {
+  const offset = source.indexOf(needle);
+  ok(offset !== -1, `source contains ${needle}`);
+  return source.slice(0, offset).split("\n").length;
+}
+
+function generatedPoint(
+  source: string,
+  needle: string,
+  offsetWithinNeedle = 0
+): { line: number; column: number } {
+  const offset = source.indexOf(needle);
+  ok(offset !== -1, `generated source contains ${needle}`);
+  const before = source.slice(0, offset + offsetWithinNeedle);
+  const lines = before.split("\n");
+  return { line: lines.length, column: lines.at(-1)?.length ?? 0 };
 }
 
 /**
@@ -469,6 +488,55 @@ for (const [profile, relativePath] of [
   ok(
     !generated.includes("Register.unsafeCast(present)"),
     `${profile} leaked the old Undefinable runtime cast helper`
+  );
+  if (profile === "ts-strict") {
+    ok(
+      generated.includes("(nullablePresent)! == null"),
+      "TypeScript lost the nested-null runtime identity control"
+    );
+  } else {
+    ok(
+      generated.includes("(nullablePresent) == null"),
+      "classic lost the nested-null runtime identity control"
+    );
+  }
+  ok(
+    !generated.includes("Register.unsafeCast(nullablePresent)"),
+    `${profile} leaked a runtime cast for the nested-null control`
+  );
+  const presenceExpression = profile === "ts-strict"
+    ? 'events.push("present:" + (present)!);'
+    : 'events.push("present:" + (present));';
+  // Map the new `!` in TypeScript and the identity expression's closing
+  // parenthesis in classic JavaScript. Both tokens must retain the authored
+  // `assumePresent()` call as their provenance.
+  const presencePoint = generatedPoint(
+    generated,
+    presenceExpression,
+    presenceExpression.lastIndexOf("(present)")
+      + "(present)".length
+      - (profile === "ts-strict" ? 0 : 1)
+  );
+  const presenceMap = new SourceMapConsumer(JSON.parse(readFileSync(
+    path.join(repoRoot, `${relativePath}.map`),
+    "utf8"
+  )) as RawSourceMap);
+  const presenceOriginal = presenceMap.originalPositionFor(presencePoint);
+  ok(
+    presenceOriginal.source?.replaceAll("\\", "/")
+      .endsWith("/src/dual/HelperScenario.hx"),
+    `${profile} assumePresent expression maps to HelperScenario.hx`
+  );
+  strictEqual(
+    presenceOriginal.line,
+    sourceLine(
+      readFileSync(
+        path.join(fixtureRoot, "src/dual/HelperScenario.hx"),
+        "utf8"
+      ),
+      "present.assumePresent()"
+    ),
+    `${profile} assumePresent expression maps to the authored Haxe call`
   );
   strictEqual(
     generated.match(/import SharedProfile from "\.\.\/resources\/profile\.json" with \{ type: "json" \}/g)?.length ?? 0,

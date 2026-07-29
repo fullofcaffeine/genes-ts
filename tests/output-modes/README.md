@@ -48,8 +48,9 @@ The identical `dual.Main` source covers:
 
 - classes, interfaces, applied generics, enums, and reflection;
 - null, real JavaScript `undefined`, optional records, explicit
-  `Undefinable.assumePresent()` proof without a runtime cast helper, and
-  immediate narrowing of `genes.ts.Unknown`;
+  `Undefinable.assumePresent()` proof without a runtime cast helper, a present
+  nested Haxe `null` kept distinct from `undefined`, and immediate narrowing of
+  `genes.ts.Unknown`;
 - maps, iterators, exceptions, expression-valued switch, and receiver/index/RHS
   evaluation order;
 - a real `node:path` ESM value import and a type-only local dependency;

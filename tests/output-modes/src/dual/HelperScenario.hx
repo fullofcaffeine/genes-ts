@@ -33,6 +33,14 @@ class HelperScenario {
     if (!presentIsAbsent)
       events.push('present:${present.assumePresent()}');
 
+    // `Undefinable<Null<T>>` distinguishes a present `null` from an absent
+    // `undefined`. The TypeScript postfix assertion must stay a runtime
+    // identity rather than converting or rejecting the nested Haxe null.
+    final nullablePresent: Undefinable<Null<String>> = null;
+    final nullablePresentIsAbsent = Undefinable.isAbsent(nullablePresent);
+    if (!nullablePresentIsAbsent)
+      events.push('present-null:${nullablePresent.assumePresent() == null}');
+
     final boundary = Unknown.fromBoundary({name: "Ada"});
     final record = UnknownNarrow.record(boundary);
     final name = record == null ? null : UnknownNarrow.string(record.get("name"));

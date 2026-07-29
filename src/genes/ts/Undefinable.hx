@@ -78,10 +78,11 @@ abstract Undefinable<T>(Null<T>) from T {
    * coercion.
    *
    * How: TypeScript output uses its standard postfix non-null assertion, which
-   * is a type-only identity at runtime. Classic JavaScript emits the operand
-   * unchanged because it needs no static narrowing syntax. The profile split
-   * stays inside this generic helper, so callers neither import a runtime cast
-   * function nor repeat raw target syntax.
+   * is a type-only identity at runtime. It therefore does not reject or
+   * convert a legitimate nested `null` when `T` is itself nullable. Classic
+   * JavaScript emits the operand unchanged because it needs no static narrowing
+   * syntax. The profile split stays inside this generic helper, so callers
+   * neither import a runtime cast function nor repeat raw target syntax.
    */
   public inline function assumePresent(): T {
     @:nullSafety(Off)
