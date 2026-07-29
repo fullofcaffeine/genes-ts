@@ -163,6 +163,56 @@ stable ESM bindings, root re-exports, declarations, source maps, DCE, and
 runtime identity. A host framework remains responsible for any convention
 module, directive, public path, or server/client policy it builds on top.
 
+## Genuine Haxe module-level functions
+
+When the Haxe declaration is already a module-level function, Genes does not
+manufacture a class compatibility surface:
+
+```haxe
+package values;
+
+@:genes.moduleFunction("identity")
+function identity<T>(value:T):T {
+  return value;
+}
+```
+
+TypeScript output:
+
+```ts
+export function identity<T>(value: T): T {
+  return value;
+}
+```
+
+Classic JavaScript output:
+
+```js
+export function identity(value) {
+  return value;
+}
+```
+
+Another Haxe module imports and calls the same source function normally:
+
+```haxe
+import values.Identity.identity;
+
+final result = identity("typed");
+```
+
+Genes projects that call as a direct named ESM import. If the source module
+contains only selected module functions, its compiler-synthetic `_Fields_`
+class, descriptor seeds, assignments, and registration import are omitted.
+This is the preferred shape for APIs that are conceptually JavaScript or
+TypeScript modules rather than runtime classes.
+
+The binding is public from its own generated module, not implicitly
+re-exported from the compilation-root barrel. Separate Haxe source modules may
+therefore export the same conventional name (for example `render`) without a
+false global collision; callers receive the ordinary collision-safe ESM import
+alias.
+
 ## What remains equivalent
 
 For admitted methods, Genes preserves:
@@ -199,10 +249,10 @@ body and exact-identity requirements.
 
 ## Supported v1 shape
 
-The first release accepts:
+The supported shape accepts:
 
-- a concrete, non-extern, non-interface `KNormal` class without class type
-  parameters;
+- either a concrete, non-extern, non-interface `KNormal` class without class
+  type parameters or Haxe's synthetic owner for genuine module-level fields;
 - one retained public static `MethNormal` method with a typed function body;
 - method-local type parameters and constraints;
 - ordinary, optional/default, and rest arguments;
@@ -213,8 +263,8 @@ The first release accepts:
 - recursion that remains a typed `Owner.field(...)` access.
 
 The compiler fails closed for instance, inline, dynamic, abstract, bodyless,
-extern, interface, abstract-implementation, module-field, overloaded, or
-generic-owner shapes. It also rejects opaque `js.Syntax`/legacy `__js__` bodies:
+extern, interface, abstract-implementation, overloaded, or generic-owner
+shapes. It also rejects opaque `js.Syntax`/legacy `__js__` bodies:
 raw target text could conceal `this`, `super`, or `new.target`, so the compiler
 cannot prove that changing lexical location is safe. The only admitted
 `js.Syntax` calls are an exact, arity-checked set of compiler-library
