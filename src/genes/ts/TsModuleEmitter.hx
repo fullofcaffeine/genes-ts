@@ -16,6 +16,7 @@ import genes.util.Timer.timer;
 import genes.util.TypeUtil;
 import genes.PublicSurface;
 import genes.PublicSurface.PublicMember;
+import genes.PublicSurface.PublicMemberOwnership;
 import genes.NullishContract;
 import genes.DependencyPlan.DependencyModuleRequest;
 import genes.NullishContract.NullishMissingValue;
@@ -1138,6 +1139,8 @@ class TsModuleEmitter extends JsModuleEmitter {
     for (field in fields) {
       switch field.kind {
         case Property:
+          if (isSyntheticAbstractReceiverProperty(cl, field))
+            continue;
           currentCallableSignature = null;
           // Skip native accessors for now (handled by JS emitter behavior).
           // Still declare the property name as a field so TS knows it exists.
@@ -1481,6 +1484,35 @@ class TsModuleEmitter extends JsModuleEmitter {
 
     currentCallableSignature = null;
     currentClass = prevClass;
+  }
+
+  /**
+   * Suppresses Haxe's storage-only copy of an abstract instance property.
+   *
+   * Why: Haxe represents `abstract Ref<T> { public var value(get, set):T; }`
+   * with a compiler-generated static `value` field on `KAbstractImpl`, plus
+   * typed `get_value<T>(this: Ref<T>)` and `set_value<T>(...)` helpers. The
+   * helpers implement the runtime behavior. Printing the storage-shaped field
+   * as `declare static value: T` leaks an unbound `T` onto a non-generic
+   * TypeScript implementation class.
+   *
+   * What: only a static property classified as `AbstractInstanceProperty` is
+   * omitted from that implementation class. A user-authored static property
+   * whose accessor has no abstract receiver remains `Static` and visible. The
+   * source-facing abstract property remains part of the public declaration
+   * surface; classic JavaScript and the receiver helpers are unchanged.
+   *
+   * How: Module.fieldsOf carries the typed ownership captured before emission.
+   * PublicSurface establishes that ownership from the Haxe `AccCall` property
+   * and the exact accessor's typed abstract receiver. This emitter does not
+   * rediscover the relationship from generated TypeScript text.
+   */
+  static function isSyntheticAbstractReceiverProperty(cl: ClassType,
+      field: GenesField): Bool {
+    return cl.kind.match(KAbstractImpl(_))
+      && field.kind.match(Property)
+      && field.isStatic
+      && field.ownership == PublicMemberOwnership.AbstractInstanceProperty;
   }
 
   /** Emits selected method bodies once as genuine typed module functions. */

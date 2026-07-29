@@ -37,6 +37,7 @@ enum abstract PublicMemberOwnership(Int) {
   var Instance;
   var Static;
   var AbstractInstance;
+  var AbstractInstanceProperty;
   var AbstractConstructor;
 }
 
@@ -342,9 +343,14 @@ class PublicSurface {
    *
    * A normal static remains `Static`. On `KAbstractImpl`, `_new` represents the
    * abstract constructor and a leading argument named `this` represents the
-   * erased receiver of an abstract instance member. This check deliberately
-   * uses typed function arguments instead of generated target identifiers, so
-   * later name allocation cannot change semantic ownership.
+   * erased receiver of an abstract instance member. Haxe 4.3.7 does not mark
+   * the storage-shaped `FVar` for an abstract property as compiler-generated,
+   * so an `AccCall` property is classified through its exact typed accessor:
+   * the corresponding helper must itself own an abstract receiver.
+   *
+   * Target emitters consume the resulting ownership fact. They never infer
+   * abstract properties from generated TypeScript names or arbitrary methods
+   * that merely happen to start with `get_` or `set_`.
    */
   public static function ownershipFor(cl: ClassType, field: ClassField,
       isStatic: Bool): PublicMemberOwnership {
@@ -352,15 +358,34 @@ class PublicSurface {
       return Instance;
     return switch cl.kind {
       case KAbstractImpl(_):
-        if (field.name == '_new')
-          AbstractConstructor;
-        else switch field.type {
-          case TFun(arguments, _) if (arguments.length > 0
-            && (arguments[0].name == 'this'
-              || arguments[0].name == '$' + 'this')):
-            AbstractInstance;
-          default:
-            Static;
+        if (field.name == '_new') AbstractConstructor; else switch field.kind {
+          case FVar(read, write):
+            final accessorNames = [];
+            if (read == AccCall)
+              accessorNames.push('get_${field.name}');
+            if (write == AccCall)
+              accessorNames.push('set_${field.name}');
+            Lambda.exists(cl.statics.get(),
+              candidate -> accessorNames.indexOf(candidate.name) != -1
+                && switch candidate.type {
+                  case TFun(arguments, _)
+                    if (arguments.length > 0
+                      && (arguments[0].name == 'this'
+                        || arguments[0].name == '$' + 'this')):
+                    true;
+                  default:
+                    false;
+                }) ? AbstractInstanceProperty : Static;
+          case FMethod(_):
+            switch field.type {
+              case TFun(arguments, _)
+                if (arguments.length > 0
+                  && (arguments[0].name == 'this'
+                    || arguments[0].name == '$' + 'this')):
+                AbstractInstance;
+              default:
+                Static;
+            }
         }
       default:
         Static;

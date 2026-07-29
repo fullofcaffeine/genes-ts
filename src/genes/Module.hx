@@ -31,6 +31,7 @@ typedef Field = {
   final expr: TypedExpr;
   final pos: Position;
   final isStatic: Bool;
+  final ownership: PublicMemberOwnership;
   #if (haxe_ver >= 4.2)
   final isAbstract: Bool;
   #end
@@ -494,6 +495,7 @@ class Module {
           pos: member.pos,
           name: 'new',
           isStatic: false,
+          ownership: member.ownership,
           #if (haxe_ver >= 4.2)
           isAbstract: false,
           #end
@@ -530,6 +532,7 @@ class Module {
         expr: member.expr,
         pos: member.pos,
         isStatic: member.isStatic,
+        ownership: member.ownership,
         #if (haxe_ver >= 4.2)
         isAbstract: member.isAbstract,
         #end
@@ -596,6 +599,7 @@ class Module {
           pos: e.pos,
           name: 'new',
           isStatic: false,
+          ownership: Instance,
           #if (haxe_ver >= 4.2)
           isAbstract: false,
           #end
@@ -632,6 +636,7 @@ class Module {
         expr: field.expr(),
         pos: field.pos,
         isStatic: false,
+        ownership: Instance,
         #if (haxe_ver >= 4.2)
         isAbstract: field.isAbstract,
         #end
@@ -685,6 +690,7 @@ class Module {
         expr: field.expr(),
         pos: field.pos,
         isStatic: true,
+        ownership: PublicSurface.ownershipFor(cl, field, true),
         #if (haxe_ver >= 4.2)
         isAbstract: false,
         #end
