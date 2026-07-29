@@ -105,9 +105,10 @@ const pkgVersion = asString(pkg.version, "package.json version");
 const haxelibVersion = asString(haxelib.version, "haxelib.json version");
 ensureSemver(pkgVersion);
 ensureSemver(haxelibVersion);
-if (pkgVersion !== haxelibVersion) {
+if (pkgVersion !== "0.0.0-development" || haxelibVersion !== "0.0.0") {
   throw new Error(
-    `Version mismatch: package.json=${pkgVersion} vs haxelib.json=${haxelibVersion}`
+    "Repository manifests must remain development sentinels; " +
+      `package.json=${pkgVersion}, haxelib.json=${haxelibVersion}`
   );
 }
 
@@ -231,17 +232,18 @@ function admitsNodeMajor(
   supportedFloor: number,
   latestLts: number
 ): boolean {
-  return candidate >= supportedFloor && candidate <= latestLts;
+  return candidate === supportedFloor || candidate === latestLts;
 }
 
 /**
  * Exercises the complete manifest-defined boundary on every version-policy run.
  *
  * The hosted matrix proves the two LTS endpoints with real Node installations.
- * These derived cases additionally prove that intervening migration majors are
- * admitted while the immediately older and newer majors fail. Keeping the
- * samples relative to the manifest avoids creating a second list of Node
- * versions that could drift from the policy owner.
+ * These derived cases additionally prove that only the two tested LTS majors
+ * are admitted. An intervening odd release is not an LTS compatibility lane,
+ * and accepting it would be false when a pinned build dependency excludes it.
+ * Keeping the samples relative to the manifest avoids creating a second list
+ * of Node versions that could drift from the policy owner.
  */
 function verifyNodeAdmissionBoundary(
   supportedFloor: number,
@@ -266,8 +268,8 @@ function verifyNodeAdmissionBoundary(
   for (let major = supportedFloor + 1; major < latestLts; major += 1) {
     cases.push({
       major,
-      expected: true,
-      label: "intervening migration major",
+      expected: false,
+      label: "untested intervening major",
     });
   }
   cases.push(
@@ -301,6 +303,7 @@ function verifyNodeAdmissionBoundary(
 const supportedNodeFloor = nodeMajor(toolchains.node.stable, "node.stable");
 const latestNodeLts = nodeMajor(toolchains.node.nextLts, "node.nextLts");
 ensureSemver(toolchains.node.minimumRuntime);
+ensureSemver(toolchains.node.nextLtsMinimumRuntime);
 const minimumNodeMajor = nodeMajor(
   toolchains.node.minimumRuntime.split(".")[0],
   "node.minimumRuntime major"
@@ -311,8 +314,18 @@ if (minimumNodeMajor !== supportedNodeFloor) {
       + `the stable Node ${toolchains.node.stable} lane`
   );
 }
+const nextLtsMinimumMajor = nodeMajor(
+  toolchains.node.nextLtsMinimumRuntime.split(".")[0],
+  "node.nextLtsMinimumRuntime major"
+);
+if (nextLtsMinimumMajor !== latestNodeLts) {
+  throw new Error(
+    `node.nextLtsMinimumRuntime (${toolchains.node.nextLtsMinimumRuntime}) `
+      + `must belong to the latest-LTS Node ${toolchains.node.nextLts} lane`
+  );
+}
 const engines = asObject(pkg.engines, "package.json engines");
-const expectedNodeEngine = `>=${toolchains.node.minimumRuntime}`;
+const expectedNodeEngine = toolchains.node.supportedRange;
 const actualNodeEngine = asString(engines.node, "package.json engines.node");
 if (actualNodeEngine !== expectedNodeEngine) {
   throw new Error(
@@ -323,12 +336,21 @@ const nodeVersionBoundaryCases: ReadonlyArray<readonly [string, boolean]> = [
   [toolchains.node.minimumRuntime, true],
   ["22.22.1", true],
   ["22.23.0", true],
-  ["23.0.0", true],
+  [toolchains.node.nextLtsMinimumRuntime, true],
+  ["24.10.1", true],
+  ["23.0.0", false],
+  ["24.9.99", false],
   ["22.21.99", false],
   ["21.99.99", false]
 ];
 for (const [candidate, expected] of nodeVersionBoundaryCases) {
-  const actual = isStableVersionAtLeast(candidate, toolchains.node.minimumRuntime);
+  const major = Number(candidate.split(".")[0]);
+  const floor = major === supportedNodeFloor
+    ? toolchains.node.minimumRuntime
+    : major === latestNodeLts
+      ? toolchains.node.nextLtsMinimumRuntime
+      : null;
+  const actual = floor !== null && isStableVersionAtLeast(candidate, floor);
   if (actual !== expected) {
     throw new Error(
       `Node patch-floor comparison failed for ${candidate}: `
@@ -359,10 +381,8 @@ const runningNodeMajor = nodeMajor(
   "running Node major"
 );
 
-// CI owns both LTS endpoints. An intervening odd major may keep a local
-// checkout working during migration, but docs do not present it as LTS or as a
-// hosted support lane. Future majors still fail until CI deliberately moves
-// the upper bound.
+// CI owns both admitted LTS endpoints. Odd and future majors fail until the
+// manifest, dependency engines, and hosted lanes deliberately admit them.
 if (!admitsNodeMajor(runningNodeMajor, supportedNodeFloor, latestNodeLts)) {
   throw new Error(
     `Node ${process.versions.node} is outside the admitted major range `
@@ -370,7 +390,10 @@ if (!admitsNodeMajor(runningNodeMajor, supportedNodeFloor, latestNodeLts)) {
   );
 }
 
-for (const workflow of [".github/workflows/ci.yml", ".github/workflows/release.yml"]) {
+for (const workflow of [
+  ".github/workflows/ci.yml",
+  ".github/workflows/release-tooling.yml"
+]) {
   const source = readFileSync(path.join(repoRoot, workflow), "utf8");
   if (!source.includes("scripts/emit-toolchain-outputs.mjs")) {
     throw new Error(`${workflow} must consume config/toolchains.json`);

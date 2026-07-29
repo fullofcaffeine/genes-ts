@@ -26,6 +26,8 @@ export interface ToolchainManifest {
     readonly stable: string;
     readonly minimumRuntime: string;
     readonly nextLts: string;
+    readonly nextLtsMinimumRuntime: string;
+    readonly supportedRange: string;
   };
   readonly haxe: {
     readonly stable: string;
@@ -156,7 +158,15 @@ export function loadToolchains(): ToolchainManifest {
     node: {
       stable: nonEmptyString(node.stable, "node.stable"),
       minimumRuntime: nonEmptyString(node.minimumRuntime, "node.minimumRuntime"),
-      nextLts: nonEmptyString(node.nextLts, "node.nextLts")
+      nextLts: nonEmptyString(node.nextLts, "node.nextLts"),
+      nextLtsMinimumRuntime: nonEmptyString(
+        node.nextLtsMinimumRuntime,
+        "node.nextLtsMinimumRuntime"
+      ),
+      supportedRange: nonEmptyString(
+        node.supportedRange,
+        "node.supportedRange"
+      )
     },
     haxe: {
       stable: nonEmptyString(haxe.stable, "haxe.stable"),

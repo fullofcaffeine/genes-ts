@@ -6,7 +6,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "../..");
 const workflow = readFileSync(
-  path.join(repoRoot, ".github/workflows/codeql.yml"),
+  path.join(repoRoot, ".github/workflows/ci.yml"),
   "utf8"
 );
 
@@ -14,84 +14,56 @@ function assert(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-function topLevelBlock(
-  source: string,
-  name: string,
-  nextName: string
-): string {
-  const match = new RegExp(
-    `^${name}:\\n([\\s\\S]*?)^${nextName}:`,
-    "m"
-  ).exec(source);
-  assert(match != null, `CodeQL workflow is missing the ${name} block`);
-  return `${name}:\n${match[1].trimEnd()}`;
-}
-
-function finalTopLevelBlock(source: string, name: string): string {
-  const match = new RegExp(`^${name}:\\n([\\s\\S]*)$`, "m").exec(source);
-  assert(match != null, `CodeQL workflow is missing the ${name} block`);
-  return `${name}:\n${match[1].trimEnd()}`;
+function jobBlock(source: string, name: string, nextName?: string): string {
+  const end = nextName ? `^  ${nextName}:` : "$(?![\\s\\S])";
+  const match = new RegExp(`^  ${name}:\\n([\\s\\S]*?)${end}`, "m").exec(source);
+  assert(match != null, `CI workflow is missing the ${name} job`);
+  return `  ${name}:\n${match[1].trimEnd()}`;
 }
 
 /**
- * Protects the security boundary around the repository's hosted CodeQL scan.
+ * Protects the security and publication boundary around hosted CodeQL.
  *
- * Why: action-major upgrades look like harmless YAML edits, but an accidental
- * trigger or permission change can make untrusted pull-request code run with a
- * stronger token. A future downgrade could also restore the deprecated Node 20
- * action runtime without affecting any local compiler test.
+ * Why: the compiler release must wait for CodeQL on the exact tested commit.
+ * A separate workflow can have the same required-check name, but jobs in the
+ * release workflow cannot depend on its result and could publish first.
  *
- * What/How: this fast local gate checks the small semantic contract that must
- * remain stable. The workflow runs for main pushes, ordinary pull requests,
- * and manual requests; grants only the three reviewed token permissions; scans
- * JavaScript; and uses the reviewed Node 24 action majors. GitHub's hosted
- * `Analyze (JavaScript)` job remains the executable proof that CodeQL itself
- * initializes, analyzes, and uploads a result.
+ * What/How: this fast local gate requires the action-only JavaScript scan to
+ * live in the main CI graph with least-privilege job permissions. It also
+ * requires the release job to name that exact job in `needs`, so a failed or
+ * unfinished scan blocks publication rather than merely blocking the next PR.
  */
 function verifyCodeqlWorkflow(source: string): void {
-  const triggerContract = `on:
-  push:
-    branches: [main]
-  pull_request:
-  workflow_dispatch:`;
-  assert(
-    topLevelBlock(source, "on", "permissions") === triggerContract,
-    "CodeQL trigger contract changed; review push, pull_request, and manual ownership"
-  );
-  assert(
-    !source.includes("pull_request_target"),
-    "CodeQL must not run untrusted changes through pull_request_target"
-  );
-
-  const permissionContract = `permissions:
-  actions: read
-  contents: read
-  security-events: write`;
-  assert(
-    topLevelBlock(source, "permissions", "jobs") === permissionContract,
-    "CodeQL token permissions changed; preserve the reviewed least-privilege set"
-  );
-  assert(!source.includes("write-all"), "CodeQL must not receive write-all");
-
-  const jobContract = `jobs:
-  analyze:
+  const codeql = jobBlock(source, "codeql", "beads-worktree-safety");
+  const expected = `  codeql:
     name: Analyze (JavaScript)
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
     steps:
-      # These action majors run on Node 24. Keep them aligned with the
-      # structural policy in scripts/test-codeql-workflow.ts.
+      # CodeQL lives in this workflow so release publication can require the
+      # scan result for the exact same main-branch SHA.
       - uses: actions/checkout@v7
       - uses: github/codeql-action/init@v4
         with:
           languages: javascript
       - uses: github/codeql-action/analyze@v4`;
   assert(
-    finalTopLevelBlock(source, "jobs") === jobContract,
-    "CodeQL analysis job changed; preserve its exact name, runner, JavaScript scope, and action-only steps"
+    codeql === expected,
+    "CodeQL job changed; preserve its name, permissions, JavaScript scope, and action-only steps"
   );
   assert(
-    !source.includes("@v3"),
-    "CodeQL workflow must not restore deprecated v3 action references"
+    !source.includes("pull_request_target"),
+    "CodeQL must not run untrusted changes through pull_request_target"
+  );
+  assert(!codeql.includes("@v3"), "CodeQL must not restore deprecated v3 actions");
+
+  const release = jobBlock(source, "release");
+  assert(
+    /^      - codeql$/m.test(release),
+    "release publication must wait for the same-run CodeQL job"
   );
 }
 
@@ -118,7 +90,9 @@ assertRejected(
   "additional scan language"
 );
 assertRejected(
-  workflow.replace("name: Analyze (JavaScript)", "name: Security scan"),
-  "required-check rename"
+  workflow.replace("      - codeql", "      - secrets"),
+  "release dependency removal"
 );
-console.log("codeql-workflow:ok (Node 24 actions + reviewed triggers/permissions)");
+console.log(
+  "codeql-workflow:ok (same-run release dependency + Node 24 actions + least privilege)"
+);

@@ -354,14 +354,14 @@
         },
         {
           "id": "node-lanes",
-          "label": "Pinned Node lane and runtime-floor fields",
+          "label": "Pinned Node lanes, runtime floors, and supported range",
           "kind": "json-object-keys",
           "path": "config/toolchains.json",
           "pointer": [
             "node"
           ],
-          "expected": 3,
-          "count": 3
+          "expected": 5,
+          "count": 5
         }
       ],
       "proves": "Generated code and API consumers are checked against their explicitly different compatibility contracts, and ts2hx request evidence records the exact pinned TypeScript engine and configured transform behavior.",
@@ -485,7 +485,9 @@
     "node": {
       "stable": "22",
       "minimumRuntime": "22.22.0",
-      "nextLts": "24"
+      "nextLts": "24",
+      "nextLtsMinimumRuntime": "24.10.0",
+      "supportedRange": "^22.22.0 || ^24.10.0"
     },
     "haxe": {
       "stable": "4.3.7",

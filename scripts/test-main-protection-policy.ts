@@ -37,7 +37,6 @@ function jobBlock(source: string, job: string, nextJob?: string): string {
  */
 function main(): void {
   const ci = read(".github/workflows/ci.yml");
-  const codeql = read(".github/workflows/codeql.yml");
   const docs = read("docs/BRANCH_PROTECTION.md");
 
   const trigger = `on:
@@ -76,9 +75,9 @@ function main(): void {
     "CI workflow changed the required Classic Genes matrix check format"
   );
   assert(
-    codeql.includes("name: Analyze (JavaScript)") &&
+    ci.includes("name: Analyze (JavaScript)") &&
       docs.includes("`Analyze (JavaScript)`"),
-    "CodeQL workflow or branch-protection guide changed the required Analyze (JavaScript) check"
+    "CI workflow or branch-protection guide changed the required Analyze (JavaScript) check"
   );
 
   const classic = jobBlock(ci, "classic", "genes-ts");

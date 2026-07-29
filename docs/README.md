@@ -62,7 +62,8 @@ agents and human contributors should read the scoped guide directly.
 - `TOOLCHAINS.md` — centralized TypeScript, Haxe, and Node compatibility lanes
 - `SECURITY.md` — local + CI secret scanning (gitleaks)
 - `BRANCH_PROTECTION.md` — enforced GitHub ruleset, required checks, and recovery
-- `RELEASING.md` — semver, changelog, GitHub Releases (semantic-release)
+- `RELEASING.md` — Conventional Commits, SemVer, exact-tested-commit
+  publication, immutable GitHub Releases, and recovery
 
 ## Product / planning
 

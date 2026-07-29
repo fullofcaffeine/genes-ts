@@ -1,3 +1,7 @@
+> Historical changelog through `v1.39.0`. New release notes are attached to
+> each immutable [GitHub Release](https://github.com/fullofcaffeine/genes-ts/releases)
+> so the notes and downloadable package remain bound to the same tag.
+
 # [1.39.0](https://github.com/fullofcaffeine/genes-ts/compare/v1.38.2...v1.39.0) (2026-07-27)
 
 
@@ -604,4 +608,4 @@
 
 # Changelog
 
-This file is maintained by **semantic-release**.
+This file was maintained by **semantic-release** through `v1.39.0`.
