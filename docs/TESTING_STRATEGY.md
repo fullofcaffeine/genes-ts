@@ -150,6 +150,53 @@ identical output hashes, but it sets no CI timing budget. See
 on interpreting the numbers without mistaking a whole-build result for a
 microbenchmark of one planner function.
 
+### Performance evidence and CI budgets
+
+Every compiler pull request must consider three independent costs:
+
+1. how much work Genes and Haxe perform while compiling;
+2. how much code Genes emits; and
+3. how much work the emitted program performs while running.
+
+The relevant evidence depends on what changed. A dependency-planner edit should
+run `yarn benchmark:dependency-plan`; an emitter or lowering change should
+inspect the TypeScript and classic output and run `yarn test:output-quality`;
+a runtime-helper or hot generated-expression change needs a focused runtime
+benchmark or an exact operation/allocation count. Documentation-only work can
+be performance-neutral, but its PR should say why so reviewers know the
+question was considered.
+
+Genes already has a blocking structural performance budget. During
+`yarn test:acceptance`, `test:output-quality` checks a deterministic dual-output
+corpus. Module counts are exact, byte and token counts have at most a reviewed
+5% ceiling above their baseline, and import or lowering-temporary counts cannot
+grow without an explicit new baseline and rationale. These metrics are stable
+enough for CI because identical source and toolchains should produce identical
+structure; the gate is not a statistical wall-clock benchmark.
+
+Wall-clock time, memory, and end-to-end edit latency need a different
+threshold. A blocking timing budget must first have:
+
+- a representative workload and a same-run control or baseline;
+- pinned toolchains and a named CI environment;
+- documented warmup and repeated sampling;
+- enough recorded runs to characterize normal variance; and
+- a reviewed relative regression limit that fails a deliberately slower
+  implementation without failing ordinary runner noise.
+
+Until those facts exist, keep timing report-only and create an owning Bead for
+collecting them. Report-only means the command helps diagnose a possible
+regression; it does not prevent one from merging. Once the evidence is stable,
+put the threshold and its rationale in a reviewed configuration file, run it
+in the normal acceptance path, and require an explicit review when changing
+the baseline. Never turn one workstation measurement into an absolute CI
+timeout.
+
+Performance improvements remain subject to all semantic gates. A faster build
+or smaller file does not justify changed evaluation order, weaker types,
+missing source mappings, nondeterministic output, stale compiler-server state,
+or a regression in the other output profile.
+
 The transaction harness deliberately fails after complete private staging
 and again after a real filesystem rename. For both TS and classic JS with
 declarations/maps, it requires the prior tree to remain byte-identical, then
