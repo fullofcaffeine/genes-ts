@@ -245,6 +245,27 @@ class TsEnumCallDecision {
   }
 }
 
+/**
+ * One generic enum constructor used as a function value.
+ *
+ * Haxe can use the receiving function type to determine enum parameters that
+ * do not occur in a constructor's payload. TypeScript otherwise sees a bare
+ * generic function and infers each missing parameter as `never`. `parameters`
+ * records the exact destination-supplied application that the emitter writes
+ * as a TypeScript instantiation expression such as `Choice.Left<A, B>`.
+ */
+class TsEnumReferenceDecision {
+  public final expression: TypedExpr;
+  public final parameters: Array<Type>;
+  public final pos: Position;
+
+  public function new(expression: TypedExpr, parameters: Array<Type>) {
+    this.expression = expression;
+    this.parameters = parameters.copy();
+    this.pos = expression.pos;
+  }
+}
+
 /** One type dependency introduced solely by a planned TypeScript boundary. */
 typedef TsBoundaryReference = {
   final type: Type;
@@ -272,6 +293,8 @@ typedef TsBoundaryReference = {
 class TsBoundaryPlan {
   final enumCalls: ObjectMap<TypedExpr, TsEnumCallDecision>;
   final enumDecisions: Array<TsEnumCallDecision>;
+  final enumReferences: ObjectMap<TypedExpr, TsEnumReferenceDecision>;
+  final enumReferenceDecisions: Array<TsEnumReferenceDecision>;
   final calls: ObjectMap<TypedExpr, TsCallDecision>;
   final callDecisions: Array<TsCallDecision>;
   final constructors: ObjectMap<TypedExpr, TsConstructorDecision>;
@@ -298,6 +321,18 @@ class TsBoundaryPlan {
     return TsBoundaryPlanBuilder.compareBoundaryTypes(expected, actual);
   }
 
+  /**
+   * Reports whether two compiler types have the same declaration structure.
+   *
+   * Unlike `compareTypes`, this relation does not project a class through a
+   * parent/interface or an ordinary abstract through its representation. It is
+   * the fail-closed proof used for enum constructors passed as functions.
+   */
+  public static function hasExactTypeIdentity(expected: Type,
+      actual: Type): Bool {
+    return TsBoundaryPlanBuilder.compareExactTypes(expected, actual);
+  }
+
   /** Whether TypeScript directly accepts this outer nullish widening. */
   public static function acceptsTopLevelWidening(expected: Type,
       actual: Type): Bool {
@@ -319,6 +354,8 @@ class TsBoundaryPlan {
 
   public function new(enumCalls: ObjectMap<TypedExpr, TsEnumCallDecision>,
       enumDecisions: Array<TsEnumCallDecision>,
+      enumReferences: ObjectMap<TypedExpr, TsEnumReferenceDecision>,
+      enumReferenceDecisions: Array<TsEnumReferenceDecision>,
       calls: ObjectMap<TypedExpr, TsCallDecision>,
       callDecisions: Array<TsCallDecision>,
       constructors: ObjectMap<TypedExpr, TsConstructorDecision>,
@@ -332,6 +369,8 @@ class TsBoundaryPlan {
       valueBridges: Array<TsValueBridge>) {
     this.enumCalls = enumCalls;
     this.enumDecisions = enumDecisions.copy();
+    this.enumReferences = enumReferences;
+    this.enumReferenceDecisions = enumReferenceDecisions.copy();
     this.calls = calls;
     this.callDecisions = callDecisions.copy();
     this.constructors = constructors;
@@ -348,6 +387,11 @@ class TsBoundaryPlan {
   /** Returns the decision for this exact typed callee occurrence. */
   public function enumCall(callee: TypedExpr): Null<TsEnumCallDecision> {
     return enumCalls.get(callee);
+  }
+
+  /** Returns the decision for this exact enum-constructor function value. */
+  public function enumReference(expression: TypedExpr): Null<TsEnumReferenceDecision> {
+    return enumReferences.get(expression);
   }
 
   /** Returns the decision for this exact ordinary typed callee occurrence. */
@@ -395,6 +439,13 @@ class TsBoundaryPlan {
           pos: decision.pos,
           rule: "enum-call"
         });
+    for (decision in enumReferenceDecisions)
+      for (type in decision.parameters)
+        result.push({
+          type: type,
+          pos: decision.pos,
+          rule: "enum-reference"
+        });
     for (decision in callDecisions)
       for (bridge in decision.bridges)
         result.push({
@@ -430,6 +481,8 @@ private class TsBoundaryPlanBuilder {
 
   final enumCalls = new ObjectMap<TypedExpr, TsEnumCallDecision>();
   final enumDecisions = new Array<TsEnumCallDecision>();
+  final enumReferences = new ObjectMap<TypedExpr, TsEnumReferenceDecision>();
+  final enumReferenceDecisions = new Array<TsEnumReferenceDecision>();
   final calls = new ObjectMap<TypedExpr, TsCallDecision>();
   final callDecisions = new Array<TsCallDecision>();
   final constructors = new ObjectMap<TypedExpr, TsConstructorDecision>();
@@ -462,8 +515,9 @@ private class TsBoundaryPlanBuilder {
         case MEnum(_, _) | MType(_, _):
       }
     }
-    return new TsBoundaryPlan(enumCalls, enumDecisions, calls, callDecisions,
-      constructors, constructorDecisions, returnBridges, initializerBridges,
+    return new TsBoundaryPlan(enumCalls, enumDecisions, enumReferences,
+      enumReferenceDecisions, calls, callDecisions, constructors,
+      constructorDecisions, returnBridges, initializerBridges,
       assignmentBridges, hostCallbackBridges, runtimeGuardBridges,
       runtimeGuardDecisions, valueBridges);
   }
@@ -480,6 +534,8 @@ private class TsBoundaryPlanBuilder {
     if (expression == null)
       return;
     switch expression.expr {
+      case TField(_, FEnum(_, _)):
+        planEnumReference(expression, expected);
       case TFunction(fn):
         visit(fn.expr, null, fn.t);
       case TReturn(value):
@@ -558,6 +614,31 @@ private class TsBoundaryPlanBuilder {
     }
   }
 
+  /**
+   * Plans an enum constructor that Haxe has accepted as a function value.
+   *
+   * The expected callable's result selects the enum application. Requiring the
+   * constructor's complete checked function type to match that expected
+   * callable keeps this rule deliberately narrow: optionality differences,
+   * function variance, nullability bridges, unresolved types, and unrelated
+   * callable conversions remain visible to TypeScript.
+   */
+  function planEnumReference(expression: TypedExpr,
+      expected: Null<Type>): Void {
+    final expectedCallable = callableArgumentsAndReturn(expected);
+    if (expectedCallable == null)
+      return;
+    final application = TypeUtil.enumConstructorApplication(expression,
+      expectedCallable.result);
+    if (application == null || !compareExactTypes(expected, expression.t))
+      return;
+
+    final decision = new TsEnumReferenceDecision(expression,
+      application.parameters);
+    enumReferences.set(expression, decision);
+    enumReferenceDecisions.push(decision);
+  }
+
   function planEnumCall(call: TypedExpr, callee: TypedExpr,
       arguments: Array<TypedExpr>, expected: Null<Type>): Bool {
     final destination = expected == null ? call.t : expected;
@@ -625,6 +706,20 @@ private class TsBoundaryPlanBuilder {
       [for (argument in formal) argument.t], bridges);
     calls.set(callee, decision);
     callDecisions.push(decision);
+  }
+
+  static function callableArgumentsAndReturn(type: Null<Type>): Null<{
+    arguments: Array<{name: String, opt: Bool, t: Type}>,
+    result: Type
+  }> {
+    if (type == null)
+      return null;
+    return switch resolveBoundaryShell(type) {
+      case TFun(arguments, result):
+        {arguments: arguments, result: result};
+      default:
+        null;
+    }
   }
 
   function planValueBridge(parent: TypedExpr, site: TsBoundarySite,
@@ -1129,6 +1224,68 @@ private class TsBoundaryPlanBuilder {
     };
   }
 
+  /**
+   * Compares literal compiler type structure without boundary projections.
+   *
+   * Typedefs, resolved monomorphs, and lazy shells are transparent aliases.
+   * Classes, enums, abstracts, and type parameters must retain the same typed
+   * declaration identity, and every callable slot must match recursively.
+   */
+  public static function compareExactTypes(expected: Type, actual: Type,
+      depth = 0): Bool {
+    if (depth > MAX_TYPE_DEPTH)
+      return false;
+    final expectedResolved = resolveExact(expected);
+    final actualResolved = resolveExact(actual);
+    if (expectedResolved == null || actualResolved == null)
+      return false;
+
+    return switch [expectedResolved, actualResolved] {
+      case [TInst(expectedRef,
+        expectedParameters), TInst(actualRef, actualParameters)]: sameClassIdentity(expectedRef,
+          actualRef) && exactParameters(expectedParameters, actualParameters,
+          depth + 1);
+      case [TEnum(expectedRef,
+        expectedParameters), TEnum(actualRef, actualParameters)]: sameBaseIdentity(expectedRef.get(),
+          actualRef.get()) && exactParameters(expectedParameters,
+          actualParameters, depth + 1);
+      case [
+        TAbstract(expectedRef, expectedParameters),
+        TAbstract(actualRef, actualParameters)
+      ]: sameBaseIdentity(expectedRef.get(),
+        actualRef.get()) && exactParameters(expectedParameters,
+          actualParameters, depth + 1);
+      case [TFun(expectedArguments,
+        expectedResult), TFun(actualArguments, actualResult)]:
+        if (expectedArguments.length != actualArguments.length) false else {
+          var identical = true;
+          for (index in 0...expectedArguments.length) {
+            if (expectedArguments[index].opt != actualArguments[index].opt
+              || !compareExactTypes(expectedArguments[index].t,
+                actualArguments[index].t, depth + 1)) {
+              identical = false;
+              break;
+            }
+          }
+          identical && compareExactTypes(expectedResult, actualResult,
+            depth + 1)
+          ;
+        }
+      default:
+        false;
+    };
+  }
+
+  static function exactParameters(expected: Array<Type>, actual: Array<Type>,
+      depth: Int): Bool {
+    if (expected.length != actual.length)
+      return false;
+    for (index in 0...expected.length)
+      if (!compareExactTypes(expected[index], actual[index], depth + 1))
+        return false;
+    return true;
+  }
+
   static function compareParameters(expected: Array<Type>,
       actual: Array<Type>, depth: Int): TsBoundaryRelation {
     if (expected.length != actual.length)
@@ -1193,6 +1350,20 @@ private class TsBoundaryPlanBuilder {
         resolve(Context.follow(type));
       case TMono(reference):
         reference.get() == null ? null : resolve(reference.get());
+      case TDynamic(_):
+        null;
+      default:
+        type;
+    }
+  }
+
+  /** Follows aliases but preserves nominal and abstract declarations. */
+  static function resolveExact(type: Type): Null<Type> {
+    return switch type {
+      case TType(_, _) | TLazy(_):
+        resolveExact(Context.follow(type));
+      case TMono(reference):
+        reference.get() == null ? null : resolveExact(reference.get());
       case TDynamic(_):
         null;
       default:

@@ -42,6 +42,10 @@ export const acceptanceOwnedFocusedGates = [
   {
     packageScript: "test:runtime-guarded-binding",
     compiledScript: "scripts/dist/test-runtime-guarded-binding.js"
+  },
+  {
+    packageScript: "test:higher-order-enum-constructors",
+    compiledScript: "scripts/dist/test-higher-order-enum-constructors.js"
   }
 ] as const;
 
@@ -60,8 +64,8 @@ function directInvocation(source: string, packageScript: string): string | undef
  *
  * The check deliberately covers only direct invocations. Aggregate commands
  * remain free to compose other suites; acceptance is the documented owner for
- * the two entries above, and a duplicate direct command is the regression this
- * checkpoint found.
+ * the audited entries above, and a duplicate direct command is the regression
+ * this checkpoint found.
  */
 export function assertFocusedGateOwnership(repoRoot: string): void {
   const packageJson = JSON.parse(

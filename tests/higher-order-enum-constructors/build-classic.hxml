@@ -1,0 +1,10 @@
+-lib genes-ts
+-cp tests/higher-order-enum-constructors/src
+--main enumconstructors.Main
+-js tests/higher-order-enum-constructors/out/classic/index.js
+-D dts
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
+-debug
+--macro enumconstructors.ExactTypeProbe.assertRelations()
