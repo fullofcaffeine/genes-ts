@@ -2755,6 +2755,17 @@ class TsModuleEmitter extends JsModuleEmitter {
       emitPrivateMethodValue(privateMethod);
       return;
     }
+    final enumReference = boundaryPlan == null ? null : boundaryPlan.enumReference(e);
+    if (enumReference != null) {
+      // Haxe used the receiving function type to select the complete generic
+      // enum application. Render that immutable plan as a TypeScript
+      // instantiation expression (`Choice.Left<A, B>`). This changes no
+      // JavaScript value and every printed type was reserved before imports
+      // were allocated.
+      super.emitValue(e);
+      TypeEmitter.emitParams(this, enumReference.parameters, false);
+      return;
+    }
     switch e.expr {
       case TCall({
         expr: TField(_,

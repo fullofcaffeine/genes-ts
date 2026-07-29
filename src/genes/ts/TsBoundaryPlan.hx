@@ -245,6 +245,27 @@ class TsEnumCallDecision {
   }
 }
 
+/**
+ * One generic enum constructor used as a function value.
+ *
+ * Haxe can use the receiving function type to determine enum parameters that
+ * do not occur in a constructor's payload. TypeScript otherwise sees a bare
+ * generic function and infers each missing parameter as `never`. `parameters`
+ * records the exact destination-supplied application that the emitter writes
+ * as a TypeScript instantiation expression such as `Choice.Left<A, B>`.
+ */
+class TsEnumReferenceDecision {
+  public final expression: TypedExpr;
+  public final parameters: Array<Type>;
+  public final pos: Position;
+
+  public function new(expression: TypedExpr, parameters: Array<Type>) {
+    this.expression = expression;
+    this.parameters = parameters.copy();
+    this.pos = expression.pos;
+  }
+}
+
 /** One type dependency introduced solely by a planned TypeScript boundary. */
 typedef TsBoundaryReference = {
   final type: Type;
@@ -272,6 +293,8 @@ typedef TsBoundaryReference = {
 class TsBoundaryPlan {
   final enumCalls: ObjectMap<TypedExpr, TsEnumCallDecision>;
   final enumDecisions: Array<TsEnumCallDecision>;
+  final enumReferences: ObjectMap<TypedExpr, TsEnumReferenceDecision>;
+  final enumReferenceDecisions: Array<TsEnumReferenceDecision>;
   final calls: ObjectMap<TypedExpr, TsCallDecision>;
   final callDecisions: Array<TsCallDecision>;
   final constructors: ObjectMap<TypedExpr, TsConstructorDecision>;
@@ -319,6 +342,8 @@ class TsBoundaryPlan {
 
   public function new(enumCalls: ObjectMap<TypedExpr, TsEnumCallDecision>,
       enumDecisions: Array<TsEnumCallDecision>,
+      enumReferences: ObjectMap<TypedExpr, TsEnumReferenceDecision>,
+      enumReferenceDecisions: Array<TsEnumReferenceDecision>,
       calls: ObjectMap<TypedExpr, TsCallDecision>,
       callDecisions: Array<TsCallDecision>,
       constructors: ObjectMap<TypedExpr, TsConstructorDecision>,
@@ -332,6 +357,8 @@ class TsBoundaryPlan {
       valueBridges: Array<TsValueBridge>) {
     this.enumCalls = enumCalls;
     this.enumDecisions = enumDecisions.copy();
+    this.enumReferences = enumReferences;
+    this.enumReferenceDecisions = enumReferenceDecisions.copy();
     this.calls = calls;
     this.callDecisions = callDecisions.copy();
     this.constructors = constructors;
@@ -348,6 +375,11 @@ class TsBoundaryPlan {
   /** Returns the decision for this exact typed callee occurrence. */
   public function enumCall(callee: TypedExpr): Null<TsEnumCallDecision> {
     return enumCalls.get(callee);
+  }
+
+  /** Returns the decision for this exact enum-constructor function value. */
+  public function enumReference(expression: TypedExpr): Null<TsEnumReferenceDecision> {
+    return enumReferences.get(expression);
   }
 
   /** Returns the decision for this exact ordinary typed callee occurrence. */
@@ -395,6 +427,13 @@ class TsBoundaryPlan {
           pos: decision.pos,
           rule: "enum-call"
         });
+    for (decision in enumReferenceDecisions)
+      for (type in decision.parameters)
+        result.push({
+          type: type,
+          pos: decision.pos,
+          rule: "enum-reference"
+        });
     for (decision in callDecisions)
       for (bridge in decision.bridges)
         result.push({
@@ -430,6 +469,8 @@ private class TsBoundaryPlanBuilder {
 
   final enumCalls = new ObjectMap<TypedExpr, TsEnumCallDecision>();
   final enumDecisions = new Array<TsEnumCallDecision>();
+  final enumReferences = new ObjectMap<TypedExpr, TsEnumReferenceDecision>();
+  final enumReferenceDecisions = new Array<TsEnumReferenceDecision>();
   final calls = new ObjectMap<TypedExpr, TsCallDecision>();
   final callDecisions = new Array<TsCallDecision>();
   final constructors = new ObjectMap<TypedExpr, TsConstructorDecision>();
@@ -462,8 +503,9 @@ private class TsBoundaryPlanBuilder {
         case MEnum(_, _) | MType(_, _):
       }
     }
-    return new TsBoundaryPlan(enumCalls, enumDecisions, calls, callDecisions,
-      constructors, constructorDecisions, returnBridges, initializerBridges,
+    return new TsBoundaryPlan(enumCalls, enumDecisions, enumReferences,
+      enumReferenceDecisions, calls, callDecisions, constructors,
+      constructorDecisions, returnBridges, initializerBridges,
       assignmentBridges, hostCallbackBridges, runtimeGuardBridges,
       runtimeGuardDecisions, valueBridges);
   }
@@ -480,6 +522,8 @@ private class TsBoundaryPlanBuilder {
     if (expression == null)
       return;
     switch expression.expr {
+      case TField(_, FEnum(_, _)):
+        planEnumReference(expression, expected);
       case TFunction(fn):
         visit(fn.expr, null, fn.t);
       case TReturn(value):
@@ -558,6 +602,32 @@ private class TsBoundaryPlanBuilder {
     }
   }
 
+  /**
+   * Plans an enum constructor that Haxe has accepted as a function value.
+   *
+   * The expected callable's result selects the enum application. Requiring the
+   * constructor's complete checked function type to match that expected
+   * callable keeps this rule deliberately narrow: optionality differences,
+   * function variance, nullability bridges, unresolved types, and unrelated
+   * callable conversions remain visible to TypeScript.
+   */
+  function planEnumReference(expression: TypedExpr,
+      expected: Null<Type>): Void {
+    final expectedCallable = callableArgumentsAndReturn(expected);
+    if (expectedCallable == null)
+      return;
+    final application = TypeUtil.enumConstructorApplication(expression,
+      expectedCallable.result);
+    if (application == null
+      || compareBoundaryTypes(expected, expression.t) != Identical)
+      return;
+
+    final decision = new TsEnumReferenceDecision(expression,
+      application.parameters);
+    enumReferences.set(expression, decision);
+    enumReferenceDecisions.push(decision);
+  }
+
   function planEnumCall(call: TypedExpr, callee: TypedExpr,
       arguments: Array<TypedExpr>, expected: Null<Type>): Bool {
     final destination = expected == null ? call.t : expected;
@@ -625,6 +695,20 @@ private class TsBoundaryPlanBuilder {
       [for (argument in formal) argument.t], bridges);
     calls.set(callee, decision);
     callDecisions.push(decision);
+  }
+
+  static function callableArgumentsAndReturn(type: Null<Type>): Null<{
+    arguments: Array<{name: String, opt: Bool, t: Type}>,
+    result: Type
+  }> {
+    if (type == null)
+      return null;
+    return switch resolveBoundaryShell(type) {
+      case TFun(arguments, result):
+        {arguments: arguments, result: result};
+      default:
+        null;
+    }
   }
 
   function planValueBridge(parent: TypedExpr, site: TsBoundarySite,

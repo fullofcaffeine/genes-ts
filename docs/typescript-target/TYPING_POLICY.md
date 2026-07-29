@@ -138,6 +138,61 @@ elements can still use `!`, `Array<Null<T>>` reads normalize missing
 JavaScript values with `?? null`, and explicit `Undefinable<T>` elements
 retain `undefined`.
 
+### Generic enum constructors used as function values
+
+Haxe can pass an enum constructor to another function. This is often called a
+“higher-order” use because one function receives another function as a value:
+
+```haxe
+enum Choice<A, B> {
+  Left(value:A);
+  Right(value:B);
+}
+
+function choose<A, B>(left:A, right:B):Choice<A, B> {
+  return first(
+    map(left, Choice.Left),
+    map(right, Choice.Right)
+  ).value;
+}
+```
+
+Haxe checks each constructor against its receiving function type. It therefore
+knows that both mapped results are `Choice<A, B>`, even though `Left` carries
+only `A` and `Right` carries only `B`.
+
+A bare TypeScript generic function reference lacks that destination evidence:
+
+```ts
+// Wrong: TypeScript infers Choice<A, never> and Choice<never, B>.
+return first(
+  map(left, Choice.Left),
+  map(right, Choice.Right)
+).value;
+```
+
+Genes preserves Haxe's checked application with TypeScript instantiation
+expressions:
+
+```ts
+return first(
+  map(left, Choice.Left<A, B>),
+  map(right, Choice.Right<A, B>)
+).value;
+```
+
+`Choice.Left<A, B>` still denotes the same constructor function. The type
+arguments emit no JavaScript, perform no runtime cast or validation, and do not
+call the constructor early. They only prevent TypeScript from inventing
+`never` for an enum parameter that Haxe learned from the destination.
+
+This rule is planned from the typed Haxe AST before imports are allocated.
+Genes applies it only to an exact enum-constructor field whose expected
+function inputs match the applied constructor inputs. Ordinary lambdas,
+unrelated functions, unresolved types, nullability conversions, and general
+function variance do not qualify. Unsupported differences remain visible to
+strict TypeScript instead of being hidden by a broad assertion.
+
 ### Standard library / JS externs (prefer TS builtins)
 
 Where TypeScript already has a well-known type with correct semantics, prefer it:

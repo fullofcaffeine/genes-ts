@@ -1,0 +1,9 @@
+-lib genes-ts
+-cp tests/higher-order-enum-constructors/src
+--main enumconstructors.Main
+-js tests/higher-order-enum-constructors/out/ts/src-gen/index.ts
+-D genes.ts
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
+-debug

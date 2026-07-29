@@ -590,7 +590,11 @@ ownership.
   TypeScript. For example, when Genes must print an inferred enum constructor
   argument such as `Yield.Data<Assertion, tink.Error>`, it retains the authored
   `tink.Error` import instead of accidentally resolving the same word to the
-  JavaScript global `Error`.
+  JavaScript global `Error`. The same plan owns a generic enum constructor used
+  as a function value: if Haxe checks `map(value, Choice.Left)` against
+  `A -> Choice<A, B>`, TypeScript emission may print `Choice.Left<A, B>`.
+  Dependency allocation sees `A` and `B` first; the expression emitter never
+  rediscovers them from generated text or mutable expected-type state.
 - Top-level output visibility is not one boolean. A
   `@:genes.compilerInternal` type remains a typed local implementation after
   full DCE while being omitted from exports, declarations, public runtime
