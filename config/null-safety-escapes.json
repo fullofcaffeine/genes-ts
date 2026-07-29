@@ -27,9 +27,9 @@
     {
       "path": "src/genes/ts/Undefinable.hx",
       "owner": "Undefinable.assumePresent",
-      "statement": "return js.Syntax.code(#if genes.ts \"({0})!\" #else \"({0})\" #end, this);",
-      "reason": "The caller has already proved a T | undefined value present, but Haxe cannot spell TypeScript's type-only postfix non-null assertion or express the corresponding classic JavaScript identity through its nullable abstract storage.",
-      "containment": "Raw syntax is limited to one identity expression: TypeScript receives a type-only postfix assertion and classic JavaScript receives the unchanged operand."
+      "statement": "return js.Syntax.code(\"({0})\", this);",
+      "reason": "Outside the TypeScript profile, Haxe cannot express the caller's exact presence proof through the nullable abstract storage even though JavaScript needs only the unchanged operand.",
+      "containment": "The escape guards only the classic/standard identity expression. Active TypeScript builds use a typed compiler marker and need no null-safety escape."
     },
     {
       "path": "src/genes/util/EsMap.hx",

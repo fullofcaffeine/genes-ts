@@ -13,6 +13,19 @@ import dual.MixedNativeImportOwner.NativeGlobalPattern;
  * helper boundary without turning broad values into a domain model.
  */
 class HelperScenario {
+  /**
+   * Produces a known-present host value with a type used only by the
+   * `assumePresent()` assertion.
+   *
+   * Raw object syntax is confined to this fixture boundary because the
+   * `AssertionOnlyBuffer` extern is intentionally not constructed at
+   * runtime; ordinary code receives the precise typed contract immediately.
+   */
+  static inline function assertionOnlyPayload(): Undefinable<AssertionOnlyBuffer> {
+    @:nullSafety(Off)
+    return js.Syntax.code("({ length: 17 })");
+  }
+
   public static function run(): Array<String> {
     final events: Array<String> = [];
     #if dual_import_attributes
@@ -34,12 +47,14 @@ class HelperScenario {
       events.push('present:${present.assumePresent()}');
 
     // `Undefinable<Null<T>>` distinguishes a present `null` from an absent
-    // `undefined`. The TypeScript postfix assertion must stay a runtime
-    // identity rather than converting or rejecting the nested Haxe null.
+    // `undefined`. The assertion must preserve that nested null in both the
+    // generated TypeScript type and the runtime value.
     final nullablePresent: Undefinable<Null<String>> = null;
     final nullablePresentIsAbsent = Undefinable.isAbsent(nullablePresent);
     if (!nullablePresentIsAbsent)
       events.push('present-null:${nullablePresent.assumePresent() == null}');
+
+    events.push('present-type:${assertionOnlyPayload().assumePresent().length}');
 
     final boundary = Unknown.fromBoundary({name: "Ada"});
     final record = UnknownNarrow.record(boundary);

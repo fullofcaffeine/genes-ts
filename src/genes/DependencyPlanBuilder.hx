@@ -414,6 +414,33 @@ class DependencyPlanBuilder {
       expression.iter(collectLocalTypes);
     }
 
+    /**
+     * Reserves types printed only by the `Undefinable` presence assertion.
+     *
+     * Why: the typed marker carries its exact instantiated `T`, but ordinary
+     * expression dependency discovery does not inspect every `TypedExpr.t`.
+     * An emitter-local discovery could therefore name an imported type after
+     * binding allocation had already frozen the import plan.
+     *
+     * What/How: TypeScript implementation planning walks exact marker calls
+     * and collects the same return type that `TsModuleEmitter` later prints.
+     * The marker owner remains compiler-only and creates no runtime edge.
+     */
+    function collectUndefinablePresentTypes(expression: TypedExpr): Void {
+      if (expression == null)
+        return;
+      switch expression.expr {
+        case TCall(callee, arguments):
+          final marker = CompilerInternal.undefinablePresentMarkerCall(callee,
+            arguments);
+          if (marker != null)
+            collector.collect(marker.resultType,
+              'type.undefinable-present-assertion', expression.pos);
+        default:
+      }
+      expression.iter(collectUndefinablePresentTypes);
+    }
+
     function collectSignature(field: Field): Void {
       if (field.tsType != null) {
         collector.observeOverrideTemplate(field.tsType,
@@ -501,9 +528,12 @@ class DependencyPlanBuilder {
               }
           }
           if (includeExpressionLocals) {
-            for (field in fields)
+            for (field in fields) {
               collectLocalTypes(field.expr);
+              collectUndefinablePresentTypes(field.expr);
+            }
             collectLocalTypes(cl.init);
+            collectUndefinablePresentTypes(cl.init);
           }
 
         case MEnum(enumType, params):
@@ -524,8 +554,10 @@ class DependencyPlanBuilder {
 
         case MMain(expression):
           collector.collect(expression.t, '$kind.main-result', expression.pos);
-          if (includeExpressionLocals)
+          if (includeExpressionLocals) {
             collectLocalTypes(expression);
+            collectUndefinablePresentTypes(expression);
+          }
 
         case MType(definition, params):
           collector.collectParams(params, true, '$kind.typedef-parameters',

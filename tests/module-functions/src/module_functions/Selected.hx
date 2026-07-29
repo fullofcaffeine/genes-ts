@@ -64,7 +64,7 @@ class Selected {
   /** Proves zero-argument `@:expose` uses the retained Haxe field name. */
   @:expose
   @:genes.moduleFunction("publicByFieldName")
-  public static function publicByFieldName(value:Int):Int {
+  public static function publicByFieldName(value: Int): Int {
     return value + 1;
   }
 
@@ -106,15 +106,29 @@ class Selected {
     return value.orNull();
   }
 
+  /**
+   * Proves the compiler-owned presence marker is safe after relocation.
+   *
+   * The assertion removes only outer `undefined`; a present nested Haxe
+   * `null` remains part of both the generated TypeScript type and runtime
+   * value. The marker itself has no class-lexical dependency.
+   */
+  @:genes.moduleFunction("safePresentModuleFunction")
+  public static function safePresent(value: Undefinable<Null<String>>): Null<String> {
+    if (Undefinable.isAbsent(value))
+      return null;
+    return value.assumePresent();
+  }
+
   /** Proves Haxe's typed Array.map allocation stays valid after relocation. */
   @:genes.moduleFunction("mapValuesModuleFunction")
-  public static function mapValues(values:Array<Int>):Array<Int> {
+  public static function mapValues(values: Array<Int>): Array<Int> {
     return values.map(value -> value + 1);
   }
 
   /** Proves enum members do not reserve unrelated module-level names. */
   @:genes.moduleFunction("Ready")
-  public static function enumConstructorName(value:Int):Int {
+  public static function enumConstructorName(value: Int): Int {
     return value + 5;
   }
 
@@ -126,7 +140,7 @@ class Selected {
    * bodyless overload signature that preserves the public static method type.
    */
   @:genes.moduleFunction("nullableDefaultModuleFunction")
-  public static function nullableDefault(value:Null<String> = null):String {
+  public static function nullableDefault(value: Null<String> = null): String {
     return value == null ? "missing" : value;
   }
 

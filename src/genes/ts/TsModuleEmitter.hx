@@ -189,7 +189,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       && NullishContract.forType(currentReturnType).preservesUndefined;
     return !isVoidLike(t)
       && value.shouldNormalizeRawUndefinedToNull()
-      && !expectedPreserves && !returnPreserves;
+      && !expectedPreserves
+      && !returnPreserves;
   }
 
   function shouldNormalizeOptionalFieldRead(e: TypedExpr): Bool {
@@ -466,6 +467,23 @@ class TsModuleEmitter extends JsModuleEmitter {
       return;
     if (emitPlannedJsxCall(e, params))
       return;
+    if (CompilerInternal.isUndefinablePresentMarkerCallee(e)) {
+      final marker = CompilerInternal.undefinablePresentMarkerCall(e, params);
+      if (marker == null)
+        CompilerDiagnostic.fail('GENES-UNDEFINABLE-PRESENT-MARKER-001: the compiler-owned '
+          + 'presence marker requires exactly one typed value.',
+          e.pos);
+      emitPos(e.pos);
+      write('(');
+      // Preserve the source value's own undefined contract before applying
+      // the exact `T` assertion. An ambient destination must not turn an
+      // optional read into Haxe null first.
+      emitValueWithExpectedType(null, marker.value);
+      write(' as ');
+      TypeEmitter.emitType(this, marker.resultType);
+      write(')');
+      return;
+    }
     final privateMethod = privateMethodCall(e);
     if (privateMethod != null) {
       emitPrivateMethodCall(privateMethod, params);
@@ -3064,15 +3082,15 @@ class TsModuleEmitter extends JsModuleEmitter {
             }
         }
       case TCall(fn, args) if (TypeUtil.isNativeArrayRemovalCall(fn)):
-          // Array#shift/#pop returns `T | undefined` in TS. When the Haxe code
-          // guarantees non-emptiness (e.g. checked `.length > 0`), allow calling
-          // the returned function under `strict`.
-          write('(');
-          emitValue(fn);
-          write('!)(');
-          for (arg in join(args, write.bind(', ')))
-            emitValue(arg);
-          write(')');
+        // Array#shift/#pop returns `T | undefined` in TS. When the Haxe code
+        // guarantees non-emptiness (e.g. checked `.length > 0`), allow calling
+        // the returned function under `strict`.
+        write('(');
+        emitValue(fn);
+        write('!)(');
+        for (arg in join(args, write.bind(', ')))
+          emitValue(arg);
+        write(')');
       case TCall(callee = {expr: TField(target, f)}, params)
         if (fieldAccessName(f) == "get" && tsIsIMapType(target.t)
           && isNarrowedNonNull(e)):

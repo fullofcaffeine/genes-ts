@@ -77,15 +77,18 @@ abstract Undefinable<T>(Null<T>) from T {
    * an exact absence check is a contract violation; it performs no fallback or
    * coercion.
    *
-   * How: TypeScript output uses its standard postfix non-null assertion, which
-   * is a type-only identity at runtime. It therefore does not reject or
-   * convert a legitimate nested `null` when `T` is itself nullable. Classic
-   * JavaScript emits the operand unchanged because it needs no static narrowing
-   * syntax. The profile split stays inside this generic helper, so callers
-   * neither import a runtime cast function nor repeat raw target syntax.
+   * How: the active TypeScript profile retains one compiler-owned typed
+   * marker, then replaces it with an assertion to the exact instantiated `T`.
+   * Classic Genes and standard Haxe JavaScript emit the operand unchanged.
+   * This distinction matters for `Undefinable<Null<T>>`: a postfix `!` would
+   * incorrectly erase the nested `null` from the static type.
    */
   public inline function assumePresent(): T {
+    #if (genes.ts && genes.generator.active)
+    return genes.internal.UndefinablePresentMarker.assumePresent(this);
+    #else
     @:nullSafety(Off)
-    return js.Syntax.code(#if genes.ts "({0})!" #else "({0})" #end, this);
+    return js.Syntax.code("({0})", this);
+    #end
   }
 }

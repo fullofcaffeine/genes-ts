@@ -90,9 +90,7 @@ class ModuleFunctionPlan {
         case MClass(owner, _, fields):
           for (field in Module.emittableFields(fields)) {
             final metadata = field.meta == null ? [] : field.meta.extract(METADATA);
-            final exposeMetadata = field.meta == null
-              ? []
-              : field.meta.extract(EXPOSE_METADATA);
+            final exposeMetadata = field.meta == null ? [] : field.meta.extract(EXPOSE_METADATA);
             if (metadata.length == 0)
               continue;
             final entry = parseAndValidate(owner, field, metadata, bindings,
@@ -247,13 +245,12 @@ class ModuleFunctionPlan {
         + 'or one direct string-literal ESM name',
         first.pos);
     }
-    final name = if (first.params.length == 0)
-      field.name
-    else switch first.params[0].expr {
+    final name = if (first.params.length == 0) field.name else
+      switch first.params[0].expr {
       case EConst(CString(value)): value;
       default:
-        return CompilerDiagnostic.fail(
-          'GENES-MODULE-FUNCTION-EXPOSE-LITERAL-012: @:expose on '
+        return
+            CompilerDiagnostic.fail('GENES-MODULE-FUNCTION-EXPOSE-LITERAL-012: @:expose on '
           + '${owner.name}.${field.name} requires a direct string literal; '
           + 'computed public names are not supported',
           first.params[0].pos);
@@ -274,11 +271,8 @@ class ModuleFunctionPlan {
 
   static function validateShape(owner: ClassType, field: Field,
       requestedName: String): Void {
-    final supportedOwner = owner.kind.match(KNormal)
-      #if (haxe_ver >= 4.2)
-      || owner.kind.match(KModuleFields(_))
-      #end
-      ;
+    final supportedOwner = owner.kind.match(KNormal) #if (haxe_ver >= 4.2)
+      || owner.kind.match(KModuleFields(_)) #end;
     if (owner.isExtern || owner.isInterface || !supportedOwner) {
       CompilerDiagnostic.fail('GENES-MODULE-FUNCTION-OWNER-007: "${requestedName}" requires a '
         + 'concrete, non-extern class or module-field owner; ${owner.name} is '
@@ -376,27 +370,24 @@ class ModuleFunctionPlan {
    * Every user-defined or newly introduced template remains opaque and fails
    * closed until its relocation semantics receive an explicit regression.
    */
-  static function isProvenLexicallyNeutralSyntax(method:String,
-      arguments:Array<TypedExpr>):Bool {
+  static function isProvenLexicallyNeutralSyntax(method: String,
+      arguments: Array<TypedExpr>): Bool {
     return switch method {
       case 'code':
-        if (arguments.length == 0)
-          false;
-        else {
+        if (arguments.length == 0) false; else {
           final template = switch arguments[0].expr {
             case TConst(TString(value)): value;
             default: null;
           };
           switch [template, arguments.length] {
-            case ['undefined', 1] | ['{0}', 2] | ['{0} ?? null', 2] |
-              ['({0}) === undefined', 2]:
+            case ['undefined', 1] | ['{0}', 2] | ['({0})', 2] |
+              ['{0} ?? null', 2] | ['({0}) === undefined', 2]:
               true;
             default:
               false;
           }
         }
-      case 'construct':
-        // Haxe's typed JavaScript Array.map implementation lowers its result
+      case 'construct': // Haxe's typed JavaScript Array.map implementation lowers its result
         // allocation through `js.Syntax.construct(Array, length)`. A resolved
         // TTypeExpr names the same emitted constructor from class or module
         // scope; every constructor argument is still visited separately by the
@@ -441,10 +432,10 @@ class ModuleFunctionPlan {
           }
         case MEnum(enumType, _):
           add(enumType.name, 'enum ${enumType.name}', enumType.pos);
-          // A Haxe enum reserves its own top-level name, but its constructors
-          // are properties of that value. For example, `Ready` on `State` is
-          // emitted as `State.Ready`; it does not create a standalone `Ready`
-          // variable that can collide with a requested module function.
+        // A Haxe enum reserves its own top-level name, but its constructors
+        // are properties of that value. For example, `Ready` on `State` is
+        // emitted as `State.Ready`; it does not create a standalone `Ready`
+        // variable that can collide with a requested module function.
         case MType(definition, _):
           add(definition.name, 'type ${definition.name}', definition.pos);
         case MMain(_):
