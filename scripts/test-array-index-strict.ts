@@ -9,7 +9,7 @@ const scriptRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptRoot, "../..");
 const fixtureRoot = path.join(repoRoot, "tests/array-index-strict");
 const expectedTranscript =
-  "typed|null|undefined|3,5|missing|void-once|secondary-array-once|named-shift|named-pop|discarded";
+  "typed|7|generic|generic-null|effects-once|null|undefined|3,5|missing|void-once|secondary-array-once|named-shift|named-pop|discarded";
 
 /** Runs one deterministic fixture command from the repository root. */
 function run(command: string, args: ReadonlyArray<string>): void {
@@ -43,8 +43,20 @@ const typescript = readFileSync(
   path.join(fixtureRoot, "out/ts/src-gen/arrayindexstrict/Main.ts"),
   "utf8"
 );
-ok(typescript.includes("return values[index]!;"),
-  "ordinary typed array reads assert the Haxe result type");
+ok(typescript.includes("return (values[index] as T);"),
+  "generic array reads assert the exact Haxe parameter without removing null");
+ok(!typescript.includes("return values[index]!;"),
+  "generic array reads do not leak TypeScript NonNullable<T>");
+ok(typescript.includes("return numbers[index]!;"),
+  "concrete non-null array reads retain the established postfix assertion");
+ok(typescript.includes(
+  "return (Main.effectValues(value)[Main.effectIndex()] as T);"
+), "the exact generic assertion contains one receiver and one index evaluation");
+ok(typescript.includes(
+  "InvariantFactory.single((values[0] as T))"
+), "nested generic inference receives Haxe's exact indexed element type");
+ok(!typescript.includes("InvariantFactory.single(values[0]!)"),
+  "nested generic inference does not receive NonNullable<T>");
 ok(typescript.includes("return (values[index] ?? null);"),
   "nullable array reads normalize JavaScript absence to Haxe null");
 ok(typescript.includes("return values[index];"),
@@ -84,8 +96,8 @@ for (const relativeFile of [
   "out/ts/src-gen/haxe/iterators/ArrayIterator.ts"
 ]) {
   const generated = readFileSync(path.join(fixtureRoot, relativeFile), "utf8");
-  ok(generated.includes("return this.array[this.current++]!;"),
-    `${relativeFile} preserves Iterator<T>.next(): T under strict indexing`);
+  ok(generated.includes("return (this.array[this.current++] as T);"),
+    `${relativeFile} preserves exact Iterator<T>.next(): T under strict indexing`);
 }
 
 for (const relativeFile of [

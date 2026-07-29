@@ -4,8 +4,44 @@ import genes.ts.Undefinable;
 
 /** Same-source proof for Haxe array-read contracts under strict TypeScript. */
 class Main {
+  static var genericReadEffects = 0;
+
   static function ordinary<T>(values: Array<T>, index: Int): T {
     return values[index];
+  }
+
+  /** Concrete non-null control that keeps the established postfix assertion. */
+  static function concrete(numbers: Array<Int>, index: Int): Int {
+    return numbers[index];
+  }
+
+  /** Side-effecting receiver used to prove the assertion evaluates it once. */
+  static function effectValues<T>(value: T): Array<T> {
+    genericReadEffects++;
+    return [value];
+  }
+
+  /** Side-effecting index used to prove the assertion evaluates it once. */
+  static function effectIndex(): Int {
+    genericReadEffects++;
+    return 0;
+  }
+
+  static function genericEffects<T>(value: T): T {
+    return effectValues(value)[effectIndex()];
+  }
+
+  /**
+   * Keeps Haxe's exact generic element type through TypeScript inference.
+   *
+   * Haxe types both `values[0]` and this complete conditional as
+   * `InvariantValue<T>`. Under `noUncheckedIndexedAccess`, generated
+   * TypeScript must account for a possibly missing array slot without turning
+   * the authored `T` into the stronger and different `NonNullable<T>`.
+   */
+  static function genericConditional<T>(values: Array<T>,
+      fallback: InvariantValue<T>, matched: Bool): InferenceResult<T> {
+    return Converted(matched ? InvariantFactory.single(values[0]) : fallback);
   }
 
   static function nullable(values: Array<Null<String>>,
@@ -25,13 +61,16 @@ class Main {
     return values;
   }
 
-  static function removeMissing(
-      values: Array<Null<String>>): Null<String> {
+  static function removeMissing(values: Array<Null<String>>): Null<String> {
     return values.shift();
   }
 
   public static function main(): Void {
     final undefinedValues: Array<Undefinable<String>> = [Undefinable.absent(), "present"];
+    final nullableValues: Array<Null<String>> = [null];
+    final genericResult = genericConditional(["generic"],
+      new InvariantValue("fallback"), true);
+    final genericEffectValue = genericEffects("effect-value");
     final numbers = replace([2, 3], 3, 5);
     final namedVoid = new NamedVoidRemovals();
     namedVoid.shift();
@@ -44,6 +83,13 @@ class Main {
     discarded.shift();
     final transcript = [
       ordinary(["typed"], 0),
+      Std.string(concrete([7], 0)),
+      switch genericResult {
+        case Converted(value):
+          value.value;
+      },
+      ordinary(nullableValues, 0) == null ? "generic-null" : "unexpected",
+      genericEffectValue == "effect-value" && genericReadEffects == 2 ? "effects-once" : "unexpected",
       nullable([null], 0) == null ? "null" : "unexpected",
       Undefinable.isAbsent(explicitUndefined(undefinedValues,
         0)) ? "undefined" : "unexpected",
@@ -57,6 +103,34 @@ class Main {
     ];
     NodeConsole.log(transcript.join("|"));
   }
+}
+
+/**
+ * Generic value whose read/write function keeps its parameter invariant.
+ *
+ * TypeScript therefore cannot silently substitute `NonNullable<T>` for `T`
+ * when this value crosses the enum payload boundary below.
+ */
+private final class InvariantValue<T> {
+  public final value: T;
+  public final replace: T->T;
+
+  public function new(value: T) {
+    this.value = value;
+    this.replace = next -> next;
+  }
+}
+
+/** Generic factory whose TypeScript inference observes the indexed value. */
+private final class InvariantFactory {
+  public static function single<T>(value: T): InvariantValue<T> {
+    return new InvariantValue(value);
+  }
+}
+
+/** Exact destination used to expose an accidentally narrowed generic value. */
+private enum InferenceResult<T> {
+  Converted(value: InvariantValue<T>);
 }
 
 /**

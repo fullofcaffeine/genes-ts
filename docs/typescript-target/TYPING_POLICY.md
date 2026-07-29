@@ -109,6 +109,35 @@ to erase `Null<T>` unions in the emitted TS.
 - `Bool` → `boolean`
 - `Void` → `void`
 
+### Indexed arrays under strict TypeScript
+
+Haxe gives an indexed `Array<T>` read the declared element type `T`:
+
+```haxe
+function first<T>(values:Array<T>):T {
+  return values[0];
+}
+```
+
+TypeScript's `noUncheckedIndexedAccess` option initially sees the equivalent
+read as `T | undefined`, because JavaScript permits an out-of-range index.
+Genes removes that checker-added possibility while preserving the type Haxe
+actually selected:
+
+```ts
+function first<T>(values: T[]): T {
+  return (values[0] as T);
+}
+```
+
+The exact `as T` matters. A postfix `values[0]!` would instead have the type
+`NonNullable<T>` and would incorrectly remove a `null` that the caller's `T`
+may legitimately include. The assertion changes no runtime value and performs
+no validation; it only restores Haxe's checked static type. Concrete non-null
+elements can still use `!`, `Array<Null<T>>` reads normalize missing
+JavaScript values with `?? null`, and explicit `Undefinable<T>` elements
+retain `undefined`.
+
 ### Standard library / JS externs (prefer TS builtins)
 
 Where TypeScript already has a well-known type with correct semantics, prefer it:

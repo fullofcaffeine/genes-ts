@@ -2657,7 +2657,11 @@ class TsModuleEmitter extends JsModuleEmitter {
       && typeAllowsNull(e.t);
     final assertTypedResult = !inAssignTarget
       && !contract.preservesUndefined && !typeAllowsNull(e.t);
+    final preserveGenericResult = assertTypedResult
+      && isExactTypeParameter(e.t);
     if (normalizeResult)
+      write('(');
+    else if (preserveGenericResult)
       write('(');
     if (TypeUtil.rawSyntaxReceiverNeedsParens(receiver)) {
       // Preserve the dedicated raw-syntax precedence repair that originally
@@ -2672,8 +2676,57 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
     if (normalizeResult)
       write(' ?? null)');
-    else if (assertTypedResult)
+    else if (preserveGenericResult) {
+      write(' as ');
+      TypeEmitter.emitType(this, e.t);
+      write(')');
+    } else if (assertTypedResult)
       write('!');
+  }
+
+  /**
+   * Whether an indexed read's complete Haxe type is one generic parameter.
+   *
+   * Why: with TypeScript's `noUncheckedIndexedAccess`, reading `values[0]`
+   * from `Array<T>` has the checker-only type `T | undefined`. The usual
+   * postfix assertion removes that extra absence for concrete element types:
+   *
+   * ```haxe
+   * function first<T>(values:Array<T>):T {
+   *   return values[0];
+   * }
+   * ```
+   *
+   * Printing `values[0]!` is too strong for this generic case. In TypeScript,
+   * `!` removes both `undefined` and any `null` already permitted by `T`, so a
+   * later generic call can infer `NonNullable<T>` instead of Haxe's exact `T`:
+   *
+   * ```ts
+   * // Wrong: the expression has type NonNullable<T>.
+   * factory(values[0]!);
+   *
+   * // Correct: remove only the checker-added missing-index possibility.
+   * factory((values[0] as T));
+   * ```
+   *
+   * What/How: recognize only the compiler identity of a bare Haxe type
+   * parameter, including resolved compiler wrappers. The emitted `as T` is a
+   * TypeScript identity assertion: it returns the same JavaScript value and
+   * performs no conversion or runtime check. Concrete and nullable element
+   * types retain their established `!` and `?? null` projections.
+   */
+  static function isExactTypeParameter(type: Type): Bool {
+    return switch type {
+      case TInst(reference, _)
+        if (reference.get().kind.match(KTypeParameter(_))):
+        true;
+      case TMono(reference) if (reference.get() != null):
+        isExactTypeParameter(reference.get());
+      case TLazy(resolve):
+        isExactTypeParameter(resolve());
+      default:
+        false;
+    }
   }
 
   override public function emitValue(e: TypedExpr) {
