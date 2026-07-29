@@ -56,15 +56,19 @@ deletion and non-fast-forward updates. Published GitHub Releases are also
 immutable, which locks their notes and assets. Together these controls mean a
 released version cannot later be made to identify different source or bytes.
 
-Audit them with:
+Audit them with a maintainer credential that has repository
+`Administration: read`:
 
 ```bash
 node scripts/release/verify-host-controls.cjs fullofcaffeine/genes-ts
 ```
 
-The release job runs the same read-only check before semantic-release can
-create a tag. See [Releasing](RELEASING.md) for artifact verification and
-partial-publication recovery.
+GitHub does not allow a workflow `GITHUB_TOKEN` to request Administration
+permission. The release job therefore retains only `contents: write` and
+requires the published Release itself to report `immutable: true`; it does not
+embed a long-lived administrator token merely to re-read settings. See
+[Releasing](RELEASING.md) for this permission boundary, artifact verification,
+and partial-publication recovery.
 
 ## Why CI has no workflow path filter
 
@@ -110,7 +114,8 @@ The detailed response must show:
 - `strict_required_status_checks_policy: true`; and
 - the six contexts above with GitHub Actions integration ID `15368`.
 
-Inspect the version-tag rule and immutable-release setting separately:
+Inspect the version-tag rule and immutable-release setting separately. This
+command requires repository `Administration: read`:
 
 ```bash
 node scripts/release/verify-host-controls.cjs fullofcaffeine/genes-ts

@@ -420,10 +420,10 @@ jobs:
           fi
           echo "[release] Reachable SemVer tags (latest 5):"
           echo "$semver_tags" | sort -V | tail -n 5
-      - name: Verify immutable release host controls
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/release/verify-host-controls.cjs "${{ github.repository }}"
+      # GITHUB_TOKEN intentionally has only contents:write. GitHub's settings
+      # APIs require Administration:read, which workflows cannot request.
+      # Maintainers audit those controls separately; the publisher still fails
+      # unless the authoritative final Release reports immutable=true.
       - name: Release or complete the exact tested commit
         id: semantic_release
         env:

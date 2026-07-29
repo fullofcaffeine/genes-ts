@@ -16,6 +16,11 @@ function runGh(args, options = {}) {
  * settings own what happens afterward. This check therefore requires both
  * immutable GitHub Releases and a tag ruleset that blocks deletion or movement
  * of every `v*` tag.
+ *
+ * GitHub classifies both settings APIs as repository Administration data. Run
+ * this operator audit with a maintainer token that has Administration:read.
+ * The short-lived workflow GITHUB_TOKEN deliberately cannot receive that
+ * permission, even when its job has contents:write.
  */
 function verifyHostReleaseControls({
   repository,
