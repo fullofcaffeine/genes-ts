@@ -1,14 +1,14 @@
 # Explicit generic-call arguments
 
 This fixture proves a framework-neutral TypeScript interop boundary where Haxe
-and TypeScript would otherwise infer the same generic extern call differently.
+and TypeScript would otherwise infer the same generic call differently.
 
 `@:ts.explicitTypeArguments` is intentionally opt-in. The positive program
 shows a nullable value and an exact no-argument `undefined` result; a neighboring
 ordinary extern call proves TypeScript inference remains the default.
 
 Haxe erases some source types before generic call emission. The positive enum
-abstract therefore uses `genes.ts.TypeArguments.call(externCall, witness)`. The
+abstract therefore uses `genes.ts.TypeArguments.call(genericCall, witness)`. The
 witness is checked at compile time and never evaluated; it preserves the closed
 `"pending" | "ready"` argument on the original direct call. TypeScript then
 infers the local from that call, avoiding a redundant `Cell<string>` annotation
@@ -43,7 +43,8 @@ only the type argument that Haxe derived for that nested expression itself.
 This mechanism applies to any fluent interop API; it does not recognize package
 or framework names.
 
-The negative programs pin malformed declaration annotations, non-extern and
+The positive program covers both package externs and an ordinary emitted Haxe
+generic function. The negative programs pin malformed declaration annotations,
 non-generic declarations, unmarked or aliased call-site targets, wrong witness
 arity, unresolved witnesses, and non-call input to one source-positioned
 diagnostic family.
