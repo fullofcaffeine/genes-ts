@@ -10,9 +10,11 @@ import genes.dts.TypeEmitter;
 using StringTools;
 using haxe.macro.TypeTools;
 
-private typedef IncludeType = (type:ModuleType, rule:String, pos:Position)->Void;
-private typedef ObserveTypeOverride = (template:String, rule:String,
-  pos:Position)->Void;
+private typedef IncludeType = (type: ModuleType, rule: String,
+  pos: Position) -> Void;
+
+private typedef ObserveTypeOverride = (template: String, rule: String,
+  pos: Position) -> Void;
 
 /**
  * Extracts importable declarations from a target type projection.
@@ -92,16 +94,14 @@ class TypeReferenceCollector {
         ExternTypeContract.validateImportedInstanceType(cl, params);
         includeType(TClassDecl(ref), '$rule.imported-instance', cl.pos);
 
-      case TInst(_.get().meta => meta, params)
-        if (hasTypeOverride(meta)):
+      case TInst(_.get().meta => meta, params) if (hasTypeOverride(meta)):
         collectOverride(meta, params, '$rule.type-override', pos);
 
       case TInst(ref = _.get() => cl, params):
         switch [cl, params] {
           case [{module: "js.node.Fs", name: "FsPath"}, _] |
             [{module: "js.lib.Promise", name: "Promise"}, []] |
-            [{name: "RegExpMatch"}, _] |
-            [{pack: [], name: "String"}, _] |
+            [{name: "RegExpMatch"}, _] | [{pack: [], name: "String"}, _] |
             [{module: "js.lib.Symbol", name: "Symbol"}, _]:
             // Projected to a target/global type with no Haxe import.
           case [{name: name}, _] if (name.indexOf('<') > -1):
@@ -124,8 +124,7 @@ class TypeReferenceCollector {
             collectParams(params, false, '$rule.class-arguments', cl.pos);
         }
 
-      case TAbstract(_.get().meta => meta, params)
-        if (hasTypeOverride(meta)):
+      case TAbstract(_.get().meta => meta, params) if (hasTypeOverride(meta)):
         collectOverride(meta, params, '$rule.type-override', pos);
 
       case TAbstract(_.get() => abstractType, params):
@@ -143,9 +142,9 @@ class TypeReferenceCollector {
             collect(right, '$rule.union-right', abstractType.pos);
           default:
             if (!abstractType.meta.has(':coreType'))
-              collect(abstractType.type.applyTypeParameters(
-                abstractType.params, params), '$rule.abstract-underlying',
-                abstractType.pos);
+              collect(abstractType.type.applyTypeParameters(abstractType.params,
+                params),
+              '$rule.abstract-underlying', abstractType.pos);
         }
 
       case TAnonymous(_.get() => anonymous):
@@ -167,47 +166,58 @@ class TypeReferenceCollector {
               '$fieldRule.type-override', field.pos);
             continue;
           }
-          final cachedFieldType = Context.defined('genes.ts')
-            ? genes.ts.SignatureCache.getAnonFieldTsType(field.pos)
-            : null;
+          final cachedFieldType = Context.defined('genes.ts') ? genes.ts.SignatureCache.getAnonFieldTsType(field.pos) : null;
           if (cachedFieldType == null)
             collect(NullishContract.forField(field).emittedType,
               '$fieldRule.value', field.pos);
         }
 
       case TType(ref = _.get() => definition, params):
-        switch [definition, params] {
-          case [{pack: ["haxe", "extern"] | ["haxe"], name: "Rest"},
-            [element]] |
-            [{module: "js.lib.Iterator", name: "Iterator"}, [element]] |
-            [{module: "js.lib.Iterator", name: "AsyncIterator"}, [element]] |
-            [{module: "js.lib.Iterator", name: "IteratorStep"}, [element]] |
-            [{pack: [], name: "Null"}, [element]]:
-            collect(element, '$rule.typedef-value', definition.pos);
-          case [{module: "js.node.Fs", name: "FsPath"}, _] |
-            [{name: "RegExpMatch"}, _]:
-          case [{name: name}, _] if (name.indexOf('<') > -1):
-          case [{module: moduleName}, _]
-            if (moduleName != null && moduleName.startsWith('haxe.macro')):
-          default:
-            switch definition.type {
-              case TInst(_.get() => {isExtern: true}, _):
-                collect(definition.type.applyTypeParameters(
-                  definition.params, params), '$rule.extern-typedef',
-                  definition.pos);
-              case TAbstract(abstractRef = _.get() => {
-                pack: ["haxe", "extern"],
-                name: "EitherType"
-              }, arguments) if (arguments.length == params.length):
-                collect(TAbstract(abstractRef, params),
-                  '$rule.either-typedef', definition.pos);
-              default:
-                includeType(TTypeDecl(ref), '$rule.named-typedef',
-                  definition.pos);
-                collectParams(params, false, '$rule.typedef-arguments',
-                  definition.pos);
-            }
-        }
+        if (CompilerInternal.isType(definition.meta)
+          && CompilerInternal.isSemanticOnlyType(definition.meta)) {
+          // Keep dependency planning identical to the type printer: the alias
+          // itself has no output identity, so only its applied value can own
+          // imported/native dependencies.
+          collect(definition.type.applyTypeParameters(definition.params,
+            params),
+            '$rule.semantic-only-typedef', definition.pos);
+        } else
+          switch [definition, params] {
+            case [
+              {
+                pack: ["haxe", "extern"] | ["haxe"],
+                name: "Rest"
+              },
+              [element]
+            ] | [{module: "js.lib.Iterator", name: "Iterator"}, [element]] |
+              [{module: "js.lib.Iterator", name: "AsyncIterator"}, [element]] |
+              [{module: "js.lib.Iterator", name: "IteratorStep"}, [element]] |
+              [{pack: [], name: "Null"}, [element]]:
+              collect(element, '$rule.typedef-value', definition.pos);
+            case [{module: "js.node.Fs", name: "FsPath"}, _] |
+              [{name: "RegExpMatch"}, _]:
+            case [{name: name}, _] if (name.indexOf('<') > -1):
+            case [{module: moduleName}, _]
+              if (moduleName != null && moduleName.startsWith('haxe.macro')):
+            default:
+              switch definition.type {
+                case TInst(_.get() => {isExtern: true}, _):
+                  collect(definition.type.applyTypeParameters(definition.params,
+                    params),
+                    '$rule.extern-typedef', definition.pos);
+                case TAbstract(abstractRef = _.get() => {
+                  pack: ["haxe", "extern"],
+                  name: "EitherType"
+                }, arguments) if (arguments.length == params.length):
+                  collect(TAbstract(abstractRef, params),
+                    '$rule.either-typedef', definition.pos);
+                default:
+                  includeType(TTypeDecl(ref), '$rule.named-typedef',
+                    definition.pos);
+                  collectParams(params, false, '$rule.typedef-arguments',
+                    definition.pos);
+              }
+          }
 
       case TFun(arguments, result):
         var noOptionalUntil = -1;
@@ -223,8 +233,7 @@ class TypeReferenceCollector {
         }
         for (index in 0...arguments.length) {
           final argument = arguments[index];
-          final nullish = NullishContract.forParameter(argument.t,
-            argument.opt && index > noOptionalUntil);
+          final nullish = NullishContract.forParameter(argument.t, argument.opt && index > noOptionalUntil);
           collect(nullish.emittedType, '$rule.function-argument', pos);
         }
         collect(result, '$rule.function-result', pos);
@@ -276,8 +285,8 @@ class TypeReferenceCollector {
       return;
     final template = typeOverride(meta);
     if (template == null) {
-      CompilerDiagnostic.fail(
-        '@:ts.type/@:genes.type needs a string expression', pos);
+      CompilerDiagnostic.fail('@:ts.type/@:genes.type needs a string expression',
+        pos);
       return;
     }
     observeOverrideTemplate(template, rule, pos);
@@ -309,16 +318,17 @@ class TypeReferenceCollector {
     return (code >= 'a'.code && code <= 'z'.code)
       || (code >= 'A'.code && code <= 'Z'.code)
       || (code >= '0'.code && code <= '9'.code)
-      || code == '_'.code || code == '$'.code;
+      || code == '_'.code
+      || code == '$'.code;
   }
 
   /** Traverses only `$0`, `$1`, ... arguments interpolated by a raw override. */
-  function collectOverride(meta: MetaAccess, params: Array<Type>, rule: String,
-      pos: Position): Void {
+  function collectOverride(meta: MetaAccess, params: Array<Type>,
+      rule: String, pos: Position): Void {
     final template = typeOverride(meta);
     if (template == null) {
-      CompilerDiagnostic.fail(
-        '@:ts.type/@:genes.type needs a string expression', pos);
+      CompilerDiagnostic.fail('@:ts.type/@:genes.type needs a string expression',
+        pos);
       return;
     }
     observeOverrideTemplate(template, rule, pos);
@@ -327,8 +337,7 @@ class TypeReferenceCollector {
       final marker = template.indexOf('$', index);
       if (marker == -1)
         return;
-      if (marker + 1 < template.length
-        && template.charAt(marker + 1) == '$') {
+      if (marker + 1 < template.length && template.charAt(marker + 1) == '$') {
         index = marker + 2;
         continue;
       }
@@ -354,12 +363,11 @@ class TypeReferenceCollector {
 
   static function isGlobalBuffer(meta: MetaAccess): Bool {
     return switch meta.extract(':jsRequire') {
-      case [{
-        params: [
-          {expr: EConst(CString("buffer"))},
-          {expr: EConst(CString("Buffer"))}
-        ]
-      }]: true;
+      case [
+        {
+          params: [{expr: EConst(CString("buffer"))}, {expr: EConst(CString("Buffer"))}]
+        }
+      ]: true;
       default: false;
     }
   }

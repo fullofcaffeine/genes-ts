@@ -23,6 +23,7 @@
 /tests/hxx-carrier-immutability/out
 /tests/hxx-event-variance/out
 /tests/react-hooks/out
+/tests/react-flight/out
 /tests/library-profile/out
 /tests/ts2hx-bootstrap/out
 /tests/explicit-type-arguments/out
