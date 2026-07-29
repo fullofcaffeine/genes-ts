@@ -51,6 +51,14 @@ function sourceLine(source: string, needle: string): number {
   return source.slice(0, offset).split("\n").length;
 }
 
+function sourcePoint(source: string, needle: string): { line: number; column: number } {
+  const offset = source.indexOf(needle);
+  ok(offset !== -1, `source contains ${needle}`);
+  const before = source.slice(0, offset);
+  const lines = before.split("\n");
+  return { line: lines.length, column: lines.at(-1)?.length ?? 0 };
+}
+
 function generatedPoint(source: string, needle: string): { line: number; column: number } {
   const offset = source.indexOf(needle);
   ok(offset !== -1, `generated source contains ${needle}`);
@@ -97,6 +105,21 @@ function assertSourceMap(profile: "classic" | "ts" | "tsx",
   strictEqual(bodyOriginal.line,
     sourceLine(haxeSource, "return value.label + suffix + rest.length"),
     `${profile} moved body keeps its exact Haxe source line`);
+
+  const presentReturn = profile === "classic"
+    ? "return (value);"
+    : "return (value as string | null);";
+  const presentPoint = generatedPoint(source, presentReturn);
+  const presentValuePoint = {
+    line: presentPoint.line,
+    column: presentPoint.column + "return (".length
+  };
+  const presentOriginal = map.originalPositionFor(presentValuePoint);
+  const expectedPresent = sourcePoint(haxeSource, "value.assumePresent()");
+  strictEqual(presentOriginal.line, expectedPresent.line,
+    `${profile} relocated presence proof keeps its exact Haxe source line`);
+  strictEqual(presentOriginal.column, expectedPresent.column,
+    `${profile} relocated presence proof keeps its exact Haxe source column`);
 
   const publicPoint = generatedPoint(source, "function publicIdentity");
   const publicOriginal = map.originalPositionFor(publicPoint);
