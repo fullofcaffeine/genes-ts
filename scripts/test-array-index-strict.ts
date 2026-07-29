@@ -8,7 +8,8 @@ import { runGeneratedTypeScriptMatrix } from "./toolchains.js";
 const scriptRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptRoot, "../..");
 const fixtureRoot = path.join(repoRoot, "tests/array-index-strict");
-const expectedTranscript = "typed|null|undefined|3,5";
+const expectedTranscript =
+  "typed|null|undefined|3,5|missing|void-once|secondary-array-once|named-shift|named-pop|discarded";
 
 /** Runs one deterministic fixture command from the repository root. */
 function run(command: string, args: ReadonlyArray<string>): void {
@@ -54,6 +55,29 @@ ok(!typescript.includes("values[0]! ="),
   "assignment targets do not receive read-only assertions");
 ok(!typescript.includes("values[1]! ="),
   "assignment targets do not receive read-only assertions");
+ok(typescript.includes("return (values.shift() ?? null);"),
+  "built-in Array.shift value reads normalize undefined to Haxe null");
+ok(typescript.includes("namedVoid.shift();"));
+ok(typescript.includes("namedVoid.pop();"));
+ok(!typescript.includes("(namedVoid.shift() ?? null)"),
+  "a user shift():Void statement is not treated as Array.shift");
+ok(!typescript.includes("(namedVoid.pop() ?? null)"),
+  "a user pop():Void statement is not treated as Array.pop");
+ok(typescript.includes("secondaryArray.shift();"));
+ok(typescript.includes("secondaryArray.pop();"));
+ok(!typescript.includes("(secondaryArray.shift() ?? null)"),
+  "a root-module secondary class named Array is not the built-in Array");
+ok(!typescript.includes("(secondaryArray.pop() ?? null)"),
+  "canonical module identity protects a secondary Array.pop statement");
+ok(typescript.includes("namedValues.shift()"));
+ok(typescript.includes("namedValues.pop()"));
+ok(!typescript.includes("(namedValues.shift() ?? null)"),
+  "a value-returning user shift method keeps its declared result");
+ok(!typescript.includes("(namedValues.pop() ?? null)"),
+  "a value-returning user pop method keeps its declared result");
+ok(typescript.includes("discarded.shift();"));
+ok(!typescript.includes("(discarded.shift() ?? null)"),
+  "a discarded native Array result does not need value normalization");
 
 for (const relativeFile of [
   "out/ts/src-gen/genes/Register.ts",
