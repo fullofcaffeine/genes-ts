@@ -3455,9 +3455,9 @@ class TsModuleEmitter extends JsModuleEmitter {
    * `unsafeCast` is runtime identity: it returns the exact JavaScript value
    * passed to it. For `hxBytes`, `?? null` first preserves Haxe's missing-value
    * convention, then the planned target explains the cache's exact wrapper
-   * type to TypeScript. For initialized `bytes`/`bufferValue` reads, postfix
-   * `!` removes only the ambient property's optional `undefined`; it performs
-   * no JavaScript check or conversion.
+   * type to TypeScript. For an initialized `bufferValue` read, postfix `!`
+   * removes only the ambient property's optional `undefined`; it performs no
+   * JavaScript check or conversion.
    */
   function emitRuntimeByteCacheRead(expression: TypedExpr,
       decision: TsRuntimeByteCacheRead): Void {
@@ -3469,9 +3469,6 @@ class TsModuleEmitter extends JsModuleEmitter {
         write('>((');
         super.emitExpr(expression);
         write(' ?? null))');
-      case InitializedValue:
-        super.emitExpr(expression);
-        write('!');
       case InitializedValueAs(target):
         write(ctx.typeAccessor(TypeUtil.registerType));
         write('.unsafeCast<');

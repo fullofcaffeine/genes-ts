@@ -16,16 +16,8 @@ class Main {
    * property, which JavaScript reports as `undefined`; Haxe observes that
    * missing value as `null`.
    */
-  static function cached(data: BytesData): Null<Bytes> {
+  static function absentCache(data: BytesData): Dynamic {
     return untyped data.hxBytes;
-  }
-
-  /**
-   * Haxe's `Bytes.fastGet` documents the precondition that `data` has already
-   * been wrapped. The constructor establishes `data.bytes` before this read.
-   */
-  static function initializedByte(data: BytesData, index: Int): Int {
-    return untyped data.bytes[index];
   }
 
   /**
@@ -37,7 +29,7 @@ class Main {
 
   public static function main(): Void {
     final data = new ArrayBuffer(2);
-    final absent = cached(data) == null;
+    final absent = absentCache(data) == null;
     final bytes = Bytes.ofData(data);
     bytes.set(0, 41);
     bytes.set(1, 42);
@@ -52,7 +44,7 @@ class Main {
     NodeConsole.log([
       Std.string(absent),
       Std.string(sameWrapper),
-      Std.string(initializedByte(data, 1)),
+      Std.string(bytes.get(1)),
       Std.string(backingData(bytes) == data),
       Std.string(nodeBytes.get(0)),
       Std.string(user.hxBytes == null),

@@ -3,6 +3,7 @@ package genes.ts;
 #if macro
 import genes.Module;
 import genes.NullishContract;
+import genes.LocalBindingPlan;
 import genes.util.TypeUtil;
 import haxe.ds.ObjectMap;
 import haxe.macro.Context;
@@ -54,14 +55,17 @@ enum abstract TsBoundarySite(String) to String {
  *
  * - `hxBytes` is a nullable cached `Bytes` wrapper, so JavaScript `undefined`
  *   must first become Haxe `null` and then cross the typed boundary.
- * - `bytes` and `bufferValue` are read only after the runtime has initialized
- *   them, so TypeScript needs a presence assertion at that exact read.
- *   `bufferValue` additionally needs its exact Haxe destination because Haxe
- *   writes an ArrayBuffer while hxnodejs writes a Uint8Array subclass.
+ * - `bufferValue` is read from the private storage of a typed `haxe.io.Bytes`
+ *   instance, after the runtime has initialized it. TypeScript needs a
+ *   presence assertion and the exact Haxe destination because Haxe writes an
+ *   ArrayBuffer while hxnodejs writes a Uint8Array subclass.
+ *
+ * The optional `bytes` cache is intentionally not bridged. `Bytes.fastGet`
+ * is normally inlined before Genes sees the typed AST, so an arbitrary
+ * same-named native-buffer read cannot be proven to come from that API.
  */
 enum TsRuntimeByteCacheReadAction {
   NullableWrapper(target: Type);
-  InitializedValue;
   InitializedValueAs(target: Type);
 }
 
@@ -524,7 +528,6 @@ class TsBoundaryPlan {
             pos: decision.pos,
             rule: "runtime-byte-cache-read"
           });
-        case InitializedValue:
         case InitializedValueAs(target):
           result.push({
             type: target,
@@ -562,19 +565,34 @@ private class TsBoundaryPlanBuilder {
   final exceptionUnwrapLocals = new Map<Int, Bool>();
   final valueBridges = new Array<TsValueBridge>();
   var narrowingPlan: Null<TsNarrowingPlan>;
+  var localBindingPlan: Null<LocalBindingPlan>;
+  var currentOwnerModule: Null<String>;
+  var currentOwnerName: Null<String>;
+  var currentFieldName: Null<String>;
 
   public function new() {}
 
   public function build(module: Module): TsBoundaryPlan {
     narrowingPlan = module.tsNarrowingPlan;
+    localBindingPlan = module.localBindingPlan;
     for (member in module.members) {
       switch member {
         case MClass(classType, _, fields):
-          for (field in fields)
+          currentOwnerModule = classType.module;
+          currentOwnerName = classType.name;
+          for (field in fields) {
+            currentFieldName = field.name;
             visit(field.expr, field.type, null);
+          }
+          currentFieldName = null;
           if (classType.init != null)
             visit(classType.init, classType.init.t, null);
+          currentOwnerModule = null;
+          currentOwnerName = null;
         case MMain(expression):
+          currentOwnerModule = null;
+          currentOwnerName = null;
+          currentFieldName = null;
           visit(expression, expression.t, null);
         case MEnum(_, _) | MType(_, _):
       }
@@ -614,7 +632,9 @@ private class TsBoundaryPlanBuilder {
         if (initializer != null) {
           if (isExceptionCaughtUnwrap(initializer))
             exceptionUnwrapLocals.set(variable.id, true);
-          final prototypeTarget = prototypeCreatedType(initializer);
+          final prototypeTarget = isCurrentField("js.node.buffer.Buffer",
+            "Helper",
+            "bytesOfBuffer") ? prototypeCreatedType(initializer) : null;
           if (prototypeTarget != null)
             prototypeBackedLocals.set(variable.id, prototypeTarget);
           planValueBridge(expression, VariableInitializer, initializer,
@@ -697,9 +717,11 @@ private class TsBoundaryPlanBuilder {
    * reads occur only after the runtime has initialized them.
    *
    * How: require the original untyped `FDynamic` access, the exact property
-   * name, and an exact `ArrayBuffer`/`Uint8Array` receiver (including true
-   * typed subclasses such as Node's `Buffer`). User fields with the same names
-   * and unrelated dynamic receivers therefore receive no decision.
+   * name, and the compiler-owned API that establishes its meaning.
+   * `hxBytes` is limited to Haxe's `Bytes.ofData`; `bufferValue` must be read
+   * from the exact private storage field of a typed `haxe.io.Bytes` instance.
+   * A same-named read from a fresh native buffer has no proof and therefore
+   * receives no decision.
    */
   function planRuntimeByteCacheRead(expression: TypedExpr,
       receiver: TypedExpr, field: FieldAccess, expected: Null<Type>): Void {
@@ -710,13 +732,13 @@ private class TsBoundaryPlanBuilder {
 
     final action: Null<TsRuntimeByteCacheReadAction> = switch name {
       case "hxBytes"
-        if (isArrayBufferStorage(receiver.t) || isUint8ArrayStorage(receiver.t)):
+        if (isCurrentField("haxe.io.Bytes", "Bytes", "ofData")
+          && isArrayBufferStorage(receiver.t)):
         if (expected != null && isNullableHaxeBytes(expected))
           NullableWrapper(expected) else null;
-      case "bytes"
-        if (isArrayBufferStorage(receiver.t) || isUint8ArrayStorage(receiver.t)):
-        InitializedValue;
-      case "bufferValue" if (isUint8ArrayStorage(receiver.t)):
+      case "bufferValue"
+        if (isUint8ArrayStorage(receiver.t)
+          && isHaxeBytesStorageField(receiver)):
         final target = expected == null ? expression.t : expected;
         if (isExactArrayBuffer(target)) InitializedValueAs(target) else null;
       default:
@@ -766,6 +788,22 @@ private class TsBoundaryPlanBuilder {
     return isClassOrSubclass(type, "js.lib.Uint8Array", "Uint8Array");
   }
 
+  function isCurrentField(module: String, owner: String, field: String): Bool {
+    return currentOwnerModule == module && currentOwnerName == owner
+      && currentFieldName == field;
+  }
+
+  static function isHaxeBytesStorageField(expression: TypedExpr): Bool {
+    return switch erasedCastSource(expression).expr {
+      case TField(_,
+        FInstance(_.get() => {module: "haxe.io.Bytes", name: "Bytes"}, _,
+          _.get() => field)):
+        TypeUtil.classFieldName(field) == "b";
+      default:
+        false;
+    }
+  }
+
   static function isClassOrSubclass(type: Type, module: String, name: String,
       depth = 0): Bool {
     if (depth > MAX_TYPE_DEPTH)
@@ -808,7 +846,10 @@ private class TsBoundaryPlanBuilder {
       default: return false;
     };
     final prototypeType = prototypeBackedLocals.get(local.id);
-    if (prototypeType == null || !compareExactTypes(target, prototypeType))
+    if (prototypeType == null
+      || !compareExactTypes(target, prototypeType)
+      || localBindingPlan == null
+      || localBindingPlan.isReassigned(local))
       return false;
 
     final bridge = new TsValueBridge(parent, ReturnValue, source, target);

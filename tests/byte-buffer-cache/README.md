@@ -62,13 +62,16 @@ const cached: Bytes | null = data.hxBytes;
 // Error: object | undefined is not assignable to Bytes | null.
 ```
 
-It also rejected initialized cache reads because the honest ambient property is
-optional:
+It also rejected cache reads because the honest ambient property is optional:
 
 ```ts
 return data.bytes[index];
 // Error: data.bytes is possibly undefined.
 ```
+
+That diagnostic must not be suppressed for an arbitrary buffer: `data.bytes`
+really can be absent. Genes may strengthen it only when the typed Haxe program
+still contains proof that the runtime initialized this particular property.
 
 Finally, TypeScript could see only the fields assigned to the object created by
 hxnodejs, not the `Bytes.prototype` relationship established at runtime:
@@ -80,9 +83,12 @@ return wrapper;
 // Error: the structural object is missing Bytes methods.
 ```
 
-Against the package-neutral `tink_cli` pressure fixture and GameCarry, this
-single runtime-cache mismatch accounted for eleven of the 22 remaining strict
-TypeScript diagnostics.
+In an external comparison against the package-neutral `tink_cli` pressure
+fixture and GameCarry, the complete byte-cache cluster accounted for eleven of
+22 remaining strict TypeScript diagnostics. This focused change safely removes
+five, taking both programs from 22 to 17. The remaining six are intentionally
+left visible for the reason explained below; the numbers are downstream
+observations, not assertions made by this compiler-owned fixture.
 
 ## How Genes represents the contract
 
@@ -110,8 +116,8 @@ Every property remains optional because a fresh native buffer has not
 necessarily passed through either runtime. Genes does not add a catch-all index
 signature.
 
-The immutable TypeScript boundary plan then records stronger facts only at the
-exact Haxe reads that need them.
+The immutable TypeScript boundary plan then records stronger facts only where
+the typed Haxe AST retains enough evidence to prove them.
 
 A nullable wrapper lookup first converts JavaScript's missing-property
 `undefined` to the `null` sentinel Haxe expects:
@@ -121,27 +127,16 @@ const cached: Bytes | null =
   Register.unsafeCast<Bytes | null>((data.hxBytes ?? null));
 ```
 
-A read whose source contract says the byte view was initialized uses one
-TypeScript presence assertion:
-
-```ts
-return data.bytes![index]!;
-```
-
-The first `!` is for the optional `bytes` cache. The second is the existing
-array-index contract under TypeScript's `noUncheckedIndexedAccess`; neither
-operator emits JavaScript or performs a runtime check.
-
-When Haxe's typed destination requires `ArrayBuffer`, the union-valued
-`bufferValue` cache receives both a presence assertion and an exact identity
-assertion:
+When Haxe's typed destination requires `ArrayBuffer`, a `bufferValue` read from
+the exact private storage field of a typed `haxe.io.Bytes` instance receives a
+presence assertion and an exact identity assertion:
 
 ```ts
 return Register.unsafeCast<ArrayBuffer>(bytes.b.bufferValue!);
 ```
 
 The hxnodejs prototype-backed object receives one assertion at its exact return
-boundary:
+boundary inside the exact `js.node.buffer.Buffer.Helper.bytesOfBuffer` helper:
 
 ```ts
 return Register.unsafeCast<Bytes>(wrapper);
@@ -153,18 +148,69 @@ value. Its JavaScript implementation returns `value` unchanged. The generic
 
 The prototype proof fails closed. Genes records it only when:
 
-1. the local comes from the exact `js.lib.Object.create` field;
-2. the argument is the `.prototype` of a typed Haxe class;
-3. the same local reaches the return; and
-4. that class exactly matches the declared return type; and
-5. that exact class is `haxe.io.Bytes`.
+1. the code is the exact hxnodejs helper that owns this runtime convention;
+2. the local comes from the exact `js.lib.Object.create` field;
+3. the argument is the `.prototype` of the typed `haxe.io.Bytes` class;
+4. the same local reaches the return;
+5. the local has not been reassigned; and
+6. `haxe.io.Bytes` exactly matches the declared return type.
 
-The negative fixture creates an object from `Array.prototype` and returns it as
-`Bytes`. It receives no assertion, and strict TypeScript continues to report
-the structural mismatch. Other classes constructed through
-`Object.create(Target.prototype)` remain outside this compatibility rule. A
-user class with ordinary fields named `hxBytes`, `bytes`, or `bufferValue` is
-also emitted directly.
+The negative fixture covers both a different prototype and a correctly created
+prototype local that is later reassigned to `{}`. Neither receives an
+assertion, and strict TypeScript continues to report the structural mismatch.
+Other classes constructed through `Object.create(Target.prototype)` remain
+outside this compatibility rule. A user class with ordinary fields named
+`hxBytes`, `bytes`, or `bufferValue` is also emitted directly.
+
+## Why `Bytes.fastGet` remains a TypeScript error
+
+The Haxe standard library exposes a helper whose source can be simplified to:
+
+```haxe
+public static inline function fastGet(data:BytesData, index:Int):Int {
+  return untyped data.bytes[index];
+}
+```
+
+Calling that exact helper is meaningful: `BytesData` came from Haxe's byte
+machinery, so its `bytes` cache should exist. However, `inline` tells the Haxe
+compiler to replace the call with the helper body before Genes receives the
+typed AST. A downstream call such as:
+
+```haxe
+final value = Bytes.fastGet(data, index);
+```
+
+therefore reaches Genes as if the downstream class had authored:
+
+```haxe
+final value = untyped data.bytes[index];
+```
+
+At that point there is no remaining `Bytes.fastGet` call identity. Adding `!`
+merely because a native buffer property is spelled `bytes` would also bless
+this unsafe program:
+
+```haxe
+final fresh = new ArrayBuffer(1);
+return untyped fresh.bytes[0];
+```
+
+That property is absent at runtime. The generated TypeScript must keep the
+warning:
+
+```ts
+return fresh.bytes[0]!;
+//     ~~~~~~~~~~~
+// Error: 'fresh.bytes' is possibly 'undefined'.
+```
+
+The final `!` shown here belongs to Genes's existing
+`noUncheckedIndexedAccess` array-index rule; it says only that index `0`
+contains a value. It does not claim that the optional `bytes` object exists.
+This PR therefore leaves the six inlined `fastGet` diagnostics visible instead
+of hiding a real unsafe case. A future fix needs compiler evidence stronger
+than the property name.
 
 Classic JavaScript contains none of these TypeScript assertions:
 
@@ -191,8 +237,9 @@ The task:
   `skipLibCheck: false`;
 - runs TypeScript-readable, classic Genes, and standard Haxe JavaScript and
   compares their exact output;
-- proves same-named user fields and a mismatched prototype receive no bridge;
-  and
+- proves same-named user fields, a fresh native buffer, a mismatched prototype,
+  and an exact helper whose prototype-backed local was reassigned receive no
+  bridge; and
 - verifies the added syntax maps to the authored Haxe line.
 
 Prepared by the GameCarry agent.

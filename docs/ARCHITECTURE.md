@@ -399,21 +399,31 @@ the Node buffer itself.
 
 The ambient declaration describes possible host shape; it does not by itself
 prove that a particular read is initialized. `TsBoundaryPlan` recognizes only
-the original untyped property access on an exact `ArrayBuffer`, `Uint8Array`,
-or typed subclass:
+the original untyped property access plus compiler-owned evidence for the
+runtime convention:
 
-- a nullable `hxBytes` destination emits `?? null` followed by an exact
-  `Bytes | null` identity assertion;
-- initialized `bytes` reads receive a presence assertion; and
-- initialized `bufferValue` reads receive a presence assertion plus the exact
-  compiler-known destination type.
+- the exact `haxe.io.Bytes.Bytes.ofData` implementation may turn its nullable
+  `hxBytes` lookup into `?? null` followed by an exact `Bytes | null` identity
+  assertion; and
+- a `bufferValue` read from the exact private storage field of a typed
+  `haxe.io.Bytes` instance receives a presence assertion plus the exact
+  compiler-known `ArrayBuffer` destination.
 
-The same plan models hxnodejs's `Object.create(Bytes.prototype)` construction.
-It asserts the returned local as `Bytes` only when the exact prototype class
-matches the declared return type. A different prototype, unrelated dynamic
-receiver, or same-named user field receives no decision. Every assertion type
-is collected before import projection, classic JavaScript remains unchanged,
-and the complete beginner-facing examples and negative controls live in
+The optional `bytes` cache is declared so Haxe and hxnodejs runtime writes are
+legal TypeScript, but reads are not asserted. `Bytes.fastGet` is normally
+inlined before Genes sees the typed AST, erasing the API identity that would
+prove initialization. A spelling-only rule would incorrectly bless
+`new ArrayBuffer(1).bytes[0]`, whose cache is genuinely absent.
+
+The same plan models the exact hxnodejs
+`js.node.buffer.Buffer.Helper.bytesOfBuffer` implementation of
+`Object.create(Bytes.prototype)`. It asserts the returned local as `Bytes` only
+when the exact prototype class matches the declared return type and the local
+has not been reassigned. A different prototype, reassigned local, unrelated
+dynamic receiver, or same-named user field receives no decision. Every
+assertion type is collected before import projection, classic JavaScript
+remains unchanged, and the complete beginner-facing examples and negative
+controls live in
 [`tests/byte-buffer-cache/README.md`](../tests/byte-buffer-cache/README.md).
 
 One such boundary comes from ordinary Haxe nullability. Unless a project opts

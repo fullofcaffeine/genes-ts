@@ -64,14 +64,9 @@ deepStrictEqual(
 
 const mainTs = read("out/ts/src-gen/bytecache/Main.ts");
 ok(
-  mainTs.includes(
-    "return Register.unsafeCast<Bytes | null>((data.hxBytes ?? null));"
-  ),
-  "an absent hxBytes cache first becomes Haxe null, then crosses the exact Bytes boundary"
-);
-ok(
-  mainTs.includes("return data.bytes![index]!;"),
-  "the documented initialized byte-view cache receives one presence assertion"
+  mainTs.includes("return data.hxBytes;")
+    && !mainTs.includes("data.bytes!"),
+  "an arbitrary native-buffer read receives no initialization assertion"
 );
 ok(
   mainTs.includes(
@@ -134,13 +129,27 @@ ok(
 const negativeTs = read(
   "out/negative/src-gen/bytecache/negative/Main.ts"
 );
+const negativeBufferTs = read(
+  "out/negative/src-gen/js/node/buffer/Buffer.ts"
+);
 ok(
   negativeTs.includes("Object.create(Array.prototype)"),
   "the negative control creates a different prototype"
 );
 ok(
-  !negativeTs.includes("unsafeCast<Bytes>"),
-  "a mismatched prototype does not receive a Bytes identity assertion"
+  !negativeTs.includes("unsafeCast<Bytes>")
+    && !negativeBufferTs.includes("unsafeCast<Bytes>"),
+  "mismatched and exact-owner-but-reassigned prototypes receive no Bytes identity assertion"
+);
+ok(
+  negativeBufferTs.includes("value = {}")
+    && negativeBufferTs.includes("return value;"),
+  "the exact helper-owner control reassigns its prototype-backed local before return"
+);
+ok(
+  negativeTs.includes("return data.bytes[0]!;")
+    && !negativeTs.includes("data.bytes!"),
+  "a fresh ArrayBuffer receives no byte-cache presence assertion"
 );
 const negativeCheck = spawnSync(
   process.execPath,
@@ -172,18 +181,36 @@ strictEqual(
   "the unsupported mismatched-prototype program remains a strict-TypeScript failure"
 );
 ok(
-  `${negativeCheck.stdout}${negativeCheck.stderr}`.includes("TS2741"),
-  "the negative failure remains the expected structural Bytes mismatch"
+  `${negativeCheck.stdout}${negativeCheck.stderr}`.includes("TS2741")
+    && `${negativeCheck.stdout}${negativeCheck.stderr}`.includes("TS18048"),
+  "the negative failures retain both structural and absent-cache diagnostics"
 );
 
-const haxeSource = read("src/bytecache/Main.hx");
+const bytesSourceMap = new SourceMapConsumer(
+  JSON.parse(
+    read("out/ts/src-gen/haxe/io/Bytes.ts.map")
+  ) as RawSourceMap
+);
+const bytesOriginal = bytesSourceMap.originalPositionFor(
+  generatedPoint(bytesTs, "Register.unsafeCast<Bytes | null>")
+);
+ok(
+  bytesOriginal.source?.includes("haxe/io/Bytes.hx"),
+  "the nullable wrapper bridge maps back to Haxe's Bytes implementation"
+);
+strictEqual(
+  bytesOriginal.line,
+  244,
+  "the nullable wrapper bridge preserves the Bytes.ofData source line"
+);
+
 const sourceMap = new SourceMapConsumer(
   JSON.parse(
     read("out/ts/src-gen/bytecache/Main.ts.map")
   ) as RawSourceMap
 );
 const original = sourceMap.originalPositionFor(
-  generatedPoint(mainTs, "Register.unsafeCast<Bytes | null>")
+  generatedPoint(mainTs, "Register.unsafeCast<ArrayBuffer>")
 );
 ok(
   original.source?.endsWith("src/bytecache/Main.hx"),
@@ -191,8 +218,8 @@ ok(
 );
 strictEqual(
   original.line,
-  sourceLine(haxeSource, "return untyped data.hxBytes;"),
-  "the nullable cache bridge preserves the authored source line"
+  sourceLine(read("src/bytecache/Main.hx"), "return untyped @:privateAccess bytes.b.bufferValue;"),
+  "the backing-buffer bridge preserves the authored source line"
 );
 
 for (const classicFile of [

@@ -1,7 +1,9 @@
 package bytecache.negative;
 
 import haxe.io.Bytes;
+import js.lib.ArrayBuffer;
 import js.lib.Object;
+import js.node.buffer.Buffer;
 
 /**
  * A different prototype must not authorize a `Bytes` identity assertion.
@@ -16,7 +18,13 @@ class Main {
     return value;
   }
 
+  static function absentBytes(data: ArrayBuffer): Int untyped {
+    return data.bytes[0];
+  }
+
   public static function main(): Void {
     trace(mismatchedPrototype());
+    trace(absentBytes(new ArrayBuffer(1)));
+    trace(Buffer.reassignedPrototype());
   }
 }
