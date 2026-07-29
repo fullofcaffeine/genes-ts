@@ -403,6 +403,83 @@ class TypeUtil {
       case FDynamic(n): n;
     }
 
+  /**
+   * Reports a call to Haxe's built-in `Array.shift` or `Array.pop`.
+   *
+   * Why: an empty JavaScript array returns `undefined` from these two methods,
+   * while Haxe types the result as `Null<T>`. Genes' strict-TypeScript profile
+   * represents that built-in absence as `null`, but a user class is free to
+   * define an unrelated method with the same name—even one that returns
+   * `Void`.
+   *
+   * For example, this Haxe uses a user method only for its side effect, then
+   * uses the built-in Array result as a nullable value:
+   *
+   * ```haxe
+   * cursor.shift(); // Cursor.shift():Void
+   * final removed:Null<String> = values.shift(); // values:Array<String>
+   * ```
+   *
+   * A name-only rule used to produce invalid TypeScript because `void` is not
+   * a value on which `??` can operate:
+   *
+   * ```ts
+   * (cursor.shift() ?? null); // wrong: TS1345
+   * ```
+   *
+   * The typed owner check produces:
+   *
+   * ```ts
+   * cursor.shift();
+   * const removed: string | null = (values.shift() ?? null);
+   * ```
+   *
+   * Classic JavaScript needs no strict-null type projection, so both calls
+   * retain their ordinary runtime form:
+   *
+   * ```js
+   * cursor.shift();
+   * const removed = values.shift();
+   * ```
+   *
+   * What/How: consult the typed field owner recorded by the Haxe compiler and
+   * accept only the root-package `Array` class from the canonical `Array`
+   * module, with no call arguments. Checking only the package and class name
+   * is still insufficient: a root module such as `Cursor.hx` can declare its
+   * own secondary class named `Array`. Its typed owner has an empty package and
+   * the name `Array`, but its module is `Cursor`, not the built-in module
+   * `Array`. Requiring all three identities prevents both that false positive
+   * and the simpler `cursor.shift():Void` rewrite.
+   */
+  public static function isNativeArrayRemovalCall(
+      expression: TypedExpr): Bool {
+    return switch expression.expr {
+      case TCall({expr: TField(_, access)}, []):
+        switch access {
+          case FInstance(owner, _, field):
+            isNativeArray(owner.get())
+              && isArrayRemovalField(field.get());
+          case FClosure({c: owner}, field):
+            isNativeArray(owner.get())
+              && isArrayRemovalField(field.get());
+          default:
+            false;
+        }
+      default:
+        false;
+    }
+  }
+
+  static inline function isNativeArray(owner: ClassType): Bool {
+    return owner.pack.length == 0
+      && owner.module == 'Array'
+      && owner.name == 'Array';
+  }
+
+  static inline function isArrayRemovalField(field: ClassField): Bool {
+    return field.name == 'shift' || field.name == 'pop';
+  }
+
   // https://github.com/HaxeFoundation/haxe/blob/682b8e3407cf04bb0b81275d6543cc9c45e00e89/src/generators/genjs.ml#L251
   static function isDynamicType(type: Type): Bool {
     return switch Context.followWithAbstracts(type) {
