@@ -57,13 +57,20 @@ The pre-emission boundary plan requires all of these compiler facts:
   `js.Boot.__instanceof` field;
 - the guard target is an exact Haxe class or enum type expression;
 - the typed local is initialized from the same raw `TVar` identity;
-- the initializer remains inside the guard's true branch;
+- the initializer is the first expression in the guard's true branch, matching
+  Haxe's typed-catch lowering;
 - the local's declared type exactly matches the guard target.
 
-The scan never enters a nested function and stops if the raw local is assigned
-again. A class catch lowered through native JavaScript `instanceof` remains
-direct because TypeScript already understands that guard. Ordinary dynamic
-locals and unrelated Boolean helpers receive no assertion.
+Genes does not search later statements for a candidate binding. A direct
+assignment is easy to see, but a closure can also capture and replace the raw
+local before a later binding. Restricting the decision to Haxe's immediate
+lowered binding makes writes, calls, nested functions, and intervening branches
+fail closed without implementing a second side-effect analysis.
+
+A class catch lowered through native JavaScript `instanceof` remains direct
+because TypeScript already understands that guard. Ordinary dynamic locals,
+unrelated Boolean helpers, different source variables, and different target
+types receive no assertion.
 
 Run the focused task with:
 

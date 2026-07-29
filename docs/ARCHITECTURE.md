@@ -278,8 +278,10 @@ the complete lowered relationship: `raw` came from the exact
 `haxe.Exception.caught(...).unwrap()` sequence; the condition calls the exact
 compiler-owned `js.Boot.__instanceof` field; its target is an exact class or
 enum type expression; and the true branch initializes a local of that same type
-from the same `TVar` identity. The scan does not enter nested functions, leave
-the true branch, or continue after a write to the raw local.
+from the same `TVar` identity as its first expression. Haxe places that binding
+first when lowering the typed catch. Genes does not search later statements:
+doing so would require proving that calls and captured closures cannot replace
+the raw value after the guard.
 
 TypeScript emission consumes that immutable decision:
 
@@ -293,10 +295,10 @@ if (Boot.__instanceof(raw, GuardedFailure)) {
 `Register.unsafeCast` is a runtime identity operation; the existing Haxe guard
 still decides whether the branch runs. A class catch emitted with native
 JavaScript `instanceof` remains direct because TypeScript already narrows it.
-Arbitrary dynamic locals, user Boolean helpers, a different bound variable, or
-an initializer outside the guarded branch receive no assertion. Every planned
-target is collected before import binding allocation, and classic JavaScript
-does not consume this TypeScript-only decision.
+Arbitrary dynamic locals, user Boolean helpers, a different bound variable or
+type, a nested initializer, or any statement before the binding receive no
+assertion. Every planned target is collected before import binding allocation,
+and classic JavaScript does not consume this TypeScript-only decision.
 
 ### Static callable generic scope
 

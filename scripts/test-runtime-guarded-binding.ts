@@ -48,6 +48,7 @@ run("haxe", ["tests/runtime-guarded-binding/build-ts.hxml"]);
 runGeneratedTypeScriptMatrix(
   "tests/runtime-guarded-binding/tsconfig.generated.json"
 );
+run("haxe", ["tests/runtime-guarded-binding/build-negative-ts.hxml"]);
 run("haxe", ["tests/runtime-guarded-binding/build-classic.hxml"]);
 run("haxe", ["tests/runtime-guarded-binding/build-standard.hxml"]);
 
@@ -92,6 +93,32 @@ ok(
   "native instanceof does not receive a redundant assertion"
 );
 
+const negativeImplementation = read(
+  "out/negative/src-gen/runtimeguard/negative/GuardInvalidation.ts"
+);
+ok(
+  !negativeImplementation.includes("unsafeCast<GuardedFailure>"),
+  "writes, calls, nested functions, and different raw locals fail closed"
+);
+ok(
+  !negativeImplementation.includes("unsafeCast<OtherFailure>"),
+  "a local whose type differs from the guard target fails closed"
+);
+strictEqual(
+  negativeImplementation.match(/const typed: GuardedFailure = raw/g)?.length,
+  3,
+  "direct writes, called closure writes, and nested functions remain visible"
+);
+for (const directBinding of [
+  "const typed: GuardedFailure = other",
+  "const typed: OtherFailure = raw"
+]) {
+  ok(
+    negativeImplementation.includes(directBinding),
+    `unsupported binding remains visible to strict TypeScript: ${directBinding}`
+  );
+}
+
 for (const classicFile of [
   "out/classic/runtimeguard/GuardedCatch.js",
   "out/standard/index.cjs"
@@ -123,5 +150,5 @@ strictEqual(
 
 process.stdout.write(
   "runtime-guarded-binding:ok "
-    + "(TS5/6/7 + opaque/native controls + classic + standard + maps)\n"
+    + "(TS5/6/7 + flow/type controls + classic + standard + maps)\n"
 );

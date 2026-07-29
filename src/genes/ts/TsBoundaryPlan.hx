@@ -523,8 +523,8 @@ private class TsBoundaryPlanBuilder {
         visit(condition, null, currentReturn);
         final guard = opaqueRuntimeGuard(condition);
         if (guard != null)
-          planRuntimeGuardedBindings(thenValue, guard.raw, guard.target,
-            thenValue.pos);
+          planImmediateRuntimeGuardedBinding(thenValue, guard.raw,
+            guard.target, thenValue.pos);
         visit(thenValue, expected, currentReturn);
         if (elseValue != null)
           visit(elseValue, expected, currentReturn);
@@ -801,18 +801,23 @@ private class TsBoundaryPlanBuilder {
   }
 
   /**
-   * Plans typed initializers only while the exact opaque guard remains true.
+   * Plans only Haxe's immediate lowered binding in the guard's true branch.
    *
-   * The scan never enters a nested function, never escapes the guard's true
-   * branch, and stops after a write to the raw local. Nested branches are
-   * accepted only when the guard survives every path, which intentionally
-   * prefers missing an optimization over asserting an unproved type.
+   * Why: walking arbitrary later statements would require a complete
+   * side-effect analysis. A closure can capture and replace the guarded local,
+   * then be called before a later binding without exposing a direct assignment
+   * at that call site. Treating the later binding as still guarded would hide a
+   * real strict-TypeScript error behind an unsound assertion.
+   *
+   * What/How: Haxe's typed-catch lowering places the typed local first in the
+   * successful branch. Follow only transparent block/metadata wrappers to that
+   * first expression, require the exact guarded raw local and target type, and
+   * stop. User-authored statements, nested functions, writes, calls, and
+   * branches before a binding therefore fail closed.
    */
-  function planRuntimeGuardedBindings(expression: TypedExpr, raw: TVar,
-      target: Type, guardPos: Position): Bool {
+  function planImmediateRuntimeGuardedBinding(expression: TypedExpr,
+      raw: TVar, target: Type, guardPos: Position): Void {
     switch expression.expr {
-      case TFunction(_):
-        return true;
       case TVar(variable, initializer):
         if (initializer != null) {
           final source = runtimeGuardedSource(initializer, raw);
@@ -823,36 +828,13 @@ private class TsBoundaryPlanBuilder {
             runtimeGuardDecisions.push(bridge);
           }
         }
-        return variable.id != raw.id;
       case TBlock(expressions):
-        var active = true;
-        for (child in expressions)
-          if (active)
-            active = planRuntimeGuardedBindings(child, raw, target, guardPos);
-        return active;
-      case TIf(condition, thenExpression, elseExpression):
-        final conditionActive = planRuntimeGuardedBindings(condition, raw,
-          target, guardPos);
-        if (!conditionActive)
-          return false;
-        final thenActive = planRuntimeGuardedBindings(thenExpression, raw,
-          target, guardPos);
-        final elseActive = elseExpression == null
-          || planRuntimeGuardedBindings(elseExpression, raw, target, guardPos);
-        return thenActive && elseActive;
-      case TBinop(OpAssign | OpAssignOp(_), {expr: TLocal(variable)}, _)
-        if (variable.id == raw.id):
-        return false;
-      case TUnop(OpIncrement | OpDecrement, _, {expr: TLocal(variable)})
-        if (variable.id == raw.id):
-        return false;
+        if (expressions.length > 0)
+          planImmediateRuntimeGuardedBinding(expressions[0], raw, target,
+            guardPos);
+      case TParenthesis(inner) | TMeta(_, inner):
+        planImmediateRuntimeGuardedBinding(inner, raw, target, guardPos);
       default:
-        var active = true;
-        expression.iter(child -> {
-          if (active)
-            active = planRuntimeGuardedBindings(child, raw, target, guardPos);
-        });
-        return active;
     }
   }
 
