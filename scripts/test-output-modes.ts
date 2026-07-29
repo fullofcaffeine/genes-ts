@@ -804,8 +804,13 @@ ok(
 );
 ok(resourceTs.includes("str?: string"));
 ok(bytesTs.includes("(buf.buffer as ArrayBuffer)"));
-ok(stdTypesTs.includes("interface Uint8Array { bufferValue?: ArrayBuffer }"));
+ok(
+  stdTypesTs.includes(
+    "interface Uint8Array { bufferValue?: ArrayBuffer | Uint8Array; hxBytes?: object; bytes?: Uint8Array }"
+  )
+);
 ok(stdTypesTs.includes("interface ArrayBuffer { hxBytes?: object; bytes?: Uint8Array }"));
+ok(!stdTypesTs.includes("[key: string]"));
 
 assertSourceMap(
   "tests/output-modes/out/ts/src-gen/dual/CoreScenario.ts.map",

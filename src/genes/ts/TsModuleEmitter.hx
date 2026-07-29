@@ -33,6 +33,8 @@ import genes.TemplateLiteralPlan.TemplateLiteralIntent;
 import genes.JsonTypeSupport;
 import genes.ModuleFunctionPlan.ModuleFunctionEntry;
 import genes.CallableSignaturePlan;
+import genes.ts.TsBoundaryPlan.TsRuntimeByteCacheRead;
+import genes.ts.TsBoundaryPlan.TsRuntimeByteCacheReadAction;
 import haxe.ds.Option;
 import haxe.macro.Expr;
 import haxe.macro.Type;
@@ -2865,6 +2867,11 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
 
     emitExpressionPos(e);
+    final runtimeByteCacheRead = boundaryPlan == null ? null : boundaryPlan.runtimeByteCacheRead(e);
+    if (!inAssignTarget && runtimeByteCacheRead != null) {
+      emitRuntimeByteCacheRead(e, runtimeByteCacheRead);
+      return;
+    }
     switch e.expr {
       case TBlock(el):
         write('{');
@@ -3440,6 +3447,39 @@ class TsModuleEmitter extends JsModuleEmitter {
     suppressOptionalFieldNullNormalization = true;
     emit();
     suppressOptionalFieldNullNormalization = previous;
+  }
+
+  /**
+   * Renders one preplanned Haxe runtime byte-cache read.
+   *
+   * `unsafeCast` is runtime identity: it returns the exact JavaScript value
+   * passed to it. For `hxBytes`, `?? null` first preserves Haxe's missing-value
+   * convention, then the planned target explains the cache's exact wrapper
+   * type to TypeScript. For initialized `bytes`/`bufferValue` reads, postfix
+   * `!` removes only the ambient property's optional `undefined`; it performs
+   * no JavaScript check or conversion.
+   */
+  function emitRuntimeByteCacheRead(expression: TypedExpr,
+      decision: TsRuntimeByteCacheRead): Void {
+    switch decision.action {
+      case NullableWrapper(target):
+        write(ctx.typeAccessor(TypeUtil.registerType));
+        write('.unsafeCast<');
+        TypeEmitter.emitType(this, target);
+        write('>((');
+        super.emitExpr(expression);
+        write(' ?? null))');
+      case InitializedValue:
+        super.emitExpr(expression);
+        write('!');
+      case InitializedValueAs(target):
+        write(ctx.typeAccessor(TypeUtil.registerType));
+        write('.unsafeCast<');
+        TypeEmitter.emitType(this, target);
+        write('>(');
+        super.emitExpr(expression);
+        write('!)');
+    }
   }
 
   /**

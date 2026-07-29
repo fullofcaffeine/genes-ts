@@ -46,6 +46,10 @@ export const acceptanceOwnedFocusedGates = [
   {
     packageScript: "test:higher-order-enum-constructors",
     compiledScript: "scripts/dist/test-higher-order-enum-constructors.js"
+  },
+  {
+    packageScript: "test:byte-buffer-cache",
+    compiledScript: "scripts/dist/test-byte-buffer-cache.js"
   }
 ] as const;
 
