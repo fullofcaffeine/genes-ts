@@ -3,6 +3,11 @@
 This fixture proves the framework-neutral `@:genes.moduleFunction("name")`
 compiler capability in classic JavaScript, TypeScript, and TSX output.
 
+It covers both supported ownership shapes: class static methods retain their
+existing `Owner.field` identity through a descriptor seed, while genuine Haxe
+module-level functions emit and import as direct ESM functions without a
+synthetic `_Fields_` class or registration machinery.
+
 The metadata moves one supported public static Haxe method body to an
 unexported, genuine ES-module function. Genes leaves a compiler-owned method
 descriptor in the original class slot and immediately replaces only its value.

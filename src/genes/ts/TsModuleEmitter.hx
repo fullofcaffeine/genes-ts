@@ -303,6 +303,9 @@ class TsModuleEmitter extends JsModuleEmitter {
         case MClass(cl, _, fields):
           final emittableFields = Module.emittableFields(fields);
           emitTsModuleFunctions(cl);
+          if (moduleFunctionPlan != null
+            && moduleFunctionPlan.canOmitSyntheticOwner(cl, emittableFields))
+            continue;
           final endClassTimer = timer('emitClass');
           emitTsClass(module.isCyclic, cl, emittableFields,
             memberProjection.exportImplementation,

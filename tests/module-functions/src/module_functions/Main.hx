@@ -3,6 +3,8 @@ package module_functions;
 import module_functions.Selected.ConstructorNameControl;
 import module_functions.Selected.SecondarySelected;
 import module_functions.Inheritance.ModuleFunctionChild;
+import module_functions.TopLevel.topLevelIdentity;
+import module_functions.TopLevelSibling.topLevelIdentity as siblingTopLevelIdentity;
 
 /** Executes admitted runtime behavior without target-specific escape syntax. */
 class Main {
@@ -27,7 +29,9 @@ class Main {
       Selected.after(),
       Selected.initialized,
       Selected.classInitialized,
-      Std.string(SecondarySelected.selected(1))
+      Std.string(SecondarySelected.selected(1)),
+      topLevelIdentity("top-level"),
+      siblingTopLevelIdentity("top-level-sibling")
     ];
     trace(transcript.join("|"));
   }

@@ -115,6 +115,19 @@ class Generator {
     function export(export: ModuleExport) {
       if (expose.exists(export.name)) {
         final duplicate = expose.get(export.name);
+        // A public Haxe module field is discovered before semantic lowering.
+        // When that exact field is later selected as a genuine module
+        // function, both discoveries describe the same ESM export rather than
+        // two competing owners. Preserve the first stable fact and let the
+        // module-function plan own the emitted declaration.
+        if (!export.isType
+          && !duplicate.isType
+          && export.module == duplicate.module
+          && Context.getPosInfos(export.pos).min
+            == Context.getPosInfos(duplicate.pos).min
+          && Context.getPosInfos(export.pos).max
+            == Context.getPosInfos(duplicate.pos).max)
+          return;
         Context.warning('Trying to @:expose ${export.name} ...', export.pos);
         CompilerDiagnostic.fail('... but there\'s already an export by that name',
           duplicate.pos);
@@ -130,7 +143,12 @@ class Generator {
           statics: _.get() => fields
         }, _):
           for (field in fields) {
-            if (field.meta.has(':expose'))
+            // A selected genuine module field is exported by its own ESM
+            // module. It is not a compilation-root barrel export: separate
+            // modules may intentionally own the same conventional binding
+            // (for example `render`) without competing globally.
+            if (field.meta.has(':expose')
+              && !field.meta.has(':genes.moduleFunction'))
               export({
                 name: field.name,
                 pos: field.pos,
@@ -328,7 +346,7 @@ class Generator {
     final outputModule = modules.get(output);
     for (moduleName in implementationNames) {
       final module = modules.get(moduleName);
-      for (entry in module.moduleFunctionPlan.publicEntries()) {
+      for (entry in module.moduleFunctionPlan.rootPublicEntries()) {
         final publicName = entry.publicExportName;
         if (publicName == null)
           continue;

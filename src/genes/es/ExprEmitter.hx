@@ -26,6 +26,7 @@ import genes.JsxPlan.JsxValueAccess;
 import genes.JsxPlan.JsxValueSource;
 import genes.TemplateLiteralPlan;
 import genes.TemplateLiteralPlan.TemplateLiteralIntent;
+import genes.ModuleFunctionPlan;
 import genes.IdentifierPolicy;
 import genes.util.TypeUtil.*;
 import genes.util.IteratorUtil.*;
@@ -49,6 +50,7 @@ class ExprEmitter extends Emitter {
   var tempPlan: Null<TempPlan> = null;
   var localBindingPlan: Null<LocalBindingPlan> = null;
   var directImportLocals: Array<String> = [];
+  var currentModule: Null<Module> = null;
 
   var declare = #if (js_es == 6) 'let'; #else 'var'; #end
 
@@ -122,6 +124,7 @@ class ExprEmitter extends Emitter {
    */
   public function configureLowering(module: Module, profile: NamePlanProfile,
       jsxEmitTsx = false): Void {
+    currentModule = module;
     tempPlan = module.tempPlan;
     localBindingPlan = module.localBindingPlan;
     namePlan = module.namePlan(profile, jsxEmitTsx);
@@ -457,6 +460,15 @@ class ExprEmitter extends Emitter {
         });
       case TField(_, FStatic(owner, _.get() => field)) if (field.meta.has(':jsRequire')):
         emitJsRequireField(owner.get(), field);
+      case TField(_, FStatic(ownerRef, _.get() => field))
+        if (ModuleFunctionPlan.isModuleFieldsOwner(ownerRef.get())
+          && ModuleFunctionPlan.requestedName(field) != null):
+        final owner = ownerRef.get();
+        final requestedName = ModuleFunctionPlan.requestedName(field);
+        if (currentModule != null && owner.module == currentModule.module)
+          write(requestedName);
+        else
+          write(ctx.typeAccessor(TypeAccessor.forStaticField(owner, field)));
       case TField(_, FStatic(_.get() => {
         pack: [],
         name: ''
