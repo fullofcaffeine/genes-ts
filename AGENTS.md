@@ -290,6 +290,16 @@ Full Genes CI must pass before downstream projects rely on a local compiler chan
 
 ## Pull Request Descriptions
 
+- Write every PR description as a standalone explanation for a capable
+  programmer who is new to this repository and has not followed the preceding
+  issue, review, or agent conversation. Lead with the ordinary user workflow,
+  the concrete failure or missing guarantee, who experiences it, and the value
+  of the change. Introduce compiler-internal names only after that context is
+  clear, and define unfamiliar terms in plain language at first use.
+- A PR description is not ready when a newcomer must inspect the diff, open an
+  earlier issue, or already understand an internal plan/emitter/fixture name to
+  learn why the work exists. Links may provide deeper history, but the
+  description must summarize the necessary context itself.
 - Make every PR description as concrete and specific as the available evidence
   permits. For compiler or generated-output changes, an architecture-only
   summary is not sufficient.
