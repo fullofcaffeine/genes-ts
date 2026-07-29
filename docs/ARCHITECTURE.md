@@ -189,6 +189,66 @@ every user-authored `@:native("Error")` extern as the built-in constructor.
 Classic JavaScript keeps its established unqualified runtime spelling;
 TypeScript-readable source and declarations use the collision-proof spelling.
 
+### Native host callback properties
+
+Haxe's generated WebIDL externs sometimes know only that a browser property is
+callable. Haxe 4.3.7 therefore declares properties such as
+`js.html.FileReader.onerror` as `haxe.Constraints.Function`, an opaque type that
+accepts any function signature:
+
+```haxe
+function install(reader:js.html.FileReader):Void {
+  reader.onerror = function(error:js.lib.Error):Void {
+    trace(error.message);
+  };
+}
+```
+
+TypeScript's DOM library describes that same property more narrowly as a
+callback receiving `ProgressEvent<FileReader>`. Printing the Haxe function
+directly makes strict TypeScript reject a program Haxe has already accepted:
+
+```ts
+reader.onerror = function (error: globalThis.Error) {
+  console.log(error.message);
+};
+```
+
+This is not permission to treat arbitrary function variance as safe.
+`TsBoundaryPlan` records a separate host-callback decision only when the typed
+Haxe assignment proves all of the following:
+
+- the field belongs to an exact native `js.*` extern with no module import;
+- the Haxe field type is exactly the opaque `haxe.Constraints.Function`;
+- the assigned value is a function literal;
+- the receiver is a non-null, non-unknown stable local rather than an
+  expression that could have side effects or emit a value wrapper;
+- the field has no authored `@:ts.type` or `@:genes.type` projection.
+
+TypeScript emission then asks the destination property for its own authoritative
+host signature:
+
+```ts
+reader.onerror = Register.unsafeCast<typeof reader.onerror>(
+  function (error: globalThis.Error) {
+    console.log(error.message);
+  }
+);
+```
+
+`Register.unsafeCast` returns the same callback reference. It does not wrap,
+bind, validate, or convert the function. `typeof reader.onerror` is a
+TypeScript type query, so the second textual appearance of `reader` is not a
+runtime evaluation or property read.
+
+A concrete native callback type is emitted directly. So is a normal Haxe class
+property that happens to be named `onerror` or typed as
+`haxe.Constraints.Function`. A nullable local can emit as `(target!)`, and a
+receiver such as `makeReader()` can emit a call; neither is a legal entity name
+for this type query. Authored field type overrides keep their existing,
+more-specific emission branch. Classic JavaScript never consumes this
+TypeScript-only plan.
+
 ### Static callable generic scope
 
 A generic parameter is the placeholder inside angle brackets, such as `T` in

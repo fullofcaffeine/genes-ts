@@ -1,0 +1,9 @@
+-lib genes-ts
+-cp tests/host-callback-boundary/src
+--main hostcallbacks.Main
+-js tests/host-callback-boundary/out/standard/index.cjs
+-D genes.disable
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
+-debug

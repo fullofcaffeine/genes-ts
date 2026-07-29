@@ -69,6 +69,28 @@ class TsValueBridge {
   }
 }
 
+/**
+ * One function literal assigned to an opaque native-host callback property.
+ *
+ * Haxe's generated WebIDL externs use `haxe.Constraints.Function` when they do
+ * not describe a callback's parameters. TypeScript's host declarations can be
+ * more specific. The assignment therefore uses the property's own TypeScript
+ * type as the authority instead of inventing that host signature in Genes.
+ */
+class TsHostCallbackBridge {
+  public final parent: TypedExpr;
+  public final target: TypedExpr;
+  public final source: TypedExpr;
+  public final pos: Position;
+
+  public function new(parent: TypedExpr, target: TypedExpr, source: TypedExpr) {
+    this.parent = parent;
+    this.target = target;
+    this.source = source;
+    this.pos = source.pos;
+  }
+}
+
 /** One enum-constructor argument that needs the identity assertion above. */
 class TsEnumArgumentBridge {
   public final index: Int;
@@ -235,6 +257,7 @@ class TsBoundaryPlan {
   final returnBridges: ObjectMap<TypedExpr, TsValueBridge>;
   final initializerBridges: ObjectMap<TypedExpr, TsValueBridge>;
   final assignmentBridges: ObjectMap<TypedExpr, TsValueBridge>;
+  final hostCallbackBridges: ObjectMap<TypedExpr, TsHostCallbackBridge>;
   final valueBridges: Array<TsValueBridge>;
 
   public static function build(module: Module): TsBoundaryPlan {
@@ -260,6 +283,7 @@ class TsBoundaryPlan {
       returnBridges: ObjectMap<TypedExpr, TsValueBridge>,
       initializerBridges: ObjectMap<TypedExpr, TsValueBridge>,
       assignmentBridges: ObjectMap<TypedExpr, TsValueBridge>,
+      hostCallbackBridges: ObjectMap<TypedExpr, TsHostCallbackBridge>,
       valueBridges: Array<TsValueBridge>) {
     this.enumCalls = enumCalls;
     this.enumDecisions = enumDecisions.copy();
@@ -270,6 +294,7 @@ class TsBoundaryPlan {
     this.returnBridges = returnBridges;
     this.initializerBridges = initializerBridges;
     this.assignmentBridges = assignmentBridges;
+    this.hostCallbackBridges = hostCallbackBridges;
     this.valueBridges = valueBridges.copy();
   }
 
@@ -301,6 +326,11 @@ class TsBoundaryPlan {
   /** Returns the bridge for this exact typed assignment expression. */
   public function assignmentBridge(expression: TypedExpr): Null<TsValueBridge> {
     return assignmentBridges.get(expression);
+  }
+
+  /** Returns the exact native-host callback decision for this assignment. */
+  public function hostCallbackBridge(expression: TypedExpr): Null<TsHostCallbackBridge> {
+    return hostCallbackBridges.get(expression);
   }
 
   /** Every planned type reference, in deterministic source order. */
@@ -349,6 +379,7 @@ private class TsBoundaryPlanBuilder {
   final returnBridges = new ObjectMap<TypedExpr, TsValueBridge>();
   final initializerBridges = new ObjectMap<TypedExpr, TsValueBridge>();
   final assignmentBridges = new ObjectMap<TypedExpr, TsValueBridge>();
+  final hostCallbackBridges = new ObjectMap<TypedExpr, TsHostCallbackBridge>();
   final valueBridges = new Array<TsValueBridge>();
   var narrowingPlan: Null<TsNarrowingPlan>;
 
@@ -370,7 +401,7 @@ private class TsBoundaryPlanBuilder {
     }
     return new TsBoundaryPlan(enumCalls, enumDecisions, calls, callDecisions,
       constructors, constructorDecisions, returnBridges, initializerBridges,
-      assignmentBridges, valueBridges);
+      assignmentBridges, hostCallbackBridges, valueBridges);
   }
 
   /**
@@ -400,8 +431,9 @@ private class TsBoundaryPlanBuilder {
           visit(initializer, variable.t, currentReturn);
         }
       case TBinop(OpAssign, left, right):
-        planValueBridge(expression, AssignmentRhs, right, left.t,
-          assignmentBridges);
+        if (!planHostCallbackBridge(expression, left, right))
+          planValueBridge(expression, AssignmentRhs, right, left.t,
+            assignmentBridges);
         visit(left, null, currentReturn);
         visit(right, left.t, currentReturn);
       case TBinop(OpAssignOp(_), left, right):
@@ -536,6 +568,64 @@ private class TsBoundaryPlanBuilder {
     final bridge = new TsValueBridge(parent, site, source, target);
     index.set(key == null ? parent : key, bridge);
     valueBridges.push(bridge);
+  }
+
+  /**
+   * Plans an assignment to an opaque callback slot on a JavaScript host extern.
+   *
+   * The left side must be a stable local field such as `reader.onerror`.
+   * TypeScript permits that entity name in a type query (`typeof
+   * reader.onerror`) without evaluating `reader` again. Restricting the rule to
+   * exact `js.*` native extern ownership and Haxe's opaque Function constraint
+   * keeps ordinary user properties and concrete callback signatures out.
+   */
+  function planHostCallbackBridge(parent: TypedExpr, target: TypedExpr,
+      value: TypedExpr): Bool {
+    final source = erasedCastSource(value);
+    if (!source.expr.match(TFunction(_)))
+      return false;
+    return switch target.expr {
+      case TField(receiver = {expr: TLocal(_)}, FInstance(owner, _, field)):
+        if (isNativeJavaScriptHostExtern(owner.get())
+          && isOpaqueHaxeFunction(field.get().type)
+          && isBareTypeQueryReceiver(receiver)
+          && !hasAuthoredTypeOverride(field.get())) {
+          hostCallbackBridges.set(parent,
+            new TsHostCallbackBridge(parent, target, source));
+          true;
+        } else false;
+      default:
+        false;
+    }
+  }
+
+  static function isNativeJavaScriptHostExtern(owner: ClassType): Bool {
+    return
+      owner.isExtern // `@:native` can rewrite `ClassType.pack` to the runtime path. The
+      // canonical Haxe module remains the stable source identity.
+      && StringTools.startsWith(owner.module, "js.")
+      && owner.meta.has(":native")
+      && !owner.meta.has(":jsRequire");
+  }
+
+  static function isOpaqueHaxeFunction(type: Type): Bool {
+    return switch resolveBoundaryShell(type) {
+      case TAbstract(reference, _): final abstractType = reference.get(); abstractType.module == "haxe.Constraints" && abstractType.name == "Function";
+      default:
+        false;
+    }
+  }
+
+  static function isBareTypeQueryReceiver(receiver: TypedExpr): Bool {
+    final contract = NullishContract.forType(receiver.t);
+    return !contract.emittedAllowsNull
+      && !contract.preservesUndefined
+      && !contract.unknownBoundary
+      && !contract.dynamicBoundary;
+  }
+
+  static function hasAuthoredTypeOverride(field: ClassField): Bool {
+    return field.meta.has(":ts.type") || field.meta.has(":genes.type");
   }
 
   function planConstructor(expression: TypedExpr, arguments: Array<TypedExpr>,
