@@ -1,0 +1,9 @@
+-lib genes-ts
+-cp tests/abstract-implementation-properties/src
+--main abstractproperties.Main
+-js tests/abstract-implementation-properties/out/ts/src-gen/index.ts
+-D genes.ts
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
+-debug

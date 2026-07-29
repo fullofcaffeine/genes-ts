@@ -26,6 +26,10 @@ export const acceptanceOwnedFocusedGates = [
   {
     packageScript: "test:reflection-class-values",
     compiledScript: "scripts/dist/test-reflection-class-values.js"
+  },
+  {
+    packageScript: "test:abstract-implementation-properties",
+    compiledScript: "scripts/dist/test-abstract-implementation-properties.js"
   }
 ] as const;
 
