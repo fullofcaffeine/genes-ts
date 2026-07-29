@@ -10,6 +10,10 @@ optimizer, instrumentation tool, code indexer, or host convention can attach
 meaning to an ordinary named function without requiring Genes to understand
 that convention.
 
+For immutable Haxe module-level data that must become a direct ESM `const`, see
+[`MODULE_VALUES.md`](MODULE_VALUES.md). Functions and values share the same
+collision-safe module binding namespace and synthetic-owner omission rules.
+
 ## Why it exists
 
 Genes ordinarily emits a static Haxe method as an ES class method:

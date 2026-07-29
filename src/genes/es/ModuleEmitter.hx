@@ -15,6 +15,7 @@ import genes.TypeAccessor;
 import genes.EmittedMemberName;
 import genes.ModuleFunctionPlan;
 import genes.ModuleFunctionPlan.ModuleFunctionEntry;
+import genes.ModuleValuePlan;
 
 using genes.util.TypeUtil;
 using Lambda;
@@ -22,6 +23,7 @@ using Lambda;
 class ModuleEmitter extends ExprEmitter {
   var emitMemberSourcePositions = true;
   var moduleFunctionPlan: Null<ModuleFunctionPlan> = null;
+  var moduleValuePlan: Null<ModuleValuePlan> = null;
 
   /**
    * Suppresses provenance only while printing an invented compiler member.
@@ -66,6 +68,7 @@ class ModuleEmitter extends ExprEmitter {
   public function emitModule(module: Module, ?extension: String) {
     final projection = module.runtimeProjection;
     moduleFunctionPlan = module.moduleFunctionPlan;
+    moduleValuePlan = module.moduleValuePlan;
     final dependencies = projection.bindings;
     final endTimer = timer('emitModule');
     configureLowering(module, ClassicStable,
@@ -111,8 +114,8 @@ class ModuleEmitter extends ExprEmitter {
         case MClass(cl, _, fields):
           final emittableFields = Module.emittableFields(fields);
           emitClassicModuleFunctions(cl);
-          if (moduleFunctionPlan != null
-            && moduleFunctionPlan.canOmitSyntheticOwner(cl, emittableFields))
+          emitClassicModuleValues(cl);
+          if (DirectModuleBinding.canOmitSyntheticOwner(cl, emittableFields))
             continue;
           final endClassTimer = timer('emitClass');
           emitClass(module.isCyclic, cl, emittableFields,
@@ -279,7 +282,10 @@ class ModuleEmitter extends ExprEmitter {
     writeNewline();
     for (field in fields)
       switch field {
-        case {kind: Property, isStatic: true, expr: expr} if (expr != null):
+        case {kind: Property, isStatic: true, expr: expr}
+          if (expr != null
+            && (moduleValuePlan == null
+              || moduleValuePlan.entryFor(cl, field) == null)):
           final types = TypeUtil.typesInExpr(expr);
           final isCyclic = types.fold((type, res) -> {
             return res || checkCycles(TypeUtil.moduleTypeModule(type));
@@ -324,8 +330,10 @@ class ModuleEmitter extends ExprEmitter {
     for (field in fields)
       switch field {
         case {isStatic: true, isPublic: true}
-          if (moduleFunctionPlan == null
-            || moduleFunctionPlan.entryFor(cl, field) == null):
+          if ((moduleFunctionPlan == null
+            || moduleFunctionPlan.entryFor(cl, field) == null)
+            && (moduleValuePlan == null
+              || moduleValuePlan.entryFor(cl, field) == null)):
           write('export const ');
           emitIdent(field.name);
           write(' = ');
@@ -655,6 +663,21 @@ class ModuleEmitter extends ExprEmitter {
         default:
           // ModuleFunctionPlan rejects missing/non-function bodies.
       }
+    }
+  }
+
+  /** Emits selected immutable values as direct ESM `const` declarations. */
+  function emitClassicModuleValues(cl: ClassType): Void {
+    if (moduleValuePlan == null)
+      return;
+    for (entry in moduleValuePlan.entriesFor(cl)) {
+      writeNewline();
+      emitComment(entry.field.doc);
+      emitPos(entry.field.pos);
+      write('export const ');
+      write(entry.requestedName);
+      write(' = ');
+      emitValueWithExpectedType(entry.field.type, entry.field.expr);
     }
   }
 

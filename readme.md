@@ -35,6 +35,7 @@ boundary and planned shared architecture.
 - `docs/NULL_SAFETY.md` — package-scoped Haxe null safety, TypeScript
   `strictNullChecks`, and JavaScript `null`/`undefined` boundaries
 - `docs/MODULE_FUNCTIONS.md` — analyzer-visible module functions without a delegating wrapper
+- `docs/MODULE_VALUES.md` — immutable Haxe module values as direct typed ESM `const` exports
 - `docs/ARCHITECTURE_ROADMAP.md` — readiness boundary and shared TS/JS architecture roadmap
 - `docs/TOOLCHAINS.md` — blocking and preview Haxe/Node/TypeScript lanes
 - `docs/ts2hx/USAGE.md` — ts2hx workflows (TS/JS → Haxe) + roundtrip harness
@@ -60,6 +61,10 @@ boundary and planned shared architecture.
   a delegating wrapper; pair it with matching `@:expose("exactName")` to publish
   that same function through stable owner-module and compilation-root ESM
   bindings in both TypeScript and JavaScript profiles
+- **Direct typed module values** via
+  `@:genes.moduleValue("exactName")`, emitting a genuine ESM `const` from a
+  Haxe module-level `final` in both profiles without a synthetic `_Fields_`
+  class, registration runtime, wrapper, or weakened declaration
 - **npm declaration ingestion** via a pinned, deterministic dts2hx bridge whose
   externs are exercised through both TS and classic JS output
 - **Async/await sugar** (`@:async` + `await(...)`) emitting native `async`/`await`

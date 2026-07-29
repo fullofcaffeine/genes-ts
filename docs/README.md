@@ -19,6 +19,7 @@ feature surface beyond the quick examples in `readme.md`.
 - `OUTPUT_MODES.md#reusable-library-profile` — opt-in matched runtime and declaration surfaces for packages
 - `OUTPUT_MODES.md#typescript-aware-helpers-that-still-run-as-es6` — how TS-aware helper types erase to runnable ES6 without weakening TS output
 - `MODULE_FUNCTIONS.md` — opt-in, analyzer-visible module functions that preserve the public Haxe static-method API
+- `MODULE_VALUES.md` — opt-in immutable Haxe module values emitted as direct typed ESM `const` bindings
 - `PACKAGING.md` — how to publish libraries/apps in both output modes
 - `../examples/typescript-target/README.md` — minimal end-to-end Haxe → TS → JS example
 - `../examples/todoapp/` — real fullstack example (React Router + Express)

@@ -103,8 +103,8 @@ class DependencyPlanBuilder {
   }
 
   function collectRuntimeEdges(): Void {
-    var onlyDirectModuleFunctions = module.members.length > 0;
-    var hasDirectModuleFunctionOwner = false;
+    var onlyDirectModuleBindings = module.members.length > 0;
+    var hasDirectModuleBindingOwner = false;
     // Validate compiler-owned string templates before output projection opens
     // any implementation writer. The plan itself adds no dependency edge.
     module.templateLiteralPlan;
@@ -205,22 +205,24 @@ class DependencyPlanBuilder {
     }
 
     /**
-     * Projects a genuine Haxe module-level function as a named internal ESM
-     * import instead of importing its compiler-synthetic `_Fields_` owner.
+     * Imports a selected Haxe module function/value by its direct ESM binding.
+     *
+     * The compiler-synthetic `_Fields_` owner is skipped only when every
+     * retained field has a valid direct-binding marker.
      */
-    function addModuleFunctionImports(expression:TypedExpr):Array<ClassType> {
-      final directOwners:Array<ClassType> = [];
+    function addDirectModuleImports(expression: TypedExpr): Array<ClassType> {
+      final directOwners: Array<ClassType> = [];
       if (expression == null)
         return directOwners;
-      function visit(current:TypedExpr):Void {
+      function visit(current: TypedExpr): Void {
         switch current.expr {
           case TField(_, FStatic(ownerRef, _.get() => field)):
             final owner = ownerRef.get();
-            final requestedName = ModuleFunctionPlan.requestedName(field);
-            if (ModuleFunctionPlan.isModuleFieldsOwner(owner)
+            final requestedName = DirectModuleBinding.requestedName(field);
+            if (DirectModuleBinding.isModuleFieldsOwner(owner)
               && requestedName != null) {
               if (owner.module != module.module) {
-                final dependency:DependencySpec = {
+                final dependency: DependencySpec = {
                   type: DependencyType.DName,
                   name: requestedName,
                   path: owner.module,
@@ -232,11 +234,13 @@ class DependencyPlanBuilder {
                   Bound(new DependencyImport(dependency,
                     BindingIdentity.create(dependency,
                       fieldOrigin(owner, field.name)))),
-                  'runtime.module-function', field.pos);
+                  'runtime.direct-module-binding', field.pos);
               }
-              if (directOwners.filter(existing ->
-                existing.module == owner.module && existing.name == owner.name)
-                .length == 0)
+              final ownerFields = Module.emittableFields(Module.fieldsOf(owner));
+              if (DirectModuleBinding.canOmitSyntheticOwner(owner, ownerFields)
+                && directOwners.filter(existing -> existing.module == owner.module
+                  && existing.name == owner.name)
+                  .length == 0)
                 directOwners.push(owner);
             }
           default:
@@ -348,11 +352,13 @@ class DependencyPlanBuilder {
       if (expression == null)
         return;
       addJsRequireFromExpr(expression);
-      final directModuleOwners = addModuleFunctionImports(expression);
+      final directModuleOwners = addDirectModuleImports(expression);
       for (type in TypeUtil.typesInExpr(expression)) {
         final base = DependencyPlan.moduleTypeBase(type);
-        if (base != null && directModuleOwners.filter(owner ->
-          owner.module == base.module && owner.name == base.name).length > 0)
+        if (base != null
+          && directModuleOwners.filter(owner -> owner.module == base.module
+            && owner.name == base.name)
+            .length > 0)
           continue;
         addReference(RuntimeValue, type, 'runtime.typed-expression',
           expression.pos);
@@ -398,16 +404,12 @@ class DependencyPlanBuilder {
       switch member {
         case MClass(cl, _, fields):
           final emittableFields = Module.emittableFields(fields);
-          final directOwner = ModuleFunctionPlan.isModuleFieldsOwner(cl)
-            && emittableFields.length > 0
-            && emittableFields.filter(field ->
-              field.meta == null
-              || ModuleFunctionPlan.requestedNameFromMetadata(field.meta)
-                == null).length == 0;
+          final directOwner = DirectModuleBinding.canOmitSyntheticOwner(cl,
+            emittableFields);
           if (directOwner)
-            hasDirectModuleFunctionOwner = true;
+            hasDirectModuleBindingOwner = true;
           else
-            onlyDirectModuleFunctions = false;
+            onlyDirectModuleBindings = false;
           for (parent in cl.interfaces)
             addReference(RuntimeValue, TClassDecl(parent.t),
               'runtime.interface', cl.pos);
@@ -424,15 +426,15 @@ class DependencyPlanBuilder {
             addFromExpr(field.expr, CompilerInternal.isField(field.meta));
           addFromExpr(cl.init, true);
         case MMain(expression):
-          onlyDirectModuleFunctions = false;
+          onlyDirectModuleBindings = false;
           addFromExpr(expression);
         case MEnum(_, _):
-          onlyDirectModuleFunctions = false;
+          onlyDirectModuleBindings = false;
         case MType(_, _):
       }
     }
     if (module.module != 'genes.Register'
-      && (!onlyDirectModuleFunctions || !hasDirectModuleFunctionOwner))
+      && (!onlyDirectModuleBindings || !hasDirectModuleBindingOwner))
       addReference(RuntimeValue, TypeUtil.registerType,
         'runtime.registration', Context.currentPos());
   }

@@ -108,6 +108,7 @@ class Module {
   public var tempPlan(get, null): TempPlan;
   public var localBindingPlan(get, null): LocalBindingPlan;
   public var moduleFunctionPlan(get, null): ModuleFunctionPlan;
+  public var moduleValuePlan(get, null): ModuleValuePlan;
 
   final context: ModuleContext;
   final cycleCache = new Map<String, Bool>();
@@ -198,9 +199,21 @@ class Module {
 
   /** Validates and returns the opt-in module-function lowering plan. */
   function get_moduleFunctionPlan(): ModuleFunctionPlan {
-    if (moduleFunctionPlan == null)
+    if (moduleFunctionPlan == null) {
       moduleFunctionPlan = ModuleFunctionPlan.build(this);
+      // Direct functions and values share one ESM namespace and synthetic
+      // owner lifecycle. The generator requests this plan before opening an
+      // implementation writer, so validate the sibling plan at the same seam.
+      get_moduleValuePlan();
+    }
     return moduleFunctionPlan;
+  }
+
+  /** Validates and returns the opt-in direct module-value lowering plan. */
+  function get_moduleValuePlan(): ModuleValuePlan {
+    if (moduleValuePlan == null)
+      moduleValuePlan = ModuleValuePlan.build(this);
+    return moduleValuePlan;
   }
 
   /**
@@ -284,6 +297,7 @@ class Module {
       tempPlan = null;
       localBindingPlan = null;
       moduleFunctionPlan = null;
+      moduleValuePlan = null;
       namePlans.clear();
       cycleCache.clear();
     }
