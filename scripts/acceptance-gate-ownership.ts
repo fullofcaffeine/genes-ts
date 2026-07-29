@@ -38,6 +38,10 @@ export const acceptanceOwnedFocusedGates = [
   {
     packageScript: "test:host-callback-boundary",
     compiledScript: "scripts/dist/test-host-callback-boundary.js"
+  },
+  {
+    packageScript: "test:runtime-guarded-binding",
+    compiledScript: "scripts/dist/test-runtime-guarded-binding.js"
   }
 ] as const;
 

@@ -42,6 +42,7 @@ enum abstract TsBoundarySite(String) to String {
   var CallArgument = "call-argument";
   var ConstructorArgument = "constructor-argument";
   var EnumConstructorArgument = "enum-constructor-argument";
+  var RuntimeGuardedBinding = "runtime-guarded-binding";
 }
 
 /**
@@ -88,6 +89,27 @@ class TsHostCallbackBridge {
     this.target = target;
     this.source = source;
     this.pos = source.pos;
+  }
+}
+
+/**
+ * One typed local initialized after Haxe's opaque runtime type guard.
+ *
+ * Haxe lowers some typed catch arms to `Boot.__instanceof(raw, Target)` and
+ * then initializes the catch variable from `raw`. TypeScript sees the helper
+ * as an ordinary Boolean function, so it cannot recover the guarded type. The
+ * bridge records Haxe's exact raw-local identity and target while the original
+ * branch structure is still available.
+ */
+class TsRuntimeGuardBridge {
+  public final source: TypedExpr;
+  public final target: Type;
+  public final pos: Position;
+
+  public function new(source: TypedExpr, target: Type, pos: Position) {
+    this.source = source;
+    this.target = target;
+    this.pos = pos;
   }
 }
 
@@ -258,6 +280,8 @@ class TsBoundaryPlan {
   final initializerBridges: ObjectMap<TypedExpr, TsValueBridge>;
   final assignmentBridges: ObjectMap<TypedExpr, TsValueBridge>;
   final hostCallbackBridges: ObjectMap<TypedExpr, TsHostCallbackBridge>;
+  final runtimeGuardBridges: ObjectMap<TypedExpr, TsRuntimeGuardBridge>;
+  final runtimeGuardDecisions: Array<TsRuntimeGuardBridge>;
   final valueBridges: Array<TsValueBridge>;
 
   public static function build(module: Module): TsBoundaryPlan {
@@ -281,6 +305,18 @@ class TsBoundaryPlan {
       actual);
   }
 
+  /**
+   * Whether this is Haxe's exact lowered caught-value unwrap sequence.
+   *
+   * Both boundary planning and local TypeScript annotation consume this one
+   * typed-AST predicate. Keeping the recognition here prevents the emitter
+   * from accepting a broader dynamic initializer than the guarded-binding
+   * proof.
+   */
+  public static function isLoweredCatchUnwrap(expression: TypedExpr): Bool {
+    return TsBoundaryPlanBuilder.isExceptionCaughtUnwrap(expression);
+  }
+
   public function new(enumCalls: ObjectMap<TypedExpr, TsEnumCallDecision>,
       enumDecisions: Array<TsEnumCallDecision>,
       calls: ObjectMap<TypedExpr, TsCallDecision>,
@@ -291,6 +327,8 @@ class TsBoundaryPlan {
       initializerBridges: ObjectMap<TypedExpr, TsValueBridge>,
       assignmentBridges: ObjectMap<TypedExpr, TsValueBridge>,
       hostCallbackBridges: ObjectMap<TypedExpr, TsHostCallbackBridge>,
+      runtimeGuardBridges: ObjectMap<TypedExpr, TsRuntimeGuardBridge>,
+      runtimeGuardDecisions: Array<TsRuntimeGuardBridge>,
       valueBridges: Array<TsValueBridge>) {
     this.enumCalls = enumCalls;
     this.enumDecisions = enumDecisions.copy();
@@ -302,6 +340,8 @@ class TsBoundaryPlan {
     this.initializerBridges = initializerBridges;
     this.assignmentBridges = assignmentBridges;
     this.hostCallbackBridges = hostCallbackBridges;
+    this.runtimeGuardBridges = runtimeGuardBridges;
+    this.runtimeGuardDecisions = runtimeGuardDecisions.copy();
     this.valueBridges = valueBridges.copy();
   }
 
@@ -340,6 +380,11 @@ class TsBoundaryPlan {
     return hostCallbackBridges.get(expression);
   }
 
+  /** Returns the opaque-guard decision for this exact local initializer. */
+  public function runtimeGuardBridge(initializer: TypedExpr): Null<TsRuntimeGuardBridge> {
+    return runtimeGuardBridges.get(initializer);
+  }
+
   /** Every planned type reference, in deterministic source order. */
   public function referencedTypes(): Array<TsBoundaryReference> {
     final result = new Array<TsBoundaryReference>();
@@ -370,6 +415,12 @@ class TsBoundaryPlan {
         pos: bridge.pos,
         rule: bridge.site
       });
+    for (bridge in runtimeGuardDecisions)
+      result.push({
+        type: bridge.target,
+        pos: bridge.pos,
+        rule: RuntimeGuardedBinding
+      });
     return result;
   }
 }
@@ -387,6 +438,11 @@ private class TsBoundaryPlanBuilder {
   final initializerBridges = new ObjectMap<TypedExpr, TsValueBridge>();
   final assignmentBridges = new ObjectMap<TypedExpr, TsValueBridge>();
   final hostCallbackBridges = new ObjectMap<TypedExpr, TsHostCallbackBridge>();
+  final runtimeGuardBridges = new ObjectMap<TypedExpr, TsRuntimeGuardBridge>();
+  final runtimeGuardDecisions = new Array<TsRuntimeGuardBridge>();
+  // Haxe lowering can clone TVar wrapper objects. The compiler-assigned id is
+  // the stable, function-local identity also used by Genes' name/flow plans.
+  final exceptionUnwrapLocals = new Map<Int, Bool>();
   final valueBridges = new Array<TsValueBridge>();
   var narrowingPlan: Null<TsNarrowingPlan>;
 
@@ -408,7 +464,8 @@ private class TsBoundaryPlanBuilder {
     }
     return new TsBoundaryPlan(enumCalls, enumDecisions, calls, callDecisions,
       constructors, constructorDecisions, returnBridges, initializerBridges,
-      assignmentBridges, hostCallbackBridges, valueBridges);
+      assignmentBridges, hostCallbackBridges, runtimeGuardBridges,
+      runtimeGuardDecisions, valueBridges);
   }
 
   /**
@@ -433,6 +490,8 @@ private class TsBoundaryPlanBuilder {
         }
       case TVar(variable, initializer):
         if (initializer != null) {
+          if (isExceptionCaughtUnwrap(initializer))
+            exceptionUnwrapLocals.set(variable.id, true);
           planValueBridge(expression, VariableInitializer, initializer,
             variable.t, initializerBridges, initializer);
           visit(initializer, variable.t, currentReturn);
@@ -462,6 +521,10 @@ private class TsBoundaryPlanBuilder {
             currentReturn);
       case TIf(condition, thenValue, elseValue):
         visit(condition, null, currentReturn);
+        final guard = opaqueRuntimeGuard(condition);
+        if (guard != null)
+          planRuntimeGuardedBindings(thenValue, guard.raw, guard.target,
+            thenValue.pos);
         visit(thenValue, expected, currentReturn);
         if (elseValue != null)
           visit(elseValue, expected, currentReturn);
@@ -633,6 +696,184 @@ private class TsBoundaryPlanBuilder {
 
   static function hasAuthoredTypeOverride(field: ClassField): Bool {
     return field.meta.has(":ts.type") || field.meta.has(":genes.type");
+  }
+
+  /**
+   * Recognizes Haxe's lowered typed-catch guard from compiler identities.
+   *
+   * Why: `js.Boot.__instanceof` returns only `Bool` in its TypeScript surface,
+   * so TypeScript cannot narrow the checked value. Haxe nevertheless emits the
+   * helper after unwrapping a caught value and uses its true branch as the
+   * authority for the typed catch variable.
+   *
+   * What/How: require the exact `js.Boot.__instanceof` field, an exact local
+   * previously initialized by `haxe.Exception.caught(...).unwrap()`, and a
+   * class or enum type expression. Printed helper names, arbitrary Boolean
+   * predicates, and ordinary dynamic locals do not qualify.
+   */
+  function opaqueRuntimeGuard(condition: TypedExpr): Null<{
+    raw: TVar,
+    target: Type
+  }> {
+    return switch erasedCastSource(condition).expr {
+      case TCall(callee, [rawExpression, targetExpression]):
+        final moduleType = runtimeGuardTarget(targetExpression);
+        switch erasedCastSource(rawExpression).expr {
+          case TLocal(raw):
+            if (isBootInstanceof(callee)
+              && exceptionUnwrapLocals.exists(raw.id) && moduleType != null) {
+                raw: raw,
+                target: DependencyPlan.moduleTypeToType(moduleType)
+              } else null;
+          default:
+            null;
+        }
+      default:
+        null;
+    }
+  }
+
+  /**
+   * Extracts only the class/enum value passed as a runtime guard target.
+   *
+   * Haxe casts that type expression to `Dynamic` because
+   * `Boot.__instanceof` accepts a dynamic second argument. Unwrapping is safe
+   * only after proving the innermost expression is still an exact type value;
+   * this helper must never be reused to erase ordinary value casts.
+   */
+  static function runtimeGuardTarget(expression: TypedExpr): Null<ModuleType> {
+    return switch expression.expr {
+      case TTypeExpr(moduleType = TClassDecl(_) | TEnumDecl(_)):
+        moduleType;
+      case TCast(inner, _) | TParenthesis(inner) | TMeta(_, inner):
+        runtimeGuardTarget(inner);
+      default:
+        null;
+    }
+  }
+
+  static function isBootInstanceof(callee: TypedExpr): Bool {
+    switch erasedCastSource(callee).expr {
+      case TField(_, FStatic(owner, field)):
+        final ownerType = owner.get();
+        final fieldName = field.get().name;
+        return ownerType.module == "js.Boot" && ownerType.name == "Boot"
+          && fieldName == "__instanceof";
+      default:
+        return false;
+    }
+  }
+
+  public static function isExceptionCaughtUnwrap(expression: TypedExpr): Bool {
+    return switch erasedCastSource(expression).expr {
+      case TCall(unwrapCallee, []) if (isExceptionUnwrapCallee(unwrapCallee)):
+        true;
+      default:
+        false;
+    }
+  }
+
+  static function isExceptionUnwrapCallee(callee: TypedExpr): Bool {
+    return switch erasedCastSource(callee).expr {
+      case TField(receiver,
+        FInstance(_, _, field) | FStatic(_, field) | FAnon(field))
+        if (TypeUtil.classFieldName(field.get()) == "unwrap"):
+        isExceptionCaughtCall(receiver);
+      default:
+        false;
+    }
+  }
+
+  static function isExceptionCaughtCall(expression: TypedExpr): Bool {
+    return switch erasedCastSource(expression).expr {
+      case TCall(caughtCallee, [_]):
+        switch erasedCastSource(caughtCallee).expr {
+          case TField(_,
+            FStatic(_.get() => {module: "haxe.Exception", name: "Exception"},
+              _.get() => {name: "caught"})):
+            true;
+          default:
+            false;
+        }
+      default:
+        false;
+    }
+  }
+
+  /**
+   * Plans typed initializers only while the exact opaque guard remains true.
+   *
+   * The scan never enters a nested function, never escapes the guard's true
+   * branch, and stops after a write to the raw local. Nested branches are
+   * accepted only when the guard survives every path, which intentionally
+   * prefers missing an optimization over asserting an unproved type.
+   */
+  function planRuntimeGuardedBindings(expression: TypedExpr, raw: TVar,
+      target: Type, guardPos: Position): Bool {
+    switch expression.expr {
+      case TFunction(_):
+        return true;
+      case TVar(variable, initializer):
+        if (initializer != null) {
+          final source = runtimeGuardedSource(initializer, raw);
+          if (source != null
+            && compareBoundaryTypes(variable.t, target) == Identical) {
+            final bridge = new TsRuntimeGuardBridge(source, target, guardPos);
+            runtimeGuardBridges.set(initializer, bridge);
+            runtimeGuardDecisions.push(bridge);
+          }
+        }
+        return variable.id != raw.id;
+      case TBlock(expressions):
+        var active = true;
+        for (child in expressions)
+          if (active)
+            active = planRuntimeGuardedBindings(child, raw, target, guardPos);
+        return active;
+      case TIf(condition, thenExpression, elseExpression):
+        final conditionActive = planRuntimeGuardedBindings(condition, raw,
+          target, guardPos);
+        if (!conditionActive)
+          return false;
+        final thenActive = planRuntimeGuardedBindings(thenExpression, raw,
+          target, guardPos);
+        final elseActive = elseExpression == null
+          || planRuntimeGuardedBindings(elseExpression, raw, target, guardPos);
+        return thenActive && elseActive;
+      case TBinop(OpAssign | OpAssignOp(_), {expr: TLocal(variable)}, _)
+        if (variable.id == raw.id):
+        return false;
+      case TUnop(OpIncrement | OpDecrement, _, {expr: TLocal(variable)})
+        if (variable.id == raw.id):
+        return false;
+      default:
+        var active = true;
+        expression.iter(child -> {
+          if (active)
+            active = planRuntimeGuardedBindings(child, raw, target, guardPos);
+        });
+        return active;
+    }
+  }
+
+  /**
+   * Returns the guarded raw local beneath Haxe's typed-catch cast.
+   *
+   * The cast is compiler-authored evidence about the catch variable, but
+   * emitting it directly does not help TypeScript because the source remains
+   * broad. This unwrapping is confined to the already-proved guard branch and
+   * requires the exact guarded `TVar`; arbitrary casts never enter the plan.
+   */
+  static function runtimeGuardedSource(expression: TypedExpr,
+      raw: TVar): Null<TypedExpr> {
+    return switch expression.expr {
+      case TLocal(candidate) if (candidate.id == raw.id):
+        expression;
+      case TCast(inner, _) | TParenthesis(inner) | TMeta(_, inner):
+        runtimeGuardedSource(inner, raw);
+      default:
+        null;
+    }
   }
 
   function planConstructor(expression: TypedExpr, arguments: Array<TypedExpr>,

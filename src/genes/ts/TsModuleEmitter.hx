@@ -2222,13 +2222,26 @@ class TsModuleEmitter extends JsModuleEmitter {
         }
       case e:
         write(' = ');
-        final bridge = boundaryPlan == null ? null : boundaryPlan.initializerBridge(e);
-        if (bridge != null) {
+        final runtimeGuardBridge = boundaryPlan == null ? null : boundaryPlan.runtimeGuardBridge(e);
+        final valueBridge = boundaryPlan == null ? null : boundaryPlan.initializerBridge(e);
+        if (runtimeGuardBridge != null) {
+          // Haxe's lowered `Boot.__instanceof(raw, Target)` helper is opaque
+          // to TypeScript. The immutable boundary plan has proved that this
+          // initializer uses that exact `raw` local inside the guard's true
+          // branch, so rendering the planned identity assertion is safe here.
+          emitTokenPos(runtimeGuardBridge.pos);
           write(ctx.typeAccessor(TypeUtil.registerType));
           write('.unsafeCast<');
-          TypeEmitter.emitType(this, bridge.target);
+          TypeEmitter.emitType(this, runtimeGuardBridge.target);
           write('>(');
-          emitValueWithExpectedType(null, bridge.source);
+          emitValueWithExpectedType(null, runtimeGuardBridge.source);
+          write(')');
+        } else if (valueBridge != null) {
+          write(ctx.typeAccessor(TypeUtil.registerType));
+          write('.unsafeCast<');
+          TypeEmitter.emitType(this, valueBridge.target);
+          write('>(');
+          emitValueWithExpectedType(null, valueBridge.source);
           write(')');
         } else {
           emitValueWithExpectedType(emittedType, e);
@@ -2259,65 +2272,9 @@ class TsModuleEmitter extends JsModuleEmitter {
   function localTsTypeOverride(eo: Null<TypedExpr>): Null<String> {
     if (eo == null)
       return null;
-    if (isExceptionCaughtUnwrap(eo))
+    if (TsBoundaryPlan.isLoweredCatchUnwrap(eo))
       return '{} | null | undefined';
     return cachedInitializerTsType(eo);
-  }
-
-  /**
-   * Detects Haxe's lowered representation of typed catch values.
-   *
-   * Why: source such as `catch (error:MyError)` is lowered by Haxe to one
-   * JavaScript catch variable, then `haxe.Exception.caught(raw).unwrap()` plus
-   * runtime type guards for each typed catch arm. The lowered temporary has
-   * Haxe type `Dynamic`, which would normally emit as TypeScript `any` in the
-   * user module.
-   *
-   * What/How: when a local initializer is exactly the exception unwrap
-   * sequence, annotate the local as `{ } | null | undefined`. That is the
-   * broadest useful TypeScript surface that can still contain primitive throws,
-   * object throws, and nullish throws without spelling `any` or `unknown` in a
-   * user module. TypeScript can then narrow the value with the emitted
-   * `typeof`/`instanceof` checks before assigning it to the typed catch
-   * variable, while arbitrary `Dynamic` values elsewhere keep their normal Haxe
-   * semantics.
-   */
-  static function isExceptionCaughtUnwrap(expr: TypedExpr): Bool {
-    return switch unwrapExpr(expr).expr {
-      case TCall(unwrapCallee, []) if (isExceptionUnwrapCallee(unwrapCallee)):
-        true;
-      default:
-        false;
-    }
-  }
-
-  static function isExceptionUnwrapCallee(callee: TypedExpr): Bool {
-    return switch unwrapExpr(callee).expr {
-      case TField(receiver, field) if (fieldAccessName(field) == 'unwrap'):
-        isExceptionCaughtCall(receiver);
-      default:
-        false;
-    }
-  }
-
-  static function isExceptionCaughtCall(expr: TypedExpr): Bool {
-    return switch unwrapExpr(expr).expr {
-      case TCall(caughtCallee, [_]) if (isExceptionCaughtCallee(caughtCallee)):
-        true;
-      default:
-        false;
-    }
-  }
-
-  static function isExceptionCaughtCallee(callee: TypedExpr): Bool {
-    return switch unwrapExpr(callee).expr {
-      case TField(_,
-        FStatic(_.get() => {module: 'haxe.Exception', name: 'Exception'},
-          _.get() => {name: 'caught'})):
-        true;
-      default:
-        false;
-    }
   }
 
   function cachedInitializerTsType(expr: TypedExpr): Null<String> {

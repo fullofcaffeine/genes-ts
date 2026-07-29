@@ -1,0 +1,9 @@
+-lib genes-ts
+-cp tests/runtime-guarded-binding/src
+--main runtimeguard.Main
+-js tests/runtime-guarded-binding/out/standard/index.cjs
+-D genes.disable
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
+-debug
