@@ -1,0 +1,10 @@
+-lib genes-ts
+-cp tests/host-callback-boundary/src
+--main hostcallbacks.Main
+-js tests/host-callback-boundary/out/negative/src-gen/index.ts
+-D genes.ts
+-D host_callback_nullable_inline_negative
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
+-debug

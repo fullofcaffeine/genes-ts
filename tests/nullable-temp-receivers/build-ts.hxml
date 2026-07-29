@@ -1,0 +1,8 @@
+-lib genes-ts
+-cp tests/nullable-temp-receivers/src
+--main tempreads.Main
+-js tests/nullable-temp-receivers/out/ts/src-gen/index.ts
+-D genes.ts
+-D js-es=6
+-dce full
+-debug

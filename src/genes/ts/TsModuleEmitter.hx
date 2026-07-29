@@ -77,6 +77,8 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   var jsxEmitTsx: Bool = false;
   var inAssignTarget: Bool = false;
+  var currentAssignmentTarget: Null<TypedExpr> = null;
+  var inTypeQueryEntityName: Bool = false;
   var currentClass: Null<ClassType> = null;
   var currentReturnIsVoidLike: Bool = false;
   var localTsTypeOverrides: Map<Int, String> = [];
@@ -2769,6 +2771,16 @@ class TsModuleEmitter extends JsModuleEmitter {
       return;
     }
     switch e.expr {
+      case TLocal(_)
+        if (!inTypeQueryEntityName
+          && currentAssignmentTarget != e
+          && boundaryPlan != null
+          && boundaryPlan.localReadNeedsNonNullAssertion(e)):
+        // The binding remains honestly nullable. Haxe's checked AST proved
+        // only this particular read has the payload type, so preserve that
+        // per-read fact as TypeScript's erased non-null assertion (`local!`).
+        super.emitValue(e);
+        write('!');
       case TCall({
         expr: TField(_,
           FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))
@@ -2987,28 +2999,19 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TBinop(op = OpAssign, lhs, rhs)
         if (boundaryPlan != null && boundaryPlan.hostCallbackBridge(e) != null):
         final bridge = boundaryPlan.hostCallbackBridge(e);
-        inAssignTarget = true;
-        emitValue(lhs);
-        inAssignTarget = false;
+        emitAssignmentTarget(lhs);
         writeSpace();
         writeBinop(op);
         writeSpace();
         write(ctx.typeAccessor(TypeUtil.registerType));
         write('.unsafeCast<typeof ');
-        // The plan admits only a local-rooted entity name. A TypeScript type
-        // query does not evaluate that local again; it asks the host
-        // declaration for the authoritative callback property type.
-        inAssignTarget = true;
-        emitValue(bridge.target);
-        inAssignTarget = false;
+        emitTypeQueryEntityName(bridge.target);
         write('>(');
         emitValueWithExpectedType(null, bridge.source);
         write(')');
       case TBinop(op = OpAssign, lhs = {expr: TField(_, f)}, rhs)
         if (isOverriddenField(f)):
-        inAssignTarget = true;
-        emitValue(lhs);
-        inAssignTarget = false;
+        emitAssignmentTarget(lhs);
         writeSpace();
         writeBinop(op);
         writeSpace();
@@ -3034,9 +3037,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TBinop(op = OpAssign, lhs, rhs)
         if (boundaryPlan != null && boundaryPlan.assignmentBridge(e) != null):
         final bridge = boundaryPlan.assignmentBridge(e);
-        inAssignTarget = true;
-        emitValue(lhs);
-        inAssignTarget = false;
+        emitAssignmentTarget(lhs);
         writeSpace();
         writeBinop(op);
         writeSpace();
@@ -3048,9 +3049,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         write(')');
       case TBinop(op = OpAssign | OpAssignOp(_), lhs, rhs):
         // Avoid optional-field `?? null` rewrites on assignment targets.
-        inAssignTarget = true;
-        emitValue(lhs);
-        inAssignTarget = false;
+        emitAssignmentTarget(lhs);
         writeSpace();
         writeBinop(op);
         writeSpace();
@@ -3341,6 +3340,56 @@ class TsModuleEmitter extends JsModuleEmitter {
       default:
         super.emitExpr(e);
     }
+  }
+
+  /**
+   * Emits one assignment's complete left-hand side without rewriting its root
+   * as a value read.
+   *
+   * Why: a direct local target (`local = value`) must not become `local!`,
+   * while the local inside a member target (`local.field = value`) is still a
+   * receiver read and may own an exact planned non-null fact.
+   *
+   * What/How: retain the established broad assignment-target mode for
+   * optional-field and indexed-write behavior, and separately remember the
+   * exact root node. Nested receiver/index expressions therefore keep their
+   * read decisions, while only the root local is suppressed. Restore both
+   * scopes so a nested expression cannot leak state into its caller.
+   */
+  function emitAssignmentTarget(target: TypedExpr): Void {
+    final previousInAssignTarget = inAssignTarget;
+    final previousAssignmentTarget = currentAssignmentTarget;
+    inAssignTarget = true;
+    currentAssignmentTarget = target;
+    emitValue(target);
+    currentAssignmentTarget = previousAssignmentTarget;
+    inAssignTarget = previousInAssignTarget;
+  }
+
+  /**
+   * Emits a host field as a legal TypeScript type-query entity name.
+   *
+   * Why: `typeof reader.onerror` asks TypeScript for the host declaration's
+   * property type without reading the property at runtime. Unlike ordinary
+   * value code, that grammar cannot contain a non-null assertion:
+   * `typeof reader!.onerror` is invalid TypeScript.
+   *
+   * What/How: the boundary plan admits only a non-null local declaration, and
+   * this separate printer scope prevents any value-use assertion from entering
+   * the entity name. Keeping both checks makes the syntax fail closed if either
+   * the local-read plan or host-callback plan changes later.
+   */
+  function emitTypeQueryEntityName(target: TypedExpr): Void {
+    final previousInAssignTarget = inAssignTarget;
+    final previousAssignmentTarget = currentAssignmentTarget;
+    final previousInTypeQueryEntityName = inTypeQueryEntityName;
+    inAssignTarget = true;
+    currentAssignmentTarget = target;
+    inTypeQueryEntityName = true;
+    emitValue(target);
+    inTypeQueryEntityName = previousInTypeQueryEntityName;
+    currentAssignmentTarget = previousAssignmentTarget;
+    inAssignTarget = previousInAssignTarget;
   }
 
   /**

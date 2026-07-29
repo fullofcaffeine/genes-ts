@@ -1,5 +1,5 @@
 import { deepStrictEqual, ok, strictEqual } from "node:assert";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -50,6 +50,7 @@ runGeneratedTypeScriptMatrix(
 );
 run("haxe", ["tests/host-callback-boundary/build-classic.hxml"]);
 run("haxe", ["tests/host-callback-boundary/build-standard.hxml"]);
+run("haxe", ["tests/host-callback-boundary/build-negative-ts.hxml"]);
 
 deepStrictEqual(
   [
@@ -132,6 +133,49 @@ for (const classicFile of [
   );
 }
 
+const negativeImplementation = read(
+  "out/negative/src-gen/hostcallbacks/HostCallbacks.ts"
+);
+ok(
+  negativeImplementation.includes(
+    "_this!.onerror = function (error: globalThis.Error)"
+  ),
+  "the retagged nullable local keeps its value-position non-null assertion"
+);
+ok(
+  !negativeImplementation.includes(
+    "Register.unsafeCast<typeof _this!.onerror>"
+  ),
+  "a nullable local declaration cannot authorize a host callback type query"
+);
+const negativeCheck = spawnSync(
+  process.execPath,
+  [
+    path.join(repoRoot, "scripts/run-typescript.mjs"),
+    "legacyFloor",
+    "-p",
+    "tests/host-callback-boundary/tsconfig.negative.json",
+    "--pretty",
+    "false"
+  ],
+  { cwd: repoRoot, encoding: "utf8" }
+);
+strictEqual(
+  negativeCheck.status,
+  1,
+  "the unsupported nullable-host assignment remains a strict-TypeScript failure"
+);
+const negativeDiagnostics =
+  `${negativeCheck.stdout ?? ""}${negativeCheck.stderr ?? ""}`;
+ok(
+  negativeDiagnostics.includes("TS2322"),
+  "the negative control reports the original host callback variance"
+);
+ok(
+  !negativeDiagnostics.includes("TS2365"),
+  "the negative control does not fail because Genes printed an illegal type query"
+);
+
 const source = read("src/hostcallbacks/HostCallbacks.hx");
 const sourceMap = new SourceMapConsumer(
   JSON.parse(
@@ -153,5 +197,6 @@ strictEqual(
 
 process.stdout.write(
   "host-callback-boundary:ok "
-    + "(TS5/6/7 + native/user controls + classic + standard + maps)\n"
+    + "(TS5/6/7 + nullable-inline negative + native/user controls"
+    + " + classic + standard + maps)\n"
 );
