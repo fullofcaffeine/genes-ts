@@ -97,10 +97,24 @@ function main(): void {
     "yarn bd ready",
     "yarn hooks:install",
     "yarn test:precommit-hook",
+    "Performance Is a Review Requirement",
+    "yarn test:output-quality",
+    "performance-evidence-and-ci-budgets",
     "yarn build:example:genes-ts",
     "yarn --cwd tools/ts2hx build"
   ])
     assert(rootGuide.includes(required), `AGENTS.md omits required onboarding fact: ${required}`);
+
+  const pullRequestTemplate = read(".github/pull_request_template.md");
+  for (const required of [
+    "## Performance",
+    "compiler latency/memory",
+    "output size/shape",
+    "runtime work",
+    "Performance impact is measured, budget-gated, or explained as neutral"
+  ])
+    assert(pullRequestTemplate.includes(required),
+      `.github/pull_request_template.md omits performance review fact: ${required}`);
 
   const compilerGuide = read("src/genes/AGENTS.md");
   for (const owner of [

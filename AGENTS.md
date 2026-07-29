@@ -282,6 +282,54 @@ Full Genes CI must pass before downstream projects rely on a local compiler chan
 - If full CI fails, stop downstream work and fix or explicitly resolve the Genes CI failure in this repo first. Do not continue building downstream projects on top of an unproven compiler checkout.
 - If a CI failure is external or intentionally allowlisted, document the reason, the owning Bead, and the exact command/output proving the remaining compiler gates are healthy before downstream work resumes.
 
+## Performance Is a Review Requirement
+
+Treat performance as part of compiler correctness on every pull request, not as
+cleanup reserved for an optimization project. A change can preserve types and
+runtime behavior while still making editor builds noticeably slower, emitting
+unnecessarily large programs, or adding work to every generated call.
+
+For each PR, classify and report the affected cost surfaces:
+
+- **compiler work:** cold and warm compile latency, peak memory, repeated typed
+  AST walks, allocation, filesystem churn, and compiler-server reuse;
+- **generated output:** module, byte, token, import, helper, and temporary
+  counts in both TypeScript and classic JavaScript profiles; and
+- **generated program work:** startup and hot-path runtime, allocation,
+  evaluation count, and bundle/runtime loading behavior.
+
+Use the smallest representative measurement that can distinguish the proposed
+implementation from a plausible slower one. Reuse an existing focused
+benchmark or output-quality fixture when it owns the affected path; add one
+when new work enters a hot path. Compare the base and proposed revisions while
+holding the fixture, toolchain, and machine constant where practical, or use a
+same-run control. Report the command, sample count, before/after result, and
+variance. If a PR is genuinely performance-neutral, say why—for example,
+documentation-only work or a diagnostic branch that runs only after
+compilation has already failed—instead of leaving the question unanswered.
+
+CI thresholds must be evidence-based:
+
+- Deterministic structural costs use blocking reviewed ceilings. The existing
+  `yarn test:output-quality` gate fixes module counts, allows at most the
+  reviewed 5% byte/token window, and permits no unreviewed growth in imports or
+  lowering temporaries for its bounded corpus.
+- Timing or memory becomes blocking only after a stable harness records warmup,
+  repeated samples, expected CI variance, a pinned environment, and a reviewed
+  regression boundary. Prefer a relative comparison with a same-run control
+  over a brittle absolute wall-clock limit.
+- A new noisy timing report may begin as advisory, but it must not be described
+  as regression protection. Create an owning Bead with the measurements needed
+  to graduate it to a blocking budget. Do not copy one developer-machine
+  result into CI as an arbitrary threshold.
+
+Optimize the measured cause without weakening semantic evidence, source maps,
+readability, determinism, or either output profile. Avoid speculative
+micro-optimizations and opaque caches: a faster implementation is an
+improvement only when its identity, lifetime, invalidation, and output remain
+reviewable. See [`docs/TESTING_STRATEGY.md`](docs/TESTING_STRATEGY.md#performance-evidence-and-ci-budgets)
+for the current gates and threshold rules.
+
 ## Commit Messages
 
 - Keep the conventional-commit subject concise, then add a useful commit body for every non-trivial change. Write the body in friendly, beginner-readable language so someone who does not already know the compiler internals can understand what problem was solved.
