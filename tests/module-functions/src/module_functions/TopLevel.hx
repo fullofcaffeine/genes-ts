@@ -1,5 +1,8 @@
 package module_functions;
 
+import genes.js.Async.await;
+import js.lib.Promise;
+
 /** Closed data shape used to prove precise TypeScript/declaration output. */
 typedef ModuleMetadata = {
   final title: String;
@@ -26,6 +29,20 @@ final metadata: ModuleMetadata = {
 @:genes.moduleFunction("topLevelIdentity")
 function topLevelIdentity<T>(value: T): T {
   return value;
+}
+
+/**
+ * Proves Genes' own async/await authoring composes with direct module output.
+ *
+ * `@:async` records a native async function and the exact `await` carrier;
+ * `@:genes.moduleFunction` then preserves that already-typed body as one direct
+ * ESM function. Neither annotation adds a scheduler or Promise runtime.
+ */
+@:async
+@:genes.moduleFunction("topLevelAsync")
+function topLevelAsync(value: Int): Promise<Int> {
+  final resolved = await(Promise.resolve(value));
+  return resolved + 1;
 }
 
 /** Metadata alone must not retain an otherwise unreachable module value. */
