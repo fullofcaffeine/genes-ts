@@ -34,6 +34,10 @@ export const acceptanceOwnedFocusedGates = [
   {
     packageScript: "test:host-global-identity",
     compiledScript: "scripts/dist/test-host-global-identity.js"
+  },
+  {
+    packageScript: "test:host-callback-boundary",
+    compiledScript: "scripts/dist/test-host-callback-boundary.js"
   }
 ] as const;
 

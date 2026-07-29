@@ -2951,6 +2951,26 @@ class TsModuleEmitter extends JsModuleEmitter {
           emitValue(e1);
           write(')');
         }
+      case TBinop(op = OpAssign, lhs, rhs)
+        if (boundaryPlan != null && boundaryPlan.hostCallbackBridge(e) != null):
+        final bridge = boundaryPlan.hostCallbackBridge(e);
+        inAssignTarget = true;
+        emitValue(lhs);
+        inAssignTarget = false;
+        writeSpace();
+        writeBinop(op);
+        writeSpace();
+        write(ctx.typeAccessor(TypeUtil.registerType));
+        write('.unsafeCast<typeof ');
+        // The plan admits only a local-rooted entity name. A TypeScript type
+        // query does not evaluate that local again; it asks the host
+        // declaration for the authoritative callback property type.
+        inAssignTarget = true;
+        emitValue(bridge.target);
+        inAssignTarget = false;
+        write('>(');
+        emitValueWithExpectedType(null, bridge.source);
+        write(')');
       case TBinop(op = OpAssign, lhs = {expr: TField(_, f)}, rhs)
         if (isOverriddenField(f)):
         inAssignTarget = true;
