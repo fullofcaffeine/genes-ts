@@ -330,6 +330,44 @@ improvement only when its identity, lifetime, invalidation, and output remain
 reviewable. See [`docs/TESTING_STRATEGY.md`](docs/TESTING_STRATEGY.md#performance-evidence-and-ci-budgets)
 for the current gates and threshold rules.
 
+## Generated Source Should Look Hand-Authored
+
+Treat generated TypeScript, TSX, JavaScript, and JSX as a product surface that
+people will read, debug, review, profile, and sometimes publish.
+Correct execution and successful type checking are the floor.
+Within the constraints of Haxe semantics, the output should look as though a
+careful developer wrote it directly for the target ecosystem.
+
+Prefer natural target-language structure:
+
+- precise, readable TypeScript types rather than redundant assertions,
+  repeated null unions, artificial aliases, or weak boundary types;
+- ordinary modern ESM imports, stable descriptive local names, and direct
+  expressions when evaluation does not need a temporary;
+- familiar TypeScript/JavaScript control flow and standard-library operations
+  when they preserve Haxe evaluation order and runtime behavior;
+- canonical TSX/JSX spelling, minimal wrappers, and framework-native component
+  and callback shapes; and
+- concise classic JavaScript that does not retain type-projection scaffolding
+  merely because the TypeScript profile needed it.
+
+Do not pursue prettier output by changing semantics. Haxe evaluation order,
+single evaluation of effectful expressions, null/undefined behavior, class and
+enum runtime metadata, import side effects, dead-code elimination, source-map
+provenance, deterministic naming, and both output profiles remain
+authoritative. A temporary, helper, assertion, or wrapper is justified when it
+protects one of those contracts; document the reason when the generated shape
+would otherwise surprise a reader.
+
+Every code-generation PR must inspect representative generated files, not only
+the Haxe fixture or a green compiler exit. Protect important source shapes with
+the smallest useful snapshot or exact-token assertion, then pair that shape
+evidence with runtime, strict TypeScript, declaration-consumer, and source-map
+checks as applicable. Review both TypeScript and classic JavaScript output when
+the semantic decision is shared. If the safest current output is noticeably
+less idiomatic, state the constraint and create a focused follow-up instead of
+hiding it behind a cosmetic printer rewrite.
+
 ## Commit Messages
 
 - Keep the conventional-commit subject concise, then add a useful commit body for every non-trivial change. Write the body in friendly, beginner-readable language so someone who does not already know the compiler internals can understand what problem was solved.
@@ -584,6 +622,24 @@ its own focused commit and protected merge. Do not batch completed tasks into a
 later session-level push.
 
 For `../genes` specifically, keep the feature branch current with origin whenever landing compiler work: rebase it onto `origin/main` before the final push, resolve any upstream drift in the compiler repo itself, then push and merge the focused pull request. Downstream work may depend on local `../genes`, so do not leave compiler changes stranded or only documented elsewhere. The active `main` ruleset rejects direct pushes, including roadmap-only updates.
+
+### Review Feedback Is a Merge Gate
+
+Before every merge, inspect the pull request conversation as well as its CI
+checks. Read general comments and submitted reviews.
+Read every unresolved inline review thread on the current head.
+A green check summary does not prove that a reviewer concern was addressed,
+and the ordinary PR conversation view may not show whether an inline thread
+remains unresolved.
+
+Address actionable feedback in code, tests, documentation, or the PR
+description as appropriate. Reply with evidence when a comment needs
+clarification or is intentionally not adopted; do not silently dismiss it or
+mark it resolved merely to make the PR mergeable. After the final push or
+rebase, recheck comments and review-thread state because reviewers and bots may
+have added feedback against the replacement head. Merge only when required
+checks are green.
+Every remaining comment must have an explicit, reviewable disposition.
 
 **When ending a work session**, you MUST complete ALL steps below. Work is NOT
 complete until the required pull request(s) merge and local `main` matches

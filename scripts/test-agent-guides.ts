@@ -100,6 +100,12 @@ function main(): void {
     "Performance Is a Review Requirement",
     "yarn test:output-quality",
     "performance-evidence-and-ci-budgets",
+    "Generated Source Should Look Hand-Authored",
+    "Correct execution and successful type checking are the floor",
+    "Every code-generation PR must inspect representative generated files",
+    "Review Feedback Is a Merge Gate",
+    "every unresolved inline review thread",
+    "Every remaining comment must have an explicit, reviewable disposition",
     "yarn build:example:genes-ts",
     "yarn --cwd tools/ts2hx build"
   ])
