@@ -9,7 +9,7 @@ import { runGeneratedTypeScriptMatrix } from "./toolchains.js";
 const scriptRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptRoot, "../..");
 const fixtureRoot = path.join(repoRoot, "tests/nullable-temp-receivers");
-const expectedTranscript = "1|1|7,8|true";
+const expectedTranscript = "1|1|2|10,8|true";
 
 function run(command: string, args: ReadonlyArray<string>): void {
   execFileSync(command, [...args], { cwd: repoRoot, stdio: "inherit" });
@@ -74,6 +74,11 @@ strictEqual(
   implementation.match(/_this!\.values\.push\(value1\);/g)?.length,
   1,
   "only the exact Haxe-retagged temporary read receives one non-null assertion"
+);
+strictEqual(
+  implementation.match(/_this!\.values\[0\] = value1;/g)?.length,
+  1,
+  "a retagged local nested inside an indexed assignment remains a receiver read"
 );
 ok(
   implementation.includes("(this.receiver!).values.push(value);")

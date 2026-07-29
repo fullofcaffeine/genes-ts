@@ -77,6 +77,7 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   var jsxEmitTsx: Bool = false;
   var inAssignTarget: Bool = false;
+  var currentAssignmentTarget: Null<TypedExpr> = null;
   var currentClass: Null<ClassType> = null;
   var currentReturnIsVoidLike: Bool = false;
   var localTsTypeOverrides: Map<Int, String> = [];
@@ -2770,7 +2771,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
     switch e.expr {
       case TLocal(_)
-        if (!inAssignTarget && boundaryPlan != null
+        if (currentAssignmentTarget != e && boundaryPlan != null
           && boundaryPlan.localReadNeedsNonNullAssertion(e)):
         // The binding remains honestly nullable. Haxe's checked AST proved
         // only this particular read has the payload type, so preserve that
@@ -2995,9 +2996,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TBinop(op = OpAssign, lhs, rhs)
         if (boundaryPlan != null && boundaryPlan.hostCallbackBridge(e) != null):
         final bridge = boundaryPlan.hostCallbackBridge(e);
-        inAssignTarget = true;
-        emitValue(lhs);
-        inAssignTarget = false;
+        emitAssignmentTarget(lhs);
         writeSpace();
         writeBinop(op);
         writeSpace();
@@ -3006,17 +3005,13 @@ class TsModuleEmitter extends JsModuleEmitter {
         // The plan admits only a local-rooted entity name. A TypeScript type
         // query does not evaluate that local again; it asks the host
         // declaration for the authoritative callback property type.
-        inAssignTarget = true;
-        emitValue(bridge.target);
-        inAssignTarget = false;
+        emitAssignmentTarget(bridge.target);
         write('>(');
         emitValueWithExpectedType(null, bridge.source);
         write(')');
       case TBinop(op = OpAssign, lhs = {expr: TField(_, f)}, rhs)
         if (isOverriddenField(f)):
-        inAssignTarget = true;
-        emitValue(lhs);
-        inAssignTarget = false;
+        emitAssignmentTarget(lhs);
         writeSpace();
         writeBinop(op);
         writeSpace();
@@ -3042,9 +3037,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TBinop(op = OpAssign, lhs, rhs)
         if (boundaryPlan != null && boundaryPlan.assignmentBridge(e) != null):
         final bridge = boundaryPlan.assignmentBridge(e);
-        inAssignTarget = true;
-        emitValue(lhs);
-        inAssignTarget = false;
+        emitAssignmentTarget(lhs);
         writeSpace();
         writeBinop(op);
         writeSpace();
@@ -3056,9 +3049,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         write(')');
       case TBinop(op = OpAssign | OpAssignOp(_), lhs, rhs):
         // Avoid optional-field `?? null` rewrites on assignment targets.
-        inAssignTarget = true;
-        emitValue(lhs);
-        inAssignTarget = false;
+        emitAssignmentTarget(lhs);
         writeSpace();
         writeBinop(op);
         writeSpace();
@@ -3349,6 +3340,30 @@ class TsModuleEmitter extends JsModuleEmitter {
       default:
         super.emitExpr(e);
     }
+  }
+
+  /**
+   * Emits one assignment's complete left-hand side without rewriting its root
+   * as a value read.
+   *
+   * Why: a direct local target (`local = value`) must not become `local!`,
+   * while the local inside a member target (`local.field = value`) is still a
+   * receiver read and may own an exact planned non-null fact.
+   *
+   * What/How: retain the established broad assignment-target mode for
+   * optional-field and indexed-write behavior, and separately remember the
+   * exact root node. Nested receiver/index expressions therefore keep their
+   * read decisions, while only the root local is suppressed. Restore both
+   * scopes so a nested expression cannot leak state into its caller.
+   */
+  function emitAssignmentTarget(target: TypedExpr): Void {
+    final previousInAssignTarget = inAssignTarget;
+    final previousAssignmentTarget = currentAssignmentTarget;
+    inAssignTarget = true;
+    currentAssignmentTarget = target;
+    emitValue(target);
+    currentAssignmentTarget = previousAssignmentTarget;
+    inAssignTarget = previousInAssignTarget;
   }
 
   /**

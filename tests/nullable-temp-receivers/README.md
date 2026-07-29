@@ -100,6 +100,19 @@ that every read of `_this` is safe, and it is not changing later assignments.
 It is carrying forward only the read-level type Haxe already attached to this
 exact AST node.
 
+That read can also be nested inside an assignment target. These are different
+operations:
+
+```ts
+local = null;            // `local` is the direct assignment target
+local!.latest = value;   // `local` is a receiver read; `.latest` is the target
+local!.values[0] = value; // `local` is a receiver read inside an index target
+```
+
+Genes tracks the exact root of the assignment. It suppresses a planned
+assertion only when the local itself is that root; a nested receiver keeps its
+read-level Haxe fact.
+
 The executable JavaScript is unchanged:
 
 ```js
@@ -159,6 +172,8 @@ It verifies:
 - strict output with the pinned TypeScript 5, 6, and 7 lanes;
 - exact generated TypeScript for the temporary and direct paths;
 - the reassigned nullable-local negative control;
+- an indexed assignment receiver, without rewriting a direct local assignment
+  target;
 - identical TypeScript-readable, classic, and standard-JavaScript runtime
   transcripts;
 - evaluate-once behavior through the observable `buildCount`; and

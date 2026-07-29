@@ -9,8 +9,9 @@ class Main {
     final target = new Target();
     final first = target.pushBuilt(7);
     final second = target.pushDirect(8);
+    final third = target.replaceBuilt(10);
     final cleared = target.clearLocal(null) == null;
-    NodeConsole.log('$first|$second|${target.snapshot()}|$cleared');
+    NodeConsole.log('$first|$second|$third|${target.snapshot()}|$cleared');
   }
 }
 
@@ -34,6 +35,12 @@ private class Target {
   /** The simple argument keeps the corresponding direct receiver path. */
   public function pushDirect(value: Int): Int {
     receiver.push(value);
+    return buildCount;
+  }
+
+  /** An indexed assignment still reads its nullable temporary receiver. */
+  public function replaceBuilt(value: Int): Int {
+    receiver.replaceFirst(build(value));
     return buildCount;
   }
 
@@ -64,5 +71,9 @@ private class Receiver {
 
   public inline function push(value: Int): Void {
     values.push(value);
+  }
+
+  public inline function replaceFirst(value: Int): Void {
+    values[0] = value;
   }
 }
