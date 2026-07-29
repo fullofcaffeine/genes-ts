@@ -89,8 +89,17 @@ only Genes can preserve the emitted `value ?? null` operation and its
 The inverse proof, `Undefinable.assumePresent()`, is also target-aware. After an
 exact absence check, TypeScript asserts the value to Haxe's exact instantiated
 `T`; classic output keeps a runtime identity. Genes cannot use TypeScript's
-postfix `!` here because it removes both `undefined` and `null`, while
+postfix `!` alone here because it removes both `undefined` and `null`, while
 `Undefinable<Null<T>>` must retain a present Haxe `null`.
+
+The generated TypeScript form is `((value)! as T)`. Both operators are erased.
+The operand has its own parentheses so a conditional or another low-precedence
+expression is proved as one value; without that grouping, TypeScript would
+apply `! as T` only to the conditional's last branch. The first operator
+prevents TypeScript's disjoint-cast diagnostic when control flow has otherwise
+narrowed the operand to `undefined`; the final exact assertion restores the
+Haxe `T`, including any legitimate nested `null`. This is not a runtime check
+or conversion.
 
 This is also why enabling null safety does not replace `TsBoundaryPlan`.
 The plan records exact TypeScript-only boundary conversions that ordinary Haxe

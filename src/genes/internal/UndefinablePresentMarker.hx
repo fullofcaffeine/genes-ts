@@ -10,7 +10,10 @@ package genes.internal;
  *
  * What: TypeScript `Undefinable.assumePresent()` emits this exact typed call
  * after the caller has performed the documented absence check, then replaces
- * it with `(value as T)` using the compiler-owned return type. Classic Genes
+ * it with `((value)! as T)` using the compiler-owned return type. The erased
+ * postfix proof prevents TypeScript's false disjoint-cast diagnostic when a
+ * stored absence boolean leaves the operand narrowed to `undefined`; the
+ * final exact assertion restores a legitimate nested `null`. Classic Genes
  * uses its ordinary inline identity path and never receives this marker.
  *
  * How: this extern has no runtime implementation. Recognition uses its exact

@@ -474,12 +474,18 @@ class TsModuleEmitter extends JsModuleEmitter {
           + 'presence marker requires exactly one typed value.',
           e.pos);
       emitPos(e.pos);
-      write('(');
+      write('((');
       // Preserve the source value's own undefined contract before applying
-      // the exact `T` assertion. An ambient destination must not turn an
-      // optional read into Haxe null first.
+      // the exact `T` assertion. The first, erased `!` also prevents TS2352
+      // when TypeScript has over-narrowed a local to `undefined` because its
+      // absence proof was stored in a separate boolean. The final assertion
+      // restores the exact Haxe result, including a legitimate nested null.
+      // An ambient destination must not turn an optional read into Haxe null
+      // first. Group the complete operand separately: a conditional expression
+      // has lower precedence than `! as T`, so relying on the outer assertion
+      // parentheses would prove only its final branch.
       emitValueWithExpectedType(null, marker.value);
-      write(' as ');
+      write(')! as ');
       TypeEmitter.emitType(this, marker.resultType);
       write(')');
       return;

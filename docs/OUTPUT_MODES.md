@@ -309,8 +309,12 @@ final name = record == null ? null : UnknownNarrow.string(record.get("name"));
 
 After an exact `Undefinable.isAbsent(value)` check, `value.assumePresent()`
 returns the same runtime value with its original `T` view. TypeScript emits an
-erased assertion to that exact `T`, while classic Genes emits a plain identity
-expression. This deliberately preserves a nested `null` in
+grouped, erased `((value)! as T)` assertion, while classic Genes emits a plain
+identity expression. The operand gets its own parentheses so conditionals and
+other low-precedence expressions are proved as one value rather than proving
+only their final branch. The first TypeScript operator avoids a false disjoint-cast
+diagnostic when a separately stored proof leaves the operand narrowed to
+`undefined`; the final exact assertion deliberately preserves a nested `null` in
 `Undefinable<Null<T>>`; the proof removes only the outer JavaScript
 `undefined` contract.
 

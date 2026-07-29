@@ -487,7 +487,7 @@ for (const [profile, relativePath] of [
   );
   if (profile === "ts-strict") {
     ok(
-      generated.includes('events.push("present:" + (present as string));'),
+      generated.includes('events.push("present:" + ((present)! as string));'),
       "TypeScript Undefinable.assumePresent lost its exact presence assertion"
     );
   } else {
@@ -502,8 +502,20 @@ for (const [profile, relativePath] of [
   );
   if (profile === "ts-strict") {
     ok(
-      generated.includes("(nullablePresent as string | null) == null"),
+      generated.includes("((nullablePresent)! as string | null) == null"),
       "TypeScript lost the nested-null type and runtime identity control"
+    );
+    ok(
+      generated.includes(
+        'events.push("unreachable-present:" + Std.string(((staticallyAbsent)! as boolean)));'
+      ),
+      "TypeScript stored-proof output no longer avoids the false TS2352 disjoint-cast diagnostic"
+    );
+    ok(
+      generated.includes(
+        'events.push("conditional-present:" + (((events.length > 0) ? HelperScenario.presentValue("left") : HelperScenario.presentValue("right"))! as string));'
+      ),
+      "TypeScript applied the presence assertion to only one conditional branch"
     );
     ok(
       generated.includes(
@@ -513,7 +525,7 @@ for (const [profile, relativePath] of [
     );
     ok(
       generated.includes(
-        '(({ length: 17 }) as Buffer).length'
+        '((({ length: 17 }))! as Buffer).length'
       ),
       "TypeScript did not print the marker's exact imported result type"
     );
@@ -527,6 +539,14 @@ for (const [profile, relativePath] of [
       "classic retained a TypeScript-only assertion dependency"
     );
   }
+  if (profile === "classic-esm") {
+    ok(
+      generated.includes(
+        'events.push("unreachable-present:" + Std.string((staticallyAbsent)));'
+      ),
+      "classic stored-proof output stopped being a plain runtime identity"
+    );
+  }
   ok(
     !generated.includes("Register.unsafeCast(nullablePresent)"),
     `${profile} leaked a runtime cast for the nested-null control`
@@ -536,19 +556,19 @@ for (const [profile, relativePath] of [
     `${profile} leaked the compiler-owned presence marker`
   );
   const presenceExpression = profile === "ts-strict"
-    ? 'events.push("present:" + (present as string));'
+    ? 'events.push("present:" + ((present)! as string));'
     : 'events.push("present:" + (present));';
   const presenceOperand = profile === "ts-strict"
-    ? "(present as string)"
+    ? "((present)! as string)"
     : "(present)";
-  // Map the `as string` assertion in TypeScript and the identity operand in
+  // Map the erased `! as string` assertion in TypeScript and the identity operand in
   // classic JavaScript. Both tokens must retain the authored
   // `assumePresent()` call as their provenance.
   const presencePoint = generatedPoint(
     generated,
     presenceExpression,
     presenceExpression.indexOf(presenceOperand)
-      + (profile === "ts-strict" ? "(present ".length : "(present".length)
+      + (profile === "ts-strict" ? "((present)".length : "(present".length)
   );
   const presenceMap = new SourceMapConsumer(JSON.parse(readFileSync(
     path.join(repoRoot, `${relativePath}.map`),
@@ -576,17 +596,17 @@ for (const [profile, relativePath] of [
     `${profile} assumePresent expression maps to the authored Haxe column`
   );
   const nullableExpression = profile === "ts-strict"
-    ? 'events.push("present-null:" + Std.string((nullablePresent as string | null) == null));'
+    ? 'events.push("present-null:" + Std.string(((nullablePresent)! as string | null) == null));'
     : 'events.push("present-null:" + Std.string((nullablePresent) == null));';
   const nullableOperand = profile === "ts-strict"
-    ? "(nullablePresent as string | null)"
+    ? "((nullablePresent)! as string | null)"
     : "(nullablePresent)";
   const nullablePoint = generatedPoint(
     generated,
     nullableExpression,
     nullableExpression.indexOf(nullableOperand)
       + (profile === "ts-strict"
-        ? "(nullablePresent ".length
+        ? "((nullablePresent)".length
         : "(nullablePresent".length)
   );
   const nullableOriginal = presenceMap.originalPositionFor(nullablePoint);
