@@ -187,11 +187,13 @@ call the constructor early. They only prevent TypeScript from inventing
 `never` for an enum parameter that Haxe learned from the destination.
 
 This rule is planned from the typed Haxe AST before imports are allocated.
-Genes applies it only to an exact enum-constructor field whose expected
-function inputs match the applied constructor inputs. Ordinary lambdas,
-unrelated functions, unresolved types, nullability conversions, and general
-function variance do not qualify. Unsupported differences remain visible to
-strict TypeScript instead of being hidden by a broad assertion.
+Genes applies it only to an exact enum-constructor field whose complete
+compiler function type has the same declaration structure as the expected
+function type. It does not treat a child class as its parent or a Haxe abstract
+as its representation for this decision. Ordinary lambdas, unrelated
+functions, unresolved types, nullability conversions, optionality differences,
+and general function variance do not qualify. Unsupported differences remain
+visible to strict TypeScript instead of being hidden by a broad assertion.
 
 ### Standard library / JS externs (prefer TS builtins)
 

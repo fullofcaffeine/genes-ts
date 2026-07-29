@@ -7,3 +7,4 @@
 -D js-es=6
 -dce full
 -debug
+--macro enumconstructors.ExactTypeProbe.assertRelations()

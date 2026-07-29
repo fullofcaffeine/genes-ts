@@ -321,6 +321,18 @@ class TsBoundaryPlan {
     return TsBoundaryPlanBuilder.compareBoundaryTypes(expected, actual);
   }
 
+  /**
+   * Reports whether two compiler types have the same declaration structure.
+   *
+   * Unlike `compareTypes`, this relation does not project a class through a
+   * parent/interface or an ordinary abstract through its representation. It is
+   * the fail-closed proof used for enum constructors passed as functions.
+   */
+  public static function hasExactTypeIdentity(expected: Type,
+      actual: Type): Bool {
+    return TsBoundaryPlanBuilder.compareExactTypes(expected, actual);
+  }
+
   /** Whether TypeScript directly accepts this outer nullish widening. */
   public static function acceptsTopLevelWidening(expected: Type,
       actual: Type): Bool {
@@ -618,8 +630,7 @@ private class TsBoundaryPlanBuilder {
       return;
     final application = TypeUtil.enumConstructorApplication(expression,
       expectedCallable.result);
-    if (application == null
-      || compareBoundaryTypes(expected, expression.t) != Identical)
+    if (application == null || !compareExactTypes(expected, expression.t))
       return;
 
     final decision = new TsEnumReferenceDecision(expression,
@@ -1213,6 +1224,68 @@ private class TsBoundaryPlanBuilder {
     };
   }
 
+  /**
+   * Compares literal compiler type structure without boundary projections.
+   *
+   * Typedefs, resolved monomorphs, and lazy shells are transparent aliases.
+   * Classes, enums, abstracts, and type parameters must retain the same typed
+   * declaration identity, and every callable slot must match recursively.
+   */
+  public static function compareExactTypes(expected: Type, actual: Type,
+      depth = 0): Bool {
+    if (depth > MAX_TYPE_DEPTH)
+      return false;
+    final expectedResolved = resolveExact(expected);
+    final actualResolved = resolveExact(actual);
+    if (expectedResolved == null || actualResolved == null)
+      return false;
+
+    return switch [expectedResolved, actualResolved] {
+      case [TInst(expectedRef,
+        expectedParameters), TInst(actualRef, actualParameters)]: sameClassIdentity(expectedRef,
+          actualRef) && exactParameters(expectedParameters, actualParameters,
+          depth + 1);
+      case [TEnum(expectedRef,
+        expectedParameters), TEnum(actualRef, actualParameters)]: sameBaseIdentity(expectedRef.get(),
+          actualRef.get()) && exactParameters(expectedParameters,
+          actualParameters, depth + 1);
+      case [
+        TAbstract(expectedRef, expectedParameters),
+        TAbstract(actualRef, actualParameters)
+      ]: sameBaseIdentity(expectedRef.get(),
+        actualRef.get()) && exactParameters(expectedParameters,
+          actualParameters, depth + 1);
+      case [TFun(expectedArguments,
+        expectedResult), TFun(actualArguments, actualResult)]:
+        if (expectedArguments.length != actualArguments.length) false else {
+          var identical = true;
+          for (index in 0...expectedArguments.length) {
+            if (expectedArguments[index].opt != actualArguments[index].opt
+              || !compareExactTypes(expectedArguments[index].t,
+                actualArguments[index].t, depth + 1)) {
+              identical = false;
+              break;
+            }
+          }
+          identical && compareExactTypes(expectedResult, actualResult,
+            depth + 1)
+          ;
+        }
+      default:
+        false;
+    };
+  }
+
+  static function exactParameters(expected: Array<Type>, actual: Array<Type>,
+      depth: Int): Bool {
+    if (expected.length != actual.length)
+      return false;
+    for (index in 0...expected.length)
+      if (!compareExactTypes(expected[index], actual[index], depth + 1))
+        return false;
+    return true;
+  }
+
   static function compareParameters(expected: Array<Type>,
       actual: Array<Type>, depth: Int): TsBoundaryRelation {
     if (expected.length != actual.length)
@@ -1277,6 +1350,20 @@ private class TsBoundaryPlanBuilder {
         resolve(Context.follow(type));
       case TMono(reference):
         reference.get() == null ? null : resolve(reference.get());
+      case TDynamic(_):
+        null;
+      default:
+        type;
+    }
+  }
+
+  /** Follows aliases but preserves nominal and abstract declarations. */
+  static function resolveExact(type: Type): Null<Type> {
+    return switch type {
+      case TType(_, _) | TLazy(_):
+        resolveExact(Context.follow(type));
+      case TMono(reference):
+        reference.get() == null ? null : resolveExact(reference.get());
       case TDynamic(_):
         null;
       default:

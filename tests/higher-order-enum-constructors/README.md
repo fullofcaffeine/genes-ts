@@ -44,6 +44,11 @@ The `<A, B>` portion is a TypeScript instantiation expression. It selects the
 generic function type but emits no JavaScript, performs no cast, and does not
 call the constructor early.
 
+The build also runs compile-time negative controls. Nullable inputs, optional
+inputs, and a child-class input are not exact callable identities, so the
+enum-reference rule must reject them instead of treating general Haxe
+compatibility as permission to add TypeScript type arguments.
+
 Run the focused task with:
 
 ```sh
