@@ -8,7 +8,9 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Superseded pull-request runs are disposable. A main run may already have
+  # created a version tag, so it must reach its rerunnable publication check.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
@@ -39,6 +41,22 @@ jobs:
             "GitHub's dependency-review API is unavailable for fork repositories." \
             "The required **Vulnerabilities (OSV)** job remains the security gate for the pinned dependency set." \
             >> "$GITHUB_STEP_SUMMARY"
+
+  codeql:
+    name: Analyze (JavaScript)
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      # CodeQL lives in this workflow so release publication can require the
+      # scan result for the exact same main-branch SHA.
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: javascript
+      - uses: github/codeql-action/analyze@v4
 
   beads-worktree-safety:
     name: Beads worktree safety (${{ matrix.beads-version }})
@@ -219,6 +237,9 @@ jobs:
       # Release settings live outside Git. Keep their public live-policy check
       # in this required job so a weakened environment blocks ordinary PRs.
       - run: yarn test:tooling-release-workflow
+      # These non-publishing checks exercise the real SemVer analyzer, exact
+      # artifact bytes, and fail-closed recovery before main can publish them.
+      - run: yarn test:release
       - run: yarn lix install haxe ${{ steps.toolchains.outputs.haxe-stable }}
       - run: yarn lix use haxe ${{ steps.toolchains.outputs.haxe-stable }}
       # Keep the compiler's own null-safety scope and reviewed escape inventory
@@ -351,4 +372,90 @@ jobs:
             >> "$GITHUB_STEP_SUMMARY"
           if [ "$BASELINE_OUTCOME" != "success" ] || [ "$MINIMAL_OUTCOME" != "success" ] || [ "$TEMPLATE_LITERALS_OUTCOME" != "success" ] || [ "$BINDING_IDENTITY_OUTCOME" != "success" ] || [ "$HXX_DIAGNOSTIC_RANGES_OUTCOME" != "success" ] || [ "$SOURCE_JSX_OUTCOME" != "success" ] || [ "$COMPILER_SERVER_OUTCOME" != "success" ] || [ "$COMPILER_SERVER_ROLLBACK_OUTCOME" != "success" ]; then
             echo "::warning title=Haxe preview compatibility::baseline=$BASELINE_OUTCOME, minimal=$MINIMAL_OUTCOME, template-literals=$TEMPLATE_LITERALS_OUTCOME, import-origin=$BINDING_IDENTITY_OUTCOME, hxx-diagnostic-ranges=$HXX_DIAGNOSTIC_RANGES_OUTCOME, source-jsx=$SOURCE_JSX_OUTCOME, compiler-server=$COMPILER_SERVER_OUTCOME, compiler-server-rollback=$COMPILER_SERVER_ROLLBACK_OUTCOME. Supported Haxe remains authoritative."
+          fi
+
+  release:
+    name: Release exact CI-tested commit
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs:
+      - beads-worktree-safety
+      - beads-pinned-client
+      - codeql
+      - secrets
+      - vulns
+      - classic
+      - genes-ts
+      - genes-ts-smoke-next-lts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    concurrency:
+      group: release-${{ github.repository }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout exact tested commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - id: toolchains
+        run: node scripts/emit-toolchain-outputs.mjs
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: ${{ steps.toolchains.outputs.node-stable }}
+      - run: corepack enable
+      - run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
+      - name: Install exact release dependency graph
+        run: yarn install --frozen-lockfile
+      - name: Guard reachable SemVer baseline
+        run: |
+          set -euo pipefail
+          semver_tags="$(git tag --merged HEAD | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)"
+          if [ -z "$semver_tags" ]; then
+            echo "::error::No SemVer tag is reachable from current main history."
+            echo "::error::semantic-release would treat this as an initial release."
+            exit 1
+          fi
+          echo "[release] Reachable SemVer tags (latest 5):"
+          echo "$semver_tags" | sort -V | tail -n 5
+      - name: Verify immutable release host controls
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release/verify-host-controls.cjs "${{ github.repository }}"
+      - name: Release or complete the exact tested commit
+        id: semantic_release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mapfile -t tags_before < <(git tag --points-at HEAD --list 'v[0-9]*.[0-9]*.[0-9]*' | sort -V)
+          if (( ${#tags_before[@]} > 1 )); then
+            echo "::error::Tested HEAD has multiple semantic-version tags: ${tags_before[*]}"
+            exit 1
+          fi
+
+          set +e
+          npx semantic-release
+          semantic_status=$?
+          set -e
+
+          mapfile -t tags_after < <(git tag --points-at HEAD --list 'v[0-9]*.[0-9]*.[0-9]*' | sort -V)
+          if (( ${#tags_after[@]} > 1 )); then
+            echo "::error::Tested HEAD has multiple semantic-version tags: ${tags_after[*]}"
+            exit 1
+          fi
+
+          if (( ${#tags_after[@]} == 1 )); then
+            tag="${tags_after[0]}"
+            if (( semantic_status != 0 )) || (( ${#tags_before[@]} == 1 )); then
+              echo "[release] Completing or verifying exact tag $tag"
+              node scripts/release/complete-release.cjs "$tag"
+            fi
+          elif (( semantic_status != 0 )); then
+            echo "::error::semantic-release failed before creating an exact tag at tested HEAD"
+            exit "$semantic_status"
           fi

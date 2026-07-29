@@ -54,7 +54,7 @@ export function assertFocusedGateOwnership(repoRoot: string): void {
     },
     ...[
       ".github/workflows/ci.yml",
-      ".github/workflows/release.yml"
+      ".github/workflows/release-tooling.yml"
     ].map((relativePath) => ({
       label: relativePath,
       source: readFileSync(path.join(repoRoot, relativePath), "utf8")

@@ -130,6 +130,9 @@ printer if the same decision affects more than one output surface.
   consuming JavaScript/TypeScript from Haxe and consuming generated output.
 - [`docs/TESTING_STRATEGY.md`](docs/TESTING_STRATEGY.md): focused versus full
   gates and what each kind of evidence proves.
+- [`docs/RELEASING.md`](docs/RELEASING.md): Conventional Commit versioning,
+  exact-tested-commit publication, deterministic Haxelib artifacts, immutable
+  host controls, and safe recovery.
 - [`docs/TOOLCHAINS.md`](docs/TOOLCHAINS.md): pinned Node, Haxe, and TypeScript
   lanes.
 - [`docs/NULL_SAFETY.md`](docs/NULL_SAFETY.md): scoped Haxe source checking,

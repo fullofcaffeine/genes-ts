@@ -3,7 +3,9 @@
   "node": {
     "stable": "22",
     "minimumRuntime": "22.22.0",
-    "nextLts": "24"
+    "nextLts": "24",
+    "nextLtsMinimumRuntime": "24.10.0",
+    "supportedRange": "^22.22.0 || ^24.10.0"
   },
   "haxe": {
     "stable": "4.3.7",

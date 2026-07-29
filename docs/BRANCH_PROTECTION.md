@@ -41,6 +41,31 @@ accepting a same-named status from an arbitrary integration.
 Review remain useful signals but are not merge requirements. Preview Haxe and
 macOS intentionally retain their workflow-level advisory policy.
 
+## How protected main can still release
+
+The final **Release exact CI-tested commit** job does not push to `main`.
+Semantic-release creates a `vX.Y.Z` tag on the exact commit whose same-run CI
+graph just passed—including the hosted CodeQL job—while version metadata is
+injected only into temporary package staging. CodeQL is part of the same
+workflow specifically so publication can depend on its exact-SHA result.
+This preserves branch protection and avoids a second, untested release commit.
+
+Version tags have a separate active ruleset named
+**Immutable semantic version tags**. It targets `refs/tags/v*` and blocks
+deletion and non-fast-forward updates. Published GitHub Releases are also
+immutable, which locks their notes and assets. Together these controls mean a
+released version cannot later be made to identify different source or bytes.
+
+Audit them with:
+
+```bash
+node scripts/release/verify-host-controls.cjs fullofcaffeine/genes-ts
+```
+
+The release job runs the same read-only check before semantic-release can
+create a tag. See [Releasing](RELEASING.md) for artifact verification and
+partial-publication recovery.
+
 ## Why CI has no workflow path filter
 
 GitHub leaves required checks pending when their entire workflow is skipped by
@@ -84,6 +109,12 @@ The detailed response must show:
 - `pull_request`, `required_status_checks`, and `non_fast_forward` rules;
 - `strict_required_status_checks_policy: true`; and
 - the six contexts above with GitHub Actions integration ID `15368`.
+
+Inspect the version-tag rule and immutable-release setting separately:
+
+```bash
+node scripts/release/verify-host-controls.cjs fullofcaffeine/genes-ts
+```
 
 GitHub's rule-suite API records real pass/fail evaluations. Use it when
 auditing a rejected direct update or a pull request whose required check

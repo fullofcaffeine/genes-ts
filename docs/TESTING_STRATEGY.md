@@ -408,11 +408,13 @@ backstop when a local hook is absent or explicitly bypassed.
 
 CodeQL is different: GitHub's hosted `Analyze (JavaScript)` job builds the
 database, analyzes the JavaScript/TypeScript surface, and publishes its result.
-The local `test:codeql-workflow` command checks the policy around that hosted
-scan. It requires the Node 24-based CodeQL v4 and checkout v7 action majors,
-the ordinary `pull_request` event rather than the privileged
-`pull_request_target` event, the stable required-check name, and the reviewed
-least-privilege token permissions:
+It lives in the main CI workflow so the final release job can name it in
+`needs`; a same-named check in a separate workflow could finish after
+publication. The local `test:codeql-workflow` command checks that dependency
+and the policy around the hosted scan. It requires the Node 24-based CodeQL v4
+and checkout v7 action majors, the ordinary `pull_request` event rather than
+the privileged `pull_request_target` event, the stable required-check name,
+and the reviewed least-privilege job permissions:
 
 ```text
 actions: read
@@ -420,7 +422,7 @@ contents: read
 security-events: write
 ```
 
-The workflow intentionally does not run the compiler test matrix or install
+The CodeQL job intentionally does not run the compiler test matrix or install
 the repository's configured Node release. CodeQL's embedded Node 24 runtime is
 the implementation runtime of the GitHub actions themselves; it is independent
 from the Node 22.22.0 and Node 24 application lanes in
@@ -454,12 +456,49 @@ and empty bypass list.
 
 ## Release workflow supply-chain contract
 
-The compiler and `@genes-ts/tooling` release workflows can create externally
-visible artifacts, so their executable action identities are stricter than
-ordinary CI: every `uses:` reference is a reviewed full commit SHA with a
-same-line release-version comment. The tooling workflow additionally depends
-on a live GitHub environment that prevents self-review and administrator
-bypass.
+Compiler publication is the final job in the same `main` CI run that tested
+the source. It tags that exact commit and injects the derived SemVer only into
+temporary Haxelib package staging; it never pushes a generated release commit
+through protected `main`. The focused non-publishing proof is:
+
+```bash
+yarn test:release
+```
+
+The three checks have separate jobs:
+
+- `test:release-workflow` runs the installed Conventional Commit analyzer and
+  release-notes generator, verifies the same-run dependency/permission model,
+  exact plugin set, pinned compatibility versions, and development sentinels;
+- `test:release-artifact` builds the tracked package twice, compares exact
+  bytes, verifies inventory/version/tag/source metadata, and rejects tampering;
+- `test:release-recovery` proves deterministic note regeneration, clean-tree
+  enforcement, missing-only draft planning, byte/note mismatch rejection,
+  immutable snapshot checks, and the repository-host control policy. The test
+  does not call GitHub's mutating Release API; the final same-run job owns that
+  integration and verifies its authoritative hosted result.
+
+The required hosted `genes-ts` job runs all three checks. The release job then
+depends on both that job and same-run CodeQL, so neither untested release code
+nor an unfinished security scan can publish the current SHA.
+
+The live release job additionally runs:
+
+```bash
+node scripts/release/verify-host-controls.cjs fullofcaffeine/genes-ts
+```
+
+That read-only check requires immutable GitHub Releases plus an active `v*` tag
+ruleset that prevents deletion and non-fast-forward updates. A local unit
+fixture proves the interpretation; only the live API query proves the current
+repository setting.
+
+The compiler release job and the independent `@genes-ts/tooling` release
+workflow can create externally visible artifacts, so their executable action
+identities are stricter than ordinary CI: every release-job `uses:` reference
+is a reviewed full commit SHA with a same-line release-version comment. The
+tooling workflow additionally depends on a live GitHub environment that
+prevents self-review and administrator bypass.
 
 Run the repository and live-settings proof with:
 
@@ -467,13 +506,12 @@ Run the repository and live-settings proof with:
 yarn test:tooling-release-workflow
 ```
 
-The test rejects mutable action tags in both release-capable workflows,
-rejects compiler release runs originating from pull requests, forks, or
-non-main branches, exercises fail-closed environment-policy mutations, and
-reads the public live `tooling-npm-production` environment. It does not
-dispatch a workflow, request an npm identity, or publish bytes. A network/API
-failure is a test failure because a cached settings snapshot cannot prove the
-current approval boundary.
+The tooling test rejects mutable action tags, exercises fail-closed
+environment-policy mutations, verifies the compiler ignores tooling-scoped
+Conventional Commits, and reads the public live
+`tooling-npm-production` environment. It does not dispatch a workflow, request
+an npm identity, or publish bytes. A network/API failure is a test failure
+because a cached settings snapshot cannot prove the current approval boundary.
 See [Releasing genes-ts and `@genes-ts/tooling`](RELEASING.md) for the action
 rotation and reviewer-change procedures.
 

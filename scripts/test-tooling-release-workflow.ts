@@ -17,15 +17,14 @@ const workflow = readFileSync(
   path.join(repoRoot, ".github/workflows/release-tooling.yml"),
   "utf8"
 );
-const compilerWorkflow = readFileSync(
-  path.join(repoRoot, ".github/workflows/release.yml"),
-  "utf8"
-);
 const ciWorkflow = readFileSync(
   path.join(repoRoot, ".github/workflows/ci.yml"),
   "utf8"
 );
-const rootPackageJson = readFileSync(path.join(repoRoot, "package.json"), "utf8");
+const compilerReleaseConfig = readFileSync(
+  path.join(repoRoot, "release.config.cjs"),
+  "utf8"
+);
 const environmentVerifier = path.join(
   repoRoot,
   "scripts/verify-tooling-release-environment.mjs"
@@ -62,24 +61,6 @@ const toolingActionPins: ActionPin[] = [
     owner: "actions/upload-artifact",
     sha: "ea165f8d65b6e75b540449e92b4886f43607fa02",
     version: "v4.6.2",
-  },
-];
-
-const compilerActionPins: ActionPin[] = [
-  {
-    owner: "actions/checkout",
-    sha: "11d5960a326750d5838078e36cf38b85af677262",
-    version: "v4.4.0",
-  },
-  {
-    owner: "actions/setup-node",
-    sha: "49933ea5288caeca8642d1e84afbd3f7d6820020",
-    version: "v4.4.0",
-  },
-  {
-    owner: "actions/cache",
-    sha: "0057852bfaa89a56745cba8c7296529d2fc39830",
-    version: "v4.3.0",
   },
 ];
 
@@ -336,19 +317,20 @@ function verifyProtectedEnvironment(): void {
  *
  * Merely checking that the tooling workflow lacks compiler-release commands is
  * not enough: `feat(tooling)` would otherwise be interpreted as a compiler
- * feature when the normal post-CI semantic-release workflow reads main's
+ * feature when the final same-CI semantic-release job reads main's
  * commit history. This probe verifies both halves of the boundary—tooling
  * commits are ignored by the compiler release line, while ordinary compiler
  * feature and fix commits retain the default SemVer behavior.
  */
 function analyzeCompilerCommit(message: string): string {
   const program = `
-    import { readFileSync } from "node:fs";
     import { analyzeCommits } from "@semantic-release/commit-analyzer";
+    import { createRequire } from "node:module";
+    const require = createRequire(import.meta.url);
     const repoRoot = process.argv[1];
     const message = process.argv[2];
-    const pkg = JSON.parse(readFileSync(repoRoot + "/package.json", "utf8"));
-    const analyzer = pkg.release.plugins.find(
+    const config = require(repoRoot + "/release.config.cjs");
+    const analyzer = config.plugins.find(
       (plugin) => Array.isArray(plugin) &&
         plugin[0] === "@semantic-release/commit-analyzer"
     );
@@ -559,29 +541,6 @@ function verifyToolingReleaseWorkflow(source: string): void {
   }
 }
 
-function verifyCompilerReleaseWorkflow(source: string): void {
-  verifyPinnedActions(source, "compiler release workflow", compilerActionPins);
-  requireText(
-    source,
-    `workflow_run:
-    workflows: ["genes-ts CI"]
-    types: [completed]
-    branches: [main]`,
-    "automatic compiler releases must consume successful CI from main only"
-  );
-  requireText(
-    source,
-    `if: >-
-      (github.event_name == 'workflow_dispatch' &&
-       github.ref == 'refs/heads/main') ||
-      (github.event.workflow_run.event == 'push' &&
-       github.event.workflow_run.head_repository.full_name == github.repository &&
-       github.event.workflow_run.head_branch == 'main' &&
-       github.event.workflow_run.conclusion == 'success' &&`,
-    "compiler releases must reject manual non-main refs and untrusted workflow runs"
-  );
-}
-
 function verifyRequiredCiOwner(source: string): void {
   const parsed: unknown = parseYaml(source);
   assert(typeof parsed === "object" && parsed !== null, "CI workflow must be a mapping");
@@ -614,18 +573,17 @@ function verifyRequiredCiOwner(source: string): void {
 }
 
 verifyPinnedActions(workflow, "tooling release workflow", toolingActionPins);
-verifyCompilerReleaseWorkflow(compilerWorkflow);
 verifyToolingReleaseWorkflow(workflow);
 verifyProtectedEnvironment();
 verifyRequiredCiOwner(ciWorkflow);
 assert(
-  !compilerWorkflow.includes("npm publish") &&
-  !compilerWorkflow.includes("@genes-ts/tooling"),
-  "compiler semantic-release workflow must not publish the tooling npm package"
+  !compilerReleaseConfig.includes("npm publish") &&
+    !compilerReleaseConfig.includes("@genes-ts/tooling"),
+  "compiler semantic-release configuration must not publish the tooling npm package"
 );
 assert(
-  rootPackageJson.includes('"scope": "tooling"') &&
-    rootPackageJson.includes('"release": false'),
+  compilerReleaseConfig.includes('scope: "tooling"') &&
+    compilerReleaseConfig.includes("release: false"),
   "compiler semantic-release must explicitly ignore tooling-scoped commits"
 );
 for (const toolingCommit of [
@@ -730,58 +688,6 @@ try {
   rejected = true;
 }
 assert(rejected, "tooling release policy accepted repository code from an arbitrary commit input");
-
-rejected = false;
-try {
-  verifyCompilerReleaseWorkflow(
-    compilerWorkflow.replace(
-      `(github.event_name == 'workflow_dispatch' &&
-       github.ref == 'refs/heads/main')`,
-      "github.event_name == 'workflow_dispatch'"
-    )
-  );
-} catch {
-  rejected = true;
-}
-assert(rejected, "compiler release policy accepted manual dispatch from a non-main ref");
-
-rejected = false;
-try {
-  verifyCompilerReleaseWorkflow(
-    compilerWorkflow.replace("    branches: [main]\n", "")
-  );
-} catch {
-  rejected = true;
-}
-assert(rejected, "compiler release policy accepted workflow_run from an unprotected branch");
-
-for (const [trustedCondition, unsafeCondition, description] of [
-  [
-    "github.event.workflow_run.event == 'push'",
-    "github.event.workflow_run.event == 'pull_request'",
-    "a pull-request CI run",
-  ],
-  [
-    "github.event.workflow_run.head_repository.full_name == github.repository",
-    "true",
-    "a fork repository",
-  ],
-  [
-    "github.event.workflow_run.head_branch == 'main'",
-    "true",
-    "a non-main source branch",
-  ],
-]) {
-  rejected = false;
-  try {
-    verifyCompilerReleaseWorkflow(
-      compilerWorkflow.replace(trustedCondition, unsafeCondition)
-    );
-  } catch {
-    rejected = true;
-  }
-  assert(rejected, `compiler release policy accepted ${description}`);
-}
 
 rejected = false;
 try {

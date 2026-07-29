@@ -6,49 +6,186 @@ the version of the other.
 
 ## Compiler and Haxelib release
 
-genes-ts uses **semantic-release** to maintain:
+genes-ts uses [semantic-release](https://semantic-release.gitbook.io/) and
+[Conventional Commits](https://www.conventionalcommits.org/) to publish a
+versioned Haxelib-compatible ZIP through GitHub Releases. A merge that does not
+need a public compiler version still runs the release decision but publishes
+nothing.
 
-- Semver tags + GitHub Releases
-- `CHANGELOG.md`
-- Version syncing between `package.json` and `haxelib.json`
-- A `submit.zip` artifact attached to each GitHub Release
+### Why releases do not create a commit
 
-## Prerequisites
+The previous release job passed the full compiler gate, changed
+`package.json`, `haxelib.json`, and `CHANGELOG.md`, then tried to push that new
+commit directly to `main`. GitHub correctly rejected the push because `main`
+requires a pull request. Even if that push had been allowed, the public tag
+would have identified a metadata commit that had not passed the complete CI
+graph.
 
-- Merge to `main` using **Conventional Commits** (or at least `feat:` / `fix:` / `perf:`).
-- CI must be green.
+The current model keeps one stronger identity:
 
-## How releases happen
+```text
+commit merged to main
+  -> complete CI tests that exact commit
+  -> semantic-release tags that same commit
+  -> package staging injects the derived version
+  -> GitHub publishes the verified ZIP and checksum immutably
+```
 
-- GitHub Actions workflow `Release` runs after `CI` succeeds on `main`.
-- `semantic-release` determines the next version from commit messages:
-  - `fix:` → patch
-  - `feat:` → minor
-  - `feat!:` / `fix!:` or `BREAKING CHANGE:` → major
-- The `tooling` scope is deliberately excluded: `feat(tooling):`,
-  `fix(tooling):`, and breaking `tooling` commits never create a compiler tag
-  or compiler release. They belong to the independently versioned
-  `@genes-ts/tooling` package described below.
-- During `prepare`, we:
-  - sync versions via `scripts/release/sync-versions.ts`
-  - build `submit.zip` via `yarn submit:zip`
-- The release workflow then creates a GitHub Release and uploads `submit.zip`.
+Tracked version fields are therefore development sentinels:
 
-## Local checks
+- root `package.json`: `0.0.0-development`;
+- root `haxelib.json`: `0.0.0`;
+- released ZIP: the real `X.Y.Z`, `vX.Y.Z`, and exact source commit recorded
+  in `haxelib.json` and `release-metadata.json`.
 
-Before merging:
+This is the release pattern recommended by semantic-release when repository
+version files are not required source inputs. See its
+[FAQ on repository version updates](https://semantic-release.gitbook.io/semantic-release/support/faq#why-is-the-package-json-s-version-not-updated-in-my-repository).
+If Genes later needs reviewed source-version changes—for example, coordinated
+version ranges in a monorepo—use a release-PR system such as
+[Release Please](https://github.com/googleapis/release-please) or
+[Changesets](https://github.com/changesets/changesets). Do not restore a
+post-CI bot push through branch protection.
+
+`CHANGELOG.md` is the historical changelog through `v1.39.0`. Current release
+notes live on GitHub Releases so they cannot drift from the tag that owns them.
+
+### Version selection
+
+Semantic-release inspects commits since the latest reachable `vX.Y.Z` tag:
+
+- `fix:` and `perf:` produce a patch version;
+- `feat:` produces a minor version;
+- `feat!:` or a `BREAKING CHANGE:` footer produces a major version;
+- `docs:`, `test:`, `chore:`, `ci:`, and non-breaking `refactor:` normally
+  produce no release.
+
+The `tooling` scope is deliberately excluded. `feat(tooling):`,
+`fix(tooling):`, and breaking tooling commits belong to the independently
+versioned `@genes-ts/tooling` package below and never create a compiler tag.
+The real analyzer and notes generator are exercised by
+`yarn test:release-workflow`; this prevents the documentation and installed
+semantic-release behavior from silently diverging.
+
+The pinned official notes generator still owns Conventional Commit grouping
+and GitHub links. A small repository plugin replaces its wall-clock heading
+date with the tested commit's Git date. That one normalization makes recovery
+on a later day reproduce the exact same immutable Release notes.
+
+### Same-run publication
+
+The final **Release exact CI-tested commit** job lives in
+`.github/workflows/ci.yml`. It runs only for a `push` to `main` and has explicit
+`needs` edges to the stable compiler, security, Beads, and supported-Node
+checks from that same workflow run. Pull requests, forks, feature branches,
+manual dispatches, cancelled gates, and advisory Haxe-preview/macOS failures
+cannot publish.
+
+The required `genes-ts` job runs `yarn test:release`, and publication also
+waits for the same-run `Analyze (JavaScript)` CodeQL job. Keeping CodeQL in a
+separate workflow would preserve its branch-protection status but would not
+give the release job an exact-SHA dependency edge.
+
+Only that final job receives `contents: write`. It checks out `github.sha`
+with full history and rebuilds from the frozen dependency graph. A newer push
+to `main` does not cancel an older release job: each completed CI graph is
+allowed to make its own ordered semantic-release decision.
+
+The job first verifies two repository-host controls:
+
+1. GitHub immutable Releases are enabled, so published assets and notes cannot
+   be edited in place.
+2. The active **Immutable semantic version tags** ruleset covers
+   `refs/tags/v*` and blocks tag deletion and non-fast-forward updates.
+
+These settings are part of the release contract, not optional hardening:
+
+```bash
+node scripts/release/verify-host-controls.cjs fullofcaffeine/genes-ts
+```
+
+### Package and provenance checks
+
+Before semantic-release creates a tag,
+`scripts/release/haxelib-artifact-plugin.cjs`:
+
+1. requires meaningful generated release notes;
+2. exports only reviewed, tracked package paths from the exact tested commit;
+3. injects version, tag, and source SHA only into temporary staging;
+4. builds the complete ZIP twice under different temporary roots;
+5. requires byte-for-byte equality;
+6. verifies the exact file inventory and embedded metadata; and
+7. writes a SHA-256 sidecar for the versioned public ZIP.
+
+After tag creation, the plugin proves the local tag and `origin` tag both point
+to the tested source commit. GitHub then creates a draft, uploads both approved
+assets, and publishes only the complete draft. The final verifier requires:
+
+- a non-draft, non-prerelease, immutable GitHub Release;
+- exactly `genes-ts-X.Y.Z.zip` and
+  `genes-ts-X.Y.Z.zip.sha256`;
+- uploaded asset state; and
+- hosted byte sizes and SHA-256 digests equal to the approved local files.
+
+The release toolchain is exact-pinned as a tested compatibility set. Upgrade
+semantic-release, its Conventional Commit preset, and its direct plugins
+together; then run the real analyzer/notes tests rather than relying only on
+configuration shape.
+
+### Partial-publication recovery
+
+Release publication crosses Git and GitHub API boundaries, so a network
+failure can occur after the tag or one asset already exists. Recovery always
+continues the same version; it never moves a tag or replaces bytes.
+
+- **No exact tag at the tested commit:** fix the cause and rerun that CI job,
+  or push a correction and let the new commit pass the complete graph. Do not
+  create a tag manually.
+- **One exact `vX.Y.Z` tag exists, but the Release is absent or still a
+  draft:** rerun the failed **Release exact CI-tested commit** job. The recovery
+  command first requires a clean tracked checkout, deterministically
+  regenerates the approved Conventional Commit notes, rebuilds the approved
+  bytes, preserves matching assets, uploads only missing assets, and publishes
+  the complete draft.
+- **A same-name asset has different bytes, an unexpected asset exists, or the
+  draft notes differ from the approved notes, or the published release is
+  mutable:** stop and treat it as a release incident.
+  Never delete/move the tag or reuse the version; fix forward with a new
+  release.
+- **The release is already complete and immutable:** a rerun is read-only
+  verification.
+
+The recovery command accepts only one existing stable SemVer tag that points
+exactly at the checked-out tested commit:
+
+```bash
+node scripts/release/complete-release.cjs vX.Y.Z
+```
+
+### Maintainer checks
+
+The focused release contract is non-publishing:
+
+```bash
+yarn test:release
+yarn test:versions
+yarn submit:zip
+```
+
+`yarn submit:zip` creates a deterministic development package with sentinel
+metadata for local package-consumer tests. It is not a public release artifact
+and must not be uploaded as one. Like the release builder, it exports tracked
+bytes from `HEAD`; uncommitted working-tree edits are intentionally excluded.
+Normal compiler releases are automated; there is no interactive `yarn submit`
+command.
+
+Before merging a release change, run:
 
 ```bash
 yarn test:ci
 ```
 
-To verify version files are in sync:
-
-```bash
-yarn test:versions
-```
-
-The compiler workflow does not publish `@genes-ts/tooling`.
+The compiler release never publishes `@genes-ts/tooling`.
 
 ## Framework-neutral tooling distribution (npm deferred)
 
@@ -207,8 +344,9 @@ release-workflow action update:
 5. run `yarn test:tooling-release-workflow`, then the full `yarn test:ci`.
 
 Do not replace a full SHA with a major, floating, or branch reference to make a
-Dependabot change smaller. The test deliberately rejects mutable references in
-both `.github/workflows/release.yml` and
+Dependabot change smaller. `yarn test:release-workflow` owns the final compiler
+release job in `.github/workflows/ci.yml`;
+`yarn test:tooling-release-workflow` owns
 `.github/workflows/release-tooling.yml`.
 
 ### Changing production environment reviewers

@@ -349,7 +349,10 @@ function renderMarkdown(report: ReturnType<typeof createReport>): string {
     `| Node | stable | ${report.toolchains.node.minimumRuntime}+ `
       + `(Node ${report.toolchains.node.stable} lane) | blocking runtime lane |`
   );
-  lines.push(`| Node | latest LTS | ${report.toolchains.node.nextLts} | blocking runtime lane |`);
+  lines.push(
+    `| Node | latest LTS | ${report.toolchains.node.nextLtsMinimumRuntime}+ `
+      + `| blocking runtime lane |`
+  );
   lines.push(`| Haxe | stable | ${report.toolchains.haxe.stable} | blocking compiler lane |`);
   lines.push(`| Haxe | preview | ${report.toolchains.haxe.preview} | nonblocking early warning |`);
   for (const [lane, contract] of Object.entries(report.toolchains.typescript)) {

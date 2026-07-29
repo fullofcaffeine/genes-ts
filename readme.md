@@ -536,14 +536,20 @@ genes-ts writes output wherever you point `-js <path>`. Recommended conventions:
 
 ## Publishing
 
-Build the haxelib package zip:
+Public compiler releases are automatic after the complete `main` CI graph
+passes. Semantic-release derives the version from Conventional Commits, tags
+the exact tested commit, and publishes a deterministic, immutable GitHub
+Release. It does not create or push a release commit through protected `main`.
+
+Build the development Haxelib package used by local consumer tests:
 
 ```bash
 yarn submit:zip
 ```
 
-Submit to haxelib (interactive):
-
-```bash
-yarn submit
-```
+That ZIP contains development sentinel metadata and is not a public release
+candidate. It exports tracked bytes from `HEAD`, so package changes must be in
+a commit before this command can validate them; uncommitted working-tree edits
+are excluded. Maintainers should read
+[`docs/RELEASING.md`](docs/RELEASING.md) for SemVer selection, artifact
+provenance, host controls, and partial-publication recovery.
