@@ -101,7 +101,7 @@ depend on formatting.
 | Imported constructor instance/type identity | `src/genes/ExternTypeContract.hx` | Models value-derived constructor instances without downstream-specific import rules. Explicit metadata also keeps package-backed native `String`/`RegExp` values from being mistaken for host built-ins in public types. |
 | Type-reference projection and retention | `src/genes/TypeReferenceCollector.hx`, `src/genes/dts/TypeEmitter.hx`, `TypeUtil.enumConstructorApplication` | Keeps named Haxe declarations keyed by compiler-owned module/type identity, never by an unqualified spelling. The collector mirrors every type the printers may name, including destination-applied enum payloads, so an emitter cannot invent an unplanned import or weaken a missing declaration to `any`. |
 | TypeScript null-narrowing proof | `src/genes/ts/TsNarrowingPlan.hx` | Derives function-local null and map-presence facts from `TypedExpr`, then ends them after exact receiver/key assignment, `Map.remove`/`clear`, loop mutation, or a nested function boundary. It carries typed identities and no output text; the [ownership inventory](TS_NARROWING_OWNERSHIP.md) records the bounded design and evidence. |
-| TypeScript value-boundary projection | `src/genes/ts/TsBoundaryPlan.hx` | Records the exceptional returns, initializers, assignments, call arguments, constructor arguments, enum-constructor arguments, native-host callbacks, and typed bindings after opaque Haxe runtime guards that strict TypeScript needs stated explicitly. It also exposes every assertion target to dependency planning before import aliases are allocated. |
+| TypeScript value-boundary projection | `src/genes/ts/TsBoundaryPlan.hx` | Records the exceptional returns, initializers, assignments, call arguments, constructor arguments, enum-constructor arguments and payload reads left by erased matches, native-host callbacks, and typed bindings after opaque Haxe runtime guards that strict TypeScript needs stated explicitly. It also exposes every assertion target to dependency planning before import aliases are allocated. |
 | TypeScript implementation syntax | `src/genes/ts/TsModuleEmitter.hx` | Prints TS/TSX annotations, type imports, interfaces, and TS-specific syntax from shared facts. |
 | Classic JavaScript syntax | `src/genes/es/ModuleEmitter.hx`, `ExprEmitter.hx` | Prints modern ESM JavaScript while preserving Haxe JS runtime behavior. |
 | Declaration syntax | `src/genes/dts/DefinitionEmitter.hx`, `TypeEmitter.hx` | Prints public declarations from the same API/nullish facts; it does not infer API semantics independently. |
@@ -517,6 +517,66 @@ emission therefore use the same compiler-owned types for both explicit generic
 arguments and any exact payload assertion. A payload that already has the
 right nullable/plain shape is unchanged.
 
+### Enum payload reads after Haxe erases a match
+
+Haxe can also prove that generic parameters make every enum constructor except
+one impossible. It may then erase an authored one-case match:
+
+```haxe
+static function result(
+    value:Reduction<Int, Never, Never, String>):String {
+  return switch value {
+    case Reduced(result): result;
+  };
+}
+```
+
+The final typed Haxe tree keeps an exact `TEnumParameter` payload-read node, but
+the emitted TypeScript enum remains the complete public union. A direct read
+therefore fails with `TS2339` because the other variants have no `result`
+property:
+
+```ts
+// Before: strict TypeScript still sees every Reduction variant.
+return value.result;
+```
+
+`TsBoundaryPlan` records the constructor view before dependency projection,
+and the TypeScript emitter consumes that immutable decision:
+
+```ts
+return Register.unsafeCast<
+  Reduction.Reduced<number, Never, Never, string>
+>(value).result;
+```
+
+`unsafeCast` evaluates `value` once and returns the same runtime value. It
+neither converts nor validates the payload; the generic argument carries only
+the constructor fact Haxe already proved. If Haxe retains a visible
+`switch (value._hx_index)`, native TypeScript control-flow narrowing owns the
+read and Genes emits no assertion.
+
+Authorization comes from the final typed expression, exact constructor slot,
+applied receiver/result types, and the constructor's checked enum owner.
+Declaration correlation uses Haxe's compiler-owned fully qualified
+module/type coordinates. The shared exact-type comparison may use its
+documented request-local source-range fallback only when Haxe re-encodes one
+type parameter through multiple wrapper objects. Generated property text,
+unqualified names, framework types, and TypeScript diagnostics provide no
+authority. Dynamic or unresolved receivers, invalid payload slots,
+constructor-local generic parameters, and same-named constructors from another
+enum fail closed.
+
+Every type printed by the constructor view is collected before import aliases
+are allocated, including a type named nowhere else in the consuming module.
+The dependency-free fixture verifies that import, single evaluation,
+TypeScript 5/6/7, runtime parity, unchanged classic JavaScript, source maps,
+ordinary switch narrowing, and the fail-closed cases:
+
+```sh
+yarn test:enum-payload-narrowing
+```
+
 Public declarations remain precise, classic JavaScript remains unchanged, and
 every type named only by an assertion or explicit enum argument is collected
 before import aliases are frozen. Expression printing is therefore a consumer
@@ -769,6 +829,7 @@ layer when a change affects more than one contract.
 | React 19 Flight value algebra, native identities, and host-proven extension policy | `tests/react-flight/` | `yarn test:react-flight` |
 | Local HXX carrier ownership | `tests/hxx-carrier-immutability/` | `yarn test:hxx-carrier-immutability` |
 | React event callback variance | `tests/hxx-event-variance/` | `yarn test:hxx-event-variance` |
+| Enum payload reads after Haxe erases a proven match | `tests/enum-payload-narrowing/` | `yarn test:enum-payload-narrowing` |
 | Exported-surface rejection | `tests/typing-policy/`, `tests/publicsurface/` | `yarn test:types:exports` |
 | Classic `.d.ts` consumer behavior | `tests/classic-dts/` | `yarn test:classic:dts` |
 | Static callable generic inference, constraints, and declaration parity | `tests/staticcallable/`, `tests/TestStaticCallableSignature.hx` | `yarn test:genes-ts:full`; `yarn test:classic:dts` |

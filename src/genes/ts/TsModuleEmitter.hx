@@ -2770,6 +2770,36 @@ class TsModuleEmitter extends JsModuleEmitter {
       TypeEmitter.emitParams(this, enumReference.parameters, false);
       return;
     }
+    final enumPayloadRead = boundaryPlan == null ? null : boundaryPlan.enumPayloadRead(e);
+    if (enumPayloadRead != null) {
+      // Haxe can erase a match when generic parameters make every constructor
+      // except one impossible:
+      //
+      //   return switch value {
+      //     case Reduced(result): result;
+      //   }
+      //
+      // The final typed AST still names `Reduced` and its exact payload slot,
+      // but TypeScript sees the emitted enum as the complete union. Project the
+      // receiver to that one planned variant before reading its property:
+      //
+      //   Register.unsafeCast<Reduction.Reduced<A, B, C, R>>(value).result
+      //
+      // `unsafeCast` is a runtime identity operation: it evaluates `value`
+      // once and neither converts nor validates it. Ordinary emitted
+      // `_hx_index` switches receive no plan and keep native TS narrowing.
+      write(ctx.typeAccessor(TypeUtil.registerType));
+      write('.unsafeCast<');
+      write(ctx.typeAccessor(TEnumDecl(enumPayloadRead.owner)));
+      write('.');
+      write(enumPayloadRead.constructor.name);
+      TypeEmitter.emitParams(this, enumPayloadRead.parameters, false);
+      write('>(');
+      emitValueWithExpectedType(null, enumPayloadRead.receiver);
+      write(')');
+      emitField(enumPayloadRead.payloadName);
+      return;
+    }
     switch e.expr {
       case TLocal(_)
         if (!inTypeQueryEntityName
