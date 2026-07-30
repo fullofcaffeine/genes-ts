@@ -1,6 +1,159 @@
 package module_function_invalid;
 
-#if module_value_iife_forward_read
+#if module_value_call_block_argument_forward_read
+/**
+ * An argument block returns its value only after the block's assignments run.
+ *
+ * The helper therefore receives the new closure, not the safe closure that
+ * occupied `read` before the argument began evaluating.
+ */
+class CallBlockForwardHelper {
+  public static function invoke(callback: () -> Int): Int {
+    return callback();
+  }
+}
+
+@:genes.moduleValue("first")
+final first = {
+  var read = () -> 0;
+  CallBlockForwardHelper.invoke({
+    read = () -> second;
+    read;
+  });
+};
+
+@:genes.moduleValue("second")
+final second = 2;
+
+#elseif module_value_constructor_block_argument_forward_read
+/** Constructor arguments use the same per-argument result timing as calls. */
+class ConstructorBlockForwardHelper {
+  public function new(callback: () -> Int) {
+    callback();
+  }
+}
+
+@:genes.moduleValue("first")
+final first = {
+  var read = () -> 0;
+  new ConstructorBlockForwardHelper({
+    read = () -> second;
+    read;
+  });
+};
+
+@:genes.moduleValue("second")
+final second = 2;
+
+#elseif module_value_constructor_callback_argument_forward_read
+/**
+ * JavaScript captures constructor arguments from left to right.
+ *
+ * `replace()` changes `read` for future local reads, but the constructor still
+ * receives and invokes the original closure passed as its first argument.
+ */
+class ConstructorCallbackForwardHelper {
+  public function new(callback: () -> Int, _: Int) {
+    callback();
+  }
+}
+
+@:genes.moduleValue("first")
+final first = {
+  var read = () -> second;
+  final replace = () -> {
+    read = () -> 0;
+    return 1;
+  };
+  new ConstructorCallbackForwardHelper(read, replace());
+};
+
+@:genes.moduleValue("second")
+final second = 2;
+
+#elseif module_value_branch_initializer_forward_read
+/**
+ * A branch expression can itself produce the callback stored in a local.
+ *
+ * Creating either closure is safe; calling the selected unsafe branch before
+ * `second` initializes is not.
+ */
+@:genes.moduleValue("first")
+final first = {
+  final read = if (Date.now().getTime() > 0) () -> second else() -> 0;
+  read();
+};
+
+@:genes.moduleValue("second")
+final second = 2;
+
+#elseif module_value_switch_initializer_forward_read
+/** A switch expression can also return the callback stored in a local. */
+@:genes.moduleValue("first")
+final first = {
+  final read = switch Std.random(2) {
+      case 0: () -> second;
+      default: () -> 0;
+    };
+  read();
+};
+
+@:genes.moduleValue("second")
+final second = 2;
+
+#elseif module_value_argument_assignment_forward_read
+/**
+ * An assignment expression returns the callback value assigned on its right.
+ *
+ * The exact same-module helper invokes that argument immediately.
+ */
+class AssignmentCallbackForwardHelper {
+  public static function invoke(callback: () -> Int): Int {
+    return callback();
+  }
+}
+
+@:genes.moduleValue("first")
+final first = {
+  var read = () -> 0;
+  AssignmentCallbackForwardHelper.invoke(read = () -> second);
+};
+
+@:genes.moduleValue("second")
+final second = 2;
+
+#elseif module_value_find_index_repeated_callback_forward_read
+/**
+ * Native findIndex may invoke its callback more than once.
+ *
+ * The first run installs the unsafe closure; the second run invokes it while
+ * `second` is still in the ESM temporal dead zone.
+ */
+@:genes.moduleValue("first")
+final first = {
+  var read = () -> 0;
+  genes.js.ArrayCallbacks.findIndex([0, 1], _ -> {
+    read();
+    read = () -> second;
+    return false;
+  });
+};
+
+@:genes.moduleValue("second")
+final second = 2;
+
+#elseif module_value_find_index_callback_forward_read
+/**
+ * The typed helper lowers to native `Array.findIndex`, which invokes its
+ * callback synchronously during this initializer.
+ */
+@:genes.moduleValue("first")
+final first = genes.js.ArrayCallbacks.findIndex([0], _ -> second > 0);
+
+@:genes.moduleValue("second")
+final second = 2;
+
+#elseif module_value_iife_forward_read
 /** Negative control: an IIFE reads a later `const` during initialization. */
 @:genes.moduleValue("first")
 final first = (() -> second)();

@@ -207,10 +207,19 @@ class Module {
 
   /** Returns one cached naming projection used by planning and printing. */
   public function namePlan(profile: NamePlan.NamePlanProfile,
-      jsxEmitTsx = false): NamePlan {
-    final key = Std.string(profile) + ':' + (jsxEmitTsx ? 'tsx' : 'plain');
+      jsxEmitTsx = false,
+      reservedModuleBindings: Array<String> = null): NamePlan {
+    final reserved = reservedModuleBindings == null ? [] : reservedModuleBindings.copy();
+    reserved.sort(Reflect.compare);
+    final reservedKey = [for (name in reserved) '${name.length}:$name'].join('|');
+    final key = Std.string(profile)
+      + ':'
+      + (jsxEmitTsx ? 'tsx' : 'plain')
+      + ':'
+      + reservedKey;
     if (!namePlans.exists(key))
-      namePlans.set(key, NamePlan.build(this, tempPlan, profile, jsxEmitTsx));
+      namePlans.set(key,
+        NamePlan.build(this, tempPlan, profile, jsxEmitTsx, reserved));
     return namePlans.get(key);
   }
 

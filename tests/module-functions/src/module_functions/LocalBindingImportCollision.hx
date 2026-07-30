@@ -19,6 +19,20 @@ function foreignTitle(): String {
 }
 
 /**
+ * Proves that a Haxe local cannot hide the allocated foreign import alias.
+ *
+ * Import planning has already renamed `TopLevel.metadata` to `metadata__1`
+ * because this module owns the public `metadata` binding above. The source is
+ * still allowed to use that spelling for an unrelated parameter; NamePlan
+ * moves the parameter to a fresh JavaScript name while the imported value keeps
+ * its exact planned identity.
+ */
+@:genes.moduleFunction("foreignTitleWithLocal")
+function foreignTitleWithLocal(metadata__1: String): String {
+  return metadata__1 + ":" + module_functions.TopLevel.metadata.title;
+}
+
+/**
  * Owns a direct function with the same public name as an imported function.
  *
  * This is the function-shaped counterpart to `metadata`: the exact local

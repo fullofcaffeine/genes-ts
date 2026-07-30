@@ -239,6 +239,58 @@ class Dependencies {
   }
 
   /**
+   * Returns imported direct-module bindings that function locals must not hide.
+   *
+   * Why: `@:genes.moduleFunction` and `@:genes.moduleValue` fields from another
+   * Haxe module are emitted as bare ESM imports. A parameter with the same
+   * generated name would otherwise capture that reference inside the function:
+   *
+   * ```haxe
+   * function title(metadata:String)
+   *   return metadata + TopLevel.metadata.title;
+   * ```
+   *
+   * The first `metadata` is the parameter; the second is a different,
+   * compiler-identified imported value. Both cannot use one JavaScript name.
+   *
+   * How: import planning already retains the exact static-field origin. Resolve
+   * only that typed owner/field pair and return its already allocated local
+   * alias. NamePlan can then rename the Haxe local before either emitter writes
+   * source. Ordinary imports keep their established naming policy.
+   */
+  public function directModuleBindingNames(): Array<String> {
+    final result: Array<String> = [];
+    for (dependency in allocated) {
+      final key = switch dependency.bindingFact.originMapping.origin {
+        case StaticField(key): key;
+        default: null;
+      }
+      if (key == null || !isDirectModuleField(key))
+        continue;
+      final local = dependency.alias == null ? dependency.name : dependency.alias;
+      if (result.indexOf(local) == -1)
+        result.push(local);
+    }
+    return result;
+  }
+
+  function isDirectModuleField(key: genes.BindingIdentity.StaticFieldOriginKey): Bool {
+    for (candidate in Context.getModule(key.ownerModule))
+      switch candidate {
+        case TInst(ownerRef, _):
+          final owner = ownerRef.get();
+          if (owner.name != key.ownerName
+            || !DirectModuleBinding.isModuleFieldsOwner(owner))
+            continue;
+          for (field in owner.statics.get())
+            if (field.name == key.fieldName)
+              return DirectModuleBinding.requestedName(field) != null;
+        default:
+      }
+    return false;
+  }
+
+  /**
    * Groups bindings that can legally share one ESM import declaration.
    *
    * Why: an import attribute belongs to the whole declaration, not to one

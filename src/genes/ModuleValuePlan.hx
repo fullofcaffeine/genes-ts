@@ -415,6 +415,56 @@ class ModuleValuePlan {
               target == null ? [] : [target];
             }
           } else [];
+        case TIf(_, thenExpression, elseExpression):
+          final result: Array<ModuleValueCallableTarget> = [];
+          for (target in callableTargets(thenExpression, locals))
+            addTarget(result, target);
+          if (elseExpression != null)
+            for (target in callableTargets(elseExpression, locals))
+              addTarget(result, target);
+          result;
+        case TSwitch(_, cases, defaultExpression):
+          final result: Array<ModuleValueCallableTarget> = [];
+          for (caseEntry in cases)
+            for (target in callableTargets(caseEntry.expr, locals))
+              addTarget(result, target);
+          if (defaultExpression != null)
+            for (target in callableTargets(defaultExpression, locals))
+              addTarget(result, target);
+          result;
+        case TBlock(elements) if (elements.length > 0):
+          callableTargets(elements[elements.length - 1], locals);
+        case TBinop(OpAssign, _, right):
+          callableTargets(right, locals);
+        default:
+          [];
+      }
+    }
+
+    /**
+     * Returns callback argument slots invoked synchronously by one reviewed
+     * compiler-library raw template.
+     *
+     * Haxe inlines `genes.js.ArrayCallbacks.findIndex` to the exact
+     * `values.findIndex(callback)` template before this plan runs. JavaScript
+     * may call that callback while the current module initializer is still
+     * executing, so a stored function argument must be scanned as an immediate
+     * call target. The template and arity are integrity checks for this
+     * synchronous behavior; no type or assertion authority comes from them.
+     */
+    function synchronousRawCallbackSlots(callee: TypedExpr,
+        arguments: Array<TypedExpr>): Array<Int> {
+      return switch unwrap(callee).expr {
+        case TField(_, FStatic(ownerRef, fieldRef))
+          if (ownerRef.get().module == 'js.Syntax'
+            && fieldRef.get().name == 'code' && arguments.length == 3):
+          switch arguments[0].expr {
+            case TConst(TString(template))
+              if (template == '{0}.findIndex({1})'):
+              [2];
+            default:
+              [];
+          }
         default:
           [];
       }
@@ -573,8 +623,12 @@ class ModuleValuePlan {
           final targets = callableTargets(callee, locals);
           final argumentTargets: Array<Array<ModuleValueCallableTarget>> = [];
           for (argument in arguments) {
-            argumentTargets.push(callableTargets(argument, locals));
             visit(argument, locals, observed);
+            // JavaScript saves this argument's result after evaluating its own
+            // effects, but before it starts the next argument. A block can
+            // assign a new closure and then return that local, so asking before
+            // visit() would capture the stale pre-block value.
+            argumentTargets.push(callableTargets(argument, locals));
           }
           switch unwrap(callee).expr {
             case TField(_, FInstance(ownerRef, _, fieldRef)):
@@ -613,10 +667,49 @@ class ModuleValuePlan {
             if (exits.length > 0)
               replaceLocalFunctions(locals, mergeLocalFunctions(exits));
           }
+          final synchronousTargets: Array<ModuleValueCallableTarget> = [];
+          for (slot in synchronousRawCallbackSlots(callee, arguments)) {
+            if (slot < 0 || slot >= argumentTargets.length)
+              continue;
+            for (target in argumentTargets[slot])
+              addTarget(synchronousTargets, target);
+          }
+          if (synchronousTargets.length > 0) {
+            // Native findIndex can invoke its callback zero, one, or many
+            // times. Iterate until the finite callable-local state stabilizes:
+            // one callback run may install a closure that a later run calls.
+            final callbackEntry = copyLocalFunctions(locals);
+            final callbackObserved = copyLocalFunctions(callbackEntry);
+            var header = copyLocalFunctions(callbackEntry);
+            var converged = false;
+            while (!converged) {
+              final callbackExits: Array<Map<Int,
+                Array<ModuleValueCallableTarget>>> = [];
+              for (target in synchronousTargets) {
+                if (activeFunctionBodies.exists(target.body))
+                  continue;
+                final callbackState = copyLocalFunctions(header);
+                activeFunctionBodies.set(target.body, true);
+                visit(target.body, callbackState, callbackObserved);
+                activeFunctionBodies.remove(target.body);
+                callbackExits.push(callbackState);
+              }
+              final candidates = [callbackEntry, callbackObserved];
+              for (exit in callbackExits)
+                candidates.push(exit);
+              final nextHeader = mergeLocalFunctions(candidates);
+              converged = sameLocalFunctions(header, nextHeader);
+              header = nextHeader;
+            }
+            replaceLocalFunctions(locals, header);
+          }
           return;
         case TNew(classRef, _, arguments):
-          for (argument in arguments)
+          final argumentTargets: Array<Array<ModuleValueCallableTarget>> = [];
+          for (argument in arguments) {
             visit(argument, locals, observed);
+            argumentTargets.push(callableTargets(argument, locals));
+          }
           final targetOwner = classRef.get();
           if (targetOwner.module == module.module
             && targetOwner.constructor != null) {
@@ -627,8 +720,7 @@ class ModuleValuePlan {
                 final callState = copyLocalFunctions(locals);
                 for (index in 0...target.parameters.length) {
                   final parameter = target.parameters[index];
-                  final parameterTargets = index < arguments.length ? callableTargets(arguments[index],
-                    locals) : [];
+                  final parameterTargets = index < argumentTargets.length ? argumentTargets[index] : [];
                   assignLocal(callState, observed, parameter.id,
                     parameterTargets);
                 }
@@ -657,6 +749,7 @@ class ModuleValuePlan {
       }
       expression.iter(child -> visit(child, locals, observed));
     }
+
     visit(field.expr, localFunctions);
   }
 

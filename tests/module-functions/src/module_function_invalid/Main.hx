@@ -150,6 +150,14 @@ class Main {
       || module_value_callable_value_forward_read
       || module_value_local_closure_forward_read
       || module_value_argument_callee_forward_read
+      || module_value_call_block_argument_forward_read
+      || module_value_constructor_block_argument_forward_read
+      || module_value_constructor_callback_argument_forward_read
+      || module_value_branch_initializer_forward_read
+      || module_value_switch_initializer_forward_read
+      || module_value_argument_assignment_forward_read
+      || module_value_find_index_callback_forward_read
+      || module_value_find_index_repeated_callback_forward_read
       || module_value_reassigned_closure_forward_read
       || module_value_virtual_instance_forward_read
       || module_value_called_closure_mutation_forward_read
@@ -166,6 +174,14 @@ class Main {
       || module_value_callable_value_forward_read
       || module_value_local_closure_forward_read
       || module_value_argument_callee_forward_read
+      || module_value_call_block_argument_forward_read
+      || module_value_constructor_block_argument_forward_read
+      || module_value_constructor_callback_argument_forward_read
+      || module_value_branch_initializer_forward_read
+      || module_value_switch_initializer_forward_read
+      || module_value_argument_assignment_forward_read
+      || module_value_find_index_callback_forward_read
+      || module_value_find_index_repeated_callback_forward_read
       || module_value_reassigned_closure_forward_read
       || module_value_virtual_instance_forward_read
       || module_value_called_closure_mutation_forward_read

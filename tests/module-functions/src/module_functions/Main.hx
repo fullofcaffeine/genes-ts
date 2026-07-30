@@ -11,7 +11,9 @@ import module_functions.RegisterHelpers.appendWithBoundMethod;
 import module_functions.ShadowedBindings.readMetadata;
 import module_functions.ExposedValue.exposedValue;
 import module_functions.LocalBindingImportCollision.foreignTitle;
+import module_functions.LocalBindingImportCollision.foreignTitleWithLocal;
 import module_functions.LocalBindingImportCollision.identityPair;
+import module_functions.ForeignBindingLocalShadow.readForeignWithShadow;
 import module_functions.TsRegisterHelpers.positive;
 import module_functions.TsRegisterHelpers.forceReturn;
 import module_functions.TsRegisterHelpers.assignOverride;
@@ -62,7 +64,9 @@ class Main {
       Std.string(appendWithBoundMethod([1, 2, 3])),
       readMetadata("parameter"),
       foreignTitle(),
+      foreignTitleWithLocal("parameter"),
       identityPair(),
+      readForeignWithShadow("parameter"),
       Std.string(positive(null)),
       forceReturn("return"),
       assignOverride({

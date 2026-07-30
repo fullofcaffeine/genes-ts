@@ -223,7 +223,6 @@ class TsModuleEmitter extends JsModuleEmitter {
     moduleFunctionPlan = module.moduleFunctionPlan;
     moduleValuePlan = module.moduleValuePlan;
     jsxEmitTsx = genes.Genes.outExtension == '.tsx';
-    configureLowering(module, TypeScriptReadable, jsxEmitTsx);
     configureTemplateLiterals(module.templateLiteralPlan);
     narrowingPlan = module.tsNarrowingPlan;
     boundaryPlan = module.tsBoundaryPlan;
@@ -234,8 +233,12 @@ class TsModuleEmitter extends JsModuleEmitter {
 
     // Runtime and type-only bindings share one collision-safe allocator, while
     // only the ordered runtime request array controls ESM evaluation order.
+    // Boundary planning must finish first because its assertion targets can
+    // contribute imports to this immutable projection.
     final projection = module.implementationProjection;
     final deps = projection.bindings;
+    configureLowering(module, TypeScriptReadable, jsxEmitTsx,
+      deps.directModuleBindingNames());
     ctx.typeAccessor = type -> TypeAccessor.forTypeScript(type,
       deps.typeAccessor);
     configureJsx(jsxPlan, jsxCapability, deps);

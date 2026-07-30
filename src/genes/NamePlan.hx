@@ -43,7 +43,8 @@ private typedef ObjectFieldLocalUse = {
  * can emit `var`; switch cases receive explicit child scopes because the TS
  * printer wraps them in braces. Nested functions receive independent counters.
  * Direct module functions/values reserve their exact ESM names in every local
- * scope so a parameter cannot shadow a same-module typed field reference.
+ * scope. Their projection-allocated foreign import aliases are reserved too,
+ * so a parameter cannot capture either same-module or imported typed identity.
  * Once built, printers perform lookup only—no name counters or preference maps
  * remain in either emitter.
  */
@@ -52,9 +53,10 @@ class NamePlan {
   final moduleBindings: Array<String>;
 
   public static function build(module: Module, temps: TempPlan,
-      profile: NamePlanProfile, jsxEmitTsx = false): NamePlan {
-    return new NamePlanBuilder(temps, profile, jsxEmitTsx,
-      module.jsxPlan).build(module);
+      profile: NamePlanProfile, jsxEmitTsx = false,
+      reservedModuleBindings: Array<String> = null): NamePlan {
+    return new NamePlanBuilder(temps, profile, jsxEmitTsx, module.jsxPlan,
+      reservedModuleBindings).build(module);
   }
 
   public function new(names: Map<Int, String>, moduleBindings: Array<String>) {
@@ -103,11 +105,15 @@ private class NamePlanBuilder {
   final directModuleBindings: Map<String, Bool> = [];
 
   public function new(temps: TempPlan, profile: NamePlanProfile,
-      jsxEmitTsx: Bool, jsxPlan: JsxPlan) {
+      jsxEmitTsx: Bool, jsxPlan: JsxPlan,
+      reservedModuleBindings: Array<String>) {
     this.temps = temps;
     this.profile = profile;
     this.jsxEmitTsx = jsxEmitTsx;
     this.jsxPlan = jsxPlan;
+    if (reservedModuleBindings != null)
+      for (name in reservedModuleBindings)
+        directModuleBindings.set(name, true);
   }
 
   public function build(module: Module): NamePlan {

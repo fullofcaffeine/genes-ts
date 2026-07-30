@@ -443,7 +443,8 @@ function directModuleRegressionRuntime(): string {
 import {firstMatchIndex} from "./tests/module-functions/out/classic/module_functions/TopLevel.js";
 import {appendWithBoundMethod} from "./tests/module-functions/out/classic/module_functions/RegisterHelpers.js";
 import {readMetadata} from "./tests/module-functions/out/classic/module_functions/ShadowedBindings.js";
-import {foreignTitle, identityPair} from "./tests/module-functions/out/classic/module_functions/LocalBindingImportCollision.js";
+import {foreignTitle, foreignTitleWithLocal, identityPair} from "./tests/module-functions/out/classic/module_functions/LocalBindingImportCollision.js";
+import {readForeignWithShadow} from "./tests/module-functions/out/classic/module_functions/ForeignBindingLocalShadow.js";
 import {positive} from "./tests/module-functions/out/classic/module_functions/TsRegisterHelpers.js";
 import {exposedValue} from "./tests/module-functions/out/classic/module_functions/ExposedValue.js";
 import {moduleInitValue} from "./tests/module-functions/out/classic/module_functions/ModuleInit.js";
@@ -453,7 +454,9 @@ console.log([
   appendWithBoundMethod([1, 2, 3]),
   readMetadata("parameter"),
   foreignTitle(),
+  foreignTitleWithLocal("parameter"),
   identityPair(),
+  readForeignWithShadow("parameter"),
   positive(null),
   exposedValue,
   moduleInitValue(),
@@ -554,6 +557,38 @@ const negativeCases = [
   ],
   [
     "module_value_argument_callee_forward_read",
+    "GENES-MODULE-VALUE-FORWARD-015"
+  ],
+  [
+    "module_value_call_block_argument_forward_read",
+    "GENES-MODULE-VALUE-FORWARD-015"
+  ],
+  [
+    "module_value_constructor_block_argument_forward_read",
+    "GENES-MODULE-VALUE-FORWARD-015"
+  ],
+  [
+    "module_value_constructor_callback_argument_forward_read",
+    "GENES-MODULE-VALUE-FORWARD-015"
+  ],
+  [
+    "module_value_branch_initializer_forward_read",
+    "GENES-MODULE-VALUE-FORWARD-015"
+  ],
+  [
+    "module_value_switch_initializer_forward_read",
+    "GENES-MODULE-VALUE-FORWARD-015"
+  ],
+  [
+    "module_value_argument_assignment_forward_read",
+    "GENES-MODULE-VALUE-FORWARD-015"
+  ],
+  [
+    "module_value_find_index_callback_forward_read",
+    "GENES-MODULE-VALUE-FORWARD-015"
+  ],
+  [
+    "module_value_find_index_repeated_callback_forward_read",
     "GENES-MODULE-VALUE-FORWARD-015"
   ],
   [
@@ -753,8 +788,21 @@ for (const relative of [
     && source.includes("export const metadata")
     && source.includes("export function topLevelIdentity")
     && source.includes("metadata__1.title")
+    && source.includes("function foreignTitleWithLocal(metadata__1_1")
+    && source.includes('metadata__1_1 + ":" + metadata__1.title')
     && source.includes('topLevelIdentity__1("foreign")'),
-    `${relative} aliases foreign value/function bindings around local exports`);
+    `${relative} aliases foreign bindings around exports and same-named locals`);
+}
+for (const relative of [
+  "classic/module_functions/ForeignBindingLocalShadow.js",
+  "ts/src-gen/module_functions/ForeignBindingLocalShadow.ts",
+  "tsx/src-gen/module_functions/ForeignBindingLocalShadow.tsx"
+]) {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes('import {metadata} from "./TopLevel.js"')
+    && source.includes("function readForeignWithShadow(metadata_1")
+    && source.includes('metadata_1 + ":" + metadata.title'),
+    `${relative} keeps a foreign direct binding distinct from its same-named parameter`);
 }
 for (const relative of [
   "ts/src-gen/module_functions/TsRegisterHelpers.ts",
@@ -873,7 +921,7 @@ strictEqual(exactPublicRuntimeIdentity(), true,
 strictEqual(asyncModuleRuntime(), 42,
   "the direct classic module function preserves native async/await runtime behavior");
 strictEqual(directModuleRegressionRuntime(),
-  "1|3|module:parameter:local|local:direct module value|local-own:foreign|false|owned-module-only|module-init|4|5|6|8|2|4",
+  "1|3|module:parameter:local|local:direct module value|parameter:direct module value|local-own:foreign|parameter:direct module value|false|owned-module-only|module-init|4|5|6|8|2|4",
   "direct helpers, shadowed bindings, initialization, exact call targets, branch/loop joins, findIndex, and owner-only exports run natively");
 deepStrictEqual(runtime.descriptor, {
   configurable: true,

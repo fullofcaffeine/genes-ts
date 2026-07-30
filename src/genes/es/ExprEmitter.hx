@@ -123,11 +123,11 @@ class ExprEmitter extends Emitter {
    * safe readable names; classic Genes preserves its vanilla-compatible names.
    */
   public function configureLowering(module: Module, profile: NamePlanProfile,
-      jsxEmitTsx = false): Void {
+      jsxEmitTsx = false, reservedModuleBindings: Array<String> = null): Void {
     currentModule = module;
     tempPlan = module.tempPlan;
     localBindingPlan = module.localBindingPlan;
-    namePlan = module.namePlan(profile, jsxEmitTsx);
+    namePlan = module.namePlan(profile, jsxEmitTsx, reservedModuleBindings);
   }
 
   /**
