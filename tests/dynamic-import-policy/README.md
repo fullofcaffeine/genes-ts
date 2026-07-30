@@ -16,6 +16,18 @@ Node can resolve the generated request. The test explicitly includes
 but—as with other dynamic entry points—the application still owns retaining
 that module in the generated program.
 
+`Target.hx` also contains a selected top-level module function used only inside
+the lazy callback. Genes must read that function from the resolved module
+namespace; a top-level static import would eagerly evaluate the chunk and
+silently defeat code splitting. The harness checks the callback-local alias,
+the absence of a static import, strict TypeScript 5/6/7, real runtime behavior,
+and cold/warm compiler-server equality.
+
+A conditional negative control requests the binding name `module`, which is
+the compiler-owned single-chunk handler parameter. Genes reports
+`GENES-DYNAMIC-IMPORT-BINDING-COLLISION-002` before writing output instead of
+allowing that alias to overwrite the namespace used by later setup statements.
+
 One owned Haxe server then repeats and switches the same profiles. Every warm
 tree, including its ownership manifest and source map, must match the isolated
 cold build byte-for-byte. This also protects a less obvious lifecycle rule:

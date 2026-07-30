@@ -82,6 +82,7 @@ class ModuleFunctionPlan {
   static final METADATA = ':genes.moduleFunction';
   static final DEFERRED_VALUE_METADATA = ':genes.moduleValue';
   static final EXPOSE_METADATA = ':expose';
+  static final DYNAMIC_IMPORT_FIELD_PREFIX = 'genes.module-function-field|';
 
   final entries: Array<ModuleFunctionEntry>;
 
@@ -103,6 +104,20 @@ class ModuleFunctionPlan {
    */
   public static function requestedName(field: ClassField): Null<String> {
     return requestedNameFromMetadata(field.meta);
+  }
+
+  /**
+   * Exact callback-local identity carried through `Genes.ignore`.
+   *
+   * A source module may also own unrelated static fields. Encoding owner,
+   * field, and validated binding keeps a lazy direct function from making
+   * every static accessor in that module bypass its normal import mapping.
+   * The separator is not legal in any admitted Haxe/module binding component.
+   */
+  public static function dynamicImportFieldToken(ownerModule: String,
+      ownerName: String, fieldName: String, requestedName: String): String {
+    return DYNAMIC_IMPORT_FIELD_PREFIX
+      + [ownerModule, ownerName, fieldName, requestedName].join('|');
   }
 
   /** Metadata-only form shared by normalized module-field planning. */
@@ -210,10 +225,15 @@ class ModuleFunctionPlan {
   /**
    * Whether a compiler-synthetic module-fields class has no runtime purpose
    * after its selected functions become direct ESM declarations.
+   *
+   * A module-level `__init__` body is stored on `ClassType.init`, not in the
+   * retained field list below. Omitting that owner would therefore also omit
+   * authored initialization side effects. The owner is disposable only when
+   * it has neither ordinary fields nor a hidden initializer.
    */
   public function canOmitSyntheticOwner(owner: ClassType,
       fields: Array<Field>): Bool {
-    if (!isModuleFieldsOwner(owner))
+    if (!isModuleFieldsOwner(owner) || owner.init != null)
       return false;
     final retained = Module.emittableFields(fields);
     return retained.length > 0

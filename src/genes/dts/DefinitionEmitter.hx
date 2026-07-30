@@ -55,7 +55,8 @@ class DefinitionEmitter extends ModuleEmitter {
       switch member {
         #if (haxe_ver >= 4.2)
         case MClass(cl = {kind: KModuleFields(_)}, _, fields):
-          emitModuleStatics(cl, Module.emittableFields(fields));
+          emitModuleStatics(module.moduleFunctionPlan, cl,
+            Module.emittableFields(fields));
         #end
         case MClass(cl, params, fields):
           // Interface contracts are type-only and consume the complete shared
@@ -233,7 +234,8 @@ class DefinitionEmitter extends ModuleEmitter {
     writeNewline();
   }
 
-  function emitModuleStatics(cl: ClassType, fields: Array<Field>) {
+  function emitModuleStatics(moduleFunctionPlan: genes.ModuleFunctionPlan,
+      cl: ClassType, fields: Array<Field>) {
     writeNewline();
     emitPos(cl.pos);
     for (field in fields) {
@@ -242,7 +244,12 @@ class DefinitionEmitter extends ModuleEmitter {
         case {isStatic: true, isPublic: true}:
           emitPos(field.pos);
           write('export const ');
-          emitIdent(TypeUtil.nativeName(field.meta) ?? field.name);
+          // A selected genuine module function is emitted under its validated
+          // direct ESM name. That name can intentionally differ from Haxe's
+          // source field name, so classic declarations must consume the same
+          // plan instead of reconstructing the old synthetic-owner spelling.
+          final directEntry = moduleFunctionPlan.entryFor(cl, field);
+          emitIdent(directEntry == null ? (TypeUtil.nativeName(field.meta) ?? field.name) : directEntry.requestedName);
           write(': ');
           if (field.tsType != null)
             write(field.tsType);

@@ -4,11 +4,13 @@ package genes;
 import haxe.macro.Expr;
 import haxe.macro.Context;
 import haxe.macro.Compiler;
+import haxe.macro.Type.TypedExpr;
 import haxe.io.Path;
 import genes.util.PathUtil;
 import genes.util.TypeUtil;
 
 using haxe.macro.TypeTools;
+using haxe.macro.TypedExprTools;
 using Lambda;
 
 private typedef ImportedModule = {
@@ -19,6 +21,12 @@ private typedef ImportedModule = {
     name: String,
     fullname: String,
     type: haxe.macro.Type
+  }>,
+  directFunctions: Array<{
+    name: String,
+    ownerModule: String,
+    ownerName: String,
+    fieldName: String
   }>
 }
 #end
@@ -135,7 +143,8 @@ class Genes {
     return switch expr.expr {
       case EFunction(_, {args: args, expr: body}):
         final current = Context.getLocalClass().get().module;
-        final ret = switch Context.typeExpr(body).t.toComplexType() {
+        final typedBody = Context.typeExpr(body);
+        final ret = switch typedBody.t.toComplexType() {
           case null: (macro:Dynamic);
           case v: v;
         }
@@ -179,10 +188,67 @@ class Genes {
                     fullname: fullname,
                     type: type
                   }
-                ]
+                ],
+                directFunctions: []
               });
             case module:
               module.types.push({name: name, fullname: fullname, type: type});
+          }
+        }
+
+        /**
+         * Keep selected module functions callback-local in a lazy chunk.
+         *
+         * A top-level Haxe function survives typing as a static field on a
+         * compiler-created module owner. Ordinary dependency planning would
+         * turn that field into a top-level ESM import and defeat
+         * `dynamicImport()`. The already typed callback identifies the exact
+         * selected fields it uses, so add only those namespace aliases to the
+         * existing compiler-owned setup.
+         */
+        function collectDirectFunctions(expression: TypedExpr): Void {
+          switch expression.expr {
+            case TField(_, FStatic(ownerRef, fieldRef)):
+              final owner = ownerRef.get();
+              final field = fieldRef.get();
+              final requestedName = ModuleFunctionPlan.requestedName(field);
+              if (ModuleFunctionPlan.isModuleFieldsOwner(owner)
+                && requestedName != null) {
+                final loaded = modules.find(candidate ->
+                  candidate.name == owner.module);
+                if (loaded != null
+                  && loaded.directFunctions.find(candidate ->
+                    candidate.fieldName == field.name) == null) {
+                  loaded.directFunctions.push({
+                    name: requestedName,
+                    ownerModule: owner.module,
+                    ownerName: owner.name,
+                    fieldName: field.name
+                  });
+                }
+              }
+            default:
+          }
+          expression.iter(collectDirectFunctions);
+        }
+        collectDirectFunctions(typedBody);
+
+        // The callback setup uses real lexical bindings. Reject a selected
+        // function that would overwrite either compiler-owned handler value.
+        final callbackBindings = new Map<String, String>();
+        callbackBindings.set('module', 'compiler dynamic-import namespace');
+        callbackBindings.set('modules',
+          'compiler dynamic-import namespace list');
+        for (module in modules) {
+          for (direct in module.directFunctions) {
+            final origin = direct.ownerModule + '.' + direct.fieldName;
+            final prior = callbackBindings.get(direct.name);
+            if (prior != null && prior != origin)
+              Context.error('GENES-DYNAMIC-IMPORT-BINDING-COLLISION-002: '
+                + 'Genes.dynamicImport cannot create two callback-local '
+                + 'bindings named "${direct.name}" (${prior} and ${origin})',
+                pos);
+            callbackBindings.set(direct.name, origin);
           }
         }
 
@@ -192,8 +258,15 @@ class Genes {
               for (sub in module.types)
                 macro js.Syntax.code($v{dynamicImportAccess('module', module.importType, sub.name)})
             ];
+            for (direct in module.directFunctions)
+              setup.push(macro js.Syntax.code($v{dynamicImportAccess('module',
+                module.importType, direct.name)}));
 
             final list = [for (sub in module.types) macro $v{sub.fullname}];
+            for (direct in module.directFunctions)
+              list.push(macro $v{ModuleFunctionPlan.dynamicImportFieldToken(
+                direct.ownerModule, direct.ownerName, direct.fieldName,
+                direct.name)});
 
             final handler = macro genes.Genes.ignore($a{list},
               $e{typedFunction('module', macro:genes.Genes.DynamicImportModule, macro {
@@ -211,6 +284,13 @@ class Genes {
               for (sub in modules[i].types) {
                 setup.push(macro js.Syntax.code($v{dynamicImportAccess('modules[$i]', modules[i].importType, sub.name)}));
                 ignores.push(macro $v{sub.fullname});
+              }
+              for (direct in modules[i].directFunctions) {
+                setup.push(macro js.Syntax.code($v{dynamicImportAccess('modules[$i]',
+                  modules[i].importType, direct.name)}));
+                ignores.push(macro $v{ModuleFunctionPlan.dynamicImportFieldToken(
+                  direct.ownerModule, direct.ownerName, direct.fieldName,
+                  direct.name)});
               }
             }
 

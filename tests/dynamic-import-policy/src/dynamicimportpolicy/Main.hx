@@ -1,6 +1,10 @@
 package dynamicimportpolicy;
 
 import genes.Genes;
+import dynamicimportpolicy.Target.dynamicSelected;
+#if dynamic_import_binding_collision
+import dynamicimportpolicy.Target.reservedHandlerBinding;
+#end
 
 /**
  * Exercises the legacy `Genes.dynamicImport()` helper with one local module.
@@ -13,6 +17,10 @@ class Main {
   static function main(): Void {
     Genes.dynamicImport(Target -> {
       trace(Target.value());
+      trace(dynamicSelected());
+      #if dynamic_import_binding_collision
+      trace(reservedHandlerBinding());
+      #end
     });
   }
 }

@@ -275,6 +275,14 @@ function assertTopLevelCollisionImplementationShape(relative: string): void {
     `${relative} calls the collision-safe imported binding`);
 }
 
+function assertDependencyOccurrenceOrder(relative: string): void {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  const ordinary = source.indexOf('from "./DependencyOrderOrdinary.js"');
+  const direct = source.indexOf('from "./DependencyOrderDirect.js"');
+  ok(ordinary !== -1 && direct !== -1 && ordinary < direct,
+    `${relative} keeps ordinary-before-direct dependency occurrence order`);
+}
+
 interface RuntimeEvidence {
   readonly descriptor: {
     readonly configurable: boolean;
@@ -485,6 +493,17 @@ console.log(
     }).trim() === "true";
 }
 
+function moduleInitializerRuntimeEvidence(): string {
+  const program = `
+import {moduleInitValue} from "./tests/module-functions/out/classic/module_functions/ModuleInit.js";
+console.log(moduleInitValue());`;
+  return execFileSync(process.execPath,
+    ["--input-type=module", "--eval", program], {
+      cwd: repoRoot,
+      encoding: "utf8"
+    }).trim();
+}
+
 const negativeCases = [
   ["module_value_deferred", "GENES-MODULE-VALUE-DEFERRED-001"],
   ["module_function_arity", "GENES-MODULE-FUNCTION-ARITY-001"],
@@ -647,6 +666,13 @@ for (const relative of [
   assertTopLevelCollisionImplementationShape(relative);
 }
 for (const relative of [
+  "classic/module_functions/DependencyOrderConsumer.js",
+  "ts/src-gen/module_functions/DependencyOrderConsumer.ts",
+  "tsx/src-gen/module_functions/DependencyOrderConsumer.tsx"
+]) {
+  assertDependencyOccurrenceOrder(relative);
+}
+for (const relative of [
   "classic/index.js",
   "ts/src-gen/index.ts",
   "tsx/src-gen/index.tsx"
@@ -764,6 +790,40 @@ deepStrictEqual(topLevelPublicRuntimeEvidence(), ["local:source", "exposed"],
   "collision-safe imports and explicit root exposure preserve runtime identity");
 strictEqual(noMainPublicRuntimeEvidence(), true,
   "a library-only build keeps the explicit root export and exact function identity");
+strictEqual(moduleInitializerRuntimeEvidence(), "module-init",
+  "a direct-function module retains and runs its hidden module initializer");
+{
+  const program = `
+import {DependencyOrderConsumer} from "./tests/module-functions/out/classic/module_functions/DependencyOrderConsumer.js";
+console.log(JSON.stringify([
+  DependencyOrderConsumer.value(),
+  DependencyOrderConsumer.events()
+]));`;
+  const output = execFileSync(process.execPath,
+    ["--input-type=module", "--eval", program], {
+      cwd: repoRoot,
+      encoding: "utf8"
+    }).trim();
+  deepStrictEqual(JSON.parse(output), [3, "ordinary,direct"],
+    "runtime module initialization follows ordinary-before-direct import order");
+}
+
+for (const relative of [
+  "classic/module_functions/ModuleInit.js",
+  "ts/src-gen/module_functions/ModuleInit.ts",
+  "tsx/src-gen/module_functions/ModuleInit.tsx"
+]) {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  const owner = relative.startsWith("classic/")
+    ? "class ModuleInit_Fields_"
+    : "export class ModuleInit_Fields_";
+  ok(source.includes("export function moduleInitValue")
+    && source.includes(owner)
+    && source.includes('ModuleInitState.value = "module-init"')
+    && source.indexOf(owner)
+      < source.lastIndexOf('ModuleInitState.value = "module-init"'),
+    `${relative} keeps the synthetic owner and its module initializer`);
+}
 
 const classicDeclaration = readFileSync(path.join(outputRoot,
   "classic/module_functions/Selected.d.ts"), "utf8");
@@ -789,6 +849,13 @@ const classicNoMainRootDeclaration = readFileSync(path.join(outputRoot,
 ok(classicNoMainRootDeclaration.includes(
   'export {exposedTopLevel} from "./module_functions/TopLevelExposed.js"'),
   "classic library-only declarations retain the explicit root export");
+const classicExposedDeclaration = readFileSync(path.join(outputRoot,
+  "classic/module_functions/TopLevelExposed.d.ts"), "utf8");
+ok(classicExposedDeclaration.includes(
+  "export const exposedTopLevel: (value: string) => string"),
+  "classic declarations use the validated direct binding name");
+ok(!classicExposedDeclaration.includes("authoredTopLevelName"),
+  "classic declarations do not leak the replaced Haxe field name");
 const classicTopLevelDeclaration = readFileSync(path.join(outputRoot,
   "classic/module_functions/TopLevel.d.ts"), "utf8");
 ok(classicTopLevelDeclaration.includes(
@@ -817,6 +884,13 @@ const tsNoMainRootDeclaration = readFileSync(path.join(outputRoot,
 ok(tsNoMainRootDeclaration.includes(
   'export { exposedTopLevel } from "./module_functions/TopLevelExposed.js"'),
   "tsc library-only declarations retain the explicit root export");
+const tsExposedDeclaration = readFileSync(path.join(outputRoot,
+  "ts/dist/out/ts/src-gen/module_functions/TopLevelExposed.d.ts"), "utf8");
+ok(tsExposedDeclaration.includes(
+  "export declare function exposedTopLevel(value: string): string"),
+  "tsc declarations use the validated direct binding name");
+ok(!tsExposedDeclaration.includes("authoredTopLevelName"),
+  "tsc declarations do not leak the replaced Haxe field name");
 const tsTopLevelDeclaration = readFileSync(path.join(outputRoot,
   "ts/dist/out/ts/src-gen/module_functions/TopLevel.d.ts"), "utf8");
 ok(tsTopLevelDeclaration.includes(

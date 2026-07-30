@@ -68,6 +68,25 @@ would otherwise keep that root module alive. The harness executes the classic
 root export and checks both classic and TypeScript declarations, so a fixture
 `Main` cannot accidentally hide a missing library export.
 
+That fixture deliberately gives the Haxe function a different authored name.
+The generated implementation, owner declaration, and root declaration must all
+agree on the validated `exposedTopLevel` binding; otherwise a package can ship
+a root `.d.ts` re-export for a symbol its owner declaration never defined.
+
+`ModuleInit.hx` covers a different hidden part of Haxe's typed module shape.
+Haxe stores a module-level `__init__` body on the compiler-created owner rather
+than among its visible fields. Genes may omit an all-direct owner only when
+that hidden initializer is absent. The fixture checks its side effect in both
+generated source profiles and at classic runtime.
+
+`DependencyOrderConsumer.hx` makes import ordering observable. Its first call
+argument reads an ordinary module value and its second calls a direct module
+function; both dependency modules append to shared state during initialization.
+The generated imports and runtime transcript must say `ordinary,direct`.
+Planning all direct functions in an earlier pre-scan would incorrectly reverse
+that order even though the Haxe expression evaluates the ordinary argument
+first.
+
 The repository's blocking `yarn test:ci` command runs this focused owner
 directly. Keep that connection when reorganizing aggregate test scripts: the
 general compiler suites do not independently reproduce every diagnostic,

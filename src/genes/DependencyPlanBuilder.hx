@@ -6,7 +6,6 @@ import haxe.macro.Expr.Constant;
 import haxe.macro.Expr.ExprDef;
 import haxe.macro.Expr.Position;
 import haxe.macro.Type;
-import haxe.ds.ObjectMap;
 import genes.Dependencies.DependencySpec;
 import genes.Dependencies.DependencyType;
 import genes.BindingIdentity.BindingIdentity;
@@ -20,6 +19,7 @@ import genes.DependencyPlan.DependencyImportSpec;
 import genes.DependencyPlan.DependencyModuleRequest;
 import genes.DependencyPlan.DependencyProvenance;
 import genes.Module.Field;
+import genes.RuntimeTypeOccurrenceCollector.RuntimeTypeOccurrence;
 import genes.JsxPlan.JsxCapabilityPolicy;
 import genes.util.TypeUtil;
 
@@ -205,70 +205,6 @@ class DependencyPlanBuilder {
       expression.iter(addJsRequireFromExpr);
     }
 
-    /**
-     * Projects a genuine Haxe module-level function as a named internal ESM
-     * import instead of importing its compiler-synthetic `_Fields_` owner.
-     */
-    function directModuleFunctionTypeReceiver(expression: TypedExpr): Null<TypedExpr> {
-      var current = expression;
-      while (current != null) {
-        switch current.expr {
-          case TMeta(_, inner) | TParenthesis(inner) | TCast(inner, null):
-            current = inner;
-          case TTypeExpr(_):
-            return current;
-          default:
-            return null;
-        }
-      }
-      return null;
-    }
-
-    function addModuleFunctionImports(expression: TypedExpr): ObjectMap<TypedExpr,
-      Bool> {
-      final directReceivers = new ObjectMap<TypedExpr, Bool>();
-      if (expression == null)
-        return directReceivers;
-      function visit(current: TypedExpr): Void {
-        switch current.expr {
-          case TField(receiver, FStatic(ownerRef, _.get() => field)):
-            final owner = ownerRef.get();
-            final requestedName = ModuleFunctionPlan.requestedName(field);
-            if (ModuleFunctionPlan.isModuleFieldsOwner(owner)
-              && requestedName != null) {
-              if (owner.module != module.module) {
-                final dependency: DependencySpec = {
-                  type: DependencyType.DName,
-                  name: requestedName,
-                  path: owner.module,
-                  external: false,
-                  memberPath: [],
-                  pos: field.pos
-                };
-                addEdge(RuntimeValue, TClassDecl(ownerRef),
-                  Bound(new DependencyImport(dependency,
-                    BindingIdentity.create(dependency,
-                      fieldOrigin(owner, field.name)))),
-                  'runtime.module-function', field.pos);
-              }
-              // The emitter replaces this exact static access with the direct
-              // ESM binding. Suppress only its exact `TTypeExpr` receiver from
-              // ordinary owner collection. Another access can name the same
-              // synthetic owner while still needing that owner's runtime
-              // import, for example an ordinary module value beside a selected
-              // direct function.
-              final typeReceiver = directModuleFunctionTypeReceiver(receiver);
-              if (typeReceiver != null)
-                directReceivers.set(typeReceiver, true);
-            }
-          default:
-        }
-        current.iter(visit);
-      }
-      visit(expression);
-      return directReceivers;
-    }
-
     function unwrap(expression: TypedExpr): TypedExpr {
       var current = expression;
       while (current != null) {
@@ -370,15 +306,35 @@ class DependencyPlanBuilder {
       if (expression == null)
         return;
       addJsRequireFromExpr(expression);
-      final directReceivers = addModuleFunctionImports(expression);
-      final hasDirectReceivers = directReceivers.keys().hasNext();
-      final runtimeTypes = if (hasDirectReceivers)
-        RuntimeTypeOccurrenceCollector.collect(expression,
-        receiver -> directReceivers.exists(receiver)) else
-        TypeUtil.typesInExpr(expression);
-      for (type in runtimeTypes) {
-        addReference(RuntimeValue, type, 'runtime.typed-expression',
-          expression.pos);
+      final occurrences = RuntimeTypeOccurrenceCollector.collect(expression,
+        (owner,
+            field) -> ModuleFunctionPlan.isModuleFieldsOwner(owner)
+            && ModuleFunctionPlan.requestedName(field) != null);
+      for (occurrence in occurrences) {
+        switch occurrence {
+          case RuntimeTypeOccurrence.RuntimeType(type):
+            addReference(RuntimeValue, type, 'runtime.typed-expression',
+              expression.pos);
+          case RuntimeTypeOccurrence.DirectModuleFunction(ownerRef, fieldRef):
+            final owner = ownerRef.get();
+            final field = fieldRef.get();
+            final requestedName = ModuleFunctionPlan.requestedName(field);
+            if (requestedName == null || owner.module == module.module)
+              continue;
+            final dependency: DependencySpec = {
+              type: DependencyType.DName,
+              name: requestedName,
+              path: owner.module,
+              external: false,
+              memberPath: [],
+              pos: field.pos
+            };
+            addEdge(RuntimeValue, TClassDecl(ownerRef),
+              Bound(new DependencyImport(dependency,
+                BindingIdentity.create(dependency,
+                  fieldOrigin(owner, field.name)))),
+              'runtime.module-function', field.pos);
+        }
       }
     }
 
@@ -477,6 +433,7 @@ class DependencyPlanBuilder {
         case MClass(cl, _, fields):
           final emittableFields = Module.emittableFields(fields);
           final directOwner = ModuleFunctionPlan.isModuleFieldsOwner(cl)
+            && cl.init == null
             && emittableFields.length > 0
             && emittableFields.filter(field -> field.meta == null
               || ModuleFunctionPlan.requestedNameFromMetadata(field.meta) == null)

@@ -181,6 +181,12 @@ class ExprEmitter extends Emitter {
           || directImportLocals.indexOf(qualifiedModuleName) != -1
           ? fallbackName
           : null;
+      case ImportedStaticField(key, fallbackName, _):
+        directImportLocals.indexOf(
+          ModuleFunctionPlan.dynamicImportFieldToken(key.ownerModule,
+            key.ownerName, key.fieldName, fallbackName)) != -1
+          ? fallbackName
+          : null;
       default: null;
     }
   }
@@ -468,7 +474,8 @@ class ExprEmitter extends Emitter {
         if (currentModule != null && owner.module == currentModule.module)
           write(requestedName);
         else
-          write(ctx.typeAccessor(TypeAccessor.forStaticField(owner, field)));
+          write(ctx.typeAccessor(TypeAccessor.forStaticFieldBinding(owner,
+            field, requestedName)));
       case TField(_, FStatic(_.get() => {
         pack: [],
         name: ''

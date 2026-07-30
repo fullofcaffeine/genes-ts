@@ -150,6 +150,78 @@ Classic JavaScript emits `export declare const identity: typeof
 Values.identity`, so its `.d.ts` derives the same closed generic contract
 without duplicating it.
 
+The Haxe field name may differ when both annotations explicitly choose the same
+public binding:
+
+```haxe
+@:expose("identity")
+@:genes.moduleFunction("identity")
+function authoredName<T>(value:T):T {
+	return value;
+}
+```
+
+Both the implementation and declarations export `identity`; the replaced
+Haxe-only name `authoredName` does not leak into the JavaScript package.
+
+## Module initialization still runs
+
+A source module may also define `function __init__()`. Haxe stores that hidden
+initializer on its compiler-created module owner, outside the visible function
+list. Genes keeps the owner in this case so the established initialization
+order and side effects remain intact:
+
+```haxe
+@:genes.moduleFunction("readReady")
+function readReady():Bool {
+	return State.ready;
+}
+
+function __init__():Void {
+	State.ready = true;
+}
+```
+
+`readReady` is still a genuine module function, but importing its module still
+runs `__init__` exactly as ordinary Genes output did.
+
+Direct-function imports also stay at their original typed-expression
+occurrence. This matters because ESM dependencies initialize in source order:
+if a call reads an ordinary module value before calling a direct function,
+Genes preserves that ordinary-before-direct module order instead of grouping
+all direct imports at the top of dependency planning.
+
+## Lazy imports stay lazy
+
+When a selected function is used inside `Genes.dynamicImport()`, Genes must not
+add an ordinary top-level import for it. A top-level import would load and run
+the target module immediately, defeating the purpose of code splitting.
+
+For example, if the lazily loaded `Reports` module exports a selected
+`formatReport` function, the callback keeps using the Haxe function normally:
+
+```haxe
+Genes.dynamicImport(Reports -> {
+	trace(formatReport(Reports.current()));
+});
+```
+
+Genes reads both exports from the namespace after `import()` resolves:
+
+```ts
+import("./Reports.js").then(function (module: unknown) {
+  var Reports = (module as typeof import("./Reports.js")).Reports;
+  var formatReport =
+    (module as typeof import("./Reports.js")).formatReport;
+  console.log(formatReport(Reports.current()));
+});
+```
+
+There is no static `import {formatReport} from "./Reports.js"` above this code.
+The callback carrier records the selected function's exact Haxe owner and field,
+so an unrelated static field from the same source module still uses its normal
+collision-safe import mapping.
+
 The two metadata names must match. This v1 constraint keeps the local binding,
 public name, stack name, analyzer identity, and declaration surface aligned.
 `@:expose` with no argument uses the Haxe field name. A class-member

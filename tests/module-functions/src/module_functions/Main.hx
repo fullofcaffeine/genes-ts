@@ -3,9 +3,11 @@ package module_functions;
 import module_functions.Selected.ConstructorNameControl;
 import module_functions.Selected.SecondarySelected;
 import module_functions.Inheritance.ModuleFunctionChild;
+import module_functions.ModuleInit.moduleInitValue;
+import module_functions.DependencyOrderConsumer;
 import module_functions.TopLevelBind.extractTopLevelValue;
 import module_functions.TopLevelCollisionConsumer.collisionTranscript;
-import module_functions.TopLevelExposed.exposedTopLevel;
+import module_functions.TopLevelExposed.authoredTopLevelName;
 import module_functions.TopLevelMixed.mixedOrdinary;
 import module_functions.TopLevelMixed.mixedSelected;
 import module_functions.TopLevel.topLevelIdentity;
@@ -40,10 +42,13 @@ class Main {
       Std.string(extractTopLevelValue(new TopLevelReceiver(7))()),
       Std.string(mixedSelected() + mixedOrdinary),
       collisionTranscript(),
-      exposedTopLevel("exposed")
-      #if module_functions_global_feature
-      , Std.string(GlobalFeature.isAvailable())
-      #end
+      authoredTopLevelName("exposed"),
+      moduleInitValue(),
+      Std.string(DependencyOrderConsumer.value()),
+      DependencyOrderConsumer.events()
+        #if module_functions_global_feature
+        , Std.string(GlobalFeature.isAvailable())
+        #end
     ];
     trace(transcript.join("|"));
   }

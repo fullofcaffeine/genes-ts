@@ -6,6 +6,6 @@ package module_functions;
  */
 @:expose("exposedTopLevel")
 @:genes.moduleFunction("exposedTopLevel")
-function exposedTopLevel(value: String): String {
+function authoredTopLevelName(value: String): String {
   return value;
 }

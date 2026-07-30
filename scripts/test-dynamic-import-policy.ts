@@ -1,5 +1,5 @@
 import { deepStrictEqual, ok, strictEqual } from "node:assert";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   existsSync,
   readFileSync,
@@ -173,6 +173,14 @@ function assertRequest(mode: "cold" | "warm", current: Profile): void {
   }
   ok(!source.includes("DynamicImportMarker"),
     `${current.name} leaked the compiler-only dynamic-import carrier`);
+  ok(!/import\s*\{[^}]*dynamicSelected[^}]*\}\s*from\s*["']\.\/Target/.test(source),
+    `${current.name} eagerly imported the selected function from the lazy chunk`);
+  const expectedLocal = current.defines.includes("genes.ts")
+    ? 'var dynamicSelected = (module as typeof import("./Target'
+      + `${current.expectedRuntimeExtension}")).dynamicSelected`
+    : "var dynamicSelected = module.dynamicSelected";
+  ok(source.includes(expectedLocal) && source.includes("dynamicSelected()"),
+    `${current.name} did not bind the selected function from the lazy namespace`);
 
   const mapPath = `${moduleFile(mode, current)}.map`;
   ok(existsSync(mapPath), `${current.name} did not publish its source map`);
@@ -286,6 +294,20 @@ async function main(): Promise<void> {
   );
   await runWarmSequence(haxeBinary);
 
+  const collision = spawnSync(haxeBinary, [
+    ...buildArguments("cold", profile("classic-js")),
+    "-D", "dynamic_import_binding_collision"
+  ], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    timeout: 60_000
+  });
+  ok(collision.status !== 0,
+    "a selected function must not overwrite the lazy namespace parameter");
+  ok(`${collision.stdout}${collision.stderr}`.includes(
+    "GENES-DYNAMIC-IMPORT-BINDING-COLLISION-002"),
+  "dynamic handler-name collision reports its stable diagnostic");
+
   // `dynamicImport()` names the runtime chunk but does not add a static Haxe
   // dependency. `buildArguments()` therefore roots Target explicitly, just as
   // an application or bundler build must retain its dynamic entry points.
@@ -297,6 +319,8 @@ async function main(): Promise<void> {
   );
   ok(runtime.includes("dynamic-import-current"),
     `Classic .mjs runtime did not load the current module:\n${runtime}`);
+  ok(runtime.includes("dynamic-module-function-current"),
+    `Classic .mjs runtime did not call the lazy module function:\n${runtime}`);
 
   deepStrictEqual(
     leakedOutputStages(path.join(repoRoot, generatedRoot)),
