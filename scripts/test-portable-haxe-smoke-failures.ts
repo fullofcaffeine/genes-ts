@@ -68,6 +68,12 @@ const cases: FailureCase[] = [
     expectedText: "injected failure"
   },
   {
+    injection: "assertion-count",
+    profile: "classic-esm",
+    timeoutMs: 120_000,
+    expectedText: "assertion count differs"
+  },
+  {
     injection: "runtime-exception",
     profile: "classic-esm",
     timeoutMs: 120_000,

@@ -28,9 +28,9 @@
       }
     ],
     "local": [
-      {
-        "path": "tests/portable-haxe-smoke/src/utest/Assert.hx",
-        "sha256": "b2f78487ed112af2b6336713188ebaeb2df080ea1a5d451a4ea643a216280eb0"
+    {
+      "path": "tests/portable-haxe-smoke/src/utest/Assert.hx",
+      "sha256": "65aa510f5db3c6c52e335bed08f79901e42bb3dac0b60373e1556debb1335752"
       },
       {
         "path": "tests/portable-haxe-smoke/src/utest/ITest.hx",
@@ -76,25 +76,31 @@
   "activeTests": [
     {
       "id": "unit.TestNumericSeparator.test",
-      "family": "language"
+      "family": "language",
+      "expectedAssertions": 12
     },
     {
       "id": "unit.TestNumericSeparator.testJustBeforeSuffix",
-      "family": "language"
+      "family": "language",
+      "expectedAssertions": 11
     },
     {
       "id": "unit.TestNumericSeparator.testWithSuffix",
-      "family": "language"
+      "family": "language",
+      "expectedAssertions": 11
     },
     {
       "id": "portable.GeneratedIntIteratorSpec.testIntIterator",
-      "family": "unitstd"
+      "family": "unitstd",
+      "expectedAssertions": 9
     },
     {
       "id": "unit.issues.Issue10032.test",
-      "family": "issue"
+      "family": "issue",
+      "expectedAssertions": 1
     }
   ],
+  "expectedAssertionsPerProfile": 44,
   "profiles": [
     {
       "id": "classic-esm",

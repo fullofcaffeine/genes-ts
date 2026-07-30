@@ -23,10 +23,16 @@ import haxe.PosInfos;
 final class Assert {
   static var assertionCount = 0;
   static var failureMessages = new Array<String>();
+  #if genes.portable.inject_missing_assertion_count
+  static var omitNextCount = true;
+  #end
 
   public static function reset(): Void {
     assertionCount = 0;
     failureMessages = [];
+    #if genes.portable.inject_missing_assertion_count
+    omitNextCount = true;
+    #end
   }
 
   public static function assertions(): Int {
@@ -103,7 +109,17 @@ final class Assert {
 
   static function record(success: Bool, message: String,
       pos: Null<PosInfos>): Bool {
+    #if genes.portable.inject_missing_assertion_count
+    // Test-only fault injection: the outer harness must reject a successful
+    // assertion that silently disappears from the reviewed count contract.
+    if (omitNextCount) {
+      omitNextCount = false;
+    } else {
+      assertionCount++;
+    }
+    #else
     assertionCount++;
+    #end
     if (!success) {
       final location = pos == null ? "<unknown>" : '${pos.fileName}:${pos.lineNumber}';
       failureMessages.push('$location: $message');

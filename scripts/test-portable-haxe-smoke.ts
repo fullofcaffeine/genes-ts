@@ -26,6 +26,7 @@ interface SourceRecord {
 interface ActiveTestRecord {
   id: string;
   family: Exclude<SourceFamily, "harness">;
+  expectedAssertions: number;
 }
 
 interface FileIdentity {
@@ -57,6 +58,7 @@ interface PortableManifest {
   };
   sources: SourceRecord[];
   activeTests: ActiveTestRecord[];
+  expectedAssertionsPerProfile: number;
   profiles: Array<{id: ProfileId}>;
   claim: string;
 }
@@ -132,6 +134,7 @@ const validInjections = new Set([
   "typescript-strict",
   "module-load",
   "assertion",
+  "assertion-count",
   "runtime-exception",
   "timeout",
   "publication",
@@ -370,6 +373,18 @@ function validateManifest(haxeRoot: string, utestRoot: string): void {
   const activeIds = manifest.activeTests.map((test) => test.id);
   assert(new Set(activeIds).size === activeIds.length,
     "Portable smoke active-test IDs must be unique");
+  assert(manifest.activeTests.every((test) =>
+    Number.isInteger(test.expectedAssertions)
+    && test.expectedAssertions > 0),
+  "Every active portable smoke test must declare a positive assertion count");
+  assert(Number.isInteger(manifest.expectedAssertionsPerProfile)
+    && manifest.expectedAssertionsPerProfile > 0,
+  "Portable smoke must declare a positive per-profile assertion total");
+  assert(manifest.activeTests.reduce(
+    (total, test) => total + test.expectedAssertions,
+    0
+  ) === manifest.expectedAssertionsPerProfile,
+  "Portable smoke per-test assertion counts do not match the reviewed total");
   assert(manifest.runnerAdaptation.disposition === "upstream-harness-adaptation",
     "Portable smoke must classify its local utest runner as an adaptation");
   assert(manifest.runnerAdaptation.reason.trim().length > 0,
@@ -469,6 +484,9 @@ function haxeArguments(
     "-D", `genes.portable.unitstd_path=${unitStd}`,
     ...(injects(profile, "assertion")
       ? ["-D", "genes.portable.inject_assertion_failure"]
+      : []),
+    ...(injects(profile, "assertion-count")
+      ? ["-D", "genes.portable.inject_missing_assertion_count"]
       : []),
     ...(injects(profile, "missing-active")
       ? ["-D", "genes.portable.inject_missing_active"]
@@ -681,6 +699,9 @@ function run(): void {
     const expected = manifest.activeTests
       .map((test) => test.id)
       .sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
+    const expectedAssertions = new Map(
+      manifest.activeTests.map((test) => [test.id, test.expectedAssertions])
+    );
     for (const profile of profiles) {
       assert(JSON.stringify(profile.result.activeTests) === JSON.stringify(expected),
         `${profile.profile} active inventory differs from the reviewed manifest\n`
@@ -691,6 +712,16 @@ function run(): void {
       `${profile.profile} per-test results differ from the reviewed inventory`);
       assert(profile.result.tests.every((test) => test.failures === 0),
         `${profile.profile} reported a failing active test`);
+      for (const test of profile.result.tests) {
+        assert(test.assertions === expectedAssertions.get(test.id),
+          `${profile.profile} assertion count differs for ${test.id}: `
+          + `expected=${String(expectedAssertions.get(test.id))}, `
+          + `actual=${String(test.assertions)}`);
+      }
+      assert(profile.result.assertions === manifest.expectedAssertionsPerProfile,
+        `${profile.profile} assertion total differs from the reviewed manifest: `
+        + `expected=${String(manifest.expectedAssertionsPerProfile)}, `
+        + `actual=${String(profile.result.assertions)}`);
     }
     assert(profiles[0].result.assertions === profiles[1].result.assertions,
       "Classic and TypeScript smoke profiles executed different assertion counts");
