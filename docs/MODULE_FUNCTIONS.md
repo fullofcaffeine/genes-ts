@@ -213,6 +213,32 @@ therefore export the same conventional name (for example `render`) without a
 false global collision; callers receive the ordinary collision-safe ESM import
 alias.
 
+Add an explicit matching `@:expose` when the genuine module-level function
+must also be published from the compilation root:
+
+```haxe
+@:expose("identity")
+@:genes.moduleFunction("identity")
+function identity<T>(value:T):T {
+	return value;
+}
+```
+
+```ts
+// values/Identity.ts
+export function identity<T>(value: T): T {
+  return value;
+}
+
+// compilation root
+export {identity} from "./values/Identity.js";
+```
+
+The owner-module and root exports are the same function object. The distinction
+is intentional: ordinary public Haxe module fields remain local to their own
+generated ESM file, while `@:expose` is an explicit request for the package's
+root public API.
+
 ## Why direct module values are deferred
 
 This capability deliberately covers functions, not eagerly evaluated values.
@@ -307,6 +333,19 @@ A private selected function is not exported and its module-function metadata is
 not a DCE root. `@:expose` is an explicit public root. Without it, if Haxe
 removes the field, Genes emits no function and reserves no requested name.
 
+Dependency planning remains authoritative for code moved to module scope. For
+example, extracting an instance method can emit `Register.bind`, and Haxe's
+project-wide `js.Lib.global` feature can make a module emit:
+
+```ts
+import {Register} from "../genes/Register.js";
+
+const $global = Register.$global;
+```
+
+Genes records that helper before import aliases are frozen. It does not wait
+for the expression or module printer to discover the dependency.
+
 ## Intentional function-object differences
 
 Opting in changes intrinsic properties that no ordinary module function can
@@ -377,6 +416,29 @@ enum constructor emitted as `State.Ready` does not block a module function
 called `Ready`. A collision reports the requested name, owner field, and prior
 binding kind at the metadata source position. It does not silently rename an
 unrelated import.
+
+Haxe import aliases are also preserved when a foreign direct function shares a
+name with an ordinary local module field:
+
+```haxe
+import other.Values.value as importedValue;
+
+function value():String {
+	return "local";
+}
+```
+
+Representative generated output:
+
+```ts
+import {value as value__1} from "./other/Values.js";
+
+export const value = /* the ordinary local Haxe module field */;
+```
+
+Genes renames only the importing module's local import binding. The foreign
+module still exports its exact requested name, and the local module still owns
+its authored public field name.
 
 Public member exports apply the same identifier policy to `@:expose`. They also
 participate in the compilation-root export inventory, so a collision with an

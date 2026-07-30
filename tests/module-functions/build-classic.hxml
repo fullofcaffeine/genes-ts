@@ -3,6 +3,7 @@
 --main module_functions.Main
 -js tests/module-functions/out/classic/index.js
 -D dts
+-D module_functions_global_feature
 -D no-deprecation-warnings
 -D js-es=6
 -dce full

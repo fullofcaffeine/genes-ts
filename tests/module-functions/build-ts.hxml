@@ -3,6 +3,7 @@
 --main module_functions.Main
 -js tests/module-functions/out/ts/src-gen/index.ts
 -D genes.ts
+-D module_functions_global_feature
 -D no-deprecation-warnings
 -D js-es=6
 -dce full

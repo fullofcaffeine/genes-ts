@@ -513,7 +513,8 @@ class DependencyPlanBuilder {
       }
     }
     if (module.module != 'genes.Register'
-      && (!onlyRegisterFreeDirectModuleFunctions
+      && (module.hasFeature('js.Lib.global')
+        || !onlyRegisterFreeDirectModuleFunctions
         || !hasDirectModuleFunctionOwner))
       addReference(RuntimeValue, TypeUtil.registerType,
         'runtime.registration', Context.currentPos());

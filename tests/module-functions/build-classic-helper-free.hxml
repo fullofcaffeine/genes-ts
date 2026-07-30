@@ -1,10 +1,7 @@
 -lib genes-ts
 -cp tests/module-functions/src
 --main module_functions.Main
--js tests/module-functions/out/tsx/src-gen/index.tsx
--D genes.ts
--D module_functions_global_feature
+-js tests/module-functions/out/classic-helper-free/index.js
 -D no-deprecation-warnings
 -D js-es=6
 -dce full
--debug

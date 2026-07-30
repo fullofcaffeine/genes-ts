@@ -17,6 +17,21 @@ still stores the ordinary value. These controls prevent direct lowering from
 dropping runtime support that remains necessary elsewhere in the same typed
 expression or module.
 
+The fixture also covers three cross-module facts that are easy to miss:
+
+- a foreign direct function is locally aliased when its exported name matches
+  an ordinary module-level field in the importing Haxe file;
+- explicit matching `@:expose` metadata on a genuine module-level function
+  re-exports that exact function from the compilation root; and
+- when any reachable Haxe code activates `js.Lib.global`, an otherwise
+  helper-free direct-function module retains `genes.Register` because its
+  generated `$global` prelude reads `Register.$global`.
+
+These checks use the generated TypeScript, TSX, and classic JavaScript shape
+plus classic runtime identity. They prove that dependency names and public
+exports are decided before printing rather than repaired by scanning generated
+text.
+
 The metadata moves one supported public static Haxe method body to an
 unexported, genuine ES-module function. Genes leaves a compiler-owned method
 descriptor in the original class slot and immediately replaces only its value.

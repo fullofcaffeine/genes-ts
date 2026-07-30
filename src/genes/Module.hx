@@ -79,7 +79,8 @@ typedef MemberProjection = {
 
 typedef ModuleContext = {
   modules: Map<String, Module>,
-  concrete: Array<String>
+  concrete: Array<String>,
+  hasFeature: (feature: String) -> Bool
 }
 
 typedef ModuleExport = {
@@ -126,6 +127,18 @@ class Module {
     if (main != null)
       members.push(MMain(main));
     endTimer();
+  }
+
+  /**
+   * Reports a compiler-owned JavaScript feature for dependency planning.
+   *
+   * Haxe feature flags describe the whole compilation, not only the expression
+   * currently being emitted. A module can therefore need a compatibility
+   * prelude because another module activated its feature. Dependency planning
+   * must observe the same request-local fact before import aliases are frozen.
+   */
+  public inline function hasFeature(feature: String): Bool {
+    return context.hasFeature(feature);
   }
 
   function get_dependencyPlan(): DependencyPlan {

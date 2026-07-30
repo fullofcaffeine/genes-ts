@@ -234,8 +234,10 @@ function assertTopLevelImplementationShape(relative: string): void {
     `${relative} emits the Haxe module function as one direct ESM function`);
   ok(!source.includes("TopLevel_Fields_"),
     `${relative} omits the compiler-synthetic module-fields class`);
-  ok(!source.includes("genes/Register"),
-    `${relative} does not retain registration machinery`);
+  ok(source.includes('import {Register} from "../genes/Register.js"'),
+    `${relative} retains Register when the project-wide global feature emits its prelude`);
+  ok(source.includes("const $global = Register.$global"),
+    `${relative} emits the global compatibility alias with its planned helper`);
 }
 
 function assertTopLevelBindImplementationShape(relative: string): void {
@@ -260,6 +262,17 @@ function assertTopLevelMixedImplementationShape(relative: string): void {
     `${relative} keeps the ordinary value on its synthetic runtime owner`);
   ok(source.includes('import {Register} from "../genes/Register.js"'),
     `${relative} retains registration for the mixed synthetic owner`);
+}
+
+function assertTopLevelCollisionImplementationShape(relative: string): void {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes(
+    'import {collisionName as collisionName__1} from "./TopLevelCollisionSource.js"'),
+    `${relative} aliases a direct import away from its own module field`);
+  ok(source.includes("export const collisionName"),
+    `${relative} retains the ordinary local module export`);
+  ok(source.includes("collisionName__1()"),
+    `${relative} calls the collision-safe imported binding`);
 }
 
 interface RuntimeEvidence {
@@ -435,6 +448,27 @@ console.log(JSON.stringify([
   return parsed;
 }
 
+function topLevelPublicRuntimeEvidence(): ReadonlyArray<string> {
+  const program = `
+import {collisionTranscript} from "./tests/module-functions/out/classic/module_functions/TopLevelCollisionConsumer.js";
+import {exposedTopLevel as moduleBinding} from "./tests/module-functions/out/classic/module_functions/TopLevelExposed.js";
+import {exposedTopLevel as rootBinding} from "./tests/module-functions/out/classic/index.js";
+console.log(JSON.stringify([
+  collisionTranscript(),
+  moduleBinding === rootBinding ? rootBinding("exposed") : "wrong-identity"
+]));`;
+  const output = execFileSync(process.execPath,
+    ["--input-type=module", "--eval", program], {
+      cwd: repoRoot,
+      encoding: "utf8"
+    }).trim();
+  const parsed: unknown = JSON.parse(output.split(/\r?\n/).at(-1) ?? "");
+  ok(Array.isArray(parsed)
+    && parsed.every((value) => typeof value === "string"),
+    `invalid top-level public runtime evidence: ${output}`);
+  return parsed;
+}
+
 const negativeCases = [
   ["module_value_deferred", "GENES-MODULE-VALUE-DEFERRED-001"],
   ["module_function_arity", "GENES-MODULE-FUNCTION-ARITY-001"],
@@ -469,6 +503,10 @@ const negativeCases = [
   ],
   [
     "module_function_expose_mismatch",
+    "GENES-MODULE-FUNCTION-EXPOSE-NAME-016"
+  ],
+  [
+    "module_function_module_field_rename",
     "GENES-MODULE-FUNCTION-EXPOSE-NAME-016"
   ],
   [
@@ -543,6 +581,14 @@ run("haxe", ["tests/module-functions/build-tsx.hxml"]);
 deepStrictEqual(digestTree(path.join(outputRoot, "tsx/src-gen")), tsxDigest,
   "TSX module-function output is deterministic");
 
+run("haxe", ["tests/module-functions/build-classic-helper-free.hxml"]);
+const helperFreeTopLevel = readFileSync(path.join(outputRoot,
+  "classic-helper-free/module_functions/TopLevel.js"), "utf8");
+ok(!helperFreeTopLevel.includes("genes/Register"),
+  "a direct identity module without a helper feature keeps idiomatic imports");
+ok(!helperFreeTopLevel.includes("$global"),
+  "a build without js.Lib.global emits no global compatibility prelude");
+
 runGeneratedTypeScriptMatrix("tests/module-functions/tsconfig.json");
 
 assertImplementationShape("classic/module_functions/Selected.js");
@@ -573,6 +619,23 @@ for (const relative of [
   "tsx/src-gen/module_functions/TopLevelMixed.tsx"
 ]) {
   assertTopLevelMixedImplementationShape(relative);
+}
+for (const relative of [
+  "classic/module_functions/TopLevelCollisionConsumer.js",
+  "ts/src-gen/module_functions/TopLevelCollisionConsumer.ts",
+  "tsx/src-gen/module_functions/TopLevelCollisionConsumer.tsx"
+]) {
+  assertTopLevelCollisionImplementationShape(relative);
+}
+for (const relative of [
+  "classic/index.js",
+  "ts/src-gen/index.ts",
+  "tsx/src-gen/index.tsx"
+]) {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes(
+    'export {exposedTopLevel} from "./module_functions/TopLevelExposed.js"'),
+    `${relative} honors explicit @:expose on a direct module-level function`);
 }
 for (const relative of [
   "classic/module_functions/Main.js",
@@ -669,6 +732,8 @@ strictEqual(runtime.subclassInitialized, 22,
   "a subclass initializer observes its base owner's installed function");
 deepStrictEqual(topLevelDependencyRuntimeEvidence(), [7, 3],
   "direct helper imports and mixed direct/ordinary module imports execute");
+deepStrictEqual(topLevelPublicRuntimeEvidence(), ["local:source", "exposed"],
+  "collision-safe imports and explicit root exposure preserve runtime identity");
 
 const classicDeclaration = readFileSync(path.join(outputRoot,
   "classic/module_functions/Selected.d.ts"), "utf8");
@@ -686,6 +751,9 @@ const classicRootDeclaration = readFileSync(path.join(outputRoot,
 ok(classicRootDeclaration.includes(
   'export {publicIdentity} from "./module_functions/Selected.js"'),
   "classic root declarations re-export the stable public binding");
+ok(classicRootDeclaration.includes(
+  'export {exposedTopLevel} from "./module_functions/TopLevelExposed.js"'),
+  "classic root declarations honor explicit exposure on a direct module field");
 const classicTopLevelDeclaration = readFileSync(path.join(outputRoot,
   "classic/module_functions/TopLevel.d.ts"), "utf8");
 ok(classicTopLevelDeclaration.includes(
@@ -706,6 +774,9 @@ const tsRootDeclaration = readFileSync(path.join(outputRoot,
 ok(tsRootDeclaration.includes(
   'export { publicIdentity } from "./module_functions/Selected.js"'),
   "tsc root declarations re-export the stable public binding");
+ok(tsRootDeclaration.includes(
+  'export { exposedTopLevel } from "./module_functions/TopLevelExposed.js"'),
+  "tsc root declarations honor explicit exposure on a direct module field");
 const tsTopLevelDeclaration = readFileSync(path.join(outputRoot,
   "ts/dist/out/ts/src-gen/module_functions/TopLevel.d.ts"), "utf8");
 ok(tsTopLevelDeclaration.includes(

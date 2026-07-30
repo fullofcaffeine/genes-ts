@@ -19,16 +19,18 @@ class ModuleFunctionEntry {
   public final requestedPos: Position;
   public final classPropertyName: String;
   public final publicExportName: Null<String>;
+  public final hasExplicitPublicExport: Bool;
 
   public function new(owner: ClassType, field: Field, requestedName: String,
       requestedPos: Position, classPropertyName: String,
-      publicExportName: Null<String>) {
+      publicExportName: Null<String>, hasExplicitPublicExport: Bool) {
     this.owner = owner;
     this.field = field;
     this.requestedName = requestedName;
     this.requestedPos = requestedPos;
     this.classPropertyName = classPropertyName;
     this.publicExportName = publicExportName;
+    this.hasExplicitPublicExport = hasExplicitPublicExport;
   }
 }
 
@@ -230,7 +232,8 @@ class ModuleFunctionPlan {
    * therefore remain module-local; different modules may own the same binding.
    */
   public function rootPublicEntries(): Array<ModuleFunctionEntry> {
-    return publicEntries().filter(entry -> !isModuleFieldsOwner(entry.owner));
+    return publicEntries().filter(entry -> !isModuleFieldsOwner(entry.owner)
+      || entry.hasExplicitPublicExport);
   }
 
   static function parseAndValidate(owner: ClassType, field: Field,
@@ -270,11 +273,14 @@ class ModuleFunctionPlan {
     }
     final publicExportName = parsePublicExport(owner, field, exposeMetadata);
     if (publicExportName != null && publicExportName != requestedName) {
-      CompilerDiagnostic.fail('GENES-MODULE-FUNCTION-EXPOSE-NAME-016: @:expose on '
-        + '${owner.name}.${field.name} requests "${publicExportName}", but '
-        + '@:genes.moduleFunction requests "${requestedName}"; v1 requires '
-        + 'one exact name for the local and public ESM binding',
-        exposeMetadata[0].pos);
+      final mismatchDescription = exposeMetadata.length > 0 ? '@:expose on ${owner.name}.${field.name} requests "${publicExportName}"' : 'the public module-level function ${owner.name}.${field.name} '
+        + 'already exports as "${publicExportName}"';
+      CompilerDiagnostic.fail('GENES-MODULE-FUNCTION-EXPOSE-NAME-016: '
+        + mismatchDescription
+        + ', but @:genes.moduleFunction requests '
+        + '"${requestedName}"; v1 requires one exact name for the local and '
+        + 'public ESM binding',
+        exposeMetadata.length > 0 ? exposeMetadata[0].pos : parameter.pos);
     }
 
     validateShape(owner, field, requestedName);
@@ -321,7 +327,7 @@ class ModuleFunctionPlan {
     }
 
     return new ModuleFunctionEntry(owner, field, requestedName, parameter.pos,
-      classPropertyName, publicExportName);
+      classPropertyName, publicExportName, exposeMetadata.length > 0);
   }
 
   static function parsePublicExport(owner: ClassType, field: Field,
