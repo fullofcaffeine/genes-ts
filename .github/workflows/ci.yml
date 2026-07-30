@@ -253,8 +253,18 @@ jobs:
 
   genes-ts:
     name: genes-ts (TS output + todoapp E2E)
+    needs: genes-test-plan-and-smoke
+    # This check is protected by branch rules. It must still report a failure
+    # when its preflight fails, because GitHub treats a dependency-skipped
+    # required job as successful.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
+      - name: Require the test plan and official Haxe smoke
+        if: ${{ needs.genes-test-plan-and-smoke.result != 'success' }}
+        run: |
+          echo "The test-plan and official-Haxe smoke job did not pass."
+          exit 1
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0

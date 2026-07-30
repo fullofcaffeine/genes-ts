@@ -491,8 +491,13 @@ function main(): void {
   const releaseStart = ci.indexOf("\n  release:");
   assert(releaseStart >= 0, "CI workflow is missing the release job");
   const releaseJob = ci.slice(releaseStart);
-  assert(!requiredGenesJob.includes("needs: genes-test-plan-and-smoke"),
-    "The required genes-ts check must still run when the separate preflight fails");
+  assert(requiredGenesJob.includes("needs: genes-test-plan-and-smoke"),
+    "The required genes-ts check must depend on the claim-bearing preflight");
+  assert(requiredGenesJob.includes("if: ${{ !cancelled() }}"),
+    "The required genes-ts check must report when its preflight fails");
+  assert(requiredGenesJob.includes(
+    "needs.genes-test-plan-and-smoke.result != 'success'"
+  ), "The required genes-ts check must fail for a bad preflight result");
   assert(planSmokeJob.includes("- run: yarn test:agent-test-routing"),
     "The plan/smoke sentinel must run routing drift validation");
   assert(releaseJob.includes("- genes-test-plan-and-smoke"),

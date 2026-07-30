@@ -184,7 +184,14 @@ function main(): void {
   const compatibilityClaim = explain("docs/COMPATIBILITY_REPORT.md");
   assert(!compatibilityClaim.docsOnly,
     "Generated compatibility claims must not use the ordinary docs-only path");
-  requires(compatibilityClaim, "test-plan-validation", "full-ci");
+  requires(compatibilityClaim,
+    "compatibility-inventory",
+    "test-plan-validation",
+    "full-ci");
+  assert(compatibilityClaim.selected
+    .find((entry) => entry.id === "compatibility-inventory")
+    ?.reasons.some((reason) => reason.includes(" -> declared owner ")),
+  "Generated compatibility reports do not select their focused checker owner");
 
   for (const policyPath of [".audit/genes-brxy.tsv", ".gitignore"]) {
     const policy = explain(policyPath);

@@ -2056,7 +2056,9 @@
         "scripts/compatibility-report.ts",
         "scripts/test-downstream-runner-policy.ts",
         "scripts/test-downstream-contracts.ts",
-        "tests/compatibility/evidence.json"
+        "tests/compatibility/evidence.json",
+        "docs/COMPATIBILITY_REPORT.json",
+        "docs/COMPATIBILITY_REPORT.md"
       ],
       "proves": "The deterministic Genes evidence inventory and its bounded claims match tracked fixtures and metrics.",
       "doesNotProve": "The inventory is not a run-local result and is not official Haxe-suite evidence.",
@@ -2064,7 +2066,9 @@
         "scripts/compatibility-report.ts",
         "scripts/test-downstream-runner-policy.ts",
         "scripts/test-downstream-contracts.ts",
-        "tests/compatibility/evidence.json"
+        "tests/compatibility/evidence.json",
+        "docs/COMPATIBILITY_REPORT.json",
+        "docs/COMPATIBILITY_REPORT.md"
       ],
       "families": [
         "policy"
