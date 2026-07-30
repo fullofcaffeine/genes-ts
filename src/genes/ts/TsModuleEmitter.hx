@@ -221,6 +221,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   public function emitTsModule(module: Module, importExtension: Null<String>) {
     final endTimer = timer('emitTsModule');
     moduleFunctionPlan = module.moduleFunctionPlan;
+    moduleValuePlan = module.moduleValuePlan;
     jsxEmitTsx = genes.Genes.outExtension == '.tsx';
     configureLowering(module, TypeScriptReadable, jsxEmitTsx);
     configureTemplateLiterals(module.templateLiteralPlan);
@@ -307,8 +308,8 @@ class TsModuleEmitter extends JsModuleEmitter {
         case MClass(cl, _, fields):
           final emittableFields = Module.emittableFields(fields);
           emitTsModuleFunctions(cl);
-          if (moduleFunctionPlan != null
-            && moduleFunctionPlan.canOmitSyntheticOwner(cl, emittableFields))
+          emitTsModuleValues(cl);
+          if (DirectModuleBinding.canOmitSyntheticOwner(cl, emittableFields))
             continue;
           final endClassTimer = timer('emitClass');
           emitTsClass(module.isCyclic, cl, emittableFields,
@@ -1171,6 +1172,9 @@ class TsModuleEmitter extends JsModuleEmitter {
     for (field in fields) {
       switch field.kind {
         case Property:
+          if (moduleValuePlan != null
+            && moduleValuePlan.entryFor(cl, field) != null)
+            continue;
           if (isSyntheticAbstractReceiverProperty(cl, field))
             continue;
           currentCallableSignature = null;
@@ -1579,6 +1583,27 @@ class TsModuleEmitter extends JsModuleEmitter {
       }
     }
     currentCallableSignature = null;
+    currentClass = previousClass;
+  }
+
+  /** Emits selected immutable values as typed direct ESM `const` bindings. */
+  function emitTsModuleValues(cl: ClassType): Void {
+    if (moduleValuePlan == null)
+      return;
+    final previousClass = currentClass;
+    currentClass = cl;
+    for (entry in moduleValuePlan.entriesFor(cl)) {
+      writeNewline();
+      emitComment(entry.field.doc);
+      emitPos(entry.field.pos);
+      write('export const ');
+      write(entry.requestedName);
+      write(': ');
+      emitFieldTsType(entry.field);
+      write(' = ');
+      emitValueWithExpectedType(entry.field.type, entry.field.expr);
+      write(';');
+    }
     currentClass = previousClass;
   }
 

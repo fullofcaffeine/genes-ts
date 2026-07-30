@@ -1,12 +1,20 @@
-# Module-function lowering fixture
+# Direct module-binding fixture
 
 This fixture proves the framework-neutral `@:genes.moduleFunction("name")`
-compiler capability in classic JavaScript, TypeScript, and TSX output.
+and `@:genes.moduleValue("name")` compiler capabilities in classic JavaScript,
+TypeScript, and TSX output.
 
 It covers both supported ownership shapes: class static methods retain their
 existing `Owner.field` identity through a descriptor seed, while genuine Haxe
 module-level functions emit and import as direct ESM functions without a
 synthetic `_Fields_` class or registration machinery.
+
+Selected immutable module-level values emit as direct typed ESM `const`
+bindings. The fixture pairs a value with a selected function on one synthetic
+owner, imports same-named values from two source modules through collision-safe
+aliases, verifies exact declaration and source-map output, and proves that the
+metadata itself does not create a DCE root. Mutable, class-owned, mixed-owner,
+cyclic, malformed, and renamed shapes fail before transactional publication.
 
 The metadata moves one supported public static Haxe method body to an
 unexported, genuine ES-module function. Genes leaves a compiler-owned method
@@ -35,5 +43,7 @@ directly. Keep that connection when reorganizing aggregate test scripts: the
 general compiler suites do not independently reproduce every diagnostic,
 descriptor, and source-map boundary checked here.
 
-See [`docs/MODULE_FUNCTIONS.md`](../../docs/MODULE_FUNCTIONS.md) for the public
-contract, positive and negative examples, and intentionally deferred shapes.
+See [`docs/MODULE_FUNCTIONS.md`](../../docs/MODULE_FUNCTIONS.md) and
+[`docs/MODULE_VALUES.md`](../../docs/MODULE_VALUES.md) for the public
+contracts, exact Haxe/TypeScript/JavaScript examples, negative controls, and
+intentionally deferred shapes.

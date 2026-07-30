@@ -1,0 +1,197 @@
+# Direct module values
+
+`@:genes.moduleValue("name")` is a framework-neutral output-shape capability
+for immutable Haxe module-level values. It emits the selected value as an
+ordinary ESM `const` in both Genes output profiles, while Haxe remains the
+authoritative typechecker.
+
+Use it when a JavaScript/TypeScript consumer, source analyzer, host convention,
+or code reviewer needs the value to exist directly at module scope. Genes does
+not attach meaning to the value. React hosts, Gutenberg, Next.js, build tools,
+and other consumers can layer their own conventions over the same generic ESM
+mechanism.
+
+## Haxe, TypeScript, and JavaScript
+
+This Haxe module declares one closed type, one direct value, and one direct
+function:
+
+```haxe
+package catalog;
+
+typedef CatalogMetadata = {
+	final title:String;
+	final tags:Array<String>;
+}
+
+@:genes.moduleValue("metadata")
+final metadata:CatalogMetadata = {
+	title: "Products",
+	tags: ["typed", "esm"]
+};
+
+@:genes.moduleFunction("identity")
+function identity<T>(value:T):T {
+	return value;
+}
+```
+
+With `-D genes.ts`, Genes emits direct typed source:
+
+```ts
+export type CatalogMetadata = {
+  tags: string[];
+  title: string;
+};
+
+export function identity<T>(value: T): T {
+  return value;
+}
+
+export const metadata: CatalogMetadata = {
+  "title": "Products",
+  "tags": ["typed", "esm"]
+};
+```
+
+Classic output emits the same runtime module shape without TypeScript syntax:
+
+```js
+export function identity(value) {
+  return value;
+}
+
+export const metadata = {
+  "title": "Products",
+  "tags": ["typed", "esm"]
+};
+```
+
+The generated module contains no `_Fields_` class, registration import,
+descriptor seed, wrapper, or assignment. Classic `.d.ts` output still exposes
+the exact Haxe type:
+
+```ts
+export const metadata: CatalogMetadata;
+export const identity: <T>(value: T) => T;
+```
+
+## Why the annotation is explicit
+
+Ordinary Haxe module fields retain Genes' established synthetic-owner output.
+The annotation is an explicit request to change that representation into a
+native ESM binding. This keeps output-shape decisions local and reviewable
+instead of silently changing every Haxe program.
+
+The string must equal the public Haxe field name. Although that may look
+redundant, it gives compiler macros a stable, literal contract and lets Genes
+reject accidental renames rather than inventing aliases. The name must be one
+non-reserved ASCII ESM identifier.
+
+## Imports and module-local identity
+
+Haxe callers import the source value normally:
+
+```haxe
+import catalog.Catalog.metadata;
+
+final title = metadata.title;
+```
+
+Genes emits a direct named import:
+
+```ts
+import {metadata} from "./Catalog.js";
+
+const title = metadata.title;
+```
+
+Separate source modules may each export a value called `metadata`. Genes uses
+its normal collision-safe import allocator:
+
+```ts
+import {metadata} from "./Catalog.js";
+import {metadata as metadata__1} from "./Blog.js";
+```
+
+Functions selected with `@:genes.moduleFunction` and values selected with
+`@:genes.moduleValue` share one ESM binding namespace. A value cannot hide an
+import, type, compiler temporary, selected function, or another local binding.
+Collisions fail at the Haxe metadata position before output is published.
+
+## Supported initial contract
+
+The first released shape deliberately accepts only:
+
+- a genuine Haxe module-level `final`, represented by Haxe's compiler-synthetic
+  `KModuleFields` owner;
+- one retained initializer and a public static property shape;
+- an exact requested name equal to the Haxe field name;
+- a non-cyclic module;
+- a synthetic owner whose other retained fields are also selected direct
+  module functions or direct module values.
+
+Named classes, enums, abstracts, and typedefs in the same `.hx` file are
+separate owners and remain supported. The “all retained fields” rule applies
+only to the compiler-synthetic owner for top-level functions and values.
+
+The narrow rule protects initializer order. Genes can remove the synthetic
+owner only when no ordinary top-level initializer or method still depends on
+its class-shaped lifecycle. A cyclic value remains on the established deferred
+static path rather than being changed into an ESM temporal-dead-zone failure.
+Move ordinary helpers to another Haxe module or opt eligible top-level
+functions into `@:genes.moduleFunction`.
+
+Class static fields are intentionally rejected:
+
+```haxe
+class Configuration {
+	@:genes.moduleValue("metadata")
+	public static final metadata = {title: "Products"};
+}
+```
+
+`Configuration.metadata` has meaningful class identity. Moving it to module
+scope would be a different contract from lowering a compiler-only
+`KModuleFields` owner. Keep the class field or expose a genuine module-level
+value.
+
+Mutable values are also rejected:
+
+```haxe
+@:genes.moduleValue("metadata")
+var metadata = {title: "Products"};
+```
+
+An ESM import cannot reassign an exported `const`, so accepting a mutable Haxe
+binding would make Haxe and native callers observe different update semantics.
+
+## DCE, declarations, and source maps
+
+The metadata is not a DCE root. If Haxe removes the value, Genes emits no
+binding, reserves no name, imports no dependency, and creates no module.
+Framework macros that require a convention value to survive must retain it
+through their normal typed/DCE contract; `@:genes.moduleValue` does not guess
+that policy.
+
+Both TypeScript source and classic `.d.ts` retain the closed Haxe type. The
+binding and every initializer expression keep their Haxe source-map
+provenance. Validation occurs before transactional publication, so a bad
+marker, unsupported shape, collision, or cycle leaves the previous output tree
+byte-for-byte intact.
+
+## Verification
+
+Run:
+
+```sh
+yarn test:module-functions
+```
+
+The shared direct-binding fixture covers TypeScript, TSX, classic JavaScript,
+classic declarations, TS 5/6/7, same-named cross-module imports, exact runtime
+values, deterministic output, source maps, DCE neutrality, cycles, diagnostics,
+and rollback. `yarn test:ci` invokes that focused owner directly.
+
+See [`MODULE_FUNCTIONS.md`](MODULE_FUNCTIONS.md) for genuine module functions
+and the distinct compatibility contract for moving a static class method body.

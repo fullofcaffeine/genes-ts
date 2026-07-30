@@ -18,6 +18,7 @@ class DefinitionEmitter extends ModuleEmitter {
   var currentCallableSignature: Null<CallableSignaturePlan> = null;
 
   public function emitDefinition(module: Module) {
+    moduleValuePlan = module.moduleValuePlan;
     final dependencies = module.declarationDependencies;
     final endTimer = timer('emitDefinition');
     ctx.typeAccessor = type -> TypeAccessor.forTypeScript(type,
@@ -240,9 +241,10 @@ class DefinitionEmitter extends ModuleEmitter {
       currentCallableSignature = field.callableSignature;
       switch field {
         case {isStatic: true, isPublic: true}:
+          final moduleValue = moduleValuePlan.entryFor(cl, field);
           emitPos(field.pos);
           write('export const ');
-          emitIdent(TypeUtil.nativeName(field.meta) ?? field.name);
+          emitIdent(moduleValue == null ? (TypeUtil.nativeName(field.meta) ?? field.name) : moduleValue.requestedName);
           write(': ');
           if (field.tsType != null)
             write(field.tsType);

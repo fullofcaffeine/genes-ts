@@ -51,6 +51,8 @@ class Invalid {
   @:overload(function(value: String): String {})
   #elseif module_function_raw_syntax
   @:genes.moduleFunction("rawSyntaxFunction")
+  #elseif module_function_non_async_await_syntax
+  @:genes.moduleFunction("nonAsyncAwaitSyntax")
   #elseif module_function_property
   @:genes.moduleFunction("propertyFunction")
   #elseif module_function_prototype
@@ -98,6 +100,8 @@ class Invalid {
 #if !module_function_property
 #if module_function_raw_syntax
 return js.Syntax.code("{0} + 1", value);
+#elseif module_function_non_async_await_syntax
+return js.Syntax.code("await {0}", value);
 #elseif module_function_import_collision
 return ImportedBinding.value();
 #elseif module_function_private_helper_collision
@@ -133,6 +137,25 @@ static function privateHelper(value: Int): Int {
 
 class Main {
   static function main(): Void {
+    #if (module_value_arity || module_value_arity_multiple
+      || module_value_nonliteral || module_value_empty
+      || module_value_identifier || module_value_public_name
+      || module_value_native_name || module_value_import_collision
+      || module_value_mutable || module_value_function || module_value_mixed
+      || module_value_dual_marker || module_value_function_collision)
+    #if module_value_import_collision
+    trace(module_function_invalid.ModuleValueInvalid.ImportedBinding);
+    #else
+    trace(module_function_invalid.ModuleValueInvalid.value);
+    #end
+    #if module_value_function_collision
+    trace(module_function_invalid.ModuleValueInvalid.ModuleValueFunctionCollision.selected());
+    #end
+    #elseif module_value_cycle
+    trace(module_function_invalid.ModuleValueCycleA.cycleA);
+    #elseif module_value_class_static
+    trace(module_function_invalid.ModuleValueInvalid.value);
+    #else
     occupiedBinding();
     #if module_function_generic_owner
     Invalid.selected(1);
@@ -142,6 +165,7 @@ class Main {
     Invalid.selected;
     #else
     Invalid.selected(1);
+    #end
     #end
   }
 }

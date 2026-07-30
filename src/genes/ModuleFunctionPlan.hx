@@ -32,7 +32,7 @@ class ModuleFunctionEntry {
   }
 }
 
-private typedef ModuleBindingFact = {
+typedef ModuleBindingFact = {
   final name: String;
   final kind: String;
   final pos: Position;
@@ -83,7 +83,7 @@ class ModuleFunctionPlan {
   final entries: Array<ModuleFunctionEntry>;
 
   /** True only for Haxe's synthetic owner of genuine module-level fields. */
-  public static function isModuleFieldsOwner(owner:ClassType):Bool {
+  public static function isModuleFieldsOwner(owner: ClassType): Bool {
     return #if (haxe_ver >= 4.2)
       owner.kind.match(KModuleFields(_));
     #else
@@ -92,18 +92,21 @@ class ModuleFunctionPlan {
   }
 
   /**
-   * Returns the requested binding from one syntactically valid marker.
+   * Returns one syntactically valid direct binding before plans are complete.
    *
-   * Dependency and expression planning need this fact before the complete
-   * per-module plan can be built. Full validation, collisions, and diagnostics
-   * remain centralized in `build`; this helper never admits an invalid marker.
+   * Expression emission historically asks this function-oriented plan about
+   * Haxe's synthetic module fields. Include the sibling module-value marker so
+   * both shapes use the same direct binding without coupling the shared
+   * expression printer to either validation plan.
    */
-  public static function requestedName(field:ClassField):Null<String> {
-    return requestedNameFromMetadata(field.meta);
+  public static function requestedName(field: ClassField): Null<String> {
+    final functionName = requestedNameFromMetadata(field.meta);
+    return
+      functionName != null ? functionName : ModuleValuePlan.requestedNameFromMetadata(field.meta);
   }
 
   /** Metadata-only form shared by normalized module-field planning. */
-  public static function requestedNameFromMetadata(meta:MetaAccess):Null<String> {
+  public static function requestedNameFromMetadata(meta: MetaAccess): Null<String> {
     final entries = meta.extract(METADATA);
     return switch entries {
       case [{params: [{expr: EConst(CString(value))}]}]
@@ -116,6 +119,23 @@ class ModuleFunctionPlan {
 
   public static function build(module: Module): ModuleFunctionPlan {
     final bindings = bindingInventory(module);
+    for (member in module.members) {
+      switch member {
+        case MClass(owner, _, fields):
+          for (field in Module.emittableFields(fields)) {
+            if (field.meta == null)
+              continue;
+            final requested = ModuleValuePlan.requestedNameFromMetadata(field.meta);
+            if (requested != null)
+              bindings.push({
+                name: requested,
+                kind: 'direct module value ${owner.name}.${field.name}',
+                pos: field.pos
+              });
+          }
+        case MEnum(_, _) | MType(_, _) | MMain(_):
+      }
+    }
     final entries: Array<ModuleFunctionEntry> = [];
     for (member in module.members) {
       switch member {
@@ -164,15 +184,11 @@ class ModuleFunctionPlan {
 
   /**
    * Whether a compiler-synthetic module-fields class has no runtime purpose
-   * after its selected functions become direct ESM declarations.
+   * after all selected functions and values become direct ESM declarations.
    */
-  public function canOmitSyntheticOwner(owner:ClassType,
-      fields:Array<Field>):Bool {
-    if (!isModuleFieldsOwner(owner))
-      return false;
-    final retained = Module.emittableFields(fields);
-    return retained.length > 0
-      && retained.filter(field -> entryFor(owner, field) == null).length == 0;
+  public function canOmitSyntheticOwner(owner: ClassType,
+      fields: Array<Field>): Bool {
+    return DirectModuleBinding.canOmitSyntheticOwner(owner, fields);
   }
 
   /** Returns every public module-function binding in deterministic plan order. */
@@ -186,7 +202,7 @@ class ModuleFunctionPlan {
    * Genuine Haxe module fields already export from their own ESM module and
    * therefore remain module-local; different modules may own the same binding.
    */
-  public function rootPublicEntries():Array<ModuleFunctionEntry> {
+  public function rootPublicEntries(): Array<ModuleFunctionEntry> {
     return publicEntries().filter(entry -> !isModuleFieldsOwner(entry.owner));
   }
 
@@ -224,6 +240,13 @@ class ModuleFunctionPlan {
         + 'by ${owner.name}.${field.name} is not a valid non-reserved ASCII '
         + 'ES-module binding; use [A-Za-z_$][A-Za-z0-9_$]*',
         parameter.pos);
+    }
+    if (field.meta.has(ModuleValuePlan.METADATA)) {
+      return
+        CompilerDiagnostic.fail('GENES-DIRECT-MODULE-BINDING-CONFLICT-001: '
+        + '${owner.name}.${field.name} cannot be both '
+        + '@:genes.moduleFunction and @:genes.moduleValue',
+        first.pos);
     }
     final publicExportName = parsePublicExport(owner, field, exposeMetadata);
     if (publicExportName != null && publicExportName != requestedName) {
@@ -268,7 +291,7 @@ class ModuleFunctionPlan {
         field.pos);
     }
 
-    final rejection = lexicalRejection(field.expr);
+    final rejection = lexicalRejection(field.expr, field.meta != null && field.meta.has(':jsAsync'));
     if (rejection != null) {
       return
         CompilerDiagnostic.fail('GENES-MODULE-FUNCTION-LEXICAL-010: ${owner.name}.${field.name} '
@@ -376,7 +399,8 @@ class ModuleFunctionPlan {
     }
   }
 
-  static function lexicalRejection(expression: TypedExpr): Null<LexicalRejection> {
+  static function lexicalRejection(expression: TypedExpr,
+      nativeAsyncOwner: Bool): Null<LexicalRejection> {
     if (expression == null)
       return null;
     var rejection: Null<LexicalRejection> = null;
@@ -390,7 +414,8 @@ class ModuleFunctionPlan {
           rejection = {reason: 'its body contains `super`', pos: current.pos};
         case TCall({expr: TField(_, FStatic(ownerRef, fieldRef))}, arguments)
           if (ownerRef.get().module == 'js.Syntax'):
-          if (!isProvenLexicallyNeutralSyntax(fieldRef.get().name, arguments))
+          if (!isProvenLexicallyNeutralSyntax(fieldRef.get().name, arguments,
+            nativeAsyncOwner))
             rejection = {
               reason: 'its body contains opaque js.Syntax target code',
               pos: current.pos
@@ -417,16 +442,19 @@ class ModuleFunctionPlan {
    * call into otherwise ordinary application code. Moving `{0} ?? null` from
    * a class method to a module function cannot change `this`, `super`,
    * `arguments`, `new.target`, or private-name resolution because the fixed
-   * template contains none of them. Haxe's typed `Array.map` uses the separate
-   * fixed `construct` intrinsic with a resolved type expression; its arguments
-   * stay inside the ordinary recursive validation.
+   * template contains none of them. Genes' typed async authoring similarly
+   * lowers `await(value)` to the fixed `await {0}` template, but only a field
+   * already carrying the typed `:jsAsync` fact may relocate that expression.
+   * Haxe's typed `Array.map` uses the separate fixed `construct` intrinsic with
+   * a resolved type expression; every admitted template argument stays inside
+   * the ordinary recursive validation.
    *
    * How: this is an exact allowlist with exact arity, not a string heuristic.
    * Every user-defined or newly introduced template remains opaque and fails
    * closed until its relocation semantics receive an explicit regression.
    */
   static function isProvenLexicallyNeutralSyntax(method: String,
-      arguments: Array<TypedExpr>): Bool {
+      arguments: Array<TypedExpr>, nativeAsyncOwner: Bool): Bool {
     return switch method {
       case 'code':
         if (arguments.length == 0) false; else {
@@ -438,6 +466,8 @@ class ModuleFunctionPlan {
             case ['undefined', 1] | ['{0}', 2] | ['({0})', 2] |
               ['{0} ?? null', 2] | ['({0}) === undefined', 2]:
               true;
+            case ['await {0}', 2]:
+              nativeAsyncOwner;
             default:
               false;
           }
@@ -456,7 +486,7 @@ class ModuleFunctionPlan {
     };
   }
 
-  static function bindingInventory(module: Module): Array<ModuleBindingFact> {
+  public static function bindingInventory(module: Module): Array<ModuleBindingFact> {
     final result: Array<ModuleBindingFact> = [];
     function add(name: String, kind: String, pos: Position): Void {
       for (existing in result)
@@ -473,8 +503,11 @@ class ModuleFunctionPlan {
           #if (haxe_ver >= 4.2)
           if (owner.kind.match(KModuleFields(_))) {
             for (field in Module.emittableFields(fields))
-              if (field.isStatic && field.isPublic
-                && (field.meta == null || !field.meta.has(METADATA)))
+              if (field.isStatic
+                && field.isPublic
+                && (field.meta == null
+                  || (!field.meta.has(METADATA)
+                    && !field.meta.has(ModuleValuePlan.METADATA))))
                 add(field.name, 'public module field ${field.name}', field.pos);
           }
           #end

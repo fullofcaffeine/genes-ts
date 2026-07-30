@@ -129,6 +129,47 @@ function assertSourceMap(profile: "classic" | "ts" | "tsx",
     `${profile} public module function maps to its Haxe method declaration`);
 }
 
+function assertModuleValueSourceMap(profile: "classic" | "ts" | "tsx",
+  extension: "js" | "ts" | "tsx"): void {
+  const generated = path.join(outputRoot, profile,
+    ...(profile === "classic" ? [] : ["src-gen"]),
+    `module_functions/TopLevel.${extension}`);
+  const source = readFileSync(generated, "utf8");
+  const haxePath = path.join(fixtureRoot,
+    "src/module_functions/TopLevel.hx");
+  const haxeSource = readFileSync(haxePath, "utf8");
+  const map = new SourceMapConsumer(JSON.parse(
+    readFileSync(`${generated}.map`, "utf8")) as RawSourceMap);
+
+  const declaration = map.originalPositionFor(
+    generatedPoint(source, "export const metadata"));
+  ok(declaration.source?.endsWith("src/module_functions/TopLevel.hx"),
+    `${profile} module value maps to TopLevel.hx`);
+  strictEqual(declaration.line,
+    sourceLine(haxeSource, "final metadata: ModuleMetadata"),
+    `${profile} module value binding maps to its Haxe declaration`);
+
+  const initializer = map.originalPositionFor(
+    generatedPoint(source, '"direct module value"'));
+  strictEqual(initializer.line,
+    sourceLine(haxeSource, 'title: "direct module value"'),
+    `${profile} module value initializer keeps its exact Haxe source line`);
+
+  const asyncDeclaration = map.originalPositionFor(
+    generatedPoint(source, "async function topLevelAsync"));
+  strictEqual(asyncDeclaration.line,
+    sourceLine(haxeSource, "function topLevelAsync"),
+    `${profile} async module function maps to its Haxe declaration`);
+
+  const awaitedValue = map.originalPositionFor(
+    generatedPoint(source, profile === "classic"
+      ? "await Promise.resolve"
+      : "await globalThis.Promise.resolve"));
+  strictEqual(awaitedValue.line,
+    sourceLine(haxeSource, "final resolved = await"),
+    `${profile} relocated await keeps its Haxe source line`);
+}
+
 function assertImplementationShape(relative: string): void {
   const source = readFileSync(path.join(outputRoot, relative), "utf8");
   const code = source.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -200,6 +241,7 @@ function assertImplementationShape(relative: string): void {
 
 function assertTopLevelImplementationShape(relative: string): void {
   const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  const sibling = relative.includes("TopLevelSibling");
   ok(source.includes(relative.endsWith(".js")
     ? "export function topLevelIdentity(value)"
     : "export function topLevelIdentity<T>(value: T): T"),
@@ -208,6 +250,30 @@ function assertTopLevelImplementationShape(relative: string): void {
     `${relative} omits the compiler-synthetic module-fields class`);
   ok(!source.includes("genes/Register"),
     `${relative} does not retain registration machinery`);
+  ok(source.includes("export const metadata")
+    && source.includes(" = {"),
+    `${relative} emits the immutable Haxe value as one direct ESM const`);
+  ok(source.includes(sibling
+    ? '"title": "sibling module value"'
+    : '"title": "direct module value"')
+    && (sibling || source.includes('"tags": ["typed", "esm"]')),
+    `${relative} preserves the closed object initializer directly`);
+  if (!sibling) {
+    ok(!source.includes("deadMetadata")
+      && !source.includes("must not reach output"),
+      `${relative} proves module-value metadata does not create a DCE root`);
+    if (relative.endsWith(".js")) {
+      ok(source.includes("export async function topLevelAsync(value)")
+        && source.includes("const resolved = await Promise.resolve(value)"),
+        `${relative} emits one direct native async/await module function`);
+    } else {
+      ok(source.includes(
+        "export async function topLevelAsync(value: number): globalThis.Promise<number>")
+        && source.includes(
+          "const resolved: number = await globalThis.Promise.resolve(value)"),
+        `${relative} emits one direct typed native async/await module function`);
+    }
+  }
 }
 
 interface RuntimeEvidence {
@@ -361,6 +427,17 @@ console.log(
     }).trim().split(/\r?\n/).at(-1) === "true";
 }
 
+function asyncModuleRuntime(): number {
+  const program = `
+import {topLevelAsync} from "./tests/module-functions/out/classic/module_functions/TopLevel.js";
+console.log(await topLevelAsync(41));`;
+  return Number(execFileSync(process.execPath,
+    ["--input-type=module", "--eval", program], {
+      cwd: repoRoot,
+      encoding: "utf8"
+    }).trim());
+}
+
 const negativeCases = [
   ["module_function_arity", "GENES-MODULE-FUNCTION-ARITY-001"],
   ["module_function_arity_multiple", "GENES-MODULE-FUNCTION-ARITY-001"],
@@ -377,6 +454,10 @@ const negativeCases = [
   ["module_function_generic_owner", "GENES-MODULE-FUNCTION-OWNER-007"],
   ["module_function_overload", "GENES-MODULE-FUNCTION-OVERLOAD-009"],
   ["module_function_raw_syntax", "GENES-MODULE-FUNCTION-LEXICAL-010"],
+  [
+    "module_function_non_async_await_syntax",
+    "GENES-MODULE-FUNCTION-LEXICAL-010"
+  ],
   ["module_function_property", "GENES-MODULE-FUNCTION-SHAPE-006"],
   ["module_function_prototype", "GENES-MODULE-FUNCTION-SHAPE-006"],
   ["module_function_duplicate_native", "GENES-MODULE-FUNCTION-SHAPE-006"],
@@ -411,7 +492,28 @@ const negativeCases = [
   [
     "module_function_expose_identifier",
     "GENES-MODULE-FUNCTION-EXPOSE-IDENTIFIER-014"
-  ]
+  ],
+  ["module_value_arity", "GENES-MODULE-VALUE-ARITY-001"],
+  ["module_value_arity_multiple", "GENES-MODULE-VALUE-ARITY-001"],
+  ["module_value_nonliteral", "GENES-MODULE-VALUE-LITERAL-002"],
+  ["module_value_empty", "GENES-MODULE-VALUE-EMPTY-003"],
+  ["module_value_identifier", "GENES-MODULE-VALUE-IDENTIFIER-004"],
+  [
+    "module_value_dual_marker",
+    "GENES-DIRECT-MODULE-BINDING-CONFLICT-001"
+  ],
+  [
+    "module_value_function_collision",
+    "GENES-MODULE-FUNCTION-COLLISION-005"
+  ],
+  ["module_value_class_static", "GENES-MODULE-VALUE-OWNER-006"],
+  ["module_value_function", "GENES-MODULE-VALUE-SHAPE-007"],
+  ["module_value_mutable", "GENES-MODULE-VALUE-MUTABLE-009"],
+  ["module_value_public_name", "GENES-MODULE-VALUE-PUBLIC-NAME-010"],
+  ["module_value_native_name", "GENES-MODULE-VALUE-NATIVE-NAME-011"],
+  ["module_value_import_collision", "GENES-MODULE-VALUE-COLLISION-012"],
+  ["module_value_mixed", "GENES-MODULE-VALUE-MIXED-OWNER-013"],
+  ["module_value_cycle", "GENES-MODULE-VALUE-CYCLE-014"]
 ] as const;
 
 function assertCompileFailure(profile: "classic" | "ts",
@@ -441,7 +543,7 @@ function assertCompileFailure(profile: "classic" | "ts",
   const diagnostics = `${result.stdout ?? ""}${result.stderr ?? ""}`;
   ok(diagnostics.includes(diagnostic),
     `${profile}/${define} reports ${diagnostic}\n${diagnostics}`);
-  ok(/module_function_invalid\/Main\.hx:\d+:/.test(diagnostics),
+  ok(/module_function_invalid\/(?:Main|ModuleValueInvalid|ModuleValueCycleA|ModuleValueCycleB)\.hx:\d+:/.test(diagnostics),
     `${profile}/${define} reports a Haxe source position\n${diagnostics}`);
   strictEqual(readFileSync(output, "utf8"), sentinel,
     `${profile}/${define} preserves prior public output`);
@@ -491,15 +593,26 @@ for (const relative of [
   "tsx/src-gen/module_functions/Main.tsx"
 ]) {
   const source = readFileSync(path.join(outputRoot, relative), "utf8");
-  ok(source.includes('import {topLevelIdentity} from "./TopLevel.js"'),
-    `${relative} imports the direct module binding`);
-  ok(source.includes(
-    'import {topLevelIdentity as topLevelIdentity__1} from "./TopLevelSibling.js"'),
+  ok(source.includes('from "./TopLevel.js"')
+    && source.includes("topLevelIdentity"),
+    `${relative} imports the direct module bindings`);
+  ok(source.includes('from "./TopLevelSibling.js"')
+    && source.includes("topLevelIdentity as topLevelIdentity__1"),
     `${relative} preserves same-named module-local ESM identity`);
+  ok(source.includes('topLevelIdentity, metadata')
+    || source.includes('topLevelIdentity,metadata')
+    || source.includes('topLevelAsync, topLevelIdentity, metadata'),
+    `${relative} imports the direct module value with its sibling function`);
+  ok(source.includes('metadata as metadata__1'),
+    `${relative} aliases the sibling module value collision safely`);
   ok(source.includes('topLevelIdentity("top-level")'),
     `${relative} calls the direct module binding`);
   ok(source.includes('topLevelIdentity__1("top-level-sibling")'),
     `${relative} calls the aliased sibling module binding`);
+  ok(source.includes('metadata.title + ":" + metadata.tags.length'),
+    `${relative} reads the direct typed module value`);
+  ok(source.includes("metadata__1.title"),
+    `${relative} reads the aliased sibling module value`);
   ok(!source.includes("TopLevel_Fields_"),
     `${relative} does not expose a synthetic owner to callers`);
 }
@@ -521,12 +634,17 @@ for (const relative of [
 assertSourceMap("classic", "js");
 assertSourceMap("ts", "ts");
 assertSourceMap("tsx", "tsx");
+assertModuleValueSourceMap("classic", "js");
+assertModuleValueSourceMap("ts", "ts");
+assertModuleValueSourceMap("tsx", "tsx");
 
 const runtime = runtimeEvidence();
 strictEqual(exactRuntimeIdentity(), true,
   "the final class property is the exact module-function object");
 strictEqual(exactPublicRuntimeIdentity(), true,
   "owner, public binding, and root re-export share one function identity");
+strictEqual(asyncModuleRuntime(), 42,
+  "the direct classic module function preserves native async/await runtime behavior");
 deepStrictEqual(runtime.descriptor, {
   configurable: true,
   enumerable: false,
@@ -585,6 +703,12 @@ const classicTopLevelDeclaration = readFileSync(path.join(outputRoot,
 ok(classicTopLevelDeclaration.includes(
   "export const topLevelIdentity: <T>(value: T) => T"),
   "classic declarations preserve the direct generic module field");
+ok(classicTopLevelDeclaration.includes(
+  "export const metadata: ModuleMetadata"),
+  "classic declarations preserve the direct typed module value");
+ok(classicTopLevelDeclaration.includes(
+  "export const topLevelAsync: (value: number) => globalThis.Promise<number>"),
+  "classic declarations preserve the direct async module function");
 const tsDeclaration = readFileSync(path.join(outputRoot,
   "ts/dist/out/ts/src-gen/module_functions/Selected.d.ts"), "utf8");
 ok(tsDeclaration.includes("static selected"));
@@ -605,6 +729,12 @@ const tsTopLevelDeclaration = readFileSync(path.join(outputRoot,
 ok(tsTopLevelDeclaration.includes(
   "export declare function topLevelIdentity<T>(value: T): T"),
   "tsc declarations preserve the direct generic module function");
+ok(tsTopLevelDeclaration.includes(
+  "export declare const metadata: ModuleMetadata"),
+  "tsc declarations preserve the direct typed module value");
+ok(tsTopLevelDeclaration.includes(
+  "export declare function topLevelAsync(value: number): globalThis.Promise<number>"),
+  "tsc declarations preserve the direct async module function");
 const tsxDeclaration = readFileSync(path.join(outputRoot,
   "ts/dist/out/tsx/src-gen/module_functions/Selected.d.ts"), "utf8");
 strictEqual(tsxDeclaration, tsDeclaration,
