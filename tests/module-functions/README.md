@@ -17,20 +17,23 @@ metadata itself does not create a DCE root. It also covers owner-only exports,
 same-module local shadowing (including source names that match generated
 suffixes), collision-safe foreign imports around local direct exports,
 expression-owned and TypeScript-only Register helpers, and the typed native
-`findIndex` helper. It also proves that a class-owned public module function is
+`findIndex` helper. The TypeScript controls include planned nullability
+boundaries, explicit field-type assignments, and generic enum `null`
+inference; classic JavaScript proves those TypeScript-only assertions do not
+add unused helpers. It also proves that a class-owned public module function is
 retained and re-exported solely by `@:expose`, without an unrelated Haxe
-runtime call, and that a TypeScript boundary assertion keeps its Register
-dependency even after a synthetic owner disappears. A separate profile build
-activates `js.Lib.global` and proves that the compiler-generated `$global`
-prologue also retains `Register`, even in a direct-only module whose own
-expressions never mention the helper. The module-initializer control proves
-that an otherwise direct owner remains present when its hidden `__init__` body
-still has side effects. Safe same-module static methods, constructors, branch
-joins, and possibly zero-iteration loops remain legal. Mutable, class-owned,
-mixed-owner, cyclic, direct, immediately-invoked, locally named, branch,
-switch, try/catch, loop-carried closure, called-closure mutation, direct
-module-function, same-module static-method, and constructor forward reads, plus
-malformed and renamed shapes, fail before transactional publication.
+runtime call. A separate profile build activates `js.Lib.global` and proves
+that the compiler-generated `$global` prologue also retains `Register`, even
+in a direct-only module whose own expressions never mention the helper. The
+module-initializer control proves that an otherwise direct owner remains
+present when its hidden `__init__` body still has side effects. Safe
+same-module static/final-instance methods, constructors, branch joins, and
+possibly zero-iteration loops remain legal. Mutable, class-owned, mixed-owner,
+cyclic, direct, immediately-invoked, locally named, branch, switch, try/catch,
+loop-carried closure, called-closure mutation, function-valued direct binding,
+callee/argument-order, direct module-function, same-module static-method,
+virtual-instance, and constructor hazards, plus malformed and renamed shapes,
+fail before transactional publication.
 
 The metadata moves one supported public static Haxe method body to an
 unexported, genuine ES-module function. Genes leaves a compiler-owned method

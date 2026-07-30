@@ -545,12 +545,24 @@ const negativeCases = [
   ["module_value_forward_read", "GENES-MODULE-VALUE-FORWARD-015"],
   ["module_value_iife_forward_read", "GENES-MODULE-VALUE-FORWARD-015"],
   [
+    "module_value_callable_value_forward_read",
+    "GENES-MODULE-VALUE-FORWARD-015"
+  ],
+  [
     "module_value_local_closure_forward_read",
+    "GENES-MODULE-VALUE-FORWARD-015"
+  ],
+  [
+    "module_value_argument_callee_forward_read",
     "GENES-MODULE-VALUE-FORWARD-015"
   ],
   [
     "module_value_reassigned_closure_forward_read",
     "GENES-MODULE-VALUE-FORWARD-015"
+  ],
+  [
+    "module_value_virtual_instance_forward_read",
+    "GENES-MODULE-VALUE-VIRTUAL-CALL-017"
   ],
   [
     "module_value_called_closure_mutation_forward_read",
@@ -751,7 +763,9 @@ for (const relative of [
   const source = readFileSync(path.join(outputRoot, relative), "utf8");
   ok(source.includes("genes/Register")
     && source.includes("Register.unsafeCast<number>(value)")
-    && source.includes("Register.unsafeCast<string>(value)"),
+    && source.includes("Register.unsafeCast<string>(value)")
+    && source.includes("Register.unsafeCast<string | number>(value)")
+    && source.includes("Register.unsafeCast<never>(null)"),
     `${relative} retains Register for every planned TypeScript-only assertion`);
   ok(!source.includes("TsRegisterHelpers_Fields_"),
     `${relative} still omits the compiler-synthetic owner`);

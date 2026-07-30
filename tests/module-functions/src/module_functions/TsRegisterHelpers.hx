@@ -1,5 +1,13 @@
 package module_functions;
 
+import module_functions.NullInference.Missing;
+
+/** A precise host-style field whose emitted TypeScript type is overridden. */
+typedef OverriddenAssignmentBox = {
+  @:ts.type("string | number")
+  var value: String;
+}
+
 /**
  * Proves a TypeScript-only assertion retains its compiler runtime dependency.
  *
@@ -25,4 +33,31 @@ function positive(value: Null<Int>): Bool {
 @:genes.moduleFunction("forceReturn")
 function forceReturn(value: Null<String>): String {
   return value;
+}
+
+/**
+ * Proves an assignment to an overridden field retains its identity helper.
+ *
+ * The Haxe field remains `String`, while the public TypeScript boundary admits
+ * a host-compatible string-or-number value. Genes therefore asserts the
+ * assignment result to that authored target type without changing runtime
+ * behavior.
+ */
+@:genes.moduleFunction("assignOverride")
+function assignOverride(target: OverriddenAssignmentBox,
+    value: String): String {
+  target.value = value;
+  return value;
+}
+
+/**
+ * Proves enum `null` inference retains Register in a direct-only TS module.
+ *
+ * TypeScript would otherwise infer the generic payload from literal `null`.
+ * The runtime value stays plain `null`; the identity assertion affects only
+ * TypeScript's inference.
+ */
+@:genes.moduleFunction("missingValue")
+function missingValue(): NullInference<Null<String>> {
+  return Missing(null);
 }

@@ -570,9 +570,28 @@ class ModuleValuePlan {
           return;
         case TCall(callee, arguments):
           visit(callee, locals, observed);
-          for (argument in arguments)
-            visit(argument, locals, observed);
           final targets = callableTargets(callee, locals);
+          final argumentTargets: Array<Array<ModuleValueCallableTarget>> = [];
+          for (argument in arguments) {
+            argumentTargets.push(callableTargets(argument, locals));
+            visit(argument, locals, observed);
+          }
+          switch unwrap(callee).expr {
+            case TField(_, FInstance(ownerRef, _, fieldRef)):
+              final targetOwner = ownerRef.get();
+              final targetField = fieldRef.get();
+              if (targetOwner.module == module.module
+                && !targetOwner.isFinal && !targetField.isFinal) {
+                CompilerDiagnostic.fail('GENES-MODULE-VALUE-VIRTUAL-CALL-017: '
+                  + '${owner.name}.${field.name} calls overridable same-module '
+                  + 'method ${targetOwner.name}.${targetField.name} during '
+                  + 'initialization; make the class or method final, defer the '
+                  + 'call until after module initialization, or keep the '
+                  + 'synthetic owner',
+                  callee.pos);
+              }
+            default:
+          }
           if (targets.length > 0) {
             final callEntry = copyLocalFunctions(locals);
             final exits: Array<Map<Int, Array<ModuleValueCallableTarget>>> = [];
@@ -582,8 +601,7 @@ class ModuleValuePlan {
               final callState = copyLocalFunctions(callEntry);
               for (index in 0...target.parameters.length) {
                 final parameter = target.parameters[index];
-                final parameterTargets = index < arguments.length ? callableTargets(arguments[index],
-                  callEntry) : [];
+                final parameterTargets = index < argumentTargets.length ? argumentTargets[index] : [];
                 assignLocal(callState, observed, parameter.id,
                   parameterTargets);
               }

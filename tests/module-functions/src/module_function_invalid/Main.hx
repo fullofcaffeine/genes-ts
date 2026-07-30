@@ -147,8 +147,11 @@ class Main {
       || module_value_function_collision
       || module_value_forward_read
       || module_value_iife_forward_read
+      || module_value_callable_value_forward_read
       || module_value_local_closure_forward_read
+      || module_value_argument_callee_forward_read
       || module_value_reassigned_closure_forward_read
+      || module_value_virtual_instance_forward_read
       || module_value_called_closure_mutation_forward_read
       || module_value_zero_iteration_closure_forward_read
       || module_value_switch_closure_forward_read
@@ -160,8 +163,11 @@ class Main {
       || module_value_constructor_forward_read)
     #if (module_value_forward_read
       || module_value_iife_forward_read
+      || module_value_callable_value_forward_read
       || module_value_local_closure_forward_read
+      || module_value_argument_callee_forward_read
       || module_value_reassigned_closure_forward_read
+      || module_value_virtual_instance_forward_read
       || module_value_called_closure_mutation_forward_read
       || module_value_zero_iteration_closure_forward_read
       || module_value_switch_closure_forward_read

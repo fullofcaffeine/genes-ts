@@ -14,6 +14,8 @@ import module_functions.LocalBindingImportCollision.foreignTitle;
 import module_functions.LocalBindingImportCollision.identityPair;
 import module_functions.TsRegisterHelpers.positive;
 import module_functions.TsRegisterHelpers.forceReturn;
+import module_functions.TsRegisterHelpers.assignOverride;
+import module_functions.TsRegisterHelpers.missingValue;
 import module_functions.TsNullHelper.nullString;
 import module_functions.ModuleInit.moduleInitValue;
 import module_functions.ModuleValueHelpers.branchCallbackValue;
@@ -63,6 +65,11 @@ class Main {
       identityPair(),
       Std.string(positive(null)),
       forceReturn("return"),
+      assignOverride({
+        value: "before"
+      },
+        "after"),
+      Std.string(missingValue()),
       Std.string(nullString()),
       moduleInitValue(),
       Std.string(staticHelperValue),

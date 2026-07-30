@@ -8,6 +8,22 @@ final first = (() -> second)();
 @:genes.moduleValue("second")
 final second = 2;
 
+#elseif module_value_callable_value_forward_read
+/**
+ * A function-valued direct module `const` remains an exact synchronous target.
+ *
+ * Merely declaring `readSecond` is safe. Calling it while the following
+ * `second` binding is still uninitialized is not.
+ */
+@:genes.moduleValue("readSecond")
+final readSecond = () -> second;
+
+@:genes.moduleValue("first")
+final first = readSecond();
+
+@:genes.moduleValue("second")
+final second = 2;
+
 #elseif module_value_local_closure_forward_read
 /**
  * Negative control: a locally named closure still runs during initialization.
@@ -16,6 +32,26 @@ final second = 2;
 final first = {
   final read = () -> second;
   read();
+};
+
+@:genes.moduleValue("second")
+final second = 2;
+
+#elseif module_value_argument_callee_forward_read
+/**
+ * JavaScript saves the callee before evaluating call arguments.
+ *
+ * `replace()` changes the local for future reads, but this call still invokes
+ * the original closure that reads the later module value.
+ */
+@:genes.moduleValue("first")
+final first = {
+  var read = (_: Int) -> second;
+  final replace = () -> {
+    read = (_: Int) -> 0;
+    return 1;
+  };
+  read(replace());
 };
 
 @:genes.moduleValue("second")
@@ -38,6 +74,40 @@ final first = {
     read = () -> 0;
   }
   read();
+};
+
+@:genes.moduleValue("second")
+final second = 2;
+
+#elseif module_value_virtual_instance_forward_read
+/**
+ * A base-typed receiver can dispatch to an overriding method at runtime.
+ *
+ * The planner cannot treat the base declaration as the sole call target while
+ * the class and method remain overridable.
+ */
+class VirtualForwardBase {
+  public function new() {}
+
+  public function readSecond(): Int {
+    return 0;
+  }
+}
+
+class VirtualForwardChild extends VirtualForwardBase {
+  public function new() {
+    super();
+  }
+
+  override public function readSecond(): Int {
+    return second;
+  }
+}
+
+@:genes.moduleValue("first")
+final first = {
+  final helper: VirtualForwardBase = new VirtualForwardChild();
+  helper.readSecond();
 };
 
 @:genes.moduleValue("second")
@@ -174,7 +244,7 @@ final second = 2;
 
 #elseif module_value_instance_method_forward_read
 /** An exact same-module instance method is also a synchronous call target. */
-class InstanceForwardHelper {
+final class InstanceForwardHelper {
   public function new() {}
 
   public function readSecond(): Int {

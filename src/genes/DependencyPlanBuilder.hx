@@ -233,8 +233,85 @@ class DependencyPlanBuilder {
     function addRegisterHelperFromExpr(expression: TypedExpr): Void {
       if (expression == null || registerHelperPos != null)
         return;
+      function unwrapExpression(expression: TypedExpr): TypedExpr {
+        var current = expression;
+        while (true) {
+          switch current.expr {
+            case TMeta(_, inner) | TParenthesis(inner) | TCast(inner, null):
+              current = inner;
+            default:
+              return current;
+          }
+        }
+        return expression;
+      }
       function typeAllowsNull(type: Type): Bool {
         return NullishContract.forType(type).haxeAllowsNull;
+      }
+      function extractStringMeta(meta: MetaAccess, name: String): Null<String> {
+        return switch meta.extract(name) {
+          case [{params: [{expr: EConst(CString(value))}]}]:
+            value;
+          default:
+            null;
+        }
+      }
+      function explicitTypeProjection(type: Type): Null<String> {
+        return switch type {
+          case TInst(_.get().meta => meta, _) |
+            TAbstract(_.get().meta => meta, _):
+            extractStringMeta(meta,
+              ':ts.type') ?? extractStringMeta(meta, ':genes.type');
+          case TLazy(resolve):
+            explicitTypeProjection(resolve());
+          case TMono(reference) if (reference.get() != null):
+            explicitTypeProjection(reference.get());
+          default:
+            null;
+        }
+      }
+      function enumNullInferenceNeedsHelper(callee: TypedExpr,
+          parameters: Array<TypedExpr>): Bool {
+        if (!Context.defined('genes.ts'))
+          return false;
+        switch unwrapExpression(callee).expr {
+          case TField(_, FEnum(_, _)):
+          default:
+            return false;
+        }
+        final arguments = switch Context.followWithAbstracts(callee.t) {
+          case TFun(arguments, _): arguments;
+          default: [];
+        }
+        for (index in 0...parameters.length) {
+          final parameter = unwrapExpression(parameters[index]);
+          if (!parameter.expr.match(TConst(TNull)))
+            continue;
+          final expected = index < arguments.length ? arguments[index].t : null;
+          if (expected != null && explicitTypeProjection(expected) == 'null')
+            continue;
+          if (expected == null || typeAllowsNull(expected))
+            return true;
+          switch expected {
+            case TMono(reference) if (reference.get() == null):
+              return true;
+            default:
+          }
+        }
+        return false;
+      }
+      function overriddenFieldType(field: FieldAccess): Null<String> {
+        final meta = switch field {
+          case FInstance(_, _, reference) | FStatic(_, reference) |
+            FAnon(reference):
+            reference.get().meta;
+          default:
+            null;
+        }
+        if (meta == null)
+          return null;
+        return extractStringMeta(meta,
+          ':ts.type') ?? extractStringMeta(meta, ':genes.type');
       }
       function isNumberLike(type: Type): Bool {
         final nonNull = NullishContract.stripHaxeNull(type);
@@ -261,6 +338,22 @@ class DependencyPlanBuilder {
               FStatic(_.get() => {module: 'js.Syntax'},
                 _.get() => {name: 'code'}))
           }, [{expr: TConst(TString("$global"))}]):
+            helperPos = current.pos;
+          case TCall(callee, parameters)
+            if (enumNullInferenceNeedsHelper(callee, parameters)):
+            // TypeScript must prevent a literal `null` from fixing an enum's
+            // generic payload parameter to `null`. The emitter uses
+            // `Register.unsafeCast<never>` for that inference-only assertion,
+            // so a direct-only module must retain Register even though classic
+            // JavaScript emits the ordinary enum call.
+            helperPos = current.pos;
+          case TBinop(OpAssign, {expr: TField(_, field)}, _)
+            if (Context.defined('genes.ts')
+              && overriddenFieldType(field) != null
+              && overriddenFieldType(field) != 'any'):
+            // An authored target-type override changes the TypeScript field
+            // contract without changing the Haxe value. Assignment emission
+            // preserves that boundary with a Register identity assertion.
             helperPos = current.pos;
           case TBinop(OpGt | OpGte | OpLt | OpLte, left, right)
             if (Context.defined('genes.ts')

@@ -248,6 +248,11 @@ JavaScript coercion semantics, while strict TypeScript needs Genes'
 `Register.unsafeCast<number>` identity assertion around the nullable operand.
 The TypeScript profile plans that runtime dependency before emission; classic
 JavaScript keeps the direct operator and does not import an unused helper.
+The same separation covers an assignment whose field has an authored
+`@:ts.type`/`@:genes.type` projection and a generic enum constructor receiving
+literal `null`: TypeScript needs an identity assertion to preserve the target
+field contract or prevent overly narrow generic inference, while classic
+JavaScript still emits the original assignment or call.
 
 Haxe may also make a runtime helper necessary at module scope rather than in a
 field body. When any retained code activates `js.Lib.global`, both

@@ -253,13 +253,29 @@ bodies use an identity-based recursion guard. Any reachable exact body that
 reads the later value reports `GENES-MODULE-VALUE-FORWARD-015` before an output
 writer opens.
 
+Call evaluation keeps JavaScript's exact order. Genes records the callable
+value before it evaluates the arguments, because `read(replace())` must still
+invoke the original `read` even when `replace()` reassigns that local. Callback
+arguments are likewise recorded when their own value is evaluated, so a later
+argument cannot retroactively change which function an earlier parameter
+receives.
+
+Instance methods require exact dispatch. A final class or final method has one
+compiler-owned body and can participate in this bounded proof. Calling an
+overridable same-module instance method during direct-value initialization is
+rejected with `GENES-MODULE-VALUE-VIRTUAL-CALL-017`: a base-typed receiver may
+invoke a subclass override, so scanning only the base declaration would be
+optimistic. Make the class or method final, or defer the call until after
+module initialization.
+
 Replacing a callback with a non-callable value clears the old callable fact,
 so a later expression cannot be judged from stale ownership. A closure that is
 only stored remains safe because creating it captures the binding without
-reading it. Safe same-module methods and constructors remain legal. This is
-intentionally bounded analysis, not general alias, dynamic-dispatch, or
-whole-program call-effect inference: unknown external/dynamic targets keep
-their ordinary Haxe semantics and are not guessed from generated names.
+reading it. Safe static methods, final instance methods/classes, and
+constructors remain legal. This is intentionally bounded analysis, not general
+alias, dynamic-dispatch, or whole-program call-effect inference: unknown
+external/dynamic targets keep their ordinary Haxe semantics and are not
+guessed from generated names.
 
 Class static fields are intentionally rejected:
 
@@ -317,7 +333,9 @@ classic declarations, TS 5/6/7, same-named cross-module imports, exact runtime
 values, same-module local/suffix shadowing, local-export/foreign-import aliases,
 owner-only exports, deterministic output, source maps, DCE neutrality, safe
 method/constructor and branch/loop controls, structured callable joins, exact
-same-module call-target forward-read/cycle diagnostics, and rollback.
+callee-before-argument evaluation, function-valued direct bindings,
+same-module call-target/virtual-dispatch forward-read diagnostics, cycles, and
+rollback.
 `yarn test:ci` invokes that focused owner directly.
 
 See [`MODULE_FUNCTIONS.md`](MODULE_FUNCTIONS.md) for genuine module functions
