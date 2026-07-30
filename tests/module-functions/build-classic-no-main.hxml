@@ -1,0 +1,8 @@
+-lib genes-ts
+-cp tests/module-functions/src
+--macro haxe.macro.Context.getModule('module_functions.TopLevelExposed')
+-js tests/module-functions/out/classic-no-main/index.js
+-D dts
+-D no-deprecation-warnings
+-D js-es=6
+-dce full

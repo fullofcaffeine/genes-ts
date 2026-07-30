@@ -239,6 +239,29 @@ is intentional: ordinary public Haxe module fields remain local to their own
 generated ESM file, while `@:expose` is an explicit request for the package's
 root public API.
 
+That root request also works in a library-only build with no `--main`. In Haxe,
+`--main` selects an application entry point; a library generator may instead
+ask a macro to type only the modules it publishes. For example:
+
+```text
+Haxe types values.Identity without an application Main
+  -> @:expose requests the public package binding
+  -> Genes emits values/Identity and the root index re-export
+```
+
+Genes therefore treats the matching `@:expose` and
+`@:genes.moduleFunction` pair as independent evidence that the root module must
+exist. It does not rely on an application `Main` importing the function:
+
+```ts
+// index.ts, even when the Haxe build has no --main
+export {identity} from "./values/Identity.js";
+```
+
+This matters for package builds because silently omitting `index.ts`,
+`index.js`, or `index.d.ts` would leave the owner file on disk but remove the
+public import path the author explicitly requested.
+
 ## Why direct module values are deferred
 
 This capability deliberately covers functions, not eagerly evaluated values.

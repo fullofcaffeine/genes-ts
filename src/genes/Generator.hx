@@ -458,18 +458,21 @@ class Generator {
   /**
    * Finds only the metadata pair needed to retain the compilation-root module.
    *
-   * This deliberately does not parse or validate either annotation. Full
-   * validation remains in ModuleFunctionPlan after template/JSX planning, so a
-   * shallow root decision cannot mask an earlier semantic diagnostic.
+   * Why: an `@:expose` request must keep the root export alive even in a
+   * library-only build with no `--main`. Haxe represents a genuine file-level
+   * function on a synthetic `KModuleFields` class, so those owners must
+   * participate in this shallow pre-DCE probe just like supported class static
+   * methods.
+   *
+   * What/How: this deliberately checks only for the two annotations and does
+   * not parse or validate either one. Full validation remains in
+   * ModuleFunctionPlan after template/JSX planning, so retaining the root
+   * cannot mask a more precise semantic diagnostic.
    */
   static function hasPublicModuleFunctionCandidate(module: Module): Bool {
     for (member in module.members) {
       switch member {
-        case MClass(owner, _, fields):
-          #if (haxe_ver >= 4.2)
-          if (owner.kind.match(KModuleFields(_)))
-            continue;
-          #end
+        case MClass(_, _, fields):
           for (field in Module.emittableFields(fields)) {
             if (field.meta != null
               && field.meta.has(':genes.moduleFunction')

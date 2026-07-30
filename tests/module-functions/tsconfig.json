@@ -16,6 +16,7 @@
   "include": [
     "consumer.ts",
     "out/ts/src-gen/**/*.ts",
+    "out/ts-no-main/src-gen/**/*.ts",
     "out/tsx/src-gen/**/*.tsx"
   ]
 }

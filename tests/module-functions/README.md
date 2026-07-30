@@ -61,6 +61,13 @@ Run the focused evidence with:
 yarn test:module-functions
 ```
 
+The focused suite also builds `TopLevelExposed.hx` without a `--main` entry
+point. That case protects library publishing: `@:expose("exposedTopLevel")`
+must create the root `index` re-export even when no application entry point
+would otherwise keep that root module alive. The harness executes the classic
+root export and checks both classic and TypeScript declarations, so a fixture
+`Main` cannot accidentally hide a missing library export.
+
 The repository's blocking `yarn test:ci` command runs this focused owner
 directly. Keep that connection when reorganizing aggregate test scripts: the
 general compiler suites do not independently reproduce every diagnostic,

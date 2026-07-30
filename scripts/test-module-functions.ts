@@ -469,6 +469,22 @@ console.log(JSON.stringify([
   return parsed;
 }
 
+function noMainPublicRuntimeEvidence(): boolean {
+  const program = `
+import {exposedTopLevel as moduleBinding} from "./tests/module-functions/out/classic-no-main/module_functions/TopLevelExposed.js";
+import {exposedTopLevel as rootBinding} from "./tests/module-functions/out/classic-no-main/index.js";
+console.log(
+  moduleBinding === rootBinding && rootBinding("library-only") === "library-only"
+  ? "true"
+  : "false"
+);`;
+  return execFileSync(process.execPath,
+    ["--input-type=module", "--eval", program], {
+      cwd: repoRoot,
+      encoding: "utf8"
+    }).trim() === "true";
+}
+
 const negativeCases = [
   ["module_value_deferred", "GENES-MODULE-VALUE-DEFERRED-001"],
   ["module_function_arity", "GENES-MODULE-FUNCTION-ARITY-001"],
@@ -581,6 +597,9 @@ run("haxe", ["tests/module-functions/build-tsx.hxml"]);
 deepStrictEqual(digestTree(path.join(outputRoot, "tsx/src-gen")), tsxDigest,
   "TSX module-function output is deterministic");
 
+run("haxe", ["tests/module-functions/build-classic-no-main.hxml"]);
+run("haxe", ["tests/module-functions/build-ts-no-main.hxml"]);
+
 run("haxe", ["tests/module-functions/build-classic-helper-free.hxml"]);
 const helperFreeTopLevel = readFileSync(path.join(outputRoot,
   "classic-helper-free/module_functions/TopLevel.js"), "utf8");
@@ -636,6 +655,15 @@ for (const relative of [
   ok(source.includes(
     'export {exposedTopLevel} from "./module_functions/TopLevelExposed.js"'),
     `${relative} honors explicit @:expose on a direct module-level function`);
+}
+for (const relative of [
+  "classic-no-main/index.js",
+  "ts-no-main/src-gen/index.ts"
+]) {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes(
+    'export {exposedTopLevel} from "./module_functions/TopLevelExposed.js"'),
+    `${relative} retains the explicit root export without a --main entry point`);
 }
 for (const relative of [
   "classic/module_functions/Main.js",
@@ -734,6 +762,8 @@ deepStrictEqual(topLevelDependencyRuntimeEvidence(), [7, 3],
   "direct helper imports and mixed direct/ordinary module imports execute");
 deepStrictEqual(topLevelPublicRuntimeEvidence(), ["local:source", "exposed"],
   "collision-safe imports and explicit root exposure preserve runtime identity");
+strictEqual(noMainPublicRuntimeEvidence(), true,
+  "a library-only build keeps the explicit root export and exact function identity");
 
 const classicDeclaration = readFileSync(path.join(outputRoot,
   "classic/module_functions/Selected.d.ts"), "utf8");
@@ -754,6 +784,11 @@ ok(classicRootDeclaration.includes(
 ok(classicRootDeclaration.includes(
   'export {exposedTopLevel} from "./module_functions/TopLevelExposed.js"'),
   "classic root declarations honor explicit exposure on a direct module field");
+const classicNoMainRootDeclaration = readFileSync(path.join(outputRoot,
+  "classic-no-main/index.d.ts"), "utf8");
+ok(classicNoMainRootDeclaration.includes(
+  'export {exposedTopLevel} from "./module_functions/TopLevelExposed.js"'),
+  "classic library-only declarations retain the explicit root export");
 const classicTopLevelDeclaration = readFileSync(path.join(outputRoot,
   "classic/module_functions/TopLevel.d.ts"), "utf8");
 ok(classicTopLevelDeclaration.includes(
@@ -777,6 +812,11 @@ ok(tsRootDeclaration.includes(
 ok(tsRootDeclaration.includes(
   'export { exposedTopLevel } from "./module_functions/TopLevelExposed.js"'),
   "tsc root declarations honor explicit exposure on a direct module field");
+const tsNoMainRootDeclaration = readFileSync(path.join(outputRoot,
+  "ts/dist/out/ts-no-main/src-gen/index.d.ts"), "utf8");
+ok(tsNoMainRootDeclaration.includes(
+  'export { exposedTopLevel } from "./module_functions/TopLevelExposed.js"'),
+  "tsc library-only declarations retain the explicit root export");
 const tsTopLevelDeclaration = readFileSync(path.join(outputRoot,
   "ts/dist/out/ts/src-gen/module_functions/TopLevel.d.ts"), "utf8");
 ok(tsTopLevelDeclaration.includes(
