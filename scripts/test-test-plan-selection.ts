@@ -8,7 +8,7 @@ interface SelectionReport {
   docsOnly: boolean;
   unknownFiles: string[];
   ambiguousFiles: Array<{file: string; rules: string[]}>;
-  selected: Array<{id: string; reasons: string[]}>;
+  selected: Array<{id: string; command: string; reasons: string[]}>;
   omitted: Array<{id: string; reason: string}>;
 }
 
@@ -57,7 +57,8 @@ function ids(result: SelectionReport): Set<string> {
 function requires(result: SelectionReport, ...expected: string[]): void {
   const selected = ids(result);
   for (const id of expected)
-    assert(selected.has(id), `Expected selection to include ${id}`);
+    assert(selected.has(id),
+      `Expected selection to include ${id}; selected ${[...selected].join(", ")}`);
   assert(result.omitted.length > 0, "Selection must explain omitted gates");
   assert(result.selected.every((entry) => entry.reasons.length > 0),
     "Every selected gate must state its rule or ownership path");
@@ -119,6 +120,31 @@ function main(): void {
     "portable-haxe-failure-propagation",
     "full-ci");
 
+  const composedRunner = explain("scripts/test-template-literals.ts");
+  requires(composedRunner, "dual-output-semantics", "full-ci");
+
+  const adapterInjection = explain(
+    "tests/portable-haxe-smoke/src/utest/Assert.hx"
+  );
+  requires(adapterInjection,
+    "portable-haxe-smoke",
+    "portable-haxe-failure-propagation",
+    "full-ci");
+  assert(adapterInjection.selected
+    .find((entry) => entry.id === "portable-haxe-failure-propagation")
+    ?.reasons.some((reason) => reason.includes(" -> declared owner ")),
+  "Adapter fault injection reaches its failure gate only as an always-run sentinel");
+
+  const agentGuide = explain("tools/ts2hx/AGENTS.md");
+  requires(agentGuide, "agent-guides", "ts2hx", "full-ci");
+
+  const browserExample = explain("examples/todoapp/e2e");
+  requires(browserExample, "examples-dual-profile-e2e");
+  assert(browserExample.selected
+    .find((entry) => entry.id === "examples-dual-profile-e2e")
+    ?.command === "yarn test:examples --playwright",
+  "Selected browser example gate omitted its declared Playwright argument");
+
   const executableOwner = explain("scripts/probe-binding-identity.ts");
   assert(!executableOwner.docsOnly,
     "An executable owner-only path must not use the docs-only fast path");
@@ -144,6 +170,16 @@ function main(): void {
   assert(!testingDocs.docsOnly,
     "Testing policy must never use the ordinary docs-only fast path");
   requires(testingDocs, "test-plan-validation", "full-ci");
+
+  for (const [executablePolicyDoc, owner] of [
+    ["docs/NULL_SAFETY.md", "null-safety-policy"],
+    ["docs/BRANCH_PROTECTION.md", "ci-protection-policy"]
+  ] as const) {
+    const policyDoc = explain(executablePolicyDoc);
+    assert(!policyDoc.docsOnly,
+      `${executablePolicyDoc} must not use the ordinary docs-only fast path`);
+    requires(policyDoc, owner, "portable-haxe-smoke");
+  }
 
   const compatibilityClaim = explain("docs/COMPATIBILITY_REPORT.md");
   assert(!compatibilityClaim.docsOnly,
@@ -176,7 +212,8 @@ function main(): void {
 
   console.log(
     "test-plan-selection:ok "
-    + "(compiler/TS/React/harness/release/docs/policy/unknown/ambiguous/merge-base)"
+    + "(compiler/TS/React/harness/release/docs/policy/owners/arguments/"
+    + "unknown/ambiguous/merge-base)"
   );
 }
 

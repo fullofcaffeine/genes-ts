@@ -330,6 +330,14 @@
       ],
       "ownerPaths": [
         "scripts/test-output-modes.ts",
+        "scripts/test-string-literals.ts",
+        "scripts/test-template-literals.ts",
+        "scripts/test-async-await-evidence.ts",
+        "scripts/test-output-quality.ts",
+        "scripts/test-output-transaction.ts",
+        "scripts/test-internal-types.ts",
+        "scripts/test-array-index-strict.ts",
+        "scripts/test-finally-completion.ts",
         "tests/output-modes/profile-ownership.json",
         "tests/output-modes/expected-trace.json"
       ],
@@ -337,6 +345,14 @@
       "doesNotProve": "A curated differential does not establish every Haxe language construct or package ecosystem shape.",
       "owners": [
         "scripts/test-output-modes.ts",
+        "scripts/test-string-literals.ts",
+        "scripts/test-template-literals.ts",
+        "scripts/test-async-await-evidence.ts",
+        "scripts/test-output-quality.ts",
+        "scripts/test-output-transaction.ts",
+        "scripts/test-internal-types.ts",
+        "scripts/test-array-index-strict.ts",
+        "scripts/test-finally-completion.ts",
         "tests/output-modes/profile-ownership.json",
         "tests/output-modes/expected-trace.json"
       ],
@@ -1783,7 +1799,7 @@
         ".tmp/test-evidence/test-plan/compiler-server.log"
       ],
       "remoteJobs": [
-        "affected-extended"
+        "genes-ts"
       ]
     },
     {
@@ -1894,12 +1910,12 @@
       "timeoutSeconds": 1800,
       "historicalDurationMs": null,
       "cacheMode": "warm-allowed",
-      "command": "yarn test:examples",
+      "command": "yarn test:examples --playwright",
       "artifacts": [
         ".tmp/test-evidence/test-plan/examples-dual-profile-e2e.log"
       ],
       "remoteJobs": [
-        "affected-extended"
+        "genes-ts"
       ]
     },
     {
@@ -1973,14 +1989,24 @@
       "ownerPaths": [
         "scripts/test-agent-guides.ts",
         "AGENTS.md",
-        "docs/README.md"
+        "src/genes/AGENTS.md",
+        "tools/ts2hx/AGENTS.md",
+        "docs/README.md",
+        "docs/TESTING_STRATEGY.md",
+        "readme.md",
+        "CONTRIBUTING.md"
       ],
       "proves": "The main contributor navigation links and selected command references remain resolvable.",
       "doesNotProve": "A structural documentation check cannot judge every explanation or execute compiler behavior.",
       "owners": [
         "scripts/test-agent-guides.ts",
         "AGENTS.md",
-        "docs/README.md"
+        "src/genes/AGENTS.md",
+        "tools/ts2hx/AGENTS.md",
+        "docs/README.md",
+        "docs/TESTING_STRATEGY.md",
+        "readme.md",
+        "CONTRIBUTING.md"
       ],
       "families": [
         "policy"
@@ -2028,12 +2054,16 @@
       ],
       "ownerPaths": [
         "scripts/compatibility-report.ts",
+        "scripts/test-downstream-runner-policy.ts",
+        "scripts/test-downstream-contracts.ts",
         "tests/compatibility/evidence.json"
       ],
       "proves": "The deterministic Genes evidence inventory and its bounded claims match tracked fixtures and metrics.",
       "doesNotProve": "The inventory is not a run-local result and is not official Haxe-suite evidence.",
       "owners": [
         "scripts/compatibility-report.ts",
+        "scripts/test-downstream-runner-policy.ts",
+        "scripts/test-downstream-contracts.ts",
         "tests/compatibility/evidence.json"
       ],
       "families": [
@@ -2107,7 +2137,7 @@
         ".tmp/test-evidence/test-plan/ts2hx.log"
       ],
       "remoteJobs": [
-        "affected-extended"
+        "genes-ts"
       ]
     },
     {
@@ -2235,12 +2265,14 @@
       ],
       "ownerPaths": [
         "scripts/test-agent-test-routing.ts",
+        "scripts/test-test-plan-selection.ts",
         "tests/testing-strategy/agent-test-routing.json"
       ],
       "proves": "The machine-readable test plan, ownership, commands, impact rules, and required CI placement remain internally consistent and fail closed.",
       "doesNotProve": "Plan validation does not execute compiler semantics or make observation-mode selection authoritative.",
       "owners": [
         "scripts/test-agent-test-routing.ts",
+        "scripts/test-test-plan-selection.ts",
         "tests/testing-strategy/agent-test-routing.json"
       ],
       "families": [
@@ -2400,13 +2432,17 @@
       ],
       "ownerPaths": [
         "scripts/test-portable-haxe-smoke-failures.ts",
-        "scripts/test-portable-haxe-smoke.ts"
+        "scripts/test-portable-haxe-smoke.ts",
+        "tests/portable-haxe-smoke/src/utest/Assert.hx",
+        "tests/portable-haxe-smoke/src/portable/PortableSmokeMain.hx"
       ],
       "proves": "Generation, JavaScript syntax, strict TypeScript, module load, assertion, runtime, timeout, and missing-test failures stay nonzero while the last-good evidence tree remains exact.",
       "doesNotProve": "Injected failures do not establish unrelated compiler semantics or every output-transaction path.",
       "owners": [
         "scripts/test-portable-haxe-smoke-failures.ts",
-        "scripts/test-portable-haxe-smoke.ts"
+        "scripts/test-portable-haxe-smoke.ts",
+        "tests/portable-haxe-smoke/src/utest/Assert.hx",
+        "tests/portable-haxe-smoke/src/portable/PortableSmokeMain.hx"
       ],
       "families": [
         "compiler",
@@ -3105,12 +3141,14 @@
       "pathPatterns": [
         "scripts/test-*",
         "scripts/prepare-test-tools.mjs",
-      "scripts/acceptance-gate-ownership.ts",
-      "tests/testing-strategy/**",
-      ".audit/**",
-      ".github/workflows/**",
+        "scripts/acceptance-gate-ownership.ts",
+        "tests/testing-strategy/**",
+        ".audit/**",
+        ".github/workflows/**",
         "docs/TESTING_STRATEGY.md",
         "AGENTS.md",
+        "src/genes/AGENTS.md",
+        "tools/ts2hx/AGENTS.md",
         "package.json",
         "config/toolchains.json"
       ],
@@ -3257,6 +3295,8 @@
         ".github/workflows/**",
         "docs/TESTING_STRATEGY.md",
         "AGENTS.md",
+        "src/genes/AGENTS.md",
+        "tools/ts2hx/AGENTS.md",
         "package.json",
         "config/toolchains.json"
       ],

@@ -14,6 +14,7 @@ type Ring = "R0" | "R1" | "R2" | "R3" | "R4" | "R5";
 interface Gate {
   id: string;
   packageScript: string;
+  arguments?: string[];
   owners: string[];
   tier: "focused" | "focused-aggregate" | "acceptance" | "full-release";
   ring: Ring;
@@ -22,6 +23,10 @@ interface Gate {
   historicalDurationMs: number | null;
   remoteJobs: string[];
   artifacts: string[];
+}
+
+function gateCommand(gate: Gate): string {
+  return ["yarn", gate.packageScript, ...(gate.arguments ?? [])].join(" ");
 }
 
 interface ImpactRule {
@@ -154,7 +159,7 @@ function select(changedFiles: string[]): {
   const unknownFiles: string[] = [];
   const ambiguousFiles: AmbiguousOwnership[] = [];
   let hasExecutableRule = false;
-  let hasOwnerOnlyExecutablePath = false;
+  let hasExecutableOwner = false;
 
   function add(id: string, reason: string): void {
     assert(gates.has(id), `Impact selection references unknown gate: ${id}`);
@@ -168,6 +173,7 @@ function select(changedFiles: string[]): {
       rule.patterns.some((pattern) => matches(pattern, file)));
     const ownerGates = plan.gates.filter((gate) =>
       gate.owners.some((owner) => matches(owner, file)));
+    if (ownerGates.length > 0) hasExecutableOwner = true;
     const executableRules = rules.filter((rule) =>
       rule.expansion !== "docs-only");
     matchedRules.push({
@@ -190,8 +196,6 @@ function select(changedFiles: string[]): {
       unknownFiles.push(file);
       continue;
     }
-    if (rules.length === 0 && ownerGates.length > 0)
-      hasOwnerOnlyExecutablePath = true;
     for (const rule of rules) {
       if (rule.expansion !== "docs-only") hasExecutableRule = true;
       for (const gate of rule.selects)
@@ -203,7 +207,7 @@ function select(changedFiles: string[]): {
 
   const docsOnly = changedFiles.length > 0
     && !hasExecutableRule
-    && !hasOwnerOnlyExecutablePath
+    && !hasExecutableOwner
     && unknownFiles.length === 0;
   if (!docsOnly) {
     for (const gate of plan.gates) {
@@ -229,7 +233,7 @@ function select(changedFiles: string[]): {
     .filter((gate) => reasons.has(gate.id))
     .map((gate) => ({
       id: gate.id,
-      command: `yarn ${gate.packageScript}`,
+      command: gateCommand(gate),
       ring: gate.ring,
       reasons: reasons.get(gate.id)!,
       historicalDurationMs: gate.historicalDurationMs,
@@ -308,10 +312,11 @@ async function runGate(entry: SelectionEntry): Promise<void> {
   mkdirSync(reportRoot, {recursive: true});
   const logPath = path.join(reportRoot, `${entry.id}.log`);
   const log = createWriteStream(logPath, {flags: "w"});
-  const packageScript = plan.gates.find((gate) => gate.id === entry.id)?.packageScript;
-  assert(packageScript !== undefined, `Missing package script for ${entry.id}`);
+  const gate = plan.gates.find((candidate) => candidate.id === entry.id);
+  assert(gate !== undefined, `Missing package script for ${entry.id}`);
+  const packageScript = gate.packageScript;
   await new Promise<void>((resolve, reject) => {
-    const child = spawn("yarn", [packageScript], {
+    const child = spawn("yarn", [packageScript, ...(gate.arguments ?? [])], {
       cwd: repoRoot,
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"]
@@ -362,7 +367,7 @@ async function main(): Promise<void> {
         `${exact.id} is not a focused owner; use yarn ${exact.packageScript} directly`);
       const entry: SelectionEntry = {
         id: exact.id,
-        command: `yarn ${exact.packageScript}`,
+        command: gateCommand(exact),
         ring: exact.ring,
         reasons: ["explicit focused gate requested"],
         historicalDurationMs: exact.historicalDurationMs,

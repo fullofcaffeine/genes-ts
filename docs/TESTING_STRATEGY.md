@@ -54,7 +54,7 @@ Use these commands:
 | Command | What it does now | What it does not yet do |
 | --- | --- | --- |
 | `yarn test:focus -- <gate-id-or-path>` | Runs one smallest matching focused owner and writes its selection and log under `.tmp/test-evidence/test-plan/`. An exact gate ID is the most predictable form. | It is not a merge gate and deliberately omits unrelated matrices. |
-| `yarn test:smoke` | Packages the current Genes checkout, compiles the same five official Haxe tests through classic JS and TypeScript, target-checks both, executes both, then proves nine failure classes stay red. | It is not the complete official Haxe suite or broad Genes acceptance. |
+| `yarn test:smoke` | Packages the current Genes checkout, compiles the same five official Haxe tests through classic JS and TypeScript, target-checks both, executes both, then proves ten failure classes stay red. | It is not the complete official Haxe suite or broad Genes acceptance. |
 | `yarn test:ci:explain` | Reports selected and omitted gates, matching rules, unknown or ambiguous paths, estimated known duration, and remote jobs without running them. | The selected plan is observation-only. |
 | `yarn test:pr` | Reproduces the plan locally. During observation it still executes `test:ci` whenever the full backstop is selected. | It does not replace the hosted required gate. |
 | `yarn test:full` | Runs the current complete local `test:ci` contract. | A local run does not prove hosted settings or release publication. |
@@ -75,8 +75,9 @@ also has executable examples for compiler, TypeScript, React/HXX, harness,
 package/release, ts2hx, ordinary documentation, unknown, and ambiguous changes.
 
 Unknown means no rule or declared owner recognizes a changed path. Ambiguous
-means more than one executable impact rule claims it. Both cases select the
-full backstop rather than guessing. For example, `src/genes/react/JSX.hx`
+means more than one executable impact rule or declared gate owner claims it.
+Both cases select the full backstop rather than guessing. For example,
+`src/genes/react/JSX.hx`
 belongs to the compiler core and React/HXX rules, so its explanation names both
 and includes `full-ci`.
 
@@ -87,7 +88,8 @@ coverage. Every non-documentation pull request still runs:
 
 - plan/provenance validation;
 - the official Haxe both-profile smoke;
-- all nine failure-propagation checks; and
+- all ten failure-propagation checks, including a silently omitted assertion
+  count; and
 - the existing required `genes-ts` full job.
 
 The selector must complete at least 30 representative pull-request/main runs

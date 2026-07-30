@@ -59,6 +59,11 @@ const validEvidence = new Set([
   "package-shape",
   "differential"
 ]);
+const validRemoteJobs = new Set([
+  "genes-test-plan-and-smoke",
+  "genes-ts",
+  "release"
+]);
 
 function assert(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -174,8 +179,9 @@ function main(): void {
     for (const runnerToken of runnerTokens)
       assert(packageCommand.includes(runnerToken),
         `${id} package script ${packageScript} no longer invokes ${runnerToken}`);
-    if (gate.arguments !== undefined)
-      stringArray(gate.arguments, `${id}.arguments`);
+    const arguments_ = gate.arguments === undefined
+      ? []
+      : stringArray(gate.arguments, `${id}.arguments`);
 
     const tier = text(gate.tier, `${id}.tier`);
     const cost = text(gate.cost, `${id}.cost`);
@@ -201,6 +207,15 @@ function main(): void {
       assert(existsSync(path.join(repoRoot, root)),
         `${id} references missing owner root: ${ownerPath}`);
     }
+    for (const runnerToken of runnerTokens) {
+      if (!runnerToken.startsWith("scripts/dist/")
+        || !runnerToken.endsWith(".js")) continue;
+      const source = runnerToken
+        .replace(/^scripts\/dist\//, "scripts/")
+        .replace(/\.js$/, ".ts");
+      assert(owners.includes(source),
+        `${id} runner ${runnerToken} is missing source owner ${source}`);
+    }
     stringArray(gate.families, `${id}.families`);
     stringArray(gate.capabilities, `${id}.capabilities`);
     assert(validRings.has(text(gate.ring, `${id}.ring`)),
@@ -217,10 +232,15 @@ function main(): void {
     `${id}.historicalDurationMs must be null or non-negative`);
     assert(validCacheModes.has(text(gate.cacheMode, `${id}.cacheMode`)),
       `${id} has an unsupported cache mode`);
-    assert(gate.command === `yarn ${packageScript}`,
+    assert(gate.command === [
+      "yarn",
+      packageScript,
+      ...arguments_
+    ].join(" "),
       `${id}.command must remain locally reproducible from its package script`);
     stringArray(gate.artifacts, `${id}.artifacts`);
-    stringArray(gate.remoteJobs, `${id}.remoteJobs`);
+    const remoteJobs = stringArray(gate.remoteJobs, `${id}.remoteJobs`);
+    enumValues(remoteJobs, validRemoteJobs, `${id}.remoteJobs`);
     text(gate.proves, `${id}.proves`);
     text(gate.doesNotProve, `${id}.doesNotProve`);
 
@@ -232,6 +252,21 @@ function main(): void {
     "The acceptance gate must retain the acceptance tier");
   assert(gatesById.get("full-ci")?.tier === "full-release",
     "The full-ci gate must retain the full-release tier");
+  const agentGuideOwners = stringArray(
+    gatesById.get("agent-guides")?.owners,
+    "agent-guides.owners"
+  );
+  for (const guide of [
+    "AGENTS.md",
+    "src/genes/AGENTS.md",
+    "tools/ts2hx/AGENTS.md",
+    "docs/README.md",
+    "docs/TESTING_STRATEGY.md",
+    "readme.md",
+    "CONTRIBUTING.md"
+  ])
+    assert(agentGuideOwners.includes(guide),
+      `agent-guides does not own validated guide: ${guide}`);
 
   const routeEntries = manifest.routes;
   assert(Array.isArray(routeEntries) && routeEntries.length > 0,
@@ -453,10 +488,15 @@ function main(): void {
     "AGENTS.md must name the routing drift check");
   const planSmokeJob = jobBlock(ci, "genes-test-plan-and-smoke", "genes-ts");
   const requiredGenesJob = jobBlock(ci, "genes-ts", "genes-ts-smoke-next-lts");
+  const releaseStart = ci.indexOf("\n  release:");
+  assert(releaseStart >= 0, "CI workflow is missing the release job");
+  const releaseJob = ci.slice(releaseStart);
   assert(!requiredGenesJob.includes("needs: genes-test-plan-and-smoke"),
     "The required genes-ts check must still run when the separate preflight fails");
   assert(planSmokeJob.includes("- run: yarn test:agent-test-routing"),
     "The plan/smoke sentinel must run routing drift validation");
+  assert(releaseJob.includes("- genes-test-plan-and-smoke"),
+    "Release publication must depend on the claim-bearing plan/smoke job");
   assert(
     String(packageScripts["test:ci"]).includes("yarn test:agent-test-routing"),
     "test:ci must run the routing drift check"

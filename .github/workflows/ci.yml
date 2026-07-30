@@ -432,6 +432,7 @@ jobs:
       - beads-worktree-safety
       - beads-pinned-client
       - codeql
+      - genes-test-plan-and-smoke
       - secrets
       - vulns
       - classic
