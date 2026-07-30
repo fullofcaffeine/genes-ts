@@ -1,0 +1,3402 @@
+{
+  "schemaVersion": 2,
+  "contract": "genes-agent-test-routing",
+  "statement": "This validated plan maps Genes changes to focused, smoke, affected, full, and release evidence. Selection is observation-only until its audited confidence window completes; the existing full gate remains required.",
+  "evidenceAxes": [
+    {
+      "id": "genes-product",
+      "meaning": "Genes-specific output, typing, runtime, declaration, source-map, transaction, interop, lifecycle, and application behavior."
+    },
+    {
+      "id": "portable-haxe",
+      "meaning": "Pinned official Haxe source compiled, target-checked, and executed through one exact Genes profile. The current evidence is a five-test smoke per profile, not the full applicable suite."
+    },
+    {
+      "id": "repository-policy",
+      "meaning": "Documentation, CI composition, security, release, and contributor-workflow contracts."
+    },
+    {
+      "id": "migration-tool",
+      "meaning": "The experimental ts2hx TypeScript-to-Haxe subset, which remains independent from Haxe-to-TS/JS compiler correctness."
+    }
+  ],
+  "gates": [
+    {
+      "id": "classic-core",
+      "packageScript": "test",
+      "runnerTokens": [
+        "haxe test.hxml",
+        "node bin/tests.js"
+      ],
+      "tier": "focused-aggregate",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "runtime"
+      ],
+      "ownerPaths": [
+        "test.hxml",
+        "tests/Run.hx"
+      ],
+      "proves": "The repository-owned classic Genes Haxe tests compile and execute under Node.",
+      "doesNotProve": "Classic success does not prove generated TypeScript typing or official upstream Haxe-suite compatibility.",
+      "owners": [
+        "test.hxml",
+        "tests/Run.hx"
+      ],
+      "families": [
+        "compiler",
+        "runtime"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "runtime"
+      ],
+      "ring": "R1",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/classic-core.log"
+      ],
+      "remoteJobs": [
+        "classic"
+      ]
+    },
+    {
+      "id": "typescript-full",
+      "packageScript": "test:genes-ts:full",
+      "runnerToken": "scripts/dist/test-genes-ts-full.js",
+      "tier": "focused-aggregate",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime"
+      ],
+      "ownerPaths": [
+        "scripts/test-genes-ts-full.ts",
+        "tests/genes-ts/full"
+      ],
+      "proves": "The full TypeScript fixture emits its reviewed source, passes strict TypeScript checks, and runs after JavaScript compilation.",
+      "doesNotProve": "One curated fixture is not a language-wide compatibility result and does not cover classic declarations.",
+      "owners": [
+        "scripts/test-genes-ts-full.ts",
+        "tests/genes-ts/full"
+      ],
+      "families": [
+        "compiler",
+        "generated-output",
+        "typescript",
+        "runtime"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime"
+      ],
+      "ring": "R1",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:genes-ts:full",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/typescript-full.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "explicit-type-arguments",
+      "packageScript": "test:explicit-type-arguments",
+      "runnerToken": "scripts/dist/test-explicit-type-arguments.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "policy"
+      ],
+      "ownerPaths": [
+        "scripts/test-explicit-type-arguments.ts",
+        "tests/explicit-type-arguments"
+      ],
+      "proves": "Explicit generic call witnesses preserve the named type arguments, diagnostics, runtime behavior, and request-local identity cases.",
+      "doesNotProve": "This boundary fixture does not establish unrelated TypeScript inference or every generic call shape.",
+      "owners": [
+        "scripts/test-explicit-type-arguments.ts",
+        "tests/explicit-type-arguments"
+      ],
+      "families": [
+        "compiler",
+        "generated-output",
+        "typescript",
+        "runtime",
+        "policy"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "policy"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:explicit-type-arguments",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/explicit-type-arguments.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "ts-narrowing",
+      "packageScript": "test:ts-narrowing",
+      "runnerToken": "scripts/dist/test-ts-narrowing.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "policy"
+      ],
+      "ownerPaths": [
+        "scripts/test-ts-narrowing.ts",
+        "tests/genes-ts/no-js-es"
+      ],
+      "proves": "The TypeScript-only narrowing plan preserves and invalidates the named local, optional-field, map, callback, and loop facts.",
+      "doesNotProve": "Narrowing evidence is TypeScript-specific and does not replace shared runtime or classic-profile checks.",
+      "owners": [
+        "scripts/test-ts-narrowing.ts",
+        "tests/genes-ts/no-js-es"
+      ],
+      "families": [
+        "compiler",
+        "generated-output",
+        "typescript",
+        "runtime",
+        "policy"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "policy"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:ts-narrowing",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/ts-narrowing.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "array-index-strict",
+      "packageScript": "test:array-index-strict",
+      "runnerToken": "scripts/dist/test-array-index-strict.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime"
+      ],
+      "ownerPaths": [
+        "scripts/test-array-index-strict.ts",
+        "tests/array-index-strict"
+      ],
+      "proves": "Selected array reads remain valid under strict unchecked-index typing while preserving the classic runtime result.",
+      "doesNotProve": "The fixture does not prove every collection API or arbitrary index access.",
+      "owners": [
+        "scripts/test-array-index-strict.ts",
+        "tests/array-index-strict"
+      ],
+      "families": [
+        "compiler",
+        "generated-output",
+        "typescript",
+        "runtime"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:array-index-strict",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/array-index-strict.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "dual-output-semantics",
+      "packageScript": "test:dual-output",
+      "runnerTokens": [
+        "scripts/dist/test-output-modes.js",
+        "scripts/dist/test-string-literals.js",
+        "scripts/dist/test-template-literals.js",
+        "scripts/dist/test-async-await-evidence.js",
+        "scripts/dist/test-output-quality.js",
+        "scripts/dist/test-output-transaction.js",
+        "scripts/dist/test-internal-types.js",
+        "scripts/dist/test-array-index-strict.js",
+        "scripts/dist/test-finally-completion.js"
+      ],
+      "tier": "focused-aggregate",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript",
+        "classic-dts"
+      ],
+      "evidence": [
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "differential",
+        "transaction",
+        "determinism"
+      ],
+      "ownerPaths": [
+        "scripts/test-output-modes.ts",
+        "scripts/test-string-literals.ts",
+        "scripts/test-template-literals.ts",
+        "scripts/test-async-await-evidence.ts",
+        "scripts/test-output-quality.ts",
+        "scripts/test-output-transaction.ts",
+        "scripts/test-internal-types.ts",
+        "scripts/test-array-index-strict.ts",
+        "scripts/test-finally-completion.ts",
+        "tests/output-modes/profile-ownership.json",
+        "tests/output-modes/expected-trace.json"
+      ],
+      "proves": "The named same-source contracts preserve reviewed behavior and output ownership across Genes profiles and their selected runtime oracles.",
+      "doesNotProve": "A curated differential does not establish every Haxe language construct or package ecosystem shape.",
+      "owners": [
+        "scripts/test-output-modes.ts",
+        "scripts/test-string-literals.ts",
+        "scripts/test-template-literals.ts",
+        "scripts/test-async-await-evidence.ts",
+        "scripts/test-output-quality.ts",
+        "scripts/test-output-transaction.ts",
+        "scripts/test-internal-types.ts",
+        "scripts/test-array-index-strict.ts",
+        "scripts/test-finally-completion.ts",
+        "tests/output-modes/profile-ownership.json",
+        "tests/output-modes/expected-trace.json"
+      ],
+      "families": [
+        "generated-output",
+        "typescript",
+        "runtime",
+        "differential",
+        "publication",
+        "determinism"
+      ],
+      "capabilities": [
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "differential",
+        "transaction",
+        "determinism"
+      ],
+      "ring": "R1",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:dual-output",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/dual-output-semantics.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "module-functions",
+      "packageScript": "test:module-functions",
+      "runnerToken": "scripts/dist/test-module-functions.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "classic-dts",
+        "typescript",
+        "tsx"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "declarations",
+        "source-map"
+      ],
+      "ownerPaths": [
+        "scripts/test-module-functions.ts",
+        "tests/module-functions"
+      ],
+      "proves": "Selected module functions preserve their Haxe API, runtime calls, declarations, DCE, profile spelling, and source positions.",
+      "doesNotProve": "The fixture does not establish every top-level value or arbitrary module initialization order.",
+      "owners": [
+        "scripts/test-module-functions.ts",
+        "tests/module-functions"
+      ],
+      "families": [
+        "compiler",
+        "generated-output",
+        "typescript",
+        "runtime",
+        "declarations",
+        "source-maps"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "declarations",
+        "source-map"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:module-functions",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/module-functions.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "reflection-class-values",
+      "packageScript": "test:reflection-class-values",
+      "runnerToken": "scripts/dist/test-reflection-class-values.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime"
+      ],
+      "ownerPaths": [
+        "scripts/test-reflection-class-values.ts",
+        "tests/reflection-class-values"
+      ],
+      "proves": "Reflection APIs keep class values typed and runnable across standard Haxe, classic Genes, and TypeScript output for the named cases.",
+      "doesNotProve": "The fixture does not cover every reflection API or arbitrary runtime metadata mutation.",
+      "owners": [
+        "scripts/test-reflection-class-values.ts",
+        "tests/reflection-class-values"
+      ],
+      "families": [
+        "compiler",
+        "generated-output",
+        "typescript",
+        "runtime"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:reflection-class-values",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/reflection-class-values.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "abstract-implementation-properties",
+      "packageScript": "test:abstract-implementation-properties",
+      "runnerToken": "scripts/dist/test-abstract-implementation-properties.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime"
+      ],
+      "ownerPaths": [
+        "scripts/test-abstract-implementation-properties.ts",
+        "tests/abstract-implementation-properties"
+      ],
+      "proves": "Abstract implementation properties retain their reviewed read, write, static, and runtime behavior in both Genes profiles.",
+      "doesNotProve": "The fixture does not generalize to every abstract conversion or property lowering.",
+      "owners": [
+        "scripts/test-abstract-implementation-properties.ts",
+        "tests/abstract-implementation-properties"
+      ],
+      "families": [
+        "compiler",
+        "generated-output",
+        "typescript",
+        "runtime"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:abstract-implementation-properties",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/abstract-implementation-properties.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "host-global-identity",
+      "packageScript": "test:host-global-identity",
+      "runnerToken": "scripts/dist/test-host-global-identity.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime"
+      ],
+      "ownerPaths": [
+        "scripts/test-host-global-identity.ts",
+        "tests/host-global-identity"
+      ],
+      "proves": "Compiler-known host globals retain their exact runtime and generated type/value identities for the named boundaries.",
+      "doesNotProve": "The fixture does not authorize arbitrary text-based host-global recognition.",
+      "owners": [
+        "scripts/test-host-global-identity.ts",
+        "tests/host-global-identity"
+      ],
+      "families": [
+        "compiler",
+        "generated-output",
+        "typescript",
+        "runtime"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:host-global-identity",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/host-global-identity.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "host-callback-boundary",
+      "packageScript": "test:host-callback-boundary",
+      "runnerToken": "scripts/dist/test-host-callback-boundary.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "policy"
+      ],
+      "ownerPaths": [
+        "scripts/test-host-callback-boundary.ts",
+        "tests/host-callback-boundary"
+      ],
+      "proves": "Typed and deliberately opaque host callback boundaries retain their reviewed parameter, return, runtime, and negative-consumer contracts.",
+      "doesNotProve": "The fixture does not infer arbitrary foreign callback behavior.",
+      "owners": [
+        "scripts/test-host-callback-boundary.ts",
+        "tests/host-callback-boundary"
+      ],
+      "families": [
+        "compiler",
+        "generated-output",
+        "typescript",
+        "runtime",
+        "policy"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "policy"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:host-callback-boundary",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/host-callback-boundary.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "runtime-guarded-binding",
+      "packageScript": "test:runtime-guarded-binding",
+      "runnerToken": "scripts/dist/test-runtime-guarded-binding.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "policy"
+      ],
+      "ownerPaths": [
+        "scripts/test-runtime-guarded-binding.ts",
+        "tests/runtime-guarded-binding"
+      ],
+      "proves": "Bindings established by the named runtime guards remain available only along the reviewed control-flow paths.",
+      "doesNotProve": "The fixture is not general alias or effect analysis.",
+      "owners": [
+        "scripts/test-runtime-guarded-binding.ts",
+        "tests/runtime-guarded-binding"
+      ],
+      "families": [
+        "compiler",
+        "generated-output",
+        "typescript",
+        "runtime",
+        "policy"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "policy"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:runtime-guarded-binding",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/runtime-guarded-binding.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "higher-order-enum-constructors",
+      "packageScript": "test:higher-order-enum-constructors",
+      "runnerToken": "scripts/dist/test-higher-order-enum-constructors.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime"
+      ],
+      "ownerPaths": [
+        "scripts/test-higher-order-enum-constructors.ts",
+        "tests/higher-order-enum-constructors"
+      ],
+      "proves": "Enum constructors used as higher-order values retain exact callable types and runtime constructor identity for the named reductions.",
+      "doesNotProve": "The fixture does not cover every higher-order function or enum representation.",
+      "owners": [
+        "scripts/test-higher-order-enum-constructors.ts",
+        "tests/higher-order-enum-constructors"
+      ],
+      "families": [
+        "compiler",
+        "generated-output",
+        "typescript",
+        "runtime"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:higher-order-enum-constructors",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/higher-order-enum-constructors.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "enum-payload-narrowing",
+      "packageScript": "test:enum-payload-narrowing",
+      "runnerToken": "scripts/dist/test-enum-payload-narrowing.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime"
+      ],
+      "ownerPaths": [
+        "scripts/test-enum-payload-narrowing.ts",
+        "tests/enum-payload-narrowing"
+      ],
+      "proves": "Enum payload reads retain their reviewed typed narrowing after erased matches, shadowing, and reduction boundaries.",
+      "doesNotProve": "The fixture does not establish every pattern-matching or generic enum shape.",
+      "owners": [
+        "scripts/test-enum-payload-narrowing.ts",
+        "tests/enum-payload-narrowing"
+      ],
+      "families": [
+        "compiler",
+        "generated-output",
+        "typescript",
+        "runtime"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:enum-payload-narrowing",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/enum-payload-narrowing.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "byte-buffer-cache",
+      "packageScript": "test:byte-buffer-cache",
+      "runnerToken": "scripts/dist/test-byte-buffer-cache.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "policy"
+      ],
+      "ownerPaths": [
+        "scripts/test-byte-buffer-cache.ts",
+        "tests/byte-buffer-cache"
+      ],
+      "proves": "The named Node Buffer host cache boundary preserves current-request identity, exact field behavior, and fail-closed negative cases.",
+      "doesNotProve": "The fixture does not establish every host cache or Node API.",
+      "owners": [
+        "scripts/test-byte-buffer-cache.ts",
+        "tests/byte-buffer-cache"
+      ],
+      "families": [
+        "compiler",
+        "generated-output",
+        "typescript",
+        "runtime",
+        "policy"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "policy"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:byte-buffer-cache",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/byte-buffer-cache.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "nullable-temp-receivers",
+      "packageScript": "test:nullable-temp-receivers",
+      "runnerToken": "scripts/dist/test-nullable-temp-receivers.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime"
+      ],
+      "ownerPaths": [
+        "scripts/test-nullable-temp-receivers.ts",
+        "tests/nullable-temp-receivers"
+      ],
+      "proves": "Nullable receiver expressions that require temporary reuse preserve one evaluation and the reviewed null behavior.",
+      "doesNotProve": "The fixture does not prove every temporary-allocation or nullish boundary.",
+      "owners": [
+        "scripts/test-nullable-temp-receivers.ts",
+        "tests/nullable-temp-receivers"
+      ],
+      "families": [
+        "compiler",
+        "generated-output",
+        "typescript",
+        "runtime"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:nullable-temp-receivers",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/nullable-temp-receivers.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "exported-surface-policy",
+      "packageScript": "test:types:exports",
+      "runnerToken": "scripts/dist/test-exported-surface-policy.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "repository-policy"
+      ],
+      "profiles": [
+        "repository"
+      ],
+      "evidence": [
+        "policy"
+      ],
+      "ownerPaths": [
+        "scripts/test-exported-surface-policy.ts",
+        "tests/typing-policy/exported-surface-boundaries.json"
+      ],
+      "proves": "The exported-surface policy rejects unowned weak shapes and accepts only reviewed boundary classifications in its synthetic positive and negative inputs.",
+      "doesNotProve": "This policy self-test does not inspect the current compiler's generated TypeScript or declarations; product fixtures and strict consumers own that evidence.",
+      "owners": [
+        "scripts/test-exported-surface-policy.ts",
+        "tests/typing-policy/exported-surface-boundaries.json"
+      ],
+      "families": [
+        "policy"
+      ],
+      "capabilities": [
+        "policy"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:types:exports",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/exported-surface-policy.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "classic-declarations",
+      "packageScript": "test:classic:dts",
+      "runnerToken": "scripts/dist/test-classic-dts.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "classic-dts"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "declarations",
+        "target-typecheck",
+        "runtime"
+      ],
+      "ownerPaths": [
+        "scripts/test-classic-dts.ts",
+        "tests/classic-dts"
+      ],
+      "proves": "Classic JavaScript and its separately planned declaration surface agree for the named strict consumers.",
+      "doesNotProve": "Declaration consumers do not replace TypeScript implementation-output checks.",
+      "owners": [
+        "scripts/test-classic-dts.ts",
+        "tests/classic-dts"
+      ],
+      "families": [
+        "compiler",
+        "declarations",
+        "typescript",
+        "runtime"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "declarations",
+        "target-typecheck",
+        "runtime"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:classic:dts",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/classic-declarations.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "package-imports",
+      "packageScript": "test:interop:module-shapes",
+      "runnerToken": "scripts/dist/test-package-shapes.js",
+      "tier": "focused-aggregate",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript",
+        "classic-dts"
+      ],
+      "evidence": [
+        "package-shape",
+        "target-typecheck",
+        "runtime",
+        "declarations"
+      ],
+      "ownerPaths": [
+        "scripts/test-package-shapes.ts",
+        "tests/genes-ts/package-shapes"
+      ],
+      "proves": "The named package exports, subpaths, CommonJS bridges, externs, and declaration-ingestion shapes work in their owned profiles.",
+      "doesNotProve": "Synthetic packages cannot certify every package.json condition or third-party declaration.",
+      "owners": [
+        "scripts/test-package-shapes.ts",
+        "tests/genes-ts/package-shapes"
+      ],
+      "families": [
+        "package",
+        "typescript",
+        "runtime",
+        "declarations"
+      ],
+      "capabilities": [
+        "package-shape",
+        "target-typecheck",
+        "runtime",
+        "declarations"
+      ],
+      "ring": "R1",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:interop:module-shapes",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/package-imports.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "binding-identity",
+      "packageScript": "test:binding-identity",
+      "runnerToken": "scripts/dist/probe-binding-identity.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "classic-dts",
+        "typescript"
+      ],
+      "evidence": [
+        "package-shape",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "declarations"
+      ],
+      "ownerPaths": [
+        "scripts/probe-binding-identity.ts",
+        "tests/genes-ts/package-shapes"
+      ],
+      "proves": "Same-named default, named, namespace, module-field, and declaration bindings retain their exact compiler-owned identities.",
+      "doesNotProve": "The identity reduction does not cover every package export condition or arbitrary macro-generated import.",
+      "owners": [
+        "scripts/probe-binding-identity.ts",
+        "tests/genes-ts/package-shapes"
+      ],
+      "families": [
+        "package",
+        "generated-output",
+        "typescript",
+        "runtime",
+        "declarations"
+      ],
+      "capabilities": [
+        "package-shape",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "declarations"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:binding-identity",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/binding-identity.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "dynamic-import-policy",
+      "packageScript": "test:dynamic-import-policy",
+      "runnerToken": "scripts/dist/test-dynamic-import-policy.js",
+      "tier": "focused",
+      "cost": "slow",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript",
+        "tsx",
+        "jsx"
+      ],
+      "evidence": [
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "source-map",
+        "compiler-server",
+        "determinism"
+      ],
+      "ownerPaths": [
+        "scripts/test-dynamic-import-policy.ts",
+        "tests/dynamic-import-policy"
+      ],
+      "proves": "Cold and warm profile switches retain the exact reviewed dynamic-import runtime suffix and authored source position.",
+      "doesNotProve": "This suffix fixture does not replace whole-compiler lifecycle or ordinary static-import planning.",
+      "owners": [
+        "scripts/test-dynamic-import-policy.ts",
+        "tests/dynamic-import-policy"
+      ],
+      "families": [
+        "generated-output",
+        "typescript",
+        "runtime",
+        "source-maps",
+        "compiler-server",
+        "determinism"
+      ],
+      "capabilities": [
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "source-map",
+        "compiler-server",
+        "determinism"
+      ],
+      "ring": "R0",
+      "size": "large",
+      "alwaysRun": false,
+      "timeoutSeconds": 1800,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:dynamic-import-policy",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/dynamic-import-policy.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "side-effect-imports",
+      "packageScript": "test:side-effect-import:evidence",
+      "runnerToken": "scripts/dist/test-side-effect-import-evidence.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "package-shape"
+      ],
+      "ownerPaths": [
+        "scripts/test-side-effect-import-evidence.ts",
+        "tests/side-effect-import"
+      ],
+      "proves": "The named side-effect, bound-import, attribute, request-order, and once-only initialization cases retain their reviewed semantics.",
+      "doesNotProve": "The fixture does not certify arbitrary loaders, bundlers, or package export conditions.",
+      "owners": [
+        "scripts/test-side-effect-import-evidence.ts",
+        "tests/side-effect-import"
+      ],
+      "families": [
+        "generated-output",
+        "typescript",
+        "runtime",
+        "package"
+      ],
+      "capabilities": [
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "package-shape"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:side-effect-import:evidence",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/side-effect-imports.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "module-directives",
+      "packageScript": "test:module-directives",
+      "runnerToken": "scripts/dist/test-module-directives.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "source-map",
+        "policy"
+      ],
+      "ownerPaths": [
+        "scripts/test-module-directives.ts",
+        "tests/module-directives"
+      ],
+      "proves": "Pre-DCE module directives retain their validated literal values, ordering, profile output, diagnostics, and source positions.",
+      "doesNotProve": "Module directives do not establish import ordering or arbitrary source prologue semantics.",
+      "owners": [
+        "scripts/test-module-directives.ts",
+        "tests/module-directives"
+      ],
+      "families": [
+        "compiler",
+        "generated-output",
+        "typescript",
+        "runtime",
+        "source-maps",
+        "policy"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "source-map",
+        "policy"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:module-directives",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/module-directives.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "hxx-tsx",
+      "packageScript": "test:genes-ts:tsx",
+      "runnerToken": "scripts/dist/test-genes-tsx.js",
+      "tier": "focused-aggregate",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "tsx",
+        "jsx",
+        "typescript",
+        "classic-esm"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime"
+      ],
+      "ownerPaths": [
+        "scripts/test-genes-tsx.ts",
+        "tests/genes-ts/snapshot/react"
+      ],
+      "proves": "The shared checked HXX plan produces the reviewed source-preserving and createElement profiles for the named fixtures.",
+      "doesNotProve": "TSX snapshots alone do not prove browser behavior or every React ecosystem contract.",
+      "owners": [
+        "scripts/test-genes-tsx.ts",
+        "tests/genes-ts/snapshot/react"
+      ],
+      "families": [
+        "compiler",
+        "generated-output",
+        "typescript",
+        "runtime"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime"
+      ],
+      "ring": "R1",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:genes-ts:tsx",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/hxx-tsx.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "hxx-carrier-immutability",
+      "packageScript": "test:hxx-carrier-immutability",
+      "runnerToken": "scripts/dist/test-hxx-carrier-immutability.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "policy"
+      ],
+      "ownerPaths": [
+        "scripts/test-hxx-carrier-immutability.ts",
+        "tests/hxx-carrier-immutability"
+      ],
+      "proves": "HXX props and child carriers preserve their typed immutable boundary and reject the named invalid mutation shapes.",
+      "doesNotProve": "Carrier immutability does not cover every component or source-preserving JSX optimization.",
+      "owners": [
+        "scripts/test-hxx-carrier-immutability.ts",
+        "tests/hxx-carrier-immutability"
+      ],
+      "families": [
+        "compiler",
+        "generated-output",
+        "typescript",
+        "runtime",
+        "policy"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "policy"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:hxx-carrier-immutability",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/hxx-carrier-immutability.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "hxx-event-variance",
+      "packageScript": "test:hxx-event-variance",
+      "runnerToken": "scripts/dist/test-hxx-event-variance.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "policy"
+      ],
+      "ownerPaths": [
+        "scripts/test-hxx-event-variance.ts",
+        "tests/hxx-event-variance"
+      ],
+      "proves": "HXX event handlers retain the reviewed safe variance rules and source-spanned invalid-handler diagnostics.",
+      "doesNotProve": "The variance fixture does not cover every framework event model or DOM runtime behavior.",
+      "owners": [
+        "scripts/test-hxx-event-variance.ts",
+        "tests/hxx-event-variance"
+      ],
+      "families": [
+        "compiler",
+        "generated-output",
+        "typescript",
+        "runtime",
+        "policy"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "policy"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:hxx-event-variance",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/hxx-event-variance.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "react-hooks",
+      "packageScript": "test:react-hooks",
+      "runnerToken": "scripts/dist/test-react-hooks.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript",
+        "tsx"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "source-map",
+        "policy"
+      ],
+      "ownerPaths": [
+        "scripts/test-react-hooks.ts",
+        "tests/react-hooks"
+      ],
+      "proves": "The named React hook semantics, analyzer rules, placement diagnostics, snapshots, and profile outputs remain aligned.",
+      "doesNotProve": "Hook fixtures do not establish every React library or browser integration.",
+      "owners": [
+        "scripts/test-react-hooks.ts",
+        "tests/react-hooks"
+      ],
+      "families": [
+        "compiler",
+        "generated-output",
+        "typescript",
+        "runtime",
+        "source-maps",
+        "policy"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "source-map",
+        "policy"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:react-hooks",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/react-hooks.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "react-flight",
+      "packageScript": "test:react-flight",
+      "runnerToken": "scripts/dist/test-react-flight.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "policy"
+      ],
+      "ownerPaths": [
+        "scripts/test-react-flight.ts",
+        "tests/react-flight"
+      ],
+      "proves": "The versioned React Flight value algebra, host extension seam, native identities, and named negative cases remain validated.",
+      "doesNotProve": "This compiler boundary is not an end-to-end React Server Components deployment test.",
+      "owners": [
+        "scripts/test-react-flight.ts",
+        "tests/react-flight"
+      ],
+      "families": [
+        "compiler",
+        "generated-output",
+        "typescript",
+        "runtime",
+        "policy"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "policy"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:react-flight",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/react-flight.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "source-maps",
+      "packageScript": "test:genes-ts:sourcemaps",
+      "runnerToken": "scripts/dist/test-genes-ts-sourcemaps.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "typescript",
+        "tsx"
+      ],
+      "evidence": [
+        "source-map",
+        "generated-source"
+      ],
+      "ownerPaths": [
+        "scripts/test-genes-ts-sourcemaps.ts",
+        "tests/genes-ts/snapshot"
+      ],
+      "proves": "Selected generated tokens map back to the reviewed Haxe source positions.",
+      "doesNotProve": "Source-map accuracy does not establish runtime or type correctness.",
+      "owners": [
+        "scripts/test-genes-ts-sourcemaps.ts",
+        "tests/genes-ts/snapshot"
+      ],
+      "families": [
+        "source-maps",
+        "generated-output"
+      ],
+      "capabilities": [
+        "source-map",
+        "generated-source"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:genes-ts:sourcemaps",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/source-maps.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "output-transaction",
+      "packageScript": "test:output-transaction",
+      "runnerToken": "scripts/dist/test-output-transaction.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "classic-dts",
+        "typescript"
+      ],
+      "evidence": [
+        "transaction",
+        "determinism"
+      ],
+      "ownerPaths": [
+        "scripts/test-output-transaction.ts",
+        "src/genes/OutputTransaction.hx"
+      ],
+      "proves": "Failed publication preserves the last-good owned tree, while successful publication removes only stale owned artifacts.",
+      "doesNotProve": "Filesystem rollback does not establish emitted-program semantics.",
+      "owners": [
+        "scripts/test-output-transaction.ts",
+        "src/genes/OutputTransaction.hx"
+      ],
+      "families": [
+        "publication",
+        "determinism"
+      ],
+      "capabilities": [
+        "transaction",
+        "determinism"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:output-transaction",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/output-transaction.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "compiler-server",
+      "packageScript": "test:compiler-server",
+      "runnerToken": "scripts/dist/test-compiler-server.js",
+      "tier": "focused-aggregate",
+      "cost": "slow",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "classic-dts",
+        "typescript",
+        "tsx"
+      ],
+      "evidence": [
+        "compiler-server",
+        "determinism",
+        "runtime",
+        "declarations",
+        "source-map",
+        "transaction"
+      ],
+      "ownerPaths": [
+        "scripts/test-compiler-server.ts",
+        "tests/compiler-server/README.md"
+      ],
+      "proves": "Stable Haxe cold and warm requests remain byte- and behavior-equivalent across the named lifecycle transitions.",
+      "doesNotProve": "Warm equivalence does not replace the focused semantic owner or make preview Haxe a blocking release lane.",
+      "owners": [
+        "scripts/test-compiler-server.ts",
+        "tests/compiler-server/README.md"
+      ],
+      "families": [
+        "compiler-server",
+        "determinism",
+        "runtime",
+        "declarations",
+        "source-maps",
+        "publication"
+      ],
+      "capabilities": [
+        "compiler-server",
+        "determinism",
+        "runtime",
+        "declarations",
+        "source-map",
+        "transaction"
+      ],
+      "ring": "R3",
+      "size": "large",
+      "alwaysRun": false,
+      "timeoutSeconds": 1800,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:compiler-server",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/compiler-server.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "output-quality",
+      "packageScript": "test:output-quality",
+      "runnerToken": "scripts/dist/test-output-quality.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "determinism",
+        "generated-source",
+        "policy"
+      ],
+      "ownerPaths": [
+        "scripts/test-output-quality.ts",
+        "tests/output-modes/profile-ownership.json"
+      ],
+      "proves": "The bounded dual-output corpus stays deterministic and within reviewed structural size and temporary/import budgets.",
+      "doesNotProve": "Structural budgets are not a wall-clock compiler or runtime benchmark.",
+      "owners": [
+        "scripts/test-output-quality.ts",
+        "tests/output-modes/profile-ownership.json"
+      ],
+      "families": [
+        "determinism",
+        "generated-output",
+        "policy"
+      ],
+      "capabilities": [
+        "determinism",
+        "generated-source",
+        "policy"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:output-quality",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/output-quality.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "examples-dual-profile-e2e",
+      "packageScript": "test:examples",
+      "runnerToken": "scripts/dist/test-examples.js",
+      "arguments": [
+        "--playwright"
+      ],
+      "tier": "focused-aggregate",
+      "cost": "slow",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "classic-dts",
+        "typescript",
+        "tsx"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "target-typecheck",
+        "runtime",
+        "browser-e2e"
+      ],
+      "ownerPaths": [
+        "scripts/test-examples.ts",
+        "scripts/qa-todoapp.ts",
+        "examples/profiles.json",
+        "examples/todoapp/e2e"
+      ],
+      "proves": "The maintained fullstack application completes its selected API and browser journeys in both output profiles.",
+      "doesNotProve": "One application is an integration pressure test, not framework-wide or language-wide compatibility.",
+      "owners": [
+        "scripts/test-examples.ts",
+        "scripts/qa-todoapp.ts",
+        "examples/profiles.json",
+        "examples/todoapp/e2e"
+      ],
+      "families": [
+        "compiler",
+        "typescript",
+        "runtime",
+        "browser"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "target-typecheck",
+        "runtime",
+        "browser-e2e"
+      ],
+      "ring": "R3",
+      "size": "large",
+      "alwaysRun": false,
+      "timeoutSeconds": 1800,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:examples --playwright",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/examples-dual-profile-e2e.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "null-safety-policy",
+      "packageScript": "test:null-safety",
+      "runnerTokens": [
+        "scripts/dist/test-null-safety-policy.js",
+        "haxe test.hxml"
+      ],
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "repository-policy",
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "policy"
+      ],
+      "ownerPaths": [
+        "scripts/test-null-safety-policy.ts",
+        "docs/NULL_SAFETY.md"
+      ],
+      "proves": "Genes implementation null checking has the reviewed package scope, macro order, and local escape inventory.",
+      "doesNotProve": "Compiler implementation null checking does not prove generated TypeScript nullability or JavaScript missing-value normalization.",
+      "owners": [
+        "scripts/test-null-safety-policy.ts",
+        "docs/NULL_SAFETY.md"
+      ],
+      "families": [
+        "compiler",
+        "policy"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "policy"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:null-safety",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/null-safety-policy.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "agent-guides",
+      "packageScript": "test:agent-guides",
+      "runnerToken": "scripts/dist/test-agent-guides.js",
+      "tier": "focused",
+      "cost": "fast",
+      "axes": [
+        "repository-policy"
+      ],
+      "profiles": [
+        "repository"
+      ],
+      "evidence": [
+        "policy"
+      ],
+      "ownerPaths": [
+        "scripts/test-agent-guides.ts",
+        "AGENTS.md",
+        "src/genes/AGENTS.md",
+        "tools/ts2hx/AGENTS.md",
+        "docs/README.md",
+        "docs/TESTING_STRATEGY.md",
+        "readme.md",
+        "CONTRIBUTING.md"
+      ],
+      "proves": "The main contributor navigation links and selected command references remain resolvable.",
+      "doesNotProve": "A structural documentation check cannot judge every explanation or execute compiler behavior.",
+      "owners": [
+        "scripts/test-agent-guides.ts",
+        "AGENTS.md",
+        "src/genes/AGENTS.md",
+        "tools/ts2hx/AGENTS.md",
+        "docs/README.md",
+        "docs/TESTING_STRATEGY.md",
+        "readme.md",
+        "CONTRIBUTING.md"
+      ],
+      "families": [
+        "policy"
+      ],
+      "capabilities": [
+        "policy"
+      ],
+      "ring": "R0",
+      "size": "small",
+      "alwaysRun": false,
+      "timeoutSeconds": 120,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:agent-guides",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/agent-guides.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "compatibility-inventory",
+      "packageScript": "test:compatibility-report",
+      "runnerTokens": [
+        "scripts/dist/compatibility-report.js",
+        "scripts/dist/test-downstream-runner-policy.js",
+        "scripts/dist/test-downstream-contracts.js"
+      ],
+      "tier": "focused-aggregate",
+      "cost": "medium",
+      "axes": [
+        "genes-product",
+        "repository-policy"
+      ],
+      "profiles": [
+        "classic-esm",
+        "classic-dts",
+        "typescript",
+        "tsx",
+        "repository"
+      ],
+      "evidence": [
+        "policy"
+      ],
+      "ownerPaths": [
+        "scripts/compatibility-report.ts",
+        "scripts/test-downstream-runner-policy.ts",
+        "scripts/test-downstream-contracts.ts",
+        "tests/compatibility/evidence.json",
+        "docs/COMPATIBILITY_REPORT.json",
+        "docs/COMPATIBILITY_REPORT.md"
+      ],
+      "proves": "The deterministic Genes evidence inventory and its bounded claims match tracked fixtures and metrics.",
+      "doesNotProve": "The inventory is not a run-local result and is not official Haxe-suite evidence.",
+      "owners": [
+        "scripts/compatibility-report.ts",
+        "scripts/test-downstream-runner-policy.ts",
+        "scripts/test-downstream-contracts.ts",
+        "tests/compatibility/evidence.json",
+        "docs/COMPATIBILITY_REPORT.json",
+        "docs/COMPATIBILITY_REPORT.md"
+      ],
+      "families": [
+        "policy"
+      ],
+      "capabilities": [
+        "policy"
+      ],
+      "ring": "R1",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:compatibility-report",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/compatibility-inventory.log"
+      ],
+      "remoteJobs": [
+        "genes-test-plan-and-smoke"
+      ]
+    },
+    {
+      "id": "ts2hx",
+      "packageScript": "test:ts2hx",
+      "runnerToken": "--cwd tools/ts2hx test",
+      "tier": "focused-aggregate",
+      "cost": "slow",
+      "axes": [
+        "migration-tool"
+      ],
+      "profiles": [
+        "ts2hx"
+      ],
+      "evidence": [
+        "generated-source",
+        "haxe-compile",
+        "runtime",
+        "policy"
+      ],
+      "ownerPaths": [
+        "tools/ts2hx/package.json",
+        "tools/ts2hx/src"
+      ],
+      "proves": "The currently documented TypeScript-to-Haxe subset remains deterministic and fail-closed.",
+      "doesNotProve": "ts2hx evidence does not prove Genes compiler correctness or arbitrary TypeScript support.",
+      "owners": [
+        "tools/ts2hx/package.json",
+        "tools/ts2hx/src"
+      ],
+      "families": [
+        "generated-output",
+        "compiler",
+        "runtime",
+        "policy"
+      ],
+      "capabilities": [
+        "generated-source",
+        "haxe-compile",
+        "runtime",
+        "policy"
+      ],
+      "ring": "R3",
+      "size": "large",
+      "alwaysRun": false,
+      "timeoutSeconds": 1800,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:ts2hx",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/ts2hx.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "ci-protection-policy",
+      "packageScript": "test:main-protection-policy",
+      "runnerToken": "scripts/dist/test-main-protection-policy.js",
+      "tier": "focused",
+      "cost": "fast",
+      "axes": [
+        "repository-policy"
+      ],
+      "profiles": [
+        "repository"
+      ],
+      "evidence": [
+        "policy"
+      ],
+      "ownerPaths": [
+        "scripts/test-main-protection-policy.ts",
+        "docs/BRANCH_PROTECTION.md",
+        ".github/workflows/ci.yml"
+      ],
+      "proves": "The repository workflow still creates the documented required check names for every pull request and keeps advisory lanes nonblocking.",
+      "doesNotProve": "A checkout cannot prove the live GitHub ruleset or that hosted jobs pass.",
+      "owners": [
+        "scripts/test-main-protection-policy.ts",
+        "docs/BRANCH_PROTECTION.md",
+        ".github/workflows/ci.yml"
+      ],
+      "families": [
+        "policy"
+      ],
+      "capabilities": [
+        "policy"
+      ],
+      "ring": "R0",
+      "size": "small",
+      "alwaysRun": false,
+      "timeoutSeconds": 120,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:main-protection-policy",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/ci-protection-policy.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "release-contract",
+      "packageScript": "test:release",
+      "runnerTokens": [
+        "yarn test:release-workflow",
+        "yarn test:release-artifact",
+        "yarn test:release-recovery"
+      ],
+      "tier": "focused-aggregate",
+      "cost": "medium",
+      "axes": [
+        "repository-policy"
+      ],
+      "profiles": [
+        "repository"
+      ],
+      "evidence": [
+        "policy",
+        "security",
+        "determinism",
+        "transaction"
+      ],
+      "ownerPaths": [
+        "scripts/test-release-workflow.ts",
+        "scripts/test-release-artifact.ts",
+        "scripts/test-release-recovery.ts",
+        "docs/RELEASING.md"
+      ],
+      "proves": "The non-publishing SemVer, artifact, workflow, and recovery contracts remain deterministic and fail closed.",
+      "doesNotProve": "Local release tests do not publish bytes or prove the live hosted environment and repository controls.",
+      "owners": [
+        "scripts/test-release-workflow.ts",
+        "scripts/test-release-artifact.ts",
+        "scripts/test-release-recovery.ts",
+        "docs/RELEASING.md"
+      ],
+      "families": [
+        "policy",
+        "security",
+        "determinism",
+        "publication"
+      ],
+      "capabilities": [
+        "policy",
+        "security",
+        "determinism",
+        "transaction"
+      ],
+      "ring": "R5",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "required-clean",
+      "command": "yarn test:release",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/release-contract.log"
+      ],
+      "remoteJobs": [
+        "release"
+      ]
+    },
+    {
+      "id": "test-plan-validation",
+      "packageScript": "test:agent-test-routing",
+      "tier": "focused",
+      "cost": "fast",
+      "axes": [
+        "repository-policy"
+      ],
+      "profiles": [
+        "repository"
+      ],
+      "evidence": [
+        "policy"
+      ],
+      "ownerPaths": [
+        "scripts/test-agent-test-routing.ts",
+        "scripts/test-test-plan-selection.ts",
+        "tests/testing-strategy/agent-test-routing.json"
+      ],
+      "proves": "The machine-readable test plan, ownership, commands, impact rules, and required CI placement remain internally consistent and fail closed.",
+      "doesNotProve": "Plan validation does not execute compiler semantics or make observation-mode selection authoritative.",
+      "owners": [
+        "scripts/test-agent-test-routing.ts",
+        "scripts/test-test-plan-selection.ts",
+        "tests/testing-strategy/agent-test-routing.json"
+      ],
+      "families": [
+        "policy"
+      ],
+      "capabilities": [
+        "policy"
+      ],
+      "ring": "R0",
+      "size": "small",
+      "alwaysRun": true,
+      "timeoutSeconds": 120,
+      "historicalDurationMs": null,
+      "cacheMode": "not-applicable",
+      "command": "yarn test:agent-test-routing",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/test-plan-validation.log"
+      ],
+      "remoteJobs": [
+        "genes-test-plan-and-smoke"
+      ],
+      "runnerTokens": [
+        "scripts/dist/test-agent-test-routing.js",
+        "scripts/dist/test-test-plan-selection.js"
+      ]
+    },
+    {
+      "id": "test-tool-preparation",
+      "packageScript": "test:test-tool-preparation",
+      "runnerToken": "scripts/dist/test-test-tool-preparation.js",
+      "tier": "focused",
+      "cost": "fast",
+      "axes": [
+        "repository-policy"
+      ],
+      "profiles": [
+        "repository"
+      ],
+      "evidence": [
+        "determinism",
+        "policy"
+      ],
+      "ownerPaths": [
+        "scripts/prepare-test-tools.mjs",
+        "scripts/test-test-tool-preparation.ts",
+        "scripts/tsconfig.json"
+      ],
+      "proves": "Aggregate test tools build once per exact source/config identity and rebuild after changed inputs, corrupt output, deleted output, or a cold cache.",
+      "doesNotProve": "Prepared test tooling is an optimization and never substitutes for clean compiler generation or release evidence.",
+      "owners": [
+        "scripts/prepare-test-tools.mjs",
+        "scripts/test-test-tool-preparation.ts",
+        "scripts/tsconfig.json"
+      ],
+      "families": [
+        "determinism",
+        "policy"
+      ],
+      "capabilities": [
+        "determinism",
+        "policy"
+      ],
+      "ring": "R0",
+      "size": "small",
+      "alwaysRun": false,
+      "timeoutSeconds": 120,
+      "historicalDurationMs": 8610,
+      "cacheMode": "not-applicable",
+      "command": "yarn test:test-tool-preparation",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/test-tool-preparation.log"
+      ],
+      "remoteJobs": [
+        "genes-test-plan-and-smoke"
+      ]
+    },
+    {
+      "id": "portable-haxe-smoke",
+      "packageScript": "test:portable-haxe-smoke",
+      "runnerToken": "scripts/dist/test-portable-haxe-smoke.js",
+      "tier": "focused-aggregate",
+      "cost": "fast",
+      "axes": [
+        "portable-haxe"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "package-shape",
+        "transaction"
+      ],
+      "ownerPaths": [
+        "scripts/test-portable-haxe-smoke.ts",
+        "tests/portable-haxe-smoke"
+      ],
+      "proves": "The exact five-test official Haxe 4.3.7 smoke inventory compiles from a packaged Genes artifact, target-checks, and executes 44 assertions in each profile.",
+      "doesNotProve": "This is a published smoke subset, not the complete applicable official Haxe tests/unit contract.",
+      "owners": [
+        "scripts/test-portable-haxe-smoke.ts",
+        "tests/portable-haxe-smoke"
+      ],
+      "families": [
+        "compiler",
+        "generated-output",
+        "typescript",
+        "runtime",
+        "package",
+        "publication"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "package-shape",
+        "transaction"
+      ],
+      "ring": "R1",
+      "size": "small",
+      "alwaysRun": true,
+      "timeoutSeconds": 120,
+      "historicalDurationMs": 5278,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:portable-haxe-smoke",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/portable-haxe-smoke.log"
+      ],
+      "remoteJobs": [
+        "genes-test-plan-and-smoke"
+      ]
+    },
+    {
+      "id": "portable-haxe-failure-propagation",
+      "packageScript": "test:portable-haxe-smoke:failures",
+      "runnerToken": "scripts/dist/test-portable-haxe-smoke-failures.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "portable-haxe",
+        "repository-policy"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "target-typecheck",
+        "runtime",
+        "transaction"
+      ],
+      "ownerPaths": [
+        "scripts/test-portable-haxe-smoke-failures.ts",
+        "scripts/test-portable-haxe-smoke.ts",
+        "tests/portable-haxe-smoke/src/utest/Assert.hx",
+        "tests/portable-haxe-smoke/src/portable/PortableSmokeMain.hx"
+      ],
+      "proves": "Generation, JavaScript syntax, strict TypeScript, module load, assertion, runtime, timeout, and missing-test failures stay nonzero while the last-good evidence tree remains exact.",
+      "doesNotProve": "Injected failures do not establish unrelated compiler semantics or every output-transaction path.",
+      "owners": [
+        "scripts/test-portable-haxe-smoke-failures.ts",
+        "scripts/test-portable-haxe-smoke.ts",
+        "tests/portable-haxe-smoke/src/utest/Assert.hx",
+        "tests/portable-haxe-smoke/src/portable/PortableSmokeMain.hx"
+      ],
+      "families": [
+        "compiler",
+        "typescript",
+        "runtime",
+        "publication"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "target-typecheck",
+        "runtime",
+        "transaction"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": true,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": 27571,
+      "cacheMode": "not-applicable",
+      "command": "yarn test:portable-haxe-smoke:failures",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/portable-haxe-failure-propagation.log"
+      ],
+      "remoteJobs": [
+        "genes-test-plan-and-smoke"
+      ]
+    },
+    {
+      "id": "acceptance",
+      "packageScript": "test:acceptance",
+      "runnerToken": "scripts/dist/test-acceptance.js",
+      "tier": "acceptance",
+      "cost": "slow",
+      "axes": [
+        "genes-product",
+        "migration-tool"
+      ],
+      "profiles": [
+        "classic-esm",
+        "classic-dts",
+        "typescript",
+        "tsx",
+        "jsx",
+        "ts2hx"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "declarations",
+        "source-map",
+        "transaction",
+        "determinism",
+        "package-shape",
+        "browser-e2e"
+      ],
+      "ownerPaths": [
+        "scripts/test-acceptance.ts"
+      ],
+      "proves": "The normal stable pull-request compiler, migration, and example owners pass together with the documented default options.",
+      "doesNotProve": "Acceptance does not include release, security, every toolchain, or the planned official Haxe lane.",
+      "owners": [
+        "scripts/test-acceptance.ts"
+      ],
+      "families": [
+        "compiler",
+        "generated-output",
+        "typescript",
+        "runtime",
+        "declarations",
+        "source-maps",
+        "publication",
+        "determinism",
+        "package",
+        "browser"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "declarations",
+        "source-map",
+        "transaction",
+        "determinism",
+        "package-shape",
+        "browser-e2e"
+      ],
+      "ring": "R2",
+      "size": "large",
+      "alwaysRun": false,
+      "timeoutSeconds": 1800,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:acceptance",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/acceptance.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "full-ci",
+      "packageScript": "test:ci",
+      "runnerTokens": [
+        "yarn test:codeql-workflow",
+        "yarn test:main-protection-policy",
+        "yarn test:release",
+        "yarn test:tooling-release-workflow",
+        "yarn test:precommit-hook",
+        "yarn test:secrets",
+        "yarn test:vulns",
+      "yarn test:versions",
+      "yarn test:agent-guides",
+      "yarn test:test-tool-preparation",
+      "yarn test:ci:explain",
+      "yarn test:agent-test-routing",
+      "yarn test:smoke",
+      "yarn test:null-safety",
+        "yarn test:artifact-transaction-protocol",
+        "yarn test:artifact-tooling",
+        "yarn test:tooling-package",
+        "yarn test:compatibility-report",
+        "yarn test:matrix:api",
+        "yarn test:types:exports",
+        "yarn test:react-hooks",
+        "yarn test:react-flight",
+        "&& yarn test &&",
+        "yarn test:template-literals",
+        "yarn test:classic:dts",
+        "yarn test:library-profile",
+        "yarn test:acceptance",
+        "yarn test:ts2hx"
+      ],
+      "tier": "full-release",
+      "cost": "full",
+      "axes": [
+        "genes-product",
+        "repository-policy",
+        "migration-tool"
+      ],
+      "profiles": [
+        "classic-esm",
+        "classic-dts",
+        "typescript",
+        "tsx",
+        "jsx",
+        "ts2hx",
+        "repository"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "declarations",
+        "source-map",
+        "transaction",
+        "determinism",
+        "package-shape",
+        "browser-e2e",
+        "policy",
+        "security"
+      ],
+      "ownerPaths": [
+        "package.json",
+        ".github/workflows/ci.yml"
+      ],
+      "proves": "The repository-defined release gate passes on the current checkout and pinned local toolchains.",
+      "doesNotProve": "A local full run does not prove hosted settings, advisory lanes, downstream nightlies, or unimplemented official Haxe evidence.",
+      "owners": [
+        "package.json",
+        ".github/workflows/ci.yml"
+      ],
+      "families": [
+        "compiler",
+        "generated-output",
+        "typescript",
+        "runtime",
+        "declarations",
+        "source-maps",
+        "publication",
+        "determinism",
+        "package",
+        "browser",
+        "policy",
+        "security"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "declarations",
+        "source-map",
+        "transaction",
+        "determinism",
+        "package-shape",
+        "browser-e2e",
+        "policy",
+        "security"
+      ],
+      "ring": "R4",
+      "size": "large",
+      "alwaysRun": false,
+      "timeoutSeconds": 7200,
+      "historicalDurationMs": 1230360,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:ci",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/full-ci.log"
+      ],
+      "remoteJobs": [
+        "dependency-review",
+        "codeql",
+        "beads-worktree-safety",
+        "beads-pinned-client",
+        "secrets",
+        "vulns",
+        "classic",
+        "genes-test-plan-and-smoke",
+        "genes-ts",
+        "genes-ts-smoke-next-lts"
+      ]
+    }
+  ],
+  "routes": [
+    {
+      "id": "shared-runtime-or-lowering",
+      "changeArea": "Shared expression lowering, runtime helpers, evaluation order, temporaries, or names",
+      "focusedChoices": [
+        {
+          "gate": "dual-output-semantics",
+          "when": "the same Haxe construct can affect both implementation profiles"
+        },
+        {
+          "gate": "classic-core",
+          "when": "the reduced failure is in classic runtime behavior"
+        },
+        {
+          "gate": "module-functions",
+          "when": "module-level function selection, DCE, registration, or direct emission changes"
+        },
+        {
+          "gate": "reflection-class-values",
+          "when": "reflection APIs consume or return Haxe class values"
+        },
+        {
+          "gate": "abstract-implementation-properties",
+          "when": "abstract implementation read/write/static property lowering changes"
+        },
+        {
+          "gate": "host-global-identity",
+          "when": "compiler-known host global value or type identity changes"
+        },
+        {
+          "gate": "host-callback-boundary",
+          "when": "typed or opaque foreign callback parameters and returns change"
+        },
+        {
+          "gate": "runtime-guarded-binding",
+          "when": "a runtime guard establishes or invalidates a binding along control flow"
+        },
+        {
+          "gate": "higher-order-enum-constructors",
+          "when": "enum constructors are passed, stored, or called as higher-order values"
+        },
+        {
+          "gate": "enum-payload-narrowing",
+          "when": "enum payload typing changes after an erased match or reduction"
+        },
+        {
+          "gate": "byte-buffer-cache",
+          "when": "Node Buffer host cache identity or request-local behavior changes"
+        },
+        {
+          "gate": "nullable-temp-receivers",
+          "when": "nullable receiver evaluation or required temporary reuse changes"
+        }
+      ],
+      "inspect": [
+        "generated TypeScript and classic JavaScript around the changed construct",
+        "runtime differential transcript"
+      ],
+      "then": [
+        "typescript-full",
+        "output-quality"
+      ],
+      "finishWith": [
+        "acceptance",
+        "full-ci"
+      ],
+      "escalateWhen": [
+        "evaluation order changes",
+        "a runtime helper changes",
+        "output grows or gains temporaries",
+        "either first-class profile differs"
+      ]
+    },
+    {
+      "id": "typescript-types-or-emission",
+      "changeArea": "TypeScript type projection, strict typing, boundary assertions, or TypeScript-only syntax",
+      "focusedChoices": [
+        {
+          "gate": "ts-narrowing",
+          "when": "flow-sensitive null, optional-field, map, callback, or loop narrowing changes"
+        },
+        {
+          "gate": "explicit-type-arguments",
+          "when": "a generic call witness, call-site identity, or explicit type argument changes"
+        },
+        {
+          "gate": "array-index-strict",
+          "when": "array/indexed reads or noUncheckedIndexedAccess behavior changes"
+        },
+        {
+          "gate": "exported-surface-policy",
+          "when": "the weak-boundary policy or its synthetic positive/negative corpus changes"
+        },
+        {
+          "gate": "typescript-full",
+          "when": "the change spans several TypeScript emission contracts or has no smaller owner"
+        }
+      ],
+      "inspect": [
+        "generated TypeScript",
+        "positive and negative strict consumers"
+      ],
+      "then": [
+        "classic-declarations",
+        "dual-output-semantics",
+        "source-maps"
+      ],
+      "finishWith": [
+        "acceptance",
+        "full-ci"
+      ],
+      "escalateWhen": [
+        "public types change",
+        "a cast or null normalization changes",
+        "a new import is needed",
+        "classic runtime could be affected"
+      ]
+    },
+    {
+      "id": "classic-runtime-or-declarations",
+      "changeArea": "Classic ESM JavaScript, DCE, declaration reachability, or .d.ts spelling",
+      "focusedChoices": [
+        {
+          "gate": "classic-core",
+          "when": "classic runtime lowering or a shared Haxe runtime helper changes"
+        },
+        {
+          "gate": "classic-declarations",
+          "when": "declaration reachability, public type spelling, or the classic .d.ts consumer changes"
+        },
+        {
+          "gate": "module-functions",
+          "when": "direct module function output, DCE, registration, or declarations change"
+        }
+      ],
+      "inspect": [
+        "generated classic JavaScript",
+        "generated declarations",
+        "strict declaration consumer"
+      ],
+      "then": [
+        "dual-output-semantics",
+        "exported-surface-policy"
+      ],
+      "finishWith": [
+        "acceptance",
+        "full-ci"
+      ],
+      "escalateWhen": [
+        "runtime and declaration reachability diverge",
+        "public exports change",
+        "TypeScript output shares the semantic fact"
+      ]
+    },
+    {
+      "id": "dependencies-or-interop",
+      "changeArea": "Dependency planning, import identity, aliases, package shapes, side effects, or attributes",
+      "focusedChoices": [
+        {
+          "gate": "binding-identity",
+          "when": "default, named, namespace, module-field, origin, or emitted-local identity changes"
+        },
+        {
+          "gate": "dynamic-import-policy",
+          "when": "dynamic import suffixes, output extensions, or warm profile switches change"
+        },
+        {
+          "gate": "side-effect-imports",
+          "when": "side-effect requests, request order, attributes, or unused binding retention changes"
+        },
+        {
+          "gate": "module-directives",
+          "when": "pre-DCE module prologues, literal validation, or directive ordering changes"
+        },
+        {
+          "gate": "package-imports",
+          "when": "package exports, subpaths, CommonJS, externs, or dts2hx ingestion changes"
+        }
+      ],
+      "inspect": [
+        "ordered import statements",
+        "runtime package transcript",
+        "generated declarations"
+      ],
+      "then": [
+        "dual-output-semantics",
+        "typescript-full"
+      ],
+      "finishWith": [
+        "acceptance",
+        "full-ci"
+      ],
+      "escalateWhen": [
+        "request order changes",
+        "default/named/namespace identity changes",
+        "declaration-only or side-effect edges change"
+      ]
+    },
+    {
+      "id": "hxx-jsx-react",
+      "changeArea": "HXX parsing, JSX planning, TSX/JSX spelling, React helpers, props, children, or events",
+      "focusedChoices": [
+        {
+          "gate": "hxx-carrier-immutability",
+          "when": "typed props/child carrier mutability or validation changes"
+        },
+        {
+          "gate": "hxx-event-variance",
+          "when": "event callback variance or invalid-handler diagnostics change"
+        },
+        {
+          "gate": "react-hooks",
+          "when": "React hook semantics, analyzers, placement, or dependency snapshots change"
+        },
+        {
+          "gate": "react-flight",
+          "when": "React Flight values, host extensions, native identities, or recursive validation changes"
+        },
+        {
+          "gate": "hxx-tsx",
+          "when": "source JSX, createElement output, tag/prop/child planning, or general TSX spelling changes"
+        }
+      ],
+      "inspect": [
+        "all four JSX/createElement profiles",
+        "Haxe diagnostic span",
+        "runtime ordering"
+      ],
+      "then": [
+        "source-maps",
+        "examples-dual-profile-e2e"
+      ],
+      "finishWith": [
+        "acceptance",
+        "full-ci"
+      ],
+      "escalateWhen": [
+        "browser behavior changes",
+        "source JSX is preserved or inlined",
+        "component identity or evaluation order changes"
+      ]
+    },
+    {
+      "id": "source-maps-or-publication",
+      "changeArea": "Source positions, writers, file ownership, staging, rollback, or stale cleanup",
+      "focusedChoices": [
+        {
+          "gate": "source-maps",
+          "when": "token provenance, wrapper mapping, or generated source positions change"
+        },
+        {
+          "gate": "output-transaction",
+          "when": "writers, manifests, staging, rollback, stale cleanup, or output ownership changes"
+        }
+      ],
+      "inspect": [
+        "exact mapped tokens",
+        "last-good tree hash",
+        "ownership manifest and private staging paths"
+      ],
+      "then": [
+        "dual-output-semantics",
+        "compiler-server"
+      ],
+      "finishWith": [
+        "acceptance",
+        "full-ci"
+      ],
+      "escalateWhen": [
+        "a writer opens earlier",
+        "failure timing changes",
+        "output roots or extensions change",
+        "compiler-server state is involved"
+      ]
+    },
+    {
+      "id": "compiler-process-lifecycle",
+      "changeArea": "Persistent macro state, callbacks, compiler-server requests, profile switching, or output-root switching",
+      "focusedChoices": [
+        {
+          "gate": "dynamic-import-policy",
+          "when": "the lifecycle change is limited to dynamic import suffix policy"
+        },
+        {
+          "gate": "compiler-server",
+          "when": "persistent state, callbacks, cross-project identity, output roots, or recovery changes"
+        }
+      ],
+      "inspect": [
+        "cold and warm tree hashes",
+        "server/client logs",
+        "failure recovery and child-process cleanup"
+      ],
+      "then": [
+        "output-transaction",
+        "dual-output-semantics"
+      ],
+      "finishWith": [
+        "acceptance",
+        "full-ci"
+      ],
+      "escalateWhen": [
+        "typed objects survive a request",
+        "a new static or persistent owner is introduced",
+        "cold and warm results differ"
+      ]
+    },
+    {
+      "id": "performance-or-output-quality",
+      "changeArea": "Compiler work, emitted size/shape, imports, temporaries, or runtime hot paths",
+      "focusedChoices": [
+        {
+          "gate": "output-quality",
+          "when": "emitted bytes, tokens, imports, temporaries, determinism, or output readability can change"
+        }
+      ],
+      "inspect": [
+        "exact byte/token/import/temporary deltas",
+        "representative generated files",
+        "runtime work when relevant"
+      ],
+      "then": [
+        "dual-output-semantics"
+      ],
+      "finishWith": [
+        "acceptance",
+        "full-ci"
+      ],
+      "escalateWhen": [
+        "a reviewed structural budget changes",
+        "wall-clock claims are made",
+        "allocation or hot-path work changes"
+      ]
+    },
+    {
+      "id": "examples-or-application-workflow",
+      "changeArea": "Maintained examples, fullstack integration, browser journeys, packaging, or user workflow",
+      "focusedChoices": [
+        {
+          "gate": "examples-dual-profile-e2e",
+          "when": "a maintained example, API/browser journey, packaging workflow, or same-source profile promise changes"
+        }
+      ],
+      "inspect": [
+        "both profile build trees",
+        "API transcript",
+        "Playwright result and server logs"
+      ],
+      "then": [
+        "dual-output-semantics"
+      ],
+      "finishWith": [
+        "acceptance",
+        "full-ci"
+      ],
+      "escalateWhen": [
+        "an example needs a compiler workaround",
+        "TS and classic source diverge",
+        "browser and API results disagree"
+      ]
+    },
+    {
+      "id": "compiler-null-safety-policy",
+      "changeArea": "Genes implementation null-safety scope, macro order, or reviewed Haxe escape boundaries",
+      "focusedChoices": [
+        {
+          "gate": "null-safety-policy",
+          "when": "the Genes implementation checker scope, macro order, or reviewed escape inventory changes"
+        }
+      ],
+      "inspect": [
+        "diagnostic inventory",
+        "statement-local escape record",
+        "stable Haxe compile"
+      ],
+      "then": [
+        "typescript-full",
+        "dual-output-semantics"
+      ],
+      "finishWith": [
+        "acceptance",
+        "full-ci"
+      ],
+      "escalateWhen": [
+        "an escape broadens",
+        "generated output changes",
+        "user package scope could change"
+      ]
+    },
+    {
+      "id": "documentation-or-compatibility-claims",
+      "changeArea": "Contributor navigation, testing documentation, evidence inventory, or compatibility claims",
+      "focusedChoices": [
+        {
+          "gate": "agent-guides",
+          "when": "navigation, local links, onboarding commands, or AGENTS contracts change"
+        },
+        {
+          "gate": "compatibility-inventory",
+          "when": "support boundaries, evidence counts, or generated compatibility reports change"
+        }
+      ],
+      "inspect": [
+        "rendered Markdown",
+        "resolved local links",
+        "workflow and package-script ownership"
+      ],
+      "then": [],
+      "finishWith": [
+        "full-ci"
+      ],
+      "escalateWhen": [
+        "a support claim changes",
+        "a command changes",
+        "documentation and generated evidence disagree"
+      ]
+    },
+    {
+      "id": "ci-release-or-security-policy",
+      "changeArea": "Required CI checks, branch protection, release artifacts, SemVer, recovery, or security policy",
+      "focusedChoices": [
+        {
+          "gate": "ci-protection-policy",
+          "when": "required check names, workflow triggers, matrices, or advisory/blocking status changes"
+        },
+        {
+          "gate": "release-contract",
+          "when": "SemVer, release workflow, artifact bytes, publication ordering, or release recovery changes"
+        }
+      ],
+      "inspect": [
+        "workflow job block",
+        "branch-protection guide",
+        "release artifact and recovery evidence"
+      ],
+      "then": [
+        "agent-guides"
+      ],
+      "finishWith": [
+        "full-ci"
+      ],
+      "escalateWhen": [
+        "a hosted setting is required",
+        "permissions change",
+        "security or publication scope changes"
+      ]
+    },
+    {
+      "id": "ts2hx-migration-tool",
+      "changeArea": "TypeScript-to-Haxe analysis, emission, manifests, diagnostics, or runtime profiles",
+      "focusedChoices": [
+        {
+          "gate": "ts2hx",
+          "when": "the experimental migration subset, Haxe emission, manifest, diagnostics, or runtime profile changes"
+        }
+      ],
+      "inspect": [
+        "generated Haxe",
+        "translation manifest",
+        "fail-closed diagnostic",
+        "compiled runtime result"
+      ],
+      "then": [],
+      "finishWith": [
+        "acceptance",
+        "full-ci"
+      ],
+      "escalateWhen": [
+        "Genes compiler behavior is used as an oracle",
+        "the supported subset changes",
+        "a target runtime profile changes"
+      ]
+    },
+    {
+      "id": "test-harness-or-impact-plan",
+      "changeArea": "Test runners, test-tool preparation, ownership manifests, selector logic, CI workflows, or testing policy",
+      "pathPatterns": [
+        "scripts/test-*",
+        "scripts/prepare-test-tools.mjs",
+        "scripts/acceptance-gate-ownership.ts",
+        "tests/testing-strategy/**",
+        ".audit/**",
+        ".github/workflows/**",
+        "docs/TESTING_STRATEGY.md",
+        "AGENTS.md",
+        "src/genes/AGENTS.md",
+        "tools/ts2hx/AGENTS.md",
+        "package.json",
+        "config/toolchains.json"
+      ],
+      "focusedChoices": [
+        {
+          "gate": "test-plan-validation",
+          "when": "the plan schema, selector, ownership, commands, or CI enrollment changes"
+        },
+        {
+          "gate": "test-tool-preparation",
+          "when": "test-tool compilation, preparation caching, or compiled-runner freshness changes"
+        },
+        {
+          "gate": "portable-haxe-smoke",
+          "when": "official source provenance, active smoke identity, target checking, or dual-profile runtime changes"
+        },
+        {
+          "gate": "portable-haxe-failure-propagation",
+          "when": "timeouts, injected failures, evidence staging, or last-good rollback changes"
+        }
+      ],
+      "inspect": [
+        "selection explanation and omitted reasons",
+        "prepared source/output hashes",
+        "portable smoke report and retained failure artifacts"
+      ],
+      "then": [
+        "package-imports",
+        "acceptance"
+      ],
+      "finishWith": [
+        "full-ci"
+      ],
+      "escalateWhen": [
+        "the selector is validating itself",
+        "a command or workflow changes",
+        "an owner path is unknown",
+        "a last-good tree changes after failure"
+      ]
+    }
+  ],
+  "plannedPortableHaxeEvidence": {
+    "status": "smoke-implemented",
+    "currentClaim": "Each Genes profile passes the published five-test official Haxe 4.3.7 smoke subset after target checking and Node execution. This is not the complete applicable official tests/unit contract.",
+    "haxeRevision": "e0b355c6be312c1b17382603f018cf52522ec651",
+    "utestRevision": "a94f8812e8786f2b5fec52ce9f26927591d26327",
+    "profiles": [
+      "classic-esm",
+      "typescript"
+    ],
+    "stages": [
+      {
+        "id": "inventory",
+        "bead": "genes-brxy.1",
+        "outcome": "Pin upstream provenance and generate the exact active JavaScript-target test identity for each profile."
+      },
+      {
+        "id": "smoke",
+        "bead": "genes-brxy.2",
+        "outcome": "Implemented as a five-test, 44-assertion dual-profile packaged smoke with strict target checks and runtime execution."
+      },
+      {
+        "id": "representative-expansion",
+        "bead": "genes-brxy.3",
+        "outcome": "Expand into representative top-level, unitstd, and issue tests before considering a broader scheduled or release claim."
+      },
+      {
+        "id": "scheduled-release-expansion",
+        "bead": "genes-brxy.5",
+        "outcome": "Add bounded scheduled and release scopes with independent per-profile reports after the representative lane is stable."
+      }
+    ]
+  },
+  "impactRules": [
+    {
+      "id": "compiler-core",
+      "patterns": [
+        "src/genes/**",
+        "src/haxe/**",
+        "extraParams.hxml",
+        "test.hxml"
+      ],
+      "selects": [
+        "portable-haxe-smoke",
+        "package-imports",
+        "dual-output-semantics",
+        "typescript-full",
+        "classic-core",
+        "acceptance",
+        "full-ci"
+      ],
+      "reason": "Compiler, generator, runtime, or stdlib changes can affect both output profiles and every downstream evidence surface.",
+      "expansion": "full"
+    },
+    {
+      "id": "typescript-output",
+      "patterns": [
+        "src/genes/ts/**",
+        "src/genes/dts/**",
+        "docs/typescript-target/**"
+      ],
+      "selects": [
+        "portable-haxe-smoke",
+        "typescript-full",
+        "classic-declarations",
+        "dual-output-semantics",
+        "source-maps",
+        "acceptance"
+      ],
+      "reason": "Type projection and declaration changes require strict generated TypeScript plus paired classic/declaration evidence.",
+      "expansion": "affected"
+    },
+    {
+      "id": "react-hxx-browser",
+      "patterns": [
+        "src/genes/react/**",
+        "src/genes/Jsx*.hx",
+        "tests/**/react/**",
+        "examples/todoapp/web/**"
+      ],
+      "selects": [
+        "hxx-tsx",
+        "hxx-carrier-immutability",
+        "hxx-event-variance",
+        "react-hooks",
+        "react-flight",
+        "examples-dual-profile-e2e",
+        "acceptance"
+      ],
+      "reason": "HXX and React changes cross Haxe validation, four source/createElement profiles, runtime behavior, and browser contracts.",
+      "expansion": "affected-extended"
+    },
+    {
+      "id": "test-harness-policy",
+      "patterns": [
+        "scripts/test-*",
+        "scripts/prepare-test-tools.mjs",
+        "scripts/acceptance-gate-ownership.ts",
+        "tests/testing-strategy/**",
+        ".audit/**",
+        ".gitignore",
+        "docs/COMPATIBILITY_REPORT.json",
+        "docs/COMPATIBILITY_REPORT.md",
+        ".github/workflows/**",
+        "docs/TESTING_STRATEGY.md",
+        "AGENTS.md",
+        "src/genes/AGENTS.md",
+        "tools/ts2hx/AGENTS.md",
+        "package.json",
+        "config/toolchains.json"
+      ],
+      "selects": [
+        "test-plan-validation",
+        "test-tool-preparation",
+        "portable-haxe-smoke",
+        "portable-haxe-failure-propagation",
+        "acceptance",
+        "full-ci"
+      ],
+      "reason": "A selector, runner, manifest, workflow, or policy change must not validate itself only through the subset it selected.",
+      "expansion": "full"
+    },
+    {
+      "id": "migration-tool",
+      "patterns": [
+        "tools/ts2hx/**",
+        "docs/ts2hx/**"
+      ],
+      "selects": [
+        "ts2hx"
+      ],
+      "reason": "ts2hx has independent migration ownership and does not count as Haxe-to-Genes conformance.",
+      "expansion": "affected"
+    },
+    {
+      "id": "package-release-security",
+      "patterns": [
+        "haxelib.json",
+        "yarn.lock",
+        "scripts/release/**",
+        "scripts/secret-scan.ts",
+        "scripts/osv-scan.ts",
+        ".github/workflows/release*",
+        "docs/RELEASING.md",
+        "docs/SECURITY.md"
+      ],
+      "selects": [
+        "release-contract",
+        "compatibility-inventory",
+        "package-imports",
+        "portable-haxe-smoke",
+        "full-ci"
+      ],
+      "reason": "Public install, dependency, release, recovery, and security changes require clean-consumer and policy owners.",
+      "expansion": "full"
+    },
+    {
+      "id": "examples-applications",
+      "patterns": [
+        "examples/**",
+        "scripts/build-example-*",
+        "scripts/qa-todoapp.ts"
+      ],
+      "selects": [
+        "examples-dual-profile-e2e",
+        "portable-haxe-smoke",
+        "acceptance"
+      ],
+      "reason": "Maintained applications need both-profile build/runtime evidence without replacing compiler conformance.",
+      "expansion": "affected-extended"
+    },
+    {
+      "id": "ordinary-documentation",
+      "patterns": [
+        "docs/**",
+        "readme.md"
+      ],
+      "selects": [
+        "agent-guides"
+      ],
+      "reason": "Non-policy documentation runs its link/command guide owner but may use the documented docs-only fast path.",
+      "expansion": "docs-only"
+    }
+  ],
+  "selectionPolicy": {
+    "mode": "observation",
+    "mergeBase": "origin/main",
+    "unknownPath": "full",
+    "ambiguousOwnership": "full",
+    "confidenceWindow": {
+      "minimumRepresentativeRuns": 30,
+      "minimumDays": 14,
+      "resetOnSelectorMiss": true
+    },
+    "currentRequiredBackstop": "full-ci",
+    "releaseBackstop": "release-contract"
+  }
+}

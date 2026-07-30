@@ -29,23 +29,24 @@ function jobBlock(source: string, job: string, nextJob?: string): string {
  * skip the entire compiler workflow, so enabling the documented ruleset would
  * have left those changes permanently waiting for checks that could never run.
  *
- * What/How: this fast local gate keeps the ordinary pull-request trigger
- * unconditional, freezes the six status-check names configured in GitHub, and
- * verifies that preview Haxe and macOS remain advisory. It cannot prove remote
- * repository settings; maintainers compare those through the API commands in
+ * What/How: this fast local gate keeps the ordinary pull-request and main
+ * triggers unconditional, while allowing an independently validated schedule,
+ * freezes the six status-check names configured in GitHub, and verifies that
+ * preview Haxe and macOS remain advisory. It cannot prove remote repository
+ * settings; maintainers compare those through the API commands in
  * `docs/BRANCH_PROTECTION.md`.
  */
 function main(): void {
   const ci = read(".github/workflows/ci.yml");
   const docs = read("docs/BRANCH_PROTECTION.md");
 
-  const trigger = `on:
+  const triggerPrefix = `on:
   push:
     branches: [main]
-  pull_request:
-  workflow_dispatch:`;
+  pull_request:`;
   assert(
-    ci.startsWith(`name: genes-ts CI\n\n${trigger}\n`),
+    ci.startsWith(`name: genes-ts CI\n\n${triggerPrefix}\n`)
+      && ci.includes("\n  workflow_dispatch:\n\nconcurrency:"),
     "Compiler CI must run for every pull request and main push; required checks cannot use path filters"
   );
   assert(

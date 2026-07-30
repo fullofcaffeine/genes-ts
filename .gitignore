@@ -56,6 +56,8 @@
 /submit.zip
 /package-lock.json
 /repomix-output-genes-ts.xml
+/.cache
+/.tmp
 
 # Beads (issue tracker)
 # - Track the task plan (`.beads/issues.jsonl`) in git so checkouts include the roadmap.

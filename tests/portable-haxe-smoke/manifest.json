@@ -1,0 +1,126 @@
+{
+  "schemaVersion": 1,
+  "contract": "genes-official-haxe-smoke",
+  "haxe": {
+    "repository": "https://github.com/HaxeFoundation/haxe.git",
+    "version": "4.3.7",
+    "revision": "e0b355c6be312c1b17382603f018cf52522ec651",
+    "license": "MIT",
+    "licensePath": "extra/LICENSE.txt"
+  },
+  "utest": {
+    "repository": "https://github.com/haxe-utest/utest.git",
+    "revision": "a94f8812e8786f2b5fec52ce9f26927591d26327",
+    "license": "MIT",
+    "licensePath": "haxelib.json"
+  },
+  "runnerAdaptation": {
+    "disposition": "upstream-harness-adaptation",
+    "reason": "The five selected Haxe tests use utest assertions, but the complete historical utest runner also pulls in unrelated dynamic reporting and browser code that is not part of this strict-TypeScript smoke. The local adapter invokes the exact selected test methods, preserves each assertion predicate, counts every assertion, and fails closed when an unsupported assertion helper appears.",
+    "upstream": [
+      {
+        "path": "src/utest/Assert.hx",
+        "sha256": "355ce69333e186907b7e310ea3e1aff53eaa44df15a1a98a34d58932e6941ba5"
+      },
+      {
+        "path": "src/utest/ITest.hx",
+        "sha256": "d321a307c552edecdbc5ca0aa80e26ca311993a954649e937b0dc76432c60a88"
+      }
+    ],
+    "local": [
+    {
+      "path": "tests/portable-haxe-smoke/src/utest/Assert.hx",
+      "sha256": "65aa510f5db3c6c52e335bed08f79901e42bb3dac0b60373e1556debb1335752"
+      },
+      {
+        "path": "tests/portable-haxe-smoke/src/utest/ITest.hx",
+        "sha256": "2f77a829c157d22fbf04adb61695a27b98a734c75cebb5729cb3aa43bdd0adf2"
+      },
+      {
+        "path": "tests/portable-haxe-smoke/src/portable/PortableSmokeBuilder.hx",
+        "sha256": "957ae949064bbcd31d18c49daa97cec9b96dd53ef0fdf340980b915c180c2779"
+      },
+      {
+        "path": "tests/portable-haxe-smoke/src/portable/PortableSmokeMain.hx",
+        "sha256": "5d2cddbc566e687f43fcd74f15cd16a7fe87d9d5db40e81dc2be0156eb275531"
+      }
+    ]
+  },
+  "sources": [
+    {
+      "family": "harness",
+      "path": "tests/unit/src/unit/Test.hx",
+      "sha256": "b1080a4c5622b915b5cb760ee0d8f3656b00cf0103001fb493be9be3cbb15e25"
+    },
+    {
+      "family": "harness",
+      "path": "tests/unit/src/unit/UnitBuilder.hx",
+      "sha256": "905f81c59ffc21fb49b0a9f340db03381ed67980cd62ee6b58beffeae7af4fd3"
+    },
+    {
+      "family": "language",
+      "path": "tests/unit/src/unit/TestNumericSeparator.hx",
+      "sha256": "0d8ea242903f84238e97d00b57ed802828f2e3a2b9ea83f7d798adeace83e86c"
+    },
+    {
+      "family": "unitstd",
+      "path": "tests/unit/src/unitstd/IntIterator.unit.hx",
+      "sha256": "dbd81c1cf9c4d58843145f2f975ec8c9131dc190272ccd3947ce4f3e7c5c9c31"
+    },
+    {
+      "family": "issue",
+      "path": "tests/unit/src/unit/issues/Issue10032.hx",
+      "sha256": "114b092876bf108cf141a3525448302450a8cdddbb70b6d1bab4cc3fda079fd9"
+    }
+  ],
+  "activeTests": [
+    {
+      "id": "unit.TestNumericSeparator.test",
+      "family": "language",
+      "expectedAssertions": 12
+    },
+    {
+      "id": "unit.TestNumericSeparator.testJustBeforeSuffix",
+      "family": "language",
+      "expectedAssertions": 11
+    },
+    {
+      "id": "unit.TestNumericSeparator.testWithSuffix",
+      "family": "language",
+      "expectedAssertions": 11
+    },
+    {
+      "id": "portable.GeneratedIntIteratorSpec.testIntIterator",
+      "family": "unitstd",
+      "expectedAssertions": 9
+    },
+    {
+      "id": "unit.issues.Issue10032.test",
+      "family": "issue",
+      "expectedAssertions": 1
+    }
+  ],
+  "expectedAssertionsPerProfile": 44,
+  "profiles": [
+    {
+      "id": "classic-esm",
+      "haxeDefines": [
+        "js-es=6",
+        "nodejs"
+      ],
+      "targetCheck": "node --check",
+      "runtime": "node"
+    },
+    {
+      "id": "typescript",
+      "haxeDefines": [
+        "genes.ts",
+        "js-es=6",
+        "nodejs"
+      ],
+      "targetCheck": "TypeScript 5.5.4 strict",
+      "runtime": "node after tsc"
+    }
+  ],
+  "claim": "This is a five-test official Haxe 4.3.7 smoke subset in each Genes profile, not the full applicable official suite."
+}

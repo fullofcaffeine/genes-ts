@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    # The selector remains observation-only. This complete current-primary run
+    # is the backstop that can reveal an owner the future selected PR lane
+    # would have missed.
+    - cron: "17 7 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -200,10 +205,67 @@ jobs:
       - run: yarn lix use haxe ${{ steps.toolchains.outputs.haxe-stable }}
       - run: yarn test
 
-  genes-ts:
-    name: genes-ts (TS output + todoapp E2E)
+  genes-test-plan-and-smoke:
+    name: Genes test plan + official Haxe smoke
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: toolchains
+        run: node scripts/emit-toolchain-outputs.mjs
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.toolchains.outputs.node-stable }}
+          cache: yarn
+          cache-dependency-path: yarn.lock
+      - run: corepack enable
+      - run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
+      - name: Cache Haxe toolchain (lix)
+        uses: actions/cache@v4
+        with:
+          path: ~/haxe
+          key: ${{ runner.os }}-lix-haxe-${{ steps.toolchains.outputs.haxe-stable }}-${{ hashFiles('.haxerc', 'haxe_libraries/*.hxml', 'yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-lix-haxe-${{ steps.toolchains.outputs.haxe-stable }}-
+      - name: Cache pinned official Haxe smoke source
+        uses: actions/cache@v4
+        with:
+          path: .cache/portable-haxe-smoke
+          key: ${{ runner.os }}-portable-haxe-smoke-${{ hashFiles('tests/portable-haxe-smoke/manifest.json') }}
+      - run: yarn install --frozen-lockfile
+      - run: yarn lix install haxe ${{ steps.toolchains.outputs.haxe-stable }}
+      - run: yarn lix use haxe ${{ steps.toolchains.outputs.haxe-stable }}
+      - run: yarn test:test-tool-preparation
+      - run: yarn test:ci:explain
+      - run: yarn test:agent-test-routing
+      - run: yarn test:compatibility-report
+      - run: yarn test:smoke
+      - name: Preserve selection, timings, generated source, and failure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: genes-test-plan-and-portable-smoke
+          path: |
+            .tmp/test-evidence/test-plan
+            .tmp/test-evidence/portable-haxe-smoke
+            .tmp/test-evidence/portable-haxe-smoke-failures
+          if-no-files-found: error
+
+  genes-ts:
+    name: genes-ts (TS output + todoapp E2E)
+    needs: genes-test-plan-and-smoke
+    # This check is protected by branch rules. It must still report a failure
+    # when its preflight fails, because GitHub treats a dependency-skipped
+    # required job as successful.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the test plan and official Haxe smoke
+        if: ${{ needs.genes-test-plan-and-smoke.result != 'success' }}
+        run: |
+          echo "The test-plan and official-Haxe smoke job did not pass."
+          exit 1
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -381,6 +443,7 @@ jobs:
       - beads-worktree-safety
       - beads-pinned-client
       - codeql
+      - genes-test-plan-and-smoke
       - secrets
       - vulns
       - classic
