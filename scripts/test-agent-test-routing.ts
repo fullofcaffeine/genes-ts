@@ -498,6 +498,19 @@ function main(): void {
   assert(requiredGenesJob.includes(
     "needs.genes-test-plan-and-smoke.result != 'success'"
   ), "The required genes-ts check must fail for a bad preflight result");
+  const guardStart = requiredGenesJob.indexOf(
+    "- name: Require the test plan and official Haxe smoke"
+  );
+  const checkoutStart = requiredGenesJob.indexOf(
+    "- uses: actions/checkout@v4"
+  );
+  assert(guardStart >= 0 && checkoutStart > guardStart,
+    "The required genes-ts check is missing its pre-checkout smoke guard");
+  const guardStep = requiredGenesJob.slice(guardStart, checkoutStart);
+  assert(guardStep.includes("exit 1"),
+    "The protected smoke guard must terminate with a nonzero status");
+  assert(!guardStep.includes("continue-on-error"),
+    "The protected smoke guard must not allow its failure to continue");
   assert(planSmokeJob.includes("- run: yarn test:agent-test-routing"),
     "The plan/smoke sentinel must run routing drift validation");
   assert(releaseJob.includes("- genes-test-plan-and-smoke"),

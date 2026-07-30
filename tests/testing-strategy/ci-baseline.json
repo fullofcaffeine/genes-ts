@@ -82,18 +82,18 @@
       "classification": "initial warm-source samples; final PR measurements are recorded by the machine report"
     }
   },
-  "postChangeLocal": {
+  "intermediateReviewLocal": {
     "command": "yarn test:ci",
     "sampleCount": 1,
     "durationSeconds": 1238.1,
-    "classification": "final PR sample; not a percentile",
+    "classification": "intermediate review-round sample before later reviewer corrections; not exact-head evidence or a percentile",
     "differenceFromInitialSeconds": 7.74,
     "differenceFromInitialPercent": 0.63,
     "testToolPreparationSelfTestSeconds": 9.19,
     "portableSmoke": {
       "successfulBothProfileSeconds": 5.49,
       "aggregateWithNineFailureSentinelsSeconds": 31.45,
-      "classification": "final local samples; hosted setup, queue, and red-run latency remain unmeasured"
+      "classification": "intermediate nine-sentinel samples retained as rollout history; hosted exact-head CI is the readiness owner"
     }
   },
   "unknown": [

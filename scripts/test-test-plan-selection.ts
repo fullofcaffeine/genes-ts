@@ -181,17 +181,22 @@ function main(): void {
     requires(policyDoc, owner, "portable-haxe-smoke");
   }
 
-  const compatibilityClaim = explain("docs/COMPATIBILITY_REPORT.md");
-  assert(!compatibilityClaim.docsOnly,
-    "Generated compatibility claims must not use the ordinary docs-only path");
-  requires(compatibilityClaim,
-    "compatibility-inventory",
-    "test-plan-validation",
-    "full-ci");
-  assert(compatibilityClaim.selected
-    .find((entry) => entry.id === "compatibility-inventory")
-    ?.reasons.some((reason) => reason.includes(" -> declared owner ")),
-  "Generated compatibility reports do not select their focused checker owner");
+  for (const compatibilityReport of [
+    "docs/COMPATIBILITY_REPORT.md",
+    "docs/COMPATIBILITY_REPORT.json"
+  ]) {
+    const compatibilityClaim = explain(compatibilityReport);
+    assert(!compatibilityClaim.docsOnly,
+      `${compatibilityReport} must not use the ordinary docs-only path`);
+    requires(compatibilityClaim,
+      "compatibility-inventory",
+      "test-plan-validation",
+      "full-ci");
+    assert(compatibilityClaim.selected
+      .find((entry) => entry.id === "compatibility-inventory")
+      ?.reasons.some((reason) => reason.includes(" -> declared owner ")),
+    `${compatibilityReport} does not select its focused checker owner`);
+  }
 
   for (const policyPath of [".audit/genes-brxy.tsv", ".gitignore"]) {
     const policy = explain(policyPath);

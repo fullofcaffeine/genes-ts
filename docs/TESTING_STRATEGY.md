@@ -224,15 +224,16 @@ sample from before this change.
 | Haxe preview advisory | p50 752 s; p95 765 s | Preview remains advisory and collects the complete configured evidence. |
 | Classic stable Ubuntu | p50 42 s; p95 50 s | A useful early runtime signal. |
 | Local `yarn test:ci` | 1,230.36 s (one sample) | Initial sample only, not a percentile. |
-| New both-profile official smoke | 5.49 s final local sample | Generation, strict target checking, and runtime all occur inside the measured report. |
-| New local `yarn test:smoke` aggregate | 31.45 s final reviewed sample | Includes the successful dual-profile path, a real runtime timeout, publication rollback, and seven other nonzero failure sentinels. |
-| Post-change local `yarn test:ci` | 1,238.10 s (one sample) | 7.74 seconds / 0.63% above the initial sample; this is within ordinary single-run variation and is not a percentile. |
+| New both-profile official smoke | 5.49 s intermediate local sample | Generation, strict target checking, and runtime all occur inside the measured report. |
+| New local `yarn test:smoke` aggregate | 31.45 s intermediate nine-sentinel sample | This predates the tenth missing-assertion sentinel and is retained only as rollout history, not exact-head timing. |
+| Post-change local `yarn test:ci` | 1,238.10 s intermediate sample | This review-round run predates later reviewer corrections. Its 7.74-second / 0.63% difference remains descriptive, not exact-head or percentile evidence. |
 
 **Observed:** the existing full gate passed before graph changes, the smoke
 passes both profiles with identical active results, and verified test-tool
-reuse avoids recompiling unchanged runners. The final full-gate sample passed
-all prior owners plus the new plan and smoke checks without a material
-single-run slowdown.
+reuse avoids recompiling unchanged runners. An intermediate full-gate sample
+passed all prior owners plus the then-current plan and smoke checks without a
+material single-run slowdown. Exact-head readiness comes from the hosted PR
+gate; this table does not relabel that evolving result as a stable percentile.
 
 **Inferred:** placing the smoke before the long primary job should provide a
 faster actionable compiler/runtime failure. Hosted queue/setup time and actual
