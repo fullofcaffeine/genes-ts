@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "contract": "genes-ts-compatibility-evidence",
-  "statement": "genes-ts supports controlled Haxe-to-TypeScript and classic ESM JavaScript profiles. This evidence inventory maps bounded claims to exact gates; it is not a blanket certification of arbitrary Haxe or npm programs.",
+  "statement": "genes-ts supports controlled Haxe-to-TypeScript and classic ESM JavaScript profiles. This evidence inventory maps bounded Genes product claims and one five-test official Haxe smoke subset to exact gates; it is not a blanket certification of arbitrary Haxe or npm programs and does not claim the complete applicable official Haxe suite.",
   "classes": [
     {
       "id": "compile_inventory",
@@ -89,7 +89,7 @@
         }
       ],
       "proves": "The enumerated compiler fixtures and examples compile under their owned TS/classic profiles.",
-      "doesNotProve": "Compilation does not prove closed public types, runtime equivalence, or arbitrary ecosystem compatibility."
+      "doesNotProve": "Compilation does not prove closed public types, runtime equivalence, arbitrary ecosystem compatibility, or an official upstream Haxe-suite result."
     },
     {
       "id": "public-type-safety",
@@ -279,6 +279,49 @@
       ],
       "proves": "Both outputs build and execute the same selected application workflows, including validation, CRUD, navigation, and deep links.",
       "doesNotProve": "Two green examples do not imply whole-ecosystem or framework-independent parity."
+    },
+    {
+      "id": "official-haxe-dual-profile-smoke",
+      "class": "smoke",
+      "label": "Pinned official Haxe 4.3.7 dual-profile smoke",
+      "disposition": "blocking",
+      "scope": "Five exact official Haxe tests from shared language, unitstd, and issue families compile through a packaged Genes artifact in classic and TypeScript profiles, pass each target checker, and execute 44 assertions per profile under Node.",
+      "evidence": [
+        "tests/portable-haxe-smoke/manifest.json",
+        "scripts/test-portable-haxe-smoke.ts",
+        "scripts/test-portable-haxe-smoke-failures.ts"
+      ],
+      "commands": [
+        "yarn test:smoke"
+      ],
+      "metrics": [
+        {
+          "id": "official-smoke-tests",
+          "label": "Reviewed active official Haxe test identities",
+          "kind": "json-array",
+          "path": "tests/portable-haxe-smoke/manifest.json",
+          "pointer": ["activeTests"],
+          "expected": 5
+        },
+        {
+          "id": "official-smoke-profiles",
+          "label": "Independently executed Genes profiles",
+          "kind": "json-array",
+          "path": "tests/portable-haxe-smoke/manifest.json",
+          "pointer": ["profiles"],
+          "expected": 2
+        },
+        {
+          "id": "reviewed-runner-adaptation-files",
+          "label": "Hash-pinned local harness adaptation files",
+          "kind": "json-array",
+          "path": "tests/portable-haxe-smoke/manifest.json",
+          "pointer": ["runnerAdaptation", "local"],
+          "expected": 4
+        }
+      ],
+      "proves": "The published five-test official Haxe 4.3.7 smoke subset passes after target checking and runtime execution in each Genes profile, and the harness fails closed for generation, target, module-load, assertion, runtime, timeout, and missing-test failures.",
+      "doesNotProve": "Five tests do not establish the complete active official tests/unit contract, capability coverage, Haxe preview compatibility, or any Genes-native declaration, HXX, package, source-map, transaction, or application claim outside the smoke."
     },
     {
       "id": "pinned-toolchain-lanes",

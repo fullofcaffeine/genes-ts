@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "contract": "genes-test-loop-baseline",
+  "measuredAt": "2026-07-30",
+  "revision": "6912bf6ecde484fa2a922f070783df99dcb30f56",
+  "evidenceBoundary": "The remote percentiles come from ten successful main-branch workflows at the same repository generation, but not all at the exact same commit. They describe the pre-change job graph. Time to first actionable failure remains unknown because this sample contains green runs only.",
+  "remote": {
+    "source": "GitHub Actions workflow and job timestamps",
+    "workflowRunIds": [
+      30509525587,
+      30502981475,
+      30498666282,
+      30495602886,
+      30493519659,
+      30485163405,
+      30473139994,
+      30464925451,
+      30464647259,
+      30455695365
+    ],
+    "jobs": [
+      {
+        "name": "genes-ts (TS output + todoapp E2E)",
+        "samplesSeconds": [1659, 1673, 1692, 1724, 1726, 1736, 1750, 1782, 1785, 1803],
+        "p50Seconds": 1726,
+        "p95Seconds": 1803
+      },
+      {
+        "name": "genes-ts smoke (Node latest LTS)",
+        "samplesSeconds": [912, 1145, 1163, 1165, 1196, 1210, 1210, 1214, 1226, 1241],
+        "p50Seconds": 1196,
+        "p95Seconds": 1241
+      },
+      {
+        "name": "Haxe preview (non-blocking)",
+        "samplesSeconds": [570, 742, 744, 745, 752, 752, 755, 756, 760, 765],
+        "p50Seconds": 752,
+        "p95Seconds": 765
+      },
+      {
+        "name": "Classic Genes (stable, ubuntu-latest)",
+        "samplesSeconds": [40, 40, 41, 42, 42, 47, 48, 48, 49, 50],
+        "p50Seconds": 42,
+        "p95Seconds": 50
+      },
+      {
+        "name": "Analyze (JavaScript)",
+        "samplesSeconds": [99, 108, 111, 112, 115, 117, 120, 121, 122, 125],
+        "p50Seconds": 115,
+        "p95Seconds": 125
+      }
+    ],
+    "referenceRun": {
+      "id": 30509525587,
+      "primaryJobSeconds": 1785,
+      "primaryStagesSeconds": {
+        "setupNode": 11,
+        "installDependencies": 4,
+        "nullSafety": 20,
+        "acceptance": 1409,
+        "ts2hx": 202,
+        "typescriptApiMatrix": 48,
+        "templateLiterals": 16,
+        "classicDeclarations": 30,
+        "libraryProfile": 16
+      }
+    }
+  },
+  "local": {
+    "command": "yarn test:ci",
+    "sampleCount": 1,
+    "durationSeconds": 1230.36,
+    "classification": "initial sample; not a percentile",
+    "testToolPreparation": {
+      "coldSeconds": 2.31,
+      "warmSeconds": 0.2,
+      "selfTestSeconds": 8.61
+    },
+    "portableSmoke": {
+      "successfulBothProfileSeconds": 5.28,
+      "failurePropagationStandaloneSeconds": 27.57,
+      "classification": "initial warm-source samples; final PR measurements are recorded by the machine report"
+    }
+  },
+  "postChangeLocal": {
+    "command": "yarn test:ci",
+    "sampleCount": 1,
+    "durationSeconds": 1238.1,
+    "classification": "final PR sample; not a percentile",
+    "differenceFromInitialSeconds": 7.74,
+    "differenceFromInitialPercent": 0.63,
+    "testToolPreparationSelfTestSeconds": 9.19,
+    "portableSmoke": {
+      "successfulBothProfileSeconds": 5.49,
+      "aggregateWithNineFailureSentinelsSeconds": 31.45,
+      "classification": "final local samples; hosted setup, queue, and red-run latency remain unmeasured"
+    }
+  },
+  "unknown": [
+    "Queue time separated from workflow setup",
+    "Time to first actionable failure",
+    "Per-test unique-failure yield",
+    "Rolling p50/p95 for the new smoke and preparation gates",
+    "CI-minute change after the new preflight job runs on representative pull requests"
+  ]
+}

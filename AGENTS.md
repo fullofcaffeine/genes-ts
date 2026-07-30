@@ -679,6 +679,48 @@ Examples that must be documented when used:
 - TSX output should keep `JSX.Element` annotations readable and type-only. If a runtime needs a namespace import for types, emit `import type {JSX} from "..."` rather than introducing a runtime import.
 - TSX fixtures should include reactive/accessor-shaped APIs such as signals and memos, imported components with children, spread props, and module imports together. Those patterns expose type/value import planning and JSX child/prop lowering issues earlier than static element-only fixtures.
 
+## Agentic Testing Loop
+
+Do not begin an unattended test run by guessing between similarly named
+commands or by launching the entire suite before the reduced failure is
+understood. Use the validated test plan in
+[`tests/testing-strategy/agent-test-routing.json`](tests/testing-strategy/agent-test-routing.json):
+
+1. classify the changed semantic owner or user workflow;
+2. run `yarn test:focus -- <gate-id-or-changed-path>` for one smallest matching
+   focused owner—an exact gate ID is the most predictable form;
+3. inspect the named generated source, runtime transcript, declaration,
+   source-map token, or transaction artifact rather than relying only on exit
+   code;
+4. run `yarn test:smoke` when the change can affect shared compiler/runtime
+   behavior; it packages Genes, checks the same five official Haxe tests in
+   classic JS and TypeScript, executes both, and proves failures stay red;
+5. use `yarn test:ci:explain` to review selected and omitted owners, including
+   safe full expansion for unknown or ambiguous paths;
+6. run `yarn test:full` before merge or downstream use.
+
+Run `yarn test:agent-test-routing` after changing commands, CI composition,
+test ownership, official-smoke sources or adaptations, or these guides. It
+checks that every plan entry still has a real package script and evidence
+owner, every route reaches the full gate, local adaptation hashes still match,
+and required CI still runs the plan and smoke. It does not replace each
+specialized harness.
+
+Affected selection is observation-only. `yarn test:pr` explains and reproduces
+the current plan, but the existing complete required gate remains authoritative
+until at least 30 representative runs over 14 days show no selector miss. Do
+not omit an existing test because the selector says it would not run. A daily
+scheduled full run audits this future selection policy.
+
+Portable Haxe compatibility and Genes product evidence are independent.
+Existing fixtures prove selected Genes output, typing, runtime, HXX,
+declaration, source-map, transaction, and application contracts. The current
+official result is deliberately smaller: five pinned Haxe 4.3.7 tests, 44
+assertions per profile, after strict target checking and Node execution. That
+is an official-suite smoke, not the full applicable suite. Read
+[`docs/TESTING_STRATEGY.md`](docs/TESTING_STRATEGY.md#portable-haxe-compatibility-versus-genes-product-evidence)
+before making a language-compatibility claim.
+
 ## Quick Reference
 
 ```bash

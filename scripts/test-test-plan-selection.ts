@@ -1,0 +1,155 @@
+import {spawnSync} from "node:child_process";
+import {readFileSync} from "node:fs";
+import {fileURLToPath} from "node:url";
+import path from "node:path";
+
+interface SelectionReport {
+  selectionMode: string;
+  docsOnly: boolean;
+  unknownFiles: string[];
+  ambiguousFiles: Array<{file: string; rules: string[]}>;
+  selected: Array<{id: string; reasons: string[]}>;
+  omitted: Array<{id: string; reason: string}>;
+}
+
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(scriptDir, "../..");
+const runner = path.join(repoRoot, "scripts", "dist", "test-plan.js");
+const report = path.join(
+  repoRoot,
+  ".tmp",
+  "test-evidence",
+  "test-plan",
+  "selection.json"
+);
+
+function assert(condition: unknown, message: string): asserts condition {
+  if (!condition) throw new Error(message);
+}
+
+function explain(changed: string): SelectionReport {
+  const result = spawnSync(process.execPath, [
+    runner,
+    "explain",
+    "--changed",
+    changed
+  ], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: process.env,
+    timeout: 30_000
+  });
+  assert(result.status === 0,
+    `Selection explain failed for ${changed}:\n${result.stdout}${result.stderr}`);
+  return JSON.parse(readFileSync(report, "utf8")) as SelectionReport;
+}
+
+function ids(result: SelectionReport): Set<string> {
+  return new Set(result.selected.map((entry) => entry.id));
+}
+
+function requires(result: SelectionReport, ...expected: string[]): void {
+  const selected = ids(result);
+  for (const id of expected)
+    assert(selected.has(id), `Expected selection to include ${id}`);
+  assert(result.omitted.length > 0, "Selection must explain omitted gates");
+  assert(result.selected.every((entry) => entry.reasons.length > 0),
+    "Every selected gate must state its rule or ownership path");
+}
+
+/**
+ * Locks the high-risk impact-map examples from the testing policy.
+ *
+ * The selector remains observation-only. These cases prove its explanations
+ * are deterministic, unknown ownership expands to the full backstop, and the
+ * ordinary documentation fast path cannot accidentally classify testing,
+ * compatibility, release, or agent policy as non-executable prose.
+ */
+function main(): void {
+  const compiler = explain("src/genes/Generator.hx");
+  requires(compiler,
+    "portable-haxe-smoke",
+    "classic-core",
+    "typescript-full",
+    "dual-output-semantics",
+    "full-ci");
+
+  const typescript = explain("src/genes/ts/TsModuleEmitter.hx");
+  requires(typescript,
+    "typescript-full",
+    "classic-declarations",
+    "source-maps",
+    "portable-haxe-smoke");
+
+  const react = explain("src/genes/react/JSX.hx");
+  requires(react,
+    "hxx-tsx",
+    "hxx-carrier-immutability",
+    "react-hooks",
+    "examples-dual-profile-e2e");
+  assert(react.ambiguousFiles.some((entry) =>
+    entry.file === "src/genes/react/JSX.hx"
+    && entry.rules.includes("compiler-core")
+    && entry.rules.includes("react-hxx-browser")),
+  "Overlapping compiler/React ownership was not reported as ambiguous");
+  assert(ids(react).has("full-ci"),
+    "Ambiguous compiler/React ownership did not expand to the full backstop");
+
+  const harness = explain("scripts/test-plan.ts");
+  requires(harness,
+    "test-plan-validation",
+    "test-tool-preparation",
+    "portable-haxe-failure-propagation",
+    "full-ci");
+
+  const executableOwner = explain("scripts/probe-binding-identity.ts");
+  assert(!executableOwner.docsOnly,
+    "An executable owner-only path must not use the docs-only fast path");
+  requires(executableOwner, "binding-identity", "portable-haxe-smoke");
+
+  const release = explain("scripts/release/package-haxelib.cjs");
+  requires(release,
+    "release-contract",
+    "package-imports",
+    "portable-haxe-smoke",
+    "full-ci");
+
+  const migration = explain("tools/ts2hx/src/project.ts");
+  requires(migration, "ts2hx", "portable-haxe-smoke");
+
+  const docs = explain("docs/TROUBLESHOOTING.md");
+  assert(docs.docsOnly, "Ordinary documentation did not use the docs-only path");
+  assert(ids(docs).has("agent-guides"), "Docs-only path omitted guide validation");
+  assert(!ids(docs).has("portable-haxe-smoke"),
+    "Ordinary documentation unnecessarily selected executable smoke");
+
+  const testingDocs = explain("docs/TESTING_STRATEGY.md");
+  assert(!testingDocs.docsOnly,
+    "Testing policy must never use the ordinary docs-only fast path");
+  requires(testingDocs, "test-plan-validation", "full-ci");
+
+  const compatibilityClaim = explain("docs/COMPATIBILITY_REPORT.md");
+  assert(!compatibilityClaim.docsOnly,
+    "Generated compatibility claims must not use the ordinary docs-only path");
+  requires(compatibilityClaim, "test-plan-validation", "full-ci");
+
+  for (const policyPath of [".audit/genes-brxy.tsv", ".gitignore"]) {
+    const policy = explain(policyPath);
+    assert(policy.unknownFiles.length === 0,
+      `${policyPath} must be classified as test-harness policy`);
+    requires(policy, "test-plan-validation", "full-ci");
+  }
+
+  const unknown = explain("future/unknown-owner.file");
+  assert(unknown.unknownFiles.length === 1,
+    "Unknown path was not reported as unknown");
+  requires(unknown, "full-ci", "portable-haxe-smoke");
+  assert(unknown.selectionMode === "observation",
+    "Selector was promoted without the required observation window");
+
+  console.log(
+    "test-plan-selection:ok (compiler/TS/React/harness/release/docs/policy/unknown/ambiguous)"
+  );
+}
+
+main();

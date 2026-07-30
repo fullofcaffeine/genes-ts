@@ -30,6 +30,226 @@ not discover every shell command, score prose, or check external websites;
 review remains responsible for clear explanations, command examples, and
 truthful support boundaries.
 
+## The agentic change loop
+
+A compiler change can fail in several different places. Haxe may reject the
+source, Genes may emit the wrong module, TypeScript may reject the generated
+types, or the generated program may load successfully but behave incorrectly.
+Running one giant suite after every edit is slow and often hides the first
+useful failure. Running only a snapshot is fast but can miss runtime and public
+type failures.
+
+The practical loop is:
+
+```text
+changed compiler contract
+  -> smallest matching owner
+  -> inspect the artifact that carries the claim
+  -> both-profile smoke or another independent owner
+  -> existing full gate before merge
+```
+
+Use these commands:
+
+| Command | What it does now | What it does not yet do |
+| --- | --- | --- |
+| `yarn test:focus -- <gate-id-or-path>` | Runs one smallest matching focused owner and writes its selection and log under `.tmp/test-evidence/test-plan/`. An exact gate ID is the most predictable form. | It is not a merge gate and deliberately omits unrelated matrices. |
+| `yarn test:smoke` | Packages the current Genes checkout, compiles the same five official Haxe tests through classic JS and TypeScript, target-checks both, executes both, then proves nine failure classes stay red. | It is not the complete official Haxe suite or broad Genes acceptance. |
+| `yarn test:ci:explain` | Reports selected and omitted gates, matching rules, unknown or ambiguous paths, estimated known duration, and remote jobs without running them. | The selected plan is observation-only. |
+| `yarn test:pr` | Reproduces the plan locally. During observation it still executes `test:ci` whenever the full backstop is selected. | It does not replace the hosted required gate. |
+| `yarn test:full` | Runs the current complete local `test:ci` contract. | A local run does not prove hosted settings or release publication. |
+
+The machine-readable plan is
+[`tests/testing-strategy/agent-test-routing.json`](../tests/testing-strategy/agent-test-routing.json).
+It records stable gate IDs, semantic owners, profiles, evidence kinds, feedback
+rings, timeouts, cache policy, artifacts, and reverse-dependency rules. Run:
+
+```bash
+yarn test:agent-test-routing
+```
+
+The validator fails when IDs collide, commands or owner roots disappear,
+official smoke hashes drift, a gate becomes unreachable, an impact rule names
+an unknown gate, or required CI no longer runs the plan and smoke. The selector
+also has executable examples for compiler, TypeScript, React/HXX, harness,
+package/release, ts2hx, ordinary documentation, unknown, and ambiguous changes.
+
+Unknown means no rule or declared owner recognizes a changed path. Ambiguous
+means more than one executable impact rule claims it. Both cases select the
+full backstop rather than guessing. For example, `src/genes/react/JSX.hx`
+belongs to the compiler core and React/HXX rules, so its explanation names both
+and includes `full-ci`.
+
+### Observation period
+
+Affected-test selection is not yet allowed to remove any existing required
+coverage. Every non-documentation pull request still runs:
+
+- plan/provenance validation;
+- the official Haxe both-profile smoke;
+- all nine failure-propagation checks; and
+- the existing required `genes-ts` full job.
+
+The selector must complete at least 30 representative pull-request/main runs
+over at least 14 days before promotion is considered. A failure on the complete
+main/nightly suite that the selector should have chosen is a selector miss. It
+updates the ownership rule and resets the confidence window for that area.
+The daily scheduled workflow and every main push keep the complete current
+primary suite as the audit backstop. Release publication still depends on the
+clean, complete claim-bearing jobs.
+
+There is no conditionally skipped selected-job graph yet, so a separate
+selection aggregator would add ceremony without protecting anything. Add that
+aggregator when selection becomes authoritative; it must then prove every
+selected job actually ran and passed.
+
+### Test-tool preparation
+
+Standalone `yarn test:*` commands remain safe from a fresh checkout. Their
+shared `yarn build:scripts` step now hashes every test-runner TypeScript source
+and the configuration inputs that affect compilation. It reuses `scripts/dist`
+only when all expected files and their aggregate hash match that exact input
+identity. A changed source, changed configuration, missing output, corrupt
+output, or absent cache causes a clean rebuild.
+
+`yarn test:test-tool-preparation` proves the cold, warm, changed-input,
+corrupt-output, and missing-output paths. Initial local samples were 2.31
+seconds for a rebuild and 0.20 seconds for a verified hit. Those are samples,
+not blocking performance thresholds.
+
+### Stop and escalate
+
+Stop the loop and diagnose before running more aggregates when:
+
+- the focused command fails or hangs;
+- the generated artifact changes for a reason the fixture does not explain;
+- classic and TypeScript disagree about shared Haxe behavior;
+- a snapshot passes but runtime, declaration, or source-map evidence is still
+  required;
+- a selected test is skipped, disappears, or executes no assertion;
+- a failure changes the last-good public evidence tree or leaves staging
+  debris; or
+- a downstream problem has not yet been reduced to a generic Genes fixture.
+
+Escalate when a change crosses owners. A TypeScript cast can also add a
+type-only import; moving an HXX child can change evaluation order and source
+maps; changing persistent macro state requires cold/warm compiler-server
+evidence. Record observed facts, inferences, and remaining experiments in the
+pull request.
+
+## Portable Haxe compatibility versus Genes product evidence
+
+These are independent evidence axes:
+
+1. **Portable Haxe compatibility** asks whether exact official Haxe source
+   compiles through a packaged Genes build, passes the target checker, and
+   executes successfully.
+2. **Genes product evidence** asks whether declarations, imports, source maps,
+   output transactions, HXX/React behavior, compiler-server reuse, package
+   shape, and maintained applications satisfy their own contracts.
+
+A green todoapp does not establish the upstream Haxe language corpus. A green
+numeric-literal test does not prove declarations, package imports, HXX, or
+rollback. Reports and claims therefore keep the two Genes profiles and these
+two evidence axes separate.
+
+### Current official-suite smoke
+
+`yarn test:smoke` currently proves a deliberately bounded result:
+
+> Each Genes profile passes the published five-test official Haxe 4.3.7 smoke
+> subset after target checking and Node execution. This is not the complete
+> applicable official `tests/unit` contract.
+
+The pinned inputs are:
+
+- Haxe revision `e0b355c6be312c1b17382603f018cf52522ec651`;
+- utest revision `a94f8812e8786f2b5fec52ce9f26927591d26327`;
+- three `TestNumericSeparator` methods;
+- the generated `IntIterator.unit.hx` specification; and
+- issue regression `Issue10032`.
+
+The runner downloads or archives those revisions into an ignored cache,
+verifies every selected source hash and license record, packages the current
+Genes checkout as a Haxelib artifact, and runs the same active identities in
+both profiles:
+
+```text
+classic:    Haxe -> packaged Genes -> ESM JavaScript -> node --check -> Node
+typescript: Haxe -> packaged Genes -> TypeScript 5.5.4 strict -> JavaScript -> Node
+```
+
+Both profiles currently execute 44 assertions. The machine report includes
+every test ID, per-test assertion/failure count, source identity, exact runtime
+toolchain, stage duration, command, log, and generated tree:
+
+```text
+.tmp/test-evidence/portable-haxe-smoke/report.json
+```
+
+The selected official tests use utest assertions, but the full historical
+utest reporting/browser runner is not itself part of this strict-TypeScript
+smoke. Genes therefore uses a small typed harness adaptation that calls the
+exact selected methods and preserves their assertion predicates. Both the
+upstream utest inputs and every local adapter file have reviewed SHA-256 values
+in
+[`tests/portable-haxe-smoke/manifest.json`](../tests/portable-haxe-smoke/manifest.json).
+Changing either side fails closed until the adaptation is reviewed again.
+
+The failure harness injects generation, JavaScript syntax, strict TypeScript,
+module-load, assertion, runtime-exception, timeout, and missing-active-test
+failures. Every case must exit nonzero, keep a diagnostic tree, and leave the
+last successful public evidence tree byte-identical.
+
+### Remaining official-Haxe work
+
+The complete active official inventory, representative expansion, capability
+shards, Haxe preview source manifest, and full release-package suite remain
+tracked work. Do not turn the five-test result into a compatibility percentage
+or say Genes “passes the Haxe suite.”
+
+## Measured starting point
+
+The machine-readable baseline is
+[`tests/testing-strategy/ci-baseline.json`](../tests/testing-strategy/ci-baseline.json).
+It records ten successful main-branch workflow runs and one local full-gate
+sample from before this change.
+
+| Observed item | Initial result | Interpretation |
+| --- | ---: | --- |
+| Primary `genes-ts` remote job | p50 1,726 s; p95 1,803 s | This was the required critical path and included a 1,409-second acceptance stage in the reference run. |
+| Duplicate next-LTS acceptance smoke | p50 1,196 s; p95 1,241 s | A supported compatibility lane; its cost is visible but is not demoted in this increment. |
+| Haxe preview advisory | p50 752 s; p95 765 s | Preview remains advisory and collects the complete configured evidence. |
+| Classic stable Ubuntu | p50 42 s; p95 50 s | A useful early runtime signal. |
+| Local `yarn test:ci` | 1,230.36 s (one sample) | Initial sample only, not a percentile. |
+| New both-profile official smoke | 5.49 s final local sample | Generation, strict target checking, and runtime all occur inside the measured report. |
+| New local `yarn test:smoke` aggregate | 31.45 s final reviewed sample | Includes the successful dual-profile path, a real runtime timeout, publication rollback, and seven other nonzero failure sentinels. |
+| Post-change local `yarn test:ci` | 1,238.10 s (one sample) | 7.74 seconds / 0.63% above the initial sample; this is within ordinary single-run variation and is not a percentile. |
+
+**Observed:** the existing full gate passed before graph changes, the smoke
+passes both profiles with identical active results, and verified test-tool
+reuse avoids recompiling unchanged runners. The final full-gate sample passed
+all prior owners plus the new plan and smoke checks without a material
+single-run slowdown.
+
+**Inferred:** placing the smoke before the long primary job should provide a
+faster actionable compiler/runtime failure. Hosted queue/setup time and actual
+failure latency are not yet measured, so this is not reported as an achieved
+remote SLO.
+
+**Assumed for rollout:** 30 representative runs or 14 days is enough initial
+variety to assess the selector. This governance threshold can be tightened
+after real misses and change distributions are known.
+
+**Unknown/untested:** time to first actionable failure from red runs, new
+remote p50/p95, unique-failure yield, final CI-minute change, and whether
+selected PR execution can safely replace any existing required work.
+
+The new preflight job adds setup rather than pretending it is free. Its value
+is earlier, clearer failure and auditable source provenance. Refactoring the
+long primary job or reusing immutable generated artifacts across jobs requires
+post-merge timing evidence and remains separate work.
+
 ## Compiler
 
 ### 1) Classic Genes JS mode (baseline semantics)
