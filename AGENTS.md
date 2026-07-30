@@ -248,6 +248,28 @@ in one sentence: which exact Haxe evidence authorizes which output change. State
 the important non-goals beside it. A pull request remains reviewable when every
 code path and fixture can be traced back to that contract.
 
+This rule does not limit how complete that contract may be. Implement every
+compiler path, output profile, compatibility behavior, diagnostic, and test
+needed for the promised feature to work. Split only independently useful
+prerequisites or behavior that the current contract does not need yet; do not
+relabel required work as follow-up merely to make a PR smaller.
+
+Record every split in Beads rather than leaving it in review prose or a markdown
+TODO. Give each resulting Bead its own positive contract and acceptance
+evidence, link discovery and dependency/blocking relationships, and state the
+landing order. The current PR may depend on a prerequisite Bead, but it is not
+complete until every blocking prerequisite and all in-contract work have
+landed and been validated together.
+
+Before implementing a slice that already appears unusually large, technically
+complex, architecturally ambiguous, or likely to run for a long time, tell the
+user and suggest an Oracle architecture review—even if an initial Bead split is
+already apparent. Give the Oracle the existing implementation plans and Bead
+graph, ask it to challenge the proposed boundaries, and request a recommended
+sequence of smaller contracts with dependencies, acceptance evidence, and stop
+criteria. A routine bounded local task that is not unusually complex or
+architecturally ambiguous does not need this ceremony.
+
 Classify each review finding before changing code:
 
 1. **Contract violation:** the proposed implementation breaks the PR's stated
@@ -289,17 +311,21 @@ At that checkpoint:
 2. Mark the PR and owning Bead honestly; do not keep calling the change ready
    while its semantic boundary is unsettled.
 3. Compare shrinking the feature, splitting prerequisites, changing the output
-   contract, and deferring unsupported cases. Prior effort is not a reason to
-   preserve an unsuitable design.
+   contract, and deferring unsupported cases. Create or update the corresponding
+   Beads and their dependency order before resuming. Shrinking or changing the
+   promised contract requires explicit user agreement; keep the original
+   outcome in an open linked Bead unless the user explicitly cancels it. Prior
+   effort is not a reason to preserve an unsuitable design.
 4. If the work has become disproportionately long, repeatedly non-convergent,
    or architecturally ambiguous, propose an independent high-capability
    architecture review—the **Oracle** in current project terminology—before
    another implementation cycle. Include full relevant repository snapshots,
-   the reduced cases, failed approaches, invariants, and precise questions.
-5. Resume only after choosing a deliberately smaller fallback, making the scope
-   finite again, or reconciling an Oracle response into a finite design. Treat
-   external review as design input; repository evidence and required gates
-   remain authoritative.
+   the reduced cases, failed approaches, invariants, current plans and Beads,
+   and precise questions about both architecture and the proposed split.
+5. Resume only after the user accepts a deliberately smaller fallback, the
+   existing scope becomes finite again, or an Oracle response is reconciled
+   into a finite design. Treat external review as design input; repository
+   evidence and required gates remain authoritative.
 
 When the accepted premise changes substantially, prefer closing the old PR as
 superseded and opening a clean replacement. Keep the old branch and cross-link
