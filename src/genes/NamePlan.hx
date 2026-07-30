@@ -40,6 +40,8 @@ private typedef ObjectFieldLocalUse = {
  * Haxe blocks share their function allocation scope because historical Genes
  * can emit `var`; switch cases receive explicit child scopes because the TS
  * printer wraps them in braces. Nested functions receive independent counters.
+ * Direct module functions/values reserve their exact ESM names in every local
+ * scope so a parameter cannot shadow a same-module typed field reference.
  * Once built, printers perform lookup only—no name counters or preference maps
  * remain in either emitter.
  */
@@ -64,7 +66,8 @@ class NamePlan {
     if (planned != null)
       return planned;
     throw '[GTS-NAME-PLAN-001] Missing emitted name for TVar ${local.id} '
-      + '(${local.name}). The typed expression must be added to NamePlan traversal.';
+      +
+      '(${local.name}). The typed expression must be added to NamePlan traversal.';
   }
 
   /** Returns locals emitted outside a function in deterministic order. */
@@ -95,6 +98,7 @@ private class NamePlanBuilder {
   final moduleBindings: Array<String> = [];
   final generatedCounts: Map<String, Int> = [];
   final plannedFunctions = new ObjectMap<TFunc, Bool>();
+  final directModuleBindings: Map<String, Bool> = [];
 
   public function new(temps: TempPlan, profile: NamePlanProfile,
       jsxEmitTsx: Bool, jsxPlan: JsxPlan) {
@@ -105,6 +109,7 @@ private class NamePlanBuilder {
   }
 
   public function build(module: Module): NamePlan {
+    reserveDirectModuleBindings(module);
     final moduleScope = allocationScope();
     final preferences: Map<Int, String> = [];
     for (member in module.members) {
@@ -137,6 +142,20 @@ private class NamePlanBuilder {
       }
     }
     return new NamePlan(names, moduleBindings);
+  }
+
+  /** Reserves exact direct ESM names before any function-local allocation. */
+  function reserveDirectModuleBindings(module: Module): Void {
+    for (member in module.members)
+      switch member {
+        case MClass(_, _, fields):
+          for (field in Module.emittableFields(fields)) {
+            final requested = DirectModuleBinding.requestedNameFromField(field);
+            if (requested != null)
+              directModuleBindings.set(requested, true);
+          }
+        case MEnum(_, _) | MType(_, _) | MMain(_):
+      }
   }
 
   /** Plans arguments and body locals in one independent function scope. */
@@ -210,8 +229,7 @@ private class NamePlanBuilder {
       return;
     if (jsxEmitTsx && jsxPlan.isSourceInlineChild(local))
       return;
-    if (jsxEmitTsx && profile == ClassicStable
-      && preferences.exists(local.id)) {
+    if (jsxEmitTsx && profile == ClassicStable && preferences.exists(local.id)) {
       final preferred = preferences.get(local.id);
       final count = countAndIncrement(scope.counts, preferred);
       final planned = suffix(preferred, count);
@@ -221,9 +239,13 @@ private class NamePlanBuilder {
       return;
     }
     if (profile == ClassicStable) {
-      names.set(local.id, local.name);
+      final planned = if (directModuleBindings.exists(local.name)) {
+        final count = countAndIncrement(scope.counts, local.name) + 1;
+        suffix(local.name, count);
+      } else local.name;
+      names.set(local.id, planned);
       if (moduleContext)
-        addModuleBinding(local.name);
+        addModuleBinding(planned);
       return;
     }
 
@@ -237,22 +259,22 @@ private class NamePlanBuilder {
       return;
     }
 
-    final baseName = preferences.exists(local.id)
-      ? preferences.get(local.id)
-      : local.name;
-    final count = countAndIncrement(scope.counts, baseName);
+    final baseName = preferences.exists(local.id) ? preferences.get(local.id) : local.name;
+    final count = countAndIncrement(scope.counts, baseName)
+      + (directModuleBindings.exists(baseName) ? 1 : 0);
     final planned = suffix(baseName, count);
     names.set(local.id, planned);
     if (moduleContext)
       addModuleBinding(planned);
   }
 
-  function addModuleBinding(name:String):Void {
+  function addModuleBinding(name: String): Void {
     if (moduleBindings.indexOf(name) == -1)
       moduleBindings.push(name);
   }
 
-  static function countAndIncrement(counts: Map<String, Int>, name: String): Int {
+  static function countAndIncrement(counts: Map<String, Int>,
+      name: String): Int {
     final count = counts.exists(name) ? counts.get(name) : 0;
     counts.set(name, count + 1);
     return count;
@@ -305,7 +327,8 @@ private class NamePlanBuilder {
               for (fieldUse in fieldUses) {
                 final fieldLocal = fieldUse.local;
                 final fieldParts = numberedLocalName(fieldLocal.name);
-                if (fieldParts == null || fieldParts.prefix != objectParts.prefix)
+                if (fieldParts == null
+                  || fieldParts.prefix != objectParts.prefix)
                   continue;
                 final fieldIndex = fieldParts.index == null ? 0 : fieldParts.index;
                 if (fieldIndex >= objectParts.index)
@@ -385,9 +408,8 @@ private class NamePlanBuilder {
       final part = sanitizePreferredName(partValue);
       if (part == null)
         continue;
-      result += result.length == 0
-        ? part
-        : part.substr(0, 1).toUpperCase() + part.substr(1);
+      result += result.length == 0 ? part : part.substr(0, 1).toUpperCase()
+        + part.substr(1);
     }
     return result.length == 0 ? null : result;
   }
@@ -401,7 +423,8 @@ private class NamePlanBuilder {
       final valid = (code >= "a".code && code <= "z".code)
         || (code >= "A".code && code <= "Z".code)
         || (index > 0 && code >= "0".code && code <= "9".code)
-        || code == "_".code || code == "$".code;
+        || code == "_".code
+        || code == "$".code;
       if (valid)
         result.addChar(code);
     }
@@ -454,16 +477,18 @@ private class NamePlanBuilder {
     final prefix = name.substr(0, split);
     if (prefix.length == 0)
       return null;
-    return split == name.length
-      ? {prefix: prefix, index: null}
-      : {prefix: prefix, index: Std.parseInt(name.substr(split))};
+    return split == name.length ? {
+      prefix: prefix,
+      index: null
+    } : {prefix: prefix, index: Std.parseInt(name.substr(split))};
   }
 
   static function countLocalUses(expression: TypedExpr,
       uses: Map<Int, Int>): Void {
     switch unwrap(expression).expr {
       case TLocal(local):
-        uses.set(local.id, (uses.exists(local.id) ? uses.get(local.id) : 0) + 1);
+        uses.set(local.id,
+          (uses.exists(local.id) ? uses.get(local.id) : 0) + 1);
       default:
     }
     expression.iter(child -> countLocalUses(child, uses));
@@ -501,14 +526,16 @@ private class NamePlanBuilder {
     final first = name.charCodeAt(0);
     if (!((first >= "a".code && first <= "z".code)
       || (first >= "A".code && first <= "Z".code)
-      || first == "_".code || first == "$".code))
+      || first == "_".code
+      || first == "$".code))
       return false;
     for (index in 1...name.length) {
       final code = name.charCodeAt(index);
       if (!((code >= "a".code && code <= "z".code)
         || (code >= "A".code && code <= "Z".code)
         || (code >= "0".code && code <= "9".code)
-        || code == "_".code || code == "$".code))
+        || code == "_".code
+        || code == "$".code))
         return false;
     }
     return true;

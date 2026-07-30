@@ -211,6 +211,12 @@ class, descriptor seeds, assignments, and registration import are omitted.
 This is the preferred shape for APIs that are conceptually JavaScript or
 TypeScript modules rather than runtime classes.
 
+Omitting registration does not remove runtime helpers used by the function
+body. For example, a typed method closure still emits `Register.bind`, so Genes
+retains the Register import for that expression while continuing to omit the
+synthetic owner. Dependency planning treats helper reachability and class
+registration as separate facts.
+
 The binding is public from its own generated module, not implicitly
 re-exported from the compilation-root barrel. Separate Haxe source modules may
 therefore export the same conventional name (for example `render`) without a
@@ -317,12 +323,14 @@ cannot prove that changing lexical location is safe. The only admitted
 `js.Syntax` calls are an exact, arity-checked set of compiler-library
 identity/undefined templates (`undefined`, `{0}`, `{0} ?? null`, and
 `({0}) === undefined`), the exact `await {0}` template under an already typed
-native-async owner, plus `construct` with a resolved Haxe type expression. The
-latter is required by Haxe's typed JavaScript `Array.map` implementation, which
-allocates its result as `js.Syntax.construct(Array, length)`. Every admitted
-argument remains part of the ordinary typed traversal, while non-async await,
-string-named constructors, and arbitrary templates remain opaque. The focused
-runtime and rollback suite covers both admitted and rejected boundaries.
+native-async owner, the exact `{0}.findIndex({1})` template owned by
+`genes.js.ArrayCallbacks.findIndex`, plus `construct` with a resolved Haxe type
+expression. The latter is required by Haxe's typed JavaScript `Array.map`
+implementation, which allocates its result as
+`js.Syntax.construct(Array, length)`. Every admitted argument remains part of
+the ordinary typed traversal, while non-async await, string-named constructors,
+and arbitrary templates remain opaque. The focused runtime and rollback suite
+covers both admitted and rejected boundaries.
 Similar-looking or newly introduced raw templates still fail closed until they
 receive an explicit generalized proof.
 

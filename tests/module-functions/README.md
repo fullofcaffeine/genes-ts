@@ -13,8 +13,11 @@ Selected immutable module-level values emit as direct typed ESM `const`
 bindings. The fixture pairs a value with a selected function on one synthetic
 owner, imports same-named values from two source modules through collision-safe
 aliases, verifies exact declaration and source-map output, and proves that the
-metadata itself does not create a DCE root. Mutable, class-owned, mixed-owner,
-cyclic, malformed, and renamed shapes fail before transactional publication.
+metadata itself does not create a DCE root. It also covers owner-only exports,
+same-module local shadowing, expression-owned Register helpers, and the typed
+native `findIndex` helper. Mutable, class-owned, mixed-owner, cyclic,
+forward-reading, malformed, and renamed shapes fail before transactional
+publication.
 
 The metadata moves one supported public static Haxe method body to an
 unexported, genuine ES-module function. Genes leaves a compiler-owned method

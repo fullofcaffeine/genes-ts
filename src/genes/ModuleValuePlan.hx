@@ -8,6 +8,8 @@ import genes.Module.Field;
 import genes.ModuleFunctionPlan.ModuleBindingFact;
 import genes.util.TypeUtil;
 
+using haxe.macro.TypedExprTools;
+
 /** One validated top-level Haxe value emitted as a direct ESM `const`. */
 class ModuleValueEntry {
   public final owner: ClassType;
@@ -230,6 +232,7 @@ class ModuleValuePlan {
         + 'field to another module',
         firstOrdinary.pos);
     }
+    validateNoForwardValueReads(owner, field, retained);
     if (module.isCyclic(module.module)) {
       return
         CompilerDiagnostic.fail('GENES-MODULE-VALUE-CYCLE-014: ${owner.name}.${field.name} '
@@ -238,6 +241,55 @@ class ModuleValuePlan {
         field.pos);
     }
     return new ModuleValueEntry(owner, field, requestedName, parameter.pos);
+  }
+
+  /**
+   * Rejects initializer-time reads of a later direct value on the same owner.
+   *
+   * Why: Haxe's synthetic owner can preserve deferred static initialization,
+   * while direct ESM `const` declarations enter the temporal dead zone until
+   * their declaration executes. Emitting `const first = second` before
+   * `second` would therefore turn a valid typed program into a native runtime
+   * failure (and a TypeScript use-before-declaration error).
+   *
+   * What/How: compare exact same-owner static field identities in retained
+   * source order. Nested function bodies are intentionally skipped because a
+   * closure captures the binding without reading it during initialization.
+   */
+  static function validateNoForwardValueReads(owner: ClassType, field: Field,
+      retained: Array<Field>): Void {
+    final sourceIndex = retained.indexOf(field);
+    if (sourceIndex < 0 || field.expr == null)
+      return;
+
+    function retainedIndex(name: String): Int {
+      for (index in 0...retained.length)
+        if (retained[index].name == name)
+          return index;
+      return -1;
+    }
+
+    function visit(expression: TypedExpr): Void {
+      switch expression.expr {
+        case TFunction(_):
+          return;
+        case TField(_, FStatic(ownerRef, fieldRef)):
+          final targetOwner = ownerRef.get();
+          final targetField = fieldRef.get();
+          final targetIndex = retainedIndex(targetField.name);
+          if (sameOwner(owner, targetOwner)
+            && requestedName(targetField) != null && targetIndex > sourceIndex) {
+            CompilerDiagnostic.fail('GENES-MODULE-VALUE-FORWARD-015: ${owner.name}.${field.name} '
+              + 'reads later direct module value "${targetField.name}" during '
+              + 'initialization; reorder the values, move the read into a '
+              + 'function, or keep the synthetic owner',
+              expression.pos);
+          }
+        default:
+      }
+      expression.iter(visit);
+    }
+    visit(field.expr);
   }
 
   static function isFinal(owner: ClassType, field: Field): Bool {

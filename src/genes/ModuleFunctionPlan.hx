@@ -446,8 +446,9 @@ class ModuleFunctionPlan {
    * lowers `await(value)` to the fixed `await {0}` template, but only a field
    * already carrying the typed `:jsAsync` fact may relocate that expression.
    * Haxe's typed `Array.map` uses the separate fixed `construct` intrinsic with
-   * a resolved type expression; every admitted template argument stays inside
-   * the ordinary recursive validation.
+   * a resolved type expression. `genes.js.ArrayCallbacks.findIndex` similarly
+   * owns the fixed `{0}.findIndex({1})` projection. Every admitted template
+   * argument stays inside the ordinary recursive validation.
    *
    * How: this is an exact allowlist with exact arity, not a string heuristic.
    * Every user-defined or newly introduced template remains opaque and fails
@@ -464,7 +465,8 @@ class ModuleFunctionPlan {
           };
           switch [template, arguments.length] {
             case ['undefined', 1] | ['{0}', 2] | ['({0})', 2] |
-              ['{0} ?? null', 2] | ['({0}) === undefined', 2]:
+              ['{0} ?? null', 2] | ['({0}) === undefined', 2] |
+              ['{0}.findIndex({1})', 3]:
               true;
             case ['await {0}', 2]:
               nativeAsyncOwner;

@@ -105,6 +105,7 @@ class DependencyPlanBuilder {
   function collectRuntimeEdges(): Void {
     var onlyDirectModuleBindings = module.members.length > 0;
     var hasDirectModuleBindingOwner = false;
+    var hasRegisterHelperEdge = false;
     // Validate compiler-owned string templates before output projection opens
     // any implementation writer. The plan itself adds no dependency edge.
     module.templateLiteralPlan;
@@ -202,6 +203,53 @@ class DependencyPlanBuilder {
         default:
       }
       expression.iter(addJsRequireFromExpr);
+    }
+
+    /**
+     * Reserves `genes.Register` when expression lowering needs a runtime helper.
+     *
+     * Why: ordinary classes already retain Register for reflection setup, which
+     * historically hid expression-level uses such as method binding, dynamic
+     * iteration, and Haxe's `$global` carrier. A module made entirely from
+     * direct functions/values has no class registration, but those expressions
+     * still emit Register calls and therefore still need the import.
+     *
+     * What/How: recognize the exact typed shapes shared by both emitters before
+     * imports are allocated. This edge is independent from
+     * `runtime.registration`: removing a compiler-synthetic owner must remove
+     * only its reflection work, never helpers used by the retained body.
+     */
+    function addRegisterHelperFromExpr(expression: TypedExpr): Void {
+      if (expression == null || hasRegisterHelperEdge)
+        return;
+      var helperPos: Null<Position> = null;
+      function visit(current: TypedExpr): Void {
+        if (helperPos != null)
+          return;
+        switch current.expr {
+          case TField(_, FClosure(_, _)):
+            helperPos = current.pos;
+          case TField(receiver, field)
+            if (TypeUtil.fieldName(field) == 'iterator'
+              && TypeUtil.isDynamicIterator(receiver)):
+            helperPos = current.pos;
+          case TCall({
+            expr: TField(_,
+              FStatic(_.get() => {module: 'js.Syntax'},
+                _.get() => {name: 'code'}))
+          }, [{expr: TConst(TString("$global"))}]):
+            helperPos = current.pos;
+          default:
+        }
+        if (helperPos == null)
+          current.iter(visit);
+      }
+      visit(expression);
+      if (helperPos == null)
+        return;
+      hasRegisterHelperEdge = true;
+      addReference(RuntimeValue, TypeUtil.registerType,
+        'runtime.expression-register-helper', helperPos);
     }
 
     /**
@@ -352,6 +400,7 @@ class DependencyPlanBuilder {
       if (expression == null)
         return;
       addJsRequireFromExpr(expression);
+      addRegisterHelperFromExpr(expression);
       final directModuleOwners = addDirectModuleImports(expression);
       for (type in TypeUtil.typesInExpr(expression)) {
         final base = DependencyPlan.moduleTypeBase(type);

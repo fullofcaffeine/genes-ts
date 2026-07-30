@@ -142,8 +142,11 @@ class Main {
       || module_value_identifier || module_value_public_name
       || module_value_native_name || module_value_import_collision
       || module_value_mutable || module_value_function || module_value_mixed
-      || module_value_dual_marker || module_value_function_collision)
-    #if module_value_import_collision
+      || module_value_dual_marker || module_value_function_collision
+      || module_value_forward_read)
+    #if module_value_forward_read
+    trace(module_function_invalid.ModuleValueInvalid.first);
+    #elseif module_value_import_collision
     trace(module_function_invalid.ModuleValueInvalid.ImportedBinding);
     #else
     trace(module_function_invalid.ModuleValueInvalid.value);

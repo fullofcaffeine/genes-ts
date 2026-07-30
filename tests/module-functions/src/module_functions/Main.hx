@@ -5,7 +5,11 @@ import module_functions.Selected.SecondarySelected;
 import module_functions.Inheritance.ModuleFunctionChild;
 import module_functions.TopLevel.topLevelIdentity;
 import module_functions.TopLevel.topLevelAsync;
+import module_functions.TopLevel.firstMatchIndex;
 import module_functions.TopLevel.metadata;
+import module_functions.RegisterHelpers.appendWithBoundMethod;
+import module_functions.ShadowedBindings.readMetadata;
+import module_functions.ExposedValue.exposedValue;
 import module_functions.TopLevelSibling.topLevelIdentity as siblingTopLevelIdentity;
 import module_functions.TopLevelSibling.metadata as siblingMetadata;
 
@@ -39,7 +43,11 @@ class Main {
       topLevelIdentity("top-level"),
       siblingTopLevelIdentity("top-level-sibling"),
       metadata.title + ":" + metadata.tags.length,
-      siblingMetadata.title
+      siblingMetadata.title,
+      Std.string(firstMatchIndex(["first", "match"])),
+      Std.string(appendWithBoundMethod([1, 2, 3])),
+      readMetadata("parameter"),
+      exposedValue
     ];
     trace(transcript.join("|"));
   }

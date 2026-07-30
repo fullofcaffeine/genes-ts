@@ -438,6 +438,25 @@ console.log(await topLevelAsync(41));`;
     }).trim());
 }
 
+function directModuleRegressionRuntime(): string {
+  const program = `
+import {firstMatchIndex} from "./tests/module-functions/out/classic/module_functions/TopLevel.js";
+import {appendWithBoundMethod} from "./tests/module-functions/out/classic/module_functions/RegisterHelpers.js";
+import {readMetadata} from "./tests/module-functions/out/classic/module_functions/ShadowedBindings.js";
+import {exposedValue} from "./tests/module-functions/out/classic/module_functions/ExposedValue.js";
+console.log([
+  firstMatchIndex(["first", "match"]),
+  appendWithBoundMethod([1, 2, 3]),
+  readMetadata("parameter"),
+  exposedValue
+].join("|"));`;
+  return execFileSync(process.execPath,
+    ["--input-type=module", "--eval", program], {
+      cwd: repoRoot,
+      encoding: "utf8"
+    }).trim();
+}
+
 const negativeCases = [
   ["module_function_arity", "GENES-MODULE-FUNCTION-ARITY-001"],
   ["module_function_arity_multiple", "GENES-MODULE-FUNCTION-ARITY-001"],
@@ -513,7 +532,8 @@ const negativeCases = [
   ["module_value_native_name", "GENES-MODULE-VALUE-NATIVE-NAME-011"],
   ["module_value_import_collision", "GENES-MODULE-VALUE-COLLISION-012"],
   ["module_value_mixed", "GENES-MODULE-VALUE-MIXED-OWNER-013"],
-  ["module_value_cycle", "GENES-MODULE-VALUE-CYCLE-014"]
+  ["module_value_cycle", "GENES-MODULE-VALUE-CYCLE-014"],
+  ["module_value_forward_read", "GENES-MODULE-VALUE-FORWARD-015"]
 ] as const;
 
 function assertCompileFailure(profile: "classic" | "ts",
@@ -588,6 +608,37 @@ assertTopLevelImplementationShape(
 assertTopLevelImplementationShape(
   "tsx/src-gen/module_functions/TopLevelSibling.tsx");
 for (const relative of [
+  "classic/module_functions/RegisterHelpers.js",
+  "ts/src-gen/module_functions/RegisterHelpers.ts",
+  "tsx/src-gen/module_functions/RegisterHelpers.tsx"
+]) {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes("genes/Register")
+    && source.includes("Register.bind(output, output.push)"),
+    `${relative} retains Register only for the method-closure helper`);
+  ok(!source.includes("RegisterHelpers_Fields_"),
+    `${relative} still omits the compiler-synthetic owner`);
+}
+for (const relative of [
+  "classic/module_functions/ShadowedBindings.js",
+  "ts/src-gen/module_functions/ShadowedBindings.ts",
+  "tsx/src-gen/module_functions/ShadowedBindings.tsx"
+]) {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes("function readMetadata(metadata_1")
+    && source.includes('metadata.title + ":" + metadata_1'),
+    `${relative} keeps the typed module binding distinct from its parameter`);
+}
+for (const relative of [
+  "classic/index.js",
+  "ts/src-gen/index.ts",
+  "tsx/src-gen/index.tsx"
+]) {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(!source.includes("exposedValue"),
+    `${relative} does not broaden a direct value into the root barrel`);
+}
+for (const relative of [
   "classic/module_functions/Main.js",
   "ts/src-gen/module_functions/Main.ts",
   "tsx/src-gen/module_functions/Main.tsx"
@@ -645,6 +696,9 @@ strictEqual(exactPublicRuntimeIdentity(), true,
   "owner, public binding, and root re-export share one function identity");
 strictEqual(asyncModuleRuntime(), 42,
   "the direct classic module function preserves native async/await runtime behavior");
+strictEqual(directModuleRegressionRuntime(),
+  "1|3|module:parameter|owned-module-only",
+  "direct helpers, shadowed bindings, findIndex, and owner-only exports run natively");
 deepStrictEqual(runtime.descriptor, {
   configurable: true,
   enumerable: false,

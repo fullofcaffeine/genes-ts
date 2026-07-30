@@ -119,6 +119,25 @@ Functions selected with `@:genes.moduleFunction` and values selected with
 import, type, compiler temporary, selected function, or another local binding.
 Collisions fail at the Haxe metadata position before output is published.
 
+Within the owning module, Genes also reserves each direct binding name from
+function parameters and locals. Haxe may distinguish a qualified field such as
+`Catalog.metadata` from a parameter also called `metadata`; emitted ESM cannot
+qualify its own top-level binding. Genes therefore keeps the direct binding
+spelling and deterministically renames the local:
+
+```haxe
+@:genes.moduleFunction("readTitle")
+function readTitle(metadata:String):String {
+	return catalog.Catalog.metadata.title + metadata;
+}
+```
+
+```ts
+export function readTitle(metadata_1: string): string {
+  return metadata.title + metadata_1;
+}
+```
+
 ## Supported initial contract
 
 The first released shape deliberately accepts only:
@@ -141,6 +160,24 @@ its class-shaped lifecycle. A cyclic value remains on the established deferred
 static path rather than being changed into an ESM temporal-dead-zone failure.
 Move ordinary helpers to another Haxe module or opt eligible top-level
 functions into `@:genes.moduleFunction`.
+
+A direct initializer also cannot read a later direct value from the same Haxe
+module:
+
+```haxe
+@:genes.moduleValue("first")
+final first = second;
+
+@:genes.moduleValue("second")
+final second = 2;
+```
+
+Haxe can represent that dependency through its synthetic static owner, but
+native ESM would emit `const first = second` while `second` is still in its
+temporal dead zone. Genes rejects the source with
+`GENES-MODULE-VALUE-FORWARD-015`. Reorder the values or defer the read inside a
+function. A closure capture is allowed because it does not read the binding
+during module initialization.
 
 Class static fields are intentionally rejected:
 
@@ -174,6 +211,11 @@ Framework macros that require a convention value to survive must retain it
 through their normal typed/DCE contract; `@:genes.moduleValue` does not guess
 that policy.
 
+The value is public from its own generated module only. Even if a macro or
+source declaration also supplies `@:expose`, Genes does not duplicate a genuine
+module field in the compilation-root barrel. Separate modules may therefore
+own the same conventional value name without a false global collision.
+
 Both TypeScript source and classic `.d.ts` retain the closed Haxe type. The
 binding and every initializer expression keep their Haxe source-map
 provenance. Validation occurs before transactional publication, so a bad
@@ -190,8 +232,9 @@ yarn test:module-functions
 
 The shared direct-binding fixture covers TypeScript, TSX, classic JavaScript,
 classic declarations, TS 5/6/7, same-named cross-module imports, exact runtime
-values, deterministic output, source maps, DCE neutrality, cycles, diagnostics,
-and rollback. `yarn test:ci` invokes that focused owner directly.
+values, same-module local shadowing, owner-only exports, deterministic output,
+source maps, DCE neutrality, forward-read/cycle diagnostics, and rollback.
+`yarn test:ci` invokes that focused owner directly.
 
 See [`MODULE_FUNCTIONS.md`](MODULE_FUNCTIONS.md) for genuine module functions
 and the distinct compatibility contract for moving a static class method body.

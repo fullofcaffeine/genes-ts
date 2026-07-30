@@ -1,6 +1,7 @@
 package module_functions;
 
 import genes.js.Async.await;
+import genes.js.ArrayCallbacks;
 import js.lib.Promise;
 
 /** Closed data shape used to prove precise TypeScript/declaration output. */
@@ -43,6 +44,18 @@ function topLevelIdentity<T>(value: T): T {
 function topLevelAsync(value: Int): Promise<Int> {
   final resolved = await(Promise.resolve(value));
   return resolved + 1;
+}
+
+/**
+ * Proves the typed native Array helper remains legal in a direct function.
+ *
+ * The inline helper lowers to the exact JavaScript `findIndex` call; the
+ * module-function validator admits that reviewed template without accepting
+ * arbitrary target-language syntax.
+ */
+@:genes.moduleFunction("firstMatchIndex")
+function firstMatchIndex(values: Array<String>): Int {
+  return ArrayCallbacks.findIndex(values, value -> value == "match");
 }
 
 /** Metadata alone must not retain an otherwise unreachable module value. */

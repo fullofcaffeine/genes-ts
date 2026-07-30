@@ -1,6 +1,14 @@
 package module_function_invalid;
 
-#if module_value_class_static
+#if module_value_forward_read
+/** Negative control: ESM cannot read a later `const` during initialization. */
+@:genes.moduleValue("first")
+final first = second;
+
+@:genes.moduleValue("second")
+final second = 2;
+
+#elseif module_value_class_static
 /** Negative control: class static identity is not a module-level value. */
 @:keep
 class ModuleValueInvalid {
