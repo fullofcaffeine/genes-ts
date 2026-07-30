@@ -54,12 +54,15 @@ class DirectModuleBinding {
    *
    * A module-value marker deliberately starts with this all-direct contract.
    * It prevents reordering a selected initializer around an ordinary synthetic
-   * owner field. Function-only owners keep the same result they had before
-   * module values existed.
+   * owner field. The owner must also have no module `__init__` body: Haxe keeps
+   * that body on `ClassType.init`, outside the retained field list, and erasing
+   * the owner would otherwise erase its initialization side effects.
+   * Function-only owners keep the same result they had before module values
+   * existed when no initializer remains.
    */
   public static function canOmitSyntheticOwner(owner: ClassType,
       fields: Array<Field>): Bool {
-    if (!isModuleFieldsOwner(owner))
+    if (!isModuleFieldsOwner(owner) || owner.init != null)
       return false;
     final retained = Module.emittableFields(fields);
     return retained.length > 0

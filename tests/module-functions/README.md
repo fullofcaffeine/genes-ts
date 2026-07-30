@@ -20,10 +20,15 @@ expression-owned and TypeScript-only Register helpers, and the typed native
 `findIndex` helper. It also proves that a class-owned public module function is
 retained and re-exported solely by `@:expose`, without an unrelated Haxe
 runtime call, and that a TypeScript boundary assertion keeps its Register
-dependency even after a synthetic owner disappears. Mutable, class-owned,
-mixed-owner, cyclic, direct, immediately-invoked, locally named closure, and
-direct module-function forward reads, plus malformed and renamed shapes, fail
-before transactional publication.
+dependency even after a synthetic owner disappears. A separate profile build
+activates `js.Lib.global` and proves that the compiler-generated `$global`
+prologue also retains `Register`, even in a direct-only module whose own
+expressions never mention the helper. The module-initializer control proves
+that an otherwise direct owner remains present when its hidden `__init__` body
+still has side effects. Mutable, class-owned, mixed-owner, cyclic, direct,
+immediately-invoked, locally named, reassigned local-closure, and direct
+module-function forward reads, plus malformed and renamed shapes, fail before
+transactional publication.
 
 The metadata moves one supported public static Haxe method body to an
 unexported, genuine ES-module function. Genes leaves a compiler-owned method

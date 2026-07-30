@@ -79,7 +79,8 @@ typedef MemberProjection = {
 
 typedef ModuleContext = {
   modules: Map<String, Module>,
-  concrete: Array<String>
+  concrete: Array<String>,
+  hasFeature: (feature: String) -> Bool
 }
 
 typedef ModuleExport = {
@@ -113,6 +114,22 @@ class Module {
   final context: ModuleContext;
   final cycleCache = new Map<String, Bool>();
   final namePlans = new Map<String, NamePlan>();
+
+  /**
+   * Reports a Haxe JavaScript feature selected anywhere in this compilation.
+   *
+   * Why: a feature can make an emitter add module-prologue code even when the
+   * current module's typed expressions do not mention that helper. Dependency
+   * planning therefore needs the same compiler-owned fact before imports
+   * freeze; scanning expressions alone cannot discover invented prologue use.
+   *
+   * What/How: `Generator` passes through `JSGenApi.hasFeature` for the current
+   * request. The callback is request-local and read only while this module's
+   * immutable dependency plan is built.
+   */
+  public inline function hasFeature(feature: String): Bool {
+    return context.hasFeature(feature);
+  }
 
   public function new(context: ModuleContext, module, types: Array<Type>,
       ?main: TypedExpr, ?expose: Array<ModuleExport>) {

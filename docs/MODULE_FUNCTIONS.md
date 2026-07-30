@@ -249,6 +249,20 @@ JavaScript coercion semantics, while strict TypeScript needs Genes'
 The TypeScript profile plans that runtime dependency before emission; classic
 JavaScript keeps the direct operator and does not import an unused helper.
 
+Haxe may also make a runtime helper necessary at module scope rather than in a
+field body. When any retained code activates `js.Lib.global`, both
+implementation profiles emit a `$global = Register.$global` prologue in every
+runtime module. Dependency planning reads that compiler feature directly, so a
+direct-only module still imports `Register` even when none of its own typed
+expressions mentions `$global`.
+
+The compiler-created owner is omitted only when it truly has no work left.
+Haxe stores a module-level `__init__()` body separately from the visible field
+list. If that initializer exists, Genes keeps the owner and emits its side
+effects after installing the direct functions. Native consumers still receive
+the direct ESM binding; only the otherwise invisible initialization carrier
+remains.
+
 The binding is public from its own generated module, not implicitly
 re-exported from the compilation-root barrel. Separate Haxe source modules may
 therefore export the same conventional name (for example `render`) without a

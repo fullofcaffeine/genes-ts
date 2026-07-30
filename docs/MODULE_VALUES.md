@@ -156,7 +156,8 @@ The first released shape deliberately accepts only:
 - an exact requested name equal to the Haxe field name;
 - a non-cyclic module;
 - a synthetic owner whose other retained fields are also selected direct
-  module functions or direct module values.
+  module functions or direct module values; and
+- no module-level `__init__()` body still attached to that owner.
 
 Named classes, enums, abstracts, and typedefs in the same `.hx` file are
 separate owners and remain supported. The “all retained fields” rule applies
@@ -167,7 +168,9 @@ owner only when no ordinary top-level initializer or method still depends on
 its class-shaped lifecycle. A cyclic value remains on the established deferred
 static path rather than being changed into an ESM temporal-dead-zone failure.
 Move ordinary helpers to another Haxe module or opt eligible top-level
-functions into `@:genes.moduleFunction`.
+functions into `@:genes.moduleFunction`. A hidden module `__init__` is not a
+retained field, so Genes checks Haxe's separate `ClassType.init` fact as well
+and keeps the owner when that body still has initialization side effects.
 
 A direct initializer also cannot read a later direct value from the same Haxe
 module:
@@ -199,14 +202,31 @@ final first = {
 final second = 2;
 ```
 
+Reassigning the local callback before calling it does not make the read safe:
+
+```haxe
+@:genes.moduleValue("first")
+final first = {
+	var read = () -> 0;
+	read = () -> second;
+	read(); // invokes the replacement during initialization
+};
+
+@:genes.moduleValue("second")
+final second = 2;
+```
+
 The same rule applies when an initializer directly calls a selected
 same-module `@:genes.moduleFunction` whose body reads the later value. Genes
-follows those exact local and module-function call targets and reports
-`GENES-MODULE-VALUE-FORWARD-015` before opening an output writer. A closure
-that is only stored remains safe because creating it captures the binding
-without reading it. This is intentionally bounded analysis, not general alias
-or call-effect inference: unknown call targets keep their ordinary Haxe
-semantics and are not guessed from generated names.
+follows those exact local and module-function call targets, updates the exact
+local when a callback is reassigned, and reports
+`GENES-MODULE-VALUE-FORWARD-015` before opening an output writer. Replacing a
+callback with a non-callable value also clears the old callable fact, so a
+later expression cannot be judged from stale ownership. A closure that is only
+stored remains safe because creating it captures the binding without reading
+it. This is intentionally bounded analysis, not general alias or call-effect
+inference: unknown call targets keep their ordinary Haxe semantics and are not
+guessed from generated names.
 
 Class static fields are intentionally rejected:
 

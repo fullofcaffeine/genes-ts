@@ -15,6 +15,7 @@ import module_functions.LocalBindingImportCollision.identityPair;
 import module_functions.TsRegisterHelpers.positive;
 import module_functions.TsRegisterHelpers.forceReturn;
 import module_functions.TsNullHelper.nullString;
+import module_functions.ModuleInit.moduleInitValue;
 import module_functions.TopLevelSibling.topLevelIdentity as siblingTopLevelIdentity;
 import module_functions.TopLevelSibling.metadata as siblingMetadata;
 
@@ -57,8 +58,15 @@ class Main {
       Std.string(positive(null)),
       forceReturn("return"),
       Std.string(nullString()),
+      moduleInitValue(),
       exposedValue
     ];
+    #if module_function_global_feature
+    // Activates Haxe's compiler-wide `js.Lib.global` feature. Every runtime
+    // module then receives a `$global = Register.$global` prologue, including
+    // direct-only modules whose own typed expressions never mention it.
+    js.Lib.global;
+    #end
     trace(transcript.join("|"));
   }
 }

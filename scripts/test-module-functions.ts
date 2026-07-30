@@ -446,6 +446,7 @@ import {readMetadata} from "./tests/module-functions/out/classic/module_function
 import {foreignTitle, identityPair} from "./tests/module-functions/out/classic/module_functions/LocalBindingImportCollision.js";
 import {positive} from "./tests/module-functions/out/classic/module_functions/TsRegisterHelpers.js";
 import {exposedValue} from "./tests/module-functions/out/classic/module_functions/ExposedValue.js";
+import {moduleInitValue} from "./tests/module-functions/out/classic/module_functions/ModuleInit.js";
 console.log([
   firstMatchIndex(["first", "match"]),
   appendWithBoundMethod([1, 2, 3]),
@@ -453,7 +454,8 @@ console.log([
   foreignTitle(),
   identityPair(),
   positive(null),
-  exposedValue
+  exposedValue,
+  moduleInitValue()
 ].join("|"));`;
   return execFileSync(process.execPath,
     ["--input-type=module", "--eval", program], {
@@ -540,6 +542,10 @@ const negativeCases = [
     "GENES-MODULE-VALUE-FORWARD-015"
   ],
   [
+    "module_value_reassigned_closure_forward_read",
+    "GENES-MODULE-VALUE-FORWARD-015"
+  ],
+  [
     "module_value_function_forward_read",
     "GENES-MODULE-VALUE-FORWARD-015"
   ]
@@ -599,6 +605,9 @@ run("haxe", ["tests/module-functions/build-tsx.hxml"]);
 deepStrictEqual(digestTree(path.join(outputRoot, "tsx/src-gen")), tsxDigest,
   "TSX module-function output is deterministic");
 
+run("haxe", ["tests/module-functions/build-global-classic.hxml"]);
+run("haxe", ["tests/module-functions/build-global-ts.hxml"]);
+
 runGeneratedTypeScriptMatrix("tests/module-functions/tsconfig.json");
 
 assertImplementationShape("classic/module_functions/Selected.js");
@@ -627,6 +636,32 @@ for (const relative of [
     `${relative} retains Register only for the method-closure helper`);
   ok(!source.includes("RegisterHelpers_Fields_"),
     `${relative} still omits the compiler-synthetic owner`);
+}
+for (const relative of [
+  "classic/module_functions/ModuleInit.js",
+  "ts/src-gen/module_functions/ModuleInit.ts",
+  "tsx/src-gen/module_functions/ModuleInit.tsx"
+]) {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  const owner = relative.startsWith("classic/")
+    ? "class ModuleInit_Fields_"
+    : "export class ModuleInit_Fields_";
+  ok(source.includes("export function moduleInitValue")
+    && source.includes(owner)
+    && source.includes('ModuleInitState.value = "module-init"')
+    && source.indexOf(owner)
+      < source.lastIndexOf('ModuleInitState.value = "module-init"'),
+    `${relative} retains the compiler-created owner and its module initializer`);
+}
+for (const relative of [
+  "global-classic/module_functions/TopLevel.js",
+  "global-ts/src-gen/module_functions/TopLevel.ts"
+]) {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes("genes/Register")
+    && source.includes("const $global = Register.$global")
+    && source.includes("export function topLevelIdentity"),
+    `${relative} imports Register for the compiler-generated global prologue`);
 }
 for (const relative of [
   "classic/module_functions/ShadowedBindings.js",
@@ -768,8 +803,8 @@ strictEqual(exactPublicRuntimeIdentity(), true,
 strictEqual(asyncModuleRuntime(), 42,
   "the direct classic module function preserves native async/await runtime behavior");
 strictEqual(directModuleRegressionRuntime(),
-  "1|3|module:parameter:local|local:direct module value|local-own:foreign|false|owned-module-only",
-  "direct helpers, shadowed bindings, findIndex, and owner-only exports run natively");
+  "1|3|module:parameter:local|local:direct module value|local-own:foreign|false|owned-module-only|module-init",
+  "direct helpers, shadowed bindings, initialization, findIndex, and owner-only exports run natively");
 deepStrictEqual(runtime.descriptor, {
   configurable: true,
   enumerable: false,

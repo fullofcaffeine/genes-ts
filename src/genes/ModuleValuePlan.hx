@@ -325,6 +325,22 @@ class ModuleValuePlan {
               locals.set(variable.id, body);
           }
           return;
+        case TBinop(OpAssign, left, right):
+          // A callback local can change after its declaration. Update the
+          // exact TVar-owned body only after evaluating the assignment's
+          // right-hand side, matching JavaScript evaluation order. Removing a
+          // non-callable replacement is equally important: a later call must
+          // not inspect a stale closure that no longer occupies the local.
+          visit(left, locals);
+          visit(right, locals);
+          switch unwrap(left).expr {
+            case TLocal(variable):
+              final body = callableBody(right, locals);
+              if (body == null) locals.remove(variable.id); else
+                locals.set(variable.id, body);
+            default:
+          }
+          return;
         case TCall(callee, arguments):
           visit(callee, locals);
           for (argument in arguments)

@@ -21,6 +21,24 @@ final first = {
 @:genes.moduleValue("second")
 final second = 2;
 
+#elseif module_value_reassigned_closure_forward_read
+/**
+ * Negative control: closure ownership follows an exact local reassignment.
+ *
+ * The first callback is safe, but the replacement reads `second` when `read()`
+ * executes during module initialization. Retaining only the declaration-time
+ * callback would miss the resulting ESM temporal-dead-zone access.
+ */
+@:genes.moduleValue("first")
+final first = {
+  var read = () -> 0;
+  read = () -> second;
+  read();
+};
+
+@:genes.moduleValue("second")
+final second = 2;
+
 #elseif module_value_function_forward_read
 /**
  * Negative control: a direct function called by an initializer reads a later

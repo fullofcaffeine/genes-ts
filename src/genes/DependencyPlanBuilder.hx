@@ -108,6 +108,15 @@ class DependencyPlanBuilder {
     var registerHelperPos: Null<Position> = null;
     if (Context.defined('genes.ts'))
       registerHelperPos = module.tsBoundaryPlan.firstIdentityAssertionPosition();
+    if (module.module != 'genes.Register'
+      && module.hasFeature('js.Lib.global') && registerHelperPos == null) {
+      // Both implementation emitters add `$global = Register.$global` at the
+      // module prologue when Haxe selected this feature. That use is invented
+      // after typed-expression traversal, so record its runtime dependency
+      // from the same compiler feature fact instead of hoping a field happens
+      // to mention `$global`.
+      registerHelperPos = Context.currentPos();
+    }
     // Validate compiler-owned string templates before output projection opens
     // any implementation writer. The plan itself adds no dependency edge.
     module.templateLiteralPlan;

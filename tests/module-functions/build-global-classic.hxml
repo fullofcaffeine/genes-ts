@@ -1,0 +1,11 @@
+-lib genes-ts
+-cp tests/module-functions/src
+--main module_functions.Main
+--macro include("module_functions")
+-js tests/module-functions/out/global-classic/index.js
+-D dts
+-D module_function_global_feature
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
+-debug

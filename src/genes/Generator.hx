@@ -177,7 +177,8 @@ class Generator {
     }
     final context = {
       concrete: concrete,
-      modules: modules
+      modules: modules,
+      hasFeature: api.hasFeature
     }
     function addModule(module: String, types: Array<Type>,
         ?main: Null<TypedExpr>, ?expose: Array<ModuleExport>)
