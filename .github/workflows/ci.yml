@@ -239,6 +239,7 @@ jobs:
       - run: yarn test:test-tool-preparation
       - run: yarn test:ci:explain
       - run: yarn test:agent-test-routing
+      - run: yarn test:compatibility-report
       - run: yarn test:smoke
       - name: Preserve selection, timings, generated source, and failure evidence
         if: always()

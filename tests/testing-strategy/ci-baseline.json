@@ -79,7 +79,7 @@
     "portableSmoke": {
       "successfulBothProfileSeconds": 5.28,
       "failurePropagationStandaloneSeconds": 27.57,
-      "classification": "initial warm-source samples; final PR measurements are recorded by the machine report"
+      "classification": "initial warm-source samples; later review-round samples remain intermediate until exact-head hosted CI completes"
     }
   },
   "intermediateReviewLocal": {

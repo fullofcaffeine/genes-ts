@@ -60,8 +60,16 @@ const validEvidence = new Set([
   "differential"
 ]);
 const validRemoteJobs = new Set([
+  "dependency-review",
+  "codeql",
+  "beads-worktree-safety",
+  "beads-pinned-client",
+  "secrets",
+  "vulns",
+  "classic",
   "genes-test-plan-and-smoke",
   "genes-ts",
+  "genes-ts-smoke-next-lts",
   "release"
 ]);
 
@@ -491,13 +499,12 @@ function main(): void {
   const releaseStart = ci.indexOf("\n  release:");
   assert(releaseStart >= 0, "CI workflow is missing the release job");
   const releaseJob = ci.slice(releaseStart);
-  assert(requiredGenesJob.includes("needs: genes-test-plan-and-smoke"),
+  assert(/^    needs: genes-test-plan-and-smoke$/m.test(requiredGenesJob),
     "The required genes-ts check must depend on the claim-bearing preflight");
-  assert(requiredGenesJob.includes("if: ${{ !cancelled() }}"),
+  assert(/^    if: \$\{\{ !cancelled\(\) \}\}$/m.test(requiredGenesJob),
     "The required genes-ts check must report when its preflight fails");
-  assert(requiredGenesJob.includes(
-    "needs.genes-test-plan-and-smoke.result != 'success'"
-  ), "The required genes-ts check must fail for a bad preflight result");
+  assert(!/^    continue-on-error:/m.test(requiredGenesJob),
+    "The protected genes-ts job must not tolerate a job-level failure");
   const guardStart = requiredGenesJob.indexOf(
     "- name: Require the test plan and official Haxe smoke"
   );
@@ -507,14 +514,49 @@ function main(): void {
   assert(guardStart >= 0 && checkoutStart > guardStart,
     "The required genes-ts check is missing its pre-checkout smoke guard");
   const guardStep = requiredGenesJob.slice(guardStart, checkoutStart);
-  assert(guardStep.includes("exit 1"),
+  assert(/^        if: \$\{\{ needs\.genes-test-plan-and-smoke\.result != 'success' \}\}$/m
+    .test(guardStep),
+  "The smoke result condition must guard the failing pre-checkout step");
+  assert(/^          exit 1$/m.test(guardStep),
     "The protected smoke guard must terminate with a nonzero status");
   assert(!guardStep.includes("continue-on-error"),
     "The protected smoke guard must not allow its failure to continue");
   assert(planSmokeJob.includes("- run: yarn test:agent-test-routing"),
     "The plan/smoke sentinel must run routing drift validation");
+  assert(planSmokeJob.includes("- run: yarn test:compatibility-report"),
+    "The plan/smoke sentinel must own generated compatibility claims");
   assert(releaseJob.includes("- genes-test-plan-and-smoke"),
     "Release publication must depend on the claim-bearing plan/smoke job");
+  assert(stringArray(
+    gatesById.get("classic-core")?.remoteJobs,
+    "classic-core.remoteJobs"
+  ).includes("classic"),
+    "Classic core must point at the hosted classic job that executes yarn test"
+  );
+  assert(stringArray(
+    gatesById.get("compatibility-inventory")?.remoteJobs,
+    "compatibility-inventory.remoteJobs"
+  ).includes("genes-test-plan-and-smoke"),
+    "Compatibility inventory must point at its hosted smoke/plan owner"
+  );
+  const fullRemoteJobs = new Set(stringArray(
+    gatesById.get("full-ci")?.remoteJobs,
+    "full-ci.remoteJobs"
+  ));
+  for (const requiredRemote of [
+    "dependency-review",
+    "codeql",
+    "beads-worktree-safety",
+    "beads-pinned-client",
+    "secrets",
+    "vulns",
+    "classic",
+    "genes-test-plan-and-smoke",
+    "genes-ts",
+    "genes-ts-smoke-next-lts"
+  ])
+    assert(fullRemoteJobs.has(requiredRemote),
+      `Full CI remote hints omit hosted job: ${requiredRemote}`);
   assert(
     String(packageScripts["test:ci"]).includes("yarn test:agent-test-routing"),
     "test:ci must run the routing drift check"

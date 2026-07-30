@@ -69,7 +69,7 @@
         ".tmp/test-evidence/test-plan/classic-core.log"
       ],
       "remoteJobs": [
-        "genes-ts"
+        "classic"
       ]
     },
     {
@@ -2087,7 +2087,7 @@
         ".tmp/test-evidence/test-plan/compatibility-inventory.log"
       ],
       "remoteJobs": [
-        "genes-ts"
+        "genes-test-plan-and-smoke"
       ]
     },
     {
@@ -2662,7 +2662,16 @@
         ".tmp/test-evidence/test-plan/full-ci.log"
       ],
       "remoteJobs": [
-        "genes-ts"
+        "dependency-review",
+        "codeql",
+        "beads-worktree-safety",
+        "beads-pinned-client",
+        "secrets",
+        "vulns",
+        "classic",
+        "genes-test-plan-and-smoke",
+        "genes-ts",
+        "genes-ts-smoke-next-lts"
       ]
     }
   ],
