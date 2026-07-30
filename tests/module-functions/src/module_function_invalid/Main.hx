@@ -149,12 +149,26 @@ class Main {
       || module_value_iife_forward_read
       || module_value_local_closure_forward_read
       || module_value_reassigned_closure_forward_read
-      || module_value_function_forward_read)
+      || module_value_zero_iteration_closure_forward_read
+      || module_value_switch_closure_forward_read
+      || module_value_try_closure_forward_read
+      || module_value_function_forward_read
+      || module_value_class_static_forward_read
+      || module_value_callback_argument_forward_read
+      || module_value_instance_method_forward_read
+      || module_value_constructor_forward_read)
     #if (module_value_forward_read
       || module_value_iife_forward_read
       || module_value_local_closure_forward_read
       || module_value_reassigned_closure_forward_read
-      || module_value_function_forward_read)
+      || module_value_zero_iteration_closure_forward_read
+      || module_value_switch_closure_forward_read
+      || module_value_try_closure_forward_read
+      || module_value_function_forward_read
+      || module_value_class_static_forward_read
+      || module_value_callback_argument_forward_read
+      || module_value_instance_method_forward_read
+      || module_value_constructor_forward_read)
     trace(module_function_invalid.ModuleValueInvalid.first);
     #else
     trace(module_function_invalid.ModuleValueInvalid.value);

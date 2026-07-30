@@ -27,6 +27,20 @@ class ModuleValueEntry {
 }
 
 /**
+ * One exact Haxe function body that can occupy a callable local.
+ *
+ * The body object is compiler-owned identity; its emitted name is irrelevant.
+ * Parameters are retained so an immediately invoked helper can connect a
+ * callback argument to the exact `TVar` read inside that helper. Multiple
+ * targets are possible after a branch or loop and must all remain visible to
+ * the forward-read validator.
+ */
+private typedef ModuleValueCallableTarget = {
+  final body: TypedExpr;
+  final parameters: Array<TVar>;
+}
+
+/**
  * Validates opt-in direct lowering for genuine Haxe module-level values.
  *
  * `@:genes.moduleValue("name")` is deliberately framework-neutral. It turns
@@ -232,7 +246,7 @@ class ModuleValuePlan {
         + 'field to another module',
         firstOrdinary.pos);
     }
-    validateNoForwardValueReads(owner, field, retained);
+    validateNoForwardValueReads(owner, field, retained, module);
     if (module.isCyclic(module.module)) {
       return
         CompilerDiagnostic.fail('GENES-MODULE-VALUE-CYCLE-014: ${owner.name}.${field.name} '
@@ -255,17 +269,20 @@ class ModuleValuePlan {
    * What/How: compare exact same-owner static field identities in retained
    * source order. A function body is ignored while it is merely stored,
    * because creating a closure does not read its captures. When the initializer
-   * immediately calls an exact local closure or a selected same-owner module
-   * function, that body is scanned because it runs before the following ESM
-   * declaration. Unknown call targets stay outside this bounded proof; Genes
-   * does not attempt general alias or effect analysis here.
+   * immediately calls an exact local closure, same-generated-module method, or
+   * constructor, that body is scanned because it runs before the following ESM
+   * declaration. Callable locals carry every body that can reach them through
+   * structured branches and loops; lexical visitation order is never treated
+   * as control-flow proof. Unknown external/dynamic call targets stay outside
+   * this bounded proof; Genes does not attempt general alias or effect analysis
+   * here.
    */
   static function validateNoForwardValueReads(owner: ClassType, field: Field,
-      retained: Array<Field>): Void {
+      retained: Array<Field>, module: Module): Void {
     final sourceIndex = retained.indexOf(field);
     if (sourceIndex < 0 || field.expr == null)
       return;
-    final localFunctions = new Map<Int, TypedExpr>();
+    final localFunctions = new Map<Int, Array<ModuleValueCallableTarget>>();
     final activeFunctionBodies = new haxe.ds.ObjectMap<TypedExpr, Bool>();
 
     function retainedIndex(name: String): Int {
@@ -275,55 +292,266 @@ class ModuleValuePlan {
       return -1;
     }
 
-    function copyLocalFunctions(source: Map<Int, TypedExpr>): Map<Int,
-      TypedExpr> {
-      final result = new Map<Int, TypedExpr>();
-      for (id => body in source)
-        result.set(id, body);
+    function copyTargets(source: Array<ModuleValueCallableTarget>): Array<ModuleValueCallableTarget> {
+      return source.copy();
+    }
+
+    function addTarget(targets: Array<ModuleValueCallableTarget>,
+        target: ModuleValueCallableTarget): Void {
+      for (existing in targets)
+        if (existing.body == target.body)
+          return;
+      targets.push(target);
+    }
+
+    function copyLocalFunctions(source: Map<Int,
+      Array<ModuleValueCallableTarget>>): Map<Int,
+        Array<ModuleValueCallableTarget>> {
+      final result = new Map<Int, Array<ModuleValueCallableTarget>>();
+      for (id => targets in source)
+        result.set(id, copyTargets(targets));
       return result;
     }
 
-    function callableBody(expression: TypedExpr,
-        locals: Map<Int, TypedExpr>): Null<TypedExpr> {
+    function mergeLocalFunctions(states: Array<Map<Int,
+      Array<ModuleValueCallableTarget>>>): Map<Int,
+        Array<ModuleValueCallableTarget>> {
+      final result = new Map<Int, Array<ModuleValueCallableTarget>>();
+      for (state in states) {
+        for (id => targets in state) {
+          var merged = result.get(id);
+          if (merged == null) {
+            merged = [];
+            result.set(id, merged);
+          }
+          for (target in targets)
+            addTarget(merged, target);
+        }
+      }
+      return result;
+    }
+
+    function replaceLocalFunctions(target: Map<Int,
+      Array<ModuleValueCallableTarget>>,
+        source: Map<Int, Array<ModuleValueCallableTarget>>): Void {
+      final existingIds = [for (id => _ in target) id];
+      for (id in existingIds)
+        target.remove(id);
+      for (id => targets in source)
+        target.set(id, copyTargets(targets));
+    }
+
+    function sameLocalFunctions(left: Map<Int,
+      Array<ModuleValueCallableTarget>>,
+        right: Map<Int, Array<ModuleValueCallableTarget>>): Bool {
+      for (id => leftTargets in left) {
+        final rightTargets = right.get(id);
+        if (rightTargets == null || leftTargets.length != rightTargets.length)
+          return false;
+        for (leftTarget in leftTargets) {
+          var found = false;
+          for (rightTarget in rightTargets)
+            if (leftTarget.body == rightTarget.body) {
+              found = true;
+              break;
+            }
+          if (!found)
+            return false;
+        }
+      }
+      for (id => _ in right)
+        if (!left.exists(id))
+          return false;
+      return true;
+    }
+
+    function functionTarget(expression: TypedExpr): Null<ModuleValueCallableTarget> {
       return switch unwrap(expression).expr {
         case TFunction(func):
-          func.expr;
-        case TLocal(variable):
-          locals.get(variable.id);
-        case TField(_, FStatic(ownerRef, fieldRef)):
-          final targetOwner = ownerRef.get();
-          final targetField = fieldRef.get();
-          if (sameOwner(owner, targetOwner)
-            && ModuleFunctionPlan.requestedNameFromMetadata(targetField.meta) != null) {
-            final targetExpression = targetField.expr();
-            if (targetExpression == null)
-              null;
-            else
-              switch unwrap(targetExpression).expr {
-                case TFunction(func): func.expr;
-                default: null;
-              }
-          } else null;
+          {
+            body: func.expr,
+            parameters: [for (argument in func.args) argument.v]
+          };
         default:
           null;
       }
     }
 
-    function visit(expression: TypedExpr, locals: Map<Int, TypedExpr>): Void {
+    function callableTargets(expression: TypedExpr,
+        locals: Map<Int,
+        Array<ModuleValueCallableTarget>>): Array<ModuleValueCallableTarget> {
+      return switch unwrap(expression).expr {
+        case TFunction(func):
+          [
+            {
+              body: func.expr,
+              parameters: [for (argument in func.args) argument.v]
+            }
+          ];
+        case TLocal(variable):
+          final targets = locals.get(variable.id);
+          targets == null ? [] : copyTargets(targets);
+        case TField(_, FStatic(ownerRef, fieldRef)):
+          final targetOwner = ownerRef.get();
+          final targetField = fieldRef.get();
+          if (targetOwner.module == module.module) {
+            final targetExpression = targetField.expr();
+            if (targetExpression == null)
+              [];
+            else {
+              final target = functionTarget(targetExpression);
+              target == null ? [] : [target];
+            }
+          } else [];
+        case TField(_, FInstance(ownerRef, _, fieldRef)):
+          final targetOwner = ownerRef.get();
+          final targetField = fieldRef.get();
+          if (targetOwner.module == module.module) {
+            final targetExpression = targetField.expr();
+            if (targetExpression == null)
+              [];
+            else {
+              final target = functionTarget(targetExpression);
+              target == null ? [] : [target];
+            }
+          } else [];
+        default:
+          [];
+      }
+    }
+
+    function recordObserved(observed: Null<Map<Int,
+      Array<ModuleValueCallableTarget>>>, id: Int,
+        targets: Array<ModuleValueCallableTarget>): Void {
+      if (observed == null || targets.length == 0)
+        return;
+      var existing = observed.get(id);
+      if (existing == null) {
+        existing = [];
+        observed.set(id, existing);
+      }
+      for (target in targets)
+        addTarget(existing, target);
+    }
+
+    function assignLocal(locals: Map<Int, Array<ModuleValueCallableTarget>>,
+        observed: Null<Map<Int, Array<ModuleValueCallableTarget>>>, id: Int,
+        targets: Array<ModuleValueCallableTarget>): Void {
+      if (targets.length == 0)
+        locals.remove(id);
+      else
+        locals.set(id, copyTargets(targets));
+      recordObserved(observed, id, targets);
+    }
+
+    function visit(expression: TypedExpr,
+        locals: Map<Int, Array<ModuleValueCallableTarget>>,
+        ?observed: Map<Int, Array<ModuleValueCallableTarget>>): Void {
       switch expression.expr {
         case TFunction(_):
           return;
         case TBlock(elements):
           for (element in elements)
-            visit(element, locals);
+            visit(element, locals, observed);
           return;
         case TVar(variable, initializer):
           if (initializer != null) {
-            visit(initializer, locals);
-            final body = callableBody(initializer, locals);
-            if (body != null)
-              locals.set(variable.id, body);
+            visit(initializer, locals, observed);
+            assignLocal(locals, observed, variable.id,
+              callableTargets(initializer, locals));
           }
+          return;
+        case TIf(condition, thenExpression, elseExpression):
+          visit(condition, locals, observed);
+          final branchEntry = copyLocalFunctions(locals);
+          final thenState = copyLocalFunctions(branchEntry);
+          visit(thenExpression, thenState, observed);
+          final elseState = copyLocalFunctions(branchEntry);
+          if (elseExpression != null)
+            visit(elseExpression, elseState, observed);
+          replaceLocalFunctions(locals,
+            mergeLocalFunctions([thenState, elseState]));
+          return;
+        case TSwitch(subject, cases, defaultExpression):
+          visit(subject, locals, observed);
+          final branchEntry = copyLocalFunctions(locals);
+          final exits: Array<Map<Int, Array<ModuleValueCallableTarget>>> = [];
+          for (caseEntry in cases) {
+            final caseState = copyLocalFunctions(branchEntry);
+            for (value in caseEntry.values)
+              visit(value, caseState, observed);
+            visit(caseEntry.expr, caseState, observed);
+            exits.push(caseState);
+          }
+          if (defaultExpression == null) {
+            exits.push(branchEntry);
+          } else {
+            final defaultState = copyLocalFunctions(branchEntry);
+            visit(defaultExpression, defaultState, observed);
+            exits.push(defaultState);
+          }
+          replaceLocalFunctions(locals, mergeLocalFunctions(exits));
+          return;
+        case TTry(body, catches):
+          final tryEntry = copyLocalFunctions(locals);
+          final tryObserved = copyLocalFunctions(tryEntry);
+          final tryExit = copyLocalFunctions(tryEntry);
+          visit(body, tryExit, tryObserved);
+          final catchEntry = mergeLocalFunctions([tryEntry, tryExit, tryObserved]);
+          final exits = [tryExit];
+          for (entry in catches) {
+            final catchState = copyLocalFunctions(catchEntry);
+            visit(entry.expr, catchState, observed);
+            exits.push(catchState);
+          }
+          replaceLocalFunctions(locals, mergeLocalFunctions(exits));
+          return;
+        case TWhile(condition, body, normalWhile):
+          final loopEntry = copyLocalFunctions(locals);
+          final loopObserved = copyLocalFunctions(loopEntry);
+          var header = copyLocalFunctions(loopEntry);
+          var exit = copyLocalFunctions(loopEntry);
+          var converged = false;
+          while (!converged) {
+            final iteration = copyLocalFunctions(header);
+            if (normalWhile) {
+              visit(condition, iteration, loopObserved);
+              exit = copyLocalFunctions(iteration);
+              visit(body, iteration, loopObserved);
+            } else {
+              visit(body, iteration, loopObserved);
+              visit(condition, iteration, loopObserved);
+              exit = copyLocalFunctions(iteration);
+            }
+            final nextHeader = mergeLocalFunctions([loopEntry, iteration, loopObserved]);
+            converged = sameLocalFunctions(header, nextHeader);
+            header = nextHeader;
+          }
+          replaceLocalFunctions(locals,
+            mergeLocalFunctions([exit, loopObserved]));
+          return;
+        case TFor(_, iteratorExpression, body):
+          visit(iteratorExpression, locals, observed);
+          final loopEntry = copyLocalFunctions(locals);
+          final loopObserved = copyLocalFunctions(loopEntry);
+          var header = copyLocalFunctions(loopEntry);
+          var converged = false;
+          while (!converged) {
+            final iteration = copyLocalFunctions(header);
+            visit(body, iteration, loopObserved);
+            final nextHeader = mergeLocalFunctions([loopEntry, iteration, loopObserved]);
+            converged = sameLocalFunctions(header, nextHeader);
+            header = nextHeader;
+          }
+          replaceLocalFunctions(locals, header);
+          return;
+        case TBinop(op = OpBoolAnd | OpBoolOr, left, right):
+          visit(left, locals, observed);
+          final skipped = copyLocalFunctions(locals);
+          final evaluated = copyLocalFunctions(locals);
+          visit(right, evaluated, observed);
+          replaceLocalFunctions(locals,
+            mergeLocalFunctions([skipped, evaluated]));
           return;
         case TBinop(OpAssign, left, right):
           // A callback local can change after its declaration. Update the
@@ -331,25 +559,67 @@ class ModuleValuePlan {
           // right-hand side, matching JavaScript evaluation order. Removing a
           // non-callable replacement is equally important: a later call must
           // not inspect a stale closure that no longer occupies the local.
-          visit(left, locals);
-          visit(right, locals);
+          visit(left, locals, observed);
+          visit(right, locals, observed);
           switch unwrap(left).expr {
             case TLocal(variable):
-              final body = callableBody(right, locals);
-              if (body == null) locals.remove(variable.id); else
-                locals.set(variable.id, body);
+              assignLocal(locals, observed, variable.id,
+                callableTargets(right, locals));
             default:
           }
           return;
         case TCall(callee, arguments):
-          visit(callee, locals);
+          visit(callee, locals, observed);
           for (argument in arguments)
-            visit(argument, locals);
-          final body = callableBody(callee, locals);
-          if (body != null && !activeFunctionBodies.exists(body)) {
-            activeFunctionBodies.set(body, true);
-            visit(body, copyLocalFunctions(locals));
-            activeFunctionBodies.remove(body);
+            visit(argument, locals, observed);
+          final targets = callableTargets(callee, locals);
+          if (targets.length > 0) {
+            final callEntry = copyLocalFunctions(locals);
+            final exits: Array<Map<Int, Array<ModuleValueCallableTarget>>> = [];
+            for (target in targets) {
+              if (activeFunctionBodies.exists(target.body))
+                continue;
+              final callState = copyLocalFunctions(callEntry);
+              for (index in 0...target.parameters.length) {
+                final parameter = target.parameters[index];
+                final parameterTargets = index < arguments.length ? callableTargets(arguments[index],
+                  callEntry) : [];
+                assignLocal(callState, observed, parameter.id,
+                  parameterTargets);
+              }
+              activeFunctionBodies.set(target.body, true);
+              visit(target.body, callState, observed);
+              activeFunctionBodies.remove(target.body);
+              exits.push(callState);
+            }
+            if (exits.length > 0)
+              replaceLocalFunctions(locals, mergeLocalFunctions(exits));
+          }
+          return;
+        case TNew(classRef, _, arguments):
+          for (argument in arguments)
+            visit(argument, locals, observed);
+          final targetOwner = classRef.get();
+          if (targetOwner.module == module.module
+            && targetOwner.constructor != null) {
+            final constructorExpression = targetOwner.constructor.get().expr();
+            if (constructorExpression != null) {
+              final target = functionTarget(constructorExpression);
+              if (target != null && !activeFunctionBodies.exists(target.body)) {
+                final callState = copyLocalFunctions(locals);
+                for (index in 0...target.parameters.length) {
+                  final parameter = target.parameters[index];
+                  final parameterTargets = index < arguments.length ? callableTargets(arguments[index],
+                    locals) : [];
+                  assignLocal(callState, observed, parameter.id,
+                    parameterTargets);
+                }
+                activeFunctionBodies.set(target.body, true);
+                visit(target.body, callState, observed);
+                activeFunctionBodies.remove(target.body);
+                replaceLocalFunctions(locals, callState);
+              }
+            }
           }
           return;
         case TField(_, FStatic(ownerRef, fieldRef)):
@@ -367,7 +637,7 @@ class ModuleValuePlan {
           }
         default:
       }
-      expression.iter(child -> visit(child, locals));
+      expression.iter(child -> visit(child, locals, observed));
     }
     visit(field.expr, localFunctions);
   }

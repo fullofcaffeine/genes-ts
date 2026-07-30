@@ -202,31 +202,62 @@ final first = {
 final second = 2;
 ```
 
-Reassigning the local callback before calling it does not make the read safe:
+Control flow, not source visitation order, decides which reassigned callback
+can run:
 
 ```haxe
 @:genes.moduleValue("first")
 final first = {
 	var read = () -> 0;
-	read = () -> second;
-	read(); // invokes the replacement during initialization
+	if (Date.now().getTime() > 0) {
+		read = () -> second;
+	} else {
+		read = () -> 0;
+	}
+	read(); // either exact callback can reach this call
 };
 
 @:genes.moduleValue("second")
 final second = 2;
 ```
 
-The same rule applies when an initializer directly calls a selected
-same-module `@:genes.moduleFunction` whose body reads the later value. Genes
-follows those exact local and module-function call targets, updates the exact
-local when a callback is reassigned, and reports
-`GENES-MODULE-VALUE-FORWARD-015` before opening an output writer. Replacing a
-callback with a non-callable value also clears the old callable fact, so a
-later expression cannot be judged from stale ownership. A closure that is only
-stored remains safe because creating it captures the binding without reading
-it. This is intentionally bounded analysis, not general alias or call-effect
-inference: unknown call targets keep their ordinary Haxe semantics and are not
-guessed from generated names.
+Genes carries the union of exact callback bodies across `if`, short-circuit
+boolean, `switch`, `try`/`catch`, and loop joins. A loop body may execute zero
+times, and a catch is an alternative to a normal try exit; neither construct
+may erase a callback merely because a safer assignment appears later in the
+typed tree.
+
+The same rule applies when an initializer directly calls an exact method or
+constructor emitted into the same generated ES module:
+
+```haxe
+class Helper {
+	public static function readSecond():Int {
+		return second;
+	}
+}
+
+@:genes.moduleValue("first")
+final first = Helper.readSecond(); // executes the method now
+
+@:genes.moduleValue("second")
+final second = 2;
+```
+
+Genes follows the compiler-owned method/constructor field identity, never a
+printed class or function name. It also connects exact callback arguments to
+the corresponding Haxe parameter when a known helper invokes them. Recursive
+bodies use an identity-based recursion guard. Any reachable exact body that
+reads the later value reports `GENES-MODULE-VALUE-FORWARD-015` before an output
+writer opens.
+
+Replacing a callback with a non-callable value clears the old callable fact,
+so a later expression cannot be judged from stale ownership. A closure that is
+only stored remains safe because creating it captures the binding without
+reading it. Safe same-module methods and constructors remain legal. This is
+intentionally bounded analysis, not general alias, dynamic-dispatch, or
+whole-program call-effect inference: unknown external/dynamic targets keep
+their ordinary Haxe semantics and are not guessed from generated names.
 
 Class static fields are intentionally rejected:
 
@@ -282,8 +313,9 @@ yarn test:module-functions
 The shared direct-binding fixture covers TypeScript, TSX, classic JavaScript,
 classic declarations, TS 5/6/7, same-named cross-module imports, exact runtime
 values, same-module local/suffix shadowing, local-export/foreign-import aliases,
-owner-only exports, deterministic output, source maps, DCE neutrality, direct
-and immediately-invoked forward-read/cycle diagnostics, and rollback.
+owner-only exports, deterministic output, source maps, DCE neutrality, safe
+method/constructor and branch/loop controls, structured callable joins, exact
+same-module call-target forward-read/cycle diagnostics, and rollback.
 `yarn test:ci` invokes that focused owner directly.
 
 See [`MODULE_FUNCTIONS.md`](MODULE_FUNCTIONS.md) for genuine module functions

@@ -447,6 +447,7 @@ import {foreignTitle, identityPair} from "./tests/module-functions/out/classic/m
 import {positive} from "./tests/module-functions/out/classic/module_functions/TsRegisterHelpers.js";
 import {exposedValue} from "./tests/module-functions/out/classic/module_functions/ExposedValue.js";
 import {moduleInitValue} from "./tests/module-functions/out/classic/module_functions/ModuleInit.js";
+import {branchCallbackValue, callbackArgumentValue, constructorHelperValue, loopCallbackValue, staticHelperValue} from "./tests/module-functions/out/classic/module_functions/ModuleValueHelpers.js";
 console.log([
   firstMatchIndex(["first", "match"]),
   appendWithBoundMethod([1, 2, 3]),
@@ -455,7 +456,12 @@ console.log([
   identityPair(),
   positive(null),
   exposedValue,
-  moduleInitValue()
+  moduleInitValue(),
+  staticHelperValue,
+  constructorHelperValue,
+  callbackArgumentValue,
+  branchCallbackValue,
+  loopCallbackValue
 ].join("|"));`;
   return execFileSync(process.execPath,
     ["--input-type=module", "--eval", program], {
@@ -546,7 +552,35 @@ const negativeCases = [
     "GENES-MODULE-VALUE-FORWARD-015"
   ],
   [
+    "module_value_zero_iteration_closure_forward_read",
+    "GENES-MODULE-VALUE-FORWARD-015"
+  ],
+  [
+    "module_value_switch_closure_forward_read",
+    "GENES-MODULE-VALUE-FORWARD-015"
+  ],
+  [
+    "module_value_try_closure_forward_read",
+    "GENES-MODULE-VALUE-FORWARD-015"
+  ],
+  [
     "module_value_function_forward_read",
+    "GENES-MODULE-VALUE-FORWARD-015"
+  ],
+  [
+    "module_value_class_static_forward_read",
+    "GENES-MODULE-VALUE-FORWARD-015"
+  ],
+  [
+    "module_value_callback_argument_forward_read",
+    "GENES-MODULE-VALUE-FORWARD-015"
+  ],
+  [
+    "module_value_instance_method_forward_read",
+    "GENES-MODULE-VALUE-FORWARD-015"
+  ],
+  [
+    "module_value_constructor_forward_read",
     "GENES-MODULE-VALUE-FORWARD-015"
   ]
 ] as const;
@@ -652,6 +686,22 @@ for (const relative of [
     && source.indexOf(owner)
       < source.lastIndexOf('ModuleInitState.value = "module-init"'),
     `${relative} retains the compiler-created owner and its module initializer`);
+}
+for (const relative of [
+  "classic/module_functions/ModuleValueHelpers.js",
+  "ts/src-gen/module_functions/ModuleValueHelpers.ts",
+  "tsx/src-gen/module_functions/ModuleValueHelpers.tsx"
+]) {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes("class DirectValueHelper")
+    && source.includes("export const staticHelperValue")
+    && source.includes("export const constructorHelperValue")
+    && source.includes("export const callbackArgumentValue")
+    && source.includes("export const branchCallbackValue")
+    && source.includes("export const loopCallbackValue"),
+    `${relative} accepts safe exact methods, constructors, and callable joins`);
+  ok(!source.includes("ModuleValueHelpers_Fields_"),
+    `${relative} omits only the compiler-created module-fields owner`);
 }
 for (const relative of [
   "global-classic/module_functions/TopLevel.js",
@@ -803,8 +853,8 @@ strictEqual(exactPublicRuntimeIdentity(), true,
 strictEqual(asyncModuleRuntime(), 42,
   "the direct classic module function preserves native async/await runtime behavior");
 strictEqual(directModuleRegressionRuntime(),
-  "1|3|module:parameter:local|local:direct module value|local-own:foreign|false|owned-module-only|module-init",
-  "direct helpers, shadowed bindings, initialization, findIndex, and owner-only exports run natively");
+  "1|3|module:parameter:local|local:direct module value|local-own:foreign|false|owned-module-only|module-init|4|5|6|2|4",
+  "direct helpers, shadowed bindings, initialization, exact call targets, branch/loop joins, findIndex, and owner-only exports run natively");
 deepStrictEqual(runtime.descriptor, {
   configurable: true,
   enumerable: false,

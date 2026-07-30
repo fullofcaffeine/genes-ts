@@ -25,10 +25,12 @@ activates `js.Lib.global` and proves that the compiler-generated `$global`
 prologue also retains `Register`, even in a direct-only module whose own
 expressions never mention the helper. The module-initializer control proves
 that an otherwise direct owner remains present when its hidden `__init__` body
-still has side effects. Mutable, class-owned, mixed-owner, cyclic, direct,
-immediately-invoked, locally named, reassigned local-closure, and direct
-module-function forward reads, plus malformed and renamed shapes, fail before
-transactional publication.
+still has side effects. Safe same-module static methods, constructors, branch
+joins, and possibly zero-iteration loops remain legal. Mutable, class-owned,
+mixed-owner, cyclic, direct, immediately-invoked, locally named, branch,
+switch, try/catch, loop-carried closure, direct module-function, same-module
+static-method, and constructor forward reads, plus malformed and renamed
+shapes, fail before transactional publication.
 
 The metadata moves one supported public static Haxe method body to an
 unexported, genuine ES-module function. Genes leaves a compiler-owned method

@@ -16,6 +16,11 @@ import module_functions.TsRegisterHelpers.positive;
 import module_functions.TsRegisterHelpers.forceReturn;
 import module_functions.TsNullHelper.nullString;
 import module_functions.ModuleInit.moduleInitValue;
+import module_functions.ModuleValueHelpers.branchCallbackValue;
+import module_functions.ModuleValueHelpers.callbackArgumentValue;
+import module_functions.ModuleValueHelpers.constructorHelperValue;
+import module_functions.ModuleValueHelpers.loopCallbackValue;
+import module_functions.ModuleValueHelpers.staticHelperValue;
 import module_functions.TopLevelSibling.topLevelIdentity as siblingTopLevelIdentity;
 import module_functions.TopLevelSibling.metadata as siblingMetadata;
 
@@ -59,6 +64,11 @@ class Main {
       forceReturn("return"),
       Std.string(nullString()),
       moduleInitValue(),
+      Std.string(staticHelperValue),
+      Std.string(constructorHelperValue),
+      Std.string(callbackArgumentValue),
+      Std.string(branchCallbackValue),
+      Std.string(loopCallbackValue),
       exposedValue
     ];
     #if module_function_global_feature

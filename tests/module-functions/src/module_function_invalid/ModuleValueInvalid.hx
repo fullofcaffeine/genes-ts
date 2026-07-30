@@ -23,16 +23,79 @@ final second = 2;
 
 #elseif module_value_reassigned_closure_forward_read
 /**
- * Negative control: closure ownership follows an exact local reassignment.
+ * Negative control: branch exits retain every callback that can reach a call.
  *
- * The first callback is safe, but the replacement reads `second` when `read()`
- * executes during module initialization. Retaining only the declaration-time
- * callback would miss the resulting ESM temporal-dead-zone access.
+ * A lexical walk sees the safe `else` callback last. Runtime control flow can
+ * still choose the unsafe `then` callback, so source visitation order cannot
+ * decide which body owns `read`.
  */
 @:genes.moduleValue("first")
 final first = {
   var read = () -> 0;
-  read = () -> second;
+  if (Date.now().getTime() > 0) {
+    read = () -> second;
+  } else {
+    read = () -> 0;
+  }
+  read();
+};
+
+@:genes.moduleValue("second")
+final second = 2;
+
+#elseif module_value_zero_iteration_closure_forward_read
+/**
+ * Negative control: a loop body may not execute even once.
+ *
+ * The unsafe pre-loop callback therefore remains a possible target after the
+ * loop, despite the safe replacement appearing later in source order.
+ */
+@:genes.moduleValue("first")
+final first = {
+  var read = () -> second;
+  while (Date.now().getTime() < 0)
+    read = () -> 0;
+  read();
+};
+
+@:genes.moduleValue("second")
+final second = 2;
+
+#elseif module_value_switch_closure_forward_read
+/** Negative control: switch case visitation order is not runtime flow. */
+@:genes.moduleValue("first")
+final first = {
+  var read = () -> 0;
+  switch Date.now().getTime() > 0 {
+    case true:
+      read = () -> second;
+    case false:
+      read = () -> 0;
+  }
+  read();
+};
+
+@:genes.moduleValue("second")
+final second = 2;
+
+#elseif module_value_try_closure_forward_read
+/**
+ * Negative control: a catch can run after an unsafe callback assignment.
+ *
+ * The try can also complete normally, leaving the unsafe callback in place.
+ * A lexical walk that visits the safe catch last must not erase that normal
+ * exit.
+ */
+@:genes.moduleValue("first")
+final first = {
+  var read = () -> 0;
+  try {
+    read = () -> second;
+    if (Date.now().getTime() < 0)
+      throw "force-catch";
+  } catch (_:String) {
+    read = () -> 0;
+  }
   read();
 };
 
@@ -52,6 +115,76 @@ function readSecond(): Int {
 
 @:genes.moduleValue("first")
 final first = readSecond();
+
+@:genes.moduleValue("second")
+final second = 2;
+
+#elseif module_value_class_static_forward_read
+/**
+ * A named class in the same `.hx` module is emitted into the same ES module.
+ * Calling its static method during initialization therefore has the same
+ * temporal-dead-zone risk as calling a direct module function.
+ */
+class StaticForwardHelper {
+  public static function readSecond(): Int {
+    return second;
+  }
+}
+
+@:genes.moduleValue("first")
+final first = StaticForwardHelper.readSecond();
+
+@:genes.moduleValue("second")
+final second = 2;
+
+#elseif module_value_callback_argument_forward_read
+/**
+ * An exact same-module helper can invoke a callback parameter immediately.
+ * The validator connects the call argument to that exact Haxe parameter.
+ */
+class CallbackForwardHelper {
+  public static function invoke(callback: () -> Int): Int {
+    return callback();
+  }
+}
+
+@:genes.moduleValue("first")
+final first = CallbackForwardHelper.invoke(() -> second);
+
+@:genes.moduleValue("second")
+final second = 2;
+
+#elseif module_value_instance_method_forward_read
+/** An exact same-module instance method is also a synchronous call target. */
+class InstanceForwardHelper {
+  public function new() {}
+
+  public function readSecond(): Int {
+    return second;
+  }
+}
+
+@:genes.moduleValue("first")
+final first = new InstanceForwardHelper().readSecond();
+
+@:genes.moduleValue("second")
+final second = 2;
+
+#elseif module_value_constructor_forward_read
+/**
+ * Constructing a same-module class executes its constructor synchronously.
+ * The constructor body must therefore participate in forward-read validation.
+ */
+class ConstructorForwardHelper {
+  public final value: Int;
+
+  public function new() {
+    value = second;
+  }
+}
+
+@:genes.moduleValue("first")
+final first = new ConstructorForwardHelper().value;
 
 @:genes.moduleValue("second")
 final second = 2;
