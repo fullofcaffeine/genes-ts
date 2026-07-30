@@ -239,8 +239,115 @@ genes-ts is a general-purpose Haxe-to-TypeScript/JavaScript compiler.
 - Downstream projects may and should reveal missing compiler features, bad emitted TypeScript, classic JS regressions, typing holes, macro ergonomics gaps, and runtime helper bugs.
 - Fix those issues as generic language/codegen/runtime improvements with small reusable fixtures. Do not add knowledge of downstream project paths, module names, schemas, DTOs, runtime seams, CLI behavior, or product conventions.
 - If a downstream case seems to need a compiler special case, first reduce it to the underlying Haxe/JS/TS construct and add that as the compiler test.
-- If a compiler, macro, type-system, interop, or output-architecture issue becomes ambiguous, risky, or tempting to solve with a clever workaround, stop and prepare a detailed GPT 5.5 Pro prompt instead of guessing. Include the reduced repro, relevant files, current hypotheses, failed approaches, desired output, and non-negotiable architecture rules, then use the response to guide an elegant generic fix.
 - The goal is to make genes-ts the best JS/TS compiler for Haxe. Compiler work only serves that goal when it benefits arbitrary Haxe projects too.
+
+### Keep one semantic contract per pull request
+
+Before substantial implementation, write the pull request's positive contract
+in one sentence: which exact Haxe evidence authorizes which output change. State
+the important non-goals beside it. A pull request remains reviewable when every
+code path and fixture can be traced back to that contract.
+
+This rule does not limit how complete that contract may be. Implement every
+compiler path, output profile, compatibility behavior, diagnostic, and test
+needed for the promised feature to work. Split only independently useful
+prerequisites or behavior that the current contract does not need yet; do not
+relabel required work as follow-up merely to make a PR smaller.
+
+Record every split in Beads rather than leaving it in review prose or a markdown
+TODO. Give each resulting Bead its own positive contract and acceptance
+evidence, link discovery and dependency/blocking relationships, and state the
+landing order. The current PR may depend on a prerequisite Bead, but it is not
+complete until every blocking prerequisite and all in-contract work have
+landed and been validated together.
+
+Before implementing a slice that already appears unusually large, technically
+complex, architecturally ambiguous, or likely to run for a long time, tell the
+user and suggest an Oracle architecture review—even if an initial Bead split is
+already apparent. Give the Oracle the existing implementation plans and Bead
+graph, ask it to challenge the proposed boundaries, and request a recommended
+sequence of smaller contracts with dependencies, acceptance evidence, and stop
+criteria. A routine bounded local task that is not unusually complex or
+architecturally ambiguous does not need this ceremony.
+
+Classify each review finding before changing code:
+
+1. **Contract violation:** the proposed implementation breaks the PR's stated
+   invariant. Fix it in the current PR.
+2. **Missing prerequisite:** a separate compiler capability must exist before
+   the contract can be implemented honestly. Split and land that prerequisite,
+   then rebase or pause the feature.
+3. **Adjacent or pre-existing issue:** the finding is real but not caused by,
+   or required for, the stated contract. Create or update its own Bead and do
+   not enlarge the current PR merely because its fixture exposed the problem.
+4. **Invalidated premise:** the feature requires a materially different
+   architecture than the PR promised. Stop, preserve the evidence, and replace
+   or redesign the PR instead of accumulating exceptions.
+
+A scope checkpoint is mandatory before more implementation when any of these
+tripwires occurs:
+
+- a second ready-then-reopened cycle introduces another semantic category or
+  compiler phase;
+- elapsed effort has become disproportionate to the original contract, or
+  repeated edit/test/review cycles are still discovering new counterexamples
+  without converging on one stable rule—even when the counterexamples appear
+  to belong to the same category;
+- the fix needs a new analyzer, plan, cache, type authority, runtime model, or
+  interprocedural state that was not part of the accepted design;
+- most new code or negative fixtures defend behavior outside the original
+  positive examples;
+- the available typed input no longer contains the authority needed for the
+  proposed output decision;
+- a string-, name-, position-, diagnostic-, or snapshot-driven rule becomes
+  tempting; or
+- the supported Haxe input shapes can no longer be listed and justified by one
+  finite invariant.
+
+At that checkpoint:
+
+1. Stop speculative edits and preserve the exact branch, failing reproduction,
+   diff, and validation evidence.
+2. Mark the PR and owning Bead honestly; do not keep calling the change ready
+   while its semantic boundary is unsettled.
+3. Compare shrinking the feature, splitting prerequisites, changing the output
+   contract, and deferring unsupported cases. Create or update the corresponding
+   Beads and their dependency order before resuming. Shrinking or changing the
+   promised contract requires explicit user agreement; keep the original
+   outcome in an open linked Bead unless the user explicitly cancels it. Prior
+   effort is not a reason to preserve an unsuitable design.
+4. If the work has become disproportionately long, repeatedly non-convergent,
+   or architecturally ambiguous, propose an independent high-capability
+   architecture review—the **Oracle** in current project terminology—before
+   another implementation cycle. Include full relevant repository snapshots,
+   the reduced cases, failed approaches, invariants, current plans and Beads,
+   and precise questions about both architecture and the proposed split.
+5. Resume only after the user accepts a deliberately smaller fallback, the
+   existing scope becomes finite again, or an Oracle response is reconciled
+   into a finite design. Treat external review as design input; repository
+   evidence and required gates remain authoritative.
+
+When the accepted premise changes substantially, prefer closing the old PR as
+superseded and opening a clean replacement. Keep the old branch and cross-link
+both PRs so review history remains understandable. Do not force-rewrite a large
+public review into an unrelated change merely to retain its number.
+
+For example, relocating a function declaration can have a finite rule because
+declaring it does not run its body. Relocating an eagerly evaluated value may
+require a different initialization model. Discovering that difference should
+split or defer the value feature; it should not silently turn the function PR
+into a general call/effect analyzer.
+
+These are semantic tripwires, not line-count quotas. A large mechanical change
+with decisive checks can remain bounded, while a small heuristic that invents
+missing type authority has already exceeded its safe scope.
+
+Before declaring a PR ready after any review cycle, repeat the proportionality
+check against its original positive contract and non-goals. Confirm that the
+final implementation, fixtures, and elapsed effort still serve that one
+contract, and classify every review finding using the four categories above.
+If the aggregate change now meets a tripwire, review is not closed: enter the
+scope checkpoint even when the latest individual finding has been fixed.
 
 ## Migration Tooling and Long-Term Consolidation
 
