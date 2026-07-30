@@ -8,6 +8,15 @@ existing `Owner.field` identity through a descriptor seed, while genuine Haxe
 module-level functions emit and import as direct ESM functions without a
 synthetic `_Fields_` class or registration machinery.
 
+Dependency planning is tested at the same boundary. A direct function that
+extracts an instance method still imports `genes.Register`, because the
+generated body uses `Register.bind` to preserve the receiver. A mixed source
+module containing one selected function and one ordinary value gives callers
+two imports: the direct function binding and the compiler-synthetic owner that
+still stores the ordinary value. These controls prevent direct lowering from
+dropping runtime support that remains necessary elsewhere in the same typed
+expression or module.
+
 The metadata moves one supported public static Haxe method body to an
 unexported, genuine ES-module function. Genes leaves a compiler-owned method
 descriptor in the original class slot and immediately replaces only its value.

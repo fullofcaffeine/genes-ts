@@ -129,6 +129,34 @@ function assertSourceMap(profile: "classic" | "ts" | "tsx",
     `${profile} public module function maps to its Haxe method declaration`);
 }
 
+function assertTopLevelSourceMap(profile: "classic" | "ts" | "tsx",
+  extension: "js" | "ts" | "tsx"): void {
+  const generated = path.join(outputRoot, profile,
+    ...(profile === "classic" ? [] : ["src-gen"]),
+    `module_functions/TopLevel.${extension}`);
+  const source = readFileSync(generated, "utf8");
+  const haxePath = path.join(fixtureRoot,
+    "src/module_functions/TopLevel.hx");
+  const haxeSource = readFileSync(haxePath, "utf8");
+  const map = new SourceMapConsumer(JSON.parse(
+    readFileSync(`${generated}.map`, "utf8")) as RawSourceMap);
+
+  const functionOriginal = map.originalPositionFor(
+    generatedPoint(source, "function topLevelIdentity"));
+  ok(functionOriginal.source?.endsWith(
+    "src/module_functions/TopLevel.hx"),
+    `${profile} direct module function maps to TopLevel.hx`);
+  strictEqual(functionOriginal.line,
+    sourceLine(haxeSource, "function topLevelIdentity"),
+    `${profile} direct module function name maps to its Haxe declaration`);
+
+  const returnOriginal = map.originalPositionFor(
+    generatedPoint(source, "return value"));
+  strictEqual(returnOriginal.line,
+    sourceLine(haxeSource, "return value"),
+    `${profile} direct module function body maps to its Haxe return`);
+}
+
 function assertImplementationShape(relative: string): void {
   const source = readFileSync(path.join(outputRoot, relative), "utf8");
   const code = source.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -208,6 +236,30 @@ function assertTopLevelImplementationShape(relative: string): void {
     `${relative} omits the compiler-synthetic module-fields class`);
   ok(!source.includes("genes/Register"),
     `${relative} does not retain registration machinery`);
+}
+
+function assertTopLevelBindImplementationShape(relative: string): void {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes("export function extractTopLevelValue"),
+    `${relative} emits the method-extracting module function directly`);
+  ok(source.includes('import {Register} from "../genes/Register.js"'),
+    `${relative} retains the runtime helper required by its relocated body`);
+  ok(source.includes("Register.bind(receiver, receiver.value)"),
+    `${relative} emits the Haxe method-extraction helper`);
+  ok(!source.includes("TopLevelBind_Fields_"),
+    `${relative} still omits the compiler-synthetic module owner`);
+}
+
+function assertTopLevelMixedImplementationShape(relative: string): void {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes("export function mixedSelected"),
+    `${relative} emits the selected function as a direct ESM binding`);
+  ok(source.includes("export const mixedOrdinary"),
+    `${relative} retains the ordinary module value export`);
+  ok(source.includes("TopLevelMixed_Fields_.mixedOrdinary"),
+    `${relative} keeps the ordinary value on its synthetic runtime owner`);
+  ok(source.includes('import {Register} from "../genes/Register.js"'),
+    `${relative} retains registration for the mixed synthetic owner`);
 }
 
 interface RuntimeEvidence {
@@ -361,6 +413,28 @@ console.log(
     }).trim().split(/\r?\n/).at(-1) === "true";
 }
 
+function topLevelDependencyRuntimeEvidence(): ReadonlyArray<number> {
+  const program = `
+import {extractTopLevelValue} from "./tests/module-functions/out/classic/module_functions/TopLevelBind.js";
+import {mixedOrdinary, mixedSelected} from "./tests/module-functions/out/classic/module_functions/TopLevelMixed.js";
+import {TopLevelReceiver} from "./tests/module-functions/out/classic/module_functions/TopLevelReceiver.js";
+const receiver = new TopLevelReceiver(7);
+console.log(JSON.stringify([
+  extractTopLevelValue(receiver)(),
+  mixedSelected() + mixedOrdinary
+]));`;
+  const output = execFileSync(process.execPath,
+    ["--input-type=module", "--eval", program], {
+      cwd: repoRoot,
+      encoding: "utf8"
+    }).trim();
+  const parsed: unknown = JSON.parse(output);
+  ok(Array.isArray(parsed)
+    && parsed.every((value) => typeof value === "number"),
+    `invalid top-level dependency runtime evidence: ${output}`);
+  return parsed;
+}
+
 const negativeCases = [
   ["module_value_deferred", "GENES-MODULE-VALUE-DEFERRED-001"],
   ["module_function_arity", "GENES-MODULE-FUNCTION-ARITY-001"],
@@ -487,6 +561,20 @@ assertTopLevelImplementationShape(
 assertTopLevelImplementationShape(
   "tsx/src-gen/module_functions/TopLevelSibling.tsx");
 for (const relative of [
+  "classic/module_functions/TopLevelBind.js",
+  "ts/src-gen/module_functions/TopLevelBind.ts",
+  "tsx/src-gen/module_functions/TopLevelBind.tsx"
+]) {
+  assertTopLevelBindImplementationShape(relative);
+}
+for (const relative of [
+  "classic/module_functions/TopLevelMixed.js",
+  "ts/src-gen/module_functions/TopLevelMixed.ts",
+  "tsx/src-gen/module_functions/TopLevelMixed.tsx"
+]) {
+  assertTopLevelMixedImplementationShape(relative);
+}
+for (const relative of [
   "classic/module_functions/Main.js",
   "ts/src-gen/module_functions/Main.ts",
   "tsx/src-gen/module_functions/Main.tsx"
@@ -501,6 +589,18 @@ for (const relative of [
     `${relative} calls the direct module binding`);
   ok(source.includes('topLevelIdentity__1("top-level-sibling")'),
     `${relative} calls the aliased sibling module binding`);
+  ok(source.includes(
+    'import {extractTopLevelValue} from "./TopLevelBind.js"'),
+    `${relative} imports the relocated method-extraction function directly`);
+  ok(source.includes(
+    'import {mixedSelected, TopLevelMixed_Fields_} from "./TopLevelMixed.js"'),
+    `${relative} imports both the direct function and ordinary synthetic owner`);
+  ok(source.includes(
+    "extractTopLevelValue(new TopLevelReceiver(7))"),
+    `${relative} calls the helper-bearing direct function`);
+  ok(source.includes(
+    "mixedSelected() + TopLevelMixed_Fields_.mixedOrdinary"),
+    `${relative} uses both mixed-module dependency forms`);
   ok(!source.includes("TopLevel_Fields_"),
     `${relative} does not expose a synthetic owner to callers`);
 }
@@ -522,6 +622,9 @@ for (const relative of [
 assertSourceMap("classic", "js");
 assertSourceMap("ts", "ts");
 assertSourceMap("tsx", "tsx");
+assertTopLevelSourceMap("classic", "js");
+assertTopLevelSourceMap("ts", "ts");
+assertTopLevelSourceMap("tsx", "tsx");
 
 const runtime = runtimeEvidence();
 strictEqual(exactRuntimeIdentity(), true,
@@ -564,6 +667,8 @@ strictEqual(runtime.crossModuleCall, 13,
   "cross-module selected calls preserve the existing cyclic accessor");
 strictEqual(runtime.subclassInitialized, 22,
   "a subclass initializer observes its base owner's installed function");
+deepStrictEqual(topLevelDependencyRuntimeEvidence(), [7, 3],
+  "direct helper imports and mixed direct/ordinary module imports execute");
 
 const classicDeclaration = readFileSync(path.join(outputRoot,
   "classic/module_functions/Selected.d.ts"), "utf8");

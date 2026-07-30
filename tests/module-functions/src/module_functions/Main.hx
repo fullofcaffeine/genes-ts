@@ -3,6 +3,9 @@ package module_functions;
 import module_functions.Selected.ConstructorNameControl;
 import module_functions.Selected.SecondarySelected;
 import module_functions.Inheritance.ModuleFunctionChild;
+import module_functions.TopLevelBind.extractTopLevelValue;
+import module_functions.TopLevelMixed.mixedOrdinary;
+import module_functions.TopLevelMixed.mixedSelected;
 import module_functions.TopLevel.topLevelIdentity;
 import module_functions.TopLevelSibling.topLevelIdentity as siblingTopLevelIdentity;
 
@@ -31,7 +34,9 @@ class Main {
       Selected.classInitialized,
       Std.string(SecondarySelected.selected(1)),
       topLevelIdentity("top-level"),
-      siblingTopLevelIdentity("top-level-sibling")
+      siblingTopLevelIdentity("top-level-sibling"),
+      Std.string(extractTopLevelValue(new TopLevelReceiver(7))()),
+      Std.string(mixedSelected() + mixedOrdinary)
     ];
     trace(transcript.join("|"));
   }
