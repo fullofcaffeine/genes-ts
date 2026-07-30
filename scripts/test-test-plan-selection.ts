@@ -28,19 +28,25 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 function explain(changed: string): SelectionReport {
+  return runExplain(["--changed", changed]);
+}
+
+function runExplain(
+  arguments_: string[],
+  environment: NodeJS.ProcessEnv = process.env
+): SelectionReport {
   const result = spawnSync(process.execPath, [
     runner,
     "explain",
-    "--changed",
-    changed
+    ...arguments_
   ], {
     cwd: repoRoot,
     encoding: "utf8",
-    env: process.env,
+    env: environment,
     timeout: 30_000
   });
   assert(result.status === 0,
-    `Selection explain failed for ${changed}:\n${result.stdout}${result.stderr}`);
+    `Selection explain failed:\n${result.stdout}${result.stderr}`);
   return JSON.parse(readFileSync(report, "utf8")) as SelectionReport;
 }
 
@@ -95,6 +101,17 @@ function main(): void {
   assert(ids(react).has("full-ci"),
     "Ambiguous compiler/React ownership did not expand to the full backstop");
 
+  const sharedFixture = explain(
+    "tests/genes-ts/package-shapes/build-ts.hxml"
+  );
+  assert(sharedFixture.ambiguousFiles.some((entry) =>
+    entry.file === "tests/genes-ts/package-shapes/build-ts.hxml"
+    && entry.rules.includes("owner:package-imports")
+    && entry.rules.includes("owner:binding-identity")),
+  "Overlapping gate owners were not reported as ambiguous");
+  assert(ids(sharedFixture).has("full-ci"),
+    "Overlapping gate owners did not expand to the full backstop");
+
   const harness = explain("scripts/test-plan.ts");
   requires(harness,
     "test-plan-validation",
@@ -147,8 +164,19 @@ function main(): void {
   assert(unknown.selectionMode === "observation",
     "Selector was promoted without the required observation window");
 
+  const unreadableMergeBase = runExplain([], {
+    ...process.env,
+    GENES_TEST_PLAN_MERGE_BASE:
+      "refs/heads/genes-test-plan-deliberately-missing"
+  });
+  assert(unreadableMergeBase.unknownFiles.some((file) =>
+    file.startsWith("<unreadable-merge-base:")),
+  "An unreadable merge-base diff was not reported as unknown ownership");
+  requires(unreadableMergeBase, "full-ci", "portable-haxe-smoke");
+
   console.log(
-    "test-plan-selection:ok (compiler/TS/React/harness/release/docs/policy/unknown/ambiguous)"
+    "test-plan-selection:ok "
+    + "(compiler/TS/React/harness/release/docs/policy/unknown/ambiguous/merge-base)"
   );
 }
 

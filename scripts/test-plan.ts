@@ -103,21 +103,34 @@ function matches(glob: string, file: string): boolean {
 }
 
 function gitLines(args: string[]): string[] {
+  return tryGitLines(args).lines;
+}
+
+function tryGitLines(args: string[]): {ok: boolean; lines: string[]} {
   try {
-    return execFileSync("git", args, {
+    const lines = execFileSync("git", args, {
       cwd: repoRoot,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"]
     }).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    return {ok: true, lines};
   } catch {
-    return [];
+    return {ok: false, lines: []};
   }
 }
 
 function liveChangedFiles(): string[] {
-  const mergeBase = plan.selectionPolicy.mergeBase;
+  const mergeBase = process.env.GENES_TEST_PLAN_MERGE_BASE
+    ?? plan.selectionPolicy.mergeBase;
+  const mergeBaseDiff = tryGitLines([
+    "diff",
+    "--name-only",
+    `${mergeBase}...HEAD`
+  ]);
   const candidates = [
-    ...gitLines(["diff", "--name-only", `${mergeBase}...HEAD`]),
+    ...(mergeBaseDiff.ok
+      ? mergeBaseDiff.lines
+      : [`<unreadable-merge-base:${mergeBase}>`]),
     ...gitLines(["diff", "--name-only"]),
     ...gitLines(["diff", "--name-only", "--cached"]),
     ...gitLines(["ls-files", "--others", "--exclude-standard"])
@@ -164,10 +177,13 @@ function select(changedFiles: string[]): {
         ...ownerGates.map((gate) => `owner:${gate.id}`)
       ]
     });
-    if (executableRules.length > 1) {
+    if (executableRules.length > 1 || ownerGates.length > 1) {
       ambiguousFiles.push({
         file,
-        rules: executableRules.map((rule) => rule.id)
+        rules: [
+          ...executableRules.map((rule) => rule.id),
+          ...ownerGates.map((gate) => `owner:${gate.id}`)
+        ]
       });
     }
     if (rules.length === 0 && ownerGates.length === 0) {
