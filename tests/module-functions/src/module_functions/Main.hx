@@ -13,6 +13,8 @@ import module_functions.ExposedValue.exposedValue;
 import module_functions.LocalBindingImportCollision.foreignTitle;
 import module_functions.LocalBindingImportCollision.identityPair;
 import module_functions.TsRegisterHelpers.positive;
+import module_functions.TsRegisterHelpers.forceReturn;
+import module_functions.TsNullHelper.nullString;
 import module_functions.TopLevelSibling.topLevelIdentity as siblingTopLevelIdentity;
 import module_functions.TopLevelSibling.metadata as siblingMetadata;
 
@@ -53,6 +55,8 @@ class Main {
       foreignTitle(),
       identityPair(),
       Std.string(positive(null)),
+      forceReturn("return"),
+      Std.string(nullString()),
       exposedValue
     ];
     trace(transcript.join("|"));

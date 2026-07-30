@@ -534,7 +534,15 @@ const negativeCases = [
   ["module_value_mixed", "GENES-MODULE-VALUE-MIXED-OWNER-013"],
   ["module_value_cycle", "GENES-MODULE-VALUE-CYCLE-014"],
   ["module_value_forward_read", "GENES-MODULE-VALUE-FORWARD-015"],
-  ["module_value_iife_forward_read", "GENES-MODULE-VALUE-FORWARD-015"]
+  ["module_value_iife_forward_read", "GENES-MODULE-VALUE-FORWARD-015"],
+  [
+    "module_value_local_closure_forward_read",
+    "GENES-MODULE-VALUE-FORWARD-015"
+  ],
+  [
+    "module_value_function_forward_read",
+    "GENES-MODULE-VALUE-FORWARD-015"
+  ]
 ] as const;
 
 function assertCompileFailure(profile: "classic" | "ts",
@@ -651,8 +659,9 @@ for (const relative of [
 ]) {
   const source = readFileSync(path.join(outputRoot, relative), "utf8");
   ok(source.includes("genes/Register")
-    && source.includes("Register.unsafeCast<number>(value)"),
-    `${relative} retains Register for a TypeScript-only direct-module assertion`);
+    && source.includes("Register.unsafeCast<number>(value)")
+    && source.includes("Register.unsafeCast<string>(value)"),
+    `${relative} retains Register for every planned TypeScript-only assertion`);
   ok(!source.includes("TsRegisterHelpers_Fields_"),
     `${relative} still omits the compiler-synthetic owner`);
 }
@@ -660,9 +669,36 @@ for (const relative of [
   const relative = "classic/module_functions/TsRegisterHelpers.js";
   const source = readFileSync(path.join(outputRoot, relative), "utf8");
   ok(source.includes("return value > 0")
+    && source.includes("return value")
     && !source.includes("genes/Register")
     && !source.includes("TsRegisterHelpers_Fields_"),
     `${relative} keeps the native operator without a TypeScript-only helper`);
+}
+for (const relative of [
+  "ts/src-gen/module_functions/TsNullHelper.ts",
+  "tsx/src-gen/module_functions/TsNullHelper.tsx"
+]) {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes("genes/Register")
+    && source.includes("Register.unsafeCast<string>(null)"),
+    `${relative} retains Register for a non-null destination assertion`);
+}
+{
+  const relative = "classic/module_functions/TsNullHelper.js";
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes("return null")
+    && !source.includes("genes/Register")
+    && !source.includes("TsNullHelper_Fields_"),
+    `${relative} returns null without adding a TypeScript-only helper`);
+}
+for (const relative of [
+  "classic/index.js",
+  "ts/src-gen/index.ts",
+  "tsx/src-gen/index.tsx"
+]) {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes('exposedOnly'),
+    `${relative} re-exports the expose-only class module function`);
 }
 for (const relative of [
   "classic/index.js",

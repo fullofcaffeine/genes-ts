@@ -17,9 +17,13 @@ metadata itself does not create a DCE root. It also covers owner-only exports,
 same-module local shadowing (including source names that match generated
 suffixes), collision-safe foreign imports around local direct exports,
 expression-owned and TypeScript-only Register helpers, and the typed native
-`findIndex` helper. Mutable, class-owned, mixed-owner, cyclic, direct and
-immediately-invoked forward-reading, malformed, and renamed shapes fail before
-transactional publication.
+`findIndex` helper. It also proves that a class-owned public module function is
+retained and re-exported solely by `@:expose`, without an unrelated Haxe
+runtime call, and that a TypeScript boundary assertion keeps its Register
+dependency even after a synthetic owner disappears. Mutable, class-owned,
+mixed-owner, cyclic, direct, immediately-invoked, locally named closure, and
+direct module-function forward reads, plus malformed and renamed shapes, fail
+before transactional publication.
 
 The metadata moves one supported public static Haxe method body to an
 unexported, genuine ES-module function. Genes leaves a compiler-owned method

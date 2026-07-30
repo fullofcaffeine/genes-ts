@@ -184,10 +184,29 @@ Haxe can represent that dependency through its synthetic static owner, but
 native ESM would emit `const first = second` while `second` is still in its
 temporal dead zone. Genes rejects the source with
 `GENES-MODULE-VALUE-FORWARD-015`. Reorder the values or defer the read inside a
-function. A closure capture is allowed because it does not read the binding
-during module initialization. An immediately-invoked closure is not merely a
-capture—its body runs while the module initializes—so Genes scans that body and
-rejects the same forward read there as well.
+function that is called only after module initialization. Merely wrapping the
+read in a function is not enough when the initializer calls that function
+immediately:
+
+```haxe
+@:genes.moduleValue("first")
+final first = {
+	final read = () -> second;
+	read(); // still runs before `second` is initialized
+};
+
+@:genes.moduleValue("second")
+final second = 2;
+```
+
+The same rule applies when an initializer directly calls a selected
+same-module `@:genes.moduleFunction` whose body reads the later value. Genes
+follows those exact local and module-function call targets and reports
+`GENES-MODULE-VALUE-FORWARD-015` before opening an output writer. A closure
+that is only stored remains safe because creating it captures the binding
+without reading it. This is intentionally bounded analysis, not general alias
+or call-effect inference: unknown call targets keep their ordinary Haxe
+semantics and are not guessed from generated names.
 
 Class static fields are intentionally rejected:
 

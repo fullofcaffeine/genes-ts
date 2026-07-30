@@ -154,6 +154,19 @@ Classic JavaScript emits `export declare const identity: typeof
 Values.identity`, so its `.d.ts` derives the same closed generic contract
 without duplicating it.
 
+`@:expose` is also a generation root once Haxe has typed the source module. A
+library function does not need an unrelated Haxe runtime call merely to keep
+its owner file in the generated package: Genes retains the owner module and
+the compilation-root re-export in both output profiles. Library builds still
+have to load the package in the normal Haxe way, for example:
+
+```hxml
+--macro include("my.library")
+```
+
+That command makes Haxe discover the source modules. `@:expose` then tells
+Genes which selected function is part of the native ESM API.
+
 The two metadata names must match. This v1 constraint keeps the local binding,
 public name, stack name, analyzer identity, and declaration surface aligned.
 `@:expose` with no argument uses the Haxe field name. A class-member

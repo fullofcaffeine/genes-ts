@@ -381,6 +381,7 @@ class TsBoundaryPlan {
   final initializerBridges: ObjectMap<TypedExpr, TsValueBridge>;
   final assignmentBridges: ObjectMap<TypedExpr, TsValueBridge>;
   final hostCallbackBridges: ObjectMap<TypedExpr, TsHostCallbackBridge>;
+  final hostCallbackDecisions: Array<TsHostCallbackBridge>;
   final runtimeGuardBridges: ObjectMap<TypedExpr, TsRuntimeGuardBridge>;
   final runtimeGuardDecisions: Array<TsRuntimeGuardBridge>;
   final runtimeByteCacheReads: ObjectMap<TypedExpr, TsRuntimeByteCacheRead>;
@@ -460,6 +461,7 @@ class TsBoundaryPlan {
       initializerBridges: ObjectMap<TypedExpr, TsValueBridge>,
       assignmentBridges: ObjectMap<TypedExpr, TsValueBridge>,
       hostCallbackBridges: ObjectMap<TypedExpr, TsHostCallbackBridge>,
+      hostCallbackDecisions: Array<TsHostCallbackBridge>,
       runtimeGuardBridges: ObjectMap<TypedExpr, TsRuntimeGuardBridge>,
       runtimeGuardDecisions: Array<TsRuntimeGuardBridge>,
       runtimeByteCacheReads: ObjectMap<TypedExpr, TsRuntimeByteCacheRead>,
@@ -480,6 +482,7 @@ class TsBoundaryPlan {
     this.initializerBridges = initializerBridges;
     this.assignmentBridges = assignmentBridges;
     this.hostCallbackBridges = hostCallbackBridges;
+    this.hostCallbackDecisions = hostCallbackDecisions.copy();
     this.runtimeGuardBridges = runtimeGuardBridges;
     this.runtimeGuardDecisions = runtimeGuardDecisions.copy();
     this.runtimeByteCacheReads = runtimeByteCacheReads;
@@ -551,6 +554,43 @@ class TsBoundaryPlan {
    */
   public function localReadNeedsNonNullAssertion(expression: TypedExpr): Bool {
     return retaggedLocalReads.exists(expression);
+  }
+
+  /**
+   * Returns provenance for the first planned `Register.unsafeCast` use.
+   *
+   * Why: most generated modules already import `genes.Register` for Haxe
+   * reflection setup. A module containing only direct ESM functions or values
+   * deliberately omits that setup, but its TypeScript boundary decisions can
+   * still need Register's runtime-identity helper.
+   *
+   * What/How: inspect only decisions whose emitter branch is defined to print
+   * `unsafeCast`. Generic enum instantiations without argument bridges and
+   * erased non-null local reads are excluded because they emit no helper call.
+   * The position is diagnostic provenance, not equality or import order; the
+   * fixed category order below keeps the result deterministic.
+   */
+  public function firstIdentityAssertionPosition(): Null<Position> {
+    if (enumPayloadReadDecisions.length > 0)
+      return enumPayloadReadDecisions[0].pos;
+    for (decision in enumDecisions)
+      if (decision.bridges.length > 0)
+        return decision.bridges[0].source.pos;
+    for (decision in callDecisions)
+      if (decision.bridges.length > 0)
+        return decision.bridges[0].source.pos;
+    for (decision in constructorDecisions)
+      if (decision.bridges.length > 0)
+        return decision.bridges[0].source.pos;
+    if (valueBridges.length > 0)
+      return valueBridges[0].pos;
+    if (hostCallbackDecisions.length > 0)
+      return hostCallbackDecisions[0].pos;
+    if (runtimeGuardDecisions.length > 0)
+      return runtimeGuardDecisions[0].pos;
+    if (runtimeByteCacheReadDecisions.length > 0)
+      return runtimeByteCacheReadDecisions[0].pos;
+    return null;
   }
 
   /** Every planned type reference, in deterministic source order. */
@@ -639,6 +679,7 @@ private class TsBoundaryPlanBuilder {
   final initializerBridges = new ObjectMap<TypedExpr, TsValueBridge>();
   final assignmentBridges = new ObjectMap<TypedExpr, TsValueBridge>();
   final hostCallbackBridges = new ObjectMap<TypedExpr, TsHostCallbackBridge>();
+  final hostCallbackDecisions = new Array<TsHostCallbackBridge>();
   final runtimeGuardBridges = new ObjectMap<TypedExpr, TsRuntimeGuardBridge>();
   final runtimeGuardDecisions = new Array<TsRuntimeGuardBridge>();
   final runtimeByteCacheReads = new ObjectMap<TypedExpr,
@@ -692,8 +733,9 @@ private class TsBoundaryPlanBuilder {
       enumReferenceDecisions, enumPayloadReads, enumPayloadReadDecisions,
       calls, callDecisions, constructors, constructorDecisions, returnBridges,
       initializerBridges, assignmentBridges, hostCallbackBridges,
-      runtimeGuardBridges, runtimeGuardDecisions, runtimeByteCacheReads,
-      runtimeByteCacheReadDecisions, retaggedLocalReads, valueBridges);
+      hostCallbackDecisions, runtimeGuardBridges, runtimeGuardDecisions,
+      runtimeByteCacheReads, runtimeByteCacheReadDecisions,
+      retaggedLocalReads, valueBridges);
   }
 
   /**
@@ -1384,8 +1426,9 @@ private class TsBoundaryPlanBuilder {
           && isOpaqueHaxeFunction(field.get().type)
           && isBareTypeQueryReceiver(receiver)
           && !hasAuthoredTypeOverride(field.get())) {
-          hostCallbackBridges.set(parent,
-            new TsHostCallbackBridge(parent, target, source));
+          final bridge = new TsHostCallbackBridge(parent, target, source);
+          hostCallbackBridges.set(parent, bridge);
+          hostCallbackDecisions.push(bridge);
           true;
         } else false;
       default:

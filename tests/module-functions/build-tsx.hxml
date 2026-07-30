@@ -1,6 +1,7 @@
 -lib genes-ts
 -cp tests/module-functions/src
 --main module_functions.Main
+--macro include("module_functions")
 -js tests/module-functions/out/tsx/src-gen/index.tsx
 -D genes.ts
 -D no-deprecation-warnings

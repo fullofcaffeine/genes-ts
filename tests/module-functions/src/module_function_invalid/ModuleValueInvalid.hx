@@ -8,6 +8,36 @@ final first = (() -> second)();
 @:genes.moduleValue("second")
 final second = 2;
 
+#elseif module_value_local_closure_forward_read
+/**
+ * Negative control: a locally named closure still runs during initialization.
+ */
+@:genes.moduleValue("first")
+final first = {
+  final read = () -> second;
+  read();
+};
+
+@:genes.moduleValue("second")
+final second = 2;
+
+#elseif module_value_function_forward_read
+/**
+ * Negative control: a direct function called by an initializer reads a later
+ * ESM value immediately, even though a function that is merely stored would
+ * defer the read safely.
+ */
+@:genes.moduleFunction("readSecond")
+function readSecond(): Int {
+  return second;
+}
+
+@:genes.moduleValue("first")
+final first = readSecond();
+
+@:genes.moduleValue("second")
+final second = 2;
+
 #elseif module_value_forward_read
 /** Negative control: ESM cannot read a later `const` during initialization. */
 @:genes.moduleValue("first")

@@ -133,14 +133,26 @@ static function privateHelper(value: Int): Int {
 
 class Main {
   static function main(): Void {
-    #if (module_value_arity || module_value_arity_multiple
-      || module_value_nonliteral || module_value_empty
-      || module_value_identifier || module_value_public_name
-      || module_value_native_name || module_value_mutable
-      || module_value_function || module_value_mixed
-      || module_value_dual_marker || module_value_function_collision
-      || module_value_forward_read || module_value_iife_forward_read)
-    #if (module_value_forward_read || module_value_iife_forward_read)
+    #if (module_value_arity
+      || module_value_arity_multiple
+      || module_value_nonliteral
+      || module_value_empty
+      || module_value_identifier
+      || module_value_public_name
+      || module_value_native_name
+      || module_value_mutable
+      || module_value_function
+      || module_value_mixed
+      || module_value_dual_marker
+      || module_value_function_collision
+      || module_value_forward_read
+      || module_value_iife_forward_read
+      || module_value_local_closure_forward_read
+      || module_value_function_forward_read)
+    #if (module_value_forward_read
+      || module_value_iife_forward_read
+      || module_value_local_closure_forward_read
+      || module_value_function_forward_read)
     trace(module_function_invalid.ModuleValueInvalid.first);
     #else
     trace(module_function_invalid.ModuleValueInvalid.value);

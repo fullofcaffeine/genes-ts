@@ -309,16 +309,23 @@ class Generator {
       return reachable;
     }
 
-    final hasPublicModuleFunctions = initialNames.exists(name ->
-      hasPublicModuleFunctionCandidate(modules.get(name)));
+    final publicModuleFunctionOwners = new Map<String, Bool>();
+    var hasPublicModuleFunctions = false;
+    for (name in initialNames)
+      if (hasPublicModuleFunctionCandidate(modules.get(name))) {
+        publicModuleFunctionOwners.set(name, true);
+        hasPublicModuleFunctions = true;
+      }
     final implementationRoots = if (tsMode) [
       for (name in initialNames)
         if (isTypedImplementationRoot(modules.get(name),
           explicitlyExposedModules.exists(name))
+          || publicModuleFunctionOwners.exists(name)
           || (name == output && hasPublicModuleFunctions)) name
     ] else [
       for (name in initialNames)
         if (needsGen(modules.get(name))
+          || publicModuleFunctionOwners.exists(name)
           || (name == output && hasPublicModuleFunctions)) name
     ];
     final implementationKinds = if (tsMode)
@@ -456,11 +463,17 @@ class Generator {
   }
 
   /**
-   * Finds only the metadata pair needed to retain the compilation-root module.
+   * Finds only the metadata pair needed to retain a public function's owner.
    *
-   * This deliberately does not parse or validate either annotation. Full
-   * validation remains in ModuleFunctionPlan after template/JSX planning, so a
-   * shallow root decision cannot mask an earlier semantic diagnostic.
+   * Why: a class-owned `@:expose @:genes.moduleFunction` may have no ordinary
+   * runtime reference. Both the class module and the compilation-root barrel
+   * must nevertheless survive so the public function and its re-export can be
+   * emitted in TypeScript and classic JavaScript.
+   *
+   * What/How: this deliberately recognizes only the metadata pair; it does not
+   * parse or validate either annotation. Full validation remains in
+   * ModuleFunctionPlan after template/JSX planning, so the shallow root choice
+   * cannot mask an earlier semantic diagnostic.
    */
   static function hasPublicModuleFunctionCandidate(module: Module): Bool {
     for (member in module.members) {

@@ -106,6 +106,8 @@ class DependencyPlanBuilder {
     var onlyDirectModuleBindings = module.members.length > 0;
     var hasDirectModuleBindingOwner = false;
     var registerHelperPos: Null<Position> = null;
+    if (Context.defined('genes.ts'))
+      registerHelperPos = module.tsBoundaryPlan.firstIdentityAssertionPosition();
     // Validate compiler-owned string templates before output projection opens
     // any implementation writer. The plan itself adds no dependency edge.
     module.templateLiteralPlan;
@@ -258,6 +260,12 @@ class DependencyPlanBuilder {
             // Strict TypeScript needs the emitter's identity assertion for a
             // nullable numeric relation that Haxe already accepted. Classic
             // JavaScript prints the native operator and needs no helper.
+            helperPos = current.pos;
+          case TConst(TNull)
+            if (Context.defined('genes.ts') && !typeAllowsNull(current.t)):
+            // Haxe permits literal null at a non-null destination. Strict
+            // TypeScript needs the emitter's identity assertion even when the
+            // direct-only module has no reflection registration of its own.
             helperPos = current.pos;
           default:
         }

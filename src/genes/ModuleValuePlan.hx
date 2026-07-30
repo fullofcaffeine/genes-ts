@@ -253,16 +253,20 @@ class ModuleValuePlan {
    * failure (and a TypeScript use-before-declaration error).
    *
    * What/How: compare exact same-owner static field identities in retained
-   * source order. Ordinary nested function bodies are skipped because a
-   * closure captures the binding without reading it during initialization;
-   * a directly invoked function expression is scanned because its body runs
-   * before the following ESM declaration.
+   * source order. A function body is ignored while it is merely stored,
+   * because creating a closure does not read its captures. When the initializer
+   * immediately calls an exact local closure or a selected same-owner module
+   * function, that body is scanned because it runs before the following ESM
+   * declaration. Unknown call targets stay outside this bounded proof; Genes
+   * does not attempt general alias or effect analysis here.
    */
   static function validateNoForwardValueReads(owner: ClassType, field: Field,
       retained: Array<Field>): Void {
     final sourceIndex = retained.indexOf(field);
     if (sourceIndex < 0 || field.expr == null)
       return;
+    final localFunctions = new Map<Int, TypedExpr>();
+    final activeFunctionBodies = new haxe.ds.ObjectMap<TypedExpr, Bool>();
 
     function retainedIndex(name: String): Int {
       for (index in 0...retained.length)
@@ -271,18 +275,65 @@ class ModuleValuePlan {
       return -1;
     }
 
-    function visit(expression: TypedExpr): Void {
+    function copyLocalFunctions(source: Map<Int, TypedExpr>): Map<Int,
+      TypedExpr> {
+      final result = new Map<Int, TypedExpr>();
+      for (id => body in source)
+        result.set(id, body);
+      return result;
+    }
+
+    function callableBody(expression: TypedExpr,
+        locals: Map<Int, TypedExpr>): Null<TypedExpr> {
+      return switch unwrap(expression).expr {
+        case TFunction(func):
+          func.expr;
+        case TLocal(variable):
+          locals.get(variable.id);
+        case TField(_, FStatic(ownerRef, fieldRef)):
+          final targetOwner = ownerRef.get();
+          final targetField = fieldRef.get();
+          if (sameOwner(owner, targetOwner)
+            && ModuleFunctionPlan.requestedNameFromMetadata(targetField.meta) != null) {
+            final targetExpression = targetField.expr();
+            if (targetExpression == null)
+              null;
+            else
+              switch unwrap(targetExpression).expr {
+                case TFunction(func): func.expr;
+                default: null;
+              }
+          } else null;
+        default:
+          null;
+      }
+    }
+
+    function visit(expression: TypedExpr, locals: Map<Int, TypedExpr>): Void {
       switch expression.expr {
         case TFunction(_):
           return;
+        case TBlock(elements):
+          for (element in elements)
+            visit(element, locals);
+          return;
+        case TVar(variable, initializer):
+          if (initializer != null) {
+            visit(initializer, locals);
+            final body = callableBody(initializer, locals);
+            if (body != null)
+              locals.set(variable.id, body);
+          }
+          return;
         case TCall(callee, arguments):
+          visit(callee, locals);
           for (argument in arguments)
-            visit(argument);
-          switch unwrap(callee).expr {
-            case TFunction(func):
-              visit(func.expr);
-            default:
-              visit(callee);
+            visit(argument, locals);
+          final body = callableBody(callee, locals);
+          if (body != null && !activeFunctionBodies.exists(body)) {
+            activeFunctionBodies.set(body, true);
+            visit(body, copyLocalFunctions(locals));
+            activeFunctionBodies.remove(body);
           }
           return;
         case TField(_, FStatic(ownerRef, fieldRef)):
@@ -290,18 +341,19 @@ class ModuleValuePlan {
           final targetField = fieldRef.get();
           final targetIndex = retainedIndex(targetField.name);
           if (sameOwner(owner, targetOwner)
-            && requestedName(targetField) != null && targetIndex > sourceIndex) {
+            && ModuleValuePlan.requestedName(targetField) != null
+            && targetIndex > sourceIndex) {
             CompilerDiagnostic.fail('GENES-MODULE-VALUE-FORWARD-015: ${owner.name}.${field.name} '
               + 'reads later direct module value "${targetField.name}" during '
-              + 'initialization; reorder the values, move the read into a '
-              + 'function, or keep the synthetic owner',
+              + 'initialization; reorder the values, defer the read until '
+              + 'after module initialization, or keep the synthetic owner',
               expression.pos);
           }
         default:
       }
-      expression.iter(visit);
+      expression.iter(child -> visit(child, locals));
     }
-    visit(field.expr);
+    visit(field.expr, localFunctions);
   }
 
   static function unwrap(expression: TypedExpr): TypedExpr {
