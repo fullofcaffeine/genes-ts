@@ -213,6 +213,81 @@ therefore export the same conventional name (for example `render`) without a
 false global collision; callers receive the ordinary collision-safe ESM import
 alias.
 
+## Why direct module values are deferred
+
+This capability deliberately covers functions, not eagerly evaluated values.
+The difference is when JavaScript runs the code.
+
+Declaring a function creates the function binding without executing its body:
+
+```ts
+export function getFirst(): number {
+  return second;
+}
+
+export const second = 2;
+```
+
+Calling `getFirst()` after the module has initialized is ordinary JavaScript.
+By contrast, a `const` initializer executes immediately as the module loads:
+
+```haxe
+@:genes.moduleValue("first")
+final first = makeValue();
+
+@:genes.moduleValue("second")
+final second = 2;
+
+function makeValue():Int {
+  return second;
+}
+```
+
+Naively turning those fields into direct ESM values would produce:
+
+```ts
+export const first = makeValue();
+export const second = 2;
+
+function makeValue(): number {
+  return second;
+}
+```
+
+JavaScript begins evaluating `first` before it has initialized `second`.
+Although the name `second` is already in scope, reading it during this interval
+throws `ReferenceError`. JavaScript calls that interval the **temporal dead
+zone**, or TDZ.
+
+The older synthetic-owner representation does not have identical behavior: a
+not-yet-assigned object property is generally read as `undefined`. Proving that
+every possible initializer call, callback, constructor, alias, and control-flow
+path cannot reach a later value would require a separate initialization
+contract—not a small extension of function relocation.
+
+Genes therefore reports this explicit diagnostic instead of ignoring the
+metadata or emitting a misleading direct value:
+
+```text
+GENES-MODULE-VALUE-DEFERRED-001
+```
+
+Remove `@:genes.moduleValue` to keep the established field representation. If
+the value is genuinely computed on demand, expose that operation as a
+`@:genes.moduleFunction`:
+
+```haxe
+@:genes.moduleFunction("getFirst")
+function getFirst():Int {
+  return makeValue();
+}
+```
+
+A future direct-value proposal can support a deliberately small closed-data
+subset—such as constants and literal arrays/objects—under its own reviewable
+rules. Calls and other eager computations are not silently accepted by this
+function feature.
+
 ## What remains equivalent
 
 For admitted methods, Genes preserves:

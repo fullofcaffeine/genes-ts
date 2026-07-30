@@ -78,12 +78,13 @@ private typedef LexicalRejection = {
  */
 class ModuleFunctionPlan {
   static final METADATA = ':genes.moduleFunction';
+  static final DEFERRED_VALUE_METADATA = ':genes.moduleValue';
   static final EXPOSE_METADATA = ':expose';
 
   final entries: Array<ModuleFunctionEntry>;
 
   /** True only for Haxe's synthetic owner of genuine module-level fields. */
-  public static function isModuleFieldsOwner(owner:ClassType):Bool {
+  public static function isModuleFieldsOwner(owner: ClassType): Bool {
     return #if (haxe_ver >= 4.2)
       owner.kind.match(KModuleFields(_));
     #else
@@ -98,12 +99,12 @@ class ModuleFunctionPlan {
    * per-module plan can be built. Full validation, collisions, and diagnostics
    * remain centralized in `build`; this helper never admits an invalid marker.
    */
-  public static function requestedName(field:ClassField):Null<String> {
+  public static function requestedName(field: ClassField): Null<String> {
     return requestedNameFromMetadata(field.meta);
   }
 
   /** Metadata-only form shared by normalized module-field planning. */
-  public static function requestedNameFromMetadata(meta:MetaAccess):Null<String> {
+  public static function requestedNameFromMetadata(meta: MetaAccess): Null<String> {
     final entries = meta.extract(METADATA);
     return switch entries {
       case [{params: [{expr: EConst(CString(value))}]}]
@@ -115,6 +116,7 @@ class ModuleFunctionPlan {
   }
 
   public static function build(module: Module): ModuleFunctionPlan {
+    rejectDeferredModuleValues(module);
     final bindings = bindingInventory(module);
     final entries: Array<ModuleFunctionEntry> = [];
     for (member in module.members) {
@@ -138,6 +140,47 @@ class ModuleFunctionPlan {
       }
     }
     return new ModuleFunctionPlan(entries);
+  }
+
+  /**
+   * Rejects the deliberately deferred direct-value spelling.
+   *
+   * Why: declaring a JavaScript function does not execute its body, but
+   * initializing an exported `const` evaluates its value immediately while
+   * the module loads. A value initializer can therefore reach a later `const`
+   * while that binding is still in JavaScript's temporal dead zone and throw a
+   * `ReferenceError`, even when the old synthetic-owner output only observed
+   * an as-yet-unassigned property.
+   *
+   * What: the function-only feature fails explicitly instead of silently
+   * ignoring metadata that could make an author believe a direct value was
+   * emitted.
+   *
+   * How: scan only retained implementation fields and report the metadata's
+   * exact source position before dependency aliases or output writers are
+   * opened. A future value feature needs its own finite initialization
+   * contract; it must not grow this function-relocation plan.
+   */
+  static function rejectDeferredModuleValues(module: Module): Void {
+    for (member in module.members) {
+      switch member {
+        case MClass(owner, _, fields):
+          for (field in Module.emittableFields(fields)) {
+            final metadata = field.meta == null ? [] : field.meta.extract(DEFERRED_VALUE_METADATA);
+            if (metadata.length == 0)
+              continue;
+            CompilerDiagnostic.fail('GENES-MODULE-VALUE-DEFERRED-001: '
+              + '@:genes.moduleValue on ${owner.name}.${field.name} is not '
+              + 'supported in this release. A JavaScript const initializer '
+              + 'runs while its module loads, and reading a later const before '
+              + 'that declaration has executed throws ReferenceError (the '
+              + 'temporal dead zone). Remove the metadata or expose a '
+              + '@:genes.moduleFunction that computes the value when called.',
+              metadata[0].pos);
+          }
+        case MEnum(_, _) | MType(_, _) | MMain(_):
+      }
+    }
   }
 
   public function new(entries: Array<ModuleFunctionEntry>) {
@@ -166,8 +209,8 @@ class ModuleFunctionPlan {
    * Whether a compiler-synthetic module-fields class has no runtime purpose
    * after its selected functions become direct ESM declarations.
    */
-  public function canOmitSyntheticOwner(owner:ClassType,
-      fields:Array<Field>):Bool {
+  public function canOmitSyntheticOwner(owner: ClassType,
+      fields: Array<Field>): Bool {
     if (!isModuleFieldsOwner(owner))
       return false;
     final retained = Module.emittableFields(fields);
@@ -186,7 +229,7 @@ class ModuleFunctionPlan {
    * Genuine Haxe module fields already export from their own ESM module and
    * therefore remain module-local; different modules may own the same binding.
    */
-  public function rootPublicEntries():Array<ModuleFunctionEntry> {
+  public function rootPublicEntries(): Array<ModuleFunctionEntry> {
     return publicEntries().filter(entry -> !isModuleFieldsOwner(entry.owner));
   }
 

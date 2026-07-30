@@ -362,6 +362,7 @@ console.log(
 }
 
 const negativeCases = [
+  ["module_value_deferred", "GENES-MODULE-VALUE-DEFERRED-001"],
   ["module_function_arity", "GENES-MODULE-FUNCTION-ARITY-001"],
   ["module_function_arity_multiple", "GENES-MODULE-FUNCTION-ARITY-001"],
   ["module_function_nonliteral", "GENES-MODULE-FUNCTION-LITERAL-002"],

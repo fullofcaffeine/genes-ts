@@ -24,6 +24,13 @@ initialization, registration, cycles, strict TypeScript/TSX, classic
 declarations, DCE/import neutrality, source maps, deterministic output, exact
 collision diagnostics, and transaction rollback instead.
 
+It also proves that `@:genes.moduleValue` fails explicitly with
+`GENES-MODULE-VALUE-DEFERRED-001` in both output profiles. Direct values are a
+different initialization problem: an ESM `const` initializer runs while the
+module loads and can throw when it reaches a later uninitialized binding.
+Keeping that negative case here prevents the bounded function feature from
+silently growing into a call/effect analyzer.
+
 Run the focused evidence with:
 
 ```sh

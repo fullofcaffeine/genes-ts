@@ -4,6 +4,13 @@ function occupiedBinding(): Int {
   return 1;
 }
 
+#if module_value_deferred
+@:genes.moduleValue("metadata")
+final metadata = {
+  title: "deferred"
+};
+#end
+
 @:keep
 class CollisionOwner {}
 
@@ -134,7 +141,9 @@ static function privateHelper(value: Int): Int {
 class Main {
   static function main(): Void {
     occupiedBinding();
-    #if module_function_generic_owner
+    #if module_value_deferred
+    trace(metadata.title);
+    #elseif module_function_generic_owner
     Invalid.selected(1);
     #elseif module_function_instance
     new Invalid().selected(1);
