@@ -447,7 +447,7 @@ import {foreignTitle, identityPair} from "./tests/module-functions/out/classic/m
 import {positive} from "./tests/module-functions/out/classic/module_functions/TsRegisterHelpers.js";
 import {exposedValue} from "./tests/module-functions/out/classic/module_functions/ExposedValue.js";
 import {moduleInitValue} from "./tests/module-functions/out/classic/module_functions/ModuleInit.js";
-import {branchCallbackValue, callbackArgumentValue, constructorHelperValue, loopCallbackValue, staticHelperValue} from "./tests/module-functions/out/classic/module_functions/ModuleValueHelpers.js";
+import {branchCallbackValue, callbackArgumentValue, calledClosureMutationValue, constructorHelperValue, loopCallbackValue, staticHelperValue} from "./tests/module-functions/out/classic/module_functions/ModuleValueHelpers.js";
 console.log([
   firstMatchIndex(["first", "match"]),
   appendWithBoundMethod([1, 2, 3]),
@@ -460,6 +460,7 @@ console.log([
   staticHelperValue,
   constructorHelperValue,
   callbackArgumentValue,
+  calledClosureMutationValue,
   branchCallbackValue,
   loopCallbackValue
 ].join("|"));`;
@@ -549,6 +550,10 @@ const negativeCases = [
   ],
   [
     "module_value_reassigned_closure_forward_read",
+    "GENES-MODULE-VALUE-FORWARD-015"
+  ],
+  [
+    "module_value_called_closure_mutation_forward_read",
     "GENES-MODULE-VALUE-FORWARD-015"
   ],
   [
@@ -697,6 +702,7 @@ for (const relative of [
     && source.includes("export const staticHelperValue")
     && source.includes("export const constructorHelperValue")
     && source.includes("export const callbackArgumentValue")
+    && source.includes("export const calledClosureMutationValue")
     && source.includes("export const branchCallbackValue")
     && source.includes("export const loopCallbackValue"),
     `${relative} accepts safe exact methods, constructors, and callable joins`);
@@ -853,7 +859,7 @@ strictEqual(exactPublicRuntimeIdentity(), true,
 strictEqual(asyncModuleRuntime(), 42,
   "the direct classic module function preserves native async/await runtime behavior");
 strictEqual(directModuleRegressionRuntime(),
-  "1|3|module:parameter:local|local:direct module value|local-own:foreign|false|owned-module-only|module-init|4|5|6|2|4",
+  "1|3|module:parameter:local|local:direct module value|local-own:foreign|false|owned-module-only|module-init|4|5|6|8|2|4",
   "direct helpers, shadowed bindings, initialization, exact call targets, branch/loop joins, findIndex, and owner-only exports run natively");
 deepStrictEqual(runtime.descriptor, {
   configurable: true,

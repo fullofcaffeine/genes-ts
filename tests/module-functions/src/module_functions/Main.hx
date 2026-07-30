@@ -18,6 +18,7 @@ import module_functions.TsNullHelper.nullString;
 import module_functions.ModuleInit.moduleInitValue;
 import module_functions.ModuleValueHelpers.branchCallbackValue;
 import module_functions.ModuleValueHelpers.callbackArgumentValue;
+import module_functions.ModuleValueHelpers.calledClosureMutationValue;
 import module_functions.ModuleValueHelpers.constructorHelperValue;
 import module_functions.ModuleValueHelpers.loopCallbackValue;
 import module_functions.ModuleValueHelpers.staticHelperValue;
@@ -67,6 +68,7 @@ class Main {
       Std.string(staticHelperValue),
       Std.string(constructorHelperValue),
       Std.string(callbackArgumentValue),
+      Std.string(calledClosureMutationValue),
       Std.string(branchCallbackValue),
       Std.string(loopCallbackValue),
       exposedValue

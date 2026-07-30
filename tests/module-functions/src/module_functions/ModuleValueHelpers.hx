@@ -36,6 +36,17 @@ final constructorHelperValue = new DirectValueHelper().value;
 @:genes.moduleValue("callbackArgumentValue")
 final callbackArgumentValue = DirectValueHelper.invoke(() -> 6);
 
+/** Positive control for a called closure that installs another safe callback. */
+@:genes.moduleValue("calledClosureMutationValue")
+final calledClosureMutationValue = {
+  var read = () -> 7;
+  final replace = () -> {
+    read = () -> 8;
+  };
+  replace();
+  read();
+};
+
 /**
  * Proves branch joins retain possible callbacks without rejecting safe bodies.
  *

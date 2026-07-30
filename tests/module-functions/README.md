@@ -28,9 +28,9 @@ that an otherwise direct owner remains present when its hidden `__init__` body
 still has side effects. Safe same-module static methods, constructors, branch
 joins, and possibly zero-iteration loops remain legal. Mutable, class-owned,
 mixed-owner, cyclic, direct, immediately-invoked, locally named, branch,
-switch, try/catch, loop-carried closure, direct module-function, same-module
-static-method, and constructor forward reads, plus malformed and renamed
-shapes, fail before transactional publication.
+switch, try/catch, loop-carried closure, called-closure mutation, direct
+module-function, same-module static-method, and constructor forward reads, plus
+malformed and renamed shapes, fail before transactional publication.
 
 The metadata moves one supported public static Haxe method body to an
 unexported, genuine ES-module function. Genes leaves a compiler-owned method

@@ -246,7 +246,9 @@ final second = 2;
 
 Genes follows the compiler-owned method/constructor field identity, never a
 printed class or function name. It also connects exact callback arguments to
-the corresponding Haxe parameter when a known helper invokes them. Recursive
+the corresponding Haxe parameter when a known helper invokes them. Assignments
+made by an immediately called local closure flow back to its caller, so one
+callback cannot hide a replacement installed by another callback. Recursive
 bodies use an identity-based recursion guard. Any reachable exact body that
 reads the later value reports `GENES-MODULE-VALUE-FORWARD-015` before an output
 writer opens.

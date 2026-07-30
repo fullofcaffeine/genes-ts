@@ -43,6 +43,24 @@ final first = {
 @:genes.moduleValue("second")
 final second = 2;
 
+#elseif module_value_called_closure_mutation_forward_read
+/**
+ * A called local closure can replace another captured callback immediately.
+ * That exact assignment must flow back to the caller before `read()` runs.
+ */
+@:genes.moduleValue("first")
+final first = {
+  var read = () -> 0;
+  final replace = () -> {
+    read = () -> second;
+  };
+  replace();
+  read();
+};
+
+@:genes.moduleValue("second")
+final second = 2;
+
 #elseif module_value_zero_iteration_closure_forward_read
 /**
  * Negative control: a loop body may not execute even once.
