@@ -122,6 +122,16 @@ class TypedTreeProbe {
       pos: expression.pos,
       t: expression.t
     }, "a Dynamic receiver");
+    final unresolvedReceiver: TypedExpr = {
+      expr: receiver.expr,
+      pos: receiver.pos,
+      t: Context.makeMonomorph()
+    };
+    reject({
+      expr: TEnumParameter(unresolvedReceiver, constructor, index),
+      pos: expression.pos,
+      t: expression.t
+    }, "an unresolved monomorph receiver");
     reject({
       expr: TEnumParameter(receiver, constructor, 99),
       pos: expression.pos,
@@ -133,6 +143,25 @@ class TypedTreeProbe {
       pos: expression.pos,
       t: expression.t
     }, "a same-named constructor from another enum");
+
+    final ownerParameter = switch receiver.t {
+      case TEnum(owner, _): owner.get().params[0];
+      default: throw "expected an enum receiver";
+    };
+    final genericConstructor: EnumField = {
+      name: constructor.name,
+      type: constructor.type,
+      pos: constructor.pos,
+      meta: constructor.meta,
+      index: constructor.index,
+      doc: constructor.doc,
+      params: [ownerParameter]
+    };
+    reject({
+      expr: TEnumParameter(receiver, genericConstructor, index),
+      pos: expression.pos,
+      t: expression.t
+    }, "a constructor-local generic application");
   }
 
   static function reject(expression: TypedExpr, description: String): Void {

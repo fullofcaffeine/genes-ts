@@ -80,11 +80,15 @@ That is ordinary, idiomatic TypeScript narrowing. Adding an assertion inside
 the case would be redundant, so the planner matches the exact stable receiver
 and constructor index and records no boundary decision there.
 
-The rule does not inspect generated property names, package names, diagnostic
-text, or framework types. Compile-time negative controls prove that a Dynamic
-receiver, an invalid payload slot, and a `Reduced` constructor from an unrelated
-same-shaped enum cannot authorize the projection. Unresolved types and
-constructor-local generic parameters also fail closed.
+The rule does not infer authority from generated property names, unqualified
+type spellings, diagnostic text, or framework types. It correlates exact enum
+declarations through Haxe's compiler-owned module/type coordinates; the shared
+type comparison may use its documented request-local source-range fallback
+when Haxe re-encodes one type parameter through multiple wrapper objects.
+Compile-time negative controls prove that a Dynamic or unresolved receiver, an
+invalid payload slot, a constructor-local generic parameter, and a `Reduced`
+constructor from an unrelated same-shaped enum cannot authorize the
+projection.
 
 The fixture also matches directly on `Factory.read()`. Its marker payload is
 otherwise named only in `Factory.ts`; `Main.ts` needs it solely because the
