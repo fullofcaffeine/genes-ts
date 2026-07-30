@@ -1,0 +1,10 @@
+-lib genes-ts
+-cp tests/enum-payload-narrowing/src
+--main enumpayload.Main
+-js tests/enum-payload-narrowing/out/ts/src-gen/index.ts
+-D genes.ts
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
+-debug
+--macro enumpayload.TypedTreeProbe.install()

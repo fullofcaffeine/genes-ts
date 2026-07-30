@@ -43,6 +43,7 @@ enum abstract TsBoundarySite(String) to String {
   var CallArgument = "call-argument";
   var ConstructorArgument = "constructor-argument";
   var EnumConstructorArgument = "enum-constructor-argument";
+  var EnumPayloadRead = "enum-payload-read";
   var RuntimeGuardedBinding = "runtime-guarded-binding";
 }
 
@@ -303,6 +304,44 @@ class TsEnumReferenceDecision {
   }
 }
 
+/**
+ * One enum payload read whose Haxe pattern match was erased before emission.
+ *
+ * Haxe can prove that generic parameters make every constructor except one
+ * impossible and reduce the match to `TEnumParameter(receiver, constructor,
+ * payloadIndex)`. TypeScript still sees the receiver's complete emitted union,
+ * so it needs the exact constructor view before the payload property exists.
+ *
+ * An ordinary emitted `_hx_index` switch receives no decision: TypeScript
+ * already narrows that discriminated union and a cast there would be noise.
+ */
+class TsEnumPayloadReadDecision {
+  public final expression: TypedExpr;
+  public final receiver: TypedExpr;
+  public final owner: Ref<EnumType>;
+  public final constructor: EnumField;
+  public final parameters: Array<Type>;
+  public final payloadName: String;
+  public final pos: Position;
+
+  public function new(expression: TypedExpr, receiver: TypedExpr,
+      owner: Ref<EnumType>, constructor: EnumField, parameters: Array<Type>,
+      payloadName: String) {
+    this.expression = expression;
+    this.receiver = receiver;
+    this.owner = owner;
+    this.constructor = constructor;
+    this.parameters = parameters.copy();
+    this.payloadName = payloadName;
+    this.pos = expression.pos;
+  }
+
+  /** Exact enum application printed by the constructor-specific assertion. */
+  public function referencedType(): Type {
+    return TEnum(owner, parameters);
+  }
+}
+
 /** One type dependency introduced solely by a planned TypeScript boundary. */
 typedef TsBoundaryReference = {
   final type: Type;
@@ -332,6 +371,8 @@ class TsBoundaryPlan {
   final enumDecisions: Array<TsEnumCallDecision>;
   final enumReferences: ObjectMap<TypedExpr, TsEnumReferenceDecision>;
   final enumReferenceDecisions: Array<TsEnumReferenceDecision>;
+  final enumPayloadReads: ObjectMap<TypedExpr, TsEnumPayloadReadDecision>;
+  final enumPayloadReadDecisions: Array<TsEnumPayloadReadDecision>;
   final calls: ObjectMap<TypedExpr, TsCallDecision>;
   final callDecisions: Array<TsCallDecision>;
   final constructors: ObjectMap<TypedExpr, TsConstructorDecision>;
@@ -381,6 +422,19 @@ class TsBoundaryPlan {
   }
 
   /**
+   * Whether one exact typed node carries the complete enum-payload proof.
+   *
+   * Compiler-owned macro fixtures use this to exercise the production
+   * recognizer with invalid slots, unrelated same-named constructors, and
+   * dynamic receivers. Control-flow suppression remains a separate planning
+   * step because the same valid node needs no assertion inside a visible
+   * TypeScript discriminant switch.
+   */
+  public static function hasExactEnumPayloadEvidence(expression: TypedExpr): Bool {
+    return TsBoundaryPlanBuilder.enumPayloadEvidence(expression) != null;
+  }
+
+  /**
    * Whether this is Haxe's exact lowered caught-value unwrap sequence.
    *
    * Both boundary planning and local TypeScript annotation consume this one
@@ -396,6 +450,8 @@ class TsBoundaryPlan {
       enumDecisions: Array<TsEnumCallDecision>,
       enumReferences: ObjectMap<TypedExpr, TsEnumReferenceDecision>,
       enumReferenceDecisions: Array<TsEnumReferenceDecision>,
+      enumPayloadReads: ObjectMap<TypedExpr, TsEnumPayloadReadDecision>,
+      enumPayloadReadDecisions: Array<TsEnumPayloadReadDecision>,
       calls: ObjectMap<TypedExpr, TsCallDecision>,
       callDecisions: Array<TsCallDecision>,
       constructors: ObjectMap<TypedExpr, TsConstructorDecision>,
@@ -414,6 +470,8 @@ class TsBoundaryPlan {
     this.enumDecisions = enumDecisions.copy();
     this.enumReferences = enumReferences;
     this.enumReferenceDecisions = enumReferenceDecisions.copy();
+    this.enumPayloadReads = enumPayloadReads;
+    this.enumPayloadReadDecisions = enumPayloadReadDecisions.copy();
     this.calls = calls;
     this.callDecisions = callDecisions.copy();
     this.constructors = constructors;
@@ -438,6 +496,11 @@ class TsBoundaryPlan {
   /** Returns the decision for this exact enum-constructor function value. */
   public function enumReference(expression: TypedExpr): Null<TsEnumReferenceDecision> {
     return enumReferences.get(expression);
+  }
+
+  /** Returns the decision for this exact compiler-owned payload read. */
+  public function enumPayloadRead(expression: TypedExpr): Null<TsEnumPayloadReadDecision> {
+    return enumPayloadReads.get(expression);
   }
 
   /** Returns the decision for this exact ordinary typed callee occurrence. */
@@ -507,6 +570,12 @@ class TsBoundaryPlan {
           pos: decision.pos,
           rule: "enum-reference"
         });
+    for (decision in enumPayloadReadDecisions)
+      result.push({
+        type: decision.referencedType(),
+        pos: decision.pos,
+        rule: EnumPayloadRead
+      });
     for (decision in callDecisions)
       for (bridge in decision.bridges)
         result.push({
@@ -559,6 +628,9 @@ private class TsBoundaryPlanBuilder {
   final enumDecisions = new Array<TsEnumCallDecision>();
   final enumReferences = new ObjectMap<TypedExpr, TsEnumReferenceDecision>();
   final enumReferenceDecisions = new Array<TsEnumReferenceDecision>();
+  final enumPayloadReads = new ObjectMap<TypedExpr,
+    TsEnumPayloadReadDecision>();
+  final enumPayloadReadDecisions = new Array<TsEnumPayloadReadDecision>();
   final calls = new ObjectMap<TypedExpr, TsCallDecision>();
   final callDecisions = new Array<TsCallDecision>();
   final constructors = new ObjectMap<TypedExpr, TsConstructorDecision>();
@@ -578,6 +650,11 @@ private class TsBoundaryPlanBuilder {
   // the stable, function-local identity also used by Genes' name/flow plans.
   final exceptionUnwrapLocals = new Map<Int, Bool>();
   final valueBridges = new Array<TsValueBridge>();
+  final activeEnumNarrowings = new Array<{
+    receiver: String,
+    owner: Ref<EnumType>,
+    constructorIndex: Int
+  }>();
   var narrowingPlan: Null<TsNarrowingPlan>;
   var localBindingPlan: Null<LocalBindingPlan>;
   var currentOwnerModule: Null<String>;
@@ -612,10 +689,10 @@ private class TsBoundaryPlanBuilder {
       }
     }
     return new TsBoundaryPlan(enumCalls, enumDecisions, enumReferences,
-      enumReferenceDecisions, calls, callDecisions, constructors,
-      constructorDecisions, returnBridges, initializerBridges,
-      assignmentBridges, hostCallbackBridges, runtimeGuardBridges,
-      runtimeGuardDecisions, runtimeByteCacheReads,
+      enumReferenceDecisions, enumPayloadReads, enumPayloadReadDecisions,
+      calls, callDecisions, constructors, constructorDecisions, returnBridges,
+      initializerBridges, assignmentBridges, hostCallbackBridges,
+      runtimeGuardBridges, runtimeGuardDecisions, runtimeByteCacheReads,
       runtimeByteCacheReadDecisions, retaggedLocalReads, valueBridges);
   }
 
@@ -635,6 +712,9 @@ private class TsBoundaryPlanBuilder {
         planRetaggedLocalRead(expression, variable);
       case TField(_, FEnum(_, _)):
         planEnumReference(expression, expected);
+      case TEnumParameter(receiver, constructor, _):
+        planEnumPayloadRead(expression, receiver, constructor);
+        visit(receiver, null, currentReturn);
       case TFunction(fn):
         visit(fn.expr, null, fn.t);
       case TReturn(value):
@@ -694,7 +774,10 @@ private class TsBoundaryPlanBuilder {
         for (entry in cases) {
           for (value in entry.values)
             visit(value, null, currentReturn);
+          final previousNarrowingCount = activeEnumNarrowings.length;
+          addEnumSwitchNarrowings(condition, entry.values);
           visit(entry.expr, expected, currentReturn);
+          activeEnumNarrowings.resize(previousNarrowingCount);
         }
         if (defaultValue != null)
           visit(defaultValue, expected, currentReturn);
@@ -719,6 +802,198 @@ private class TsBoundaryPlanBuilder {
         visit(receiver, null, currentReturn);
       default:
         expression.iter(child -> visit(child, null, currentReturn));
+    }
+  }
+
+  /**
+   * Plans an exact constructor view for a payload read left without a switch.
+   *
+   * The authorization comes entirely from Haxe's final typed tree:
+   *
+   * - `TEnumParameter` names the exact constructor and payload slot;
+   * - the receiver retains the exact applied enum type;
+   * - the result retains the exact payload type.
+   *
+   * Strings, generated property names, and TypeScript diagnostics contribute
+   * no authority. Constructor-local generic parameters are initially rejected
+   * because their exact application is not represented by the enum receiver.
+   */
+  function planEnumPayloadRead(expression: TypedExpr, receiver: TypedExpr,
+      constructor: EnumField): Void {
+    final decision = enumPayloadEvidence(expression);
+    if (decision == null)
+      return;
+    if (hasActiveEnumNarrowing(receiver, decision.owner, constructor.index))
+      return;
+
+    enumPayloadReads.set(expression, decision);
+    enumPayloadReadDecisions.push(decision);
+  }
+
+  /**
+   * Validates the exact compiler-owned facts without consulting source text.
+   *
+   * The constructor's checked function result authenticates its enum owner.
+   * This matters because another enum may legally define a same-named
+   * constructor at the same numeric index.
+   */
+  public static function enumPayloadEvidence(expression: TypedExpr): Null<TsEnumPayloadReadDecision> {
+    final parts = switch expression.expr {
+      case TEnumParameter(receiver, constructor, payloadIndex):
+        {
+          receiver: receiver,
+          constructor: constructor,
+          payloadIndex: payloadIndex
+        };
+      default:
+        return null;
+    };
+    final application = exactEnumApplication(parts.receiver.t);
+    if (application == null
+      || parts.constructor.params.length > 0
+      || !compareExactTypes(parts.receiver.t, parts.receiver.t)
+      || !compareExactTypes(expression.t, expression.t))
+      return null;
+
+    final constructorOwner = enumConstructorOwner(parts.constructor.type);
+    if (constructorOwner == null
+      || !sameBaseIdentity(constructorOwner.get(), application.owner.get()))
+      return null;
+    final declared = application.owner.get()
+      .constructs.get(parts.constructor.name);
+    if (declared == null || declared.index != parts.constructor.index)
+      return null;
+    final appliedConstructor = TypeTools.applyTypeParameters(declared.type,
+      application.owner.get().params, application.parameters);
+    final payload = switch appliedConstructor {
+      case TFun(arguments, _)
+        if (parts.payloadIndex >= 0 && parts.payloadIndex < arguments.length):
+        arguments[parts.payloadIndex];
+      default:
+        return null;
+    };
+    if (!compareExactTypes(payload.t, expression.t))
+      return null;
+    return new TsEnumPayloadReadDecision(expression, parts.receiver,
+      application.owner, parts.constructor, application.parameters,
+      payload.name);
+  }
+
+  static function enumConstructorOwner(type: Type): Null<Ref<EnumType>> {
+    return switch resolveExact(type) {
+      case TFun(_, result):
+        final application = exactEnumApplication(result);
+        application == null ? null : application.owner;
+      default:
+        null;
+    }
+  }
+
+  /**
+   * Records the exact discriminant facts TypeScript can see in one switch arm.
+   *
+   * Haxe lowers an ordinary enum match to a switch over
+   * `receiver._hx_index`. Matching the same stable receiver and constructor
+   * index lets native TypeScript control flow own the payload access.
+   */
+  function addEnumSwitchNarrowings(condition: TypedExpr,
+      values: Array<TypedExpr>): Void {
+    final receiver = enumIndexReceiver(condition);
+    if (receiver == null)
+      return;
+    final key = stableEnumReceiverKey(receiver);
+    final application = exactEnumApplication(receiver.t);
+    if (key == null || application == null)
+      return;
+    for (value in values) {
+      final index = enumCaseIndex(value);
+      if (index != null)
+        activeEnumNarrowings.push({
+          receiver: key,
+          owner: application.owner,
+          constructorIndex: index
+        });
+    }
+  }
+
+  function hasActiveEnumNarrowing(receiver: TypedExpr, owner: Ref<EnumType>,
+      constructorIndex: Int): Bool {
+    final key = stableEnumReceiverKey(receiver);
+    if (key == null)
+      return false;
+    for (fact in activeEnumNarrowings)
+      if (fact.receiver == key
+        && sameBaseIdentity(fact.owner.get(), owner.get())
+        && fact.constructorIndex == constructorIndex)
+        return true;
+    return false;
+  }
+
+  static function exactEnumApplication(type: Type): Null<{
+    owner: Ref<EnumType>,
+    parameters: Array<Type>
+  }> {
+    return switch resolveExact(type) {
+      case TEnum(owner, parameters):
+        {owner: owner, parameters: parameters};
+      default:
+        null;
+    }
+  }
+
+  static function enumIndexReceiver(expression: TypedExpr): Null<TypedExpr> {
+    return switch erasedCastSource(expression).expr {
+      case TEnumIndex(receiver): receiver;
+      default: null;
+    }
+  }
+
+  static function enumCaseIndex(expression: TypedExpr): Null<Int> {
+    return switch erasedCastSource(expression).expr {
+      case TConst(TInt(value)): value;
+      default: null;
+    }
+  }
+
+  /**
+   * Stable, evaluation-free identity for the receiver forms Haxe uses in an
+   * emitted enum switch. Unknown or effectful shapes fail closed.
+   */
+  static function stableEnumReceiverKey(expression: TypedExpr): Null<String> {
+    return switch erasedCastSource(expression).expr {
+      case TLocal(variable):
+        'local:${variable.id}';
+      case TConst(TThis):
+        "this";
+      case TField(receiver, field):
+        final parent = stableEnumReceiverKey(receiver);
+        parent == null ? null : '$parent.${stableFieldKey(field)}';
+      default:
+        null;
+    }
+  }
+
+  static function stableFieldKey(field: FieldAccess): String {
+    return switch field {
+      case FInstance(owner, _, reference):
+        final type = owner.get();
+        'instance:${type.module}.${type.name}:${reference.get().name}';
+      case FStatic(owner, reference):
+        final type = owner.get();
+        'static:${type.module}.${type.name}:${reference.get().name}';
+      case FAnon(reference):
+        'anonymous:${reference.get().name}';
+      case FDynamic(name):
+        'dynamic:$name';
+      case FClosure(owner, reference):
+        final ownerName = if (owner == null) "anonymous"; else {
+          final value = owner.c.get();
+          '${value.module}.${value.name}';
+        };
+        'closure:$ownerName:${reference.get().name}';
+      case FEnum(owner, enumField):
+        final type = owner.get();
+        'enum:${type.module}.${type.name}:${enumField.name}';
     }
   }
 
