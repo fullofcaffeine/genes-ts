@@ -10,6 +10,9 @@ import module_functions.TopLevel.metadata;
 import module_functions.RegisterHelpers.appendWithBoundMethod;
 import module_functions.ShadowedBindings.readMetadata;
 import module_functions.ExposedValue.exposedValue;
+import module_functions.LocalBindingImportCollision.foreignTitle;
+import module_functions.LocalBindingImportCollision.identityPair;
+import module_functions.TsRegisterHelpers.positive;
 import module_functions.TopLevelSibling.topLevelIdentity as siblingTopLevelIdentity;
 import module_functions.TopLevelSibling.metadata as siblingMetadata;
 
@@ -47,6 +50,9 @@ class Main {
       Std.string(firstMatchIndex(["first", "match"])),
       Std.string(appendWithBoundMethod([1, 2, 3])),
       readMetadata("parameter"),
+      foreignTitle(),
+      identityPair(),
+      Std.string(positive(null)),
       exposedValue
     ];
     trace(transcript.join("|"));

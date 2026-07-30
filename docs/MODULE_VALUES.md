@@ -116,8 +116,11 @@ import {metadata as metadata__1} from "./Blog.js";
 
 Functions selected with `@:genes.moduleFunction` and values selected with
 `@:genes.moduleValue` share one ESM binding namespace. A value cannot hide an
-import, type, compiler temporary, selected function, or another local binding.
-Collisions fail at the Haxe metadata position before output is published.
+imported type, compiler temporary, selected function, or another local binding.
+Same-named imports are safe: Genes reserves local direct exports before import
+allocation and gives the foreign binding its normal `__N` alias. Unaliasable
+local ESM collisions fail at the Haxe metadata position before output is
+published.
 
 Within the owning module, Genes also reserves each direct binding name from
 function parameters and locals. Haxe may distinguish a qualified field such as
@@ -137,6 +140,11 @@ export function readTitle(metadata_1: string): string {
   return metadata.title + metadata_1;
 }
 ```
+
+The final emitted-name set also owns generated suffixes. If the same function
+contains a different source local already called `metadata_1`, Genes assigns a
+second deterministic suffix instead of publishing duplicate JavaScript
+bindings.
 
 ## Supported initial contract
 
@@ -177,7 +185,9 @@ native ESM would emit `const first = second` while `second` is still in its
 temporal dead zone. Genes rejects the source with
 `GENES-MODULE-VALUE-FORWARD-015`. Reorder the values or defer the read inside a
 function. A closure capture is allowed because it does not read the binding
-during module initialization.
+during module initialization. An immediately-invoked closure is not merely a
+capture—its body runs while the module initializes—so Genes scans that body and
+rejects the same forward read there as well.
 
 Class static fields are intentionally rejected:
 
@@ -232,8 +242,9 @@ yarn test:module-functions
 
 The shared direct-binding fixture covers TypeScript, TSX, classic JavaScript,
 classic declarations, TS 5/6/7, same-named cross-module imports, exact runtime
-values, same-module local shadowing, owner-only exports, deterministic output,
-source maps, DCE neutrality, forward-read/cycle diagnostics, and rollback.
+values, same-module local/suffix shadowing, local-export/foreign-import aliases,
+owner-only exports, deterministic output, source maps, DCE neutrality, direct
+and immediately-invoked forward-read/cycle diagnostics, and rollback.
 `yarn test:ci` invokes that focused owner directly.
 
 See [`MODULE_FUNCTIONS.md`](MODULE_FUNCTIONS.md) for genuine module functions

@@ -172,6 +172,18 @@ module, directive, public path, or server/client policy it builds on top.
 When the Haxe declaration is already a module-level function, Genes does not
 manufacture a class compatibility surface:
 
+The annotation is still explicit in this release because Haxe presents a
+file-level function to custom JavaScript generators as a static field on a
+compiler-generated module-fields class. Replacing that established backing
+owner with a direct ESM function changes observable details such as
+`Function.name`, `prototype`, constructability, `toString()` text, reflection,
+and initialization. `@:genes.moduleFunction("name")` records that the author
+accepts this representation change and supplies the exact ESM binding name.
+Class-owned static methods will continue to require that opt-in. A separate
+compatibility migration may make proven-safe genuine file-level functions
+direct by default; see the project roadmap rather than assuming this metadata
+will always be necessary.
+
 ```haxe
 package values;
 
@@ -216,6 +228,13 @@ body. For example, a typed method closure still emits `Register.bind`, so Genes
 retains the Register import for that expression while continuing to omit the
 synthetic owner. Dependency planning treats helper reachability and class
 registration as separate facts.
+
+That rule also covers helpers introduced only by a selected output language.
+For example, Haxe accepts a relational comparison on `Null<Int>` with
+JavaScript coercion semantics, while strict TypeScript needs Genes'
+`Register.unsafeCast<number>` identity assertion around the nullable operand.
+The TypeScript profile plans that runtime dependency before emission; classic
+JavaScript keeps the direct operator and does not import an unused helper.
 
 The binding is public from its own generated module, not implicitly
 re-exported from the compilation-root barrel. Separate Haxe source modules may

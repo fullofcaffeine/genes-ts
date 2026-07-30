@@ -61,8 +61,6 @@ class Invalid {
   #elseif module_function_duplicate_native
   @:native("sharedProperty")
   @:genes.moduleFunction("duplicateNativeFunction")
-  #elseif module_function_import_collision
-  @:genes.moduleFunction("ImportedBinding")
   #elseif module_function_module_field_collision
   @:genes.moduleFunction("occupiedBinding")
   #elseif module_function_global_collision
@@ -102,8 +100,6 @@ class Invalid {
 return js.Syntax.code("{0} + 1", value);
 #elseif module_function_non_async_await_syntax
 return js.Syntax.code("await {0}", value);
-#elseif module_function_import_collision
-return ImportedBinding.value();
 #elseif module_function_private_helper_collision
 return privateHelper(value);
 #else
@@ -140,14 +136,12 @@ class Main {
     #if (module_value_arity || module_value_arity_multiple
       || module_value_nonliteral || module_value_empty
       || module_value_identifier || module_value_public_name
-      || module_value_native_name || module_value_import_collision
-      || module_value_mutable || module_value_function || module_value_mixed
+      || module_value_native_name || module_value_mutable
+      || module_value_function || module_value_mixed
       || module_value_dual_marker || module_value_function_collision
-      || module_value_forward_read)
-    #if module_value_forward_read
+      || module_value_forward_read || module_value_iife_forward_read)
+    #if (module_value_forward_read || module_value_iife_forward_read)
     trace(module_function_invalid.ModuleValueInvalid.first);
-    #elseif module_value_import_collision
-    trace(module_function_invalid.ModuleValueInvalid.ImportedBinding);
     #else
     trace(module_function_invalid.ModuleValueInvalid.value);
     #end

@@ -1,6 +1,14 @@
 package module_function_invalid;
 
-#if module_value_forward_read
+#if module_value_iife_forward_read
+/** Negative control: an IIFE reads a later `const` during initialization. */
+@:genes.moduleValue("first")
+final first = (() -> second)();
+
+@:genes.moduleValue("second")
+final second = 2;
+
+#elseif module_value_forward_read
 /** Negative control: ESM cannot read a later `const` during initialization. */
 @:genes.moduleValue("first")
 final first = second;
@@ -31,8 +39,6 @@ class ModuleValueInvalid {
 #elseif module_value_native_name
 @:native("nativeValue")
 @:genes.moduleValue("value")
-#elseif module_value_import_collision
-@:genes.moduleValue("ImportedBinding")
 #elseif module_value_dual_marker
 @:genes.moduleFunction("value")
 @:genes.moduleValue("value")
@@ -45,8 +51,6 @@ var value = 1;
 function value(): Int {
   return 1;
 }
-#elseif module_value_import_collision
-final ImportedBinding = module_function_invalid.ImportedBinding.value();
 #else
 final value = 1;
 #end

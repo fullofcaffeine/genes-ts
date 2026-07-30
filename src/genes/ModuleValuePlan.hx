@@ -253,8 +253,10 @@ class ModuleValuePlan {
    * failure (and a TypeScript use-before-declaration error).
    *
    * What/How: compare exact same-owner static field identities in retained
-   * source order. Nested function bodies are intentionally skipped because a
-   * closure captures the binding without reading it during initialization.
+   * source order. Ordinary nested function bodies are skipped because a
+   * closure captures the binding without reading it during initialization;
+   * a directly invoked function expression is scanned because its body runs
+   * before the following ESM declaration.
    */
   static function validateNoForwardValueReads(owner: ClassType, field: Field,
       retained: Array<Field>): Void {
@@ -273,6 +275,16 @@ class ModuleValuePlan {
       switch expression.expr {
         case TFunction(_):
           return;
+        case TCall(callee, arguments):
+          for (argument in arguments)
+            visit(argument);
+          switch unwrap(callee).expr {
+            case TFunction(func):
+              visit(func.expr);
+            default:
+              visit(callee);
+          }
+          return;
         case TField(_, FStatic(ownerRef, fieldRef)):
           final targetOwner = ownerRef.get();
           final targetField = fieldRef.get();
@@ -290,6 +302,19 @@ class ModuleValuePlan {
       expression.iter(visit);
     }
     visit(field.expr);
+  }
+
+  static function unwrap(expression: TypedExpr): TypedExpr {
+    var current = expression;
+    while (current != null) {
+      switch current.expr {
+        case TMeta(_, inner) | TParenthesis(inner) | TCast(inner, null):
+          current = inner;
+        default:
+          return current;
+      }
+    }
+    return expression;
   }
 
   static function isFinal(owner: ClassType, field: Field): Bool {

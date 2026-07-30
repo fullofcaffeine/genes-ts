@@ -89,8 +89,17 @@ class Dependencies {
     this.names = [];
     for (member in module.members)
       switch member {
-        case MClass(type, _, _):
+        case MClass(type, _, fields):
           names.push({name: TypeUtil.className(type), module: type.module});
+          // Direct module bindings share the real ESM namespace with imports.
+          // Reserve them before import allocation so another module's
+          // same-named binding receives the normal collision-safe alias rather
+          // than turning a valid local export into a late validation failure.
+          for (field in Module.emittableFields(fields)) {
+            final requested = DirectModuleBinding.requestedNameFromField(field);
+            if (requested != null)
+              names.push({name: requested, module: type.module});
+          }
         case MEnum(et, _):
           // Treat enum constructor names as reserved identifiers in the module.
           //
@@ -146,8 +155,7 @@ class Dependencies {
       if (!existing.localIntent.equals(mapping.localIntent)
         || !BindingIdentity.memberPathsEqual(existing.memberPath,
           mapping.memberPath)) {
-        CompilerDiagnostic.fail(
-          'GENES-IMPORT-ORIGIN-CONFLICT-001: '
+        CompilerDiagnostic.fail('GENES-IMPORT-ORIGIN-CONFLICT-001: '
           + BindingIdentity.originDescription(mapping.origin)
           + ' was assigned to two different JavaScript bindings',
           diagnosticPosition);
@@ -161,10 +169,10 @@ class Dependencies {
       final existingIntent = existing.bindingFact.localIntent;
       if (BindingIdentity.attributeConflictKeyEquals(existingIntent, intent)
         && existing.importAttributeType != dependency.importAttributeType) {
-        CompilerDiagnostic.fail(
-          'GENES-IMPORT-ATTRIBUTE-BINDING-001: the '
+        CompilerDiagnostic.fail('GENES-IMPORT-ATTRIBUTE-BINDING-001: the '
           + BindingIdentity.selectorDescription(intent.exportBinding.selector)
-          + ' from "' + intent.exportBinding.request.path
+          + ' from "'
+          + intent.exportBinding.request.path
           + '" cannot use multiple loader attributes; local aliases do not '
           + 'create separate module requests',
           diagnosticPosition);
@@ -223,7 +231,7 @@ class Dependencies {
    * module-binding validator compares against this immutable snapshot before a
    * printer writes source.
    */
-  public function localBindingNames():Array<String> {
+  public function localBindingNames(): Array<String> {
     return [
       for (dependency in allocated)
         dependency.alias == null ? dependency.name : dependency.alias
@@ -245,9 +253,9 @@ class Dependencies {
    * here makes the target printers responsible only for syntax.
    */
   public static function groupByImportAttribute(imports: Array<Dependency>): Array<Array<Dependency>> {
-    final groups:Array<Array<Dependency>> = [];
+    final groups: Array<Array<Dependency>> = [];
     for (dependency in imports) {
-      var group:Null<Array<Dependency>> = null;
+      var group: Null<Array<Dependency>> = null;
       for (candidate in groups)
         if (candidate[0].importAttributeType == dependency.importAttributeType) {
           group = candidate;
@@ -271,7 +279,7 @@ class Dependencies {
    * exact comparison prevents that state.
    */
   public static function commonImportAttributeType(imports: Array<Dependency>): Null<String> {
-    var result:Null<String> = null;
+    var result: Null<String> = null;
     for (dependency in imports) {
       if (dependency.importAttributeType == null)
         continue;
@@ -416,8 +424,7 @@ class Dependencies {
             for (moduleType in Context.getModule(base.module)) {
               switch moduleType {
                 case TInst((_.get() : BaseType) => owner, _)
-                  if (owner.name == moduleName
-                    && owner.meta.has(':jsRequire')):
+                  if (owner.name == moduleName && owner.meta.has(':jsRequire')):
                   final dependency = makeDependency(owner);
                   if (dependency != null) {
                     dependency.alias = explicitAlias != null ? explicitAlias : name;
@@ -540,8 +547,7 @@ class Dependencies {
    */
   static function declarationRequest(dependency: DependencySpec,
       originType: ModuleType, referencedType: ModuleType): DependencyRequest {
-    final origin = BindingOriginKey.HaxeDeclaration(
-      HaxeDeclarationKey.fromModuleType(originType));
+    final origin = BindingOriginKey.HaxeDeclaration(HaxeDeclarationKey.fromModuleType(originType));
     return {
       dependency: dependency,
       bindingFact: BindingIdentity.create(dependency, origin),
@@ -583,10 +589,10 @@ class Dependencies {
       final resolved = resolveIntent(mapping.localIntent, mapping.memberPath);
       if (resolved != null)
         return resolved;
-      CompilerDiagnostic.fail(
-        'GENES-IMPORT-BINDING-MISSING-001: the projected import for '
+      CompilerDiagnostic.fail('GENES-IMPORT-BINDING-MISSING-001: the projected import for '
         + BindingIdentity.originDescription(origin)
-        + ' was not allocated', Context.currentPos());
+        + ' was not allocated',
+        Context.currentPos());
     }
     return null;
   }
@@ -603,9 +609,7 @@ class Dependencies {
     for (dependency in allocated) {
       if (!dependency.bindingFact.localIntent.equals(intent))
         continue;
-      var result = dependency.alias == null
-        ? dependency.name
-        : dependency.alias;
+      var result = dependency.alias == null ? dependency.name : dependency.alias;
       for (member in memberPath)
         result += '.' + member;
       return result;
@@ -622,38 +626,44 @@ class Dependencies {
     return switch type {
       case CoreAbstract(name) | DirectValue(name) | HostGlobal(name): name;
       case ImportedDeclaration(key, fallbackName, dependencyPath, external,
-          pos):
+        pos):
         final origin = BindingOriginKey.HaxeDeclaration(key);
         final resolved = resolveOrigin(origin);
         if (resolved != null)
           return resolved;
-        if (external || (dependencyPath != null
-          && dependencyPath != module.module)) {
-          return CompilerDiagnostic.fail(
-            'GENES-IMPORT-BINDING-MISSING-001: no projected import exists for '
-            + key.describe() + ' while emitting ' + module.module
-            + ' (dependency path: ' + dependencyPath + ')', pos);
+        if (external
+          || (dependencyPath != null && dependencyPath != module.module)) {
+          return
+            CompilerDiagnostic.fail('GENES-IMPORT-BINDING-MISSING-001: no projected import exists for '
+            + key.describe()
+            + ' while emitting '
+            + module.module
+            + ' (dependency path: '
+            + dependencyPath
+            + ')',
+            pos);
         }
         fallbackName;
       case ImportedAlias(intent, fallbackName, memberPath, dependencyPath,
-          external, pos):
+        external, pos):
         final resolved = resolveIntent(intent, memberPath);
         if (resolved != null)
           return resolved;
         if (external || dependencyPath != module.module) {
-          return CompilerDiagnostic.fail(
-            'GENES-IMPORT-BINDING-MISSING-001: no projected import exists for Haxe alias '
-            + fallbackName + ' while emitting ' + module.module, pos);
+          return
+            CompilerDiagnostic.fail('GENES-IMPORT-BINDING-MISSING-001: no projected import exists for Haxe alias '
+            + fallbackName
+            + ' while emitting '
+            + module.module,
+            pos);
         }
         fallbackName;
       case ImportedStaticField(key, fallbackName, pos):
         final origin = BindingOriginKey.StaticField(key);
         final resolved = resolveOrigin(origin);
         if (resolved == null)
-          CompilerDiagnostic.fail(
-            'GENES-IMPORT-BINDING-MISSING-001: no projected import exists for '
-            + key.describe(), pos)
-        else
-          resolved;
+          CompilerDiagnostic.fail('GENES-IMPORT-BINDING-MISSING-001: no projected import exists for '
+          + key.describe(),
+          pos) else resolved;
     }
 }

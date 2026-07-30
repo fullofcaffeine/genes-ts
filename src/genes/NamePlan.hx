@@ -17,6 +17,8 @@ enum abstract NamePlanProfile(String) to String {
 
 private typedef AllocationScope = {
   final counts: Map<String, Int>;
+  final used: Map<String, Bool>;
+  final directAliases: Map<String, Bool>;
 }
 
 private typedef ObjectFieldLocalUse = {
@@ -232,17 +234,27 @@ private class NamePlanBuilder {
     if (jsxEmitTsx && profile == ClassicStable && preferences.exists(local.id)) {
       final preferred = preferences.get(local.id);
       final count = countAndIncrement(scope.counts, preferred);
-      final planned = suffix(preferred, count);
+      final planned = claimName(scope, preferred, count);
       names.set(local.id, planned);
       if (moduleContext)
         addModuleBinding(planned);
       return;
     }
     if (profile == ClassicStable) {
-      final planned = if (directModuleBindings.exists(local.name)) {
+      final shadowsDirectBinding = directModuleBindings.exists(local.name);
+      final planned = if (shadowsDirectBinding) {
         final count = countAndIncrement(scope.counts, local.name) + 1;
-        suffix(local.name, count);
-      } else local.name;
+        final alias = claimName(scope, local.name, count);
+        scope.directAliases.set(alias, true);
+        alias;
+      } else if (scope.directAliases.exists(local.name)) {
+        claimName(scope, local.name, 1);
+      } else {
+        // Preserve classic Genes' historical spelling when two ordinary Haxe
+        // locals intentionally reuse a name in compatible lexical scopes.
+        scope.used.set(local.name, true);
+        local.name;
+      }
       names.set(local.id, planned);
       if (moduleContext)
         addModuleBinding(planned);
@@ -252,7 +264,7 @@ private class NamePlanBuilder {
     final temp = temps.tempForLocal(local);
     if (temp != null && temp.kind == HaxeGeneratedLocal) {
       final count = countAndIncrement(generatedCounts, local.name);
-      final planned = suffix(local.name, count);
+      final planned = claimName(scope, local.name, count);
       names.set(local.id, planned);
       if (moduleContext)
         addModuleBinding(planned);
@@ -262,7 +274,7 @@ private class NamePlanBuilder {
     final baseName = preferences.exists(local.id) ? preferences.get(local.id) : local.name;
     final count = countAndIncrement(scope.counts, baseName)
       + (directModuleBindings.exists(baseName) ? 1 : 0);
-    final planned = suffix(baseName, count);
+    final planned = claimName(scope, baseName, count);
     names.set(local.id, planned);
     if (moduleContext)
       addModuleBinding(planned);
@@ -284,8 +296,28 @@ private class NamePlanBuilder {
     return count == 0 ? name : '${name}_${count}';
   }
 
+  /**
+   * Claims a collision-free local while preserving the profile's base policy.
+   *
+   * Counts alone cannot see cross-base collisions: reserving module `metadata`
+   * may rename one parameter to `metadata_1`, which can then collide with a
+   * distinct source local already named `metadata_1`. The emitted-name set is
+   * therefore the final authority after each profile chooses its first suffix.
+   */
+  function claimName(scope: AllocationScope, baseName: String,
+      initialCount: Int): String {
+    var count = initialCount;
+    var planned = suffix(baseName, count);
+    while (scope.used.exists(planned) || directModuleBindings.exists(planned)) {
+      count++;
+      planned = suffix(baseName, count);
+    }
+    scope.used.set(planned, true);
+    return planned;
+  }
+
   static function allocationScope(): AllocationScope {
-    return {counts: []};
+    return {counts: [], used: [], directAliases: []};
   }
 
   static function copyPreferences(source: Map<Int, String>): Map<Int, String> {

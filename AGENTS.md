@@ -533,6 +533,29 @@ Examples that must be documented when used:
 - `@:native(...)` (binds to runtime identifiers; can change import/emit behavior)
 - `@:jsRequire(...)` (interop boundary + import emission)
 
+Every public Genes-owned annotation, especially `@:genes.*` and `@:ts.*`
+metadata, also needs one canonical beginner-friendly guide linked from
+`docs/README.md`. The guide must explain:
+
+- **why** the metadata exists and which concrete limitation or output contract
+  makes ordinary Haxe insufficient;
+- **when** users should and should not apply it, including whether it is an
+  opt-in compatibility tradeoff or a normal authoring path;
+- **how** its arguments are validated and how it changes TypeScript, TSX,
+  classic JavaScript, declarations, imports, initialization, and runtime
+  behavior where applicable;
+- invalid combinations, stable diagnostics, important observable differences,
+  and the smallest positive and negative examples; and
+- the focused command that proves the documented contract.
+
+Before adding durable metadata, ask whether Genes can infer the correct generic
+behavior from typed Haxe instead. Prefer an ordinary-Haxe default when it is
+backward-compatible and mechanically provable. Keep metadata when the author
+must explicitly choose an observable representation change, supply a name or
+host contract Haxe cannot infer, or select between two valid semantics. If an
+annotation is transitional, document the evidence and compatibility work
+required to remove it or make its behavior the default.
+
 ## Generated TS typing policy (no `any` / `unknown`)
 
 - Generated TypeScript should be **idiomatic and strongly typed**.

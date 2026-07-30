@@ -14,10 +14,12 @@ bindings. The fixture pairs a value with a selected function on one synthetic
 owner, imports same-named values from two source modules through collision-safe
 aliases, verifies exact declaration and source-map output, and proves that the
 metadata itself does not create a DCE root. It also covers owner-only exports,
-same-module local shadowing, expression-owned Register helpers, and the typed
-native `findIndex` helper. Mutable, class-owned, mixed-owner, cyclic,
-forward-reading, malformed, and renamed shapes fail before transactional
-publication.
+same-module local shadowing (including source names that match generated
+suffixes), collision-safe foreign imports around local direct exports,
+expression-owned and TypeScript-only Register helpers, and the typed native
+`findIndex` helper. Mutable, class-owned, mixed-owner, cyclic, direct and
+immediately-invoked forward-reading, malformed, and renamed shapes fail before
+transactional publication.
 
 The metadata moves one supported public static Haxe method body to an
 unexported, genuine ES-module function. Genes leaves a compiler-owned method

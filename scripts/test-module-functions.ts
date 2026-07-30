@@ -443,11 +443,16 @@ function directModuleRegressionRuntime(): string {
 import {firstMatchIndex} from "./tests/module-functions/out/classic/module_functions/TopLevel.js";
 import {appendWithBoundMethod} from "./tests/module-functions/out/classic/module_functions/RegisterHelpers.js";
 import {readMetadata} from "./tests/module-functions/out/classic/module_functions/ShadowedBindings.js";
+import {foreignTitle, identityPair} from "./tests/module-functions/out/classic/module_functions/LocalBindingImportCollision.js";
+import {positive} from "./tests/module-functions/out/classic/module_functions/TsRegisterHelpers.js";
 import {exposedValue} from "./tests/module-functions/out/classic/module_functions/ExposedValue.js";
 console.log([
   firstMatchIndex(["first", "match"]),
   appendWithBoundMethod([1, 2, 3]),
   readMetadata("parameter"),
+  foreignTitle(),
+  identityPair(),
+  positive(null),
   exposedValue
 ].join("|"));`;
   return execFileSync(process.execPath,
@@ -480,10 +485,6 @@ const negativeCases = [
   ["module_function_property", "GENES-MODULE-FUNCTION-SHAPE-006"],
   ["module_function_prototype", "GENES-MODULE-FUNCTION-SHAPE-006"],
   ["module_function_duplicate_native", "GENES-MODULE-FUNCTION-SHAPE-006"],
-  [
-    "module_function_import_collision",
-    "GENES-MODULE-FUNCTION-COLLISION-005"
-  ],
   [
     "module_function_module_field_collision",
     "GENES-MODULE-FUNCTION-COLLISION-005"
@@ -530,10 +531,10 @@ const negativeCases = [
   ["module_value_mutable", "GENES-MODULE-VALUE-MUTABLE-009"],
   ["module_value_public_name", "GENES-MODULE-VALUE-PUBLIC-NAME-010"],
   ["module_value_native_name", "GENES-MODULE-VALUE-NATIVE-NAME-011"],
-  ["module_value_import_collision", "GENES-MODULE-VALUE-COLLISION-012"],
   ["module_value_mixed", "GENES-MODULE-VALUE-MIXED-OWNER-013"],
   ["module_value_cycle", "GENES-MODULE-VALUE-CYCLE-014"],
-  ["module_value_forward_read", "GENES-MODULE-VALUE-FORWARD-015"]
+  ["module_value_forward_read", "GENES-MODULE-VALUE-FORWARD-015"],
+  ["module_value_iife_forward_read", "GENES-MODULE-VALUE-FORWARD-015"]
 ] as const;
 
 function assertCompileFailure(profile: "classic" | "ts",
@@ -626,8 +627,42 @@ for (const relative of [
 ]) {
   const source = readFileSync(path.join(outputRoot, relative), "utf8");
   ok(source.includes("function readMetadata(metadata_1")
-    && source.includes('metadata.title + ":" + metadata_1'),
-    `${relative} keeps the typed module binding distinct from its parameter`);
+    && source.includes('const metadata_1_1')
+    && source.includes('metadata.title + ":" + metadata_1 + ":" + metadata_1_1'),
+    `${relative} keeps the module binding, shifted parameter, and source-suffixed local distinct`);
+}
+for (const relative of [
+  "classic/module_functions/LocalBindingImportCollision.js",
+  "ts/src-gen/module_functions/LocalBindingImportCollision.ts",
+  "tsx/src-gen/module_functions/LocalBindingImportCollision.tsx"
+]) {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes("metadata as metadata__1")
+    && source.includes("topLevelIdentity as topLevelIdentity__1")
+    && source.includes("export const metadata")
+    && source.includes("export function topLevelIdentity")
+    && source.includes("metadata__1.title")
+    && source.includes('topLevelIdentity__1("foreign")'),
+    `${relative} aliases foreign value/function bindings around local exports`);
+}
+for (const relative of [
+  "ts/src-gen/module_functions/TsRegisterHelpers.ts",
+  "tsx/src-gen/module_functions/TsRegisterHelpers.tsx"
+]) {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes("genes/Register")
+    && source.includes("Register.unsafeCast<number>(value)"),
+    `${relative} retains Register for a TypeScript-only direct-module assertion`);
+  ok(!source.includes("TsRegisterHelpers_Fields_"),
+    `${relative} still omits the compiler-synthetic owner`);
+}
+{
+  const relative = "classic/module_functions/TsRegisterHelpers.js";
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes("return value > 0")
+    && !source.includes("genes/Register")
+    && !source.includes("TsRegisterHelpers_Fields_"),
+    `${relative} keeps the native operator without a TypeScript-only helper`);
 }
 for (const relative of [
   "classic/index.js",
@@ -697,7 +732,7 @@ strictEqual(exactPublicRuntimeIdentity(), true,
 strictEqual(asyncModuleRuntime(), 42,
   "the direct classic module function preserves native async/await runtime behavior");
 strictEqual(directModuleRegressionRuntime(),
-  "1|3|module:parameter|owned-module-only",
+  "1|3|module:parameter:local|local:direct module value|local-own:foreign|false|owned-module-only",
   "direct helpers, shadowed bindings, findIndex, and owner-only exports run natively");
 deepStrictEqual(runtime.descriptor, {
   configurable: true,

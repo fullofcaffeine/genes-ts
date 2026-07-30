@@ -15,5 +15,10 @@ final metadata = {
  */
 @:genes.moduleFunction("readMetadata")
 function readMetadata(metadata: String): String {
-  return module_functions.ShadowedBindings.metadata.title + ":" + metadata;
+  final metadata_1 = "local";
+  return module_functions.ShadowedBindings.metadata.title
+    + ":"
+    + metadata
+    + ":"
+    + metadata_1;
 }

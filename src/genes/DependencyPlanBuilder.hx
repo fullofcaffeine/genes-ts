@@ -105,7 +105,7 @@ class DependencyPlanBuilder {
   function collectRuntimeEdges(): Void {
     var onlyDirectModuleBindings = module.members.length > 0;
     var hasDirectModuleBindingOwner = false;
-    var hasRegisterHelperEdge = false;
+    var registerHelperPos: Null<Position> = null;
     // Validate compiler-owned string templates before output projection opens
     // any implementation writer. The plan itself adds no dependency edge.
     module.templateLiteralPlan;
@@ -220,8 +220,20 @@ class DependencyPlanBuilder {
      * only its reflection work, never helpers used by the retained body.
      */
     function addRegisterHelperFromExpr(expression: TypedExpr): Void {
-      if (expression == null || hasRegisterHelperEdge)
+      if (expression == null || registerHelperPos != null)
         return;
+      function typeAllowsNull(type: Type): Bool {
+        return NullishContract.forType(type).haxeAllowsNull;
+      }
+      function isNumberLike(type: Type): Bool {
+        final nonNull = NullishContract.stripHaxeNull(type);
+        return switch Context.followWithAbstracts(nonNull) {
+          case TAbstract(_.get() => {pack: [], name: 'Int' | 'Float'}, _):
+            true;
+          default:
+            false;
+        }
+      }
       var helperPos: Null<Position> = null;
       function visit(current: TypedExpr): Void {
         if (helperPos != null)
@@ -239,6 +251,14 @@ class DependencyPlanBuilder {
                 _.get() => {name: 'code'}))
           }, [{expr: TConst(TString("$global"))}]):
             helperPos = current.pos;
+          case TBinop(OpGt | OpGte | OpLt | OpLte, left, right)
+            if (Context.defined('genes.ts')
+              && ((typeAllowsNull(left.t) && isNumberLike(left.t))
+                || (typeAllowsNull(right.t) && isNumberLike(right.t)))):
+            // Strict TypeScript needs the emitter's identity assertion for a
+            // nullable numeric relation that Haxe already accepted. Classic
+            // JavaScript prints the native operator and needs no helper.
+            helperPos = current.pos;
           default:
         }
         if (helperPos == null)
@@ -247,9 +267,7 @@ class DependencyPlanBuilder {
       visit(expression);
       if (helperPos == null)
         return;
-      hasRegisterHelperEdge = true;
-      addReference(RuntimeValue, TypeUtil.registerType,
-        'runtime.expression-register-helper', helperPos);
+      registerHelperPos = helperPos;
     }
 
     /**
@@ -482,10 +500,19 @@ class DependencyPlanBuilder {
         case MType(_, _):
       }
     }
-    if (module.module != 'genes.Register'
-      && (!onlyDirectModuleBindings || !hasDirectModuleBindingOwner))
-      addReference(RuntimeValue, TypeUtil.registerType,
-        'runtime.registration', Context.currentPos());
+    if (module.module != 'genes.Register') {
+      if (!onlyDirectModuleBindings || !hasDirectModuleBindingOwner) {
+        addReference(RuntimeValue, TypeUtil.registerType,
+          'runtime.registration', Context.currentPos());
+      } else if (registerHelperPos != null) {
+        // Direct-only modules deliberately omit reflection registration. Add
+        // the helper edge only after ordinary expression dependencies have
+        // retained their historical encounter order; ordinary class modules
+        // already receive the equivalent Register binding above.
+        addReference(RuntimeValue, TypeUtil.registerType,
+          'runtime.expression-register-helper', registerHelperPos);
+      }
+    }
   }
 
   function collectTypeEdges(kind: DependencyEdgeKind,
