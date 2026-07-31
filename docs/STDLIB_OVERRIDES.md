@@ -88,6 +88,68 @@ The borrowed principle is:
 The implementation differs because Reflaxe's targets are `cross`, while
 Genes' target is `js`.
 
+## Preserve the standard library's DCE behavior
+
+Classpath selection changes more than the source location shown in a stack
+trace. Haxe's default `-dce std` mode uses that location as compiler evidence:
+classes loaded from Haxe's own standard-library directories are eligible for
+field-level dead-code elimination.
+
+A Genes overlay is loaded from the installed `genes-ts/src/` classpath instead.
+Without an explicit marker, Haxe treats the copied class like an ordinary
+library class and keeps all of its fields. That can expose helpers which the
+official stdlib build would have removed:
+
+```haxe
+// Complete copied module, now outside Haxe's std/ directory.
+@:coreApi
+class Bytes {
+  public inline static function fastGet(
+      b:BytesData, pos:Int):Int {
+    return untyped b.bytes[pos];
+  }
+}
+```
+
+With `-dce std`, the unmarked overlay can emit an unused `fastGet` method:
+
+```ts
+static fastGet(b: ArrayBuffer, pos: number): number {
+  return b.bytes[pos]!;
+  //     ~~~~~~~ TS18048: b.bytes may be undefined
+}
+```
+
+The problem is not that this read needs a new assertion. The method was absent
+from the equivalent official-stdlib output because no application code used
+it. Genes restores that packaging behavior with Haxe's own DCE metadata:
+
+```haxe
+@:dce
+@:coreApi
+class Bytes {
+  // Complete upstream implementation.
+}
+```
+
+Haxe's DCE implementation treats a class carrying `@:dce` the same way, for
+eligibility purposes, as a class loaded from its stdlib directories. Used
+fields remain available; unused fields are pruned. The corrected TypeScript
+therefore contains the used `toHex` implementation and no `fastGet`
+declaration.
+
+This is part of the generic overlay contract, not a `Bytes`-specific compiler
+rule. When a future complete module contains classes that relied on std-path
+DCE, the overlay must add `@:dce` to those classes as a separately declared
+manifest edit and prove the expected used/unused field shape under
+`-dce std`.
+
+An explicit downstream call to `Bytes.fastGet` remains deliberately
+fail-closed. Inlining erases the helper identity before Genes sees the typed
+tree, so the generated optional-cache read still receives TS18048. DCE removes
+only genuinely unused code; it must not hide an unsafe operation that the
+program actually requests.
+
 ## The `haxe.io.Bytes` case
 
 Haxe's JavaScript `String.charCodeAt` returns `Null<Int>`. That is correct for
@@ -174,7 +236,10 @@ s_b += String.fromCodePoint(chars[c & 15]);
 ## Provenance and drift protection
 
 Haxe classpath replacement works at module granularity, so Genes must carry the
-complete `Bytes` implementation even though the semantic change is one line.
+complete `Bytes` implementation even though its data-typing correction is one
+line. The local module also has a class-level `@:dce` packaging marker because
+moving the source outside Haxe's `std/` directory otherwise changes default
+dead-code elimination.
 The manifest prevents that copy from becoming a silent standard-library fork.
 Each entry records:
 
@@ -214,20 +279,24 @@ Use this sequence:
 3. Copy the exact module from the pinned Haxe JavaScript `_std` directory.
 4. Format it with Genes' pinned Haxe formatter.
 5. Save it as `src/<module path>.js.hx`.
-6. Make the smallest semantic edit.
-7. Add one manifest entry with the exact provenance and replacements.
-8. Add a task-specific fixture. The manifest proves source provenance; the
+6. Restore std-path DCE semantics for every copied class that needs them,
+   normally with Haxe's compiler-authored class-level `@:dce` metadata. Record
+   this as an exact manifest edit; do not compensate with `-dce full`.
+7. Make the smallest semantic edit.
+8. Add one manifest entry with the exact provenance and replacements.
+9. Add a task-specific fixture. The manifest proves source provenance; the
    fixture must prove why the edit is correct.
-9. Include a fail-closed control showing that Genes did not gain a broad
+10. Include a fail-closed control showing that Genes did not gain a broad
    string-, name-, position-, or generated-text rule.
-10. Verify TypeScript 5/6/7, classic JavaScript parity, standard-Haxe runtime
+11. Verify TypeScript 5/6/7, classic JavaScript parity, standard-Haxe runtime
     behavior, source maps, compiler-server cold/warm behavior, and packaged
     Haxelib/Lix selection. The package check must install the exact generated
     ZIP into an isolated local Haxelib repository and compile through
-    `-lib genes-ts` using Lix's selected Haxe toolchain; a manually supplied
-    package classpath is not equivalent evidence. GameCarry pins the reviewed
-    merge commit through its ordinary Lix descriptor after the PR merges.
-11. Run the focused neighboring tests and the full repository gate.
+    `-lib genes-ts` using Lix's selected Haxe toolchain and default
+    `-dce std`; a manually supplied package classpath or `-dce full` is not
+    equivalent evidence. GameCarry pins the reviewed merge commit through its
+    ordinary Lix descriptor after the PR merges.
+12. Run the focused neighboring tests and the full repository gate.
 
 Run the current generic and `Bytes` contract with:
 

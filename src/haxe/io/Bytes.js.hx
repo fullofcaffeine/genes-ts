@@ -22,6 +22,13 @@
 
 package haxe.io;
 
+// Why: this complete stdlib module is distributed from Genes' library
+// classpath, so Haxe no longer recognizes its source path as part of `std/`.
+// What: keep the official module's field-level `-dce std` behavior.
+// How: Haxe's compiler-authored `@:dce` metadata makes this class eligible for
+// dead-code elimination outside Haxe's stdlib path. Used fields remain
+// available; unused fields are pruned as before.
+@:dce
 @:coreApi
 class Bytes {
   public var length(default, null): Int;

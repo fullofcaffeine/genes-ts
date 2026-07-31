@@ -677,6 +677,12 @@ Examples that must be documented when used:
   compiler-server behavior. The manifest and generic guard make later
   overrides routine without turning generated-text recognition into a compiler
   policy.
+- Haxe's default `-dce std` recognizes classes under its own stdlib source
+  directories. A copied class under `genes-ts/src/` loses that classification,
+  so preserve it with class-level `@:dce` metadata where applicable and list
+  that insertion as an exact manifest edit. Every overlay fixture and packaged
+  consumer must exercise `-dce std`, proving used fields remain and unused
+  fields are pruned. Do not use `-dce full` to conceal this classpath effect.
 - A Haxe fork or upstream compiler change remains appropriate when the defect
   belongs to parsing, typing, inlining/DCE, macro APIs, or a shared cross-target
   stdlib contract that cannot be represented safely in the Genes distribution.
