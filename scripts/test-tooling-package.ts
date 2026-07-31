@@ -592,6 +592,7 @@ import type {
   GenesDevelopmentOptions,
   JsonValue,
 } from "@genes-ts/tooling/session";
+import { createGenesDevelopmentSession } from "@genes-ts/tooling/session";
 import artifactProtocol from "@genes-ts/tooling/artifact-transactions/v1/protocol.schema.json" with { type: "json" };
 import artifactVectors from "@genes-ts/tooling/artifact-transactions/v1/vectors.json" with { type: "json" };
 import artifactVectorSchema from "@genes-ts/tooling/artifact-transactions/v1/vectors.schema.json" with { type: "json" };
@@ -621,6 +622,7 @@ const runtimeValues = [
   watchVectors,
   watchVectorSchema,
   DEVELOPMENT_SESSION_EVENT_PROTOCOL,
+  createGenesDevelopmentSession,
   sessionProtocol,
   sessionVectors,
   sessionVectorSchema,
@@ -683,9 +685,16 @@ const witnesses = [
   root.DEVELOPMENT_SESSION_EVENT_PROTOCOL,
   session.DEVELOPMENT_SESSION_EVENT_VERSION,
   cssModuleSchema,
+  session.createGenesDevelopmentSession,
 ];
 if (witnesses.slice(0, 8).some((value) => typeof value !== "function")) {
   throw new Error("a public tooling runtime export is missing");
+}
+if (
+  typeof root.createGenesDevelopmentSession !== "function" ||
+  typeof session.createGenesDevelopmentSession !== "function"
+) {
+  throw new Error("the public development-session runtime factory is missing");
 }
 if (
   root.DEVELOPMENT_SESSION_EVENT_PROTOCOL !==

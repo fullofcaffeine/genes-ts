@@ -5,9 +5,11 @@ into a complete, validated, public Genes output tree. It exists so a command,
 framework adapter, human, or AI agent can observe the same lifecycle without
 rebuilding process, watcher, and publication rules from terminal text.
 
-This directory defines the contract only. The first protocol change does not
-yet implement `DevelopmentSession`, start Haxe, watch files, publish output, or
-run a framework server.
+`createGenesDevelopmentSession` now implements this contract by composing the
+repository's existing HXML inventory, reconciled watcher, serialized loop,
+owned Haxe server, and recoverable artifact publisher. The protocol remains
+framework-neutral: the implementation does not run Vite, Next.js, Electron,
+Expo, WordPress, a browser, or any other application service.
 
 ## Who should read what
 
@@ -24,11 +26,15 @@ If you are implementing the session, read this entire file, then:
 1. [`../../src/session/types.ts`](../../src/session/types.ts) for the public
    TypeScript surface;
 2. [`vectors.json`](vectors.json) for required scenarios and outcomes;
-3. the existing HXML, watch, loop, Haxe-server, and artifact implementations
+3. [`../../src/session/runtime.ts`](../../src/session/runtime.ts) for the
+   composition layer;
+4. the existing HXML, watch, loop, Haxe-server, and artifact implementations
    named in [`../../README.md`](../../README.md).
 
-The vectors are executable acceptance requirements for the later runtime.
-They are not illustrative examples that an implementation may ignore.
+The vectors are executable acceptance requirements. The focused runtime suite
+drives every vector through the real state machine with controlled compiler,
+watch, validator, and fault boundaries; they are not illustrative examples an
+implementation may ignore.
 
 ## The practical problem
 
@@ -137,6 +143,11 @@ tooling transaction        -> admitted candidate replaces public output
 An admitted candidate whose bytes are unchanged still advances the accepted
 generation and revision, but reports an empty `FileDelta`. Hosts perform no
 reload for that empty delta.
+
+The outer accepted-generation marker also binds the last admitted compiler
+manifest digest. A later build refuses to publish over an owned public tree or
+marker that changed outside the session. Unowned neighboring files are
+preserved, but generated files are outputs—not a second editable source tree.
 
 ## Publication and reads
 

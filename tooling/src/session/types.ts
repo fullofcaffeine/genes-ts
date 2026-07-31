@@ -25,6 +25,22 @@ export type FailurePhase =
   | "shutdown";
 
 /**
+ * Framework-neutral diagnostics produced by session mechanics themselves.
+ *
+ * A validator still returns the host's `Diagnostic` type. Core failures need
+ * an equally structured representation because the session, rather than the
+ * host, owns inventory, compiler-process, watch, publication, and shutdown
+ * mechanics. Hosts may format these facts for a terminal, but must not parse a
+ * log sentence to discover the phase or code.
+ */
+export type DevelopmentSessionDiagnostic = Readonly<
+  Record<string, JsonValue> & {
+    readonly code: string;
+    readonly message: string;
+  }
+>;
+
+/**
  * The exact public-output change admitted as one generation.
  *
  * Paths are project-relative, slash-normalized, sorted by UTF-8 byte order,
@@ -64,7 +80,7 @@ export interface SessionFailure<Diagnostic extends JsonValue> {
   readonly phase: FailurePhase;
   readonly revision: number | null;
   readonly recoverable: boolean;
-  readonly diagnostic: Diagnostic;
+  readonly diagnostic: Diagnostic | DevelopmentSessionDiagnostic;
   readonly retained: AcceptedGeneration | null;
 }
 
@@ -320,7 +336,8 @@ export interface GenesDevelopmentOptions<Diagnostic extends JsonValue> {
 
   /**
    * Runs against a complete candidate before public mutation. Recovery uses
-   * the same policy against a complete intended live tree.
+   * the same policy against a complete intended live tree. The validator must
+   * stop promptly when `signal` aborts so session shutdown stays bounded.
    */
   validate(
     tree: ValidationTree,

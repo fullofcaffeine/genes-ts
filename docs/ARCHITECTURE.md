@@ -749,6 +749,46 @@ cold/warm proof. Prefer an owner-local reset over a compiler-wide session or
 cache manager until several reproduced defects require coordinated lifecycle
 ownership.
 
+### Host-side admitted development generations
+
+`@genes-ts/tooling/session` lives outside the compiler state ledger above. It
+owns one long-running host lifecycle, but it never retains Haxe typed objects
+or changes compiler semantics. Its positive contract is:
+
+```text
+observed input revision
+  -> request-local `genes.output` private compiler tree
+  -> exact Genes v2 ownership inventory
+  -> host-owned validation
+  -> supersession check
+  -> recoverable public artifact transaction
+  -> accepted generation event
+```
+
+There are intentionally two transaction boundaries. `OutputTransaction`
+guarantees that Genes produced one complete private candidate. The tooling
+artifact transaction guarantees that only a host-admitted candidate replaces
+the previous public tree. Strict TypeScript or framework policy runs between
+them; it is not inferred by the compiler and is never postponed until after
+public mutation.
+
+The session composes the existing HXML inventory, reconciled watcher,
+serialized dirty loop, owned Haxe server, and artifact publisher. It does not
+reimplement those mechanisms. The compiler's v2 manifest is the sole generated
+file inventory, while a separate session generation record is the outer commit
+marker. The separate marker matters when two successful revisions generate
+identical bytes: generation still advances, the file delta stays empty, and a
+host correctly performs no reload.
+
+Framework policy remains above this boundary. Vite, Next.js, Electron, Expo,
+WordPress, browser transports, device transports, and application servers may
+consume structured accepted-generation and failure facts, but none of them
+changes session input discovery, compiler ownership, admission ordering,
+publication, or recovery. See
+[`../tooling/development-session/v1/README.md`](../tooling/development-session/v1/README.md)
+for the public state/event contract and [`../tooling/README.md`](../tooling/README.md)
+for a newcomer-oriented host example.
+
 ## Non-negotiable invariants
 
 - Both output modes are first-class. Ordinary Haxe source should compile to TS

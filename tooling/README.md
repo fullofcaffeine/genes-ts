@@ -53,10 +53,11 @@ resources, defines, and other inputs. `inventoryHxml` reads that declared graph
 so the host does not guess which files affect a build.
 
 If you only run Haxe once in CI, keep doing that; this package is for a
-long-lived development process. If you are building such a process today, the
-five primitive subpaths below are implemented and tested. The session subpath
-currently supplies the reviewed v1 types and conformance data; its runtime
-factory lands in the next focused change.
+long-lived development process. If you are building such a process today,
+`createGenesDevelopmentSession` is the normal starting point. The lower-level
+subpaths remain public for hosts with a narrower need and for the session's own
+implementation; an application should not rebuild the same lifecycle from
+them.
 
 ### Pick the reading path that matches your job
 
@@ -75,7 +76,7 @@ factory lands in the next focused change.
 
 ## The development loop it supports
 
-The existing public primitives fit together like this:
+The public session composes the existing primitives like this:
 
 ```text
 HXML inventory
@@ -84,7 +85,7 @@ HXML inventory
   -> serialized dirty loop schedules one newest-state rebuild
   -> owned Haxe wait server performs a warm or direct compile
   -> host validates staged output
-  -> artifact transaction publishes the authorized files atomically
+  -> artifact transaction publishes the authorized files recoverably
 ```
 
 Each arrow is optional. A host can use only the artifact publisher, only the
@@ -98,12 +99,12 @@ watch/loop pair, or only the owned Haxe server.
 | `@genes-ts/tooling/haxe-server` | Owns and safely reuses one compatible `haxe --wait` process | Haxe discovery, compiler arguments, diagnostics, and compatibility identity |
 | `@genes-ts/tooling/artifacts` | Publishes an exact authorized file transition with crash recovery | Generation, validation, file ownership, and adoption policy |
 | `@genes-ts/tooling/css-modules` | Checks processor-owned export manifests and generates closed Haxe companions plus exact per-file TypeScript declarations | CSS parsing, processor choice, framework placement, and runtime loader agreement |
+| `@genes-ts/tooling/session` | Runs one admitted-generation lifecycle over the five primitives above | Haxe location/arguments, validation policy, framework lifecycle, diagnostics, and top-level signals |
 
-The `@genes-ts/tooling/session` subpath now defines the public
-`DevelopmentSession` v1 types, and `development-session/v1` publishes its JSON
-event schema and conformance vectors. The runtime factory is intentionally not
-part of this first protocol change; it will compose the five proven primitives
-only after this lifecycle contract is reviewed.
+The `@genes-ts/tooling/session` subpath exports
+`createGenesDevelopmentSession`, the public `DevelopmentSession` v1 types, and
+the protocol constants. `development-session/v1` publishes the matching JSON
+event schema and conformance vectors.
 
 That session contract moves generic last-good mechanics into tooling while the
 host keeps the important policy decision:
@@ -157,15 +158,127 @@ You usually do **not** need it when:
 Start with the direct compiler workflow. Add host tooling only after the project
 has a concrete watch, warm-compilation, or publication requirement.
 
+## A first development session
+
+The smallest useful host supplies four project facts:
+
+1. which HXML graph to watch;
+2. the exact Haxe invocation;
+3. the public Genes output entry;
+4. a validator for a complete private candidate.
+
+```ts
+import {
+  createGenesDevelopmentSession,
+  type JsonValue,
+} from "@genes-ts/tooling/session";
+
+type Diagnostic = Readonly<Record<string, JsonValue>> & {
+  readonly code: string;
+  readonly message: string;
+};
+
+const session = createGenesDevelopmentSession<Diagnostic>({
+  projectRoot: "/workspace/my-app",
+  projectIdentity: "my-app/web",
+  hxml: {
+    entryFiles: ["build.hxml"],
+    workingDirectory: "/workspace/my-app",
+    allowedRoots: ["/workspace/my-app"],
+  },
+  publicOutputFile: "src-gen/index.tsx",
+  stateDirectory: ".genes/dev",
+
+  resolveInvocation: async ({ signal }) => ({
+    // Use the native Haxe executable selected by your package manager. The
+    // later `genes watch` CLI owns this discovery for ordinary projects.
+    executable: "/absolute/path/to/haxe",
+    cwd: "/workspace/my-app",
+    args: ["build.hxml"],
+    compatibilityFacts: { haxe: "4.3.7", genes: "reviewed-commit" },
+  }),
+
+  validate: async (tree, { signal, recovery }) => {
+    // Run the application's real policy against `tree.physicalRoot`, while
+    // presenting every file at its eventual `logicalPath`. A TypeScript host
+    // usually does this with a CompilerHost overlay rather than copying files.
+    return await validateCandidate(tree, { signal, recovery });
+  },
+  validatorPolicyFacts: { typescript: "5.5.4", tsconfig: "strict" },
+});
+
+session.subscribe((record) => {
+  // The same structured record can feed a friendly terminal, JSON-lines agent
+  // mode, Vite adapter, Next.js host, Electron process, or mobile tool.
+  report(record);
+});
+
+await session.start();
+await session.firstAccepted; // safe point for starting a dependent dev server
+
+// A top-level host owns SIGINT/SIGTERM and eventually calls:
+await session.close();
+```
+
+The application validator never receives a half-generated tree. Genes first
+finishes its own compiler transaction inside a private candidate directory.
+The session then reads the compiler's v2 ownership manifest, asks the host to
+validate exactly those files, rejects work known to be superseded, and uses the
+existing recoverable artifact publisher to commit the admitted generation.
+
+If validation fails after an earlier success, `state.kind` becomes
+`"degraded"` and the prior accepted tree stays public. On a first failure it is
+`"blocked"`; the watcher remains alive so a later edit can recover without
+restarting the command.
+
+### Rules a host should not have to rediscover
+
+- `publicOutputFile` and `stateDirectory` are project-contained, non-overlapping
+  scopes. The declared HXML inputs must also be inside `projectRoot` and must
+  not contain either generated scope.
+- The session adds the request-local `-D genes.output=<private entry>` itself.
+  It rejects caller-provided `--connect`, server-listen, or `genes.output`
+  flags because two lifecycle owners would be ambiguous.
+- `resolveInvocation().executable` is the native Haxe compiler binary that
+  supports `--server-listen` and `--connect`, not a shell command string. The
+  process is spawned with structured arguments and `shell: false`.
+- Only files named by the exact compiler ownership manifest can become owned
+  or stale. An unrelated file beside generated output is preserved.
+- The outer accepted-generation marker records the admitted manifest digest.
+  If an owned generated file or that marker changes outside the session, the
+  next publication fails closed instead of silently treating the edit as a new
+  trusted baseline. Change Haxe source and let the session regenerate it.
+- A deterministic project/output-scoped session lock rejects a second live
+  writer even when the two callers choose different private state directories.
+  Haxe server leases and artifact locks are also exact; tooling never adopts
+  or kills an unowned process.
+- HXML graph replacement is registration-gap safe: tooling confirms the
+  inventory after the new watcher exists and rotates the owned compiler when
+  compilation identity changes.
+- `acquirePublishedRead()` protects one generated-file read from overlapping
+  physical publication. Framework adapters emit no update until the accepted
+  event exists.
+- `resolveInvocation` and `validate` receive an `AbortSignal`. Host callbacks
+  must stop promptly when it aborts; otherwise no library can make shutdown of
+  the host's own work genuinely bounded.
+
+For agents and deterministic tests, subscribe first, call `inspect()` second,
+keep only buffered events whose sequence is newer than the snapshot, and use
+`firstAccepted`/`waitForIdle()` instead of a guessed delay. Never edit
+`src-gen` to repair a failed build; the public tree is the session's last-good
+record.
+
 ## Availability before a public package release
 
 The package is currently developed and tested inside the Genes repository; it
 has not been published to npm. npm publication is intentionally deferred until
 a real external host is ready to adopt a reviewed version.
 
-The session subpath currently exports its protocol types and constants only.
-Do not advertise or call `createGenesDevelopmentSession` until the separate
-implementation change adds and validates that runtime factory.
+The session runtime is implemented and exercised by all 12 released
+conformance scenarios plus a real cold/warm Haxe integration fixture. The
+package is still repository-local until the separate release and downstream
+acceptance work completes; do not describe `0.1.0` as an npm release before
+that immutable publication exists.
 
 ### Guidance for agents in consuming repositories
 
@@ -250,9 +363,11 @@ does not create a compiler/Haxelib release. The dormant, explicitly authorized
 release contract is documented in
 [`docs/RELEASING.md`](https://github.com/fullofcaffeine/genes-ts/blob/main/docs/RELEASING.md).
 
-## How a host composes the pieces
+## How the lower-level pieces compose
 
-The following is an integration sketch, not a complete framework CLI. Names
+This sketch is for tooling maintainers who intentionally need the individual
+primitives. Application hosts should prefer the session example above. It is
+not a complete framework CLI. Names
 such as `startHaxeWait`, `compileConnected`, `authorizePublication`, and
 `validateGeneratedTree` are deliberately host-owned:
 
