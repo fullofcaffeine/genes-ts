@@ -1,9 +1,10 @@
 import { strict as assert } from "node:assert";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   mkdtempSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -67,8 +68,8 @@ function git(args: string[]): string {
   }).trim();
 }
 
-const temporaryRoot = mkdtempSync(
-  path.join(tmpdir(), "genes-release-artifact-test-")
+const temporaryRoot = realpathSync(
+  mkdtempSync(path.join(tmpdir(), "genes-release-artifact-test-"))
 );
 try {
   const source = git(["rev-parse", "HEAD^{commit}"]);
@@ -151,9 +152,36 @@ try {
   assert(verified.size > 0);
   assert.match(verified.sha256, /^[0-9a-f]{64}$/);
   assert(verified.paths.includes("src/genes/Generator.hx"));
+  assert(
+    verified.paths.includes("src/haxe/io/Bytes.js.hx"),
+    "the packaged compiler must contain its reviewed JavaScript stdlib overlay"
+  );
+  assert(
+    verified.paths.includes("config/stdlib-overrides.json"),
+    "the packaged compiler must contain the overlay provenance manifest"
+  );
+  assert(
+    verified.paths.includes("docs/STDLIB_OVERRIDES.md"),
+    "the packaged compiler must contain the overlay ownership guide"
+  );
+  assert(
+    verified.paths.includes("tests/stdlib-overrides/README.md"),
+    "the packaged ownership guide must not link to an omitted fixture guide"
+  );
   assert(verified.paths.includes("release-metadata.json"));
 
   const entries = unzipSync(new Uint8Array(readFileSync(firstPath)));
+  for (const requiredPath of [
+    "src/haxe/io/Bytes.js.hx",
+    "config/stdlib-overrides.json",
+    "docs/STDLIB_OVERRIDES.md",
+    "tests/stdlib-overrides/README.md",
+  ]) {
+    assert(
+      entries[requiredPath] !== undefined,
+      `the generated ZIP is missing ${requiredPath}`
+    );
+  }
   const haxelib = JSON.parse(
     Buffer.from(entries["haxelib.json"]).toString("utf8")
   ) as { version: string; releasenote: string };
@@ -176,6 +204,143 @@ try {
     tag,
     sourceCommit: source,
   });
+
+  const consumerRoot = path.join(temporaryRoot, "stdlib-consumer");
+  const consumerSource = path.join(consumerRoot, "src");
+  const generatedRoot = path.join(consumerRoot, "src-gen");
+  mkdirSync(path.join(consumerSource, "packagedstdlib"), { recursive: true });
+  const selectedHaxe = JSON.parse(
+    readFileSync(path.join(repoRoot, ".haxerc"), "utf8")
+  ) as { version: string };
+  writeFileSync(
+    path.join(consumerRoot, ".haxerc"),
+    JSON.stringify({
+      version: selectedHaxe.version,
+      // Lix's Haxe shim still selects the pinned compiler. This isolated
+      // consumer deliberately asks it to resolve libraries through the local
+      // Haxelib repository created below, rather than through the source
+      // checkout's scoped descriptors.
+      resolveLibs: "haxelib",
+    }, null, 2) + "\n"
+  );
+  writeFileSync(
+    path.join(consumerRoot, "package.json"),
+    '{\n  "type": "module"\n}\n'
+  );
+  writeFileSync(
+    path.join(consumerSource, "packagedstdlib", "Main.hx"),
+    [
+      "package packagedstdlib;",
+      "",
+      "import haxe.io.Bytes;",
+      "",
+      '@:native("console")',
+      "extern class NodeConsole {",
+      "  static function log(value:String):Void;",
+      "}",
+      "",
+      "final class Main {",
+      "  public static function main():Void {",
+      '    NodeConsole.log(Bytes.ofHex("000f107f80ff").toHex());',
+      "  }",
+      "}",
+      "",
+    ].join("\n")
+  );
+  execFileSync("haxelib", ["newrepo"], {
+    cwd: consumerRoot,
+    stdio: "pipe",
+  });
+  execFileSync(
+    "haxelib",
+    ["install", firstPath, "--quiet"],
+    {
+      cwd: consumerRoot,
+      stdio: "pipe",
+    }
+  );
+  const installedPackage = path.join(
+    consumerRoot,
+    ".haxelib/genes-ts/9,8,7"
+  );
+  assert.deepEqual(
+    readFileSync(path.join(installedPackage, "src/haxe/io/Bytes.js.hx")),
+    Buffer.from(entries["src/haxe/io/Bytes.js.hx"]),
+    "the isolated Haxelib repository must contain the exact packaged overlay"
+  );
+  const packagedCompile = spawnSync(
+    "haxe",
+    [
+      "-v",
+      "-lib", "genes-ts",
+      "-cp", consumerSource,
+      "--main", "packagedstdlib.Main",
+      "-js", path.join(generatedRoot, "index.ts"),
+      "-D", "genes.ts",
+      "-D", "no-deprecation-warnings",
+      "-D", "js-es=6",
+      "-dce", "full",
+    ],
+    {
+      cwd: consumerRoot,
+      encoding: "utf8",
+    }
+  );
+  if (packagedCompile.error !== undefined) throw packagedCompile.error;
+  const packagedCompileOutput =
+    `${packagedCompile.stdout}${packagedCompile.stderr}`;
+  assert.equal(
+    packagedCompile.status,
+    0,
+    "unpacked package compilation failed\n"
+      + packagedCompileOutput.slice(-12_000)
+  );
+  assert.match(
+    packagedCompileOutput.split(path.sep).join("/"),
+    /Parsed .*stdlib-consumer\/\.haxelib\/genes-ts\/9,8,7\/src\/haxe\/io\/Bytes\.js\.hx/,
+    "a clean -lib genes-ts consumer must select Bytes.js.hx from the isolated installed package"
+  );
+  const packagedBytes = readFileSync(
+    path.join(generatedRoot, "haxe/io/Bytes.ts"),
+    "utf8"
+  );
+  assert(
+    packagedBytes.includes("const chars: number[] = [];")
+      && packagedBytes.includes(
+        "Register.unsafeCast<number>(HxOverrides.cca(str, i))"
+      ),
+    "the unpacked package must preserve the reviewed Bytes.toHex typing"
+  );
+  const packagedDist = path.join(consumerRoot, "dist");
+  execFileSync(
+    process.execPath,
+    [
+      path.join(repoRoot, "scripts/run-typescript.mjs"),
+      "legacyFloor",
+      "--target", "ES2022",
+      "--module", "NodeNext",
+      "--moduleResolution", "NodeNext",
+      "--strict",
+      "--exactOptionalPropertyTypes",
+      "--noUncheckedIndexedAccess",
+      "--types", "node",
+      "--verbatimModuleSyntax",
+      "--skipLibCheck", "false",
+      "--rootDir", generatedRoot,
+      "--outDir", packagedDist,
+      path.join(generatedRoot, "index.ts"),
+    ],
+    { cwd: repoRoot, stdio: "inherit" }
+  );
+  assert.equal(
+    execFileSync(
+      process.execPath,
+      [path.join(packagedDist, "index.js")],
+      { cwd: repoRoot, encoding: "utf8" }
+    ).trim(),
+    "000f107f80ff",
+    "the unpacked package must preserve Bytes.toHex runtime behavior"
+  );
 
   const tamperedEntries: Record<string, Uint8Array> = { ...entries };
   tamperedEntries["unexpected.txt"] = Buffer.from("not reviewed\n");

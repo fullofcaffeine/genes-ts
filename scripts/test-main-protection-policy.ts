@@ -104,6 +104,29 @@ function main(): void {
     genesTs.includes("- run: yarn test:main-protection-policy"),
     "The required genes-ts job must execute the structural protection policy"
   );
+  for (const [job, nextJob] of [
+    ["genes-ts", "genes-ts-smoke-next-lts"],
+    ["genes-ts-smoke-next-lts", "haxe-preview"]
+  ] as const) {
+    const block = jobBlock(ci, job, nextJob);
+    const haxeInstall =
+      "- run: yarn lix install haxe ${{ steps.toolchains.outputs.haxe-stable }}";
+    const haxeUse =
+      "- run: yarn lix use haxe ${{ steps.toolchains.outputs.haxe-stable }}";
+    const formatter = "- run: yarn haxelib install formatter 1.18.0 --quiet";
+    const acceptance = "- run: yarn test:acceptance";
+    const haxeInstallIndex = block.indexOf(haxeInstall);
+    const haxeUseIndex = block.indexOf(haxeUse);
+    const formatterIndex = block.indexOf(formatter);
+    const acceptanceIndex = block.indexOf(acceptance);
+    assert(
+      haxeInstallIndex >= 0
+        && haxeInstallIndex < haxeUseIndex
+        && haxeUseIndex < formatterIndex
+        && formatterIndex < acceptanceIndex,
+      `${job} must select Haxe before installing the pinned formatter and running the stdlib-overlay acceptance gate`
+    );
+  }
   const preview = jobBlock(ci, "haxe-preview");
   assert(
     preview.includes("continue-on-error: true"),

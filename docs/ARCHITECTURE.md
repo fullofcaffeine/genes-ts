@@ -383,6 +383,34 @@ Those cases require a different representation or a focused diagnostic.
 Ordinary method-declared generics remain in their authored order and are not
 declared twice.
 
+### JavaScript stdlib overlays
+
+Genes normally consumes the standard library from the pinned Haxe
+distribution. When a JavaScript-specific implementation erases type evidence
+needed for honest Genes output, the compiler distribution may carry a
+platform-specific module under `src/**/<Module>.js.hx`.
+
+The `.js.hx` suffix is intentional: TypeScript-readable and classic Genes
+output are profiles of Haxe's JavaScript target, not a separate Haxe `ts`
+target. Genes' `src/` classpath precedes Haxe's stdlib when consumers use
+`-lib genes-ts`, so Haxe's normal platform lookup selects the overlay in both
+profiles.
+
+This adopts the same ownership principle used by Reflaxe compilers—target
+stdlib corrections belong to the compiler distribution—without Reflaxe's
+`_std` to `.cross.hx` packaging. Genes remains on Haxe's native `js` target and
+does not need a custom bootstrap layer.
+
+Because classpath replacement owns a whole Haxe module,
+`config/stdlib-overrides.json` pins the upstream Haxe revision, source hash,
+formatter-canonical hash, local hash, and every allowed exact replacement.
+Each module also needs a semantic fixture, fail-closed controls, both output
+profiles, standard-Haxe runtime parity, source maps, compiler-server isolation,
+and packaged Haxelib/Lix selection. See
+[`STDLIB_OVERRIDES.md`](STDLIB_OVERRIDES.md) for the complete model and
+[`tests/stdlib-overrides/README.md`](../tests/stdlib-overrides/README.md) for
+the `haxe.io.Bytes` example.
+
 ### Haxe runtime byte caches on native buffers
 
 Haxe 4.3.7's JavaScript `haxe.io.Bytes` implementation adds `hxBytes` and

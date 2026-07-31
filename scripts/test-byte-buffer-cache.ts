@@ -195,12 +195,18 @@ const bytesOriginal = bytesSourceMap.originalPositionFor(
   generatedPoint(bytesTs, "Register.unsafeCast<Bytes | null>")
 );
 ok(
-  bytesOriginal.source?.includes("haxe/io/Bytes.hx"),
-  "the nullable wrapper bridge maps back to Haxe's Bytes implementation"
+  bytesOriginal.source?.endsWith("src/haxe/io/Bytes.js.hx"),
+  "the nullable wrapper bridge maps back to Genes' reviewed Bytes overlay"
 );
 strictEqual(
   bytesOriginal.line,
-  244,
+  sourceLine(
+    readFileSync(
+      path.join(repoRoot, "src/haxe/io/Bytes.js.hx"),
+      "utf8"
+    ),
+    "var hb = untyped b.hxBytes;"
+  ),
   "the nullable wrapper bridge preserves the Bytes.ofData source line"
 );
 

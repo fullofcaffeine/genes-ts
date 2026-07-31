@@ -660,6 +660,28 @@ Examples that must be documented when used:
   to TypeScript types; support emitters such as `StdTypesEmitter` describe
   generated runtime/global shapes and small TS lib gaps. Do not override Haxe
   stdlib source merely to satisfy a TypeScript declaration hole.
+- Genes is the compiler distribution its users install; Haxe is the language
+  frontend and standard-library foundation underneath it. When a
+  JavaScript-specific Haxe stdlib typing or representation gap removes evidence
+  that Genes needs for honest TS/JS output, first use the reviewed
+  platform-specific overlay convention under `src/**/<Module>.js.hx`. Do not
+  fork and redistribute the complete Haxe compiler merely to replace one
+  target stdlib module.
+- Every Genes-owned stdlib overlay must be listed in
+  `config/stdlib-overrides.json` with the exact supported Haxe revision,
+  upstream source path and hash, formatter-canonical source hash, and each
+  allowed source replacement. Keep the copied module otherwise identical,
+  prove automatic selection from both a source checkout and the packaged
+  Haxelib/Lix layout, add a focused semantic fixture plus fail-closed controls,
+  and verify classic JavaScript parity, runtime behavior, and cold/warm
+  compiler-server behavior. The manifest and generic guard make later
+  overrides routine without turning generated-text recognition into a compiler
+  policy.
+- A Haxe fork or upstream compiler change remains appropriate when the defect
+  belongs to parsing, typing, inlining/DCE, macro APIs, or a shared cross-target
+  stdlib contract that cannot be represented safely in the Genes distribution.
+  That broader ownership change requires explicit user approval; a local stdlib
+  implementation detail is not enough by itself.
 - Built-in global augmentations must stay narrow and evidence-based. Prefer
   optional declarations for built-ins that Haxe JS boot/runtime code actually
   writes or reads, and avoid broad declarations such as `interface Function` or
