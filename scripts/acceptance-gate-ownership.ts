@@ -56,6 +56,10 @@ export const acceptanceOwnedFocusedGates = [
     compiledScript: "scripts/dist/test-byte-buffer-cache.js"
   },
   {
+    packageScript: "test:stdlib-overrides",
+    compiledScript: "scripts/dist/test-stdlib-overrides.js"
+  },
+  {
     packageScript: "test:nullable-temp-receivers",
     compiledScript: "scripts/dist/test-nullable-temp-receivers.js"
   }

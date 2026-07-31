@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "overrides": [
+    {
+      "module": "haxe.io.Bytes",
+      "platform": "js",
+      "localPath": "src/haxe/io/Bytes.js.hx",
+      "haxeVersion": "4.3.7",
+      "haxeRepository": "https://github.com/HaxeFoundation/haxe.git",
+      "haxeRevision": "e0b355c6be312c1b17382603f018cf52522ec651",
+      "upstreamPath": "std/js/_std/haxe/io/Bytes.hx",
+      "upstreamSha256": "d9af40723e3304fa9a5e53f9c0dc06b82c5d20aeb1b6e9058d766df90900dec9",
+      "formatterVersion": "1.18.0",
+      "canonicalUpstreamSha256": "b6d12480be477ca6c97038e4e5889f1364fdeeb138f097a19c58f135e024901d",
+      "overrideSha256": "61e2cca98ca39d14b731c3aff30748a6b10d3a3210afff0bf6eccaf8a93981fb",
+      "edits": [
+        {
+          "from": "    var chars = [];",
+          "to": "    var chars: Array<Int> = [];",
+          "count": 1,
+          "reason": "Bytes.toHex reads only valid positions in the fixed hexadecimal alphabet, so its lookup table contains Int values even though general String.charCodeAt calls return Null<Int> on JavaScript."
+        }
+      ]
+    }
+  ]
+}

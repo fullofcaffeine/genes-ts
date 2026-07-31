@@ -304,6 +304,9 @@ jobs:
       - run: yarn test:release
       - run: yarn lix install haxe ${{ steps.toolchains.outputs.haxe-stable }}
       - run: yarn lix use haxe ${{ steps.toolchains.outputs.haxe-stable }}
+      # The stdlib-overlay provenance gate formats the authenticated upstream
+      # source with this exact version before comparing the reviewed edit.
+      - run: yarn haxelib install formatter 1.18.0 --quiet
       # Keep the compiler's own null-safety scope and reviewed escape inventory
       # in a required PR job; the release-only aggregate is too late to catch a
       # policy regression introduced by an ordinary change.
@@ -346,6 +349,8 @@ jobs:
       - run: yarn install --frozen-lockfile
       - run: yarn lix install haxe ${{ steps.toolchains.outputs.haxe-stable }}
       - run: yarn lix use haxe ${{ steps.toolchains.outputs.haxe-stable }}
+      # Keep the latest-Node smoke on the same authenticated overlay contract.
+      - run: yarn haxelib install formatter 1.18.0 --quiet
       - run: yarn test:acceptance
         env:
           SKIP_CLASSIC: "1"

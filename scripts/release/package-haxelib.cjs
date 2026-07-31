@@ -8,7 +8,15 @@ const { createDeterministicZip } = require("./deterministic-zip.cjs");
 const { preparePackageMetadata } = require("./prepare-package-metadata.cjs");
 
 const ROOT = path.resolve(__dirname, "../..");
-const PACKAGE_PATHS = ["src", "haxelib.json", "readme.md", "extraParams.hxml"];
+const PACKAGE_PATHS = [
+  "src",
+  "haxelib.json",
+  "readme.md",
+  "extraParams.hxml",
+  "config/stdlib-overrides.json",
+  "docs/STDLIB_OVERRIDES.md",
+  "tests/stdlib-overrides/README.md",
+];
 
 function git(args, options = {}) {
   return execFileSync("git", args, {

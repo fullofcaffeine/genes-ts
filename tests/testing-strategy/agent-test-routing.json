@@ -899,6 +899,74 @@
       ]
     },
     {
+      "id": "stdlib-overrides",
+      "packageScript": "test:stdlib-overrides",
+      "runnerToken": "scripts/dist/test-stdlib-overrides.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "source-map",
+        "compiler-server",
+        "policy"
+      ],
+      "ownerPaths": [
+        "config/stdlib-overrides.json",
+        "scripts/test-stdlib-overrides.ts",
+        "src/haxe",
+        "tests/stdlib-overrides"
+      ],
+      "proves": "Each Genes-owned Haxe JavaScript stdlib overlay has pinned provenance and declared edits; the Bytes fixture proves automatic source selection, strict TypeScript output, fail-closed raw syntax, unchanged classic JavaScript, standard-Haxe runtime parity, source maps, and cold/warm request isolation.",
+      "doesNotProve": "One reviewed JavaScript stdlib overlay does not authorize other Haxe versions, target platforms, copied modules, or generated-text type inference.",
+      "owners": [
+        "config/stdlib-overrides.json",
+        "scripts/test-stdlib-overrides.ts",
+        "src/haxe",
+        "tests/stdlib-overrides"
+      ],
+      "families": [
+        "compiler",
+        "generated-output",
+        "typescript",
+        "runtime",
+        "source-maps",
+        "lifecycle",
+        "policy"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "source-map",
+        "compiler-server",
+        "policy"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:stdlib-overrides",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/stdlib-overrides.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
       "id": "nullable-temp-receivers",
       "packageScript": "test:nullable-temp-receivers",
       "runnerToken": "scripts/dist/test-nullable-temp-receivers.js",
@@ -2725,6 +2793,10 @@
           "when": "Node Buffer host cache identity or request-local behavior changes"
         },
         {
+          "gate": "stdlib-overrides",
+          "when": "a Genes-owned Haxe JavaScript stdlib overlay, its provenance, or its selection behavior changes"
+        },
+        {
           "gate": "nullable-temp-receivers",
           "when": "nullable receiver evaluation or required temporary reuse changes"
         }
@@ -3245,6 +3317,7 @@
         "test.hxml"
       ],
       "selects": [
+        "stdlib-overrides",
         "portable-haxe-smoke",
         "package-imports",
         "dual-output-semantics",
@@ -3311,9 +3384,11 @@
         "src/genes/AGENTS.md",
         "tools/ts2hx/AGENTS.md",
         "package.json",
-        "config/toolchains.json"
+        "config/toolchains.json",
+        "config/stdlib-overrides.json"
       ],
       "selects": [
+        "stdlib-overrides",
         "test-plan-validation",
         "test-tool-preparation",
         "portable-haxe-smoke",

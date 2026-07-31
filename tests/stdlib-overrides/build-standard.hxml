@@ -1,0 +1,6 @@
+-cp tests/stdlib-overrides/src
+--main stdliboverrides.Main
+-js tests/stdlib-overrides/out/standard/index.cjs
+-D no-deprecation-warnings
+-D js-es=6
+-dce full

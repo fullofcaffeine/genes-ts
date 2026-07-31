@@ -1,0 +1,9 @@
+-lib genes-ts
+-cp tests/stdlib-overrides/src
+--main stdliboverrides.Main
+-js tests/stdlib-overrides/out/classic/index.js
+-D dts
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
+-debug
