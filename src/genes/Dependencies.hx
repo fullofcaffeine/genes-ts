@@ -104,8 +104,14 @@ class Dependencies {
             // local module's own `export const value`, which is invalid
             // JavaScript and TypeScript.
             for (field in Module.emittableFields(fields))
-              if (field.isStatic && field.isPublic)
-                names.push({name: field.name, module: type.module});
+              if (field.isStatic && field.isPublic) {
+                final request = module.moduleFunctionRequestPlan.entryFor(type,
+                  field);
+                names.push({
+                  name: request == null ? field.name : request.requestedName,
+                  module: type.module
+                });
+              }
           }
           #end
         case MEnum(et, _):

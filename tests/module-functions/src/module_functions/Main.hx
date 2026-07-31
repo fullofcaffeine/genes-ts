@@ -5,6 +5,10 @@ import module_functions.Selected.SecondarySelected;
 import module_functions.Inheritance.ModuleFunctionChild;
 import module_functions.ModuleInit.moduleInitValue;
 import module_functions.DependencyOrderConsumer;
+import module_functions.RenamedCollisionConsumer.renamedCollisionTranscript;
+import module_functions.DirectShadowing.laterLocalTranscript;
+import module_functions.DirectShadowing.parameterTranscript;
+import module_functions.DirectShadowing.generatedLocalTranscript;
 import module_functions.TopLevelBind.extractTopLevelValue;
 import module_functions.TopLevelCollisionConsumer.collisionTranscript;
 import module_functions.TopLevelExposed.authoredTopLevelName;
@@ -45,10 +49,14 @@ class Main {
       authoredTopLevelName("exposed"),
       moduleInitValue(),
       Std.string(DependencyOrderConsumer.value()),
-      DependencyOrderConsumer.events()
-        #if module_functions_global_feature
-        , Std.string(GlobalFeature.isAvailable())
-        #end
+      DependencyOrderConsumer.events(),
+      renamedCollisionTranscript(),
+      laterLocalTranscript(),
+      parameterTranscript("parameter"),
+      generatedLocalTranscript([1, 2])
+      #if module_functions_global_feature
+      , Std.string(GlobalFeature.isAvailable())
+      #end
     ];
     trace(transcript.join("|"));
   }

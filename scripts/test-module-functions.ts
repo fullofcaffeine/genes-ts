@@ -157,6 +157,47 @@ function assertTopLevelSourceMap(profile: "classic" | "ts" | "tsx",
     `${profile} direct module function body maps to its Haxe return`);
 }
 
+function assertClosureSourceMaps(profile: "classic" | "ts" | "tsx",
+  extension: "js" | "ts" | "tsx"): void {
+  const prefix = path.join(outputRoot, profile,
+    ...(profile === "classic" ? [] : ["src-gen"]), "module_functions");
+  const cases = [
+    {
+      file: "RenamedCollisionConsumer",
+      generatedNeedle: "function renamedBinding",
+      sourceNeedle: "function authoredLocalName"
+    },
+    {
+      file: "DirectShadowing",
+      generatedNeedle: "shadowedDirect();",
+      sourceNeedle: "final before = shadowedDirect()"
+    },
+    {
+      file: "DirectShadowing",
+      generatedNeedle: "selectedParameter_1",
+      sourceNeedle: "selectedParameter: String"
+    }
+  ] as const;
+  for (const current of cases) {
+    const generated = path.join(prefix, `${current.file}.${extension}`);
+    const generatedSource = readFileSync(generated, "utf8");
+    const haxePath = path.join(fixtureRoot, "src/module_functions",
+      `${current.file}.hx`);
+    const haxeSource = readFileSync(haxePath, "utf8");
+    const map = new SourceMapConsumer(JSON.parse(
+      readFileSync(`${generated}.map`, "utf8")) as RawSourceMap);
+    const original = map.originalPositionFor({
+      ...generatedPoint(generatedSource, current.generatedNeedle),
+      bias: SourceMapConsumer.GREATEST_LOWER_BOUND
+    });
+    ok(original.source?.endsWith(
+      `src/module_functions/${current.file}.hx`),
+    `${profile} ${current.generatedNeedle} maps to ${current.file}.hx`);
+    strictEqual(original.line, sourceLine(haxeSource, current.sourceNeedle),
+      `${profile} ${current.generatedNeedle} keeps its authored source line`);
+  }
+}
+
 function assertImplementationShape(relative: string): void {
   const source = readFileSync(path.join(outputRoot, relative), "utf8");
   const code = source.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -273,6 +314,42 @@ function assertTopLevelCollisionImplementationShape(relative: string): void {
     `${relative} retains the ordinary local module export`);
   ok(source.includes("collisionName__1()"),
     `${relative} calls the collision-safe imported binding`);
+}
+
+function assertRenamedCollisionImplementationShape(relative: string): void {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes(
+    'import {renamedBinding as renamedBinding__1} from "./RenamedCollisionSource.js"'),
+    `${relative} aliases a foreign import away from the fixed renamed binding`);
+  ok(source.includes("export function renamedBinding"),
+    `${relative} emits the explicitly renamed local binding unchanged`);
+  ok(source.includes("renamedBinding() + \":\" + renamedBinding__1()"),
+    `${relative} calls the exact local and aliased foreign bindings`);
+}
+
+function assertDirectShadowingImplementationShape(relative: string): void {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes("export function shadowedDirect"),
+    `${relative} emits the fixed direct binding`);
+  ok(source.includes("const before")
+    && source.includes("= shadowedDirect()"),
+    `${relative} keeps the direct call at its original evaluation point`);
+  ok(source.includes("const shadowedDirect_1")
+    && source.includes('= "local"'),
+    `${relative} aliases the later Haxe local away from the direct binding`);
+  ok(source.includes("parameterTranscript(selectedParameter_1"),
+    `${relative} reserves the renamed direct binding before parameter allocation`);
+  ok(source.includes("selectedParameter()")
+    && source.includes("selectedParameter_1"),
+    `${relative} keeps the direct call and parameter as distinct bindings`);
+  ok(source.includes("export function _g"),
+    `${relative} emits the fixed _g direct binding`);
+  ok(source.includes("= _g()"),
+    `${relative} keeps the exact _g direct call`);
+  ok(relative.startsWith("classic/")
+    ? source.includes("let _g_1")
+    : source.includes("let _g_1:"),
+  `${relative} aliases the Haxe-generated loop local away from _g`);
 }
 
 function assertDependencyOccurrenceOrder(relative: string): void {
@@ -477,6 +554,28 @@ console.log(JSON.stringify([
   return parsed;
 }
 
+function directBindingCollisionRuntimeEvidence(): ReadonlyArray<string> {
+  const program = `
+import {renamedCollisionTranscript} from "./tests/module-functions/out/classic/module_functions/RenamedCollisionConsumer.js";
+import {generatedLocalTranscript, laterLocalTranscript, parameterTranscript} from "./tests/module-functions/out/classic/module_functions/DirectShadowing.js";
+console.log(JSON.stringify([
+  renamedCollisionTranscript(),
+  laterLocalTranscript(),
+  parameterTranscript("parameter"),
+  generatedLocalTranscript([1, 2])
+]));`;
+  const output = execFileSync(process.execPath,
+    ["--input-type=module", "--eval", program], {
+      cwd: repoRoot,
+      encoding: "utf8"
+    }).trim();
+  const parsed: unknown = JSON.parse(output.split(/\r?\n/).at(-1) ?? "");
+  ok(Array.isArray(parsed)
+    && parsed.every((value) => typeof value === "string"),
+    `invalid direct-binding collision runtime evidence: ${output}`);
+  return parsed;
+}
+
 function noMainPublicRuntimeEvidence(): boolean {
   const program = `
 import {exposedTopLevel as moduleBinding} from "./tests/module-functions/out/classic-no-main/module_functions/TopLevelExposed.js";
@@ -519,6 +618,7 @@ const negativeCases = [
   ["module_function_inline", "GENES-MODULE-FUNCTION-SHAPE-006"],
   ["module_function_dynamic", "GENES-MODULE-FUNCTION-SHAPE-006"],
   ["module_function_generic_owner", "GENES-MODULE-FUNCTION-OWNER-007"],
+  ["module_function_extern", "GENES-MODULE-FUNCTION-OWNER-007"],
   ["module_function_overload", "GENES-MODULE-FUNCTION-OVERLOAD-009"],
   ["module_function_raw_syntax", "GENES-MODULE-FUNCTION-LEXICAL-010"],
   ["module_function_property", "GENES-MODULE-FUNCTION-SHAPE-006"],
@@ -530,6 +630,10 @@ const negativeCases = [
   ],
   [
     "module_function_module_field_collision",
+    "GENES-MODULE-FUNCTION-COLLISION-005"
+  ],
+  [
+    "module_function_renamed_unaliasable_collision",
     "GENES-MODULE-FUNCTION-COLLISION-005"
   ],
   [
@@ -666,6 +770,20 @@ for (const relative of [
   assertTopLevelCollisionImplementationShape(relative);
 }
 for (const relative of [
+  "classic/module_functions/RenamedCollisionConsumer.js",
+  "ts/src-gen/module_functions/RenamedCollisionConsumer.ts",
+  "tsx/src-gen/module_functions/RenamedCollisionConsumer.tsx"
+]) {
+  assertRenamedCollisionImplementationShape(relative);
+}
+for (const relative of [
+  "classic/module_functions/DirectShadowing.js",
+  "ts/src-gen/module_functions/DirectShadowing.ts",
+  "tsx/src-gen/module_functions/DirectShadowing.tsx"
+]) {
+  assertDirectShadowingImplementationShape(relative);
+}
+for (const relative of [
   "classic/module_functions/DependencyOrderConsumer.js",
   "ts/src-gen/module_functions/DependencyOrderConsumer.ts",
   "tsx/src-gen/module_functions/DependencyOrderConsumer.tsx"
@@ -742,6 +860,9 @@ assertSourceMap("tsx", "tsx");
 assertTopLevelSourceMap("classic", "js");
 assertTopLevelSourceMap("ts", "ts");
 assertTopLevelSourceMap("tsx", "tsx");
+assertClosureSourceMaps("classic", "js");
+assertClosureSourceMaps("ts", "ts");
+assertClosureSourceMaps("tsx", "tsx");
 
 const runtime = runtimeEvidence();
 strictEqual(exactRuntimeIdentity(), true,
@@ -788,6 +909,9 @@ deepStrictEqual(topLevelDependencyRuntimeEvidence(), [7, 3],
   "direct helper imports and mixed direct/ordinary module imports execute");
 deepStrictEqual(topLevelPublicRuntimeEvidence(), ["local:source", "exposed"],
   "collision-safe imports and explicit root exposure preserve runtime identity");
+deepStrictEqual(directBindingCollisionRuntimeEvidence(),
+  ["local:foreign", "direct:local", "direct:parameter", "direct:3"],
+  "fixed direct bindings remain distinct from imports, later locals, and parameters");
 strictEqual(noMainPublicRuntimeEvidence(), true,
   "a library-only build keeps the explicit root export and exact function identity");
 strictEqual(moduleInitializerRuntimeEvidence(), "module-init",

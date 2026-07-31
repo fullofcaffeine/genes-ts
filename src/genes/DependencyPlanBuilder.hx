@@ -307,23 +307,25 @@ class DependencyPlanBuilder {
         return;
       addJsRequireFromExpr(expression);
       final occurrences = RuntimeTypeOccurrenceCollector.collect(expression,
-        (owner,
-            field) -> ModuleFunctionPlan.isModuleFieldsOwner(owner)
-            && ModuleFunctionPlan.requestedName(field) != null);
+        (owner, field) -> {
+          final request = module.resolveModuleFunction(owner, field);
+          return request != null
+            && request.isSourceModuleBinding ? request : null;
+        });
       for (occurrence in occurrences) {
         switch occurrence {
           case RuntimeTypeOccurrence.RuntimeType(type):
             addReference(RuntimeValue, type, 'runtime.typed-expression',
               expression.pos);
-          case RuntimeTypeOccurrence.DirectModuleFunction(ownerRef, fieldRef):
+          case RuntimeTypeOccurrence.DirectModuleFunction(ownerRef, fieldRef,
+            request):
             final owner = ownerRef.get();
             final field = fieldRef.get();
-            final requestedName = ModuleFunctionPlan.requestedName(field);
-            if (requestedName == null || owner.module == module.module)
+            if (owner.module == module.module)
               continue;
             final dependency: DependencySpec = {
               type: DependencyType.DName,
-              name: requestedName,
+              name: request.requestedName,
               path: owner.module,
               external: false,
               memberPath: [],
@@ -435,8 +437,8 @@ class DependencyPlanBuilder {
           final directOwner = ModuleFunctionPlan.isModuleFieldsOwner(cl)
             && cl.init == null
             && emittableFields.length > 0
-            && emittableFields.filter(field -> field.meta == null
-              || ModuleFunctionPlan.requestedNameFromMetadata(field.meta) == null)
+            && emittableFields.filter(field ->
+              module.moduleFunctionRequestPlan.entryFor(cl, field) == null)
               .length == 0;
           if (directOwner) {
             hasDirectModuleFunctionOwner = true;
@@ -624,12 +626,12 @@ class DependencyPlanBuilder {
            */
           if (kind == TypeOnly
             && Lambda.exists(fields,
-              field -> field.meta != null
-                && field.meta.has(':genes.moduleFunction'))) {
+              field -> module.moduleFunctionRequestPlan.hasCandidate(cl,
+                field))) {
             final sourceFields = Module.fieldsOf(cl, publicSurface, params,
               true, fields);
             for (field in sourceFields)
-              if (field.meta != null && field.meta.has(':genes.moduleFunction')) {
+              if (module.moduleFunctionRequestPlan.hasCandidate(cl, field)) {
                 collectSignature(field);
               }
           }

@@ -10,6 +10,8 @@ import genes.DependencyPlan.DependencyEdgeKind;
 import genes.DependencyPlan.DependencyProjection;
 import genes.util.Timer.timer;
 import genes.TypeAccessor;
+import genes.BindingIdentity.StaticFieldOriginKey;
+import genes.ModuleFunctionPlan.ModuleFunctionEntry;
 import genes.PublicSurface.PublicMember;
 import genes.PublicSurface.PublicMemberOwnership;
 
@@ -108,6 +110,7 @@ class Module {
   public var implementationProjection(get, null): DependencyProjection;
   public var tempPlan(get, null): TempPlan;
   public var localBindingPlan(get, null): LocalBindingPlan;
+  public var moduleFunctionRequestPlan(get, null): ModuleFunctionRequestPlan;
   public var moduleFunctionPlan(get, null): ModuleFunctionPlan;
 
   final context: ModuleContext;
@@ -210,6 +213,45 @@ class Module {
   }
 
   /** Validates and returns the opt-in module-function lowering plan. */
+  function get_moduleFunctionRequestPlan(): ModuleFunctionRequestPlan {
+    if (moduleFunctionRequestPlan == null)
+      moduleFunctionRequestPlan = ModuleFunctionRequestPlan.build(this);
+    return moduleFunctionRequestPlan;
+  }
+
+  /**
+   * Resolves one exact typed static field to its intrinsic direct request.
+   *
+   * Marked extern or otherwise non-generated owners fail here before an
+   * internal dependency can be allocated. Valid generated owners resolve
+   * through their request-local retained-field plan rather than reparsing
+   * metadata in each consumer.
+   */
+  public function resolveModuleFunction(ownerRef: Ref<ClassType>,
+      fieldRef: Ref<ClassField>): Null<ModuleFunctionEntry> {
+    final owner = ownerRef.get();
+    final field = fieldRef.get();
+    if (!field.meta.has(':genes.moduleFunction'))
+      return null;
+    final target = context.modules.get(owner.module);
+    if (target == null || owner.isExtern || owner.isInterface) {
+      return ModuleFunctionRequestPlan.fromTypedField(ownerRef, fieldRef);
+    }
+    if (!ModuleFunctionPlan.isModuleFieldsOwner(owner))
+      return null;
+    final origin = new StaticFieldOriginKey(owner.module, owner.name,
+      field.name);
+    final entry = target.moduleFunctionRequestPlan.entryForOrigin(origin);
+    if (entry == null) {
+      return CompilerDiagnostic.fail('GENES-MODULE-FUNCTION-OWNER-007: '
+        + '@:genes.moduleFunction on ${owner.name}.${field.name} did not '
+        + 'resolve to a retained generated function in this compilation',
+        field.pos);
+    }
+    return entry;
+  }
+
+  /** Validates final unaliasable collisions and returns emitter projection. */
   function get_moduleFunctionPlan(): ModuleFunctionPlan {
     if (moduleFunctionPlan == null)
       moduleFunctionPlan = ModuleFunctionPlan.build(this);
@@ -296,6 +338,7 @@ class Module {
       implementationProjection = null;
       tempPlan = null;
       localBindingPlan = null;
+      moduleFunctionRequestPlan = null;
       moduleFunctionPlan = null;
       namePlans.clear();
       cycleCache.clear();

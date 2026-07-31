@@ -145,7 +145,10 @@ function sourceLine(source: string, needle: string): number {
 function buildArguments(
   mode: "cold" | "warm",
   current: Profile,
-  port?: number
+  port?: number,
+  output = outputFile(mode, current),
+  extraDefines: ReadonlyArray<string> = [],
+  extraIncludes: ReadonlyArray<string> = []
 ): string[] {
   return [
     ...(port === undefined ? [] : ["--connect", `127.0.0.1:${port}`]),
@@ -153,10 +156,12 @@ function buildArguments(
     "-cp", `${fixtureRoot}/src`,
     "--main", "dynamicimportpolicy.Main",
     "--macro", "include('dynamicimportpolicy.Target')",
-    "-js", outputFile(mode, current),
+    ...extraIncludes.flatMap((name) => ["--macro", `include('${name}')`]),
+    "-js", output,
     "-D", "js-es=6",
     "-debug",
-    ...current.defines.flatMap((define) => ["-D", define])
+    ...current.defines.concat(extraDefines)
+      .flatMap((define) => ["-D", define])
   ];
 }
 
@@ -181,6 +186,9 @@ function assertRequest(mode: "cold" | "warm", current: Profile): void {
     : "var dynamicSelected = module.dynamicSelected";
   ok(source.includes(expectedLocal) && source.includes("dynamicSelected()"),
     `${current.name} did not bind the selected function from the lazy namespace`);
+  ok(source.includes("dynamicSelected_1")
+    && source.includes('"dynamic-handler-local"'),
+  `${current.name} did not alias the authored local away from the lazy binding`);
 
   const mapPath = `${moduleFile(mode, current)}.map`;
   ok(existsSync(mapPath), `${current.name} did not publish its source map`);
@@ -288,25 +296,81 @@ async function main(): Promise<void> {
     assertRequest("cold", current);
   }
 
+  const aliasIncludes = [
+    "dynamicimportpolicy.foo.MyClass",
+    "dynamicimportpolicy.bar.MyClass"
+  ];
+  const aliasTsOutput = `${generatedRoot}/aliases-ts/index.ts`;
+  execFileSync(haxeBinary,
+    buildArguments("cold", profile("ts"), undefined, aliasTsOutput,
+      ["dynamic_import_aliases"], aliasIncludes), {
+      cwd: repoRoot,
+      stdio: "inherit",
+      timeout: 60_000
+    });
+
   runGeneratedTypeScriptMatrix(
     "tests/dynamic-import-policy/tsconfig.json",
     { emit: false }
   );
   await runWarmSequence(haxeBinary);
 
-  const collision = spawnSync(haxeBinary, [
-    ...buildArguments("cold", profile("classic-js")),
-    "-D", "dynamic_import_binding_collision"
-  ], {
-    cwd: repoRoot,
-    encoding: "utf8",
-    timeout: 60_000
-  });
-  ok(collision.status !== 0,
-    "a selected function must not overwrite the lazy namespace parameter");
-  ok(`${collision.stdout}${collision.stderr}`.includes(
-    "GENES-DYNAMIC-IMPORT-BINDING-COLLISION-002"),
-  "dynamic handler-name collision reports its stable diagnostic");
+  const lastGoodClassic = hashTree(path.join(repoRoot,
+    outputRoot("cold", profile("classic-js"))));
+  for (const [define, why] of [
+    [
+      "dynamic_import_binding_collision",
+      "a selected function must not overwrite the lazy namespace parameter"
+    ],
+    [
+      "dynamic_import_type_collision",
+      "a selected function must not overwrite a loaded type alias"
+    ]
+  ] as const) {
+    const collision = spawnSync(haxeBinary,
+      buildArguments("cold", profile("classic-js"), undefined,
+        outputFile("cold", profile("classic-js")), [define], [
+          "dynamicimportpolicy.foo.MyClass"
+        ]), {
+        cwd: repoRoot,
+        encoding: "utf8",
+        timeout: 60_000
+      });
+    ok(collision.status !== 0, why);
+    ok(`${collision.stdout}${collision.stderr}`.includes(
+      "GENES-DYNAMIC-IMPORT-BINDING-COLLISION-002"),
+    `${define} reports its stable exact-binding diagnostic`);
+    deepStrictEqual(hashTree(path.join(repoRoot,
+      outputRoot("cold", profile("classic-js")))), lastGoodClassic,
+    `${define} preserves the complete last-known-good output tree`);
+  }
+
+  const aliasOutput = `${generatedRoot}/aliases/index.mjs`;
+  execFileSync(haxeBinary,
+    buildArguments("cold", profile("classic-mjs"), undefined, aliasOutput,
+      ["dynamic_import_aliases"], aliasIncludes), {
+      cwd: repoRoot,
+      stdio: "inherit",
+      timeout: 60_000
+    });
+  const aliasMain = readFileSync(path.join(repoRoot, generatedRoot, "aliases",
+    "dynamicimportpolicy", "Main.mjs"), "utf8");
+  ok(aliasMain.includes("var FooClass = modules[0].MyClass")
+    && aliasMain.includes("var BarClass = modules[1].MyClass"),
+  "dynamic imports preserve callback-local aliases separately from exports");
+  ok(aliasMain.includes("FooClass.label()")
+    && aliasMain.includes("BarClass.label()"),
+  "lazy static access consumes the planned callback aliases");
+  const aliasRuntime = execFileSync(process.execPath,
+    [path.join(repoRoot, aliasOutput)], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      timeout: 60_000
+    });
+  ok(aliasRuntime.includes("foo") && aliasRuntime.includes("bar")
+    && aliasRuntime.includes("foo-static")
+    && aliasRuntime.includes("bar-static"),
+    `Aliased lazy classes did not execute through their exact locals:\n${aliasRuntime}`);
 
   // `dynamicImport()` names the runtime chunk but does not add a static Haxe
   // dependency. `buildArguments()` therefore roots Target explicitly, just as
@@ -321,6 +385,8 @@ async function main(): Promise<void> {
     `Classic .mjs runtime did not load the current module:\n${runtime}`);
   ok(runtime.includes("dynamic-module-function-current"),
     `Classic .mjs runtime did not call the lazy module function:\n${runtime}`);
+  ok(runtime.includes("dynamic-handler-local"),
+    `Classic .mjs runtime did not preserve the authored handler local:\n${runtime}`);
 
   deepStrictEqual(
     leakedOutputStages(path.join(repoRoot, generatedRoot)),

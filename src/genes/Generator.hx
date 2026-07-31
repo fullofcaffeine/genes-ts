@@ -137,18 +137,19 @@ class Generator {
     for (type in api.types) {
       switch type {
         #if (haxe_ver >= 4.2)
-        case TInst(_.get() => {
-          kind: KModuleFields(_),
-          module: module,
-          statics: _.get() => fields
-        }, _):
+        case TInst(ownerRef, _)
+          if (ownerRef.get().kind.match(KModuleFields(_))):
+          final owner = ownerRef.get();
+          final module = owner.module;
+          final fields = owner.statics.get();
           for (field in fields) {
             // A selected genuine module field is exported by its own ESM
             // module. It is not a compilation-root barrel export: separate
             // modules may intentionally own the same conventional binding
             // (for example `render`) without competing globally.
-            if (field.meta.has(':expose')
-              && !field.meta.has(':genes.moduleFunction'))
+            final request = ModuleFunctionRequestPlan.fromTypedFieldValues(owner,
+              field);
+            if (field.meta.has(':expose') && request == null)
               export({
                 name: field.name,
                 pos: field.pos,

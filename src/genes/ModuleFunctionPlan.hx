@@ -6,6 +6,7 @@ import haxe.macro.Expr.Position;
 import haxe.macro.Expr.MetadataEntry;
 import haxe.macro.Type;
 import genes.Module.Field;
+import genes.BindingIdentity.StaticFieldOriginKey;
 import genes.NamePlan.NamePlanProfile;
 import genes.util.TypeUtil;
 
@@ -15,22 +16,27 @@ using haxe.macro.TypedExprTools;
 class ModuleFunctionEntry {
   public final owner: ClassType;
   public final field: Field;
+  public final origin: StaticFieldOriginKey;
   public final requestedName: String;
   public final requestedPos: Position;
   public final classPropertyName: String;
   public final publicExportName: Null<String>;
   public final hasExplicitPublicExport: Bool;
+  public final isSourceModuleBinding: Bool;
 
   public function new(owner: ClassType, field: Field, requestedName: String,
       requestedPos: Position, classPropertyName: String,
       publicExportName: Null<String>, hasExplicitPublicExport: Bool) {
     this.owner = owner;
     this.field = field;
+    this.origin = new StaticFieldOriginKey(owner.module, owner.name,
+      field.name);
     this.requestedName = requestedName;
     this.requestedPos = requestedPos;
     this.classPropertyName = classPropertyName;
     this.publicExportName = publicExportName;
     this.hasExplicitPublicExport = hasExplicitPublicExport;
+    this.isSourceModuleBinding = ModuleFunctionPlan.isModuleFieldsOwner(owner);
   }
 }
 
@@ -59,14 +65,16 @@ private typedef LexicalRejection = {
  * which case the genuine function is exported under that exact binding and
  * re-exported from the compilation root. The emitters retain a compiler-owned
  * method descriptor in the original class slot, then immediately replace only
- * its value. This plan owns metadata parsing, the intentionally narrow v1
- * eligibility contract, exact name collisions, and source positions; printers
- * only render validated facts.
+ * its value. The earlier `ModuleFunctionRequestPlan` owns metadata parsing and
+ * the intentionally narrow v1 eligibility contract. This final plan owns
+ * collisions against the completed module namespace; printers only render
+ * validated facts.
  *
- * How: dependency aliases and local names are finalized first, then one shared
- * inventory is compared with each requested binding in source order. Metadata
- * is not a DCE root: only post-DCE, emittable fields enter the plan. Raw target
- * syntax is rejected because it can conceal `this`, `super`, or `new.target`.
+ * How: dependency aliases and local names consume early exact requests first.
+ * Then one shared inventory is compared with each requested binding in source
+ * order. Metadata is not a DCE root: only post-DCE, emittable fields enter the
+ * request plan. Raw target syntax is rejected because it can conceal `this`,
+ * `super`, or `new.target`.
  * Ordinary private static calls and Haxe local statics remain valid: Genes does
  * not emit JavaScript `#private` syntax, and Haxe 4.3.7 lowers a local static to
  * an ordinary synthetic owner field before this plan runs.
@@ -82,7 +90,6 @@ class ModuleFunctionPlan {
   static final METADATA = ':genes.moduleFunction';
   static final DEFERRED_VALUE_METADATA = ':genes.moduleValue';
   static final EXPOSE_METADATA = ':expose';
-  static final DYNAMIC_IMPORT_FIELD_PREFIX = 'genes.module-function-field|';
 
   final entries: Array<ModuleFunctionEntry>;
 
@@ -95,66 +102,25 @@ class ModuleFunctionPlan {
     #end
   }
 
-  /**
-   * Returns the requested binding from one syntactically valid marker.
-   *
-   * Dependency and expression planning need this fact before the complete
-   * per-module plan can be built. Full validation, collisions, and diagnostics
-   * remain centralized in `build`; this helper never admits an invalid marker.
-   */
-  public static function requestedName(field: ClassField): Null<String> {
-    return requestedNameFromMetadata(field.meta);
-  }
-
-  /**
-   * Exact callback-local identity carried through `Genes.ignore`.
-   *
-   * A source module may also own unrelated static fields. Encoding owner,
-   * field, and validated binding keeps a lazy direct function from making
-   * every static accessor in that module bypass its normal import mapping.
-   * The separator is not legal in any admitted Haxe/module binding component.
-   */
-  public static function dynamicImportFieldToken(ownerModule: String,
-      ownerName: String, fieldName: String, requestedName: String): String {
-    return DYNAMIC_IMPORT_FIELD_PREFIX
-      + [ownerModule, ownerName, fieldName, requestedName].join('|');
-  }
-
-  /** Metadata-only form shared by normalized module-field planning. */
-  public static function requestedNameFromMetadata(meta: MetaAccess): Null<String> {
-    final entries = meta.extract(METADATA);
-    return switch entries {
-      case [{params: [{expr: EConst(CString(value))}]}]
-        if (value.length > 0 && IdentifierPolicy.isValidModuleBinding(value)):
-        value;
-      default:
-        null;
-    }
-  }
-
   public static function build(module: Module): ModuleFunctionPlan {
-    rejectDeferredModuleValues(module);
     final bindings = bindingInventory(module);
     final entries: Array<ModuleFunctionEntry> = [];
-    for (member in module.members) {
-      switch member {
-        case MClass(owner, _, fields):
-          for (field in Module.emittableFields(fields)) {
-            final metadata = field.meta == null ? [] : field.meta.extract(METADATA);
-            final exposeMetadata = field.meta == null ? [] : field.meta.extract(EXPOSE_METADATA);
-            if (metadata.length == 0)
-              continue;
-            final entry = parseAndValidate(owner, field, metadata, bindings,
-              fields, exposeMetadata);
-            entries.push(entry);
-            bindings.push({
-              name: entry.requestedName,
-              kind: 'module function ${owner.name}.${field.name}',
-              pos: entry.requestedPos
-            });
-          }
-        case MEnum(_, _) | MType(_, _) | MMain(_):
+    for (entry in module.moduleFunctionRequestPlan.completeEntries()) {
+      for (binding in bindings) {
+        if (binding.name != entry.requestedName)
+          continue;
+        CompilerDiagnostic.fail('GENES-MODULE-FUNCTION-COLLISION-005: "${entry.requestedName}" requested '
+          +
+          'by ${entry.owner.name}.${entry.field.name} collides with an existing '
+          + '${binding.kind}; choose another exact module binding',
+          entry.requestedPos);
       }
+      entries.push(entry);
+      bindings.push({
+        name: entry.requestedName,
+        kind: 'module function ${entry.owner.name}.${entry.field.name}',
+        pos: entry.requestedPos
+      });
     }
     return new ModuleFunctionPlan(entries);
   }
@@ -178,7 +144,7 @@ class ModuleFunctionPlan {
    * opened. A future value feature needs its own finite initialization
    * contract; it must not grow this function-relocation plan.
    */
-  static function rejectDeferredModuleValues(module: Module): Void {
+  public static function rejectDeferredModuleValues(module: Module): Void {
     for (member in module.members) {
       switch member {
         case MClass(owner, _, fields):
@@ -256,9 +222,8 @@ class ModuleFunctionPlan {
       || entry.hasExplicitPublicExport);
   }
 
-  static function parseAndValidate(owner: ClassType, field: Field,
-      metadata: Array<MetadataEntry>, bindings: Array<ModuleBindingFact>,
-      ownerFields: Array<Field>,
+  public static function parseRequest(owner: ClassType, field: Field,
+      metadata: Array<MetadataEntry>, ownerFields: Array<Field>,
       exposeMetadata: Array<MetadataEntry>): ModuleFunctionEntry {
     final first = metadata[0];
     if (metadata.length != 1 || first.params.length != 1) {
@@ -304,16 +269,6 @@ class ModuleFunctionPlan {
     }
 
     validateShape(owner, field, requestedName);
-    for (binding in bindings) {
-      if (binding.name != requestedName)
-        continue;
-      return
-        CompilerDiagnostic.fail('GENES-MODULE-FUNCTION-COLLISION-005: "${requestedName}" requested '
-        + 'by ${owner.name}.${field.name} collides with an existing '
-        + '${binding.kind}; choose another exact module binding',
-        parameter.pos);
-    }
-
     final classPropertyName = EmittedMemberName.staticField(owner, field);
     if (!IdentifierPolicy.isAsciiIdentifier(classPropertyName)
       || classPropertyName == 'prototype') {
@@ -543,7 +498,8 @@ class ModuleFunctionPlan {
           if (owner.kind.match(KModuleFields(_))) {
             for (field in Module.emittableFields(fields))
               if (field.isStatic && field.isPublic
-                && (field.meta == null || !field.meta.has(METADATA)))
+                && module.moduleFunctionRequestPlan.entryFor(owner,
+                  field) == null)
                 add(field.name, 'public module field ${field.name}', field.pos);
           }
           #end

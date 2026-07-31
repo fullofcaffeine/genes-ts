@@ -3,6 +3,9 @@ package genes;
 #if macro
 import haxe.macro.Type;
 import genes.util.TypeUtil;
+import genes.ModuleFunctionPlan.ModuleFunctionEntry;
+import genes.BindingIdentity.HaxeDeclarationKey;
+import genes.DynamicImportBindingPlan.DynamicImportBindingToken;
 
 using haxe.macro.TypedExprTools;
 using haxe.macro.TypeTools;
@@ -17,7 +20,8 @@ using haxe.macro.TypeTools;
  */
 enum RuntimeTypeOccurrence {
   RuntimeType(type: ModuleType);
-  DirectModuleFunction(owner: Ref<ClassType>, field: Ref<ClassField>);
+  DirectModuleFunction(owner: Ref<ClassType>, field: Ref<ClassField>,
+    request: ModuleFunctionEntry);
 }
 
 /**
@@ -38,8 +42,9 @@ enum RuntimeTypeOccurrence {
  */
 class RuntimeTypeOccurrenceCollector {
   public static function collect(expression: TypedExpr,
-      ?isDirectModuleFunction: (ClassType,
-      ClassField) -> Bool): Array<RuntimeTypeOccurrence> {
+      ?resolveDirectModuleFunction: (Ref<ClassType>,
+      Ref<ClassField>) ->
+        Null<ModuleFunctionEntry>): Array<RuntimeTypeOccurrence> {
     return switch expression {
       case null:
         [];
@@ -60,47 +65,50 @@ class RuntimeTypeOccurrenceCollector {
             }
         ];
         collect(call,
-          isDirectModuleFunction).concat(collect(body,
-            isDirectModuleFunction).filter(occurrence -> {
-              final name = switch occurrence {
-                case RuntimeType(TClassDecl(owner)):
-                  TInst(owner, []).toString();
-                case RuntimeType(TEnumDecl(owner)):
-                  TEnum(owner, []).toString();
-                case DirectModuleFunction(owner, fieldRef):
-                  final classType = owner.get();
-                  final field = fieldRef.get();
-                  final requested = ModuleFunctionPlan.requestedName(field);
-                  requested == null ? null : ModuleFunctionPlan.dynamicImportFieldToken(classType.module,
-                    classType.name, field.name, requested);
-                default:
-                  null;
-              };
-              return name == null || names.indexOf(name) < 0;
+          resolveDirectModuleFunction).concat(collect(body,
+            resolveDirectModuleFunction).filter(occurrence -> {
+              for (name in names) {
+                final token = DynamicImportBindingPlan.decode(name);
+                final matches = switch [token, occurrence] {
+                  case [Declaration(kind, module, declarationName, _,
+                    _), RuntimeType(type)]: final key = HaxeDeclarationKey.fromModuleType(type); Std.string(key.kind) == kind && key.module == module && key.name == declarationName;
+                  case [
+                    StaticField(ownerModule, ownerName, fieldName, _, _),
+                    DirectModuleFunction(_, _, request)
+                  ]: request.origin.ownerModule == ownerModule && request.origin.ownerName == ownerName && request.origin.fieldName == fieldName;
+                  default:
+                    false;
+                };
+                if (matches)
+                  return false;
+              }
+              return true;
             }));
       case {
         expr: TField(_, FStatic(owner, field))
       }
-        if (isDirectModuleFunction != null
-          && isDirectModuleFunction(owner.get(), field.get())):
-        [DirectModuleFunction(owner, field)];
+        if (resolveDirectModuleFunction != null
+          && resolveDirectModuleFunction(owner, field) != null):
+        [DirectModuleFunction(owner, field,
+          resolveDirectModuleFunction(owner, field))];
       case {expr: TTypeExpr(type)}:
         [RuntimeType(type)];
       case {expr: TNew(owner, _, arguments)}:
         var result = [RuntimeType(TClassDecl(owner))];
         for (argument in arguments)
-          result = result.concat(collect(argument, isDirectModuleFunction));
+          result = result.concat(collect(argument,
+            resolveDirectModuleFunction));
         result;
       case {expr: TCast(inner, null)}:
-        collect(inner, isDirectModuleFunction);
+        collect(inner, resolveDirectModuleFunction);
       case {expr: TCast(inner, target)}:
         collect(inner,
-          isDirectModuleFunction)
+          resolveDirectModuleFunction)
           .concat([RuntimeType(target), RuntimeType(TypeUtil.bootType)]);
       case other:
         var result = [];
         other.iter(child -> {
-          result = result.concat(collect(child, isDirectModuleFunction));
+          result = result.concat(collect(child, resolveDirectModuleFunction));
         });
         result;
     }

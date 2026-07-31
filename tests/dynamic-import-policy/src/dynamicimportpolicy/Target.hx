@@ -10,8 +10,21 @@ function dynamicSelected(): String {
 
 #if dynamic_import_binding_collision
 /** Negative control for the generated lazy-handler namespace parameter. */
+@:expose("module")
 @:genes.moduleFunction("module")
 function reservedHandlerBinding(): String {
+  return "must-not-compile";
+}
+#end
+
+#if dynamic_import_type_collision
+/**
+ * Negative control: the exact direct binding collides with a loaded type alias
+ * in the generated lazy callback.
+ */
+@:expose("LazyType")
+@:genes.moduleFunction("LazyType")
+function lazyTypeBinding(): String {
   return "must-not-compile";
 }
 #end

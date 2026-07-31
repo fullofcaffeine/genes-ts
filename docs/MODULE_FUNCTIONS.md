@@ -222,6 +222,33 @@ The callback carrier records the selected function's exact Haxe owner and field,
 so an unrelated static field from the same source module still uses its normal
 collision-safe import mapping.
 
+Lazy callback names are planned separately from namespace export names. This
+matters when two modules export the same declaration name but Haxe imports
+them under different aliases:
+
+```haxe
+import reports.foo.MyClass as FooClass;
+import reports.bar.MyClass as BarClass;
+
+Genes.dynamicImport((FooClass, BarClass) -> {
+	trace(new FooClass());
+	trace(new BarClass());
+});
+```
+
+Representative generated setup:
+
+```js
+var FooClass = modules[0].MyClass;
+var BarClass = modules[1].MyClass;
+```
+
+`FooClass` and `BarClass` are the callback-local bindings. `MyClass` is the
+export read from each resolved namespace. Genes records both facts with the
+exact Haxe declaration identity. If a selected lazy function also requests
+`FooClass`, Genes reports `GENES-DYNAMIC-IMPORT-BINDING-COLLISION-002` instead
+of overwriting the class binding.
+
 The two metadata names must match. This v1 constraint keeps the local binding,
 public name, stack name, analyzer identity, and declaration surface aligned.
 `@:expose` with no argument uses the Haxe field name. A class-member
@@ -502,8 +529,14 @@ uses away from the JavaScript global or absence value they mean. Genes never
 sanitizes or suffixes the requested name: analyzer conventions may depend on
 that exact spelling.
 
-Collision validation runs after import aliases and local-name plans are known.
-It checks real module types and fields, imports in both projections,
+Genes plans direct functions in two stages. An early request plan validates the
+exact typed owner and field, requested binding, public name, function shape,
+and relocation safety. Import and local-name allocators consume those fixed
+facts. A later final plan checks the completed, unaliasable module namespace.
+This split prevents printers and dependency collectors from rediscovering
+meaning from a metadata string after names have already been allocated.
+
+Collision validation checks real module types and fields, imports in both projections,
 module-scope locals and compiler temporaries, JSON support aliases, private
 lowered helpers, other selected functions, and compiler-owned bindings. Members
 of a generated value do not reserve unrelated top-level names: for example, an
@@ -512,13 +545,15 @@ called `Ready`. A collision reports the requested name, owner field, and prior
 binding kind at the metadata source position. It does not silently rename an
 unrelated import.
 
-Haxe import aliases are also preserved when a foreign direct function shares a
-name with an ordinary local module field:
+Aliasable imports yield to a fixed source-module binding, including when the
+requested ESM name differs from the authored Haxe field name:
 
 ```haxe
-import other.Values.value as importedValue;
+import other.Values.renamedBinding as foreignBinding;
 
-function value():String {
+@:expose("renamedBinding")
+@:genes.moduleFunction("renamedBinding")
+function authoredLocalName():String {
 	return "local";
 }
 ```
@@ -526,14 +561,48 @@ function value():String {
 Representative generated output:
 
 ```ts
-import {value as value__1} from "./other/Values.js";
+import {renamedBinding as renamedBinding__1} from "./other/Values.js";
 
-export const value = /* the ordinary local Haxe module field */;
+export function renamedBinding(): string {
+  return "local";
+}
 ```
 
-Genes renames only the importing module's local import binding. The foreign
-module still exports its exact requested name, and the local module still owns
-its authored public field name.
+Genes renames only the foreign import's local spelling. Both source modules
+keep their exact requested export names.
+
+Haxe locals and parameters are also aliasable. JavaScript `let` and `const`
+bindings shadow an entire block, even before their declaration, so this Haxe:
+
+```haxe
+final before = selected();
+final selected = "local";
+```
+
+must not become `const before = selected(); const selected = "local";`. The
+second declaration would place the local `selected` in JavaScript's temporal
+dead zone at the first line. Genes reserves the exact direct binding before
+allocating parameters and locals, then renames only the Haxe local:
+
+```ts
+const before = selected();
+const selected_1 = "local";
+```
+
+This decision uses the exact static-field occurrence and exact Haxe `TVar`
+identity. It does not inspect generated text or move either expression.
+
+An extern marker fails before dependency or output planning:
+
+```haxe
+@:genes.moduleFunction("externalSelected")
+extern function externalSelected():String;
+```
+
+An extern has no generated body or owner module, so Genes reports
+`GENES-MODULE-FUNCTION-OWNER-007`. It never manufactures an internal import to
+a file that cannot exist. Ordinary extern functions without this metadata,
+including supported `@:jsRequire` fields, retain their existing behavior.
 
 Public member exports apply the same identifier policy to `@:expose`. They also
 participate in the compilation-root export inventory, so a collision with an

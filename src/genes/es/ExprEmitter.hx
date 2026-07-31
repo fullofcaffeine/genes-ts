@@ -27,6 +27,8 @@ import genes.JsxPlan.JsxValueSource;
 import genes.TemplateLiteralPlan;
 import genes.TemplateLiteralPlan.TemplateLiteralIntent;
 import genes.ModuleFunctionPlan;
+import genes.DynamicImportBindingPlan;
+import genes.DynamicImportBindingPlan.DynamicImportBindingToken;
 import genes.IdentifierPolicy;
 import genes.util.TypeUtil.*;
 import genes.util.IteratorUtil.*;
@@ -138,10 +140,10 @@ class ExprEmitter extends Emitter {
    * resolves. Exact import lookup must not reject those values or accidentally
    * add a top-level ESM import that defeats code splitting.
    *
-   * What/How: the existing `Genes.ignore([full names], body)` carrier names the
-   * declarations that are local only inside `body`. This method scopes that
-   * compiler-owned list while emitting the body. Every other type expression
-   * still requires an exact origin-to-binding mapping.
+   * What/How: `Genes.ignore([binding tokens], body)` carries the exact
+   * declaration or static-field origin plus its planned callback-local name.
+   * This method scopes that compiler-owned list while emitting the body. Every
+   * other type expression still requires an exact origin-to-binding mapping.
    */
   function withDirectImportLocals(names: TypedExpr, emit: Void->Void): Void {
     final previous = directImportLocals;
@@ -170,32 +172,23 @@ class ExprEmitter extends Emitter {
 
   /** Returns the callback-local spelling for an exact dynamic-import origin. */
   function directImportLocalName(type: TypeAccessor): Null<String> {
-    return switch type {
-      case ImportedDeclaration(key, fallbackName, _, _, _):
-        final moduleParts = key.module.split('.');
-        moduleParts.pop();
-        final sourceName = moduleParts.concat([key.name]).join('.');
-        final qualifiedModuleName = key.module + '.' + key.name;
-        directImportLocals.indexOf(key.module) != -1
-          || directImportLocals.indexOf(sourceName) != -1
-          || directImportLocals.indexOf(qualifiedModuleName) != -1
-          ? fallbackName
-          : null;
-      case ImportedStaticField(key, fallbackName, _):
-        directImportLocals.indexOf(
-          ModuleFunctionPlan.dynamicImportFieldToken(key.ownerModule,
-            key.ownerName, key.fieldName, fallbackName)) != -1
-          ? fallbackName
-          : null;
-      default: null;
+    for (encoded in directImportLocals) {
+      final token = DynamicImportBindingPlan.decode(encoded);
+      switch [type, token] {
+        case [ImportedDeclaration(key, _, _, _, _),
+            Declaration(kind, module, name, localName, _)]
+          if (Std.string(key.kind) == kind && key.module == module
+            && key.name == name):
+          return localName;
+        case [ImportedStaticField(key, _, _),
+            StaticField(ownerModule, ownerName, fieldName, localName, _)]
+          if (key.ownerModule == ownerModule && key.ownerName == ownerName
+            && key.fieldName == fieldName):
+          return localName;
+        default:
+      }
     }
-  }
-
-  function isDirectImportLocal(type: ModuleType): Bool {
-    final base = DependencyPlan.moduleTypeBase(type);
-    final declaredName = base.pack.concat([base.name]).join('.');
-    return directImportLocals.indexOf(declaredName) != -1
-      || directImportLocals.indexOf(baseTypeFullName(base)) != -1;
+    return null;
   }
 
   /**
@@ -466,16 +459,18 @@ class ExprEmitter extends Emitter {
         });
       case TField(_, FStatic(owner, _.get() => field)) if (field.meta.has(':jsRequire')):
         emitJsRequireField(owner.get(), field);
-      case TField(_, FStatic(ownerRef, _.get() => field))
-        if (ModuleFunctionPlan.isModuleFieldsOwner(ownerRef.get())
-          && ModuleFunctionPlan.requestedName(field) != null):
+      case TField(_, FStatic(ownerRef, fieldRef))
+        if (currentModule != null
+          && currentModule.resolveModuleFunction(ownerRef,
+            fieldRef)?.isSourceModuleBinding == true):
         final owner = ownerRef.get();
-        final requestedName = ModuleFunctionPlan.requestedName(field);
-        if (currentModule != null && owner.module == currentModule.module)
-          write(requestedName);
+        final field = fieldRef.get();
+        final request = currentModule.resolveModuleFunction(ownerRef, fieldRef);
+        if (owner.module == currentModule.module)
+          write(request.requestedName);
         else
           write(ctx.typeAccessor(TypeAccessor.forStaticFieldBinding(owner,
-            field, requestedName)));
+            field, request.requestedName)));
       case TField(_, FStatic(_.get() => {
         pack: [],
         name: ''
@@ -502,10 +497,7 @@ class ExprEmitter extends Emitter {
             emitField(fieldName(f));
         }
       case TTypeExpr(t):
-        if (isDirectImportLocal(t))
-          write(baseTypeName(DependencyPlan.moduleTypeBase(t)));
-        else
-          write(ctx.typeAccessor(t));
+        write(ctx.typeAccessor(t));
       case TParenthesis(e1):
         write('(');
         emitValue(e1);
