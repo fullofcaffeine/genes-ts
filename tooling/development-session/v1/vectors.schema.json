@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://genes-ts.dev/schemas/development-session-vectors-v1.json",
+  "title": "Genes tooling development-session conformance vectors v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "version", "vectors"],
+  "properties": {
+    "protocol": {
+      "const": "genes.tooling.development-session-vectors"
+    },
+    "version": { "const": 1 },
+    "vectors": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/vector" }
+    }
+  },
+  "$defs": {
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "scriptStep": {
+      "enum": [
+        "start",
+        "recovery-none",
+        "recovery-committed",
+        "watch-registered",
+        "input-change",
+        "input-burst-20",
+        "build-started",
+        "compile-connected",
+        "compile-direct",
+        "compile-failed",
+        "inventory-failed-fatal",
+        "candidate-generated",
+        "validate-accepted",
+        "validate-rejected",
+        "reconcile-current",
+        "reconcile-superseded",
+        "publish-succeeded",
+        "publish-unchanged",
+        "publish-failed",
+        "compiler-fallback-unresponsive",
+        "client-subscribed-buffering",
+        "client-inspected",
+        "read-acquired",
+        "read-released",
+        "close",
+        "close-again"
+      ]
+    },
+    "eventKind": {
+      "enum": [
+        "state",
+        "inputs-changed",
+        "build-started",
+        "candidate-generated",
+        "candidate-superseded",
+        "generation-accepted",
+        "failed",
+        "compiler-lifecycle",
+        "closed"
+      ]
+    },
+    "stateKind": {
+      "enum": [
+        "opening",
+        "building",
+        "blocked",
+        "ready",
+        "degraded",
+        "closing",
+        "closed"
+      ]
+    },
+    "eventRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "count"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/eventKind" },
+        "count": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "expected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "finalState",
+        "revisionsObserved",
+        "acceptedGenerations",
+        "acceptedRevision",
+        "retainedGeneration",
+        "firstAccepted",
+        "publicationAttempts",
+        "publicWrites",
+        "readBarrier",
+        "eventRuns",
+        "stateKinds",
+        "eventChecks",
+        "snapshot"
+      ],
+      "properties": {
+        "finalState": { "$ref": "#/$defs/stateKind" },
+        "revisionsObserved": { "type": "integer", "minimum": 0 },
+        "acceptedGenerations": { "type": "integer", "minimum": 0 },
+        "acceptedRevision": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "retainedGeneration": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "firstAccepted": {
+          "enum": ["resolved", "pending", "rejected"]
+        },
+        "publicationAttempts": { "type": "integer", "minimum": 0 },
+        "publicWrites": { "type": "integer", "minimum": 0 },
+        "readBarrier": {
+          "enum": ["not-exercised", "publication-waited-for-reader"]
+        },
+        "eventRuns": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/eventRun" }
+        },
+        "stateKinds": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/stateKind" }
+        },
+        "eventChecks": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://genes-ts.dev/schemas/development-session-event-v1.json#/$defs/developmentEvent"
+          }
+        },
+        "snapshot": {
+          "$ref": "https://genes-ts.dev/schemas/development-session-event-v1.json#/$defs/developmentSnapshot"
+        }
+      }
+    },
+    "vector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "family",
+        "covers",
+        "description",
+        "script",
+        "expected"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/slug" },
+        "family": {
+          "enum": [
+            "startup",
+            "admission",
+            "scheduling",
+            "compiler",
+            "publication",
+            "shutdown"
+          ]
+        },
+        "covers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/slug" }
+        },
+        "description": { "type": "string", "minLength": 1 },
+        "script": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/scriptStep" }
+        },
+        "expected": { "$ref": "#/$defs/expected" }
+      }
+    }
+  }
+}

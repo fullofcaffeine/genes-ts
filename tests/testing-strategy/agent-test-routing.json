@@ -2322,6 +2322,66 @@
       ]
     },
     {
+      "id": "host-tooling",
+      "packageScript": "test:host-tooling",
+      "runnerTokens": [
+        "yarn test:artifact-tooling",
+        "yarn test:tooling-package"
+      ],
+      "tier": "focused-aggregate",
+      "cost": "fast",
+      "axes": [
+        "genes-product",
+        "repository-policy"
+      ],
+      "profiles": [
+        "repository"
+      ],
+      "evidence": [
+        "runtime",
+        "package-shape",
+        "policy",
+        "transaction"
+      ],
+      "ownerPaths": [
+        "tooling",
+        "scripts/test-tooling-package.ts",
+        "config/tooling-package-files.json"
+      ],
+      "proves": "The framework-neutral host-tooling runtime, versioned protocol corpora, public TypeScript surface, and deterministic packed consumer remain coherent.",
+      "doesNotProve": "The tooling gate does not start a framework server, choose an application validator, or replace compiler output-profile evidence.",
+      "owners": [
+        "tooling",
+        "scripts/test-tooling-package.ts",
+        "config/tooling-package-files.json"
+      ],
+      "families": [
+        "tooling",
+        "runtime",
+        "package",
+        "publication"
+      ],
+      "capabilities": [
+        "runtime",
+        "package-shape",
+        "policy",
+        "transaction"
+      ],
+      "ring": "R0",
+      "size": "small",
+      "alwaysRun": false,
+      "timeoutSeconds": 300,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:host-tooling",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/host-tooling.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
       "id": "test-plan-validation",
       "packageScript": "test:agent-test-routing",
       "tier": "focused",
@@ -3023,6 +3083,33 @@
       ]
     },
     {
+      "id": "host-tooling-lifecycle",
+      "changeArea": "Framework-neutral HXML inventory, watching, rebuild scheduling, owned Haxe servers, artifact publication, or admitted-generation sessions",
+      "focusedChoices": [
+        {
+          "gate": "host-tooling",
+          "when": "the optional Node tooling runtime, protocol vectors, public API, or package boundary changes"
+        }
+      ],
+      "inspect": [
+        "versioned protocol/vector identities",
+        "structured lifecycle facts",
+        "packed public TypeScript and runtime exports"
+      ],
+      "then": [
+        "test-plan-validation"
+      ],
+      "finishWith": [
+        "full-ci"
+      ],
+      "escalateWhen": [
+        "process ownership changes",
+        "publication or recovery ordering changes",
+        "a framework concept enters the shared API",
+        "an event or path loses deterministic machine-readable identity"
+      ]
+    },
+    {
       "id": "compiler-process-lifecycle",
       "changeArea": "Persistent macro state, callbacks, compiler-server requests, profile switching, or output-root switching",
       "focusedChoices": [
@@ -3308,6 +3395,19 @@
     ]
   },
   "impactRules": [
+    {
+      "id": "host-tooling",
+      "patterns": [
+        "tooling/**",
+        "scripts/test-tooling-package.ts",
+        "config/tooling-package-files.json"
+      ],
+      "selects": [
+        "host-tooling"
+      ],
+      "reason": "Framework-neutral host tooling changes require their runtime, protocol, clean-consumer, and deterministic package evidence.",
+      "expansion": "affected"
+    },
     {
       "id": "compiler-core",
       "patterns": [

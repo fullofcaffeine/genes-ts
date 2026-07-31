@@ -10,16 +10,72 @@ It is not the Genes compiler, a compiler runtime, or a framework integration:
 - Haxe programs do not import it.
 - Generated TypeScript and JavaScript do not depend on it.
 - `genes.Generator` and `tools/ts2hx` do not depend on it.
-- Framework adapters still own their commands, diagnostics, dev servers,
-  validation, and “last good” policy.
+- Framework adapters still own their commands, diagnostics, dev servers, and
+  validation policy. The admitted-generation session owns the generic
+  mechanics that keep the last validated generation public.
 
 For example, NextJsHx and WordPressHx can share the mechanics of watching Haxe
 inputs and safely running `haxe --wait`, while keeping Next.js and WordPress
 behavior in their own repositories.
 
+## New here? Start with three actors
+
+You do not need to know the implementation classes before using this package.
+The development workflow has three actors:
+
+1. **Haxe and Genes** read authored `.hx` files and generate TypeScript or
+   JavaScript.
+2. **Genes tooling** notices relevant changes, prevents overlapping builds,
+   reuses only a compiler process it owns, and moves complete accepted files
+   into place safely.
+3. **The host** is your application command or framework adapter. It chooses
+   the Haxe command, decides whether generated output is valid, starts any
+   application or framework runtime, and presents diagnostics.
+
+A **candidate** is a complete generated tree kept in a private directory. The
+host checks it before an application runtime or another consumer can read it.
+**Admission** means that check passed. **Publication** means tooling replaced
+the public generated tree with the admitted candidate through a recoverable
+file transaction.
+
+That separation is why a broken edit does not have to break the running app:
+
+```text
+authored edit
+  -> private candidate
+  -> host validation
+       pass: publish and notify the host
+       fail: keep the previous public generation
+```
+
+An HXML file is Haxe's build-argument file. It names class paths, libraries,
+resources, defines, and other inputs. `inventoryHxml` reads that declared graph
+so the host does not guess which files affect a build.
+
+If you only run Haxe once in CI, keep doing that; this package is for a
+long-lived development process. If you are building such a process today, the
+five primitive subpaths below are implemented and tested. The session subpath
+currently supplies the reviewed v1 types and conformance data; its runtime
+factory lands in the next focused change.
+
+### Pick the reading path that matches your job
+
+- **I maintain an application:** start with “When to use it,” then let your
+  framework command own validation and server behavior. You should not need to
+  understand watcher or process internals.
+- **I am building a host adapter:** read the actor boundary above, then the
+  [development-session v1 contract](development-session/v1/README.md). Treat
+  its events as facts; do not scrape human terminal output.
+- **I am changing Genes tooling:** read [`AGENTS.md`](AGENTS.md), then the
+  closest implementation and conformance directories for the responsibility
+  you are changing.
+- **I am an automation or AI agent:** use stable protocol/version IDs and wait
+  methods. Record the accepted `generation`, its source `revision`, and the
+  manifest digest; never infer success from elapsed time or a file appearing.
+
 ## The development loop it supports
 
-The five public areas fit together like this:
+The existing public primitives fit together like this:
 
 ```text
 HXML inventory
@@ -42,6 +98,48 @@ watch/loop pair, or only the owned Haxe server.
 | `@genes-ts/tooling/haxe-server` | Owns and safely reuses one compatible `haxe --wait` process | Haxe discovery, compiler arguments, diagnostics, and compatibility identity |
 | `@genes-ts/tooling/artifacts` | Publishes an exact authorized file transition with crash recovery | Generation, validation, file ownership, and adoption policy |
 
+The `@genes-ts/tooling/session` subpath now defines the public
+`DevelopmentSession` v1 types, and `development-session/v1` publishes its JSON
+event schema and conformance vectors. The runtime factory is intentionally not
+part of this first protocol change; it will compose the five proven primitives
+only after this lifecycle contract is reviewed.
+
+That session contract moves generic last-good mechanics into tooling while the
+host keeps the important policy decision:
+
+```text
+complete private candidate
+  -> host validator accepts or rejects it
+  -> tooling rejects a known-superseded candidate
+  -> tooling publishes the admitted tree
+  -> host reacts to one structured accepted-generation event
+```
+
+The event envelope is versioned and JSON-serializable. Monotonic sequence,
+revision, and generation numbers plus `firstAccepted`, `waitForIdle()`,
+`inspect()`, `reconcile()`, and idempotent `close()` let AI agents and other
+automation coordinate the loop without parsing ANSI logs or guessing with
+sleeps. See [`development-session/v1/README.md`](development-session/v1/README.md).
+
+A quick mental model for the three counters is:
+
+| Counter | What changes it | What it tells you |
+| --- | --- | --- |
+| `sequence` | Every emitted event | The exact order in which this session reported facts |
+| `revision` | A newly observed input state | Which authored/configuration state a build represents |
+| `generation` | Successful validation and publication | Which complete public tree a host may safely consume |
+
+For example, revision 2 can fail while generation 1 stays public. A repaired
+revision 3 can then become generation 2. This is expected recovery, not a
+counter mismatch.
+
+The accepted-generation event deliberately says nothing about how a framework
+must react. A browser host can request hot replacement or a reload; a desktop,
+mobile, server, or embedded host can refresh its own runtime or restart when
+its policy requires it. The generic session remains reusable because it owns
+only the validated file transition and structured lifecycle—not any
+framework's transport, module graph, device connection, or process policy.
+
 ## When to use it
 
 Use this package when you are building a long-running Node-based host around
@@ -63,6 +161,29 @@ has a concrete watch, warm-compilation, or publication requirement.
 The package is currently developed and tested inside the Genes repository; it
 has not been published to npm. npm publication is intentionally deferred until
 a real external host is ready to adopt a reviewed version.
+
+The session subpath currently exports its protocol types and constants only.
+Do not advertise or call `createGenesDevelopmentSession` until the separate
+implementation change adds and validates that runtime factory.
+
+### Guidance for agents in consuming repositories
+
+An `AGENTS.md` inside Genes or this npm package does not automatically govern a
+different repository. Agent instructions follow the consuming file's parent
+directories; they do not follow npm, Lix, or Git dependency edges.
+
+The later `genes watch` delivery therefore also owns an explicit,
+non-destructive install/check flow for a versioned Genes block in each
+consumer's repository-root `AGENTS.md`. It will create the file when missing or
+replace only its own marked block, preserve project-authored instructions, fail
+closed on malformed/duplicate markers, and never modify a checkout from npm
+`postinstall`. Frameworks may add narrower scoped guidance below the root, but
+that does not replace the generic Genes lifecycle rules.
+
+Until that managed flow ships, application maintainers must document their
+Genes command and ownership boundary in the consuming repository themselves;
+dependency-local instructions are useful reference material, not inherited
+policy.
 
 Repository development uses:
 

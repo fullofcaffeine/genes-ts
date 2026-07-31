@@ -25,9 +25,16 @@
       "types": "./dist/artifacts/index.d.ts",
       "import": "./dist/artifacts/index.js"
     },
+    "./development-session/v1/protocol.schema.json": "./development-session/v1/protocol.schema.json",
+    "./development-session/v1/vectors.schema.json": "./development-session/v1/vectors.schema.json",
+    "./development-session/v1/vectors.json": "./development-session/v1/vectors.json",
     "./loop": {
       "types": "./dist/loop/index.d.ts",
       "import": "./dist/loop/index.js"
+    },
+    "./session": {
+      "types": "./dist/session/index.d.ts",
+      "import": "./dist/session/index.js"
     },
     "./hxml": {
       "types": "./dist/hxml/index.d.ts",
@@ -72,6 +79,12 @@
     "dist/haxe-server/**/*.d.ts.map",
     "dist/haxe-server/**/*.js",
     "dist/haxe-server/**/*.js.map",
+    "dist/session/**/*.d.ts",
+    "dist/session/**/*.d.ts.map",
+    "dist/session/**/*.js",
+    "dist/session/**/*.js.map",
+    "development-session/v1/*.json",
+    "development-session/v1/README.md",
     "haxe-wait-server/v1/*.json",
     "haxe-wait-server/v1/README.md",
     "dist/watch/**/*.d.ts",
@@ -87,11 +100,12 @@
   "scripts": {
     "build": "tsc6 -p tsconfig.json",
     "prepare": "npm run build",
-    "test": "yarn build && node dist/test.js && node dist/vector-test.js && node dist/loop-test.js && node dist/hxml-test.js && node dist/watch-test.js && node dist/watch-vector-test.js && node dist/haxe-server-test.js && node dist/haxe-server-vector-test.js",
+    "test": "yarn build && node dist/test.js && node dist/vector-test.js && node dist/loop-test.js && node dist/hxml-test.js && node dist/watch-test.js && node dist/watch-vector-test.js && node dist/haxe-server-test.js && node dist/haxe-server-vector-test.js && node dist/session-vector-test.js",
     "pack:check": "yarn build && node ../scripts/dist/test-tooling-package.js"
   },
   "devDependencies": {
     "@types/node": "20.19.30",
+    "ajv": "8.20.0",
     "typescript": "npm:@typescript/typescript6@6.0.2"
   },
   "publishConfig": {
