@@ -11,3 +11,5 @@ it.
 - Add reconciled filesystem watching and serialized dirty-run orchestration.
 - Add owned Haxe `--wait` server lifecycle management.
 - Publish versioned conformance vectors for host implementations.
+- Define the versioned, automation-friendly DevelopmentSession lifecycle,
+  event schema, and conformance scenarios ahead of its runtime implementation.

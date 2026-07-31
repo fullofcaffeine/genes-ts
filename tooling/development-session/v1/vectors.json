@@ -1,0 +1,2507 @@
+{
+  "protocol": "genes.tooling.development-session-vectors",
+  "version": 1,
+  "vectors": [
+    {
+      "id": "recovery-before-initial-build",
+      "family": "startup",
+      "covers": [
+        "recovery-before-watch",
+        "current-session-admission"
+      ],
+      "description": "Interrupted publication is recovered before watch registration, but the current session still requires its own admitted initial build.",
+      "script": [
+        "start",
+        "recovery-committed",
+        "watch-registered",
+        "build-started",
+        "compile-connected",
+        "candidate-generated",
+        "validate-accepted",
+        "reconcile-current",
+        "publish-succeeded"
+      ],
+      "expected": {
+        "finalState": "ready",
+        "revisionsObserved": 1,
+        "acceptedGenerations": 1,
+        "acceptedRevision": 1,
+        "retainedGeneration": 1,
+        "firstAccepted": "resolved",
+        "publicationAttempts": 1,
+        "publicWrites": 1,
+        "readBarrier": "not-exercised",
+        "eventRuns": [
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "build-started",
+            "count": 1
+          },
+          {
+            "kind": "candidate-generated",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "generation-accepted",
+            "count": 1
+          }
+        ],
+        "stateKinds": [
+          "building",
+          "ready"
+        ],
+        "snapshot": {
+          "state": {
+            "kind": "ready",
+            "accepted": {
+              "generation": 1,
+              "revision": 1,
+              "acceptedAt": 1000004,
+              "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+              "compilerMode": "connected",
+              "files": {
+                "created": [
+                  "src-gen/index.ts"
+                ],
+                "updated": [],
+                "deleted": []
+              },
+              "entryChanged": true
+            }
+          },
+          "lastSequence": 5,
+          "newestRevision": 1,
+          "accepted": {
+            "generation": 1,
+            "revision": 1,
+            "acceptedAt": 1000004,
+            "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+            "compilerMode": "connected",
+            "files": {
+              "created": [
+                "src-gen/index.ts"
+              ],
+              "updated": [],
+              "deleted": []
+            },
+            "entryChanged": true
+          },
+          "lastCompilerEvent": null
+        },
+        "eventChecks": [
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 3,
+            "at": 1000003,
+            "event": {
+              "kind": "candidate-generated",
+              "revision": 1,
+              "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111"
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 4,
+            "at": 1000004,
+            "event": {
+              "kind": "state",
+              "state": {
+                "kind": "ready",
+                "accepted": {
+                  "generation": 1,
+                  "revision": 1,
+                  "acceptedAt": 1000004,
+                  "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                  "compilerMode": "connected",
+                  "files": {
+                    "created": [
+                      "src-gen/index.ts"
+                    ],
+                    "updated": [],
+                    "deleted": []
+                  },
+                  "entryChanged": true
+                }
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 5,
+            "at": 1000005,
+            "event": {
+              "kind": "generation-accepted",
+              "accepted": {
+                "generation": 1,
+                "revision": 1,
+                "acceptedAt": 1000004,
+                "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                "compilerMode": "connected",
+                "files": {
+                  "created": [
+                    "src-gen/index.ts"
+                  ],
+                  "updated": [],
+                  "deleted": []
+                },
+                "entryChanged": true
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "initial-compile-failure-repairs",
+      "family": "admission",
+      "covers": [
+        "initial-blocked",
+        "compile-failure",
+        "repair-without-restart"
+      ],
+      "description": "An initial compiler failure publishes nothing, keeps firstAccepted pending, and a later valid revision becomes generation 1.",
+      "script": [
+        "start",
+        "recovery-none",
+        "watch-registered",
+        "build-started",
+        "compile-failed",
+        "input-change",
+        "build-started",
+        "compile-connected",
+        "candidate-generated",
+        "validate-accepted",
+        "reconcile-current",
+        "publish-succeeded"
+      ],
+      "expected": {
+        "finalState": "ready",
+        "revisionsObserved": 2,
+        "acceptedGenerations": 1,
+        "acceptedRevision": 2,
+        "retainedGeneration": 1,
+        "firstAccepted": "resolved",
+        "publicationAttempts": 1,
+        "publicWrites": 1,
+        "readBarrier": "not-exercised",
+        "eventRuns": [
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "build-started",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "failed",
+            "count": 1
+          },
+          {
+            "kind": "inputs-changed",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "build-started",
+            "count": 1
+          },
+          {
+            "kind": "candidate-generated",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "generation-accepted",
+            "count": 1
+          }
+        ],
+        "stateKinds": [
+          "building",
+          "blocked",
+          "building",
+          "ready"
+        ],
+        "snapshot": {
+          "state": {
+            "kind": "ready",
+            "accepted": {
+              "generation": 1,
+              "revision": 2,
+              "acceptedAt": 1000009,
+              "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+              "compilerMode": "connected",
+              "files": {
+                "created": [
+                  "src-gen/index.ts"
+                ],
+                "updated": [],
+                "deleted": []
+              },
+              "entryChanged": true
+            }
+          },
+          "lastSequence": 10,
+          "newestRevision": 2,
+          "accepted": {
+            "generation": 1,
+            "revision": 2,
+            "acceptedAt": 1000009,
+            "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+            "compilerMode": "connected",
+            "files": {
+              "created": [
+                "src-gen/index.ts"
+              ],
+              "updated": [],
+              "deleted": []
+            },
+            "entryChanged": true
+          },
+          "lastCompilerEvent": null
+        },
+        "eventChecks": [
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 4,
+            "at": 1000004,
+            "event": {
+              "kind": "failed",
+              "failure": {
+                "phase": "compile",
+                "revision": 1,
+                "recoverable": true,
+                "diagnostic": {
+                  "code": "HAXE_COMPILE_FAILED",
+                  "message": "haxe compile failed"
+                },
+                "retained": null
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 5,
+            "at": 1000005,
+            "event": {
+              "kind": "inputs-changed",
+              "revision": 2,
+              "paths": [
+                "src/Main.hx"
+              ]
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 8,
+            "at": 1000008,
+            "event": {
+              "kind": "candidate-generated",
+              "revision": 2,
+              "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111"
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 9,
+            "at": 1000009,
+            "event": {
+              "kind": "state",
+              "state": {
+                "kind": "ready",
+                "accepted": {
+                  "generation": 1,
+                  "revision": 2,
+                  "acceptedAt": 1000009,
+                  "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                  "compilerMode": "connected",
+                  "files": {
+                    "created": [
+                      "src-gen/index.ts"
+                    ],
+                    "updated": [],
+                    "deleted": []
+                  },
+                  "entryChanged": true
+                }
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 10,
+            "at": 1000010,
+            "event": {
+              "kind": "generation-accepted",
+              "accepted": {
+                "generation": 1,
+                "revision": 2,
+                "acceptedAt": 1000009,
+                "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                "compilerMode": "connected",
+                "files": {
+                  "created": [
+                    "src-gen/index.ts"
+                  ],
+                  "updated": [],
+                  "deleted": []
+                },
+                "entryChanged": true
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "initial-validation-failure-repairs",
+      "family": "admission",
+      "covers": [
+        "initial-blocked",
+        "validation-failure",
+        "private-candidate"
+      ],
+      "description": "A rejected initial candidate remains private and a later admitted candidate becomes the first public generation.",
+      "script": [
+        "start",
+        "recovery-none",
+        "watch-registered",
+        "build-started",
+        "compile-connected",
+        "candidate-generated",
+        "validate-rejected",
+        "input-change",
+        "build-started",
+        "compile-connected",
+        "candidate-generated",
+        "validate-accepted",
+        "reconcile-current",
+        "publish-succeeded"
+      ],
+      "expected": {
+        "finalState": "ready",
+        "revisionsObserved": 2,
+        "acceptedGenerations": 1,
+        "acceptedRevision": 2,
+        "retainedGeneration": 1,
+        "firstAccepted": "resolved",
+        "publicationAttempts": 1,
+        "publicWrites": 1,
+        "readBarrier": "not-exercised",
+        "eventRuns": [
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "build-started",
+            "count": 1
+          },
+          {
+            "kind": "candidate-generated",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "failed",
+            "count": 1
+          },
+          {
+            "kind": "inputs-changed",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "build-started",
+            "count": 1
+          },
+          {
+            "kind": "candidate-generated",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "generation-accepted",
+            "count": 1
+          }
+        ],
+        "stateKinds": [
+          "building",
+          "blocked",
+          "building",
+          "ready"
+        ],
+        "snapshot": {
+          "state": {
+            "kind": "ready",
+            "accepted": {
+              "generation": 1,
+              "revision": 2,
+              "acceptedAt": 1000010,
+              "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+              "compilerMode": "connected",
+              "files": {
+                "created": [
+                  "src-gen/index.ts"
+                ],
+                "updated": [],
+                "deleted": []
+              },
+              "entryChanged": true
+            }
+          },
+          "lastSequence": 11,
+          "newestRevision": 2,
+          "accepted": {
+            "generation": 1,
+            "revision": 2,
+            "acceptedAt": 1000010,
+            "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+            "compilerMode": "connected",
+            "files": {
+              "created": [
+                "src-gen/index.ts"
+              ],
+              "updated": [],
+              "deleted": []
+            },
+            "entryChanged": true
+          },
+          "lastCompilerEvent": null
+        },
+        "eventChecks": [
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 5,
+            "at": 1000005,
+            "event": {
+              "kind": "failed",
+              "failure": {
+                "phase": "validate",
+                "revision": 1,
+                "recoverable": true,
+                "diagnostic": {
+                  "code": "HOST_VALIDATION_FAILED",
+                  "message": "host validation failed"
+                },
+                "retained": null
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 6,
+            "at": 1000006,
+            "event": {
+              "kind": "inputs-changed",
+              "revision": 2,
+              "paths": [
+                "src/Main.hx"
+              ]
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 9,
+            "at": 1000009,
+            "event": {
+              "kind": "candidate-generated",
+              "revision": 2,
+              "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111"
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 10,
+            "at": 1000010,
+            "event": {
+              "kind": "state",
+              "state": {
+                "kind": "ready",
+                "accepted": {
+                  "generation": 1,
+                  "revision": 2,
+                  "acceptedAt": 1000010,
+                  "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                  "compilerMode": "connected",
+                  "files": {
+                    "created": [
+                      "src-gen/index.ts"
+                    ],
+                    "updated": [],
+                    "deleted": []
+                  },
+                  "entryChanged": true
+                }
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 11,
+            "at": 1000011,
+            "event": {
+              "kind": "generation-accepted",
+              "accepted": {
+                "generation": 1,
+                "revision": 2,
+                "acceptedAt": 1000010,
+                "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                "compilerMode": "connected",
+                "files": {
+                  "created": [
+                    "src-gen/index.ts"
+                  ],
+                  "updated": [],
+                  "deleted": []
+                },
+                "entryChanged": true
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "compile-failure-retains-last-good",
+      "family": "admission",
+      "covers": [
+        "degraded",
+        "last-good",
+        "compile-failure"
+      ],
+      "description": "After generation 1, a compiler failure leaves that generation public and reports a degraded state.",
+      "script": [
+        "start",
+        "recovery-none",
+        "watch-registered",
+        "build-started",
+        "compile-connected",
+        "candidate-generated",
+        "validate-accepted",
+        "reconcile-current",
+        "publish-succeeded",
+        "input-change",
+        "build-started",
+        "compile-failed"
+      ],
+      "expected": {
+        "finalState": "degraded",
+        "revisionsObserved": 2,
+        "acceptedGenerations": 1,
+        "acceptedRevision": 1,
+        "retainedGeneration": 1,
+        "firstAccepted": "resolved",
+        "publicationAttempts": 1,
+        "publicWrites": 1,
+        "readBarrier": "not-exercised",
+        "eventRuns": [
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "build-started",
+            "count": 1
+          },
+          {
+            "kind": "candidate-generated",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "generation-accepted",
+            "count": 1
+          },
+          {
+            "kind": "inputs-changed",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "build-started",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "failed",
+            "count": 1
+          }
+        ],
+        "stateKinds": [
+          "building",
+          "ready",
+          "building",
+          "degraded"
+        ],
+        "snapshot": {
+          "state": {
+            "kind": "degraded",
+            "accepted": {
+              "generation": 1,
+              "revision": 1,
+              "acceptedAt": 1000004,
+              "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+              "compilerMode": "connected",
+              "files": {
+                "created": [
+                  "src-gen/index.ts"
+                ],
+                "updated": [],
+                "deleted": []
+              },
+              "entryChanged": true
+            },
+            "failure": {
+              "phase": "compile",
+              "revision": 2,
+              "recoverable": true,
+              "diagnostic": {
+                "code": "HAXE_COMPILE_FAILED",
+                "message": "haxe compile failed"
+              },
+              "retained": {
+                "generation": 1,
+                "revision": 1,
+                "acceptedAt": 1000004,
+                "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                "compilerMode": "connected",
+                "files": {
+                  "created": [
+                    "src-gen/index.ts"
+                  ],
+                  "updated": [],
+                  "deleted": []
+                },
+                "entryChanged": true
+              }
+            }
+          },
+          "lastSequence": 10,
+          "newestRevision": 2,
+          "accepted": {
+            "generation": 1,
+            "revision": 1,
+            "acceptedAt": 1000004,
+            "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+            "compilerMode": "connected",
+            "files": {
+              "created": [
+                "src-gen/index.ts"
+              ],
+              "updated": [],
+              "deleted": []
+            },
+            "entryChanged": true
+          },
+          "lastCompilerEvent": null
+        },
+        "eventChecks": [
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 3,
+            "at": 1000003,
+            "event": {
+              "kind": "candidate-generated",
+              "revision": 1,
+              "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111"
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 5,
+            "at": 1000005,
+            "event": {
+              "kind": "generation-accepted",
+              "accepted": {
+                "generation": 1,
+                "revision": 1,
+                "acceptedAt": 1000004,
+                "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                "compilerMode": "connected",
+                "files": {
+                  "created": [
+                    "src-gen/index.ts"
+                  ],
+                  "updated": [],
+                  "deleted": []
+                },
+                "entryChanged": true
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 6,
+            "at": 1000006,
+            "event": {
+              "kind": "inputs-changed",
+              "revision": 2,
+              "paths": [
+                "src/Main.hx"
+              ]
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 9,
+            "at": 1000009,
+            "event": {
+              "kind": "state",
+              "state": {
+                "kind": "degraded",
+                "accepted": {
+                  "generation": 1,
+                  "revision": 1,
+                  "acceptedAt": 1000004,
+                  "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                  "compilerMode": "connected",
+                  "files": {
+                    "created": [
+                      "src-gen/index.ts"
+                    ],
+                    "updated": [],
+                    "deleted": []
+                  },
+                  "entryChanged": true
+                },
+                "failure": {
+                  "phase": "compile",
+                  "revision": 2,
+                  "recoverable": true,
+                  "diagnostic": {
+                    "code": "HAXE_COMPILE_FAILED",
+                    "message": "haxe compile failed"
+                  },
+                  "retained": {
+                    "generation": 1,
+                    "revision": 1,
+                    "acceptedAt": 1000004,
+                    "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "compilerMode": "connected",
+                    "files": {
+                      "created": [
+                        "src-gen/index.ts"
+                      ],
+                      "updated": [],
+                      "deleted": []
+                    },
+                    "entryChanged": true
+                  }
+                }
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 10,
+            "at": 1000010,
+            "event": {
+              "kind": "failed",
+              "failure": {
+                "phase": "compile",
+                "revision": 2,
+                "recoverable": true,
+                "diagnostic": {
+                  "code": "HAXE_COMPILE_FAILED",
+                  "message": "haxe compile failed"
+                },
+                "retained": {
+                  "generation": 1,
+                  "revision": 1,
+                  "acceptedAt": 1000004,
+                  "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                  "compilerMode": "connected",
+                  "files": {
+                    "created": [
+                      "src-gen/index.ts"
+                    ],
+                    "updated": [],
+                    "deleted": []
+                  },
+                  "entryChanged": true
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "validation-failure-retains-last-good",
+      "family": "admission",
+      "covers": [
+        "degraded",
+        "last-good",
+        "validation-failure"
+      ],
+      "description": "A host-rejected candidate never reaches public output and the earlier admitted generation remains usable.",
+      "script": [
+        "start",
+        "recovery-none",
+        "watch-registered",
+        "build-started",
+        "compile-connected",
+        "candidate-generated",
+        "validate-accepted",
+        "reconcile-current",
+        "publish-succeeded",
+        "input-change",
+        "build-started",
+        "compile-connected",
+        "candidate-generated",
+        "validate-rejected"
+      ],
+      "expected": {
+        "finalState": "degraded",
+        "revisionsObserved": 2,
+        "acceptedGenerations": 1,
+        "acceptedRevision": 1,
+        "retainedGeneration": 1,
+        "firstAccepted": "resolved",
+        "publicationAttempts": 1,
+        "publicWrites": 1,
+        "readBarrier": "not-exercised",
+        "eventRuns": [
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "build-started",
+            "count": 1
+          },
+          {
+            "kind": "candidate-generated",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "generation-accepted",
+            "count": 1
+          },
+          {
+            "kind": "inputs-changed",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "build-started",
+            "count": 1
+          },
+          {
+            "kind": "candidate-generated",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "failed",
+            "count": 1
+          }
+        ],
+        "stateKinds": [
+          "building",
+          "ready",
+          "building",
+          "degraded"
+        ],
+        "snapshot": {
+          "state": {
+            "kind": "degraded",
+            "accepted": {
+              "generation": 1,
+              "revision": 1,
+              "acceptedAt": 1000004,
+              "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+              "compilerMode": "connected",
+              "files": {
+                "created": [
+                  "src-gen/index.ts"
+                ],
+                "updated": [],
+                "deleted": []
+              },
+              "entryChanged": true
+            },
+            "failure": {
+              "phase": "validate",
+              "revision": 2,
+              "recoverable": true,
+              "diagnostic": {
+                "code": "HOST_VALIDATION_FAILED",
+                "message": "host validation failed"
+              },
+              "retained": {
+                "generation": 1,
+                "revision": 1,
+                "acceptedAt": 1000004,
+                "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                "compilerMode": "connected",
+                "files": {
+                  "created": [
+                    "src-gen/index.ts"
+                  ],
+                  "updated": [],
+                  "deleted": []
+                },
+                "entryChanged": true
+              }
+            }
+          },
+          "lastSequence": 11,
+          "newestRevision": 2,
+          "accepted": {
+            "generation": 1,
+            "revision": 1,
+            "acceptedAt": 1000004,
+            "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+            "compilerMode": "connected",
+            "files": {
+              "created": [
+                "src-gen/index.ts"
+              ],
+              "updated": [],
+              "deleted": []
+            },
+            "entryChanged": true
+          },
+          "lastCompilerEvent": null
+        },
+        "eventChecks": [
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 5,
+            "at": 1000005,
+            "event": {
+              "kind": "generation-accepted",
+              "accepted": {
+                "generation": 1,
+                "revision": 1,
+                "acceptedAt": 1000004,
+                "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                "compilerMode": "connected",
+                "files": {
+                  "created": [
+                    "src-gen/index.ts"
+                  ],
+                  "updated": [],
+                  "deleted": []
+                },
+                "entryChanged": true
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 6,
+            "at": 1000006,
+            "event": {
+              "kind": "inputs-changed",
+              "revision": 2,
+              "paths": [
+                "src/Main.hx"
+              ]
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 9,
+            "at": 1000009,
+            "event": {
+              "kind": "candidate-generated",
+              "revision": 2,
+              "manifestDigest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 10,
+            "at": 1000010,
+            "event": {
+              "kind": "state",
+              "state": {
+                "kind": "degraded",
+                "accepted": {
+                  "generation": 1,
+                  "revision": 1,
+                  "acceptedAt": 1000004,
+                  "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                  "compilerMode": "connected",
+                  "files": {
+                    "created": [
+                      "src-gen/index.ts"
+                    ],
+                    "updated": [],
+                    "deleted": []
+                  },
+                  "entryChanged": true
+                },
+                "failure": {
+                  "phase": "validate",
+                  "revision": 2,
+                  "recoverable": true,
+                  "diagnostic": {
+                    "code": "HOST_VALIDATION_FAILED",
+                    "message": "host validation failed"
+                  },
+                  "retained": {
+                    "generation": 1,
+                    "revision": 1,
+                    "acceptedAt": 1000004,
+                    "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "compilerMode": "connected",
+                    "files": {
+                      "created": [
+                        "src-gen/index.ts"
+                      ],
+                      "updated": [],
+                      "deleted": []
+                    },
+                    "entryChanged": true
+                  }
+                }
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 11,
+            "at": 1000011,
+            "event": {
+              "kind": "failed",
+              "failure": {
+                "phase": "validate",
+                "revision": 2,
+                "recoverable": true,
+                "diagnostic": {
+                  "code": "HOST_VALIDATION_FAILED",
+                  "message": "host validation failed"
+                },
+                "retained": {
+                  "generation": 1,
+                  "revision": 1,
+                  "acceptedAt": 1000004,
+                  "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                  "compilerMode": "connected",
+                  "files": {
+                    "created": [
+                      "src-gen/index.ts"
+                    ],
+                    "updated": [],
+                    "deleted": []
+                  },
+                  "entryChanged": true
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "burst-supersedes-active-candidate",
+      "family": "scheduling",
+      "covers": [
+        "single-active-build",
+        "newest-state-follow-up",
+        "supersession"
+      ],
+      "description": "Twenty observed edits during revision 1 produce no overlap, discard its known-stale candidate, and run one revision 21 follow-up.",
+      "script": [
+        "start",
+        "recovery-none",
+        "watch-registered",
+        "build-started",
+        "input-burst-20",
+        "compile-connected",
+        "candidate-generated",
+        "validate-accepted",
+        "reconcile-superseded",
+        "build-started",
+        "compile-connected",
+        "candidate-generated",
+        "validate-accepted",
+        "reconcile-current",
+        "publish-succeeded"
+      ],
+      "expected": {
+        "finalState": "ready",
+        "revisionsObserved": 21,
+        "acceptedGenerations": 1,
+        "acceptedRevision": 21,
+        "retainedGeneration": 1,
+        "firstAccepted": "resolved",
+        "publicationAttempts": 1,
+        "publicWrites": 1,
+        "readBarrier": "not-exercised",
+        "eventRuns": [
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "build-started",
+            "count": 1
+          },
+          {
+            "kind": "inputs-changed",
+            "count": 20
+          },
+          {
+            "kind": "candidate-generated",
+            "count": 1
+          },
+          {
+            "kind": "candidate-superseded",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "build-started",
+            "count": 1
+          },
+          {
+            "kind": "candidate-generated",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "generation-accepted",
+            "count": 1
+          }
+        ],
+        "stateKinds": [
+          "building",
+          "building",
+          "ready"
+        ],
+        "snapshot": {
+          "state": {
+            "kind": "ready",
+            "accepted": {
+              "generation": 1,
+              "revision": 21,
+              "acceptedAt": 1000028,
+              "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+              "compilerMode": "connected",
+              "files": {
+                "created": [
+                  "src-gen/index.ts"
+                ],
+                "updated": [],
+                "deleted": []
+              },
+              "entryChanged": true
+            }
+          },
+          "lastSequence": 29,
+          "newestRevision": 21,
+          "accepted": {
+            "generation": 1,
+            "revision": 21,
+            "acceptedAt": 1000028,
+            "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+            "compilerMode": "connected",
+            "files": {
+              "created": [
+                "src-gen/index.ts"
+              ],
+              "updated": [],
+              "deleted": []
+            },
+            "entryChanged": true
+          },
+          "lastCompilerEvent": null
+        },
+        "eventChecks": [
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 3,
+            "at": 1000003,
+            "event": {
+              "kind": "inputs-changed",
+              "revision": 2,
+              "paths": [
+                "src/Main.hx"
+              ]
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 22,
+            "at": 1000022,
+            "event": {
+              "kind": "inputs-changed",
+              "revision": 21,
+              "paths": [
+                "src/Main.hx"
+              ]
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 24,
+            "at": 1000024,
+            "event": {
+              "kind": "candidate-superseded",
+              "revision": 1,
+              "newestRevision": 21
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 27,
+            "at": 1000027,
+            "event": {
+              "kind": "candidate-generated",
+              "revision": 21,
+              "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111"
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 28,
+            "at": 1000028,
+            "event": {
+              "kind": "state",
+              "state": {
+                "kind": "ready",
+                "accepted": {
+                  "generation": 1,
+                  "revision": 21,
+                  "acceptedAt": 1000028,
+                  "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                  "compilerMode": "connected",
+                  "files": {
+                    "created": [
+                      "src-gen/index.ts"
+                    ],
+                    "updated": [],
+                    "deleted": []
+                  },
+                  "entryChanged": true
+                }
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 29,
+            "at": 1000029,
+            "event": {
+              "kind": "generation-accepted",
+              "accepted": {
+                "generation": 1,
+                "revision": 21,
+                "acceptedAt": 1000028,
+                "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                "compilerMode": "connected",
+                "files": {
+                  "created": [
+                    "src-gen/index.ts"
+                  ],
+                  "updated": [],
+                  "deleted": []
+                },
+                "entryChanged": true
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "late-attach-observes-compiler-fallback",
+      "family": "compiler",
+      "covers": [
+        "owned-server-failure",
+        "direct-fallback",
+        "structured-event",
+        "subscribe-inspect-gap",
+        "snapshot-current-facts"
+      ],
+      "description": "A client subscribes before an owned-server fallback and inspects afterward; the snapshot retains the exact fallback while the accepted generation records direct mode.",
+      "script": [
+        "start",
+        "recovery-none",
+        "watch-registered",
+        "build-started",
+        "client-subscribed-buffering",
+        "compiler-fallback-unresponsive",
+        "client-inspected",
+        "compile-direct",
+        "candidate-generated",
+        "validate-accepted",
+        "reconcile-current",
+        "publish-succeeded"
+      ],
+      "expected": {
+        "finalState": "ready",
+        "revisionsObserved": 1,
+        "acceptedGenerations": 1,
+        "acceptedRevision": 1,
+        "retainedGeneration": 1,
+        "firstAccepted": "resolved",
+        "publicationAttempts": 1,
+        "publicWrites": 1,
+        "readBarrier": "not-exercised",
+        "eventRuns": [
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "build-started",
+            "count": 1
+          },
+          {
+            "kind": "compiler-lifecycle",
+            "count": 1
+          },
+          {
+            "kind": "candidate-generated",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "generation-accepted",
+            "count": 1
+          }
+        ],
+        "stateKinds": [
+          "building",
+          "ready"
+        ],
+        "snapshot": {
+          "state": {
+            "kind": "ready",
+            "accepted": {
+              "generation": 1,
+              "revision": 1,
+              "acceptedAt": 1000005,
+              "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+              "compilerMode": "direct",
+              "files": {
+                "created": [
+                  "src-gen/index.ts"
+                ],
+                "updated": [],
+                "deleted": []
+              },
+              "entryChanged": true
+            }
+          },
+          "lastSequence": 6,
+          "newestRevision": 1,
+          "accepted": {
+            "generation": 1,
+            "revision": 1,
+            "acceptedAt": 1000005,
+            "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+            "compilerMode": "direct",
+            "files": {
+              "created": [
+                "src-gen/index.ts"
+              ],
+              "updated": [],
+              "deleted": []
+            },
+            "entryChanged": true
+          },
+          "lastCompilerEvent": {
+            "kind": "fallback",
+            "reason": "server-unresponsive"
+          }
+        },
+        "eventChecks": [
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 3,
+            "at": 1000003,
+            "event": {
+              "kind": "compiler-lifecycle",
+              "event": {
+                "kind": "fallback",
+                "reason": "server-unresponsive"
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 4,
+            "at": 1000004,
+            "event": {
+              "kind": "candidate-generated",
+              "revision": 1,
+              "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111"
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 5,
+            "at": 1000005,
+            "event": {
+              "kind": "state",
+              "state": {
+                "kind": "ready",
+                "accepted": {
+                  "generation": 1,
+                  "revision": 1,
+                  "acceptedAt": 1000005,
+                  "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                  "compilerMode": "direct",
+                  "files": {
+                    "created": [
+                      "src-gen/index.ts"
+                    ],
+                    "updated": [],
+                    "deleted": []
+                  },
+                  "entryChanged": true
+                }
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 6,
+            "at": 1000006,
+            "event": {
+              "kind": "generation-accepted",
+              "accepted": {
+                "generation": 1,
+                "revision": 1,
+                "acceptedAt": 1000005,
+                "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                "compilerMode": "direct",
+                "files": {
+                  "created": [
+                    "src-gen/index.ts"
+                  ],
+                  "updated": [],
+                  "deleted": []
+                },
+                "entryChanged": true
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "publication-waits-for-reader",
+      "family": "publication",
+      "covers": [
+        "read-lease",
+        "writer-priority",
+        "commit-before-notify",
+        "accepted-before-notify"
+      ],
+      "description": "A publication waits for an active generated-file read and emits no accepted event until the reader releases its lease and commit finishes.",
+      "script": [
+        "start",
+        "recovery-none",
+        "watch-registered",
+        "build-started",
+        "compile-connected",
+        "candidate-generated",
+        "validate-accepted",
+        "reconcile-current",
+        "publish-succeeded",
+        "read-acquired",
+        "input-change",
+        "build-started",
+        "compile-connected",
+        "candidate-generated",
+        "validate-accepted",
+        "reconcile-current",
+        "read-released",
+        "publish-succeeded"
+      ],
+      "expected": {
+        "finalState": "ready",
+        "revisionsObserved": 2,
+        "acceptedGenerations": 2,
+        "acceptedRevision": 2,
+        "retainedGeneration": 2,
+        "firstAccepted": "resolved",
+        "publicationAttempts": 2,
+        "publicWrites": 2,
+        "readBarrier": "publication-waited-for-reader",
+        "eventRuns": [
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "build-started",
+            "count": 1
+          },
+          {
+            "kind": "candidate-generated",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "generation-accepted",
+            "count": 1
+          },
+          {
+            "kind": "inputs-changed",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "build-started",
+            "count": 1
+          },
+          {
+            "kind": "candidate-generated",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "generation-accepted",
+            "count": 1
+          }
+        ],
+        "stateKinds": [
+          "building",
+          "ready",
+          "building",
+          "ready"
+        ],
+        "snapshot": {
+          "state": {
+            "kind": "ready",
+            "accepted": {
+              "generation": 2,
+              "revision": 2,
+              "acceptedAt": 1000010,
+              "manifestDigest": "2222222222222222222222222222222222222222222222222222222222222222",
+              "compilerMode": "connected",
+              "files": {
+                "created": [],
+                "updated": [
+                  "src-gen/index.ts"
+                ],
+                "deleted": []
+              },
+              "entryChanged": true
+            }
+          },
+          "lastSequence": 11,
+          "newestRevision": 2,
+          "accepted": {
+            "generation": 2,
+            "revision": 2,
+            "acceptedAt": 1000010,
+            "manifestDigest": "2222222222222222222222222222222222222222222222222222222222222222",
+            "compilerMode": "connected",
+            "files": {
+              "created": [],
+              "updated": [
+                "src-gen/index.ts"
+              ],
+              "deleted": []
+            },
+            "entryChanged": true
+          },
+          "lastCompilerEvent": null
+        },
+        "eventChecks": [
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 5,
+            "at": 1000005,
+            "event": {
+              "kind": "generation-accepted",
+              "accepted": {
+                "generation": 1,
+                "revision": 1,
+                "acceptedAt": 1000004,
+                "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                "compilerMode": "connected",
+                "files": {
+                  "created": [
+                    "src-gen/index.ts"
+                  ],
+                  "updated": [],
+                  "deleted": []
+                },
+                "entryChanged": true
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 6,
+            "at": 1000006,
+            "event": {
+              "kind": "inputs-changed",
+              "revision": 2,
+              "paths": [
+                "src/Main.hx"
+              ]
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 9,
+            "at": 1000009,
+            "event": {
+              "kind": "candidate-generated",
+              "revision": 2,
+              "manifestDigest": "2222222222222222222222222222222222222222222222222222222222222222"
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 10,
+            "at": 1000010,
+            "event": {
+              "kind": "state",
+              "state": {
+                "kind": "ready",
+                "accepted": {
+                  "generation": 2,
+                  "revision": 2,
+                  "acceptedAt": 1000010,
+                  "manifestDigest": "2222222222222222222222222222222222222222222222222222222222222222",
+                  "compilerMode": "connected",
+                  "files": {
+                    "created": [],
+                    "updated": [
+                      "src-gen/index.ts"
+                    ],
+                    "deleted": []
+                  },
+                  "entryChanged": true
+                }
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 11,
+            "at": 1000011,
+            "event": {
+              "kind": "generation-accepted",
+              "accepted": {
+                "generation": 2,
+                "revision": 2,
+                "acceptedAt": 1000010,
+                "manifestDigest": "2222222222222222222222222222222222222222222222222222222222222222",
+                "compilerMode": "connected",
+                "files": {
+                  "created": [],
+                  "updated": [
+                    "src-gen/index.ts"
+                  ],
+                  "deleted": []
+                },
+                "entryChanged": true
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "publish-failure-rolls-back",
+      "family": "publication",
+      "covers": [
+        "publication-failure",
+        "rollback",
+        "last-good"
+      ],
+      "description": "A publication failure restores the exact prior tree, retains generation 1, and reports a degraded publish-phase failure.",
+      "script": [
+        "start",
+        "recovery-none",
+        "watch-registered",
+        "build-started",
+        "compile-connected",
+        "candidate-generated",
+        "validate-accepted",
+        "reconcile-current",
+        "publish-succeeded",
+        "input-change",
+        "build-started",
+        "compile-connected",
+        "candidate-generated",
+        "validate-accepted",
+        "reconcile-current",
+        "publish-failed"
+      ],
+      "expected": {
+        "finalState": "degraded",
+        "revisionsObserved": 2,
+        "acceptedGenerations": 1,
+        "acceptedRevision": 1,
+        "retainedGeneration": 1,
+        "firstAccepted": "resolved",
+        "publicationAttempts": 2,
+        "publicWrites": 1,
+        "readBarrier": "not-exercised",
+        "eventRuns": [
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "build-started",
+            "count": 1
+          },
+          {
+            "kind": "candidate-generated",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "generation-accepted",
+            "count": 1
+          },
+          {
+            "kind": "inputs-changed",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "build-started",
+            "count": 1
+          },
+          {
+            "kind": "candidate-generated",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "failed",
+            "count": 1
+          }
+        ],
+        "stateKinds": [
+          "building",
+          "ready",
+          "building",
+          "degraded"
+        ],
+        "snapshot": {
+          "state": {
+            "kind": "degraded",
+            "accepted": {
+              "generation": 1,
+              "revision": 1,
+              "acceptedAt": 1000004,
+              "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+              "compilerMode": "connected",
+              "files": {
+                "created": [
+                  "src-gen/index.ts"
+                ],
+                "updated": [],
+                "deleted": []
+              },
+              "entryChanged": true
+            },
+            "failure": {
+              "phase": "publish",
+              "revision": 2,
+              "recoverable": true,
+              "diagnostic": {
+                "code": "PUBLICATION_FAILED",
+                "message": "publication failed"
+              },
+              "retained": {
+                "generation": 1,
+                "revision": 1,
+                "acceptedAt": 1000004,
+                "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                "compilerMode": "connected",
+                "files": {
+                  "created": [
+                    "src-gen/index.ts"
+                  ],
+                  "updated": [],
+                  "deleted": []
+                },
+                "entryChanged": true
+              }
+            }
+          },
+          "lastSequence": 11,
+          "newestRevision": 2,
+          "accepted": {
+            "generation": 1,
+            "revision": 1,
+            "acceptedAt": 1000004,
+            "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+            "compilerMode": "connected",
+            "files": {
+              "created": [
+                "src-gen/index.ts"
+              ],
+              "updated": [],
+              "deleted": []
+            },
+            "entryChanged": true
+          },
+          "lastCompilerEvent": null
+        },
+        "eventChecks": [
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 5,
+            "at": 1000005,
+            "event": {
+              "kind": "generation-accepted",
+              "accepted": {
+                "generation": 1,
+                "revision": 1,
+                "acceptedAt": 1000004,
+                "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                "compilerMode": "connected",
+                "files": {
+                  "created": [
+                    "src-gen/index.ts"
+                  ],
+                  "updated": [],
+                  "deleted": []
+                },
+                "entryChanged": true
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 6,
+            "at": 1000006,
+            "event": {
+              "kind": "inputs-changed",
+              "revision": 2,
+              "paths": [
+                "src/Main.hx"
+              ]
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 9,
+            "at": 1000009,
+            "event": {
+              "kind": "candidate-generated",
+              "revision": 2,
+              "manifestDigest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 10,
+            "at": 1000010,
+            "event": {
+              "kind": "state",
+              "state": {
+                "kind": "degraded",
+                "accepted": {
+                  "generation": 1,
+                  "revision": 1,
+                  "acceptedAt": 1000004,
+                  "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                  "compilerMode": "connected",
+                  "files": {
+                    "created": [
+                      "src-gen/index.ts"
+                    ],
+                    "updated": [],
+                    "deleted": []
+                  },
+                  "entryChanged": true
+                },
+                "failure": {
+                  "phase": "publish",
+                  "revision": 2,
+                  "recoverable": true,
+                  "diagnostic": {
+                    "code": "PUBLICATION_FAILED",
+                    "message": "publication failed"
+                  },
+                  "retained": {
+                    "generation": 1,
+                    "revision": 1,
+                    "acceptedAt": 1000004,
+                    "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "compilerMode": "connected",
+                    "files": {
+                      "created": [
+                        "src-gen/index.ts"
+                      ],
+                      "updated": [],
+                      "deleted": []
+                    },
+                    "entryChanged": true
+                  }
+                }
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 11,
+            "at": 1000011,
+            "event": {
+              "kind": "failed",
+              "failure": {
+                "phase": "publish",
+                "revision": 2,
+                "recoverable": true,
+                "diagnostic": {
+                  "code": "PUBLICATION_FAILED",
+                  "message": "publication failed"
+                },
+                "retained": {
+                  "generation": 1,
+                  "revision": 1,
+                  "acceptedAt": 1000004,
+                  "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                  "compilerMode": "connected",
+                  "files": {
+                    "created": [
+                      "src-gen/index.ts"
+                    ],
+                    "updated": [],
+                    "deleted": []
+                  },
+                  "entryChanged": true
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "unchanged-candidate-advances-generation",
+      "family": "publication",
+      "covers": [
+        "no-op-publication",
+        "empty-delta",
+        "accepted-revision"
+      ],
+      "description": "An admitted candidate with identical public bytes advances the accepted snapshot without writing files or asking a host to reload.",
+      "script": [
+        "start",
+        "recovery-none",
+        "watch-registered",
+        "build-started",
+        "compile-connected",
+        "candidate-generated",
+        "validate-accepted",
+        "reconcile-current",
+        "publish-succeeded",
+        "input-change",
+        "build-started",
+        "compile-connected",
+        "candidate-generated",
+        "validate-accepted",
+        "reconcile-current",
+        "publish-unchanged"
+      ],
+      "expected": {
+        "finalState": "ready",
+        "revisionsObserved": 2,
+        "acceptedGenerations": 2,
+        "acceptedRevision": 2,
+        "retainedGeneration": 2,
+        "firstAccepted": "resolved",
+        "publicationAttempts": 2,
+        "publicWrites": 1,
+        "readBarrier": "not-exercised",
+        "eventRuns": [
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "build-started",
+            "count": 1
+          },
+          {
+            "kind": "candidate-generated",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "generation-accepted",
+            "count": 1
+          },
+          {
+            "kind": "inputs-changed",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "build-started",
+            "count": 1
+          },
+          {
+            "kind": "candidate-generated",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "generation-accepted",
+            "count": 1
+          }
+        ],
+        "stateKinds": [
+          "building",
+          "ready",
+          "building",
+          "ready"
+        ],
+        "snapshot": {
+          "state": {
+            "kind": "ready",
+            "accepted": {
+              "generation": 2,
+              "revision": 2,
+              "acceptedAt": 1000010,
+              "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+              "compilerMode": "connected",
+              "files": {
+                "created": [],
+                "updated": [],
+                "deleted": []
+              },
+              "entryChanged": false
+            }
+          },
+          "lastSequence": 11,
+          "newestRevision": 2,
+          "accepted": {
+            "generation": 2,
+            "revision": 2,
+            "acceptedAt": 1000010,
+            "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+            "compilerMode": "connected",
+            "files": {
+              "created": [],
+              "updated": [],
+              "deleted": []
+            },
+            "entryChanged": false
+          },
+          "lastCompilerEvent": null
+        },
+        "eventChecks": [
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 5,
+            "at": 1000005,
+            "event": {
+              "kind": "generation-accepted",
+              "accepted": {
+                "generation": 1,
+                "revision": 1,
+                "acceptedAt": 1000004,
+                "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                "compilerMode": "connected",
+                "files": {
+                  "created": [
+                    "src-gen/index.ts"
+                  ],
+                  "updated": [],
+                  "deleted": []
+                },
+                "entryChanged": true
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 6,
+            "at": 1000006,
+            "event": {
+              "kind": "inputs-changed",
+              "revision": 2,
+              "paths": [
+                "src/Main.hx"
+              ]
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 9,
+            "at": 1000009,
+            "event": {
+              "kind": "candidate-generated",
+              "revision": 2,
+              "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111"
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 10,
+            "at": 1000010,
+            "event": {
+              "kind": "state",
+              "state": {
+                "kind": "ready",
+                "accepted": {
+                  "generation": 2,
+                  "revision": 2,
+                  "acceptedAt": 1000010,
+                  "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                  "compilerMode": "connected",
+                  "files": {
+                    "created": [],
+                    "updated": [],
+                    "deleted": []
+                  },
+                  "entryChanged": false
+                }
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 11,
+            "at": 1000011,
+            "event": {
+              "kind": "generation-accepted",
+              "accepted": {
+                "generation": 2,
+                "revision": 2,
+                "acceptedAt": 1000010,
+                "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                "compilerMode": "connected",
+                "files": {
+                  "created": [],
+                  "updated": [],
+                  "deleted": []
+                },
+                "entryChanged": false
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "fatal-inventory-failure-rejects-first-accepted",
+      "family": "startup",
+      "covers": [
+        "fatal-failure",
+        "inventory",
+        "first-accepted-rejection"
+      ],
+      "description": "A fatal inventory error before watch registration rejects firstAccepted and publishes no output.",
+      "script": [
+        "start",
+        "recovery-none",
+        "inventory-failed-fatal"
+      ],
+      "expected": {
+        "finalState": "blocked",
+        "revisionsObserved": 0,
+        "acceptedGenerations": 0,
+        "acceptedRevision": null,
+        "retainedGeneration": null,
+        "firstAccepted": "rejected",
+        "publicationAttempts": 0,
+        "publicWrites": 0,
+        "readBarrier": "not-exercised",
+        "eventRuns": [
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "failed",
+            "count": 1
+          }
+        ],
+        "stateKinds": [
+          "blocked"
+        ],
+        "snapshot": {
+          "state": {
+            "kind": "blocked",
+            "failure": {
+              "phase": "inventory",
+              "revision": null,
+              "recoverable": false,
+              "diagnostic": {
+                "code": "HXML_INVENTORY_FAILED",
+                "message": "hxml inventory failed"
+              },
+              "retained": null
+            }
+          },
+          "lastSequence": 2,
+          "newestRevision": 0,
+          "accepted": null,
+          "lastCompilerEvent": null
+        },
+        "eventChecks": [
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 1,
+            "at": 1000001,
+            "event": {
+              "kind": "state",
+              "state": {
+                "kind": "blocked",
+                "failure": {
+                  "phase": "inventory",
+                  "revision": null,
+                  "recoverable": false,
+                  "diagnostic": {
+                    "code": "HXML_INVENTORY_FAILED",
+                    "message": "hxml inventory failed"
+                  },
+                  "retained": null
+                }
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 2,
+            "at": 1000002,
+            "event": {
+              "kind": "failed",
+              "failure": {
+                "phase": "inventory",
+                "revision": null,
+                "recoverable": false,
+                "diagnostic": {
+                  "code": "HXML_INVENTORY_FAILED",
+                  "message": "hxml inventory failed"
+                },
+                "retained": null
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "close-before-first-accepted-is-idempotent",
+      "family": "shutdown",
+      "covers": [
+        "bounded-close",
+        "idempotent-close",
+        "first-accepted-rejection"
+      ],
+      "description": "Closing during the initial build rejects firstAccepted, discards queued work, and a repeated close emits no duplicate lifecycle events.",
+      "script": [
+        "start",
+        "recovery-none",
+        "watch-registered",
+        "build-started",
+        "close",
+        "close-again"
+      ],
+      "expected": {
+        "finalState": "closed",
+        "revisionsObserved": 1,
+        "acceptedGenerations": 0,
+        "acceptedRevision": null,
+        "retainedGeneration": null,
+        "firstAccepted": "rejected",
+        "publicationAttempts": 0,
+        "publicWrites": 0,
+        "readBarrier": "not-exercised",
+        "eventRuns": [
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "build-started",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 2
+          },
+          {
+            "kind": "closed",
+            "count": 1
+          }
+        ],
+        "stateKinds": [
+          "building",
+          "closing",
+          "closed"
+        ],
+        "snapshot": {
+          "state": {
+            "kind": "closed",
+            "retained": null
+          },
+          "lastSequence": 5,
+          "newestRevision": 1,
+          "accepted": null,
+          "lastCompilerEvent": null
+        },
+        "eventChecks": [
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 4,
+            "at": 1000004,
+            "event": {
+              "kind": "state",
+              "state": {
+                "kind": "closed",
+                "retained": null
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 5,
+            "at": 1000005,
+            "event": {
+              "kind": "closed"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

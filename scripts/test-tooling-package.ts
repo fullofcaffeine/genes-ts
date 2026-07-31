@@ -338,6 +338,10 @@ const protocolFiles = new Set([
   "artifact-transactions/v1/protocol.schema.json",
   "artifact-transactions/v1/vectors.json",
   "artifact-transactions/v1/vectors.schema.json",
+  "development-session/v1/README.md",
+  "development-session/v1/protocol.schema.json",
+  "development-session/v1/vectors.json",
+  "development-session/v1/vectors.schema.json",
   "haxe-wait-server/v1/README.md",
   "haxe-wait-server/v1/vectors.json",
   "haxe-wait-server/v1/vectors.schema.json",
@@ -359,11 +363,15 @@ const expectedPublicExports = [
   "./artifact-transactions/v1/vectors.json",
   "./artifact-transactions/v1/vectors.schema.json",
   "./artifacts",
+  "./development-session/v1/protocol.schema.json",
+  "./development-session/v1/vectors.json",
+  "./development-session/v1/vectors.schema.json",
   "./haxe-server",
   "./haxe-wait-server/v1/vectors.json",
   "./haxe-wait-server/v1/vectors.schema.json",
   "./hxml",
   "./loop",
+  "./session",
   "./watch",
   "./watch-orchestration/v1/vectors.json",
   "./watch-orchestration/v1/vectors.schema.json",
@@ -409,6 +417,8 @@ function verifyInventory(result: PackResult): readonly string[] {
     "dist/loop/index.d.ts",
     "dist/haxe-server/index.js",
     "dist/haxe-server/index.d.ts",
+    "dist/session/index.js",
+    "dist/session/index.d.ts",
   ];
   for (const entrypoint of requiredEntrypoints) {
     assert(paths.includes(entrypoint), `packed package is missing ${entrypoint}`);
@@ -472,8 +482,9 @@ function verifyPackageMetadata(): { name: string; version: string } {
   assert(
     isRecord(devDependencies) &&
       devDependencies["@types/node"] === "20.19.30" &&
+      devDependencies.ajv === "8.20.0" &&
       devDependencies.typescript === "npm:@typescript/typescript6@6.0.2" &&
-      Object.keys(devDependencies).length === 2,
+      Object.keys(devDependencies).length === 3,
     "Git-source build dependencies must stay exact and self-contained"
   );
   const repository = packageJson.repository;
@@ -547,7 +558,12 @@ function verifyCleanConsumer(tarball: string, tempRoot: string): void {
   );
   writeFileSync(
     path.join(consumer, "consumer.ts"),
-    `import { publishArtifacts, type PublicationPlan } from "@genes-ts/tooling";
+    `import {
+  DEVELOPMENT_SESSION_EVENT_PROTOCOL,
+  publishArtifacts,
+  type DevelopmentEvent,
+  type PublicationPlan,
+} from "@genes-ts/tooling";
 import { recoverArtifacts } from "@genes-ts/tooling/artifacts";
 import { inventoryHxml, type HxmlInventory } from "@genes-ts/tooling/hxml";
 import { SerializedDirtyLoop } from "@genes-ts/tooling/loop";
@@ -560,6 +576,12 @@ import {
   watchReconciledInputs,
   type ReconciledWatchSession,
 } from "@genes-ts/tooling/watch";
+import type {
+  DevelopmentSession,
+  DevelopmentSnapshot,
+  GenesDevelopmentOptions,
+  JsonValue,
+} from "@genes-ts/tooling/session";
 import artifactProtocol from "@genes-ts/tooling/artifact-transactions/v1/protocol.schema.json" with { type: "json" };
 import artifactVectors from "@genes-ts/tooling/artifact-transactions/v1/vectors.json" with { type: "json" };
 import artifactVectorSchema from "@genes-ts/tooling/artifact-transactions/v1/vectors.schema.json" with { type: "json" };
@@ -567,6 +589,9 @@ import waitVectors from "@genes-ts/tooling/haxe-wait-server/v1/vectors.json" wit
 import waitVectorSchema from "@genes-ts/tooling/haxe-wait-server/v1/vectors.schema.json" with { type: "json" };
 import watchVectors from "@genes-ts/tooling/watch-orchestration/v1/vectors.json" with { type: "json" };
 import watchVectorSchema from "@genes-ts/tooling/watch-orchestration/v1/vectors.schema.json" with { type: "json" };
+import sessionProtocol from "@genes-ts/tooling/development-session/v1/protocol.schema.json" with { type: "json" };
+import sessionVectors from "@genes-ts/tooling/development-session/v1/vectors.json" with { type: "json" };
+import sessionVectorSchema from "@genes-ts/tooling/development-session/v1/vectors.schema.json" with { type: "json" };
 
 const runtimeValues = [
   publishArtifacts,
@@ -583,12 +608,21 @@ const runtimeValues = [
   waitVectorSchema,
   watchVectors,
   watchVectorSchema,
+  DEVELOPMENT_SESSION_EVENT_PROTOCOL,
+  sessionProtocol,
+  sessionVectors,
+  sessionVectorSchema,
 ];
+type Diagnostic = { readonly code: string; readonly details: readonly JsonValue[] };
 const typeWitness:
   | PublicationPlan
   | HxmlInventory
   | HaxeWaitEndpoint
   | ReconciledWatchSession
+  | DevelopmentEvent<Diagnostic>
+  | DevelopmentSession<Diagnostic>
+  | DevelopmentSnapshot<Diagnostic>
+  | GenesDevelopmentOptions<Diagnostic>
   | undefined = undefined;
 void runtimeValues;
 void typeWitness;
@@ -602,6 +636,7 @@ import * as artifacts from "@genes-ts/tooling/artifacts";
 import * as hxml from "@genes-ts/tooling/hxml";
 import * as loop from "@genes-ts/tooling/loop";
 import * as server from "@genes-ts/tooling/haxe-server";
+import * as session from "@genes-ts/tooling/session";
 import * as watch from "@genes-ts/tooling/watch";
 import artifactProtocol from "@genes-ts/tooling/artifact-transactions/v1/protocol.schema.json" with { type: "json" };
 import artifactVectors from "@genes-ts/tooling/artifact-transactions/v1/vectors.json" with { type: "json" };
@@ -610,6 +645,9 @@ import waitVectors from "@genes-ts/tooling/haxe-wait-server/v1/vectors.json" wit
 import waitVectorSchema from "@genes-ts/tooling/haxe-wait-server/v1/vectors.schema.json" with { type: "json" };
 import watchVectors from "@genes-ts/tooling/watch-orchestration/v1/vectors.json" with { type: "json" };
 import watchVectorSchema from "@genes-ts/tooling/watch-orchestration/v1/vectors.schema.json" with { type: "json" };
+import sessionProtocol from "@genes-ts/tooling/development-session/v1/protocol.schema.json" with { type: "json" };
+import sessionVectors from "@genes-ts/tooling/development-session/v1/vectors.json" with { type: "json" };
+import sessionVectorSchema from "@genes-ts/tooling/development-session/v1/vectors.schema.json" with { type: "json" };
 
 const witnesses = [
   root.publishArtifacts,
@@ -619,9 +657,18 @@ const witnesses = [
   server.OwnedHaxeWaitServer,
   server.reserveLoopbackEndpoint,
   watch.watchReconciledInputs,
+  root.DEVELOPMENT_SESSION_EVENT_PROTOCOL,
+  session.DEVELOPMENT_SESSION_EVENT_VERSION,
 ];
-if (witnesses.some((value) => typeof value !== "function")) {
+if (witnesses.slice(0, 7).some((value) => typeof value !== "function")) {
   throw new Error("a public tooling runtime export is missing");
+}
+if (
+  root.DEVELOPMENT_SESSION_EVENT_PROTOCOL !==
+    "genes.tooling.development-session-event" ||
+  session.DEVELOPMENT_SESSION_EVENT_VERSION !== 1
+) {
+  throw new Error("the development-session protocol identity changed");
 }
 for (const vectors of [
   artifactProtocol,
@@ -631,6 +678,9 @@ for (const vectors of [
   waitVectorSchema,
   watchVectors,
   watchVectorSchema,
+  sessionProtocol,
+  sessionVectors,
+  sessionVectorSchema,
 ]) {
   if (typeof vectors !== "object" || vectors === null) {
     throw new Error("a public tooling vector export is missing");

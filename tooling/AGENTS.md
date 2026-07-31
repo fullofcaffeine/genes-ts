@@ -16,22 +16,43 @@ host workflow, package boundary, examples, and current distribution status.
 | Reconciled native/polling watch | `src/watch/`, `watch-orchestration/v1/` |
 | Serialized newest-state rebuilds | `src/loop/` |
 | Owned Haxe `--wait` lifecycle | `src/haxe-server/`, `haxe-wait-server/v1/` |
+| Admitted-generation session contract | `src/session/`, `development-session/v1/` |
 | Public exports and package shape | `src/index.ts`, `package.json` |
 
 The versioned JSON corpora are public conformance contracts for host adapters.
 Do not change a protocol or vector merely to match one framework. Add a generic
 case, update its schema and README, and prove the real runtime against it.
 
+For a first tooling change, follow this order:
+
+1. Name the owning layer in plain language: compiler, reusable tooling, host
+   validator, framework adapter, or top-level application command.
+2. Read that layer's public types and versioned conformance README before code.
+3. Add or update a stable vector when observable lifecycle behavior changes.
+4. Keep human prose as a presentation of structured facts; never make tests or
+   agents parse it as the source of truth.
+5. Run the focused route printed by `yarn test:focus -- <changed-path>`, then
+   the package and repository gates required below.
+
+Documentation is part of the contract. Define unfamiliar terms, state what is
+already implemented, state what is deliberately deferred, and give the reader
+a shortest safe path through the files. Examples must distinguish public API
+from future or illustrative pseudocode.
+
 ## Ownership boundary
 
 Tooling may own deterministic mechanics: file inventory, event reconciliation,
-one-at-a-time execution, exact process leases, durable journals, and structured
-framework-neutral failure facts.
+one-at-a-time execution, exact process leases, private candidates, host
+admission handoff, last-good publication, read/publication coordination,
+durable journals, and structured framework-neutral failure facts.
 
 The caller must own framework commands, compiler discovery and arguments,
-project policy, validation, diagnostics, generated-file authorization,
-adoption, and “last good” behavior. Public names and types must not contain
+project policy, the validation decision, diagnostics, framework reload/restart
+behavior, and top-level signals. Public names and types must not contain
 Next.js, WordPress, Gutenberg, route, plugin, or another host-specific concept.
+Automation-facing contracts use versioned JSON facts, stable identifiers, and
+real completion barriers; agents must not need to scrape terminal prose or
+depend on timing-only sleeps.
 
 The package is independent from compiler semantic-release. Do not publish it,
 change its public version, or dispatch a release workflow without explicit
