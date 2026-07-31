@@ -429,7 +429,8 @@ function genesArguments(
   output: string,
   profile: "typescript" | "classic",
   overrideRoot?: string,
-  verbose = false
+  verbose = false,
+  dce: "full" | "std" = "full"
 ): string[] {
   return [
     ...(verbose ? ["-v"] : []),
@@ -440,13 +441,17 @@ function genesArguments(
     "-js", output,
     "-D", "no-deprecation-warnings",
     "-D", "js-es=6",
-    "-dce", "full",
+    "-dce", dce,
     "-debug",
     ...(profile === "typescript" ? ["-D", "genes.ts"] : ["-D", "dts"])
   ];
 }
 
 function assertBytesTypeScript(source: string): void {
+  ok(
+    !source.includes("static fastGet"),
+    "default -dce std prunes the unused Bytes.fastGet helper"
+  );
   ok(
     source.includes("const chars: number[] = [];"),
     "Bytes.toHex keeps its integer lookup-table contract"
@@ -763,7 +768,7 @@ try {
   try {
     const warmTsOne = path.join(outputRoot, "warm-ts-one/src-gen/index.ts");
     const warmTsResult = await server.compile(
-      genesArguments(warmTsOne, "typescript"),
+      genesArguments(warmTsOne, "typescript", undefined, false, "std"),
       "Warm stdlib-overlay TypeScript build",
       60_000
     );
@@ -803,7 +808,7 @@ try {
 
     const warmTsTwo = path.join(outputRoot, "warm-ts-two/src-gen/index.ts");
     const warmTsAgain = await server.compile(
-      genesArguments(warmTsTwo, "typescript"),
+      genesArguments(warmTsTwo, "typescript", undefined, false, "std"),
       "Repeated warm stdlib-overlay TypeScript build",
       60_000
     );
@@ -828,7 +833,7 @@ try {
   process.stdout.write(
     "stdlib-overrides:ok "
       + "(manifest + source selection + TS5/6/7 + fail-closed control "
-      + "+ classic parity + runtime + maps + compiler server)\n"
+      + "+ std DCE + classic parity + runtime + maps + compiler server)\n"
   );
 } finally {
   // Generated evidence remains under the fixture's ignored out/ directory for

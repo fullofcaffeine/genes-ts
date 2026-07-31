@@ -401,6 +401,15 @@ stdlib corrections belong to the compiler distribution—without Reflaxe's
 `_std` to `.cross.hx` packaging. Genes remains on Haxe's native `js` target and
 does not need a custom bootstrap layer.
 
+Haxe's default `-dce std` also uses the stdlib source path to decide which
+classes receive field-level dead-code elimination. A copied class under
+`genes-ts/src/` loses that path-based classification. Reviewed overlays restore
+it with Haxe's class-level `@:dce` metadata, recorded as an exact manifest
+edit. Tests must use `-dce std` and prove that used members survive while
+unused members do not leak into generated TypeScript. `-dce full` is useful as
+a separate complete-module parity control, but it cannot stand in for the
+consumer's default behavior.
+
 Because classpath replacement owns a whole Haxe module,
 `config/stdlib-overrides.json` pins the upstream Haxe revision, source hash,
 formatter-canonical hash, local hash, and every allowed exact replacement.
@@ -442,6 +451,12 @@ legal TypeScript, but reads are not asserted. `Bytes.fastGet` is normally
 inlined before Genes sees the typed AST, erasing the API identity that would
 prove initialization. A spelling-only rule would incorrectly bless
 `new ArrayBuffer(1).bytes[0]`, whose cache is genuinely absent.
+
+When `Bytes.fastGet` is unused, the Genes stdlib overlay's `@:dce` marker lets
+default `-dce std` prune it just as Haxe does for the official std-path module.
+When a program explicitly calls the inline helper, its raw read still survives
+at the call site and remains fail-closed. DCE parity does not create new typed
+evidence for an assertion.
 
 The same plan models the exact hxnodejs
 `js.node.buffer.Buffer.Helper.bytesOfBuffer` implementation of

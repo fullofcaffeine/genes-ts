@@ -40,6 +40,39 @@ s_b += String.fromCodePoint(chars[c >> 4]!);
 
 Classic JavaScript is byte-for-byte unchanged for the emitted `Bytes` module.
 
+## Why the overlay also has `@:dce`
+
+Haxe's default `-dce std` mode recognizes classes by their source location.
+The official `Bytes` class lives under Haxe's own `std/` tree, so Haxe prunes
+unused fields. The copy shipped by Genes lives on the `genes-ts/src/`
+classpath. Without an explicit marker, Haxe keeps the complete class and emits
+the otherwise-unused raw helper:
+
+```ts
+static fastGet(b: ArrayBuffer, pos: number): number {
+  return b.bytes[pos]!;
+}
+// TS18048: b.bytes may be undefined
+```
+
+The overlay uses Haxe's compiler-authored metadata:
+
+```haxe
+@:dce
+@:coreApi
+class Bytes {
+  // The complete Haxe 4.3.7 implementation.
+}
+```
+
+This restores the official field-pruning behavior. The generated TypeScript
+keeps the used `toHex` code shown above but has no `fastGet` declaration.
+
+This does not authorize an assertion for `fastGet`. The byte-cache negative
+fixture calls that inline helper explicitly and still expects TS18048 after
+inlining. In other words, DCE removes unused code; used unsafe code remains
+visible.
+
 ## Why the file is `Bytes.js.hx`
 
 Both Genes output profiles run through Haxe's JavaScript target. TypeScript is
@@ -64,6 +97,8 @@ The command verifies:
   hashes, exact Git-revision source, formatter identity, formatter-canonical
   source, exact declared replacements, and manifest/filesystem set equality;
 - automatic `Bytes.js.hx` selection from a Genes source checkout;
+- default `-dce std` pruning of the unused `Bytes.fastGet` field, matching the
+  official stdlib path behavior;
 - idiomatic generated TypeScript checked by pinned TypeScript 5, 6, and 7;
 - one exact identity bridge at the surviving Haxe `Array<Int>.push` boundary;
 - native `!` syntax for the two known-present array reads;
@@ -78,8 +113,9 @@ The command verifies:
 
 The release-artifact suite separately installs the generated ZIP into an
 isolated local Haxelib repository and compiles a clean consumer using only
-`-lib genes-ts` with Lix's selected Haxe toolchain. That proves packaged
-resolver selection rather than manually recreating the package's classpath.
+`-lib genes-ts`, default `-dce std`, and Lix's selected Haxe toolchain. That
+proves packaged resolver selection and DCE parity rather than manually
+recreating the package's classpath.
 
 The expected runtime transcript is:
 

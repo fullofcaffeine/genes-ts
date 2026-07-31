@@ -279,7 +279,7 @@ try {
       "-D", "genes.ts",
       "-D", "no-deprecation-warnings",
       "-D", "js-es=6",
-      "-dce", "full",
+      "-dce", "std",
     ],
     {
       cwd: consumerRoot,
@@ -308,8 +308,9 @@ try {
     packagedBytes.includes("const chars: number[] = [];")
       && packagedBytes.includes(
         "Register.unsafeCast<number>(HxOverrides.cca(str, i))"
-      ),
-    "the unpacked package must preserve the reviewed Bytes.toHex typing"
+      )
+      && !packagedBytes.includes("static fastGet"),
+    "the unpacked package must preserve Bytes.toHex typing and std DCE behavior"
   );
   const packagedDist = path.join(consumerRoot, "dist");
   execFileSync(

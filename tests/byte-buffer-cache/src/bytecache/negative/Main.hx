@@ -22,9 +22,14 @@ class Main {
     return data.bytes[0];
   }
 
+  static function inlinedFastGet(data: ArrayBuffer): Int {
+    return Bytes.fastGet(data, 0);
+  }
+
   public static function main(): Void {
     trace(mismatchedPrototype());
     trace(absentBytes(new ArrayBuffer(1)));
+    trace(inlinedFastGet(new ArrayBuffer(1)));
     trace(Buffer.reassignedPrototype());
   }
 }

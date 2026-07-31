@@ -147,9 +147,9 @@ ok(
   "the exact helper-owner control reassigns its prototype-backed local before return"
 );
 ok(
-  negativeTs.includes("return data.bytes[0]!;")
+  negativeTs.match(/return data\.bytes\[0\]!;/g)?.length === 2
     && !negativeTs.includes("data.bytes!"),
-  "a fresh ArrayBuffer receives no byte-cache presence assertion"
+  "direct and Bytes.fastGet-inlined reads receive no byte-cache presence assertion"
 );
 const negativeCheck = spawnSync(
   process.execPath,
@@ -182,8 +182,9 @@ strictEqual(
 );
 ok(
   `${negativeCheck.stdout}${negativeCheck.stderr}`.includes("TS2741")
-    && `${negativeCheck.stdout}${negativeCheck.stderr}`.includes("TS18048"),
-  "the negative failures retain both structural and absent-cache diagnostics"
+    && `${negativeCheck.stdout}${negativeCheck.stderr}`
+      .match(/error TS18048:/g)?.length === 2,
+  "the negative failures retain the structural and both absent-cache diagnostics"
 );
 
 const bytesSourceMap = new SourceMapConsumer(

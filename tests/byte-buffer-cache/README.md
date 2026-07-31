@@ -208,9 +208,13 @@ return fresh.bytes[0]!;
 The final `!` shown here belongs to Genes's existing
 `noUncheckedIndexedAccess` array-index rule; it says only that index `0`
 contains a value. It does not claim that the optional `bytes` object exists.
-This PR therefore leaves the six inlined `fastGet` diagnostics visible instead
-of hiding a real unsafe case. A future fix needs compiler evidence stronger
-than the property name.
+The stdlib-overlay fixture separately proves that an *unused* `fastGet` method
+is pruned under default `-dce std`, matching Haxe's official std-path behavior.
+That packaging fix does not change this typed-evidence rule. The negative
+fixture calls `Bytes.fastGet` explicitly and keeps the resulting inlined
+TS18048 visible, alongside a directly authored unsafe cache read. A future
+assertion fix would still need compiler evidence stronger than the property
+name.
 
 Classic JavaScript contains none of these TypeScript assertions:
 
@@ -240,6 +244,8 @@ The task:
 - proves same-named user fields, a fresh native buffer, a mismatched prototype,
   and an exact helper whose prototype-backed local was reassigned receive no
   bridge; and
+- proves both a direct optional-cache read and an explicitly requested,
+  inlined `Bytes.fastGet` read retain TS18048; and
 - verifies the added syntax maps to the authored Haxe line.
 
 Prepared by the GameCarry agent.
