@@ -19,6 +19,7 @@ import genes.DependencyPlan.DependencyImportSpec;
 import genes.DependencyPlan.DependencyModuleRequest;
 import genes.DependencyPlan.DependencyProvenance;
 import genes.Module.Field;
+import genes.RuntimeTypeOccurrenceCollector.RuntimeTypeOccurrence;
 import genes.JsxPlan.JsxCapabilityPolicy;
 import genes.util.TypeUtil;
 
@@ -103,6 +104,8 @@ class DependencyPlanBuilder {
   }
 
   function collectRuntimeEdges(): Void {
+    var onlyRegisterFreeDirectModuleFunctions = module.members.length > 0;
+    var hasDirectModuleFunctionOwner = false;
     // Validate compiler-owned string templates before output projection opens
     // any implementation writer. The plan itself adds no dependency edge.
     module.templateLiteralPlan;
@@ -303,9 +306,38 @@ class DependencyPlanBuilder {
       if (expression == null)
         return;
       addJsRequireFromExpr(expression);
-      for (type in TypeUtil.typesInExpr(expression))
-        addReference(RuntimeValue, type, 'runtime.typed-expression',
-          expression.pos);
+      final occurrences = RuntimeTypeOccurrenceCollector.collect(expression,
+        (owner, field) -> {
+          final request = module.resolveModuleFunction(owner, field);
+          return request != null
+            && request.isSourceModuleBinding ? request : null;
+        });
+      for (occurrence in occurrences) {
+        switch occurrence {
+          case RuntimeTypeOccurrence.RuntimeType(type):
+            addReference(RuntimeValue, type, 'runtime.typed-expression',
+              expression.pos);
+          case RuntimeTypeOccurrence.DirectModuleFunction(ownerRef, fieldRef,
+            request):
+            final owner = ownerRef.get();
+            final field = fieldRef.get();
+            if (owner.module == module.module)
+              continue;
+            final dependency: DependencySpec = {
+              type: DependencyType.DName,
+              name: request.requestedName,
+              path: owner.module,
+              external: false,
+              memberPath: [],
+              pos: field.pos
+            };
+            addEdge(RuntimeValue, TClassDecl(ownerRef),
+              Bound(new DependencyImport(dependency,
+                BindingIdentity.create(dependency,
+                  fieldOrigin(owner, field.name)))),
+              'runtime.module-function', field.pos);
+        }
+      }
     }
 
     /**
@@ -343,9 +375,79 @@ class DependencyPlanBuilder {
       }
     }
 
+    /**
+     * Proves the one direct-function body that cannot emit a runtime helper.
+     *
+     * Why: a compiler-synthetic module owner normally retains `genes.Register`
+     * for registration and shared Haxe runtime operations. Omitting that owner
+     * also removed the conservative Register dependency, but a relocated body
+     * may still emit helpers such as `Register.bind` for method extraction.
+     *
+     * What/How: omit Register only for the exact generic identity shape already
+     * covered by the direct-function fixture: one required non-rest argument
+     * and one unwrapped `return` of that same `TVar`. Defaults, async functions,
+     * return-type overrides, and TypeScript return bridges all fail closed.
+     * Other supported bodies keep the dependency even when a particular
+     * emitter later proves not to use it.
+     */
+    function directFunctionNeedsNoRegister(field: Field): Bool {
+      if (field.meta == null || field.meta.has(':jsAsync')
+        || field.meta.has('jsAsync') || field.meta.has(':ts.returnType')
+        || field.meta.has(':genes.returnType'))
+        return false;
+
+      final signatureArguments = switch Context.follow(field.type) {
+        case TFun(arguments, _): arguments;
+        default: return false;
+      };
+      if (signatureArguments.length != 1 || signatureArguments[0].opt
+        || TypeUtil.isRest(signatureArguments[0].t))
+        return false;
+
+      final functionBody = switch field.expr {
+        case {expr: TFunction(value)}: value;
+        default: return false;
+      };
+      if (functionBody.args.length != 1
+        || functionBody.args[0].value != null
+        || TypeUtil.isRest(functionBody.args[0].v.t))
+        return false;
+
+      final returnExpression = switch functionBody.expr.expr {
+        case TBlock([
+          statement = {
+            expr: TReturn({expr: TLocal(returnedVariable)})
+          }
+        ]) if (returnedVariable.id == functionBody.args[0].v.id):
+          statement;
+        default:
+          return false;
+      };
+
+      if (Context.defined('genes.ts')
+        && module.tsBoundaryPlan.returnBridge(returnExpression) != null)
+        return false;
+      return true;
+    }
+
     for (member in module.members) {
       switch member {
         case MClass(cl, _, fields):
+          final emittableFields = Module.emittableFields(fields);
+          final directOwner = ModuleFunctionPlan.isModuleFieldsOwner(cl)
+            && cl.init == null
+            && emittableFields.length > 0
+            && emittableFields.filter(field ->
+              module.moduleFunctionRequestPlan.entryFor(cl, field) == null)
+              .length == 0;
+          if (directOwner) {
+            hasDirectModuleFunctionOwner = true;
+            if (emittableFields.filter(field ->
+              !directFunctionNeedsNoRegister(field))
+              .length > 0)
+              onlyRegisterFreeDirectModuleFunctions = false;
+          } else
+            onlyRegisterFreeDirectModuleFunctions = false;
           for (parent in cl.interfaces)
             addReference(RuntimeValue, TClassDecl(parent.t),
               'runtime.interface', cl.pos);
@@ -362,11 +464,17 @@ class DependencyPlanBuilder {
             addFromExpr(field.expr, CompilerInternal.isField(field.meta));
           addFromExpr(cl.init, true);
         case MMain(expression):
+          onlyRegisterFreeDirectModuleFunctions = false;
           addFromExpr(expression);
-        default:
+        case MEnum(_, _):
+          onlyRegisterFreeDirectModuleFunctions = false;
+        case MType(_, _):
       }
     }
-    if (module.module != 'genes.Register')
+    if (module.module != 'genes.Register'
+      && (module.hasFeature('js.Lib.global')
+        || !onlyRegisterFreeDirectModuleFunctions
+        || !hasDirectModuleFunctionOwner))
       addReference(RuntimeValue, TypeUtil.registerType,
         'runtime.registration', Context.currentPos());
   }
@@ -518,12 +626,12 @@ class DependencyPlanBuilder {
            */
           if (kind == TypeOnly
             && Lambda.exists(fields,
-              field -> field.meta != null
-                && field.meta.has(':genes.moduleFunction'))) {
+              field -> module.moduleFunctionRequestPlan.hasCandidate(cl,
+                field))) {
             final sourceFields = Module.fieldsOf(cl, publicSurface, params,
               true, fields);
             for (field in sourceFields)
-              if (field.meta != null && field.meta.has(':genes.moduleFunction')) {
+              if (module.moduleFunctionRequestPlan.hasCandidate(cl, field)) {
                 collectSignature(field);
               }
           }

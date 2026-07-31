@@ -111,6 +111,9 @@ class ModuleEmitter extends ExprEmitter {
         case MClass(cl, _, fields):
           final emittableFields = Module.emittableFields(fields);
           emitClassicModuleFunctions(cl);
+          if (moduleFunctionPlan != null
+            && moduleFunctionPlan.canOmitSyntheticOwner(cl, emittableFields))
+            continue;
           final endClassTimer = timer('emitClass');
           emitClass(module.isCyclic, cl, emittableFields,
             memberProjection.exportImplementation,

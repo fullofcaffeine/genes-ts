@@ -3,6 +3,7 @@ package genes;
 #if macro
 import haxe.ds.ObjectMap;
 import haxe.macro.Type;
+import genes.DynamicImportBindingPlan.DynamicImportBindingToken;
 
 using haxe.macro.TypedExprTools;
 
@@ -17,6 +18,8 @@ enum abstract NamePlanProfile(String) to String {
 
 private typedef AllocationScope = {
   final counts: Map<String, Int>;
+  final reserved: Map<String, Bool>;
+  final used: Map<String, Bool>;
 }
 
 private typedef ObjectFieldLocalUse = {
@@ -64,7 +67,8 @@ class NamePlan {
     if (planned != null)
       return planned;
     throw '[GTS-NAME-PLAN-001] Missing emitted name for TVar ${local.id} '
-      + '(${local.name}). The typed expression must be added to NamePlan traversal.';
+      +
+      '(${local.name}). The typed expression must be added to NamePlan traversal.';
   }
 
   /** Returns locals emitted outside a function in deterministic order. */
@@ -95,6 +99,7 @@ private class NamePlanBuilder {
   final moduleBindings: Array<String> = [];
   final generatedCounts: Map<String, Int> = [];
   final plannedFunctions = new ObjectMap<TFunc, Bool>();
+  var currentModule: Null<Module> = null;
 
   public function new(temps: TempPlan, profile: NamePlanProfile,
       jsxEmitTsx: Bool, jsxPlan: JsxPlan) {
@@ -105,6 +110,7 @@ private class NamePlanBuilder {
   }
 
   public function build(module: Module): NamePlan {
+    currentModule = module;
     final moduleScope = allocationScope();
     final preferences: Map<Int, String> = [];
     for (member in module.members) {
@@ -140,12 +146,13 @@ private class NamePlanBuilder {
   }
 
   /** Plans arguments and body locals in one independent function scope. */
-  function planFunction(func: TFunc): Void {
+  function planFunction(func: TFunc, ?fixedBindings: Map<String, Bool>): Void {
     if (plannedFunctions.exists(func))
       return;
     plannedFunctions.set(func, true);
-    final scope = allocationScope();
+    final scope = allocationScope(fixedBindings);
     final preferences: Map<Int, String> = [];
+    reserveDirectBindings(func.expr, scope);
     for (argument in func.args)
       allocate(argument.v, scope, preferences, false);
     visit(func.expr, scope, preferences, false);
@@ -169,6 +176,24 @@ private class NamePlanBuilder {
         allocate(local, scope, preferences, moduleContext);
         if (initializer != null)
           visit(initializer, scope, preferences, moduleContext);
+      case TCall({
+        expr: TField(_,
+          FStatic(_.get() => {module: 'genes.Genes'},
+            _.get() => {name: 'ignore'}))
+      }, [{expr: TArrayDecl(bindings)}, {expr: TFunction(func)}]):
+        final fixed: Map<String, Bool> = [];
+        for (binding in bindings)
+          switch binding.expr {
+            case TConst(TString(encoded)):
+              switch DynamicImportBindingPlan.decode(encoded) {
+                case Declaration(_, _, _, localName, _) |
+                  StaticField(_, _, _, localName, _):
+                  fixed.set(localName, true);
+                case null:
+              }
+            default:
+          }
+        planFunction(func, fixed);
       case TFunction(func):
         planFunction(func);
       case TFor(variable, iterator, body):
@@ -186,10 +211,12 @@ private class NamePlanBuilder {
         for (entry in cases) {
           for (value in entry.values)
             visit(value, scope, preferences, moduleContext);
-          visit(entry.expr, allocationScope(), preferences, moduleContext);
+          visit(entry.expr, allocationScope(scope.reserved), preferences,
+            moduleContext);
         }
         if (fallback != null)
-          visit(fallback, allocationScope(), preferences, moduleContext);
+          visit(fallback, allocationScope(scope.reserved), preferences,
+            moduleContext);
       default:
         expression.iter(child -> visit(child, scope, preferences,
           moduleContext));
@@ -210,49 +237,47 @@ private class NamePlanBuilder {
       return;
     if (jsxEmitTsx && jsxPlan.isSourceInlineChild(local))
       return;
-    if (jsxEmitTsx && profile == ClassicStable
-      && preferences.exists(local.id)) {
+    if (jsxEmitTsx && profile == ClassicStable && preferences.exists(local.id)) {
       final preferred = preferences.get(local.id);
-      final count = countAndIncrement(scope.counts, preferred);
-      final planned = suffix(preferred, count);
+      final planned = allocateScopedName(scope, preferred);
       names.set(local.id, planned);
       if (moduleContext)
         addModuleBinding(planned);
       return;
     }
     if (profile == ClassicStable) {
-      names.set(local.id, local.name);
-      if (moduleContext)
-        addModuleBinding(local.name);
-      return;
-    }
-
-    final temp = temps.tempForLocal(local);
-    if (temp != null && temp.kind == HaxeGeneratedLocal) {
-      final count = countAndIncrement(generatedCounts, local.name);
-      final planned = suffix(local.name, count);
+      final planned = scope.reserved.exists(local.name) ? allocateScopedName(scope,
+        local.name) : local.name;
+      scope.used.set(planned, true);
       names.set(local.id, planned);
       if (moduleContext)
         addModuleBinding(planned);
       return;
     }
 
-    final baseName = preferences.exists(local.id)
-      ? preferences.get(local.id)
-      : local.name;
-    final count = countAndIncrement(scope.counts, baseName);
-    final planned = suffix(baseName, count);
+    final temp = temps.tempForLocal(local);
+    if (temp != null && temp.kind == HaxeGeneratedLocal) {
+      final planned = allocateGeneratedName(scope, local.name);
+      names.set(local.id, planned);
+      if (moduleContext)
+        addModuleBinding(planned);
+      return;
+    }
+
+    final baseName = preferences.exists(local.id) ? preferences.get(local.id) : local.name;
+    final planned = allocateScopedName(scope, baseName);
     names.set(local.id, planned);
     if (moduleContext)
       addModuleBinding(planned);
   }
 
-  function addModuleBinding(name:String):Void {
+  function addModuleBinding(name: String): Void {
     if (moduleBindings.indexOf(name) == -1)
       moduleBindings.push(name);
   }
 
-  static function countAndIncrement(counts: Map<String, Int>, name: String): Int {
+  static function countAndIncrement(counts: Map<String, Int>,
+      name: String): Int {
     final count = counts.exists(name) ? counts.get(name) : 0;
     counts.set(name, count + 1);
     return count;
@@ -262,8 +287,61 @@ private class NamePlanBuilder {
     return count == 0 ? name : '${name}_${count}';
   }
 
-  static function allocationScope(): AllocationScope {
-    return {counts: []};
+  static function allocationScope(?reserved: Map<String,
+    Bool>): AllocationScope {
+    final inherited: Map<String, Bool> = [];
+    if (reserved != null)
+      for (name in reserved.keys())
+        inherited.set(name, true);
+    return {counts: [], reserved: inherited, used: []};
+  }
+
+  /** Reserves exact same-module bare direct bindings before local allocation. */
+  function reserveDirectBindings(expression: TypedExpr,
+      scope: AllocationScope): Void {
+    if (currentModule == null || expression == null)
+      return;
+    switch expression.expr {
+      case TFunction(_):
+        return;
+      case TField(_, FStatic(ownerRef, fieldRef)):
+        final request = currentModule.resolveModuleFunction(ownerRef, fieldRef);
+        if (request != null && request.isSourceModuleBinding
+          && ownerRef.get().module == currentModule.module)
+          scope.reserved.set(request.requestedName, true);
+      default:
+    }
+    expression.iter(child -> reserveDirectBindings(child, scope));
+  }
+
+  /** Allocates one suffix that cannot collide with a fixed or prior binding. */
+  static function allocateScopedName(scope: AllocationScope,
+      baseName: String): String {
+    var count = scope.counts.exists(baseName) ? scope.counts.get(baseName) : 0;
+    var candidate = suffix(baseName, count);
+    while (scope.reserved.exists(candidate) || scope.used.exists(candidate)) {
+      count++;
+      candidate = suffix(baseName, count);
+    }
+    scope.counts.set(baseName, count + 1);
+    scope.used.set(candidate, true);
+    return candidate;
+  }
+
+  /**
+   * Preserves the module-wide `_gN` sequence without bypassing fixed names.
+   */
+  function allocateGeneratedName(scope: AllocationScope,
+      baseName: String): String {
+    var count = generatedCounts.exists(baseName) ? generatedCounts.get(baseName) : 0;
+    var candidate = suffix(baseName, count);
+    while (scope.reserved.exists(candidate) || scope.used.exists(candidate)) {
+      count++;
+      candidate = suffix(baseName, count);
+    }
+    generatedCounts.set(baseName, count + 1);
+    scope.used.set(candidate, true);
+    return candidate;
   }
 
   static function copyPreferences(source: Map<Int, String>): Map<Int, String> {
@@ -305,7 +383,8 @@ private class NamePlanBuilder {
               for (fieldUse in fieldUses) {
                 final fieldLocal = fieldUse.local;
                 final fieldParts = numberedLocalName(fieldLocal.name);
-                if (fieldParts == null || fieldParts.prefix != objectParts.prefix)
+                if (fieldParts == null
+                  || fieldParts.prefix != objectParts.prefix)
                   continue;
                 final fieldIndex = fieldParts.index == null ? 0 : fieldParts.index;
                 if (fieldIndex >= objectParts.index)
@@ -385,9 +464,8 @@ private class NamePlanBuilder {
       final part = sanitizePreferredName(partValue);
       if (part == null)
         continue;
-      result += result.length == 0
-        ? part
-        : part.substr(0, 1).toUpperCase() + part.substr(1);
+      result += result.length == 0 ? part : part.substr(0, 1).toUpperCase()
+        + part.substr(1);
     }
     return result.length == 0 ? null : result;
   }
@@ -401,7 +479,8 @@ private class NamePlanBuilder {
       final valid = (code >= "a".code && code <= "z".code)
         || (code >= "A".code && code <= "Z".code)
         || (index > 0 && code >= "0".code && code <= "9".code)
-        || code == "_".code || code == "$".code;
+        || code == "_".code
+        || code == "$".code;
       if (valid)
         result.addChar(code);
     }
@@ -454,16 +533,18 @@ private class NamePlanBuilder {
     final prefix = name.substr(0, split);
     if (prefix.length == 0)
       return null;
-    return split == name.length
-      ? {prefix: prefix, index: null}
-      : {prefix: prefix, index: Std.parseInt(name.substr(split))};
+    return split == name.length ? {
+      prefix: prefix,
+      index: null
+    } : {prefix: prefix, index: Std.parseInt(name.substr(split))};
   }
 
   static function countLocalUses(expression: TypedExpr,
       uses: Map<Int, Int>): Void {
     switch unwrap(expression).expr {
       case TLocal(local):
-        uses.set(local.id, (uses.exists(local.id) ? uses.get(local.id) : 0) + 1);
+        uses.set(local.id,
+          (uses.exists(local.id) ? uses.get(local.id) : 0) + 1);
       default:
     }
     expression.iter(child -> countLocalUses(child, uses));
@@ -501,14 +582,16 @@ private class NamePlanBuilder {
     final first = name.charCodeAt(0);
     if (!((first >= "a".code && first <= "z".code)
       || (first >= "A".code && first <= "Z".code)
-      || first == "_".code || first == "$".code))
+      || first == "_".code
+      || first == "$".code))
       return false;
     for (index in 1...name.length) {
       final code = name.charCodeAt(index);
       if (!((code >= "a".code && code <= "z".code)
         || (code >= "A".code && code <= "Z".code)
         || (code >= "0".code && code <= "9".code)
-        || code == "_".code || code == "$".code))
+        || code == "_".code
+        || code == "$".code))
         return false;
     }
     return true;

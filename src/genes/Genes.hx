@@ -4,11 +4,15 @@ package genes;
 import haxe.macro.Expr;
 import haxe.macro.Context;
 import haxe.macro.Compiler;
+import haxe.macro.Type.TypedExpr;
 import haxe.io.Path;
 import genes.util.PathUtil;
 import genes.util.TypeUtil;
+import genes.BindingIdentity.HaxeDeclarationKey;
+import genes.DynamicImportBindingPlan;
 
 using haxe.macro.TypeTools;
+using haxe.macro.TypedExprTools;
 using Lambda;
 
 private typedef ImportedModule = {
@@ -16,9 +20,17 @@ private typedef ImportedModule = {
   importType: String,
   importExpr: Expr,
   types: Array<{
-    name: String,
+    localName: String,
+    exportName: String,
     fullname: String,
+    key: HaxeDeclarationKey,
     type: haxe.macro.Type
+  }>,
+  directFunctions: Array<{
+    name: String,
+    ownerModule: String,
+    ownerName: String,
+    fieldName: String
   }>
 }
 #end
@@ -47,7 +59,7 @@ class Genes {
    */
   @:persistent public static var outExtension: String = '.js';
 
-#if macro
+  #if macro
   /**
    * Selects the suffix a JavaScript runtime should request for one artifact.
    *
@@ -64,12 +76,8 @@ class Genes {
     if (Context.defined('genes.no_extension')
       || Context.defined('genes.ts.no_extension'))
       return '';
-    return if (Context.defined('genes.ts')
-      || artifactExtension == '.jsx'
-      || artifactExtension == '.tsx'
-      || artifactExtension == '.ts')
-      '.js';
-    else
+    return if (Context.defined('genes.ts') || artifactExtension == '.jsx'
+      || artifactExtension == '.tsx' || artifactExtension == '.ts') '.js'; else
       artifactExtension;
   }
 
@@ -87,8 +95,8 @@ class Genes {
     };
   }
 
-  static function typedFunction(argName: String, type: ComplexType, body: Expr,
-      pos: Position): Expr {
+  static function typedFunction(argName: String, type: ComplexType,
+      body: Expr, pos: Position): Expr {
     return {
       expr: EFunction(null, {
         args: [functionArg(argName, type)],
@@ -100,13 +108,12 @@ class Genes {
   }
 
   static function dynamicImportAccess(receiver: String, importType: String,
-      name: String): String {
+      localName: String, exportName: String): String {
     return if (Context.defined('genes.ts'))
-      'var $name = ($receiver as $importType).$name';
-    else
-      'var $name = $receiver.$name';
+      'var $localName = ($receiver as $importType).$exportName'; else
+      'var $localName = $receiver.$exportName';
   }
-#end
+  #end
 
   /**
    * Loads one or more Haxe modules with native JavaScript `import()`.
@@ -135,8 +142,9 @@ class Genes {
     return switch expr.expr {
       case EFunction(_, {args: args, expr: body}):
         final current = Context.getLocalClass().get().module;
-        final ret = switch Context.typeExpr(body).t.toComplexType() {
-          case null: (macro:Dynamic);
+        final typedBody = Context.typeExpr(body);
+        final ret = switch typedBody.t.toComplexType() {
+          case null: (macro : Dynamic);
           case v: v;
         }
 
@@ -145,8 +153,10 @@ class Genes {
         for (arg in args) {
           final type = Context.followWithAbstracts(Context.getType(arg.name));
           final fullname = type.toString();
-          final name = fullname.split('.').pop();
-          final module = TypeUtil.moduleTypeModule(TypeUtil.typeToModuleType(type));
+          final moduleType = TypeUtil.typeToModuleType(type);
+          final key = HaxeDeclarationKey.fromModuleType(moduleType);
+          final exportName = TypeUtil.moduleTypeName(moduleType);
+          final module = TypeUtil.moduleTypeModule(moduleType);
           final basePath = PathUtil.relative(current.replace('.', '/'),
             module.replace('.', '/'));
           final artifactExtension = switch Compiler.getOutput() {
@@ -157,15 +167,11 @@ class Genes {
           }
           final path = basePath + runtimeImportExtension(artifactExtension);
           final sourcePosition = Context.getPosInfos(pos);
-          final importExpr = if (Context.defined(
-            CompilerInternal.GENERATOR_ACTIVE_DEFINE))
-            macro @:pos(pos) genes.internal.DynamicImportMarker.load(
-              $v{basePath},
-              $v{sourcePosition.file},
-              $v{sourcePosition.min},
-              $v{sourcePosition.max});
-          else
-            macro js.Syntax.code('import({0})', $v{path});
+          final importExpr = if (Context.defined(CompilerInternal.GENERATOR_ACTIVE_DEFINE))
+            macro @:pos(pos) genes.internal.DynamicImportMarker.load($v{basePath},
+              $v{sourcePosition.file}, $v{sourcePosition.min},
+            $v{sourcePosition.max}); else macro js.Syntax.code('import({0})',
+            $v{path});
 
           switch modules.find(m -> m.name == module) {
             case null:
@@ -175,31 +181,105 @@ class Genes {
                 importExpr: importExpr,
                 types: [
                   {
-                    name: name,
+                    localName: arg.name,
+                    exportName: exportName,
                     fullname: fullname,
+                    key: key,
                     type: type
                   }
-                ]
+                ],
+                directFunctions: []
               });
             case module:
-              module.types.push({name: name, fullname: fullname, type: type});
+              module.types.push({
+                localName: arg.name,
+                exportName: exportName,
+                fullname: fullname,
+                key: key,
+                type: type
+              });
           }
         }
 
+        /**
+         * Keep selected module functions callback-local in a lazy chunk.
+         *
+         * A top-level Haxe function survives typing as a static field on a
+         * compiler-created module owner. Ordinary dependency planning would
+         * turn that field into a top-level ESM import and defeat
+         * `dynamicImport()`. The already typed callback identifies the exact
+         * selected fields it uses, so add only those namespace aliases to the
+         * existing compiler-owned setup.
+         */
+        function collectDirectFunctions(expression: TypedExpr): Void {
+          switch expression.expr {
+            case TField(_, FStatic(ownerRef, fieldRef)):
+              final owner = ownerRef.get();
+              final field = fieldRef.get();
+              final request = ModuleFunctionRequestPlan.fromTypedField(ownerRef,
+                fieldRef);
+              if (request != null && request.isSourceModuleBinding) {
+                final loaded = modules.find(candidate ->
+                  candidate.name == owner.module);
+                if (loaded != null
+                  && loaded.directFunctions.find(candidate ->
+                    candidate.fieldName == field.name) == null) {
+                  loaded.directFunctions.push({
+                    name: request.requestedName,
+                    ownerModule: owner.module,
+                    ownerName: owner.name,
+                    fieldName: field.name
+                  });
+                }
+              }
+            default:
+          }
+          expression.iter(collectDirectFunctions);
+        }
+        collectDirectFunctions(typedBody);
+
+        final candidates = [];
+        for (moduleIndex in 0...modules.length) {
+          final module = modules[moduleIndex];
+          for (type in module.types) {
+            candidates.push(DynamicImportBindingPlan.declaration(moduleIndex,
+              type.key, type.localName, type.exportName));
+          }
+          for (direct in module.directFunctions) {
+            candidates.push(DynamicImportBindingPlan.staticField(moduleIndex,
+              new genes.BindingIdentity.StaticFieldOriginKey(direct.ownerModule,
+                direct.ownerName, direct.fieldName),
+              direct.name, direct.name));
+          }
+        }
+        final reserved = new Map<String, String>();
+        reserved.set('module', 'compiler dynamic-import namespace');
+        reserved.set('modules', 'compiler dynamic-import namespace list');
+        final bindingPlan = DynamicImportBindingPlan.build(candidates, pos,
+          reserved);
+
         final e = switch modules {
           case [module]:
+            final entries = bindingPlan.entriesForModule(0);
             final setup = [
-              for (sub in module.types)
-                macro js.Syntax.code($v{dynamicImportAccess('module', module.importType, sub.name)})
+              for (entry in entries)
+                macro js.Syntax.code($v{
+                  dynamicImportAccess('module', module.importType,
+                    entry.localName(), entry.exportName())
+                })
+            ];
+            final list = [
+              for (entry in entries)
+                macro $v{entry.encoded()}
             ];
 
-            final list = [for (sub in module.types) macro $v{sub.fullname}];
-
-            final handler = macro genes.Genes.ignore($a{list},
-              $e{typedFunction('module', macro:genes.Genes.DynamicImportModule, macro {
-                @:mergeBlock $b{setup};
-                $body;
-              }, pos)});
+            final handler = macro genes.Genes.ignore($a{list}, $e{
+              typedFunction('module', macro : genes.Genes.DynamicImportModule,
+                macro {
+                  @:mergeBlock $b{setup};
+                  $body;
+                }, pos)
+            });
 
             macro ${module.importExpr}.then($handler);
 
@@ -208,19 +288,24 @@ class Genes {
             final ignores = [];
 
             for (i in 0...modules.length) {
-              for (sub in modules[i].types) {
-                setup.push(macro js.Syntax.code($v{dynamicImportAccess('modules[$i]', modules[i].importType, sub.name)}));
-                ignores.push(macro $v{sub.fullname});
+              for (entry in bindingPlan.entriesForModule(i)) {
+                setup.push(macro js.Syntax.code($v{
+                  dynamicImportAccess('modules[$i]', modules[i].importType,
+                    entry.localName(), entry.exportName())
+                }));
+                ignores.push(macro $v{entry.encoded()});
               }
             }
 
             final imports = macro $a{modules.map(module -> module.importExpr)};
             macro js.lib.Promise.all($imports)
-              .then(genes.Genes.ignore($a{ignores},
-                $e{typedFunction('modules', macro:genes.Genes.DynamicImportModules, macro {
-                @:mergeBlock $b{setup};
-                $body;
-              }, pos)}));
+              .then(genes.Genes.ignore($a{ignores}, $e{
+                typedFunction('modules',
+                  macro : genes.Genes.DynamicImportModules, macro {
+                    @:mergeBlock $b{setup};
+                    $body;
+                  }, pos)
+              }));
         }
 
         // Keep the outer expansion at the authored macro call. Nested carrier
@@ -255,4 +340,5 @@ abstract DynamicImportModule(Dynamic) from Dynamic to Dynamic {}
  * authored callback runs.
  */
 @:ts.type("unknown[]")
-abstract DynamicImportModules(Array<Dynamic>) from Array<Dynamic> to Array<Dynamic> {}
+abstract DynamicImportModules(Array<Dynamic>) from Array<Dynamic>
+  to Array<Dynamic> {}

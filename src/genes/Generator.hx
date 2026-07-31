@@ -64,9 +64,7 @@ class Generator {
 
   static function generate(api: JSGenApi) {
     validateOutputOverrideTiming();
-    final outputFile = configuredOutputFile == null
-      ? api.outputFile
-      : configuredOutputFile;
+    final outputFile = configuredOutputFile == null ? api.outputFile : configuredOutputFile;
     final output = Path.withoutExtension(Path.withoutDirectory(outputFile));
     final outputDir = Path.directory(outputFile);
     // The module name intentionally omits the extension, but filesystem
@@ -84,7 +82,8 @@ class Generator {
         removeCompilerSentinel();
       } catch (rollbackError:haxe.Exception) {
         throw new haxe.Exception('Genes failed to restore compiler output after '
-          + '"${error.message}": ${rollbackError.message}', rollbackError);
+          + '"${error.message}": ${rollbackError.message}',
+          rollbackError);
       }
       throw error;
     }
@@ -115,6 +114,20 @@ class Generator {
     function export(export: ModuleExport) {
       if (expose.exists(export.name)) {
         final duplicate = expose.get(export.name);
+        // A public Haxe module field is discovered before semantic lowering.
+        // When that exact field is later selected as a genuine module
+        // function, both discoveries describe the same ESM export rather than
+        // two competing owners. Preserve the first stable fact and let the
+        // module-function plan own the emitted declaration.
+        if (!export.isType
+          && !duplicate.isType
+          && export.module == duplicate.module
+          && Context.getPosInfos(export.pos)
+            .min == Context.getPosInfos(duplicate.pos)
+            .min && Context.getPosInfos(export.pos)
+          .max == Context.getPosInfos(duplicate.pos)
+          .max)
+          return;
         Context.warning('Trying to @:expose ${export.name} ...', export.pos);
         CompilerDiagnostic.fail('... but there\'s already an export by that name',
           duplicate.pos);
@@ -124,13 +137,19 @@ class Generator {
     for (type in api.types) {
       switch type {
         #if (haxe_ver >= 4.2)
-        case TInst(_.get() => {
-          kind: KModuleFields(_),
-          module: module,
-          statics: _.get() => fields
-        }, _):
+        case TInst(ownerRef, _)
+          if (ownerRef.get().kind.match(KModuleFields(_))):
+          final owner = ownerRef.get();
+          final module = owner.module;
+          final fields = owner.statics.get();
           for (field in fields) {
-            if (field.meta.has(':expose'))
+            // A selected genuine module field is exported by its own ESM
+            // module. It is not a compilation-root barrel export: separate
+            // modules may intentionally own the same conventional binding
+            // (for example `render`) without competing globally.
+            final request = ModuleFunctionRequestPlan.fromTypedFieldValues(owner,
+              field);
+            if (field.meta.has(':expose') && request == null)
               export({
                 name: field.name,
                 pos: field.pos,
@@ -158,7 +177,8 @@ class Generator {
     }
     final context = {
       concrete: concrete,
-      modules: modules
+      modules: modules,
+      hasFeature: api.hasFeature
     }
     function addModule(module: String, types: Array<Type>,
         ?main: Null<TypedExpr>, ?expose: Array<ModuleExport>)
@@ -179,7 +199,8 @@ class Generator {
     if (tsMode && Genes.outExtension == '.jsx')
       CompilerDiagnostic.fail('[GTS-JSX-CAPABILITY-007] `.jsx` is the '
         + 'type-erased JSX profile and cannot be combined with `-D genes.ts`. '
-        + 'Remove that define for `.jsx`, or emit `.tsx` to preserve Haxe-derived '
+        +
+        'Remove that define for `.jsx`, or emit `.tsx` to preserve Haxe-derived '
         + 'TypeScript types.',
         Context.currentPos());
 
@@ -219,7 +240,8 @@ class Generator {
         final sourceModule = modules.get(moduleName);
         if (sourceModule == null)
           CompilerDiagnostic.fail('Genes DependencyPlan ($profile): missing source module '
-            + moduleName, Context.currentPos());
+            + moduleName,
+            Context.currentPos());
 
         final edges = sourceModule.dependencyPlan.edges;
         for (edge in edges) {
@@ -268,8 +290,7 @@ class Generator {
             target = modules.get(base.module);
             changed = true;
           } else {
-            changed = target.addTypes(
-              [DependencyPlan.moduleTypeToType(referencedType)]);
+            changed = target.addTypes([DependencyPlan.moduleTypeToType(referencedType)]);
           }
 
           final hasMember = target.getMember(base.name) != null
@@ -291,23 +312,24 @@ class Generator {
 
     final hasPublicModuleFunctions = initialNames.exists(name ->
       hasPublicModuleFunctionCandidate(modules.get(name)));
-    final implementationRoots = if (tsMode)
-      [for (name in initialNames)
+    final implementationRoots = if (tsMode) [
+      for (name in initialNames)
         if (isTypedImplementationRoot(modules.get(name),
           explicitlyExposedModules.exists(name))
-          || (name == output && hasPublicModuleFunctions)) name]
-    else
-      [for (name in initialNames)
+          || (name == output && hasPublicModuleFunctions)) name
+    ] else [
+      for (name in initialNames)
         if (needsGen(modules.get(name))
-          || (name == output && hasPublicModuleFunctions)) name];
+          || (name == output && hasPublicModuleFunctions)) name
+    ];
     final implementationKinds = if (tsMode)
-      [RuntimeValue, RuntimeSideEffect, TypeOnly]
-    else
+      [RuntimeValue, RuntimeSideEffect, TypeOnly] else
       [RuntimeValue, RuntimeSideEffect];
     final implementationReachable = expandReachability(implementationRoots,
       implementationKinds, tsMode ? 'ts-strict' : 'classic-esm');
     final implementationNames = [
-      for (name in implementationReachable.keys()) name
+      for (name in implementationReachable.keys())
+        name
     ];
     implementationNames.sort(Reflect.compare);
     final jsxCapability = JsxCapabilityPolicy.current();
@@ -328,7 +350,7 @@ class Generator {
     final outputModule = modules.get(output);
     for (moduleName in implementationNames) {
       final module = modules.get(moduleName);
-      for (entry in module.moduleFunctionPlan.publicEntries()) {
+      for (entry in module.moduleFunctionPlan.rootPublicEntries()) {
         final publicName = entry.publicExportName;
         if (publicName == null)
           continue;
@@ -371,20 +393,19 @@ class Generator {
     final declarationReachable = expandReachability(implementationNames,
       [DeclarationOnly], 'classic-dts');
     final declarationNames = [
-      for (name in declarationReachable.keys()) name
+      for (name in declarationReachable.keys())
+        name
     ];
     declarationNames.sort(Reflect.compare);
     for (name in declarationNames)
-      generateDefinition(api, modules.get(name), outputDir,
-        outputTransaction);
+      generateDefinition(api, modules.get(name), outputDir, outputTransaction);
     #end
 
     // Private fault injection for the transaction harness. Every emitter has
     // completed, so the old per-file architecture would already have exposed
     // a mixed tree here; the transaction must still have touched nothing.
     #if genes.output_transaction_test_fail_before_commit
-    CompilerDiagnostic.fail(
-      'Genes output transaction test failure before publication',
+    CompilerDiagnostic.fail('Genes output transaction test failure before publication',
       Context.currentPos());
     #end
     // This private probe deliberately throws a plain Haxe value rather than a
@@ -438,18 +459,21 @@ class Generator {
   /**
    * Finds only the metadata pair needed to retain the compilation-root module.
    *
-   * This deliberately does not parse or validate either annotation. Full
-   * validation remains in ModuleFunctionPlan after template/JSX planning, so a
-   * shallow root decision cannot mask an earlier semantic diagnostic.
+   * Why: an `@:expose` request must keep the root export alive even in a
+   * library-only build with no `--main`. Haxe represents a genuine file-level
+   * function on a synthetic `KModuleFields` class, so those owners must
+   * participate in this shallow pre-DCE probe just like supported class static
+   * methods.
+   *
+   * What/How: this deliberately checks only for the two annotations and does
+   * not parse or validate either one. Full validation remains in
+   * ModuleFunctionPlan after template/JSX planning, so retaining the root
+   * cannot mask a more precise semantic diagnostic.
    */
-  static function hasPublicModuleFunctionCandidate(module:Module):Bool {
+  static function hasPublicModuleFunctionCandidate(module: Module): Bool {
     for (member in module.members) {
       switch member {
-        case MClass(owner, _, fields):
-          #if (haxe_ver >= 4.2)
-          if (owner.kind.match(KModuleFields(_)))
-            continue;
-          #end
+        case MClass(_, _, fields):
           for (field in Module.emittableFields(fields)) {
             if (field.meta != null
               && field.meta.has(':genes.moduleFunction')
@@ -559,14 +583,11 @@ class Generator {
         emitter.emitTsModule(module, importExtension);
         emitter;
       case false:
-        final emitter = new ModuleEmitter(ctx,
-          outputTransaction.writer(path));
+        final emitter = new ModuleEmitter(ctx, outputTransaction.writer(path));
         // JSX source is consumed by a JSX transform which writes `.js` files.
         // NodeNext and modern bundlers resolve a source-side `.js` specifier to
         // the sibling `.jsx` module, then preserve the runtime-correct suffix.
-        final importExtension = Genes.outExtension == '.jsx'
-          ? '.js'
-          : Genes.outExtension;
+        final importExtension = Genes.outExtension == '.jsx' ? '.js' : Genes.outExtension;
         emitter.emitModule(module, importExtension);
         emitter;
     }
@@ -596,8 +617,7 @@ class Generator {
   public static function use() {
     #if !genes.disable
     if (Context.defined('js')) {
-      final alreadyInstalled = Context.defined(
-        CompilerInternal.GENERATOR_ACTIVE_DEFINE);
+      final alreadyInstalled = Context.defined(CompilerInternal.GENERATOR_ACTIVE_DEFINE);
       Compiler.define(CompilerInternal.GENERATOR_ACTIVE_DEFINE);
       isolateCompilerOutput(alreadyInstalled);
       LibraryProfile.validate();
@@ -697,14 +717,9 @@ class Generator {
     // cleanup must never touch either the authored HXML destination or a
     // previously good Genes tree.
     final sentinelSeed = requestedOutput.trim().length == 0
-      || requestedOutput.indexOf('\x00') >= 0
-      ? compilerOutput
-      : requestedOutput;
+      || requestedOutput.indexOf('\x00') >= 0 ? compilerOutput : requestedOutput;
     final key = Sha256.encode(absolutePath(sentinelSeed)).substr(0, 20);
-    compilerSentinelFile = Path.join([
-      temporaryRoot,
-      'genes-haxe-output-$key.tmp'
-    ]);
+    compilerSentinelFile = Path.join([temporaryRoot, 'genes-haxe-output-$key.tmp']);
     Compiler.setOutput(compilerSentinelFile);
     validateConfiguredOutput(requestedOutput);
     configuredOutputFile = requestedOutput;
@@ -737,15 +752,12 @@ class Generator {
     // requests. Accepting `.MJS` as though it were `.mjs` would pass this
     // validation but still produce case-sensitive paths that Node rejects.
     final extension = Path.extension(output);
-    final supported = if (Context.defined('genes.ts'))
-      extension == 'ts' || extension == 'tsx'
-    else
-      extension == 'js' || extension == 'jsx' || extension == 'mjs';
+    final supported = if (Context.defined('genes.ts')) extension == 'ts'
+      || extension == 'tsx' else extension == 'js' || extension == 'jsx'
+      || extension == 'mjs';
     if (!supported) {
       removeCompilerSentinel();
-      final expected = Context.defined('genes.ts')
-        ? '.ts or .tsx'
-        : '.js, .jsx, or .mjs';
+      final expected = Context.defined('genes.ts') ? '.ts or .tsx' : '.js, .jsx, or .mjs';
       Context.error('[GENES-OUTPUT-TARGET-002] -D $OUTPUT_DEFINE="$output" '
         + 'does not match the active Genes profile; expected $expected.',
         Context.currentPos());
@@ -792,8 +804,7 @@ class Generator {
     if (path == null || !FileSystem.exists(path))
       return;
     if (FileSystem.isDirectory(path))
-      throw new haxe.Exception(
-        'Genes compiler output sentinel is a directory: $path');
+      throw new haxe.Exception('Genes compiler output sentinel is a directory: $path');
     FileSystem.deleteFile(path);
   }
 

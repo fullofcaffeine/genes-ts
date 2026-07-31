@@ -150,6 +150,105 @@ Classic JavaScript emits `export declare const identity: typeof
 Values.identity`, so its `.d.ts` derives the same closed generic contract
 without duplicating it.
 
+The Haxe field name may differ when both annotations explicitly choose the same
+public binding:
+
+```haxe
+@:expose("identity")
+@:genes.moduleFunction("identity")
+function authoredName<T>(value:T):T {
+	return value;
+}
+```
+
+Both the implementation and declarations export `identity`; the replaced
+Haxe-only name `authoredName` does not leak into the JavaScript package.
+
+## Module initialization still runs
+
+A source module may also define `function __init__()`. Haxe stores that hidden
+initializer on its compiler-created module owner, outside the visible function
+list. Genes keeps the owner in this case so the established initialization
+order and side effects remain intact:
+
+```haxe
+@:genes.moduleFunction("readReady")
+function readReady():Bool {
+	return State.ready;
+}
+
+function __init__():Void {
+	State.ready = true;
+}
+```
+
+`readReady` is still a genuine module function, but importing its module still
+runs `__init__` exactly as ordinary Genes output did.
+
+Direct-function imports also stay at their original typed-expression
+occurrence. This matters because ESM dependencies initialize in source order:
+if a call reads an ordinary module value before calling a direct function,
+Genes preserves that ordinary-before-direct module order instead of grouping
+all direct imports at the top of dependency planning.
+
+## Lazy imports stay lazy
+
+When a selected function is used inside `Genes.dynamicImport()`, Genes must not
+add an ordinary top-level import for it. A top-level import would load and run
+the target module immediately, defeating the purpose of code splitting.
+
+For example, if the lazily loaded `Reports` module exports a selected
+`formatReport` function, the callback keeps using the Haxe function normally:
+
+```haxe
+Genes.dynamicImport(Reports -> {
+	trace(formatReport(Reports.current()));
+});
+```
+
+Genes reads both exports from the namespace after `import()` resolves:
+
+```ts
+import("./Reports.js").then(function (module: unknown) {
+  var Reports = (module as typeof import("./Reports.js")).Reports;
+  var formatReport =
+    (module as typeof import("./Reports.js")).formatReport;
+  console.log(formatReport(Reports.current()));
+});
+```
+
+There is no static `import {formatReport} from "./Reports.js"` above this code.
+The callback carrier records the selected function's exact Haxe owner and field,
+so an unrelated static field from the same source module still uses its normal
+collision-safe import mapping.
+
+Lazy callback names are planned separately from namespace export names. This
+matters when two modules export the same declaration name but Haxe imports
+them under different aliases:
+
+```haxe
+import reports.foo.MyClass as FooClass;
+import reports.bar.MyClass as BarClass;
+
+Genes.dynamicImport((FooClass, BarClass) -> {
+	trace(new FooClass());
+	trace(new BarClass());
+});
+```
+
+Representative generated setup:
+
+```js
+var FooClass = modules[0].MyClass;
+var BarClass = modules[1].MyClass;
+```
+
+`FooClass` and `BarClass` are the callback-local bindings. `MyClass` is the
+export read from each resolved namespace. Genes records both facts with the
+exact Haxe declaration identity. If a selected lazy function also requests
+`FooClass`, Genes reports `GENES-DYNAMIC-IMPORT-BINDING-COLLISION-002` instead
+of overwriting the class binding.
+
 The two metadata names must match. This v1 constraint keeps the local binding,
 public name, stack name, analyzer identity, and declaration surface aligned.
 `@:expose` with no argument uses the Haxe field name. A class-member
@@ -162,6 +261,180 @@ This is intentionally framework-neutral. Genes owns genuine module functions,
 stable ESM bindings, root re-exports, declarations, source maps, DCE, and
 runtime identity. A host framework remains responsible for any convention
 module, directive, public path, or server/client policy it builds on top.
+
+## Genuine Haxe module-level functions
+
+When the Haxe declaration is already a module-level function, Genes does not
+manufacture a class compatibility surface:
+
+```haxe
+package values;
+
+@:genes.moduleFunction("identity")
+function identity<T>(value:T):T {
+  return value;
+}
+```
+
+TypeScript output:
+
+```ts
+export function identity<T>(value: T): T {
+  return value;
+}
+```
+
+Classic JavaScript output:
+
+```js
+export function identity(value) {
+  return value;
+}
+```
+
+Another Haxe module imports and calls the same source function normally:
+
+```haxe
+import values.Identity.identity;
+
+final result = identity("typed");
+```
+
+Genes projects that call as a direct named ESM import. If the source module
+contains only selected module functions, its compiler-synthetic `_Fields_`
+class, descriptor seeds, assignments, and registration import are omitted.
+This is the preferred shape for APIs that are conceptually JavaScript or
+TypeScript modules rather than runtime classes.
+
+The binding is public from its own generated module, not implicitly
+re-exported from the compilation-root barrel. Separate Haxe source modules may
+therefore export the same conventional name (for example `render`) without a
+false global collision; callers receive the ordinary collision-safe ESM import
+alias.
+
+Add an explicit matching `@:expose` when the genuine module-level function
+must also be published from the compilation root:
+
+```haxe
+@:expose("identity")
+@:genes.moduleFunction("identity")
+function identity<T>(value:T):T {
+	return value;
+}
+```
+
+```ts
+// values/Identity.ts
+export function identity<T>(value: T): T {
+  return value;
+}
+
+// compilation root
+export {identity} from "./values/Identity.js";
+```
+
+The owner-module and root exports are the same function object. The distinction
+is intentional: ordinary public Haxe module fields remain local to their own
+generated ESM file, while `@:expose` is an explicit request for the package's
+root public API.
+
+That root request also works in a library-only build with no `--main`. In Haxe,
+`--main` selects an application entry point; a library generator may instead
+ask a macro to type only the modules it publishes. For example:
+
+```text
+Haxe types values.Identity without an application Main
+  -> @:expose requests the public package binding
+  -> Genes emits values/Identity and the root index re-export
+```
+
+Genes therefore treats the matching `@:expose` and
+`@:genes.moduleFunction` pair as independent evidence that the root module must
+exist. It does not rely on an application `Main` importing the function:
+
+```ts
+// index.ts, even when the Haxe build has no --main
+export {identity} from "./values/Identity.js";
+```
+
+This matters for package builds because silently omitting `index.ts`,
+`index.js`, or `index.d.ts` would leave the owner file on disk but remove the
+public import path the author explicitly requested.
+
+## Why direct module values are deferred
+
+This capability deliberately covers functions, not eagerly evaluated values.
+The difference is when JavaScript runs the code.
+
+Declaring a function creates the function binding without executing its body:
+
+```ts
+export function getFirst(): number {
+  return second;
+}
+
+export const second = 2;
+```
+
+Calling `getFirst()` after the module has initialized is ordinary JavaScript.
+By contrast, a `const` initializer executes immediately as the module loads:
+
+```haxe
+@:genes.moduleValue("first")
+final first = makeValue();
+
+@:genes.moduleValue("second")
+final second = 2;
+
+function makeValue():Int {
+  return second;
+}
+```
+
+Naively turning those fields into direct ESM values would produce:
+
+```ts
+export const first = makeValue();
+export const second = 2;
+
+function makeValue(): number {
+  return second;
+}
+```
+
+JavaScript begins evaluating `first` before it has initialized `second`.
+Although the name `second` is already in scope, reading it during this interval
+throws `ReferenceError`. JavaScript calls that interval the **temporal dead
+zone**, or TDZ.
+
+The older synthetic-owner representation does not have identical behavior: a
+not-yet-assigned object property is generally read as `undefined`. Proving that
+every possible initializer call, callback, constructor, alias, and control-flow
+path cannot reach a later value would require a separate initialization
+contract—not a small extension of function relocation.
+
+Genes therefore reports this explicit diagnostic instead of ignoring the
+metadata or emitting a misleading direct value:
+
+```text
+GENES-MODULE-VALUE-DEFERRED-001
+```
+
+Remove `@:genes.moduleValue` to keep the established field representation. If
+the value is genuinely computed on demand, expose that operation as a
+`@:genes.moduleFunction`:
+
+```haxe
+@:genes.moduleFunction("getFirst")
+function getFirst():Int {
+  return makeValue();
+}
+```
+
+A future direct-value proposal can support a deliberately small closed-data
+subset—such as constants and literal arrays/objects—under its own reviewable
+rules. Calls and other eager computations are not silently accepted by this
+function feature.
 
 ## What remains equivalent
 
@@ -182,6 +455,19 @@ A private selected function is not exported and its module-function metadata is
 not a DCE root. `@:expose` is an explicit public root. Without it, if Haxe
 removes the field, Genes emits no function and reserves no requested name.
 
+Dependency planning remains authoritative for code moved to module scope. For
+example, extracting an instance method can emit `Register.bind`, and Haxe's
+project-wide `js.Lib.global` feature can make a module emit:
+
+```ts
+import {Register} from "../genes/Register.js";
+
+const $global = Register.$global;
+```
+
+Genes records that helper before import aliases are frozen. It does not wait
+for the expression or module printer to discover the dependency.
+
 ## Intentional function-object differences
 
 Opting in changes intrinsic properties that no ordinary module function can
@@ -199,10 +485,10 @@ body and exact-identity requirements.
 
 ## Supported v1 shape
 
-The first release accepts:
+The supported shape accepts:
 
-- a concrete, non-extern, non-interface `KNormal` class without class type
-  parameters;
+- either a concrete, non-extern, non-interface `KNormal` class without class
+  type parameters or Haxe's synthetic owner for genuine module-level fields;
 - one retained public static `MethNormal` method with a typed function body;
 - method-local type parameters and constraints;
 - ordinary, optional/default, and rest arguments;
@@ -213,8 +499,8 @@ The first release accepts:
 - recursion that remains a typed `Owner.field(...)` access.
 
 The compiler fails closed for instance, inline, dynamic, abstract, bodyless,
-extern, interface, abstract-implementation, module-field, overloaded, or
-generic-owner shapes. It also rejects opaque `js.Syntax`/legacy `__js__` bodies:
+extern, interface, abstract-implementation, overloaded, or generic-owner
+shapes. It also rejects opaque `js.Syntax`/legacy `__js__` bodies:
 raw target text could conceal `this`, `super`, or `new.target`, so the compiler
 cannot prove that changing lexical location is safe. The only admitted
 `js.Syntax` calls are an exact, arity-checked set of compiler-library
@@ -243,8 +529,14 @@ uses away from the JavaScript global or absence value they mean. Genes never
 sanitizes or suffixes the requested name: analyzer conventions may depend on
 that exact spelling.
 
-Collision validation runs after import aliases and local-name plans are known.
-It checks real module types and fields, imports in both projections,
+Genes plans direct functions in two stages. An early request plan validates the
+exact typed owner and field, requested binding, public name, function shape,
+and relocation safety. Import and local-name allocators consume those fixed
+facts. A later final plan checks the completed, unaliasable module namespace.
+This split prevents printers and dependency collectors from rediscovering
+meaning from a metadata string after names have already been allocated.
+
+Collision validation checks real module types and fields, imports in both projections,
 module-scope locals and compiler temporaries, JSON support aliases, private
 lowered helpers, other selected functions, and compiler-owned bindings. Members
 of a generated value do not reserve unrelated top-level names: for example, an
@@ -252,6 +544,65 @@ enum constructor emitted as `State.Ready` does not block a module function
 called `Ready`. A collision reports the requested name, owner field, and prior
 binding kind at the metadata source position. It does not silently rename an
 unrelated import.
+
+Aliasable imports yield to a fixed source-module binding, including when the
+requested ESM name differs from the authored Haxe field name:
+
+```haxe
+import other.Values.renamedBinding as foreignBinding;
+
+@:expose("renamedBinding")
+@:genes.moduleFunction("renamedBinding")
+function authoredLocalName():String {
+	return "local";
+}
+```
+
+Representative generated output:
+
+```ts
+import {renamedBinding as renamedBinding__1} from "./other/Values.js";
+
+export function renamedBinding(): string {
+  return "local";
+}
+```
+
+Genes renames only the foreign import's local spelling. Both source modules
+keep their exact requested export names.
+
+Haxe locals and parameters are also aliasable. JavaScript `let` and `const`
+bindings shadow an entire block, even before their declaration, so this Haxe:
+
+```haxe
+final before = selected();
+final selected = "local";
+```
+
+must not become `const before = selected(); const selected = "local";`. The
+second declaration would place the local `selected` in JavaScript's temporal
+dead zone at the first line. Genes reserves the exact direct binding before
+allocating parameters and locals, then renames only the Haxe local:
+
+```ts
+const before = selected();
+const selected_1 = "local";
+```
+
+This decision uses the exact static-field occurrence and exact Haxe `TVar`
+identity. It does not inspect generated text or move either expression.
+
+An extern marker fails before dependency or output planning:
+
+```haxe
+@:genes.moduleFunction("externalSelected")
+extern function externalSelected():String;
+```
+
+An extern has no generated body or owner module, so Genes reports
+`GENES-MODULE-FUNCTION-OWNER-007`. It never manufactures an internal import to
+a file that cannot exist. Ordinary extern functions without this metadata,
+including supported `@:jsRequire` fields, retain their existing behavior.
 
 Public member exports apply the same identifier policy to `@:expose`. They also
 participate in the compilation-root export inventory, so a collision with an

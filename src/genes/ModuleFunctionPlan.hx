@@ -6,6 +6,7 @@ import haxe.macro.Expr.Position;
 import haxe.macro.Expr.MetadataEntry;
 import haxe.macro.Type;
 import genes.Module.Field;
+import genes.BindingIdentity.StaticFieldOriginKey;
 import genes.NamePlan.NamePlanProfile;
 import genes.util.TypeUtil;
 
@@ -15,20 +16,27 @@ using haxe.macro.TypedExprTools;
 class ModuleFunctionEntry {
   public final owner: ClassType;
   public final field: Field;
+  public final origin: StaticFieldOriginKey;
   public final requestedName: String;
   public final requestedPos: Position;
   public final classPropertyName: String;
   public final publicExportName: Null<String>;
+  public final hasExplicitPublicExport: Bool;
+  public final isSourceModuleBinding: Bool;
 
   public function new(owner: ClassType, field: Field, requestedName: String,
       requestedPos: Position, classPropertyName: String,
-      publicExportName: Null<String>) {
+      publicExportName: Null<String>, hasExplicitPublicExport: Bool) {
     this.owner = owner;
     this.field = field;
+    this.origin = new StaticFieldOriginKey(owner.module, owner.name,
+      field.name);
     this.requestedName = requestedName;
     this.requestedPos = requestedPos;
     this.classPropertyName = classPropertyName;
     this.publicExportName = publicExportName;
+    this.hasExplicitPublicExport = hasExplicitPublicExport;
+    this.isSourceModuleBinding = ModuleFunctionPlan.isModuleFieldsOwner(owner);
   }
 }
 
@@ -57,14 +65,16 @@ private typedef LexicalRejection = {
  * which case the genuine function is exported under that exact binding and
  * re-exported from the compilation root. The emitters retain a compiler-owned
  * method descriptor in the original class slot, then immediately replace only
- * its value. This plan owns metadata parsing, the intentionally narrow v1
- * eligibility contract, exact name collisions, and source positions; printers
- * only render validated facts.
+ * its value. The earlier `ModuleFunctionRequestPlan` owns metadata parsing and
+ * the intentionally narrow v1 eligibility contract. This final plan owns
+ * collisions against the completed module namespace; printers only render
+ * validated facts.
  *
- * How: dependency aliases and local names are finalized first, then one shared
- * inventory is compared with each requested binding in source order. Metadata
- * is not a DCE root: only post-DCE, emittable fields enter the plan. Raw target
- * syntax is rejected because it can conceal `this`, `super`, or `new.target`.
+ * How: dependency aliases and local names consume early exact requests first.
+ * Then one shared inventory is compared with each requested binding in source
+ * order. Metadata is not a DCE root: only post-DCE, emittable fields enter the
+ * request plan. Raw target syntax is rejected because it can conceal `this`,
+ * `super`, or `new.target`.
  * Ordinary private static calls and Haxe local statics remain valid: Genes does
  * not emit JavaScript `#private` syntax, and Haxe 4.3.7 lowers a local static to
  * an ordinary synthetic owner field before this plan runs.
@@ -78,34 +88,82 @@ private typedef LexicalRejection = {
  */
 class ModuleFunctionPlan {
   static final METADATA = ':genes.moduleFunction';
+  static final DEFERRED_VALUE_METADATA = ':genes.moduleValue';
   static final EXPOSE_METADATA = ':expose';
 
   final entries: Array<ModuleFunctionEntry>;
 
+  /** True only for Haxe's synthetic owner of genuine module-level fields. */
+  public static function isModuleFieldsOwner(owner: ClassType): Bool {
+    return #if (haxe_ver >= 4.2)
+      owner.kind.match(KModuleFields(_));
+    #else
+      false;
+    #end
+  }
+
   public static function build(module: Module): ModuleFunctionPlan {
     final bindings = bindingInventory(module);
     final entries: Array<ModuleFunctionEntry> = [];
+    for (entry in module.moduleFunctionRequestPlan.completeEntries()) {
+      for (binding in bindings) {
+        if (binding.name != entry.requestedName)
+          continue;
+        CompilerDiagnostic.fail('GENES-MODULE-FUNCTION-COLLISION-005: "${entry.requestedName}" requested '
+          +
+          'by ${entry.owner.name}.${entry.field.name} collides with an existing '
+          + '${binding.kind}; choose another exact module binding',
+          entry.requestedPos);
+      }
+      entries.push(entry);
+      bindings.push({
+        name: entry.requestedName,
+        kind: 'module function ${entry.owner.name}.${entry.field.name}',
+        pos: entry.requestedPos
+      });
+    }
+    return new ModuleFunctionPlan(entries);
+  }
+
+  /**
+   * Rejects the deliberately deferred direct-value spelling.
+   *
+   * Why: declaring a JavaScript function does not execute its body, but
+   * initializing an exported `const` evaluates its value immediately while
+   * the module loads. A value initializer can therefore reach a later `const`
+   * while that binding is still in JavaScript's temporal dead zone and throw a
+   * `ReferenceError`, even when the old synthetic-owner output only observed
+   * an as-yet-unassigned property.
+   *
+   * What: the function-only feature fails explicitly instead of silently
+   * ignoring metadata that could make an author believe a direct value was
+   * emitted.
+   *
+   * How: scan only retained implementation fields and report the metadata's
+   * exact source position before dependency aliases or output writers are
+   * opened. A future value feature needs its own finite initialization
+   * contract; it must not grow this function-relocation plan.
+   */
+  public static function rejectDeferredModuleValues(module: Module): Void {
     for (member in module.members) {
       switch member {
         case MClass(owner, _, fields):
           for (field in Module.emittableFields(fields)) {
-            final metadata = field.meta == null ? [] : field.meta.extract(METADATA);
-            final exposeMetadata = field.meta == null ? [] : field.meta.extract(EXPOSE_METADATA);
+            final metadata = field.meta == null ? [] : field.meta.extract(DEFERRED_VALUE_METADATA);
             if (metadata.length == 0)
               continue;
-            final entry = parseAndValidate(owner, field, metadata, bindings,
-              fields, exposeMetadata);
-            entries.push(entry);
-            bindings.push({
-              name: entry.requestedName,
-              kind: 'module function ${owner.name}.${field.name}',
-              pos: entry.requestedPos
-            });
+            CompilerDiagnostic.fail('GENES-MODULE-VALUE-DEFERRED-001: '
+              + '@:genes.moduleValue on ${owner.name}.${field.name} is not '
+              + 'supported in this release. A JavaScript const initializer '
+              + 'runs while its module loads, and reading a later const before '
+              + 'that declaration has executed throws ReferenceError (the '
+              + 'temporal dead zone). Remove the metadata or expose a '
+              + '@:genes.moduleFunction that computes the value when called.',
+              metadata[0].pos);
           }
         case MEnum(_, _) | MType(_, _) | MMain(_):
       }
     }
-    return new ModuleFunctionPlan(entries);
   }
 
   public function new(entries: Array<ModuleFunctionEntry>) {
@@ -130,14 +188,42 @@ class ModuleFunctionPlan {
     return entries.length == 0;
   }
 
+  /**
+   * Whether a compiler-synthetic module-fields class has no runtime purpose
+   * after its selected functions become direct ESM declarations.
+   *
+   * A module-level `__init__` body is stored on `ClassType.init`, not in the
+   * retained field list below. Omitting that owner would therefore also omit
+   * authored initialization side effects. The owner is disposable only when
+   * it has neither ordinary fields nor a hidden initializer.
+   */
+  public function canOmitSyntheticOwner(owner: ClassType,
+      fields: Array<Field>): Bool {
+    if (!isModuleFieldsOwner(owner) || owner.init != null)
+      return false;
+    final retained = Module.emittableFields(fields);
+    return retained.length > 0
+      && retained.filter(field -> entryFor(owner, field) == null).length == 0;
+  }
+
   /** Returns every public module-function binding in deterministic plan order. */
   public function publicEntries(): Array<ModuleFunctionEntry> {
     return entries.filter(entry -> entry.publicExportName != null);
   }
 
-  static function parseAndValidate(owner: ClassType, field: Field,
-      metadata: Array<MetadataEntry>, bindings: Array<ModuleBindingFact>,
-      ownerFields: Array<Field>,
+  /**
+   * Public functions that also belong in the compilation-root barrel.
+   *
+   * Genuine Haxe module fields already export from their own ESM module and
+   * therefore remain module-local; different modules may own the same binding.
+   */
+  public function rootPublicEntries(): Array<ModuleFunctionEntry> {
+    return publicEntries().filter(entry -> !isModuleFieldsOwner(entry.owner)
+      || entry.hasExplicitPublicExport);
+  }
+
+  public static function parseRequest(owner: ClassType, field: Field,
+      metadata: Array<MetadataEntry>, ownerFields: Array<Field>,
       exposeMetadata: Array<MetadataEntry>): ModuleFunctionEntry {
     final first = metadata[0];
     if (metadata.length != 1 || first.params.length != 1) {
@@ -172,24 +258,17 @@ class ModuleFunctionPlan {
     }
     final publicExportName = parsePublicExport(owner, field, exposeMetadata);
     if (publicExportName != null && publicExportName != requestedName) {
-      CompilerDiagnostic.fail('GENES-MODULE-FUNCTION-EXPOSE-NAME-016: @:expose on '
-        + '${owner.name}.${field.name} requests "${publicExportName}", but '
-        + '@:genes.moduleFunction requests "${requestedName}"; v1 requires '
-        + 'one exact name for the local and public ESM binding',
-        exposeMetadata[0].pos);
+      final mismatchDescription = exposeMetadata.length > 0 ? '@:expose on ${owner.name}.${field.name} requests "${publicExportName}"' : 'the public module-level function ${owner.name}.${field.name} '
+        + 'already exports as "${publicExportName}"';
+      CompilerDiagnostic.fail('GENES-MODULE-FUNCTION-EXPOSE-NAME-016: '
+        + mismatchDescription
+        + ', but @:genes.moduleFunction requests '
+        + '"${requestedName}"; v1 requires one exact name for the local and '
+        + 'public ESM binding',
+        exposeMetadata.length > 0 ? exposeMetadata[0].pos : parameter.pos);
     }
 
     validateShape(owner, field, requestedName);
-    for (binding in bindings) {
-      if (binding.name != requestedName)
-        continue;
-      return
-        CompilerDiagnostic.fail('GENES-MODULE-FUNCTION-COLLISION-005: "${requestedName}" requested '
-        + 'by ${owner.name}.${field.name} collides with an existing '
-        + '${binding.kind}; choose another exact module binding',
-        parameter.pos);
-    }
-
     final classPropertyName = EmittedMemberName.staticField(owner, field);
     if (!IdentifierPolicy.isAsciiIdentifier(classPropertyName)
       || classPropertyName == 'prototype') {
@@ -223,7 +302,7 @@ class ModuleFunctionPlan {
     }
 
     return new ModuleFunctionEntry(owner, field, requestedName, parameter.pos,
-      classPropertyName, publicExportName);
+      classPropertyName, publicExportName, exposeMetadata.length > 0);
   }
 
   static function parsePublicExport(owner: ClassType, field: Field,
@@ -419,7 +498,8 @@ class ModuleFunctionPlan {
           if (owner.kind.match(KModuleFields(_))) {
             for (field in Module.emittableFields(fields))
               if (field.isStatic && field.isPublic
-                && (field.meta == null || !field.meta.has(METADATA)))
+                && module.moduleFunctionRequestPlan.entryFor(owner,
+                  field) == null)
                 add(field.name, 'public module field ${field.name}', field.pos);
           }
           #end

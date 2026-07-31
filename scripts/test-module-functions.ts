@@ -129,6 +129,75 @@ function assertSourceMap(profile: "classic" | "ts" | "tsx",
     `${profile} public module function maps to its Haxe method declaration`);
 }
 
+function assertTopLevelSourceMap(profile: "classic" | "ts" | "tsx",
+  extension: "js" | "ts" | "tsx"): void {
+  const generated = path.join(outputRoot, profile,
+    ...(profile === "classic" ? [] : ["src-gen"]),
+    `module_functions/TopLevel.${extension}`);
+  const source = readFileSync(generated, "utf8");
+  const haxePath = path.join(fixtureRoot,
+    "src/module_functions/TopLevel.hx");
+  const haxeSource = readFileSync(haxePath, "utf8");
+  const map = new SourceMapConsumer(JSON.parse(
+    readFileSync(`${generated}.map`, "utf8")) as RawSourceMap);
+
+  const functionOriginal = map.originalPositionFor(
+    generatedPoint(source, "function topLevelIdentity"));
+  ok(functionOriginal.source?.endsWith(
+    "src/module_functions/TopLevel.hx"),
+    `${profile} direct module function maps to TopLevel.hx`);
+  strictEqual(functionOriginal.line,
+    sourceLine(haxeSource, "function topLevelIdentity"),
+    `${profile} direct module function name maps to its Haxe declaration`);
+
+  const returnOriginal = map.originalPositionFor(
+    generatedPoint(source, "return value"));
+  strictEqual(returnOriginal.line,
+    sourceLine(haxeSource, "return value"),
+    `${profile} direct module function body maps to its Haxe return`);
+}
+
+function assertClosureSourceMaps(profile: "classic" | "ts" | "tsx",
+  extension: "js" | "ts" | "tsx"): void {
+  const prefix = path.join(outputRoot, profile,
+    ...(profile === "classic" ? [] : ["src-gen"]), "module_functions");
+  const cases = [
+    {
+      file: "RenamedCollisionConsumer",
+      generatedNeedle: "function renamedBinding",
+      sourceNeedle: "function authoredLocalName"
+    },
+    {
+      file: "DirectShadowing",
+      generatedNeedle: "shadowedDirect();",
+      sourceNeedle: "final before = shadowedDirect()"
+    },
+    {
+      file: "DirectShadowing",
+      generatedNeedle: "selectedParameter_1",
+      sourceNeedle: "selectedParameter: String"
+    }
+  ] as const;
+  for (const current of cases) {
+    const generated = path.join(prefix, `${current.file}.${extension}`);
+    const generatedSource = readFileSync(generated, "utf8");
+    const haxePath = path.join(fixtureRoot, "src/module_functions",
+      `${current.file}.hx`);
+    const haxeSource = readFileSync(haxePath, "utf8");
+    const map = new SourceMapConsumer(JSON.parse(
+      readFileSync(`${generated}.map`, "utf8")) as RawSourceMap);
+    const original = map.originalPositionFor({
+      ...generatedPoint(generatedSource, current.generatedNeedle),
+      bias: SourceMapConsumer.GREATEST_LOWER_BOUND
+    });
+    ok(original.source?.endsWith(
+      `src/module_functions/${current.file}.hx`),
+    `${profile} ${current.generatedNeedle} maps to ${current.file}.hx`);
+    strictEqual(original.line, sourceLine(haxeSource, current.sourceNeedle),
+      `${profile} ${current.generatedNeedle} keeps its authored source line`);
+  }
+}
+
 function assertImplementationShape(relative: string): void {
   const source = readFileSync(path.join(outputRoot, relative), "utf8");
   const code = source.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -196,6 +265,99 @@ function assertImplementationShape(relative: string): void {
     `${relative} leaked the compiler-owned presence marker`);
   ok(!source.includes("module-function-import"),
     `${relative} proves a dead selected body adds no runtime import edge`);
+}
+
+function assertTopLevelImplementationShape(relative: string): void {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes(relative.endsWith(".js")
+    ? "export function topLevelIdentity(value)"
+    : "export function topLevelIdentity<T>(value: T): T"),
+    `${relative} emits the Haxe module function as one direct ESM function`);
+  ok(!source.includes("TopLevel_Fields_"),
+    `${relative} omits the compiler-synthetic module-fields class`);
+  ok(source.includes('import {Register} from "../genes/Register.js"'),
+    `${relative} retains Register when the project-wide global feature emits its prelude`);
+  ok(source.includes("const $global = Register.$global"),
+    `${relative} emits the global compatibility alias with its planned helper`);
+}
+
+function assertTopLevelBindImplementationShape(relative: string): void {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes("export function extractTopLevelValue"),
+    `${relative} emits the method-extracting module function directly`);
+  ok(source.includes('import {Register} from "../genes/Register.js"'),
+    `${relative} retains the runtime helper required by its relocated body`);
+  ok(source.includes("Register.bind(receiver, receiver.value)"),
+    `${relative} emits the Haxe method-extraction helper`);
+  ok(!source.includes("TopLevelBind_Fields_"),
+    `${relative} still omits the compiler-synthetic module owner`);
+}
+
+function assertTopLevelMixedImplementationShape(relative: string): void {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes("export function mixedSelected"),
+    `${relative} emits the selected function as a direct ESM binding`);
+  ok(source.includes("export const mixedOrdinary"),
+    `${relative} retains the ordinary module value export`);
+  ok(source.includes("TopLevelMixed_Fields_.mixedOrdinary"),
+    `${relative} keeps the ordinary value on its synthetic runtime owner`);
+  ok(source.includes('import {Register} from "../genes/Register.js"'),
+    `${relative} retains registration for the mixed synthetic owner`);
+}
+
+function assertTopLevelCollisionImplementationShape(relative: string): void {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes(
+    'import {collisionName as collisionName__1} from "./TopLevelCollisionSource.js"'),
+    `${relative} aliases a direct import away from its own module field`);
+  ok(source.includes("export const collisionName"),
+    `${relative} retains the ordinary local module export`);
+  ok(source.includes("collisionName__1()"),
+    `${relative} calls the collision-safe imported binding`);
+}
+
+function assertRenamedCollisionImplementationShape(relative: string): void {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes(
+    'import {renamedBinding as renamedBinding__1} from "./RenamedCollisionSource.js"'),
+    `${relative} aliases a foreign import away from the fixed renamed binding`);
+  ok(source.includes("export function renamedBinding"),
+    `${relative} emits the explicitly renamed local binding unchanged`);
+  ok(source.includes("renamedBinding() + \":\" + renamedBinding__1()"),
+    `${relative} calls the exact local and aliased foreign bindings`);
+}
+
+function assertDirectShadowingImplementationShape(relative: string): void {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes("export function shadowedDirect"),
+    `${relative} emits the fixed direct binding`);
+  ok(source.includes("const before")
+    && source.includes("= shadowedDirect()"),
+    `${relative} keeps the direct call at its original evaluation point`);
+  ok(source.includes("const shadowedDirect_1")
+    && source.includes('= "local"'),
+    `${relative} aliases the later Haxe local away from the direct binding`);
+  ok(source.includes("parameterTranscript(selectedParameter_1"),
+    `${relative} reserves the renamed direct binding before parameter allocation`);
+  ok(source.includes("selectedParameter()")
+    && source.includes("selectedParameter_1"),
+    `${relative} keeps the direct call and parameter as distinct bindings`);
+  ok(source.includes("export function _g"),
+    `${relative} emits the fixed _g direct binding`);
+  ok(source.includes("= _g()"),
+    `${relative} keeps the exact _g direct call`);
+  ok(relative.startsWith("classic/")
+    ? source.includes("let _g_1")
+    : source.includes("let _g_1:"),
+  `${relative} aliases the Haxe-generated loop local away from _g`);
+}
+
+function assertDependencyOccurrenceOrder(relative: string): void {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  const ordinary = source.indexOf('from "./DependencyOrderOrdinary.js"');
+  const direct = source.indexOf('from "./DependencyOrderDirect.js"');
+  ok(ordinary !== -1 && direct !== -1 && ordinary < direct,
+    `${relative} keeps ordinary-before-direct dependency occurrence order`);
 }
 
 interface RuntimeEvidence {
@@ -349,7 +511,100 @@ console.log(
     }).trim().split(/\r?\n/).at(-1) === "true";
 }
 
+function topLevelDependencyRuntimeEvidence(): ReadonlyArray<number> {
+  const program = `
+import {extractTopLevelValue} from "./tests/module-functions/out/classic/module_functions/TopLevelBind.js";
+import {mixedOrdinary, mixedSelected} from "./tests/module-functions/out/classic/module_functions/TopLevelMixed.js";
+import {TopLevelReceiver} from "./tests/module-functions/out/classic/module_functions/TopLevelReceiver.js";
+const receiver = new TopLevelReceiver(7);
+console.log(JSON.stringify([
+  extractTopLevelValue(receiver)(),
+  mixedSelected() + mixedOrdinary
+]));`;
+  const output = execFileSync(process.execPath,
+    ["--input-type=module", "--eval", program], {
+      cwd: repoRoot,
+      encoding: "utf8"
+    }).trim();
+  const parsed: unknown = JSON.parse(output);
+  ok(Array.isArray(parsed)
+    && parsed.every((value) => typeof value === "number"),
+    `invalid top-level dependency runtime evidence: ${output}`);
+  return parsed;
+}
+
+function topLevelPublicRuntimeEvidence(): ReadonlyArray<string> {
+  const program = `
+import {collisionTranscript} from "./tests/module-functions/out/classic/module_functions/TopLevelCollisionConsumer.js";
+import {exposedTopLevel as moduleBinding} from "./tests/module-functions/out/classic/module_functions/TopLevelExposed.js";
+import {exposedTopLevel as rootBinding} from "./tests/module-functions/out/classic/index.js";
+console.log(JSON.stringify([
+  collisionTranscript(),
+  moduleBinding === rootBinding ? rootBinding("exposed") : "wrong-identity"
+]));`;
+  const output = execFileSync(process.execPath,
+    ["--input-type=module", "--eval", program], {
+      cwd: repoRoot,
+      encoding: "utf8"
+    }).trim();
+  const parsed: unknown = JSON.parse(output.split(/\r?\n/).at(-1) ?? "");
+  ok(Array.isArray(parsed)
+    && parsed.every((value) => typeof value === "string"),
+    `invalid top-level public runtime evidence: ${output}`);
+  return parsed;
+}
+
+function directBindingCollisionRuntimeEvidence(): ReadonlyArray<string> {
+  const program = `
+import {renamedCollisionTranscript} from "./tests/module-functions/out/classic/module_functions/RenamedCollisionConsumer.js";
+import {generatedLocalTranscript, laterLocalTranscript, parameterTranscript} from "./tests/module-functions/out/classic/module_functions/DirectShadowing.js";
+console.log(JSON.stringify([
+  renamedCollisionTranscript(),
+  laterLocalTranscript(),
+  parameterTranscript("parameter"),
+  generatedLocalTranscript([1, 2])
+]));`;
+  const output = execFileSync(process.execPath,
+    ["--input-type=module", "--eval", program], {
+      cwd: repoRoot,
+      encoding: "utf8"
+    }).trim();
+  const parsed: unknown = JSON.parse(output.split(/\r?\n/).at(-1) ?? "");
+  ok(Array.isArray(parsed)
+    && parsed.every((value) => typeof value === "string"),
+    `invalid direct-binding collision runtime evidence: ${output}`);
+  return parsed;
+}
+
+function noMainPublicRuntimeEvidence(): boolean {
+  const program = `
+import {exposedTopLevel as moduleBinding} from "./tests/module-functions/out/classic-no-main/module_functions/TopLevelExposed.js";
+import {exposedTopLevel as rootBinding} from "./tests/module-functions/out/classic-no-main/index.js";
+console.log(
+  moduleBinding === rootBinding && rootBinding("library-only") === "library-only"
+  ? "true"
+  : "false"
+);`;
+  return execFileSync(process.execPath,
+    ["--input-type=module", "--eval", program], {
+      cwd: repoRoot,
+      encoding: "utf8"
+    }).trim() === "true";
+}
+
+function moduleInitializerRuntimeEvidence(): string {
+  const program = `
+import {moduleInitValue} from "./tests/module-functions/out/classic/module_functions/ModuleInit.js";
+console.log(moduleInitValue());`;
+  return execFileSync(process.execPath,
+    ["--input-type=module", "--eval", program], {
+      cwd: repoRoot,
+      encoding: "utf8"
+    }).trim();
+}
+
 const negativeCases = [
+  ["module_value_deferred", "GENES-MODULE-VALUE-DEFERRED-001"],
   ["module_function_arity", "GENES-MODULE-FUNCTION-ARITY-001"],
   ["module_function_arity_multiple", "GENES-MODULE-FUNCTION-ARITY-001"],
   ["module_function_nonliteral", "GENES-MODULE-FUNCTION-LITERAL-002"],
@@ -363,6 +618,7 @@ const negativeCases = [
   ["module_function_inline", "GENES-MODULE-FUNCTION-SHAPE-006"],
   ["module_function_dynamic", "GENES-MODULE-FUNCTION-SHAPE-006"],
   ["module_function_generic_owner", "GENES-MODULE-FUNCTION-OWNER-007"],
+  ["module_function_extern", "GENES-MODULE-FUNCTION-OWNER-007"],
   ["module_function_overload", "GENES-MODULE-FUNCTION-OVERLOAD-009"],
   ["module_function_raw_syntax", "GENES-MODULE-FUNCTION-LEXICAL-010"],
   ["module_function_property", "GENES-MODULE-FUNCTION-SHAPE-006"],
@@ -377,11 +633,19 @@ const negativeCases = [
     "GENES-MODULE-FUNCTION-COLLISION-005"
   ],
   [
+    "module_function_renamed_unaliasable_collision",
+    "GENES-MODULE-FUNCTION-COLLISION-005"
+  ],
+  [
     "module_function_global_collision",
     "GENES-MODULE-FUNCTION-COLLISION-005"
   ],
   [
     "module_function_expose_mismatch",
+    "GENES-MODULE-FUNCTION-EXPOSE-NAME-016"
+  ],
+  [
+    "module_function_module_field_rename",
     "GENES-MODULE-FUNCTION-EXPOSE-NAME-016"
   ],
   [
@@ -456,11 +720,125 @@ run("haxe", ["tests/module-functions/build-tsx.hxml"]);
 deepStrictEqual(digestTree(path.join(outputRoot, "tsx/src-gen")), tsxDigest,
   "TSX module-function output is deterministic");
 
+run("haxe", ["tests/module-functions/build-classic-no-main.hxml"]);
+run("haxe", ["tests/module-functions/build-ts-no-main.hxml"]);
+
+run("haxe", ["tests/module-functions/build-classic-helper-free.hxml"]);
+const helperFreeTopLevel = readFileSync(path.join(outputRoot,
+  "classic-helper-free/module_functions/TopLevel.js"), "utf8");
+ok(!helperFreeTopLevel.includes("genes/Register"),
+  "a direct identity module without a helper feature keeps idiomatic imports");
+ok(!helperFreeTopLevel.includes("$global"),
+  "a build without js.Lib.global emits no global compatibility prelude");
+
 runGeneratedTypeScriptMatrix("tests/module-functions/tsconfig.json");
 
 assertImplementationShape("classic/module_functions/Selected.js");
 assertImplementationShape("ts/src-gen/module_functions/Selected.ts");
 assertImplementationShape("tsx/src-gen/module_functions/Selected.tsx");
+assertTopLevelImplementationShape(
+  "classic/module_functions/TopLevel.js");
+assertTopLevelImplementationShape(
+  "ts/src-gen/module_functions/TopLevel.ts");
+assertTopLevelImplementationShape(
+  "tsx/src-gen/module_functions/TopLevel.tsx");
+assertTopLevelImplementationShape(
+  "classic/module_functions/TopLevelSibling.js");
+assertTopLevelImplementationShape(
+  "ts/src-gen/module_functions/TopLevelSibling.ts");
+assertTopLevelImplementationShape(
+  "tsx/src-gen/module_functions/TopLevelSibling.tsx");
+for (const relative of [
+  "classic/module_functions/TopLevelBind.js",
+  "ts/src-gen/module_functions/TopLevelBind.ts",
+  "tsx/src-gen/module_functions/TopLevelBind.tsx"
+]) {
+  assertTopLevelBindImplementationShape(relative);
+}
+for (const relative of [
+  "classic/module_functions/TopLevelMixed.js",
+  "ts/src-gen/module_functions/TopLevelMixed.ts",
+  "tsx/src-gen/module_functions/TopLevelMixed.tsx"
+]) {
+  assertTopLevelMixedImplementationShape(relative);
+}
+for (const relative of [
+  "classic/module_functions/TopLevelCollisionConsumer.js",
+  "ts/src-gen/module_functions/TopLevelCollisionConsumer.ts",
+  "tsx/src-gen/module_functions/TopLevelCollisionConsumer.tsx"
+]) {
+  assertTopLevelCollisionImplementationShape(relative);
+}
+for (const relative of [
+  "classic/module_functions/RenamedCollisionConsumer.js",
+  "ts/src-gen/module_functions/RenamedCollisionConsumer.ts",
+  "tsx/src-gen/module_functions/RenamedCollisionConsumer.tsx"
+]) {
+  assertRenamedCollisionImplementationShape(relative);
+}
+for (const relative of [
+  "classic/module_functions/DirectShadowing.js",
+  "ts/src-gen/module_functions/DirectShadowing.ts",
+  "tsx/src-gen/module_functions/DirectShadowing.tsx"
+]) {
+  assertDirectShadowingImplementationShape(relative);
+}
+for (const relative of [
+  "classic/module_functions/DependencyOrderConsumer.js",
+  "ts/src-gen/module_functions/DependencyOrderConsumer.ts",
+  "tsx/src-gen/module_functions/DependencyOrderConsumer.tsx"
+]) {
+  assertDependencyOccurrenceOrder(relative);
+}
+for (const relative of [
+  "classic/index.js",
+  "ts/src-gen/index.ts",
+  "tsx/src-gen/index.tsx"
+]) {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes(
+    'export {exposedTopLevel} from "./module_functions/TopLevelExposed.js"'),
+    `${relative} honors explicit @:expose on a direct module-level function`);
+}
+for (const relative of [
+  "classic-no-main/index.js",
+  "ts-no-main/src-gen/index.ts"
+]) {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes(
+    'export {exposedTopLevel} from "./module_functions/TopLevelExposed.js"'),
+    `${relative} retains the explicit root export without a --main entry point`);
+}
+for (const relative of [
+  "classic/module_functions/Main.js",
+  "ts/src-gen/module_functions/Main.ts",
+  "tsx/src-gen/module_functions/Main.tsx"
+]) {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  ok(source.includes('import {topLevelIdentity} from "./TopLevel.js"'),
+    `${relative} imports the direct module binding`);
+  ok(source.includes(
+    'import {topLevelIdentity as topLevelIdentity__1} from "./TopLevelSibling.js"'),
+    `${relative} preserves same-named module-local ESM identity`);
+  ok(source.includes('topLevelIdentity("top-level")'),
+    `${relative} calls the direct module binding`);
+  ok(source.includes('topLevelIdentity__1("top-level-sibling")'),
+    `${relative} calls the aliased sibling module binding`);
+  ok(source.includes(
+    'import {extractTopLevelValue} from "./TopLevelBind.js"'),
+    `${relative} imports the relocated method-extraction function directly`);
+  ok(source.includes(
+    'import {mixedSelected, TopLevelMixed_Fields_} from "./TopLevelMixed.js"'),
+    `${relative} imports both the direct function and ordinary synthetic owner`);
+  ok(source.includes(
+    "extractTopLevelValue(new TopLevelReceiver(7))"),
+    `${relative} calls the helper-bearing direct function`);
+  ok(source.includes(
+    "mixedSelected() + TopLevelMixed_Fields_.mixedOrdinary"),
+    `${relative} uses both mixed-module dependency forms`);
+  ok(!source.includes("TopLevel_Fields_"),
+    `${relative} does not expose a synthetic owner to callers`);
+}
 for (const relative of [
   "classic/module_functions/CrossModule.js",
   "ts/src-gen/module_functions/CrossModule.ts",
@@ -479,6 +857,12 @@ for (const relative of [
 assertSourceMap("classic", "js");
 assertSourceMap("ts", "ts");
 assertSourceMap("tsx", "tsx");
+assertTopLevelSourceMap("classic", "js");
+assertTopLevelSourceMap("ts", "ts");
+assertTopLevelSourceMap("tsx", "tsx");
+assertClosureSourceMaps("classic", "js");
+assertClosureSourceMaps("ts", "ts");
+assertClosureSourceMaps("tsx", "tsx");
 
 const runtime = runtimeEvidence();
 strictEqual(exactRuntimeIdentity(), true,
@@ -521,6 +905,49 @@ strictEqual(runtime.crossModuleCall, 13,
   "cross-module selected calls preserve the existing cyclic accessor");
 strictEqual(runtime.subclassInitialized, 22,
   "a subclass initializer observes its base owner's installed function");
+deepStrictEqual(topLevelDependencyRuntimeEvidence(), [7, 3],
+  "direct helper imports and mixed direct/ordinary module imports execute");
+deepStrictEqual(topLevelPublicRuntimeEvidence(), ["local:source", "exposed"],
+  "collision-safe imports and explicit root exposure preserve runtime identity");
+deepStrictEqual(directBindingCollisionRuntimeEvidence(),
+  ["local:foreign", "direct:local", "direct:parameter", "direct:3"],
+  "fixed direct bindings remain distinct from imports, later locals, and parameters");
+strictEqual(noMainPublicRuntimeEvidence(), true,
+  "a library-only build keeps the explicit root export and exact function identity");
+strictEqual(moduleInitializerRuntimeEvidence(), "module-init",
+  "a direct-function module retains and runs its hidden module initializer");
+{
+  const program = `
+import {DependencyOrderConsumer} from "./tests/module-functions/out/classic/module_functions/DependencyOrderConsumer.js";
+console.log(JSON.stringify([
+  DependencyOrderConsumer.value(),
+  DependencyOrderConsumer.events()
+]));`;
+  const output = execFileSync(process.execPath,
+    ["--input-type=module", "--eval", program], {
+      cwd: repoRoot,
+      encoding: "utf8"
+    }).trim();
+  deepStrictEqual(JSON.parse(output), [3, "ordinary,direct"],
+    "runtime module initialization follows ordinary-before-direct import order");
+}
+
+for (const relative of [
+  "classic/module_functions/ModuleInit.js",
+  "ts/src-gen/module_functions/ModuleInit.ts",
+  "tsx/src-gen/module_functions/ModuleInit.tsx"
+]) {
+  const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  const owner = relative.startsWith("classic/")
+    ? "class ModuleInit_Fields_"
+    : "export class ModuleInit_Fields_";
+  ok(source.includes("export function moduleInitValue")
+    && source.includes(owner)
+    && source.includes('ModuleInitState.value = "module-init"')
+    && source.indexOf(owner)
+      < source.lastIndexOf('ModuleInitState.value = "module-init"'),
+    `${relative} keeps the synthetic owner and its module initializer`);
+}
 
 const classicDeclaration = readFileSync(path.join(outputRoot,
   "classic/module_functions/Selected.d.ts"), "utf8");
@@ -538,6 +965,26 @@ const classicRootDeclaration = readFileSync(path.join(outputRoot,
 ok(classicRootDeclaration.includes(
   'export {publicIdentity} from "./module_functions/Selected.js"'),
   "classic root declarations re-export the stable public binding");
+ok(classicRootDeclaration.includes(
+  'export {exposedTopLevel} from "./module_functions/TopLevelExposed.js"'),
+  "classic root declarations honor explicit exposure on a direct module field");
+const classicNoMainRootDeclaration = readFileSync(path.join(outputRoot,
+  "classic-no-main/index.d.ts"), "utf8");
+ok(classicNoMainRootDeclaration.includes(
+  'export {exposedTopLevel} from "./module_functions/TopLevelExposed.js"'),
+  "classic library-only declarations retain the explicit root export");
+const classicExposedDeclaration = readFileSync(path.join(outputRoot,
+  "classic/module_functions/TopLevelExposed.d.ts"), "utf8");
+ok(classicExposedDeclaration.includes(
+  "export const exposedTopLevel: (value: string) => string"),
+  "classic declarations use the validated direct binding name");
+ok(!classicExposedDeclaration.includes("authoredTopLevelName"),
+  "classic declarations do not leak the replaced Haxe field name");
+const classicTopLevelDeclaration = readFileSync(path.join(outputRoot,
+  "classic/module_functions/TopLevel.d.ts"), "utf8");
+ok(classicTopLevelDeclaration.includes(
+  "export const topLevelIdentity: <T>(value: T) => T"),
+  "classic declarations preserve the direct generic module field");
 const tsDeclaration = readFileSync(path.join(outputRoot,
   "ts/dist/out/ts/src-gen/module_functions/Selected.d.ts"), "utf8");
 ok(tsDeclaration.includes("static selected"));
@@ -553,6 +1000,26 @@ const tsRootDeclaration = readFileSync(path.join(outputRoot,
 ok(tsRootDeclaration.includes(
   'export { publicIdentity } from "./module_functions/Selected.js"'),
   "tsc root declarations re-export the stable public binding");
+ok(tsRootDeclaration.includes(
+  'export { exposedTopLevel } from "./module_functions/TopLevelExposed.js"'),
+  "tsc root declarations honor explicit exposure on a direct module field");
+const tsNoMainRootDeclaration = readFileSync(path.join(outputRoot,
+  "ts/dist/out/ts-no-main/src-gen/index.d.ts"), "utf8");
+ok(tsNoMainRootDeclaration.includes(
+  'export { exposedTopLevel } from "./module_functions/TopLevelExposed.js"'),
+  "tsc library-only declarations retain the explicit root export");
+const tsExposedDeclaration = readFileSync(path.join(outputRoot,
+  "ts/dist/out/ts/src-gen/module_functions/TopLevelExposed.d.ts"), "utf8");
+ok(tsExposedDeclaration.includes(
+  "export declare function exposedTopLevel(value: string): string"),
+  "tsc declarations use the validated direct binding name");
+ok(!tsExposedDeclaration.includes("authoredTopLevelName"),
+  "tsc declarations do not leak the replaced Haxe field name");
+const tsTopLevelDeclaration = readFileSync(path.join(outputRoot,
+  "ts/dist/out/ts/src-gen/module_functions/TopLevel.d.ts"), "utf8");
+ok(tsTopLevelDeclaration.includes(
+  "export declare function topLevelIdentity<T>(value: T): T"),
+  "tsc declarations preserve the direct generic module function");
 const tsxDeclaration = readFileSync(path.join(outputRoot,
   "ts/dist/out/tsx/src-gen/module_functions/Selected.d.ts"), "utf8");
 strictEqual(tsxDeclaration, tsDeclaration,

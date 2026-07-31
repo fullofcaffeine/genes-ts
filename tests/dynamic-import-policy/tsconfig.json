@@ -12,6 +12,7 @@
   },
   "include": [
     "out/cold/ts/**/*.ts",
-    "out/cold/tsx/**/*.tsx"
+    "out/cold/tsx/**/*.tsx",
+    "out/aliases-ts/**/*.ts"
   ]
 }

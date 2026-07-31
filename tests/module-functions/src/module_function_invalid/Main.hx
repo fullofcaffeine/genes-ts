@@ -4,6 +4,33 @@ function occupiedBinding(): Int {
   return 1;
 }
 
+#if module_function_extern
+@:genes.moduleFunction("externalSelected")
+extern function externalSelected(): String;
+#end
+
+#if module_function_renamed_unaliasable_collision
+@:expose("occupiedBinding")
+@:genes.moduleFunction("occupiedBinding")
+function differentlyAuthored(): Int {
+  return 2;
+}
+#end
+
+#if module_function_module_field_rename
+@:genes.moduleFunction("renamedModuleFunction")
+function originalModuleFunction(): Int {
+  return 1;
+}
+#end
+
+#if module_value_deferred
+@:genes.moduleValue("metadata")
+final metadata = {
+  title: "deferred"
+};
+#end
+
 @:keep
 class CollisionOwner {}
 
@@ -134,7 +161,15 @@ static function privateHelper(value: Int): Int {
 class Main {
   static function main(): Void {
     occupiedBinding();
-    #if module_function_generic_owner
+    #if module_value_deferred
+    trace(metadata.title);
+    #elseif module_function_extern
+    trace(externalSelected());
+    #elseif module_function_renamed_unaliasable_collision
+    trace(differentlyAuthored());
+    #elseif module_function_module_field_rename
+    originalModuleFunction();
+    #elseif module_function_generic_owner
     Invalid.selected(1);
     #elseif module_function_instance
     new Invalid().selected(1);

@@ -75,6 +75,20 @@ abstract TypeAccessor(TypeAccessorImpl) from TypeAccessorImpl {
     return forStaticFieldName(owner, field.name, field.pos);
   }
 
+  /**
+   * Keeps one static field's Haxe identity while changing its emitted fallback.
+   *
+   * A relocated module function is still identified by its original owner and
+   * field, but a dynamic-import callback reads the validated direct ESM name
+   * from the loaded namespace. No static import mapping exists in that scope,
+   * so the accessor must carry that public fallback explicitly.
+   */
+  public static function forStaticFieldBinding(owner: ClassType,
+      field: ClassField, fallbackName: String): TypeAccessor {
+    return ImportedStaticField(new StaticFieldOriginKey(owner.module,
+      owner.name, field.name), fallbackName, field.pos);
+  }
+
   /** Same field origin factory for Module's normalized field record. */
   public static function forStaticFieldName(owner: ClassType,
       fieldName: String, pos: Position): TypeAccessor {
