@@ -36,7 +36,6 @@ import genes.util.IteratorUtil.*;
 using haxe.macro.TypedExprTools;
 
 class ExprEmitter extends Emitter {
-
   var indent: Int = 0;
   var valueIifeDepth: Int = 0;
   var inLoop: Bool = false;
@@ -53,7 +52,6 @@ class ExprEmitter extends Emitter {
   var localBindingPlan: Null<LocalBindingPlan> = null;
   var directImportLocals: Array<String> = [];
   var currentModule: Null<Module> = null;
-
   var declare = #if (js_es == 6) 'let'; #else 'var'; #end
 
   /**
@@ -64,14 +62,12 @@ class ExprEmitter extends Emitter {
    * name through `Dependencies` ensures the expression printer uses the exact
    * namespace alias that the import printer selected after collision handling.
    */
-  public function configureJsx(plan: JsxPlan,
-      capability: JsxCapabilityPolicy, dependencies: Dependencies): Void {
+  public function configureJsx(plan: JsxPlan, capability: JsxCapabilityPolicy,
+      dependencies: Dependencies): Void {
     jsxPlan = plan;
     jsxEmissionProfile = capability.profile;
     jsxRuntimeBinding = capability.resolveRuntimeBinding(dependencies, plan);
-    jsxSourceInlineConsumer = emitsJsxSource()
-      ? plan.sourceInlineConsumer(capability.profile)
-      : null;
+    jsxSourceInlineConsumer = emitsJsxSource() ? plan.sourceInlineConsumer(capability.profile) : null;
   }
 
   /** Whether Haxe introduced this local solely for the typed JSX carrier. */
@@ -88,8 +84,7 @@ class ExprEmitter extends Emitter {
   function sourceInlineJsxValue(expression: TypedExpr): TypedExpr {
     if (!emitsJsxSource() || jsxSourceInlineConsumer == null)
       return expression;
-    final initializer = jsxSourceInlineConsumer.initializerForChildValue(
-      expression);
+    final initializer = jsxSourceInlineConsumer.initializerForChildValue(expression);
     return initializer == null ? expression : initializer;
   }
 
@@ -97,7 +92,8 @@ class ExprEmitter extends Emitter {
   function skipsSourceInlineJsxDeclaration(expression: TypedExpr): Bool {
     if (!emitsJsxSource() || jsxSourceInlineConsumer == null)
       return false;
-    return jsxSourceInlineConsumer.initializerForDeclaration(expression) != null;
+    return
+      jsxSourceInlineConsumer.initializerForDeclaration(expression) != null;
   }
 
   /** Validates exact source-inline consumption before the writer is closed. */
@@ -108,7 +104,7 @@ class ExprEmitter extends Emitter {
   }
 
   /** Installs the validated target-neutral string-template plan. */
-  public function configureTemplateLiterals(plan:TemplateLiteralPlan):Void {
+  public function configureTemplateLiterals(plan: TemplateLiteralPlan): Void {
     templateLiteralPlan = plan;
   }
 
@@ -153,8 +149,7 @@ class ExprEmitter extends Emitter {
         for (value in values)
           switch value.expr {
             case TConst(TString(fullName)):
-              if (scoped.indexOf(fullName) == -1)
-                scoped.push(fullName);
+              if (scoped.indexOf(fullName) == -1) scoped.push(fullName);
             default:
           }
       default:
@@ -175,13 +170,16 @@ class ExprEmitter extends Emitter {
     for (encoded in directImportLocals) {
       final token = DynamicImportBindingPlan.decode(encoded);
       switch [type, token] {
-        case [ImportedDeclaration(key, _, _, _, _),
-            Declaration(kind, module, name, localName, _)]
-          if (Std.string(key.kind) == kind && key.module == module
-            && key.name == name):
+        case [
+          ImportedDeclaration(key, _, _, _, _),
+          Declaration(kind, module, name, localName, _)
+        ] if (Std.string(key.kind) == kind && key.module == module
+          && key.name == name):
           return localName;
-        case [ImportedStaticField(key, _, _),
-            StaticField(ownerModule, ownerName, fieldName, localName, _)]
+        case [
+          ImportedStaticField(key, _, _),
+          StaticField(ownerModule, ownerName, fieldName, localName, _)
+        ]
           if (key.ownerModule == ownerModule && key.ownerName == ownerName
             && key.fieldName == fieldName):
           return localName;
@@ -230,14 +228,12 @@ class ExprEmitter extends Emitter {
   public function emitSyntaxCodeWithArgs(args: Array<TypedExpr>): Bool {
     if (args.length <= 1)
       return false;
-
     final template = switch args[0].expr {
       case TConst(TString(value)):
         value;
       default:
         return false;
     }
-
     final values = args.slice(1);
     var i = 0;
     while (i < template.length) {
@@ -306,17 +302,18 @@ class ExprEmitter extends Emitter {
     }
     if (identifier.length == 0)
       return false;
-
     for (index in 0...identifier.length) {
       final code = identifier.charCodeAt(index);
       final letter = (code >= "A".code && code <= "Z".code)
+
         || (code >= "a".code && code <= "z".code);
-      final allowed = letter || code == "_".code || code == "$".code
+      final allowed = letter
+        || code == "_".code
+        || code == "$".code
         || (index > 0 && code >= "0".code && code <= "9".code);
       if (!allowed)
         return false;
     }
-
     write(identifier);
     return true;
   }
@@ -341,11 +338,8 @@ class ExprEmitter extends Emitter {
    * this shared helper so the authored mapping is recorded first.
    */
   function emitExpressionPos(expression: TypedExpr): Void {
-    final dynamicImportMarker =
-      CompilerInternal.dynamicImportExpansionMarker(expression);
-    emitPos(dynamicImportMarker == null
-      ? expression.pos
-      : dynamicImportMarker.pos);
+    final dynamicImportMarker = CompilerInternal.dynamicImportExpansionMarker(expression);
+    emitPos(dynamicImportMarker == null ? expression.pos : dynamicImportMarker.pos);
   }
 
   public function emitExpr(e: TypedExpr) {
@@ -362,6 +356,7 @@ class ExprEmitter extends Emitter {
     switch e.expr {
       case TConst(c):
         emitConstant(c);
+
       case TLocal(v):
         emitLocalVar(v);
       case TArray(e1, e2):
@@ -380,11 +375,13 @@ class ExprEmitter extends Emitter {
         if (isNullConstant(e1) || isNullConstant(e2)):
         emitNullComparisonOperand(e1);
         writeSpace();
+
         writeBinop(op);
         writeSpace();
         emitNullComparisonOperand(e2);
       case TBinop(op, e1, e2):
         emitValue(e1);
+
         writeSpace();
         writeBinop(op);
         writeSpace();
@@ -435,6 +432,7 @@ class ExprEmitter extends Emitter {
             write('.bind(');
             emitValue(receiver);
             write(', ');
+
             emitValue(receiver);
             emitField(name);
             write(')');
@@ -443,6 +441,7 @@ class ExprEmitter extends Emitter {
             write('(o=>');
             write(ctx.typeAccessor(registerType));
             write('.bind(o, o');
+
             emitField(name);
             write('))(');
             emitValue(x);
@@ -457,7 +456,8 @@ class ExprEmitter extends Emitter {
           case TFun(args, _): args[i].name;
           case _: throw 'assert';
         });
-      case TField(_, FStatic(owner, _.get() => field)) if (field.meta.has(':jsRequire')):
+      case TField(_, FStatic(owner, _.get() => field))
+        if (field.meta.has(':jsRequire')):
         emitJsRequireField(owner.get(), field);
       case TField(_, FStatic(ownerRef, fieldRef))
         if (currentModule != null
@@ -489,23 +489,28 @@ class ExprEmitter extends Emitter {
                 TParenthesis(e));
             case _: e;
           }
+
         emitAccessReceiver(skip(x));
         switch f {
           case FStatic(_.get() => c, _):
             emitStaticField(c, fieldName(f));
+
           case FEnum(_), FInstance(_), FAnon(_), FDynamic(_), FClosure(_):
             emitField(fieldName(f));
         }
+
       case TTypeExpr(t):
         write(ctx.typeAccessor(t));
       case TParenthesis(e1):
         write('(');
         emitValue(e1);
         write(')');
-      case TMeta({name: name}, {expr: TFunction(f)}) if (name == ':jsAsync' || name == 'jsAsync'):
+      case TMeta({name: name}, {expr: TFunction(f)})
+        if (name == ':jsAsync' || name == 'jsAsync'):
         final valueIifeDepth = this.valueIifeDepth;
         final inLoop = this.inLoop;
         this.valueIifeDepth = 0;
+
         this.inLoop = false;
         write('async function (');
         emitFunctionArguments(f);
@@ -655,8 +660,8 @@ class ExprEmitter extends Emitter {
           emitPos(field.expr.pos);
           emitString(anonymousFieldName(objectType, field.name));
           write(': ');
-          emitValueWithExpectedType(anonymousFieldType(objectType, field.name),
-            field.expr);
+          emitValueWithExpectedType(anonymousFieldType(objectType,
+            field.name), field.expr);
         }
         write('}');
       case TFor(_, _, _):
@@ -723,7 +728,6 @@ class ExprEmitter extends Emitter {
       if (isRest(arg.v.t))
         write('...');
       emitLocalVar(arg.v);
-
       /* see getFunctionBody() and https://github.com/benmerckx/genes/issues/54 */
       // if (arg.value != null) {
       //   write(' = ');
@@ -740,14 +744,13 @@ class ExprEmitter extends Emitter {
     if (CompilerInternal.isDynamicImportMarkerCallee(e)) {
       final marker = CompilerInternal.dynamicImportMarkerCall(e, params);
       if (marker == null)
-        CompilerDiagnostic.fail(
-          'GENES-DYNAMIC-IMPORT-MARKER-001: the compiler-owned dynamic '
+        CompilerDiagnostic.fail('GENES-DYNAMIC-IMPORT-MARKER-001: the compiler-owned dynamic '
           + 'import marker requires a literal module path and source range.',
           e.pos);
       emitPos(marker.pos);
       write('import(');
-      emitString(marker.path + Genes.runtimeImportExtension(
-        Genes.outExtension));
+      emitString(marker.path
+        + Genes.runtimeImportExtension(Genes.outExtension));
       write(')');
       return;
     }
@@ -839,8 +842,8 @@ class ExprEmitter extends Emitter {
    * chooses no syntax itself, so the classic and TypeScript emitters consume the
    * same ordered chunks and values without re-parsing target text.
    */
-  function emitPlannedTemplateLiteralCall(callee:TypedExpr,
-      arguments:Array<TypedExpr>):Bool {
+  function emitPlannedTemplateLiteralCall(callee: TypedExpr,
+      arguments: Array<TypedExpr>): Bool {
     if (templateLiteralPlan == null)
       return false;
     final intent = templateLiteralPlan.intentForCall(callee, arguments);
@@ -863,7 +866,7 @@ class ExprEmitter extends Emitter {
    * printed once, and temporarily use their own expected type so an outer
    * destination cannot alter nested emission.
    */
-  function emitTemplateLiteralIntent(intent:TemplateLiteralIntent):Void {
+  function emitTemplateLiteralIntent(intent: TemplateLiteralIntent): Void {
     emitPos(intent.pos);
     if (intent.values.length == 0) {
       emitString(intent.chunks[0]);
@@ -1032,9 +1035,7 @@ class ExprEmitter extends Emitter {
     for (child in children) {
       switch child {
         case ChildIntent(expression, source):
-          final emittedExpression = source.match(DirectValue)
-            ? sourceInlineJsxValue(expression)
-            : expression;
+          final emittedExpression = source.match(DirectValue) ? sourceInlineJsxValue(expression) : expression;
           if (source.match(DirectValue)
             && JsxPlan.isMarkerCallExpression(emittedExpression)) {
             emitValue(emittedExpression);
@@ -1101,9 +1102,10 @@ class ExprEmitter extends Emitter {
     final pos = switch intent {
       case ElementIntent(_, _, _, found) | FragmentIntent(_, found): found;
     }
-    return CompilerDiagnostic.fail(
-      '[GTS-JSX-CAPABILITY-004] JSX intent reached the expression '
-      + 'printer without a runtime namespace. This is a compiler planning error.',
+    return
+      CompilerDiagnostic.fail('[GTS-JSX-CAPABILITY-004] JSX intent reached the expression '
+      +
+        'printer without a runtime namespace. This is a compiler planning error.',
       pos);
   }
 
@@ -1214,7 +1216,7 @@ class ExprEmitter extends Emitter {
     write(')');
   }
 
-  function emitValue(e: TypedExpr):Void {
+  function emitValue(e: TypedExpr): Void {
     // Explicit type witnesses affect TS syntax only; classic JS erases the
     // compiler-owned carrier and emits the original runtime value unchanged.
     final explicitTypeArgumentCall = genes.ExplicitTypeArguments.callSiteMarker(e);
@@ -1223,8 +1225,7 @@ class ExprEmitter extends Emitter {
       return;
     }
     if (CompilerInternal.isSideEffectImportMarkerCall(e)) {
-      CompilerDiagnostic.fail(
-        'GENES-SIDE-EFFECT-IMPORT-CONTEXT-001: compiler marker must be a direct statement',
+      CompilerDiagnostic.fail('GENES-SIDE-EFFECT-IMPORT-CONTEXT-001: compiler marker must be a direct statement',
         e.pos);
       return;
     }
@@ -1582,7 +1583,7 @@ class ExprEmitter extends Emitter {
    * `TVar` path, so TypeScript, TSX, and classic ES2015 JavaScript agree on
    * mutability without re-scanning assignment syntax in either printer.
    */
-  function localDeclaration(v:TVar, hasInitializer:Bool):String {
+  function localDeclaration(v: TVar, hasInitializer: Bool): String {
     #if (js_es == 6)
     return localBindingPlan != null
       && localBindingPlan.canUseConst(v, hasInitializer) ? 'const' : declare;

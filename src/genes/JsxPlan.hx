@@ -163,10 +163,10 @@ final class JsxSourceInlineFact {
 
   public function new(child: TVar, declaration: TypedExpr,
       initializer: TypedExpr, marker: HxxChildMarkerIdentity,
-      childValue: TypedExpr, soleLocalUse: TypedExpr,
-      parentMarker: TypedExpr, parentSite: SourceInlineParentSite,
-      scope: SourceInlineScope, declarationIndex: Int, parentIndex: Int,
-      childOrdinal: Int, mappingPos: Position) {
+      childValue: TypedExpr, soleLocalUse: TypedExpr, parentMarker: TypedExpr,
+      parentSite: SourceInlineParentSite, scope: SourceInlineScope,
+      declarationIndex: Int, parentIndex: Int, childOrdinal: Int,
+      mappingPos: Position) {
     this.child = child;
     childId = child.id;
     this.declaration = declaration;
@@ -210,14 +210,13 @@ final class JsxSourceInlineConsumer {
   }
 
   /** Returns the initializer only for the exact planned declaration object. */
-  public function initializerForDeclaration(
-      declaration: TypedExpr): Null<TypedExpr> {
+  public function initializerForDeclaration(declaration: TypedExpr): Null<TypedExpr> {
     final fact = byDeclaration.get(declaration);
     if (fact == null)
       return null;
     if (omitted.exists(declaration))
-      return CompilerDiagnostic.fail(
-        '[GTS-JSX-SOURCE-INLINE-004] A planned HXX child declaration was '
+      return
+        CompilerDiagnostic.fail('[GTS-JSX-SOURCE-INLINE-004] A planned HXX child declaration was '
         + 'omitted more than once. This is a compiler emission error.',
         fact.mappingPos);
     omitted.set(declaration, true);
@@ -225,14 +224,13 @@ final class JsxSourceInlineConsumer {
   }
 
   /** Returns the initializer only for the exact planned direct child object. */
-  public function initializerForChildValue(
-      childValue: TypedExpr): Null<TypedExpr> {
+  public function initializerForChildValue(childValue: TypedExpr): Null<TypedExpr> {
     final fact = byChildValue.get(childValue);
     if (fact == null)
       return null;
     if (substituted.exists(childValue))
-      return CompilerDiagnostic.fail(
-        '[GTS-JSX-SOURCE-INLINE-004] A planned HXX child value was '
+      return
+        CompilerDiagnostic.fail('[GTS-JSX-SOURCE-INLINE-004] A planned HXX child value was '
         + 'substituted more than once. This is a compiler emission error.',
         fact.mappingPos);
     substituted.set(childValue, true);
@@ -247,17 +245,17 @@ final class JsxSourceInlineConsumer {
     // consistency error cannot publish half-rewritten JSX. Normal builds never
     // define it, so it cannot affect planning or generated source.
     if (facts.length > 0)
-      CompilerDiagnostic.fail(
-        '[GTS-JSX-SOURCE-INLINE-004] Injected source-inline consumption '
-        + 'failure for output-transaction evidence.', facts[0].mappingPos);
+      CompilerDiagnostic.fail('[GTS-JSX-SOURCE-INLINE-004] Injected source-inline consumption '
+        + 'failure for output-transaction evidence.',
+        facts[0].mappingPos);
     #end
     for (fact in facts) {
       if (!omitted.exists(fact.declaration)
         || !substituted.exists(fact.childValue)) {
-        CompilerDiagnostic.fail(
-          '[GTS-JSX-SOURCE-INLINE-004] A planned HXX child rewrite was only '
+        CompilerDiagnostic.fail('[GTS-JSX-SOURCE-INLINE-004] A planned HXX child rewrite was only '
           + 'partly emitted. Both its exact declaration and exact child use '
-          + 'must be consumed once.', fact.mappingPos);
+          + 'must be consumed once.',
+          fact.mappingPos);
       }
     }
   }
@@ -295,23 +293,16 @@ class JsxCapabilityPolicy {
   public static function current(): JsxCapabilityPolicy {
     final profile: JsxEmissionProfile = if (Genes.outExtension == '.jsx')
       JavaScriptJsxAutomatic else if (!Context.defined('genes.ts'))
-      ClassicCreateElement
-    else if (Genes.outExtension == '.tsx')
-      Context.defined('genes.ts.jsx_classic') ? TsxClassic : TsxAutomatic
-    else
+      ClassicCreateElement else if (Genes.outExtension == '.tsx')
+      Context.defined('genes.ts.jsx_classic') ? TsxClassic : TsxAutomatic else
       TypeScriptCreateElement;
 
     final configured = Context.definedValue('genes.react.jsx_runtime_module');
     final normalized = configured == null ? null : StringTools.trim(configured);
     final runtimeModule = if (normalized == null || normalized.length == 0)
-      DEFAULT_RUNTIME_MODULE
-    else if (normalized.toLowerCase() == 'none')
-      null
-    else
-      normalized;
-    final binding = profile == TsxClassic
-      ? CLASSIC_TSX_BINDING
-      : INTERNAL_RUNTIME_BINDING;
+      DEFAULT_RUNTIME_MODULE else if (normalized.toLowerCase() == 'none')
+      null else normalized;
+    final binding = profile == TsxClassic ? CLASSIC_TSX_BINDING : INTERNAL_RUNTIME_BINDING;
     return new JsxCapabilityPolicy(profile, runtimeModule, binding);
   }
 
@@ -339,7 +330,8 @@ class JsxCapabilityPolicy {
     CompilerDiagnostic.fail('[GTS-JSX-CAPABILITY-001] JSX profile `${profile}` requires '
       + 'a React-compatible namespace exposing createElement and Fragment. '
       + 'Remove `-D genes.react.jsx_runtime_module=none` or configure that '
-      + 'define with a compatible module specifier.', plan.firstPosition);
+      + 'define with a compatible module specifier.',
+      plan.firstPosition);
   }
 
   /**
@@ -354,20 +346,21 @@ class JsxCapabilityPolicy {
     if (!requiresRuntimeNamespace(plan))
       return null;
     validate(plan);
-    final binding = dependencies.resolveCapability(
-      CompilerCapabilityId.JsxRuntimeNamespace);
+    final binding = dependencies.resolveCapability(CompilerCapabilityId.JsxRuntimeNamespace);
     if (binding != null) {
       if (profile == TsxClassic && binding != CLASSIC_TSX_BINDING) {
         CompilerDiagnostic.fail('[GTS-JSX-CAPABILITY-003] Classic TSX requires the '
           + '`React` namespace, but that identifier collides in this '
           + 'module. Use the automatic JSX runtime or rename the '
-          + 'conflicting Haxe declaration/import.', plan.firstPosition);
+          + 'conflicting Haxe declaration/import.',
+          plan.firstPosition);
       }
       return binding;
     }
-    return CompilerDiagnostic.fail(
-      '[GTS-JSX-CAPABILITY-002] JSX runtime dependency was not '
-      + 'projected for profile `${profile}`. This is a compiler planning error.',
+    return
+      CompilerDiagnostic.fail('[GTS-JSX-CAPABILITY-002] JSX runtime dependency was not '
+      +
+        'projected for profile `${profile}`. This is a compiler planning error.',
       plan.firstPosition);
   }
 }
@@ -404,8 +397,7 @@ class JsxPlan {
     JsxSourceInlineFact>();
   final sourceInlineByChildValue = new ObjectMap<TypedExpr,
     JsxSourceInlineFact>();
-  final sourceInlineByMarker = new ObjectMap<TypedExpr,
-    JsxSourceInlineFact>();
+  final sourceInlineByMarker = new ObjectMap<TypedExpr, JsxSourceInlineFact>();
   final carrierLocalIds: Map<Int, Bool> = [];
   final allowedCarrierUses = new ObjectMap<TypedExpr, Bool>();
   final validatedComponentProps = new ObjectMap<TypedExpr, Type>();
@@ -436,15 +428,15 @@ class JsxPlan {
    * and classic `.js` keep the established explicit createElement sequence and
    * must not request a consumer.
    */
-  public function sourceInlineConsumer(
-      profile: JsxEmissionProfile): JsxSourceInlineConsumer {
+  public function sourceInlineConsumer(profile: JsxEmissionProfile): JsxSourceInlineConsumer {
     switch profile {
       case TsxAutomatic | TsxClassic | JavaScriptJsxAutomatic:
       case TypeScriptCreateElement | ClassicCreateElement:
-        return CompilerDiagnostic.fail(
-          '[GTS-JSX-SOURCE-INLINE-006] A createElement output profile '
+        return
+          CompilerDiagnostic.fail('[GTS-JSX-SOURCE-INLINE-006] A createElement output profile '
           + 'attempted to consume source-only HXX rewrite facts. This is a '
-          + 'compiler configuration error.', firstPosition);
+          + 'compiler configuration error.',
+          firstPosition);
     }
     return new JsxSourceInlineConsumer(sourceInlineFacts.copy());
   }
@@ -478,8 +470,7 @@ class JsxPlan {
    * expression. This lookup exposes only the result; printers do not inspect
    * component fields or optional-spread metadata again.
    */
-  public function nestedChildrenSupplyRequiredProperty(
-      tag: JsxTagIntent): Bool {
+  public function nestedChildrenSupplyRequiredProperty(tag: JsxTagIntent): Bool {
     return requiredNestedChildren.exists(tagExpression(tag));
   }
 
@@ -543,9 +534,8 @@ class JsxPlan {
   }
 
   function get_firstPosition(): Position {
-    return firstIntentPosition == null
-      ? Context.currentPos()
-      : firstIntentPosition;
+    return
+      firstIntentPosition == null ? Context.currentPos() : firstIntentPosition;
   }
 
   /** Returns validated intent when `callee` is a marker, otherwise null. */
@@ -620,9 +610,8 @@ class JsxPlan {
 
   public static function tagExpression(tag: JsxTagIntent): TypedExpr {
     return switch tag {
-      case IntrinsicTag(_, expression)
-        | DynamicIntrinsicTag(expression)
-        | ComponentTag(expression):
+      case IntrinsicTag(_, expression) | DynamicIntrinsicTag(expression) |
+        ComponentTag(expression):
         expression;
     }
   }
@@ -652,9 +641,7 @@ class JsxPlan {
       case TConst(TString(name)):
         IntrinsicTag(name, expression);
       default:
-        if (isStringType(expression.t))
-          DynamicIntrinsicTag(expression)
-        else
+        if (isStringType(expression.t)) DynamicIntrinsicTag(expression) else
           ComponentTag(expression);
     }
   }
@@ -712,11 +699,11 @@ class JsxPlan {
       final nameExpr = requiredCarrierField(fields, '__genesJsxPropName',
         'GTS-JSX-INTENT-005', expression.pos);
       final name = switch unwrap(nameExpr).expr {
-                case TConst(TString(found)): found;
-                default:
-                  markerError('GTS-JSX-INTENT-005',
-                    'Marker prop name must be a string literal', nameExpr.pos);
-              };
+        case TConst(TString(found)): found;
+        default:
+          markerError('GTS-JSX-INTENT-005',
+            'Marker prop name must be a string literal', nameExpr.pos);
+      };
       final value = requiredCarrierField(fields, '__genesJsxPropValue',
         'GTS-JSX-INTENT-006', expression.pos);
       NamedProp(name, value,
@@ -780,9 +767,7 @@ class JsxPlan {
 
   static function sourceFor(root: Null<TypedExpr>,
       path: Array<JsxValueAccess>): JsxValueSource {
-    return root == null
-      ? DirectValue
-      : RuntimeValuePath(root, path);
+    return root == null ? DirectValue : RuntimeValuePath(root, path);
   }
 
   /** Returns the original local only when marker data was already evaluated. */
@@ -839,8 +824,8 @@ class JsxPlan {
         && allowedCarrierUses.exists(expression))
         return;
       markerError('GTS-JSX-INTENT-011',
-        'A JSX carrier reached emission without being recorded during JSX '
-        + 'planning. This is a compiler planning error',
+        'A JSX carrier reached emission without being recorded during JSX ' +
+        'planning. This is a compiler planning error',
         expression.pos);
     }
     carrierLocalIds.set(variable.id, true);
@@ -867,10 +852,13 @@ class JsxPlan {
             && !allowedCarrierUses.exists(expression)):
           markerError('GTS-JSX-INTENT-010',
             'A local JSX carrier may only be passed through the compiler-owned '
-            + 'carrier chain into its JSX marker. This record was read, changed, '
-            + 'or shared elsewhere, so its runtime contents could disagree with '
+            +
+            'carrier chain into its JSX marker. This record was read, changed, '
+            +
+            'or shared elsewhere, so its runtime contents could disagree with '
             + 'the JSX structure checked at compile time. Prepare ordinary '
-            + 'application data first, then build and consume an untouched carrier',
+            +
+            'application data first, then build and consume an untouched carrier',
             expression.pos);
         default:
       }
@@ -911,7 +899,9 @@ class JsxPlan {
     var nextFunctionOrdinal = 0;
     function visitScopes(expression: TypedExpr,
         functionOwner: SourceInlineFunctionOwner, functionOrdinal: Int,
-        blockCounter: {var value: Int;}): Void {
+        blockCounter: {
+        var value: Int;
+      }): Void {
       final current = sourceInlineUnwrap(expression);
       switch current.expr {
         case TBlock(elements):
@@ -926,12 +916,13 @@ class JsxPlan {
             visitScopes(element, functionOwner, functionOrdinal, blockCounter);
         case TFunction(func):
           final nestedOrdinal = nextFunctionOrdinal++;
-          visitScopes(func.expr, FunctionOwner(func), nestedOrdinal, {value: 0});
+          visitScopes(func.expr, FunctionOwner(func), nestedOrdinal,
+            {value: 0});
         default:
           current.iter(child -> visitScopes(child, functionOwner,
             functionOrdinal, blockCounter));
       }
-    }
+      }
 
     function visitRoot(root: TypedExpr): Void {
       if (root == null)
@@ -1015,21 +1006,11 @@ class JsxPlan {
             if (mappingInfo.file == null || mappingInfo.file.length == 0
               || mappingInfo.max < mappingInfo.min)
               continue;
-            recordSourceInlineFact(new JsxSourceInlineFact(
-              occurrence.local,
-              candidate.declaration,
-              candidate.initializer,
-              candidate.marker,
-              value,
-              occurrence.use,
-              parent.marker,
-              parent.site,
-              scope,
-              candidate.index,
-              parentIndex,
-              childOrdinal,
-              candidate.marker.call.pos
-            ));
+            recordSourceInlineFact(new JsxSourceInlineFact(occurrence.local,
+              candidate.declaration, candidate.initializer, candidate.marker,
+              value, occurrence.use, parent.marker, parent.site, scope,
+              candidate.index, parentIndex, childOrdinal,
+              candidate.marker.call.pos));
           case ChildIntent(_, RuntimeValuePath(_, _)):
         }
       }
@@ -1042,10 +1023,10 @@ class JsxPlan {
       || sourceInlineByDeclaration.exists(fact.declaration)
       || sourceInlineByChildValue.exists(fact.childValue)
       || sourceInlineByMarker.exists(fact.marker.call)) {
-      CompilerDiagnostic.fail(
-        '[GTS-JSX-SOURCE-INLINE-001] One HXX child declaration, marker, or '
+      CompilerDiagnostic.fail('[GTS-JSX-SOURCE-INLINE-001] One HXX child declaration, marker, or '
         + 'direct child occurrence belongs to more than one source rewrite. '
-        + 'This is a compiler planning error.', fact.mappingPos);
+        + 'This is a compiler planning error.',
+        fact.mappingPos);
     }
     sourceInlineFacts.push(fact);
     sourceInlineByChildId.set(fact.childId, fact);
@@ -1072,19 +1053,18 @@ class JsxPlan {
       final elements = switch fact.scope.block.expr {
         case TBlock(found): found;
         default:
-          return CompilerDiagnostic.fail(
-            '[GTS-JSX-SOURCE-INLINE-003] A planned HXX child block no longer '
-            + 'has its recorded typed structure.', fact.mappingPos);
+          return
+            CompilerDiagnostic.fail('[GTS-JSX-SOURCE-INLINE-003] A planned HXX child block no longer '
+            + 'has its recorded typed structure.',
+            fact.mappingPos);
       };
       if (fact.declarationIndex < 0
         || fact.declarationIndex >= elements.length
         || fact.parentIndex < 0
         || fact.parentIndex >= elements.length
         || elements[fact.declarationIndex] != fact.declaration
-        || elements[fact.parentIndex] != sourceInlineParentStatement(
-          fact.parentSite)) {
-        CompilerDiagnostic.fail(
-          '[GTS-JSX-SOURCE-INLINE-003] A planned HXX child declaration or '
+        || elements[fact.parentIndex] != sourceInlineParentStatement(fact.parentSite)) {
+        CompilerDiagnostic.fail('[GTS-JSX-SOURCE-INLINE-003] A planned HXX child declaration or '
           + 'parent no longer occupies its exact recorded block occurrence.',
           fact.mappingPos);
       }
@@ -1093,64 +1073,57 @@ class JsxPlan {
         case TVar(local, initializer)
           if (local.id == fact.childId && initializer == fact.initializer):
         default:
-          CompilerDiagnostic.fail(
-            '[GTS-JSX-SOURCE-INLINE-003] A planned HXX child declaration no '
-            + 'longer owns its exact local and initializer.', fact.mappingPos);
+          CompilerDiagnostic.fail('[GTS-JSX-SOURCE-INLINE-003] A planned HXX child declaration no '
+            + 'longer owns its exact local and initializer.',
+            fact.mappingPos);
       }
 
       final marker = hxxChildMarkerIdentity(fact.initializer);
-      if (marker == null
-        || marker.call != fact.marker.call
+      if (marker == null || marker.call != fact.marker.call
         || marker.owner != fact.marker.owner
-        || marker.field != fact.marker.field
-        || marker.kind != fact.marker.kind) {
-        CompilerDiagnostic.fail(
-          '[GTS-JSX-SOURCE-INLINE-007] A planned HXX child marker no longer '
+        || marker.field != fact.marker.field || marker.kind != fact.marker.kind) {
+        CompilerDiagnostic.fail('[GTS-JSX-SOURCE-INLINE-007] A planned HXX child marker no longer '
           + 'matches its exact typed call, owner, and field identity.',
           fact.mappingPos);
       }
 
       final occurrence = directLocalOccurrence(fact.childValue);
-      if (occurrence == null
-        || occurrence.local.id != fact.childId
+      if (occurrence == null || occurrence.local.id != fact.childId
         || occurrence.use != fact.soleLocalUse) {
-        CompilerDiagnostic.fail(
-          '[GTS-JSX-SOURCE-INLINE-002] A planned HXX child value no longer '
-          + 'contains its exact sole local occurrence.', fact.mappingPos);
+        CompilerDiagnostic.fail('[GTS-JSX-SOURCE-INLINE-002] A planned HXX child value no longer '
+          + 'contains its exact sole local occurrence.',
+          fact.mappingPos);
       }
 
-      final parent = directSourceInlineParent(
-        sourceInlineParentStatement(fact.parentSite));
+      final parent = directSourceInlineParent(sourceInlineParentStatement(fact.parentSite));
       if (parent == null || parent.marker != fact.parentMarker) {
-        CompilerDiagnostic.fail(
-          '[GTS-JSX-SOURCE-INLINE-003] A planned HXX child parent no longer '
-          + 'matches its direct return, local initializer, or local assignment.',
+        CompilerDiagnostic.fail('[GTS-JSX-SOURCE-INLINE-003] A planned HXX child parent no longer '
+          +
+          'matches its direct return, local initializer, or local assignment.',
           fact.mappingPos);
       }
       final parentIntent = intentForExpression(fact.parentMarker);
       final children = parentIntent == null ? null : switch parentIntent {
         case ElementIntent(_, _, found, _) | FragmentIntent(found, _): found;
       };
-      if (children == null
-        || fact.childOrdinal < 0
+      if (children == null || fact.childOrdinal < 0
         || fact.childOrdinal >= children.length) {
-        CompilerDiagnostic.fail(
-          '[GTS-JSX-SOURCE-INLINE-003] A planned HXX child no longer occupies '
-          + 'its exact parent child slot.', fact.mappingPos);
+        CompilerDiagnostic.fail('[GTS-JSX-SOURCE-INLINE-003] A planned HXX child no longer occupies '
+          + 'its exact parent child slot.',
+          fact.mappingPos);
       }
       switch children[fact.childOrdinal] {
         case ChildIntent(value, DirectValue) if (value == fact.childValue):
         default:
-          CompilerDiagnostic.fail(
-            '[GTS-JSX-SOURCE-INLINE-003] A planned HXX child no longer occupies '
-            + 'its exact parent child occurrence.', fact.mappingPos);
+          CompilerDiagnostic.fail('[GTS-JSX-SOURCE-INLINE-003] A planned HXX child no longer occupies '
+            + 'its exact parent child occurrence.',
+            fact.mappingPos);
       }
     }
   }
 
   /** Returns the exact block statement carried by one admitted parent site. */
-  static function sourceInlineParentStatement(
-      site: SourceInlineParentSite): TypedExpr {
+  static function sourceInlineParentStatement(site: SourceInlineParentSite): TypedExpr {
     return switch site {
       case DirectReturn(statement): statement;
       case DirectLocalInitializer(_, declaration): declaration;
@@ -1177,13 +1150,10 @@ class JsxPlan {
           marker: marker,
           site: DirectLocalInitializer(owner, expression)
         };
-      case TBinop(OpAssign, left, right):
-        final owner = switch sourceInlineUnwrap(left).expr {
+      case TBinop(OpAssign, left, right): final owner = switch sourceInlineUnwrap(left).expr {
           case TLocal(local): local;
           default: null;
-        };
-        final marker = directMarkerRoot(right);
-        owner == null || marker == null ? null : {
+        }; final marker = directMarkerRoot(right); owner == null || marker == null ? null : {
           marker: marker,
           site: DirectLocalAssignment(owner, expression)
         };
@@ -1207,16 +1177,20 @@ class JsxPlan {
   }
 
   /** Retains the exact specialized HXX child call and typed field identity. */
-  static function hxxChildMarkerIdentity(
-      expression: TypedExpr): Null<HxxChildMarkerIdentity> {
+  static function hxxChildMarkerIdentity(expression: TypedExpr): Null<HxxChildMarkerIdentity> {
     final call = sourceInlineUnwrap(expression);
     return switch call.expr {
       case TCall(callee, _):
         final kind = markerKind(callee);
         switch [kind, sourceInlineUnwrap(callee).expr] {
-          case [HxxChildElementMarker | HxxChildFragmentMarker,
-            TField(_, FStatic(owner, field))]:
-            {kind: kind, call: call, owner: owner, field: field};
+          case [HxxChildElementMarker | HxxChildFragmentMarker, TField(_,
+            FStatic(owner, field))]:
+            {
+              kind: kind,
+              call: call,
+              owner: owner,
+              field: field
+            };
           default: null;
         }
       default: null;
@@ -1244,8 +1218,10 @@ class JsxPlan {
     var current = expression;
     while (current != null) {
       switch current.expr {
-        case TCast(inner, null) | TParenthesis(inner): current = inner;
-        default: return current;
+        case TCast(inner, null) | TParenthesis(inner):
+          current = inner;
+        default:
+          return current;
       }
     }
     return expression;
@@ -1286,9 +1262,7 @@ class JsxPlan {
   function isSourceInlineSafeIntent(intent: JsxIntent): Bool {
     return switch intent {
       case ElementIntent(tag, props, children, _):
-        if (!isSourceInlineSafeTag(tag))
-          false;
-        else {
+        if (!isSourceInlineSafeTag(tag)) false; else {
           var safe = true;
           for (prop in props) {
             switch prop {
@@ -1304,9 +1278,8 @@ class JsxPlan {
           for (child in children) {
             switch child {
               case ChildIntent(value, DirectValue):
-                safe = safe && (isMarkerCallExpression(value)
-                  ? isSourceInlineSafeMarker(value)
-                  : isSourceInlineSafeValue(value));
+                safe = safe
+                  && (isMarkerCallExpression(value) ? isSourceInlineSafeMarker(value) : isSourceInlineSafeValue(value));
               case ChildIntent(_, RuntimeValuePath(_, _)):
             }
           }
@@ -1317,9 +1290,8 @@ class JsxPlan {
         for (child in children) {
           switch child {
             case ChildIntent(value, DirectValue):
-              safe = safe && (isMarkerCallExpression(value)
-                ? isSourceInlineSafeMarker(value)
-                : isSourceInlineSafeValue(value));
+              safe = safe
+                && (isMarkerCallExpression(value) ? isSourceInlineSafeMarker(value) : isSourceInlineSafeValue(value));
             case ChildIntent(_, RuntimeValuePath(_, _)):
           }
         }
@@ -1353,9 +1325,11 @@ class JsxPlan {
     return switch value.expr {
       case TConst(_) | TLocal(_) | TTypeExpr(_) | TFunction(_): true;
       case TArrayDecl(values):
-        values.filter(candidate -> !isSourceInlineSafeValue(candidate)).length == 0;
+        values.filter(candidate -> !isSourceInlineSafeValue(candidate))
+          .length == 0;
       case TObjectDecl(fields):
-        fields.filter(field -> !isSourceInlineSafeValue(field.expr)).length == 0;
+        fields.filter(field -> !isSourceInlineSafeValue(field.expr))
+          .length == 0;
       case TBinop(OpAssign | OpAssignOp(_), _, _): false;
       case TBinop(_, left, right):
         isSourceInlinePrimitive(left.t)
@@ -1363,9 +1337,7 @@ class JsxPlan {
         && isSourceInlineSafeValue(left)
         && isSourceInlineSafeValue(right);
       case TUnop(OpIncrement | OpDecrement, _, _): false;
-      case TUnop(_, _, inner):
-        isSourceInlinePrimitive(inner.t)
-        && isSourceInlineSafeValue(inner);
+      case TUnop(_, _, inner): isSourceInlinePrimitive(inner.t) && isSourceInlineSafeValue(inner);
       case TField(_, FEnum(_, _)): true;
       case TCall(_, _) if (isMarkerCallExpression(value)):
         isSourceInlineSafeMarker(value);
@@ -1379,7 +1351,8 @@ class JsxPlan {
     function resolve(value: TypedExpr): Bool {
       return switch unwrap(value).expr {
         case TObjectDecl(fields):
-          fields.filter(field -> !isSourceInlineSafeValue(field.expr)).length == 0;
+          fields.filter(field -> !isSourceInlineSafeValue(field.expr))
+            .length == 0;
         case TLocal(local)
           if (!seen.exists(local.id) && localInitializers.exists(local.id)):
           seen.set(local.id, true);

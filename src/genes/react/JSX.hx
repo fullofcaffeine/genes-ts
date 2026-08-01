@@ -61,7 +61,8 @@ class JSX {
     return rootExpr;
   }
 }
-  #if macro
+
+#if macro
 private enum JsxChild {
   Text(value: String, pos: Position);
   Expr(expr: Expr);
@@ -137,8 +138,7 @@ private class Parser {
   function elementToExpr(el: JsxElement, hxxNestedChild: Bool): Expr {
     final intrinsic = isIntrinsicTag(el.tag);
     final tagExpr: Expr = if (intrinsic) withPosition(macro $v{el.tag},
-      el.tagPos) else
-      Context.parseInlineString(el.tag, el.tagPos);
+      el.tagPos) else Context.parseInlineString(el.tag, el.tagPos);
 
     final contextProps: Array<JsxContextProp> = [];
     final originalValues: Map<Int, Expr> = [];
@@ -180,11 +180,10 @@ private class Parser {
 
     final children = normalizeChildren(el.children);
     final childrenCarrier = childrenToCarrier(children);
-    final marker = hxxNestedChild
-      ? macro genes.react.internal.Jsx.__hxxChildJsx(
-        $tagExpr, $props, $childrenCarrier)
-      : macro genes.react.internal.Jsx.__jsx(
-        $tagExpr, $props, $childrenCarrier);
+    final marker = hxxNestedChild ? macro genes.react.internal.Jsx.__hxxChildJsx($tagExpr,
+      $props,
+      $childrenCarrier) : macro genes.react.internal.Jsx.__jsx($tagExpr,
+        $props, $childrenCarrier);
     return withPosition(marker, el.pos);
   }
 
@@ -206,8 +205,8 @@ private class Parser {
       case Element(element):
         elementToExpr(element, true);
       case Fragment(children, fragmentPos):
-        withPosition(macro genes.react.internal.Jsx.__hxxChildFrag(
-          $e{childrenToCarrier(children)}), fragmentPos);
+        withPosition(macro genes.react.internal.Jsx.__hxxChildFrag($e{childrenToCarrier(children)}),
+          fragmentPos);
       case Text(_, _) | Expr(_):
         childToExpr(child);
     }
@@ -223,7 +222,7 @@ private class Parser {
         __genesJsxChildValue: $value,
         __genesJsxChildNext: $carrier
       };
-  }
+    }
     return carrier;
   }
 
@@ -246,7 +245,8 @@ private class Parser {
           if (out.length > 0) {
             switch out[out.length - 1] {
               case Text(prev, previousPos):
-                out[out.length - 1] = Text(normalizeText(prev + norm),
+                out[out.length
+                  - 1] = Text(normalizeText(prev + norm),
                   mergePositions(previousPos, childPos));
               default:
                 out.push(Text(norm, childPos));
@@ -369,7 +369,8 @@ private class Parser {
       // Spread attribute: {...expr}
       if (peek() == '{') {
         final spreadExpr = parseSpreadAttribute();
-        attrs.push({kind: Spread(spreadExpr),
+        attrs.push({
+          kind: Spread(spreadExpr),
           pos: sourcePosition(attrStart, i)
         });
         continue;
@@ -388,12 +389,14 @@ private class Parser {
             // Best-effort: treat bare value as string token.
             Str(readBareToken());
         }
-        attrs.push({kind: Normal(name, value),
+        attrs.push({
+          kind: Normal(name, value),
           pos: sourcePosition(attrStart, i)
         });
       } else {
         // Boolean attribute.
-        attrs.push({kind: Normal(name, null),
+        attrs.push({
+          kind: Normal(name, null),
           pos: sourcePosition(attrStart, i)
         });
       }
@@ -626,9 +629,10 @@ private class Parser {
     if (ch == null || ch.length == 0)
       return false;
     final c = ch.charCodeAt(0);
-    return (c >= 'a'.code && c <= 'z'.code) || (c >= 'A'.code && c <= 'Z'.code)
-      || (c >= '0'.code && c <= '9'.code) || ch == '_' || ch == '-' || ch == '.'
-      || ch == ':'; // allow namespaced tags
+    return (c >= 'a'.code && c <= 'z'.code)
+      || (c >= 'A'.code && c <= 'Z'.code)
+      || (c >= '0'.code && c <= '9'.code) || ch == '_' || ch == '-'
+      || ch == '.' || ch == ':'; // allow namespaced tags
   }
 }
 #end
