@@ -237,7 +237,9 @@ function main(): void {
     if (exampleId === "typescript-target")
       assert(tier === "capability-showcase", "typescript-target must remain the capability showcase");
     const claims = stringArray(example.claimSurfaceIds,
-      `${exampleId}.claimSurfaceIds`);
+      `${exampleId}.claimSurfaceIds`, tier === "compile-only-snippet");
+    assert(tier !== "compile-only-snippet" || claims.length === 0,
+      `${exampleId} compile-only snippets cannot claim product surfaces`);
     unique(claims, `${exampleId}.claimSurfaceIds`);
     for (const surfaceId of claims) {
       assert(productSurfaceIds.has(surfaceId),
@@ -445,6 +447,7 @@ function main(): void {
     "docs-only",
     "full"
   ]);
+  const routedExampleIds = new Set<string>();
   for (const [index, entry] of impactRules.entries()) {
     const rule = record(entry, `impactRules[${index}]`);
     const id = text(rule.id, `impactRules[${index}].id`);
@@ -470,11 +473,34 @@ function main(): void {
     for (const surfaceId of affectedSurfaceIds)
       assert(coveredBySelected.has(surfaceId),
         `${id} affects ${surfaceId} but selects no gate that covers it`);
+    if (rule.exampleId !== undefined) {
+      const exampleId = text(rule.exampleId, `${id}.exampleId`);
+      assert(!routedExampleIds.has(exampleId),
+        `Maintained example has more than one product-claim route: ${exampleId}`);
+      const example = record(declaredExamples[exampleId], `example ${exampleId}`);
+      const owner = text(example.owner, `${exampleId}.owner`);
+      assert(stringArray(rule.patterns, `${id}.patterns`).includes(`${owner}/**`),
+        `${id} must route its example owner: ${owner}/**`);
+      const claims = stringArray(example.claimSurfaceIds,
+        `${exampleId}.claimSurfaceIds`, true).slice().sort();
+      const affected = affectedSurfaceIds.slice().sort();
+      assert(JSON.stringify(affected) === JSON.stringify(claims),
+        `${id}.affectedSurfaceIds must exactly match ${exampleId}.claimSurfaceIds`);
+      routedExampleIds.add(exampleId);
+    }
     assert(validExpansions.has(text(rule.expansion, `${id}.expansion`)),
       `${id} has unsupported expansion`);
     impactRuleIds.push(id);
   }
   unique(impactRuleIds, "impact rule IDs");
+  for (const [exampleId, rawExample] of Object.entries(declaredExamples)) {
+    const example = record(rawExample, `example ${exampleId}`);
+    const claims = stringArray(example.claimSurfaceIds,
+      `${exampleId}.claimSurfaceIds`, true);
+    if (claims.length > 0)
+      assert(routedExampleIds.has(exampleId),
+        `Claim-bearing example has no product-claim impact rule: ${exampleId}`);
+  }
 
   const selectionPolicy = record(
     manifest.selectionPolicy,

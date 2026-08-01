@@ -124,8 +124,17 @@ function main(): void {
     "typescript-full",
     "classic-declarations",
     "source-maps");
-  exactSurfaces(declarations,
-    "typescript-source-runtime", "declarations-packages");
+  exactSurfaces(declarations, "declarations-packages");
+
+  const sharedEmitter = explain("src/genes/es/ExprEmitter.hx");
+  requires(sharedEmitter,
+    "classic-core",
+    "typescript-full",
+    "dual-output-semantics",
+    "hxx-tsx",
+    "source-maps");
+  exactSurfaces(sharedEmitter,
+    "classic-js-runtime", "typescript-source-runtime", "react-hxx-compiler");
 
   const react = explain("src/genes/react/JSX.hx");
   requires(react,
@@ -142,6 +151,17 @@ function main(): void {
     "Ambiguous compiler/React ownership did not expand to the full backstop");
   exactSurfaces(react,
     "react-hxx-compiler", "browser-framework-runtime");
+
+  const reactFixture = explain("tests/genes-ts/snapshot/react/src/DualJsxMain.hx");
+  requires(reactFixture,
+    "hxx-tsx",
+    "react-hooks",
+    "examples-dual-profile-e2e");
+  exactSurfaces(reactFixture,
+    "typescript-source-runtime", "react-hxx-compiler");
+  assert(!surfaceIds(reactFixture.affectedSurfaces).has("browser-framework-runtime")
+    && surfaceIds(reactFixture.coveredSurfaces).has("browser-framework-runtime"),
+  "A compiler-only React fixture laundered covered browser evidence into an affected surface");
 
   const sharedFixture = explain(
     "tests/genes-ts/package-shapes/build-ts.hxml"
@@ -189,7 +209,15 @@ function main(): void {
   "Selected browser example gate omitted its declared Playwright argument");
   exactSurfaces(browserExample,
     "classic-js-runtime", "typescript-source-runtime", "declarations-packages",
-    "browser-framework-runtime", "example-portfolio");
+    "react-hxx-compiler", "browser-framework-runtime", "example-portfolio");
+
+  const capabilityExample = explain("examples/typescript-target/src/Main.hx");
+  requires(capabilityExample,
+    "examples-dual-profile-e2e",
+    "portable-haxe-smoke",
+    "acceptance");
+  exactSurfaces(capabilityExample,
+    "classic-js-runtime", "typescript-source-runtime", "example-portfolio");
 
   const executableOwner = explain("scripts/probe-binding-identity.ts");
   assert(!executableOwner.docsOnly,

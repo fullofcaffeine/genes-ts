@@ -3537,6 +3537,7 @@
         "test.hxml"
       ],
       "affectedExcludePatterns": [
+        "src/genes/es/**",
         "src/genes/ts/**",
         "src/genes/dts/**",
         "src/genes/react/**",
@@ -3557,10 +3558,27 @@
       "expansion": "full"
     },
     {
+      "id": "shared-js-emitter",
+      "patterns": [
+        "src/genes/es/**"
+      ],
+      "selects": [
+        "portable-haxe-smoke",
+        "typescript-full",
+        "classic-core",
+        "dual-output-semantics",
+        "hxx-tsx",
+        "source-maps",
+        "acceptance"
+      ],
+      "affectedSurfaceIds": ["classic-js-runtime", "typescript-source-runtime", "react-hxx-compiler"],
+      "reason": "The shared JavaScript emitter is the classic implementation emitter and the base class used by TypeScript; it also owns shared JSX expression emission, but it does not emit declarations.",
+      "expansion": "affected"
+    },
+    {
       "id": "typescript-output",
       "patterns": [
         "src/genes/ts/**",
-        "src/genes/dts/**",
         "docs/typescript-target/**"
       ],
       "selects": [
@@ -3576,12 +3594,32 @@
       "expansion": "affected"
     },
     {
+      "id": "declaration-output",
+      "patterns": [
+        "src/genes/dts/**"
+      ],
+      "selects": [
+        "portable-haxe-smoke",
+        "typescript-full",
+        "classic-declarations",
+        "dual-output-semantics",
+        "source-maps",
+        "acceptance"
+      ],
+      "affectedSurfaceIds": ["declarations-packages"],
+      "reason": "Classic declaration emitters own the published .d.ts contract; TypeScript and dual-profile gates remain conservative backstops without reclassifying runtime surfaces as affected.",
+      "expansion": "affected"
+    },
+    {
       "id": "react-hxx-browser",
       "patterns": [
         "src/genes/react/**",
         "src/genes/Jsx*.hx",
         "tests/**/react/**",
         "examples/todoapp/web/**"
+      ],
+      "affectedExcludePatterns": [
+        "tests/**/react/**"
       ],
       "selects": [
         "hxx-tsx",
@@ -3594,6 +3632,24 @@
       ],
       "affectedSurfaceIds": ["react-hxx-compiler", "browser-framework-runtime"],
       "reason": "HXX and React changes cross Haxe validation, four source/createElement profiles, runtime behavior, and browser contracts.",
+      "expansion": "affected-extended"
+    },
+    {
+      "id": "react-hxx-fixtures",
+      "patterns": [
+        "tests/**/react/**"
+      ],
+      "selects": [
+        "hxx-tsx",
+        "hxx-carrier-immutability",
+        "hxx-event-variance",
+        "react-hooks",
+        "react-flight",
+        "examples-dual-profile-e2e",
+        "acceptance"
+      ],
+      "affectedSurfaceIds": ["react-hxx-compiler"],
+      "reason": "Compiler-owned React fixtures change HXX/code-generation evidence; the browser example remains a selected backstop rather than an affected product claim.",
       "expansion": "affected-extended"
     },
     {
@@ -3694,8 +3750,41 @@
         "portable-haxe-smoke",
         "acceptance"
       ],
-      "affectedSurfaceIds": ["classic-js-runtime", "typescript-source-runtime", "declarations-packages", "browser-framework-runtime", "example-portfolio"],
-      "reason": "Maintained applications need both-profile build/runtime evidence without replacing compiler conformance.",
+      "affectedSurfaceIds": ["example-portfolio"],
+      "reason": "Any maintained-example change affects the evidence portfolio; example-specific rules below add only the product claims that the example's declared observers can prove.",
+      "expansion": "affected-extended"
+    },
+    {
+      "id": "todoapp-example",
+      "exampleId": "todoapp",
+      "patterns": [
+        "examples/todoapp/**",
+        "scripts/build-example-todoapp*",
+        "scripts/qa-todoapp.ts"
+      ],
+      "selects": [
+        "examples-dual-profile-e2e",
+        "portable-haxe-smoke",
+        "acceptance"
+      ],
+      "affectedSurfaceIds": ["classic-js-runtime", "typescript-source-runtime", "declarations-packages", "react-hxx-compiler", "browser-framework-runtime"],
+      "reason": "The flagship Todoapp runs both compiler profiles, declarations, HXX/React, and Playwright, so its changed paths may affect each product surface that its manifest explicitly claims.",
+      "expansion": "affected-extended"
+    },
+    {
+      "id": "typescript-target-example",
+      "exampleId": "typescript-target",
+      "patterns": [
+        "examples/typescript-target/**",
+        "scripts/build-example-typescript-target.ts"
+      ],
+      "selects": [
+        "examples-dual-profile-e2e",
+        "portable-haxe-smoke",
+        "acceptance"
+      ],
+      "affectedSurfaceIds": ["classic-js-runtime", "typescript-source-runtime"],
+      "reason": "The capability showcase executes classic and TypeScript output, but it has no declaration or browser observer and therefore cannot advance those scorecards.",
       "expansion": "affected-extended"
     },
     {
