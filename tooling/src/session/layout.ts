@@ -18,6 +18,8 @@ export interface SessionLayout {
   readonly candidatesRelative: string;
   readonly transactionRelative: string;
   readonly generationMarkerRelative: string;
+  readonly publicationControlRelative: string;
+  readonly publicationControlRoot: string;
   readonly serverLeaseRelative: string;
   readonly sessionLockRelative: string;
 }
@@ -131,6 +133,12 @@ export function resolveSessionLayout(
   const lockScope = createHash("sha256")
     .update(publicOutputRelative)
     .digest("hex");
+  const publicationControlDirectory = `.genes/tooling/session-publications/${lockScope}`;
+  ensureDirectoryNoFollow(projectRoot, publicationControlDirectory, 0o700);
+  const publicationControlRoot = path.join(
+    projectRoot,
+    ...publicationControlDirectory.split("/"),
+  );
 
   return Object.freeze({
     projectRoot,
@@ -143,8 +151,10 @@ export function resolveSessionLayout(
     stateRoot,
     stateRelative,
     candidatesRelative,
-    transactionRelative: `${stateRelative}/publication`,
-    generationMarkerRelative: `${stateRelative}/accepted-generation.json`,
+    transactionRelative: `${publicationControlDirectory}/transactions`,
+    generationMarkerRelative: `${publicationControlDirectory}/accepted-generation.json`,
+    publicationControlRelative: publicationControlDirectory,
+    publicationControlRoot,
     serverLeaseRelative: `${stateRelative}/haxe-server.json`,
     sessionLockRelative: `${lockDirectory}/${lockScope}.json`,
   });

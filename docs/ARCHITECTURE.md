@@ -757,6 +757,7 @@ or changes compiler semantics. Its positive contract is:
 
 ```text
 observed input revision
+  -> immutable effective Haxe/HXML invocation
   -> request-local `genes.output` private compiler tree
   -> exact Genes v2 ownership inventory
   -> host-owned validation
@@ -775,10 +776,13 @@ public mutation.
 The session composes the existing HXML inventory, reconciled watcher,
 serialized dirty loop, owned Haxe server, and artifact publisher. It does not
 reimplement those mechanisms. The compiler's v2 manifest is the sole generated
-file inventory, while a separate session generation record is the outer commit
-marker. The separate marker matters when two successful revisions generate
-identical bytes: generation still advances, the file delta stays empty, and a
-host correctly performs no reload.
+file inventory, including the manifest file's own exact bytes and mode, while a
+separate session generation record is the outer commit marker. Both publication
+authorities live in one stable project/output-scoped control root so selecting a
+different private candidate directory cannot bypass crash recovery. The
+separate marker matters when two successful revisions generate identical bytes:
+generation still advances, the file delta stays empty, and a host correctly
+performs no reload.
 
 Framework policy remains above this boundary. Vite, Next.js, Electron, Expo,
 WordPress, browser transports, device transports, and application servers may

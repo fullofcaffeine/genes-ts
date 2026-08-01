@@ -37,7 +37,12 @@ export interface ReconciledWatchOptions<Cause> {
   readonly onRegistered?: () => void;
 }
 
+/** Result of one caller-requested authoritative filesystem comparison. */
+export type ReconciliationResult =
+  | { readonly ok: true; readonly changed: boolean }
+  | { readonly ok: false; readonly error: Error };
+
 export interface ReconciledWatchSession {
-  reconcile(): void;
+  reconcile(): ReconciliationResult;
   close(): void;
 }

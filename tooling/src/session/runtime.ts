@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { readFileSync, rmSync } from "node:fs";
+import { readFileSync, realpathSync, rmSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -10,7 +10,9 @@ import {
   type PublicationPlan,
   type PublicationOutcome,
   type RecoveryOutcome,
+  type ExpectedFileState,
 } from "../artifacts/index.js";
+import { sameFileState } from "../artifacts/filesystem.js";
 import { inventoryHxml, type HxmlInventory } from "../hxml/index.js";
 import { SerializedDirtyLoop } from "../loop/index.js";
 import {
@@ -20,7 +22,11 @@ import {
   type WatchInput,
 } from "../watch/index.js";
 import type { HaxeWaitServerEvent } from "../haxe-server/index.js";
-import { HaxeSessionCompiler, type SessionCompiler } from "./haxe-driver.js";
+import {
+  HaxeSessionCompiler,
+  snapshotHaxeInvocation,
+  type SessionCompiler,
+} from "./haxe-driver.js";
 import {
   assertCandidateContainsOnlyOwnedFiles,
   readGenesOutput,
@@ -35,7 +41,7 @@ import {
 import {
   admissionDigest,
   preparePublication,
-  readPublishedManifestDigest,
+  readPublishedMarker,
   sessionProjectDigest,
 } from "./publication.js";
 import { PublicationGate } from "./read-write-gate.js";
@@ -61,6 +67,15 @@ import {
 
 const DEFAULT_DEBOUNCE_MS = 100;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 2_000;
+const ABSENT_FILE_STATE: ExpectedFileState = Object.freeze({ kind: "absent" });
+const SESSION_FORBIDDEN_HXML_OPTIONS = Object.freeze([
+  "--connect",
+  "--wait",
+  "--server-listen",
+  "--server-connect",
+  "--next",
+  "--each",
+]);
 
 interface BuildCause {
   readonly revision: number;
@@ -174,8 +189,11 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   #startPromise: Promise<void> | null = null;
   #closing: Promise<void> | null = null;
   #activeAbort: AbortController | null = null;
+  readonly #startupAbort = new AbortController();
+  #startupReady = false;
   #compilerEpoch = 0;
   #publishedManifestDigest: string | null = null;
+  #publishedMarkerState: ExpectedFileState = ABSENT_FILE_STATE;
   #mayCleanCandidates = false;
   #acceptWatchChanges = false;
 
@@ -222,7 +240,10 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
             "publish",
             this.#newestRevision || null,
             true,
-            diagnostic("SESSION_LOOP_FAILED", error.message),
+            diagnostic(
+              "SESSION_LOOP_FAILED",
+              this.#sanitizeCoreMessage(error.message),
+            ),
           );
         }
       },
@@ -259,15 +280,21 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     try {
       this.#lock = this.#dependencies.acquireLock(this.#layout);
       await this.#recover();
-      if (this.#closing !== null) return;
-      this.#publishedManifestDigest = readPublishedManifestDigest(this.#layout);
+      if (this.#closing !== null || this.#startupAbort.signal.aborted) return;
+      const published = readPublishedMarker(this.#layout);
+      this.#publishedManifestDigest = published.manifestDigest;
+      this.#publishedMarkerState = published.state;
       this.#mayCleanCandidates = true;
       this.#cleanCandidates();
       startupPhase = "inventory";
-      this.#inventory = await this.#reinventoryGapSafe();
-      if (this.#closing !== null) return;
-      this.#acceptWatchChanges = true;
+      this.#inventory = await this.#reinventoryGapSafe(this.#startupAbort.signal);
+      if (this.#closing !== null || this.#startupAbort.signal.aborted) return;
+      if (this.#newestRevision !== 0) {
+        throw new Error("initial revision was already assigned");
+      }
       this.#newestRevision = 1;
+      this.#startupReady = true;
+      this.#acceptWatchChanges = true;
       this.#loop.request(
         Object.freeze({
           revision: 1,
@@ -288,7 +315,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
             startupPhase === "inventory"
               ? "HXML_INVENTORY_FAILED"
               : "SESSION_RECOVERY_FAILED",
-            normalized.message,
+            this.#sanitizeCoreMessage(normalized.message),
           ),
         );
       }
@@ -301,6 +328,9 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     if (this.#closing !== null) return;
     if (!this.#started) {
       throw new Error("development session has not started");
+    }
+    if (!this.#startupReady) {
+      throw new Error("development session startup has not completed");
     }
     if (
       this.#state.kind === "blocked" &&
@@ -323,8 +353,14 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     });
   }
 
-  reconcile(): void {
-    this.#watch?.reconcile();
+  reconcile(): ReturnType<ReconciledWatchSession["reconcile"]> {
+    if (this.#watch === null) {
+      return Object.freeze({
+        ok: false,
+        error: new Error("development session inputs are not registered"),
+      });
+    }
+    return this.#watch.reconcile();
   }
 
   async waitForIdle(): Promise<void> {
@@ -361,8 +397,16 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
 
   close(): Promise<void> {
     if (this.#closing !== null) return this.#closing;
-    this.#closing = this.#close();
-    return this.#closing;
+    let resolveClose!: () => void;
+    let rejectClose!: (error: unknown) => void;
+    const closing = new Promise<void>((resolve, reject) => {
+      resolveClose = resolve;
+      rejectClose = reject;
+    });
+    this.#closing = closing;
+    this.#startupAbort.abort();
+    void this.#close().then(resolveClose, rejectClose);
+    return closing;
   }
 
   async #close(): Promise<void> {
@@ -386,7 +430,10 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
           phase: "shutdown",
           revision: this.#newestRevision || null,
           recoverable: false,
-          diagnostic: diagnostic("SESSION_SHUTDOWN_FAILED", asError(error).message),
+          diagnostic: diagnostic(
+            "SESSION_SHUTDOWN_FAILED",
+            this.#sanitizeCoreMessage(asError(error).message),
+          ),
           retained: this.#accepted,
         }),
       });
@@ -417,6 +464,15 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   #closeWatch(): void {
     this.#watch?.close();
     this.#watch = null;
+  }
+
+  #requireReconciliation(): void {
+    const result = this.reconcile();
+    if (!result.ok) {
+      throw new Error(
+        `authoritative input reconciliation failed: ${result.error.message}`,
+      );
+    }
   }
 
   async #admitRecovered(plan: PublicationPlan): Promise<boolean> {
@@ -472,7 +528,10 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
             "watch",
             this.#newestRevision || null,
             true,
-            diagnostic("INPUT_WATCH_FAILED", error.message),
+            diagnostic(
+              "INPUT_WATCH_FAILED",
+              this.#sanitizeCoreMessage(error.message),
+            ),
           );
         }
       },
@@ -550,7 +609,10 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         "watch",
         this.#newestRevision || null,
         false,
-        diagnostic("WATCH_PATH_ESCAPED_PROJECT", absolutePath),
+        diagnostic(
+          "WATCH_PATH_ESCAPED_PROJECT",
+          "watch input escaped projectRoot",
+        ),
       );
       return;
     }
@@ -575,14 +637,6 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
 
   async #build(cause: BuildCause): Promise<void> {
     if (this.#closing !== null || !cause.rebuild) return;
-    this.#setState(
-      Object.freeze({
-        kind: "building",
-        revision: cause.revision,
-        retained: this.#accepted,
-      }),
-    );
-    this.#emit({ kind: "build-started", revision: cause.revision });
     const abort = new AbortController();
     this.#activeAbort = abort;
     let candidateStageRelative: string | null = null;
@@ -590,16 +644,53 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       ? "inventory"
       : "compile";
     try {
+      this.#setState(
+        Object.freeze({
+          kind: "building",
+          revision: cause.revision,
+          retained: this.#accepted,
+        }),
+      );
+      if (this.#closing !== null || abort.signal.aborted) return;
+      this.#emit({ kind: "build-started", revision: cause.revision });
+      if (this.#closing !== null || abort.signal.aborted) return;
       if (cause.reinventory) {
-        this.#inventory = await this.#reinventoryGapSafe();
+        this.#inventory = await this.#reinventoryGapSafe(abort.signal);
+        if (this.#closing !== null || abort.signal.aborted) return;
       }
       if (cause.restartCompiler) this.#compilerEpoch += 1;
       const inventory = this.#inventory;
       if (inventory === null) throw new Error("HXML inventory is unavailable");
-      const invocation = await this.#options.resolveInvocation({
-        signal: abort.signal,
-      });
-      const compatibilityDigest = this.#compatibilityDigest(invocation, inventory);
+      const invocation = snapshotHaxeInvocation(
+        await this.#options.resolveInvocation({ signal: abort.signal }),
+      );
+      if (this.#closing !== null || abort.signal.aborted) return;
+      const executionInventory = await this.#dependencies.inventory(
+        this.#inventoryOptions(abort.signal),
+      );
+      this.#assertInventoryContained(executionInventory);
+      if (this.#closing !== null || abort.signal.aborted) return;
+      if (
+        this.#inventoryIdentity(inventory) !==
+        this.#inventoryIdentity(executionInventory)
+      ) {
+        this.#observe(executionInventory.entryHxmlFiles[0]!, {
+          reinventory: true,
+          restartCompiler: true,
+          rebuild: true,
+        });
+        this.#emit({
+          kind: "candidate-superseded",
+          revision: cause.revision,
+          newestRevision: this.#newestRevision,
+        });
+        return;
+      }
+      this.#assertInvocationHxmlClosure(invocation, executionInventory);
+      const compatibilityDigest = this.#compatibilityDigest(
+        invocation,
+        executionInventory,
+      );
       candidateStageRelative = `${this.#layout.candidatesRelative}/revision-${cause.revision}-${this.#dependencies.nonce()}`;
       const outputRoot = path.join(
         this.#layout.projectRoot,
@@ -612,7 +703,28 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         compatibilityDigest,
         candidateOutputFile,
         abort.signal,
+        async () => {
+          const finalInventory = await this.#dependencies.inventory(
+            this.#inventoryOptions(abort.signal),
+          );
+          this.#assertInventoryContained(finalInventory);
+          if (
+            this.#inventoryIdentity(executionInventory) !==
+            this.#inventoryIdentity(finalInventory)
+          ) {
+            this.#observe(finalInventory.entryHxmlFiles[0]!, {
+              reinventory: true,
+              restartCompiler: true,
+              rebuild: true,
+            });
+            throw new Error(
+              "HXML input changed after invocation validation and before execution",
+            );
+          }
+          this.#assertInvocationHxmlClosure(invocation, finalInventory);
+        },
       );
+      if (this.#closing !== null || abort.signal.aborted) return;
       const candidate = readGenesOutput(
         outputRoot,
         this.#layout.outputIdentity,
@@ -624,16 +736,18 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         revision: cause.revision,
         manifestDigest: candidate.manifestDigest,
       });
+      if (this.#closing !== null || abort.signal.aborted) return;
       failurePhase = "validate";
       const admission = await this.#options.validate(
         this.#validationTree("candidate", cause.revision, candidate),
         { signal: abort.signal, recovery: false },
       );
+      if (this.#closing !== null || abort.signal.aborted) return;
       if (!admission.ok) {
         this.#fail("validate", cause.revision, true, admission.diagnostic);
         return;
       }
-      this.#watch?.reconcile();
+      this.#requireReconciliation();
       if (cause.revision !== this.#newestRevision) {
         this.#emit({
           kind: "candidate-superseded",
@@ -645,7 +759,8 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
 
       failurePhase = "publish";
       await this.#gate.runWrite(async () => {
-        this.#watch?.reconcile();
+        if (this.#closing !== null || abort.signal.aborted) return;
+        this.#requireReconciliation();
         if (cause.revision !== this.#newestRevision) {
           this.#emit({
             kind: "candidate-superseded",
@@ -659,18 +774,27 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
           this.#layout.outputIdentity,
           false,
         );
-        const recordedManifestDigest = readPublishedManifestDigest(this.#layout);
-        if (recordedManifestDigest !== this.#publishedManifestDigest) {
+        const recordedMarker = readPublishedMarker(this.#layout);
+        if (
+          recordedMarker.manifestDigest !== this.#publishedManifestDigest ||
+          !sameFileState(recordedMarker.state, this.#publishedMarkerState)
+        ) {
           throw new Error(
             "the accepted-generation marker changed outside this session",
           );
         }
         if (
-          recordedManifestDigest !== null &&
-          (prior === null || prior.manifestDigest !== recordedManifestDigest)
+          recordedMarker.manifestDigest !== null &&
+          (prior === null ||
+            prior.manifestDigest !== recordedMarker.manifestDigest)
         ) {
           throw new Error(
             "the public generated tree changed after its accepted generation",
+          );
+        }
+        if (recordedMarker.manifestDigest === null && prior !== null) {
+          throw new Error(
+            "the public output contains an ownership manifest with no accepted generation",
           );
         }
         const generation = (this.#accepted?.generation ?? 0) + 1;
@@ -686,6 +810,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
           compiler.mode,
           this.#options.validatorPolicyFacts,
           this.#sessionNonce,
+          this.#publishedMarkerState,
         );
         const ticket = prepared.plan.authorizationDigest;
         await this.#dependencies.publish({
@@ -695,6 +820,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         });
         this.#accepted = prepared.accepted;
         this.#publishedManifestDigest = candidate.manifestDigest;
+        this.#publishedMarkerState = prepared.plan.commitMarker.next;
         this.#setState(
           Object.freeze({ kind: "ready", accepted: prepared.accepted }),
           acceptedAt,
@@ -707,6 +833,14 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       }, abort.signal);
     } catch (error) {
       if (this.#closing !== null || abort.signal.aborted) return;
+      if (cause.revision !== this.#newestRevision) {
+        this.#emit({
+          kind: "candidate-superseded",
+          revision: cause.revision,
+          newestRevision: this.#newestRevision,
+        });
+        return;
+      }
       const normalized = asError(error);
       this.#fail(
         failurePhase,
@@ -720,7 +854,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
               : failurePhase === "publish"
                 ? "PUBLICATION_FAILED"
                 : "HAXE_COMPILE_FAILED",
-          normalized.message,
+          this.#sanitizeCoreMessage(normalized.message),
         ),
       );
     } finally {
@@ -781,15 +915,82 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     } as CanonicalJson);
   }
 
-  async #reinventoryGapSafe(): Promise<HxmlInventory> {
-    let candidate = await this.#dependencies.inventory(this.#options.hxml);
+  #inventoryOptions(signal: AbortSignal): GenesDevelopmentOptions<Diagnostic>["hxml"] {
+    const currentPolicy = this.#options.hxml.argumentPolicy;
+    return Object.freeze({
+      ...this.#options.hxml,
+      signal,
+      argumentPolicy: Object.freeze({
+        forbiddenOptions: Object.freeze(
+          bytewise(
+            new Set([
+              ...(currentPolicy?.forbiddenOptions ?? []),
+              ...SESSION_FORBIDDEN_HXML_OPTIONS,
+            ]),
+          ),
+        ),
+        forbiddenDefines: Object.freeze(
+          bytewise(
+            new Set([
+              ...(currentPolicy?.forbiddenDefines ?? []),
+              "genes.output",
+            ]),
+          ),
+        ),
+      }),
+    });
+  }
+
+  #assertInvocationHxmlClosure(
+    invocation: HaxeInvocation,
+    inventory: HxmlInventory,
+  ): void {
+    const invoked: string[] = [];
+    let cwd = invocation.cwd;
+    for (let index = 0; index < invocation.args.length; index += 1) {
+      const argument = invocation.args[index]!;
+      if (argument === "--cwd") {
+        const value = invocation.args[index + 1];
+        if (value === undefined) throw new Error("Haxe invocation --cwd has no value");
+        cwd = path.resolve(cwd, value);
+        index += 1;
+        continue;
+      }
+      if (argument.startsWith("--cwd=")) {
+        cwd = path.resolve(cwd, argument.slice("--cwd=".length));
+        continue;
+      }
+      if (argument.startsWith("-") || !argument.endsWith(".hxml")) continue;
+      try {
+        invoked.push(realpathSync.native(path.resolve(cwd, argument)));
+      } catch {
+        throw new Error(`Haxe invocation HXML is unavailable: ${argument}`);
+      }
+    }
+    invoked.sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
+    if (
+      invoked.length !== inventory.entryHxmlFiles.length ||
+      invoked.some((file, index) => file !== inventory.entryHxmlFiles[index])
+    ) {
+      throw new Error(
+        "Haxe invocation must use the exact HXML entries inventoried by the development session",
+      );
+    }
+  }
+
+  async #reinventoryGapSafe(signal: AbortSignal): Promise<HxmlInventory> {
+    let candidate = await this.#dependencies.inventory(
+      this.#inventoryOptions(signal),
+    );
     this.#assertInventoryContained(candidate);
     for (let attempt = 0; attempt < 4; attempt += 1) {
-      if (this.#closing !== null) {
+      if (this.#closing !== null || signal.aborted) {
         throw new Error("development session startup was cancelled");
       }
       this.#replaceWatch(candidate);
-      const confirmation = await this.#dependencies.inventory(this.#options.hxml);
+      const confirmation = await this.#dependencies.inventory(
+        this.#inventoryOptions(signal),
+      );
       this.#assertInventoryContained(confirmation);
       if (
         this.#inventoryIdentity(candidate) ===
@@ -806,6 +1007,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
 
   #inventoryIdentity(inventory: HxmlInventory): string {
     return canonicalDigest({
+      entryHxmlFiles: inventory.entryHxmlFiles,
       hxml: inventory.hxmlFiles.map((file) => ({
         file,
         bytes: canonicalDigest(readFileSync(file, "utf8")),
@@ -837,10 +1039,11 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       }
       if (
         pathsOverlap(candidate, this.#layout.stateRoot) ||
-        pathsOverlap(candidate, this.#layout.publicOutputRoot)
+        pathsOverlap(candidate, this.#layout.publicOutputRoot) ||
+        pathsOverlap(candidate, this.#layout.publicationControlRoot)
       ) {
         throw new Error(
-          `development-session input overlaps state or generated output: ${candidate}`,
+          `development-session input overlaps state, publication control, or generated output: ${candidate}`,
         );
       }
     }
@@ -853,6 +1056,24 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       ...this.#layout.candidatesRelative.split("/"),
     );
     rmSync(absolute, { recursive: true, force: true });
+  }
+
+  #sanitizeCoreMessage(message: string): string {
+    const candidateRoot = path.join(
+      this.#layout.projectRoot,
+      ...this.#layout.candidatesRelative.split("/"),
+    );
+    const withCandidateRoot = message.replaceAll(
+      candidateRoot,
+      "<private-candidate-root>",
+    );
+    const withoutCandidateNonce = withCandidateRoot.replace(
+      /<private-candidate-root>[\\/][^\\/\s:]+/gu,
+      "<private-candidate>",
+    );
+    return withoutCandidateNonce
+      .replaceAll(this.#layout.stateRoot, "<private-state>")
+      .replaceAll(this.#layout.projectRoot, "<project>");
   }
 
   #fail(

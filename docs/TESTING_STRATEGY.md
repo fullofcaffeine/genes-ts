@@ -262,12 +262,18 @@ yarn test:tooling-package
 - `session-test` uses the real recoverable artifact publisher to prove
   last-good output, rollback, exact stale deletion, unowned-file preservation,
   burst supersession, HXML registration-gap closure, compiler-identity
-  rotation, read/publication exclusion, and single-writer ownership.
+  rotation, read/publication exclusion, and single-writer ownership. Its
+  adversarial closure cases also cover mutable invocation inputs, nested HXML
+  lifecycle/output flags, unowned path collisions, exact marker/manifest
+  drift, reconciliation failure at both publication claims, startup/close
+  races, private-path sanitization, and process-exit recovery through a
+  different private state directory.
 - `session-integration-test` runs the real selected Haxe 4.3.7 compiler twice,
   proves the request-local private output override, publishes through the
   compiler's v2 ownership manifest, verifies private candidate paths stay out
-  of generated TypeScript/source maps, and proves the second build reuses one
-  exact owned server.
+  of generated TypeScript/source maps, proves nested output/multi-compilation
+  HXML fails before public mutation, and proves the second valid build reuses
+  one exact owned server.
 
 The package gate then installs the deterministic tarball into a clean Node
 project, type-checks the public factory/types, and imports both the root and

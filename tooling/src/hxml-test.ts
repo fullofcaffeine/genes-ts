@@ -83,6 +83,10 @@ async function main(): Promise<void> {
       },
     });
     assert.deepEqual(
+      inventory.entryHxmlFiles.map((file) => path.relative(root, file)),
+      ["build.hxml"],
+    );
+    assert.deepEqual(
       inventory.hxmlFiles.map((file) => path.relative(root, file)),
       [
         "build.hxml",
@@ -219,6 +223,49 @@ async function main(): Promise<void> {
         }),
       "resolver-failure",
     );
+
+    write(root, "forbidden-child.hxml", "-Dgenes.output=public.ts\n");
+    write(root, "forbidden-parent.hxml", "forbidden-child.hxml\n");
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["forbidden-parent.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+          argumentPolicy: { forbiddenDefines: ["genes.output"] },
+        }),
+      "invalid-option",
+    );
+
+    write(root, "forbidden-next.hxml", "--next\n");
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["forbidden-next.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+          argumentPolicy: { forbiddenOptions: ["--next"] },
+        }),
+      "invalid-option",
+    );
+
+    write(root, "abort-library.hxml", "-lib waiting\n");
+    const abort = new AbortController();
+    let resolverSignal: AbortSignal | null = null;
+    const pending = inventoryHxml({
+      entryFiles: ["abort-library.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+      signal: abort.signal,
+      resolveLibrary: (_request, context) => {
+        resolverSignal = context?.signal ?? null;
+        return new Promise<readonly string[]>(() => undefined);
+      },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    abort.abort();
+    await expectFailure(() => pending, "resolver-failure");
+    assert.equal((resolverSignal as unknown as AbortSignal).aborted, true);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

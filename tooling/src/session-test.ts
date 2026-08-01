@@ -1,16 +1,22 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
+  statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { publishArtifacts, recoverArtifacts } from "./artifacts/index.js";
 import { inventoryHxml } from "./hxml/index.js";
@@ -21,6 +27,7 @@ import type {
   ReconciledWatchChange,
   ReconciledWatchOptions,
   ReconciledWatchSession,
+  ReconciliationResult,
   WatchInput,
 } from "./watch/index.js";
 import {
@@ -52,6 +59,8 @@ interface CompileStep {
   readonly fail?: string;
   readonly hold?: Deferred<void>;
   readonly mode?: "connected" | "direct";
+  readonly afterGenerate?: (outputRoot: string, owner: string) => void;
+  readonly beforeInvocationGuard?: () => void;
 }
 
 interface Deferred<Value> {
@@ -100,6 +109,8 @@ class FakeCompiler implements SessionCompiler {
   readonly steps: CompileStep[] = [];
   readonly modes: Array<"connected" | "direct"> = [];
   readonly compatibilityDigests: string[] = [];
+  readonly invocations: Parameters<SessionCompiler["compile"]>[0][] = [];
+  calls = 0;
   closed = 0;
 
   async compile(
@@ -107,8 +118,13 @@ class FakeCompiler implements SessionCompiler {
     compatibilityDigest: string,
     candidateOutputFile: string,
     signal: AbortSignal,
+    assertInvocationCurrent?: () => void | Promise<void>,
   ): Promise<{ readonly mode: "connected" | "direct" }> {
+    this.calls += 1;
+    this.invocations.push(_invocation);
     const step = this.steps.shift() ?? { content: "export const value = 1;\n" };
+    step.beforeInvocationGuard?.();
+    await assertInvocationCurrent?.();
     if (step.hold !== undefined) {
       await Promise.race([
         step.hold.promise,
@@ -140,6 +156,7 @@ class FakeCompiler implements SessionCompiler {
       `genes-output-manifest-v2\nowner-base64:${Buffer.from(owner).toString("base64")}\n${entries.join("\n")}\n`,
       "utf8",
     );
+    step.afterGenerate?.(path.dirname(candidateOutputFile), owner);
     const mode = step.mode ?? "connected";
     this.modes.push(mode);
     return { mode };
@@ -153,6 +170,8 @@ class FakeCompiler implements SessionCompiler {
 class FakeWatch<Cause> implements ReconciledWatchSession {
   readonly options: ReconciledWatchOptions<Cause>;
   closed = false;
+  readonly reconciliationResults: ReconciliationResult[] = [];
+  readonly reconciliationChanges: string[] = [];
 
   constructor(options: ReconciledWatchOptions<Cause>) {
     this.options = options;
@@ -172,7 +191,17 @@ class FakeWatch<Cause> implements ReconciledWatchSession {
     this.options.onChange(change);
   }
 
-  reconcile(): void {}
+  reconcile(): ReconciliationResult {
+    const changedPath = this.reconciliationChanges.shift();
+    if (changedPath !== undefined) {
+      this.change(changedPath);
+      return Object.freeze({ ok: true, changed: true });
+    }
+    return (
+      this.reconciliationResults.shift() ??
+      Object.freeze({ ok: true, changed: false })
+    );
+  }
 
   close(): void {
     this.closed = true;
@@ -205,6 +234,10 @@ function makeHarness(
     dependencies: SessionDependencies<TestDiagnostic>,
     root: string,
   ) => SessionDependencies<TestDiagnostic>,
+  configureOptions?: (
+    options: GenesDevelopmentOptions<TestDiagnostic>,
+    root: string,
+  ) => GenesDevelopmentOptions<TestDiagnostic>,
 ): Harness {
   const root = realpathSync.native(
     mkdtempSync(path.join(os.tmpdir(), `genes-session-${name}-`)),
@@ -238,7 +271,7 @@ function makeHarness(
   };
   const dependencies = configure?.(base, root) ?? base;
   const validation: Array<{ ok: false; diagnostic: TestDiagnostic }> = [];
-  const options: GenesDevelopmentOptions<TestDiagnostic> = {
+  const baseOptions: GenesDevelopmentOptions<TestDiagnostic> = {
     projectRoot: root,
     projectIdentity: `fixture-${name}`,
     hxml: {
@@ -260,6 +293,7 @@ function makeHarness(
     pollIntervalMs: 10,
     shutdownTimeoutMs: 20,
   };
+  const options = configureOptions?.(baseOptions, root) ?? baseOptions;
   const session = createGenesDevelopmentSessionWithDependencies(
     options,
     dependencies,
@@ -296,8 +330,12 @@ async function withHarness(
     dependencies: SessionDependencies<TestDiagnostic>,
     root: string,
   ) => SessionDependencies<TestDiagnostic>,
+  configureOptions?: (
+    options: GenesDevelopmentOptions<TestDiagnostic>,
+    root: string,
+  ) => GenesDevelopmentOptions<TestDiagnostic>,
 ): Promise<void> {
-  const harness = makeHarness(name, configure);
+  const harness = makeHarness(name, configure, configureOptions);
   try {
     await run(harness);
   } finally {
@@ -581,6 +619,174 @@ await withHarness("public-drift", async (harness) => {
   }
 });
 
+await withHarness("first-output-collision", async (harness) => {
+  const publicEntry = path.join(harness.root, "src-gen/index.ts");
+  mkdirSync(path.dirname(publicEntry), { recursive: true });
+  writeFileSync(publicEntry, "// authored file\n", "utf8");
+  harness.compiler.steps.push({ content: "export const generated = true;\n" });
+  await harness.session.start();
+  await harness.session.waitForIdle();
+  assert.equal(harness.session.state.kind, "blocked");
+  assert.equal(readFileSync(publicEntry, "utf8"), "// authored file\n");
+  assert.equal(harness.session.inspect().accepted, null);
+});
+
+await withHarness("first-manifest-collision", async (harness) => {
+  const outputRoot = path.join(harness.root, "src-gen");
+  const manifest = path.join(outputRoot, manifestName("index.ts"));
+  mkdirSync(outputRoot, { recursive: true });
+  const authored = `genes-output-manifest-v2\nowner-base64:${Buffer.from("index.ts").toString("base64")}\n`;
+  writeFileSync(manifest, authored, "utf8");
+  harness.compiler.steps.push({ content: "export const generated = true;\n" });
+  await harness.session.start();
+  await harness.session.waitForIdle();
+  assert.equal(harness.session.state.kind, "blocked");
+  assert.equal(readFileSync(manifest, "utf8"), authored);
+  assert.equal(existsSync(path.join(outputRoot, "index.ts")), false);
+});
+
+await withHarness("later-unowned-collision", async (harness) => {
+  harness.compiler.steps.push(
+    { content: "export const value = 1;\n" },
+    {
+      content: "export const value = 2;\n",
+      extraFiles: { "chunks/new.ts": "export const generated = true;\n" },
+    },
+  );
+  await harness.session.start();
+  await harness.session.waitForIdle();
+  const collision = path.join(harness.root, "src-gen/chunks/new.ts");
+  mkdirSync(path.dirname(collision), { recursive: true });
+  writeFileSync(collision, "// unowned\n", "utf8");
+  currentWatch(harness).change(harness.source);
+  await harness.session.waitForIdle();
+  assert.equal(harness.session.state.kind, "degraded");
+  assert.equal(readFileSync(collision, "utf8"), "// unowned\n");
+  assert.equal(harness.session.inspect().accepted?.generation, 1);
+});
+
+for (const field of ["generation", "revision", "acceptedAt", "sessionNonce"] as const) {
+  await withHarness(`marker-drift-${field}`, async (harness) => {
+    harness.compiler.steps.push(
+      { content: "export const value = 1;\n" },
+      { content: "export const value = 2;\n" },
+    );
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    const layout = resolveSessionLayout(
+      harness.root,
+      `fixture-marker-drift-${field}`,
+      "src-gen/index.ts",
+      ".genes/dev",
+    );
+    const marker = path.join(
+      harness.root,
+      ...layout.generationMarkerRelative.split("/"),
+    );
+    const record = JSON.parse(readFileSync(marker, "utf8")) as Record<string, unknown>;
+    record[field] =
+      field === "sessionNonce" ? "external-rewrite" : Number(record[field]) + 1;
+    const rewritten = `${JSON.stringify(record)}\n`;
+    writeFileSync(marker, rewritten, "utf8");
+    currentWatch(harness).change(harness.source);
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "degraded");
+    assert.equal(readFileSync(marker, "utf8"), rewritten);
+    assert.equal(harness.session.inspect().accepted?.generation, 1);
+  });
+}
+
+await withHarness("manifest-byte-drift", async (harness) => {
+  harness.compiler.steps.push(
+    { content: "export const value = 1;\n" },
+    { content: "export const value = 2;\n" },
+  );
+  await harness.session.start();
+  await harness.session.waitForIdle();
+  const manifest = path.join(harness.root, "src-gen", manifestName("index.ts"));
+  const rewritten = readFileSync(manifest, "utf8").replaceAll("\n", "\r\n");
+  writeFileSync(manifest, rewritten, "utf8");
+  currentWatch(harness).change(harness.source);
+  await harness.session.waitForIdle();
+  assert.equal(harness.session.state.kind, "degraded");
+  assert.equal(readFileSync(manifest, "utf8"), rewritten);
+});
+
+if (process.platform !== "win32") {
+  await withHarness("manifest-mode-drift", async (harness) => {
+    harness.compiler.steps.push(
+      { content: "export const value = 1;\n" },
+      { content: "export const value = 2;\n" },
+    );
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    const manifest = path.join(harness.root, "src-gen", manifestName("index.ts"));
+    chmodSync(manifest, 0o600);
+    currentWatch(harness).change(harness.source);
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "degraded");
+    assert.equal(statSync(manifest).mode & 0o777, 0o600);
+  });
+}
+
+for (const failInsideGate of [false, true]) {
+  await withHarness(
+    `reconcile-failure-${failInsideGate ? "inside" : "before"}-gate`,
+    async (harness) => {
+      harness.compiler.steps.push(
+        { content: "export const value = 1;\n" },
+        { content: "export const value = 2;\n" },
+      );
+      await harness.session.start();
+      await harness.session.waitForIdle();
+      const watch = currentWatch(harness);
+      if (failInsideGate) {
+        watch.reconciliationResults.push(
+          Object.freeze({ ok: true, changed: false }),
+        );
+      }
+      watch.reconciliationResults.push(
+        Object.freeze({
+          ok: false,
+          error: new Error("authoritative scan unavailable"),
+        }),
+      );
+      currentWatch(harness).change(harness.source);
+      await harness.session.waitForIdle();
+      assert.equal(harness.session.state.kind, "degraded");
+      assert.equal(
+        readFileSync(path.join(harness.root, "src-gen/index.ts"), "utf8"),
+        "export const value = 1;\n",
+      );
+      assert.equal(harness.session.inspect().accepted?.generation, 1);
+    },
+  );
+}
+
+await withHarness("reconcile-discovers-newer-revision", async (harness) => {
+  harness.compiler.steps.push(
+    { content: "export const stale = true;\n" },
+    { content: "export const latest = true;\n" },
+  );
+  const starting = harness.session.start();
+  while (harness.watches.length === 0) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  currentWatch(harness).reconciliationChanges.push(harness.source);
+  await starting;
+  await harness.session.waitForIdle();
+  assert.equal(harness.session.inspect().newestRevision, 2);
+  assert.equal(harness.session.inspect().accepted?.revision, 2);
+  assert.equal(
+    readFileSync(path.join(harness.root, "src-gen/index.ts"), "utf8"),
+    "export const latest = true;\n",
+  );
+  assert.equal(
+    harness.events.filter((event) => event.event.kind === "candidate-superseded").length,
+    1,
+  );
+});
+
 await withHarness("identity-rotation", async (harness) => {
   harness.compiler.steps.push(
     { content: "export const value = 1;\n" },
@@ -648,10 +854,18 @@ await withHarness("input-overlap", async (harness) => {
     assert.equal(harness.session.state.failure.recoverable, false);
     assert.match(
       String(harness.session.state.failure.diagnostic.message),
-      /overlaps state or generated output/u,
+      /overlaps state, publication control, or generated output/u,
     );
   }
   await assert.rejects(harness.session.firstAccepted, /fatal session failure/u);
+  assert.throws(
+    () =>
+      harness.session.invalidate({
+        path: "src/Main.hx",
+        impact: { rebuild: true },
+      }),
+    /startup has not completed|cannot recover/u,
+  );
 });
 
 {
@@ -694,6 +908,163 @@ await withHarness("input-overlap", async (harness) => {
 }
 
 {
+  const recoveryEntered = deferred<void>();
+  const releaseRecovery = deferred<void>();
+  const harness = makeHarness("startup-invalidation", (dependencies) => ({
+    ...dependencies,
+    recover: async (options) => {
+      recoveryEntered.resolve();
+      await releaseRecovery.promise;
+      return await recoverArtifacts(options);
+    },
+  }));
+  try {
+    const starting = harness.session.start();
+    await recoveryEntered.promise;
+    assert.throws(
+      () =>
+        harness.session.invalidate({
+          path: "src/Main.hx",
+          impact: { rebuild: true },
+        }),
+      /startup has not completed/u,
+    );
+    assert.equal(harness.compiler.calls, 0);
+    assert.equal(harness.session.inspect().newestRevision, 0);
+    releaseRecovery.resolve();
+    await starting;
+    await harness.session.waitForIdle();
+    assert.deepEqual(
+      harness.events
+        .filter((event) => event.event.kind === "build-started")
+        .map((event) =>
+          event.event.kind === "build-started" ? event.event.revision : -1,
+        ),
+      [1],
+    );
+    harness.session.invalidate({
+      path: "src/Main.hx",
+      impact: { rebuild: true },
+    });
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.inspect().newestRevision, 2);
+  } finally {
+    await harness.session.close();
+    rmSync(harness.root, { recursive: true, force: true });
+  }
+}
+
+{
+  let resolverSignal: AbortSignal | null = null;
+  let rejectResolver!: (error: Error) => void;
+  const resolverNever = new Promise<readonly string[]>((_resolve, reject) => {
+    rejectResolver = reject;
+  });
+  const harness = makeHarness(
+    "abort-library-resolution",
+    undefined,
+    (options, root) => {
+      writeFileSync(
+        path.join(root, "build.hxml"),
+        "-cp src\n-lib held\n-main Main\n-js ignored.js\n",
+        "utf8",
+      );
+      return {
+        ...options,
+        hxml: {
+          ...options.hxml,
+          resolveLibrary: (_request, context) => {
+            resolverSignal = context?.signal ?? null;
+            return resolverNever;
+          },
+        },
+      };
+    },
+  );
+  try {
+    const starting = harness.session.start();
+    while (resolverSignal === null) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    const closing = harness.session.close();
+    await Promise.race([
+      closing,
+      new Promise<never>((_resolve, reject) =>
+        setTimeout(() => reject(new Error("close waited for library resolver")), 500),
+      ),
+    ]);
+    await starting;
+    assert.equal((resolverSignal as unknown as AbortSignal).aborted, true);
+    assert.equal(harness.compiler.calls, 0);
+    assert.equal(harness.watches.length, 0);
+    let lateUnhandled: unknown = null;
+    const onUnhandled = (error: unknown): void => {
+      lateUnhandled = error;
+    };
+    process.once("unhandledRejection", onUnhandled);
+    rejectResolver(new Error("late resolver rejection"));
+    await new Promise((resolve) => setImmediate(resolve));
+    process.removeListener("unhandledRejection", onUnhandled);
+    assert.equal(lateUnhandled, null);
+    assert.equal(harness.compiler.calls, 0);
+  } finally {
+    await harness.session.close();
+    rmSync(harness.root, { recursive: true, force: true });
+  }
+}
+
+{
+  const harness = makeHarness("close-reentrant");
+  let recursiveClose: Promise<void> | null = null;
+  let closingEvents = 0;
+  harness.session.subscribe((event) => {
+    if (event.event.kind === "state" && event.event.state.kind === "closing") {
+      closingEvents += 1;
+      recursiveClose = harness.session.close();
+    }
+  });
+  try {
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    const closing = harness.session.close();
+    assert.equal(recursiveClose, closing);
+    assert.equal(harness.session.close(), closing);
+    await closing;
+    assert.equal(closingEvents, 1);
+    assert.equal(harness.compiler.closed, 1);
+  } finally {
+    await harness.session.close();
+    rmSync(harness.root, { recursive: true, force: true });
+  }
+}
+
+for (const stopAt of ["building", "build-started", "candidate-generated"] as const) {
+  const harness = makeHarness(`close-from-${stopAt}`);
+  let closing: Promise<void> | null = null;
+  harness.session.subscribe((event) => {
+    const matchesEvent =
+      (stopAt === "building" &&
+        event.event.kind === "state" &&
+        event.event.state.kind === "building") ||
+      event.event.kind === stopAt;
+    if (matchesEvent && closing === null) closing = harness.session.close();
+  });
+  try {
+    await harness.session.start();
+    await (closing ?? harness.session.close());
+    assert.equal(harness.session.state.kind, "closed");
+    assert.equal(existsSync(path.join(harness.root, "src-gen/index.ts")), false);
+    assert.equal(
+      harness.events.some((event) => event.event.kind === "generation-accepted"),
+      false,
+    );
+  } finally {
+    await harness.session.close();
+    rmSync(harness.root, { recursive: true, force: true });
+  }
+}
+
+{
   const harness = makeHarness("single-writer");
   try {
     await harness.session.start();
@@ -716,6 +1087,95 @@ await withHarness("input-overlap", async (harness) => {
   } finally {
     await harness.session.close();
     rmSync(harness.root, { recursive: true, force: true });
+  }
+}
+
+for (const checkpoint of [
+  "after-journal-prepared",
+  "after-publish:src-gen/index.ts",
+  "after-publish:commit-marker",
+] as const) {
+  const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-state-recovery-")),
+  );
+  try {
+    mkdirSync(path.join(root, "src"));
+    writeFileSync(path.join(root, "src/Main.hx"), "class Main {}\n", "utf8");
+    writeFileSync(
+      path.join(root, "build.hxml"),
+      "-cp src\n-main Main\n-js ignored.js\n",
+      "utf8",
+    );
+    const fixture = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "session-crash-fixture.js",
+    );
+    const crashed = spawnSync(process.execPath, [fixture], {
+      cwd: root,
+      env: {
+        ...process.env,
+        GENES_SESSION_CRASH_ROOT: root,
+        GENES_SESSION_CRASH_STATE: ".genes/state-a",
+        GENES_SESSION_CRASH_CONTENT: "export const fromA = true;\n",
+        GENES_SESSION_CRASH_AT: checkpoint,
+      },
+      encoding: "utf8",
+    });
+    assert.equal(
+      crashed.status,
+      73,
+      `session crash fixture failed at ${checkpoint}: ${crashed.stdout}\n${crashed.stderr}`,
+    );
+    const layoutA = resolveSessionLayout(
+      root,
+      "fixture-alternate-state-recovery",
+      "src-gen/index.ts",
+      ".genes/state-a",
+    );
+    const layoutB = resolveSessionLayout(
+      root,
+      "fixture-alternate-state-recovery",
+      "src-gen/index.ts",
+      ".genes/state-b",
+    );
+    assert.equal(layoutA.transactionRelative, layoutB.transactionRelative);
+    assert.equal(
+      layoutA.generationMarkerRelative,
+      layoutB.generationMarkerRelative,
+    );
+    assert.notEqual(layoutA.candidatesRelative, layoutB.candidatesRelative);
+    assert.notEqual(layoutA.serverLeaseRelative, layoutB.serverLeaseRelative);
+
+    const recovered = spawnSync(process.execPath, [fixture], {
+      cwd: root,
+      env: {
+        ...process.env,
+        GENES_SESSION_CRASH_ROOT: root,
+        GENES_SESSION_CRASH_STATE: ".genes/state-b",
+        GENES_SESSION_CRASH_CONTENT: "export const fromB = true;\n",
+      },
+      encoding: "utf8",
+    });
+    assert.equal(
+      recovered.status,
+      0,
+      `alternate-state recovery failed at ${checkpoint}: ${recovered.stdout}\n${recovered.stderr}`,
+    );
+    assert.equal(
+      readFileSync(path.join(root, "src-gen/index.ts"), "utf8"),
+      "export const fromB = true;\n",
+    );
+    const transactionRoot = path.join(
+      root,
+      ...layoutA.transactionRelative.split("/"),
+    );
+    assert.deepEqual(
+      existsSync(transactionRoot) ? readdirSync(transactionRoot) : [],
+      [],
+      "alternate private state must recover and remove the original journal",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 }
 
@@ -792,10 +1252,210 @@ await withHarness("input-overlap", async (harness) => {
       ),
       /must not define genes\.output/u,
     );
+    for (const flag of ["--next", "--each"]) {
+      await assert.rejects(
+        compiler.compile(
+          {
+            executable: "haxe",
+            cwd: root,
+            args: ["build.hxml", flag],
+            compatibilityFacts: { fixture: flag },
+          },
+          "invalid",
+          path.join(root, ".genes/dev/candidate/index.ts"),
+          abort.signal,
+        ),
+        /must not contain compiler-server flags/u,
+      );
+    }
     await compiler.close();
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+}
+
+for (const forbidden of [
+  "-D genes.output=src-gen/index.ts",
+  "--connect 6000",
+  "--wait 6000",
+  "--server-listen 127.0.0.1:6000",
+  "--server-connect 127.0.0.1:6000",
+  "--next",
+  "--each",
+]) {
+  await withHarness(
+    `nested-policy-${forbidden.replaceAll(/[^A-Za-z0-9]+/gu, "-")}`,
+    async (harness) => {
+      const sentinel = path.join(harness.root, "src-gen/index.ts");
+      mkdirSync(path.dirname(sentinel), { recursive: true });
+      writeFileSync(sentinel, "// unchanged sentinel\n", "utf8");
+      writeFileSync(path.join(harness.root, "nested.hxml"), `${forbidden}\n`, "utf8");
+      writeFileSync(path.join(harness.root, "build.hxml"), "nested.hxml\n", "utf8");
+      await harness.session.start();
+      assert.equal(harness.session.state.kind, "blocked");
+      assert.equal(harness.compiler.calls, 0);
+      assert.equal(readFileSync(sentinel, "utf8"), "// unchanged sentinel\n");
+    },
+  );
+}
+
+await withHarness(
+  "invocation-hxml-closure-mismatch",
+  async (harness) => {
+    writeFileSync(
+      path.join(harness.root, "different.hxml"),
+      "-cp src\n-main Main\n-js ignored.js\n",
+      "utf8",
+    );
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "blocked");
+    assert.equal(harness.compiler.calls, 0);
+    const failure = harness.events
+      .filter((event) => event.event.kind === "failed")
+      .at(-1);
+    assert.equal(failure?.event.kind, "failed");
+    if (failure?.event.kind === "failed") {
+      assert.match(
+        String(failure.event.failure.diagnostic.message),
+        /exact HXML entries/u,
+      );
+    }
+  },
+  undefined,
+  (options) => ({
+    ...options,
+    resolveInvocation: () => ({
+      executable: "haxe",
+      cwd: options.projectRoot,
+      args: ["different.hxml"],
+      compatibilityFacts: { fixture: "wrong-closure" },
+    }),
+  }),
+);
+
+await withHarness("hxml-changes-before-execution", async (harness) => {
+  harness.compiler.steps.push({
+    beforeInvocationGuard: () => {
+      writeFileSync(
+        path.join(harness.root, "build.hxml"),
+        "-D genes.output=src-gen/index.ts\n",
+        "utf8",
+      );
+    },
+  });
+  await harness.session.start();
+  await harness.session.waitForIdle();
+  assert.equal(harness.session.state.kind, "blocked");
+  assert.equal(harness.compiler.calls, 1);
+  assert.equal(harness.compiler.modes.length, 0);
+  assert.equal(existsSync(path.join(harness.root, "src-gen/index.ts")), false);
+});
+
+{
+  const mutableArgs = ["build.hxml"];
+  const mutableEnv: Record<string, string> = { SESSION_FLAG: "before" };
+  const mutableFacts: { version: string } = { version: "before" };
+  let inventoryCalls = 0;
+  const harness = makeHarness(
+    "immutable-invocation",
+    (dependencies) => ({
+      ...dependencies,
+      inventory: async (options) => {
+        inventoryCalls += 1;
+        if (inventoryCalls === 3) {
+          mutableArgs.push("--next", "second.hxml");
+          mutableEnv.SESSION_FLAG = "after";
+          mutableFacts.version = "after";
+        }
+        return await inventoryHxml(options);
+      },
+    }),
+    (options) => ({
+      ...options,
+      resolveInvocation: () => ({
+        executable: "haxe",
+        cwd: options.projectRoot,
+        args: mutableArgs,
+        env: mutableEnv,
+        compatibilityFacts: mutableFacts,
+      }),
+    }),
+  );
+  try {
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "ready");
+    assert.deepEqual(harness.compiler.invocations[0]?.args, ["build.hxml"]);
+    assert.deepEqual(harness.compiler.invocations[0]?.env, {
+      SESSION_FLAG: "before",
+    });
+    assert.deepEqual(harness.compiler.invocations[0]?.compatibilityFacts, {
+      version: "before",
+    });
+  } finally {
+    await harness.session.close();
+    rmSync(harness.root, { recursive: true, force: true });
+  }
+}
+
+const diagnosticCorruptions: Array<{
+  readonly name: string;
+  readonly apply: (outputRoot: string, owner: string) => void;
+}> = [
+  {
+    name: "missing-manifest",
+    apply: (outputRoot, owner) =>
+      rmSync(path.join(outputRoot, manifestName(owner)), { force: true }),
+  },
+  {
+    name: "malformed-manifest",
+    apply: (outputRoot, owner) =>
+      writeFileSync(path.join(outputRoot, manifestName(owner)), "not a manifest\n"),
+  },
+  {
+    name: "candidate-symlink",
+    apply: (outputRoot, owner) =>
+      symlinkSync(path.join(outputRoot, owner), path.join(outputRoot, "leak.ts")),
+  },
+  {
+    name: "unowned-candidate-file",
+    apply: (outputRoot) =>
+      writeFileSync(path.join(outputRoot, "unowned.ts"), "// unowned\n"),
+  },
+];
+if (process.platform !== "win32") {
+  diagnosticCorruptions.push({
+    name: "candidate-special-file",
+    apply: (outputRoot) => {
+      const fifo = path.join(outputRoot, "special.pipe");
+      const result = spawnSync("mkfifo", [fifo], { encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+    },
+  });
+}
+
+for (const corruption of diagnosticCorruptions) {
+  await withHarness(`diagnostic-${corruption.name}`, async (harness) => {
+    harness.compiler.steps.push({ afterGenerate: corruption.apply });
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "blocked");
+    const publicRecord = JSON.stringify({
+      snapshot: harness.session.inspect(),
+      events: harness.events,
+    });
+    assert.equal(
+      publicRecord.includes(harness.root),
+      false,
+      `${corruption.name} exposed the absolute project root`,
+    );
+    assert.equal(
+      /revision-\d+-test\d+/u.test(publicRecord),
+      false,
+      `${corruption.name} exposed a private candidate nonce`,
+    );
+  });
 }
 
 console.log("genes tooling development session runtime: ok");

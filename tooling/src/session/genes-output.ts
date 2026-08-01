@@ -186,6 +186,11 @@ export function readGenesOutput(
   const manifestDigest = canonicalDigest({
     protocol: "genes.tooling.genes-output-inventory.v1",
     ownerIdentity,
+    ownershipManifest: {
+      sha256: manifestFile.digest,
+      sizeBytes: manifestFile.sizeBytes,
+      mode: manifestFile.mode,
+    },
     files: files.map((file) => ({
       path: file.relativePath,
       sha256: file.digest,

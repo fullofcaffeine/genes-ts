@@ -86,19 +86,26 @@ export interface PreparedPublication {
   readonly accepted: AcceptedGeneration;
 }
 
+export interface PublishedMarker {
+  readonly manifestDigest: string | null;
+  readonly state: ExpectedFileState;
+}
+
 /**
  * Reads the last outer commit marker without treating it as a current-session
  * admission. Its manifest digest is drift evidence only: a new session still
  * has to generate and admit its own revision 1 before a host may start.
  */
-export function readPublishedManifestDigest(
+export function readPublishedMarker(
   layout: SessionLayout,
-): string | null {
+): PublishedMarker {
   const absolute = path.join(
     layout.projectRoot,
     ...layout.generationMarkerRelative.split("/"),
   );
-  if (!existsSync(absolute)) return null;
+  if (!existsSync(absolute)) {
+    return Object.freeze({ manifestDigest: null, state: ABSENT });
+  }
   const stats = lstatSync(absolute);
   if (stats.isSymbolicLink() || !stats.isFile()) {
     throw new Error("accepted-generation marker is not a real file");
@@ -133,7 +140,14 @@ export function readPublishedManifestDigest(
   ) {
     throw new Error("accepted-generation marker is invalid or non-canonical");
   }
-  return record.manifestDigest;
+  return Object.freeze({
+    manifestDigest: record.manifestDigest,
+    state: readFileState(
+      layout.projectRoot,
+      layout.generationMarkerRelative,
+      "unexpected-live-state",
+    ),
+  });
 }
 
 /**
@@ -155,6 +169,7 @@ export function preparePublication(
   compilerMode: "connected" | "direct",
   validatorPolicyFacts: JsonValue,
   sessionNonce: string,
+  priorMarker: ExpectedFileState,
 ): PreparedPublication {
   const candidateByPath = new Map(
     candidate.files.map((file) => [file.relativePath, file] as const),
@@ -176,7 +191,7 @@ export function preparePublication(
     const livePath = logicalOutputPath(layout, relative);
     const priorState =
       priorFile === undefined
-        ? readFileState(layout.projectRoot, livePath, "unexpected-live-state")
+        ? ABSENT
         : state(priorFile);
     const nextState = candidateFile === undefined ? ABSENT : state(candidateFile);
     const changes = !sameFileState(priorState, nextState);
@@ -203,11 +218,7 @@ export function preparePublication(
   const manifestLivePath = logicalOutputPath(layout, candidate.manifestName);
   const manifestPrior =
     prior === null
-      ? readFileState(
-          layout.projectRoot,
-          manifestLivePath,
-          "unexpected-live-state",
-        )
+      ? ABSENT
       : state(prior.manifestFile);
   const manifestNext = state(candidate.manifestFile);
   const manifestChanges = !sameFileState(manifestPrior, manifestNext);
@@ -274,11 +285,7 @@ export function preparePublication(
     artifacts: Object.freeze(artifacts),
     commitMarker: Object.freeze({
       path: layout.generationMarkerRelative,
-      prior: readFileState(
-        layout.projectRoot,
-        layout.generationMarkerRelative,
-        "unexpected-live-state",
-      ),
+      prior: priorMarker,
       next: Object.freeze({
         kind: "file" as const,
         sha256: sha256Bytes(marker),

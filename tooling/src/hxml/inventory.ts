@@ -22,6 +22,45 @@ function fail(kind: HxmlFailureKind, subject: string): never {
   throw new HxmlInventoryError(Object.freeze({ kind, subject }));
 }
 
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted === true) {
+    fail("resolver-failure", "inventory-aborted");
+  }
+}
+
+async function awaitWithAbort<Value>(
+  value: Value | Promise<Value>,
+  signal: AbortSignal | undefined,
+): Promise<Value> {
+  if (signal === undefined) return await value;
+  throwIfAborted(signal);
+  return await new Promise<Value>((resolve, reject) => {
+    let settled = false;
+    const finish = (callback: () => void): void => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      callback();
+    };
+    const onAbort = (): void =>
+      finish(() =>
+        reject(
+          new HxmlInventoryError(
+            Object.freeze({
+              kind: "resolver-failure",
+              subject: "inventory-aborted",
+            }),
+          ),
+        ),
+      );
+    signal.addEventListener("abort", onAbort, { once: true });
+    Promise.resolve(value).then(
+      (resolved) => finish(() => resolve(resolved)),
+      (error: unknown) => finish(() => reject(error)),
+    );
+  });
+}
+
 function bytewise(values: Iterable<string>): string[] {
   return [...values].sort((left, right) =>
     Buffer.from(left).compare(Buffer.from(right)),
@@ -231,6 +270,7 @@ function libraryRequest(
 export async function inventoryHxml(
   options: HxmlInventoryOptions,
 ): Promise<HxmlInventory> {
+  throwIfAborted(options.signal);
   const maxHxmlFiles = options.maxHxmlFiles ?? DEFAULT_MAX_HXML_FILES;
   const maxArguments = options.maxArguments ?? DEFAULT_MAX_ARGUMENTS;
   if (
@@ -260,17 +300,20 @@ export async function inventoryHxml(
   }
 
   const hxmlFiles = new Set<string>();
+  const entryHxmlFiles = new Set<string>();
   const classPaths = new Set<string>();
   const resources = new Set<string>();
   const libraries: HxmlLibrary[] = [];
   const libraryKeys = new Set<string>();
   let argumentCount = 0;
+  const resolverSignal = options.signal ?? new AbortController().signal;
 
   const collect = async (
     candidate: string,
     initialDirectory: string,
     subject: string,
   ): Promise<void> => {
+    throwIfAborted(options.signal);
     assertNoSymlinkComponents(allowedRoots, candidate, subject);
     const file = canonicalFile(candidate, subject);
     assertAllowed(allowedRoots, file, subject);
@@ -288,7 +331,29 @@ export async function inventoryHxml(
     }
     let cwd = initialDirectory;
     for (let index = 0; index < args.length; index += 1) {
+      throwIfAborted(options.signal);
       const argument = args[index]!;
+      const forbiddenOptions = options.argumentPolicy?.forbiddenOptions ?? [];
+      const forbiddenOption = forbiddenOptions.find(
+        (name) => argument === name || argument.startsWith(`${name}=`),
+      );
+      if (forbiddenOption !== undefined) {
+        fail("invalid-option", `${file}:${forbiddenOption}`);
+      }
+      const define = optionValue(args, index, ["-D", "--define"]);
+      const compactDefine =
+        argument.startsWith("-D") && argument.length > 2
+          ? argument.slice(2)
+          : null;
+      const defineValue = define?.value ?? compactDefine;
+      if (defineValue !== null) {
+        const defineName = defineValue.split("=", 1)[0]!;
+        if (
+          (options.argumentPolicy?.forbiddenDefines ?? []).includes(defineName)
+        ) {
+          fail("invalid-option", `${file}:define:${defineName}`);
+        }
+      }
       const cwdOption = optionValue(args, index, ["--cwd"]);
       if (cwdOption !== null) {
         const resolved = path.resolve(
@@ -357,7 +422,12 @@ export async function inventoryHxml(
           let resolvedFiles: readonly string[];
           try {
             resolvedFiles =
-              (await options.resolveLibrary?.(request)) ?? Object.freeze([]);
+              (await awaitWithAbort(
+                options.resolveLibrary?.(request, {
+                  signal: resolverSignal,
+                }) ?? Object.freeze([]),
+                options.signal,
+              )) ?? Object.freeze([]);
           } catch {
             fail("resolver-failure", `${file}:library:${request.request}`);
           }
@@ -397,7 +467,9 @@ export async function inventoryHxml(
       workingDirectory,
       expanded(entry, options.environment, `entryFiles[${index}]`),
     );
-    await collect(candidate, workingDirectory, `entryFiles[${index}]`);
+    const canonicalEntry = canonicalFile(candidate, `entryFiles[${index}]`);
+    entryHxmlFiles.add(canonicalEntry);
+    await collect(canonicalEntry, workingDirectory, `entryFiles[${index}]`);
   }
 
   libraries.sort((left, right) =>
@@ -406,6 +478,7 @@ export async function inventoryHxml(
     ).compare(Buffer.from(`${right.request}\0${right.fromFile}`)),
   );
   return Object.freeze({
+    entryHxmlFiles: Object.freeze(bytewise(entryHxmlFiles)),
     hxmlFiles: Object.freeze(bytewise(hxmlFiles)),
     classPaths: Object.freeze(bytewise(classPaths)),
     resourceInputs: Object.freeze(bytewise(resources)),

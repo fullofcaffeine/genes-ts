@@ -234,20 +234,34 @@ restarting the command.
 ### Rules a host should not have to rediscover
 
 - `publicOutputFile` and `stateDirectory` are project-contained, non-overlapping
-  scopes. The declared HXML inputs must also be inside `projectRoot` and must
-  not contain either generated scope.
+  scopes. Private candidates and the owned Haxe-server lease live below
+  `stateDirectory`. The publication journal and accepted marker instead live
+  in a stable, output-scoped control directory, so changing the private state
+  directory after a crash cannot hide unfinished recovery.
+- The declared HXML inputs must be inside `projectRoot` and must not contain
+  private state, publication-control, or generated-output scopes.
 - The session adds the request-local `-D genes.output=<private entry>` itself.
-  It rejects caller-provided `--connect`, server-listen, or `genes.output`
-  flags because two lifecycle owners would be ambiguous.
+  It rejects caller-provided `--connect`, server-listen, `genes.output`,
+  `--next`, and `--each` flags because two lifecycle owners or several output
+  compilations would be ambiguous. The same check visits entry and nested HXML
+  files; hiding an override in `child.hxml` does not bypass admission.
+- `resolveInvocation` is copied once. The copied executable, arguments,
+  environment, and compatibility facts are the exact values validated,
+  hashed, used to start the server, and executed. Mutating a retained host
+  array later cannot change the command.
 - `resolveInvocation().executable` is the native Haxe compiler binary that
   supports `--server-listen` and `--connect`, not a shell command string. The
   process is spawned with structured arguments and `shell: false`.
 - Only files named by the exact compiler ownership manifest can become owned
-  or stale. An unrelated file beside generated output is preserved.
-- The outer accepted-generation marker records the admitted manifest digest.
-  If an owned generated file or that marker changes outside the session, the
-  next publication fails closed instead of silently treating the edit as a new
-  trusted baseline. Change Haxe source and let the session regenerate it.
+  or stale. An unrelated file beside generated output is preserved. If a new
+  generated path is already occupied by an unowned file, publication fails
+  and preserves that file instead of silently adopting it.
+- The outer accepted-generation marker records the admitted inventory. Its
+  exact bytes and mode are remembered, and the inventory also includes the
+  compiler ownership manifest's exact bytes and mode. If an owned generated
+  file, manifest, or marker changes outside the session, the next publication
+  fails closed instead of silently overwriting the drift. Change Haxe source
+  and let the session regenerate it.
 - A deterministic project/output-scoped session lock rejects a second live
   writer even when the two callers choose different private state directories.
   Haxe server leases and artifact locks are also exact; tooling never adopts
@@ -258,9 +272,29 @@ restarting the command.
 - `acquirePublishedRead()` protects one generated-file read from overlapping
   physical publication. Framework adapters emit no update until the accepted
   event exists.
-- `resolveInvocation` and `validate` receive an `AbortSignal`. Host callbacks
-  must stop promptly when it aborts; otherwise no library can make shutdown of
-  the host's own work genuinely bounded.
+- `resolveInvocation`, `validate`, and HXML library resolution receive an
+  `AbortSignal`. The HXML inventory races even an uncooperative resolver
+  promise against closure, while host callbacks should still stop promptly to
+  avoid wasting work.
+
+Here is why nested output flags fail before Haxe runs:
+
+```hxml
+# build.hxml
+child.hxml
+```
+
+```hxml
+# child.hxml -- rejected by DevelopmentSession
+-D genes.output=src-gen/index.ts
+--next
+another-build.hxml
+```
+
+One session owns one HXML entry closure and one public output contract. The
+private output define is appended only after that entire effective closure has
+been checked. Multi-compilation HXML remains available to ordinary one-shot
+Haxe commands; it is deliberately outside DevelopmentSession v1.
 
 For agents and deterministic tests, subscribe first, call `inspect()` second,
 keep only buffered events whose sequence is newer than the snapshot, and use
@@ -554,6 +588,13 @@ The result is a deterministic inventory of HXML files, class paths, resources,
 and library requests. It contains no framework config files or watch policy.
 Missing values, unsafe paths, links, malformed syntax, resolver failures, and
 budgets fail through `HxmlInventoryError`.
+
+Long-lived hosts may pass an `AbortSignal`; library resolvers receive the same
+signal, and inventory stops waiting even when a resolver ignores it. The
+optional `argumentPolicy` asks this existing traversal to reject selected
+options or defines throughout the complete nested closure. DevelopmentSession
+uses that seam for its one-compilation/private-output contract rather than
+maintaining a second HXML parser.
 
 ## Reconciled watching
 

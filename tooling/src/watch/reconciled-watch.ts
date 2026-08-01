@@ -10,6 +10,7 @@ import path from "node:path";
 import type {
   ReconciledWatchChange,
   ReconciledWatchOptions,
+  ReconciliationResult,
   ReconciledWatchSession,
   TreeWatchInput,
   WatchInput,
@@ -352,9 +353,12 @@ export function watchReconciledInputs<Cause>(
 
   const emitReconciliation = (
     origin: ReconciledWatchChange<Cause>["origin"],
-  ): boolean => {
+  ): ReconciliationResult => {
     if (closed) {
-      return false;
+      return Object.freeze({
+        ok: false,
+        error: new Error("reconciled watch is closed"),
+      });
     }
     try {
       const current = capture(inputs, rawOptions.merge, maxEntries);
@@ -364,10 +368,11 @@ export function watchReconciledInputs<Cause>(
       for (const change of changes) {
         rawOptions.onChange(change);
       }
-      return changes.length > 0;
+      return Object.freeze({ ok: true, changed: changes.length > 0 });
     } catch (error) {
-      reportError(error);
-      return false;
+      const normalized = asError(error);
+      reportError(normalized);
+      return Object.freeze({ ok: false, error: normalized });
     }
   };
 
@@ -438,9 +443,10 @@ export function watchReconciledInputs<Cause>(
   }, pollIntervalMs);
 
   return Object.freeze({
-    reconcile(): void {
-      emitReconciliation("poll");
+    reconcile(): ReconciliationResult {
+      const result = emitReconciliation("poll");
       refreshNative();
+      return result;
     },
     close(): void {
       if (closed) {

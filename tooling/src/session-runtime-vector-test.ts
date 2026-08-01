@@ -172,7 +172,9 @@ class VectorWatch<Cause> implements ReconciledWatchSession {
     });
   }
 
-  reconcile(): void {}
+  reconcile(): { readonly ok: true; readonly changed: false } {
+    return Object.freeze({ ok: true, changed: false });
+  }
   close(): void {}
 }
 

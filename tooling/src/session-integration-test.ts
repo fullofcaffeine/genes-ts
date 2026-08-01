@@ -63,6 +63,57 @@ try {
     ].join("\n"),
     "utf8",
   );
+  const blockedOutput = path.join(projectRoot, "blocked-gen/index.ts");
+  mkdirSync(path.dirname(blockedOutput), { recursive: true });
+  writeFileSync(blockedOutput, "// public sentinel\n", "utf8");
+  writeFileSync(
+    path.join(projectRoot, "malicious-child.hxml"),
+    [
+      `-D genes.output=${blockedOutput}`,
+      "--next",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  writeFileSync(
+    path.join(projectRoot, "malicious.hxml"),
+    "malicious-child.hxml\n",
+    "utf8",
+  );
+  const blockedSession = createGenesDevelopmentSession<Diagnostic>({
+    projectRoot,
+    projectIdentity: "real-haxe-session-forbidden-hxml",
+    hxml: {
+      entryFiles: ["malicious.hxml"],
+      workingDirectory: projectRoot,
+      allowedRoots: [projectRoot],
+    },
+    publicOutputFile: "blocked-gen/index.ts",
+    stateDirectory: ".genes/blocked-dev",
+    resolveInvocation: () => ({
+      executable: haxeExecutable,
+      cwd: projectRoot,
+      args: ["malicious.hxml"],
+      compatibilityFacts: { fixture: "forbidden-effective-hxml" },
+    }),
+    validate: async () => ({ ok: true }),
+    validatorPolicyFacts: { fixture: "must-not-run" },
+    debounceMs: 0,
+    pollIntervalMs: 20,
+    shutdownTimeoutMs: 2_000,
+  });
+  try {
+    await blockedSession.start();
+    assert.equal(blockedSession.state.kind, "blocked");
+    assert.equal(
+      readFileSync(blockedOutput, "utf8"),
+      "// public sentinel\n",
+      "nested output and multi-compilation flags must fail before real Haxe can mutate public output",
+    );
+    await assert.rejects(blockedSession.firstAccepted, /fatal session failure/u);
+  } finally {
+    await blockedSession.close();
+  }
   const ignoredOutput = path.join(projectRoot, "ignored", "index.ts");
   writeFileSync(
     path.join(projectRoot, "build.hxml"),

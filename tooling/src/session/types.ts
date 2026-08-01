@@ -1,5 +1,6 @@
 import type { HaxeWaitServerEvent } from "../haxe-server/types.js";
 import type { HxmlInventoryOptions } from "../hxml/types.js";
+import type { ReconciliationResult } from "../watch/types.js";
 
 export const DEVELOPMENT_SESSION_EVENT_PROTOCOL =
   "genes.tooling.development-session-event" as const;
@@ -234,7 +235,7 @@ export interface DevelopmentSession<Diagnostic extends JsonValue> {
   invalidate(change: ExternalChange): void;
 
   /** Forces the session's existing watcher to compare authoritative inputs. */
-  reconcile(): void;
+  reconcile(): ReconciliationResult;
 
   /** Resolves when no build, follow-up, validation, or publication is active. */
   waitForIdle(): Promise<void>;
@@ -325,7 +326,7 @@ export interface GenesDevelopmentOptions<Diagnostic extends JsonValue> {
   /** Explicit public entry owned by this session; never inferred from output. */
   readonly publicOutputFile: string;
 
-  /** Private journals, leases, candidates, and session state live here. */
+  /** Private candidates and compiler leases live here; publication recovery is output-scoped. */
   readonly stateDirectory: string;
 
   readonly extraInputs?: readonly ObservedExtraInput[];

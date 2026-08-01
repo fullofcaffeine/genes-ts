@@ -23,6 +23,7 @@ export interface SessionCompiler {
     compatibilityDigest: string,
     candidateOutputFile: string,
     signal: AbortSignal,
+    assertInvocationCurrent?: () => void | Promise<void>,
   ): Promise<CompilerResult>;
   close(): Promise<void>;
 }
@@ -38,6 +39,7 @@ interface ActiveRequest {
   readonly invocation: HaxeInvocation;
   readonly candidateOutputFile: string;
   readonly signal: AbortSignal;
+  readonly assertInvocationCurrent?: () => void | Promise<void>;
 }
 
 class HaxeCommandError extends Error {
@@ -59,6 +61,25 @@ function append(previous: string, chunk: Buffer | string): string {
   return `${previous}${chunk.toString()}`.slice(-LOG_LIMIT);
 }
 
+function snapshotJson(value: HaxeInvocation["compatibilityFacts"]): HaxeInvocation["compatibilityFacts"] {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean" ||
+    typeof value === "number"
+  ) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return Object.freeze(value.map((entry) => snapshotJson(entry)));
+  }
+  return Object.freeze(
+    Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, snapshotJson(entry)]),
+    ),
+  );
+}
+
 function validateInvocation(invocation: HaxeInvocation): void {
   if (invocation.executable.length === 0 || invocation.cwd.length === 0) {
     throw new Error("HaxeInvocation executable and cwd must not be empty");
@@ -66,11 +87,17 @@ function validateInvocation(invocation: HaxeInvocation): void {
   if (
     invocation.args.some(
       (argument) =>
-        argument === "--wait" ||
-        argument === "--server-listen" ||
-        argument === "--server-connect" ||
-        argument === "--connect" ||
-        argument.startsWith("--connect="),
+        [
+          "--wait",
+          "--server-listen",
+          "--server-connect",
+          "--next",
+          "--each",
+          "--connect",
+        ].some(
+          (option) =>
+            argument === option || argument.startsWith(`${option}=`),
+        ),
     )
   ) {
     throw new Error("HaxeInvocation must not contain compiler-server flags");
@@ -95,6 +122,36 @@ function validateInvocation(invocation: HaxeInvocation): void {
       throw new Error("HaxeInvocation must not define genes.output");
     }
   }
+}
+
+/**
+ * Copies every host-owned invocation container once, then validates the exact
+ * bytes used for hashing, server startup, and compilation. A host cannot
+ * mutate a retained argument or environment object after this boundary.
+ */
+export function snapshotHaxeInvocation(
+  invocation: HaxeInvocation,
+): HaxeInvocation {
+  const snapshot: HaxeInvocation = Object.freeze({
+    executable: String(invocation.executable),
+    cwd: String(invocation.cwd),
+    args: Object.freeze([...invocation.args].map((argument) => String(argument))),
+    ...(invocation.env === undefined
+      ? {}
+      : {
+          env: Object.freeze(
+            Object.fromEntries(
+              Object.entries(invocation.env).map(([key, value]) => [
+                String(key),
+                String(value),
+              ]),
+            ),
+          ),
+        }),
+    compatibilityFacts: snapshotJson(invocation.compatibilityFacts),
+  });
+  validateInvocation(snapshot);
+  return snapshot;
 }
 
 function commandArgs(
@@ -246,9 +303,15 @@ export class HaxeSessionCompiler implements SessionCompiler {
     compatibilityDigest: string,
     candidateOutputFile: string,
     signal: AbortSignal,
+    assertInvocationCurrent?: () => void | Promise<void>,
   ): Promise<CompilerResult> {
-    validateInvocation(invocation);
-    this.#request = { invocation, candidateOutputFile, signal };
+    const snapshot = snapshotHaxeInvocation(invocation);
+    this.#request = {
+      invocation: snapshot,
+      candidateOutputFile,
+      signal,
+      assertInvocationCurrent,
+    };
     try {
       await this.#server.ensure(compatibilityDigest);
       return await this.#server.compile(compatibilityDigest);
@@ -316,6 +379,10 @@ export class HaxeSessionCompiler implements SessionCompiler {
     mode: "connected" | "direct",
   ): Promise<CompilerResult> {
     const request = this.#current();
+    await request.assertInvocationCurrent?.();
+    if (request.signal.aborted) {
+      throw new Error("Haxe compilation was cancelled");
+    }
     const result = await runCommand(
       request.invocation,
       commandArgs(request.invocation, request.candidateOutputFile, endpoint),

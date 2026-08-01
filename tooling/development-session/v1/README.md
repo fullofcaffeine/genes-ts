@@ -50,6 +50,7 @@ The session contract makes the safe order explicit:
 recover an interrupted publication
   -> register the Haxe input graph
   -> assign an input revision
+  -> snapshot and check the effective Haxe/HXML invocation
   -> generate a complete private candidate
   -> ask the host to validate that candidate
   -> reject it if a newer revision is already known
@@ -120,8 +121,10 @@ One JSON-lines event can therefore be consumed directly by automation:
 {"protocol":"genes.tooling.development-session-event","version":1,"sequence":8,"at":1785520800000,"event":{"kind":"generation-accepted","accepted":{"generation":2,"revision":3,"acceptedAt":1785520800000,"manifestDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","compilerMode":"connected","files":{"created":[],"updated":["src-gen/index.tsx"],"deleted":[]},"entryChanged":true}}}
 ```
 
-The diagnostic inside a failure is host-owned JSON. Core tooling preserves it
-but does not invent user-facing prose or decide what is safe to send to a
+The diagnostic inside a validation failure is host-owned JSON. Core tooling
+does not rewrite host data. Diagnostics produced by the session itself use
+logical subjects and sanitize private candidate/state paths before they enter
+an event; a host still decides which diagnostic data is safe to send to a
 browser.
 
 ## Private validation and last-good output
@@ -144,10 +147,19 @@ An admitted candidate whose bytes are unchanged still advances the accepted
 generation and revision, but reports an empty `FileDelta`. Hosts perform no
 reload for that empty delta.
 
-The outer accepted-generation marker also binds the last admitted compiler
-manifest digest. A later build refuses to publish over an owned public tree or
-marker that changed outside the session. Unowned neighboring files are
-preserved, but generated files are outputs—not a second editable source tree.
+The outer accepted-generation marker binds the last admitted compiler
+inventory. The session remembers the marker's exact file state, and the
+inventory includes the compiler ownership manifest's raw digest, size, and
+mode. A later build refuses to publish over any of those exact authorities when
+they changed outside the session. Unowned neighboring files are preserved;
+an unowned file occupying a newly generated path is a collision, not something
+the session adopts. Generated files are outputs—not a second editable source
+tree.
+
+The publication journal and accepted marker are keyed by project/output scope,
+not by the caller's private `stateDirectory`. If a process crashes while using
+`.genes/state-a` and restarts with `.genes/state-b`, the new process still finds
+and resolves the one authoritative journal before inventory or compilation.
 
 ## Publication and reads
 
@@ -173,7 +185,9 @@ The protocol is intentionally friendly to unattended tools:
 - structured failure phases distinguish compiler, validator, publication,
   and shutdown errors;
 - `waitForIdle()` gives tests a real barrier instead of a timing-only sleep;
-- `reconcile()` asks the existing watcher for an authoritative comparison;
+- `reconcile()` asks the existing watcher for an authoritative comparison and
+  reports whether it succeeded. The two pre-publication comparisons are
+  admission gates: an unknown input state never counts as “no changes.”
 - `firstAccepted` gates a dependent service without polling files;
 - `close()` and read-lease release are idempotent;
 - human terminal formatting is an adapter over the same event records.
@@ -208,6 +222,12 @@ start the session
   -> use waitForIdle in tests, never a guessed sleep
   -> close once; repeated close calls are safe
 ```
+
+External `invalidate()` calls are accepted only after recovery, inventory, and
+watch registration complete. This keeps revision 1 the first build and prevents
+startup-time events from racing recovery. The registered watcher already
+reconciles the input graph before that first revision, so callers do not need to
+inject a synthetic startup change.
 
 An agent must not modify the public generated tree to “help” recovery. The
 session owns publication and the host owns admission; bypassing either one
