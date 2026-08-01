@@ -270,6 +270,13 @@ sequence of smaller contracts with dependencies, acceptance evidence, and stop
 criteria. A routine bounded local task that is not unusually complex or
 architecturally ambiguous does not need this ceremony.
 
+For that rare manual handoff, use the globally installed `$oracle-review`
+skill. It standardizes the GPT-5.6 Pro prompt, sanitized selective or
+full-repository Repomix bundles, checked ZIP, pending-request check, and archive
+lifecycle under `/tmp/oracle`; the scope tripwires and classification rules in
+this repository remain authoritative. Public source and install instructions:
+https://github.com/fullofcaffeine/caf-skills/tree/main/skills/oracle-review
+
 Classify each review finding before changing code:
 
 1. **Contract violation:** the proposed implementation breaks the PR's stated
@@ -319,9 +326,10 @@ At that checkpoint:
 4. If the work has become disproportionately long, repeatedly non-convergent,
    or architecturally ambiguous, propose an independent high-capability
    architecture review—the **Oracle** in current project terminology—before
-   another implementation cycle. Include full relevant repository snapshots,
-   the reduced cases, failed approaches, invariants, current plans and Beads,
-   and precise questions about both architecture and the proposed split.
+   another implementation cycle. Use `$oracle-review` to package the full
+   relevant repository snapshots, reduced cases, failed approaches, invariants,
+   current plans and Beads, and precise questions about both architecture and
+   the proposed split.
 5. Resume only after the user accepts a deliberately smaller fallback, the
    existing scope becomes finite again, or an Oracle response is reconciled
    into a finite design. Treat external review as design input; repository
