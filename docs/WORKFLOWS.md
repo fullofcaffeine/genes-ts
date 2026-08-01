@@ -28,6 +28,20 @@ The short rule is:
 - use ts2hx only when migrating implementation source and review its manifest;
 - use externs or dts2hx when consuming declarations from an existing package.
 
+Both output choices start from the same Haxe declarations and Genes APIs. In a
+supported dual-output program, changing the profile is a build decision rather
+than a source-language or framework fork. The TypeScript path should participate
+in TypeScript-native modules, types, source maps, React tooling, and bundlers;
+the classic path removes the generated-TS compilation step while preserving the
+same runtime meaning.
+
+Omitting TypeScript does not by itself make the program execute faster because
+TypeScript types erase before runtime. Choose direct JavaScript for build and
+deployment simplicity, then measure runtime performance separately. Likewise,
+`ts2hx` is an explicit, fail-closed migration tool for a proven source subset;
+Genes does not advertise arbitrary TypeScript-to-JavaScript conversion through
+Haxe.
+
 ## Install and verify the checkout
 
 For a consuming project, install the haxelib with lix:

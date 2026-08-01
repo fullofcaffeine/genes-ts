@@ -19,6 +19,36 @@ same-source dual-output behavior have explicit compatibility gates and a
 remaining roadmap. See `docs/ARCHITECTURE_ROADMAP.md` for the precise readiness
 boundary and planned shared architecture.
 
+## One Haxe API, two first-class ecosystem outputs
+
+Genes is designed so an application can keep one typed Haxe source model and
+one set of Genes APIs while selecting the output that fits its host:
+
+```text
+typed Haxe source
+  -> strict, ecosystem-native TypeScript or TSX  (-D genes.ts)
+  -> direct classic ESM JavaScript or JSX        (omit -D genes.ts)
+```
+
+TypeScript output is a product surface, not an intermediate syntax dump. It
+should use idiomatic modules, precise types, declarations, source maps, and
+framework-compatible source so ordinary TypeScript, React, lint, editor, and
+bundler tooling can consume it naturally. Classic output keeps the same Haxe
+runtime behavior without requiring a TypeScript compilation step. A supported
+Genes feature is not complete merely because one profile happens to work.
+
+Direct JavaScript is not automatically faster at runtime: TypeScript types are
+erased, so equivalent TS-compiled and direct-JS programs normally execute the
+same JavaScript semantics. The direct profile is useful when a shorter build
+path, fewer toolchain requirements, or a deployable JavaScript artifact matters.
+
+This is also different from converting arbitrary TypeScript directly to
+JavaScript. TypeScript already provides that compilation step. The experimental
+`ts2hx` workflow can migrate a proven TypeScript subset into Haxe; that resulting
+Haxe source can then use either Genes output profile. The exact supported
+dual-output boundary remains the checked corpus described in
+[`docs/OUTPUT_MODES.md`](docs/OUTPUT_MODES.md), not a blanket compatibility claim.
+
 ## Documentation
 
 - [`AGENTS.md`](AGENTS.md) — newcomer and agent quick start, source navigation,
