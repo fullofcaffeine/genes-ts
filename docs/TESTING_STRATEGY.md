@@ -139,11 +139,12 @@ mark every surface affected because the repository cannot narrow them safely.
 When a broad rule overlaps a more-specific compiler subtree, the broad rule may
 still select conservative backstops while excluding its affected-surface claim;
 the focused TypeScript/declaration or React/HXX rule then owns that attribution.
-Declaration emitters therefore affect the declaration/package card without
+Declaration-only emitters therefore affect the declaration/package card without
 advancing the TypeScript runtime card. The shared `src/genes/es/**` emitter is
-not classic-only: TypeScript subclasses it and both profiles use its JSX
-expression support, so its focused rule affects classic, TypeScript, and the
-React/HXX compiler card, but not declarations.
+not classic-only: TypeScript and classic declaration emitters subclass it, and
+both implementation profiles use its JSX expression support. Its focused rule
+therefore affects classic, TypeScript, declarations, and the React/HXX compiler
+card.
 The dependency lockfile is deliberately different: it can change every product
 surface, so it marks all product scorecards affected even though the example
 portfolio remains an evidence inventory rather than another product.
@@ -161,6 +162,14 @@ The manifest validator ties each claim-bearing example route back to that
 example's declared owner and requires the route's affected products to match
 the example claims exactly, so adding or reclassifying an example fails closed
 until its change routing is equally precise.
+
+Direct test ownership answers which command should run; it does not answer
+which product implementation changed. Owner-only fixture paths therefore add
+their gate and appear under covered surfaces, but only an explicit impact rule
+may add an affected surface. This prevents a broad source-map test from making
+an unrelated fixture look like a React/HXX product change. Test-policy sources
+such as the compatibility-report generator have their own all-scorecard rule,
+because changing how evidence is summarized can alter every published claim.
 
 Unknown means no rule or declared owner recognizes a changed path. Ambiguous
 means more than one executable impact rule or declared gate owner claims it.

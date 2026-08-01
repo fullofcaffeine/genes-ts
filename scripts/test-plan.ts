@@ -241,9 +241,6 @@ function select(changedFiles: string[]): {
     }
     for (const gate of ownerGates) {
       add(gate.id, `${file} -> declared owner ${gate.owners.find((owner) => matches(owner, file))}`);
-      for (const surfaceId of coveredSurfaceIds(gate.id))
-        affect(surfaceId,
-          `${file} -> direct owner ${gate.id}; selected-gate dependencies do not add affected surfaces`);
     }
   }
 

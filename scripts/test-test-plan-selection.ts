@@ -134,7 +134,8 @@ function main(): void {
     "hxx-tsx",
     "source-maps");
   exactSurfaces(sharedEmitter,
-    "classic-js-runtime", "typescript-source-runtime", "react-hxx-compiler");
+    "classic-js-runtime", "typescript-source-runtime", "declarations-packages",
+    "react-hxx-compiler");
 
   const react = explain("src/genes/react/JSX.hx");
   requires(react,
@@ -157,11 +158,17 @@ function main(): void {
     "hxx-tsx",
     "react-hooks",
     "examples-dual-profile-e2e");
-  exactSurfaces(reactFixture,
-    "typescript-source-runtime", "react-hxx-compiler");
+  exactSurfaces(reactFixture, "react-hxx-compiler");
   assert(!surfaceIds(reactFixture.affectedSurfaces).has("browser-framework-runtime")
     && surfaceIds(reactFixture.coveredSurfaces).has("browser-framework-runtime"),
   "A compiler-only React fixture laundered covered browser evidence into an affected surface");
+
+  const ownerOnlyFixture = explain("tests/genes-ts/snapshot/basic/src/Main.hx");
+  requires(ownerOnlyFixture, "source-maps");
+  exactSurfaces(ownerOnlyFixture);
+  assert(surfaceIds(ownerOnlyFixture.coveredSurfaces).has("typescript-source-runtime")
+    && surfaceIds(ownerOnlyFixture.coveredSurfaces).has("react-hxx-compiler"),
+  "A direct test owner no longer reports the product evidence its gate covers");
 
   const sharedFixture = explain(
     "tests/genes-ts/package-shapes/build-ts.hxml"
@@ -182,6 +189,14 @@ function main(): void {
     "full-ci");
   assert(harness.affectedSurfaces.length === 9,
     "Test-harness policy must conservatively affect every scorecard");
+
+  const compatibilityGenerator = explain("scripts/compatibility-report.ts");
+  requires(compatibilityGenerator,
+    "compatibility-inventory",
+    "test-plan-validation",
+    "full-ci");
+  assert(compatibilityGenerator.affectedSurfaces.length === 9,
+    "The all-scorecard report generator was narrowed to its output gate");
 
   const composedRunner = explain("scripts/test-template-literals.ts");
   requires(composedRunner, "dual-output-semantics", "full-ci");

@@ -3571,8 +3571,8 @@
         "source-maps",
         "acceptance"
       ],
-      "affectedSurfaceIds": ["classic-js-runtime", "typescript-source-runtime", "react-hxx-compiler"],
-      "reason": "The shared JavaScript emitter is the classic implementation emitter and the base class used by TypeScript; it also owns shared JSX expression emission, but it does not emit declarations.",
+      "affectedSurfaceIds": ["classic-js-runtime", "typescript-source-runtime", "declarations-packages", "react-hxx-compiler"],
+      "reason": "The shared JavaScript emitter is inherited by the TypeScript implementation and classic declaration emitters; it also owns shared JSX expression emission, so changes can affect all four compiler-facing product surfaces.",
       "expansion": "affected"
     },
     {
@@ -3656,6 +3656,7 @@
       "id": "test-harness-policy",
       "patterns": [
         "scripts/test-*",
+        "scripts/compatibility-report.ts",
         "scripts/prepare-test-tools.mjs",
         "scripts/acceptance-gate-ownership.ts",
         "tests/testing-strategy/**",
