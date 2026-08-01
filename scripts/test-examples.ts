@@ -39,12 +39,17 @@ type CommandSpec = {
 
 type ProfileSpec = {
   build: CommandSpec;
-  runtime: CommandSpec;
+  runtime: CommandSpec | null;
   playwright: CommandSpec | null;
 };
 
 type ExampleSpec = {
   name: string;
+  tier: "flagship-application" | "capability-showcase" | "compile-only-snippet";
+  owner: string;
+  claimSurfaceIds: ReadonlyArray<string>;
+  distinctiveClaims: ReadonlyArray<string>;
+  claimCeiling: string;
   sourceRoots: ReadonlyArray<string>;
   profiles: Readonly<Record<ProfileName, ProfileSpec>>;
 };
@@ -75,15 +80,27 @@ function commandSpec(value: unknown, label: string): CommandSpec {
   return { command: parsed.command, args: parsed.args };
 }
 
-function profileSpec(value: unknown, label: string): ProfileSpec {
+function profileSpec(
+  value: unknown,
+  label: string,
+  tier: ExampleSpec["tier"]
+): ProfileSpec {
   const parsed = record(value, label);
   assertOnlyKeys(parsed, ["build", "runtime", "playwright"], label);
-  if (!("build" in parsed) || !("runtime" in parsed)) {
-    throw new Error(`${label} must declare build and runtime commands`);
+  if (!("build" in parsed)) {
+    throw new Error(`${label} must declare a build command`);
+  }
+  if (tier !== "compile-only-snippet" && !("runtime" in parsed)) {
+    throw new Error(`${label} must declare runtime unless the example is compile-only`);
+  }
+  if (tier === "compile-only-snippet" && ("runtime" in parsed || "playwright" in parsed)) {
+    throw new Error(`${label} cannot declare runtime or Playwright for a compile-only example`);
   }
   return {
     build: commandSpec(parsed.build, `${label}.build`),
-    runtime: commandSpec(parsed.runtime, `${label}.runtime`),
+    runtime: "runtime" in parsed
+      ? commandSpec(parsed.runtime, `${label}.runtime`)
+      : null,
     playwright: "playwright" in parsed
       ? commandSpec(parsed.playwright, `${label}.playwright`)
       : null
@@ -92,7 +109,39 @@ function profileSpec(value: unknown, label: string): ProfileSpec {
 
 function exampleSpec(name: string, value: unknown): ExampleSpec {
   const parsed = record(value, `example ${name}`);
-  assertOnlyKeys(parsed, ["sourceRoots", "profiles"], `example ${name}`);
+  assertOnlyKeys(parsed, [
+    "tier", "owner", "claimSurfaceIds", "distinctiveClaims", "claimCeiling",
+    "sourceRoots", "profiles"
+  ], `example ${name}`);
+  const tiers = new Set([
+    "flagship-application", "capability-showcase", "compile-only-snippet"
+  ]);
+  if (typeof parsed.tier !== "string" || !tiers.has(parsed.tier)) {
+    throw new Error(`${name}.tier is unsupported`);
+  }
+  if (typeof parsed.owner !== "string" || !existsSync(path.join(repoRoot, parsed.owner))) {
+    throw new Error(`${name}.owner must be an existing repository path`);
+  }
+  const routing = record(JSON.parse(readFileSync(path.join(
+    repoRoot, "tests", "testing-strategy", "agent-test-routing.json"
+  ), "utf8")), "agent test routing");
+  const validSurfaceIds = new Set((routing.productSurfaces as unknown[])
+    .map((entry, index) => record(entry, `productSurfaces[${index}]`))
+    .filter((surface) => surface.kind === "product")
+    .map((surface) => String(surface.id)));
+  if (!Array.isArray(parsed.claimSurfaceIds) || parsed.claimSurfaceIds.length === 0
+    || !parsed.claimSurfaceIds.every((id) => typeof id === "string"
+      && validSurfaceIds.has(id))) {
+    throw new Error(`${name}.claimSurfaceIds must name existing product surfaces`);
+  }
+  if (!Array.isArray(parsed.distinctiveClaims) || parsed.distinctiveClaims.length === 0
+    || !parsed.distinctiveClaims.every((claim) => typeof claim === "string"
+      && claim.length > 0)) {
+    throw new Error(`${name}.distinctiveClaims must be a non-empty string array`);
+  }
+  if (typeof parsed.claimCeiling !== "string" || parsed.claimCeiling.length === 0) {
+    throw new Error(`${name}.claimCeiling must be a non-empty string`);
+  }
   if (!Array.isArray(parsed.sourceRoots) || parsed.sourceRoots.length === 0
     || !parsed.sourceRoots.every((root) => typeof root === "string")) {
     throw new Error(`${name}.sourceRoots must be a non-empty array of strings`);
@@ -109,15 +158,26 @@ function exampleSpec(name: string, value: unknown): ExampleSpec {
     [...PROFILE_NAMES].sort((a, b) => a.localeCompare(b))
   );
   const parsedProfiles: Record<ProfileName, ProfileSpec> = {
-    "ts-strict": profileSpec(profiles["ts-strict"], `${name}.profiles.ts-strict`),
-    "classic-esm": profileSpec(profiles["classic-esm"], `${name}.profiles.classic-esm`)
+    "ts-strict": profileSpec(profiles["ts-strict"], `${name}.profiles.ts-strict`,
+      parsed.tier as ExampleSpec["tier"]),
+    "classic-esm": profileSpec(profiles["classic-esm"], `${name}.profiles.classic-esm`,
+      parsed.tier as ExampleSpec["tier"])
   };
   const browserOwners = PROFILE_NAMES.filter((profile) => parsedProfiles[profile].playwright !== null);
   if (browserOwners.length !== 0 && browserOwners.length !== PROFILE_NAMES.length) {
     throw new Error(`${name} must declare Playwright QA for both profiles or neither profile`);
   }
 
-  return { name, sourceRoots: parsed.sourceRoots, profiles: parsedProfiles };
+  return {
+    name,
+    tier: parsed.tier as ExampleSpec["tier"],
+    owner: parsed.owner,
+    claimSurfaceIds: parsed.claimSurfaceIds as string[],
+    distinctiveClaims: parsed.distinctiveClaims as string[],
+    claimCeiling: parsed.claimCeiling,
+    sourceRoots: parsed.sourceRoots,
+    profiles: parsedProfiles
+  };
 }
 
 function formatCommand(spec: CommandSpec): string {
@@ -137,8 +197,8 @@ const manifest = record(
   "examples/profiles.json"
 );
 assertOnlyKeys(manifest, ["schemaVersion", "examples"], "examples/profiles.json");
-if (manifest.schemaVersion !== 2) {
-  throw new Error("examples/profiles.json schemaVersion must be 2");
+if (manifest.schemaVersion !== 3) {
+  throw new Error("examples/profiles.json schemaVersion must be 3");
 }
 const declared = record(manifest.examples, "examples/profiles.json examples");
 const actualDirectories = readdirSync(examplesRoot, {withFileTypes: true})
@@ -170,6 +230,7 @@ for (const example of examples) {
 
   for (const profileName of PROFILE_NAMES) {
     const profile = example.profiles[profileName];
+    if (profile.runtime === null) continue;
     const qa = withPlaywright && profile.playwright !== null
       ? profile.playwright
       : profile.runtime;

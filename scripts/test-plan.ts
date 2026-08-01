@@ -25,6 +25,12 @@ interface Gate {
   artifacts: string[];
 }
 
+interface ProductSurface {
+  id: string;
+  label: string;
+  gateIds: string[];
+}
+
 function gateCommand(gate: Gate): string {
   return ["yarn", gate.packageScript, ...(gate.arguments ?? [])].join(" ");
 }
@@ -34,6 +40,7 @@ interface ImpactRule {
   patterns: string[];
   selects: string[];
   reason: string;
+  affectedSurfaceIds: string[];
   expansion: "affected" | "affected-extended" | "docs-only" | "full";
 }
 
@@ -41,6 +48,7 @@ interface TestPlan {
   schemaVersion: number;
   contract: string;
   gates: Gate[];
+  productSurfaces: ProductSurface[];
   impactRules: ImpactRule[];
   selectionPolicy: {
     mode: "observation";
@@ -59,6 +67,13 @@ interface SelectionEntry {
   historicalDurationMs: number | null;
   remoteJobs: string[];
   artifacts: string[];
+  coveredSurfaceIds: string[];
+}
+
+interface SurfaceSelection {
+  id: string;
+  label: string;
+  reasons: string[];
 }
 
 interface AmbiguousOwnership {
@@ -76,6 +91,12 @@ const manifestPath = path.join(
 );
 const reportRoot = path.join(repoRoot, ".tmp", "test-evidence", "test-plan");
 const plan = JSON.parse(readFileSync(manifestPath, "utf8")) as TestPlan;
+
+function coveredSurfaceIds(gateId: string): string[] {
+  return plan.productSurfaces
+    .filter((surface) => surface.gateIds.includes(gateId))
+    .map((surface) => surface.id);
+}
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -152,12 +173,14 @@ function select(changedFiles: string[]): {
   docsOnly: boolean;
   unknownFiles: string[];
   ambiguousFiles: AmbiguousOwnership[];
+  affectedSurfaces: SurfaceSelection[];
 } {
   const gates = new Map(plan.gates.map((gate) => [gate.id, gate]));
   const reasons = new Map<string, string[]>();
   const matchedRules: Array<{file: string; rules: string[]}> = [];
   const unknownFiles: string[] = [];
   const ambiguousFiles: AmbiguousOwnership[] = [];
+  const affectedReasons = new Map<string, string[]>();
   let hasExecutableRule = false;
   let hasExecutableOwner = false;
 
@@ -166,6 +189,14 @@ function select(changedFiles: string[]): {
     const current = reasons.get(id) ?? [];
     if (!current.includes(reason)) current.push(reason);
     reasons.set(id, current);
+  }
+
+  function affect(id: string, reason: string): void {
+    const surface = plan.productSurfaces.find((entry) => entry.id === id);
+    assert(surface !== undefined, `Impact selection references unknown surface: ${id}`);
+    const current = affectedReasons.get(id) ?? [];
+    if (!current.includes(reason)) current.push(reason);
+    affectedReasons.set(id, current);
   }
 
   for (const file of changedFiles) {
@@ -200,9 +231,15 @@ function select(changedFiles: string[]): {
       if (rule.expansion !== "docs-only") hasExecutableRule = true;
       for (const gate of rule.selects)
         add(gate, `${file} -> rule ${rule.id}: ${rule.reason}`);
+      for (const surfaceId of rule.affectedSurfaceIds)
+        affect(surfaceId, `${file} -> rule ${rule.id}: ${rule.reason}`);
     }
-    for (const gate of ownerGates)
+    for (const gate of ownerGates) {
       add(gate.id, `${file} -> declared owner ${gate.owners.find((owner) => matches(owner, file))}`);
+      for (const surfaceId of coveredSurfaceIds(gate.id))
+        affect(surfaceId,
+          `${file} -> direct owner ${gate.id}; selected-gate dependencies do not add affected surfaces`);
+    }
   }
 
   const docsOnly = changedFiles.length > 0
@@ -218,6 +255,9 @@ function select(changedFiles: string[]): {
   if (unknownFiles.length > 0) {
     add(plan.selectionPolicy.currentRequiredBackstop,
       `unknown ownership expands safely to full: ${unknownFiles.join(", ")}`);
+    for (const surface of plan.productSurfaces)
+      affect(surface.id,
+        `unknown ownership cannot safely narrow affected surfaces: ${unknownFiles.join(", ")}`);
   }
   if (ambiguousFiles.length > 0) {
     add(
@@ -238,7 +278,8 @@ function select(changedFiles: string[]): {
       reasons: reasons.get(gate.id)!,
       historicalDurationMs: gate.historicalDurationMs,
       remoteJobs: gate.remoteJobs,
-      artifacts: gate.artifacts
+      artifacts: gate.artifacts,
+      coveredSurfaceIds: coveredSurfaceIds(gate.id)
     }));
   const omitted = plan.gates
     .filter((gate) => !reasons.has(gate.id))
@@ -254,7 +295,14 @@ function select(changedFiles: string[]): {
     matchedRules,
     docsOnly,
     unknownFiles,
-    ambiguousFiles
+    ambiguousFiles,
+    affectedSurfaces: plan.productSurfaces
+      .filter((surface) => affectedReasons.has(surface.id))
+      .map((surface) => ({
+        id: surface.id,
+        label: surface.label,
+        reasons: affectedReasons.get(surface.id)!
+      }))
   };
 }
 
@@ -282,6 +330,17 @@ function writeSelection(
     unknownFiles: selection.unknownFiles,
     ambiguousFiles: selection.ambiguousFiles,
     matchedRules: selection.matchedRules,
+    affectedSurfaces: selection.affectedSurfaces,
+    coveredSurfaces: plan.productSurfaces
+      .filter((surface) => selection.selected.some((gate) =>
+        gate.coveredSurfaceIds.includes(surface.id)))
+      .map((surface) => ({
+        id: surface.id,
+        label: surface.label,
+        selectedGateIds: selection.selected
+          .filter((gate) => gate.coveredSurfaceIds.includes(surface.id))
+          .map((gate) => gate.id)
+      })),
     estimatedDuration: {
       knownDurationMs,
       unknownGateCount: unknownDurationCount,
@@ -298,6 +357,10 @@ function writeSelection(
 
   console.log(`test-plan:${mode} (${plan.selectionPolicy.mode})`);
   console.log(`changed: ${changedFiles.length === 0 ? "<none>" : changedFiles.join(", ")}`);
+  for (const surface of selection.affectedSurfaces) {
+    console.log(`AFFECT ${surface.id}: ${surface.label}`);
+    for (const reason of surface.reasons) console.log(`  because ${reason}`);
+  }
   for (const entry of selection.selected) {
     console.log(`SELECT ${entry.id} [${entry.ring}] ${entry.command}`);
     for (const reason of entry.reasons) console.log(`  because ${reason}`);
@@ -350,8 +413,8 @@ async function runGate(entry: SelectionEntry): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  assert(plan.schemaVersion === 2 && plan.contract === "genes-agent-test-routing",
-    "Test plan must be validated schema 2");
+  assert(plan.schemaVersion === 3 && plan.contract === "genes-agent-test-routing",
+    "Test plan must be validated schema 3");
   const [mode = "explain", ...rawArguments] = process.argv.slice(2);
   const changedIndex = rawArguments.indexOf("--changed");
   const explicit = changedIndex >= 0
@@ -372,7 +435,8 @@ async function main(): Promise<void> {
         reasons: ["explicit focused gate requested"],
         historicalDurationMs: exact.historicalDurationMs,
         remoteJobs: exact.remoteJobs,
-        artifacts: exact.artifacts
+        artifacts: exact.artifacts,
+        coveredSurfaceIds: coveredSurfaceIds(exact.id)
       };
       writeSelection("focus", explicit, {
         selected: [entry],
@@ -381,7 +445,8 @@ async function main(): Promise<void> {
         matchedRules: [],
         docsOnly: false,
         unknownFiles: [],
-        ambiguousFiles: []
+        ambiguousFiles: [],
+        affectedSurfaces: []
       });
       await runGate(entry);
       return;
