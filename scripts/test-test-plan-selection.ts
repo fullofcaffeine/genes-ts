@@ -117,8 +117,15 @@ function main(): void {
     "source-maps",
     "portable-haxe-smoke");
   exactSurfaces(typescript,
-    "classic-js-runtime", "typescript-source-runtime", "declarations-packages",
-    "react-hxx-compiler");
+    "typescript-source-runtime", "declarations-packages");
+
+  const declarations = explain("src/genes/dts/TypeEmitter.hx");
+  requires(declarations,
+    "typescript-full",
+    "classic-declarations",
+    "source-maps");
+  exactSurfaces(declarations,
+    "typescript-source-runtime", "declarations-packages");
 
   const react = explain("src/genes/react/JSX.hx");
   requires(react,
@@ -134,7 +141,6 @@ function main(): void {
   assert(ids(react).has("full-ci"),
     "Ambiguous compiler/React ownership did not expand to the full backstop");
   exactSurfaces(react,
-    "classic-js-runtime", "typescript-source-runtime", "declarations-packages",
     "react-hxx-compiler", "browser-framework-runtime");
 
   const sharedFixture = explain(
@@ -197,6 +203,18 @@ function main(): void {
     "portable-haxe-smoke",
     "full-ci");
   exactSurfaces(release, "declarations-packages", "distribution-adoption");
+
+  const lockfile = explain("yarn.lock");
+  requires(lockfile,
+    "release-contract",
+    "compatibility-inventory",
+    "portable-haxe-smoke",
+    "acceptance",
+    "full-ci");
+  exactSurfaces(lockfile,
+    "classic-js-runtime", "typescript-source-runtime", "declarations-packages",
+    "react-hxx-compiler", "browser-framework-runtime", "host-tooling",
+    "ts2hx-migration", "distribution-adoption");
 
   const migration = explain("tools/ts2hx/src/project.ts");
   requires(migration, "ts2hx", "portable-haxe-smoke");

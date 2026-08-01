@@ -449,6 +449,8 @@ function main(): void {
     const rule = record(entry, `impactRules[${index}]`);
     const id = text(rule.id, `impactRules[${index}].id`);
     stringArray(rule.patterns, `${id}.patterns`);
+    if (rule.affectedExcludePatterns !== undefined)
+      stringArray(rule.affectedExcludePatterns, `${id}.affectedExcludePatterns`);
     const selected = stringArray(rule.selects, `${id}.selects`);
     for (const gateId of selected)
       assert(gatesById.has(gateId), `${id} selects unknown gate: ${gateId}`);

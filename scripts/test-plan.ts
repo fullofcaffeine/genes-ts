@@ -38,6 +38,7 @@ function gateCommand(gate: Gate): string {
 interface ImpactRule {
   id: string;
   patterns: string[];
+  affectedExcludePatterns?: string[];
   selects: string[];
   reason: string;
   affectedSurfaceIds: string[];
@@ -231,8 +232,12 @@ function select(changedFiles: string[]): {
       if (rule.expansion !== "docs-only") hasExecutableRule = true;
       for (const gate of rule.selects)
         add(gate, `${file} -> rule ${rule.id}: ${rule.reason}`);
-      for (const surfaceId of rule.affectedSurfaceIds)
-        affect(surfaceId, `${file} -> rule ${rule.id}: ${rule.reason}`);
+      const affectsFile = !(rule.affectedExcludePatterns ?? [])
+        .some((pattern) => matches(pattern, file));
+      if (affectsFile) {
+        for (const surfaceId of rule.affectedSurfaceIds)
+          affect(surfaceId, `${file} -> rule ${rule.id}: ${rule.reason}`);
+      }
     }
     for (const gate of ownerGates) {
       add(gate.id, `${file} -> declared owner ${gate.owners.find((owner) => matches(owner, file))}`);

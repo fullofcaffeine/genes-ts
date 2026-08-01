@@ -136,6 +136,12 @@ impact rule or direct test owner. “Covered” lists everything the selected ga
 happen to exercise. Selecting broad `full-ci` can cover the browser scorecard
 without claiming a compiler-core edit changed browser behavior. Unknown paths
 mark every surface affected because the repository cannot narrow them safely.
+When a broad rule overlaps a more-specific compiler subtree, the broad rule may
+still select conservative backstops while excluding its affected-surface claim;
+the focused TypeScript/declaration or React/HXX rule then owns that attribution.
+The dependency lockfile is deliberately different: it can change every product
+surface, so it marks all product scorecards affected even though the example
+portfolio remains an evidence inventory rather than another product.
 
 Unknown means no rule or declared owner recognizes a changed path. Ambiguous
 means more than one executable impact rule or declared gate owner claims it.
@@ -636,6 +642,15 @@ commands. The current tiers are:
   (`typescript-target`); and
 - **compile-only snippet** — allowed for future narrow syntax demonstrations,
   but never runtime, migration, package, or browser proof.
+
+The manifest validator ties claims to observers rather than tier labels alone.
+Classic and TypeScript runtime claims require their matching runtime commands;
+browser and React/HXX example claims require Playwright in both profiles; and
+the declaration/package claim is limited to the both-profile flagship path.
+Host tooling, ts2hx, and distribution claims have their own independent owners
+and cannot be borrowed from an example. A compile-only snippet therefore lists
+no product-surface claim at all, while remaining classified in the example
+portfolio.
 
 The aggregate runner rejects an
 unowned directory, validates every structured command before execution, and

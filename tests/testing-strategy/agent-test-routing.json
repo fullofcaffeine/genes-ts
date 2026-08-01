@@ -3536,6 +3536,12 @@
         "extraParams.hxml",
         "test.hxml"
       ],
+      "affectedExcludePatterns": [
+        "src/genes/ts/**",
+        "src/genes/dts/**",
+        "src/genes/react/**",
+        "src/genes/Jsx*.hx"
+      ],
       "selects": [
         "stdlib-overrides",
         "portable-haxe-smoke",
@@ -3641,7 +3647,6 @@
       "id": "package-release-security",
       "patterns": [
         "haxelib.json",
-        "yarn.lock",
         "scripts/release/**",
         "scripts/secret-scan.ts",
         "scripts/osv-scan.ts",
@@ -3658,6 +3663,23 @@
       ],
       "affectedSurfaceIds": ["declarations-packages", "distribution-adoption"],
       "reason": "Public install, dependency, release, recovery, and security changes require clean-consumer and policy owners.",
+      "expansion": "full"
+    },
+    {
+      "id": "dependency-lockfile",
+      "patterns": [
+        "yarn.lock"
+      ],
+      "selects": [
+        "release-contract",
+        "compatibility-inventory",
+        "package-imports",
+        "portable-haxe-smoke",
+        "acceptance",
+        "full-ci"
+      ],
+      "affectedSurfaceIds": ["classic-js-runtime", "typescript-source-runtime", "declarations-packages", "react-hxx-compiler", "browser-framework-runtime", "host-tooling", "ts2hx-migration", "distribution-adoption"],
+      "reason": "The shared dependency graph can change every compiler, framework, tooling, migration, and distribution product even when the selected full backstop also covers the example inventory.",
       "expansion": "full"
     },
     {
