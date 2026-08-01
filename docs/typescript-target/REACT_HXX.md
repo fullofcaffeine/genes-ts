@@ -162,6 +162,76 @@ the record to change could make those two views disagree. The focused
 carriers still evaluate side effects exactly once in TypeScript and classic
 JavaScript, while unsafe use fails before prior output is replaced.
 
+### Readable props when Haxe preserves evaluation order
+
+An imported component can make Haxe lift the HXX property record into a local.
+This is not an arbitrary temporary. It preserves the rule that property values
+run before nested child expressions:
+
+```haxe
+final Status: StatusProps->Element =
+  Imports.defaultImport("./components/Status.js");
+
+final view = <Status label="Count" value={summary()}>
+  <span>{count.get()}</span>
+</Status>;
+```
+
+The typed Haxe tree evaluates `summary()` into the property carrier, then
+evaluates `count.get()` for the child, and finally creates the element. Older
+source-preserving output exposed the carrier protocol itself:
+
+```tsx
+const view = {
+  "__genesJsxPropName": "label",
+  "__genesJsxPropValue": "Count",
+  "__genesJsxPropNext": {
+    "__genesJsxPropName": "value",
+    "__genesJsxPropValue": summary(),
+    "__genesJsxPropNext": {"__genesJsxPropsEnd": true}
+  }
+};
+const child = count.get();
+const element = <Status
+  label={view.__genesJsxPropValue}
+  value={view.__genesJsxPropNext.__genesJsxPropValue}
+><span>{child}</span></Status>;
+```
+
+TSX and JSX now keep the same evaluation points while spelling the temporary
+as an ordinary property object:
+
+```tsx
+const view = {"label": "Count", "value": summary()};
+const child = count.get();
+const element = <Status label={view.label} value={view.value}>
+  <span>{child}</span>
+</Status>;
+```
+
+Inlining `summary()` directly into the final element while leaving `child`
+above it would run the child first and change the program. The ordinary object
+removes compiler vocabulary without making that unsafe move.
+
+Authorization comes from the exact typed root marker created by the HXX parser,
+the exact direct carrier local, and its already validated named properties. A
+manually authored low-level `Jsx.__jsx(...)` call has no parser provenance and
+keeps its established representation. Parser-only root markers require a
+nominal proof issued by one private compiler-internal field. The plan validates
+that exact issuer identity, so a missing, cast, or copied value cannot opt
+application code into the rewrite.
+
+A carrier containing a spread also stays unchanged for now: expanding the
+spread earlier could observe a getter or a child-side mutation at a different
+time. The same conservative rule applies when Haxe has already evaluated a
+linked-list tail into a separate local; flattening across that seam could run
+an effectful property twice. Duplicate property names and the special
+JavaScript object-literal key `__proto__` likewise keep the carrier, because a
+normal object would not represent them exactly. A runtime string tag also keeps
+the carrier expected by its `createElement` fallback instead of mixing the two
+representations. Typed `createElement` and classic JavaScript profiles keep
+their existing explicit schedule and runtime output.
+
 ## Canonical source JSX trees
 
 Haxe sometimes lifts nested HXX elements into locals while it types the linked

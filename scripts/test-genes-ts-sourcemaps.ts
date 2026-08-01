@@ -243,6 +243,31 @@ function assertInlinedJsxChildMapping(): void {
     "Inlined JSX child changed its authored source column");
 }
 
+/** Proves normalized HXX prop storage and its JSX read keep authored provenance. */
+function assertNormalizedHxxPropMappings(): void {
+  const generatedPath = path.join(
+    reactFixtureRoot,
+    "out/tsx/src-gen/Main.tsx"
+  );
+  const originalPath = path.join(reactFixtureRoot, "src/Main.hx");
+  const generated = readFileSync(generatedPath, "utf8");
+  const original = readFileSync(originalPath, "utf8");
+  const originalPosition = tokenPosition(original, "summary()}");
+  const consumer = new SourceMapConsumer(decodeRawSourceMap(
+    readFileSync(`${generatedPath}.map`, "utf8")
+  ));
+
+  for (const token of ["summary()", "statusEl.value"]) {
+    const mapped = consumer.originalPositionFor(tokenPosition(generated, token));
+    ok(mapped.source?.endsWith("/src/Main.hx") === true,
+      `Normalized HXX prop token ${token} lost its authored module`);
+    strictEqual(mapped.line, originalPosition.line,
+      `Normalized HXX prop token ${token} changed its authored line`);
+    strictEqual(mapped.column, originalPosition.column,
+      `Normalized HXX prop token ${token} changed its authored column`);
+  }
+}
+
 /**
  * Proves a planned TypeScript identity wrapper and its inner value both retain
  * the authored Haxe boundary. The wrapper maps to the whole call/return
@@ -377,6 +402,7 @@ try {
 
   assertOverlappingClassPathIdentities();
   assertInlinedJsxChildMapping();
+  assertNormalizedHxxPropMappings();
   assertBoundaryWrapperMappings();
 
   console.log("ok");

@@ -321,8 +321,8 @@ class Negative {
     #elseif hxx_negative_ref_object_target
     // Build a real typed React ref object without a cast. The test should fail
     // because an anchor object cannot be attached to an input element.
-    final createRef: Void->RefObject<AnchorElement> = Imports.namedImport(
-      "react", "createRef");
+    final createRef: Void->
+      RefObject<AnchorElement> = Imports.namedImport("react", "createRef");
     final anchorRef = createRef();
     final value = <input ref={anchorRef} />;
     #elseif hxx_negative_svg_ref_target
@@ -542,6 +542,13 @@ class Negative {
       __genesJsxPropNext: {
         __genesJsxPropsEnd: true
       }
+    }, {__genesJsxChildrenEnd: true});
+    #elseif hxx_negative_forged_hxx_proof
+    // Naming or casting the nominal type does not reproduce the exact private
+    // proof field recorded by the HXX parser.
+    final fakeProof: Void->genes.react.internal.HxxParserProof = cast null;
+    final value = genes.react.internal.Jsx.__hxxJsx(fakeProof, "div", {
+      __genesJsxPropsEnd: true
     }, {__genesJsxChildrenEnd: true});
     #end
   }

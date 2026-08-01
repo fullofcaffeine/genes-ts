@@ -141,9 +141,9 @@ export class Main {
 		const summary: StringAccessor = createMemo(function () {
 			return "items:" + count.get();
 		});
-		const statusEl = {"__genesJsxPropName": "label", "__genesJsxPropValue": "Count", "__genesJsxPropNext": {"__genesJsxPropName": "value", "__genesJsxPropValue": summary(), "__genesJsxPropNext": {"__genesJsxPropsEnd": true}}};
+		const statusEl = {"label": "Count", "value": summary()};
 		const statusEl1: string = count.get();
-		const statusEl2: JSX.Element = <Status label={statusEl.__genesJsxPropValue} value={statusEl.__genesJsxPropNext.__genesJsxPropValue}><span>{statusEl1}</span></Status>;
+		const statusEl2: JSX.Element = <Status label={statusEl.label} value={statusEl.value}><span>{statusEl1}</span></Status>;
 		const statusHtml: string = renderToStaticMarkup(statusEl2);
 		if (statusHtml != "<section data-label=\"Count\"><strong>items:2</strong><span>2</span></section>") {
 			throw Exception.thrown("Unexpected status HTML: " + statusHtml);
@@ -321,11 +321,11 @@ export class Main {
 	 * pure nested element tree around those already-evaluated locals.
 	 */
 	static renderOrderedChildList(): JSX.Element {
-		const tmp = {"__genesJsxPropName": "data-order", "__genesJsxPropValue": Main.recordJsxEvaluation("parent"), "__genesJsxPropNext": {"__genesJsxPropsEnd": true}};
+		const tmp = {"data-order": Main.recordJsxEvaluation("parent")};
 		const tmp1: string = Main.recordJsxEvaluation("first");
 		const span: JSX.Element = <span>{tmp1}</span>;
 		const tmp3: string = Main.recordJsxEvaluation("second");
-		return <div data-order={tmp.__genesJsxPropValue}>{span}<strong>{tmp3}</strong></div>;
+		return <div data-order={tmp["data-order"]}>{span}<strong>{tmp3}</strong></div>;
 	}
 
 	/**

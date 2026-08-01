@@ -122,7 +122,8 @@ private class Parser {
       case Expr(e):
         e;
       case Fragment(children, fragmentPos):
-        withPosition(macro genes.react.internal.Jsx.__frag($e{childrenToCarrier(children)}),
+        withPosition(macro genes.react.internal.Jsx.__hxxFrag($e{hxxProof(fragmentPos)},
+          $e{childrenToCarrier(children)}),
           fragmentPos);
       case Element(el):
         elementToExpr(el, false);
@@ -131,7 +132,8 @@ private class Parser {
 
   public function fragmentToExpr(children: Array<JsxChild>): Expr {
     return
-      withPosition(macro genes.react.internal.Jsx.__frag($e{childrenToCarrier(children)}),
+      withPosition(macro genes.react.internal.Jsx.__hxxFrag($e{hxxProof(pos)},
+        $e{childrenToCarrier(children)}),
       pos);
   }
 
@@ -182,8 +184,8 @@ private class Parser {
     final childrenCarrier = childrenToCarrier(children);
     final marker = hxxNestedChild ? macro genes.react.internal.Jsx.__hxxChildJsx($tagExpr,
       $props,
-      $childrenCarrier) : macro genes.react.internal.Jsx.__jsx($tagExpr,
-        $props, $childrenCarrier);
+      $childrenCarrier) : macro genes.react.internal.Jsx.__hxxJsx($e{hxxProof(el.pos)},
+        $tagExpr, $props, $childrenCarrier);
     return withPosition(marker, el.pos);
   }
 
@@ -601,6 +603,26 @@ private class Parser {
   static function withPosition(expression: Expr, position: Position): Expr {
     expression.pos = position;
     return expression;
+  }
+
+  /** Creates the nominal proof consumed only by parser-owned root markers. */
+  static function hxxProof(position: Position): Expr {
+    final proof = macro genes.react.internal.HxxParserProof.issue;
+    proof.pos = position;
+    return switch proof.expr {
+      case EField(owner, field):
+        {
+          expr: EMeta({
+            name: ':privateAccess',
+            params: [],
+            pos: position
+          }, {expr: EField(owner, field), pos: position}),
+          pos: position
+        };
+      default:
+        Context.error('Internal HXX proof issuer must be a direct field',
+          position);
+    }
   }
 
   static function mergePositions(left: Position, right: Position): Position {

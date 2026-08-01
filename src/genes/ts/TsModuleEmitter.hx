@@ -2173,6 +2173,8 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   override public function emitVar(v: TVar, eo: Null<TypedExpr>) {
+    if (eo != null && emitSourceJsxPropsCarrier(v, eo))
+      return;
     if (eo != null && isJsxCarrierLocal(v.id)) {
       // The linked HXX carrier is compiler-owned scaffolding, not a public
       // application value. Let TypeScript infer its exact recursive object

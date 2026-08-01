@@ -79,10 +79,12 @@ enum JsxIntent {
   FragmentIntent(children: Array<JsxChildIntent>, pos: Position);
 }
 
-/** The four typed calls in the internal JSX marker protocol. */
+/** The typed calls in the internal JSX marker protocol. */
 private enum JsxMarkerKind {
   ElementMarker;
   FragmentMarker;
+  HxxElementMarker;
+  HxxFragmentMarker;
   HxxChildElementMarker;
   HxxChildFragmentMarker;
 }
@@ -399,6 +401,7 @@ class JsxPlan {
     JsxSourceInlineFact>();
   final sourceInlineByMarker = new ObjectMap<TypedExpr, JsxSourceInlineFact>();
   final carrierLocalIds: Map<Int, Bool> = [];
+  final sourcePropCarriers: Map<Int, Array<JsxPropIntent>> = [];
   final allowedCarrierUses = new ObjectMap<TypedExpr, Bool>();
   final validatedComponentProps = new ObjectMap<TypedExpr, Type>();
   final requiredNestedChildren = new ObjectMap<TypedExpr, Bool>();
@@ -414,6 +417,31 @@ class JsxPlan {
   /** True when a local exists only to retain a typed JSX carrier record. */
   public function isCarrierLocal(id: Int): Bool {
     return carrierLocalIds.exists(id);
+  }
+
+  /**
+   * Returns normal named properties for one HXX-owned lifted carrier.
+   *
+   * Why: retaining the declaration preserves Haxe evaluation order, but the
+   * compiler-only linked-record field names are not useful application code.
+   *
+   * What/How: only the distinct HXX root marker may register its exact direct
+   * carrier local, and only when every entry is a named property. Source JSX
+   * printers may render that local as a normal object and read the corresponding
+   * normal fields. Spreads, duplicate names, and JavaScript's special
+   * `__proto__` literal key retain the established carrier because an ordinary
+   * object would not be an exact representation of those cases.
+   */
+  public function sourcePropsForCarrier(local: TVar): Null<Array<JsxPropIntent>> {
+    return sourcePropCarriers.get(local.id);
+  }
+
+  /** True only for an exact local registered by `sourcePropsForCarrier`. */
+  public function isSourcePropsCarrierRoot(expression: TypedExpr): Bool {
+    return switch unwrap(expression).expr {
+      case TLocal(local): sourcePropCarriers.exists(local.id);
+      default: false;
+    }
   }
 
   /** True only for an exact local owned by a validated HXX child fact. */
@@ -541,7 +569,8 @@ class JsxPlan {
   /** Returns validated intent when `callee` is a marker, otherwise null. */
   public function intentForCall(callee: TypedExpr,
       arguments: Array<TypedExpr>): Null<JsxIntent> {
-    return switch markerKind(callee) {
+    final kind = markerKind(callee);
+    return switch kind {
       case ElementMarker | HxxChildElementMarker:
         if (arguments.length != 3)
           markerError('GTS-JSX-INTENT-001',
@@ -550,14 +579,52 @@ class JsxPlan {
         final props = propsIntent(arguments[1]);
         final children = childrenIntent(arguments[2]);
         ElementIntent(tag, props, children, arguments[0].pos);
+      case HxxElementMarker:
+        if (arguments.length != 4)
+          markerError('GTS-JSX-INTENT-001',
+            'HXX element marker expects proof, tag, props, and children',
+            callee.pos);
+        requireHxxParserProof(arguments[0]);
+        final tag = tagIntent(arguments[1]);
+        final props = propsIntent(arguments[2]);
+        if (collectingCarrierUses) {
+          switch tag {
+            case DynamicIntrinsicTag(_):
+              // Dynamic tags use createElement and therefore keep the linked
+              // carrier reads owned by that output path.
+            default:
+              recordSourcePropsCarrier(arguments[2], props);
+          }
+        }
+        final children = childrenIntent(arguments[3]);
+        ElementIntent(tag, props, children, arguments[1].pos);
       case FragmentMarker | HxxChildFragmentMarker:
         if (arguments.length != 1)
           markerError('GTS-JSX-INTENT-002',
             'Fragment marker expects one children array', callee.pos);
         FragmentIntent(childrenIntent(arguments[0]), arguments[0].pos);
+      case HxxFragmentMarker:
+        if (arguments.length != 2)
+          markerError('GTS-JSX-INTENT-002',
+            'HXX fragment marker expects proof and one children array',
+            callee.pos);
+        requireHxxParserProof(arguments[0]);
+        FragmentIntent(childrenIntent(arguments[1]), arguments[1].pos);
       case null:
         null;
     }
+  }
+
+  /** Requires the exact private proof issuer placed by the HXX parser macro. */
+  function requireHxxParserProof(expression: TypedExpr): Void {
+    final valid = switch unwrap(expression).expr {
+      case TField(_, FStatic(_.get() => owner, _.get() => field)): owner.pack.join('.') == 'genes.react.internal' && owner.name == 'HxxParserProof' && field.name == 'issue';
+      default: false;
+    }
+    if (!valid)
+      markerError('GTS-JSX-INTENT-011',
+        'HXX root marker requires the exact compiler-issued parser proof',
+        expression.pos);
   }
 
   /** True for a nested child marker after metadata/cast wrappers are removed. */
@@ -571,8 +638,8 @@ class JsxPlan {
   /** Marker identity is based on the compiler-owned extern declaration. */
   public static function markerName(callee: TypedExpr): Null<String> {
     return switch markerKind(callee) {
-      case ElementMarker | HxxChildElementMarker: '__jsx';
-      case FragmentMarker | HxxChildFragmentMarker: '__frag';
+      case ElementMarker | HxxElementMarker | HxxChildElementMarker: '__jsx';
+      case FragmentMarker | HxxFragmentMarker | HxxChildFragmentMarker: '__frag';
       case null: null;
     }
   }
@@ -586,6 +653,8 @@ class JsxPlan {
         switch field.name {
           case '__jsx': ElementMarker;
           case '__frag': FragmentMarker;
+          case '__hxxJsx': HxxElementMarker;
+          case '__hxxFrag': HxxFragmentMarker;
           case '__hxxChildJsx': HxxChildElementMarker;
           case '__hxxChildFrag': HxxChildFragmentMarker;
           default: null;
@@ -656,6 +725,77 @@ class JsxPlan {
     final sourceRoot = markerLocalSource(expression);
     final resolved = resolveMarkerLocal(expression);
     return readProps(resolved, sourceRoot, [], 0);
+  }
+
+  /**
+   * Authenticates one source-only projection of a lifted HXX property record.
+   *
+   * The distinct HXX root marker proves parser ownership. The direct object
+   * initializer proves that printing ordinary named fields at this declaration
+   * preserves the exact Haxe evaluation point. Every semantic property must
+   * read from that same local; aliases and spreads remain on the established
+   * carrier path because their timing needs a separate proof.
+   */
+  function recordSourcePropsCarrier(expression: TypedExpr,
+      props: Array<JsxPropIntent>): Void {
+    final candidate = unwrap(expression);
+    final local = switch candidate.expr {
+      case TLocal(found): found;
+      default: return;
+    }
+    final initializer = localInitializers.get(local.id);
+    if (initializer == null)
+      return;
+    switch unwrap(initializer).expr {
+      case TObjectDecl(_):
+      default:
+        return;
+    }
+    if (hasLiftedPropsTail(initializer))
+      return;
+    final names: Map<String, Bool> = [];
+    for (prop in props) {
+      switch prop {
+        case SpreadProp(_, _):
+          return;
+        case NamedProp(name, _, RuntimeValuePath(root, _)):
+          if (name == '__proto__' || names.exists(name))
+            return;
+          names.set(name, true);
+          switch unwrap(root).expr {
+            case TLocal(source) if (source.id == local.id):
+            default: return;
+          }
+        case NamedProp(_, _, DirectValue):
+          return;
+      }
+    }
+    final existing = sourcePropCarriers.get(local.id);
+    if (existing == null)
+      sourcePropCarriers.set(local.id, props.copy());
+  }
+
+  /**
+   * Detects a linked-list tail that Haxe evaluated into a separate local.
+   *
+   * Flattening across that seam would print the tail's property expressions in
+   * the new ordinary object while leaving their earlier local declaration in
+   * place. Effectful values could then run twice. The current readable subset
+   * therefore accepts only a carrier whose complete linked structure remains
+   * inline beneath the root declaration.
+   */
+  function hasLiftedPropsTail(expression: TypedExpr, depth: Int = 0): Bool {
+    if (depth > 4096)
+      return true;
+    final fields = objectFields(expression, 'props');
+    if (fields.exists('__genesJsxPropsEnd'))
+      return false;
+    final next = requiredCarrierField(fields, '__genesJsxPropNext',
+      'GTS-JSX-INTENT-004', expression.pos);
+    return switch unwrap(next).expr {
+      case TLocal(_): true;
+      default: hasLiftedPropsTail(next, depth + 1);
+    }
   }
 
   function readChildren(expression: TypedExpr, sourceRoot: Null<TypedExpr>,

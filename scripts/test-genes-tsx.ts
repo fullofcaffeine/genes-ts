@@ -323,6 +323,11 @@ function assertHaxeHxxNegatives(): void {
       "GTS-HXX-TYPE-001",
       "__genesJsxPropValue: unsafeValue"
     ],
+    [
+      "hxx_negative_forged_hxx_proof",
+      "GTS-JSX-INTENT-011",
+      "Jsx.__hxxJsx"
+    ],
     ["hxx_negative_spread_non_object", "GTS-HXX-SPREAD-001"],
     ["hxx_negative_spread_extra", "GTS-HXX-SPREAD-003"],
     ["hxx_negative_spread_wrong", "GTS-HXX-SPREAD-002"],
@@ -813,6 +818,18 @@ ok(automaticTsxSource.includes(
 ) && automaticTsxSource.includes(
   '<input type="submit" formAction={Main.asyncFormAction} />'
 ), "button and input preserve the same checked React 19 formAction contract");
+const importedStatusTree = sourceSection(
+  automaticTsxSource,
+  "const createSignal:",
+  "const GenericInt:"
+);
+ok(importedStatusTree.includes(
+  'const statusEl = {"label": "Count", "value": summary()}'
+) && importedStatusTree.includes(
+  '<Status label={statusEl.label} value={statusEl.value}>'
+), "an imported HXX component keeps prop evaluation in a readable ordinary object");
+strictEqual(importedStatusTree.includes("__genesJsxProp"), false,
+  "an authenticated HXX prop carrier does not leak protocol fields into TSX");
 const canonicalChildTree = sourceSection(
   automaticTsxSource,
   "static renderChildList(",
@@ -962,6 +979,11 @@ ok(typedCreateElementSource.includes(
   "ComponentPropsWithRef<typeof TypedButton>"
 ), "metadata-backed component wrappers keep their emitted React prop contract");
 ok(typedCreateElementSource.includes(
+  'const statusEl = {"__genesJsxPropName": "label"'
+) && typedCreateElementSource.includes(
+  "label: statusEl.__genesJsxPropValue"
+), "plain TypeScript keeps the established createElement carrier schedule");
+ok(typedCreateElementSource.includes(
   "createElement(Main.RequiredChild, ({...optionalChildren, children: optionalChildSpreadHtml}"
 ), "typed createElement puts a required nested child in the checked property object");
 ok(typedCreateElementSource.includes(
@@ -1045,6 +1067,19 @@ strictEqual(dualTsxSource.includes(
   "const tree: JSX.Element = <h1>{heading}</h1>"
 ), false, "the parser-owned nested heading declaration is omitted");
 ok(dualTsxSource.includes("React__genes_jsx.createElement(runtimeTag"));
+ok(dualTsxSource.includes(
+  'const privateDynamicProps = {"__genesJsxPropName": "data-private"'
+) && dualTsxSource.includes(
+  'createElement(runtimeTag, {"data-private": privateDynamicProps.__genesJsxPropValue}'
+), "a dynamic HXX tag keeps the carrier representation used by createElement");
+ok(dualTsxSource.includes(
+  'const liftedPropsTail = {"__genesJsxPropName": "data-tail"'
+) && dualTsxSource.includes(
+  'data-tail={liftedPropsHead.__genesJsxPropNext.__genesJsxPropValue}'
+), "a separately evaluated prop-list tail is not flattened or evaluated twice");
+strictEqual(dualTsxSource.includes(
+  'const liftedPropsHead = {"data-head"'
+), false, "a lifted prop-list tail cannot authorize an ordinary-object rewrite");
 const dualTsxCallArgument = sourceSection(
   dualTsxSource,
   "static renderSameExpressionOrder(",
@@ -1090,8 +1125,8 @@ ok(dualTsxCapturedChild.includes(
   "const child: JSX.Element = <span>captured</span>"
 ) && dualTsxCapturedChild.includes("return <div>{child}</div>"),
 "a child captured by a callback retains its declaration");
-strictEqual(dualTsxSource.includes("__hxxChild"), false,
-  "the parser-only child marker never reaches TSX source");
+strictEqual(dualTsxSource.includes("__hxx"), false,
+  "parser-only HXX provenance markers never reach TSX source");
 ok(dualTsxSource.includes(
   "<dialog open closedby=\"any\" onCancel={function (event: import('react').SyntheticEvent<HTMLDialogElement>)"
 ), "TSX preserves canonical dialog props and the exact event target");
@@ -1135,8 +1170,8 @@ const retainedMetadataAssignment = sourceSection(
 ok(/const ([A-Za-z_$][\w$]*): JSX\.Element = <span>assigned<\/span>;[\s\S]*result = <section>{\1}<\/section>;/.test(
   retainedMetadataAssignment
 ), "an unreviewed typed metadata wrapper retains the generated child seam");
-strictEqual(retainedMetadataTsxSource.includes("__hxxChild"), false,
-  "the parser-only child marker never leaks from the metadata control");
+strictEqual(retainedMetadataTsxSource.includes("__hxx"), false,
+  "parser-only HXX provenance markers never leak from the metadata control");
 
 // The same marker must remain typed when a runtime String selects the
 // intrinsic tag in plain `.ts` createElement output. Static intrinsic and
@@ -1162,8 +1197,8 @@ ok(dualTsSource.includes(
 ok(!dualTsSource.includes(
   "ComponentPropsWithRef<typeof runtimeTag>"
 ), "runtime string props do not claim one statically known intrinsic contract");
-strictEqual(dualTsSource.includes("__hxxChild"), false,
-  "the parser-only child marker normalizes in typed createElement output");
+strictEqual(dualTsSource.includes("__hxx"), false,
+  "parser-only HXX provenance markers normalize in typed createElement output");
 ok(dualTsSource.includes(
   'createElement("dialog", ({open: true, closedby: "any", onCancel: function (event: import(\'react\').SyntheticEvent<HTMLDialogElement>)'
 ), "typed createElement preserves checked dialog props and event typing");
@@ -1236,7 +1271,7 @@ ok(dualClassicSource.includes(
   'createElement("svg", {"aria-label": "SVG ref", "ref": function (element)'
 ), "classic createElement preserves the same SVG callback");
 strictEqual(dualClassicSource.includes("Jsx.__jsx"), false);
-strictEqual(dualClassicSource.includes("__hxxChild"), false);
+strictEqual(dualClassicSource.includes("__hxx"), false);
 
 run("haxe", ["tests/genes-ts/snapshot/react/build-dual-jsx.hxml"]);
 copyObservableComponents(
@@ -1252,6 +1287,8 @@ ok(dualJsxSource.includes(
   "const tree1 = <main {...rootProps}><h1>{heading}</h1>{fragment}</main>"
 ), "type-erased JSX consumes the same exact facts without reclaiming owner names");
 ok(dualJsxSource.includes("React__genes_jsx.createElement(runtimeTag"));
+ok(dualJsxSource.includes("__genesJsxPropName"),
+  "an explicitly authored low-level marker is not mistaken for HXX provenance");
 ok(dualJsxSource.includes("const tree1 = function () {")
   && !dualJsxSource.includes(
     'const tree = "outer";\n\t\tconst tree = function () {'
@@ -1275,7 +1312,7 @@ ok(dualJsxSource.includes(
   '<svg aria-label="SVG ref" ref={function (element)'
 ), "type-erased JSX preserves the SVG callback without type syntax");
 strictEqual(dualJsxSource.includes("Jsx.__jsx"), false);
-strictEqual(dualJsxSource.includes("__hxxChild"), false);
+strictEqual(dualJsxSource.includes("__hxx"), false);
 strictEqual(dualJsxSource.includes(": JSX.Element"), false);
 runTypeScript("apiBridge", [
   "-p",
@@ -1308,10 +1345,12 @@ const expectedTranscript = {
   svgRefHtml: '<svg aria-label="SVG ref"></svg>',
   focusedChangeHtml: '<input aria-label="Focused change"/>',
   dynamicHtml: '<aside data-mode="dynamic">D</aside>',
+  privateDynamicHtml: '<aside data-private="evaluated-once">Q</aside>',
+  liftedTailHtml: '<div data-head="head" data-tail="evaluated-once">T</div>',
   evaluatedHtml: '<div title="evaluated-once">E</div>',
   arrayPropHtml: '<div data-array="evaluated-once">P</div>',
   arrayChildHtml: '<div>evaluated-once</div>',
-  propEvaluations: 3
+  propEvaluations: 5
 };
 const tsxTranscript = parseTranscript(
   capture("node", ["tests/genes-ts/snapshot/react/out/dual-tsx/dist/index.js"])

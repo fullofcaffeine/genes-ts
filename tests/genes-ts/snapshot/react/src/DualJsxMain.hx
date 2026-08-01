@@ -29,6 +29,8 @@ typedef DualJsxTranscript = {
   final svgRefHtml: String;
   final focusedChangeHtml: String;
   final dynamicHtml: String;
+  final privateDynamicHtml: String;
+  final liftedTailHtml: String;
   final evaluatedHtml: String;
   final arrayPropHtml: String;
   final arrayChildHtml: String;
@@ -84,6 +86,8 @@ typedef OptionalSpreadChildListProps = {
  * which cannot be spelled as a static JSX name and must use createElement in
  * both profiles. Only the final typed JSON string crosses the console boundary.
  */
+// The Haxe formatter does not yet understand component HXX reliably.
+// @formatter:off
 class DualJsxMain {
   static var propEvaluations = 0;
 
@@ -216,6 +220,38 @@ class DualJsxMain {
       __genesJsxChildValue: "D",
       __genesJsxChildNext: {__genesJsxChildrenEnd: true}
     });
+    // These two private-access calls emulate typed shapes produced inside the
+    // HXX macro. They are compiler fixtures, not supported application APIs.
+    // A dynamic tag keeps the createElement carrier path, while a separately
+    // evaluated linked-list tail must not be flattened and evaluated again.
+    final privateDynamicProps = {
+      __genesJsxPropName: "data-private",
+      __genesJsxPropValue: nextPropValue(),
+      __genesJsxPropNext: {
+        __genesJsxPropsEnd: true
+      }
+    };
+    final privateDynamicElement = HxxTestMarkers.root(runtimeTag,
+      privateDynamicProps, {
+        __genesJsxChildValue: "Q",
+        __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+      });
+    final liftedPropsTail = {
+      __genesJsxPropName: "data-tail",
+      __genesJsxPropValue: nextPropValue(),
+      __genesJsxPropNext: {
+        __genesJsxPropsEnd: true
+      }
+    };
+    final liftedPropsHead = {
+      __genesJsxPropName: "data-head",
+      __genesJsxPropValue: "head",
+      __genesJsxPropNext: liftedPropsTail
+    };
+    final liftedTailElement = HxxTestMarkers.root("div", liftedPropsHead, {
+      __genesJsxChildValue: "T",
+      __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+    });
     final evaluatedProp = {
       __genesJsxPropName: "title",
       __genesJsxPropValue: nextPropValue(),
@@ -268,6 +304,8 @@ class DualJsxMain {
       svgRefHtml: renderToStaticMarkup(svgRefElement),
       focusedChangeHtml: renderToStaticMarkup(focusedChangeElement),
       dynamicHtml: renderToStaticMarkup(dynamicElement),
+      privateDynamicHtml: renderToStaticMarkup(privateDynamicElement),
+      liftedTailHtml: renderToStaticMarkup(liftedTailElement),
       evaluatedHtml: renderToStaticMarkup(evaluatedElement),
       arrayPropHtml: renderToStaticMarkup(arrayPropElement),
       arrayChildHtml: renderToStaticMarkup(arrayChildElement),
@@ -417,7 +455,7 @@ class DualJsxMain {
     js.Syntax.code("console.log({0})", json);
   }
 }
-
+// @formatter:on
 /** Empty properties used by the local component-order regression. */
 private typedef EmptyComponentProps = {}
 

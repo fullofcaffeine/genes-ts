@@ -96,6 +96,43 @@ class ExprEmitter extends Emitter {
       jsxSourceInlineConsumer.initializerForDeclaration(expression) != null;
   }
 
+  /**
+   * Emits one HXX-owned linked property carrier as an ordinary source object.
+   *
+   * Haxe sometimes lifts the property record before nested children to retain
+   * left-to-right evaluation. Source JSX keeps that declaration at the same
+   * point, but readable output should expose `label` and `value`, not the
+   * compiler protocol's `__genesJsxProp*` links. `JsxPlan` authorizes only an
+   * exact parser-owned root marker with direct named properties; spreads and
+   * aliases keep the established representation.
+   */
+  function emitSourceJsxPropsCarrier(local: TVar,
+      initializer: TypedExpr): Bool {
+    if (!emitsJsxSource() || jsxPlan == null)
+      return false;
+    final props = jsxPlan.sourcePropsForCarrier(local);
+    if (props == null)
+      return false;
+    write('${localDeclaration(local, true)} ');
+    emitLocalVar(local);
+    write(' = {');
+    for (prop in join(props, write.bind(', '))) {
+      switch prop {
+        case NamedProp(name, value, _):
+          emitString(name);
+          write(': ');
+          emitJsxValue(value, DirectValue);
+        case SpreadProp(_, _):
+          return
+            CompilerDiagnostic.fail('[GTS-JSX-SOURCE-PROPS-001] A spread reached a named-only source '
+            + 'property carrier. This is a compiler planning error.',
+            initializer.pos);
+      }
+    }
+    write('}');
+    return true;
+  }
+
   /** Validates exact source-inline consumption before the writer is closed. */
   override public function finish(): Void {
     if (jsxSourceInlineConsumer != null)
@@ -1024,7 +1061,15 @@ class ExprEmitter extends Emitter {
               emitString(text);
             default:
               write('={');
-              emitJsxValue(value, source);
+              switch source {
+                case RuntimeValuePath(root, _)
+                  if (jsxPlan != null && jsxPlan.isSourcePropsCarrierRoot(root)):
+                  emitPos(value.pos);
+                  emitValue(root);
+                  emitField(name);
+                default:
+                  emitJsxValue(value, source);
+              }
               write('}');
           }
       }
@@ -1593,6 +1638,8 @@ class ExprEmitter extends Emitter {
   }
 
   public function emitVar(v: TVar, eo: Null<TypedExpr>) {
+    if (eo != null && emitSourceJsxPropsCarrier(v, eo))
+      return;
     write('${localDeclaration(v, eo != null)} ');
     emitLocalVar(v);
     switch (eo) {
