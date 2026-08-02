@@ -996,12 +996,18 @@ class JsxPlan {
    * selected root is the sole traversed occurrence of that exact local.
    */
   function finalizeSourcePropsFacts(): Void {
+    // Count once before validating candidates. A module can contain many HXX
+    // roots, so rescanning the full candidate list for every root would make
+    // otherwise linear source-props planning quadratic.
+    final candidatesByLocalId: Map<Int, Int> = [];
     for (candidate in sourcePropsCandidates) {
-      var candidateCount = 0;
-      for (other in sourcePropsCandidates)
-        if (other.local.id == candidate.local.id)
-          candidateCount++;
-      if (candidateCount != 1)
+      final localId = candidate.local.id;
+      final count = candidatesByLocalId.get(localId);
+      candidatesByLocalId.set(localId, count == null ? 1 : count + 1);
+    }
+
+    for (candidate in sourcePropsCandidates) {
+      if (candidatesByLocalId.get(candidate.local.id) != 1)
         continue;
 
       final inventory = localUseInventory.get(candidate.local.id);
