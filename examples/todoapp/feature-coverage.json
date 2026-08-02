@@ -210,15 +210,17 @@
       "id": "interop.haxe-imports-authored-typescript",
       "family": "ecosystem-interop",
       "claim": "Haxe source consumes typed authored TypeScript and TSX through reusable extern/import contracts.",
-      "coverage": {"typescript-tsx":"covered","typescript-low-level":"covered","typescript-minimal":"covered","classic-js":"covered","classic-dts":"covered","node-runtime":"covered","browser-runtime":"covered","focused-fixture":"covered"},
-      "evidence": {"typescript-tsx":["todoapp-interop"],"typescript-low-level":["todoapp-interop"],"typescript-minimal":["todoapp-interop"],"classic-js":["todoapp-interop"],"classic-dts":["todoapp-contract"],"node-runtime":["todoapp-contract"],"browser-runtime":["todoapp-browser"],"focused-fixture":["package-imports"]}
+      "coverage": {"typescript-tsx":"covered","typescript-low-level":"covered","typescript-minimal":"covered","classic-js":"covered","classic-dts":"covered","node-runtime":"not-applicable","browser-runtime":"covered","focused-fixture":"covered"},
+      "evidence": {"typescript-tsx":["todoapp-interop"],"typescript-low-level":["todoapp-interop"],"typescript-minimal":["todoapp-interop"],"classic-js":["todoapp-interop"],"classic-dts":["todoapp-contract"],"browser-runtime":["todoapp-browser"],"focused-fixture":["package-imports"]},
+      "notes": "The authored TypeScript and TSX modules are loaded by the browser bundle, so the Node API smoke is intentionally not counted as runtime evidence for this web-only interop path."
     },
     {
       "id": "interop.typescript-imports-generated-haxe",
       "family": "ecosystem-interop",
       "claim": "Authored TypeScript consumes the active profile's generated Haxe module without cross-profile artifacts.",
-      "coverage": {"typescript-tsx":"covered","typescript-low-level":"covered","typescript-minimal":"covered","classic-js":"covered","classic-dts":"covered","node-runtime":"covered","browser-runtime":"covered","focused-fixture":"covered"},
-      "evidence": {"typescript-tsx":["todoapp-interop"],"typescript-low-level":["todoapp-interop"],"typescript-minimal":["todoapp-interop"],"classic-js":["todoapp-interop"],"classic-dts":["todoapp-contract"],"node-runtime":["todoapp-contract"],"browser-runtime":["todoapp-browser"],"focused-fixture":["public-declarations"]}
+      "coverage": {"typescript-tsx":"covered","typescript-low-level":"covered","typescript-minimal":"covered","classic-js":"covered","classic-dts":"covered","node-runtime":"not-applicable","browser-runtime":"covered","focused-fixture":"covered"},
+      "evidence": {"typescript-tsx":["todoapp-interop"],"typescript-low-level":["todoapp-interop"],"typescript-minimal":["todoapp-interop"],"classic-js":["todoapp-interop"],"classic-dts":["todoapp-contract"],"browser-runtime":["todoapp-browser"],"focused-fixture":["public-declarations"]},
+      "notes": "The authored TypeScript consumer is part of the browser bundle; Node validates the server API, not this generated-Haxe-to-TypeScript import boundary."
     },
     {
       "id": "interop.host-globals-callbacks-native-values",
@@ -287,8 +289,8 @@
       "claim": "A failed generation preserves the complete last-good owned tree and publishes no partial source, declaration, map, support, or manifest artifacts.",
       "coverage": {"typescript-tsx":"gap","typescript-low-level":"gap","typescript-minimal":"gap","classic-js":"gap","classic-dts":"gap","node-runtime":"not-applicable","browser-runtime":"not-applicable","focused-fixture":"covered"},
       "evidence": {"focused-fixture":["output-transaction"]},
-      "gapBead": "genes-1x1g.5",
-      "notes": "The failure-injection owner must remain focused; Todoapp may add a representative last-good workflow without replacing it."
+      "gapBead": "genes-1x1g",
+      "notes": "The focused failure-injection owner remains authoritative. Dedicated live child Bead genes-1x1g.8 owns the representative Todoapp last-good workflow and will enter the tracked roadmap through the required post-merge export PR."
     },
     {
       "id": "quality.determinism-output-performance",
