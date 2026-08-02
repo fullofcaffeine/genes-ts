@@ -19,14 +19,15 @@ as `:global`, `composes`, escaped selectors, and processor options can change th
 answer. The application's real CSS Modules processor already owns those rules,
 so Genes must not guess by scanning the stylesheet.
 
-Instead, a host integration asks its pinned processor for the exact keys and
-writes a small manifest. A manifest is just a checked JSON record containing:
+Instead, the application or framework bridge asks one exact, recorded processor
+version for the keys and writes a small manifest. A manifest is just a checked
+JSON record containing:
 
 - the exported keys;
 - the stylesheet and every other file that affected those keys;
-- hashes of those files so stale information is rejected;
+- fingerprints (SHA-256 hashes) of those files so stale information is rejected;
 - the processor and configuration identity;
-- the Haxe owner, generated module, runtime request, and companion type.
+- the Haxe owner, generated module, imported CSS path, and companion type.
 
 `@genes-ts/tooling/css-modules` validates that record and generates a closed
 Haxe companion. “Closed” means only the listed fields exist: `styles.card`
@@ -172,8 +173,9 @@ Version 1 is deliberately a one-shot building block:
   whose processor-reported key is ASCII;
 - Genes does not execute application configuration or discover a processor;
 - a wildcard declaration such as `Record<string, string>` is not enough;
-- automatic watching and all-or-nothing publication with native output are a
-  later tooling step;
+- automatically watching for edits, and replacing the companion plus generated
+  JavaScript/TypeScript only when the entire new build succeeds, are a later
+  tooling step;
 - agreement with Next.js, Vite, Webpack, WordPress tooling, or another loader
   must be proven by that host rather than inferred from this manifest;
 - Sass, Less, package aliases, query strings, and named CSS exports are outside
