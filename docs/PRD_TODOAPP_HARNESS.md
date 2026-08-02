@@ -11,6 +11,14 @@ remaining evidence layers live in `PRIME_TIME_CRITERIA.md` and
 Haxe web/server source as direct classic Genes ESM; `examples/profiles.json`
 owns both application profiles.
 
+Status note (2026-08-01): the live feature-by-profile disposition is now
+machine-readable in
+[`examples/todoapp/feature-coverage.json`](../examples/todoapp/feature-coverage.json).
+That map supersedes this historical document as the answer to “which stable
+feature does Todoapp exercise today?” It keeps explicit gaps and focused-only
+evidence visible instead of treating the original aspirational checklist as
+completed behavior.
+
 ## Summary
 
 Make `examples/todoapp/` the primary real-world integration harness for its

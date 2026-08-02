@@ -2517,14 +2517,18 @@
       "ownerPaths": [
         "scripts/test-agent-test-routing.ts",
         "scripts/test-test-plan-selection.ts",
-        "tests/testing-strategy/agent-test-routing.json"
+        "scripts/test-todoapp-feature-coverage.ts",
+        "tests/testing-strategy/agent-test-routing.json",
+        "examples/todoapp/feature-coverage.json"
       ],
       "proves": "The machine-readable test plan, ownership, commands, impact rules, and required CI placement remain internally consistent and fail closed.",
       "doesNotProve": "Plan validation does not execute compiler semantics or make observation-mode selection authoritative.",
       "owners": [
         "scripts/test-agent-test-routing.ts",
         "scripts/test-test-plan-selection.ts",
-        "tests/testing-strategy/agent-test-routing.json"
+        "scripts/test-todoapp-feature-coverage.ts",
+        "tests/testing-strategy/agent-test-routing.json",
+        "examples/todoapp/feature-coverage.json"
       ],
       "families": [
         "policy"
@@ -2547,7 +2551,8 @@
       ],
       "runnerTokens": [
         "scripts/dist/test-agent-test-routing.js",
-        "scripts/dist/test-test-plan-selection.js"
+        "scripts/dist/test-test-plan-selection.js",
+        "scripts/dist/test-todoapp-feature-coverage.js"
       ]
     },
     {

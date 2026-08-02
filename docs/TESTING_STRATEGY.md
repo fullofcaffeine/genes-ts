@@ -671,6 +671,22 @@ commands. The current tiers are:
 - **compile-only snippet** — allowed for future narrow syntax demonstrations,
   but never runtime, migration, package, or browser proof.
 
+The Todoapp-specific living coverage map is
+[`examples/todoapp/feature-coverage.json`](../examples/todoapp/feature-coverage.json).
+It inventories stable feature contracts across the TSX, low-level TypeScript,
+minimal TypeScript, classic JavaScript, classic declaration, Node, browser, and
+focused-fixture columns. It is a disposition map rather than another runner:
+`covered`, `partial`, `gap`, and `not-applicable` say exactly how far that
+observer can advance the claim, while evidence-owner records point back to the
+existing executable commands and files.
+
+`yarn test:agent-test-routing` validates the map and runs deliberate red
+controls for missing and duplicate stable IDs plus dead command and file
+owners. Every partial or gap row names a live Bead. Every row retains a focused
+owner because a flagship application is broad integration evidence, not the
+lowest faithful observer for compiler edge cases, diagnostics, source maps,
+transactions, or lifecycle failures.
+
 The manifest validator ties claims to observers rather than tier labels alone.
 Classic and TypeScript runtime claims require their matching runtime commands;
 browser and React/HXX example claims require Playwright in both profiles; and
