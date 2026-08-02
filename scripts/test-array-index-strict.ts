@@ -10,7 +10,7 @@ const scriptRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptRoot, "../..");
 const fixtureRoot = path.join(repoRoot, "tests/array-index-strict");
 const expectedTranscript =
-  "typed|7|generic|generic-null|generic-undefined|effects-once|assigned|compound-bitwise|compound-effects-once|compound-null-coercion|compound-nullish|compound-nested|null|undefined|3,5|missing|void-once|secondary-array-once|named-shift|named-pop|discarded";
+  "typed|7|generic|generic-null|generic-undefined|effects-once|assigned|compound-bitwise|compound-effects-once|compound-null-coercion|compound-nullish|compound-nested|compound-nullable-nested|null|undefined|3,5|missing|void-once|secondary-array-once|named-shift|named-pop|discarded";
 
 /** Runs one deterministic fixture command from the repository root. */
 function run(command: string, args: ReadonlyArray<string>): void {
@@ -102,6 +102,12 @@ ok(typescript.includes(
 ok(typescript.includes(
   "base[index]! += increment;"
 ), "nested indexed receivers retain their strict read proof");
+ok(typescript.includes(
+  "(base!)[column1]! += increment;"
+), "nullable nested indexed receivers receive a receiver-position proof");
+ok(typescript.includes(
+  "return (base!)[column1]!;"
+), "nullable nested indexed reads retain the same receiver-position proof");
 ok(typescript.includes("values[0] = first;"));
 ok(typescript.includes("values[1] = second;"));
 ok(!typescript.includes("values[0]! ="),

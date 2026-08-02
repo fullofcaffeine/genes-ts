@@ -17,7 +17,9 @@ read-only TypeScript assertion, while ordinary compound assignment targets
 receive the read-side proof required by `noUncheckedIndexedAccess`. Nullish
 assignment is excluded from that assertion because `??=` must still accept an
 authored `null` fallback, and nested indexed receivers retain their own strict
-read proof. Side-effecting receiver and index expressions prove that this
+read proof. A nullable nested array receives a receiver-position assertion;
+normalizing only the indexed result cannot prove that the array being indexed
+is present. Side-effecting receiver and index expressions prove that this
 remains one native read-modify-write operation rather than a duplicated read
 and write. Classic/standard runtime behavior does not change. Nullable string
 and numeric cases also prove that the erased assertion does not alter

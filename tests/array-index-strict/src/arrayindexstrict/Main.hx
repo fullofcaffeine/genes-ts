@@ -86,6 +86,12 @@ class Main {
     return matrix[row][column] += increment;
   }
 
+  /** A nullable nested receiver still needs a receiver-position proof. */
+  static function compoundNullableNested(matrix: Array<Null<Array<Int>>>,
+      row: Int, column: Int, increment: Int): Int {
+    return matrix[row][column] += increment;
+  }
+
   /**
    * Keeps Haxe's exact generic element type through TypeScript inference.
    *
@@ -135,6 +141,7 @@ class Main {
     final compoundNullCoalResult = compoundNullCoal([null], "fallback");
     final compoundNestedValues = [[5]];
     final compoundNestedResult = compoundNested(compoundNestedValues, 0, 0, 2);
+    final compoundNullableNestedResult = compoundNullableNested([[5]], 0, 0, 2);
     final numbers = replace([2, 3], 3, 5);
     final namedVoid = new NamedVoidRemovals();
     namedVoid.shift();
@@ -168,6 +175,7 @@ class Main {
       compoundNullCoalResult == "fallback" ? "compound-nullish" : "unexpected",
       compoundNestedResult == 7
       && compoundNestedValues[0][0] == 7 ? "compound-nested" : "unexpected",
+      compoundNullableNestedResult == 7 ? "compound-nullable-nested" : "unexpected",
       nullable([null], 0) == null ? "null" : "unexpected",
       Undefinable.isAbsent(explicitUndefined(undefinedValues,
         0)) ? "undefined" : "unexpected",

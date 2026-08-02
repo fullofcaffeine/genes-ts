@@ -2661,6 +2661,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       index: TypedExpr) {
     final contract = NullishContract.forType(e.t);
     final isAssignmentRoot = currentAssignmentTarget == e;
+    final receiverNeedsNonNullProof = typeAllowsNull(receiver.t);
     final normalizeResult = !isAssignmentRoot
       && !contract.preservesUndefined && typeAllowsNull(e.t);
     final assertTypedResult = !isAssignmentRoot
@@ -2670,11 +2671,15 @@ class TsModuleEmitter extends JsModuleEmitter {
       write('(');
     else if (exactGenericResult != null)
       write('(');
-    if (TypeUtil.rawSyntaxReceiverNeedsParens(receiver)) {
+    if (TypeUtil.rawSyntaxReceiverNeedsParens(receiver)
+      || receiverNeedsNonNullProof) {
       // Preserve the dedicated raw-syntax precedence repair that originally
-      // owned this path. Ordinary indexing stays with the base emitter so its
-      // source positions, comments, and assignment rendering remain stable.
-      emitChainedAccessReceiver(receiver, typeAllowsNull(receiver.t));
+      // owned this path. A nullable indexed receiver also needs the same Haxe
+      // non-null access proof used for field receivers; result normalization
+      // proves the slot value, not that the array being indexed is present.
+      // All other indexing stays with the base emitter so its source positions,
+      // comments, and assignment rendering remain stable.
+      emitChainedAccessReceiver(receiver, receiverNeedsNonNullProof);
       write('[');
       emitValue(index);
       write(']');
@@ -3105,6 +3110,8 @@ class TsModuleEmitter extends JsModuleEmitter {
         // TypeScript widens an indexed Array<T> read to `T | undefined` under
         // `noUncheckedIndexedAccess`, while Haxe's typed AST keeps the declared
         // result `T`. Preserve that Haxe contract with a type-only assertion.
+        // A nullable array receiver receives its own non-null access proof;
+        // proving the indexed result cannot prove that receiver is present.
         // Nullable Haxe elements still normalize a missing JavaScript value to
         // `null`, and Undefinable<T> keeps its explicit `undefined` unchanged.
         // Assignment targets receive none of these read-only projections.
