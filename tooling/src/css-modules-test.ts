@@ -124,6 +124,57 @@ function main(): void {
     assert.equal(packageLessCompanion.relativePath, "UI.hx");
     assert.doesNotMatch(packageLessCompanion.content, /^package\b/mu);
 
+    const hiddenStylesheet = manifestFor(css);
+    hiddenStylesheet.binding = {
+      haxeOwner: "css_module_companions.Main",
+      generatedModule: "css_module_companions/Main",
+      request: "./.module.css",
+      hostModulePath: "src-gen/css_module_companions/.module.css",
+      companionType: "css_module_companions.CardStyles",
+    };
+    assert.equal(validate(hiddenStylesheet), true, JSON.stringify(validate.errors));
+    generateCssModuleCompanion({ projectRoot: root, manifest: hiddenStylesheet });
+
+    for (const [field, invalidName] of [
+      ["haxeOwner", "app.card"],
+      ["companionType", "card-styles"],
+    ] as const) {
+      const invalidHaxeName = manifestFor(css);
+      invalidHaxeName.binding = {
+        haxeOwner: "css_module_companions.Main",
+        generatedModule: "css_module_companions/Main",
+        request: "./card.module.css",
+        hostModulePath: "src-gen/css_module_companions/card.module.css",
+        companionType: "css_module_companions.CardStyles",
+        [field]: invalidName,
+      };
+      assert.equal(validate(invalidHaxeName), false, `${field} rejects ${invalidName}`);
+      expectCode(
+        () => generateCssModuleCompanion({ projectRoot: root, manifest: invalidHaxeName }),
+        "GENES-CSS-MODULE-MANIFEST-015",
+      );
+    }
+
+    const punctuationOnly = manifestFor(css);
+    punctuationOnly.exports = [
+      { name: "$", source: { path: "styles/card.module.css", line: 1, column: 2 } },
+      { name: "--", source: { path: "styles/card.module.css", line: 2, column: 2 } },
+    ];
+    assert.equal(validate(punctuationOnly), true, JSON.stringify(validate.errors));
+    const punctuationCompanion = generateCssModuleCompanion({
+      projectRoot: root,
+      manifest: punctuationOnly,
+    });
+    assert.deepEqual(
+      punctuationCompanion.fields.map(({ haxeName, runtimeName }) => ({ haxeName, runtimeName })),
+      [
+        { haxeName: "css24", runtimeName: "$" },
+        { haxeName: "css2d2d", runtimeName: "--" },
+      ],
+    );
+    assert.match(punctuationCompanion.content, /@:native\("\$"\)/u);
+    assert.match(punctuationCompanion.content, /@:native\("--"\)/u);
+
     const bracketWrapped = manifestFor(css);
     bracketWrapped.exports = [
       { name: "[foo]", source: { path: "styles/card.module.css", line: 1, column: 2 } },

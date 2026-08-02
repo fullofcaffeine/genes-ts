@@ -294,12 +294,18 @@ function verifyInputs(projectRoot: string, manifest: CssModuleExportsManifestV1)
 
 function lowerCamel(runtimeName: string): string {
   const parts = runtimeName.match(/[A-Za-z0-9]+/gu) ?? [];
+  let name: string;
   if (parts.length === 0) {
-    cssModuleFailure("GENES-CSS-MODULE-EXPORT-NAME-005", `CSS export ${JSON.stringify(runtimeName)} cannot become a readable Haxe field.`, runtimeName);
-  }
-  let name = parts[0]!.toLowerCase();
-  for (const part of parts.slice(1)) {
-    name += part.slice(0, 1).toUpperCase() + part.slice(1);
+    // Protocol v1 export names are printable ASCII. A short hexadecimal form
+    // therefore gives punctuation-only keys a stable legal Haxe spelling.
+    name = `css${[...runtimeName]
+      .map((character) => character.charCodeAt(0).toString(16).padStart(2, "0"))
+      .join("")}`;
+  } else {
+    name = parts[0]!.toLowerCase();
+    for (const part of parts.slice(1)) {
+      name += part.slice(0, 1).toUpperCase() + part.slice(1);
+    }
   }
   if (!/^[A-Za-z_]/u.test(name)) name = `css${name}`;
   if (HAXE_KEYWORDS.has(name)) name = `${name}_`;

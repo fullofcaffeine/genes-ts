@@ -151,11 +151,18 @@ property:
 | `error-state` | `errorState` | `["error-state"]` |
 | `class` | `class_` | `["class"]` |
 | `2xl` | `css2xl` | `["2xl"]` |
+| `$` | `css24` | `["$"]` |
+| `--` | `css2d2d` | `["--"]` |
 
 Keys beginning with `__` or `_hx_` also receive a friendly alias and
 `@:native`. Genes reserves those Haxe field prefixes for compiler runtime
 details; renaming only the Haxe view keeps the closed type intact while leaving
 the real JavaScript key unchanged.
+
+For a punctuation-only key, the suffix after `css` is each printable ASCII
+character code in hexadecimal: `$` is hexadecimal `24`, while two `-`
+characters become `2d2d`. This keeps the name deterministic without pretending
+the punctuation is a legal Haxe identifier.
 
 If two keys would become the same Haxe field, generation stops and names both
 keys. It never invents an order-dependent suffix such as `fooBar2`.

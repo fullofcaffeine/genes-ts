@@ -174,6 +174,12 @@ CSS keys beginning with `__` or `_hx_` receive a friendly Haxe alias plus
 Haxe runtime details, so keeping them as Haxe field names could weaken a closed
 public type. The JavaScript property itself remains unchanged.
 
+A key made only from punctuation also gets a predictable Haxe name. For
+example, `$` becomes `css24` and `--` becomes `css2d2d`; the digits are the
+ASCII character codes written in hexadecimal. `@:native` still preserves the
+exact JavaScript key. If this spelling collides with another class name,
+generation stops and reports both names instead of inventing a numbered suffix.
+
 Version one rejects an exact JavaScript key wrapped in square brackets, such as
 `[foo]`. Genes already uses that `@:native` spelling to mean a computed property
 access (`styles[foo]`) rather than the literal key `styles["[foo]"]`. Rejecting

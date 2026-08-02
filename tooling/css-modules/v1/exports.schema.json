@@ -15,11 +15,11 @@
       "additionalProperties": false,
       "required": ["haxeOwner", "generatedModule", "request", "hostModulePath", "companionType"],
       "properties": {
-        "haxeOwner": { "type": "string", "minLength": 1, "maxLength": 16384 },
+        "haxeOwner": { "$ref": "#/$defs/haxeTypePath" },
         "generatedModule": { "$ref": "#/$defs/portablePath" },
-        "request": { "type": "string", "pattern": "^\\.\\.?/[^\\\\?#\\u0000-\\u001f\\u007f]+\\.module\\.css$" },
+        "request": { "type": "string", "pattern": "^\\.\\.?/[^\\\\?#\\u0000-\\u001f\\u007f]*\\.module\\.css$" },
         "hostModulePath": { "$ref": "#/$defs/portablePath" },
-        "companionType": { "type": "string", "minLength": 1, "maxLength": 16384 }
+        "companionType": { "$ref": "#/$defs/haxeTypePath" }
       }
     },
     "source": {
@@ -72,6 +72,12 @@
     }
   },
   "$defs": {
+    "haxeTypePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 16384,
+      "pattern": "^(?:[a-z][A-Za-z0-9_]*\\.)*[A-Z][A-Za-z0-9_]*$"
+    },
     "portablePath": {
       "type": "string",
       "minLength": 1,
