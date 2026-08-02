@@ -69,6 +69,11 @@ for (const ownerId of ownerIds) {
     if (typeof packageScripts[packageScript] !== "string")
       fail(`${ownerId} references missing package script ${packageScript}`);
   }
+  if (owner.arguments !== undefined) {
+    strings(owner.arguments, `${ownerId}.arguments`, true);
+    if ((owner.packageScripts as unknown[]).length !== 1)
+      fail(`${ownerId}.arguments requires exactly one package script`);
+  }
   for (const ownerPath of strings(owner.paths, `${ownerId}.paths`)) {
     if (!existsSync(path.join(repoRoot, ownerPath)))
       fail(`${ownerId} references missing path ${ownerPath}`);

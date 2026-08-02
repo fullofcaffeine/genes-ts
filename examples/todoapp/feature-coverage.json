@@ -35,6 +35,7 @@
     },
     "todoapp-browser": {
       "packageScripts": ["test:examples"],
+      "arguments": ["--playwright"],
       "paths": ["examples/todoapp/e2e/src/todo/e2e/Main.hx", "examples/todoapp/e2e/playwright.config.ts"]
     },
     "todoapp-interop": {
