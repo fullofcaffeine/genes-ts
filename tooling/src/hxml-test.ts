@@ -111,6 +111,7 @@ async function main(): Promise<void> {
       })),
       [{ request: "sample:1.2.3", name: "sample", version: "1.2.3" }],
     );
+    assert.equal(inventory.libraryClosureComplete, true);
 
     write(root, "missing-env.hxml", "-cp ${ABSENT}\n");
     await expectFailure(
@@ -201,6 +202,12 @@ async function main(): Promise<void> {
     );
 
     write(root, "relative-library.hxml", "-lib sample\n");
+    const requestOnlyInventory = await inventoryHxml({
+      entryFiles: ["relative-library.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+    });
+    assert.equal(requestOnlyInventory.libraryClosureComplete, false);
     await expectFailure(
       () =>
         inventoryHxml({

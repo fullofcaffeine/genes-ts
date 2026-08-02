@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -48,10 +49,28 @@ const haxeExecutable =
         path.dirname(process.env.HAXE_STD_PATH),
         process.platform === "win32" ? "haxe.exe" : "haxe",
       );
+const helderSourceRoot = realpathSync.native(
+  execFileSync("haxelib", ["path", "helder.set"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+  })
+    .split(/\r?\n/u)
+    .find((line) => line.length > 0 && !line.startsWith("-"))!,
+);
 
 try {
   const sourceRoot = path.join(projectRoot, "src");
   mkdirSync(sourceRoot);
+  const fixtureGenesSourceRoot = path.join(projectRoot, "genes-src");
+  const fixtureHelderSourceRoot = path.join(projectRoot, "helder-src");
+  cpSync(path.join(repositoryRoot, "src"), fixtureGenesSourceRoot, {
+    recursive: true,
+  });
+  cpSync(helderSourceRoot, fixtureHelderSourceRoot, { recursive: true });
+  writeFileSync(
+    path.join(projectRoot, "genes-extraParams.hxml"),
+    readFileSync(path.join(repositoryRoot, "extraParams.hxml")),
+  );
   writeFileSync(
     path.join(sourceRoot, "Main.hx"),
     [
@@ -114,11 +133,96 @@ try {
   } finally {
     await blockedSession.close();
   }
+  const libraryBlockedOutput = path.join(
+    projectRoot,
+    "blocked-library-gen/index.ts",
+  );
+  mkdirSync(path.dirname(libraryBlockedOutput), { recursive: true });
+  writeFileSync(libraryBlockedOutput, "// library sentinel\n", "utf8");
+  const attackerRoot = path.join(projectRoot, "attacker-library");
+  const attackerSource = path.join(attackerRoot, "src");
+  mkdirSync(attackerSource, { recursive: true });
+  writeFileSync(
+    path.join(attackerSource, "Attack.hx"),
+    "class Attack { static function main():Void trace('attack'); }\n",
+    "utf8",
+  );
+  const attackerHxml = path.join(attackerRoot, "extraParams.hxml");
+  writeFileSync(
+    attackerHxml,
+    [
+      `-cp ${attackerSource}`,
+      "-main Attack",
+      `-js ${libraryBlockedOutput}`,
+      "--next",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  mkdirSync(path.join(projectRoot, ".haxelib"));
+  execFileSync("haxelib", ["dev", "attacker", attackerRoot], {
+    cwd: projectRoot,
+    encoding: "utf8",
+  });
+  writeFileSync(
+    path.join(projectRoot, "malicious-library.hxml"),
+    [
+      "-lib attacker",
+      `-cp ${sourceRoot}`,
+      "-main Main",
+      `-js ${path.join(projectRoot, "ignored-library/index.js")}`,
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  const libraryBlockedSession = createGenesDevelopmentSession<Diagnostic>({
+    projectRoot,
+    projectIdentity: "real-haxe-session-forbidden-library-hxml",
+    hxml: {
+      entryFiles: ["malicious-library.hxml"],
+      workingDirectory: projectRoot,
+      allowedRoots: [projectRoot],
+      resolveLibrary: (request) => {
+        assert.equal(request.name, "attacker");
+        return [attackerHxml];
+      },
+    },
+    publicOutputFile: "blocked-library-gen/index.ts",
+    stateDirectory: ".genes/blocked-library-dev",
+    resolveInvocation: () => ({
+      executable: haxeExecutable,
+      cwd: projectRoot,
+      args: ["malicious-library.hxml"],
+      compatibilityFacts: { fixture: "forbidden-library-hxml" },
+    }),
+    validate: async () => ({ ok: true }),
+    validatorPolicyFacts: { fixture: "must-not-run" },
+    debounceMs: 0,
+    pollIntervalMs: 20,
+    shutdownTimeoutMs: 2_000,
+  });
+  try {
+    await libraryBlockedSession.start();
+    assert.equal(libraryBlockedSession.state.kind, "blocked");
+    assert.equal(
+      readFileSync(libraryBlockedOutput, "utf8"),
+      "// library sentinel\n",
+      "library-expanded multi-compilation must fail before real Haxe can mutate public output",
+    );
+    await assert.rejects(
+      libraryBlockedSession.firstAccepted,
+      /fatal session failure/u,
+    );
+  } finally {
+    await libraryBlockedSession.close();
+  }
   const ignoredOutput = path.join(projectRoot, "ignored", "index.ts");
   writeFileSync(
     path.join(projectRoot, "build.hxml"),
     [
-      "-lib genes-ts",
+      path.join(projectRoot, "genes-extraParams.hxml"),
+      `-cp ${fixtureGenesSourceRoot}`,
+      `-cp ${fixtureHelderSourceRoot}`,
       `-cp ${sourceRoot}`,
       "-main Main",
       `-js ${ignoredOutput}`,

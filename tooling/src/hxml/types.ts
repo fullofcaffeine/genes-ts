@@ -68,6 +68,13 @@ export interface HxmlLibrary {
 }
 
 export interface HxmlInventory {
+  /**
+   * True only when every discovered `-lib` request was passed through the
+   * caller's resolver. An empty resolved file list is authoritative; a missing
+   * resolver is request-only inventory and leaves this false.
+   */
+  readonly libraryClosureComplete: boolean;
+
   /** Canonical top-level HXML entries, excluding files reached transitively. */
   readonly entryHxmlFiles: readonly string[];
   readonly hxmlFiles: readonly string[];

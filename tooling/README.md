@@ -220,6 +220,16 @@ await session.firstAccepted; // safe point for starting a dependent dev server
 await session.close();
 ```
 
+This shortest example is library-free. If `build.hxml` contains a
+project-contained development `-lib`, the host must also supply
+`hxml.resolveLibrary`. The resolver is an authority boundary: it must return
+the complete effective HXML expansion for that library, while an empty array
+means the library genuinely contributes no HXML files. A missing resolver is
+deliberately rejected before Haxe starts. DevelopmentSession v1 still requires
+all returned HXML/class-path inputs to stay under `projectRoot`, preserving its
+project-relative watch and event contract; the lower-level inventory API may
+use broader `allowedRoots` when a host owns a different path model.
+
 The application validator never receives a half-generated tree. Genes first
 finishes its own compiler transaction inside a private candidate directory.
 The session then reads the compiler's v2 ownership manifest, asks the host to
@@ -238,13 +248,18 @@ restarting the command.
   `stateDirectory`. The publication journal and accepted marker instead live
   in a stable, output-scoped control directory, so changing the private state
   directory after a crash cannot hide unfinished recovery.
-- The declared HXML inputs must be inside `projectRoot` and must not contain
-  private state, publication-control, or generated-output scopes.
+- The declared HXML inputs, including resolved library HXML and class paths,
+  must be inside `projectRoot` and must not contain private state,
+  publication-control, or generated-output scopes. This keeps watch/event
+  paths project-relative in v1. The lower-level inventory API may use broader
+  `allowedRoots` independently.
 - The session adds the request-local `-D genes.output=<private entry>` itself.
   It rejects caller-provided `--connect`, server-listen, `genes.output`,
   `--next`, and `--each` flags because two lifecycle owners or several output
   compilations would be ambiguous. The same check visits entry and nested HXML
-  files; hiding an override in `child.hxml` does not bypass admission.
+  files and every authoritatively resolved library HXML; hiding an override in
+  `child.hxml` or a library's `extraParams.hxml` does not bypass admission.
+  A discovered `-lib` with no resolver makes startup fail before compilation.
 - `resolveInvocation` is copied once. The copied executable, arguments,
   environment, and compatibility facts are the exact values validated,
   hashed, used to start the server, and executed. Mutating a retained host
@@ -264,6 +279,10 @@ restarting the command.
   and let the session regenerate it.
 - A deterministic project/output-scoped session lock rejects a second live
   writer even when the two callers choose different private state directories.
+  The scope uses the same NFC-normalized, case-folded identity as artifact
+  publication, so portable aliases such as `src-gen` and `SRC-GEN` cannot
+  create separate locks, journals, or accepted markers. Non-NFC paths remain
+  invalid portable paths and fail before authority is created.
   Haxe server leases and artifact locks are also exact; tooling never adopts
   or kills an unowned process.
 - HXML graph replacement is registration-gap safe: tooling confirms the
@@ -585,7 +604,9 @@ const inventory = await inventoryHxml({
 ```
 
 The result is a deterministic inventory of HXML files, class paths, resources,
-and library requests. It contains no framework config files or watch policy.
+and library requests. `libraryClosureComplete` distinguishes an authoritative
+empty library expansion from request-only inventory performed without a
+resolver. It contains no framework config files or watch policy.
 Missing values, unsafe paths, links, malformed syntax, resolver failures, and
 budgets fail through `HxmlInventoryError`.
 
@@ -593,8 +614,10 @@ Long-lived hosts may pass an `AbortSignal`; library resolvers receive the same
 signal, and inventory stops waiting even when a resolver ignores it. The
 optional `argumentPolicy` asks this existing traversal to reject selected
 options or defines throughout the complete nested closure. DevelopmentSession
-uses that seam for its one-compilation/private-output contract rather than
-maintaining a second HXML parser.
+requires `libraryClosureComplete`, then uses that same traversal for its
+one-compilation/private-output contract rather than maintaining a second HXML
+parser. The lower-level API still permits request-only inventory for hosts that
+only need to list library requests.
 
 ## Reconciled watching
 

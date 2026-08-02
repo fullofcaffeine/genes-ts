@@ -305,6 +305,7 @@ export async function inventoryHxml(
   const resources = new Set<string>();
   const libraries: HxmlLibrary[] = [];
   const libraryKeys = new Set<string>();
+  let libraryClosureComplete = true;
   let argumentCount = 0;
   const resolverSignal = options.signal ?? new AbortController().signal;
 
@@ -419,17 +420,21 @@ export async function inventoryHxml(
               fromFile: request.fromFile,
             }),
           );
-          let resolvedFiles: readonly string[];
-          try {
-            resolvedFiles =
-              (await awaitWithAbort(
-                options.resolveLibrary?.(request, {
-                  signal: resolverSignal,
-                }) ?? Object.freeze([]),
-                options.signal,
-              )) ?? Object.freeze([]);
-          } catch {
-            fail("resolver-failure", `${file}:library:${request.request}`);
+          let resolvedFiles: readonly string[] = Object.freeze([]);
+          if (options.resolveLibrary === undefined) {
+            libraryClosureComplete = false;
+          } else {
+            try {
+              resolvedFiles =
+                (await awaitWithAbort(
+                  options.resolveLibrary(request, {
+                    signal: resolverSignal,
+                  }),
+                  options.signal,
+                )) ?? Object.freeze([]);
+            } catch {
+              fail("resolver-failure", `${file}:library:${request.request}`);
+            }
           }
           for (const [resolvedIndex, resolvedFile] of resolvedFiles.entries()) {
             if (!path.isAbsolute(resolvedFile)) {
@@ -478,6 +483,7 @@ export async function inventoryHxml(
     ).compare(Buffer.from(`${right.request}\0${right.fromFile}`)),
   );
   return Object.freeze({
+    libraryClosureComplete,
     entryHxmlFiles: Object.freeze(bytewise(entryHxmlFiles)),
     hxmlFiles: Object.freeze(bytewise(hxmlFiles)),
     classPaths: Object.freeze(bytewise(classPaths)),

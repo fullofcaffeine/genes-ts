@@ -267,13 +267,17 @@ yarn test:tooling-package
   lifecycle/output flags, unowned path collisions, exact marker/manifest
   drift, reconciliation failure at both publication claims, startup/close
   races, private-path sanitization, and process-exit recovery through a
-  different private state directory.
+  different private state directory. It also proves unresolved libraries fail
+  before compilation, resolved library HXML receives the same option policy,
+  portable output aliases share one lock/control/digest identity, alias
+  input/state overlap is rejected, and an alias restart resolves the original
+  journal.
 - `session-integration-test` runs the real selected Haxe 4.3.7 compiler twice,
   proves the request-local private output override, publishes through the
   compiler's v2 ownership manifest, verifies private candidate paths stay out
-  of generated TypeScript/source maps, proves nested output/multi-compilation
-  HXML fails before public mutation, and proves the second valid build reuses
-  one exact owned server.
+  of generated TypeScript/source maps, proves nested and temporary-library
+  output/multi-compilation HXML fails before public mutation, and proves the
+  second valid build reuses one exact owned server.
 
 The package gate then installs the deterministic tarball into a clean Node
 project, type-checks the public factory/types, and imports both the root and

@@ -35,6 +35,7 @@ import {
 } from "./genes-output.js";
 import {
   logicalOutputPath,
+  portableProjectPathsOverlap,
   resolveSessionLayout,
   type SessionLayout,
 } from "./layout.js";
@@ -144,10 +145,6 @@ function containedBy(root: string, candidate: string): boolean {
       relative !== ".." &&
       !relative.startsWith(`..${path.sep}`))
   );
-}
-
-function pathsOverlap(left: string, right: string): boolean {
-  return containedBy(left, right) || containedBy(right, left);
 }
 
 function mergeCause(left: BuildCause, right: BuildCause): BuildCause {
@@ -912,6 +909,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         version: library.version,
         fromFile: library.fromFile,
       })),
+      libraryClosureComplete: inventory.libraryClosureComplete,
     } as CanonicalJson);
   }
 
@@ -1020,10 +1018,16 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         version: library.version,
         fromFile: library.fromFile,
       })),
+      libraryClosureComplete: inventory.libraryClosureComplete,
     } as CanonicalJson);
   }
 
   #assertInventoryContained(inventory: HxmlInventory): void {
+    if (!inventory.libraryClosureComplete) {
+      throw new Error(
+        "DevelopmentSession requires authoritative HXML resolution for every -lib request",
+      );
+    }
     for (const candidate of [
       ...inventory.hxmlFiles,
       ...inventory.classPaths,
@@ -1038,9 +1042,21 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         );
       }
       if (
-        pathsOverlap(candidate, this.#layout.stateRoot) ||
-        pathsOverlap(candidate, this.#layout.publicOutputRoot) ||
-        pathsOverlap(candidate, this.#layout.publicationControlRoot)
+        portableProjectPathsOverlap(
+          this.#layout.projectRoot,
+          candidate,
+          this.#layout.stateRoot,
+        ) ||
+        portableProjectPathsOverlap(
+          this.#layout.projectRoot,
+          candidate,
+          this.#layout.publicOutputRoot,
+        ) ||
+        portableProjectPathsOverlap(
+          this.#layout.projectRoot,
+          candidate,
+          this.#layout.publicationControlRoot,
+        )
       ) {
         throw new Error(
           `development-session input overlaps state, publication control, or generated output: ${candidate}`,

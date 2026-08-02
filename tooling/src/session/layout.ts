@@ -3,13 +3,18 @@ import { existsSync, lstatSync, realpathSync } from "node:fs";
 import path from "node:path";
 
 import { ensureDirectoryNoFollow } from "../artifacts/filesystem.js";
-import { validatePortableRelativePath } from "../artifacts/validate-plan.js";
+import {
+  portablePathIdentity,
+  validatePortableRelativePath,
+} from "../artifacts/validate-plan.js";
 
 export interface SessionLayout {
   readonly projectRoot: string;
   readonly projectIdentity: string;
   readonly publicOutputFile: string;
   readonly publicOutputRelative: string;
+  /** NFC/case-folded identity used by every lock and recovery authority. */
+  readonly publicOutputAuthority: string;
   readonly publicOutputRoot: string;
   readonly publicOutputRootRelative: string | null;
   readonly outputIdentity: string;
@@ -34,8 +39,18 @@ function containedBy(root: string, candidate: string): boolean {
   );
 }
 
-function overlap(left: string, right: string): boolean {
-  return containedBy(left, right) || containedBy(right, left);
+function portableContains(root: string, candidate: string): boolean {
+  const rootIdentity = portablePathIdentity(root);
+  const candidateIdentity = portablePathIdentity(candidate);
+  return (
+    rootIdentity.length === 0 ||
+    candidateIdentity === rootIdentity ||
+    candidateIdentity.startsWith(`${rootIdentity}/`)
+  );
+}
+
+function portableOverlap(left: string, right: string): boolean {
+  return portableContains(left, right) || portableContains(right, left);
 }
 
 function portable(root: string, candidate: string, label: string): string {
@@ -108,17 +123,10 @@ export function resolveSessionLayout(
     );
   }
   const publicOutputRoot = path.dirname(publicOutputFile);
-  if (overlap(publicOutputRoot, stateRoot)) {
-    throw new Error("stateDirectory and public output root must not overlap");
-  }
   assertExistingParentsAreReal(projectRoot, publicOutputRoot);
   assertExistingParentsAreReal(projectRoot, stateRoot);
 
   const stateRelative = portable(projectRoot, stateRoot, "stateDirectory");
-  ensureDirectoryNoFollow(projectRoot, stateRelative, 0o700);
-  const candidatesRelative = `${stateRelative}/candidates`;
-  ensureDirectoryNoFollow(projectRoot, candidatesRelative, 0o700);
-
   const publicOutputRootRelative =
     publicOutputRoot === projectRoot
       ? null
@@ -128,10 +136,17 @@ export function resolveSessionLayout(
     publicOutputFile,
     "publicOutputFile",
   );
+  const publicOutputAuthority = portablePathIdentity(publicOutputRelative);
+  if (portableOverlap(publicOutputRootRelative ?? "", stateRelative)) {
+    throw new Error("stateDirectory and public output root must not overlap");
+  }
+  ensureDirectoryNoFollow(projectRoot, stateRelative, 0o700);
+  const candidatesRelative = `${stateRelative}/candidates`;
+  ensureDirectoryNoFollow(projectRoot, candidatesRelative, 0o700);
   const lockDirectory = ".genes/tooling/session-locks";
   ensureDirectoryNoFollow(projectRoot, lockDirectory, 0o700);
   const lockScope = createHash("sha256")
-    .update(publicOutputRelative)
+    .update(publicOutputAuthority)
     .digest("hex");
   const publicationControlDirectory = `.genes/tooling/session-publications/${lockScope}`;
   ensureDirectoryNoFollow(projectRoot, publicationControlDirectory, 0o700);
@@ -145,6 +160,7 @@ export function resolveSessionLayout(
     projectIdentity,
     publicOutputFile,
     publicOutputRelative,
+    publicOutputAuthority,
     publicOutputRoot,
     publicOutputRootRelative,
     outputIdentity,
@@ -158,6 +174,24 @@ export function resolveSessionLayout(
     serverLeaseRelative: `${stateRelative}/haxe-server.json`,
     sessionLockRelative: `${lockDirectory}/${lockScope}.json`,
   });
+}
+
+/**
+ * Compares two project-related paths with the same portable identity model as
+ * artifact publication. Paths outside the project cannot alias a contained
+ * output on a portable filesystem and therefore do not overlap here.
+ */
+export function portableProjectPathsOverlap(
+  projectRoot: string,
+  left: string,
+  right: string,
+): boolean {
+  if (!containedBy(projectRoot, left) || !containedBy(projectRoot, right)) {
+    return false;
+  }
+  const relative = (candidate: string): string =>
+    path.relative(projectRoot, candidate).split(path.sep).join("/");
+  return portableOverlap(relative(left), relative(right));
 }
 
 export function logicalOutputPath(

@@ -50,7 +50,7 @@ The session contract makes the safe order explicit:
 recover an interrupted publication
   -> register the Haxe input graph
   -> assign an input revision
-  -> snapshot and check the effective Haxe/HXML invocation
+  -> resolve every library HXML and snapshot/check the effective invocation
   -> generate a complete private candidate
   -> ask the host to validate that candidate
   -> reject it if a newer revision is already known
@@ -160,6 +160,17 @@ The publication journal and accepted marker are keyed by project/output scope,
 not by the caller's private `stateDirectory`. If a process crashes while using
 `.genes/state-a` and restarts with `.genes/state-b`, the new process still finds
 and resolves the one authoritative journal before inventory or compilation.
+That scope uses the artifact protocol's portable path identity (NFC plus
+case-folding), not the caller's path spelling. Case aliases therefore share one
+lifetime lock, journal, marker, admission identity, and recovery universe even
+on a case-sensitive host; non-NFC paths are rejected before startup.
+
+Library expansion is part of invocation authority. A lower-level HXML inventory
+may list `-lib` requests without resolving them, but DevelopmentSession requires
+an authoritative resolver for every discovered library. The existing argument
+policy then visits each returned HXML, including `extraParams.hxml`, before Haxe
+can run. “Resolver returned no effective HXML” is distinct from “no resolver was
+provided”; only the former is a complete closure.
 
 ## Publication and reads
 

@@ -27,6 +27,8 @@ import type {
 
 const root = process.env.GENES_SESSION_CRASH_ROOT;
 const stateDirectory = process.env.GENES_SESSION_CRASH_STATE;
+const publicOutputFile =
+  process.env.GENES_SESSION_CRASH_OUTPUT ?? "src-gen/index.ts";
 const content = process.env.GENES_SESSION_CRASH_CONTENT ?? "export const value = 1;\n";
 const crashAt = process.env.GENES_SESSION_CRASH_AT as ArtifactCheckpoint | undefined;
 if (root === undefined || stateDirectory === undefined) {
@@ -109,7 +111,7 @@ const options: GenesDevelopmentOptions<JsonValue> = {
     workingDirectory: root,
     allowedRoots: [root],
   },
-  publicOutputFile: "src-gen/index.ts",
+  publicOutputFile,
   stateDirectory,
   resolveInvocation: () => ({
     executable: "haxe",

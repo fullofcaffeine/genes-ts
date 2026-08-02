@@ -63,7 +63,7 @@ export function sessionProjectDigest(layout: SessionLayout): string {
     protocol: "genes.tooling.development-session-project.v1",
     projectIdentity: layout.projectIdentity,
     projectRoot: layout.projectRoot,
-    publicOutput: layout.publicOutputRelative,
+    publicOutput: layout.publicOutputAuthority,
   });
 }
 
@@ -75,7 +75,7 @@ export function admissionDigest(
   return canonicalDigest({
     protocol: "genes.tooling.development-session-admission.v1",
     projectIdentity: sessionProjectDigest(layout),
-    publicOutput: layout.publicOutputRelative,
+    publicOutput: layout.publicOutputAuthority,
     manifestDigest,
     validatorPolicyFacts,
   } as CanonicalJson);
@@ -135,7 +135,7 @@ export function readPublishedMarker(
     (record.acceptedAt as number) < 0 ||
     typeof record.manifestDigest !== "string" ||
     !/^[0-9a-f]{64}$/u.test(record.manifestDigest) ||
-    record.publicOutput !== layout.publicOutputRelative ||
+    record.publicOutput !== layout.publicOutputAuthority ||
     `${canonicalJson(record as CanonicalJson)}\n` !== bytes
   ) {
     throw new Error("accepted-generation marker is invalid or non-canonical");
@@ -248,7 +248,7 @@ export function preparePublication(
     revision,
     acceptedAt,
     manifestDigest: candidate.manifestDigest,
-    publicOutput: layout.publicOutputRelative,
+    publicOutput: layout.publicOutputAuthority,
   })}\n`;
   writeFileSync(markerAbsolute, marker, { mode: 0o600 });
   chmodSync(markerAbsolute, 0o600);

@@ -86,7 +86,7 @@ export function acquireSessionLock(layout: SessionLayout): SessionLock {
   const record: LockRecord = {
     protocol: LOCK_PROTOCOL,
     projectIdentity: layout.projectIdentity,
-    outputIdentity: layout.publicOutputRelative,
+    outputIdentity: layout.publicOutputAuthority,
     hostIdentity: sha256Bytes(`genes.tooling.host\0${os.hostname()}`),
     pid: process.pid,
     nonce: randomBytes(32).toString("hex"),

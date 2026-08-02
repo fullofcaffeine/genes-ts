@@ -36,6 +36,10 @@ import {
 } from "./session/haxe-driver.js";
 import { resolveSessionLayout, type SessionLayout } from "./session/layout.js";
 import {
+  admissionDigest,
+  sessionProjectDigest,
+} from "./session/publication.js";
+import {
   createGenesDevelopmentSessionWithDependencies,
   type SessionDependencies,
 } from "./session/runtime.js";
@@ -665,6 +669,78 @@ await withHarness("later-unowned-collision", async (harness) => {
   assert.equal(harness.session.inspect().accepted?.generation, 1);
 });
 
+await withHarness(
+  "unresolved-library-closure",
+  async (harness) => {
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "blocked");
+    assert.equal(harness.compiler.calls, 0);
+    assert.equal(existsSync(path.join(harness.root, "src-gen/index.ts")), false);
+    await assert.rejects(harness.session.firstAccepted, /fatal session failure/u);
+  },
+  undefined,
+  (options, root) => {
+    writeFileSync(
+      path.join(root, "build.hxml"),
+      "-cp src\n-lib unresolved\n-main Main\n-js ignored.js\n",
+      "utf8",
+    );
+    return options;
+  },
+);
+
+await withHarness(
+  "resolved-library-forbidden-option",
+  async (harness) => {
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "blocked");
+    assert.equal(harness.compiler.calls, 0);
+    assert.equal(existsSync(path.join(harness.root, "src-gen/index.ts")), false);
+  },
+  undefined,
+  (options, root) => {
+    const libraryHxml = path.join(root, "libraries/attacker.hxml");
+    mkdirSync(path.dirname(libraryHxml), { recursive: true });
+    writeFileSync(libraryHxml, "--next\n", "utf8");
+    writeFileSync(
+      path.join(root, "build.hxml"),
+      "-cp src\n-lib attacker\n-main Main\n-js ignored.js\n",
+      "utf8",
+    );
+    return {
+      ...options,
+      hxml: {
+        ...options.hxml,
+        resolveLibrary: () => [libraryHxml],
+      },
+    };
+  },
+);
+
+await withHarness(
+  "input-output-portable-alias",
+  async (harness) => {
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "blocked");
+    assert.equal(harness.compiler.calls, 0);
+  },
+  undefined,
+  (options, root) => {
+    const aliasInput = path.join(root, "SRC-GEN/config.json");
+    mkdirSync(path.dirname(aliasInput), { recursive: true });
+    writeFileSync(aliasInput, "{}\n", "utf8");
+    return {
+      ...options,
+      extraInputs: [
+        { path: "SRC-GEN/config.json", impact: { rebuild: true } },
+      ],
+    };
+  },
+);
+
 for (const field of ["generation", "revision", "acceptedAt", "sessionNonce"] as const) {
   await withHarness(`marker-drift-${field}`, async (harness) => {
     harness.compiler.steps.push(
@@ -1090,6 +1166,43 @@ for (const stopAt of ["building", "build-started", "candidate-generated"] as con
   }
 }
 
+{
+  const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-alias-authority-")),
+  );
+  try {
+    const lower = resolveSessionLayout(
+      root,
+      "fixture-alias-authority",
+      "src-gen/index.ts",
+      ".genes/state-a",
+    );
+    const upper = resolveSessionLayout(
+      root,
+      "fixture-alias-authority",
+      "SRC-GEN/index.ts",
+      ".genes/state-b",
+    );
+    assert.equal(lower.sessionLockRelative, upper.sessionLockRelative);
+    assert.equal(lower.transactionRelative, upper.transactionRelative);
+    assert.equal(lower.generationMarkerRelative, upper.generationMarkerRelative);
+    assert.equal(sessionProjectDigest(lower), sessionProjectDigest(upper));
+    assert.equal(
+      admissionDigest(lower, "a".repeat(64), { fixture: "alias" }),
+      admissionDigest(upper, "a".repeat(64), { fixture: "alias" }),
+    );
+
+    const lock = acquireSessionLock(lower);
+    try {
+      assert.throws(() => acquireSessionLock(upper), /already owns/u);
+    } finally {
+      lock.release();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 for (const checkpoint of [
   "after-journal-prepared",
   "after-publish:src-gen/index.ts",
@@ -1097,6 +1210,100 @@ for (const checkpoint of [
 ] as const) {
   const root = realpathSync.native(
     mkdtempSync(path.join(os.tmpdir(), "genes-session-state-recovery-")),
+  );
+  try {
+    const caseProbe = path.join(root, "case-probe");
+    mkdirSync(caseProbe);
+    const caseInsensitive = existsSync(path.join(root, "CASE-PROBE"));
+    rmSync(caseProbe, { recursive: true, force: true });
+    mkdirSync(path.join(root, "src"));
+    writeFileSync(path.join(root, "src/Main.hx"), "class Main {}\n", "utf8");
+    writeFileSync(
+      path.join(root, "build.hxml"),
+      "-cp src\n-main Main\n-js ignored.js\n",
+      "utf8",
+    );
+    const fixture = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "session-crash-fixture.js",
+    );
+    const crashed = spawnSync(process.execPath, [fixture], {
+      cwd: root,
+      env: {
+        ...process.env,
+        GENES_SESSION_CRASH_ROOT: root,
+        GENES_SESSION_CRASH_STATE: ".genes/state-a",
+        GENES_SESSION_CRASH_OUTPUT: "src-gen/index.ts",
+        GENES_SESSION_CRASH_CONTENT: "export const fromA = true;\n",
+        GENES_SESSION_CRASH_AT: checkpoint,
+      },
+      encoding: "utf8",
+    });
+    assert.equal(
+      crashed.status,
+      73,
+      `session crash fixture failed at ${checkpoint}: ${crashed.stdout}\n${crashed.stderr}`,
+    );
+    const layoutA = resolveSessionLayout(
+      root,
+      "fixture-alternate-state-recovery",
+      "src-gen/index.ts",
+      ".genes/state-a",
+    );
+    const restartOutput = caseInsensitive
+      ? "SRC-GEN/index.ts"
+      : "src-gen/index.ts";
+    const layoutB = resolveSessionLayout(
+      root,
+      "fixture-alternate-state-recovery",
+      restartOutput,
+      ".genes/state-b",
+    );
+    assert.equal(layoutA.transactionRelative, layoutB.transactionRelative);
+    assert.equal(
+      layoutA.generationMarkerRelative,
+      layoutB.generationMarkerRelative,
+    );
+    assert.notEqual(layoutA.candidatesRelative, layoutB.candidatesRelative);
+    assert.notEqual(layoutA.serverLeaseRelative, layoutB.serverLeaseRelative);
+
+    const recovered = spawnSync(process.execPath, [fixture], {
+      cwd: root,
+      env: {
+        ...process.env,
+        GENES_SESSION_CRASH_ROOT: root,
+        GENES_SESSION_CRASH_STATE: ".genes/state-b",
+        GENES_SESSION_CRASH_OUTPUT: restartOutput,
+        GENES_SESSION_CRASH_CONTENT: "export const fromB = true;\n",
+      },
+      encoding: "utf8",
+    });
+    assert.equal(
+      recovered.status,
+      0,
+      `alternate-state recovery failed at ${checkpoint}: ${recovered.stdout}\n${recovered.stderr}`,
+    );
+    assert.equal(
+      readFileSync(path.join(root, ...restartOutput.split("/")), "utf8"),
+      "export const fromB = true;\n",
+    );
+    const transactionRoot = path.join(
+      root,
+      ...layoutA.transactionRelative.split("/"),
+    );
+    assert.deepEqual(
+      existsSync(transactionRoot) ? readdirSync(transactionRoot) : [],
+      [],
+      "alternate private state must recover and remove the original journal",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+{
+  const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-alias-recovery-")),
   );
   try {
     mkdirSync(path.join(root, "src"));
@@ -1116,63 +1323,39 @@ for (const checkpoint of [
         ...process.env,
         GENES_SESSION_CRASH_ROOT: root,
         GENES_SESSION_CRASH_STATE: ".genes/state-a",
-        GENES_SESSION_CRASH_CONTENT: "export const fromA = true;\n",
-        GENES_SESSION_CRASH_AT: checkpoint,
+        GENES_SESSION_CRASH_OUTPUT: "src-gen/index.ts",
+        GENES_SESSION_CRASH_AT: "after-journal-prepared",
       },
       encoding: "utf8",
     });
-    assert.equal(
-      crashed.status,
-      73,
-      `session crash fixture failed at ${checkpoint}: ${crashed.stdout}\n${crashed.stderr}`,
-    );
-    const layoutA = resolveSessionLayout(
+    assert.equal(crashed.status, 73, crashed.stderr);
+    const original = resolveSessionLayout(
       root,
       "fixture-alternate-state-recovery",
       "src-gen/index.ts",
       ".genes/state-a",
     );
-    const layoutB = resolveSessionLayout(
+    const alias = resolveSessionLayout(
       root,
       "fixture-alternate-state-recovery",
-      "src-gen/index.ts",
+      "SRC-GEN/index.ts",
       ".genes/state-b",
     );
-    assert.equal(layoutA.transactionRelative, layoutB.transactionRelative);
-    assert.equal(
-      layoutA.generationMarkerRelative,
-      layoutB.generationMarkerRelative,
-    );
-    assert.notEqual(layoutA.candidatesRelative, layoutB.candidatesRelative);
-    assert.notEqual(layoutA.serverLeaseRelative, layoutB.serverLeaseRelative);
-
-    const recovered = spawnSync(process.execPath, [fixture], {
-      cwd: root,
-      env: {
-        ...process.env,
-        GENES_SESSION_CRASH_ROOT: root,
-        GENES_SESSION_CRASH_STATE: ".genes/state-b",
-        GENES_SESSION_CRASH_CONTENT: "export const fromB = true;\n",
-      },
-      encoding: "utf8",
+    assert.equal(original.transactionRelative, alias.transactionRelative);
+    await recoverArtifacts({
+      projectRoot: root,
+      transactionRoot: alias.transactionRelative,
+      projectIdentity: sessionProjectDigest(alias),
+      admitIntended: async () => true,
     });
-    assert.equal(
-      recovered.status,
-      0,
-      `alternate-state recovery failed at ${checkpoint}: ${recovered.stdout}\n${recovered.stderr}`,
-    );
-    assert.equal(
-      readFileSync(path.join(root, "src-gen/index.ts"), "utf8"),
-      "export const fromB = true;\n",
-    );
     const transactionRoot = path.join(
       root,
-      ...layoutA.transactionRelative.split("/"),
+      ...original.transactionRelative.split("/"),
     );
     assert.deepEqual(
       existsSync(transactionRoot) ? readdirSync(transactionRoot) : [],
       [],
-      "alternate private state must recover and remove the original journal",
+      "an alias restart must discover and resolve the original journal",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -1194,6 +1377,28 @@ for (const checkpoint of [
         ),
       /must not overlap/u,
       "private state must never live below the public generated tree",
+    );
+    assert.throws(
+      () =>
+        resolveSessionLayout(
+          root,
+          "invalid-portable-alias-overlap",
+          "src-gen/index.ts",
+          "SRC-GEN/.genes",
+        ),
+      /must not overlap/u,
+      "portable aliases of the generated tree must not contain private state",
+    );
+    assert.throws(
+      () =>
+        resolveSessionLayout(
+          root,
+          "invalid-normalization-alias",
+          "src-ge\u0301n/index.ts",
+          ".genes/dev-normalization",
+        ),
+      /path-escape/u,
+      "non-NFC output spellings must fail before they can create another authority scope",
     );
     assert.throws(
       () =>
