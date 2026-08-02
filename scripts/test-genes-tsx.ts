@@ -1097,6 +1097,8 @@ const dualTsxSource = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/react/out/dual-tsx/src-gen/DualJsxMain.tsx"),
   "utf8"
 );
+strictEqual(dualTsxSource.includes("data-planning-only"), false,
+  "a compiler-internal HXX field reached source output");
 ok(dualTsxSource.includes("<main {...rootProps}>"));
 ok(dualTsxSource.includes(
   "const tree1: JSX.Element = <main {...rootProps}><h1>{heading}</h1>{fragment}</main>"
@@ -1341,6 +1343,8 @@ const dualJsxSource = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/react/out/dual-jsx/DualJsxMain.jsx"),
   "utf8"
 );
+strictEqual(dualJsxSource.includes("data-planning-only"), false,
+  "a compiler-internal HXX field reached type-erased source JSX");
 ok(dualJsxSource.includes("<main {...rootProps}>"));
 ok(dualJsxSource.includes(
   "const tree1 = <main {...rootProps}><h1>{heading}</h1>{fragment}</main>"

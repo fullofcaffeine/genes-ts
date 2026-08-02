@@ -577,21 +577,22 @@ class JsxCapabilityPolicy {
  * migration code—may lift marker containers into locals. Their field values
  * must then be read, not inlined and evaluated a second time.
  *
- * How: `build` performs four deterministic typed-AST passes. The first
- * inventories declarations, initializers, and every traversed local occurrence
- * by stable `TVar.id`; the second validates markers, records permitted carrier
- * paths, and freezes capability facts. The third rejects extra carrier use and
- * admits an ordinary props projection only through exact use and shape
- * accounting. The fourth records the separate exact HXX nested-child rewrites
- * for source JSX. `intentForCall` is reused during printing, but performs no
- * target choice. Invalid marker shapes or ownership violations fail with
- * stable IDs and their original Haxe source position.
+ * How: `build` first records the exact expression surface available to
+ * implementation emitters, then inventories declarations, initializers, and
+ * every traversed local occurrence by stable `TVar.id`. Later passes validate
+ * markers, record permitted carrier paths, reject extra carrier use, admit an
+ * ordinary props projection only through exact use, shape, and output-surface
+ * accounting, and plan the separate exact HXX nested-child rewrites for source
+ * JSX. `intentForCall` is reused during printing, but performs no target
+ * choice. Invalid marker shapes or ownership violations fail with stable IDs
+ * and their original Haxe source position.
  */
 class JsxPlan {
   final localInitializers: Map<Int, TypedExpr> = [];
   final localUseInventory: Map<Int, JsxLocalUseInventory> = [];
   final sourcePropsCandidates: Array<JsxSourcePropsCandidate> = [];
   final sourcePropsFacts: Array<JsxSourcePropsFact> = [];
+  final implementationExpressions = new ObjectMap<TypedExpr, Bool>();
   final sourceInlineFacts: Array<JsxSourceInlineFact> = [];
   final sourceInlineByChildId: Map<Int, JsxSourceInlineFact> = [];
   final sourceInlineByDeclaration = new ObjectMap<TypedExpr,
@@ -692,6 +693,8 @@ class JsxPlan {
   public static function build(module: Module): JsxPlan {
     final plan = new JsxPlan();
     var checker: Null<JsxTypeChecker> = null;
+    plan.visitImplementationExpressions(module,
+      expression -> plan.implementationExpressions.set(expression, true));
     plan.visitModuleExpressions(module, expression -> {
       switch expression.expr {
         case TVar(variable, initializer) if (initializer != null):
@@ -953,6 +956,11 @@ class JsxPlan {
     // same candidate again through each wrapper.
     if (marker != expression)
       return;
+    // Compiler-internal fields remain available to JSX validation but no
+    // implementation emitter visits them. Requiring one of their candidates
+    // to be consumed would reject a valid module at emitter finalization.
+    if (!implementationExpressions.exists(marker))
+      return;
     final arguments = switch marker.expr {
       case TCall(callee, found) if (markerKind(callee) == HxxElementMarker):
         found;
@@ -1007,6 +1015,10 @@ class JsxPlan {
       final declaration = inventory.declarations[0];
       final initializer = declaration.initializer;
       if (initializer == null)
+        continue;
+      if (!implementationExpressions.exists(declaration.declaration)
+        || !implementationExpressions.exists(initializer)
+        || !implementationExpressions.exists(candidate.rootOccurrence))
         continue;
       switch initializer.expr {
         case TObjectDecl(_):
@@ -1386,21 +1398,7 @@ class JsxPlan {
       visitScopes(root, MemberRootOwner(root), rootOrdinal, {value: 0});
     }
 
-    for (member in module.members) {
-      if (!Module.memberProjection(member).emitImplementation)
-        continue;
-      switch member {
-        case MClass(owner, _, fields):
-          for (field in Module.emittableFields(fields))
-            if (field.expr != null)
-              visitRoot(field.expr);
-          if (owner.init != null)
-            visitRoot(owner.init);
-        case MMain(expression):
-          visitRoot(expression);
-        case MEnum(_, _) | MType(_, _):
-      }
-    }
+    visitImplementationRoots(module, visitRoot);
   }
 
   /** Plans candidates whose declaration and sole parent use share one block. */
@@ -1852,6 +1850,45 @@ class JsxPlan {
         case MMain(expression):
           walk(expression);
         default:
+      }
+    }
+  }
+
+  /** Visits the exact expression surface available to implementation emitters. */
+  function visitImplementationExpressions(module: Module,
+      visit: TypedExpr->Void): Void {
+    function walk(expression: TypedExpr): Void {
+      if (expression == null)
+        return;
+      visit(expression);
+      expression.iter(walk);
+    }
+    visitImplementationRoots(module, walk);
+  }
+
+  /**
+   * Shares one implementation-root projection with all source-only JSX plans.
+   *
+   * Compiler-internal fields remain in `Module.members` for semantic analysis,
+   * but `Module.emittableFields` removes them before either implementation
+   * emitter runs. A source-only fact that requires occurrence accounting must
+   * therefore begin from these roots rather than the broader semantic tree.
+   */
+  function visitImplementationRoots(module: Module,
+      visitRoot: TypedExpr->Void): Void {
+    for (member in module.members) {
+      if (!Module.memberProjection(member).emitImplementation)
+        continue;
+      switch member {
+        case MClass(owner, _, fields):
+          for (field in Module.emittableFields(fields))
+            if (field.expr != null)
+              visitRoot(field.expr);
+          if (owner.init != null)
+            visitRoot(owner.init);
+        case MMain(expression):
+          visitRoot(expression);
+        case MEnum(_, _) | MType(_, _):
       }
     }
   }

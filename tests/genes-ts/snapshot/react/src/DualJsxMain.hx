@@ -96,6 +96,30 @@ typedef OptionalSpreadChildListProps = {
 class DualJsxMain {
   static var propEvaluations = 0;
 
+  /**
+   * Keeps one valid HXX shape available for planning without publishing it.
+   *
+   * Compiler-internal fields survive Haxe typing so semantic plans may inspect
+   * them, but `Module.emittableFields` removes them from every implementation
+   * emitter. Source-props accounting must therefore never require an emitter
+   * to consume this declaration or marker.
+  */
+  @:keep
+  @:genes.compilerInternal
+  static function planningOnlyHxx(): Element {
+    final planningOnlyProps = {
+      __genesJsxPropName: "data-planning-only",
+      __genesJsxPropValue: "hidden",
+      __genesJsxPropNext: {
+        __genesJsxPropsEnd: true
+      }
+    };
+    return HxxTestMarkers.root("div", planningOnlyProps, {
+      __genesJsxChildValue: "hidden",
+      __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+    });
+  }
+
   static function syncFormAction(data: PreciseFormData): Void {
     data.has("title");
   }
