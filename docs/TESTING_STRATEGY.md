@@ -681,11 +681,31 @@ observer can advance the claim, while evidence-owner records point back to the
 existing executable commands and files.
 
 `yarn test:agent-test-routing` validates the map and runs deliberate red
-controls for missing and duplicate stable IDs plus dead command and file
-owners. Every partial or gap row names a live Bead. Every row retains a focused
-owner because a flagship application is broad integration evidence, not the
-lowest faithful observer for compiler edge cases, diagnostics, source maps,
-transactions, or lifecycle failures.
+controls for deleted, missing, and duplicate stable IDs; dead command and file
+owners; and invalid application dispositions. A disposition explains who owns
+the part that Todoapp does not currently prove:
+
+- `planned` names an open or in-progress Bead for useful application work that
+  still needs to land;
+- `focused-only` names the exact focused fixture that deliberately owns the
+  remaining edge cases after Todoapp has exercised a representative case; and
+- `not-applicable` says the Todoapp is the wrong observer for the contract,
+  names its focused owner, and carries no application-profile evidence.
+
+Every disposition includes a plain-language reason and the event that would
+justify revisiting it. Rows that are complete for every applicable observer do
+not need one. The required feature-ID inventory lives in the validator rather
+than in the manifest it checks, so deleting a row cannot also delete the test's
+expectation. Every row retains a focused owner because a flagship application
+is broad integration evidence, not the lowest faithful observer for compiler
+edge cases, diagnostics, source maps, transactions, or lifecycle failures.
+
+Do not add a `Map`, dynamic import, module directive, deliberate name
+collision, reflection call, or another construct merely to turn a coverage
+cell green. Add application evidence when a real Todo workflow needs that
+behavior. Otherwise keep the smaller focused fixture as the authoritative
+test. `not-applicable` is scoped only to this application observer; it never
+means that Genes does not support the feature.
 
 The manifest validator ties claims to observers rather than tier labels alone.
 Classic and TypeScript runtime claims require their matching runtime commands;
