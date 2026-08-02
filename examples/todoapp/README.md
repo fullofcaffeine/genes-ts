@@ -103,7 +103,15 @@ while allowing both build commands to start from a fresh checkout.
 - authored TS → generated Haxe module imports;
 - strict generated TS and classic `.d.ts` consumers on TS 5.5, 6, and 7;
 - absence of unsafe user-module types at the checked boundaries;
+- an All/Open/Completed list filter backed by an ordinary Haxe enum and
+  exhaustive switch; and
 - exact same API and Playwright journeys against both runtime profiles.
+
+The filter is a deliberately bounded application example. Its manually
+authored browser truth table proves that one closed domain value and ordinary
+switch produce the same visible result through TSX and direct classic ESM. It
+does not replace the focused fixtures for generic classes, payload enums,
+exception/finally completion, or adversarial evaluation order.
 
 `examples/profiles.json` owns the repository-wide example inventory and the
 structured build/runtime/browser command for each profile. The aggregate

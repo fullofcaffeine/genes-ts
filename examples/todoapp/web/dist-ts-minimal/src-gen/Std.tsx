@@ -12,4 +12,6 @@ export class Std {
 	}
 }
 ;{
+	String.__name__ = true;
+	Array.__name__ = true;
 }

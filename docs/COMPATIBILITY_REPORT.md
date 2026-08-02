@@ -122,7 +122,7 @@ Each row is an independent claim boundary. A green gate may cover several rows, 
 | Snapshot stability | genes-ts snapshot profiles | 8 | `blocking` |
 | Snapshot stability | ts2hx reviewed snapshot files | 50 | `blocking` |
 | Runtime smoke and E2E | Same-source dual-profile examples | 2 | `blocking` |
-| Runtime smoke and E2E | Todoapp browser journeys run in each profile | 3 | `blocking` |
+| Runtime smoke and E2E | Todoapp browser journeys run in each profile | 4 | `blocking` |
 | Runtime smoke and E2E | Reviewed active official Haxe test identities | 5 | `blocking` |
 | Runtime smoke and E2E | Independently executed Genes profiles | 2 | `blocking` |
 | Runtime smoke and E2E | Hash-pinned local harness adaptation files | 4 | `blocking` |
@@ -250,7 +250,7 @@ Named application journeys execute in selected profiles; smoke success is not ge
 
 - Disposition: `blocking`
 - Scope: The minimal example and fullstack todoapp compile from one Haxe source tree through TS and classic ESM profiles.
-- Proves: Both outputs build and execute the same selected application workflows, including validation, CRUD, navigation, and deep links.
+- Proves: Both outputs build and execute the same selected application workflows, including status filtering, validation, CRUD, navigation, and deep links.
 - Does not prove: Two green examples do not imply whole-ecosystem or framework-independent parity.
 - Evidence:
   - [`examples/profiles.json`](../examples/profiles.json)
