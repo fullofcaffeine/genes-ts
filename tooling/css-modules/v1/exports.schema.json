@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/fullofcaffeine/genes-ts/blob/main/tooling/css-modules/v1/exports.schema.json",
+  "title": "Genes CSS Module export manifest",
+  "description": "Exact CSS class names and freshness facts produced by a host-selected CSS Modules processor.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "version", "namingPolicy", "binding", "source", "producer", "exports"],
+  "properties": {
+    "protocol": { "const": "genes.css-module-exports" },
+    "version": { "const": 1 },
+    "namingPolicy": { "const": "genes-haxe-css-fields-v1" },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["haxeOwner", "generatedModule", "request", "hostModulePath", "companionType"],
+      "properties": {
+        "haxeOwner": { "type": "string", "minLength": 1, "maxLength": 16384 },
+        "generatedModule": { "$ref": "#/$defs/portablePath" },
+        "request": { "type": "string", "pattern": "^\\.\\.?/[^\\\\?#\\u0000-\\u001f\\u007f]+\\.module\\.css$" },
+        "hostModulePath": { "$ref": "#/$defs/portablePath" },
+        "companionType": { "type": "string", "minLength": 3, "maxLength": 16384 }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entry", "inputs"],
+      "properties": {
+        "entry": { "$ref": "#/$defs/portablePath" },
+        "inputs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "sha256"],
+            "properties": {
+              "path": { "$ref": "#/$defs/portablePath" },
+              "sha256": { "$ref": "#/$defs/sha256" }
+            }
+          }
+        }
+      }
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["providerId", "providerVersion", "processorId", "processorVersion", "processorIntegrity", "configurationSha256"],
+      "properties": {
+        "providerId": { "type": "string", "minLength": 1, "maxLength": 16384 },
+        "providerVersion": { "type": "string", "minLength": 1, "maxLength": 16384 },
+        "processorId": { "type": "string", "minLength": 1, "maxLength": 16384 },
+        "processorVersion": { "type": "string", "minLength": 1, "maxLength": 16384 },
+        "processorIntegrity": { "type": "string", "maxLength": 16384, "pattern": "^sha(?:256|384|512)-[A-Za-z0-9+/]+={0,2}$" },
+        "configurationSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "exports": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "source"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 16384, "pattern": "^[ -~]+$" },
+          "source": { "$ref": "#/$defs/location" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "portablePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 16384,
+      "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^/]+(?:/[^/]+)*$"
+    },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "line", "column"],
+      "properties": {
+        "path": { "$ref": "#/$defs/portablePath" },
+        "line": { "type": "integer", "minimum": 1 },
+        "column": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

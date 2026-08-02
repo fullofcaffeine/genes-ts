@@ -1,0 +1,11 @@
+.card {
+  border: 1px solid currentColor;
+}
+
+.title {
+  font-weight: 700;
+}
+
+.error-state {
+  opacity: 0.7;
+}

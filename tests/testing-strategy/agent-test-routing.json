@@ -27,7 +27,7 @@
       "kind": "product",
       "owner": "Classic emitter and shared Haxe runtime owners",
       "claim": "Ordinary Haxe programs in the reviewed corpus compile to split ESM JavaScript and preserve the exercised Haxe runtime behavior.",
-      "gateIds": ["classic-core", "dual-output-semantics", "portable-haxe-smoke", "acceptance", "full-ci"],
+      "gateIds": ["classic-core", "css-module-companions", "dual-output-semantics", "portable-haxe-smoke", "acceptance", "full-ci"],
       "evidenceBucketIds": ["compiler-output-inventory", "runtime-semantic-differentials", "official-haxe-dual-profile-smoke"],
       "exampleIds": ["todoapp", "typescript-target"],
       "claimCeiling": "The checked compiler and example corpora; not arbitrary Haxe ecosystem compatibility.",
@@ -40,7 +40,7 @@
       "kind": "product",
       "owner": "TypeScript emitter and TypeScript semantic plans",
       "claim": "The reviewed Haxe corpus emits strict, executable TypeScript with the asserted public and runtime semantics.",
-      "gateIds": ["typescript-full", "dual-output-semantics", "portable-haxe-smoke", "source-maps", "acceptance", "full-ci"],
+      "gateIds": ["typescript-full", "css-module-companions", "dual-output-semantics", "portable-haxe-smoke", "source-maps", "acceptance", "full-ci"],
       "evidenceBucketIds": ["compiler-output-inventory", "public-type-safety", "runtime-semantic-differentials", "official-haxe-dual-profile-smoke"],
       "exampleIds": ["todoapp", "typescript-target"],
       "claimCeiling": "The checked TypeScript 5/6/7 contracts and fixtures; not all possible Haxe or TypeScript programs.",
@@ -53,7 +53,7 @@
       "kind": "product",
       "owner": "Declaration reachability, type emitters, and package/import plans",
       "claim": "Reviewed classic declarations and package-shaped imports retain precise, consumable public contracts.",
-      "gateIds": ["classic-declarations", "package-imports", "binding-identity", "acceptance", "full-ci"],
+      "gateIds": ["classic-declarations", "css-module-companions", "package-imports", "binding-identity", "acceptance", "full-ci"],
       "evidenceBucketIds": ["public-type-safety", "npm-package-shapes"],
       "exampleIds": ["todoapp"],
       "claimCeiling": "The checked declaration consumers and package fixtures; runtime success alone cannot advance this claim.",
@@ -92,7 +92,7 @@
       "kind": "product",
       "owner": "The optional Node tooling package",
       "claim": "The reviewed host lifecycle and publication primitives work through their protocol, runtime, clean-consumer, and transaction tests.",
-      "gateIds": ["host-tooling", "full-ci"],
+      "gateIds": ["host-tooling", "css-module-companions", "full-ci"],
       "evidenceBucketIds": [],
       "exampleIds": [],
       "claimCeiling": "Framework-neutral primitives only; no framework-specific watcher or deployment policy is implied.",
@@ -500,6 +500,78 @@
       "command": "yarn test:dual-output",
       "artifacts": [
         ".tmp/test-evidence/test-plan/dual-output-semantics.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "css-module-companions",
+      "packageScript": "test:css-module-companions",
+      "runnerTokens": [
+        "npm ci --prefix tests/css-module-companions/provider --ignore-scripts",
+        "node tests/css-module-companions/run.mjs"
+      ],
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "package-shape",
+        "determinism"
+      ],
+      "ownerPaths": [
+        "src/genes/css",
+        "src/genes/ts/Imports.hx",
+        "tooling/src/css-modules",
+        "tooling/css-modules",
+        "tests/css-module-companions",
+        "docs/CSS_MODULES.md"
+      ],
+      "proves": "A processor-owned exact class list becomes a deterministic closed Haxe companion, both Genes profiles emit one ordinary CSS import, strict TypeScript keeps the public shape closed, and a real loader observes the reviewed runtime keys.",
+      "doesNotProve": "This one-shot framework-neutral tracer does not prove automatic processor discovery, warm publication, editor navigation, or any framework's CSS placement and development-server behavior.",
+      "owners": [
+        "src/genes/css",
+        "src/genes/ts/Imports.hx",
+        "tooling/src/css-modules",
+        "tooling/css-modules",
+        "tests/css-module-companions",
+        "docs/CSS_MODULES.md"
+      ],
+      "families": [
+        "compiler",
+        "tooling",
+        "generated-output",
+        "typescript",
+        "runtime",
+        "package"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "package-shape",
+        "determinism"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 300,
+      "historicalDurationMs": null,
+      "cacheMode": "required-clean",
+      "command": "yarn test:css-module-companions",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/css-module-companions.log"
       ],
       "remoteJobs": [
         "genes-ts"
@@ -3108,6 +3180,10 @@
         {
           "gate": "package-imports",
           "when": "package exports, subpaths, CommonJS, externs, or dts2hx ingestion changes"
+        },
+        {
+          "gate": "css-module-companions",
+          "when": "closed CSS Module manifests, generated companions, typed CSS imports, or real loader agreement changes"
         }
       ],
       "inspect": [
@@ -3519,6 +3595,28 @@
     ]
   },
   "impactRules": [
+    {
+      "id": "css-module-companions",
+      "patterns": [
+        "src/genes/css/**",
+        "src/genes/ts/Imports.hx",
+        "tooling/src/css-modules/**",
+        "tooling/css-modules/**",
+        "tests/css-module-companions/**",
+        "docs/CSS_MODULES.md"
+      ],
+      "selects": [
+        "css-module-companions"
+      ],
+      "affectedSurfaceIds": [
+        "classic-js-runtime",
+        "typescript-source-runtime",
+        "declarations-packages",
+        "host-tooling"
+      ],
+      "reason": "Closed CSS Module changes require the exact processor manifest, generated Haxe type, both output profiles, strict target check, and real loader tracer together.",
+      "expansion": "affected"
+    },
     {
       "id": "host-tooling",
       "patterns": [

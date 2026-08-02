@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "consumer/closed-type.ts",
+    "out/dts/**/*.d.ts"
+  ]
+}
