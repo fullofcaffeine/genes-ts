@@ -229,10 +229,66 @@ async function bundleAndRun(profile, entry) {
 async function main() {
   rmSync(path.join(fixtureRoot, "generated"), { recursive: true, force: true });
   rmSync(path.join(fixtureRoot, "out"), { recursive: true, force: true });
+  const manifest = await makeManifest();
   const companion = generateCssModuleCompanion({
     projectRoot: fixtureRoot,
-    manifest: await makeManifest(),
+    manifest,
   });
+
+  const packageLess = generateCssModuleCompanion({
+    projectRoot: fixtureRoot,
+    manifest: {
+      ...manifest,
+      binding: {
+        ...manifest.binding,
+        haxeOwner: "Main",
+        companionType: "CardStyles",
+      },
+    },
+  });
+  assert.equal(packageLess.relativePath, "CardStyles.hx");
+  assert.doesNotMatch(packageLess.content, /^package\b/mu);
+
+  const unusualPath = "out/styles*/card.module.css";
+  const unusualFile = path.join(fixtureRoot, unusualPath);
+  mkdirSync(path.dirname(unusualFile), { recursive: true });
+  writeFileSync(unusualFile, readFileSync(cssFile));
+  const unusualPathCompanion = generateCssModuleCompanion({
+    projectRoot: fixtureRoot,
+    manifest: {
+      ...manifest,
+      source: {
+        entry: unusualPath,
+        inputs: [{ path: unusualPath, sha256: sha256(readFileSync(unusualFile)) }],
+      },
+      exports: manifest.exports.map((entry) => ({
+        ...entry,
+        source: { ...entry.source, path: unusualPath },
+      })),
+    },
+  });
+  assert.doesNotMatch(unusualPathCompanion.content, /styles\*\//u);
+  assert.match(unusualPathCompanion.content, /styles\* \/card\.module\.css/u);
+
+  const runtimePrefixCompanion = generateCssModuleCompanion({
+    projectRoot: fixtureRoot,
+    manifest: {
+      ...manifest,
+      exports: [
+        { name: "__element", source: manifest.exports[0].source },
+        { name: "_hx_button", source: manifest.exports[1].source },
+      ],
+    },
+  });
+  assert.deepEqual(
+    runtimePrefixCompanion.fields.map(({ haxeName, runtimeName }) => ({ haxeName, runtimeName })),
+    [
+      { haxeName: "element", runtimeName: "__element" },
+      { haxeName: "hxButton", runtimeName: "_hx_button" },
+    ],
+  );
+  assert.match(runtimePrefixCompanion.content, /@:native\("__element"\)/u);
+  assert.match(runtimePrefixCompanion.content, /@:native\("_hx_button"\)/u);
   const companionFile = path.join(fixtureRoot, "generated", companion.relativePath);
   mkdirSync(path.dirname(companionFile), { recursive: true });
   writeFileSync(companionFile, companion.content, "utf8");
@@ -264,6 +320,9 @@ async function main() {
     "utf8",
   );
   assert.match(publicType, /"error-state": string/u);
+  assert.match(publicType, /\b__element: string/u);
+  assert.match(publicType, /\b_hx_button: string/u);
+  assert.doesNotMatch(publicType, /\bany\b/u, "runtime-looking CSS keys keep a closed public type");
   assert.doesNotMatch(publicType, /\[.*: string\]/u, "the public type has no arbitrary-key index");
 
   compileFailure("css_module_missing_field", "has no field missing");

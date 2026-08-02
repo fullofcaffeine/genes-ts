@@ -151,8 +151,17 @@ property:
 | `class` | `class_` | `["class"]` |
 | `2xl` | `css2xl` | `["2xl"]` |
 
+Keys beginning with `__` or `_hx_` also receive a friendly alias and
+`@:native`. Genes reserves those Haxe field prefixes for compiler runtime
+details; renaming only the Haxe view keeps the closed type intact while leaving
+the real JavaScript key unchanged.
+
 If two keys would become the same Haxe field, generation stops and names both
 keys. It never invents an order-dependent suffix such as `fooBar2`.
+
+Package-less Haxe projects are supported. `Main` may own a companion named
+`CardStyles`; in that case the generated file is `CardStyles.hx` and has no
+`package` line.
 
 ## Current limits
 

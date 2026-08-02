@@ -55,7 +55,9 @@ function classNames():String {
   return [
     styles.card,
     styles.title,
-    styles.errorState
+    styles.errorState,
+    styles.element,
+    styles.hxButton
   ].join("|");
 }
 ```
@@ -69,6 +71,10 @@ The processor reports the runtime key `error-state`. Tooling generates the
 friendlier Haxe field `errorState` with `@:native("error-state")`, so the source
 stays pleasant without changing the JavaScript property.
 
+Projects that keep Haxe modules at the classpath root are supported too. Such a
+project may use `Main` and `CardStyles` without inventing a package solely for
+this feature; the generated companion simply omits the `package` line.
+
 ## Actual generated TypeScript
 
 The fixture currently emits the following CSS-related implementation. The
@@ -81,7 +87,7 @@ import type {CardStyles} from "./CardStyles.js"
 
 export function classNames(): string {
   const styles: CardStyles = __genes_import_styles;
-  return [styles.card, styles.title, styles["error-state"]].join("|");
+  return [styles.card, styles.title, styles["error-state"], styles.__element, styles._hx_button].join("|");
 }
 ```
 
@@ -93,6 +99,8 @@ The generated companion's public shape is this closed TypeScript type:
 
 ```ts
 export type CardStyles = {
+  __element: string,
+  _hx_button: string,
   card: string,
   "error-state": string,
   title: string
@@ -114,7 +122,7 @@ import {Register} from "../genes/Register.js"
 
 export function classNames() {
   const styles = __genes_import_styles;
-  return [styles.card, styles.title, styles["error-state"]].join("|");
+  return [styles.card, styles.title, styles["error-state"], styles.__element, styles._hx_button].join("|");
 }
 ```
 
@@ -159,6 +167,11 @@ Examples of early failures include:
 
 Each compiler-side error points into the authored Haxe call or field access.
 Tooling failures name the manifest or source fact that needs repair.
+
+CSS keys beginning with `__` or `_hx_` receive a friendly Haxe alias plus
+`@:native`, just like dashed keys. Genes reserves those prefixes for internal
+Haxe runtime details, so keeping them as Haxe field names could weaken a closed
+public type. The JavaScript property itself remains unchanged.
 
 The companion metadata is a consistency check, not a security seal. A developer
 could imitate it in a hand-written typedef. The host remains responsible for

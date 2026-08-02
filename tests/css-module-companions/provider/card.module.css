@@ -9,3 +9,11 @@
 .error-state {
   opacity: 0.7;
 }
+
+.__element {
+  display: block;
+}
+
+._hx_button {
+  cursor: pointer;
+}

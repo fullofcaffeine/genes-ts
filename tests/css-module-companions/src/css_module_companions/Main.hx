@@ -13,5 +13,6 @@ import genes.css.CssModule.imported;
 @:genes.moduleFunction("classNames")
 function classNames(): String {
   final styles: CardStyles = imported("./card.module.css", "styles");
-  return [styles.card, styles.title, styles.errorState].join("|");
+  return
+    [styles.card, styles.title, styles.errorState, styles.element, styles.hxButton].join("|");
 }
