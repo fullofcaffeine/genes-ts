@@ -35,7 +35,16 @@ function strings(value: unknown, label: string, allowEmpty = false): string[] {
   return result;
 }
 
+function onlyKeys(value: JsonRecord, allowed: readonly string[], label: string): void {
+  const unknown = Object.keys(value).filter((key) => !allowed.includes(key));
+  if (unknown.length > 0) fail(`${label} has unknown field(s): ${unknown.join(", ")}`);
+}
+
 const manifest = record(JSON.parse(readFileSync(manifestPath, "utf8")), "manifest");
+onlyKeys(manifest, [
+  "schemaVersion", "contract", "statement", "profileColumns",
+  "evidenceOwners", "features"
+], "manifest");
 if (manifest.schemaVersion !== 1
   || manifest.contract !== "genes-todoapp-stable-feature-coverage")
   fail("unsupported schema or contract");
@@ -64,6 +73,10 @@ const ownerIds = Object.keys(owners);
 if (ownerIds.length === 0) fail("evidenceOwners must not be empty");
 for (const ownerId of ownerIds) {
   const owner = record(owners[ownerId], `evidenceOwners.${ownerId}`);
+  if (!/^[a-z][a-z0-9-]+$/u.test(ownerId))
+    fail(`${ownerId} must use stable kebab-case spelling`);
+  onlyKeys(owner, ["packageScripts", "arguments", "paths"],
+    `evidenceOwners.${ownerId}`);
   for (const packageScript of strings(owner.packageScripts,
     `${ownerId}.packageScripts`)) {
     if (typeof packageScripts[packageScript] !== "string")
@@ -108,6 +121,9 @@ const featureIds: string[] = [];
 const seenFamilies = new Set<string>();
 for (const [index, rawFeature] of manifest.features.entries()) {
   const feature = record(rawFeature, `features[${index}]`);
+  onlyKeys(feature, [
+    "id", "family", "claim", "coverage", "evidence", "gapBead", "notes"
+  ], `features[${index}]`);
   const id = text(feature.id, `features[${index}].id`);
   if (!/^[a-z][a-z0-9-]*\.[a-z0-9-]+$/u.test(id))
     fail(`${id} must use stable family.feature-id spelling`);
