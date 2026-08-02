@@ -261,21 +261,22 @@ landing order. The current PR may depend on a prerequisite Bead, but it is not
 complete until every blocking prerequisite and all in-contract work have
 landed and been validated together.
 
-Before implementing a slice that already appears unusually large, technically
-complex, architecturally ambiguous, or likely to run for a long time, tell the
-user and suggest an Oracle architecture review—even if an initial Bead split is
-already apparent. Give the Oracle the existing implementation plans and Bead
-graph, ask it to challenge the proposed boundaries, and request a recommended
-sequence of smaller contracts with dependencies, acceptance evidence, and stop
-criteria. A routine bounded local task that is not unusually complex or
-architecturally ambiguous does not need this ceremony.
+Before implementing genuinely critical work, suggest Oracle planning when the
+problem or safe plan remains unusually hard or materially undefined, competing
+compiler paths are consequential and difficult to reverse, or ownership and
+acceptance criteria cannot be established safely. Give Oracle the existing
+plans and Bead graph, ask it to challenge the boundaries, and request smaller
+contracts with dependencies, evidence, and stop criteria. Size, duration,
+unfamiliarity, or generic extra confidence alone do not justify escalation.
 
-For that rare manual handoff, use the globally installed `$oracle-review`
-skill. It standardizes the GPT-5.6 Pro prompt, sanitized selective or
-full-repository Repomix bundles, checked ZIP, pending-request check, and archive
-lifecycle under `/tmp/oracle`; the scope tripwires and classification rules in
-this repository remain authoritative. Public source and install instructions:
-https://github.com/fullofcaffeine/caf-skills/tree/main/skills/oracle-review
+For rare Oracle planning or review, invoke the globally installed
+`$oracle-review` skill. Let its caf-oracle facade own the request ledger, exact
+agent provenance, checked evidence bundle, dedicated browser dispatch,
+recovery, response capture, disposition, and archive; do not maintain a
+parallel `/tmp/oracle` queue or manually upload and paste when the tool is
+available. If `$show-me-your-work` is active, its trail records only the
+escalation decision, request identity/status, and reconciled outcome. The scope
+tripwires and classification rules in this repository remain authoritative.
 
 Classify each review finding before changing code:
 
