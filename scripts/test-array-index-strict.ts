@@ -10,7 +10,7 @@ const scriptRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptRoot, "../..");
 const fixtureRoot = path.join(repoRoot, "tests/array-index-strict");
 const expectedTranscript =
-  "typed|7|generic|generic-null|generic-undefined|effects-once|assigned|compound-bitwise|compound-effects-once|compound-null-coercion|null|undefined|3,5|missing|void-once|secondary-array-once|named-shift|named-pop|discarded";
+  "typed|7|generic|generic-null|generic-undefined|effects-once|assigned|compound-bitwise|compound-effects-once|compound-null-coercion|compound-nullish|compound-nested|null|undefined|3,5|missing|void-once|secondary-array-once|named-shift|named-pop|discarded";
 
 /** Runs one deterministic fixture command from the repository root. */
 function run(command: string, args: ReadonlyArray<string>): void {
@@ -91,6 +91,17 @@ ok(typescript.includes("values1[tmp]! += suffix;"),
   "nullable string compound targets retain runtime null coercion");
 ok(typescript.includes("values1[tmp]! |= bit;"),
   "nullable numeric compound targets retain runtime null coercion");
+ok(typescript.includes(
+  "return values[0] = ((values[0] ?? null) != null)"
+), "lowered nullish assignment preserves the authored nullable target");
+ok(!typescript.includes("values[0]! ??="),
+  "nullish compound targets never erase an authored null contract");
+ok(typescript.includes(
+  "const base: number[] = matrix[row]!;"
+), "nested indexed receivers retain their strict read proof");
+ok(typescript.includes(
+  "base[index]! += increment;"
+), "nested indexed receivers retain their strict read proof");
 ok(typescript.includes("values[0] = first;"));
 ok(typescript.includes("values[1] = second;"));
 ok(!typescript.includes("values[0]! ="),

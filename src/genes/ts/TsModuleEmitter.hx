@@ -2660,9 +2660,10 @@ class TsModuleEmitter extends JsModuleEmitter {
   function emitArrayAccess(e: TypedExpr, receiver: TypedExpr,
       index: TypedExpr) {
     final contract = NullishContract.forType(e.t);
-    final normalizeResult = !inAssignTarget && !contract.preservesUndefined
-      && typeAllowsNull(e.t);
-    final assertTypedResult = !inAssignTarget
+    final isAssignmentRoot = currentAssignmentTarget == e;
+    final normalizeResult = !isAssignmentRoot
+      && !contract.preservesUndefined && typeAllowsNull(e.t);
+    final assertTypedResult = !isAssignmentRoot
       && !contract.preservesUndefined && !typeAllowsNull(e.t);
     final exactGenericResult = assertTypedResult ? exactTypeParameter(e.t) : null;
     if (normalizeResult)
@@ -3080,12 +3081,12 @@ class TsModuleEmitter extends JsModuleEmitter {
         write('>(');
         emitValueWithExpectedType(null, bridge.source);
         write(')');
-      case TBinop(op = OpAssignOp(_), lhs, rhs):
+      case TBinop(op = OpAssignOp(operation), lhs, rhs):
         // A compound assignment reads its old value before writing the new
         // one. Under noUncheckedIndexedAccess, an Array<T> target therefore
         // needs the same type-only proof as an indexed read. Keep the native
         // operator so receiver and index evaluation remain exactly once.
-        emitReadModifyWriteTarget(lhs);
+        emitReadModifyWriteTarget(lhs, operation);
         writeSpace();
         writeBinop(op);
         writeSpace();
@@ -3418,20 +3419,23 @@ class TsModuleEmitter extends JsModuleEmitter {
    * Haxe-accepted compound assignment invalid in strict TypeScript.
    *
    * What/How: only an exact typed `TArray` root receives a TypeScript-only
-   * assertion. The assertion is scoped to the operator's lvalue: it emits no
-   * JavaScript and therefore preserves Haxe/JS coercion when a nullable slot
-   * actually contains `null`. Haxe's separately typed result read retains its
-   * ordinary nullable contract. Explicit `Undefinable` and `Unknown`
-   * boundaries keep their honest undefined contract, and `Dynamic` needs no
-   * checker proof. Every other target uses the existing assignment path. No
-   * branch expands the native operation, so receiver and index evaluation
-   * order and count stay unchanged.
+   * postfix assertion. Nullish assignment is the deliberate exception: its
+   * operation accepts both `null` and `undefined`, so asserting the target would
+   * incorrectly remove an authored `null` from the fallback contract. Nested
+   * indexed receivers are ordinary reads and receive their own established
+   * read proof; only the outer lvalue suppresses it. Explicit `Undefinable` and
+   * `Unknown` boundaries keep their honest undefined contract, and `Dynamic`
+   * needs no checker proof. Every other target uses the existing assignment
+   * path. No branch expands the native operation, so receiver and index
+   * evaluation order and count stay unchanged.
    */
-  function emitReadModifyWriteTarget(target: TypedExpr): Void {
+  function emitReadModifyWriteTarget(target: TypedExpr,
+      operation: Binop): Void {
     switch target.expr {
       case TArray(_, _):
         final contract = NullishContract.forType(target.t);
-        if (contract.preservesUndefined || contract.dynamicBoundary) {
+        if (operation == OpNullCoal || contract.preservesUndefined
+          || contract.dynamicBoundary) {
           emitAssignmentTarget(target);
           return;
         }

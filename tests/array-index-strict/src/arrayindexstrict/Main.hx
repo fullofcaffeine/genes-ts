@@ -74,6 +74,18 @@ class Main {
     return values[0] |= bit;
   }
 
+  /** Nullish assignment must remove only missing-index `undefined`. */
+  static function compoundNullCoal(values: Array<Null<String>>,
+      fallback: Null<String>): Null<String> {
+    return values[0] ??= fallback;
+  }
+
+  /** Every indexed receiver before the outer lvalue remains a typed read. */
+  static function compoundNested(matrix: Array<Array<Int>>, row: Int,
+      column: Int, increment: Int): Int {
+    return matrix[row][column] += increment;
+  }
+
   /**
    * Keeps Haxe's exact generic element type through TypeScript inference.
    *
@@ -120,6 +132,9 @@ class Main {
     final compoundEffectResult = compoundEffects(compoundValues, 3);
     final compoundNullableResult = compoundNullable([null], "x");
     final compoundNullableNumberResult = compoundNullableNumber([null], 1);
+    final compoundNullCoalResult = compoundNullCoal([null], "fallback");
+    final compoundNestedValues = [[5]];
+    final compoundNestedResult = compoundNested(compoundNestedValues, 0, 0, 2);
     final numbers = replace([2, 3], 3, 5);
     final namedVoid = new NamedVoidRemovals();
     namedVoid.shift();
@@ -150,6 +165,9 @@ class Main {
       && compoundIndexEffects == 1 ? "compound-effects-once" : "unexpected",
       compoundNullableResult == "nullx"
       && compoundNullableNumberResult == 1 ? "compound-null-coercion" : "unexpected",
+      compoundNullCoalResult == "fallback" ? "compound-nullish" : "unexpected",
+      compoundNestedResult == 7
+      && compoundNestedValues[0][0] == 7 ? "compound-nested" : "unexpected",
       nullable([null], 0) == null ? "null" : "unexpected",
       Undefinable.isAbsent(explicitUndefined(undefinedValues,
         0)) ? "undefined" : "unexpected",
