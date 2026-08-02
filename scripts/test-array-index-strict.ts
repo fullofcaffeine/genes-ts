@@ -10,7 +10,7 @@ const scriptRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptRoot, "../..");
 const fixtureRoot = path.join(repoRoot, "tests/array-index-strict");
 const expectedTranscript =
-  "typed|7|generic|generic-null|generic-undefined|effects-once|assigned|null|undefined|3,5|missing|void-once|secondary-array-once|named-shift|named-pop|discarded";
+  "typed|7|generic|generic-null|generic-undefined|effects-once|assigned|compound-bitwise|compound-effects-once|compound-null-coercion|null|undefined|3,5|missing|void-once|secondary-array-once|named-shift|named-pop|discarded";
 
 /** Runs one deterministic fixture command from the repository root. */
 function run(command: string, args: ReadonlyArray<string>): void {
@@ -83,6 +83,14 @@ ok(typescript.includes("return values[0] = value;"),
   "generic assignment targets remain writable and assertion-free");
 ok(!typescript.includes("(values[0] as T) = value"),
   "the exact generic read assertion is never applied to an assignment target");
+ok(typescript.includes("values1[tmp]! |= mask;"),
+  "indexed compound assignment retains the Haxe read contract");
+ok(typescript.includes("base[index]! += increment;"),
+  "compound assignment keeps one native read-modify-write operation");
+ok(typescript.includes("values1[tmp]! += suffix;"),
+  "nullable string compound targets retain runtime null coercion");
+ok(typescript.includes("values1[tmp]! |= bit;"),
+  "nullable numeric compound targets retain runtime null coercion");
 ok(typescript.includes("values[0] = first;"));
 ok(typescript.includes("values[1] = second;"));
 ok(!typescript.includes("values[0]! ="),
@@ -156,6 +164,20 @@ strictEqual(
   assertionOrigin.line,
   sourceLine(source, "return values[index];"),
   "the generic assertion preserves the authored indexed-read line"
+);
+const compoundTargetOrigin = sourceMap.originalPositionFor(
+  generatedPoint(typescript, "values1[tmp]! |=")
+);
+ok(
+  compoundTargetOrigin.source?.endsWith(
+    "src/arrayindexstrict/Main.hx"
+  ),
+  "the compound target maps back to Main.hx"
+);
+strictEqual(
+  compoundTargetOrigin.line,
+  sourceLine(source, "return values[0] |= mask;"),
+  "the compound target preserves the authored indexed-operation line"
 );
 
 process.stdout.write(

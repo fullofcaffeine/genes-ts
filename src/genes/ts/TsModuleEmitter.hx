@@ -3080,7 +3080,17 @@ class TsModuleEmitter extends JsModuleEmitter {
         write('>(');
         emitValueWithExpectedType(null, bridge.source);
         write(')');
-      case TBinop(op = OpAssign | OpAssignOp(_), lhs, rhs):
+      case TBinop(op = OpAssignOp(_), lhs, rhs):
+        // A compound assignment reads its old value before writing the new
+        // one. Under noUncheckedIndexedAccess, an Array<T> target therefore
+        // needs the same type-only proof as an indexed read. Keep the native
+        // operator so receiver and index evaluation remain exactly once.
+        emitReadModifyWriteTarget(lhs);
+        writeSpace();
+        writeBinop(op);
+        writeSpace();
+        emitValueWithExpectedType(lhs.t, rhs);
+      case TBinop(op = OpAssign, lhs, rhs):
         // Avoid optional-field `?? null` rewrites on assignment targets.
         emitAssignmentTarget(lhs);
         writeSpace();
@@ -3397,6 +3407,40 @@ class TsModuleEmitter extends JsModuleEmitter {
     emitValue(target);
     currentAssignmentTarget = previousAssignmentTarget;
     inAssignTarget = previousInAssignTarget;
+  }
+
+  /**
+   * Emits the left side of an operation that both reads and writes its value.
+   *
+   * Why: TypeScript's `noUncheckedIndexedAccess` widens `Array<T>` indexing to
+   * `T | undefined`. A plain assignment does not observe the previous slot,
+   * but `values[index] += value` does, so treating both as write-only leaves a
+   * Haxe-accepted compound assignment invalid in strict TypeScript.
+   *
+   * What/How: only an exact typed `TArray` root receives a TypeScript-only
+   * assertion. The assertion is scoped to the operator's lvalue: it emits no
+   * JavaScript and therefore preserves Haxe/JS coercion when a nullable slot
+   * actually contains `null`. Haxe's separately typed result read retains its
+   * ordinary nullable contract. Explicit `Undefinable` and `Unknown`
+   * boundaries keep their honest undefined contract, and `Dynamic` needs no
+   * checker proof. Every other target uses the existing assignment path. No
+   * branch expands the native operation, so receiver and index evaluation
+   * order and count stay unchanged.
+   */
+  function emitReadModifyWriteTarget(target: TypedExpr): Void {
+    switch target.expr {
+      case TArray(_, _):
+        final contract = NullishContract.forType(target.t);
+        if (contract.preservesUndefined || contract.dynamicBoundary) {
+          emitAssignmentTarget(target);
+          return;
+        }
+
+        emitAssignmentTarget(target);
+        write('!');
+      default:
+        emitAssignmentTarget(target);
+    }
   }
 
   /**

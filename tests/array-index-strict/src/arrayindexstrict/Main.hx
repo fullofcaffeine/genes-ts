@@ -5,6 +5,8 @@ import genes.ts.Undefinable;
 /** Same-source proof for Haxe array-read contracts under strict TypeScript. */
 class Main {
   static var genericReadEffects = 0;
+  static var compoundReceiverEffects = 0;
+  static var compoundIndexEffects = 0;
 
   static function ordinary<T>(values: Array<T>, index: Int): T {
     return values[index];
@@ -34,6 +36,42 @@ class Main {
   /** Generic assignment control: the indexed target must remain writable. */
   static function assignGeneric<T>(values: Array<T>, value: T): T {
     return values[0] = value;
+  }
+
+  /**
+   * Compound assignment is both a read and a write. TypeScript therefore
+   * needs the same strict indexed-read proof without changing the operation.
+   */
+  static function compoundBitwise(values: Array<Int>, mask: Int): Int {
+    return values[0] |= mask;
+  }
+
+  /** Side-effecting receiver used to prove compound assignment reads it once. */
+  static function effectCompoundValues(values: Array<Int>): Array<Int> {
+    compoundReceiverEffects++;
+    return values;
+  }
+
+  /** Side-effecting index used to prove compound assignment reads it once. */
+  static function effectCompoundIndex(): Int {
+    compoundIndexEffects++;
+    return 0;
+  }
+
+  static function compoundEffects(values: Array<Int>, increment: Int): Int {
+    return effectCompoundValues(values)[effectCompoundIndex()] += increment;
+  }
+
+  /** Nullable elements retain `null` as part of the read-side source type. */
+  static function compoundNullable(values: Array<Null<String>>,
+      suffix: String): String {
+    return values[0] += suffix;
+  }
+
+  /** Nullable numbers keep JavaScript's Haxe-accepted bitwise coercion. */
+  static function compoundNullableNumber(values: Array<Null<Int>>,
+      bit: Int): Int {
+    return values[0] |= bit;
   }
 
   /**
@@ -77,6 +115,11 @@ class Main {
       new InvariantValue("fallback"), true);
     final genericEffectValue = genericEffects("effect-value");
     final assignedGeneric = assignGeneric(["before"], "assigned");
+    final compoundBitwiseResult = compoundBitwise([1], 2);
+    final compoundValues = [4];
+    final compoundEffectResult = compoundEffects(compoundValues, 3);
+    final compoundNullableResult = compoundNullable([null], "x");
+    final compoundNullableNumberResult = compoundNullableNumber([null], 1);
     final numbers = replace([2, 3], 3, 5);
     final namedVoid = new NamedVoidRemovals();
     namedVoid.shift();
@@ -97,8 +140,16 @@ class Main {
       ordinary(nullableValues, 0) == null ? "generic-null" : "unexpected",
       Undefinable.isAbsent(ordinary(undefinedValues,
         0)) ? "generic-undefined" : "unexpected",
-      genericEffectValue == "effect-value" && genericReadEffects == 2 ? "effects-once" : "unexpected",
+      genericEffectValue == "effect-value"
+      && genericReadEffects == 2 ? "effects-once" : "unexpected",
       assignedGeneric,
+      compoundBitwiseResult == 3 ? "compound-bitwise" : "unexpected",
+      compoundEffectResult == 7
+      && compoundValues[0] == 7
+      && compoundReceiverEffects == 1
+      && compoundIndexEffects == 1 ? "compound-effects-once" : "unexpected",
+      compoundNullableResult == "nullx"
+      && compoundNullableNumberResult == 1 ? "compound-null-coercion" : "unexpected",
       nullable([null], 0) == null ? "null" : "unexpected",
       Undefinable.isAbsent(explicitUndefined(undefinedValues,
         0)) ? "undefined" : "unexpected",

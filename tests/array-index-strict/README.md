@@ -13,8 +13,13 @@ The proof distinguishes three Haxe contracts:
   `undefined` union.
 
 It also verifies that ordinary assignment targets are not decorated with a
-read-only TypeScript assertion and that classic/standard runtime behavior does
-not change.
+read-only TypeScript assertion, while compound assignment targets receive the
+read-side proof required by `noUncheckedIndexedAccess`. Side-effecting receiver
+and index expressions prove that this remains one native read-modify-write
+operation rather than a duplicated read and write. Classic/standard runtime
+behavior does not change. Nullable string and numeric cases also prove that the
+erased assertion does not alter Haxe/JavaScript's accepted `null` coercion; the
+separate result read still follows the ordinary nullable-array contract.
 
 The compile-time controls resolve both a lazy compiler type and a monomorphic
 compiler placeholder to the fixture's exact type parameter. Genes must return
