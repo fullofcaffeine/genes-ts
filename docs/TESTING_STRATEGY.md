@@ -271,7 +271,8 @@ yarn test:tooling-package
   before compilation, resolved library HXML receives the same option policy,
   portable output aliases share one lock/control/digest identity, alias
   input/state overlap is rejected, and an alias restart resolves the original
-  journal.
+  journal. Entry ordering, symlinked parent directories, stable-control/state
+  separation, and repeated private-path sanitization are focused regressions.
 - `session-integration-test` runs the real selected Haxe 4.3.7 compiler twice,
   proves the request-local private output override, publishes through the
   compiler's v2 ownership manifest, verifies private candidate paths stay out

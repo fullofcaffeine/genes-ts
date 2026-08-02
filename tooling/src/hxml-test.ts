@@ -113,6 +113,18 @@ async function main(): Promise<void> {
     );
     assert.equal(inventory.libraryClosureComplete, true);
 
+    const orderedFirst = write(root, "ordered-first.hxml", "");
+    const orderedSecond = write(root, "ordered-second.hxml", "");
+    const orderedInventory = await inventoryHxml({
+      entryFiles: ["ordered-second.hxml", "ordered-first.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+    });
+    assert.deepEqual(orderedInventory.entryHxmlFiles, [
+      realpathSync.native(orderedSecond),
+      realpathSync.native(orderedFirst),
+    ]);
+
     write(root, "missing-env.hxml", "-cp ${ABSENT}\n");
     await expectFailure(
       () =>
@@ -146,12 +158,64 @@ async function main(): Promise<void> {
       "unsafe-input",
     );
 
+    write(root, "library-via-link.hxml", "-lib linked-library\n");
+    mkdirSync(path.join(root, "real-library-directory"));
+    const realLibraryHxml = write(
+      root,
+      "real-library-directory/library.hxml",
+      "",
+    );
+    symlinkSync(
+      "real-library-directory",
+      path.join(root, "linked-library-directory"),
+    );
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["library-via-link.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+          resolveLibrary: () => [
+            path.join(root, "linked-library-directory/library.hxml"),
+          ],
+        }),
+      "unsafe-input",
+    );
+    const directLibraryInventory = await inventoryHxml({
+      entryFiles: ["library-via-link.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+      resolveLibrary: () => [realLibraryHxml],
+    });
+    assert.equal(
+      directLibraryInventory.hxmlFiles.includes(
+        realpathSync.native(realLibraryHxml),
+      ),
+      true,
+    );
+
     write(root, "real.hxml", "");
     symlinkSync("real.hxml", path.join(root, "linked.hxml"));
     await expectFailure(
       () =>
         inventoryHxml({
           entryFiles: ["linked.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+        }),
+      "unsafe-input",
+    );
+
+    mkdirSync(path.join(root, "real-entry-directory"));
+    write(root, "real-entry-directory/build.hxml", "");
+    symlinkSync(
+      "real-entry-directory",
+      path.join(root, "linked-entry-directory"),
+    );
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["linked-entry-directory/build.hxml"],
           workingDirectory: root,
           allowedRoots: [root],
         }),

@@ -140,15 +140,21 @@ export function resolveSessionLayout(
   if (portableOverlap(publicOutputRootRelative ?? "", stateRelative)) {
     throw new Error("stateDirectory and public output root must not overlap");
   }
+  const stableControlDirectory = ".genes/tooling";
+  if (portableOverlap(stableControlDirectory, stateRelative)) {
+    throw new Error(
+      "stateDirectory and stable session-control directory must not overlap",
+    );
+  }
   ensureDirectoryNoFollow(projectRoot, stateRelative, 0o700);
   const candidatesRelative = `${stateRelative}/candidates`;
   ensureDirectoryNoFollow(projectRoot, candidatesRelative, 0o700);
-  const lockDirectory = ".genes/tooling/session-locks";
+  const lockDirectory = `${stableControlDirectory}/session-locks`;
   ensureDirectoryNoFollow(projectRoot, lockDirectory, 0o700);
   const lockScope = createHash("sha256")
     .update(publicOutputAuthority)
     .digest("hex");
-  const publicationControlDirectory = `.genes/tooling/session-publications/${lockScope}`;
+  const publicationControlDirectory = `${stableControlDirectory}/session-publications/${lockScope}`;
   ensureDirectoryNoFollow(projectRoot, publicationControlDirectory, 0o700);
   const publicationControlRoot = path.join(
     projectRoot,

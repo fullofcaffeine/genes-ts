@@ -252,7 +252,9 @@ restarting the command.
   must be inside `projectRoot` and must not contain private state,
   publication-control, or generated-output scopes. This keeps watch/event
   paths project-relative in v1. The lower-level inventory API may use broader
-  `allowedRoots` independently.
+  `allowedRoots` independently. Entry order is retained exactly for invocation
+  checks, and symlinked entry or library-HXML path components fail before
+  canonicalization.
 - The session adds the request-local `-D genes.output=<private entry>` itself.
   It rejects caller-provided `--connect`, server-listen, `genes.output`,
   `--next`, and `--each` flags because two lifecycle owners or several output
@@ -282,7 +284,9 @@ restarting the command.
   The scope uses the same NFC-normalized, case-folded identity as artifact
   publication, so portable aliases such as `src-gen` and `SRC-GEN` cannot
   create separate locks, journals, or accepted markers. Non-NFC paths remain
-  invalid portable paths and fail before authority is created.
+  invalid portable paths and fail before authority is created. Caller-selected
+  private state may not contain or equal `.genes/tooling`, which owns those
+  stable locks and recovery records.
   Haxe server leases and artifact locks are also exact; tooling never adopts
   or kills an unowned process.
 - HXML graph replacement is registration-gap safe: tooling confirms the

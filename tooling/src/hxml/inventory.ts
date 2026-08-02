@@ -300,7 +300,7 @@ export async function inventoryHxml(
   }
 
   const hxmlFiles = new Set<string>();
-  const entryHxmlFiles = new Set<string>();
+  const entryHxmlFiles: string[] = [];
   const classPaths = new Set<string>();
   const resources = new Set<string>();
   const libraries: HxmlLibrary[] = [];
@@ -313,13 +313,13 @@ export async function inventoryHxml(
     candidate: string,
     initialDirectory: string,
     subject: string,
-  ): Promise<void> => {
+  ): Promise<string> => {
     throwIfAborted(options.signal);
     assertNoSymlinkComponents(allowedRoots, candidate, subject);
     const file = canonicalFile(candidate, subject);
     assertAllowed(allowedRoots, file, subject);
     if (hxmlFiles.has(file)) {
-      return;
+      return file;
     }
     hxmlFiles.add(file);
     if (hxmlFiles.size > maxHxmlFiles) {
@@ -443,13 +443,9 @@ export async function inventoryHxml(
                 `${file}:library:${request.request}[${resolvedIndex}]`,
               );
             }
-            const canonicalResolved = canonicalFile(
-              resolvedFile,
-              `${file}:library:${request.request}[${resolvedIndex}]`,
-            );
             await collect(
-              canonicalResolved,
-              path.dirname(canonicalResolved),
+              resolvedFile,
+              path.dirname(resolvedFile),
               `${file}:library:${request.request}[${resolvedIndex}]`,
             );
           }
@@ -465,6 +461,7 @@ export async function inventoryHxml(
         await collect(nested, cwd, `${file}:nested:${argument}`);
       }
     }
+    return file;
   };
 
   for (const [index, entry] of options.entryFiles.entries()) {
@@ -472,9 +469,12 @@ export async function inventoryHxml(
       workingDirectory,
       expanded(entry, options.environment, `entryFiles[${index}]`),
     );
-    const canonicalEntry = canonicalFile(candidate, `entryFiles[${index}]`);
-    entryHxmlFiles.add(canonicalEntry);
-    await collect(canonicalEntry, workingDirectory, `entryFiles[${index}]`);
+    const canonicalEntry = await collect(
+      candidate,
+      workingDirectory,
+      `entryFiles[${index}]`,
+    );
+    entryHxmlFiles.push(canonicalEntry);
   }
 
   libraries.sort((left, right) =>
@@ -484,7 +484,7 @@ export async function inventoryHxml(
   );
   return Object.freeze({
     libraryClosureComplete,
-    entryHxmlFiles: Object.freeze(bytewise(entryHxmlFiles)),
+    entryHxmlFiles: Object.freeze(entryHxmlFiles),
     hxmlFiles: Object.freeze(bytewise(hxmlFiles)),
     classPaths: Object.freeze(bytewise(classPaths)),
     resourceInputs: Object.freeze(bytewise(resources)),

@@ -163,7 +163,9 @@ and resolves the one authoritative journal before inventory or compilation.
 That scope uses the artifact protocol's portable path identity (NFC plus
 case-folding), not the caller's path spelling. Case aliases therefore share one
 lifetime lock, journal, marker, admission identity, and recovery universe even
-on a case-sensitive host; non-NFC paths are rejected before startup.
+on a case-sensitive host; non-NFC paths are rejected before startup. The
+caller-selected private state directory may not contain or equal the stable
+`.genes/tooling` control root.
 
 Library expansion is part of invocation authority. A lower-level HXML inventory
 may list `-lib` requests without resolving them, but DevelopmentSession requires
@@ -171,6 +173,11 @@ an authoritative resolver for every discovered library. The existing argument
 policy then visits each returned HXML, including `extraParams.hxml`, before Haxe
 can run. “Resolver returned no effective HXML” is distinct from “no resolver was
 provided”; only the former is a complete closure.
+
+Top-level HXML entries retain caller order when the session compares the
+inventoried closure with the executable invocation. Entry and resolved-library
+paths are checked for symlink components before canonicalization, so an alias
+cannot erase the path that must pass the no-follow policy.
 
 ## Publication and reads
 

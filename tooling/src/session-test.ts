@@ -60,7 +60,9 @@ interface TestDiagnostic {
 interface CompileStep {
   readonly content?: string;
   readonly extraFiles?: Readonly<Record<string, string>>;
-  readonly fail?: string;
+  readonly fail?:
+    | string
+    | ((candidateOutputFile: string) => string);
   readonly hold?: Deferred<void>;
   readonly mode?: "connected" | "direct";
   readonly afterGenerate?: (outputRoot: string, owner: string) => void;
@@ -141,7 +143,13 @@ class FakeCompiler implements SessionCompiler {
         ),
       ]);
     }
-    if (step.fail !== undefined) throw new Error(step.fail);
+    if (step.fail !== undefined) {
+      throw new Error(
+        typeof step.fail === "function"
+          ? step.fail(candidateOutputFile)
+          : step.fail,
+      );
+    }
     this.compatibilityDigests.push(compatibilityDigest);
     const content = step.content ?? "export const value = 1;\n";
     mkdirSync(path.dirname(candidateOutputFile), { recursive: true });
@@ -1389,6 +1397,23 @@ for (const checkpoint of [
       /must not overlap/u,
       "portable aliases of the generated tree must not contain private state",
     );
+    for (const stateDirectory of [
+      ".genes",
+      ".genes/tooling",
+      ".GENES/TOOLING/private",
+    ] as const) {
+      assert.throws(
+        () =>
+          resolveSessionLayout(
+            root,
+            `invalid-control-overlap-${stateDirectory}`,
+            "src-gen/index.ts",
+            stateDirectory,
+          ),
+        /stable session-control directory must not overlap/u,
+        "caller-selected private state must not contain stable locks or recovery authority",
+      );
+    }
     assert.throws(
       () =>
         resolveSessionLayout(
@@ -1662,5 +1687,22 @@ for (const corruption of diagnosticCorruptions) {
     );
   });
 }
+
+await withHarness("diagnostic-multiple-candidate-paths", async (harness) => {
+  harness.compiler.steps.push({
+    fail: (candidateOutputFile) =>
+      `first ${candidateOutputFile}; second ${candidateOutputFile}`,
+  });
+  await harness.session.start();
+  await harness.session.waitForIdle();
+  assert.equal(harness.session.state.kind, "blocked");
+  const publicRecord = JSON.stringify({
+    snapshot: harness.session.inspect(),
+    events: harness.events,
+  });
+  assert.equal(publicRecord.includes(harness.root), false);
+  assert.equal(/revision-\d+-test\d+/u.test(publicRecord), false);
+  assert.equal(publicRecord.includes("<private-candidate>"), true);
+});
 
 console.log("genes tooling development session runtime: ok");
