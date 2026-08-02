@@ -280,14 +280,22 @@ landing order. The current PR may depend on a prerequisite Bead, but it is not
 complete until every blocking prerequisite and all in-contract work have
 landed and been validated together.
 
-Before implementing a slice that already appears unusually large, technically
-complex, architecturally ambiguous, or likely to run for a long time, tell the
-user and suggest an Oracle architecture review—even if an initial Bead split is
-already apparent. Give the Oracle the existing implementation plans and Bead
-graph, ask it to challenge the proposed boundaries, and request a recommended
-sequence of smaller contracts with dependencies, acceptance evidence, and stop
-criteria. A routine bounded local task that is not unusually complex or
-architecturally ambiguous does not need this ceremony.
+Before implementing genuinely critical work, suggest Oracle planning when the
+problem or safe plan remains unusually hard or materially undefined, competing
+compiler paths are consequential and difficult to reverse, or ownership and
+acceptance criteria cannot be established safely. Give Oracle the existing
+plans and Bead graph, ask it to challenge the boundaries, and request smaller
+contracts with dependencies, evidence, and stop criteria. Size, duration,
+unfamiliarity, or generic extra confidence alone do not justify escalation.
+
+For rare Oracle planning or review, invoke the globally installed
+`$oracle-review` skill. Let its caf-oracle facade own the request ledger, exact
+agent provenance, checked evidence bundle, dedicated browser dispatch,
+recovery, response capture, disposition, and archive; do not maintain a
+parallel `/tmp/oracle` queue or manually upload and paste when the tool is
+available. If `$show-me-your-work` is active, its trail records only the
+escalation decision, request identity/status, and reconciled outcome. The scope
+tripwires and classification rules in this repository remain authoritative.
 
 Classify each review finding before changing code:
 
@@ -338,9 +346,10 @@ At that checkpoint:
 4. If the work has become disproportionately long, repeatedly non-convergent,
    or architecturally ambiguous, propose an independent high-capability
    architecture review—the **Oracle** in current project terminology—before
-   another implementation cycle. Include full relevant repository snapshots,
-   the reduced cases, failed approaches, invariants, current plans and Beads,
-   and precise questions about both architecture and the proposed split.
+   another implementation cycle. Use `$oracle-review` to package the full
+   relevant repository snapshots, reduced cases, failed approaches, invariants,
+   current plans and Beads, and precise questions about both architecture and
+   the proposed split.
 5. Resume only after the user accepts a deliberately smaller fallback, the
    existing scope becomes finite again, or an Oracle response is reconciled
    into a finite design. Treat external review as design input; repository
