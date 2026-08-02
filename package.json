@@ -19,7 +19,7 @@
     "test:beads-worktrees": "yarn build:scripts && node scripts/dist/test-beads-worktree-safety.js",
     "test:precommit-hook": "yarn build:scripts && node scripts/dist/test-pre-commit-hook.js",
     "test:agent-guides": "yarn build:scripts && node scripts/dist/test-agent-guides.js",
-    "test:agent-test-routing": "yarn build:scripts && node scripts/dist/test-agent-test-routing.js && node scripts/dist/test-test-plan-selection.js",
+    "test:agent-test-routing": "yarn build:scripts && node scripts/dist/test-agent-test-routing.js && node scripts/dist/test-test-plan-selection.js && node scripts/dist/test-todoapp-feature-coverage.js",
     "test:test-plan-selection": "yarn build:scripts && node scripts/dist/test-test-plan-selection.js",
     "test:focus": "yarn build:scripts && node scripts/dist/test-plan.js focus",
     "test:pr": "yarn build:scripts && node scripts/dist/test-plan.js pr",
