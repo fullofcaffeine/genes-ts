@@ -605,11 +605,11 @@ private class Parser {
     return expression;
   }
 
-  /** Creates the nominal proof consumed only by parser-owned root markers. */
+  /** Creates the forgeable hint that starts conservative root analysis. */
   static function hxxProof(position: Position): Expr {
-    final proof = macro genes.react.internal.HxxParserProof.issue;
-    proof.pos = position;
-    return switch proof.expr {
+    final candidate = macro genes.react.internal.HxxRootCandidate.issue;
+    candidate.pos = position;
+    return switch candidate.expr {
       case EField(owner, field):
         {
           expr: EMeta({
@@ -620,7 +620,7 @@ private class Parser {
           pos: position
         };
       default:
-        Context.error('Internal HXX proof issuer must be a direct field',
+        Context.error('Internal HXX candidate issuer must be a direct field',
           position);
     }
   }

@@ -177,6 +177,12 @@ final view = <Status label="Count" value={summary()}>
 </Status>;
 ```
 
+This does not mean every JSX operation compiles through a separate props
+object. Haxe creates this local only when the typed expression needs that
+evaluation point. The readable projection below cleans up a local that already
+exists; it never introduces one merely to make the generated source look
+different.
+
 The typed Haxe tree evaluates `summary()` into the property carrier, then
 evaluates `count.get()` for the child, and finally creates the element. Older
 source-preserving output exposed the carrier protocol itself:
@@ -213,13 +219,31 @@ Inlining `summary()` directly into the final element while leaving `child`
 above it would run the child first and change the program. The ordinary object
 removes compiler vocabulary without making that unsafe move.
 
-Authorization comes from the exact typed root marker created by the HXX parser,
-the exact direct carrier local, and its already validated named properties. A
-manually authored low-level `Jsx.__jsx(...)` call has no parser provenance and
-keeps its established representation. Parser-only root markers require a
-nominal proof issued by one private compiler-internal field. The plan validates
-that exact issuer identity, so a missing, cast, or copied value cannot opt
-application code into the rewrite.
+The HXX root carries a nominal candidate value, but that value is deliberately
+not authorization. Another macro can mint it with `@:privateAccess`. It only
+tells Genes that the root is worth checking for the readable projection.
+
+That copied-candidate case is a rare compiler edge case, mainly relevant to a
+macro that deliberately constructs or shares Genes' internal HXX expression.
+It is not a normal React workflow or an application security claim. It matters
+because the compiler must still fail closed for unusual valid macro input:
+changing only some uses of the linked object could make a missed use read
+`undefined`, while ignoring an extra effectful field could remove behavior.
+
+Authorization comes from complete request-local accounting instead. The exact
+carrier local must have one declaration, one static root occurrence, and no
+other typed occurrence anywhere in the module. Its initializer must be one
+fully inline linked chain whose nodes contain exactly the name, value, and next
+fields in their original evaluation order, followed by exactly
+`{__genesJsxPropsEnd: true}`. Every parsed name, value expression, root, and
+linked access path must agree with the already validated JSX intent. Each TSX
+or JSX emitter then accounts for the marker, declaration, and every property
+read exactly once before the staged output may commit.
+
+This makes a forged candidate safe: a single exact static consumer may still
+qualify because nothing can observe the linked representation, while a carrier
+shared with a dynamic root or any other code keeps its linked shape. Provenance
+is not used as a security boundary.
 
 A carrier containing a spread also stays unchanged for now: expanding the
 spread earlier could observe a getter or a child-side mutation at a different
@@ -231,6 +255,10 @@ normal object would not represent them exactly. A runtime string tag also keeps
 the carrier expected by its `createElement` fallback instead of mixing the two
 representations. Typed `createElement` and classic JavaScript profiles keep
 their existing explicit schedule and runtime output.
+
+Extra or reordered protocol fields also keep the linked carrier. In
+particular, an effectful extra field on the terminal object must still execute;
+field-name lookup alone is never allowed to erase it.
 
 ## Canonical source JSX trees
 

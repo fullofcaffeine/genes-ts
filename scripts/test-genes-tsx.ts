@@ -324,7 +324,7 @@ function assertHaxeHxxNegatives(): void {
       "__genesJsxPropValue: unsafeValue"
     ],
     [
-      "hxx_negative_forged_hxx_proof",
+      "hxx_negative_fake_hxx_candidate_value",
       "GTS-JSX-INTENT-011",
       "Jsx.__hxxJsx"
     ],
@@ -829,7 +829,7 @@ ok(importedStatusTree.includes(
   '<Status label={statusEl.label} value={statusEl.value}>'
 ), "an imported HXX component keeps prop evaluation in a readable ordinary object");
 strictEqual(importedStatusTree.includes("__genesJsxProp"), false,
-  "an authenticated HXX prop carrier does not leak protocol fields into TSX");
+  "a fully accounted HXX prop carrier does not leak protocol fields into TSX");
 const canonicalChildTree = sourceSection(
   automaticTsxSource,
   "static renderChildList(",
@@ -1036,6 +1036,25 @@ copyObservableComponents(
 const dualTsxTreeBeforeInjectedFailure = captureGeneratedTree(
   "tests/genes-ts/snapshot/react/out/dual-tsx/src-gen"
 );
+const sourcePropsPlanningFailure = spawnSync(
+  "haxe",
+  [
+    "tests/genes-ts/snapshot/react/build-dual-tsx.hxml",
+    "-D",
+    "genes.jsx_source_props_test_fail_before_emission"
+  ],
+  { cwd: repoRoot, encoding: "utf8" }
+);
+strictEqual(sourcePropsPlanningFailure.status === 0, false,
+  "the private source-props planning failure unexpectedly compiled");
+ok(`${sourcePropsPlanningFailure.stdout}${sourcePropsPlanningFailure.stderr}`.includes(
+  "[GTS-JSX-SOURCE-PROPS-002]"
+), "the injected source-props planning failure lost its stable diagnostic");
+deepStrictEqual(
+  captureGeneratedTree("tests/genes-ts/snapshot/react/out/dual-tsx/src-gen"),
+  dualTsxTreeBeforeInjectedFailure,
+  "an early source-props planning failure changed the published TSX tree"
+);
 const sourceInlineFailure = spawnSync(
   "haxe",
   [
@@ -1054,6 +1073,25 @@ deepStrictEqual(
   captureGeneratedTree("tests/genes-ts/snapshot/react/out/dual-tsx/src-gen"),
   dualTsxTreeBeforeInjectedFailure,
   "a late source-inline consistency failure changed the published TSX tree"
+);
+const sourcePropsFailure = spawnSync(
+  "haxe",
+  [
+    "tests/genes-ts/snapshot/react/build-dual-tsx.hxml",
+    "-D",
+    "genes.jsx_source_props_test_fail_after_emission"
+  ],
+  { cwd: repoRoot, encoding: "utf8" }
+);
+strictEqual(sourcePropsFailure.status === 0, false,
+  "the private source-props consistency failure unexpectedly compiled");
+ok(`${sourcePropsFailure.stdout}${sourcePropsFailure.stderr}`.includes(
+  "[GTS-JSX-SOURCE-PROPS-003]"
+), "the injected source-props failure lost its stable diagnostic");
+deepStrictEqual(
+  captureGeneratedTree("tests/genes-ts/snapshot/react/out/dual-tsx/src-gen"),
+  dualTsxTreeBeforeInjectedFailure,
+  "a late source-props consistency failure changed the published TSX tree"
 );
 const dualTsxSource = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/react/out/dual-tsx/src-gen/DualJsxMain.tsx"),
@@ -1080,6 +1118,27 @@ ok(dualTsxSource.includes(
 strictEqual(dualTsxSource.includes(
   'const liftedPropsHead = {"data-head"'
 ), false, "a lifted prop-list tail cannot authorize an ordinary-object rewrite");
+ok(dualTsxSource.includes(
+  'const forgedSafeProps = {"data-safe": DualJsxMain.nextPropValue()}'
+) && dualTsxSource.includes(
+  '<div data-safe={forgedSafeProps["data-safe"]}>S</div>'
+), "a forgeable candidate is safe when complete accounting admits its sole root");
+ok(dualTsxSource.includes(
+  'const forgedSharedProps = {"__genesJsxPropName": "data-shared"'
+) && dualTsxSource.includes(
+  'data-shared={forgedSharedProps.__genesJsxPropValue}'
+) && dualTsxSource.includes(
+  'createElement(runtimeTag, {"data-shared": forgedSharedProps.__genesJsxPropValue}'
+), "static and dynamic roots sharing one forged carrier retain the linked representation");
+ok(dualTsxSource.includes(
+  'const malformedTerminalProps = {"__genesJsxPropName": "data-terminal"'
+) && dualTsxSource.includes('"hiddenEffect": DualJsxMain.nextPropValue()'),
+"an effectful extra terminal field cannot be erased by source projection");
+ok(dualTsxSource.includes(
+  'const reorderedCarrierProps = {"__genesJsxPropValue": DualJsxMain.nextPropValue()'
+) && dualTsxSource.includes(
+  'data-reordered={reorderedCarrierProps.__genesJsxPropValue}'
+), "reordered protocol fields retain the linked representation");
 const dualTsxCallArgument = sourceSection(
   dualTsxSource,
   "static renderSameExpressionOrder(",
@@ -1346,11 +1405,16 @@ const expectedTranscript = {
   focusedChangeHtml: '<input aria-label="Focused change"/>',
   dynamicHtml: '<aside data-mode="dynamic">D</aside>',
   privateDynamicHtml: '<aside data-private="evaluated-once">Q</aside>',
+  forgedSafeHtml: '<div data-safe="evaluated-once">S</div>',
+  forgedSharedStaticHtml: '<div data-shared="evaluated-once">U</div>',
+  forgedSharedDynamicHtml: '<aside data-shared="evaluated-once">V</aside>',
+  malformedTerminalHtml: '<div data-terminal="kept">M</div>',
+  reorderedCarrierHtml: '<div data-reordered="evaluated-once">R</div>',
   liftedTailHtml: '<div data-head="head" data-tail="evaluated-once">T</div>',
   evaluatedHtml: '<div title="evaluated-once">E</div>',
   arrayPropHtml: '<div data-array="evaluated-once">P</div>',
   arrayChildHtml: '<div>evaluated-once</div>',
-  propEvaluations: 5
+  propEvaluations: 9
 };
 const tsxTranscript = parseTranscript(
   capture("node", ["tests/genes-ts/snapshot/react/out/dual-tsx/dist/index.js"])

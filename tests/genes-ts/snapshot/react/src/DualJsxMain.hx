@@ -30,6 +30,11 @@ typedef DualJsxTranscript = {
   final focusedChangeHtml: String;
   final dynamicHtml: String;
   final privateDynamicHtml: String;
+  final forgedSafeHtml: String;
+  final forgedSharedStaticHtml: String;
+  final forgedSharedDynamicHtml: String;
+  final malformedTerminalHtml: String;
+  final reorderedCarrierHtml: String;
   final liftedTailHtml: String;
   final evaluatedHtml: String;
   final arrayPropHtml: String;
@@ -252,6 +257,59 @@ class DualJsxMain {
       __genesJsxChildValue: "T",
       __genesJsxChildNext: {__genesJsxChildrenEnd: true}
     });
+    final forgedSafeProps = {
+      __genesJsxPropName: "data-safe",
+      __genesJsxPropValue: nextPropValue(),
+      __genesJsxPropNext: {
+        __genesJsxPropsEnd: true
+      }
+    };
+    final forgedSafeElement = HxxTestMarkers.root("div", forgedSafeProps, {
+      __genesJsxChildValue: "S",
+      __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+    });
+    final forgedSharedProps = {
+      __genesJsxPropName: "data-shared",
+      __genesJsxPropValue: nextPropValue(),
+      __genesJsxPropNext: {
+        __genesJsxPropsEnd: true
+      }
+    };
+    final forgedSharedStaticElement = HxxTestMarkers.root("div",
+      forgedSharedProps, {
+        __genesJsxChildValue: "U",
+        __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+      });
+    final forgedSharedDynamicElement = HxxTestMarkers.root(runtimeTag,
+      forgedSharedProps, {
+        __genesJsxChildValue: "V",
+        __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+      });
+    final malformedTerminalProps = {
+      __genesJsxPropName: "data-terminal",
+      __genesJsxPropValue: "kept",
+      __genesJsxPropNext: {
+        __genesJsxPropsEnd: true,
+        hiddenEffect: nextPropValue()
+      }
+    };
+    final malformedTerminalElement = HxxTestMarkers.root("div",
+      malformedTerminalProps, {
+        __genesJsxChildValue: "M",
+        __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+      });
+    final reorderedCarrierProps = {
+      __genesJsxPropValue: nextPropValue(),
+      __genesJsxPropName: "data-reordered",
+      __genesJsxPropNext: {
+        __genesJsxPropsEnd: true
+      }
+    };
+    final reorderedCarrierElement = HxxTestMarkers.root("div",
+      reorderedCarrierProps, {
+        __genesJsxChildValue: "R",
+        __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+      });
     final evaluatedProp = {
       __genesJsxPropName: "title",
       __genesJsxPropValue: nextPropValue(),
@@ -305,6 +363,14 @@ class DualJsxMain {
       focusedChangeHtml: renderToStaticMarkup(focusedChangeElement),
       dynamicHtml: renderToStaticMarkup(dynamicElement),
       privateDynamicHtml: renderToStaticMarkup(privateDynamicElement),
+      forgedSafeHtml: renderToStaticMarkup(forgedSafeElement),
+      forgedSharedStaticHtml:
+        renderToStaticMarkup(forgedSharedStaticElement),
+      forgedSharedDynamicHtml:
+        renderToStaticMarkup(forgedSharedDynamicElement),
+      malformedTerminalHtml:
+        renderToStaticMarkup(malformedTerminalElement),
+      reorderedCarrierHtml: renderToStaticMarkup(reorderedCarrierElement),
       liftedTailHtml: renderToStaticMarkup(liftedTailElement),
       evaluatedHtml: renderToStaticMarkup(evaluatedElement),
       arrayPropHtml: renderToStaticMarkup(arrayPropElement),

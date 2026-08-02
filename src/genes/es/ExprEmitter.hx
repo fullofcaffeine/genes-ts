@@ -18,6 +18,7 @@ import genes.JsxPlan;
 import genes.JsxPlan.JsxCapabilityPolicy;
 import genes.JsxPlan.JsxEmissionProfile;
 import genes.JsxPlan.JsxSourceInlineConsumer;
+import genes.JsxPlan.JsxSourcePropsConsumer;
 import genes.JsxPlan.JsxIntent;
 import genes.JsxPlan.JsxChildIntent;
 import genes.JsxPlan.JsxPropIntent;
@@ -47,6 +48,7 @@ class ExprEmitter extends Emitter {
   var jsxRuntimeBinding: Null<String> = null;
   var jsxEmissionProfile: Null<JsxEmissionProfile> = null;
   var jsxSourceInlineConsumer: Null<JsxSourceInlineConsumer> = null;
+  var jsxSourcePropsConsumer: Null<JsxSourcePropsConsumer> = null;
   var namePlan: Null<NamePlan> = null;
   var tempPlan: Null<TempPlan> = null;
   var localBindingPlan: Null<LocalBindingPlan> = null;
@@ -68,6 +70,7 @@ class ExprEmitter extends Emitter {
     jsxEmissionProfile = capability.profile;
     jsxRuntimeBinding = capability.resolveRuntimeBinding(dependencies, plan);
     jsxSourceInlineConsumer = emitsJsxSource() ? plan.sourceInlineConsumer(capability.profile) : null;
+    jsxSourcePropsConsumer = emitsJsxSource() ? plan.sourcePropsConsumer(capability.profile) : null;
   }
 
   /** Whether Haxe introduced this local solely for the typed JSX carrier. */
@@ -102,32 +105,26 @@ class ExprEmitter extends Emitter {
    * Haxe sometimes lifts the property record before nested children to retain
    * left-to-right evaluation. Source JSX keeps that declaration at the same
    * point, but readable output should expose `label` and `value`, not the
-   * compiler protocol's `__genesJsxProp*` links. `JsxPlan` authorizes only an
-   * exact parser-owned root marker with direct named properties; spreads and
-   * aliases keep the established representation.
+   * compiler protocol's `__genesJsxProp*` links. `JsxPlan` authorizes only a
+   * fully accounted declaration, sole static root, and exact inline named-prop
+   * chain. The forgeable HXX candidate itself grants no permission; spreads,
+   * aliases, sharing, and malformed or extended shapes remain linked.
    */
-  function emitSourceJsxPropsCarrier(local: TVar,
+  function emitSourceJsxPropsCarrier(declaration: TypedExpr, local: TVar,
       initializer: TypedExpr): Bool {
-    if (!emitsJsxSource() || jsxPlan == null)
+    if (!emitsJsxSource() || jsxSourcePropsConsumer == null)
       return false;
-    final props = jsxPlan.sourcePropsForCarrier(local);
+    final props = jsxSourcePropsConsumer.propsForDeclaration(declaration,
+      local, initializer);
     if (props == null)
       return false;
     write('${localDeclaration(local, true)} ');
     emitLocalVar(local);
     write(' = {');
     for (prop in join(props, write.bind(', '))) {
-      switch prop {
-        case NamedProp(name, value, _):
-          emitString(name);
-          write(': ');
-          emitJsxValue(value, DirectValue);
-        case SpreadProp(_, _):
-          return
-            CompilerDiagnostic.fail('[GTS-JSX-SOURCE-PROPS-001] A spread reached a named-only source '
-            + 'property carrier. This is a compiler planning error.',
-            initializer.pos);
-      }
+      emitString(prop.name);
+      write(': ');
+      emitJsxValue(prop.value, DirectValue);
     }
     write('}');
     return true;
@@ -137,6 +134,8 @@ class ExprEmitter extends Emitter {
   override public function finish(): Void {
     if (jsxSourceInlineConsumer != null)
       jsxSourceInlineConsumer.validate();
+    if (jsxSourcePropsConsumer != null)
+      jsxSourcePropsConsumer.validate();
     super.finish();
   }
 
@@ -622,8 +621,8 @@ class ExprEmitter extends Emitter {
             _.get() => {name: 'ignore'}))
       }, [names, body]):
         withDirectImportLocals(names, () -> emitExpr(body));
-      case TCall(e, params):
-        emitCall(e, params, false);
+      case TCall(callee, params):
+        emitCall(callee, params, false, e);
       case TArrayDecl(el):
         write('[');
         final elementType = arrayElementType(currentExpectedValueType) ?? arrayElementType(e.t);
@@ -634,7 +633,7 @@ class ExprEmitter extends Emitter {
         write('throw ');
         emitValue(e);
       case TVar(v, eo):
-        emitVar(v, eo);
+        emitVar(e, v, eo);
       case TNew(c, _, el):
         write(switch (c.get().constructor) {
           case null:
@@ -773,10 +772,11 @@ class ExprEmitter extends Emitter {
     }
   }
 
-  function emitCall(e: TypedExpr, params: Array<TypedExpr>, inValue: Bool) {
+  function emitCall(e: TypedExpr, params: Array<TypedExpr>, inValue: Bool,
+      callExpression: Null<TypedExpr> = null) {
     if (emitPlannedTemplateLiteralCall(e, params))
       return;
-    if (emitPlannedJsxCall(e, params))
+    if (emitPlannedJsxCall(callExpression, e, params))
       return;
     if (CompilerInternal.isDynamicImportMarkerCallee(e)) {
       final marker = CompilerInternal.dynamicImportMarkerCall(e, params);
@@ -922,14 +922,17 @@ class ExprEmitter extends Emitter {
   }
 
   /** Emits one marker call through the shared semantic plan when applicable. */
-  function emitPlannedJsxCall(callee: TypedExpr,
-      arguments: Array<TypedExpr>): Bool {
+  function emitPlannedJsxCall(callExpression: Null<TypedExpr>,
+      callee: TypedExpr, arguments: Array<TypedExpr>): Bool {
     if (jsxPlan == null)
       return false;
     final intent = jsxPlan.intentForCall(callee, arguments);
     if (intent == null)
       return false;
-    emitJsxIntent(intent);
+    final marker = callExpression == null ? null : JsxPlan.unwrap(callExpression);
+    if (marker != null && jsxSourcePropsConsumer != null)
+      jsxSourcePropsConsumer.consumeMarker(marker);
+    emitJsxIntent(intent, marker);
     return true;
   }
 
@@ -941,12 +944,13 @@ class ExprEmitter extends Emitter {
    * emitter reuses the source-markup methods for `.tsx`, so syntax behavior
    * cannot drift between the two JSX-preserving profiles.
    */
-  function emitJsxIntent(intent: JsxIntent): Void {
+  function emitJsxIntent(intent: JsxIntent,
+      marker: Null<TypedExpr> = null): Void {
     if (jsxEmissionProfile == JavaScriptJsxAutomatic) {
       switch intent {
         case ElementIntent(tag, props, children, pos):
           emitPos(pos);
-          emitJsxSourceElement(tag, props, children);
+          emitJsxSourceElement(tag, props, children, marker);
         case FragmentIntent(children, pos):
           emitPos(pos);
           emitJsxSourceFragment(children);
@@ -990,7 +994,8 @@ class ExprEmitter extends Emitter {
 
   /** Shared syntax printer for type-preserving TSX and type-erased JSX. */
   function emitJsxSourceElement(tag: JsxTagIntent,
-      props: Array<JsxPropIntent>, children: Array<JsxChildIntent>): Void {
+      props: Array<JsxPropIntent>, children: Array<JsxChildIntent>,
+      marker: Null<TypedExpr> = null): Void {
     switch tag {
       case DynamicIntrinsicTag(_):
         emitJsxDynamicIntrinsicElement(tag, props, children);
@@ -999,7 +1004,7 @@ class ExprEmitter extends Emitter {
     }
     write('<');
     emitJsxSourceTagName(tag);
-    emitJsxSourceAttributes(props);
+    emitJsxSourceAttributes(props, marker);
     if (children.length == 0) {
       write(' />');
       return;
@@ -1043,7 +1048,8 @@ class ExprEmitter extends Emitter {
     }
   }
 
-  function emitJsxSourceAttributes(props: Array<JsxPropIntent>): Void {
+  function emitJsxSourceAttributes(props: Array<JsxPropIntent>,
+      marker: Null<TypedExpr>): Void {
     for (prop in props) {
       switch prop {
         case SpreadProp(expression, source):
@@ -1062,11 +1068,20 @@ class ExprEmitter extends Emitter {
             default:
               write('={');
               switch source {
-                case RuntimeValuePath(root, _)
-                  if (jsxPlan != null && jsxPlan.isSourcePropsCarrierRoot(root)):
-                  emitPos(value.pos);
-                  emitValue(root);
-                  emitField(name);
+                case RuntimeValuePath(root, path)
+                  if (marker != null && jsxSourcePropsConsumer != null):
+                  final local = jsxSourcePropsConsumer.localForFieldRead(marker,
+                    root, path, name, value);
+                  if (local == null) {
+                    emitJsxValue(value, source);
+                  } else {
+                    emitTokenPos(value.pos);
+                    // `emitLocalVar` writes only the allocated identifier. It
+                    // must stay position-silent so the authored HXX value owns
+                    // the sole mapping at this generated column.
+                    emitLocalVar(local);
+                    emitField(name);
+                  }
                 default:
                   emitJsxValue(value, source);
               }
@@ -1298,10 +1313,10 @@ class ExprEmitter extends Emitter {
         // Only built-in Array removal crosses this undefined-to-null boundary.
         // Same-named user methods retain their declared Haxe result semantics.
         write('(');
-        emitCall(callee, params, true);
+        emitCall(callee, params, true, e);
         write(' ?? null)');
-      case TCall(e, params):
-        emitCall(e, params, true);
+      case TCall(callee, params):
+        emitCall(callee, params, true, e);
       case TReturn(_) | TBreak | TContinue:
         throw 'Unsupported $e';
       case TCast(e1, null):
@@ -1637,8 +1652,9 @@ class ExprEmitter extends Emitter {
     #end
   }
 
-  public function emitVar(v: TVar, eo: Null<TypedExpr>) {
-    if (eo != null && emitSourceJsxPropsCarrier(v, eo))
+  public function emitVar(declaration: TypedExpr, v: TVar,
+      eo: Null<TypedExpr>) {
+    if (eo != null && emitSourceJsxPropsCarrier(declaration, v, eo))
       return;
     write('${localDeclaration(v, eo != null)} ');
     emitLocalVar(v);

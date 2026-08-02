@@ -11,16 +11,14 @@ import genes.react.Element;
  * `React.createElement(...)`; classic Genes prints equivalent plain JavaScript
  * runtime calls. The marker itself never leaks into generated source.
  *
- * The `__hxx*` variants carry one extra compile-time fact: the HXX parser
- * created this value. Root markers authenticate parser-owned property carriers;
- * child markers authenticate disposable nested-element scaffolding. They
- * behave exactly like the ordinary markers in every output profile. Their
- * distinct typed static-field identity lets `JsxPlan` use that provenance
- * without trusting source text, names, or positions. The HXX-only fields
- * require an exact `HxxParserProof` from a private compiler-internal
- * field. Application code therefore cannot opt into the proof through the
- * ordinary typed API; `@:noCompletion` additionally hides protocol names from
- * suggestions.
+ * The `__hxx*` variants classify values created through the HXX path. Root
+ * markers carry a forgeable `HxxRootCandidate`: another macro can mint the
+ * same value with `@:privateAccess`, so it is not provenance or authority.
+ * `JsxPlan` permits the narrow readable props projection only after complete
+ * request-local use accounting and exact carrier-shape validation. Child
+ * markers retain their separate typed identity for the independently bounded
+ * source-inline analysis. All variants behave like the ordinary markers in
+ * every output profile; `@:noCompletion` hides protocol names from suggestions.
  */
 extern class Jsx {
   public static function __jsx<Tag, Props, Children>(tag: Tag, props: Props,
@@ -29,12 +27,12 @@ extern class Jsx {
   public static function __frag<Children>(children: Children): Element;
 
   @:noCompletion
-  public static function __hxxJsx<Tag, Props, Children>(proof: Void->
-    HxxParserProof, tag: Tag, props: Props,
+  public static function __hxxJsx<Tag, Props, Children>(candidate: Void->
+    HxxRootCandidate, tag: Tag, props: Props,
     children: Children): Element;
 
   @:noCompletion
-  public static function __hxxFrag<Children>(proof: Void->HxxParserProof,
+  public static function __hxxFrag<Children>(candidate: Void->HxxRootCandidate,
     children: Children): Element;
 
   @:noCompletion

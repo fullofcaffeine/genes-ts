@@ -699,6 +699,53 @@ async function assertFailureRollback(
   }
 }
 
+/**
+ * Proves request-local HXX props facts do not survive a warm shared-use edit.
+ *
+ * The forgeable candidate is safe in the first and third requests because its
+ * carrier has one static consumer. The middle request adds a dynamic consumer,
+ * so both cold and warm builds must retain the linked representation. Returning
+ * to the safe request must reproduce the original bytes exactly.
+ */
+async function assertSourcePropsServerIsolation(
+  compiler: ReturnType<typeof selectedHaxeCompiler>,
+  server: OwnedHaxeCompilerServer,
+  timeoutMs: number
+): Promise<void> {
+  const safe: Scenario = {
+    id: "a-source-props-server",
+    project: "project-a",
+    profile: tsxProfile
+  };
+  const safeTree = await compilePair(compiler, server, safe, timeoutMs);
+  for (const mode of ["cold", "warm"] as const) {
+    assertContains(moduleFile(mode, safe),
+      'const sourceProps = {"data-server-profile": "source"}');
+    assertContains(moduleFile(mode, safe),
+      '<section data-server-profile={sourceProps["data-server-profile"]}>server-jsx</section>');
+  }
+
+  const shared: Scenario = {
+    ...safe,
+    defines: ["server_shared_props"]
+  };
+  await compilePair(compiler, server, shared, timeoutMs);
+  for (const mode of ["cold", "warm"] as const) {
+    assertContains(moduleFile(mode, shared),
+      'const sourceProps = {"__genesJsxPropName": "data-server-profile"');
+    assertContains(moduleFile(mode, shared),
+      'data-server-profile={sourceProps.__genesJsxPropValue}');
+    assertContains(moduleFile(mode, shared),
+      'createElement(runtimeTag, {"data-server-profile": sourceProps.__genesJsxPropValue}');
+  }
+
+  deepStrictEqual(
+    await compilePair(compiler, server, safe, timeoutMs),
+    safeTree,
+    "Safe HXX source-props output changed after a warm shared-use request"
+  );
+}
+
 async function assertCapabilityIsolation(
   compiler: ReturnType<typeof selectedHaxeCompiler>,
   server: OwnedHaxeCompilerServer,
@@ -1131,11 +1178,11 @@ async function main(): Promise<void> {
         || overriddenProfile.id === "classic-jsx") {
         assertContains(
           moduleFile("cold", overridden),
-          '<section data-server-profile="source">'
+          '<section data-server-profile={sourceProps["data-server-profile"]}>'
         );
         assertContains(
           moduleFile("cold", overridden),
-          "<span>server-jsx</span>"
+          ">server-jsx</section>"
         );
       }
       assertModuleFunctionSourceMap(overridden);
@@ -1177,6 +1224,7 @@ async function main(): Promise<void> {
     };
     await compilePair(compiler, server, tsx, timeoutMs);
     ok(existsSync(moduleFile("cold", tsx)), "TSX request emitted no .tsx module");
+    await assertSourcePropsServerIsolation(compiler, server, timeoutMs);
 
     const moved: Scenario = {
       id: "a-ts-moved-root",

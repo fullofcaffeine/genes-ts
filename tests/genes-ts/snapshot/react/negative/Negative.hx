@@ -543,11 +543,13 @@ class Negative {
         __genesJsxPropsEnd: true
       }
     }, {__genesJsxChildrenEnd: true});
-    #elseif hxx_negative_forged_hxx_proof
-    // Naming or casting the nominal type does not reproduce the exact private
-    // proof field recorded by the HXX parser.
-    final fakeProof: Void->genes.react.internal.HxxParserProof = cast null;
-    final value = genes.react.internal.Jsx.__hxxJsx(fakeProof, "div", {
+    #elseif hxx_negative_fake_hxx_candidate_value
+    // A value merely cast to the nominal candidate type is not the exact
+    // candidate field. Actual `@:privateAccess` minting is allowed and covered
+    // by the positive and shared-carrier fixtures.
+    final fakeCandidate: Void->
+      genes.react.internal.HxxRootCandidate = cast null;
+    final value = genes.react.internal.Jsx.__hxxJsx(fakeCandidate, "div", {
       __genesJsxPropsEnd: true
     }, {__genesJsxChildrenEnd: true});
     #end

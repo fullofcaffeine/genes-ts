@@ -470,10 +470,10 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   override function emitCall(e: TypedExpr, params: Array<TypedExpr>,
-      inValue: Bool) {
+      inValue: Bool, callExpression: Null<TypedExpr> = null) {
     if (emitPlannedTemplateLiteralCall(e, params))
       return;
-    if (emitPlannedJsxCall(e, params))
+    if (emitPlannedJsxCall(callExpression, e, params))
       return;
     if (CompilerInternal.isUndefinablePresentMarkerCallee(e)) {
       final marker = CompilerInternal.undefinablePresentMarkerCall(e, params);
@@ -730,7 +730,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       emitCallParams(e, params);
       write(')');
     } else {
-      super.emitCall(e, params, inValue);
+      super.emitCall(e, params, inValue, callExpression);
     }
   }
 
@@ -835,11 +835,12 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   /** Chooses TSX spelling or typed createElement spelling for shared intent. */
-  override function emitJsxIntent(intent: JsxIntent): Void {
+  override function emitJsxIntent(intent: JsxIntent,
+      marker: Null<TypedExpr> = null): Void {
     switch intent {
       case ElementIntent(tag, props, children, _):
         if (jsxEmitTsx)
-          emitJsxSourceElement(tag, props, children);
+          emitJsxSourceElement(tag, props, children, marker);
         else
           emitCreateElement(requireJsxRuntimeBinding(intent), tag, props,
             children);
@@ -2172,8 +2173,9 @@ class TsModuleEmitter extends JsModuleEmitter {
       localTsTypeOverrides.set(variable.id, exactType);
   }
 
-  override public function emitVar(v: TVar, eo: Null<TypedExpr>) {
-    if (eo != null && emitSourceJsxPropsCarrier(v, eo))
+  override public function emitVar(declaration: TypedExpr, v: TVar,
+      eo: Null<TypedExpr>) {
+    if (eo != null && emitSourceJsxPropsCarrier(declaration, v, eo))
       return;
     if (eo != null && isJsxCarrierLocal(v.id)) {
       // The linked HXX carrier is compiler-owned scaffolding, not a public

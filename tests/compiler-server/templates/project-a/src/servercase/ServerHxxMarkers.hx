@@ -1,16 +1,12 @@
+package servercase;
+
 #if macro
 import haxe.macro.Context;
 import haxe.macro.Expr;
 #end
 
-/**
- * Test-only constructor for typed HXX root shapes that Haxe rarely produces.
- *
- * The candidate is intentionally forgeable with `@:privateAccess`. These
- * fixtures prove that minting it cannot authorize an unsafe representation
- * change: only complete use accounting and exact carrier shape can do that.
- */
-class HxxTestMarkers {
+/** Test-only constructor for a deliberately forgeable HXX root candidate. */
+class ServerHxxMarkers {
   public static macro function root(tag: Expr, props: Expr,
       children: Expr): Expr {
     final position = Context.currentPos();
