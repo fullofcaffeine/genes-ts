@@ -14,4 +14,6 @@ export class Std {
 Register.setHxClass("Std", Std);
 
 ;{
+	String.__name__ = true;
+	Array.__name__ = true;
 }

@@ -68,11 +68,26 @@ interface EvidenceManifest {
   readonly buckets: ReadonlyArray<BucketInput>;
 }
 
+interface ProductSurfaceScorecard {
+  readonly id: string;
+  readonly label: string;
+  readonly kind: "product" | "evidence-portfolio";
+  readonly owner: string;
+  readonly claim: string;
+  readonly gateIds: ReadonlyArray<string>;
+  readonly evidenceBucketIds: ReadonlyArray<string>;
+  readonly exampleIds: ReadonlyArray<string>;
+  readonly claimCeiling: string;
+  readonly lastCleanProof: string;
+  readonly residualRisks: ReadonlyArray<string>;
+}
+
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "../..");
 const manifestPath = path.join(repoRoot, "tests", "compatibility", "evidence.json");
 const jsonOutputPath = path.join(repoRoot, "docs", "COMPATIBILITY_REPORT.json");
 const markdownOutputPath = path.join(repoRoot, "docs", "COMPATIBILITY_REPORT.md");
+const testPlanPath = path.join(repoRoot, "tests", "testing-strategy", "agent-test-routing.json");
 
 const evidenceClassIds: ReadonlyArray<EvidenceClassId> = [
   "compile_inventory",
@@ -248,6 +263,44 @@ function loadEvidenceManifest(): EvidenceManifest {
   };
 }
 
+function loadProductSurfaces(manifest: EvidenceManifest): ReadonlyArray<ProductSurfaceScorecard> {
+  const testPlan = record(JSON.parse(readFileSync(testPlanPath, "utf8")), "test plan");
+  if (!Array.isArray(testPlan.productSurfaces)) {
+    throw new Error("test plan must define productSurfaces");
+  }
+  const bucketIds = new Set(manifest.buckets.map((bucket) => bucket.id));
+  const surfaces = testPlan.productSurfaces.map((entry, index): ProductSurfaceScorecard => {
+    const label = `productSurfaces[${index}]`;
+    const input = record(entry, label);
+    const kind = nonEmptyString(input.kind, `${label}.kind`);
+    if (kind !== "product" && kind !== "evidence-portfolio") {
+      throw new Error(`${label}.kind is unsupported: ${kind}`);
+    }
+    const evidenceBucketIds = stringArray(input.evidenceBucketIds,
+      `${label}.evidenceBucketIds`);
+    for (const bucketId of evidenceBucketIds) {
+      if (!bucketIds.has(bucketId)) {
+        throw new Error(`${label} references unknown evidence bucket ${bucketId}`);
+      }
+    }
+    return {
+      id: nonEmptyString(input.id, `${label}.id`),
+      label: nonEmptyString(input.label, `${label}.label`),
+      kind,
+      owner: nonEmptyString(input.owner, `${label}.owner`),
+      claim: nonEmptyString(input.claim, `${label}.claim`),
+      gateIds: stringArray(input.gateIds, `${label}.gateIds`),
+      evidenceBucketIds,
+      exampleIds: stringArray(input.exampleIds, `${label}.exampleIds`),
+      claimCeiling: nonEmptyString(input.claimCeiling, `${label}.claimCeiling`),
+      lastCleanProof: nonEmptyString(input.lastCleanProof, `${label}.lastCleanProof`),
+      residualRisks: stringArray(input.residualRisks, `${label}.residualRisks`)
+    };
+  });
+  uniqueIds(surfaces, "product surfaces");
+  return surfaces;
+}
+
 function resolvePointer(value: unknown, pointer: ReadonlyArray<string>, label: string): unknown {
   let current = value;
   for (const segment of pointer) {
@@ -332,11 +385,36 @@ function renderMarkdown(report: ReturnType<typeof createReport>): string {
     "",
     "This is an evidence contract, not a cached CI-success badge. `blocking` and `nonblocking-nightly` describe enforcement; current run results remain in CI. Compile, typing, semantic, snapshot, smoke, package, and downstream evidence are intentionally not merged into one score.",
     "",
+    "## Product-surface scorecards",
+    "",
+    "Each row is an independent claim boundary. A green gate may cover several rows, but it advances only the surface whose behavior and oracle the change actually exercised. The example portfolio is an evidence asset, not another compiler product.",
+    "",
+    "| Surface | Kind | Current bounded claim | Claim ceiling |",
+    "| --- | --- | --- | --- |"
+  ];
+  for (const surface of report.productSurfaces) {
+    lines.push(`| ${surface.label} | \`${surface.kind}\` | ${surface.claim} | ${surface.claimCeiling} |`);
+  }
+  for (const surface of report.productSurfaces) {
+    lines.push(
+      "",
+      `### ${surface.label}`,
+      "",
+      `- Owner: ${surface.owner}`,
+      `- Gates: ${surface.gateIds.map((id) => `\`${id}\``).join(", ")}`,
+      `- Compatibility evidence: ${surface.evidenceBucketIds.length === 0 ? "none; the focused gate is the current owner" : surface.evidenceBucketIds.map((id) => `\`${id}\``).join(", ")}`,
+      `- Maintained examples: ${surface.exampleIds.length === 0 ? "none" : surface.exampleIds.map((id) => `\`${id}\``).join(", ")}`,
+      `- Last clean proof: ${surface.lastCleanProof}`,
+      `- Residual risks: ${surface.residualRisks.join(" ")}`
+    );
+  }
+  lines.push(
+    "",
     "## Coverage counts",
     "",
     "| Evidence class | Metric | Exact count | Disposition |",
     "| --- | --- | ---: | --- |"
-  ];
+  );
   for (const bucket of report.buckets) {
     const classLabel = report.classes.find((entry) => entry.id === bucket.class)?.label ?? bucket.class;
     for (const metric of bucket.metrics) {
@@ -428,6 +506,7 @@ function renderMarkdown(report: ReturnType<typeof createReport>): string {
 
 function createReport() {
   const manifest = loadEvidenceManifest();
+  const productSurfaces = loadProductSurfaces(manifest);
   const downstream = loadDownstreamContracts();
   const buckets: ReadonlyArray<BucketResult> = manifest.buckets.map((bucket) => ({
     ...bucket,
@@ -443,6 +522,7 @@ function createReport() {
       liveResultLocation: "GitHub Actions; this deterministic file is not a cached run log."
     },
     classes: manifest.classes,
+    productSurfaces,
     buckets,
     toolchains,
     downstream

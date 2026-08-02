@@ -58,8 +58,9 @@ declaration, field, local, export-binding, or module-request identity.
    application names and schemas do not belong in the compiler.
 2. Identify the semantic owner before the printer. If two surfaces need the
    same decision, normalize it once and let each emitter own only syntax.
-3. Add the smallest fixture that would fail under the old or tempting-wrong
-   implementation.
+3. Add the smallest fixture that fails under the old or tempting-wrong
+   implementation. Record the exact pre-fix command, concise red result, and
+   independent semantic oracle in the Bead or PR.
 4. Inspect generated TS and classic JS when the semantic fact is shared.
 5. Add runtime, strict TypeScript consumer, declaration consumer, diagnostic,
    source-map, determinism, or rollback evidence according to the claim.
@@ -67,6 +68,13 @@ declaration, field, local, export-binding, or module-request identity.
    guide in the same change.
 7. Run the focused gate while iterating, then `yarn test:ci` before declaring
    the compiler usable downstream.
+
+For a new capability, prove one vertical tracer bullet before multiplying
+fixtures: authored Haxe through Genes, target checking/building, any claimed
+package/framework boundary, and a real runtime or system observer. When that
+vertical path reveals a compiler defect, keep it and add a focused deterministic
+regression—the two tests protect different claims. Do not infer an affected
+product surface merely because a broad selected gate also covers it.
 
 [`docs/TESTING_STRATEGY.md`](../../docs/TESTING_STRATEGY.md) explains which
 harness owns each type of claim. [`docs/ARCHITECTURE.md#compiler-fixture-guide`](../../docs/ARCHITECTURE.md#compiler-fixture-guide)

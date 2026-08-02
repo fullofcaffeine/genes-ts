@@ -146,7 +146,7 @@ function main(): void {
     JSON.parse(readFileSync(manifestPath, "utf8")) as unknown,
     "agent test-routing manifest"
   );
-  assert(manifest.schemaVersion === 2, "Unsupported agent test-routing schema");
+  assert(manifest.schemaVersion === 3, "Unsupported agent test-routing schema");
   assert(manifest.contract === "genes-agent-test-routing",
     "Unexpected agent test-routing contract");
   text(manifest.statement, "manifest.statement");
@@ -167,6 +167,98 @@ function main(): void {
   });
   unique(axisIds, "evidence axis IDs");
   enumValues(axisIds, validAxes, "evidence axis IDs");
+
+  const compatibilityEvidence = record(JSON.parse(readFileSync(
+    path.join(repoRoot, "tests", "compatibility", "evidence.json"),
+    "utf8"
+  )) as unknown, "compatibility evidence");
+  const compatibilityBucketIds = new Set(
+    (compatibilityEvidence.buckets as unknown[]).map((entry, index) =>
+      text(record(entry, `compatibility buckets[${index}]`).id,
+        `compatibility buckets[${index}].id`)
+    )
+  );
+  const exampleManifest = record(JSON.parse(readFileSync(
+    path.join(repoRoot, "examples", "profiles.json"),
+    "utf8"
+  )) as unknown, "example profiles");
+  const exampleIds = new Set(Object.keys(record(exampleManifest.examples,
+    "example profiles.examples")));
+  const surfaceEntries = manifest.productSurfaces;
+  assert(Array.isArray(surfaceEntries) && surfaceEntries.length > 0,
+    "Manifest must define independent product-surface scorecards");
+  const surfaceIds: string[] = [];
+  const surfacesById = new Map<string, Record<string, unknown>>();
+  for (const [index, entry] of surfaceEntries.entries()) {
+    const surface = record(entry, `productSurfaces[${index}]`);
+    const id = text(surface.id, `productSurfaces[${index}].id`);
+    const kind = text(surface.kind, `${id}.kind`);
+    assert(kind === "product" || kind === "evidence-portfolio",
+      `${id}.kind must be product or evidence-portfolio`);
+    for (const field of [
+      "label", "owner", "claim", "claimCeiling", "lastCleanProof"
+    ]) text(surface[field], `${id}.${field}`);
+    const evidenceBucketIds = stringArray(surface.evidenceBucketIds,
+      `${id}.evidenceBucketIds`, true);
+    for (const bucketId of evidenceBucketIds)
+      assert(compatibilityBucketIds.has(bucketId),
+        `${id} references unknown compatibility bucket: ${bucketId}`);
+    const claimedExamples = stringArray(surface.exampleIds,
+      `${id}.exampleIds`, true);
+    for (const exampleId of claimedExamples)
+      assert(exampleIds.has(exampleId),
+        `${id} references unknown maintained example: ${exampleId}`);
+    stringArray(surface.gateIds, `${id}.gateIds`);
+    stringArray(surface.residualRisks, `${id}.residualRisks`, true);
+    surfaceIds.push(id);
+    surfacesById.set(id, surface);
+  }
+  unique(surfaceIds, "product surface IDs");
+  const portfolio = surfacesById.get("example-portfolio");
+  assert(portfolio?.kind === "evidence-portfolio",
+    "example-portfolio must remain the maintained-example evidence portfolio");
+  const portfolioExamples = stringArray(portfolio.exampleIds,
+    "example-portfolio.exampleIds", true).slice().sort();
+  const maintainedExamples = [...exampleIds].sort();
+  assert(JSON.stringify(portfolioExamples) === JSON.stringify(maintainedExamples),
+    "example-portfolio.exampleIds must exactly match the maintained example inventory");
+  const productSurfaceIds = new Set(surfaceIds.filter((id) =>
+    surfacesById.get(id)?.kind === "product"));
+  const declaredExamples = record(exampleManifest.examples,
+    "example profiles.examples");
+  for (const [exampleId, rawExample] of Object.entries(declaredExamples)) {
+    const example = record(rawExample, `example ${exampleId}`);
+    const tier = text(example.tier, `${exampleId}.tier`);
+    assert([
+      "flagship-application", "capability-showcase", "compile-only-snippet"
+    ].includes(tier), `${exampleId}.tier is unsupported`);
+    if (exampleId === "todoapp")
+      assert(tier === "flagship-application", "todoapp must remain the flagship application");
+    if (exampleId === "typescript-target")
+      assert(tier === "capability-showcase", "typescript-target must remain the capability showcase");
+    const claims = stringArray(example.claimSurfaceIds,
+      `${exampleId}.claimSurfaceIds`, tier === "compile-only-snippet");
+    assert(tier !== "compile-only-snippet" || claims.length === 0,
+      `${exampleId} compile-only snippets cannot claim product surfaces`);
+    unique(claims, `${exampleId}.claimSurfaceIds`);
+    for (const surfaceId of claims) {
+      assert(productSurfaceIds.has(surfaceId),
+        `${exampleId} may claim only product surfaces, not ${surfaceId}`);
+      assert(stringArray(surfacesById.get(surfaceId)?.exampleIds,
+        `${surfaceId}.exampleIds`, true).includes(exampleId),
+      `${exampleId} claims ${surfaceId}, but its scorecard does not name the example`);
+    }
+  }
+  for (const [surfaceId, surface] of surfacesById) {
+    if (surface.kind !== "product") continue;
+    for (const exampleId of stringArray(surface.exampleIds,
+      `${surfaceId}.exampleIds`, true)) {
+      const example = record(declaredExamples[exampleId], `example ${exampleId}`);
+      assert(stringArray(example.claimSurfaceIds,
+        `${exampleId}.claimSurfaceIds`).includes(surfaceId),
+      `${surfaceId} names ${exampleId}, but the example does not claim that surface`);
+    }
+  }
 
   const gateEntries = manifest.gates;
   assert(Array.isArray(gateEntries) && gateEntries.length > 0,
@@ -256,6 +348,13 @@ function main(): void {
     gatesById.set(id, gate);
   }
   unique(gateIds, "gate IDs");
+  for (const [surfaceId, surface] of surfacesById) {
+    const surfaceGateIds = stringArray(surface.gateIds, `${surfaceId}.gateIds`);
+    unique(surfaceGateIds, `${surfaceId}.gateIds`);
+    for (const gateId of surfaceGateIds)
+      assert(gatesById.has(gateId),
+        `${surfaceId} references unknown gate: ${gateId}`);
+  }
   assert(gatesById.get("acceptance")?.tier === "acceptance",
     "The acceptance gate must retain the acceptance tier");
   assert(gatesById.get("full-ci")?.tier === "full-release",
@@ -348,19 +447,60 @@ function main(): void {
     "docs-only",
     "full"
   ]);
+  const routedExampleIds = new Set<string>();
   for (const [index, entry] of impactRules.entries()) {
     const rule = record(entry, `impactRules[${index}]`);
     const id = text(rule.id, `impactRules[${index}].id`);
     stringArray(rule.patterns, `${id}.patterns`);
+    if (rule.affectedExcludePatterns !== undefined)
+      stringArray(rule.affectedExcludePatterns, `${id}.affectedExcludePatterns`);
     const selected = stringArray(rule.selects, `${id}.selects`);
     for (const gateId of selected)
       assert(gatesById.has(gateId), `${id} selects unknown gate: ${gateId}`);
     text(rule.reason, `${id}.reason`);
+    const affectedSurfaceIds = stringArray(rule.affectedSurfaceIds,
+      `${id}.affectedSurfaceIds`, true);
+    unique(affectedSurfaceIds, `${id}.affectedSurfaceIds`);
+    for (const surfaceId of affectedSurfaceIds)
+      assert(surfacesById.has(surfaceId),
+        `${id} references unknown affected surface: ${surfaceId}`);
+    const coveredBySelected = new Set(selected.flatMap((gateId) =>
+      surfaceIds.filter((surfaceId) => stringArray(
+        surfacesById.get(surfaceId)?.gateIds,
+        `${surfaceId}.gateIds`
+      ).includes(gateId))
+    ));
+    for (const surfaceId of affectedSurfaceIds)
+      assert(coveredBySelected.has(surfaceId),
+        `${id} affects ${surfaceId} but selects no gate that covers it`);
+    if (rule.exampleId !== undefined) {
+      const exampleId = text(rule.exampleId, `${id}.exampleId`);
+      assert(!routedExampleIds.has(exampleId),
+        `Maintained example has more than one product-claim route: ${exampleId}`);
+      const example = record(declaredExamples[exampleId], `example ${exampleId}`);
+      const owner = text(example.owner, `${exampleId}.owner`);
+      assert(stringArray(rule.patterns, `${id}.patterns`).includes(`${owner}/**`),
+        `${id} must route its example owner: ${owner}/**`);
+      const claims = stringArray(example.claimSurfaceIds,
+        `${exampleId}.claimSurfaceIds`, true).slice().sort();
+      const affected = affectedSurfaceIds.slice().sort();
+      assert(JSON.stringify(affected) === JSON.stringify(claims),
+        `${id}.affectedSurfaceIds must exactly match ${exampleId}.claimSurfaceIds`);
+      routedExampleIds.add(exampleId);
+    }
     assert(validExpansions.has(text(rule.expansion, `${id}.expansion`)),
       `${id} has unsupported expansion`);
     impactRuleIds.push(id);
   }
   unique(impactRuleIds, "impact rule IDs");
+  for (const [exampleId, rawExample] of Object.entries(declaredExamples)) {
+    const example = record(rawExample, `example ${exampleId}`);
+    const claims = stringArray(example.claimSurfaceIds,
+      `${exampleId}.claimSurfaceIds`, true);
+    if (claims.length > 0)
+      assert(routedExampleIds.has(exampleId),
+        `Claim-bearing example has no product-claim impact rule: ${exampleId}`);
+  }
 
   const selectionPolicy = record(
     manifest.selectionPolicy,
@@ -592,7 +732,7 @@ function main(): void {
   );
 
   console.log(
-    `agent-test-routing:ok (${gateIds.length} gates, ${routeIds.length} routes, ${impactRuleIds.length} impact rules, portable smoke implemented)`
+    `agent-test-routing:ok (${gateIds.length} gates, ${surfaceIds.length} product surfaces, ${routeIds.length} routes, ${impactRuleIds.length} impact rules, portable smoke implemented)`
   );
 }
 

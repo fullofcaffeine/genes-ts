@@ -1,4 +1,4 @@
-import { deepStrictEqual } from "node:assert";
+import { deepStrictEqual, throws } from "node:assert";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -39,15 +39,97 @@ type CommandSpec = {
 
 type ProfileSpec = {
   build: CommandSpec;
-  runtime: CommandSpec;
+  runtime: CommandSpec | null;
   playwright: CommandSpec | null;
 };
 
 type ExampleSpec = {
   name: string;
+  tier: "flagship-application" | "capability-showcase" | "compile-only-snippet";
+  owner: string;
+  claimSurfaceIds: ReadonlyArray<string>;
+  distinctiveClaims: ReadonlyArray<string>;
+  claimCeiling: string;
   sourceRoots: ReadonlyArray<string>;
   profiles: Readonly<Record<ProfileName, ProfileSpec>>;
 };
+
+/**
+ * Keeps an example's advertised product claims no broader than the observers
+ * its tier actually runs. The general build command is not enough to claim a
+ * package, browser, migration, or runtime contract: those claims need the
+ * corresponding runtime/Playwright path, and compile-only snippets intentionally
+ * remain evidence inventory rather than product proof.
+ */
+function validateSurfaceClaims(
+  name: string,
+  tier: ExampleSpec["tier"],
+  claims: ReadonlyArray<string>,
+  profiles: Readonly<Record<ProfileName, ProfileSpec>>
+): void {
+  if (tier === "compile-only-snippet") {
+    if (claims.length > 0)
+      throw new Error(`${name} compile-only snippets cannot claim product surfaces`);
+    return;
+  }
+
+  const allowed = new Set<string>();
+  if (profiles["classic-esm"].runtime !== null)
+    allowed.add("classic-js-runtime");
+  if (profiles["ts-strict"].runtime !== null)
+    allowed.add("typescript-source-runtime");
+
+  const hasBothRuntimes = PROFILE_NAMES.every((profile) =>
+    profiles[profile].runtime !== null);
+  if (tier === "flagship-application" && hasBothRuntimes)
+    allowed.add("declarations-packages");
+
+  const hasBothPlaywrightObservers = PROFILE_NAMES.every((profile) =>
+    profiles[profile].playwright !== null);
+  if (hasBothPlaywrightObservers) {
+    allowed.add("react-hxx-compiler");
+    allowed.add("browser-framework-runtime");
+  }
+
+  for (const surfaceId of claims) {
+    if (!allowed.has(surfaceId)) {
+      throw new Error(
+        `${name} cannot claim ${surfaceId} from its ${tier} runtime/Playwright observers`
+      );
+    }
+  }
+}
+
+function verifySurfaceClaimPolicy(): void {
+  const command: CommandSpec = {command: "node", args: []};
+  const executableProfiles: Record<ProfileName, ProfileSpec> = {
+    "ts-strict": {build: command, runtime: command, playwright: null},
+    "classic-esm": {build: command, runtime: command, playwright: null}
+  };
+  const browserProfiles: Record<ProfileName, ProfileSpec> = {
+    "ts-strict": {build: command, runtime: command, playwright: command},
+    "classic-esm": {build: command, runtime: command, playwright: command}
+  };
+
+  throws(() => validateSurfaceClaims(
+    "compile-only-control",
+    "compile-only-snippet",
+    ["browser-framework-runtime"],
+    browserProfiles
+  ), /compile-only snippets cannot claim product surfaces/);
+  throws(() => validateSurfaceClaims(
+    "browser-control",
+    "capability-showcase",
+    ["browser-framework-runtime"],
+    executableProfiles
+  ), /cannot claim browser-framework-runtime/);
+  throws(() => validateSurfaceClaims(
+    "migration-control",
+    "flagship-application",
+    ["ts2hx-migration"],
+    browserProfiles
+  ), /cannot claim ts2hx-migration/);
+}
 
 function record(value: unknown, label: string): JsonRecord {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -75,15 +157,27 @@ function commandSpec(value: unknown, label: string): CommandSpec {
   return { command: parsed.command, args: parsed.args };
 }
 
-function profileSpec(value: unknown, label: string): ProfileSpec {
+function profileSpec(
+  value: unknown,
+  label: string,
+  tier: ExampleSpec["tier"]
+): ProfileSpec {
   const parsed = record(value, label);
   assertOnlyKeys(parsed, ["build", "runtime", "playwright"], label);
-  if (!("build" in parsed) || !("runtime" in parsed)) {
-    throw new Error(`${label} must declare build and runtime commands`);
+  if (!("build" in parsed)) {
+    throw new Error(`${label} must declare a build command`);
+  }
+  if (tier !== "compile-only-snippet" && !("runtime" in parsed)) {
+    throw new Error(`${label} must declare runtime unless the example is compile-only`);
+  }
+  if (tier === "compile-only-snippet" && ("runtime" in parsed || "playwright" in parsed)) {
+    throw new Error(`${label} cannot declare runtime or Playwright for a compile-only example`);
   }
   return {
     build: commandSpec(parsed.build, `${label}.build`),
-    runtime: commandSpec(parsed.runtime, `${label}.runtime`),
+    runtime: "runtime" in parsed
+      ? commandSpec(parsed.runtime, `${label}.runtime`)
+      : null,
     playwright: "playwright" in parsed
       ? commandSpec(parsed.playwright, `${label}.playwright`)
       : null
@@ -92,7 +186,42 @@ function profileSpec(value: unknown, label: string): ProfileSpec {
 
 function exampleSpec(name: string, value: unknown): ExampleSpec {
   const parsed = record(value, `example ${name}`);
-  assertOnlyKeys(parsed, ["sourceRoots", "profiles"], `example ${name}`);
+  assertOnlyKeys(parsed, [
+    "tier", "owner", "claimSurfaceIds", "distinctiveClaims", "claimCeiling",
+    "sourceRoots", "profiles"
+  ], `example ${name}`);
+  const tiers = new Set([
+    "flagship-application", "capability-showcase", "compile-only-snippet"
+  ]);
+  if (typeof parsed.tier !== "string" || !tiers.has(parsed.tier)) {
+    throw new Error(`${name}.tier is unsupported`);
+  }
+  if (typeof parsed.owner !== "string" || !existsSync(path.join(repoRoot, parsed.owner))) {
+    throw new Error(`${name}.owner must be an existing repository path`);
+  }
+  const routing = record(JSON.parse(readFileSync(path.join(
+    repoRoot, "tests", "testing-strategy", "agent-test-routing.json"
+  ), "utf8")), "agent test routing");
+  const validSurfaceIds = new Set((routing.productSurfaces as unknown[])
+    .map((entry, index) => record(entry, `productSurfaces[${index}]`))
+    .filter((surface) => surface.kind === "product")
+    .map((surface) => String(surface.id)));
+  if (!Array.isArray(parsed.claimSurfaceIds)
+    || (parsed.tier !== "compile-only-snippet" && parsed.claimSurfaceIds.length === 0)
+    || !parsed.claimSurfaceIds.every((id) => typeof id === "string"
+      && validSurfaceIds.has(id))) {
+    throw new Error(
+      `${name}.claimSurfaceIds must name existing product surfaces, unless the example is compile-only`
+    );
+  }
+  if (!Array.isArray(parsed.distinctiveClaims) || parsed.distinctiveClaims.length === 0
+    || !parsed.distinctiveClaims.every((claim) => typeof claim === "string"
+      && claim.length > 0)) {
+    throw new Error(`${name}.distinctiveClaims must be a non-empty string array`);
+  }
+  if (typeof parsed.claimCeiling !== "string" || parsed.claimCeiling.length === 0) {
+    throw new Error(`${name}.claimCeiling must be a non-empty string`);
+  }
   if (!Array.isArray(parsed.sourceRoots) || parsed.sourceRoots.length === 0
     || !parsed.sourceRoots.every((root) => typeof root === "string")) {
     throw new Error(`${name}.sourceRoots must be a non-empty array of strings`);
@@ -109,15 +238,32 @@ function exampleSpec(name: string, value: unknown): ExampleSpec {
     [...PROFILE_NAMES].sort((a, b) => a.localeCompare(b))
   );
   const parsedProfiles: Record<ProfileName, ProfileSpec> = {
-    "ts-strict": profileSpec(profiles["ts-strict"], `${name}.profiles.ts-strict`),
-    "classic-esm": profileSpec(profiles["classic-esm"], `${name}.profiles.classic-esm`)
+    "ts-strict": profileSpec(profiles["ts-strict"], `${name}.profiles.ts-strict`,
+      parsed.tier as ExampleSpec["tier"]),
+    "classic-esm": profileSpec(profiles["classic-esm"], `${name}.profiles.classic-esm`,
+      parsed.tier as ExampleSpec["tier"])
   };
   const browserOwners = PROFILE_NAMES.filter((profile) => parsedProfiles[profile].playwright !== null);
   if (browserOwners.length !== 0 && browserOwners.length !== PROFILE_NAMES.length) {
     throw new Error(`${name} must declare Playwright QA for both profiles or neither profile`);
   }
+  validateSurfaceClaims(
+    name,
+    parsed.tier as ExampleSpec["tier"],
+    parsed.claimSurfaceIds as string[],
+    parsedProfiles
+  );
 
-  return { name, sourceRoots: parsed.sourceRoots, profiles: parsedProfiles };
+  return {
+    name,
+    tier: parsed.tier as ExampleSpec["tier"],
+    owner: parsed.owner,
+    claimSurfaceIds: parsed.claimSurfaceIds as string[],
+    distinctiveClaims: parsed.distinctiveClaims as string[],
+    claimCeiling: parsed.claimCeiling,
+    sourceRoots: parsed.sourceRoots,
+    profiles: parsedProfiles
+  };
 }
 
 function formatCommand(spec: CommandSpec): string {
@@ -136,9 +282,10 @@ const manifest = record(
   JSON.parse(readFileSync(path.join(examplesRoot, "profiles.json"), "utf8")),
   "examples/profiles.json"
 );
+verifySurfaceClaimPolicy();
 assertOnlyKeys(manifest, ["schemaVersion", "examples"], "examples/profiles.json");
-if (manifest.schemaVersion !== 2) {
-  throw new Error("examples/profiles.json schemaVersion must be 2");
+if (manifest.schemaVersion !== 3) {
+  throw new Error("examples/profiles.json schemaVersion must be 3");
 }
 const declared = record(manifest.examples, "examples/profiles.json examples");
 const actualDirectories = readdirSync(examplesRoot, {withFileTypes: true})
@@ -170,6 +317,7 @@ for (const example of examples) {
 
   for (const profileName of PROFILE_NAMES) {
     const profile = example.profiles[profileName];
+    if (profile.runtime === null) continue;
     const qa = withPlaywright && profile.playwright !== null
       ? profile.playwright
       : profile.runtime;

@@ -103,13 +103,45 @@ while allowing both build commands to start from a fresh checkout.
 - authored TS → generated Haxe module imports;
 - strict generated TS and classic `.d.ts` consumers on TS 5.5, 6, and 7;
 - absence of unsafe user-module types at the checked boundaries;
+- an All/Open/Completed list filter backed by an ordinary Haxe enum and
+  exhaustive switch; and
 - exact same API and Playwright journeys against both runtime profiles.
+
+The filter is a deliberately bounded application example. Its manually
+authored browser truth table proves that one closed domain value and ordinary
+switch produce the same visible result through TSX and direct classic ESM. It
+does not replace the focused fixtures for generic classes, payload enums,
+exception/finally completion, or adversarial evaluation order.
 
 `examples/profiles.json` owns the repository-wide example inventory and the
 structured build/runtime/browser command for each profile. The aggregate
 runner executes those records directly without a shell. Adding a new immediate
 directory under `examples/` without declaring and testing both profiles fails
 `yarn test:examples`.
+
+### Living feature coverage
+
+[`feature-coverage.json`](feature-coverage.json) answers a different question
+from the profile manifest: for every stable user-facing Genes feature family,
+where is the evidence today?
+
+Each row gives a separate disposition for source TSX, low-level TypeScript,
+minimal TypeScript, classic JavaScript, classic declarations, Node runtime,
+browser runtime, and the smallest focused fixture. The status words are
+deliberately modest:
+
+- `covered` means the named owner directly exercises that contract;
+- `partial` means the profile exercises a useful representative case while a
+  named focused owner or follow-up retains the remaining shapes;
+- `gap` means Todoapp does not yet exercise the stable feature; and
+- `not-applicable` means that observer cannot prove the contract, such as a
+  runtime test trying to prove declaration precision.
+
+This map does not run the tests or turn one green application into a universal
+compiler claim. Existing focused gates remain authoritative. Run
+`yarn test:agent-test-routing` to reject duplicate or missing feature IDs,
+unknown evidence references, dead package scripts and paths, untracked gap
+Beads, or a feature family without focused evidence.
 
 ## Generated output and snapshots
 

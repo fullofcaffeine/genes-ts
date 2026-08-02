@@ -8,7 +8,14 @@ interface SelectionReport {
   docsOnly: boolean;
   unknownFiles: string[];
   ambiguousFiles: Array<{file: string; rules: string[]}>;
-  selected: Array<{id: string; command: string; reasons: string[]}>;
+  affectedSurfaces: Array<{id: string; label: string; reasons: string[]}>;
+  coveredSurfaces: Array<{id: string; label: string; selectedGateIds: string[]}>;
+  selected: Array<{
+    id: string;
+    command: string;
+    reasons: string[];
+    coveredSurfaceIds: string[];
+  }>;
   omitted: Array<{id: string; reason: string}>;
 }
 
@@ -64,6 +71,22 @@ function requires(result: SelectionReport, ...expected: string[]): void {
     "Every selected gate must state its rule or ownership path");
 }
 
+function surfaceIds(
+  values: ReadonlyArray<{id: string}>
+): Set<string> {
+  return new Set(values.map((entry) => entry.id));
+}
+
+function exactSurfaces(
+  result: SelectionReport,
+  ...expected: string[]
+): void {
+  const actual = [...surfaceIds(result.affectedSurfaces)].sort();
+  const wanted = [...expected].sort();
+  assert(actual.join(",") === wanted.join(","),
+    `Expected affected surfaces ${wanted.join(", ")}; found ${actual.join(", ")}`);
+}
+
 /**
  * Locks the high-risk impact-map examples from the testing policy.
  *
@@ -80,6 +103,12 @@ function main(): void {
     "typescript-full",
     "dual-output-semantics",
     "full-ci");
+  exactSurfaces(compiler,
+    "classic-js-runtime", "typescript-source-runtime", "declarations-packages",
+    "react-hxx-compiler");
+  assert(!surfaceIds(compiler.affectedSurfaces).has("browser-framework-runtime")
+    && surfaceIds(compiler.coveredSurfaces).has("browser-framework-runtime"),
+  "The broad full gate laundered covered browser evidence into an affected surface");
 
   const typescript = explain("src/genes/ts/TsModuleEmitter.hx");
   requires(typescript,
@@ -87,6 +116,26 @@ function main(): void {
     "classic-declarations",
     "source-maps",
     "portable-haxe-smoke");
+  exactSurfaces(typescript,
+    "typescript-source-runtime", "declarations-packages");
+
+  const declarations = explain("src/genes/dts/TypeEmitter.hx");
+  requires(declarations,
+    "typescript-full",
+    "classic-declarations",
+    "source-maps");
+  exactSurfaces(declarations, "declarations-packages");
+
+  const sharedEmitter = explain("src/genes/es/ExprEmitter.hx");
+  requires(sharedEmitter,
+    "classic-core",
+    "typescript-full",
+    "dual-output-semantics",
+    "hxx-tsx",
+    "source-maps");
+  exactSurfaces(sharedEmitter,
+    "classic-js-runtime", "typescript-source-runtime", "declarations-packages",
+    "react-hxx-compiler");
 
   const react = explain("src/genes/react/JSX.hx");
   requires(react,
@@ -101,6 +150,25 @@ function main(): void {
   "Overlapping compiler/React ownership was not reported as ambiguous");
   assert(ids(react).has("full-ci"),
     "Ambiguous compiler/React ownership did not expand to the full backstop");
+  exactSurfaces(react,
+    "react-hxx-compiler", "browser-framework-runtime");
+
+  const reactFixture = explain("tests/genes-ts/snapshot/react/src/DualJsxMain.hx");
+  requires(reactFixture,
+    "hxx-tsx",
+    "react-hooks",
+    "examples-dual-profile-e2e");
+  exactSurfaces(reactFixture, "react-hxx-compiler");
+  assert(!surfaceIds(reactFixture.affectedSurfaces).has("browser-framework-runtime")
+    && surfaceIds(reactFixture.coveredSurfaces).has("browser-framework-runtime"),
+  "A compiler-only React fixture laundered covered browser evidence into an affected surface");
+
+  const ownerOnlyFixture = explain("tests/genes-ts/snapshot/basic/src/Main.hx");
+  requires(ownerOnlyFixture, "source-maps");
+  exactSurfaces(ownerOnlyFixture);
+  assert(surfaceIds(ownerOnlyFixture.coveredSurfaces).has("typescript-source-runtime")
+    && surfaceIds(ownerOnlyFixture.coveredSurfaces).has("react-hxx-compiler"),
+  "A direct test owner no longer reports the product evidence its gate covers");
 
   const sharedFixture = explain(
     "tests/genes-ts/package-shapes/build-ts.hxml"
@@ -119,6 +187,16 @@ function main(): void {
     "test-tool-preparation",
     "portable-haxe-failure-propagation",
     "full-ci");
+  assert(harness.affectedSurfaces.length === 9,
+    "Test-harness policy must conservatively affect every scorecard");
+
+  const compatibilityGenerator = explain("scripts/compatibility-report.ts");
+  requires(compatibilityGenerator,
+    "compatibility-inventory",
+    "test-plan-validation",
+    "full-ci");
+  assert(compatibilityGenerator.affectedSurfaces.length === 9,
+    "The all-scorecard report generator was narrowed to its output gate");
 
   const composedRunner = explain("scripts/test-template-literals.ts");
   requires(composedRunner, "dual-output-semantics", "full-ci");
@@ -144,6 +222,17 @@ function main(): void {
     .find((entry) => entry.id === "examples-dual-profile-e2e")
     ?.command === "yarn test:examples --playwright",
   "Selected browser example gate omitted its declared Playwright argument");
+  exactSurfaces(browserExample,
+    "classic-js-runtime", "typescript-source-runtime", "declarations-packages",
+    "react-hxx-compiler", "browser-framework-runtime", "example-portfolio");
+
+  const capabilityExample = explain("examples/typescript-target/src/Main.hx");
+  requires(capabilityExample,
+    "examples-dual-profile-e2e",
+    "portable-haxe-smoke",
+    "acceptance");
+  exactSurfaces(capabilityExample,
+    "classic-js-runtime", "typescript-source-runtime", "example-portfolio");
 
   const executableOwner = explain("scripts/probe-binding-identity.ts");
   assert(!executableOwner.docsOnly,
@@ -156,12 +245,28 @@ function main(): void {
     "package-imports",
     "portable-haxe-smoke",
     "full-ci");
+  exactSurfaces(release, "declarations-packages", "distribution-adoption");
+
+  const lockfile = explain("yarn.lock");
+  requires(lockfile,
+    "release-contract",
+    "compatibility-inventory",
+    "portable-haxe-smoke",
+    "acceptance",
+    "full-ci");
+  exactSurfaces(lockfile,
+    "classic-js-runtime", "typescript-source-runtime", "declarations-packages",
+    "react-hxx-compiler", "browser-framework-runtime", "host-tooling",
+    "ts2hx-migration", "distribution-adoption");
 
   const migration = explain("tools/ts2hx/src/project.ts");
   requires(migration, "ts2hx", "portable-haxe-smoke");
+  exactSurfaces(migration, "ts2hx-migration");
 
   const docs = explain("docs/TROUBLESHOOTING.md");
   assert(docs.docsOnly, "Ordinary documentation did not use the docs-only path");
+  assert(docs.affectedSurfaces.length === 0,
+    "Ordinary documentation must not claim that a product behavior changed");
   assert(ids(docs).has("agent-guides"), "Docs-only path omitted guide validation");
   assert(!ids(docs).has("portable-haxe-smoke"),
     "Ordinary documentation unnecessarily selected executable smoke");
@@ -209,6 +314,8 @@ function main(): void {
   assert(unknown.unknownFiles.length === 1,
     "Unknown path was not reported as unknown");
   requires(unknown, "full-ci", "portable-haxe-smoke");
+  assert(unknown.affectedSurfaces.length === 9,
+    "Unknown ownership must conservatively affect every scorecard");
   assert(unknown.selectionMode === "observation",
     "Selector was promoted without the required observation window");
 

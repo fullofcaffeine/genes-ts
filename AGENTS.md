@@ -248,6 +248,25 @@ in one sentence: which exact Haxe evidence authorizes which output change. State
 the important non-goals beside it. A pull request remains reviewable when every
 code path and fixture can be traced back to that contract.
 
+For meaningful behavior changes, also record the concrete scenario before
+broad automation: input/preconditions, compilation or user action, observable
+result, important error case, owning product surface, and protected claim. Run
+the smallest faithful owner against the pre-fix or tempting-wrong behavior and
+preserve the exact command plus concise red result in the Bead or PR; a separate
+red commit is optional. State an independent oracle—Haxe/JS/TS semantics, a
+manually reviewed expectation, pinned differential, invariant, or real consumer
+behavior—rather than generating the expected value with Genes itself.
+
+New capabilities begin with one vertical tracer bullet from authored source
+through Genes, target checking/building, any claimed package or framework
+boundary, and a real runtime/system observer. If a high-level test discovers a
+compiler bug, retain that representative boundary proof and add the smallest
+deterministic compiler regression. Keep affected product surfaces separate
+from surfaces merely covered by a broad gate; `full-ci` coverage is not
+permission to broaden a claim. Read
+[`docs/TESTING_STRATEGY.md#behavior-first-evidence`](docs/TESTING_STRATEGY.md#behavior-first-evidence)
+for the full evidence contract.
+
 This rule does not limit how complete that contract may be. Implement every
 compiler path, output profile, compatibility behavior, diagnostic, and test
 needed for the promised feature to work. Split only independently useful
