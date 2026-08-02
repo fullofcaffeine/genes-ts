@@ -174,6 +174,11 @@ CSS keys beginning with `__` or `_hx_` receive a friendly Haxe alias plus
 Haxe runtime details, so keeping them as Haxe field names could weaken a closed
 public type. The JavaScript property itself remains unchanged.
 
+Version one rejects an exact JavaScript key wrapped in square brackets, such as
+`[foo]`. Genes already uses that `@:native` spelling to mean a computed property
+access (`styles[foo]`) rather than the literal key `styles["[foo]"]`. Rejecting
+the key is safer than silently generating code that reads a different property.
+
 The companion metadata is a consistency check, not a security seal. A developer
 could imitate it in a hand-written typedef. The host remains responsible for
 publishing only tooling-generated companions from its owned output area. An
@@ -209,6 +214,7 @@ This first increment is intentionally one-shot: a host calls it during a build,
 but Genes does not watch CSS files by itself yet.
 
 - hosts supply an exact manifest from a processor they selected and pinned;
+- exact keys wrapped in square brackets are rejected for the reason above;
 - tooling checks and generates one candidate companion;
 - the compiler checks the binding and emits an ordinary default import;
 - both output profiles and a real loader are proven.

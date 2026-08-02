@@ -162,7 +162,13 @@ keys. It never invents an order-dependent suffix such as `fooBar2`.
 
 Package-less Haxe projects are supported. `Main` may own a companion named
 `CardStyles`; in that case the generated file is `CardStyles.hx` and has no
-`package` line.
+`package` line. Short valid type names such as `UI` are accepted too.
+
+Version one rejects an exact JavaScript key wrapped in square brackets, such as
+`[foo]`. Genes already uses bracket-wrapped `@:native` names to represent a
+computed property access (`styles[foo]`). Rejecting this rare shape prevents
+Genes from silently reading a different property than the CSS processor
+reported.
 
 ## Current limits
 
@@ -170,7 +176,8 @@ Version 1 is deliberately a one-shot building block:
 
 - the host must already have an exact processor-produced manifest;
 - version 1 accepts printable ASCII runtime keys, including escaped selectors
-  whose processor-reported key is ASCII;
+  whose processor-reported key is ASCII, except for the bracket-wrapped shape
+  explained above;
 - Genes does not execute application configuration or discover a processor;
 - a wildcard declaration such as `Record<string, string>` is not enough;
 - automatically watching for edits, and replacing the companion plus generated

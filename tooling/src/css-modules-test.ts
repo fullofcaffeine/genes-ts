@@ -108,6 +108,32 @@ function main(): void {
     const validate = new Ajv2020({ strict: true }).compile(schema as AnySchema);
     assert.equal(validate(manifestFor(css)), true, JSON.stringify(validate.errors));
 
+    const packageLess = manifestFor(css);
+    packageLess.binding = {
+      haxeOwner: "A",
+      generatedModule: "A",
+      request: "./card.module.css",
+      hostModulePath: "src-gen/card.module.css",
+      companionType: "UI",
+    };
+    assert.equal(validate(packageLess), true, JSON.stringify(validate.errors));
+    const packageLessCompanion = generateCssModuleCompanion({
+      projectRoot: root,
+      manifest: packageLess,
+    });
+    assert.equal(packageLessCompanion.relativePath, "UI.hx");
+    assert.doesNotMatch(packageLessCompanion.content, /^package\b/mu);
+
+    const bracketWrapped = manifestFor(css);
+    bracketWrapped.exports = [
+      { name: "[foo]", source: { path: "styles/card.module.css", line: 1, column: 2 } },
+    ];
+    assert.equal(validate(bracketWrapped), false, "the public schema rejects computed-name syntax");
+    expectCode(
+      () => generateCssModuleCompanion({ projectRoot: root, manifest: bracketWrapped }),
+      "GENES-CSS-MODULE-EXPORT-NAME-005",
+    );
+
     writeFileSync(path.join(root, "styles/card.module.css"), `${css}.new {}`, "utf8");
     expectCode(
       () => generateCssModuleCompanion({ projectRoot: root, manifest: manifestFor(css) }),

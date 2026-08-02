@@ -19,7 +19,7 @@
         "generatedModule": { "$ref": "#/$defs/portablePath" },
         "request": { "type": "string", "pattern": "^\\.\\.?/[^\\\\?#\\u0000-\\u001f\\u007f]+\\.module\\.css$" },
         "hostModulePath": { "$ref": "#/$defs/portablePath" },
-        "companionType": { "type": "string", "minLength": 3, "maxLength": 16384 }
+        "companionType": { "type": "string", "minLength": 1, "maxLength": 16384 }
       }
     },
     "source": {
@@ -65,7 +65,7 @@
         "additionalProperties": false,
         "required": ["name", "source"],
         "properties": {
-          "name": { "type": "string", "minLength": 1, "maxLength": 16384, "pattern": "^[ -~]+$" },
+          "name": { "type": "string", "minLength": 1, "maxLength": 16384, "pattern": "^(?!\\[.*\\]$)[ -~]+$" },
           "source": { "$ref": "#/$defs/location" }
         }
       }

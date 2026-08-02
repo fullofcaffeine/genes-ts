@@ -155,6 +155,13 @@ function parseExport(value: unknown, index: number): CssModuleExport {
       subject,
     );
   }
+  if (/^\[.*\]$/u.test(name)) {
+    cssModuleFailure(
+      "GENES-CSS-MODULE-EXPORT-NAME-005",
+      "CSS export names wrapped in square brackets are not supported by protocol version 1 because Genes reserves that native-name shape for computed property access.",
+      subject,
+    );
+  }
   return Object.freeze({ name, source: parseLocation(entry.source, `${subject}.source`) });
 }
 
