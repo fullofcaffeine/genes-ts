@@ -11,11 +11,13 @@ import todo.e2e.PlaywrightTypes.Page;
 
 class Main {
   static function sleep(ms: Int): Promise<Void> {
-    return cast Syntax.code("new Promise(resolve => setTimeout(resolve, {0}))", ms);
+    return cast Syntax.code("new Promise(resolve => setTimeout(resolve, {0}))",
+      ms);
   }
 
   @:async
-  static function waitForChecked(locator: todo.e2e.PlaywrightTypes.Locator, timeoutMs: Int): Promise<Void> {
+  static function waitForChecked(locator: todo.e2e.PlaywrightTypes.Locator,
+      timeoutMs: Int): Promise<Void> {
     final start = haxe.Timer.stamp();
     while (true) {
       final checked = await(locator.isChecked());
@@ -28,7 +30,8 @@ class Main {
   }
 
   @:async
-  static function waitForCount(locator: todo.e2e.PlaywrightTypes.Locator, expected: Int, timeoutMs: Int): Promise<Void> {
+  static function waitForCount(locator: todo.e2e.PlaywrightTypes.Locator,
+      expected: Int, timeoutMs: Int): Promise<Void> {
     final start = haxe.Timer.stamp();
     while (true) {
       final count = await(locator.count());
@@ -41,59 +44,107 @@ class Main {
   }
 
   static function main() {
-    PW.testPage("todoapp: validation + create, navigate, update, toggle, delete", @:async function(page: Page): Promise<Void> {
-      // Typed access to Node globals without triggering `__js__` deprecation warnings.
-      // See `todo.e2e.NodeGlobals` for the rationale and the exact warning text.
+    PW.testPage("todoapp: filters all, open, and completed todos", @:async function(page: Page): Promise<Void> {
       final nodeProcess = NodeGlobals.process();
-      final nodeConsole = NodeGlobals.console();
-
       final baseUrl = switch nodeProcess.env.get("BASE_URL") {
         case null: "http://localhost:8787";
         case v: v;
       }
 
-      // Debug helpers: surface browser failures in CI logs.
-      page.on("pageerror", (err: Error) -> {
-        nodeConsole.error("[pageerror]", err);
-      });
-      page.on("console", (msg: ConsoleMessage) -> {
-        nodeConsole.log("[console]", msg.type(), msg.text());
-      });
-
       await(page.goto(baseUrl + "/"));
-      await(page.getByText("interop: ts-imports-haxe-ok").waitFor());
 
+      // The QA runner gives each profile a fresh empty store. These two
+      // records make the expected filter result independent of production
+      // filtering code: one remains open and one is explicitly completed.
+      await(page.getByPlaceholder("New todo").fill("Filter open"));
       await(page.getByRole("button", {name: "Add"}).click());
-      await(page.getByText("Title is required").waitFor());
+      await(waitForCount(page.getByText("Filter open"), 1, 5000));
 
-      await(page.getByPlaceholder("New todo").fill("Buy milk"));
+      await(page.getByPlaceholder("New todo").fill("Filter done"));
       await(page.getByRole("button", {name: "Add"}).click());
-      await(waitForCount(page.getByText("Buy milk"), 1, 5000));
+      await(waitForCount(page.getByText("Filter done"), 1, 5000));
 
-      await(page.getByText("Buy milk").click());
-      await(page.waitForURL(new RegExp("/todos/"), {waitUntil: "commit"}));
-      final url = page.url();
-      if (url.indexOf("/todos/") == -1)
-        throw 'Expected /todos/:id URL, got ' + url;
+      await(page.locator('input[type="checkbox"]').nth(1).click());
+      await(waitForChecked(page.locator('input[type="checkbox"]').nth(1),
+        5000));
 
-      // A committed URL can become visible before React Router finishes
-      // replacing the previous page. Waiting for the labeled detail-page
-      // textbox proves that navigation has rendered the control we intend to
-      // edit, and avoids accidentally matching the list page's checkbox.
-      await(page.getByRole("textbox", {name: "Title"}).fill("Buy oat milk"));
-      await(page.getByRole("button", {name: "Save"}).click());
-      await(page.waitForURL(baseUrl + "/", {waitUntil: "commit"}));
+      // This truth table is the manually authored oracle. Do not derive it
+      // by calling TodoFilter or the page's visibility predicate.
+      await(page.getByRole("button", {name: "All todos"}).click());
+      await(waitForCount(page.getByText("Filter open"), 1, 5000));
+      await(waitForCount(page.getByText("Filter done"), 1, 5000));
 
-      await(page.getByText("Buy oat milk").waitFor());
-      final count = await(page.getByText("Buy oat milk").count());
-      if (count != 1)
-        throw 'Expected updated todo title in list, got $count';
+      await(page.getByRole("button", {name: "Open todos"}).click());
+      await(waitForCount(page.getByText("Filter open"), 1, 5000));
+      await(waitForCount(page.getByText("Filter done"), 0, 5000));
 
-      await(page.locator('input[type=\"checkbox\"]').nth(0).click());
-      await(waitForChecked(page.locator('input[type=\"checkbox\"]').nth(0), 5000));
+      await(page.getByRole("button", {name: "Completed todos"}).click());
+      await(waitForCount(page.getByText("Filter open"), 0, 5000));
+      await(waitForCount(page.getByText("Filter done"), 1, 5000));
+
+      await(page.getByRole("button", {name: "All todos"}).click());
       await(page.getByRole("button", {name: "Delete"}).nth(0).click());
-      await(waitForCount(page.getByText("Buy oat milk"), 0, 5000));
+      await(waitForCount(page.getByText("Filter open"), 0, 5000));
+      await(page.getByRole("button", {name: "Delete"}).nth(0).click());
+      await(waitForCount(page.getByText("Filter done"), 0, 5000));
     });
+
+    PW.testPage("todoapp: validation + create, navigate, update, toggle, delete",
+      @:async
+      function(page: Page): Promise<Void> {
+        // Typed access to Node globals without triggering `__js__` deprecation warnings.
+        // See `todo.e2e.NodeGlobals` for the rationale and the exact warning text.
+        final nodeProcess = NodeGlobals.process();
+        final nodeConsole = NodeGlobals.console();
+
+        final baseUrl = switch nodeProcess.env.get("BASE_URL") {
+          case null: "http://localhost:8787";
+          case v: v;
+        }
+
+        // Debug helpers: surface browser failures in CI logs.
+        page.on("pageerror", (err: Error) -> {
+          nodeConsole.error("[pageerror]", err);
+        });
+        page.on("console", (msg: ConsoleMessage) -> {
+          nodeConsole.log("[console]", msg.type(), msg.text());
+        });
+
+        await(page.goto(baseUrl + "/"));
+        await(page.getByText("interop: ts-imports-haxe-ok").waitFor());
+
+        await(page.getByRole("button", {name: "Add"}).click());
+        await(page.getByText("Title is required").waitFor());
+
+        await(page.getByPlaceholder("New todo").fill("Buy milk"));
+        await(page.getByRole("button", {name: "Add"}).click());
+        await(waitForCount(page.getByText("Buy milk"), 1, 5000));
+
+        await(page.getByText("Buy milk").click());
+        await(page.waitForURL(new RegExp("/todos/"), {waitUntil: "commit"}));
+        final url = page.url();
+        if (url.indexOf("/todos/") == -1)
+          throw 'Expected /todos/:id URL, got ' + url;
+
+        // A committed URL can become visible before React Router finishes
+        // replacing the previous page. Waiting for the labeled detail-page
+        // textbox proves that navigation has rendered the control we intend to
+        // edit, and avoids accidentally matching the list page's checkbox.
+        await(page.getByRole("textbox", {name: "Title"}).fill("Buy oat milk"));
+        await(page.getByRole("button", {name: "Save"}).click());
+        await(page.waitForURL(baseUrl + "/", {waitUntil: "commit"}));
+
+        await(page.getByText("Buy oat milk").waitFor());
+        final count = await(page.getByText("Buy oat milk").count());
+        if (count != 1)
+          throw 'Expected updated todo title in list, got $count';
+
+        await(page.locator('input[type=\"checkbox\"]').nth(0).click());
+        await(waitForChecked(page.locator('input[type=\"checkbox\"]').nth(0),
+          5000));
+        await(page.getByRole("button", {name: "Delete"}).nth(0).click());
+        await(waitForCount(page.getByText("Buy oat milk"), 0, 5000));
+      });
 
     PW.testPage("todoapp: deep-link refresh keeps detail state", @:async function(page: Page): Promise<Void> {
       final nodeProcess = NodeGlobals.process();
@@ -119,21 +170,24 @@ class Main {
       await(page.goto(detailUrl));
       final value = await(page.locator("input").inputValue());
       if (value != "Deep link todo")
-        throw 'Expected detail title to persist after deep-link refresh, got ' + value;
+        throw 'Expected detail title to persist after deep-link refresh, got '
+          + value;
     });
 
-    PW.testPage("todoapp: invalid deep link shows error and can return home", @:async function(page: Page): Promise<Void> {
-      final nodeProcess = NodeGlobals.process();
-      final baseUrl = switch nodeProcess.env.get("BASE_URL") {
-        case null: "http://localhost:8787";
-        case v: v;
-      }
+    PW.testPage("todoapp: invalid deep link shows error and can return home",
+      @:async
+      function(page: Page): Promise<Void> {
+        final nodeProcess = NodeGlobals.process();
+        final baseUrl = switch nodeProcess.env.get("BASE_URL") {
+          case null: "http://localhost:8787";
+          case v: v;
+        }
 
-      await(page.goto(baseUrl + "/todos/does-not-exist"));
-      await(page.getByText("Todo not found").waitFor());
-      await(page.getByRole("link", {name: "Back"}).click());
-      await(page.waitForURL(baseUrl + "/", {waitUntil: "commit"}));
-      await(page.getByText("Todoapp").waitFor());
-    });
+        await(page.goto(baseUrl + "/todos/does-not-exist"));
+        await(page.getByText("Todo not found").waitFor());
+        await(page.getByRole("link", {name: "Back"}).click());
+        await(page.waitForURL(baseUrl + "/", {waitUntil: "commit"}));
+        await(page.getByText("Todoapp").waitFor());
+      });
   }
 }

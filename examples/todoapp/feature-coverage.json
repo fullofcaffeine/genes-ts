@@ -125,8 +125,8 @@
       "claim": "Generic and abstract identities and enum-shaped values retain their reviewed type and runtime contracts.",
       "coverage": {"typescript-tsx":"partial","typescript-low-level":"partial","typescript-minimal":"partial","classic-js":"partial","classic-dts":"partial","node-runtime":"partial","browser-runtime":"partial","focused-fixture":"covered"},
       "evidence": {"typescript-tsx":["todoapp-build"],"typescript-low-level":["todoapp-low-level"],"typescript-minimal":["todoapp-minimal"],"classic-js":["todoapp-classic"],"classic-dts":["todoapp-contract"],"node-runtime":["todoapp-contract"],"browser-runtime":["todoapp-browser"],"focused-fixture":["compiler-core"]},
-      "gapBead": "genes-1x1g.2",
-      "notes": "Todoapp exercises TodoId and PrettyButtonVariant abstracts, but representative generic classes and payload enums remain focused-only until the application expansion."
+      "gapBead": "genes-1x1g.5",
+      "notes": "Todoapp exercises TodoId, PrettyButtonVariant, requestJson<T>, and the user-visible TodoFilter enum. Generic classes and payload-enum stress cases remain intentionally focused-only; genes-1x1g.5 owns the manifest vocabulary for recording that bounded disposition without synthetic application code."
     },
     {
       "id": "language.control-flow-evaluation-order",
@@ -134,8 +134,8 @@
       "claim": "Branches, loops, switches, calls, exceptions, and finally completion preserve Haxe evaluation order in both runtime profiles.",
       "coverage": {"typescript-tsx":"partial","typescript-low-level":"partial","typescript-minimal":"partial","classic-js":"partial","classic-dts":"not-applicable","node-runtime":"partial","browser-runtime":"partial","focused-fixture":"covered"},
       "evidence": {"typescript-tsx":["todoapp-build"],"typescript-low-level":["todoapp-low-level"],"typescript-minimal":["todoapp-minimal"],"classic-js":["todoapp-classic"],"node-runtime":["todoapp-contract"],"browser-runtime":["todoapp-browser"],"focused-fixture":["control-flow"]},
-      "gapBead": "genes-1x1g.2",
-      "notes": "CRUD and UI flows exercise ordinary branches and iteration; switches, nested completion, and effect-order traps remain focused."
+      "gapBead": "genes-1x1g.5",
+      "notes": "CRUD and UI flows exercise ordinary branches and iteration, and TodoFilter adds one exhaustive domain switch with a both-profile browser oracle. Nested completion, exception/finally behavior, and effect-order traps remain intentionally focused-only; genes-1x1g.5 owns the durable disposition vocabulary."
     },
     {
       "id": "language.strings-templates-arrays-maps",

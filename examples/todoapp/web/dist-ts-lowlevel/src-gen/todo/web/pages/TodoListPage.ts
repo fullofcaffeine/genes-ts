@@ -4,6 +4,7 @@ import {useState, useEffect} from "react"
 import __genes_import_PrettyButton from "../../../../src-ts/components/PrettyButton"
 import {interopBanner as __genes_import_interopBanner} from "../../../../src-ts/interop/haxeInterop"
 import {TodoText} from "../../shared/TodoText"
+import {TodoFilter} from "../TodoFilter"
 import {Client} from "../Client"
 import {StringTools} from "../../../StringTools"
 import {Link} from "react-router"
@@ -18,6 +19,11 @@ function Component(): JSX.Element {
 	const todos: Todo[] = todosState[0];
 	const titleState: UseStateResult<string> = useState("");
 	const title: string = titleState[0];
+	const initialFilter: (() => TodoFilter) = function () {
+		return TodoFilter.All;
+	};
+	const filterState: UseStateResult<TodoFilter> = useState(initialFilter);
+	const filter: TodoFilter = filterState[0];
 	const errorState: UseStateResult<string> = useState("");
 	const error: string = errorState[0];
 	useEffect(function () {
@@ -50,6 +56,25 @@ function Component(): JSX.Element {
 		};
 		const next: Todo[] = _g_1;
 		todosState[1](next);
+	};
+	const isVisible: ((todo: Todo) => boolean) = function (todo: Todo) {
+		switch (filter._hx_index) {
+			case 0: {
+				return true;
+				break;
+			}
+			case 1: {
+				return !todo.completed;
+				break;
+			}
+			case 2: {
+				return todo.completed;
+				break;
+			}
+			default: {
+				throw "unreachable";
+			}
+		};
 	};
 	const onAdd: (() => void) = function () {
 		const trimmed: string = StringTools.trim(title);
@@ -87,6 +112,22 @@ function Component(): JSX.Element {
 			});
 		}} satisfies (React__genes_jsx.ComponentPropsWithRef<"button"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), " Delete "));
 	};
+	const renderFilterButton: ((label: string, value: TodoFilter) => JSX.Element) = function (label: string, value: TodoFilter) {
+		const selected: boolean = filter == value;
+		return React__genes_jsx.createElement("button", ({"aria-pressed": selected, onClick: function () {
+			filterState[1](value);
+		}, style: {"padding": "6px 10px", "border": (selected) ? "1px solid #2563eb" : "1px solid #d1d5db", "borderRadius": "999px", "backgroundColor": (selected) ? "#dbeafe" : "white", "color": (selected) ? "#1e3a8a" : "#374151"}} satisfies (React__genes_jsx.ComponentPropsWithRef<"button"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), label);
+	};
+	const _g_2: Todo[] = [];
+	let _g1_2: number = 0;
+	while (_g1_2 < todos.length) {
+		const todo: Todo = todos[_g1_2]!;
+		++_g1_2;
+		if (isVisible(todo)) {
+			_g_2.push(todo);
+		};
+	};
+	const visibleTodos: Todo[] = _g_2;
 	const tmp: JSX.Element = React__genes_jsx.createElement("h2", null, "Todos");
 	const tmp1: JSX.Element = React__genes_jsx.createElement("input", ({value: title, placeholder: "New todo", onChange: function (e: ChangeEvent) {
 		titleState[1](e.target.value);
@@ -95,18 +136,22 @@ function Component(): JSX.Element {
 		onAdd();
 	}, variant: "primary"} satisfies (React__genes_jsx.ComponentPropsWithRef<typeof TodoListPage.PrettyButton> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
 	const tmp3: JSX.Element = React__genes_jsx.createElement("div", ({style: {"display": "flex", "gap": "8px", "marginBottom": "12px"}} satisfies (React__genes_jsx.ComponentPropsWithRef<"div"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), tmp1, tmp2);
+	const tmp4: JSX.Element = renderFilterButton("All todos", TodoFilter.All);
+	const tmp5: JSX.Element = renderFilterButton("Open todos", TodoFilter.Open);
+	const tmp6: JSX.Element = renderFilterButton("Completed todos", TodoFilter.Completed);
+	const tmp7: JSX.Element = React__genes_jsx.createElement("div", ({style: {"display": "flex", "gap": "8px", "marginBottom": "12px"}} satisfies (React__genes_jsx.ComponentPropsWithRef<"div"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), tmp4, tmp5, tmp6);
 	const f: ((arg0: Todo) => JSX.Element) = renderTodoItem;
-	const result: JSX.Element[] = new Array(todos.length);
-	let _g_2: number = 0;
-	const _g1_2: number = todos.length;
-	while (_g_2 < _g1_2) {
-		const i: number = _g_2++;
-		result[i] = f(todos[i]!);
+	const result: JSX.Element[] = new Array(visibleTodos.length);
+	let _g2: number = 0;
+	const _g3: number = visibleTodos.length;
+	while (_g2 < _g3) {
+		const i: number = _g2++;
+		result[i] = f(visibleTodos[i]!);
 	};
-	const tmp4: JSX.Element = React__genes_jsx.createElement("ul", ({style: {"listStyle": "none", "padding": "0", "margin": "0"}} satisfies (React__genes_jsx.ComponentPropsWithRef<"ul"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), result);
-	const tmp5: string = TodoListPage.interopBanner();
-	const tmp6: JSX.Element = React__genes_jsx.createElement("p", ({style: {"marginTop": "16px", "color": "#666", "fontSize": "12px"}} satisfies (React__genes_jsx.ComponentPropsWithRef<"p"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), tmp5);
-	return React__genes_jsx.createElement("div", null, tmp, errorView, tmp3, tmp4, tmp6);
+	const tmp8: JSX.Element = React__genes_jsx.createElement("ul", ({style: {"listStyle": "none", "padding": "0", "margin": "0"}} satisfies (React__genes_jsx.ComponentPropsWithRef<"ul"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), result);
+	const tmp9: string = TodoListPage.interopBanner();
+	const tmp10: JSX.Element = React__genes_jsx.createElement("p", ({style: {"marginTop": "16px", "color": "#666", "fontSize": "12px"}} satisfies (React__genes_jsx.ComponentPropsWithRef<"p"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), tmp9);
+	return React__genes_jsx.createElement("div", null, tmp, errorView, tmp3, tmp7, tmp8, tmp10);
 }
 export class TodoListPage {
 	declare static PrettyButton: ReactComponent1<PrettyButtonProps>;
