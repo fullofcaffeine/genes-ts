@@ -20,38 +20,40 @@ typedef EnumConstructorApplication = {
 }
 
 class TypeUtil {
-  /**
-   * Loads compiler-owned helper types at the earliest safe lifecycle point.
-   *
-   * Why: dependency planning needs typed declarations for `genes.Register`
-   * and `js.Boot`. Haxe 4 allows those lookups while this macro utility is
-   * initialized, but Haxe 5 requires initialization macros to finish first.
-   *
-   * What: each supported compiler follows its native safe timing. Keeping the
-   * Haxe 4 path eager also preserves its established typing and output order;
-   * moving that lookup later changes otherwise unrelated generated code.
-   *
-   * How: Haxe 5 fills read-only fields from `onAfterInitMacros`. Haxe 4 keeps
-   * the proven eager values. Neither path stores weak names or process-global
-   * typed objects, so compiler-server builds still receive current declarations.
-   */
-  #if (haxe_ver >= 5)
+  /** Current request's compiler-owned runtime helper declarations. */
   public static var registerType(default, null): ModuleType;
+
   public static var bootType(default, null): ModuleType;
 
-  static final contextTypesScheduled = scheduleContextTypes();
-
-  static function scheduleContextTypes(): Bool {
-    Context.onAfterInitMacros(() -> {
-      registerType = getModuleType('genes.Register');
-      bootType = getModuleType('js.Boot');
-    });
-    return true;
+  /**
+   * Refreshes helper declarations before the current request types user code.
+   *
+   * Why: Haxe's compiler server keeps macro statics alive. A helper
+   * `ModuleType` retained from an earlier request can collide with the current
+   * compiler module or feed a later dependency plan a stale declaration.
+   *
+   * What: the first `Generator.use()` in each request replaces both references
+   * with declarations owned by that compilation. No consumer may read them
+   * before this method.
+   *
+   * How: Haxe 4 permits the lookups at the generator initialization point.
+   * Haxe 5 requires initialization macros to finish, so the same per-request
+   * refresh runs from its request-local `onAfterInitMacros` callback. The
+   * fields are mutable only to support this explicit lifecycle reset; they are
+   * never keyed by names, positions, or generated output.
+   */
+  public static function refreshCompilerTypes(): Void {
+    #if (haxe_ver >= 5)
+    Context.onAfterInitMacros(resolveCompilerTypes);
+    #else
+    resolveCompilerTypes();
+    #end
   }
-  #else
-  public static final registerType = getModuleType('genes.Register');
-  public static final bootType = getModuleType('js.Boot');
-  #end
+
+  static function resolveCompilerTypes(): Void {
+    registerType = getModuleType('genes.Register');
+    bootType = getModuleType('js.Boot');
+  }
 
   public static function typeToModuleType(type: Type): ModuleType
     return switch type {
