@@ -15,8 +15,8 @@ using haxe.macro.TypedExprTools;
  * planning retain every type that TypeScript emission may spell explicitly.
  */
 typedef EnumConstructorApplication = {
-  final parameters:Array<Type>;
-  final argumentTypes:Array<Type>;
+  final parameters: Array<Type>;
+  final argumentTypes: Array<Type>;
 }
 
 class TypeUtil {
@@ -120,8 +120,7 @@ class TypeUtil {
     return switch unwrap(e).expr {
       case TCall({
         expr: TField(_,
-          FStatic(_.get() => {module: 'js.Syntax'},
-            _.get() => {name: 'code'}))
+          FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))
       }, args) if (args.length > 1):
         switch args[0].expr {
           case TConst(TString(template)):
@@ -179,9 +178,7 @@ class TypeUtil {
       case TBinop(OpNullCoal, _, _):
         true;
       #end
-      default:
-        final template = rawSyntaxCodeTemplate(e);
-        template != null && template.indexOf('??') != -1;
+      default: final template = rawSyntaxCodeTemplate(e); template != null && template.indexOf('??') != -1;
     }
   }
 
@@ -215,15 +212,15 @@ class TypeUtil {
    * the same compiler-owned expressions. The planner collects the returned
    * types before writers open, while the emitter owns only their TS spelling.
    */
-  public static function enumConstructorApplication(callee:TypedExpr,
-      expected:Null<Type>):Null<EnumConstructorApplication> {
+  public static function enumConstructorApplication(callee: TypedExpr,
+      expected: Null<Type>): Null<EnumConstructorApplication> {
     if (expected == null)
       return null;
     final enumRef = switch unwrapTransparent(callee).expr {
       case TField(_, FEnum(ref, _)): ref;
       default: return null;
     };
-    function find(type:Type):Null<Array<Type>>
+    function find(type: Type): Null<Array<Type>>
       return switch type {
         case TEnum(ref, params)
           if (ref.get().module == enumRef.get().module
@@ -258,7 +255,7 @@ class TypeUtil {
     return {parameters: parameters, argumentTypes: argumentTypes};
   }
 
-  static function unwrapTransparent(expression:TypedExpr):TypedExpr {
+  static function unwrapTransparent(expression: TypedExpr): TypedExpr {
     return switch expression.expr {
       case TMeta(_, inner) | TCast(inner, null) | TParenthesis(inner):
         unwrapTransparent(inner);
@@ -347,7 +344,10 @@ class TypeUtil {
   static function anonymousEitherField(type: Type,
       name: String): Null<ClassField> {
     return switch type {
-      case TAbstract(_.get() => {module: 'haxe.extern.EitherType', name: 'EitherType'}, params):
+      case TAbstract(_.get() => {
+        module: 'haxe.extern.EitherType',
+        name: 'EitherType'
+      }, params):
         for (param in params) {
           final field = anonymousField(param, name);
           if (field != null)
@@ -451,17 +451,12 @@ class TypeUtil {
    * `Array`. Requiring all three identities prevents both that false positive
    * and the simpler `cursor.shift():Void` rewrite.
    */
-  public static function isNativeArrayRemovalCall(
-      expression: TypedExpr): Bool {
+  public static function isNativeArrayRemovalCall(expression: TypedExpr): Bool {
     return switch expression.expr {
       case TCall({expr: TField(_, access)}, []):
         switch access {
-          case FInstance(owner, _, field):
-            isNativeArray(owner.get())
-              && isArrayRemovalField(field.get());
-          case FClosure({c: owner}, field):
-            isNativeArray(owner.get())
-              && isArrayRemovalField(field.get());
+          case FInstance(owner, _, field): isNativeArray(owner.get()) && isArrayRemovalField(field.get());
+          case FClosure({c: owner}, field): isNativeArray(owner.get()) && isArrayRemovalField(field.get());
           default:
             false;
         }
@@ -471,8 +466,7 @@ class TypeUtil {
   }
 
   static inline function isNativeArray(owner: ClassType): Bool {
-    return owner.pack.length == 0
-      && owner.module == 'Array'
+    return owner.pack.length == 0 && owner.module == 'Array'
       && owner.name == 'Array';
   }
 
@@ -613,11 +607,13 @@ class TypeUtil {
             return en.name;
         case TType(ref, _):
           final typedefType = ref.get();
-          if (typedefType.module == base.module && typedefType.name == base.name)
+          if (typedefType.module == base.module
+            && typedefType.name == base.name)
             return typedefType.name;
         case TAbstract(ref, _):
           final abstractType = ref.get();
-          if (abstractType.module == base.module && abstractType.name == base.name)
+          if (abstractType.module == base.module
+            && abstractType.name == base.name)
             return abstractType.name;
         default:
       }
