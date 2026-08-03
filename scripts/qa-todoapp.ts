@@ -290,6 +290,12 @@ try {
     "non-boolean completed patch"
   );
   assertApiError(
+    await requestJson("PATCH", `${baseUrl}/api/todos/${todoId}`, { completed: null }),
+    400,
+    "invalid_patch",
+    "null completed patch"
+  );
+  assertApiError(
     await requestJson("PATCH", `${baseUrl}/api/todos/${todoId}`, 42),
     400,
     "invalid_patch",

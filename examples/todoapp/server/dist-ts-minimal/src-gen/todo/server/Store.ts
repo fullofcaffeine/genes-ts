@@ -4,7 +4,7 @@ import {Exception} from "../../haxe/Exception.js"
 import {Register} from "../../genes/Register.js"
 import type {Todo} from "../shared/Todo.js"
 import type {Console} from "console"
-import type {UpdateTodoBody} from "../shared/Api.js"
+import type {DecodedTodoUpdate} from "./ApiRequestDecoder.js"
 
 export type PersistedStore = {
 	todos: Todo[]
@@ -48,7 +48,7 @@ export class Store extends Register.inherits() {
 		this.save();
 		return todo;
 	}
-	update(id: string, patch: UpdateTodoBody): Todo | null {
+	update(id: string, patch: DecodedTodoUpdate): Todo | null {
 		const todo: Todo | null = this.get(id);
 		if (todo == null) {
 			return null;

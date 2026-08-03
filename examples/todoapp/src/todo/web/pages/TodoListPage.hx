@@ -7,6 +7,7 @@ import genes.react.React.useState;
 import genes.react.React.useStateLazy;
 import genes.ts.Imports;
 import todo.extern.ReactRouter.Link;
+import todo.shared.Api.UpdateTodoCompletedBody;
 import todo.shared.Todo;
 import todo.shared.TodoId;
 import todo.shared.TodoText;
@@ -116,7 +117,10 @@ class TodoListPage {
         <input
           type={"checkbox"}
           checked={todo.completed}
-          onChange={() -> Client.updateTodo(todo.id, {completed: !todo.completed}).then(updated -> { replaceTodo(updated); return null; })}
+          onChange={() -> {
+            final patch: UpdateTodoCompletedBody = {completed: !todo.completed};
+            return Client.updateTodo(todo.id, patch).then(updated -> { replaceTodo(updated); return null; });
+          }}
         />
         <Link to={"/todos/" + todo.id} style={{flex: "1"}}>
           {renderTodoTitle(todo)}

@@ -2,7 +2,7 @@ package todo.server;
 
 import js.node.Fs;
 import js.node.console.Console;
-import todo.shared.Api.UpdateTodoBody;
+import todo.server.ApiRequestDecoder.DecodedTodoUpdate;
 import todo.shared.Todo;
 import todo.shared.TodoId;
 
@@ -50,7 +50,7 @@ class Store {
     return todo;
   }
 
-  public function update(id: TodoId, patch: UpdateTodoBody): Null<Todo> {
+  public function update(id: TodoId, patch: DecodedTodoUpdate): Null<Todo> {
     final todo = get(id);
     if (todo == null)
       return null;

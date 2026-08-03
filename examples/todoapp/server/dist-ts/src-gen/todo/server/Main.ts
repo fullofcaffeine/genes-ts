@@ -7,8 +7,8 @@ import {Std} from "../../Std.js"
 import {Register} from "../../genes/Register.js"
 import type {ExpressResponse, ExpressApp, ExpressRequest} from "../extern/Express.js"
 import type {Console} from "console"
-import type {TodoListResponse, TodoResponse, CreateTodoBody, UpdateTodoBody, ErrorResponse} from "../shared/Api.js"
-import type {ApiDecode} from "./ApiRequestDecoder.js"
+import type {TodoListResponse, TodoResponse, CreateTodoBody, ErrorResponse} from "../shared/Api.js"
+import type {ApiDecode, DecodedTodoUpdate} from "./ApiRequestDecoder.js"
 import type {Todo} from "../shared/Todo.js"
 
 export class Main {
@@ -75,8 +75,8 @@ export class Main {
 				Main.sendError(res, 400, decodedId.error);
 				return;
 			};
-			const decodedPatch: ApiDecode<UpdateTodoBody> = ApiRequestDecoder.update(req.body);
-			const patch: UpdateTodoBody | null = decodedPatch.value;
+			const decodedPatch: ApiDecode<DecodedTodoUpdate> = ApiRequestDecoder.update(req.body);
+			const patch: DecodedTodoUpdate | null = decodedPatch.value;
 			if (patch == null) {
 				Main.sendError(res, 400, decodedPatch.error);
 				return;

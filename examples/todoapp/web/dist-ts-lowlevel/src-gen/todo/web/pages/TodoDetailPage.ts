@@ -9,6 +9,7 @@ import {StringTools} from "../../../StringTools"
 import {Register} from "../../../genes/Register"
 import type {UseStateResult} from "../../../genes/react/UseStateResult"
 import type {Todo} from "../../shared/Todo"
+import type {UpdateTodoTitleBody} from "../../shared/Api"
 import type {ChangeEvent} from "../ReactTypes"
 
 function Component(): JSX.Element {
@@ -42,7 +43,8 @@ function Component(): JSX.Element {
 			errorState[1]("Title is required");
 			return;
 		};
-		Client.updateTodo(id, {"title": trimmed}).then(function (updated: Todo) {
+		const patch: UpdateTodoTitleBody = {"title": trimmed};
+		Client.updateTodo(id, patch).then(function (updated: Todo) {
 			todoState[1](updated);
 			navigate("/");
 		})["catch"](function (_) {

@@ -133,13 +133,16 @@ exception/finally completion, or adversarial evaluation order.
 
 The server follows the same bounded-proof rule. Express request bodies enter
 Haxe as `genes.ts.Unknown`; `todo.server.ApiRequestDecoder` checks the object
-shape and each field before constructing a `CreateTodoBody` or
-`UpdateTodoBody`. The API transcript deliberately sends arrays, wrong field
-types, extra fields, an empty patch, and a blank identifier. It also proves
-that a rejected patch leaves the Todo unchanged, a title-only patch preserves
-`completed`, and a completed-only patch preserves `title`. These checks prove
-this Todo API boundary; focused nullish fixtures remain authoritative for the
-complete JavaScript `null`/`undefined`/missing-property matrix.
+shape and each field before constructing a `CreateTodoBody` or an internal
+validated update. The public `UpdateTodoBody` is a non-empty union: callers
+must provide `title`, `completed`, or both, and TypeScript callers cannot send
+`null` for either value. The API transcript deliberately sends arrays, wrong
+field types, `null`, extra fields, an empty patch, and a blank identifier. It
+also proves that a rejected patch leaves the Todo unchanged, a title-only
+patch preserves `completed`, and a completed-only patch preserves `title`.
+These checks prove this Todo API boundary; focused nullish fixtures remain
+authoritative for the complete JavaScript
+`null`/`undefined`/missing-property matrix.
 
 `examples/profiles.json` owns the repository-wide example inventory and the
 structured build/runtime/browser command for each profile. The aggregate

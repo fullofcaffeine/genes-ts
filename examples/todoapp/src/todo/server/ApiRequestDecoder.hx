@@ -4,13 +4,18 @@ import genes.ts.Unknown;
 import genes.ts.UnknownNarrow;
 import genes.ts.UnknownRecord;
 import todo.shared.Api.CreateTodoBody;
-import todo.shared.Api.UpdateTodoBody;
 import todo.shared.TodoId;
 
 /** Result of checking an untrusted HTTP value against one Todo API shape. */
 typedef ApiDecode<T> = {
   final value: Null<T>;
   final error: String;
+}
+
+/** A non-empty Todo update after the untrusted JSON checks have passed. */
+typedef DecodedTodoUpdate = {
+  final ?title: String;
+  final ?completed: Bool;
 }
 
 /**
@@ -40,7 +45,7 @@ class ApiRequestDecoder {
     return accepted(value);
   }
 
-  public static function update(body: Unknown): ApiDecode<UpdateTodoBody> {
+  public static function update(body: Unknown): ApiDecode<DecodedTodoUpdate> {
     final record = UnknownNarrow.record(body);
     if (record == null || !hasOnlyUpdateFields(record))
       return rejected("invalid_patch");
@@ -59,21 +64,21 @@ class ApiRequestDecoder {
         final completed = UnknownNarrow.bool(record.get("completed"));
         if (completed == null)
           return rejected("invalid_patch");
-        final value: UpdateTodoBody = {
+        final value: DecodedTodoUpdate = {
           title: title,
           completed: completed
         };
         return accepted(value);
       }
 
-      final value: UpdateTodoBody = {title: title};
+      final value: DecodedTodoUpdate = {title: title};
       return accepted(value);
     }
 
     final completed = UnknownNarrow.bool(record.get("completed"));
     if (completed == null)
       return rejected("invalid_patch");
-    final value: UpdateTodoBody = {completed: completed};
+    final value: DecodedTodoUpdate = {completed: completed};
     return accepted(value);
   }
 

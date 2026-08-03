@@ -6,6 +6,7 @@ import genes.react.React.useEffect;
 import genes.react.React.useState;
 import todo.extern.ReactRouter.Link;
 import todo.extern.ReactRouter.useNavigate;
+import todo.shared.Api.UpdateTodoTitleBody;
 import todo.shared.Todo;
 import todo.shared.TodoId;
 import todo.web.Client;
@@ -52,7 +53,8 @@ class TodoDetailPage {
         errorState.set("Title is required");
         return;
       }
-      Client.updateTodo(id, {title: trimmed}).then(updated -> {
+      final patch: UpdateTodoTitleBody = {title: trimmed};
+      Client.updateTodo(id, patch).then(updated -> {
         todoState.set(updated);
         navigate("/");
       }).catchError(_ -> {
