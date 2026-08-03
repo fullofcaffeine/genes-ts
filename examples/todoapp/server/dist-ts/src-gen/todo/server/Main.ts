@@ -34,7 +34,7 @@ export class Main {
 		};
 		const store: Store = new Store(dataPath);
 		const app: ExpressApp = Express();
-		app.use(Express.json());
+		app.use(Express.json({"strict": false}));
 		app.get("/api/health", function (_: ExpressRequest, res: ExpressResponse) {
 			res.json({"ok": true});
 		});

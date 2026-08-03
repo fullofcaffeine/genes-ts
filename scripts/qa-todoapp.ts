@@ -241,6 +241,12 @@ try {
     "array create body"
   );
   assertApiError(
+    await requestJson("POST", `${baseUrl}/api/todos`, 42),
+    400,
+    "invalid_body",
+    "primitive create body"
+  );
+  assertApiError(
     await requestJson("POST", `${baseUrl}/api/todos`, { title: 42 }),
     400,
     "invalid_title",
@@ -282,6 +288,12 @@ try {
     400,
     "invalid_patch",
     "non-boolean completed patch"
+  );
+  assertApiError(
+    await requestJson("PATCH", `${baseUrl}/api/todos/${todoId}`, 42),
+    400,
+    "invalid_patch",
+    "primitive patch body"
   );
   assertApiError(
     await requestJson("PATCH", `${baseUrl}/api/todos/${todoId}`, {}),

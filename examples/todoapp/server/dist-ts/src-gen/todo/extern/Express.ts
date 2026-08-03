@@ -1,5 +1,12 @@
 import {Register} from "../../genes/Register.js"
 
+/**
+ * Options used by the Todoapp's JSON parser boundary.
+ */
+export type ExpressJsonOptions = {
+	strict: boolean
+}
+
 export type ExpressHandler = ((req: ExpressRequest, res: ExpressResponse) => void)
 
 /**

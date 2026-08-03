@@ -191,9 +191,9 @@ assertNoUnsafeTypes({
   repoRoot,
   generatedDir: "examples/todoapp/server/src-gen/todo",
   fileExts: [".ts"],
-  // This is the one application-owned host boundary: Express gives us an
-  // untrusted JSON body and the module narrows it before domain code sees it.
-  allowUnsafeTypeFiles: ["server/ApiRequestDecoder.ts"]
+  // Express declares the transport value as unknown; ApiRequestDecoder is the
+  // only application module allowed to inspect and narrow that value.
+  allowUnsafeTypeFiles: ["extern/Express.ts", "server/ApiRequestDecoder.ts"]
 });
 runTypeScript("legacyFloor", [
   "-p",
@@ -213,6 +213,6 @@ assertNoUnsafeTypes({
   repoRoot,
   generatedDir: "examples/todoapp/server/src-gen/todo",
   fileExts: [".ts"],
-  allowUnsafeTypeFiles: ["server/ApiRequestDecoder.ts"]
+  allowUnsafeTypeFiles: ["extern/Express.ts", "server/ApiRequestDecoder.ts"]
 });
 runGeneratedTypeScriptMatrix("examples/todoapp/server/tsconfig.json");

@@ -72,9 +72,9 @@ assertNoUnsafeTypes({
   repoRoot,
   generatedDir: "examples/todoapp/server/classic-src-gen/todo",
   fileExts: [".ts"],
-  // The declaration exposes the exact `unknown` input accepted by the checked
-  // Express decoder; all ordinary Todo modules remain under the strict ban.
-  allowUnsafeTypeFiles: ["server/ApiRequestDecoder.d.ts"]
+  // Express declares the transport value as unknown; the decoder declaration
+  // accepts it. Every ordinary Todo declaration remains under the strict ban.
+  allowUnsafeTypeFiles: ["extern/Express.d.ts", "server/ApiRequestDecoder.d.ts"]
 });
 
 runGeneratedTypeScriptMatrix("examples/todoapp/tsconfig.classic.json", {

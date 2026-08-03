@@ -26,10 +26,15 @@ import genes.ts.Unknown;
 extern class Express {
   @:selfCall public static function call(): ExpressApp;
 
-  public static function json(): Function;
+  public static function json(?options: ExpressJsonOptions): Function;
 
   @:native("static") public static function static_(root: String): Function;
 }
+
+/** Options used by the Todoapp's JSON parser boundary. */
+typedef ExpressJsonOptions = {
+  final strict: Bool;
+};
 
 typedef ExpressHandler = (req: ExpressRequest, res: ExpressResponse) -> Void;
 

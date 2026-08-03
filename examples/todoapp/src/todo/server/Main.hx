@@ -37,7 +37,10 @@ class Main {
     final store = new Store(dataPath);
 
     final app = Express.call();
-    app.use(Express.json());
+    // Express normally rejects primitive JSON before a route can inspect it.
+    // Let the Todo decoder own every valid JSON shape so arrays, numbers, and
+    // objects all receive the same stable API error envelope.
+    app.use(Express.json({strict: false}));
 
     app.get("/api/health", (_, res) -> {
       res.json({ok: true});
