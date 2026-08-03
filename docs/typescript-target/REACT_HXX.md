@@ -365,11 +365,20 @@ focused injected-failure test proves that a late accounting error leaves the
 previous generated tree byte-for-byte unchanged.
 
 These identities live only in one `JsxPlan`; they are never static or reused
-between compiler requests. The focused suite also builds an inlineable child,
-edits it into an authored local, and restores it through one warm Haxe compiler
-server. The middle build must retain the authored local and the restored build
-must exactly match the first. This guards against stale object identities or
-rewrite decisions surviving a compiler-server request.
+between compiler requests. The focused suite builds an inlineable child, edits
+it into an authored local, enters and leaves a direct component imported with
+field-level `@:jsRequire`, and restores the first source through one warm Haxe
+compiler server. A second server begins with the imported component and runs
+the inverse order. Every middle build must reflect its current source, and each
+restored build must exactly match its first complete output tree.
+
+The imported-component steps also protect a lower compiler lifecycle boundary.
+Dependency planning needs typed declarations for Genes' `genes.Register` and
+Haxe's `js.Boot` runtime helpers. Those compiler objects are refreshed for each
+request; keeping one in a macro static after the request ends can make Haxe
+report that the helper is redefined on the next edit. Testing both request
+orders guards the JSX plan and these helper declarations without treating JSX
+names or generated text as lifecycle authority.
 
 The normalization is intentionally limited to profiles that preserve JSX
 syntax. Typed `.ts` and classic `.js` still emit the established explicit

@@ -106,17 +106,19 @@ function captureGeneratedTree(relPath: string): ReadonlyArray<readonly [string, 
 }
 
 /**
- * Proves source-inline facts never survive beyond their typed compiler tree.
+ * Proves JSX plans and compiler helper types stay inside one warm request.
  *
  * Why: a warm Haxe compiler server reuses one macro process across builds. The
- * plan keys declarations and uses by typed-expression object identity, which
- * is valid only for the current build. An accidental static cache could apply
- * an old rewrite after a source edit.
+ * JSX plan keys are valid only for their current typed tree. Field-level
+ * `@:jsRequire` also makes dependency planning consult the compiler-owned
+ * `genes.Register` and `js.Boot` declarations; retaining either `ModuleType`
+ * in a macro static can make the next request fail while retyping that module.
  *
- * What/How: the test builds an inlineable tree, edits the generated fixture so
- * its child becomes an authored local, then restores the first source—all in
- * one server. The middle build must retain the local, and the final published
- * tree must be byte-identical to the first.
+ * What/How: one server preserves the original intrinsic/authored-local edit
+ * and additionally enters and leaves a direct imported-component tree. A
+ * second server begins with the imported tree and performs the inverse edit.
+ * Every generated shape must match its current source, and restoring either
+ * starting source must restore the complete output tree byte-for-byte.
  */
 async function assertSourceInlineCompilerServerIsolation(): Promise<void> {
   const fixtureRootRel =
@@ -125,11 +127,19 @@ async function assertSourceInlineCompilerServerIsolation(): Promise<void> {
   const sourceRoot = path.join(fixtureRoot, "src");
   const outputRootRel = `${fixtureRootRel}/src-gen`;
   const sourceFile = path.join(sourceRoot, "ServerSourceInline.hx");
-  rmrf(fixtureRootRel);
-  mkdirSync(sourceRoot, { recursive: true });
 
   const inlineable = `package;
 import genes.react.Element;
+
+private typedef ServerEmptyProps = {}
+private typedef ServerParentProps = {final children: Element;}
+
+private extern class ServerComponents {
+  @:jsRequire("./Parent.js", "default")
+  static function Parent(props: ServerParentProps): Element;
+  @:jsRequire("./Child.js", "default")
+  static function Child(props: ServerEmptyProps): Element;
+}
 
 /** Generated warm-server fixture; the test owns and rewrites this file. */
 class ServerSourceInline {
@@ -146,12 +156,12 @@ class ServerSourceInline {
     "return <div><span>{label}</span></div>;",
     "final child = <span>{label}</span>;\n    return <div>{child}</div>;"
   );
-  writeFileSync(sourceFile, inlineable, "utf8");
+  const importedComponents = inlineable.replace(
+    "return <div><span>{label}</span></div>;",
+    "return <ServerComponents.Parent><ServerComponents.Child /></ServerComponents.Parent>;"
+  );
 
   const compiler = selectedHaxeCompiler(repoRoot);
-  const server = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
-  server.installSignalCleanup();
-
   const buildArguments = [
     "-lib",
     "genes-ts",
@@ -168,10 +178,13 @@ class ServerSourceInline {
     "-dce",
     "full"
   ];
-  const build = async (): Promise<void> => {
+  const build = async (
+    server: OwnedHaxeCompilerServer,
+    label: string
+  ): Promise<string> => {
     const result = await server.compile(
       buildArguments,
-      "HXX source-inline warm build",
+      label,
       compiler.version.startsWith("5.") ? 120_000 : 60_000
     );
     strictEqual(
@@ -180,34 +193,67 @@ class ServerSourceInline {
       `warm Haxe compiler build failed:`
       + `\n${result.stdout}${result.stderr}${server.logs}`
     );
+    return readFileSync(
+      path.join(repoRoot, outputRootRel, "ServerSourceInline.tsx"),
+      "utf8"
+    );
   };
 
-  try {
-    await build();
-    const firstTree = captureGeneratedTree(outputRootRel);
-    const firstSource = readFileSync(
-      path.join(repoRoot, outputRootRel, "ServerSourceInline.tsx"),
-      "utf8"
-    );
-    ok(firstSource.includes("return <div><span>{label}</span></div>"),
-      "warm-server first build did not inline the parser-owned child");
+  const assertIntrinsic = (source: string): void => {
+    ok(source.includes("return <div><span>{label}</span></div>"),
+      "warm-server intrinsic build did not inline the parser-owned child");
+  };
+  const assertAuthoredLocal = (source: string): void => {
+    ok(source.includes("const child: JSX.Element = <span>{label}</span>")
+      && source.includes("return <div>{child}</div>"),
+    "warm-server authored local reused a stale parser-owned child fact");
+  };
+  const assertImportedComponents = (source: string): void => {
+    ok(source.includes("const tmp: JSX.Element = <Child />")
+      && source.includes("return <Parent>{tmp}</Parent>"),
+    "warm-server imported component build did not use current typed bindings");
+  };
 
-    writeFileSync(sourceFile, authoredLocal, "utf8");
-    await build();
-    const editedSource = readFileSync(
-      path.join(repoRoot, outputRootRel, "ServerSourceInline.tsx"),
-      "utf8"
-    );
-    ok(editedSource.includes("const child: JSX.Element = <span>{label}</span>"),
-      "warm-server edit reused a stale parser-owned child fact");
+  const runSequence = async (
+    label: string,
+    steps: readonly [
+      readonly [string, (source: string) => void],
+      ...ReadonlyArray<readonly [string, (source: string) => void]>
+    ]
+  ): Promise<void> => {
+    rmrf(fixtureRootRel);
+    mkdirSync(sourceRoot, { recursive: true });
+    writeFileSync(sourceFile, steps[0][0], "utf8");
+    const server = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
+    server.installSignalCleanup();
+    try {
+      steps[0][1](await build(server, `${label} first build`));
+      const firstTree = captureGeneratedTree(outputRootRel);
+      let buildNumber = 2;
+      for (const [source, assertSource] of steps.slice(1)) {
+        writeFileSync(sourceFile, source, "utf8");
+        assertSource(await build(server, `${label} build ${buildNumber}`));
+        buildNumber++;
+      }
+      deepStrictEqual(captureGeneratedTree(outputRootRel), firstTree,
+        `${label} did not restore its original generated tree`);
+    } finally {
+      await server.stop();
+    }
+  };
 
-    writeFileSync(sourceFile, inlineable, "utf8");
-    await build();
-    deepStrictEqual(captureGeneratedTree(outputRootRel), firstTree,
-      "warm-server edit/revert did not restore the original generated tree");
-  } finally {
-    await server.stop();
-  }
+  await runSequence("intrinsic-first warm sequence", [
+    [inlineable, assertIntrinsic],
+    [authoredLocal, assertAuthoredLocal],
+    [inlineable, assertIntrinsic],
+    [importedComponents, assertImportedComponents],
+    [inlineable, assertIntrinsic]
+  ]);
+  await runSequence("direct-import-first warm sequence", [
+    [importedComponents, assertImportedComponents],
+    [inlineable, assertIntrinsic],
+    [importedComponents, assertImportedComponents]
+  ]);
 }
 
 function parseTranscript(output: string): unknown {
