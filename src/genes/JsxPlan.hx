@@ -124,7 +124,7 @@ private final class JsxLocalUseInventory {
   }
 }
 
-/** One static HXX root worth checking for the bounded props projection. */
+/** One static HXX element worth checking for the bounded props projection. */
 private typedef JsxSourcePropsCandidate = {
   final marker: TypedExpr;
   final rootOccurrence: TypedExpr;
@@ -945,7 +945,7 @@ class JsxPlan {
     return readProps(resolved, sourceRoot, [], 0);
   }
 
-  /** Collects a static HXX candidate without authorizing a representation. */
+  /** Collects a static HXX element without authorizing a representation. */
   function collectSourcePropsCandidate(expression: TypedExpr,
       intent: JsxIntent): Void {
     if (!collectingCarrierUses)
@@ -961,19 +961,21 @@ class JsxPlan {
     // to be consumed would reject a valid module at emitter finalization.
     if (!implementationExpressions.exists(marker))
       return;
-    final arguments = switch marker.expr {
-      case TCall(callee, found) if (markerKind(callee) == HxxElementMarker):
-        found;
+    final propsArgument = switch marker.expr {
+      case TCall(callee, found):
+        switch markerKind(callee) {
+          case HxxElementMarker if (found.length == 4): found[2];
+          case HxxChildElementMarker if (found.length == 3): found[1];
+          default: return;
+        }
       default: return;
     }
-    if (arguments.length != 4)
-      return;
     switch intent {
       case ElementIntent(DynamicIntrinsicTag(_), _, _, _):
-        // Dynamic roots retain createElement and the linked carrier.
+        // Dynamic elements retain createElement and the linked carrier.
         return;
       case ElementIntent(_, props, _, _):
-        final rootOccurrence = sourcePropsUnwrap(arguments[2]);
+        final rootOccurrence = sourcePropsUnwrap(propsArgument);
         final local = switch rootOccurrence.expr {
           case TLocal(found): found;
           default: return;

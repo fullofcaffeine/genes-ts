@@ -328,6 +328,83 @@ function assertNormalizedHxxPropMappings(): void {
   }
 }
 
+/** Proves a retained nested HXX element keeps the same authored prop origin. */
+function assertNestedHxxPropMappings(): void {
+  const originalPath = path.join(
+    reactFixtureRoot,
+    "src/RetainedImportedStatusView.hx"
+  );
+  const originalPosition = tokenPosition(
+    readFileSync(originalPath, "utf8"),
+    "RetainedPropsOrder.recordProp(props.value)"
+  );
+  const profiles = [
+    {
+      name: "automatic TSX nested carrier",
+      hxml: "tests/genes-ts/snapshot/react/build-dual-tsx.hxml",
+      output: "tests/genes-ts/snapshot/react/out/dual-tsx",
+      generatedPath: path.join(
+        reactFixtureRoot,
+        "out/dual-tsx/src-gen/RetainedImportedStatusView.tsx"
+      )
+    },
+    {
+      name: "source JSX nested carrier",
+      hxml: "tests/genes-ts/snapshot/react/build-dual-jsx.hxml",
+      output: "tests/genes-ts/snapshot/react/out/dual-jsx",
+      generatedPath: path.join(
+        reactFixtureRoot,
+        "out/dual-jsx/RetainedImportedStatusView.jsx"
+      )
+    }
+  ] as const;
+
+  for (const profile of profiles) {
+    rmrf(profile.output);
+    run("haxe", [profile.hxml, "-debug"]);
+    const generated = readFileSync(profile.generatedPath, "utf8");
+    const consumer = new SourceMapConsumer(decodeRawSourceMap(
+      readFileSync(`${profile.generatedPath}.map`, "utf8")
+    ));
+    const readPosition = tokenPosition(generated, "tmp.value");
+    const segments: Array<{
+      source: string | null;
+      originalLine: number | null;
+      originalColumn: number | null;
+    }> = [];
+    consumer.eachMapping((mapping) => {
+      if (mapping.generatedLine === readPosition.line
+        && mapping.generatedColumn === readPosition.column) {
+        segments.push({
+          source: mapping.source,
+          originalLine: mapping.originalLine,
+          originalColumn: mapping.originalColumn
+        });
+      }
+    });
+    strictEqual(segments.length, 1,
+      `${profile.name} must emit one segment at the nested property read`);
+    ok(segments[0].source?.endsWith(
+      "/src/RetainedImportedStatusView.hx") === true,
+    `${profile.name} nested property read lost its authored module`);
+    strictEqual(segments[0].originalLine, originalPosition.line,
+      `${profile.name} nested property read changed its authored line`);
+    strictEqual(segments[0].originalColumn, originalPosition.column,
+      `${profile.name} nested property read changed its authored column`);
+
+    const initializer = consumer.originalPositionFor(
+      tokenPosition(generated, "recordCarrierProp(props.value)")
+    );
+    ok(initializer.source?.endsWith(
+      "/src/RetainedImportedStatusView.hx") === true,
+    `${profile.name} nested initializer lost its authored module`);
+    strictEqual(initializer.line, originalPosition.line,
+      `${profile.name} nested initializer changed its authored line`);
+    strictEqual(initializer.column, originalPosition.column,
+      `${profile.name} nested initializer changed its authored column`);
+  }
+}
+
 /**
  * Proves a planned TypeScript identity wrapper and its inner value both retain
  * the authored Haxe boundary. The wrapper maps to the whole call/return
@@ -463,6 +540,7 @@ try {
   assertOverlappingClassPathIdentities();
   assertInlinedJsxChildMapping();
   assertNormalizedHxxPropMappings();
+  assertNestedHxxPropMappings();
   assertBoundaryWrapperMappings();
 
   console.log("ok");
