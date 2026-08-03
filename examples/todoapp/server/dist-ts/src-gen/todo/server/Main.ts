@@ -1,13 +1,14 @@
 import * as Path from "path"
 import {Store} from "./Store.js"
 import Express from "express"
-import {StringTools} from "../../StringTools.js"
+import {ApiRequestDecoder} from "./ApiRequestDecoder.js"
 import * as Fs from "fs"
 import {Std} from "../../Std.js"
 import {Register} from "../../genes/Register.js"
+import type {ExpressResponse, ExpressApp, ExpressRequest} from "../extern/Express.js"
 import type {Console} from "console"
-import type {ExpressApp, ExpressRequest, ExpressResponse} from "../extern/Express.js"
-import type {TodoListResponse, ErrorResponse, TodoResponse, CreateTodoBody, UpdateTodoBody} from "../shared/Api.js"
+import type {TodoListResponse, TodoResponse, CreateTodoBody, ErrorResponse} from "../shared/Api.js"
+import type {ApiDecode, DecodedTodoUpdate} from "./ApiRequestDecoder.js"
 import type {Todo} from "../shared/Todo.js"
 
 export class Main {
@@ -33,7 +34,7 @@ export class Main {
 		};
 		const store: Store = new Store(dataPath);
 		const app: ExpressApp = Express();
-		app.use(Express.json());
+		app.use(Express.json({"strict": false}));
 		app.get("/api/health", function (_: ExpressRequest, res: ExpressResponse) {
 			res.json({"ok": true});
 		});
@@ -42,21 +43,26 @@ export class Main {
 			res.json(body);
 		});
 		app.get("/api/todos/:id", function (req: ExpressRequest, res: ExpressResponse) {
-			const id: string = (req.params["id"] ?? null);
-			const todo: Todo | null = store.get(id);
-			if (todo == null) {
-				const body: ErrorResponse = {"error": "not_found"};
-				res.status(404).json(body);
+			const decodedId: ApiDecode<string> = ApiRequestDecoder.todoId((req.params["id"] ?? null));
+			const id: string | null = decodedId.value;
+			if (id == null) {
+				Main.sendError(res, 400, decodedId.error);
 				return;
 			};
-			const body_1: TodoResponse = {"todo": todo};
-			res.json(body_1);
+			const _g_1: Todo | null = store.get(id);
+			if (_g_1 == null) {
+				Main.sendError(res, 404, "not_found");
+			} else {
+				const todo: Todo = _g_1;
+				const body: TodoResponse = {"todo": todo};
+				res.json(body);
+			};
 		});
 		app.post("/api/todos", function (req: ExpressRequest, res: ExpressResponse) {
-			const body: CreateTodoBody = req.body;
-			if (body == null || body.title == null || StringTools.trim(body.title).length == 0) {
-				const err: ErrorResponse = {"error": "invalid_title"};
-				res.status(400).json(err);
+			const decodedBody: ApiDecode<CreateTodoBody> = ApiRequestDecoder.create(req.body);
+			const body: CreateTodoBody | null = decodedBody.value;
+			if (body == null) {
+				Main.sendError(res, 400, decodedBody.error);
 				return;
 			};
 			const todo: Todo = store.create(body.title);
@@ -64,23 +70,59 @@ export class Main {
 			res.status(201).json(out);
 		});
 		app.patch("/api/todos/:id", function (req: ExpressRequest, res: ExpressResponse) {
-			const id: string = (req.params["id"] ?? null);
-			const patch: UpdateTodoBody = req.body;
-			const todo: Todo | null = store.update(id, (patch == null) ? {} : patch);
-			if (todo == null) {
-				const err: ErrorResponse = {"error": "not_found"};
-				res.status(404).json(err);
+			const decodedId: ApiDecode<string> = ApiRequestDecoder.todoId((req.params["id"] ?? null));
+			const id: string | null = decodedId.value;
+			if (id == null) {
+				Main.sendError(res, 400, decodedId.error);
 				return;
 			};
-			const out: TodoResponse = {"todo": todo};
-			res.json(out);
+			const decodedPatch: ApiDecode<DecodedTodoUpdate> = ApiRequestDecoder.update(req.body);
+			const patch: DecodedTodoUpdate | null = decodedPatch.value;
+			if (patch == null) {
+				Main.sendError(res, 400, decodedPatch.error);
+				return;
+			};
+			const title: string | null = (patch.title ?? null);
+			const completed: boolean | null = (patch.completed ?? null);
+			let todo: {
+				completed: boolean,
+				createdAt: string,
+				id: string,
+				title: string,
+				updatedAt: string
+			} | null;
+			if (title != null) {
+				todo = (completed != null) ? store.updateBoth(id, title, completed) : store.updateTitle(id, title);
+			} else if (completed != null) {
+				todo = store.updateCompleted(id, completed);
+			} else {
+				Main.sendError(res, 400, "invalid_patch");
+				return;
+			};
+			if (todo == null) {
+				Main.sendError(res, 404, "not_found");
+			} else {
+				const updated: {
+					completed: boolean,
+					createdAt: string,
+					id: string,
+					title: string,
+					updatedAt: string
+				} = todo;
+				const out: TodoResponse = {"todo": updated};
+				res.json(out);
+			};
 		});
 		app["delete"]("/api/todos/:id", function (req: ExpressRequest, res: ExpressResponse) {
-			const id: string = (req.params["id"] ?? null);
+			const decodedId: ApiDecode<string> = ApiRequestDecoder.todoId((req.params["id"] ?? null));
+			const id: string | null = decodedId.value;
+			if (id == null) {
+				Main.sendError(res, 400, decodedId.error);
+				return;
+			};
 			const ok: boolean = store.remove(id);
 			if (!ok) {
-				const err: ErrorResponse = {"error": "not_found"};
-				res.status(404).json(err);
+				Main.sendError(res, 404, "not_found");
 				return;
 			};
 			res.status(204).send("");
@@ -102,6 +144,7 @@ export class Main {
 			};
 			res.set("Content-Type", "text/html; charset=utf-8").send(indexHtml);
 		});
+		app.use(ApiRequestDecoder.handleMalformedJson);
 		app.listen(port, function () {
 			nodeConsole.log("todoapp listening on http://localhost:" + port);
 		});
@@ -116,6 +159,10 @@ export class Main {
 		} else {
 			return n;
 		};
+	}
+	static sendError(res: ExpressResponse, status: number, error: string): void {
+		const body: ErrorResponse = {"error": error};
+		res.status(status).json(body);
 	}
 	static get __name__(): string {
 		return "todo.server.Main"

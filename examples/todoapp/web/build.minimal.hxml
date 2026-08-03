@@ -1,4 +1,8 @@
 -lib genes-ts
+--macro haxe.macro.Compiler.nullSafety("todo.shared", Loose, true)
+--macro haxe.macro.Compiler.nullSafety("todo.extern", Loose, true)
+--macro haxe.macro.Compiler.nullSafety("todo.web", Loose, true)
+--macro haxe.macro.Compiler.nullSafety("todo.server", Loose, true)
 
 -cp examples/todoapp/src
 --main todo.web.Main

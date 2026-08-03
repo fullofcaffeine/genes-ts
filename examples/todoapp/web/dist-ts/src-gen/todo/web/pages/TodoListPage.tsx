@@ -100,7 +100,7 @@ function Component(): JSX.Element {
 	};
 	const renderTodoItem: ((todo: Todo) => JSX.Element) = function (todo: Todo) {
 		return <li key={todo.id} style={{"display": "flex", "alignItems": "center", "gap": "8px", "padding": "8px 0", "borderBottom": "1px solid #eee"}}><input type="checkbox" checked={todo.completed} onChange={function () {
-			return Client.updateTodo(todo.id, {"completed": !todo.completed}).then(function (updated: Todo) {
+			return Client.updateTodoCompleted(todo.id, !todo.completed).then(function (updated: Todo) {
 				replaceTodo(updated);
 				return null;
 			});

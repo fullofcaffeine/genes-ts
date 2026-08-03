@@ -55,6 +55,23 @@ yarn test:examples                 # both profiles, API/runtime smoke
 yarn test:examples --playwright    # both profiles, same browser journeys
 ```
 
+Backend changes can use the API-only observer after building the matching
+profile. It exercises the real generated Node server without requiring a web
+bundle, so a backend failure is not hidden by unrelated browser setup:
+
+```bash
+yarn build:example:todoapp
+yarn build:scripts
+node scripts/dist/qa-todoapp.js --profile ts --skip-build --api-only
+
+yarn build:example:todoapp:classic
+node scripts/dist/qa-todoapp.js --profile classic --skip-build --api-only
+```
+
+`--api-only` and `--playwright` are intentionally mutually exclusive because
+they prove different product surfaces. The full example commands above remain
+the broader integration evidence before merge.
+
 ## Graceful TS → JS degradation
 
 The web and server profiles point at the identical `examples/todoapp/src/`
@@ -98,7 +115,8 @@ while allowing both build commands to start from a fresh checkout.
 ## What the harness verifies
 
 - React Router rendering and inline-markup lowering;
-- Express CRUD API behavior and static asset hosting;
+- Express CRUD API behavior, checked decoding of untrusted JSON request
+  bodies, omitted PATCH-field preservation, and static asset hosting;
 - Haxe → authored TS/TSX imports via `genes.ts.Imports`;
 - authored TS → generated Haxe module imports;
 - strict generated TS and classic `.d.ts` consumers on TS 5.5, 6, and 7;
@@ -112,6 +130,34 @@ authored browser truth table proves that one closed domain value and ordinary
 switch produce the same visible result through TSX and direct classic ESM. It
 does not replace the focused fixtures for generic classes, payload enums,
 exception/finally completion, or adversarial evaluation order.
+
+The server follows the same bounded-proof rule. Express request bodies enter
+Haxe as `genes.ts.Unknown`; `todo.server.ApiRequestDecoder` checks the object
+shape and each field before constructing a `CreateTodoBody` or an internal
+validated update. The public `UpdateTodoBody` is a non-empty union: callers
+must provide `title`, `completed`, or both, and TypeScript callers cannot send
+`null` for either value. Haxe UI code does not accept that wire record directly:
+`Client.updateTodoTitle` and `Client.updateTodoCompleted` take concrete values.
+Every Todoapp HXML enables recursive Loose null safety for the owned
+`todo.shared`, `todo.extern`, `todo.web`, and `todo.server` packages. The
+Playwright-only `todo.e2e` harness is deliberately outside that application
+claim because its host Promise overloads are a separate test-runner boundary.
+A checked negative compilation opts its own caller into null safety and proves
+that passing Haxe `null` to completion is rejected. The few local
+`@:nullSafety(Off)` expressions sit immediately after runtime guards or at
+documented Haxe 4.3.7 macro/anonymous-record narrowing limitations; they do
+not disable checking for a package, class, or method.
+
+The API transcript deliberately sends malformed JSON, arrays, wrong field
+types, `null`, extra fields, an empty patch, and a blank identifier. JSON parser
+failures use the same stable API envelope as decoder failures. The generated
+web client exposes only route-specific request methods rather than a generic
+method/URL/body escape hatch, and the importable generated Store title-update
+methods reject blanks even when a target-language caller bypasses HTTP. The transcript also
+proves that a rejected patch leaves the Todo unchanged, a title-only patch
+preserves `completed`, and a completed-only patch preserves `title`. These checks prove this Todo API
+boundary; focused nullish fixtures remain authoritative for the complete JavaScript
+`null`/`undefined`/missing-property matrix.
 
 `examples/profiles.json` owns the repository-wide example inventory and the
 structured build/runtime/browser command for each profile. The aggregate

@@ -20,6 +20,10 @@ class TodoDetailPage {
     final idStr = Router.useParam("id");
     final id: Null<TodoId> = idStr;
 
+    // The React macro preserves this explicit generic witness through compiler
+    // metadata that Haxe's null checker cannot currently prove non-null. Keep
+    // the escape on this one call; the state value remains `Null<Todo>`.
+    @:nullSafety(Off)
     final todoState = useState((null : Null<Todo>));
     final todo = todoState.value;
 
@@ -52,7 +56,7 @@ class TodoDetailPage {
         errorState.set("Title is required");
         return;
       }
-      Client.updateTodo(id, {title: trimmed}).then(updated -> {
+      Client.updateTodoTitle(id, trimmed).then(updated -> {
         todoState.set(updated);
         navigate("/");
       }).catchError(_ -> {

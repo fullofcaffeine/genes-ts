@@ -43,6 +43,9 @@ class TodoListPage {
     // “indirectly” from TS-only code (Haxe DCE can't see TS imports).
     final _keepTodoText = TodoText.interopBanner();
 
+    // See TodoDetailPage: the escape is for the macro's compiler metadata,
+    // not for the non-null array stored in application state.
+    @:nullSafety(Off)
     final todosState = useState(([] : Array<Todo>));
     final todos = todosState.value;
 
@@ -116,7 +119,9 @@ class TodoListPage {
         <input
           type={"checkbox"}
           checked={todo.completed}
-          onChange={() -> Client.updateTodo(todo.id, {completed: !todo.completed}).then(updated -> { replaceTodo(updated); return null; })}
+          onChange={() -> {
+            return Client.updateTodoCompleted(todo.id, !todo.completed).then(updated -> { replaceTodo(updated); return null; });
+          }}
         />
         <Link to={"/todos/" + todo.id} style={{flex: "1"}}>
           {renderTodoTitle(todo)}
