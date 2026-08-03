@@ -55,6 +55,23 @@ yarn test:examples                 # both profiles, API/runtime smoke
 yarn test:examples --playwright    # both profiles, same browser journeys
 ```
 
+Backend changes can use the API-only observer after building the matching
+profile. It exercises the real generated Node server without requiring a web
+bundle, so a backend failure is not hidden by unrelated browser setup:
+
+```bash
+yarn build:example:todoapp
+yarn build:scripts
+node scripts/dist/qa-todoapp.js --profile ts --skip-build --api-only
+
+yarn build:example:todoapp:classic
+node scripts/dist/qa-todoapp.js --profile classic --skip-build --api-only
+```
+
+`--api-only` and `--playwright` are intentionally mutually exclusive because
+they prove different product surfaces. The full example commands above remain
+the broader integration evidence before merge.
+
 ## Graceful TS → JS degradation
 
 The web and server profiles point at the identical `examples/todoapp/src/`
@@ -98,7 +115,8 @@ while allowing both build commands to start from a fresh checkout.
 ## What the harness verifies
 
 - React Router rendering and inline-markup lowering;
-- Express CRUD API behavior and static asset hosting;
+- Express CRUD API behavior, checked decoding of untrusted JSON request
+  bodies, omitted PATCH-field preservation, and static asset hosting;
 - Haxe → authored TS/TSX imports via `genes.ts.Imports`;
 - authored TS → generated Haxe module imports;
 - strict generated TS and classic `.d.ts` consumers on TS 5.5, 6, and 7;
@@ -112,6 +130,16 @@ authored browser truth table proves that one closed domain value and ordinary
 switch produce the same visible result through TSX and direct classic ESM. It
 does not replace the focused fixtures for generic classes, payload enums,
 exception/finally completion, or adversarial evaluation order.
+
+The server follows the same bounded-proof rule. Express request bodies enter
+Haxe as `genes.ts.Unknown`; `todo.server.ApiRequestDecoder` checks the object
+shape and each field before constructing a `CreateTodoBody` or
+`UpdateTodoBody`. The API transcript deliberately sends arrays, wrong field
+types, extra fields, an empty patch, and a blank identifier. It also proves
+that a rejected patch leaves the Todo unchanged, a title-only patch preserves
+`completed`, and a completed-only patch preserves `title`. These checks prove
+this Todo API boundary; focused nullish fixtures remain authoritative for the
+complete JavaScript `null`/`undefined`/missing-property matrix.
 
 `examples/profiles.json` owns the repository-wide example inventory and the
 structured build/runtime/browser command for each profile. The aggregate

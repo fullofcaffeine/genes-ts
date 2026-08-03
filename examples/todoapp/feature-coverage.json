@@ -255,12 +255,12 @@
       "coverage": {"typescript-tsx":"partial","typescript-low-level":"partial","typescript-minimal":"partial","classic-js":"partial","classic-dts":"partial","node-runtime":"covered","browser-runtime":"covered","focused-fixture":"covered"},
       "evidence": {"typescript-tsx":["todoapp-build"],"typescript-low-level":["todoapp-low-level"],"typescript-minimal":["todoapp-minimal"],"classic-js":["todoapp-classic"],"classic-dts":["todoapp-contract"],"node-runtime":["todoapp-contract"],"browser-runtime":["todoapp-browser"],"focused-fixture":["nullish-boundaries"]},
       "applicationDisposition": {
-        "kind": "planned",
-        "owner": "genes-1x1g.7",
-        "rationale": "Todoapp already observes nullable routes, store results, and optional fetch fields. The planned backend contract still needs a natural omitted-field update that proves an unchanged value is preserved.",
-        "revisitTrigger": "Complete the application claim when the backend API suite proves omitted PATCH fields preserve existing state in both profiles."
+        "kind": "focused-only",
+        "owner": "nullish-boundaries",
+        "rationale": "Todoapp now proves the natural application case: each omitted PATCH field preserves the existing value in both profiles. Exact JavaScript null, undefined, and own-property-absence permutations remain more precisely owned by the focused nullish fixture.",
+        "revisitTrigger": "Add another application case only when a real Todo behavior or escaped regression needs a distinct host-value boundary."
       },
-      "notes": "Todoapp uses nullable routes, store results, and optional fetch fields; exact undefined and omitted controls remain focused."
+      "notes": "Todoapp uses nullable routes, store results, optional fetch fields, and checked one-field PATCH updates; exact undefined and omitted controls remain focused."
     },
     {
       "id": "typing.public-types-and-declarations",
@@ -297,7 +297,7 @@
         "rationale": "Express, process, fetch, DOM, and React callbacks already cross real host boundaries. The planned backend work will add deeper Node error, persistence, and callback behavior without inventing collision cases in the app.",
         "revisitTrigger": "Complete the application claim when the backend expansion lands its reviewed host-boundary scenarios in both profiles."
       },
-      "notes": "Express, process, fetch, DOM, and React callbacks exercise real host boundaries; identity collisions and invalid guarded forms remain focused."
+      "notes": "Express JSON bodies now remain unknown until a checked Todo decoder accepts them. Process, fetch, DOM, and React callbacks exercise further real host boundaries; identity collisions and invalid guarded forms remain focused."
     },
     {
       "id": "react.hxx-tsx-create-element",

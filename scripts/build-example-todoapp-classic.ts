@@ -71,7 +71,10 @@ assertNoUnsafeTypes({
 assertNoUnsafeTypes({
   repoRoot,
   generatedDir: "examples/todoapp/server/classic-src-gen/todo",
-  fileExts: [".ts"]
+  fileExts: [".ts"],
+  // The declaration exposes the exact `unknown` input accepted by the checked
+  // Express decoder; all ordinary Todo modules remain under the strict ban.
+  allowUnsafeTypeFiles: ["server/ApiRequestDecoder.d.ts"]
 });
 
 runGeneratedTypeScriptMatrix("examples/todoapp/tsconfig.classic.json", {
@@ -126,6 +129,7 @@ assertExportedSurfacePolicy({
       classifications: [
         ...[
           "genes/Register.d.ts",
+          "genes/ts/UnknownNarrow.d.ts",
           "haxe/Exception.d.ts",
           "haxe/ValueException.d.ts",
           "js/lib/Object.d.ts",
@@ -141,6 +145,11 @@ assertExportedSurfacePolicy({
           file: "todo/extern/Express.d.ts",
           disposition: "fixture-boundary" as const,
           reason: "The todoapp fixture keeps a direct Express interop facade to exercise server-host declarations."
+        },
+        {
+          file: "todo/server/ApiRequestDecoder.d.ts",
+          disposition: "runtime-boundary" as const,
+          reason: "The Todo API decoder deliberately accepts unknown Express JSON and publishes only checked domain values."
         }
       ]
     }

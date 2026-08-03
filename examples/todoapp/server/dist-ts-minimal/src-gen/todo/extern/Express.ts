@@ -17,10 +17,11 @@ export type ExpressApp = import('express').Application
  * Notes:
  * - We keep `params` as a `DynamicAccess<String>` because Express exposes it as a
  *   string-keyed bag.
- * - `body` is still a dynamic bag because JSON payloads vary by route; each
- *   handler casts into the specific API type it expects.
+ * - `body` stays `Unknown` until the route's decoder has checked its runtime
+ *   shape. This prevents an Express `any` default from leaking into ordinary
+ *   Haxe application code or generated TypeScript.
  */
-export type ExpressRequest = import('express').Request
+export type ExpressRequest = import('express').Request<Record<string, string>, unknown, unknown>
 
 /**
  * Response object (subset).

@@ -79,9 +79,32 @@ async function requestJson(method: string, url: string, body?: unknown): Promise
   let json: unknown = null;
   if (res.status !== 204) {
     const text = await res.text();
-    json = text.length ? (JSON.parse(text) as unknown) : null;
+    if (text.length) {
+      try {
+        json = JSON.parse(text) as unknown;
+      } catch {
+        // Keep non-JSON error bodies observable so the assertion below reports
+        // the real status and response instead of hiding it behind JSON.parse.
+        json = text;
+      }
+    }
   }
   return { status: res.status, ok: res.ok, json };
+}
+
+function assertApiError(
+  response: JsonHttpResponse,
+  expectedStatus: number,
+  expectedError: string,
+  label: string
+): void {
+  if (!(response.status === expectedStatus
+    && isRecord(response.json)
+    && response.json.error === expectedError)) {
+    throw new Error(
+      `${label}: expected ${expectedStatus} ${expectedError}, got ${JSON.stringify(response)}`
+    );
+  }
 }
 
 function killProcessTree(child: ChildProcess | null): void {
@@ -105,7 +128,7 @@ function usage(): void {
   console.log(
     [
       "Usage: yarn test:todoapp [--profile ts|classic] [--skip-build] [--playwright]",
-      "   or: node scripts/dist/qa-todoapp.js [--profile ts|classic] [--skip-build] [--playwright]",
+      "   or: node scripts/dist/qa-todoapp.js [--profile ts|classic] [--skip-build] [--api-only|--playwright]",
       "",
       "Env:",
       "  QA_TIMEOUT_MS=30000      Health timeout (default 30000)",
@@ -144,6 +167,10 @@ if (typeof fetch !== "function") {
 
 const skipBuild = args.has("--skip-build") || process.env.QA_SKIP_BUILD === "1";
 const withPlaywright = args.has("--playwright") || process.env.QA_PLAYWRIGHT === "1";
+const apiOnly = args.has("--api-only");
+if (apiOnly && withPlaywright) {
+  throw new Error("--api-only and --playwright observe different product surfaces");
+}
 const skipPlaywrightInstall = args.has("--skip-playwright-install");
 const timeoutMs = Number.parseInt(process.env.QA_TIMEOUT_MS ?? "30000", 10);
 
@@ -207,6 +234,28 @@ try {
     throw new Error(`Unexpected /api/health response: ${JSON.stringify(health)}`);
   }
 
+  assertApiError(
+    await requestJson("POST", `${baseUrl}/api/todos`, []),
+    400,
+    "invalid_body",
+    "array create body"
+  );
+  assertApiError(
+    await requestJson("POST", `${baseUrl}/api/todos`, { title: 42 }),
+    400,
+    "invalid_title",
+    "numeric create title"
+  );
+  assertApiError(
+    await requestJson("POST", `${baseUrl}/api/todos`, {
+      title: "Unexpected field",
+      extra: true
+    }),
+    400,
+    "invalid_body",
+    "unknown create field"
+  );
+
   const created = await requestJson("POST", `${baseUrl}/api/todos`, { title: "Write tests" });
   if (!(created.status === 201 && isRecord(created.json) && isRecord(created.json.todo))) {
     throw new Error(`Unexpected POST /api/todos response: ${JSON.stringify(created)}`);
@@ -221,9 +270,57 @@ try {
     throw new Error(`Unexpected GET /api/todos response: ${JSON.stringify(list1)}`);
   }
 
+  assertApiError(
+    await requestJson("GET", `${baseUrl}/api/todos/%20`),
+    400,
+    "invalid_id",
+    "blank todo identifier"
+  );
+
+  assertApiError(
+    await requestJson("PATCH", `${baseUrl}/api/todos/${todoId}`, { completed: "yes" }),
+    400,
+    "invalid_patch",
+    "non-boolean completed patch"
+  );
+  assertApiError(
+    await requestJson("PATCH", `${baseUrl}/api/todos/${todoId}`, {}),
+    400,
+    "invalid_patch",
+    "empty patch"
+  );
+
+  const afterRejectedPatch = await requestJson("GET", `${baseUrl}/api/todos/${todoId}`);
+  if (!(afterRejectedPatch.ok
+    && isRecord(afterRejectedPatch.json)
+    && isRecord(afterRejectedPatch.json.todo)
+    && afterRejectedPatch.json.todo.title === "Write tests"
+    && afterRejectedPatch.json.todo.completed === false)) {
+    throw new Error(
+      `Rejected PATCH mutated the todo: ${JSON.stringify(afterRejectedPatch)}`
+    );
+  }
+
   const updated = await requestJson("PATCH", `${baseUrl}/api/todos/${todoId}`, { completed: true });
-  if (!(updated.ok && isRecord(updated.json) && isRecord(updated.json.todo) && updated.json.todo.completed === true)) {
+  if (!(updated.ok
+    && isRecord(updated.json)
+    && isRecord(updated.json.todo)
+    && updated.json.todo.title === "Write tests"
+    && updated.json.todo.completed === true)) {
     throw new Error(`Unexpected PATCH /api/todos/:id response: ${JSON.stringify(updated)}`);
+  }
+
+  const titleOnly = await requestJson("PATCH", `${baseUrl}/api/todos/${todoId}`, {
+    title: "Write better tests"
+  });
+  if (!(titleOnly.ok
+    && isRecord(titleOnly.json)
+    && isRecord(titleOnly.json.todo)
+    && titleOnly.json.todo.title === "Write better tests"
+    && titleOnly.json.todo.completed === true)) {
+    throw new Error(
+      `Title-only PATCH did not preserve completed: ${JSON.stringify(titleOnly)}`
+    );
   }
 
   const del = await requestJson("DELETE", `${baseUrl}/api/todos/${todoId}`);
@@ -236,10 +333,12 @@ try {
     throw new Error(`Expected 404 after deletion, got: ${JSON.stringify(after)}`);
   }
 
-  const htmlRes = await fetch(`${baseUrl}/`, { method: "GET" });
-  const html = await htmlRes.text();
-  if (!htmlRes.ok || !html.includes('<div id="root"></div>')) {
-    throw new Error(`Unexpected GET / HTML (status=${htmlRes.status})`);
+  if (!apiOnly) {
+    const htmlRes = await fetch(`${baseUrl}/`, { method: "GET" });
+    const html = await htmlRes.text();
+    if (!htmlRes.ok || !html.includes('<div id="root"></div>')) {
+      throw new Error(`Unexpected GET / HTML (status=${htmlRes.status})`);
+    }
   }
 
   if (withPlaywright) {

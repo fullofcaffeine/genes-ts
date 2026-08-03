@@ -18,9 +18,9 @@ package todo.extern;
  * - `@:ts.type("import('express').X")` pins the generated TS types to Express'
  *   real typing definitions (no “fake” Haxe-side re-declarations).
  */
-
 import haxe.Constraints.Function;
 import haxe.DynamicAccess;
+import genes.ts.Unknown;
 
 @:jsRequire("express")
 extern class Express {
@@ -56,13 +56,14 @@ typedef ExpressApp = {
  * Notes:
  * - We keep `params` as a `DynamicAccess<String>` because Express exposes it as a
  *   string-keyed bag.
- * - `body` is still a dynamic bag because JSON payloads vary by route; each
- *   handler casts into the specific API type it expects.
+ * - `body` stays `Unknown` until the route's decoder has checked its runtime
+ *   shape. This prevents an Express `any` default from leaking into ordinary
+ *   Haxe application code or generated TypeScript.
  */
-@:ts.type("import('express').Request")
+@:ts.type("import('express').Request<Record<string, string>, unknown, unknown>")
 typedef ExpressRequest = {
   var params: DynamicAccess<String>;
-  var body: DynamicAccess<Dynamic>;
+  var body: Unknown;
   var path: String;
   var method: String;
 };

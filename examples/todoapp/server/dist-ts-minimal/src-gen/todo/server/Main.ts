@@ -1,13 +1,14 @@
 import * as Path from "path"
 import {Store} from "./Store.js"
 import Express from "express"
-import {StringTools} from "../../StringTools.js"
+import {ApiRequestDecoder} from "./ApiRequestDecoder.js"
 import * as Fs from "fs"
 import {Std} from "../../Std.js"
 import {Register} from "../../genes/Register.js"
+import type {ExpressResponse, ExpressApp, ExpressRequest} from "../extern/Express.js"
 import type {Console} from "console"
-import type {ExpressApp, ExpressRequest, ExpressResponse} from "../extern/Express.js"
-import type {TodoListResponse, ErrorResponse, TodoResponse, CreateTodoBody, UpdateTodoBody} from "../shared/Api.js"
+import type {TodoListResponse, TodoResponse, CreateTodoBody, UpdateTodoBody, ErrorResponse} from "../shared/Api.js"
+import type {ApiDecode} from "./ApiRequestDecoder.js"
 import type {Todo} from "../shared/Todo.js"
 
 export class Main {
@@ -42,21 +43,25 @@ export class Main {
 			res.json(body);
 		});
 		app.get("/api/todos/:id", function (req: ExpressRequest, res: ExpressResponse) {
-			const id: string = (req.params["id"] ?? null);
-			const todo: Todo | null = store.get(id);
-			if (todo == null) {
-				const body: ErrorResponse = {"error": "not_found"};
-				res.status(404).json(body);
+			const decodedId: ApiDecode<string> = ApiRequestDecoder.todoId((req.params["id"] ?? null));
+			const id: string | null = decodedId.value;
+			if (id == null) {
+				Main.sendError(res, 400, decodedId.error);
 				return;
 			};
-			const body_1: TodoResponse = {"todo": todo};
-			res.json(body_1);
+			const todo: Todo | null = store.get(id);
+			if (todo == null) {
+				Main.sendError(res, 404, "not_found");
+				return;
+			};
+			const body: TodoResponse = {"todo": todo};
+			res.json(body);
 		});
 		app.post("/api/todos", function (req: ExpressRequest, res: ExpressResponse) {
-			const body: CreateTodoBody = req.body;
-			if (body == null || body.title == null || StringTools.trim(body.title).length == 0) {
-				const err: ErrorResponse = {"error": "invalid_title"};
-				res.status(400).json(err);
+			const decodedBody: ApiDecode<CreateTodoBody> = ApiRequestDecoder.create(req.body);
+			const body: CreateTodoBody | null = decodedBody.value;
+			if (body == null) {
+				Main.sendError(res, 400, decodedBody.error);
 				return;
 			};
 			const todo: Todo = store.create(body.title);
@@ -64,23 +69,36 @@ export class Main {
 			res.status(201).json(out);
 		});
 		app.patch("/api/todos/:id", function (req: ExpressRequest, res: ExpressResponse) {
-			const id: string = (req.params["id"] ?? null);
-			const patch: UpdateTodoBody = req.body;
-			const todo: Todo | null = store.update(id, (patch == null) ? {} : patch);
+			const decodedId: ApiDecode<string> = ApiRequestDecoder.todoId((req.params["id"] ?? null));
+			const id: string | null = decodedId.value;
+			if (id == null) {
+				Main.sendError(res, 400, decodedId.error);
+				return;
+			};
+			const decodedPatch: ApiDecode<UpdateTodoBody> = ApiRequestDecoder.update(req.body);
+			const patch: UpdateTodoBody | null = decodedPatch.value;
+			if (patch == null) {
+				Main.sendError(res, 400, decodedPatch.error);
+				return;
+			};
+			const todo: Todo | null = store.update(id, patch);
 			if (todo == null) {
-				const err: ErrorResponse = {"error": "not_found"};
-				res.status(404).json(err);
+				Main.sendError(res, 404, "not_found");
 				return;
 			};
 			const out: TodoResponse = {"todo": todo};
 			res.json(out);
 		});
 		app["delete"]("/api/todos/:id", function (req: ExpressRequest, res: ExpressResponse) {
-			const id: string = (req.params["id"] ?? null);
+			const decodedId: ApiDecode<string> = ApiRequestDecoder.todoId((req.params["id"] ?? null));
+			const id: string | null = decodedId.value;
+			if (id == null) {
+				Main.sendError(res, 400, decodedId.error);
+				return;
+			};
 			const ok: boolean = store.remove(id);
 			if (!ok) {
-				const err: ErrorResponse = {"error": "not_found"};
-				res.status(404).json(err);
+				Main.sendError(res, 404, "not_found");
 				return;
 			};
 			res.status(204).send("");
@@ -116,6 +134,10 @@ export class Main {
 		} else {
 			return n;
 		};
+	}
+	static sendError(res: ExpressResponse, status: number, error: string): void {
+		const body: ErrorResponse = {"error": error};
+		res.status(status).json(body);
 	}
 	static get __name__(): string {
 		return "todo.server.Main"

@@ -4,12 +4,9 @@ import js.node.Fs;
 import js.node.Path;
 import todo.extern.Express;
 import todo.shared.Api;
-import todo.shared.Api.CreateTodoBody;
 import todo.shared.Api.ErrorResponse;
 import todo.shared.Api.TodoListResponse;
 import todo.shared.Api.TodoResponse;
-import todo.shared.Api.UpdateTodoBody;
-import todo.shared.TodoId;
 
 class Main {
   static function main() {
@@ -52,11 +49,15 @@ class Main {
     });
 
     app.get("/api/todos/:id", (req, res) -> {
-      final id: TodoId = cast req.params.get("id");
+      final decodedId = ApiRequestDecoder.todoId(req.params.get("id"));
+      final id = decodedId.value;
+      if (id == null) {
+        sendError(res, 400, decodedId.error);
+        return;
+      }
       final todo = store.get(id);
       if (todo == null) {
-        final body: ErrorResponse = {error: "not_found"};
-        res.status(404).json(body);
+        sendError(res, 404, "not_found");
         return;
       }
       final body: TodoResponse = {todo: todo};
@@ -64,11 +65,10 @@ class Main {
     });
 
     app.post(Api.TODOS, (req, res) -> {
-      final body: CreateTodoBody = cast req.body;
-      if (body == null || body.title == null
-        || StringTools.trim(body.title).length == 0) {
-        final err: ErrorResponse = {error: "invalid_title"};
-        res.status(400).json(err);
+      final decodedBody = ApiRequestDecoder.create(req.body);
+      final body = decodedBody.value;
+      if (body == null) {
+        sendError(res, 400, decodedBody.error);
         return;
       }
       final todo = store.create(body.title);
@@ -77,12 +77,21 @@ class Main {
     });
 
     app.patch("/api/todos/:id", (req, res) -> {
-      final id: TodoId = cast req.params.get("id");
-      final patch: UpdateTodoBody = cast req.body;
-      final todo = store.update(id, patch == null ? {} : patch);
+      final decodedId = ApiRequestDecoder.todoId(req.params.get("id"));
+      final id = decodedId.value;
+      if (id == null) {
+        sendError(res, 400, decodedId.error);
+        return;
+      }
+      final decodedPatch = ApiRequestDecoder.update(req.body);
+      final patch = decodedPatch.value;
+      if (patch == null) {
+        sendError(res, 400, decodedPatch.error);
+        return;
+      }
+      final todo = store.update(id, patch);
       if (todo == null) {
-        final err: ErrorResponse = {error: "not_found"};
-        res.status(404).json(err);
+        sendError(res, 404, "not_found");
         return;
       }
       final out: TodoResponse = {todo: todo};
@@ -90,11 +99,15 @@ class Main {
     });
 
     app.delete("/api/todos/:id", (req, res) -> {
-      final id: TodoId = cast req.params.get("id");
+      final decodedId = ApiRequestDecoder.todoId(req.params.get("id"));
+      final id = decodedId.value;
+      if (id == null) {
+        sendError(res, 400, decodedId.error);
+        return;
+      }
       final ok = store.remove(id);
       if (!ok) {
-        final err: ErrorResponse = {error: "not_found"};
-        res.status(404).json(err);
+        sendError(res, 404, "not_found");
         return;
       }
       res.status(204).send("");
@@ -106,10 +119,8 @@ class Main {
     }
 
     final indexPath = Path.join(webDist, "index.html");
-    final indexHtml = if (Fs.existsSync(indexPath))
-      Fs.readFileSync(indexPath, "utf8")
-    else
-      null;
+    final indexHtml = if (Fs.existsSync(indexPath)) Fs.readFileSync(indexPath,
+      "utf8") else null;
 
     app.get("*", (req, res) -> {
       if (StringTools.startsWith(req.path, "/api")) {
@@ -118,8 +129,9 @@ class Main {
         return;
       }
       if (indexHtml == null) {
-        res.status(404).set("Content-Type", "text/plain; charset=utf-8").send(
-          "Todoapp frontend not built. Run: npm run example:todoapp");
+        res.status(404)
+          .set("Content-Type", "text/plain; charset=utf-8")
+          .send("Todoapp frontend not built. Run: npm run example:todoapp");
         return;
       }
       res.set("Content-Type", "text/html; charset=utf-8").send(indexHtml);
@@ -135,5 +147,11 @@ class Main {
       return fallback;
     final n = Std.parseInt(v);
     return n == null ? fallback : n;
+  }
+
+  static function sendError(res: ExpressResponse, status: Int,
+      error: String): Void {
+    final body: ErrorResponse = {error: error};
+    res.status(status).json(body);
   }
 }
