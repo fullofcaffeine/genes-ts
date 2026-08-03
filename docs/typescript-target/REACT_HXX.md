@@ -329,6 +329,31 @@ child local preserves the original `Child,Parent` read order. Code may read a
 component field into a local first when it wants an explicit, stable lexical
 value.
 
+A direct named ESM import also keeps the generated child temporary. This case
+looks safer because reading an import does not call a getter, but ESM imports
+are *live bindings*: when the exporting module assigns a new value, later
+reads by the importing module see that new value. Compare these two JavaScript
+evaluation orders:
+
+```tsx
+// Parent is read first, then creating Child may replace the exported Parent.
+return <Parent><Child /></Parent>;
+
+// Child is created first, then the current Parent binding is read.
+const child = <Child />;
+return <Parent>{child}</Parent>;
+```
+
+The two forms normally render the same thing, but a custom JSX runtime can run
+code while it creates `Child`, and that code can cause the exporting module to
+replace `Parent`. The nested form would use the old parent while the temporary
+form would use the new one. `@:jsRequire` proves where a value is imported
+from; it does not prove that the export can never change. Genes therefore
+retains the child temporary unless a future compiler contract can prove that
+the exact imported export is immutable. The focused test includes a small
+native ESM program that observes both results, so this limit is based on
+JavaScript behavior rather than generated-text preference.
+
 Genes also does not rename the surviving parent merely because a generated
 child disappeared. For example, Haxe may call that parent `tree1`; matching
 spellings do not prove why Haxe added the suffix. Keeping `tree1` is harmless,

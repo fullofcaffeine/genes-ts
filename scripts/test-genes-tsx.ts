@@ -1260,13 +1260,23 @@ ok(dualTsxCallArgument.includes("const OrderedComponent_1: JSX.Element")
 const dualTsxStaticOrder = sourceSection(
   dualTsxSource,
   "static renderStaticTagReadOrder(",
-  "static mutateComponent("
+  "static renderDirectImportOrder("
 );
 ok(dualTsxStaticOrder.includes(
   "const tmp: JSX.Element = <ObservableComponents.Child />"
 ) && dualTsxStaticOrder.includes(
   "return <ObservableComponents.Parent>{tmp}</ObservableComponents.Parent>"
 ), "TSX retains the child local when an extern static tag read is observable");
+const dualTsxDirectImportOrder = sourceSection(
+  dualTsxSource,
+  "static renderDirectImportOrder(",
+  "static renderDirectAssignment("
+);
+ok(dualTsxDirectImportOrder.includes(
+  "const tmp: JSX.Element = <DirectChild />"
+) && dualTsxDirectImportOrder.includes(
+  "return <DirectParent>{tmp}</DirectParent>"
+), "TSX retains the child-first schedule for live direct ESM imports");
 const dualTsxDirectAssignment = sourceSection(
   dualTsxSource,
   "static renderDirectAssignment(",
@@ -1353,6 +1363,16 @@ const dualTsSource = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/react/out/dual-ts/src-gen/DualJsxMain.ts"),
   "utf8"
 );
+const dualTsDirectImportOrder = sourceSection(
+  dualTsSource,
+  "static renderDirectImportOrder(",
+  "static renderDirectAssignment("
+);
+ok(dualTsDirectImportOrder.includes(
+  "const tmp: JSX.Element = React__genes_jsx.createElement(DirectChild, null)"
+) && dualTsDirectImportOrder.includes(
+  "return React__genes_jsx.createElement(DirectParent,"
+), "typed createElement retains the direct-import child-first schedule");
 const dualTsWorldArchive = readFileSync(
   path.join(repoRoot,
     "tests/genes-ts/snapshot/react/out/dual-ts/src-gen/WorldArchive.ts"),
@@ -1409,6 +1429,16 @@ const dualClassicSource = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/react/out/dual-classic/DualJsxMain.js"),
   "utf8"
 );
+const dualClassicDirectImportOrder = sourceSection(
+  dualClassicSource,
+  "static renderDirectImportOrder(",
+  "static renderDirectAssignment("
+);
+ok(dualClassicDirectImportOrder.includes(
+  "const tmp = React__genes_jsx.createElement(DirectChild, null)"
+) && dualClassicDirectImportOrder.includes(
+  "return React__genes_jsx.createElement(DirectParent, null, tmp)"
+), "classic createElement retains the direct-import child-first schedule");
 const dualClassicWorldArchive = readFileSync(
   path.join(repoRoot,
     "tests/genes-ts/snapshot/react/out/dual-classic/WorldArchive.js"),
@@ -1473,6 +1503,16 @@ const dualJsxSource = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/react/out/dual-jsx/DualJsxMain.jsx"),
   "utf8"
 );
+const dualJsxDirectImportOrder = sourceSection(
+  dualJsxSource,
+  "static renderDirectImportOrder(",
+  "static renderDirectAssignment("
+);
+ok(dualJsxDirectImportOrder.includes(
+  "const tmp = <DirectChild />"
+) && dualJsxDirectImportOrder.includes(
+  "return <DirectParent>{tmp}</DirectParent>"
+), "source JSX retains the child-first schedule for live direct ESM imports");
 const dualJsxWorldArchive = readFileSync(
   path.join(repoRoot,
     "tests/genes-ts/snapshot/react/out/dual-jsx/WorldArchive.jsx"),
@@ -1536,6 +1576,7 @@ const expectedTranscript = {
   sameExpressionOrderHtml: '<div><span>after</span></div>',
   nestedNameScopeHtml: '<section data-owner="outer"><div><span>inner</span></div></section>',
   staticTagReadOrderHtml: '<section data-order="Child,Parent"><span>child</span></section>',
+  directImportOrderHtml: '<section data-import="direct"><span>direct child</span></section>',
   directAssignmentHtml: '<section><span>assigned</span></section>',
   localComponentHtml: '<section><span>local</span></section>',
   capturedChildHtml: '<div><span>captured</span></div>',
@@ -1594,6 +1635,17 @@ deepStrictEqual(tsxTranscript, expectedTranscript);
 deepStrictEqual(tsTranscript, expectedTranscript);
 deepStrictEqual(classicTranscript, expectedTranscript);
 deepStrictEqual(jsxTranscript, expectedTranscript);
+
+// Native ESM semantics are the independent oracle for the retained temporary.
+// In the nested expression, JavaScript reads the live `Parent` binding before
+// the child factory call replaces its export. The explicit child temporary
+// performs that call first and therefore reads the replacement parent.
+deepStrictEqual(parseTranscript(capture("node", [
+  "tests/genes-ts/snapshot/react/fixtures/esm-live-binding-runner.mjs"
+])), {
+  nestedParent: "old parent",
+  scheduledParent: "new parent"
+});
 
 // `.tsx` and `.jsx` are deliberately distinct contracts. Rejecting the
 // contradictory `.jsx` + `genes.ts` combination prevents silently erasing the

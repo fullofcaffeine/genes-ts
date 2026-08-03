@@ -10,6 +10,14 @@ function Child() {
   return createElement("span", null, "child");
 }
 
+export function DirectParent(props) {
+  return createElement("section", { "data-import": "direct" }, props.children);
+}
+
+export function DirectChild() {
+  return createElement("span", null, "direct child");
+}
+
 const components = new Proxy({ Parent, Child }, {
   get(target, property, receiver) {
     if (property === "Parent" || property === "Child") {
