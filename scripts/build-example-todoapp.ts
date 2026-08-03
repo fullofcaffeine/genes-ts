@@ -109,6 +109,20 @@ function assertClosedStoreUpdateSurface(): void {
 }
 
 /**
+ * Public Client methods own concrete Todo routes. A generic method/url/body
+ * helper would let generated-TypeScript consumers bypass those checked shapes.
+ */
+function assertClosedClientRequestSurface(extension: ".ts" | ".tsx"): void {
+  const client = readFileSync(
+    path.join(exampleRoot, "web", "src-gen", "todo", "web", `Client${extension}`),
+    "utf8"
+  );
+  assert.doesNotMatch(client, /\brequestJson\s*</);
+  assert.match(client, /\bupdateTodoTitle\(id: string, title: string\)/);
+  assert.match(client, /\bupdateTodoCompleted\(id: string, completed: boolean\)/);
+}
+
+/**
  * Haxe's ordinary JS mode permits null unless a project opts into null safety.
  * This negative compilation proves the maintained Todoapp does opt in and that
  * callers cannot send null through the concrete update helpers.
@@ -147,6 +161,7 @@ assertHaxeRejectsNullUpdate();
 run("haxe", ["examples/todoapp/web/build.lowlevel.hxml"]);
 assertPreciseJsxNamespaceImport(".ts");
 assertReactRouter8Imports(".ts");
+assertClosedClientRequestSurface(".ts");
 assertSnapshots({
   generatedDir: "examples/todoapp/web/src-gen",
   snapshotsDir: "examples/todoapp/web/dist-ts-lowlevel/src-gen",
@@ -164,6 +179,7 @@ rmrf("web/src-gen");
 run("haxe", ["examples/todoapp/web/build.minimal.hxml"]);
 assertPreciseJsxNamespaceImport(".tsx");
 assertReactRouter8Imports(".tsx");
+assertClosedClientRequestSurface(".tsx");
 assertSnapshots({
   generatedDir: "examples/todoapp/web/src-gen",
   snapshotsDir: "examples/todoapp/web/dist-ts-minimal/src-gen",
@@ -181,6 +197,7 @@ rmrf("web/src-gen");
 run("haxe", ["examples/todoapp/web/build.hxml"]);
 assertPreciseJsxNamespaceImport(".tsx");
 assertReactRouter8Imports(".tsx");
+assertClosedClientRequestSurface(".tsx");
 assertSnapshots({
   generatedDir: "examples/todoapp/web/src-gen",
   snapshotsDir: "examples/todoapp/web/dist-ts/src-gen",
@@ -245,7 +262,10 @@ assertNoUnsafeTypes({
   fileExts: [".ts"],
   // Express declares the transport value as unknown; ApiRequestDecoder is the
   // only application module allowed to inspect and narrow that value.
-  allowUnsafeTypeFiles: ["extern/Express.ts", "server/ApiRequestDecoder.ts"]
+  allowUnsafeTypeFiles: [
+    "extern/Express.ts",
+    "server/ApiRequestDecoder.ts"
+  ]
 });
 runTypeScript("legacyFloor", [
   "-p",
@@ -266,6 +286,9 @@ assertNoUnsafeTypes({
   repoRoot,
   generatedDir: "examples/todoapp/server/src-gen/todo",
   fileExts: [".ts"],
-  allowUnsafeTypeFiles: ["extern/Express.ts", "server/ApiRequestDecoder.ts"]
+  allowUnsafeTypeFiles: [
+    "extern/Express.ts",
+    "server/ApiRequestDecoder.ts"
+  ]
 });
 runGeneratedTypeScriptMatrix("examples/todoapp/server/tsconfig.json");

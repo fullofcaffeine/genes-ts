@@ -163,6 +163,12 @@ class Main {
       res.set("Content-Type", "text/html; charset=utf-8").send(indexHtml);
     });
 
+    // Express parses JSON before route handlers run. A syntax error therefore
+    // cannot reach ApiRequestDecoder, but it is still part of the same public
+    // HTTP boundary. Recognize only body-parser's documented parse-failure
+    // identity; unrelated middleware errors continue through Express.
+    app.useError(ApiRequestDecoder.handleMalformedJson);
+
     app.listen(port, () -> {
       nodeConsole.log('todoapp listening on http://localhost:$port');
     });

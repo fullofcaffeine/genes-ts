@@ -39,6 +39,16 @@ typedef ExpressJsonOptions = {
 typedef ExpressHandler = (req: ExpressRequest, res: ExpressResponse) -> Void;
 
 /**
+ * Express' four-argument error-handler shape.
+ *
+ * Express uses the callback arity at runtime to distinguish this from an
+ * ordinary route. `error` stays unknown until the application identifies the
+ * specific middleware failure, and `next` preserves errors it does not own.
+ */
+typedef ExpressErrorHandler = (error: Unknown, req: ExpressRequest,
+  res: ExpressResponse, next: Unknown->Void) -> Void;
+
+/**
  * Express application interface.
  *
  * `@:ts.type(...)` is critical here:
@@ -48,6 +58,7 @@ typedef ExpressHandler = (req: ExpressRequest, res: ExpressResponse) -> Void;
 @:ts.type("import('express').Application")
 typedef ExpressApp = {
   function use(middleware: Function): Void;
+  @:native("use") function useError(handler: ExpressErrorHandler): Void;
   function get(path: String, handler: ExpressHandler): Void;
   function post(path: String, handler: ExpressHandler): Void;
   function patch(path: String, handler: ExpressHandler): Void;

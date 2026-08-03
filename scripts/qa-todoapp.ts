@@ -6,7 +6,7 @@ import {
   type SpawnOptions
 } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -88,6 +88,22 @@ async function requestJson(method: string, url: string, body?: unknown): Promise
         json = text;
       }
     }
+  }
+  return { status: res.status, ok: res.ok, json };
+}
+
+async function requestMalformedJson(url: string): Promise<JsonHttpResponse> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{"
+  });
+  const text = await res.text();
+  let json: unknown = text;
+  try {
+    json = JSON.parse(text) as unknown;
+  } catch {
+    // Preserve an unexpected non-JSON response for the assertion diagnostic.
   }
   return { status: res.status, ok: res.ok, json };
 }
@@ -247,6 +263,12 @@ try {
     "primitive create body"
   );
   assertApiError(
+    await requestMalformedJson(`${baseUrl}/api/todos`),
+    400,
+    "invalid_json",
+    "malformed JSON body"
+  );
+  assertApiError(
     await requestJson("POST", `${baseUrl}/api/todos`, { title: 42 }),
     400,
     "invalid_title",
@@ -269,6 +291,42 @@ try {
   const todoId = created.json.todo.id;
   if (!(typeof todoId === "string" || typeof todoId === "number")) {
     throw new Error(`Unexpected todo id in response: ${JSON.stringify(created)}`);
+  }
+
+  // Store is an importable generated class in both profiles. Verify its
+  // mutation methods preserve the same non-blank title invariant even when a
+  // target-language consumer calls them without the HTTP decoder.
+  const storeModule = path.join(
+    exampleRoot,
+    "server",
+    profile === "ts"
+      ? "dist/todo/server/Store.js"
+      : "classic-src-gen/todo/server/Store.js"
+  );
+  const importedStore: unknown = await import(pathToFileURL(storeModule).href);
+  if (!isRecord(importedStore) || typeof importedStore.Store !== "function") {
+    throw new Error(`Generated Store export is unavailable: ${storeModule}`);
+  }
+  type StoreConstructor = new (dataPath?: string) => {
+    create(title: string): {id: string | number};
+    get(id: string | number): {title: string; completed: boolean} | null;
+    updateTitle(id: string | number, title: string): unknown;
+    updateBoth(id: string | number, title: string, completed: boolean): unknown;
+  };
+  const Store = importedStore.Store as StoreConstructor;
+  const directStore = new Store(path.join(tmpRoot, "direct-store.json"));
+  const directTodo = directStore.create("Direct store invariant");
+  if (directStore.updateTitle(directTodo.id, "   ") !== null
+    || directStore.updateBoth(directTodo.id, "\t", true) !== null) {
+    throw new Error("Generated Store accepted a blank title");
+  }
+  const unchangedDirectTodo = directStore.get(directTodo.id);
+  if (unchangedDirectTodo == null
+    || unchangedDirectTodo.title !== "Direct store invariant"
+    || unchangedDirectTodo.completed !== false) {
+    throw new Error(
+      `Rejected direct Store update mutated the todo: ${JSON.stringify(unchangedDirectTodo)}`
+    );
   }
 
   const list1 = await requestJson("GET", `${baseUrl}/api/todos`);

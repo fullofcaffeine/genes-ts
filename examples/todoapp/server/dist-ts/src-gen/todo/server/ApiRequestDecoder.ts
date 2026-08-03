@@ -1,7 +1,8 @@
-import {StringTools} from "../../StringTools.js"
 import {UnknownNarrow} from "../../genes/ts/UnknownNarrow.js"
+import {StringTools} from "../../StringTools.js"
 import {Register} from "../../genes/Register.js"
-import type {CreateTodoBody} from "../shared/Api.js"
+import type {ExpressRequest, ExpressResponse} from "../extern/Express.js"
+import type {CreateTodoBody, ErrorResponse} from "../shared/Api.js"
 
 /**
  * Result of checking an untrusted HTTP value against one Todo API shape.
@@ -27,6 +28,21 @@ export type DecodedTodoUpdate = {
  * TypeScript keeps `unknown` until the runtime checks have succeeded.
  */
 export class ApiRequestDecoder {
+
+	/**
+	 * Preserve the API envelope for JSON syntax errors raised before a route can
+	 * inspect `req.body`. Unrelated Express errors remain owned by later error
+	 * middleware.
+	 */
+	static handleMalformedJson(error: unknown, _: ExpressRequest, res: ExpressResponse, next: ((arg0: unknown) => void)): void {
+		let details: Readonly<Record<string, unknown>> | null = UnknownNarrow.record(error);
+		if (details != null && UnknownNarrow.string(Object.prototype.hasOwnProperty.call(details, "type") ? details["type"] : undefined) == "entity.parse.failed") {
+			const body: ErrorResponse = {"error": "invalid_json"};
+			res.status(400).json(body);
+			return;
+		};
+		next(error);
+	}
 	static todoId(raw: string | null): ApiDecode<string> {
 		if (raw == null || StringTools.trim(raw).length == 0) {
 			return {"value": null, "error": "invalid_id"};

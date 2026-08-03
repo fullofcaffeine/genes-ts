@@ -1,4 +1,5 @@
 import {TodoId} from "../shared/TodoId.js"
+import {StringTools} from "../../StringTools.js"
 import * as Fs from "fs"
 import {Exception} from "../../haxe/Exception.js"
 import {Register} from "../../genes/Register.js"
@@ -48,6 +49,9 @@ export class Store extends Register.inherits() {
 		return todo;
 	}
 	updateTitle(id: string, title: string): Todo | null {
+		if (StringTools.trim(title).length == 0) {
+			return null;
+		};
 		const todo: Todo | null = this.get(id);
 		if (todo == null) {
 			return null;
@@ -68,6 +72,9 @@ export class Store extends Register.inherits() {
 		return todo;
 	}
 	updateBoth(id: string, title: string, completed: boolean): Todo | null {
+		if (StringTools.trim(title).length == 0) {
+			return null;
+		};
 		const todo: Todo | null = this.get(id);
 		if (todo == null) {
 			return null;

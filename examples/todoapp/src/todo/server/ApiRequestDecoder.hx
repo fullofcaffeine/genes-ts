@@ -3,6 +3,9 @@ package todo.server;
 import genes.ts.Unknown;
 import genes.ts.UnknownNarrow;
 import genes.ts.UnknownRecord;
+import todo.extern.Express.ExpressRequest;
+import todo.extern.Express.ExpressResponse;
+import todo.shared.Api.ErrorResponse;
 import todo.shared.Api.CreateTodoBody;
 import todo.shared.TodoId;
 
@@ -26,6 +29,23 @@ typedef DecodedTodoUpdate = {
  * TypeScript keeps `unknown` until the runtime checks have succeeded.
  */
 class ApiRequestDecoder {
+  /**
+   * Preserve the API envelope for JSON syntax errors raised before a route can
+   * inspect `req.body`. Unrelated Express errors remain owned by later error
+   * middleware.
+   */
+  public static function handleMalformedJson(error: Unknown,
+      _: ExpressRequest, res: ExpressResponse, next: Unknown->Void): Void {
+    final details = UnknownNarrow.record(error);
+    if (details != null
+      && UnknownNarrow.string(details.get("type")) == "entity.parse.failed") {
+      final body: ErrorResponse = {error: "invalid_json"};
+      res.status(400).json(body);
+      return;
+    }
+    next(error);
+  }
+
   public static function todoId(raw: Null<String>): ApiDecode<TodoId> {
     if (raw == null || StringTools.trim(raw).length == 0)
       return rejected("invalid_id");

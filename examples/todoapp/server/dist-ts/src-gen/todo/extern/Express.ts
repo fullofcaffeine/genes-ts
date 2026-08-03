@@ -10,6 +10,15 @@ export type ExpressJsonOptions = {
 export type ExpressHandler = ((req: ExpressRequest, res: ExpressResponse) => void)
 
 /**
+ * Express' four-argument error-handler shape.
+ *
+ * Express uses the callback arity at runtime to distinguish this from an
+ * ordinary route. `error` stays unknown until the application identifies the
+ * specific middleware failure, and `next` preserves errors it does not own.
+ */
+export type ExpressErrorHandler = ((error: unknown, req: ExpressRequest, res: ExpressResponse, next: ((arg0: unknown) => void)) => void)
+
+/**
  * Express application interface.
  *
  * `@:ts.type(...)` is critical here:

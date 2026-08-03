@@ -50,6 +50,10 @@ class Store {
   }
 
   public function updateTitle(id: TodoId, title: String): Null<Todo> {
+    // Store is emitted as an importable class. Preserve the domain invariant
+    // even when a target-language consumer calls it without the HTTP decoder.
+    if (StringTools.trim(title).length == 0)
+      return null;
     final todo = get(id);
     if (todo == null)
       return null;
@@ -71,6 +75,8 @@ class Store {
 
   public function updateBoth(id: TodoId, title: String,
       completed: Bool): Null<Todo> {
+    if (StringTools.trim(title).length == 0)
+      return null;
     final todo = get(id);
     if (todo == null)
       return null;

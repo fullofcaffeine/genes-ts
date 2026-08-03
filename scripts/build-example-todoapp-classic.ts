@@ -74,7 +74,10 @@ assertNoUnsafeTypes({
   fileExts: [".ts"],
   // Express declares the transport value as unknown; the decoder declaration
   // accepts it. Every ordinary Todo declaration remains under the strict ban.
-  allowUnsafeTypeFiles: ["extern/Express.d.ts", "server/ApiRequestDecoder.d.ts"]
+  allowUnsafeTypeFiles: [
+    "extern/Express.d.ts",
+    "server/ApiRequestDecoder.d.ts"
+  ]
 });
 
 runGeneratedTypeScriptMatrix("examples/todoapp/tsconfig.classic.json", {
@@ -168,6 +171,10 @@ const classicApp = readFileSync(
   path.join(exampleRoot, "web/classic-src-gen/todo/web/App.js"),
   "utf8"
 );
+const classicClient = readFileSync(
+  path.join(exampleRoot, "web/classic-src-gen/todo/web/Client.js"),
+  "utf8"
+);
 const classicServer = readFileSync(
   path.join(exampleRoot, "server/classic-src-gen/todo/server/Main.js"),
   "utf8"
@@ -188,6 +195,7 @@ const classicDomainDeclaration = readFileSync(
 match(classicWeb, /React__genes_jsx\.createElement\("h2"/);
 match(`${classicApp}\n${classicWeb}`, /from "react-router"/);
 doesNotMatch(`${classicApp}\n${classicWeb}`, /react-router-dom/);
+doesNotMatch(classicClient, /\brequestJson\s*\(/);
 match(classicWeb, /from "\.\.\/\.\.\/\.\.\/\.\.\/src-ts\/components\/PrettyButton"/);
 match(classicWeb, /from "\.\.\/\.\.\/\.\.\/\.\.\/src-ts\/interop\/haxeInterop"/);
 doesNotMatch(classicWeb, /genes\.react\.internal\.Jsx/);

@@ -144,6 +144,7 @@ export class Main {
 			};
 			res.set("Content-Type", "text/html; charset=utf-8").send(indexHtml);
 		});
+		app.use(ApiRequestDecoder.handleMalformedJson);
 		app.listen(port, function () {
 			nodeConsole.log("todoapp listening on http://localhost:" + port);
 		});
