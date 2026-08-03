@@ -19,6 +19,7 @@ typedef DualJsxTranscript = {
   final sameExpressionOrderHtml: String;
   final nestedNameScopeHtml: String;
   final staticTagReadOrderHtml: String;
+  final directImportOrderHtml: String;
   final directAssignmentHtml: String;
   final localComponentHtml: String;
   final capturedChildHtml: String;
@@ -168,6 +169,7 @@ class DualJsxMain {
     final sameExpressionOrder = renderSameExpressionOrder();
     final nestedNameScope = renderNestedNameScope();
     final staticTagReadOrder = renderStaticTagReadOrder();
+    final directImportOrder = renderDirectImportOrder();
     final directAssignment = renderDirectAssignment();
     final localComponent = renderLocalComponentTags();
     final capturedChild = renderCapturedChild();
@@ -380,6 +382,7 @@ class DualJsxMain {
       sameExpressionOrderHtml: renderToStaticMarkup(sameExpressionOrder),
       nestedNameScopeHtml: renderToStaticMarkup(nestedNameScope),
       staticTagReadOrderHtml: renderToStaticMarkup(staticTagReadOrder),
+      directImportOrderHtml: renderToStaticMarkup(directImportOrder),
       directAssignmentHtml: renderToStaticMarkup(directAssignment),
       localComponentHtml: renderToStaticMarkup(localComponent),
       capturedChildHtml: renderToStaticMarkup(capturedChild),
@@ -463,6 +466,21 @@ class DualJsxMain {
     return <ObservableComponents.Parent>
       <ObservableComponents.Child />
     </ObservableComponents.Parent>;
+  }
+
+  /**
+   * Keeps direct ESM component imports on the explicit child-first schedule.
+   *
+   * A named ESM import does not invoke a property getter, but it is still a
+   * live binding: another module may replace the exported value. Nesting the
+   * child directly inside the parent would read `Parent` before the child's
+   * JSX-runtime call. The established temporary reads it afterward, so Genes
+   * must not treat `@:jsRequire` as proof that this movement is harmless.
+   */
+  static function renderDirectImportOrder(): Element {
+    return <DirectImportComponents.Parent>
+      <DirectImportComponents.Child />
+    </DirectImportComponents.Parent>;
   }
 
   /**
@@ -581,5 +599,21 @@ private typedef ObservableParentProps = {
 @:jsRequire("./observable-components.js", "default")
 private extern class ObservableComponents {
   static function Parent(props: ObservableParentProps): Element;
+  static function Child(props: EmptyComponentProps): Element;
+}
+
+/**
+ * Direct named ESM imports used to guard live-binding evaluation order.
+ *
+ * The companion native ESM oracle changes a parent export while creating the
+ * child. These fixed React components keep the four generated profiles easy
+ * to render and compare; generated-source assertions verify their child-first
+ * schedule separately.
+ */
+private extern class DirectImportComponents {
+  @:jsRequire("./observable-components.js", "DirectParent")
+  static function Parent(props: ObservableParentProps): Element;
+
+  @:jsRequire("./observable-components.js", "DirectChild")
   static function Child(props: EmptyComponentProps): Element;
 }
