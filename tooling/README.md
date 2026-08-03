@@ -97,6 +97,7 @@ watch/loop pair, or only the owned Haxe server.
 | `@genes-ts/tooling/loop` | Debounces bursts and prevents overlapping rebuilds | How change causes merge and what one rebuild performs |
 | `@genes-ts/tooling/haxe-server` | Owns and safely reuses one compatible `haxe --wait` process | Haxe discovery, compiler arguments, diagnostics, and compatibility identity |
 | `@genes-ts/tooling/artifacts` | Publishes an exact authorized file transition with crash recovery | Generation, validation, file ownership, and adoption policy |
+| `@genes-ts/tooling/css-modules` | Checks processor-owned export manifests and generates closed Haxe companions plus exact per-file TypeScript declarations | CSS parsing, processor choice, framework placement, and runtime loader agreement |
 
 The `@genes-ts/tooling/session` subpath now defines the public
 `DevelopmentSession` v1 types, and `development-session/v1` publishes its JSON

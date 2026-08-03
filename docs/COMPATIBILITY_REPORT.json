@@ -58,6 +58,7 @@
       "claim": "Ordinary Haxe programs in the reviewed corpus compile to split ESM JavaScript and preserve the exercised Haxe runtime behavior.",
       "gateIds": [
         "classic-core",
+        "css-module-companions",
         "dual-output-semantics",
         "portable-haxe-smoke",
         "acceptance",
@@ -86,6 +87,7 @@
       "claim": "The reviewed Haxe corpus emits strict, executable TypeScript with the asserted public and runtime semantics.",
       "gateIds": [
         "typescript-full",
+        "css-module-companions",
         "dual-output-semantics",
         "portable-haxe-smoke",
         "source-maps",
@@ -116,6 +118,7 @@
       "claim": "Reviewed classic declarations and package-shaped imports retain precise, consumable public contracts.",
       "gateIds": [
         "classic-declarations",
+        "css-module-companions",
         "package-imports",
         "binding-identity",
         "acceptance",
@@ -194,6 +197,7 @@
       "claim": "The reviewed host lifecycle and publication primitives work through their protocol, runtime, clean-consumer, and transaction tests.",
       "gateIds": [
         "host-tooling",
+        "css-module-companions",
         "full-ci"
       ],
       "evidenceBucketIds": [],
@@ -669,8 +673,8 @@
           "kind": "tracked-files",
           "path": "tests/genes-ts/package-shapes/packages",
           "match": "^[^/]+/package\\.json$",
-          "expected": 4,
-          "count": 4
+          "expected": 5,
+          "count": 5
         },
         {
           "id": "dts2hx-entrypoints",

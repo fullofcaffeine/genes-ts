@@ -1,0 +1,11 @@
+-lib genes-ts
+-lib tink_unittest
+-cp tests/css-module-companions/src
+-cp tests/css-module-companions/generated
+--main css_module_companions.Entry
+-js tests/css-module-companions/out/ts/index.ts
+-D genes.ts
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
+-debug

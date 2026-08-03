@@ -20,11 +20,16 @@ import { runGeneratedTypeScriptMatrix } from "./toolchains.js";
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "../..");
 const fixtureRoot = path.join(repoRoot, "tests/genes-ts/package-shapes");
-const packageName = "genes-export-equals-fixture";
+const packageNames = [
+  "genes-export-equals-fixture",
+  "genes-namespace-secondary-fixture",
+];
 const expectedTranscript = {
   version: "fixture-1",
   label: "genes",
-  closed: "closed:genes"
+  closed: "closed:genes",
+  secondaryLabel: "genes",
+  secondaryClosed: "secondary:genes",
 };
 
 function run(
@@ -53,14 +58,16 @@ function capture(command: string, args: ReadonlyArray<string>): string {
  * loading without downloading or depending on a mutable npm package.
  * What/How: copy the tiny `export =` package into the profile's isolated
  * `node_modules`; both TypeScript and Node then resolve the same package.json,
- * declaration, conditional export, and CommonJS implementation.
+ * declarations, conditional exports, and runtime implementations.
  */
 function installFixturePackage(profileRoot: string): void {
-  const destination = path.join(profileRoot, "node_modules", packageName);
-  mkdirSync(path.dirname(destination), { recursive: true });
-  cpSync(path.join(fixtureRoot, "packages", packageName), destination, {
-    recursive: true
-  });
+  for (const packageName of packageNames) {
+    const destination = path.join(profileRoot, "node_modules", packageName);
+    mkdirSync(path.dirname(destination), { recursive: true });
+    cpSync(path.join(fixtureRoot, "packages", packageName), destination, {
+      recursive: true
+    });
+  }
 }
 
 function parseTranscript(output: string, profile: string): unknown {
@@ -87,11 +94,13 @@ function typeConsumer(importPath: string): string {
     "const label: string = host.driver.label;",
     "const closed: string = host.driver.close();",
     "const currentLabel: string = host.current().label;",
+    "const processLabel: string = host.process.label;",
+    "const processClosed: string = host.process.close();",
     "// @ts-expect-error the export-equals instance surface is closed and typed",
     "host.driver.nonexistentMember();",
     "// @ts-expect-error label is a string, not an unsafe or namespace-shaped value",
     "const invalid: number = host.driver.label;",
-    "void label; void closed; void currentLabel; void invalid;",
+    "void label; void closed; void currentLabel; void processLabel; void processClosed; void invalid;",
     ""
   ].join("\n");
 }
@@ -152,6 +161,15 @@ match(
   generatedTs,
   /current\(\): InstanceType<typeof ExportEqualsConstructor>/
 );
+match(
+  generatedTs,
+  /import type \{NamespaceProcess\} from "genes-namespace-secondary-fixture"/
+);
+match(generatedTs, /process: NamespaceProcess/);
+ok(
+  !/import type \* as NamespaceProcess\b/.test(generatedTs),
+  "a module namespace leaked into the secondary extern's type position"
+);
 ok(
   !/driver: ExportEqualsConstructor(?:\W|$)/.test(generatedTs),
   "export-equals constructor value leaked into a direct TS instance type"
@@ -204,6 +222,11 @@ match(
   classicDeclaration,
   /current\(\): InstanceType<typeof ExportEqualsConstructor>/
 );
+match(
+  classicDeclaration,
+  /import \{NamespaceProcess\} from "genes-namespace-secondary-fixture"/
+);
+match(classicDeclaration, /process: NamespaceProcess/);
 runGeneratedTypeScriptMatrix(
   "tests/genes-ts/package-shapes/tsconfig.classic-consumer.json",
   { emit: false }

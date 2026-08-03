@@ -1,0 +1,19 @@
+.card {
+  border: 1px solid currentColor;
+}
+
+.title {
+  font-weight: 700;
+}
+
+.error-state {
+  opacity: 0.7;
+}
+
+.__element {
+  display: block;
+}
+
+._hx_button {
+  cursor: pointer;
+}

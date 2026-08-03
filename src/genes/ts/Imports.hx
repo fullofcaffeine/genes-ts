@@ -93,6 +93,7 @@ class Imports {
 
   // Keep the JS Promise signature out of non-JS target typing so the portable
   // side-effect helper below can report its own explicit target diagnostic.
+
   #if (js || macro)
   /**
    * Dynamically import a resource with a TypeScript import attribute.
@@ -187,33 +188,43 @@ class Imports {
   }
 
   #if macro
+  /**
+   * Builds the same tracked default-import expression as `defaultImport`.
+   *
+   * This is a compiler-extension seam, not an application API. Small typed
+   * helpers such as `genes.css.CssModule` can add their own compile-time checks
+   * and then reuse Genes' one import path. Keeping that path shared prevents
+   * aliases, dependency ordering, TypeScript output, and classic JavaScript
+   * output from slowly developing different rules.
+   */
+  @:noCompletion
+  public static function defaultImportExpression(moduleExpr: Expr,
+      asExpr: Null<Expr>): Expr {
+    return importImpl(moduleExpr, Default, null, asExpr, null);
+  }
+
   static function sideEffectImpl(moduleExpr: Expr,
       importAttributeTypeExpr: Null<Expr>): Expr {
     final callPos = Context.currentPos();
     if (!Context.defined('js')
       || !Context.defined(genes.CompilerInternal.GENERATOR_ACTIVE_DEFINE)) {
-      Context.error(
-        'GENES-SIDE-EFFECT-IMPORT-TARGET-001: Imports.sideEffect requires the active Genes JS generator',
+      Context.error('GENES-SIDE-EFFECT-IMPORT-TARGET-001: Imports.sideEffect requires the active Genes JS generator',
         callPos);
     }
     if (Context.getLocalMethod() != '__init__') {
-      Context.error(
-        'GENES-SIDE-EFFECT-IMPORT-CONTEXT-001: Imports.sideEffect must be a direct outer statement of static function __init__()',
+      Context.error('GENES-SIDE-EFFECT-IMPORT-CONTEXT-001: Imports.sideEffect must be a direct outer statement of static function __init__()',
         callPos);
     }
 
     final module = expectSideEffectLiteral(moduleExpr,
       'GENES-SIDE-EFFECT-IMPORT-LITERAL-001: module specifier must be a non-empty string literal');
-    final importAttributeType = if (importAttributeTypeExpr == null)
-      null
-    else
+    final importAttributeType = if (importAttributeTypeExpr == null) null else
       expectSideEffectLiteral(importAttributeTypeExpr,
-        'GENES-SIDE-EFFECT-IMPORT-ATTRIBUTE-001: import attribute type must be a non-empty string literal');
-    final attributeExpr: Expr = importAttributeType == null
-      ? macro null
-      : macro $v{importAttributeType};
-    return macro @:pos(callPos) genes.internal.SideEffectImportMarker.external(
-      $v{module}, $attributeExpr);
+      'GENES-SIDE-EFFECT-IMPORT-ATTRIBUTE-001: import attribute type must be a non-empty string literal');
+    final attributeExpr: Expr = importAttributeType == null ? macro null : macro $v{importAttributeType};
+    return
+      macro @:pos(callPos) genes.internal.SideEffectImportMarker.external($v{module},
+        $attributeExpr);
   }
 
   static function importImpl(moduleExpr: Expr, kind: ImportKind,
@@ -221,16 +232,19 @@ class Imports {
       importAttributeTypeExpr: Null<Expr>): Expr {
     final pos = moduleExpr.pos;
     final module = expectStringLiteral(moduleExpr, 'module');
-    final exportName = exportExpr != null ? expectStringLiteral(exportExpr, 'exportName') : null;
+    final exportName = exportExpr != null ? expectStringLiteral(exportExpr,
+      'exportName') : null;
     final explicitAs = optionalStringLiteral(asExpr, 'as');
-    final importAttributeType = optionalStringLiteral(importAttributeTypeExpr, 'importType');
+    final importAttributeType = optionalStringLiteral(importAttributeTypeExpr,
+      'importType');
 
     final inMethod = Context.getLocalMethod() != null;
 
     final inferredAs = inferAlias(kind, module, exportName);
     final desiredAlias = explicitAs != null ? explicitAs : inferredAs;
 
-    final importAlias = if (inMethod) internalAlias(desiredAlias) else desiredAlias;
+    final importAlias = if (inMethod) internalAlias(desiredAlias) else
+      desiredAlias;
 
     final dotted = exportName != null && exportName.indexOf('.') > -1;
     final exportRoot = dotted ? exportName.split('.')[0] : exportName;
@@ -242,8 +256,7 @@ class Imports {
       // local-scope-safe way, we must also rewrite the dotted access to match.
       final suffix = exportName.substr(exportRoot.length); // includes leading '.'
       importAlias + suffix;
-    } else
-      null;
+    } else null;
 
     final typePath = ensureExternImportType({
       kind: kind,
@@ -280,7 +293,8 @@ class Imports {
       importAttributeTypeExpr: Expr): Expr {
     final pos = moduleExpr.pos;
     final module = expectStringLiteral(moduleExpr, 'module');
-    final importAttributeType = expectStringLiteral(importAttributeTypeExpr, 'importType');
+    final importAttributeType = expectStringLiteral(importAttributeTypeExpr,
+      'importType');
     final valueExpr: Expr = macro js.Syntax.code($v{'import(${tsStringLiteral(module)} as string, { with: { type: ${tsStringLiteral(importAttributeType)} } })'});
     final expected = Context.getExpectedType();
     final ct = expected != null ? expected.toComplexType() : null;
@@ -302,7 +316,8 @@ class Imports {
       case EConst(CString(s, _)):
         s;
       default:
-        Context.error('Import helper expects `$label` to be a string literal', e.pos);
+        Context.error('Import helper expects `$label` to be a string literal',
+          e.pos);
     }
   }
 
@@ -316,7 +331,8 @@ class Imports {
     }
   }
 
-  private static function optionalStringLiteral(e: Null<Expr>, label: String): Null<String> {
+  private static function optionalStringLiteral(e: Null<Expr>,
+      label: String): Null<String> {
     if (e == null)
       return null;
     return switch e.expr {
@@ -325,7 +341,8 @@ class Imports {
       case EConst(CString(s, _)):
         s;
       default:
-        Context.error('Import helper expects `$label` to be a string literal', e.pos);
+        Context.error('Import helper expects `$label` to be a string literal',
+          e.pos);
     }
   }
 
@@ -338,7 +355,8 @@ class Imports {
       exportName: Null<String>): String {
     return switch kind {
       case Named:
-        exportName != null ? sanitizeIdentifier(exportName.split('.').pop()) : 'Import';
+        exportName != null ? sanitizeIdentifier(exportName.split('.')
+          .pop()) : 'Import';
       case Default | Namespace:
         // Use the last path segment of the module specifier.
         final s = module.split('?')[0].split('#')[0];
@@ -346,9 +364,8 @@ class Imports {
         final noExt = stripKnownExtension(last);
         // Handle "index" style modules by using the parent folder when possible.
         final base = if (noExt == 'index' && s.indexOf('/') > -1)
-          stripKnownExtension(s.split('/')[s.split('/').length - 2])
-        else
-          noExt;
+          stripKnownExtension(s.split('/')[s.split('/')
+          .length - 2]) else noExt;
         toPascalCase(base);
     }
   }
@@ -395,7 +412,8 @@ class Imports {
     var s = out.toString();
     // Ensure it starts with a valid identifier char.
     final c0 = s.charCodeAt(0);
-    final isAlpha = (c0 >= 'a'.code && c0 <= 'z'.code) || (c0 >= 'A'.code && c0 <= 'Z'.code);
+    final isAlpha = (c0 >= 'a'.code && c0 <= 'z'.code)
+      || (c0 >= 'A'.code && c0 <= 'Z'.code);
     final isUnderscore = c0 == '_'.code;
     if (!isAlpha && !isUnderscore)
       s = '_' + s;
@@ -418,9 +436,17 @@ class Imports {
       case Default: 'default';
       case Named: 'named';
       case Namespace: 'namespace';
-    }) + '|' + spec.module + '|' + (spec.exportName != null ? spec.exportName : '')
-      + '|' + spec.importAlias + '|' + (spec.native != null ? spec.native : '')
-      + '|' + (spec.importAttributeType != null ? spec.importAttributeType : '');
+    })
+      + '|'
+      + spec.module
+      + '|'
+      + (spec.exportName != null ? spec.exportName : '')
+      + '|'
+      + spec.importAlias
+      + '|'
+      + (spec.native != null ? spec.native : '')
+      + '|'
+      + (spec.importAttributeType != null ? spec.importAttributeType : '');
 
     final hash = Md5.encode(key).substr(0, 12);
     final pack = ['genes', 'ts', 'imports'];
@@ -430,7 +456,7 @@ class Imports {
     try {
       Context.getType(fullName);
       return {pack: pack, name: name, params: []};
-    } catch (_: Dynamic) {
+    } catch (_:Dynamic) {
       // Define it below.
     }
 
