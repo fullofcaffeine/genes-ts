@@ -441,6 +441,25 @@ class Dependencies {
                   if (owner.name == moduleName && owner.meta.has(':jsRequire')):
                   final dependency = makeDependency(owner);
                   if (dependency != null) {
+                    // A namespace owner is the module object at runtime, but a
+                    // metadata-free secondary extern names one export from
+                    // that module. Reusing `DAsterisk` here prints invalid
+                    // TypeScript such as `import type * as ChildProcess`, then
+                    // tries to use that namespace as an instance type. Keep
+                    // the runtime owner as a namespace import and project the
+                    // secondary declaration as its own named binding.
+                    if (dependency.type == DAsterisk) {
+                      return {
+                        type: DName,
+                        name: name,
+                        path: dependency.path,
+                        external: dependency.external,
+                        memberPath: [],
+                        alias: explicitAlias,
+                        importAttributeType: dependency.importAttributeType,
+                        pos: base.pos
+                      };
+                    }
                     dependency.alias = explicitAlias != null ? explicitAlias : name;
                     return dependency;
                   }
