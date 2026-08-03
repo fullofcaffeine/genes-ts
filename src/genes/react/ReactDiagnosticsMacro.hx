@@ -535,6 +535,11 @@ private function validateMetadata(type: ClassType, field: ClassField,
       '@${entry.name.substr(1)} requires a static or module-level function; ${fieldLabel(type, field)} is an instance field.',
       entry.pos);
   }
+  if (components.length == 1 && !field.kind.match(FMethod(_))) {
+    fail("GTS-REACT-COMPONENT-SIGNATURE-010",
+      'Ordinary React component ${fieldLabel(type, field)} must be declared as a module-level function or public static method, not as a variable that stores a function value. Function-valued fields do not receive analyzer-visible module-function lowering.',
+      entry.pos);
+  }
   switch field.type.follow() {
     case TFun(arguments, result):
       if (components.length == 1 && arguments.length > 1) {

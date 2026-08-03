@@ -35,6 +35,9 @@ function InvalidComponent(props: SignatureProps): String {
 function InvalidComponent(props: haxe.Rest<SignatureProps>): Element {
   return invalidElement();
 }
+#elseif react_component_value_field
+@:genes.reactComponent
+final InvalidComponent: SignatureProps->Element = props -> invalidElement();
 #elseif react_component_lowercase
 @:genes.reactComponent
 function invalidComponent(props: SignatureProps): Element {

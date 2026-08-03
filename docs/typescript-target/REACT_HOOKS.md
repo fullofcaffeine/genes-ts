@@ -198,7 +198,8 @@ does not change component identity or runtime behavior.
 The annotations are compile-time contracts:
 
 - `@:genes.reactComponent` requires an uppercase module function or public
-  static method;
+  static method; a variable that stores a function value is not a function
+  declaration and cannot receive analyzer-visible module-function lowering;
 - an ordinary component accepts zero arguments or one ordinary props argument
   and returns the exact `genes.react.Element` contract, an element subtype, or
   `Null<Element>` when it may intentionally render nothing; this does not admit
