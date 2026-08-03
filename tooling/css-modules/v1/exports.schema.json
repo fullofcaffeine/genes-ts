@@ -17,7 +17,7 @@
       "properties": {
         "haxeOwner": { "$ref": "#/$defs/haxeTypePath" },
         "generatedModule": { "$ref": "#/$defs/portablePath" },
-        "request": { "type": "string", "pattern": "^\\.\\.?/[^\\\\?#\\u0000-\\u001f\\u007f]*\\.module\\.css$" },
+        "request": { "type": "string", "maxLength": 16384, "pattern": "^\\.\\.?/[^\\\\?#\\u0000-\\u001f\\u007f]*\\.module\\.css$" },
         "hostModulePath": { "$ref": "#/$defs/portablePath" },
         "companionType": { "$ref": "#/$defs/haxeTypePath" }
       }
@@ -94,8 +94,8 @@
       "required": ["path", "line", "column"],
       "properties": {
         "path": { "$ref": "#/$defs/portablePath" },
-        "line": { "type": "integer", "minimum": 1 },
-        "column": { "type": "integer", "minimum": 1 }
+        "line": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "column": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
       }
     }
   }

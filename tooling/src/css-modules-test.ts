@@ -157,6 +157,40 @@ function main(): void {
       );
     }
 
+    const oversizedRequest = manifestFor(css);
+    oversizedRequest.binding = {
+      haxeOwner: "css_module_companions.Main",
+      generatedModule: "css_module_companions/Main",
+      request: `./${"a".repeat(16_384)}.module.css`,
+      hostModulePath: "src-gen/css_module_companions/card.module.css",
+      companionType: "css_module_companions.CardStyles",
+    };
+    assert.equal(validate(oversizedRequest), false, "the public schema caps request length");
+    expectCode(
+      () => generateCssModuleCompanion({ projectRoot: root, manifest: oversizedRequest }),
+      "GENES-CSS-MODULE-MANIFEST-015",
+    );
+
+    for (const coordinate of ["line", "column"] as const) {
+      const unsafeCoordinate = manifestFor(css);
+      unsafeCoordinate.exports = [
+        {
+          name: "card",
+          source: {
+            path: "styles/card.module.css",
+            line: 1,
+            column: 2,
+            [coordinate]: Number.MAX_SAFE_INTEGER + 1,
+          },
+        },
+      ];
+      assert.equal(validate(unsafeCoordinate), false, `the public schema caps ${coordinate}`);
+      expectCode(
+        () => generateCssModuleCompanion({ projectRoot: root, manifest: unsafeCoordinate }),
+        "GENES-CSS-MODULE-MANIFEST-015",
+      );
+    }
+
     const punctuationOnly = manifestFor(css);
     punctuationOnly.exports = [
       { name: "$", source: { path: "styles/card.module.css", line: 1, column: 2 } },

@@ -78,6 +78,12 @@ Qualified names are checked as real Haxe names, including rejecting a language
 keyword as a package segment, so tooling cannot generate an invalid line such
 as `package import;`.
 
+The public manifest rules and the tooling runtime enforce the same safety
+limits. Text values are capped at 16,384 characters, and stylesheet line and
+column numbers must fit safely in JavaScript's exact integer range. Hosts can
+therefore validate a manifest before storing it without accepting data that the
+tooling would reject later.
+
 ## Actual generated TypeScript
 
 The fixture currently emits the following CSS-related implementation. The

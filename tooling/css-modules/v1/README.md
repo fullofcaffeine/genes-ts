@@ -180,6 +180,19 @@ computed property access (`styles[foo]`). Rejecting this rare shape prevents
 Genes from silently reading a different property than the CSS processor
 reported.
 
+## Size and number limits
+
+The JSON schema and runtime validator deliberately apply the same bounds:
+
+- text fields, including the runtime request, are at most 16,384 characters;
+- source line and column numbers range from 1 through JavaScript's largest
+  exactly represented integer (`9,007,199,254,740,991`);
+- one manifest reports at most 10,000 source inputs and 10,000 exported keys.
+
+These are defensive input limits, not CSS language rules. Keeping them in both
+the public schema and runtime means a host can safely validate and store a
+manifest without discovering a different answer only when Genes consumes it.
+
 ## Current limits
 
 Version 1 is deliberately a one-shot building block:

@@ -850,8 +850,9 @@ files fail without changing either version. CI runs this focused contract in
 both supported Beads lanes.
 
 `test:secrets` scans the repository and committed history for credentials,
-while `test:vulns` checks the pinned dependency graph. Both execute locally and
-as separate GitHub jobs. The pre-commit scan reduces the chance of publishing a
+while `test:vulns` checks every lockfile installed by required tests, including
+the focused CSS Modules processor/loader fixture. Both execute locally and as
+separate GitHub jobs. The pre-commit scan reduces the chance of publishing a
 secret-bearing branch; the required full-history scan remains the hosted
 backstop when a local hook is absent or explicitly bypassed.
 
