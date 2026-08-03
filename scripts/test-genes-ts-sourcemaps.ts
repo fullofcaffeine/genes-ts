@@ -243,6 +243,91 @@ function assertInlinedJsxChildMapping(): void {
     "Inlined JSX child changed its authored source column");
 }
 
+/** Proves normalized HXX prop storage and its JSX read keep authored provenance. */
+function assertNormalizedHxxPropMappings(): void {
+  const originalPath = path.join(reactFixtureRoot, "src/Main.hx");
+  const original = readFileSync(originalPath, "utf8");
+  const originalPosition = tokenPosition(original, "summary()}");
+
+  const profiles = [
+    {
+      name: "automatic TSX",
+      generatedPath: path.join(reactFixtureRoot, "out/tsx/src-gen/Main.tsx")
+    },
+    {
+      name: "classic TSX",
+      hxml: "tests/genes-ts/snapshot/react/build-tsx-classic.hxml",
+      output: "tests/genes-ts/snapshot/react/out/tsx-classic",
+      generatedPath: path.join(
+        reactFixtureRoot, "out/tsx-classic/src-gen/Main.tsx")
+    },
+    {
+      name: "source JSX",
+      hxml: "tests/genes-ts/snapshot/react/build-jsx.hxml",
+      output: "tests/genes-ts/snapshot/react/out/jsx",
+      generatedPath: path.join(reactFixtureRoot, "out/jsx/Main.jsx")
+    }
+  ] as const;
+
+  for (const profile of profiles) {
+    if ("hxml" in profile) {
+      rmrf(profile.output);
+      run("haxe", [profile.hxml, "-debug"]);
+    }
+    const generated = readFileSync(profile.generatedPath, "utf8");
+    const consumer = new SourceMapConsumer(decodeRawSourceMap(
+      readFileSync(`${profile.generatedPath}.map`, "utf8")
+    ));
+    const readPosition = tokenPosition(generated, "statusEl.value");
+    const segments: Array<{
+      source: string | null;
+      originalLine: number | null;
+      originalColumn: number | null;
+    }> = [];
+    consumer.eachMapping((mapping) => {
+      if (mapping.generatedLine === readPosition.line
+        && mapping.generatedColumn === readPosition.column) {
+        segments.push({
+          source: mapping.source,
+          originalLine: mapping.originalLine,
+          originalColumn: mapping.originalColumn
+        });
+      }
+    });
+    strictEqual(segments.length, 1,
+      `${profile.name} must emit exactly one segment at statusEl.value`);
+    ok(segments[0].source?.endsWith("/src/Main.hx") === true,
+      `${profile.name} property read lost its authored module`);
+    strictEqual(segments[0].originalLine, originalPosition.line,
+      `${profile.name} property read changed its authored line`);
+    strictEqual(segments[0].originalColumn, originalPosition.column,
+      `${profile.name} property read changed its authored column`);
+
+    for (const position of [
+      readPosition,
+      {line: readPosition.line, column: readPosition.column + "statusEl.".length}
+    ]) {
+      const mapped = consumer.originalPositionFor(position);
+      ok(mapped.source?.endsWith("/src/Main.hx") === true,
+        `${profile.name} property token lost its authored module`);
+      strictEqual(mapped.line, originalPosition.line,
+        `${profile.name} property token changed its authored line`);
+      strictEqual(mapped.column, originalPosition.column,
+        `${profile.name} property token changed its authored column`);
+    }
+
+    const initializer = consumer.originalPositionFor(
+      tokenPosition(generated, "summary()}")
+    );
+    ok(initializer.source?.endsWith("/src/Main.hx") === true,
+      `${profile.name} ordinary-object initializer lost its authored module`);
+    strictEqual(initializer.line, originalPosition.line,
+      `${profile.name} ordinary-object initializer changed its authored line`);
+    strictEqual(initializer.column, originalPosition.column,
+      `${profile.name} ordinary-object initializer changed its authored column`);
+  }
+}
+
 /**
  * Proves a planned TypeScript identity wrapper and its inner value both retain
  * the authored Haxe boundary. The wrapper maps to the whole call/return
@@ -377,6 +462,7 @@ try {
 
   assertOverlappingClassPathIdentities();
   assertInlinedJsxChildMapping();
+  assertNormalizedHxxPropMappings();
   assertBoundaryWrapperMappings();
 
   console.log("ok");

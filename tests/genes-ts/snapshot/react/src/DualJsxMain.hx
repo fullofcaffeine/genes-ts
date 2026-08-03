@@ -29,6 +29,13 @@ typedef DualJsxTranscript = {
   final svgRefHtml: String;
   final focusedChangeHtml: String;
   final dynamicHtml: String;
+  final privateDynamicHtml: String;
+  final forgedSafeHtml: String;
+  final forgedSharedStaticHtml: String;
+  final forgedSharedDynamicHtml: String;
+  final malformedTerminalHtml: String;
+  final reorderedCarrierHtml: String;
+  final liftedTailHtml: String;
   final evaluatedHtml: String;
   final arrayPropHtml: String;
   final arrayChildHtml: String;
@@ -84,8 +91,34 @@ typedef OptionalSpreadChildListProps = {
  * which cannot be spelled as a static JSX name and must use createElement in
  * both profiles. Only the final typed JSON string crosses the console boundary.
  */
+// The Haxe formatter does not yet understand component HXX reliably.
+// @formatter:off
 class DualJsxMain {
   static var propEvaluations = 0;
+
+  /**
+   * Keeps one valid HXX shape available for planning without publishing it.
+   *
+   * Compiler-internal fields survive Haxe typing so semantic plans may inspect
+   * them, but `Module.emittableFields` removes them from every implementation
+   * emitter. Source-props accounting must therefore never require an emitter
+   * to consume this declaration or marker.
+  */
+  @:keep
+  @:genes.compilerInternal
+  static function planningOnlyHxx(): Element {
+    final planningOnlyProps = {
+      __genesJsxPropName: "data-planning-only",
+      __genesJsxPropValue: "hidden",
+      __genesJsxPropNext: {
+        __genesJsxPropsEnd: true
+      }
+    };
+    return HxxTestMarkers.root("div", planningOnlyProps, {
+      __genesJsxChildValue: "hidden",
+      __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+    });
+  }
 
   static function syncFormAction(data: PreciseFormData): Void {
     data.has("title");
@@ -216,6 +249,91 @@ class DualJsxMain {
       __genesJsxChildValue: "D",
       __genesJsxChildNext: {__genesJsxChildrenEnd: true}
     });
+    // These two private-access calls emulate typed shapes produced inside the
+    // HXX macro. They are compiler fixtures, not supported application APIs.
+    // A dynamic tag keeps the createElement carrier path, while a separately
+    // evaluated linked-list tail must not be flattened and evaluated again.
+    final privateDynamicProps = {
+      __genesJsxPropName: "data-private",
+      __genesJsxPropValue: nextPropValue(),
+      __genesJsxPropNext: {
+        __genesJsxPropsEnd: true
+      }
+    };
+    final privateDynamicElement = HxxTestMarkers.root(runtimeTag,
+      privateDynamicProps, {
+        __genesJsxChildValue: "Q",
+        __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+      });
+    final liftedPropsTail = {
+      __genesJsxPropName: "data-tail",
+      __genesJsxPropValue: nextPropValue(),
+      __genesJsxPropNext: {
+        __genesJsxPropsEnd: true
+      }
+    };
+    final liftedPropsHead = {
+      __genesJsxPropName: "data-head",
+      __genesJsxPropValue: "head",
+      __genesJsxPropNext: liftedPropsTail
+    };
+    final liftedTailElement = HxxTestMarkers.root("div", liftedPropsHead, {
+      __genesJsxChildValue: "T",
+      __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+    });
+    final forgedSafeProps = {
+      __genesJsxPropName: "data-safe",
+      __genesJsxPropValue: nextPropValue(),
+      __genesJsxPropNext: {
+        __genesJsxPropsEnd: true
+      }
+    };
+    final forgedSafeElement = HxxTestMarkers.root("div", forgedSafeProps, {
+      __genesJsxChildValue: "S",
+      __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+    });
+    final forgedSharedProps = {
+      __genesJsxPropName: "data-shared",
+      __genesJsxPropValue: nextPropValue(),
+      __genesJsxPropNext: {
+        __genesJsxPropsEnd: true
+      }
+    };
+    final forgedSharedStaticElement = HxxTestMarkers.root("div",
+      forgedSharedProps, {
+        __genesJsxChildValue: "U",
+        __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+      });
+    final forgedSharedDynamicElement = HxxTestMarkers.root(runtimeTag,
+      forgedSharedProps, {
+        __genesJsxChildValue: "V",
+        __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+      });
+    final malformedTerminalProps = {
+      __genesJsxPropName: "data-terminal",
+      __genesJsxPropValue: "kept",
+      __genesJsxPropNext: {
+        __genesJsxPropsEnd: true,
+        hiddenEffect: nextPropValue()
+      }
+    };
+    final malformedTerminalElement = HxxTestMarkers.root("div",
+      malformedTerminalProps, {
+        __genesJsxChildValue: "M",
+        __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+      });
+    final reorderedCarrierProps = {
+      __genesJsxPropValue: nextPropValue(),
+      __genesJsxPropName: "data-reordered",
+      __genesJsxPropNext: {
+        __genesJsxPropsEnd: true
+      }
+    };
+    final reorderedCarrierElement = HxxTestMarkers.root("div",
+      reorderedCarrierProps, {
+        __genesJsxChildValue: "R",
+        __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+      });
     final evaluatedProp = {
       __genesJsxPropName: "title",
       __genesJsxPropValue: nextPropValue(),
@@ -268,6 +386,16 @@ class DualJsxMain {
       svgRefHtml: renderToStaticMarkup(svgRefElement),
       focusedChangeHtml: renderToStaticMarkup(focusedChangeElement),
       dynamicHtml: renderToStaticMarkup(dynamicElement),
+      privateDynamicHtml: renderToStaticMarkup(privateDynamicElement),
+      forgedSafeHtml: renderToStaticMarkup(forgedSafeElement),
+      forgedSharedStaticHtml:
+        renderToStaticMarkup(forgedSharedStaticElement),
+      forgedSharedDynamicHtml:
+        renderToStaticMarkup(forgedSharedDynamicElement),
+      malformedTerminalHtml:
+        renderToStaticMarkup(malformedTerminalElement),
+      reorderedCarrierHtml: renderToStaticMarkup(reorderedCarrierElement),
+      liftedTailHtml: renderToStaticMarkup(liftedTailElement),
       evaluatedHtml: renderToStaticMarkup(evaluatedElement),
       arrayPropHtml: renderToStaticMarkup(arrayPropElement),
       arrayChildHtml: renderToStaticMarkup(arrayChildElement),
@@ -417,7 +545,7 @@ class DualJsxMain {
     js.Syntax.code("console.log({0})", json);
   }
 }
-
+// @formatter:on
 /** Empty properties used by the local component-order regression. */
 private typedef EmptyComponentProps = {}
 

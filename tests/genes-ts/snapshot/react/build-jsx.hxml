@@ -1,0 +1,11 @@
+-lib genes-ts
+
+-cp tests/genes-ts/snapshot/react/src
+--main Main
+
+# Type-erased source JSX keeps the same HXX evaluation schedule without tsc.
+-js tests/genes-ts/snapshot/react/out/jsx/index.jsx
+-D genes.react.inline_markup
+-D js-es=6
+
+-dce full

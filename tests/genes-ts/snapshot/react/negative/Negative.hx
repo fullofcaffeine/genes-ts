@@ -321,8 +321,8 @@ class Negative {
     #elseif hxx_negative_ref_object_target
     // Build a real typed React ref object without a cast. The test should fail
     // because an anchor object cannot be attached to an input element.
-    final createRef: Void->RefObject<AnchorElement> = Imports.namedImport(
-      "react", "createRef");
+    final createRef: Void->
+      RefObject<AnchorElement> = Imports.namedImport("react", "createRef");
     final anchorRef = createRef();
     final value = <input ref={anchorRef} />;
     #elseif hxx_negative_svg_ref_target
@@ -542,6 +542,15 @@ class Negative {
       __genesJsxPropNext: {
         __genesJsxPropsEnd: true
       }
+    }, {__genesJsxChildrenEnd: true});
+    #elseif hxx_negative_fake_hxx_candidate_value
+    // A value merely cast to the nominal candidate type is not the exact
+    // candidate field. Actual `@:privateAccess` minting is allowed and covered
+    // by the positive and shared-carrier fixtures.
+    final fakeCandidate: Void->
+      genes.react.internal.HxxRootCandidate = cast null;
+    final value = genes.react.internal.Jsx.__hxxJsx(fakeCandidate, "div", {
+      __genesJsxPropsEnd: true
     }, {__genesJsxChildrenEnd: true});
     #end
   }

@@ -11,19 +11,29 @@ import genes.react.Element;
  * `React.createElement(...)`; classic Genes prints equivalent plain JavaScript
  * runtime calls. The marker itself never leaks into generated source.
  *
- * The `__hxxChild*` variants carry one extra compile-time fact: the HXX parser
- * created this value for a nested element or fragment. They behave exactly like
- * the ordinary markers in every output profile. Their distinct typed static
- * field identity lets `JsxPlan` distinguish disposable parser scaffolding from
- * an authored local or a marker call written by another macro. `@:noCompletion`
- * only hides these internal protocol names from editor suggestions; it does not
- * change typing or generated output.
+ * The `__hxx*` variants classify values created through the HXX path. Root
+ * markers carry a forgeable `HxxRootCandidate`: another macro can mint the
+ * same value with `@:privateAccess`, so it is not provenance or authority.
+ * `JsxPlan` permits the narrow readable props projection only after complete
+ * request-local use accounting and exact carrier-shape validation. Child
+ * markers retain their separate typed identity for the independently bounded
+ * source-inline analysis. All variants behave like the ordinary markers in
+ * every output profile; `@:noCompletion` hides protocol names from suggestions.
  */
 extern class Jsx {
   public static function __jsx<Tag, Props, Children>(tag: Tag, props: Props,
     children: Children): Element;
 
   public static function __frag<Children>(children: Children): Element;
+
+  @:noCompletion
+  public static function __hxxJsx<Tag, Props, Children>(candidate: Void->
+    HxxRootCandidate, tag: Tag, props: Props,
+    children: Children): Element;
+
+  @:noCompletion
+  public static function __hxxFrag<Children>(candidate: Void->HxxRootCandidate,
+    children: Children): Element;
 
   @:noCompletion
   public static function __hxxChildJsx<Tag, Props, Children>(tag: Tag,
