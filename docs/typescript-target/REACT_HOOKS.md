@@ -139,10 +139,68 @@ function useCounter(initial:Int):State<Int> {
 }
 ```
 
+For a module whose main job is one component, give the file and function the
+same name. Haxe keeps the module path and the function field distinct, so this
+is valid and gives both languages the name a reader expects:
+
+```haxe
+// views/WorldArchive.hx
+package views;
+
+import genes.react.Element;
+import genes.react.JSX.*;
+
+typedef WorldArchiveProps = {
+  final bundleName:String;
+}
+
+@:genes.reactComponent
+function WorldArchive(props:WorldArchiveProps):Element {
+  return <article>{props.bundleName}</article>;
+}
+```
+
+Import the function from the module, then use it as an ordinary HXX component:
+
+```haxe
+import views.WorldArchive.WorldArchive;
+
+return <WorldArchive bundleName="Bedrock" />;
+```
+
+When the local name is already occupied, alias the function at the Haxe import
+boundary:
+
+```haxe
+import views.WorldArchive.WorldArchive as WorldArchiveView;
+
+return <WorldArchiveView bundleName="Bedrock" />;
+```
+
+Both imports select the same generated ESM binding. The direct generated TSX
+shape is:
+
+```tsx
+export function WorldArchive(
+  props: WorldArchiveProps,
+): JSX.Element {
+  return <article>{props.bundleName}</article>;
+}
+```
+
+Genes does not emit a holder class, a static assignment bridge, or Haxe class
+registration for a disposable module owner. The component remains removable
+by Haxe dead-code elimination when nothing references it. A conservative
+unused `genes.Register` import may still appear in some direct-function
+modules; the framework-neutral helper-import planner is tracked separately and
+does not change component identity or runtime behavior.
+
 The annotations are compile-time contracts:
 
 - `@:genes.reactComponent` requires an uppercase module function or public
   static method;
+- an ordinary component accepts zero arguments or one props argument and
+  returns `genes.react.Element`;
 - `@:genes.reactHook` requires a `use...` module function or public static
   method;
 - genes derives `@:genes.moduleFunction` internally, so React's analyzers see a
@@ -160,6 +218,18 @@ An existing static method remains supported when the class has a real job:
 class identity, an interface, inheritance, stateful construction, required
 metadata, or an exact host export contract. Do not add a class merely to hold
 static React functions.
+
+The ordinary component marker intentionally does not accept a second legacy
+context/ref argument or a promise return. `forwardRef`, async/server
+components, and other React callable roles need separate typed contracts so
+Genes does not silently claim that every callable shape has the same Hook and
+analyzer rules.
+
+Inline markup is a build-profile capability, not another component role.
+TypeScript profiles enable it automatically. Classic JSX and JavaScript
+profiles enable `genes.react.inline_markup` in HXML so the same `.hx` source
+works unchanged. Do not add `@:jsx_inline_markup` to an ordinary TSX component,
+and do not add `@:genes.moduleFunction` beside `@:genes.reactComponent`.
 
 ## Generated behavior
 
@@ -179,12 +249,11 @@ There is no alternate Hook runtime, tuple wrapper, dispatcher registry, or
 framework adapter. TypeScript/TSX and classic JavaScript use the same canonical
 React module identity and evaluation order.
 
-Today the generated module also retains a compiler-owned module-field
-descriptor class used by Haxe identity and dependency planning. The public
-React function itself is a genuine named module export, so React's official
-analyzers can inspect it directly. Removing that remaining synthetic
-module-field class is a separate, framework-neutral Genes compiler improvement;
-this React API does not hide it behind another runtime wrapper.
+A module containing only selected module functions omits Haxe's synthetic
+module-field owner. If the module also declares an ordinary runtime field or an
+initializer with side effects, Genes keeps the owner because removing it would
+change the Haxe program. The React function remains a genuine named export in
+either case, so React's official analyzers inspect the real body directly.
 
 ## Verification
 

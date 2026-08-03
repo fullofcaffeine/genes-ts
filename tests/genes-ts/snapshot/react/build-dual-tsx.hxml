@@ -8,4 +8,6 @@
 -D genes.ts
 -D genes.ts.jsx_import_source=react
 
+-debug
+
 -dce full

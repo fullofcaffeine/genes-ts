@@ -6,9 +6,16 @@ import genes.react.internal.Jsx;
 import genes.react.InputElement;
 import genes.react.ReactRef.RefObject;
 import genes.ts.Imports;
+import UnusedComponent.UnusedComponent;
+import Welcome.Welcome as WelcomeView;
+import WorldArchive.WorldArchive;
+import WorldArchive.WorldArchive as WorldArchiveView;
 
 typedef DualJsxTranscript = {
   final staticHtml: String;
+  final sameNameDirectHtml: String;
+  final sameNameAliasedHtml: String;
+  final zeroPropsHtml: String;
   final sameExpressionOrderHtml: String;
   final nestedNameScopeHtml: String;
   final staticTagReadOrderHtml: String;
@@ -155,6 +162,9 @@ class DualJsxMain {
     final rootProps = {className: "shared", id: "root"};
     final fragment = jsx('<><span>A</span><span>B</span></>');
     final tree = <main {...rootProps}><h1>{heading}</h1>{fragment}</main>;
+    final sameNameDirect = <WorldArchive bundleName="Direct" />;
+    final sameNameAliased = <WorldArchiveView bundleName="Aliased" />;
+    final zeroProps = <WelcomeView />;
     final sameExpressionOrder = renderSameExpressionOrder();
     final nestedNameScope = renderNestedNameScope();
     final staticTagReadOrder = renderStaticTagReadOrder();
@@ -364,6 +374,9 @@ class DualJsxMain {
 
     print({
       staticHtml: renderToStaticMarkup(tree),
+      sameNameDirectHtml: renderToStaticMarkup(sameNameDirect),
+      sameNameAliasedHtml: renderToStaticMarkup(sameNameAliased),
+      zeroPropsHtml: renderToStaticMarkup(zeroProps),
       sameExpressionOrderHtml: renderToStaticMarkup(sameExpressionOrder),
       nestedNameScopeHtml: renderToStaticMarkup(nestedNameScope),
       staticTagReadOrderHtml: renderToStaticMarkup(staticTagReadOrder),
