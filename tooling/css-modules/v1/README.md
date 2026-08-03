@@ -143,10 +143,19 @@ optional host output-root prefix. For example,
 `src-gen/other/card.module.css`. This keeps the exact declaration beside the
 CSS file TypeScript resolves for the emitted import.
 
+`generatedModule` is not an independent alias. It must equal `haxeOwner` with
+dots replaced by slashes: `app.Main` maps to `app/Main`. Otherwise Haxe emits
+the owner module in one directory while tooling places the CSS declaration for
+another directory.
+
 `source.entry` is the actual `.module.css` file described by the manifest. It
 must also appear in `source.inputs` with its SHA-256 hash. A different project
 file cannot stand in for the stylesheet merely because its current hash is
 valid.
+
+All manifest file paths are project-relative and use forward slashes. Colons
+and backslashes are rejected so a path such as `C:/card.module.css` cannot be
+reinterpreted as a Windows drive path after moving between hosts.
 
 The classic JavaScript profile emits the same runtime import without a runtime
 type module:

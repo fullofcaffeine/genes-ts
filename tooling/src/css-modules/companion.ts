@@ -95,6 +95,7 @@ function positiveInteger(
 function portablePath(value: string, subject: string): string {
   if (
     value.length === 0 || value.includes("\\") ||
+    value.includes(":") ||
     /[\u0000-\u001f\u007f]/u.test(value) ||
     path.posix.isAbsolute(value) || value.startsWith("../") ||
     value === ".." || path.posix.normalize(value) !== value ||
@@ -227,6 +228,14 @@ export function validateCssModuleExportsManifest(
   );
   if (!haxeTypePath(haxeOwner) || !haxeTypePath(companionType)) {
     failManifest("Haxe owner or companion type is not a valid qualified Haxe name.", "binding");
+  }
+  const haxeOwnerModule = haxeOwner.replaceAll(".", "/");
+  if (generatedModule !== haxeOwnerModule) {
+    cssModuleFailure(
+      "GENES-CSS-MODULE-PATH-011",
+      `binding.generatedModule must match the Haxe owner module path ${JSON.stringify(haxeOwnerModule)}.`,
+      "binding.generatedModule",
+    );
   }
   if (!hostModulePath.endsWith(".module.css")) {
     cssModuleFailure(

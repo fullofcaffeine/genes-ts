@@ -109,11 +109,17 @@ file while claiming that its class names still describe the stylesheet.
 
 The three binding paths must also agree. `generatedModule` names the generated
 JavaScript or TypeScript module, `request` is the relative CSS import written in
-that module, and `hostModulePath` is where the host exposes that CSS file. After
-allowing for the host's output-root prefix, resolving the request from the
-generated module must produce the host CSS path. Tooling rejects a declaration
-candidate placed somewhere TypeScript would never inspect for the emitted
-import.
+that module, and `hostModulePath` is where the host exposes that CSS file.
+`generatedModule` must be the slash-separated form of the Haxe owner—for
+example, `app.Main` becomes `app/Main`. After allowing for the host's output-root
+prefix, resolving the request from that module must produce the host CSS path.
+Tooling rejects a declaration candidate placed somewhere TypeScript would never
+inspect for the emitted import.
+
+Portable manifest paths use project-relative forward-slash spelling and reject
+colons as well as backslashes. This keeps a value such as
+`C:/card.module.css` from becoming a drive path when a manifest moves from a
+POSIX host to Windows.
 
 JSON Schema checks the portable JSON shape and basic bounds. Some meaning
 depends on comparing several entries and remains a tooling check: duplicate

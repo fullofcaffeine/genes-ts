@@ -279,6 +279,8 @@ async function main() {
       binding: {
         ...manifest.binding,
         haxeOwner: "Main",
+        generatedModule: "Main",
+        hostModulePath: "out/ts/card.module.css",
         companionType: "CardStyles",
       },
     },

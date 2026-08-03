@@ -184,6 +184,35 @@ function main(): void {
       "GENES-CSS-MODULE-PATH-011",
     );
 
+    const mismatchedGeneratedModule = manifestFor(css);
+    mismatchedGeneratedModule.binding = {
+      haxeOwner: "css_module_companions.Main",
+      generatedModule: "other/Main",
+      request: "./card.module.css",
+      hostModulePath: "src-gen/other/card.module.css",
+      companionType: "css_module_companions.CardStyles",
+    };
+    expectCode(
+      () => generateCssModuleCompanion({ projectRoot: root, manifest: mismatchedGeneratedModule }),
+      "GENES-CSS-MODULE-PATH-011",
+    );
+
+    const windowsDriveEntry = manifestFor(css);
+    mkdirSync(path.join(root, "C:"), { recursive: true });
+    writeFileSync(path.join(root, "C:/card.module.css"), css, "utf8");
+    windowsDriveEntry.source = {
+      entry: "C:/card.module.css",
+      inputs: [{ path: "C:/card.module.css", sha256: sha256(css) }],
+    };
+    windowsDriveEntry.exports = [
+      { name: "card", source: { path: "C:/card.module.css", line: 1, column: 2 } },
+    ];
+    assert.equal(validate(windowsDriveEntry), false, "portable paths reject Windows drives");
+    expectCode(
+      () => generateCssModuleCompanion({ projectRoot: root, manifest: windowsDriveEntry }),
+      "GENES-CSS-MODULE-PATH-011",
+    );
+
     const unsorted = manifestFor(css);
     unsorted.exports = [
       { name: "error-state", source: { path: "styles/card.module.css", line: 2, column: 2 } },
