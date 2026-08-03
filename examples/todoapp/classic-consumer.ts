@@ -34,6 +34,8 @@ const emptyPatch: UpdateTodoBody = {};
 store.updateCompleted("todo-1", null);
 // @ts-expect-error callers cannot bypass the decoder with a loose patch object.
 store.update("todo-1", {completed: null});
+// @ts-expect-error nullable update mechanics are not part of the public Store API.
+store.updateFields("todo-1", null, null);
 
 void found;
 void element;

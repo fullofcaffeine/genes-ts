@@ -85,6 +85,25 @@ function assertReactRouter8Imports(extension: ".ts" | ".tsx"): void {
   assert.doesNotMatch(modules, /react-router-dom/);
 }
 
+/**
+ * The HTTP decoder guarantees that every update has at least one checked,
+ * non-null field. Keep the generated Store surface from exposing an internal
+ * nullable helper that would let TypeScript callers bypass that guarantee.
+ */
+function assertClosedStoreUpdateSurface(): void {
+  const store = readFileSync(
+    path.join(exampleRoot, "server", "src-gen", "todo", "server", "Store.ts"),
+    "utf8"
+  );
+  assert.doesNotMatch(store, /\bupdateFields\s*\(/);
+  assert.match(store, /\bupdateTitle\(id: string, title: string\)/);
+  assert.match(store, /\bupdateCompleted\(id: string, completed: boolean\)/);
+  assert.match(
+    store,
+    /\bupdateBoth\(id: string, title: string, completed: boolean\)/
+  );
+}
+
 rmrf("web/src-gen");
 rmrf("web/dist");
 rmrf("server/src-gen");
@@ -182,6 +201,7 @@ rmSync(path.join(exampleRoot, "web/dist/esbuild-meta.json"));
 // Server: minimal runtime is typechecked only (avoid overwriting the runnable build output).
 rmrf("server/src-gen");
 run("haxe", ["examples/todoapp/server/build.minimal.hxml"]);
+assertClosedStoreUpdateSurface();
 assertSnapshots({
   generatedDir: "examples/todoapp/server/src-gen",
   snapshotsDir: "examples/todoapp/server/dist-ts-minimal/src-gen",
@@ -204,6 +224,7 @@ runTypeScript("legacyFloor", [
 // Default server build (runnable; emits JS + d.ts into server/dist).
 rmrf("server/src-gen");
 run("haxe", ["examples/todoapp/server/build.hxml"]);
+assertClosedStoreUpdateSurface();
 assertSnapshots({
   generatedDir: "examples/todoapp/server/src-gen",
   snapshotsDir: "examples/todoapp/server/dist-ts/src-gen",

@@ -48,25 +48,32 @@ export class Store extends Register.inherits() {
 		return todo;
 	}
 	updateTitle(id: string, title: string): Todo | null {
-		return this.updateFields(id, title, null);
-	}
-	updateCompleted(id: string, completed: boolean): Todo | null {
-		return this.updateFields(id, null, completed);
-	}
-	updateBoth(id: string, title: string, completed: boolean): Todo | null {
-		return this.updateFields(id, title, completed);
-	}
-	updateFields(id: string, title: string | null, completed: boolean | null): Todo | null {
 		const todo: Todo | null = this.get(id);
 		if (todo == null) {
 			return null;
 		};
-		if (title != null) {
-			todo.title = title;
+		todo.title = title;
+		todo.updatedAt = Store.nowIso();
+		this.save();
+		return todo;
+	}
+	updateCompleted(id: string, completed: boolean): Todo | null {
+		const todo: Todo | null = this.get(id);
+		if (todo == null) {
+			return null;
 		};
-		if (completed != null) {
-			todo.completed = completed;
+		todo.completed = completed;
+		todo.updatedAt = Store.nowIso();
+		this.save();
+		return todo;
+	}
+	updateBoth(id: string, title: string, completed: boolean): Todo | null {
+		const todo: Todo | null = this.get(id);
+		if (todo == null) {
+			return null;
 		};
+		todo.title = title;
+		todo.completed = completed;
 		todo.updatedAt = Store.nowIso();
 		this.save();
 		return todo;
