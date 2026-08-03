@@ -9,4 +9,6 @@
 -D genes.react.inline_markup
 -D js-es=6
 
+-debug
+
 -dce full

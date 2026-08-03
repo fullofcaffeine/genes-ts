@@ -15,6 +15,7 @@ import {
 } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { SourceMapConsumer, type RawSourceMap } from "source-map";
 import { assertNoUnsafeTypes } from "./typing-policy.js";
 import { runGeneratedTypeScriptMatrix, runTypeScript } from "./toolchains.js";
 import { assertHxxDiagnosticRanges } from "./test-hxx-diagnostic-ranges.js";
@@ -52,6 +53,33 @@ function capture(cmd: string, args: ReadonlyArray<string>): string {
     cwd: repoRoot,
     encoding: "utf8"
   });
+}
+
+/** Proves a direct component name still points to its Haxe declaration. */
+function assertMappedComponent(
+  generatedPath: string,
+  sourcePath: string
+): void {
+  const generated = readFileSync(generatedPath, "utf8");
+  const source = readFileSync(sourcePath, "utf8");
+  const generatedNeedle = "function WorldArchive";
+  const generatedOffset = generated.indexOf(generatedNeedle);
+  const sourceOffset = source.indexOf(generatedNeedle);
+  ok(generatedOffset !== -1, `${generatedPath} contains the component function`);
+  ok(sourceOffset !== -1, `${sourcePath} contains the component function`);
+  const generatedBefore = generated.slice(0, generatedOffset).split("\n");
+  const sourceLine = source.slice(0, sourceOffset).split("\n").length;
+  const map = new SourceMapConsumer(JSON.parse(
+    readFileSync(`${generatedPath}.map`, "utf8")
+  ) as RawSourceMap);
+  const original = map.originalPositionFor({
+    line: generatedBefore.length,
+    column: generatedBefore.at(-1)?.length ?? 0
+  });
+  ok(original.source?.endsWith("WorldArchive.hx"),
+    `${generatedPath} maps the component name to WorldArchive.hx`);
+  strictEqual(original.line, sourceLine,
+    `${generatedPath} maps the component name to its declaration line`);
 }
 
 /** Captures one generated tree so a failed compiler run can prove no publication. */
@@ -1097,6 +1125,39 @@ const dualTsxSource = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/react/out/dual-tsx/src-gen/DualJsxMain.tsx"),
   "utf8"
 );
+const worldArchiveHaxe = readFileSync(
+  path.join(repoRoot, "tests/genes-ts/snapshot/react/src/WorldArchive.hx"),
+  "utf8"
+);
+ok(worldArchiveHaxe.includes("@:genes.reactComponent")
+  && !worldArchiveHaxe.includes("@:genes.moduleFunction")
+  && !worldArchiveHaxe.includes("@:jsx_inline_markup"),
+"the canonical component source needs only the React role marker");
+const dualTsxWorldArchive = readFileSync(
+  path.join(repoRoot,
+    "tests/genes-ts/snapshot/react/out/dual-tsx/src-gen/WorldArchive.tsx"),
+  "utf8"
+);
+ok(dualTsxWorldArchive.includes(
+  "export function WorldArchive(props: WorldArchiveProps): JSX.Element"
+), "same-name Haxe module/function emits one direct TSX component");
+ok(!dualTsxWorldArchive.includes("WorldArchive_Fields_")
+  && !dualTsxWorldArchive.includes("setHxClass")
+  && !dualTsxWorldArchive.includes("WorldArchive.WorldArchive ="),
+"direct TSX component has no synthetic owner, registration, or static bridge");
+strictEqual(
+  dualTsxSource.match(/import \{WorldArchive\} from "\.\/WorldArchive\.js"/g)?.length,
+  1,
+  "direct and aliased Haxe imports share one exact ESM component binding"
+);
+ok(dualTsxSource.includes(
+  'const sameNameDirect: JSX.Element = <WorldArchive bundleName="Direct" />'
+) && dualTsxSource.includes(
+  'const sameNameAliased: JSX.Element = <WorldArchive bundleName="Aliased" />'
+), "direct and aliased Haxe imports both render through the direct binding");
+strictEqual(existsSync(path.join(repoRoot,
+  "tests/genes-ts/snapshot/react/out/dual-tsx/src-gen/UnusedComponent.tsx")),
+false, "the React marker does not retain an otherwise dead component");
 strictEqual(dualTsxSource.includes("data-planning-only"), false,
   "a compiler-internal HXX field reached source output");
 ok(dualTsxSource.includes("<main {...rootProps}>"));
@@ -1246,6 +1307,17 @@ const dualTsSource = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/react/out/dual-ts/src-gen/DualJsxMain.ts"),
   "utf8"
 );
+const dualTsWorldArchive = readFileSync(
+  path.join(repoRoot,
+    "tests/genes-ts/snapshot/react/out/dual-ts/src-gen/WorldArchive.ts"),
+  "utf8"
+);
+ok(dualTsWorldArchive.includes(
+  "export function WorldArchive(props: WorldArchiveProps): JSX.Element"
+) && dualTsWorldArchive.includes("React__genes_jsx.createElement(\"article\"")
+  && !dualTsWorldArchive.includes("WorldArchive_Fields_")
+  && !dualTsWorldArchive.includes("setHxClass"),
+"typed createElement keeps the same direct component contract");
 assertNoUnsafeTypes({
   repoRoot,
   generatedDir: "tests/genes-ts/snapshot/react/out/dual-ts/src-gen",
@@ -1291,6 +1363,18 @@ const dualClassicSource = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/react/out/dual-classic/DualJsxMain.js"),
   "utf8"
 );
+const dualClassicWorldArchive = readFileSync(
+  path.join(repoRoot,
+    "tests/genes-ts/snapshot/react/out/dual-classic/WorldArchive.js"),
+  "utf8"
+);
+ok(dualClassicWorldArchive.includes("export function WorldArchive(props)")
+  && dualClassicWorldArchive.includes(
+    'React__genes_jsx.createElement("article"'
+  )
+  && !dualClassicWorldArchive.includes("WorldArchive_Fields_")
+  && !dualClassicWorldArchive.includes("hxClasses"),
+"classic createElement keeps the same direct component and runtime behavior");
 ok(dualClassicSource.includes('import * as React__genes_jsx from "react"'));
 ok(dualClassicSource.includes("React__genes_jsx.createElement(\"main\""));
 ok(dualClassicSource.includes(
@@ -1343,6 +1427,18 @@ const dualJsxSource = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/react/out/dual-jsx/DualJsxMain.jsx"),
   "utf8"
 );
+const dualJsxWorldArchive = readFileSync(
+  path.join(repoRoot,
+    "tests/genes-ts/snapshot/react/out/dual-jsx/WorldArchive.jsx"),
+  "utf8"
+);
+ok(dualJsxWorldArchive.includes("export function WorldArchive(props)")
+  && dualJsxWorldArchive.includes(
+    '<article data-component="world-archive">{props.bundleName}</article>'
+  )
+  && !dualJsxWorldArchive.includes("WorldArchive_Fields_")
+  && !dualJsxWorldArchive.includes("hxClasses"),
+"source JSX erases types without changing the direct component contract");
 strictEqual(dualJsxSource.includes("data-planning-only"), false,
   "a compiler-internal HXX field reached type-erased source JSX");
 ok(dualJsxSource.includes("<main {...rootProps}>"));
@@ -1388,6 +1484,9 @@ copyObservableComponents(
 
 const expectedTranscript = {
   staticHtml: '<main class="shared" id="root"><h1>dual</h1><span>A</span><span>B</span></main>',
+  sameNameDirectHtml: '<article data-component="world-archive">Direct</article>',
+  sameNameAliasedHtml: '<article data-component="world-archive">Aliased</article>',
+  zeroPropsHtml: '<p data-component="welcome">Ready</p>',
   sameExpressionOrderHtml: '<div><span>after</span></div>',
   nestedNameScopeHtml: '<section data-owner="outer"><div><span>inner</span></div></section>',
   staticTagReadOrderHtml: '<section data-order="Child,Parent"><span>child</span></section>',
@@ -1420,6 +1519,19 @@ const expectedTranscript = {
   arrayChildHtml: '<div>evaluated-once</div>',
   propEvaluations: 9
 };
+const worldArchiveSourcePath = path.join(
+  repoRoot,
+  "tests/genes-ts/snapshot/react/src/WorldArchive.hx"
+);
+for (const generatedPath of [
+  "tests/genes-ts/snapshot/react/out/dual-tsx/src-gen/WorldArchive.tsx",
+  "tests/genes-ts/snapshot/react/out/dual-ts/src-gen/WorldArchive.ts",
+  "tests/genes-ts/snapshot/react/out/dual-jsx/WorldArchive.jsx",
+  "tests/genes-ts/snapshot/react/out/dual-classic/WorldArchive.js"
+]) {
+  assertMappedComponent(path.join(repoRoot, generatedPath),
+    worldArchiveSourcePath);
+}
 const tsxTranscript = parseTranscript(
   capture("node", ["tests/genes-ts/snapshot/react/out/dual-tsx/dist/index.js"])
 );

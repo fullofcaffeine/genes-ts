@@ -178,6 +178,9 @@ ok(typeOnly.startsWith('import type {JSX} from "react"'),
 ok(typeOnly.includes(
   "function Identity(props: TypeOnlyComponentProps): JSX.Element"
 ), "component without HXX still keeps its exact source signature");
+ok(typeOnly.includes(
+  "function OptionalIdentity(props: TypeOnlyComponentProps): JSX.Element | null"
+), "nullable component result keeps the exact render-nothing contract");
 
 const gutenberg = source(
   "out/ts/src-gen/react_hooks/GutenbergBlock.ts"
@@ -247,6 +250,12 @@ for (const profile of ["ts/src-gen", "classic"] as const) {
     "function Identity",
     "function Identity"
   );
+  assertMappedFunction(
+    profile,
+    "react_hooks/TypeOnlyComponent",
+    "function OptionalIdentity",
+    "function OptionalIdentity"
+  );
 }
 
 expectHaxeFailure(
@@ -305,6 +314,26 @@ expectHaxeFailure(
   "GTS-REACT-HOOK-001",
   "HookPlacementNegative.hx"
 );
+
+for (const [define, diagnostic] of [
+  ["react_component_second_argument", "GTS-REACT-COMPONENT-SIGNATURE-007"],
+  ["react_component_wrong_return", "GTS-REACT-COMPONENT-SIGNATURE-008"],
+  ["react_component_rest_argument", "GTS-REACT-COMPONENT-SIGNATURE-009"],
+  ["react_component_value_field", "GTS-REACT-COMPONENT-SIGNATURE-010"],
+  ["react_component_lowercase", "GTS-REACT-METADATA-005"],
+  ["react_component_duplicate_module_marker", "GTS-REACT-ANALYZER-006"],
+  ["react_component_overload", "GENES-MODULE-FUNCTION-OVERLOAD-009"]
+] as const) {
+  expectHaxeFailure(
+    [
+      "tests/react-hooks/build-component-signature-negative.hxml",
+      "-D",
+      define
+    ],
+    diagnostic,
+    "ComponentSignatureNegative.hx"
+  );
+}
 
 const lintControl = spawnSync(
   path.join(repositoryRoot, "node_modules/.bin/eslint"),
