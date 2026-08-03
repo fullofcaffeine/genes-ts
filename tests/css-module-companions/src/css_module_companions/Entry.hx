@@ -4,5 +4,6 @@ package css_module_companions;
 class Entry {
   static function main(): Void {
     trace(Main.classNames());
+    trace(Main.exportedStyles().card);
   }
 }

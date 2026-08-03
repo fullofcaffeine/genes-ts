@@ -65,7 +65,7 @@ names.
 Module types. It intentionally crosses several existing product surfaces
 without letting one substitute for another:
 
-- a hand-reviewed JSON file owns the three expected class keys;
+- a hand-reviewed JSON file owns the five expected class keys;
 - pinned `postcss-modules` independently reports its runtime exports;
 - host tooling validates that manifest, checks source hashes, and generates the
   closed Haxe companion twice to prove deterministic bytes;
@@ -74,7 +74,9 @@ without letting one substitute for another:
 - strict TypeScript first rejects the usual broad CSS wildcard declaration,
   then accepts the generated exact per-file declaration; its negative consumer
   separately proves there is no arbitrary-key escape;
-- the classic and TypeScript profiles each emit one default CSS import; and
+- the classic and TypeScript profiles each emit one default CSS import;
+- classic JavaScript also emits a `.d.ts` contract that preserves the closed
+  CSS Module return type for TypeScript callers; and
 - pinned esbuild loads and executes both outputs through a controlled real
   loader, then checks the reviewed keys and string values.
 

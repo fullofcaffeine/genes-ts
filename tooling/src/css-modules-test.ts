@@ -156,6 +156,34 @@ function main(): void {
       "GENES-CSS-MODULE-PATH-011",
     );
 
+    const unrelatedEntry = manifestFor(css);
+    writeFileSync(path.join(root, "package.json"), "{}\n", "utf8");
+    unrelatedEntry.source = {
+      entry: "package.json",
+      inputs: [{ path: "package.json", sha256: sha256("{}\n") }],
+    };
+    unrelatedEntry.exports = [
+      { name: "card", source: { path: "package.json", line: 1, column: 1 } },
+    ];
+    assert.equal(validate(unrelatedEntry), false, "the schema ties source.entry to a CSS Module");
+    expectCode(
+      () => generateCssModuleCompanion({ projectRoot: root, manifest: unrelatedEntry }),
+      "GENES-CSS-MODULE-PATH-011",
+    );
+
+    const mismatchedHostPath = manifestFor(css);
+    mismatchedHostPath.binding = {
+      haxeOwner: "css_module_companions.Main",
+      generatedModule: "css_module_companions/Main",
+      request: "./card.module.css",
+      hostModulePath: "src-gen/other/card.module.css",
+      companionType: "css_module_companions.CardStyles",
+    };
+    expectCode(
+      () => generateCssModuleCompanion({ projectRoot: root, manifest: mismatchedHostPath }),
+      "GENES-CSS-MODULE-PATH-011",
+    );
+
     const unsorted = manifestFor(css);
     unsorted.exports = [
       { name: "error-state", source: { path: "styles/card.module.css", line: 2, column: 2 } },

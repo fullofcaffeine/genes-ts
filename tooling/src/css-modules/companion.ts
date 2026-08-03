@@ -124,6 +124,20 @@ function literalRequest(value: string): string {
   return value;
 }
 
+function expectedHostModuleSuffix(generatedModule: string, request: string): string {
+  const resolved = path.posix.normalize(
+    path.posix.join(path.posix.dirname(generatedModule), request),
+  );
+  if (resolved === ".." || resolved.startsWith("../") || path.posix.isAbsolute(resolved)) {
+    cssModuleFailure(
+      "GENES-CSS-MODULE-PATH-011",
+      "binding.request leaves the generated module root.",
+      "binding.request",
+    );
+  }
+  return resolved;
+}
+
 function parseLocation(value: unknown, subject: string): CssModuleSourceLocation {
   const source = record(value, subject);
   exactKeys(source, ["path", "line", "column"], subject);
@@ -205,6 +219,7 @@ export function validateCssModuleExportsManifest(
   exactKeys(binding, ["haxeOwner", "generatedModule", "request", "hostModulePath", "companionType"], "binding");
   const haxeOwner = stringField(binding, "haxeOwner", "binding");
   const generatedModule = portablePath(stringField(binding, "generatedModule", "binding"), "binding.generatedModule");
+  const request = literalRequest(stringField(binding, "request", "binding"));
   const companionType = stringField(binding, "companionType", "binding");
   const hostModulePath = portablePath(
     stringField(binding, "hostModulePath", "binding"),
@@ -220,6 +235,17 @@ export function validateCssModuleExportsManifest(
       "binding.hostModulePath",
     );
   }
+  const expectedSuffix = expectedHostModuleSuffix(generatedModule, request);
+  if (
+    hostModulePath !== expectedSuffix &&
+    !hostModulePath.endsWith(`/${expectedSuffix}`)
+  ) {
+    cssModuleFailure(
+      "GENES-CSS-MODULE-PATH-011",
+      `binding.hostModulePath must resolve to ${JSON.stringify(expectedSuffix)} from binding.generatedModule and binding.request, after any host output-root prefix.`,
+      "binding.hostModulePath",
+    );
+  }
 
   const source = record(manifest.source, "source");
   exactKeys(source, ["entry", "inputs"], "source");
@@ -228,6 +254,13 @@ export function validateCssModuleExportsManifest(
   }
   const inputs = canonicalBy(source.inputs.map(parseInput), (input) => input.path, "source.inputs");
   const entry = portablePath(stringField(source, "entry", "source"), "source.entry");
+  if (!entry.endsWith(".module.css")) {
+    cssModuleFailure(
+      "GENES-CSS-MODULE-PATH-011",
+      "source.entry must be the .module.css file whose exports the manifest describes.",
+      "source.entry",
+    );
+  }
   if (!inputs.some((input) => input.path === entry)) {
     failManifest("source.entry must also appear in source.inputs.", "source.entry");
   }
@@ -261,7 +294,7 @@ export function validateCssModuleExportsManifest(
     binding: Object.freeze({
       haxeOwner,
       generatedModule,
-      request: literalRequest(stringField(binding, "request", "binding")),
+      request,
       hostModulePath,
       companionType,
     }),

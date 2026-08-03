@@ -16,3 +16,9 @@ function classNames(): String {
   return
     [styles.card, styles.title, styles.errorState, styles.element, styles.hxButton].join("|");
 }
+
+/** Exposes the closed style object so classic JavaScript declarations must preserve its type. */
+@:genes.moduleFunction("exportedStyles")
+function exportedStyles(): CardStyles {
+  return imported("./card.module.css", "styles");
+}

@@ -103,6 +103,18 @@ column numbers must fit safely in JavaScript's exact integer range. Hosts can
 therefore validate a manifest before storing it without accepting data that the
 tooling would reject later.
 
+The recorded `source.entry` must itself end in `.module.css`, and it must appear
+in the hashed input list. This prevents a manifest from hashing an unrelated
+file while claiming that its class names still describe the stylesheet.
+
+The three binding paths must also agree. `generatedModule` names the generated
+JavaScript or TypeScript module, `request` is the relative CSS import written in
+that module, and `hostModulePath` is where the host exposes that CSS file. After
+allowing for the host's output-root prefix, resolving the request from the
+generated module must produce the host CSS path. Tooling rejects a declaration
+candidate placed somewhere TypeScript would never inspect for the emitted
+import.
+
 JSON Schema checks the portable JSON shape and basic bounds. Some meaning
 depends on comparing several entries and remains a tooling check: duplicate
 source paths and duplicate export names are rejected. Incoming array order is
@@ -122,6 +134,9 @@ import type {CardStyles} from "./CardStyles.js"
 export function classNames(): string {
   const styles: CardStyles = __genes_import_styles;
   return [styles.card, styles.title, styles["error-state"], styles.__element, styles._hx_button].join("|");
+}
+export function exportedStyles(): CardStyles {
+  return __genes_import_styles;
 }
 ```
 
@@ -158,10 +173,31 @@ export function classNames() {
   const styles = __genes_import_styles;
   return [styles.card, styles.title, styles["error-state"], styles.__element, styles._hx_button].join("|");
 }
+export function exportedStyles() {
+  return __genes_import_styles;
+}
 ```
 
 There is no runtime companion import, CSS registry, wrapper object, or Genes
 styling runtime. The host's ordinary CSS loader supplies the imported object.
+
+## Actual classic declaration output
+
+Classic JavaScript can still serve TypeScript callers. With `-D dts`, the same
+fixture emits this declaration for its two public module functions:
+
+```ts
+import {CardStyles} from "./CardStyles.js"
+
+export const classNames: () => string
+export const exportedStyles: () => CardStyles
+```
+
+`CardStyles.d.ts` contains the same finite keys shown in the TypeScript section
+above. A separate strict TypeScript consumer calls `exportedStyles()`, accepts
+`card` and `"error-state"`, and rejects `missing`. This checks the classic
+declaration emitter itself; the TypeScript-profile declaration is not allowed
+to stand in for it.
 
 ## What the tooling API does
 
@@ -241,7 +277,8 @@ The fixture deliberately uses different owners for expected and actual results:
    from that processor manifest;
 4. Haxe checks valid and invalid field access;
 5. strict TypeScript checks the generated closed type;
-6. Genes emits both TypeScript and classic JavaScript;
+6. Genes emits TypeScript plus classic JavaScript, including the classic
+   `.d.ts` declaration consumed by TypeScript callers;
 7. pinned esbuild loads and runs both generated programs through a controlled
    CSS Modules loader;
 8. the object available to the running JavaScript must contain all five

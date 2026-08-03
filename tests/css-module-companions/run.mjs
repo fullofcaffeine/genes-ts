@@ -4,10 +4,12 @@ import { execFileSync, spawnSync } from "node:child_process";
 import {
   copyFileSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -37,6 +39,41 @@ function sha256(value) {
 
 function run(command, args, cwd = repoRoot) {
   execFileSync(command, args, { cwd, stdio: "inherit" });
+}
+
+function buildClassicDeclarations(companionFile) {
+  // Files below tests/ inherit the repository's test-only import.hx, which in
+  // turn loads tink_unittest. Stage this deliberately small public API outside
+  // that test package so the classic declaration check covers only the CSS
+  // contract instead of retaining an unrelated testing-library type graph.
+  const sourceRoot = mkdtempSync(path.join(os.tmpdir(), "genes-css-dts-source-"));
+  try {
+    const authoredPackage = path.join(sourceRoot, "src/css_module_companions");
+    const generatedPackage = path.join(sourceRoot, "generated/css_module_companions");
+    mkdirSync(authoredPackage, { recursive: true });
+    mkdirSync(generatedPackage, { recursive: true });
+    for (const name of ["Entry.hx", "Main.hx"]) {
+      copyFileSync(
+        path.join(fixtureRoot, "src/css_module_companions", name),
+        path.join(authoredPackage, name),
+      );
+    }
+    copyFileSync(companionFile, path.join(generatedPackage, "CardStyles.hx"));
+    run("haxe", [
+      "-lib", "genes-ts",
+      "-cp", path.join(sourceRoot, "src"),
+      "-cp", path.join(sourceRoot, "generated"),
+      "--main", "css_module_companions.Entry",
+      "-js", path.join(fixtureRoot, "out/classic-dts/index.js"),
+      "-D", "dts",
+      "-D", "no-deprecation-warnings",
+      "-D", "js-es=6",
+      "-dce", "full",
+      "-debug",
+    ]);
+  } finally {
+    rmSync(sourceRoot, { recursive: true, force: true });
+  }
 }
 
 async function processCss(file) {
@@ -295,6 +332,15 @@ async function main() {
 
   run("haxe", ["tests/css-module-companions/build-ts.hxml"]);
   run("haxe", ["tests/css-module-companions/build-classic.hxml"]);
+  buildClassicDeclarations(companionFile);
+  assert.equal(
+    readFileSync(
+      path.join(fixtureRoot, "out/classic-dts/css_module_companions/Main.d.ts"),
+      "utf8",
+    ).includes("exportedStyles"),
+    true,
+    "classic JavaScript emits a declaration for the CSS Module public contract",
+  );
   for (const profile of ["ts", "classic"]) {
     const target = path.join(fixtureRoot, `out/${profile}/css_module_companions/card.module.css`);
     mkdirSync(path.dirname(target), { recursive: true });
@@ -323,6 +369,7 @@ async function main() {
   run(path.join(repoRoot, "node_modules/.bin/tsc6"), ["-p", "tsconfig.json"], fixtureRoot);
   run(path.join(repoRoot, "node_modules/.bin/tsc6"), ["-p", "tsconfig.declarations.json"], fixtureRoot);
   run(path.join(repoRoot, "node_modules/.bin/tsc6"), ["-p", "tsconfig.declaration-consumer.json"], fixtureRoot);
+  run(path.join(repoRoot, "node_modules/.bin/tsc6"), ["-p", "tsconfig.classic-declaration-consumer.json"], fixtureRoot);
 
   const tsSource = readFileSync(path.join(fixtureRoot, "out/ts/css_module_companions/Main.ts"), "utf8");
   const classicSource = readFileSync(path.join(fixtureRoot, "out/classic/css_module_companions/Main.js"), "utf8");
