@@ -21,7 +21,6 @@ const SUBRESOURCE_INTEGRITY = /^sha(?:256|384|512)-[A-Za-z0-9+/]+={0,2}$/u;
 const MAX_TEXT_LENGTH = 16_384;
 const MAX_EXPORTS = 10_000;
 const HAXE_TYPE_PATH = /^(?:[a-z][A-Za-z0-9_]*\.)*[A-Z][A-Za-z0-9_]*$/u;
-const HAXE_MODULE_PATH = HAXE_TYPE_PATH;
 const HAXE_KEYWORDS = new Set([
   "abstract", "break", "case", "cast", "catch", "class", "continue",
   "default", "do", "dynamic", "else", "enum", "extends", "extern",
@@ -31,6 +30,12 @@ const HAXE_KEYWORDS = new Set([
   "return", "static", "super", "switch", "this", "throw", "to", "true",
   "try", "typedef", "untyped", "using", "var", "while",
 ]);
+
+function haxeTypePath(value: string): boolean {
+  if (!HAXE_TYPE_PATH.test(value)) return false;
+  const packageSegments = value.split(".").slice(0, -1);
+  return packageSegments.every((segment) => !HAXE_KEYWORDS.has(segment));
+}
 
 function failManifest(message: string, subject: string): never {
   return cssModuleFailure("GENES-CSS-MODULE-MANIFEST-015", message, subject);
@@ -196,7 +201,7 @@ export function validateCssModuleExportsManifest(
   const haxeOwner = stringField(binding, "haxeOwner", "binding");
   const generatedModule = portablePath(stringField(binding, "generatedModule", "binding"), "binding.generatedModule");
   const companionType = stringField(binding, "companionType", "binding");
-  if (!HAXE_MODULE_PATH.test(haxeOwner) || !HAXE_TYPE_PATH.test(companionType)) {
+  if (!haxeTypePath(haxeOwner) || !haxeTypePath(companionType)) {
     failManifest("Haxe owner or companion type is not a valid qualified Haxe name.", "binding");
   }
 

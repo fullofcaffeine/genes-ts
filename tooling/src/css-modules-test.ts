@@ -138,6 +138,8 @@ function main(): void {
     for (const [field, invalidName] of [
       ["haxeOwner", "app.card"],
       ["companionType", "card-styles"],
+      ["haxeOwner", "import.Card"],
+      ["companionType", "app.import.CardStyles"],
     ] as const) {
       const invalidHaxeName = manifestFor(css);
       invalidHaxeName.binding = {

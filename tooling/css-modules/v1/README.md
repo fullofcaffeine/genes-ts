@@ -169,7 +169,10 @@ keys. It never invents an order-dependent suffix such as `fooBar2`.
 
 Package-less Haxe projects are supported. `Main` may own a companion named
 `CardStyles`; in that case the generated file is `CardStyles.hx` and has no
-`package` line. Short valid type names such as `UI` are accepted too.
+`package` line. Short valid type names such as `UI` are accepted too. Package
+segments must be legal lowercase Haxe identifiers and may not be language
+keywords; for example, `app.styles.CardStyles` is valid while
+`app.import.CardStyles` is rejected.
 
 Version one rejects an exact JavaScript key wrapped in square brackets, such as
 `[foo]`. Genes already uses bracket-wrapped `@:native` names to represent a

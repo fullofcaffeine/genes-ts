@@ -74,6 +74,9 @@ stays pleasant without changing the JavaScript property.
 Projects that keep Haxe modules at the classpath root are supported too. Such a
 project may use `Main` and `CardStyles` without inventing a package solely for
 this feature; the generated companion simply omits the `package` line.
+Qualified names are checked as real Haxe names, including rejecting a language
+keyword as a package segment, so tooling cannot generate an invalid line such
+as `package import;`.
 
 ## Actual generated TypeScript
 
