@@ -92,7 +92,21 @@ class Main {
         sendError(res, 400, decodedPatch.error);
         return;
       }
-      final todo = store.update(id, patch);
+      final title = patch.title;
+      final completed = patch.completed;
+      final todo = if (title != null) {
+        if (completed != null)
+          store.updateBoth(id, title, completed);
+        else
+          store.updateTitle(id, title);
+      } else if (completed != null) {
+        store.updateCompleted(id, completed);
+      } else {
+        // The decoder rejects empty objects. Keep this branch fail-closed if a
+        // future decoder change ever violates that invariant.
+        sendError(res, 400, "invalid_patch");
+        return;
+      }
       if (todo == null) {
         sendError(res, 404, "not_found");
         return;

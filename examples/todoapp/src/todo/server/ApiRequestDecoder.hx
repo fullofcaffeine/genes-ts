@@ -14,8 +14,8 @@ typedef ApiDecode<T> = {
 
 /** A non-empty Todo update after the untrusted JSON checks have passed. */
 typedef DecodedTodoUpdate = {
-  final ?title: String;
-  final ?completed: Bool;
+  @:ts.optional final ?title: String;
+  @:ts.optional final ?completed: Bool;
 }
 
 /**

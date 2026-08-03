@@ -15,8 +15,8 @@ export type ApiDecode<T> = {
  * A non-empty Todo update after the untrusted JSON checks have passed.
  */
 export type DecodedTodoUpdate = {
-	completed?: boolean | null,
-	title?: string | null
+	completed?: boolean | undefined,
+	title?: string | undefined
 }
 
 /**
@@ -66,17 +66,17 @@ export class ApiRequestDecoder {
 				if (completed == null) {
 					return {"value": null, "error": "invalid_patch"};
 				};
-				const value: DecodedTodoUpdate = {"title": title, "completed": completed};
+				const value: DecodedTodoUpdate = {"title": (title ?? undefined), "completed": (completed ?? undefined)};
 				return {"value": value, "error": ""};
 			};
-			const value_1: DecodedTodoUpdate = {"title": title};
+			const value_1: DecodedTodoUpdate = {"title": (title ?? undefined)};
 			return {"value": value_1, "error": ""};
 		};
 		const completed_1: boolean | null = UnknownNarrow.bool(Object.prototype.hasOwnProperty.call(record, "completed") ? record["completed"] : undefined);
 		if (completed_1 == null) {
 			return {"value": null, "error": "invalid_patch"};
 		};
-		const value_2: DecodedTodoUpdate = {"completed": completed_1};
+		const value_2: DecodedTodoUpdate = {"completed": (completed_1 ?? undefined)};
 		return {"value": value_2, "error": ""};
 	}
 	static hasCreateShape(record: Readonly<Record<string, unknown>>): boolean {

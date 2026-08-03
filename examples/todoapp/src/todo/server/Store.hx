@@ -2,7 +2,6 @@ package todo.server;
 
 import js.node.Fs;
 import js.node.console.Console;
-import todo.server.ApiRequestDecoder.DecodedTodoUpdate;
 import todo.shared.Todo;
 import todo.shared.TodoId;
 
@@ -50,14 +49,25 @@ class Store {
     return todo;
   }
 
-  public function update(id: TodoId, patch: DecodedTodoUpdate): Null<Todo> {
+  public function updateTitle(id: TodoId, title: String): Null<Todo>
+    return updateFields(id, title, null);
+
+  public function updateCompleted(id: TodoId, completed: Bool): Null<Todo>
+    return updateFields(id, null, completed);
+
+  public function updateBoth(id: TodoId, title: String,
+      completed: Bool): Null<Todo>
+    return updateFields(id, title, completed);
+
+  function updateFields(id: TodoId, title: Null<String>,
+      completed: Null<Bool>): Null<Todo> {
     final todo = get(id);
     if (todo == null)
       return null;
-    if (patch.title != null)
-      todo.title = patch.title;
-    if (patch.completed != null)
-      todo.completed = patch.completed;
+    if (title != null)
+      todo.title = title;
+    if (completed != null)
+      todo.completed = completed;
     todo.updatedAt = nowIso();
     save();
     return todo;

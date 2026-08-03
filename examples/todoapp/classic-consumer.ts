@@ -18,6 +18,9 @@ const props: PrettyButtonProps = {
 const titlePatch: UpdateTodoBody = {title: "Renamed"};
 const completedPatch: UpdateTodoBody = {completed: true};
 const completePatch: UpdateTodoBody = {title: "Renamed", completed: true};
+const titleUpdate: Todo | null = store.updateTitle("todo-1", "Renamed");
+const completedUpdate: Todo | null = store.updateCompleted("todo-1", true);
+const completeUpdate: Todo | null = store.updateBoth("todo-1", "Renamed", true);
 
 // @ts-expect-error the emitted Store surface is closed.
 store.nonexistentMethod();
@@ -27,6 +30,10 @@ const invalidProps: PrettyButtonProps = {...props, variant: "warning"};
 const nullPatch: UpdateTodoBody = {completed: null};
 // @ts-expect-error a PATCH must change at least one Todo field.
 const emptyPatch: UpdateTodoBody = {};
+// @ts-expect-error Store mutation accepts a checked boolean, never null.
+store.updateCompleted("todo-1", null);
+// @ts-expect-error callers cannot bypass the decoder with a loose patch object.
+store.update("todo-1", {completed: null});
 
 void found;
 void element;
@@ -36,3 +43,6 @@ void completedPatch;
 void completePatch;
 void nullPatch;
 void emptyPatch;
+void titleUpdate;
+void completedUpdate;
+void completeUpdate;

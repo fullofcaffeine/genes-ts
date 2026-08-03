@@ -81,7 +81,23 @@ export class Main {
 				Main.sendError(res, 400, decodedPatch.error);
 				return;
 			};
-			const todo: Todo | null = store.update(id, patch);
+			const title: string | null = (patch.title ?? null);
+			const completed: boolean | null = (patch.completed ?? null);
+			let todo: {
+				completed: boolean,
+				createdAt: string,
+				id: string,
+				title: string,
+				updatedAt: string
+			} | null;
+			if (title != null) {
+				todo = (completed != null) ? store.updateBoth(id, title, completed) : store.updateTitle(id, title);
+			} else if (completed != null) {
+				todo = store.updateCompleted(id, completed);
+			} else {
+				Main.sendError(res, 400, "invalid_patch");
+				return;
+			};
 			if (todo == null) {
 				Main.sendError(res, 404, "not_found");
 				return;
