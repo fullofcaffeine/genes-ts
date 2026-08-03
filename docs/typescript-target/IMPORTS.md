@@ -83,6 +83,38 @@ an unsupported package shape cannot silently widen or change meaning. The
 blocking `yarn test:interop:module-shapes` fixture type-checks the same source on
 TS 5, TS 6, and TS 7, then executes both TS and classic Genes output.
 
+### Whole-module functions returning named package classes
+
+An extern library can model a JavaScript module object and one of its returned
+classes in the same Haxe file:
+
+```haxe
+@:jsRequire("worker-package")
+extern class Workers {
+  static function start(label:String):Worker;
+}
+
+extern class Worker {
+  final label:String;
+  function close():Void;
+}
+```
+
+The one-argument `@:jsRequire` makes `Workers` the whole runtime module. The
+metadata-free secondary `Worker` is the package's named class. Genes therefore
+keeps the runtime namespace and type binding separate:
+
+```ts
+import * as Workers from "worker-package"
+import type {Worker} from "worker-package"
+```
+
+No `@:ts.type` annotation is needed on application fields or local variables.
+This convention applies only to a metadata-free secondary extern beside a
+namespace module owner. An explicit `@:native` remains an independent host
+identity, while default and named `@:jsRequire` owners retain their existing
+binding contract.
+
 The same annotation also protects older package externs whose `@:native` name
 overlaps a JavaScript built-in:
 

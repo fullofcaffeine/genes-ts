@@ -1,10 +1,14 @@
 package package_shapes;
 
+import package_shapes.NamespaceProcessModule.NamespaceProcess;
+
 /** Stable, fully typed runtime transcript shared by both Genes profiles. */
 typedef PackageShapeTranscript = {
   final version: String;
   final label: String;
   final closed: String;
+  final secondaryLabel: String;
+  final secondaryClosed: String;
 }
 
 /**
@@ -16,9 +20,11 @@ typedef PackageShapeTranscript = {
  */
 class Main {
   public final driver: ExportEqualsConstructor;
+  public final process: NamespaceProcess;
 
   public function new(label: String) {
     driver = new ExportEqualsConstructor(label);
+    process = NamespaceProcessModule.spawn(label);
   }
 
   public function current(): ExportEqualsConstructor {
@@ -30,7 +36,9 @@ class Main {
     return {
       version: ExportEqualsConstructor.version,
       label: currentDriver.label,
-      closed: currentDriver.close()
+      closed: currentDriver.close(),
+      secondaryLabel: process.label,
+      secondaryClosed: process.close()
     };
   }
 

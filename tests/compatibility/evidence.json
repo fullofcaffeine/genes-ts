@@ -398,7 +398,7 @@
           "kind": "tracked-files",
           "path": "tests/genes-ts/package-shapes/packages",
           "match": "^[^/]+/package\\.json$",
-          "expected": 4
+          "expected": 5
         },
         {
           "id": "dts2hx-entrypoints",

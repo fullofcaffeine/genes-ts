@@ -129,7 +129,7 @@ Each row is an independent claim boundary. A green gate may cover several rows, 
 | Toolchain compatibility | Pinned TypeScript lanes | 3 | `blocking` |
 | Toolchain compatibility | Pinned Haxe lanes | 2 | `blocking` |
 | Toolchain compatibility | Pinned Node lanes, runtime floors, and supported range | 5 | `blocking` |
-| Package-shape interoperability | Local package-shape fixtures | 4 | `blocking` |
+| Package-shape interoperability | Local package-shape fixtures | 5 | `blocking` |
 | Package-shape interoperability | dts2hx declaration entrypoints | 3 | `blocking` |
 | Package-shape interoperability | dts2hx package roots | 2 | `blocking` |
 | Downstream pressure tests | Pinned downstream repositories | 2 | `nonblocking-nightly` |
