@@ -59,6 +59,38 @@ Mocks may support a focused owner, but they cannot replace a package, browser,
 filesystem, compiler-server, or runtime boundary that the claim explicitly
 names.
 
+### Closed CSS Module tracer
+
+`yarn test:css-module-companions` is the first tracer bullet for exact CSS
+Module types. It intentionally crosses several existing product surfaces
+without letting one substitute for another:
+
+- a hand-reviewed JSON file owns the five expected class keys;
+- pinned `postcss-modules` independently reports its runtime exports;
+- host tooling validates that manifest, checks source hashes, and generates the
+  closed Haxe companion twice to prove deterministic bytes;
+- Haxe accepts valid fields and rejects missing, untyped, wrong-owner,
+  wrong-request, and nonliteral cases at authored source positions;
+- tooling rejects a hashed non-CSS entry, a generated module that differs from
+  the Haxe owner, a companion that reuses the authored owner module, a
+  declaration path that differs from the emitted import, and cross-platform
+  drive-path syntax before returning generated files;
+- strict TypeScript first rejects the usual broad CSS wildcard declaration,
+  then accepts the generated exact per-file declaration; its negative consumer
+  separately proves there is no arbitrary-key escape;
+- the classic and TypeScript profiles each emit one default CSS import;
+- classic JavaScript also emits a `.d.ts` contract that preserves the closed
+  CSS Module return type for TypeScript callers; and
+- pinned esbuild loads and executes both outputs through a controlled real
+  loader, then checks the reviewed keys and string values.
+
+The test processor and bundler live in a private, exact-lockfile fixture. They
+are independent witnesses, not dependencies of the Genes compiler or
+`@genes-ts/tooling`. The gate proves the one-shot framework-neutral contract;
+it does not advance a Next.js, browser, warm-watch, or safe-publication claim.
+Those require their own later owners. See [Closed CSS Module types](CSS_MODULES.md)
+for the user-facing flow and limitations.
+
 Compiler representation, runtime/ABI, package publication, security,
 migration, and public-claim changes require a review pass distinct from the
 implementation. Challenge test sensitivity, oracle independence, negative
@@ -825,8 +857,9 @@ files fail without changing either version. CI runs this focused contract in
 both supported Beads lanes.
 
 `test:secrets` scans the repository and committed history for credentials,
-while `test:vulns` checks the pinned dependency graph. Both execute locally and
-as separate GitHub jobs. The pre-commit scan reduces the chance of publishing a
+while `test:vulns` checks every lockfile installed by required tests, including
+the focused CSS Modules processor/loader fixture. Both execute locally and as
+separate GitHub jobs. The pre-commit scan reduces the chance of publishing a
 secret-bearing branch; the required full-history scan remains the hosted
 backstop when a local hook is absent or explicitly bypassed.
 

@@ -46,6 +46,8 @@ agents and human contributors should read the scoped guide directly.
 - `typescript-target/MINIMAL_RUNTIME.md` — what `-D genes.ts.minimal_runtime` changes/breaks
 - `typescript-target/INTEROP.md` — bidirectional cookbook: Haxe consuming JS/TS and TS consuming generated Haxe
 - `typescript-target/IMPORTS.md` — consuming existing JS/TS/TSX via `genes.ts.Imports`
+- [`CSS_MODULES.md`](CSS_MODULES.md) — exact processor-owned CSS Module class
+  types, Haxe authoring, generated TS/JS, and current host responsibilities
 - `typescript-target/REACT_HXX.md` — React/TSX authoring in Haxe (`genes.react.JSX`)
 - `typescript-target/REACT_HOOKS.md` — framework-neutral semantic state,
   dependencies, optimistic state, component/Hook identity, and placement checks

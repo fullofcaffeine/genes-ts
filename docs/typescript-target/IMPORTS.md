@@ -180,6 +180,12 @@ expression referencing the imported value.
 This keeps import generation compatible with Genes’ dependency tracking in both
 output modes.
 
+For CSS Modules, do not call `Imports.defaultImport` directly with a broad
+`Record<String, String>` shape. Use the checked `genes.css.CssModule` companion
+workflow described in [Closed CSS Module types](../CSS_MODULES.md). It reuses
+this same default-import machinery after verifying that a processor-generated
+closed type belongs to the current Haxe module and request.
+
 ### Binding-free side-effect import
 
 Use `sideEffect` when a module must run during ESM initialization but no value

@@ -108,7 +108,17 @@ async function ensureOsvScanner(): Promise<string> {
 
 const osvScanner = await ensureOsvScanner();
 
-// Scan dependencies using yarn.lock as source of truth.
+// Scan every lockfile installed by a required repository test. The focused CSS
+// Modules tracer has its own npm package so it can prove the real processor and
+// loader without adding those packages to the compiler's runtime dependencies.
 // Note: This may perform network requests to OSV; it should be run in CI.
 const configPath = path.join(repoRoot, ".osv-scanner.toml");
-run(osvScanner, ["scan", "--lockfile", "yarn.lock", ...(existsSync(configPath) ? ["--config", configPath] : [])]);
+const lockfiles = [
+  "yarn.lock",
+  "tests/css-module-companions/provider/package-lock.json",
+];
+run(osvScanner, [
+  "scan",
+  ...lockfiles.flatMap((lockfile) => ["--lockfile", lockfile]),
+  ...(existsSync(configPath) ? ["--config", configPath] : []),
+]);

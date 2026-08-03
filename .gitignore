@@ -27,6 +27,9 @@
 /tests/library-profile/out
 /tests/ts2hx-bootstrap/out
 /tests/explicit-type-arguments/out
+/tests/css-module-companions/generated
+/tests/css-module-companions/out
+/tests/css-module-companions/provider/node_modules
 /examples/typescript-target/src-gen
 /examples/typescript-target/dist
 /examples/typescript-target/classic-src-gen

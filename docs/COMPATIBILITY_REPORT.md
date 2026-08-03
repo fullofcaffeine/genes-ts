@@ -27,7 +27,7 @@ Each row is an independent claim boundary. A green gate may cover several rows, 
 ### Classic JavaScript generation and runtime
 
 - Owner: Classic emitter and shared Haxe runtime owners
-- Gates: `classic-core`, `dual-output-semantics`, `portable-haxe-smoke`, `acceptance`, `full-ci`
+- Gates: `classic-core`, `css-module-companions`, `dual-output-semantics`, `portable-haxe-smoke`, `acceptance`, `full-ci`
 - Compatibility evidence: `compiler-output-inventory`, `runtime-semantic-differentials`, `official-haxe-dual-profile-smoke`
 - Maintained examples: `todoapp`, `typescript-target`
 - Last clean proof: The current required main/release gates; run results live in GitHub Actions rather than this deterministic manifest.
@@ -36,7 +36,7 @@ Each row is an independent claim boundary. A green gate may cover several rows, 
 ### Typed TypeScript generation and runtime
 
 - Owner: TypeScript emitter and TypeScript semantic plans
-- Gates: `typescript-full`, `dual-output-semantics`, `portable-haxe-smoke`, `source-maps`, `acceptance`, `full-ci`
+- Gates: `typescript-full`, `css-module-companions`, `dual-output-semantics`, `portable-haxe-smoke`, `source-maps`, `acceptance`, `full-ci`
 - Compatibility evidence: `compiler-output-inventory`, `public-type-safety`, `runtime-semantic-differentials`, `official-haxe-dual-profile-smoke`
 - Maintained examples: `todoapp`, `typescript-target`
 - Last clean proof: The current required main/release gates; run results live in GitHub Actions rather than this deterministic manifest.
@@ -45,7 +45,7 @@ Each row is an independent claim boundary. A green gate may cover several rows, 
 ### Declarations and package contracts
 
 - Owner: Declaration reachability, type emitters, and package/import plans
-- Gates: `classic-declarations`, `package-imports`, `binding-identity`, `acceptance`, `full-ci`
+- Gates: `classic-declarations`, `css-module-companions`, `package-imports`, `binding-identity`, `acceptance`, `full-ci`
 - Compatibility evidence: `public-type-safety`, `npm-package-shapes`
 - Maintained examples: `todoapp`
 - Last clean proof: The current required main/release gates; run results live in GitHub Actions rather than this deterministic manifest.
@@ -72,7 +72,7 @@ Each row is an independent claim boundary. A green gate may cover several rows, 
 ### Host tooling and publication helpers
 
 - Owner: The optional Node tooling package
-- Gates: `host-tooling`, `full-ci`
+- Gates: `host-tooling`, `css-module-companions`, `full-ci`
 - Compatibility evidence: none; the focused gate is the current owner
 - Maintained examples: none
 - Last clean proof: The host-tooling gate owns live proof in required CI; no compatibility bucket or cached green result is asserted here.

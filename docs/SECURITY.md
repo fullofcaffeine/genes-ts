@@ -80,6 +80,12 @@ version):
 - Locally: `yarn test:vulns`
 - In CI: GitHub Actions job `vulns` (runs on every push/PR)
 
+The command scans both the repository's main `yarn.lock` and the focused CSS
+Modules tracer's npm lockfile. The tracer uses a separate package only to run a
+real pinned CSS processor and loader in tests; keeping its lockfile in the same
+vulnerability check prevents that test-only dependency tree from becoming an
+unreviewed gap.
+
 ### Exceptions / ignores
 
 OSV configuration lives in `.osv-scanner.toml`. Upgrade the affected package
