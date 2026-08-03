@@ -152,8 +152,8 @@ The API transcript deliberately sends malformed JSON, arrays, wrong field
 types, `null`, extra fields, an empty patch, and a blank identifier. JSON parser
 failures use the same stable API envelope as decoder failures. The generated
 web client exposes only route-specific request methods rather than a generic
-method/URL/body escape hatch, and the importable generated Store rejects blank
-titles even when a target-language caller bypasses HTTP. The transcript also
+method/URL/body escape hatch, and the importable generated Store title-update
+methods reject blanks even when a target-language caller bypasses HTTP. The transcript also
 proves that a rejected patch leaves the Todo unchanged, a title-only patch
 preserves `completed`, and a completed-only patch preserves `title`. These checks prove this Todo API
 boundary; focused nullish fixtures remain authoritative for the complete JavaScript
