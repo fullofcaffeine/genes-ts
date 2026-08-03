@@ -35,8 +35,8 @@ boundary and planned shared architecture.
 - `docs/NULL_SAFETY.md` — package-scoped Haxe null safety, TypeScript
   `strictNullChecks`, and JavaScript `null`/`undefined` boundaries
 - `docs/MODULE_FUNCTIONS.md` — analyzer-visible module functions without a delegating wrapper
-- `docs/CSS_MODULES.md` — processor-authoritative closed CSS Module types in
-  both output modes
+- `docs/CSS_MODULES.md` — processor-authoritative closed CSS Module types,
+  exact TypeScript import declarations, and both runtime output modes
 - `docs/ARCHITECTURE_ROADMAP.md` — readiness boundary and shared TS/JS architecture roadmap
 - `docs/TOOLCHAINS.md` — blocking and preview Haxe/Node/TypeScript lanes
 - `docs/ts2hx/USAGE.md` — ts2hx workflows (TS/JS → Haxe) + roundtrip harness

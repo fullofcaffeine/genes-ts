@@ -60,8 +60,12 @@ export interface CssModuleCompanionField {
 export interface CssModuleCompanion {
   readonly manifest: CssModuleExportsManifestV1;
   readonly manifestSha256: string;
+  /** Generated Haxe companion, relative to the host's companion root. */
   readonly relativePath: string;
   readonly content: string;
+  /** Precise per-file declaration required by strict TypeScript consumers. */
+  readonly typescriptDeclarationRelativePath: string;
+  readonly typescriptDeclarationContent: string;
   readonly fields: readonly CssModuleCompanionField[];
 }
 

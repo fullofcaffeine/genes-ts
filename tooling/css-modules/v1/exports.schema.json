@@ -18,7 +18,7 @@
         "haxeOwner": { "$ref": "#/$defs/haxeTypePath" },
         "generatedModule": { "$ref": "#/$defs/portablePath" },
         "request": { "type": "string", "maxLength": 16384, "pattern": "^\\.\\.?/[^\\\\?#\\u0000-\\u001f\\u007f]*\\.module\\.css$" },
-        "hostModulePath": { "$ref": "#/$defs/portablePath" },
+        "hostModulePath": { "$ref": "#/$defs/cssModuleHostPath" },
         "companionType": { "$ref": "#/$defs/haxeTypePath" }
       }
     },
@@ -32,6 +32,7 @@
           "type": "array",
           "minItems": 1,
           "maxItems": 10000,
+          "uniqueItems": true,
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -60,6 +61,7 @@
     "exports": {
       "type": "array",
       "maxItems": 10000,
+      "uniqueItems": true,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -86,6 +88,12 @@
       "minLength": 1,
       "maxLength": 16384,
       "pattern": "^(?!/)(?!.*\\\\)(?!.*[\\u0000-\\u001f\\u007f])(?!.*(?:^|/)\\.{1,2}(?:/|$))[^/]+(?:/[^/]+)*$"
+    },
+    "cssModuleHostPath": {
+      "allOf": [
+        { "$ref": "#/$defs/portablePath" },
+        { "type": "string", "pattern": "\\.module\\.css$" }
+      ]
     },
     "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "location": {

@@ -99,6 +99,13 @@ function main(): void {
     assert.match(first.content, /@:native\("error-state"\)/u);
     assert.match(first.content, /final class_:String;/u);
     assert.match(first.content, /edit the stylesheet, not this file/u);
+    assert.equal(
+      first.typescriptDeclarationRelativePath,
+      "src-gen/css_module_companions/card.module.d.css.ts",
+    );
+    assert.match(first.typescriptDeclarationContent, /readonly "card": string;/u);
+    assert.match(first.typescriptDeclarationContent, /readonly "error-state": string;/u);
+    assert.doesNotMatch(first.typescriptDeclarationContent, /Record<string, string>/u);
 
     const schemaPath = path.join(toolingRoot, "css-modules/v1/exports.schema.json");
     const schema: unknown = JSON.parse(readFileSync(schemaPath, "utf8"));
@@ -134,6 +141,50 @@ function main(): void {
     };
     assert.equal(validate(hiddenStylesheet), true, JSON.stringify(validate.errors));
     generateCssModuleCompanion({ projectRoot: root, manifest: hiddenStylesheet });
+
+    const wrongHostExtension = manifestFor(css);
+    wrongHostExtension.binding = {
+      haxeOwner: "css_module_companions.Main",
+      generatedModule: "css_module_companions/Main",
+      request: "./card.module.css",
+      hostModulePath: "src-gen/css_module_companions/card.css",
+      companionType: "css_module_companions.CardStyles",
+    };
+    assert.equal(validate(wrongHostExtension), false, "the schema requires a CSS Module host path");
+    expectCode(
+      () => generateCssModuleCompanion({ projectRoot: root, manifest: wrongHostExtension }),
+      "GENES-CSS-MODULE-PATH-011",
+    );
+
+    const unsorted = manifestFor(css);
+    unsorted.exports = [
+      { name: "error-state", source: { path: "styles/card.module.css", line: 2, column: 2 } },
+      { name: "class", source: { path: "styles/card.module.css", line: 3, column: 2 } },
+      { name: "card", source: { path: "styles/card.module.css", line: 1, column: 2 } },
+      { name: "2xl", source: { path: "styles/card.module.css", line: 4, column: 2 } },
+    ];
+    assert.equal(validate(unsorted), true, JSON.stringify(validate.errors));
+    const canonical = generateCssModuleCompanion({ projectRoot: root, manifest: unsorted });
+    assert.deepEqual(
+      canonical.manifest.exports.map((entry) => entry.name),
+      ["2xl", "card", "class", "error-state"],
+      "tooling canonicalizes processor order before hashing and generation",
+    );
+
+    const duplicateExport = manifestFor(css);
+    duplicateExport.exports = [
+      { name: "card", source: { path: "styles/card.module.css", line: 1, column: 2 } },
+      { name: "card", source: { path: "styles/card.module.css", line: 2, column: 2 } },
+    ];
+    assert.equal(
+      validate(duplicateExport),
+      true,
+      "JSON Schema checks structure; tooling owns duplicate export identities",
+    );
+    expectCode(
+      () => generateCssModuleCompanion({ projectRoot: root, manifest: duplicateExport }),
+      "GENES-CSS-MODULE-MANIFEST-015",
+    );
 
     for (const [field, invalidName] of [
       ["haxeOwner", "app.card"],

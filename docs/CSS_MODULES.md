@@ -67,6 +67,25 @@ all-static shell class. The explicit `:CardStyles` is part of the safety
 contract. It lets Haxe offer completion and lets `imported` verify that the
 generated companion belongs to this Haxe module and this exact stylesheet.
 
+The same tooling result also includes a precise declaration for the real CSS
+import. For `card.module.css`, the host publishes `card.module.d.css.ts` beside
+the admitted CSS Module and enables TypeScript's `allowArbitraryExtensions`
+option. This is TypeScript's exact lookup convention for a non-TypeScript file
+extension. A common wildcard declaration such as `Record<string, string>` is
+not enough for strict TypeScript: it permits arbitrary keys but does not prove
+that required keys such as `card` exist. The generated per-file declaration
+derives those required keys from the same processor-owned manifest:
+
+```ts
+declare const styles: {
+  readonly "card": string
+  readonly "error-state": string
+  readonly "title": string
+}
+
+export default styles
+```
+
 The processor reports the runtime key `error-state`. Tooling generates the
 friendlier Haxe field `errorState` with `@:native("error-state")`, so the source
 stays pleasant without changing the JavaScript property.
@@ -83,6 +102,12 @@ limits. Text values are capped at 16,384 characters, and stylesheet line and
 column numbers must fit safely in JavaScript's exact integer range. Hosts can
 therefore validate a manifest before storing it without accepting data that the
 tooling would reject later.
+
+JSON Schema checks the portable JSON shape and basic bounds. Some meaning
+depends on comparing several entries and remains a tooling check: duplicate
+source paths and duplicate export names are rejected. Incoming array order is
+accepted and normalized byte-for-byte before hashing and generation, so a host
+does not need to pre-sort processor output to get deterministic artifacts.
 
 ## Actual generated TypeScript
 
@@ -154,11 +179,12 @@ const candidate = generateCssModuleCompanion({
 })
 ```
 
-The function returns the proposed generated file in memory: its path, complete
-Haxe text, checked manifest and fingerprint, and the exact mapping from friendly
-Haxe fields to JavaScript keys. It deliberately does not write anything. The
-calling tool can inspect the result and publish it together with its other
-generated files only after the whole build succeeds.
+The function returns both proposed generated files in memory: the Haxe
+companion and exact per-file TypeScript declaration. It also returns the checked
+manifest and fingerprint, plus the mapping from friendly Haxe fields to
+JavaScript keys. It deliberately does not write anything. The calling tool can
+inspect the result and publish both files together with its other generated
+files only after the whole build succeeds.
 
 The complete version-one JSON shape is documented and validated by
 [`tooling/css-modules/v1/exports.schema.json`](../tooling/css-modules/v1/exports.schema.json).
@@ -211,7 +237,8 @@ The fixture deliberately uses different owners for expected and actual results:
 
 1. a hand-reviewed JSON file states the expected class keys;
 2. pinned `postcss-modules` independently reports its keys;
-3. Genes tooling generates the companion from that processor manifest;
+3. Genes tooling generates the Haxe companion and exact TypeScript declaration
+   from that processor manifest;
 4. Haxe checks valid and invalid field access;
 5. strict TypeScript checks the generated closed type;
 6. Genes emits both TypeScript and classic JavaScript;
@@ -230,7 +257,8 @@ but Genes does not watch CSS files by itself yet.
 
 - hosts supply an exact manifest from a processor they selected and pinned;
 - exact keys wrapped in square brackets are rejected for the reason above;
-- tooling checks and generates one candidate companion;
+- tooling checks and generates one Haxe companion plus one exact TypeScript
+  declaration candidate;
 - the compiler checks the binding and emits an ordinary default import;
 - both output profiles and a real loader are proven.
 

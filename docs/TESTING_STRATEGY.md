@@ -71,8 +71,9 @@ without letting one substitute for another:
   closed Haxe companion twice to prove deterministic bytes;
 - Haxe accepts valid fields and rejects missing, untyped, wrong-owner,
   wrong-request, and nonliteral cases at authored source positions;
-- the TypeScript profile passes a strict target check whose negative consumer
-  proves there is no arbitrary-key escape;
+- strict TypeScript first rejects the usual broad CSS wildcard declaration,
+  then accepts the generated exact per-file declaration; its negative consumer
+  separately proves there is no arbitrary-key escape;
 - the classic and TypeScript profiles each emit one default CSS import; and
 - pinned esbuild loads and executes both outputs through a controlled real
   loader, then checks the reviewed keys and string values.

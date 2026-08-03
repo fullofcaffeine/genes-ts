@@ -84,7 +84,7 @@ async function makeManifest() {
       haxeOwner: "css_module_companions.Main",
       generatedModule: "css_module_companions/Main",
       request: "./card.module.css",
-      hostModulePath: "out/css_module_companions/card.module.css",
+      hostModulePath: "out/ts/css_module_companions/card.module.css",
       companionType: "css_module_companions.CardStyles",
     },
     source: {
@@ -300,6 +300,26 @@ async function main() {
     mkdirSync(path.dirname(target), { recursive: true });
     copyFileSync(cssFile, target);
   }
+  const broadDeclarationResult = spawnSync(
+    path.join(repoRoot, "node_modules/.bin/tsc6"),
+    ["-p", "tsconfig.json"],
+    { cwd: fixtureRoot, encoding: "utf8" },
+  );
+  assert.notEqual(
+    broadDeclarationResult.status,
+    0,
+    "a broad wildcard declaration cannot prove the required closed CSS keys",
+  );
+  assert.match(
+    `${broadDeclarationResult.stdout ?? ""}${broadDeclarationResult.stderr ?? ""}`,
+    /missing the following properties/u,
+  );
+  const cssDeclarationFile = path.join(
+    fixtureRoot,
+    companion.typescriptDeclarationRelativePath,
+  );
+  mkdirSync(path.dirname(cssDeclarationFile), { recursive: true });
+  writeFileSync(cssDeclarationFile, companion.typescriptDeclarationContent, "utf8");
   run(path.join(repoRoot, "node_modules/.bin/tsc6"), ["-p", "tsconfig.json"], fixtureRoot);
   run(path.join(repoRoot, "node_modules/.bin/tsc6"), ["-p", "tsconfig.declarations.json"], fixtureRoot);
   run(path.join(repoRoot, "node_modules/.bin/tsc6"), ["-p", "tsconfig.declaration-consumer.json"], fixtureRoot);
@@ -315,6 +335,9 @@ async function main() {
   assertImportMap(path.join(fixtureRoot, "out/classic/css_module_companions/Main.js"));
   assert.match(tsSource, /const styles: CardStyles = __genes_import_styles/u);
   assert.doesNotMatch(classicSource, /import .*CardStyles/u);
+  const cssDeclaration = readFileSync(cssDeclarationFile, "utf8");
+  assert.match(cssDeclaration, /readonly "error-state": string/u);
+  assert.doesNotMatch(cssDeclaration, /Record<string, string>/u);
   const publicType = readFileSync(
     path.join(fixtureRoot, "out/dts/css_module_companions/CardStyles.d.ts"),
     "utf8",
