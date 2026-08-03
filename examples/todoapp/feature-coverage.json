@@ -1,7 +1,7 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "contract": "genes-todoapp-stable-feature-coverage",
-  "statement": "This is a living disposition map, not a claim that Todoapp replaces focused compiler evidence. Every stable feature is either exercised by a named Todoapp profile, retained by a focused owner, or recorded as an explicit gap.",
+  "statement": "This is a living disposition map, not a claim that Todoapp replaces focused compiler evidence. Every incomplete application claim states whether useful Todoapp work is planned, a focused compiler fixture is the deliberate owner, or Todoapp is the wrong observer for that contract.",
   "profileColumns": [
     "typescript-tsx",
     "typescript-low-level",
@@ -98,6 +98,10 @@
       "packageScripts": ["test:dual-output", "test:internal-types"],
       "paths": ["tests/output-modes", "tests/internal-types"]
     },
+    "minimal-runtime": {
+      "packageScripts": ["test:genes-ts:minimal"],
+      "paths": ["scripts/test-genes-ts-minimal.ts", "tests/genes-ts/snapshot/minimal"]
+    },
     "host-boundaries": {
       "packageScripts": ["test:host-global-identity", "test:host-callback-boundary", "test:runtime-guarded-binding"],
       "paths": ["tests/host-global-identity", "tests/host-callback-boundary", "tests/runtime-guarded-binding"]
@@ -125,8 +129,13 @@
       "claim": "Generic and abstract identities and enum-shaped values retain their reviewed type and runtime contracts.",
       "coverage": {"typescript-tsx":"partial","typescript-low-level":"partial","typescript-minimal":"partial","classic-js":"partial","classic-dts":"partial","node-runtime":"partial","browser-runtime":"partial","focused-fixture":"covered"},
       "evidence": {"typescript-tsx":["todoapp-build"],"typescript-low-level":["todoapp-low-level"],"typescript-minimal":["todoapp-minimal"],"classic-js":["todoapp-classic"],"classic-dts":["todoapp-contract"],"node-runtime":["todoapp-contract"],"browser-runtime":["todoapp-browser"],"focused-fixture":["compiler-core"]},
-      "gapBead": "genes-1x1g.5",
-      "notes": "Todoapp exercises TodoId, PrettyButtonVariant, requestJson<T>, and the user-visible TodoFilter enum. Generic classes and payload-enum stress cases remain intentionally focused-only; genes-1x1g.5 owns the manifest vocabulary for recording that bounded disposition without synthetic application code."
+      "applicationDisposition": {
+        "kind": "focused-only",
+        "owner": "compiler-core",
+        "rationale": "Todoapp exercises TodoId, PrettyButtonVariant, requestJson<T>, and the user-visible TodoFilter enum. Generic classes and payload-enum stress cases are clearer and more diagnostic in the focused compiler corpus.",
+        "revisitTrigger": "Revisit only when a real Todoapp feature naturally needs a generic class or payload enum, or when an application failure exposes a missing vertical regression."
+      },
+      "notes": "The application evidence is intentionally representative rather than an exhaustive generics or enum matrix."
     },
     {
       "id": "language.control-flow-evaluation-order",
@@ -134,8 +143,13 @@
       "claim": "Branches, loops, switches, calls, exceptions, and finally completion preserve Haxe evaluation order in both runtime profiles.",
       "coverage": {"typescript-tsx":"partial","typescript-low-level":"partial","typescript-minimal":"partial","classic-js":"partial","classic-dts":"not-applicable","node-runtime":"partial","browser-runtime":"partial","focused-fixture":"covered"},
       "evidence": {"typescript-tsx":["todoapp-build"],"typescript-low-level":["todoapp-low-level"],"typescript-minimal":["todoapp-minimal"],"classic-js":["todoapp-classic"],"node-runtime":["todoapp-contract"],"browser-runtime":["todoapp-browser"],"focused-fixture":["control-flow"]},
-      "gapBead": "genes-1x1g.5",
-      "notes": "CRUD and UI flows exercise ordinary branches and iteration, and TodoFilter adds one exhaustive domain switch with a both-profile browser oracle. Nested completion, exception/finally behavior, and effect-order traps remain intentionally focused-only; genes-1x1g.5 owns the durable disposition vocabulary."
+      "applicationDisposition": {
+        "kind": "focused-only",
+        "owner": "control-flow",
+        "rationale": "CRUD and UI flows exercise ordinary branches and iteration, and TodoFilter adds one exhaustive domain switch with a both-profile browser oracle. Nested completion, exception/finally behavior, and effect-order traps need smaller deterministic fixtures.",
+        "revisitTrigger": "Add application evidence only when a real user workflow depends on a currently focused-only completion or evaluation-order case."
+      },
+      "notes": "The browser truth table proves the domain switch, not every Haxe control-flow form."
     },
     {
       "id": "language.strings-templates-arrays-maps",
@@ -143,17 +157,41 @@
       "claim": "String and template literal semantics plus Array, Map, iterator, and strict-index behavior remain precise and executable.",
       "coverage": {"typescript-tsx":"partial","typescript-low-level":"partial","typescript-minimal":"partial","classic-js":"partial","classic-dts":"partial","node-runtime":"partial","browser-runtime":"partial","focused-fixture":"covered"},
       "evidence": {"typescript-tsx":["todoapp-build"],"typescript-low-level":["todoapp-low-level"],"typescript-minimal":["todoapp-minimal"],"classic-js":["todoapp-classic"],"classic-dts":["todoapp-contract"],"node-runtime":["todoapp-contract"],"browser-runtime":["todoapp-browser"],"focused-fixture":["strings-arrays-maps"]},
-      "gapBead": "genes-1x1g.2",
-      "notes": "Todoapp uses strings, interpolation, arrays, and iteration; Map presence/nullability and strict unchecked-index controls remain focused."
+      "applicationDisposition": {
+        "kind": "focused-only",
+        "owner": "strings-arrays-maps",
+        "rationale": "Todoapp naturally uses strings, interpolation, arrays, and iteration. Adding a Map only to exercise missing-key or strict-index behavior would turn the application into a compiler checklist.",
+        "revisitTrigger": "Revisit when an accepted Todo feature genuinely needs keyed dynamic lookup, or when a real app regression needs a vertical Map or index observer."
+      },
+      "notes": "Map presence, nullability, and strict unchecked-index controls remain authoritative in focused fixtures."
     },
     {
-      "id": "runtime.reflection-resources-minimal",
+      "id": "runtime.minimal-profile",
       "family": "language-runtime",
-      "claim": "Reflection metadata, embedded resources, and the opt-in minimal runtime retain distinct reviewed output contracts.",
-      "coverage": {"typescript-tsx":"partial","typescript-low-level":"partial","typescript-minimal":"covered","classic-js":"partial","classic-dts":"partial","node-runtime":"gap","browser-runtime":"gap","focused-fixture":"covered"},
-      "evidence": {"typescript-tsx":["todoapp-build"],"typescript-low-level":["todoapp-low-level"],"typescript-minimal":["todoapp-minimal"],"classic-js":["todoapp-classic"],"classic-dts":["todoapp-contract"],"focused-fixture":["reflection-resources"]},
-      "gapBead": "genes-1x1g.2",
-      "notes": "Minimal output is built and snapshotted but not executed as a separate application profile; resources and reflection differentials remain focused."
+      "claim": "The opt-in minimal TypeScript runtime omits automatic user-type registration while preserving the admitted application behavior.",
+      "coverage": {"typescript-tsx":"not-applicable","typescript-low-level":"not-applicable","typescript-minimal":"covered","classic-js":"not-applicable","classic-dts":"not-applicable","node-runtime":"gap","browser-runtime":"not-applicable","focused-fixture":"covered"},
+      "evidence": {"typescript-minimal":["todoapp-minimal"],"focused-fixture":["minimal-runtime"]},
+      "applicationDisposition": {
+        "kind": "planned",
+        "owner": "genes-1x1g.11",
+        "rationale": "Todoapp already builds and type-checks the minimal TypeScript variant, but it does not yet start that generated server and observe a real API result.",
+        "revisitTrigger": "Complete the disposition when the isolated minimal server passes its Node API transcript and registration-negative control."
+      },
+      "notes": "Minimal TypeScript is a bounded variant, not a third first-class implementation profile."
+    },
+    {
+      "id": "runtime.reflection-resources",
+      "family": "language-runtime",
+      "claim": "Reflection metadata and embedded resources retain their reviewed target runtime contracts.",
+      "coverage": {"typescript-tsx":"partial","typescript-low-level":"partial","typescript-minimal":"not-applicable","classic-js":"partial","classic-dts":"not-applicable","node-runtime":"not-applicable","browser-runtime":"not-applicable","focused-fixture":"covered"},
+      "evidence": {"typescript-tsx":["todoapp-build"],"typescript-low-level":["todoapp-low-level"],"classic-js":["todoapp-classic"],"focused-fixture":["reflection-resources"]},
+      "applicationDisposition": {
+        "kind": "focused-only",
+        "owner": "reflection-resources",
+        "rationale": "Ordinary Todoapp builds expose representative runtime metadata, but synthetic reflection lookups or embedded resources would not improve a Todo workflow and have clearer focused runtime oracles.",
+        "revisitTrigger": "Revisit only when an accepted Todoapp capability genuinely resolves a type by name or consumes an embedded Haxe resource."
+      },
+      "notes": "The application is a readability canary for ordinary metadata; reflection and resource differentials remain fixture-owned."
     },
     {
       "id": "language.async-errors-finally",
@@ -161,7 +199,12 @@
       "claim": "Promises, asynchronous callbacks, exceptions, and completion behavior preserve ordering and failure semantics.",
       "coverage": {"typescript-tsx":"partial","typescript-low-level":"partial","typescript-minimal":"partial","classic-js":"partial","classic-dts":"not-applicable","node-runtime":"partial","browser-runtime":"covered","focused-fixture":"covered"},
       "evidence": {"typescript-tsx":["todoapp-build"],"typescript-low-level":["todoapp-low-level"],"typescript-minimal":["todoapp-minimal"],"classic-js":["todoapp-classic"],"node-runtime":["todoapp-contract"],"browser-runtime":["todoapp-browser"],"focused-fixture":["async-errors"]},
-      "gapBead": "genes-1x1g.7",
+      "applicationDisposition": {
+        "kind": "planned",
+        "owner": "genes-1x1g.7",
+        "rationale": "Browser and storage paths exercise asynchronous work and catches, while the planned backend expansion still needs deeper server await, error-propagation, and completion behavior.",
+        "revisitTrigger": "Complete the application claim when the backend Bead lands its independent API/runtime failure oracles in both profiles."
+      },
       "notes": "Browser and storage paths exercise asynchronous work and catches; deep server await/error propagation is a planned backend expansion."
     },
     {
@@ -170,25 +213,40 @@
       "claim": "Default, named, namespace, aliased, type, and runtime imports retain exact binding identity.",
       "coverage": {"typescript-tsx":"partial","typescript-low-level":"partial","typescript-minimal":"partial","classic-js":"partial","classic-dts":"partial","node-runtime":"covered","browser-runtime":"covered","focused-fixture":"covered"},
       "evidence": {"typescript-tsx":["todoapp-interop"],"typescript-low-level":["todoapp-interop"],"typescript-minimal":["todoapp-interop"],"classic-js":["todoapp-interop"],"classic-dts":["todoapp-contract"],"node-runtime":["todoapp-contract"],"browser-runtime":["todoapp-browser"],"focused-fixture":["package-imports"]},
-      "gapBead": "genes-1x1g.2",
-      "notes": "Todoapp exercises default and named package/source imports; namespace and collision permutations remain in the exact package fixtures."
+      "applicationDisposition": {
+        "kind": "focused-only",
+        "owner": "package-imports",
+        "rationale": "Todoapp exercises useful bidirectional default and named imports. Namespace, alias, collision, cycle, and live-binding permutations are more precise and easier to diagnose in the package fixtures.",
+        "revisitTrigger": "Revisit when a real application dependency requires a namespace or other currently focused-only import shape."
+      },
+      "notes": "The application proves ordinary interop, not the adversarial ESM binding matrix."
     },
     {
       "id": "modules.side-effects-attributes-dynamic-import",
       "family": "modules-imports",
       "claim": "Side-effect requests, import attributes, and dynamic request suffixes preserve their explicit module contract.",
-      "coverage": {"typescript-tsx":"gap","typescript-low-level":"gap","typescript-minimal":"gap","classic-js":"gap","classic-dts":"not-applicable","node-runtime":"gap","browser-runtime":"gap","focused-fixture":"covered"},
+      "coverage": {"typescript-tsx":"not-applicable","typescript-low-level":"not-applicable","typescript-minimal":"not-applicable","classic-js":"not-applicable","classic-dts":"not-applicable","node-runtime":"not-applicable","browser-runtime":"not-applicable","focused-fixture":"covered"},
       "evidence": {"focused-fixture":["package-imports"]},
-      "gapBead": "genes-1x1g.2",
-      "notes": "These capabilities are stable but do not yet have a natural Todoapp behavior."
+      "applicationDisposition": {
+        "kind": "not-applicable",
+        "owner": "package-imports",
+        "rationale": "No current Todoapp behavior needs initialization-only imports, import attributes, or optional module loading. Adding one only to exercise syntax would not create honest application evidence.",
+        "revisitTrigger": "Open a separately reviewed application Bead if an accepted optional feature or real dependency requires one of these module contracts."
+      },
+      "notes": "The capabilities remain supported and focused-test-owned; they are only not applicable to the current Todoapp observer."
     },
     {
       "id": "modules.functions-directives",
       "family": "modules-imports",
       "claim": "Reviewed module-level functions and ordered module directives emit without synthetic class leakage.",
-      "coverage": {"typescript-tsx":"gap","typescript-low-level":"gap","typescript-minimal":"gap","classic-js":"gap","classic-dts":"gap","node-runtime":"gap","browser-runtime":"gap","focused-fixture":"covered"},
+      "coverage": {"typescript-tsx":"not-applicable","typescript-low-level":"not-applicable","typescript-minimal":"not-applicable","classic-js":"not-applicable","classic-dts":"not-applicable","node-runtime":"not-applicable","browser-runtime":"not-applicable","focused-fixture":"covered"},
       "evidence": {"focused-fixture":["module-contracts"]},
-      "gapBead": "genes-1x1g.2"
+      "applicationDisposition": {
+        "kind": "not-applicable",
+        "owner": "module-contracts",
+        "rationale": "Direct module functions and directive prologues are source-shape and module-contract features, not Todo user behavior. An arbitrary annotation in the app would misrepresent their architecture and proof surface.",
+        "revisitTrigger": "Revisit after the dedicated module architecture is settled and only if a genuine Todoapp consumer needs a file-level public function or directive."
+      }
     },
     {
       "id": "nullish.null-undefined-optional",
@@ -196,7 +254,12 @@
       "claim": "Haxe null, JavaScript undefined, optional fields, and missing values remain distinguishable where the contract requires it.",
       "coverage": {"typescript-tsx":"partial","typescript-low-level":"partial","typescript-minimal":"partial","classic-js":"partial","classic-dts":"partial","node-runtime":"covered","browser-runtime":"covered","focused-fixture":"covered"},
       "evidence": {"typescript-tsx":["todoapp-build"],"typescript-low-level":["todoapp-low-level"],"typescript-minimal":["todoapp-minimal"],"classic-js":["todoapp-classic"],"classic-dts":["todoapp-contract"],"node-runtime":["todoapp-contract"],"browser-runtime":["todoapp-browser"],"focused-fixture":["nullish-boundaries"]},
-      "gapBead": "genes-1x1g.2",
+      "applicationDisposition": {
+        "kind": "planned",
+        "owner": "genes-1x1g.7",
+        "rationale": "Todoapp already observes nullable routes, store results, and optional fetch fields. The planned backend contract still needs a natural omitted-field update that proves an unchanged value is preserved.",
+        "revisitTrigger": "Complete the application claim when the backend API suite proves omitted PATCH fields preserve existing state in both profiles."
+      },
       "notes": "Todoapp uses nullable routes, store results, and optional fetch fields; exact undefined and omitted controls remain focused."
     },
     {
@@ -228,7 +291,12 @@
       "claim": "Host globals, native callbacks, extern values, and runtime-guarded bindings use exact typed identities rather than emitted names.",
       "coverage": {"typescript-tsx":"partial","typescript-low-level":"partial","typescript-minimal":"partial","classic-js":"partial","classic-dts":"partial","node-runtime":"covered","browser-runtime":"partial","focused-fixture":"covered"},
       "evidence": {"typescript-tsx":["todoapp-build"],"typescript-low-level":["todoapp-low-level"],"typescript-minimal":["todoapp-minimal"],"classic-js":["todoapp-classic"],"classic-dts":["todoapp-contract"],"node-runtime":["todoapp-contract"],"browser-runtime":["todoapp-browser"],"focused-fixture":["host-boundaries"]},
-      "gapBead": "genes-1x1g.7",
+      "applicationDisposition": {
+        "kind": "planned",
+        "owner": "genes-1x1g.7",
+        "rationale": "Express, process, fetch, DOM, and React callbacks already cross real host boundaries. The planned backend work will add deeper Node error, persistence, and callback behavior without inventing collision cases in the app.",
+        "revisitTrigger": "Complete the application claim when the backend expansion lands its reviewed host-boundary scenarios in both profiles."
+      },
       "notes": "Express, process, fetch, DOM, and React callbacks exercise real host boundaries; identity collisions and invalid guarded forms remain focused."
     },
     {
@@ -237,7 +305,12 @@
       "claim": "One checked HXX intent emits source TSX, low-level TypeScript createElement calls, and classic createElement runtime behavior.",
       "coverage": {"typescript-tsx":"covered","typescript-low-level":"covered","typescript-minimal":"covered","classic-js":"covered","classic-dts":"partial","node-runtime":"not-applicable","browser-runtime":"covered","focused-fixture":"covered"},
       "evidence": {"typescript-tsx":["todoapp-build"],"typescript-low-level":["todoapp-low-level"],"typescript-minimal":["todoapp-minimal"],"classic-js":["todoapp-classic"],"classic-dts":["todoapp-contract"],"browser-runtime":["todoapp-browser"],"focused-fixture":["react-hxx"]},
-      "gapBead": "genes-1x1g.6",
+      "applicationDisposition": {
+        "kind": "planned",
+        "owner": "genes-1x1g.6",
+        "rationale": "The application covers the core markup path, while the dedicated HXX work owns the remaining stable positive syntax, component, accessibility, and visual application cases.",
+        "revisitTrigger": "Complete the application claim when the HXX expansion lands its bounded both-profile browser and generated-source evidence."
+      },
       "notes": "The application covers the core markup path; the dedicated HXX expansion owns the complete stable positive matrix and visual polish."
     },
     {
@@ -246,7 +319,12 @@
       "claim": "Typed hooks, events, Router components, navigation, and route parameters work in the maintained browser application.",
       "coverage": {"typescript-tsx":"covered","typescript-low-level":"covered","typescript-minimal":"covered","classic-js":"covered","classic-dts":"partial","node-runtime":"not-applicable","browser-runtime":"covered","focused-fixture":"covered"},
       "evidence": {"typescript-tsx":["todoapp-build"],"typescript-low-level":["todoapp-low-level"],"typescript-minimal":["todoapp-minimal"],"classic-js":["todoapp-classic"],"classic-dts":["todoapp-contract"],"browser-runtime":["todoapp-browser"],"focused-fixture":["react-hxx"]},
-      "gapBead": "genes-1x1g.6"
+      "applicationDisposition": {
+        "kind": "planned",
+        "owner": "genes-1x1g.6",
+        "rationale": "Hooks, events, navigation, and route parameters already run in the application, but the dedicated HXX expansion still owns the accepted breadth and accessibility work.",
+        "revisitTrigger": "Complete the application claim when the HXX expansion's reviewed browser scenarios and source-shape checks land."
+      }
     },
     {
       "id": "reachability.dce-and-library-surface",
@@ -254,7 +332,12 @@
       "claim": "Runtime DCE, declaration reachability, and explicitly reusable library surfaces remain separate contracts.",
       "coverage": {"typescript-tsx":"partial","typescript-low-level":"partial","typescript-minimal":"partial","classic-js":"partial","classic-dts":"partial","node-runtime":"covered","browser-runtime":"covered","focused-fixture":"covered"},
       "evidence": {"typescript-tsx":["todoapp-build"],"typescript-low-level":["todoapp-low-level"],"typescript-minimal":["todoapp-minimal"],"classic-js":["todoapp-classic"],"classic-dts":["todoapp-contract"],"node-runtime":["todoapp-contract"],"browser-runtime":["todoapp-browser"],"focused-fixture":["public-declarations"]},
-      "gapBead": "genes-1x1g.2",
+      "applicationDisposition": {
+        "kind": "focused-only",
+        "owner": "public-declarations",
+        "rationale": "Todoapp already proves one real authored-TypeScript-to-generated-Haxe retention boundary under full DCE. Arbitrary reusable-library and declaration reachability graphs are not application behaviors.",
+        "revisitTrigger": "Add another application canary only when a real Todoapp integration exposes a distinct reachability failure."
+      },
       "notes": "Todoapp builds with full DCE and keeps one authored-TS export; the reusable-library graph remains deliberately fixture-owned."
     },
     {
@@ -263,7 +346,12 @@
       "claim": "Generated locals, imports, module functions, helpers, and user declarations receive deterministic collision-safe names.",
       "coverage": {"typescript-tsx":"partial","typescript-low-level":"partial","typescript-minimal":"partial","classic-js":"partial","classic-dts":"partial","node-runtime":"partial","browser-runtime":"partial","focused-fixture":"covered"},
       "evidence": {"typescript-tsx":["todoapp-build"],"typescript-low-level":["todoapp-low-level"],"typescript-minimal":["todoapp-minimal"],"classic-js":["todoapp-classic"],"classic-dts":["todoapp-contract"],"node-runtime":["todoapp-contract"],"browser-runtime":["todoapp-browser"],"focused-fixture":["binding-names"]},
-      "gapBead": "genes-1x1g.2",
+      "applicationDisposition": {
+        "kind": "focused-only",
+        "owner": "binding-names",
+        "rationale": "Ordinary application names provide a readability canary, while deliberately colliding declarations, aliases, helpers, and module functions would make the Todoapp less understandable without improving user behavior.",
+        "revisitTrigger": "Retain an application regression only when a naturally chosen app name exposes a compiler collision; keep the full matrix focused."
+      },
       "notes": "Ordinary application naming is exercised; adversarial same-name declarations and binding collisions remain focused."
     },
     {
@@ -272,7 +360,12 @@
       "claim": "Representative generated tokens and runtime stack stages retain exact Haxe source provenance.",
       "coverage": {"typescript-tsx":"partial","typescript-low-level":"gap","typescript-minimal":"gap","classic-js":"partial","classic-dts":"not-applicable","node-runtime":"gap","browser-runtime":"gap","focused-fixture":"covered"},
       "evidence": {"typescript-tsx":["todoapp-build"],"classic-js":["todoapp-classic"],"focused-fixture":["source-maps"]},
-      "gapBead": "genes-1x1g.2",
+      "applicationDisposition": {
+        "kind": "planned",
+        "owner": "genes-1x1g.12",
+        "rationale": "Todoapp publishes map files, but it does not yet resolve reviewed generated tokens back to exact authored Haxe positions. File existence alone cannot prove source provenance.",
+        "revisitTrigger": "Complete the application claim when the dedicated map owner passes exact path, line, column, portability, and determinism assertions."
+      },
       "notes": "Todoapp publishes maps, but exact application token and stack assertions remain to be added."
     },
     {
@@ -281,7 +374,12 @@
       "claim": "Warm compiler-server requests remain equivalent to isolated fresh builds across relevant profile and configuration changes.",
       "coverage": {"typescript-tsx":"gap","typescript-low-level":"gap","typescript-minimal":"gap","classic-js":"gap","classic-dts":"gap","node-runtime":"not-applicable","browser-runtime":"not-applicable","focused-fixture":"covered"},
       "evidence": {"focused-fixture":["compiler-server"]},
-      "gapBead": "genes-1x1g.4"
+      "applicationDisposition": {
+        "kind": "planned",
+        "owner": "genes-1x1g.4",
+        "rationale": "The compiler-server fixture proves request reuse in isolation, while the Todoapp performance work still needs a bounded warm-build comparison for the flagship application.",
+        "revisitTrigger": "Complete the application claim when reviewed cold, warm, and no-op Todoapp measurements are recorded without replacing the focused lifecycle owner."
+      }
     },
     {
       "id": "publication.output-transaction",
@@ -289,7 +387,12 @@
       "claim": "A failed generation preserves the complete last-good owned tree and publishes no partial source, declaration, map, support, or manifest artifacts.",
       "coverage": {"typescript-tsx":"gap","typescript-low-level":"gap","typescript-minimal":"gap","classic-js":"gap","classic-dts":"gap","node-runtime":"not-applicable","browser-runtime":"not-applicable","focused-fixture":"covered"},
       "evidence": {"focused-fixture":["output-transaction"]},
-      "gapBead": "genes-1x1g",
+      "applicationDisposition": {
+        "kind": "planned",
+        "owner": "genes-1x1g.8",
+        "rationale": "The focused transaction suite injects failures precisely, but the flagship application still needs one representative last-good build, failure, repair, and recovery journey.",
+        "revisitTrigger": "Complete the application claim when the Todoapp rollback Bead proves the public tree remains byte-identical through a failed rebuild in both profiles."
+      },
       "notes": "The focused failure-injection owner remains authoritative. Dedicated live child Bead genes-1x1g.8 owns the representative Todoapp last-good workflow and will enter the tracked roadmap through the required post-merge export PR."
     },
     {
@@ -298,7 +401,12 @@
       "claim": "Generated trees remain deterministic and reviewed structural or timing costs do not regress silently.",
       "coverage": {"typescript-tsx":"partial","typescript-low-level":"partial","typescript-minimal":"partial","classic-js":"partial","classic-dts":"partial","node-runtime":"gap","browser-runtime":"gap","focused-fixture":"covered"},
       "evidence": {"typescript-tsx":["todoapp-build"],"typescript-low-level":["todoapp-low-level"],"typescript-minimal":["todoapp-minimal"],"classic-js":["todoapp-classic"],"classic-dts":["todoapp-contract"],"focused-fixture":["output-performance"]},
-      "gapBead": "genes-1x1g.4",
+      "applicationDisposition": {
+        "kind": "planned",
+        "owner": "genes-1x1g.4",
+        "rationale": "Checked snapshots expose source drift, but the application does not yet have reviewed structural budgets or stable timing evidence for both profiles.",
+        "revisitTrigger": "Complete the application claim after same-run measurements justify deterministic ceilings and any noisy timings receive an explicit report-only or blocking disposition."
+      },
       "notes": "Todoapp snapshots detect source drift; application structural and latency budgets are not yet reviewed."
     },
     {
@@ -307,6 +415,12 @@
       "claim": "The bounded TypeScript-to-Haxe migration subset is proven independently from Haxe-to-Genes compiler conformance.",
       "coverage": {"typescript-tsx":"not-applicable","typescript-low-level":"not-applicable","typescript-minimal":"not-applicable","classic-js":"not-applicable","classic-dts":"not-applicable","node-runtime":"not-applicable","browser-runtime":"not-applicable","focused-fixture":"covered"},
       "evidence": {"focused-fixture":["ts2hx"]},
+      "applicationDisposition": {
+        "kind": "not-applicable",
+        "owner": "ts2hx",
+        "rationale": "ts2hx translates a bounded TypeScript implementation subset into Haxe. Its correctness cannot be inferred from the flagship Haxe-to-Genes application, so it retains an independent test and product claim.",
+        "revisitTrigger": "Revisit only if a separately designed migration example executes a real translated application without counting that result as Haxe-to-Genes compiler conformance."
+      },
       "notes": "The historical Todoapp PRD proposed a roundtrip, but current product policy keeps ts2hx evidence separate from the flagship Haxe application."
     }
   ]

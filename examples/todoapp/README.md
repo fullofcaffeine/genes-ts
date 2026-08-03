@@ -137,11 +137,30 @@ deliberately modest:
 - `not-applicable` means that observer cannot prove the contract, such as a
   runtime test trying to prove declaration precision.
 
+When an application-facing column is incomplete, `applicationDisposition`
+records what should happen next:
+
+- `planned` points to an open Bead for useful Todoapp work that has not landed;
+- `focused-only` points to the exact smaller compiler fixture that owns the
+  remaining edge cases after this app has shown a representative case; and
+- `not-applicable` explains why Todoapp cannot honestly observe the behavior
+  and points to the focused test that does.
+
+The reason and revisit trigger are part of the record. For example, the app
+uses arrays but has no user feature that needs a `Map`, so missing-key semantics
+remain with the focused Array/Map fixture until a real keyed Todo feature or an
+application regression justifies another vertical test. Similarly, dynamic
+imports and module directives are supported compiler contracts, but inventing
+an unused import or directive would not prove useful Todo behavior.
+
 This map does not run the tests or turn one green application into a universal
 compiler claim. Existing focused gates remain authoritative. Run
-`yarn test:agent-test-routing` to reject duplicate or missing feature IDs,
-unknown evidence references, dead package scripts and paths, untracked gap
-Beads, or a feature family without focused evidence.
+`yarn test:agent-test-routing` to reject deleted, duplicate, or missing feature
+IDs; unknown evidence references; dead package scripts and paths; missing,
+closed, or mismatched disposition owners; application evidence on a wholly
+inapplicable row; or a feature family without focused evidence. The stable ID
+list is kept outside this JSON file, so removing a row cannot make the validator
+forget that the feature exists.
 
 ## Generated output and snapshots
 
