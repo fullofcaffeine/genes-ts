@@ -178,6 +178,9 @@ ok(typeOnly.startsWith('import type {JSX} from "react"'),
 ok(typeOnly.includes(
   "function Identity(props: TypeOnlyComponentProps): JSX.Element"
 ), "component without HXX still keeps its exact source signature");
+ok(typeOnly.includes(
+  "function OptionalIdentity(props: TypeOnlyComponentProps): JSX.Element | null"
+), "nullable component result keeps the exact render-nothing contract");
 
 const gutenberg = source(
   "out/ts/src-gen/react_hooks/GutenbergBlock.ts"
@@ -246,6 +249,12 @@ for (const profile of ["ts/src-gen", "classic"] as const) {
     "react_hooks/TypeOnlyComponent",
     "function Identity",
     "function Identity"
+  );
+  assertMappedFunction(
+    profile,
+    "react_hooks/TypeOnlyComponent",
+    "function OptionalIdentity",
+    "function OptionalIdentity"
   );
 }
 

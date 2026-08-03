@@ -9,7 +9,11 @@ typedef SignatureProps = {
 /** Roots the selected invalid declaration when validation reaches DCE. */
 class ComponentSignatureNegative {
   static function main(): Void {
+    #if react_component_lowercase
+    final retained = invalidComponent;
+    #else
     final retained = InvalidComponent;
+    #end
     if (retained == null)
       throw "component signature negative was not retained";
   }

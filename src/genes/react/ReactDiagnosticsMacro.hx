@@ -506,22 +506,6 @@ private function metadataEntries(field: ClassField,
   return field.meta.get().filter(entry -> entry.name == name);
 }
 
-/**
- * Recognizes the exact ordinary React element return contract.
- *
- * Typedef aliases are followed by `Context.follow`, but unrelated classes,
- * `Node`, promises, and structurally similar values remain distinct. Those
- * callable shapes need their own reviewed React role instead of silently
- * broadening the ordinary component marker.
- */
-private function isReactElement(type: Type): Bool {
-  return switch Context.follow(type) {
-    case TInst(owner, parameters): final element = owner.get(); parameters.length == 0 && element.module == "genes.react.Element" && element.name == "Element";
-    case _:
-      false;
-  }
-}
-
 private function validateMetadata(type: ClassType, field: ClassField,
     isStatic: Bool): Void {
   final components = metadataEntries(field, COMPONENT_METADATA);
@@ -564,9 +548,10 @@ private function validateMetadata(type: ClassType, field: ClassField,
           'Ordinary React component ${fieldLabel(type, field)} accepts one props value, not a rest parameter. Variadic and other callable roles require a separate exact contract.',
           entry.pos);
       }
-      if (components.length == 1 && !isReactElement(result)) {
+      if (components.length == 1
+        && !genes.JsxTypeChecker.isExactElementContract(result)) {
         fail("GTS-REACT-COMPONENT-SIGNATURE-008",
-          'Ordinary React component ${fieldLabel(type, field)} must return genes.react.Element; found ${result.toString()}. Async, forwardRef, and other callable roles require a separate exact contract.',
+          'Ordinary React component ${fieldLabel(type, field)} must return the exact genes.react.Element contract, an element subtype, or its nullable form; found ${result.toString()}. Broad nodes, async components, forwardRef, and other callable roles require a separate exact contract.',
           entry.pos);
       }
     case _:

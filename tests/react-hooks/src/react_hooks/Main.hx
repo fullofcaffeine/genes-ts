@@ -118,10 +118,11 @@ class Main {
     final computed = useComputedSummary;
     final component = Counter;
     final typeOnlyComponent = TypeOnlyComponent.Identity;
+    final optionalTypeOnlyComponent = TypeOnlyComponent.OptionalIdentity;
     final blockEdit = GutenbergBlock.BlockEdit;
     if (counter == null || label == null || list == null
       || computed == null || component == null || typeOnlyComponent == null
-      || blockEdit == null) {
+      || optionalTypeOnlyComponent == null || blockEdit == null) {
       throw "React Hook functions were not retained";
     }
   }
