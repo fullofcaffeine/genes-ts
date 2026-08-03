@@ -1,0 +1,8 @@
+-lib genes-ts
+-cp tests/hxx-direct-import-source/src
+--main Main
+-js tests/hxx-direct-import-source/out/jsx/index.jsx
+-D genes.react.inline_markup
+-D js-es=6
+-debug
+-dce full

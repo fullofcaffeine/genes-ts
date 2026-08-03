@@ -22,6 +22,19 @@ enum DependencyType {
   DAsterisk;
 }
 
+/** The root ESM binding selected by one field-level `@:jsRequire`. */
+enum JsRequireFieldRoot {
+  DefaultImport;
+  NamedImport(name: String);
+}
+
+/** Normalized target shape of one field-level `@:jsRequire` declaration. */
+typedef JsRequireFieldShape = {
+  final path: String;
+  final root: JsRequireFieldRoot;
+  final memberPath: Array<String>;
+}
+
 /**
  * Import syntax and metadata before a projection chooses a local identifier.
  *
@@ -303,6 +316,33 @@ class Dependencies {
         throw 'Cannot combine import attributes "${result}" and "${dependency.importAttributeType}" in one declaration.';
     }
     return result;
+  }
+
+  /**
+   * Parses the field import shape shared by dependency and source-JSX plans.
+   *
+   * Dependency planning owns the meaning of `@:jsRequire`. Source-JSX
+   * planning calls this same parser only to distinguish a direct ESM binding
+   * from a later object-property read. This keeps the two decisions aligned
+   * without copying metadata rules or depending on generated import text.
+   */
+  public static function fieldJsRequireShape(meta: MetaAccess): Null<JsRequireFieldShape> {
+    return switch meta.extract(':jsRequire') {
+      case [{params: [{expr: EConst(CString(path))}]}] | [
+        {
+          params: [{expr: EConst(CString(path))}, {expr: EConst(CString('default'))}]
+        }
+      ]:
+        {path: path, root: DefaultImport, memberPath: []};
+      case [
+        {
+          params: [{expr: EConst(CString(path))}, {expr: EConst(CString(exportName))}]
+        }
+      ]:
+        final parts = exportName.split('.');
+        {path: path, root: NamedImport(parts.shift()), memberPath: parts};
+      default: null;
+    }
   }
 
   /**

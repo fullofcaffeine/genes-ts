@@ -21,6 +21,7 @@ import genes.DependencyPlan.DependencyProvenance;
 import genes.Module.Field;
 import genes.RuntimeTypeOccurrenceCollector.RuntimeTypeOccurrence;
 import genes.JsxPlan.JsxCapabilityPolicy;
+import genes.Dependencies.JsRequireFieldRoot;
 import genes.util.TypeUtil;
 
 using haxe.macro.TypedExprTools;
@@ -125,54 +126,33 @@ class DependencyPlanBuilder {
         JsxCapabilityPolicy.RUNTIME_IMPORT_RULE, jsxPlan.firstPosition);
     }
 
-    /**
-     * Normalizes one field-level `@:jsRequire` before creating its identity.
-     *
-     * The first named segment is the ESM export. Any remaining dotted segments
-     * are member access after the collision-safe local has been resolved.
-     */
-    function fieldImport(name: String, meta: MetaAccess,
-        pos: Position): Null<DependencySpec> {
-      final attribute = Dependencies.extractImportAttributeType(meta);
-      return switch meta.extract(':jsRequire') {
-        case [{params: [{expr: EConst(CString(path))}]}] | [
-          {
-            params: [{expr: EConst(CString(path))}, {expr: EConst(CString('default'))}]
-          }
-        ]:
-          {
-            type: DependencyType.DDefault,
-            name: name,
-            path: path,
-            external: true,
-            memberPath: [],
-            importAttributeType: attribute,
-            pos: pos
-          };
-        case [
-          {
-            params: [{expr: EConst(CString(path))}, {expr: EConst(CString(name))}]
-          }
-        ]:
-          final parts = name.split('.');
-          {
-            type: DependencyType.DName,
-            name: parts.shift(),
-            path: path,
-            external: true,
-            memberPath: parts,
-            importAttributeType: attribute,
-            pos: pos
-          };
-        default: null;
-      }
-    }
-
     function fieldOrigin(owner: ClassType,
         fieldName: String): BindingOriginKey {
       return
         BindingOriginKey.StaticField(new StaticFieldOriginKey(owner.module,
           owner.name, fieldName));
+    }
+
+    function fieldImport(name: String, meta: MetaAccess,
+        pos: Position): Null<DependencySpec> {
+      final shape = Dependencies.fieldJsRequireShape(meta);
+      if (shape == null)
+        return null;
+      return {
+        type: switch shape.root {
+          case DefaultImport: DependencyType.DDefault;
+          case NamedImport(_): DependencyType.DName;
+        },
+        name: switch shape.root {
+          case DefaultImport: name;
+          case NamedImport(exportName): exportName;
+        },
+        path: shape.path,
+        external: true,
+        memberPath: shape.memberPath,
+        importAttributeType: Dependencies.extractImportAttributeType(meta),
+        pos: pos
+      };
     }
 
     #if (haxe_ver >= 4.2)

@@ -21,6 +21,7 @@
 /tests/deep-nullish-alias/out
 /tests/dynamic-import-policy/out
 /tests/hxx-carrier-immutability/out
+/tests/hxx-direct-import-source/out
 /tests/hxx-event-variance/out
 /tests/react-hooks/out
 /tests/react-flight/out

@@ -209,9 +209,9 @@ class ServerSourceInline {
     "warm-server authored local reused a stale parser-owned child fact");
   };
   const assertImportedComponents = (source: string): void => {
-    ok(source.includes("const tmp: JSX.Element = <Child />")
-      && source.includes("return <Parent>{tmp}</Parent>"),
-    "warm-server imported component build did not use current typed bindings");
+    ok(source.includes("return <Parent><Child /></Parent>")
+      && !source.includes("const tmp: JSX.Element = <Child />"),
+    "warm-server direct imports did not use the current nested source shape");
   };
 
   const runSequence = async (

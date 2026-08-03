@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "jsx": "react-jsx",
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "rootDir": "out/jsx",
+    "outDir": "out/jsx-dist",
+    "skipLibCheck": false,
+    "types": ["node", "react", "react-dom"]
+  },
+  "include": ["out/jsx/**/*.jsx", "out/jsx/**/*.js"]
+}

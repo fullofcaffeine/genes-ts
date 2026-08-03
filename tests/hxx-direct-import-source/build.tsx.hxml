@@ -1,0 +1,8 @@
+-lib genes-ts
+-cp tests/hxx-direct-import-source/src
+--main Main
+-js tests/hxx-direct-import-source/out/tsx/index.tsx
+-D genes.ts
+-D genes.ts.jsx_import_source=react
+-debug
+-dce full
