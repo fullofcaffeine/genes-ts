@@ -26,6 +26,11 @@ function InvalidComponent(props: SignatureProps,
 function InvalidComponent(props: SignatureProps): String {
   return props.label;
 }
+#elseif react_component_rest_argument
+@:genes.reactComponent
+function InvalidComponent(props: haxe.Rest<SignatureProps>): Element {
+  return invalidElement();
+}
 #elseif react_component_lowercase
 @:genes.reactComponent
 function invalidComponent(props: SignatureProps): Element {

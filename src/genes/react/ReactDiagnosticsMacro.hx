@@ -558,6 +558,12 @@ private function validateMetadata(type: ClassType, field: ClassField,
           'Ordinary React component ${fieldLabel(type, field)} accepts zero arguments or one props argument; found ${arguments.length}. Ref callbacks, legacy context, and other callable roles require a separate exact contract.',
           entry.pos);
       }
+      if (components.length == 1 && arguments.length == 1
+        && genes.util.TypeUtil.isRest(arguments[0].t)) {
+        fail("GTS-REACT-COMPONENT-SIGNATURE-009",
+          'Ordinary React component ${fieldLabel(type, field)} accepts one props value, not a rest parameter. Variadic and other callable roles require a separate exact contract.',
+          entry.pos);
+      }
       if (components.length == 1 && !isReactElement(result)) {
         fail("GTS-REACT-COMPONENT-SIGNATURE-008",
           'Ordinary React component ${fieldLabel(type, field)} must return genes.react.Element; found ${result.toString()}. Async, forwardRef, and other callable roles require a separate exact contract.',

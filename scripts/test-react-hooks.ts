@@ -309,6 +309,7 @@ expectHaxeFailure(
 for (const [define, diagnostic] of [
   ["react_component_second_argument", "GTS-REACT-COMPONENT-SIGNATURE-007"],
   ["react_component_wrong_return", "GTS-REACT-COMPONENT-SIGNATURE-008"],
+  ["react_component_rest_argument", "GTS-REACT-COMPONENT-SIGNATURE-009"],
   ["react_component_lowercase", "GTS-REACT-METADATA-005"],
   ["react_component_duplicate_module_marker", "GTS-REACT-ANALYZER-006"],
   ["react_component_overload", "GENES-MODULE-FUNCTION-OVERLOAD-009"]

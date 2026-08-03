@@ -199,8 +199,10 @@ The annotations are compile-time contracts:
 
 - `@:genes.reactComponent` requires an uppercase module function or public
   static method;
-- an ordinary component accepts zero arguments or one props argument and
-  returns `genes.react.Element`;
+- an ordinary component accepts zero arguments or one ordinary props argument
+  and returns `genes.react.Element`; a rest parameter would become a variadic
+  JavaScript function rather than React's one-props-value component shape, so
+  Genes rejects it;
 - `@:genes.reactHook` requires a `use...` module function or public static
   method;
 - genes derives `@:genes.moduleFunction` internally, so React's analyzers see a
