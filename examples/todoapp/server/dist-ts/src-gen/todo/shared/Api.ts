@@ -30,8 +30,10 @@ export type UpdateTodoCompletedBody = {
 /**
  * A Todo update must change the title, completion state, or both.
  *
- * The union makes at least one property required for both Haxe and TypeScript
- * callers. `@:ts.optional` removes Haxe's synthetic `null` from the optional
- * sibling property, so TypeScript does not advertise explicit JSON `null`.
+ * The wire-format union makes at least one property required. `@:ts.optional`
+ * removes Haxe's synthetic `null` from the optional sibling in generated
+ * TypeScript. Haxe application code uses Client's concrete update helpers
+ * under package-scoped null safety rather than accepting this transport record
+ * as a public call argument.
  */
 export type UpdateTodoBody = UpdateTodoTitleBody | UpdateTodoCompletedBody

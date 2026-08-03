@@ -43,6 +43,9 @@ class Main {
     app.use(Express.json({strict: false}));
 
     app.get("/api/health", (_, res) -> {
+      // Express accepts any JSON-compatible object. Haxe 4.3.7's null checker
+      // cannot prove an anonymous literal satisfies this host-extern boundary.
+      @:nullSafety(Off)
       res.json({ok: true});
     });
 
@@ -58,13 +61,16 @@ class Main {
         sendError(res, 400, decodedId.error);
         return;
       }
-      final todo = store.get(id);
-      if (todo == null) {
-        sendError(res, 404, "not_found");
-        return;
+      switch store.get(id) {
+        case null:
+          sendError(res, 404, "not_found");
+        case todo:
+          // Haxe 4.3.7 loses this switch narrowing when the value enters an
+          // anonymous response record. The null case above is exhaustive.
+          @:nullSafety(Off)
+          final body: TodoResponse = {todo: todo};
+          res.json(body);
       }
-      final body: TodoResponse = {todo: todo};
-      res.json(body);
     });
 
     app.post(Api.TODOS, (req, res) -> {
@@ -107,12 +113,15 @@ class Main {
         sendError(res, 400, "invalid_patch");
         return;
       }
-      if (todo == null) {
-        sendError(res, 404, "not_found");
-        return;
+      switch todo {
+        case null:
+          sendError(res, 404, "not_found");
+        case updated:
+          // Same Haxe 4.3.7 anonymous-record narrowing limitation as GET.
+          @:nullSafety(Off)
+          final out: TodoResponse = {todo: updated};
+          res.json(out);
       }
-      final out: TodoResponse = {todo: todo};
-      res.json(out);
     });
 
     app.delete("/api/todos/:id", (req, res) -> {

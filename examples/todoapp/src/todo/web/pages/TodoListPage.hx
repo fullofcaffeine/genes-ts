@@ -7,7 +7,6 @@ import genes.react.React.useState;
 import genes.react.React.useStateLazy;
 import genes.ts.Imports;
 import todo.extern.ReactRouter.Link;
-import todo.shared.Api.UpdateTodoCompletedBody;
 import todo.shared.Todo;
 import todo.shared.TodoId;
 import todo.shared.TodoText;
@@ -44,6 +43,9 @@ class TodoListPage {
     // “indirectly” from TS-only code (Haxe DCE can't see TS imports).
     final _keepTodoText = TodoText.interopBanner();
 
+    // See TodoDetailPage: the escape is for the macro's compiler metadata,
+    // not for the non-null array stored in application state.
+    @:nullSafety(Off)
     final todosState = useState(([] : Array<Todo>));
     final todos = todosState.value;
 
@@ -118,8 +120,7 @@ class TodoListPage {
           type={"checkbox"}
           checked={todo.completed}
           onChange={() -> {
-            final patch: UpdateTodoCompletedBody = {completed: !todo.completed};
-            return Client.updateTodo(todo.id, patch).then(updated -> { replaceTodo(updated); return null; });
+            return Client.updateTodoCompleted(todo.id, !todo.completed).then(updated -> { replaceTodo(updated); return null; });
           }}
         />
         <Link to={"/todos/" + todo.id} style={{flex: "1"}}>

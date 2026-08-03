@@ -39,12 +39,19 @@ export class ApiRequestDecoder {
 		if (record == null || !ApiRequestDecoder.hasCreateShape(record)) {
 			return {"value": null, "error": "invalid_body"};
 		};
-		const title: string | null = UnknownNarrow.string(Object.prototype.hasOwnProperty.call(record, "title") ? record["title"] : undefined);
-		if (title == null || StringTools.trim(title).length == 0) {
+		const _g: string | null = UnknownNarrow.string(Object.prototype.hasOwnProperty.call(record, "title") ? record["title"] : undefined);
+		if (_g == null) {
 			return {"value": null, "error": "invalid_title"};
+		} else {
+			const title: string = _g;
+			if (StringTools.trim(title).length == 0) {
+				return {"value": null, "error": "invalid_title"};
+			} else {
+				const title_1: string = _g;
+				const value: CreateTodoBody = {"title": title_1};
+				return {"value": value, "error": ""};
+			};
 		};
-		const value: CreateTodoBody = {"title": title};
-		return {"value": value, "error": ""};
 	}
 	static update(body: unknown): ApiDecode<DecodedTodoUpdate> {
 		let record: Readonly<Record<string, unknown>> | null = UnknownNarrow.record(body);
@@ -87,11 +94,11 @@ export class ApiRequestDecoder {
 		};
 	}
 	static hasOnlyUpdateFields(record: Readonly<Record<string, unknown>>): boolean {
-		let _g: number = 0;
+		let _g_1: number = 0;
 		const _g1: string[] = Object.keys(record);
-		while (_g < _g1.length) {
-			const key: string = _g1[_g]!;
-			++_g;
+		while (_g_1 < _g1.length) {
+			const key: string = _g1[_g_1]!;
+			++_g_1;
 			if (key != "title" && key != "completed") {
 				return false;
 			};

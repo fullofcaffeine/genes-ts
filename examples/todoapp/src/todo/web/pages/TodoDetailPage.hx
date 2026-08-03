@@ -6,7 +6,6 @@ import genes.react.React.useEffect;
 import genes.react.React.useState;
 import todo.extern.ReactRouter.Link;
 import todo.extern.ReactRouter.useNavigate;
-import todo.shared.Api.UpdateTodoTitleBody;
 import todo.shared.Todo;
 import todo.shared.TodoId;
 import todo.web.Client;
@@ -21,6 +20,10 @@ class TodoDetailPage {
     final idStr = Router.useParam("id");
     final id: Null<TodoId> = idStr;
 
+    // The React macro preserves this explicit generic witness through compiler
+    // metadata that Haxe's null checker cannot currently prove non-null. Keep
+    // the escape on this one call; the state value remains `Null<Todo>`.
+    @:nullSafety(Off)
     final todoState = useState((null : Null<Todo>));
     final todo = todoState.value;
 
@@ -53,8 +56,7 @@ class TodoDetailPage {
         errorState.set("Title is required");
         return;
       }
-      final patch: UpdateTodoTitleBody = {title: trimmed};
-      Client.updateTodo(id, patch).then(updated -> {
+      Client.updateTodoTitle(id, trimmed).then(updated -> {
         todoState.set(updated);
         navigate("/");
       }).catchError(_ -> {

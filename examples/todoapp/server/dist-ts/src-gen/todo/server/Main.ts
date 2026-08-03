@@ -49,13 +49,14 @@ export class Main {
 				Main.sendError(res, 400, decodedId.error);
 				return;
 			};
-			const todo: Todo | null = store.get(id);
-			if (todo == null) {
+			const _g_1: Todo | null = store.get(id);
+			if (_g_1 == null) {
 				Main.sendError(res, 404, "not_found");
-				return;
+			} else {
+				const todo: Todo = _g_1;
+				const body: TodoResponse = {"todo": todo};
+				res.json(body);
 			};
-			const body: TodoResponse = {"todo": todo};
-			res.json(body);
 		});
 		app.post("/api/todos", function (req: ExpressRequest, res: ExpressResponse) {
 			const decodedBody: ApiDecode<CreateTodoBody> = ApiRequestDecoder.create(req.body);
@@ -100,10 +101,17 @@ export class Main {
 			};
 			if (todo == null) {
 				Main.sendError(res, 404, "not_found");
-				return;
+			} else {
+				const updated: {
+					completed: boolean,
+					createdAt: string,
+					id: string,
+					title: string,
+					updatedAt: string
+				} = todo;
+				const out: TodoResponse = {"todo": updated};
+				res.json(out);
 			};
-			const out: TodoResponse = {"todo": todo};
-			res.json(out);
 		});
 		app["delete"]("/api/todos/:id", function (req: ExpressRequest, res: ExpressResponse) {
 			const decodedId: ApiDecode<string> = ApiRequestDecoder.todoId((req.params["id"] ?? null));

@@ -1,8 +1,8 @@
 import {Fetch} from "../extern/Fetch"
 import {Register} from "../../genes/Register"
 import type {Todo} from "../shared/Todo"
-import type {UpdateTodoBody, ErrorResponse, TodoListResponse, TodoResponse, CreateTodoBody} from "../shared/Api"
 import type {FetchHeaders, FetchRequestInit, FetchResponse} from "../extern/Fetch"
+import type {ErrorResponse, TodoListResponse, TodoResponse, CreateTodoBody} from "../shared/Api"
 
 export class Client {
 	static requestJson<T>(method: string, url: string, body: {
@@ -45,8 +45,14 @@ export class Client {
 			return res.todo;
 		});
 	}
-	static updateTodo(id: string, patch: UpdateTodoBody): globalThis.Promise<Todo> {
-		const p: globalThis.Promise<TodoResponse> = Client.requestJson("PATCH", "/api/todos/" + id, patch);
+	static updateTodoTitle(id: string, title: string): globalThis.Promise<Todo> {
+		const p: globalThis.Promise<TodoResponse> = Client.requestJson("PATCH", "/api/todos/" + id, {"title": title});
+		return p.then(function (res: TodoResponse) {
+			return res.todo;
+		});
+	}
+	static updateTodoCompleted(id: string, completed: boolean): globalThis.Promise<Todo> {
+		const p: globalThis.Promise<TodoResponse> = Client.requestJson("PATCH", "/api/todos/" + id, {"completed": completed});
 		return p.then(function (res: TodoResponse) {
 			return res.todo;
 		});

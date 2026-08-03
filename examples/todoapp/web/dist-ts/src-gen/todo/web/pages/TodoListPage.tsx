@@ -11,7 +11,6 @@ import {Register} from "../../../genes/Register"
 import type {ReactComponent1, ReactChild, ChangeEvent} from "../ReactTypes"
 import type {UseStateResult} from "../../../genes/react/UseStateResult"
 import type {Todo} from "../../shared/Todo"
-import type {UpdateTodoCompletedBody} from "../../shared/Api"
 
 function Component(): JSX.Element {
 	const _keepTodoText: string = TodoText.interopBanner();
@@ -101,8 +100,7 @@ function Component(): JSX.Element {
 	};
 	const renderTodoItem: ((todo: Todo) => JSX.Element) = function (todo: Todo) {
 		return <li key={todo.id} style={{"display": "flex", "alignItems": "center", "gap": "8px", "padding": "8px 0", "borderBottom": "1px solid #eee"}}><input type="checkbox" checked={todo.completed} onChange={function () {
-			const patch: UpdateTodoCompletedBody = {"completed": !todo.completed};
-			return Client.updateTodo(todo.id, patch).then(function (updated: Todo) {
+			return Client.updateTodoCompleted(todo.id, !todo.completed).then(function (updated: Todo) {
 				replaceTodo(updated);
 				return null;
 			});

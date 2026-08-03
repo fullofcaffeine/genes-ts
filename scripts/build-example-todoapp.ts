@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
+import {
+  execFileSync,
+  spawnSync,
+  type ExecFileSyncOptions
+} from "node:child_process";
 import { copyFileSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -104,10 +108,38 @@ function assertClosedStoreUpdateSurface(): void {
   );
 }
 
+/**
+ * Haxe's ordinary JS mode permits null unless a project opts into null safety.
+ * This negative compilation proves the maintained Todoapp does opt in and that
+ * callers cannot send null through the concrete update helpers.
+ */
+function assertHaxeRejectsNullUpdate(): void {
+  const outputFile = path.join(
+    exampleRoot,
+    "contracts",
+    "null-update-negative.ts"
+  );
+  rmSync(outputFile, { force: true });
+  try {
+    const result = spawnSync(
+      "haxe",
+      ["examples/todoapp/contracts/build-null-update-negative.hxml"],
+      { cwd: repoRoot, encoding: "utf8" }
+    );
+    const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+    assert.notEqual(result.status, 0, "null update unexpectedly compiled in Haxe");
+    assert.match(output, /NullUpdateNegative[.]hx/);
+    assert.match(output, /Null safety: Cannot pass nullable value/);
+  } finally {
+    rmSync(outputFile, { force: true });
+  }
+}
+
 rmrf("web/src-gen");
 rmrf("web/dist");
 rmrf("server/src-gen");
 rmrf("server/dist");
+assertHaxeRejectsNullUpdate();
 
 // Web: variants first (typecheck + snapshots), then build the default runnable app last.
 

@@ -37,12 +37,20 @@ class ApiRequestDecoder {
     if (record == null || !hasCreateShape(record))
       return rejected("invalid_body");
 
-    final title = UnknownNarrow.string(record.get("title"));
-    if (title == null || StringTools.trim(title).length == 0)
-      return rejected("invalid_title");
-
-    final value: CreateTodoBody = {title: title};
-    return accepted(value);
+    return switch UnknownNarrow.string(record.get("title")) {
+      case null:
+        rejected("invalid_title");
+      case title if (StringTools.trim(title).length == 0):
+        rejected("invalid_title");
+      case title:
+        // `UnknownNarrow.string` and this switch prove the host value is a
+        // string, but Haxe 4.3.7 loses that generic null narrowing while
+        // constructing an anonymous record. Limit the escape to the checked
+        // field assignment.
+        @:nullSafety(Off)
+        final value: CreateTodoBody = {title: title};
+        accepted(value);
+    };
   }
 
   public static function update(body: Unknown): ApiDecode<DecodedTodoUpdate> {

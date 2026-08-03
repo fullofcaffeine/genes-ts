@@ -136,12 +136,23 @@ Haxe as `genes.ts.Unknown`; `todo.server.ApiRequestDecoder` checks the object
 shape and each field before constructing a `CreateTodoBody` or an internal
 validated update. The public `UpdateTodoBody` is a non-empty union: callers
 must provide `title`, `completed`, or both, and TypeScript callers cannot send
-`null` for either value. The API transcript deliberately sends arrays, wrong
-field types, `null`, extra fields, an empty patch, and a blank identifier. It
-also proves that a rejected patch leaves the Todo unchanged, a title-only
-patch preserves `completed`, and a completed-only patch preserves `title`.
-These checks prove this Todo API boundary; focused nullish fixtures remain
-authoritative for the complete JavaScript
+`null` for either value. Haxe UI code does not accept that wire record directly:
+`Client.updateTodoTitle` and `Client.updateTodoCompleted` take concrete values.
+Every Todoapp HXML enables recursive Loose null safety for the owned
+`todo.shared`, `todo.extern`, `todo.web`, and `todo.server` packages. The
+Playwright-only `todo.e2e` harness is deliberately outside that application
+claim because its host Promise overloads are a separate test-runner boundary.
+A checked negative compilation opts its own caller into null safety and proves
+that passing Haxe `null` to completion is rejected. The few local
+`@:nullSafety(Off)` expressions sit immediately after runtime guards or at
+documented Haxe 4.3.7 macro/anonymous-record narrowing limitations; they do
+not disable checking for a package, class, or method.
+
+The API transcript deliberately sends arrays, wrong field types, `null`, extra
+fields, an empty patch, and a blank identifier. It also proves that a rejected
+patch leaves the Todo unchanged, a title-only patch preserves `completed`, and
+a completed-only patch preserves `title`. These checks prove this Todo API
+boundary; focused nullish fixtures remain authoritative for the complete JavaScript
 `null`/`undefined`/missing-property matrix.
 
 `examples/profiles.json` owns the repository-wide example inventory and the
