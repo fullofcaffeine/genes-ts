@@ -229,6 +229,13 @@ export function validateCssModuleExportsManifest(
   if (!haxeTypePath(haxeOwner) || !haxeTypePath(companionType)) {
     failManifest("Haxe owner or companion type is not a valid qualified Haxe name.", "binding");
   }
+  if (companionType === haxeOwner) {
+    cssModuleFailure(
+      "GENES-CSS-MODULE-BINDING-010",
+      "binding.companionType must name a different Haxe module from binding.haxeOwner, so the generated companion cannot replace the authored owner module.",
+      "binding.companionType",
+    );
+  }
   const haxeOwnerModule = haxeOwner.replaceAll(".", "/");
   if (generatedModule !== haxeOwnerModule) {
     cssModuleFailure(

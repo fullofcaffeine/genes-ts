@@ -116,6 +116,11 @@ prefix, resolving the request from that module must produce the host CSS path.
 Tooling rejects a declaration candidate placed somewhere TypeScript would never
 inspect for the emitted import.
 
+The companion must also have its own Haxe module name. For example, an owner
+named `app.Card` may use `app.CardStyles`, but it may not also use `app.Card` as
+the companion. Two different Haxe files cannot safely own the same module path;
+tooling rejects that setup before it can hide or replace the authored component.
+
 Portable manifest paths use project-relative forward-slash spelling and reject
 colons as well as backslashes. This keeps a value such as
 `C:/card.module.css` from becoming a drive path when a manifest moves from a

@@ -72,8 +72,9 @@ without letting one substitute for another:
 - Haxe accepts valid fields and rejects missing, untyped, wrong-owner,
   wrong-request, and nonliteral cases at authored source positions;
 - tooling rejects a hashed non-CSS entry, a generated module that differs from
-  the Haxe owner, a declaration path that differs from the emitted import, and
-  cross-platform drive-path syntax before returning generated files;
+  the Haxe owner, a companion that reuses the authored owner module, a
+  declaration path that differs from the emitted import, and cross-platform
+  drive-path syntax before returning generated files;
 - strict TypeScript first rejects the usual broad CSS wildcard declaration,
   then accepts the generated exact per-file declaration; its negative consumer
   separately proves there is no arbitrary-key escape;

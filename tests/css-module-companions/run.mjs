@@ -272,6 +272,21 @@ async function main() {
     manifest,
   });
 
+  assert.throws(
+    () => generateCssModuleCompanion({
+      projectRoot: fixtureRoot,
+      manifest: {
+        ...manifest,
+        binding: {
+          ...manifest.binding,
+          companionType: manifest.binding.haxeOwner,
+        },
+      },
+    }),
+    /GENES-CSS-MODULE-BINDING-010/u,
+    "the generated companion cannot replace the authored Haxe owner module",
+  );
+
   const packageLess = generateCssModuleCompanion({
     projectRoot: fixtureRoot,
     manifest: {

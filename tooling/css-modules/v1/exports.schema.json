@@ -12,6 +12,7 @@
     "namingPolicy": { "const": "genes-haxe-css-fields-v1" },
     "binding": {
       "type": "object",
+      "description": "Connects one authored Haxe owner to a separate generated companion type and to the CSS import in that owner's emitted module. companionType must not equal haxeOwner; tooling enforces this cross-field rule.",
       "additionalProperties": false,
       "required": ["haxeOwner", "generatedModule", "request", "hostModulePath", "companionType"],
       "properties": {
@@ -19,7 +20,10 @@
         "generatedModule": { "$ref": "#/$defs/portablePath" },
         "request": { "type": "string", "maxLength": 16384, "pattern": "^\\.\\.?/[^\\\\?#\\u0000-\\u001f\\u007f]*\\.module\\.css$" },
         "hostModulePath": { "$ref": "#/$defs/cssModuleHostPath" },
-        "companionType": { "$ref": "#/$defs/haxeTypePath" }
+        "companionType": {
+          "description": "Qualified name of the generated Haxe companion. It must differ from haxeOwner so the generated file cannot replace the authored owner module.",
+          "$ref": "#/$defs/haxeTypePath"
+        }
       }
     },
     "source": {
