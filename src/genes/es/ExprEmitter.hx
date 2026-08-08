@@ -106,9 +106,9 @@ class ExprEmitter extends Emitter {
    * left-to-right evaluation. Source JSX keeps that declaration at the same
    * point, but readable output should expose `label` and `value`, not the
    * compiler protocol's `__genesJsxProp*` links. `JsxPlan` authorizes only a
-   * fully accounted declaration, sole static root, and exact inline named-prop
-   * chain. The forgeable HXX candidate itself grants no permission; spreads,
-   * aliases, sharing, and malformed or extended shapes remain linked.
+   * fully accounted declaration, sole static HXX element, and exact inline
+   * named-prop chain. The forgeable HXX candidate itself grants no permission;
+   * spreads, aliases, sharing, and malformed or extended shapes remain linked.
    */
   function emitSourceJsxPropsCarrier(declaration: TypedExpr, local: TVar,
       initializer: TypedExpr): Bool {
