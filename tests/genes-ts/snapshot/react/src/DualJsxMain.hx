@@ -10,12 +10,15 @@ import UnusedComponent.UnusedComponent;
 import Welcome.Welcome as WelcomeView;
 import WorldArchive.WorldArchive;
 import WorldArchive.WorldArchive as WorldArchiveView;
+import RetainedImportedStatusView.RetainedImportedStatusView;
 
 typedef DualJsxTranscript = {
   final staticHtml: String;
   final sameNameDirectHtml: String;
   final sameNameAliasedHtml: String;
   final zeroPropsHtml: String;
+  final retainedImportedStatusHtml: String;
+  final retainedImportedStatusOrder: String;
   final sameExpressionOrderHtml: String;
   final nestedNameScopeHtml: String;
   final staticTagReadOrderHtml: String;
@@ -41,6 +44,7 @@ typedef DualJsxTranscript = {
   final forgedSafeHtml: String;
   final forgedSharedStaticHtml: String;
   final forgedSharedDynamicHtml: String;
+  final nestedSharedHtml: String;
   final malformedTerminalHtml: String;
   final reorderedCarrierHtml: String;
   final liftedTailHtml: String;
@@ -159,6 +163,8 @@ class DualJsxMain {
   static function main(): Void {
     final renderToStaticMarkup: Element->String = Imports.namedImport(
       "react-dom/server", "renderToStaticMarkup");
+    final carrierTranscript: Void->String = Imports.namedImport(
+      "./retained-carrier-components.js", "carrierTranscript");
     final heading = "dual";
     final rootProps = {className: "shared", id: "root"};
     final fragment = jsx('<><span>A</span><span>B</span></>');
@@ -166,6 +172,7 @@ class DualJsxMain {
     final sameNameDirect = <WorldArchive bundleName="Direct" />;
     final sameNameAliased = <WorldArchiveView bundleName="Aliased" />;
     final zeroProps = <WelcomeView />;
+    final retainedImportedStatus = <RetainedImportedStatusView value="MiXeD" />;
     final sameExpressionOrder = renderSameExpressionOrder();
     final nestedNameScope = renderNestedNameScope();
     final staticTagReadOrder = renderStaticTagReadOrder();
@@ -321,6 +328,26 @@ class DualJsxMain {
         __genesJsxChildValue: "V",
         __genesJsxChildNext: {__genesJsxChildrenEnd: true}
       });
+    final nestedSharedProps = {
+      __genesJsxPropName: "data-nested-shared",
+      __genesJsxPropValue: nextPropValue(),
+      __genesJsxPropNext: {
+        __genesJsxPropsEnd: true
+      }
+    };
+    final nestedSharedFirst = HxxTestMarkers.child("div",
+      nestedSharedProps, {
+        __genesJsxChildValue: "W",
+        __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+      });
+    final nestedSharedSecond = HxxTestMarkers.child("div",
+      nestedSharedProps, {
+        __genesJsxChildValue: "X",
+        __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+      });
+    final nestedSharedElement = <section>
+      {nestedSharedFirst}{nestedSharedSecond}
+    </section>;
     final malformedTerminalProps = {
       __genesJsxPropName: "data-terminal",
       __genesJsxPropValue: "kept",
@@ -379,6 +406,9 @@ class DualJsxMain {
       sameNameDirectHtml: renderToStaticMarkup(sameNameDirect),
       sameNameAliasedHtml: renderToStaticMarkup(sameNameAliased),
       zeroPropsHtml: renderToStaticMarkup(zeroProps),
+      retainedImportedStatusHtml:
+        renderToStaticMarkup(retainedImportedStatus),
+      retainedImportedStatusOrder: carrierTranscript(),
       sameExpressionOrderHtml: renderToStaticMarkup(sameExpressionOrder),
       nestedNameScopeHtml: renderToStaticMarkup(nestedNameScope),
       staticTagReadOrderHtml: renderToStaticMarkup(staticTagReadOrder),
@@ -408,6 +438,7 @@ class DualJsxMain {
         renderToStaticMarkup(forgedSharedStaticElement),
       forgedSharedDynamicHtml:
         renderToStaticMarkup(forgedSharedDynamicElement),
+      nestedSharedHtml: renderToStaticMarkup(nestedSharedElement),
       malformedTerminalHtml:
         renderToStaticMarkup(malformedTerminalElement),
       reorderedCarrierHtml: renderToStaticMarkup(reorderedCarrierElement),

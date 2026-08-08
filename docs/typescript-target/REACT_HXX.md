@@ -223,6 +223,24 @@ The HXX root carries a nominal candidate value, but that value is deliberately
 not authorization. Another macro can mint it with `@:privateAccess`. It only
 tells Genes that the root is worth checking for the readable projection.
 
+The same cleanup also applies when an HXX element remains as a nested
+temporary. For example, a component imported from an npm package may need to
+stay after an observable child lookup:
+
+```tsx
+const props = {label: "Count", value: summary()};
+const child = <ObservableComponents.Child />;
+const element = <ImportedPanel label={props.label} value={props.value}>
+  {child}
+</ImportedPanel>;
+```
+
+Genes removes the linked-list field names from `props`, but it does not move
+`element` into its parent or move the imported component read ahead of
+`child`. ESM imports are live bindings, so that lookup timing can be observable
+even though ordinary imports look like simple constants. This props cleanup
+and nested-element inlining are therefore separate decisions.
+
 That copied-candidate case is a rare compiler edge case, mainly relevant to a
 macro that deliberately constructs or shares Genes' internal HXX expression.
 It is not a normal React workflow or an application security claim. It matters
@@ -231,8 +249,10 @@ changing only some uses of the linked object could make a missed use read
 `undefined`, while ignoring an extra effectful field could remove behavior.
 
 Authorization comes from complete request-local accounting instead. The exact
-carrier local must have one declaration, one static root occurrence, and no
-other typed occurrence anywhere in the module. Its initializer must be one
+carrier local must have one declaration, one static HXX element occurrence,
+and no other typed occurrence anywhere in the module. That element may be the
+root marker or a parser-created nested marker that remains scheduled. Its
+initializer must be one
 fully inline linked chain whose nodes contain exactly the name, value, and next
 fields in their original evaluation order, followed by exactly
 `{__genesJsxPropsEnd: true}`. Every parsed name, value expression, root, and
@@ -242,8 +262,8 @@ read exactly once before the staged output may commit.
 
 This makes a forged candidate safe: a single exact static consumer may still
 qualify because nothing can observe the linked representation, while a carrier
-shared with a dynamic root or any other code keeps its linked shape. Provenance
-is not used as a security boundary.
+shared with another root, another nested element, a dynamic root, or any other
+code keeps its linked shape. Provenance is not used as a security boundary.
 
 A carrier containing a spread also stays unchanged for now: expanding the
 spread earlier could observe a getter or a child-side mutation at a different

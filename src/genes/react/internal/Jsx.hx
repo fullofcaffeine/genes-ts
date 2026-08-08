@@ -17,8 +17,10 @@ import genes.react.Element;
  * `JsxPlan` permits the narrow readable props projection only after complete
  * request-local use accounting and exact carrier-shape validation. Child
  * markers retain their separate typed identity for the independently bounded
- * source-inline analysis. All variants behave like the ordinary markers in
- * every output profile; `@:noCompletion` hides protocol names from suggestions.
+ * source-inline analysis and can enter that same carrier accounting when the
+ * nested element itself must remain scheduled. All variants behave like the
+ * ordinary markers in every output profile; `@:noCompletion` hides protocol
+ * names from suggestions.
  */
 extern class Jsx {
   public static function __jsx<Tag, Props, Children>(tag: Tag, props: Props,
