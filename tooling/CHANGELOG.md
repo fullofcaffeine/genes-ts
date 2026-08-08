@@ -15,3 +15,5 @@ it.
 - Publish versioned conformance vectors for host implementations.
 - Define the versioned, automation-friendly DevelopmentSession lifecycle,
   event schema, and conformance scenarios ahead of its runtime implementation.
+- Verify every public code and JSON export from the packed package on Node
+  20.9.0, the package's declared minimum runtime.
