@@ -74,8 +74,10 @@ bitwise assignment, prefix and postfix increments/decrements, nullable number
 and string coercion, nested and flow-narrowed receivers, generic reads,
 explicit `undefined`, `Unknown`, and `Dynamic` boundaries. The runtime
 transcript exercises representative compound operations, effectful receiver
-and index evaluation, nullable coercion, nested targets, and all four update
-forms through TypeScript, classic Genes, and standard Haxe. Haxe 4.3 cannot
+and index evaluation, one native Proxy get/RHS/set sequence, nullable coercion,
+nested targets, and all four update forms through TypeScript, classic Genes,
+and standard Haxe. The Proxy transcript requires the exact order
+`receiver,index,get,rhs,set`, with every step occurring once. Haxe 4.3 cannot
 spell retained `&&=` or `||=` in source and erases several target wrappers
 during typing. A focused macro therefore creates typed-expression copies for
 those cases and sends them directly through the same production classifier; it

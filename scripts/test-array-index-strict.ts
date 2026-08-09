@@ -230,8 +230,9 @@ ok(/values\d*\[tmp\]! \|= mask;/.test(typescript),
   "a lowered bitwise compound target receives its planned read-side assertion");
 ok(/return values\d*\[tmp\]!;/.test(typescript),
   "the lowered compound result read receives its own planned slot assertion");
-ok(typescript.includes("base[index]! += increment;"),
-  "an effectful indexed target remains one native read-modify-write operation");
+ok(typescript.includes(
+  "Main.effectCompoundValues(Main.observedArray(values))[Main.effectCompoundIndex()]! += Main.effectCompoundIncrement();"
+), "an effectful indexed target remains one native read-modify-write operation");
 ok(typescript.includes("values1[tmp]! += suffix;"),
   "nullable string compound targets keep their planned coercion projection");
 ok(typescript.includes("values1[tmp]! |= bit;"),

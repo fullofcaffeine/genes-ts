@@ -1,12 +1,20 @@
 package arrayindexstrict;
 
 import genes.ts.Undefinable;
+import haxe.extern.EitherType;
+import js.Syntax;
+import js.lib.Reflect as JsReflect;
+import js.lib.Symbol;
 
 /** Same-source proof for Haxe array-read contracts under strict TypeScript. */
 class Main {
   static var genericReadEffects = 0;
   static var compoundReceiverEffects = 0;
   static var compoundIndexEffects = 0;
+  static var compoundGetEffects = 0;
+  static var compoundRhsEffects = 0;
+  static var compoundSetEffects = 0;
+  static final compoundOrder = new Array<String>();
 
   static function ordinary<T>(values: Array<T>, index: Int): T {
     return values[index];
@@ -46,17 +54,57 @@ class Main {
   /** Side-effecting receiver used to prove compound assignment reads it once. */
   static function effectCompoundValues(values: Array<Int>): Array<Int> {
     compoundReceiverEffects++;
+    compoundOrder.push("receiver");
     return values;
   }
 
   /** Side-effecting index used to prove compound assignment reads it once. */
   static function effectCompoundIndex(): Int {
     compoundIndexEffects++;
+    compoundOrder.push("index");
     return 0;
   }
 
-  static function compoundEffects(values: Array<Int>, increment: Int): Int {
-    return effectCompoundValues(values)[effectCompoundIndex()] += increment;
+  /** Side-effecting right-hand side used to prove native operation order. */
+  static function effectCompoundIncrement(): Int {
+    compoundRhsEffects++;
+    compoundOrder.push("rhs");
+    return 3;
+  }
+
+  /**
+   * Native `Proxy` boundary used only to observe one indexed operation.
+   *
+   * Haxe's exact Proxy handler types expose `Any` at the JavaScript trap. This
+   * boundary immediately delegates the value to native Reflect and returns a
+   * concrete `Array<Int>` to the typed fixture; no dynamic value enters the
+   * compiler contract being tested.
+   */
+  static function observedArray(values: Array<Int>): Array<Int> {
+    return Syntax.code('new Proxy({0}, { get: {1}, set: {2} })', values,
+      observedGet, observedSet);
+  }
+
+  static function observedGet(target: Array<Int>, property: ProxyProperty,
+      receiver: Null<{}>): Any {
+    if (Std.string(property) == "0") {
+      compoundGetEffects++;
+      compoundOrder.push("get");
+    }
+    return JsReflect.get(target, Std.string(property), receiver);
+  }
+
+  static function observedSet(target: Array<Int>, property: ProxyProperty,
+      value: Any, receiver: Null<{}>): Bool {
+    if (Std.string(property) == "0") {
+      compoundSetEffects++;
+      compoundOrder.push("set");
+    }
+    return JsReflect.set(target, Std.string(property), value, receiver);
+  }
+
+  static function compoundEffects(values: Array<Int>): Void {
+    effectCompoundValues(observedArray(values))[effectCompoundIndex()] += effectCompoundIncrement();
   }
 
   /** Nullable elements retain Haxe/JavaScript string coercion while updating. */
@@ -135,7 +183,7 @@ class Main {
     final assignedGeneric = assignGeneric(["before"], "assigned");
     final compoundBitwiseResult = compoundBitwise([1], 2);
     final compoundValues = [4];
-    final compoundEffectResult = compoundEffects(compoundValues, 3);
+    compoundEffects(compoundValues);
     final compoundNullableResult = compoundNullable([null], "x");
     final compoundNullableNumberResult = compoundNullableNumber([null], 1);
     final compoundNullCoalResult = compoundNullCoal([null], "fallback");
@@ -166,10 +214,13 @@ class Main {
       && genericReadEffects == 2 ? "effects-once" : "unexpected",
       assignedGeneric,
       compoundBitwiseResult == 3 ? "compound-bitwise" : "unexpected",
-      compoundEffectResult == 7
-      && compoundValues[0] == 7
+      compoundValues[0] == 7
       && compoundReceiverEffects == 1
-      && compoundIndexEffects == 1 ? "compound-effects-once" : "unexpected",
+      && compoundIndexEffects == 1
+      && compoundGetEffects == 1
+      && compoundRhsEffects == 1
+      && compoundSetEffects == 1
+      && compoundOrder.join(",") == "receiver,index,get,rhs,set" ? "compound-effects-once" : "unexpected",
       compoundNullableResult == "nullx"
       && compoundNullableNumberResult == 1 ? "compound-null-coercion" : "unexpected",
       compoundNullCoalResult == "fallback" ? "compound-nullish" : "unexpected",
@@ -190,6 +241,9 @@ class Main {
     NodeConsole.log(transcript.join("|"));
   }
 }
+
+/** Exact property-key union used by the native JavaScript Proxy boundary. */
+private typedef ProxyProperty = EitherType<String, EitherType<Int, Symbol>>;
 
 /**
  * Generic value whose read/write function keeps its parameter invariant.
