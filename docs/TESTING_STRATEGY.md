@@ -295,7 +295,10 @@ yarn test:tooling-package
 The focused HXML inventory test checks every Haxe 4.3.7 option that receives
 special early handling. Its inline `--option=value` form must fail before a
 library resolver or Haxe can run, while ordinary inline one-value options still
-normalize to the same safe argument pair.
+pass the same safety checks. Focused tests also cover a missing class-path
+directory that is created after inventory, plus an ordinary inline value ending
+in `.hxml`. The real development-session test proves that value stays data and
+cannot be reopened as a second HXML file during the flattened Haxe build.
 
 The package gate then installs the deterministic tarball into a clean Node
 project, type-checks the public factory/types, and imports both the root and

@@ -312,7 +312,7 @@ restarting the command.
   clear input error instead of being silently shortened. Haxe itself resolves
   a repeated library request only once, so the flattened plan does too. The
   usual `--option=value` spelling is accepted for ordinary one-value options
-  and normalized to the same checked argument pair as `--option value`. Haxe
+  and checked as the same option and value as `--option value`. Haxe
   handles a small set of options before its normal option table, so the two
   spellings are not always equivalent. For example, `--run Main` runs `Main`,
   while `--run=Main` is rejected by Haxe. DevelopmentSession rejects inline
@@ -326,11 +326,14 @@ restarting the command.
   The v1 resolver also accepts one distinct library identity only (repeats are
   deduplicated). Haxe batches adjacent distinct libraries, and the current
   single-request callback cannot reproduce that batch's exact dependency order.
-  After recursive flattening, no raw token ending in `.hxml` may reach Haxe.
-  A separate library name is safe because its reviewed resolver replaces it;
-  the resolver's resulting arguments must still pass the no-HXML check. Haxe
-  4.3.7 otherwise treats that token as another argument file even when Genes
-  saw it in the position of an ordinary option value.
+  After recursive flattening, no authored or resolved standalone token ending
+  in `.hxml` may reach Haxe. A separate library name is safe because its
+  reviewed resolver replaces it; the resolver's resulting arguments must still
+  pass the same check. An ordinary inline value may itself end in `.hxml`, for
+  example `--define=config=build.hxml`. The session keeps that exact inline
+  spelling in a tiny private HXML file while compiling, then removes it before
+  publication. This matters because splitting the option and value on the Haxe
+  command line would make Haxe reopen the value as another build file.
   Environment expansion is rejected where it would change Haxe's high-level
   staging decision, including an HXML filename or library request.
   DevelopmentSession v1 rejects authored `-C`/`--cwd` and resource options
@@ -391,7 +394,9 @@ restarting the command.
   compilation identity changes.
 - A source class path may not contain symbolic links. Haxe can follow such a
   link, but a safe watcher deliberately does not; rejecting the link prevents
-  an outside source change from being missed.
+  an outside source change from being missed. The final class-path directory
+  may be absent when the session starts. The watcher keeps that checked path so
+  creating the directory can trigger a later build.
 - `acquirePublishedRead()` protects one generated-file read from overlapping
   physical publication. Framework adapters emit no update until the accepted
   event exists.

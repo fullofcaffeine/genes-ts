@@ -9,6 +9,7 @@ import {
   type HxmlInventory,
   type HxmlInventoryOptions,
 } from "../hxml/index.js";
+import { isHaxe437OrdinaryInlineHxmlOption } from "../hxml/inventory.js";
 import type {
   GenesDevelopmentOptions,
   HaxeInvocation,
@@ -79,6 +80,17 @@ export interface BoundHaxeInvocation {
   readonly cwd: string;
   readonly environment: Readonly<Record<string, string>>;
   readonly arguments: readonly string[];
+  /**
+   * Small private HXML files needed to preserve an authored inline option.
+   *
+   * Haxe treats a command-line token ending in `.hxml` as an input file before
+   * it splits `--option=value`. Putting that exact token back inside a private
+   * HXML file keeps the meaning of the checked authored HXML unchanged.
+   */
+  readonly privateArgumentFiles: readonly {
+    readonly path: string;
+    readonly contents: string;
+  }[];
   readonly candidateRoot: string;
   readonly candidateOutputFile: string;
 }
@@ -192,18 +204,39 @@ export function bindHaxeInvocation(
   candidateOutputFile: string,
 ): BoundHaxeInvocation {
   const haxeTarget = path.join(candidateStageRoot, "haxe-target", "compiler.js");
+  const privateArgumentFiles: {
+    readonly path: string;
+    readonly contents: string;
+  }[] = [];
+  const checkedArguments = plan.inventory.effectiveArguments.map(
+    (argument, index) => {
+      if (!isHaxe437OrdinaryInlineHxmlOption(argument)) {
+        return argument;
+      }
+      const bridge = path.join(
+        candidateStageRoot,
+        "haxe-input",
+        `inline-option-${index}.hxml`,
+      );
+      privateArgumentFiles.push(
+        Object.freeze({ path: bridge, contents: `${argument}\n` }),
+      );
+      return bridge;
+    },
+  );
   return Object.freeze({
     sourceInvocation: plan.invocation,
     executable: plan.invocation.executable,
     cwd: plan.invocation.cwd,
     environment: plan.invocation.env ?? Object.freeze({}),
     arguments: Object.freeze([
-      ...plan.inventory.effectiveArguments,
+      ...checkedArguments,
       "--js",
       haxeTarget,
       "-D",
       `genes.output=${candidateOutputFile}`,
     ]),
+    privateArgumentFiles: Object.freeze(privateArgumentFiles),
     candidateRoot: candidateStageRoot,
     candidateOutputFile,
   });

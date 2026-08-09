@@ -427,6 +427,7 @@ try {
       "-lib sourceonly",
       "-main Main",
       "--define=genes.ts",
+      "--define=session-note=policy-option-value-payload.hxml",
       "--define=js-source-map",
       "--define=js-es=6",
       "--dce=full",
@@ -499,6 +500,11 @@ try {
     assert.equal(
       readFileSync(path.join(projectRoot, "src-gen/index.ts")).byteLength > 0,
       true,
+    );
+    assert.equal(
+      readFileSync(optionValueHxmlXml, "utf8"),
+      "<!-- xml sentinel -->\n",
+      "an inline define value ending in .hxml must stay data during the real Haxe build",
     );
     const sourceMapPath = path.join(projectRoot, "src-gen/index.ts.map");
     assert.equal(existsSync(sourceMapPath), true);

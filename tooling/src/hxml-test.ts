@@ -189,6 +189,41 @@ async function main(): Promise<void> {
       "feature=enabled",
     ]);
 
+    write(
+      root,
+      "missing-class-path.hxml",
+      "-cp generated-src\n-cp src\n-main MissingClassPathMain\n--interp\n",
+    );
+    write(
+      root,
+      "src/MissingClassPathMain.hx",
+      "class MissingClassPathMain { static function main():Void {} }\n",
+    );
+    const missingClassPathInventory = await inventoryHxml({
+      entryFiles: ["missing-class-path.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+    });
+    assert.equal(
+      missingClassPathInventory.classPaths.includes(
+        path.join(root, "generated-src"),
+      ),
+      true,
+      "a class path may be watched before its directory is created",
+    );
+    mkdirSync(path.join(root, "generated-src"));
+    const missingClassPathNative = spawnSync(
+      "haxe",
+      missingClassPathInventory.effectiveArguments,
+      { cwd: root, encoding: "utf8", timeout: 2_000 },
+    );
+    assert.equal(missingClassPathNative.error, undefined);
+    assert.equal(
+      missingClassPathNative.status,
+      0,
+      missingClassPathNative.stderr,
+    );
+
     write(root, "option-payload.hxml", "Main\n--xml escaped.xml\n");
     write(root, "option-value-hxml.hxml", "--main option-payload.hxml\n");
     await expectFailure(
@@ -201,12 +236,43 @@ async function main(): Promise<void> {
       "invalid-syntax",
     );
     write(root, "inline-option-value-hxml.hxml", "--main=option-payload.hxml\n");
+    const inlineOptionValueInventory = await inventoryHxml({
+      entryFiles: ["inline-option-value-hxml.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+    });
+    assert.deepEqual(inlineOptionValueInventory.effectiveArguments, [
+      "--main=option-payload.hxml",
+    ]);
+
+    write(
+      root,
+      "inline-define-hxml-value.hxml",
+      "--define=config=option-payload.hxml\n-cp src\n-main MissingClassPathMain\n--interp\n",
+    );
+    const inlineDefineInventory = await inventoryHxml({
+      entryFiles: ["inline-define-hxml-value.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+    });
+    assert.equal(
+      inlineDefineInventory.effectiveArguments[0],
+      "--define=config=option-payload.hxml",
+      "the inline spelling must stay intact so Haxe does not reopen its value as HXML",
+    );
+    write(
+      root,
+      "inline-define-control.hxml",
+      "--define=config=%INLINE_VALUE%\n",
+    );
     await expectFailure(
       () =>
         inventoryHxml({
-          entryFiles: ["inline-option-value-hxml.hxml"],
+          entryFiles: ["inline-define-control.hxml"],
           workingDirectory: root,
           allowedRoots: [root],
+          environment: (name) =>
+            name === "INLINE_VALUE" ? "safe.hxml\n--cmd=unsafe" : null,
         }),
       "invalid-syntax",
     );

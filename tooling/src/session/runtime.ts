@@ -6,6 +6,7 @@ import {
   readdirSync,
   realpathSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import path from "node:path";
 
@@ -831,6 +832,14 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         candidateStageRoot,
         candidateOutputFile,
       );
+      for (const input of boundInvocation.privateArgumentFiles) {
+        mkdirSync(path.dirname(input.path), { recursive: true, mode: 0o700 });
+        writeFileSync(input.path, input.contents, {
+          encoding: "utf8",
+          flag: "wx",
+          mode: 0o600,
+        });
+      }
       const compiler = await this.#compiler.compile(
         boundInvocation,
         compatibilityDigest,
@@ -849,6 +858,10 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
           }
         },
       );
+      rmSync(path.join(candidateStageRoot, "haxe-input"), {
+        recursive: true,
+        force: true,
+      });
       if (this.#closing !== null || abort.signal.aborted) return;
       const candidate = readGenesOutput(
         outputRoot,
