@@ -98,6 +98,18 @@ class Main {
     return value;
   }
 
+  #if server_indexed_plan
+  /** Exercises request-local indexed planning under the warm compiler. */
+  static function indexedDecision(values: Array<Int>, rhs: Int): Dynamic {
+    #if server_indexed_dynamic
+    final dynamicValues: Dynamic = values;
+    return dynamicValues[0] += rhs;
+    #else
+    return values[0] += rhs;
+    #end
+  }
+  #end
+
   #if server_jsx
   /**
    * Keeps real inline markup reachable in the `.tsx` and `.jsx` server lanes.
@@ -160,6 +172,9 @@ class Main {
     // Retain the checked markup under full DCE without imposing a browser or
     // React runtime step on this compiler-server lifecycle fixture.
     profileElement();
+    #end
+    #if server_indexed_plan
+    transcript += ":" + indexedDecision([1], 2);
     #end
     trace(transform(transcript));
   }

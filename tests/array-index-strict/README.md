@@ -16,6 +16,47 @@ It also verifies that ordinary assignment targets are not decorated with a
 read-only TypeScript assertion and that classic/standard runtime behavior does
 not change.
 
+## Shadow plan and finite operation matrix
+
+The production TypeScript emitter historically decided indexed reads and
+read/write targets while recursively printing them. That local state cannot
+reliably distinguish the indexed slot from a nullable receiver or see through
+every target wrapper. A fix that adds `!` to one failing spelling can therefore
+break another valid spelling, especially a logical assignment whose right-hand
+side is still nullable.
+
+`TsIndexedAccessPlan` moves that decision before printing. It records immutable
+facts for exact typed Haxe expressions and keeps five questions separate:
+
+1. Is the receiver itself present?
+2. Is the indexed slot present under Haxe's contract?
+3. Does the operator have a proven JavaScript number or string domain?
+4. Must the target remain writable as a nullable or undefined-aware value?
+5. Is every wrapper transparent in an assignment target?
+
+This first landing runs the plan in **shadow mode**. The TypeScript emitter
+builds and inventories the plan but does not use it to choose output syntax, so
+the existing generated files and runtime behavior remain unchanged. The
+follow-up emitter change can switch authority only after this finite inventory
+is stable.
+
+The source inventory covers plain writes, every admitted arithmetic and
+bitwise assignment, prefix and postfix increments/decrements, nullable number
+and string coercion, nested and flow-narrowed receivers, generic reads,
+explicit `undefined`, `Unknown`, and `Dynamic` boundaries. Haxe 4.3 cannot
+spell retained `&&=` or `||=` in source and erases several target wrappers
+during typing. A focused macro therefore creates typed-expression copies for
+those cases and sends them directly through the same production classifier; it
+does not edit the program being generated.
+
+Negative typed probes reject undefined-aware or unknown arithmetic,
+unconstrained generic arithmetic, unresolved types, runtime casts,
+syntax-producing metadata, and operators outside the reviewed matrix. Every
+rejection must preserve the last accepted output tree. The compiler-server
+fixture then runs a safe request, a `Dynamic` request, and the safe request
+again, requiring each warm decision inventory to match its isolated cold build
+and the restored output to match the first bytes.
+
 The compile-time controls resolve both a lazy compiler type and a monomorphic
 compiler placeholder to the fixture's exact type parameter. Genes must return
 that canonical parameter to the TypeScript printer; forwarding either wrapper

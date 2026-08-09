@@ -1,6 +1,6 @@
 import { deepStrictEqual, ok, strictEqual } from "node:assert";
-import { execFileSync } from "node:child_process";
-import { readFileSync, rmSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { lstatSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { SourceMapConsumer, type RawSourceMap } from "source-map";
@@ -15,6 +15,52 @@ const expectedTranscript =
 /** Runs one deterministic fixture command from the repository root. */
 function run(command: string, args: ReadonlyArray<string>): void {
   execFileSync(command, [...args], { cwd: repoRoot, stdio: "inherit" });
+}
+
+type CommandResult = {
+  status: number | null;
+  output: string;
+};
+
+/** Captures one Haxe result without hiding expected negative diagnostics. */
+function captureHaxe(args: ReadonlyArray<string>): CommandResult {
+  const result = spawnSync("haxe", [...args], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  if (result.error !== undefined) {
+    throw result.error;
+  }
+  return {
+    status: result.status,
+    output: `${result.stdout}${result.stderr}`
+  };
+}
+
+/** Removes file/line prefixes while retaining exact planned decisions. */
+function inventoryMessages(output: string): ReadonlyArray<string> {
+  return [...output.matchAll(
+    /\[GTS-INDEX-(?:INVENTORY|PROBE)\] ([^\r\n]+)/g
+  )].map((match) => match[1]);
+}
+
+/** Captures exact bytes and modes for transactional negative checks. */
+function treeSnapshot(root: string): Readonly<Record<string, string>> {
+  const snapshot: Record<string, string> = {};
+  function visit(directory: string): void {
+    for (const name of readdirSync(directory).sort()) {
+      const absolute = path.join(directory, name);
+      const relative = path.relative(root, absolute);
+      const state = lstatSync(absolute);
+      if (state.isDirectory()) {
+        visit(absolute);
+      } else {
+        snapshot[relative] = `${state.mode & 0o777}:${readFileSync(absolute).toString("base64")}`;
+      }
+    }
+  }
+  visit(root);
+  return snapshot;
 }
 
 /** Captures the one-line transcript produced by a generated profile. */
@@ -43,6 +89,83 @@ function generatedPoint(
 }
 
 rmSync(path.join(fixtureRoot, "out"), { recursive: true, force: true });
+
+const firstInventory = captureHaxe([
+  "tests/array-index-strict/build-inventory.hxml"
+]);
+strictEqual(firstInventory.status, 0, firstInventory.output);
+const firstInventoryMessages = inventoryMessages(firstInventory.output);
+ok(firstInventoryMessages.length > 0, "shadow build reports indexed decisions");
+
+const secondInventory = captureHaxe([
+  "tests/array-index-strict/build-inventory.hxml"
+]);
+strictEqual(secondInventory.status, 0, secondInventory.output);
+deepStrictEqual(
+  inventoryMessages(secondInventory.output),
+  firstInventoryMessages,
+  "two cold builds produce byte-identical indexed decision inventories"
+);
+
+for (const expected of [
+  "target:logical-and:direct:direct-rmw:wrappers=none",
+  "target:logical-or:direct:direct-rmw:wrappers=none",
+  "target:write:direct:write-only:wrappers=parenthesis",
+  "target:write:direct:write-only:wrappers=metadata(:indexedInventory)",
+  "target:write:direct:write-only:wrappers=implicit-cast"
+]) {
+  ok(firstInventoryMessages.includes(expected),
+    `typed probe records ${expected}`);
+}
+
+for (const expected of [
+  "target:arithmetic-OpAdd:direct:coerce-string:wrappers=none",
+  "target:bitwise-OpOr:direct:coerce-number:wrappers=none",
+  "target:prefix-increment:direct:assert-slot:wrappers=none",
+  "target:postfix-increment:direct:assert-slot:wrappers=none",
+  "target:prefix-decrement:direct:assert-slot:wrappers=none",
+  "target:postfix-decrement:direct:assert-slot:wrappers=none",
+  "target:arithmetic-OpAdd:assert-nullable:assert-slot:wrappers=none",
+  "target:arithmetic-OpAdd:flow-present:assert-slot:wrappers=none",
+  "read:direct:assert-type-parameter",
+  "read:direct:normalize-null"
+]) {
+  ok(firstInventoryMessages.some((message) => message.endsWith(expected)),
+    `real typed module inventory records ${expected}`);
+}
+
+const inventoryRoot = path.join(fixtureRoot, "out/inventory");
+const acceptedInventoryTree = treeSnapshot(inventoryRoot);
+const rejectedProbes = new Map<string, string>([
+  ["undefined-arithmetic", "GTS-INDEX-BOUNDARY-001"],
+  ["unknown-arithmetic", "GTS-INDEX-BOUNDARY-001"],
+  ["generic-arithmetic", "GTS-INDEX-DOMAIN-001"],
+  ["unresolved-write", "GTS-INDEX-BOUNDARY-001"],
+  ["unresolved-target", "GTS-INDEX-BOUNDARY-001"],
+  ["unresolved-read", "GTS-INDEX-BOUNDARY-001"],
+  ["undefined-receiver", "GTS-INDEX-BOUNDARY-001"],
+  ["unknown-receiver", "GTS-INDEX-BOUNDARY-001"],
+  ["syntax-metadata", "GTS-INDEX-WRAP-001"],
+  ["explicit-cast", "GTS-INDEX-WRAP-001"],
+  ["unsupported-operator", "GTS-INDEX-PLAN-001"]
+]);
+for (const [mode, diagnostic] of rejectedProbes) {
+  const rejected = captureHaxe([
+    "tests/array-index-strict/build-inventory.hxml",
+    "-D", `genes.ts.indexed_access_probe=${mode}`
+  ]);
+  ok(rejected.status !== 0, `${mode} must fail closed`);
+  ok(rejected.output.includes(`[${diagnostic}]`),
+    `${mode} reports ${diagnostic}`);
+  deepStrictEqual(treeSnapshot(inventoryRoot), acceptedInventoryTree,
+    `${mode} leaves the previously accepted output tree unchanged`);
+}
+
+runGeneratedTypeScriptMatrix(
+  "tests/array-index-strict/tsconfig.inventory-logical.json",
+  { emit: false }
+);
+
 run("haxe", ["tests/array-index-strict/build-ts.hxml"]);
 runGeneratedTypeScriptMatrix("tests/array-index-strict/tsconfig.generated.json");
 run("haxe", ["tests/array-index-strict/build-classic.hxml"]);
