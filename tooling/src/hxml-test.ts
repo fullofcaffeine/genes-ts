@@ -224,6 +224,35 @@ async function main(): Promise<void> {
       missingClassPathNative.stderr,
     );
 
+    write(root, "consumed-option-control.hxml", "-cp %BAD_PATH%\n");
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["consumed-option-control.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+          environment: (name) =>
+            name === "BAD_PATH" ? "src\n--cmd=unsafe" : null,
+        }),
+      "invalid-syntax",
+    );
+
+    symlinkSync(
+      "missing-class-path-target",
+      path.join(root, "broken-class-path"),
+      "dir",
+    );
+    write(root, "broken-class-path.hxml", "-cp broken-class-path\n");
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["broken-class-path.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+        }),
+      "unsafe-input",
+    );
+
     write(root, "option-payload.hxml", "Main\n--xml escaped.xml\n");
     write(root, "option-value-hxml.hxml", "--main option-payload.hxml\n");
     await expectFailure(

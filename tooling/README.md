@@ -330,15 +330,20 @@ restarting the command.
   in `.hxml` may reach Haxe. A separate library name is safe because its
   reviewed resolver replaces it; the resolver's resulting arguments must still
   pass the same check. An ordinary inline value may itself end in `.hxml`, for
-  example `--define=config=build.hxml`. The session keeps that exact inline
-  spelling in a tiny private HXML file while compiling, then removes it before
-  publication. This matters because splitting the option and value on the Haxe
-  command line would make Haxe reopen the value as another build file. The
+  example `--define=config=build.hxml`. The session places the checked option
+  in a tiny private HXML file and replaces only its value with a private
+  environment placeholder. Haxe decides that the placeholder is ordinary data
+  before expanding it back to `config=build.hxml`. The session removes the
+  private file before publication. This extra step matters because Haxe 4.3.7
+  otherwise tries to open any argument ending in `.hxml` as another build
+  file, even when that argument is an option's value. The
   standalone `inventoryHxml()` helper cannot safely create that private file,
   so it rejects this one form and returns only arguments a caller may pass
   directly to Haxe.
-  Environment expansion is rejected where it would change Haxe's high-level
-  staging decision, including an HXML filename or library request.
+  Authored environment expansion is rejected where it would change Haxe's
+  high-level staging decision, including an HXML filename or library request.
+  Every expanded option value is also checked for line breaks and NUL bytes
+  before it can become part of the compiler request.
   DevelopmentSession v1 rejects authored `-C`/`--cwd` and resource options
   until their Haxe lookup semantics have a separate reviewed policy.
   A discovered `-lib` with no resolver makes startup fail before compilation.
@@ -401,7 +406,10 @@ restarting the command.
   may be absent when the session starts. The watcher keeps that checked path so
   creating the directory can trigger a later build. Before every later scan,
   the watcher checks the path again. If a missing parent has become a symbolic
-  link, the scan stops instead of reading through it.
+  link, the scan stops instead of reading through it. The same check uses the
+  link itself rather than its missing target, so a broken symbolic link is
+  rejected instead of being mistaken for a directory that has not been
+  created yet.
 - `acquirePublishedRead()` protects one generated-file read from overlapping
   physical publication. Framework adapters emit no update until the accepted
   event exists.

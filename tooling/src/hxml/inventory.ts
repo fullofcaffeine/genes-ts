@@ -277,10 +277,14 @@ function assertNoSymlinkComponents(
     .split(path.sep)
     .filter((value) => value.length > 0)) {
     current = path.join(current, segment);
-    if (!existsSync(current)) {
+    // `existsSync` also returns false for a broken symbolic link. `lstat`
+    // lets us tell that unsafe link apart from a path that truly does not
+    // exist yet, which is important for generated class-path directories.
+    const status = lstatSync(current, { throwIfNoEntry: false });
+    if (status === undefined) {
       return;
     }
-    if (lstatSync(current).isSymbolicLink()) {
+    if (status.isSymbolicLink()) {
       fail("unsafe-input", subject);
     }
   }
@@ -497,6 +501,17 @@ async function inventoryHxmlWithPolicy(
         : rawValue === undefined
           ? undefined
           : expanded(rawValue, options.environment);
+
+      // The loop validates the option token above, but an option with a
+      // separate value skips that value on the next iteration. Check the
+      // expanded value here so an environment variable cannot add another
+      // HXML line or a NUL byte behind the option's back.
+      if (value !== undefined && /[\0\r\n]/u.test(value)) {
+        fail(
+          "invalid-syntax",
+          `${sourceFile}:${argument}:value-control-character`,
+        );
+      }
 
       if (rawValue !== value && libraryOptions.has(argument)) {
         fail("invalid-syntax", `${sourceFile}:stage-changing-environment`);

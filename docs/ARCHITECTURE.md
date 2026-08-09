@@ -826,7 +826,9 @@ standalone option values ending in `.hxml` fail closed when they would remain in
 the final stream: Haxe's high-level argument pass would otherwise interpret that
 value as another HXML program before normal option arity is applied. An ordinary
 inline option such as `--define=config=build.hxml` keeps its exact meaning
-through a private one-line HXML input that is removed before publication. A
+through a private one-line HXML input whose value is carried by an environment
+placeholder. Haxe expands that placeholder only after its high-level HXML-file
+decision, and the private input is removed before publication. A
 standalone HXML inventory rejects that form because it does not own the private
 input needed to make the flattened command safe. A separate resolved library
 request may use that suffix because its name is
@@ -856,7 +858,8 @@ component must be a normal directory rather than a symbolic link. The last
 directory may be absent. Keeping that missing path in the input list lets the
 reconciled watcher notice when generated sources first appear. The watcher
 checks every live path component again before each scan, so a newly created
-symbolic-link parent is rejected before any outside tree is read.
+symbolic-link parent is rejected before any outside tree is read. It inspects
+the link itself, so a broken symbolic link cannot masquerade as an absent path.
 
 This is not a hostile-macro sandbox. Haxe macros are trusted compile-time code
 and may use filesystem or process APIs; hosts declare macro-owned external

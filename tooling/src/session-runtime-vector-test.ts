@@ -20,6 +20,10 @@ import {
 import { inventoryHxml } from "./hxml/index.js";
 import { inventoryHxmlForDevelopmentSession } from "./hxml/inventory.js";
 import { establishSessionAuthority } from "./session/authority-migration.js";
+import {
+  bindHaxeInvocation,
+  buildEffectiveHaxeInvocationPlan,
+} from "./session/effective-invocation.js";
 import type { HaxeWaitServerEvent } from "./haxe-server/index.js";
 import type {
   ReconciledWatchOptions,
@@ -134,7 +138,11 @@ class VectorCompiler implements SessionCompiler {
       assert.equal(existsSync(input.path), true);
       assert.equal(
         readFileSync(input.path, "utf8"),
-        "--define=session-note=payload.hxml\n",
+        "--define %GENES_TOOLING_HXML_OPTION_VALUE_4%\n",
+      );
+      assert.equal(
+        invocation.environment.GENES_TOOLING_HXML_OPTION_VALUE_4,
+        "session-note=payload.hxml",
       );
       this.privateHxmlInputs.push(input.path);
     } else {
@@ -606,6 +614,45 @@ const corpus = JSON.parse(
 ) as Corpus;
 
 for (const vector of corpus.vectors) await execute(vector);
+
+const reservedEnvironmentRoot = realpathSync.native(
+  mkdtempSync(path.join(os.tmpdir(), "genes-vector-reserved-environment-")),
+);
+try {
+  writeFileSync(
+    path.join(reservedEnvironmentRoot, "build.hxml"),
+    "--define=session-note=payload.hxml\n",
+    "utf8",
+  );
+  const plan = await buildEffectiveHaxeInvocationPlan(
+    {
+      executable: "haxe",
+      cwd: reservedEnvironmentRoot,
+      args: ["build.hxml"],
+      ioPolicy: "haxe-4.3.7-development-js-v1",
+      env: { GENES_TOOLING_HXML_OPTION_VALUE_0: "caller-owned" },
+      compatibilityFacts: { fixture: "reserved-private-environment" },
+    },
+    { allowedRoots: [reservedEnvironmentRoot] },
+    new AbortController().signal,
+  );
+  assert.throws(
+    () =>
+      bindHaxeInvocation(
+        plan,
+        path.join(reservedEnvironmentRoot, "candidate"),
+        path.join(
+          reservedEnvironmentRoot,
+          "candidate",
+          "src-gen",
+          "index.ts",
+        ),
+      ),
+    /reserved key GENES_TOOLING_HXML_OPTION_VALUE_0/u,
+  );
+} finally {
+  rmSync(reservedEnvironmentRoot, { recursive: true, force: true });
+}
 
 console.log(
   `genes tooling development-session runtime vectors: ${corpus.vectors.length} passed`,

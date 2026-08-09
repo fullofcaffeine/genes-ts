@@ -300,9 +300,12 @@ directory that is created after inventory, plus an ordinary inline value ending
 in `.hxml`. The standalone inventory must reject that value because its output
 is passed directly to Haxe. The session vector and real development-session
 test prove the private bridge keeps the value as data, removes its helper before
-validation, and never publishes it. The watcher test also creates a symbolic
-link after a missing nested class path was registered and proves the next scan
-stops before following it.
+validation, and never publishes it. The real Haxe fixture reads the define
+during typing, so a missing or rewritten value cannot pass merely because the
+application never used it. The focused inventory test also rejects a line break
+introduced through a separate option value and an already-present broken
+symbolic link. The watcher test creates a symbolic link after a missing nested
+class path was registered and proves the next scan stops before following it.
 
 The package gate then installs the deterministic tarball into a clean Node
 project, type-checks the public factory/types, and imports both the root and

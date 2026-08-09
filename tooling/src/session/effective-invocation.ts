@@ -85,9 +85,10 @@ export interface BoundHaxeInvocation {
   /**
    * Small private HXML files needed to preserve an authored inline option.
    *
-   * Haxe treats a command-line token ending in `.hxml` as an input file before
-   * it splits `--option=value`. Putting that exact token back inside a private
-   * HXML file keeps the meaning of the checked authored HXML unchanged.
+   * Haxe can mistake any argument ending in `.hxml` for another build file.
+   * The private bridge writes the checked option beside a private environment
+   * placeholder. Haxe expands that placeholder only after it has decided which
+   * arguments are build files, so the original value stays ordinary data.
    */
   readonly privateArgumentFiles: readonly {
     readonly path: string;
@@ -208,6 +209,9 @@ export function bindHaxeInvocation(
   candidateOutputFile: string,
 ): BoundHaxeInvocation {
   const haxeTarget = path.join(candidateStageRoot, "haxe-target", "compiler.js");
+  const environment: Record<string, string> = {
+    ...(plan.invocation.env ?? {}),
+  };
   const privateArgumentFiles: {
     readonly path: string;
     readonly contents: string;
@@ -222,8 +226,21 @@ export function bindHaxeInvocation(
         "haxe-input",
         `inline-option-${index}.hxml`,
       );
+      const equals = argument.indexOf("=");
+      const option = argument.slice(0, equals);
+      const value = argument.slice(equals + 1);
+      const environmentKey = `GENES_TOOLING_HXML_OPTION_VALUE_${index}`;
+      if (Object.hasOwn(environment, environmentKey)) {
+        throw new Error(
+          `Haxe invocation environment uses reserved key ${environmentKey}`,
+        );
+      }
+      environment[environmentKey] = value;
       privateArgumentFiles.push(
-        Object.freeze({ path: bridge, contents: `${argument}\n` }),
+        Object.freeze({
+          path: bridge,
+          contents: `${option} %${environmentKey}%\n`,
+        }),
       );
       return bridge;
     },
@@ -232,7 +249,7 @@ export function bindHaxeInvocation(
     sourceInvocation: plan.invocation,
     executable: plan.invocation.executable,
     cwd: plan.invocation.cwd,
-    environment: plan.invocation.env ?? Object.freeze({}),
+    environment: Object.freeze(environment),
     arguments: Object.freeze([
       ...checkedArguments,
       "--js",
