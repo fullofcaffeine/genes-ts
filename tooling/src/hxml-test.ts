@@ -46,10 +46,10 @@ async function main(): Promise<void> {
       "build.hxml",
       [
         "# comment",
-        "--class-path src",
-        "--cwd nested",
+        "-p src",
+        "-C nested",
         "'nested build.hxml'",
-        "-lib sample:1.2.3",
+        "-L sample:1.2.3",
         "",
       ].join("\n"),
     );
@@ -59,7 +59,7 @@ async function main(): Promise<void> {
       [
         "--cwd ..",
         "--class-path \"${SHARED}\"",
-        "--resource assets/data.json@data",
+        "-r assets/data.json@data",
         "cycle.hxml",
         "",
       ].join("\n"),
@@ -82,6 +82,10 @@ async function main(): Promise<void> {
         return [library];
       },
     });
+    assert.deepEqual(
+      inventory.entryHxmlFiles.map((file) => path.relative(root, file)),
+      ["build.hxml"],
+    );
     assert.deepEqual(
       inventory.hxmlFiles.map((file) => path.relative(root, file)),
       [
@@ -107,6 +111,19 @@ async function main(): Promise<void> {
       })),
       [{ request: "sample:1.2.3", name: "sample", version: "1.2.3" }],
     );
+    assert.equal(inventory.libraryClosureComplete, true);
+
+    const orderedFirst = write(root, "ordered-first.hxml", "");
+    const orderedSecond = write(root, "ordered-second.hxml", "");
+    const orderedInventory = await inventoryHxml({
+      entryFiles: ["ordered-second.hxml", "ordered-first.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+    });
+    assert.deepEqual(orderedInventory.entryHxmlFiles, [
+      realpathSync.native(orderedSecond),
+      realpathSync.native(orderedFirst),
+    ]);
 
     write(root, "missing-env.hxml", "-cp ${ABSENT}\n");
     await expectFailure(
@@ -141,12 +158,64 @@ async function main(): Promise<void> {
       "unsafe-input",
     );
 
+    write(root, "library-via-link.hxml", "-lib linked-library\n");
+    mkdirSync(path.join(root, "real-library-directory"));
+    const realLibraryHxml = write(
+      root,
+      "real-library-directory/library.hxml",
+      "",
+    );
+    symlinkSync(
+      "real-library-directory",
+      path.join(root, "linked-library-directory"),
+    );
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["library-via-link.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+          resolveLibrary: () => [
+            path.join(root, "linked-library-directory/library.hxml"),
+          ],
+        }),
+      "unsafe-input",
+    );
+    const directLibraryInventory = await inventoryHxml({
+      entryFiles: ["library-via-link.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+      resolveLibrary: () => [realLibraryHxml],
+    });
+    assert.equal(
+      directLibraryInventory.hxmlFiles.includes(
+        realpathSync.native(realLibraryHxml),
+      ),
+      true,
+    );
+
     write(root, "real.hxml", "");
     symlinkSync("real.hxml", path.join(root, "linked.hxml"));
     await expectFailure(
       () =>
         inventoryHxml({
           entryFiles: ["linked.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+        }),
+      "unsafe-input",
+    );
+
+    mkdirSync(path.join(root, "real-entry-directory"));
+    write(root, "real-entry-directory/build.hxml", "");
+    symlinkSync(
+      "real-entry-directory",
+      path.join(root, "linked-entry-directory"),
+    );
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["linked-entry-directory/build.hxml"],
           workingDirectory: root,
           allowedRoots: [root],
         }),
@@ -197,6 +266,12 @@ async function main(): Promise<void> {
     );
 
     write(root, "relative-library.hxml", "-lib sample\n");
+    const requestOnlyInventory = await inventoryHxml({
+      entryFiles: ["relative-library.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+    });
+    assert.equal(requestOnlyInventory.libraryClosureComplete, false);
     await expectFailure(
       () =>
         inventoryHxml({
@@ -219,6 +294,49 @@ async function main(): Promise<void> {
         }),
       "resolver-failure",
     );
+
+    write(root, "forbidden-child.hxml", "-Dgenes.output=public.ts\n");
+    write(root, "forbidden-parent.hxml", "forbidden-child.hxml\n");
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["forbidden-parent.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+          argumentPolicy: { forbiddenDefines: ["genes.output"] },
+        }),
+      "invalid-option",
+    );
+
+    write(root, "forbidden-next.hxml", "--next\n");
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["forbidden-next.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+          argumentPolicy: { forbiddenOptions: ["--next"] },
+        }),
+      "invalid-option",
+    );
+
+    write(root, "abort-library.hxml", "-lib waiting\n");
+    const abort = new AbortController();
+    let resolverSignal: AbortSignal | null = null;
+    const pending = inventoryHxml({
+      entryFiles: ["abort-library.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+      signal: abort.signal,
+      resolveLibrary: (_request, context) => {
+        resolverSignal = context?.signal ?? null;
+        return new Promise<readonly string[]>(() => undefined);
+      },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    abort.abort();
+    await expectFailure(() => pending, "resolver-failure");
+    assert.equal((resolverSignal as unknown as AbortSignal).aborted, true);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

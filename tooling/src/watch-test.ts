@@ -190,6 +190,30 @@ async function main(): Promise<void> {
         }),
       /symbolic link/u,
     );
+
+    const linkedPackageTarget = path.join(root, "linked-package-target");
+    mkdirSync(linkedPackageTarget);
+    const strictTreeErrors: string[] = [];
+    const strictTree = watchReconciledInputs({
+      inputs: [
+        {
+          kind: "tree",
+          path: path.join(root, "src"),
+          cause: "source",
+          include: (relative) => relative.endsWith(".hx"),
+          rejectSymlinks: true,
+        },
+      ],
+      merge: (left) => left,
+      onChange: () => {},
+      onError: (error) => strictTreeErrors.push(error.message),
+      nativeEvents: false,
+      pollIntervalMs: 20,
+    });
+    symlinkSync(linkedPackageTarget, path.join(root, "src", "linked-package"));
+    await waitUntil(() => strictTreeErrors.length > 0);
+    assert.match(strictTreeErrors[0]!, /watched tree contains a symbolic link/u);
+    strictTree.close();
     assert.deepEqual(errors, []);
   } finally {
     rmSync(root, { recursive: true, force: true });

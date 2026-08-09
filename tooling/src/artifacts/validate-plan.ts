@@ -51,7 +51,12 @@ export function validatePortableRelativePath(
   return value;
 }
 
-function portableIdentity(value: PortableRelativePath): string {
+/**
+ * Collapses path spellings that can name one file on supported portable
+ * filesystems. Callers validate public paths as NFC first; case folding then
+ * prevents locks and recovery journals from splitting by presentation spelling.
+ */
+export function portablePathIdentity(value: string): string {
   return value.normalize("NFC").toLowerCase();
 }
 
@@ -59,8 +64,8 @@ function isWithin(
   root: PortableRelativePath,
   candidate: PortableRelativePath,
 ): boolean {
-  const portableRoot = portableIdentity(root);
-  const portableCandidate = portableIdentity(candidate);
+  const portableRoot = portablePathIdentity(root);
+  const portableCandidate = portablePathIdentity(candidate);
   return (
     portableCandidate === portableRoot ||
     portableCandidate.startsWith(`${portableRoot}/`)
@@ -123,8 +128,8 @@ function validateTransition(
     }
     validatePortableRelativePath(transition.stagedPath);
     if (
-      portableIdentity(transition.stagedPath) ===
-        portableIdentity(stageRoot) ||
+      portablePathIdentity(transition.stagedPath) ===
+        portablePathIdentity(stageRoot) ||
       !isWithin(stageRoot, transition.stagedPath)
     ) {
       artifactFailure("invalid-plan", transition.path);
@@ -172,8 +177,8 @@ export function validatePublicationPlan(plan: PublicationPlan): PublicationPlan 
   const liveIdentities = new Map<string, string>();
   const stagedIdentities = new Map<string, string>();
   const allIdentities = new Map<string, string>([
-    [portableIdentity(transactionRoot), transactionRoot],
-    [portableIdentity(stageRoot), stageRoot],
+    [portablePathIdentity(transactionRoot), transactionRoot],
+    [portablePathIdentity(stageRoot), stageRoot],
   ]);
   for (const [index, transition] of transitions.entries()) {
     const subject =
@@ -189,7 +194,7 @@ export function validatePublicationPlan(plan: PublicationPlan): PublicationPlan 
     ) {
       artifactFailure("control-path-collision", transition.path);
     }
-    const liveIdentity = portableIdentity(transition.path);
+    const liveIdentity = portablePathIdentity(transition.path);
     const previousLive = liveIdentities.get(liveIdentity);
     if (previousLive !== undefined) {
       artifactFailure(
@@ -207,7 +212,7 @@ export function validatePublicationPlan(plan: PublicationPlan): PublicationPlan 
     }
     allIdentities.set(liveIdentity, transition.path);
     if (transition.stagedPath !== null) {
-      const stagedIdentity = portableIdentity(transition.stagedPath);
+      const stagedIdentity = portablePathIdentity(transition.stagedPath);
       const previousStaged = stagedIdentities.get(stagedIdentity);
       if (previousStaged !== undefined) {
         artifactFailure(

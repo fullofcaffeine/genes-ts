@@ -14,6 +14,24 @@ it.
   Haxe companion generation without parsing CSS in tooling.
 - Publish versioned conformance vectors for host implementations.
 - Define the versioned, automation-friendly DevelopmentSession lifecycle,
-  event schema, and conformance scenarios ahead of its runtime implementation.
+  event schema, and conformance scenarios.
+- Implement `createGenesDevelopmentSession` over the existing HXML, watch,
+  serialized-loop, owned-server, compiler-manifest, and artifact-transaction
+  primitives, including last-good admission, supersession, read/publication
+  exclusion, exact stale deletion, output-scoped recovery, immutable effective
+  invocation checks, authoritative reconciliation, exact drift detection, and
+  bounded reentrant owned cleanup.
+- Require the executed Haxe command to match the inventoried working directory
+  and ordered top-level HXML files, reject linked source trees, and keep an
+  accepted output tied to its original physical path spelling.
+- Recognize Haxe's documented short class-path, library, resource, and working
+  directory options;
+  reject HXML options that execute shell commands or user programs before host
+  acceptance; keep informational changes from discarding an active build; and
+  report post-inventory compiler errors at the compile stage.
+- Copy and hash the complete effective Haxe environment for each revision, and
+  stop acceptance cleanly when a lifecycle observer closes the session.
+- Reject Haxe XML/JSON side outputs from the managed HXML graph, and verify the
+  complete live publication again after host admission before committing it.
 - Verify every public code and JSON export from the packed package on Node
   20.9.0, the package's declared minimum runtime.

@@ -1,5 +1,6 @@
 import type { HaxeWaitServerEvent } from "../haxe-server/types.js";
 import type { HxmlInventoryOptions } from "../hxml/types.js";
+import type { ReconciliationResult } from "../watch/types.js";
 
 export const DEVELOPMENT_SESSION_EVENT_PROTOCOL =
   "genes.tooling.development-session-event" as const;
@@ -23,6 +24,22 @@ export type FailurePhase =
   | "validate"
   | "publish"
   | "shutdown";
+
+/**
+ * Framework-neutral diagnostics produced by session mechanics themselves.
+ *
+ * A validator still returns the host's `Diagnostic` type. Core failures need
+ * an equally structured representation because the session, rather than the
+ * host, owns inventory, compiler-process, watch, publication, and shutdown
+ * mechanics. Hosts may format these facts for a terminal, but must not parse a
+ * log sentence to discover the phase or code.
+ */
+export type DevelopmentSessionDiagnostic = Readonly<
+  Record<string, JsonValue> & {
+    readonly code: string;
+    readonly message: string;
+  }
+>;
 
 /**
  * The exact public-output change admitted as one generation.
@@ -64,7 +81,7 @@ export interface SessionFailure<Diagnostic extends JsonValue> {
   readonly phase: FailurePhase;
   readonly revision: number | null;
   readonly recoverable: boolean;
-  readonly diagnostic: Diagnostic;
+  readonly diagnostic: Diagnostic | DevelopmentSessionDiagnostic;
   readonly retained: AcceptedGeneration | null;
 }
 
@@ -218,7 +235,7 @@ export interface DevelopmentSession<Diagnostic extends JsonValue> {
   invalidate(change: ExternalChange): void;
 
   /** Forces the session's existing watcher to compare authoritative inputs. */
-  reconcile(): void;
+  reconcile(): ReconciliationResult;
 
   /** Resolves when no build, follow-up, validation, or publication is active. */
   waitForIdle(): Promise<void>;
@@ -271,12 +288,17 @@ export interface HaxeInvocation {
   readonly cwd: string;
 
   /**
-   * Structured arguments only. A conforming session rejects `--wait`,
-   * `--connect`, and caller-provided Genes output overrides because it owns
-   * those lifecycle and candidate-output decisions.
+   * Structured arguments only. A conforming session accepts only the exact
+   * ordered top-level HXML files here. Build flags belong inside the HXML,
+   * where the session can inspect them before Haxe runs.
    */
   readonly args: readonly string[];
 
+  /**
+   * Optional overrides for the current Node process environment. The session
+   * copies the complete effective environment once per revision, includes it
+   * in the compiler-server identity, and uses those same bytes for Haxe.
+   */
   readonly env?: Readonly<Record<string, string>>;
 
   /** Canonical JSON facts used to decide whether a Haxe server is reusable. */
@@ -285,6 +307,11 @@ export interface HaxeInvocation {
 
 /** What an explicit host-owned change invalidates. */
 export interface ChangeImpact {
+  /**
+   * Set this to `false` only when the changed file cannot affect generated
+   * output or validation. The session still reports the change, but it does
+   * not discard an otherwise valid build that is already in progress.
+   */
   readonly rebuild?: boolean;
   readonly reinventory?: boolean;
   readonly restartCompiler?: boolean;
@@ -309,7 +336,7 @@ export interface GenesDevelopmentOptions<Diagnostic extends JsonValue> {
   /** Explicit public entry owned by this session; never inferred from output. */
   readonly publicOutputFile: string;
 
-  /** Private journals, leases, candidates, and session state live here. */
+  /** Private candidates and compiler leases live here; publication recovery is output-scoped. */
   readonly stateDirectory: string;
 
   readonly extraInputs?: readonly ObservedExtraInput[];
@@ -320,7 +347,8 @@ export interface GenesDevelopmentOptions<Diagnostic extends JsonValue> {
 
   /**
    * Runs against a complete candidate before public mutation. Recovery uses
-   * the same policy against a complete intended live tree.
+   * the same policy against a complete intended live tree. The validator must
+   * stop promptly when `signal` aborts so session shutdown stays bounded.
    */
   validate(
     tree: ValidationTree,

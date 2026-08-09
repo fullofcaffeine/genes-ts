@@ -5,9 +5,11 @@ into a complete, validated, public Genes output tree. It exists so a command,
 framework adapter, human, or AI agent can observe the same lifecycle without
 rebuilding process, watcher, and publication rules from terminal text.
 
-This directory defines the contract only. The first protocol change does not
-yet implement `DevelopmentSession`, start Haxe, watch files, publish output, or
-run a framework server.
+`createGenesDevelopmentSession` now implements this contract by composing the
+repository's existing HXML inventory, reconciled watcher, serialized loop,
+owned Haxe server, and recoverable artifact publisher. The protocol remains
+framework-neutral: the implementation does not run Vite, Next.js, Electron,
+Expo, WordPress, a browser, or any other application service.
 
 ## Who should read what
 
@@ -24,11 +26,15 @@ If you are implementing the session, read this entire file, then:
 1. [`../../src/session/types.ts`](../../src/session/types.ts) for the public
    TypeScript surface;
 2. [`vectors.json`](vectors.json) for required scenarios and outcomes;
-3. the existing HXML, watch, loop, Haxe-server, and artifact implementations
+3. [`../../src/session/runtime.ts`](../../src/session/runtime.ts) for the
+   composition layer;
+4. the existing HXML, watch, loop, Haxe-server, and artifact implementations
    named in [`../../README.md`](../../README.md).
 
-The vectors are executable acceptance requirements for the later runtime.
-They are not illustrative examples that an implementation may ignore.
+The vectors are executable acceptance requirements. The focused runtime suite
+drives every vector through the real state machine with controlled compiler,
+watch, validator, and fault boundaries; they are not illustrative examples an
+implementation may ignore.
 
 ## The practical problem
 
@@ -44,9 +50,10 @@ The session contract makes the safe order explicit:
 recover an interrupted publication
   -> register the Haxe input graph
   -> assign an input revision
+  -> resolve every library HXML and snapshot/check the effective invocation
   -> generate a complete private candidate
   -> ask the host to validate that candidate
-  -> reject it if a newer revision is already known
+  -> reject it if a newer build-requiring revision is already known
   -> publish all admitted files as one recoverable transaction
   -> announce an accepted generation
 ```
@@ -59,6 +66,12 @@ generation number.
 For example, revision 2 may fail strict TypeScript while generation 1 remains
 public. After the developer repairs the source, revision 3 can become
 generation 2.
+
+A host may mark an extra input change as `rebuild: false` when that file cannot
+affect generated output or validation. The session reports this informational
+change and advances `newestRevision`, but it does not discard a valid compile
+already in progress. This is why an accepted generation's `revision` may be
+lower than `newestRevision` until another build-requiring change occurs.
 
 ## States a host presents
 
@@ -114,8 +127,10 @@ One JSON-lines event can therefore be consumed directly by automation:
 {"protocol":"genes.tooling.development-session-event","version":1,"sequence":8,"at":1785520800000,"event":{"kind":"generation-accepted","accepted":{"generation":2,"revision":3,"acceptedAt":1785520800000,"manifestDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","compilerMode":"connected","files":{"created":[],"updated":["src-gen/index.tsx"],"deleted":[]},"entryChanged":true}}}
 ```
 
-The diagnostic inside a failure is host-owned JSON. Core tooling preserves it
-but does not invent user-facing prose or decide what is safe to send to a
+The diagnostic inside a validation failure is host-owned JSON. Core tooling
+does not rewrite host data. Diagnostics produced by the session itself use
+logical subjects and sanitize private candidate/state paths before they enter
+an event; a host still decides which diagnostic data is safe to send to a
 browser.
 
 ## Private validation and last-good output
@@ -137,6 +152,68 @@ tooling transaction        -> admitted candidate replaces public output
 An admitted candidate whose bytes are unchanged still advances the accepted
 generation and revision, but reports an empty `FileDelta`. Hosts perform no
 reload for that empty delta.
+
+The outer accepted-generation marker binds the last admitted compiler
+inventory. The session remembers the marker's exact file state, and the
+inventory includes the compiler ownership manifest's raw digest, size, and
+mode. A later build refuses to publish over any of those exact authorities when
+they changed outside the session. Unowned neighboring files are preserved;
+an unowned file occupying a newly generated path is a collision, not something
+the session adopts. Generated files are outputs—not a second editable source
+tree.
+
+The publication journal and accepted marker are keyed by project/output scope,
+not by the caller's private `stateDirectory`. If a process crashes while using
+`.genes/state-a` and restarts with `.genes/state-b`, the new process still finds
+and resolves the one authoritative journal before inventory or compilation.
+That scope uses the artifact protocol's portable path identity (NFC plus
+case-folding), not the caller's path spelling. Case aliases therefore share one
+lifetime lock, journal, marker, admission identity, and recovery universe even
+on a case-sensitive host; non-NFC paths are rejected before startup. The
+caller-selected private state directory may not contain or equal the stable
+`.genes/tooling` control root.
+
+Library expansion is part of invocation authority. A lower-level HXML inventory
+may list `-lib` requests without resolving them, but DevelopmentSession requires
+an authoritative resolver for every discovered library. The existing argument
+policy then visits each returned HXML, including `extraParams.hxml`, before Haxe
+can run. “Resolver returned no effective HXML” is distinct from “no resolver was
+provided”; only the former is a complete closure.
+
+Top-level HXML entries retain caller order when the session compares the
+inventoried closure with the executable invocation. Entry and resolved-library
+paths are checked for symlink components before canonicalization, so an alias
+cannot erase the path that must pass the no-follow policy.
+
+The executable invocation must also use the inventory's working directory and
+contain only those ordered top-level HXML files. Build options belong in the
+inventoried HXML graph. Source class paths reject symbolic links because Haxe
+may follow them while the safe watcher does not; accepting both behaviors would
+let the compiler read a change that the session could miss.
+
+The session rejects HXML `--cmd`, `--run`, `--interp`, and `-x`. Those Haxe
+options can run a shell command or the compiled program before the private
+candidate has passed the host's checks. It also rejects `--xml` and `--json`
+because they write extra files outside the private candidate. A host that needs
+a follow-up command or side output must own it explicitly and run it only after
+an accepted generation.
+
+The host may supply environment overrides with the Haxe invocation. For each
+revision, the session combines them with the current Node process environment,
+copies the complete result, includes it in the compiler-server identity, and
+passes those exact values to Haxe. An ambient `PATH`, `HAXELIB_PATH`, or
+`HAXE_STD_PATH` change therefore starts a compatible server instead of silently
+reusing one created with older settings.
+
+If an HXML edit is read successfully but Haxe then reports a source error, the
+failure is reported as a compile failure. “HXML inventory failed” is reserved
+for errors that actually prevented the session from understanding the HXML
+input graph.
+
+The accepted marker records both the portable output identity and its original
+project-relative spelling. Case aliases still share one lock and recovery
+scope. On a case-sensitive filesystem, a later session must reuse the original
+spelling instead of looking for prior files in a different physical directory.
 
 ## Publication and reads
 
@@ -162,7 +239,12 @@ The protocol is intentionally friendly to unattended tools:
 - structured failure phases distinguish compiler, validator, publication,
   and shutdown errors;
 - `waitForIdle()` gives tests a real barrier instead of a timing-only sleep;
-- `reconcile()` asks the existing watcher for an authoritative comparison;
+- `reconcile()` asks the existing watcher for an authoritative comparison and
+  reports whether it succeeded. The two pre-publication comparisons are
+  admission gates: an unknown input state never counts as “no changes.”
+- Publication reads the complete live result again after host admission. If an
+  outside writer changes a file during that callback, the session stops and
+  does not announce an accepted generation or overwrite the outside bytes.
 - `firstAccepted` gates a dependent service without polling files;
 - `close()` and read-lease release are idempotent;
 - human terminal formatting is an adapter over the same event records.
@@ -197,6 +279,12 @@ start the session
   -> use waitForIdle in tests, never a guessed sleep
   -> close once; repeated close calls are safe
 ```
+
+External `invalidate()` calls are accepted only after recovery, inventory, and
+watch registration complete. This keeps revision 1 the first build and prevents
+startup-time events from racing recovery. The registered watcher already
+reconciles the input graph before that first revision, so callers do not need to
+inject a synthetic startup change.
 
 An agent must not modify the public generated tree to “help” recovery. The
 session owns publication and the host owns admission; bypassing either one

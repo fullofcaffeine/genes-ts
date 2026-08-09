@@ -243,6 +243,49 @@ only when all expected files and their aggregate hash match that exact input
 identity. A changed source, changed configuration, missing output, corrupt
 output, or absent cache causes a clean rebuild.
 
+### Development-session tooling
+
+The admitted-generation runtime is tested at four distinct boundaries so one
+green mock does not stand in for filesystem, process, or protocol behavior:
+
+```bash
+yarn --cwd tooling test
+yarn test:tooling-package
+```
+
+- `session-vector-test` validates the released JSON schemas and all exact
+  protocol payload examples.
+- `session-runtime-vector-test` drives all 12 released scenarios through the
+  real state machine with controlled compiler, watcher, validator, and fault
+  boundaries. It checks event/state runs, revisions, generations, first
+  admission, failure phases, publication attempts, and read-barrier behavior.
+- `session-test` uses the real recoverable artifact publisher to prove
+  last-good output, rollback, exact stale deletion, unowned-file preservation,
+  burst supersession, HXML registration-gap closure, compiler-identity
+  rotation, read/publication exclusion, and single-writer ownership. Its
+  adversarial closure cases also cover mutable invocation inputs, nested HXML
+  lifecycle/output flags, unowned path collisions, exact marker/manifest
+  drift, reconciliation failure at both publication claims, startup/close
+  races, private-path sanitization, and process-exit recovery through a
+  different private state directory. It also proves unresolved libraries fail
+  before compilation, resolved library HXML receives the same option policy,
+  portable output aliases share one lock/control/digest identity, alias
+  input/state overlap is rejected, and an alias restart resolves the original
+  journal. Entry ordering, symlinked parent directories, stable-control/state
+  separation, and repeated private-path sanitization are focused regressions.
+- `session-integration-test` runs the real selected Haxe 4.3.7 compiler twice,
+  proves the request-local private output override, publishes through the
+  compiler's v2 ownership manifest, verifies private candidate paths stay out
+  of generated TypeScript/source maps, proves nested and temporary-library
+  output/multi-compilation HXML fails before public mutation, and proves the
+  second valid build reuses one exact owned server.
+
+The package gate then installs the deterministic tarball into a clean Node
+project, type-checks the public factory/types, and imports both the root and
+`./session` runtime exports. Framework/browser acceptance remains downstream:
+NextJsHx proves a non-Vite host, while GameCarry is the first maintained Vite,
+strict-TypeScript, React, and agent-facing reference integration.
+
 `yarn test:test-tool-preparation` proves the cold, warm, changed-input,
 corrupt-output, and missing-output paths. Initial local samples were 2.31
 seconds for a rebuild and 0.20 seconds for a verified hit. Those are samples,
