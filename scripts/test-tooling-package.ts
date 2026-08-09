@@ -480,7 +480,7 @@ function verifyPackageMetadata(): { name: string; version: string } {
   const scripts = packageJson.scripts;
   assert(
     isRecord(scripts) &&
-      scripts.build === "tsc6 -p tsconfig.json" &&
+      scripts.build === "npm exec --no -- tsc6 -p tsconfig.json" &&
       scripts.prepare === "npm run build",
     "Git-source installation must build the tooling subpackage without repository-root scripts"
   );
