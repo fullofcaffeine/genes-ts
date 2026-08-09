@@ -759,6 +759,7 @@ or changes compiler semantics. Its positive contract is:
 observed input revision
   -> immutable effective Haxe invocation
   -> exact nested-HXML + flattened library-argument closure derived from it
+  -> optional exact host-prepared Haxe inputs
   -> session-owned private Haxe JS target + request-local `genes.output`
   -> exact Genes v2 ownership inventory
   -> host-owned validation
@@ -866,6 +867,24 @@ and may use filesystem or process APIs; hosts declare macro-owned external
 inputs when they affect rebuild correctness. Preventing arbitrary macro reads
 or writes requires an operating-system sandbox and is outside this bounded
 development-session contract.
+
+Host-prepared Haxe inputs solve a timing problem rather than changing compiler
+ownership. A closed declaration such as a CSS Module companion must exist
+before Haxe types authored field access, so it cannot be an ordinary Genes
+output. The session accepts exact bytes, stages them inside the private
+candidate, adds only their declared class paths to that request, and includes a
+content digest in `genes.tooling.prepared`. That define changes the Haxe request
+cache identity without changing the compatible wait-server identity. No typed
+Haxe object or class-name registry survives in the Node process.
+
+Prepared files with public destinations and validator-produced receipts are
+supplemental owned files. The outer transaction publishes them with the Genes
+manifest and target output, records their exact file states in the accepted
+marker, deletes only their previously recorded stale paths, and checks them
+again during recovery. A generated companion can use the same candidate and
+public relative path so its source-map name remains stable after publication.
+The host still owns how those prepared bytes were discovered and whether a real
+framework loader agrees with them.
 
 Framework policy remains above this boundary. Vite, Next.js, Electron, Expo,
 WordPress, browser transports, device transports, and application servers may

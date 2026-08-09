@@ -248,6 +248,64 @@ If validation fails after an earlier success, `state.kind` becomes
 `"blocked"`; the watcher remains alive so a later edit can recover without
 restarting the command.
 
+### Files that must exist before Haxe checks the program
+
+Some hosts create exact Haxe input from another tool. A CSS Modules host, for
+example, asks its real CSS processor for the exported class names and creates a
+closed Haxe companion before Haxe can check `styles.card`.
+
+Use `prepareRevision` for that case. Return the exact bytes instead of writing
+into the session's private directories yourself:
+
+```ts
+prepareRevision: async ({ signal }) => {
+  const companion = await makeClosedCompanion({ signal });
+  return {
+    ok: true,
+    prepared: {
+      classPaths: ["generated-haxe"],
+      files: [{
+        relativePath: "generated-haxe/app/CardStyles.hx",
+        content: companion.haxe,
+        publishPath: "generated-haxe/app/CardStyles.hx",
+      }],
+    },
+  };
+},
+```
+
+Tooling writes those bytes into the private candidate, includes their digest in
+that Haxe request, and keeps the same compatible Haxe server alive. A changed
+companion therefore cannot be mistaken for an older cached type.
+
+`publishPath` is optional. When present, that file joins the same final update
+as the Genes output. A generated Haxe source that should remain navigable after
+publication should normally use the same `relativePath` and `publishPath`, as
+shown above. That gives source maps a stable public path instead of a temporary
+build path.
+
+The validator sees these future public files in `tree.extraFiles`. It may
+return small evidence files in `artifacts` after its checks pass:
+
+```ts
+validate: async (tree, context) => {
+  const receipt = await checkWithRealLoader(tree, context);
+  return {
+    ok: true,
+    artifacts: [{
+      path: "generated-haxe/css-loader-agreement.json",
+      content: receipt,
+    }],
+  };
+},
+```
+
+Prepared files, validator evidence, declarations, maps, and generated JS/TS are
+then published or rolled back together. A rejected edit leaves the earlier
+accepted set unchanged. The host still decides how to parse CSS, which loader
+is authoritative, and how its live development server handles an invalid
+authored stylesheet.
+
 ### Rules a host should not have to rediscover
 
 - `publicOutputFile` and `stateDirectory` are project-contained, non-overlapping
@@ -297,6 +355,10 @@ restarting the command.
   rejects every authored target selector,
   `--no-output`, display/prompt modes, compiler dump/message-log file outputs,
   caller-provided `--connect`, server-listen, `genes.output`,
+  and `genes.tooling.prepared`. When `prepareRevision` is used, the session owns
+  `-D genes.tooling.prepared=<exact digest>` so a warm compiler cannot reuse an
+  older generated input. Both private defines are reserved and may not appear
+  in the HXML graph.
   `--next`, and `--each` flags because two lifecycle owners or several output
   compilations would be ambiguous. It also rejects `--cmd`, `--run`,
   `--interp`, and `-x`: these options can run a shell command or the compiled

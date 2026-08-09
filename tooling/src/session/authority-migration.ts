@@ -526,7 +526,10 @@ export function auditSessionAuthority(layout: SessionLayout): void {
       rootAuthority = fields.publicOutputRoot;
       entryAuthority = fields.publicEntry;
       expectedScope = sha256Bytes(entryAuthority);
-    } else if (fields.protocol === "genes.tooling.accepted-generation.v2") {
+    } else if (
+      fields.protocol === "genes.tooling.accepted-generation.v2" ||
+      fields.protocol === "genes.tooling.accepted-generation.v3"
+    ) {
       if (
         typeof fields.publicOutputRoot !== "string" ||
         typeof fields.publicEntry !== "string"

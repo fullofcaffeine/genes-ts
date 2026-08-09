@@ -37,7 +37,9 @@ import type {
   WatchInput,
 } from "./watch/index.js";
 import {
+  HaxeSessionCompiler,
   snapshotHaxeInvocation,
+  type PreparedCompilerRequest,
   type SessionCompiler,
 } from "./session/haxe-driver.js";
 import { readGenesOutput } from "./session/genes-output.js";
@@ -189,6 +191,7 @@ class FakeCompiler implements SessionCompiler {
   readonly modes: Array<"connected" | "direct"> = [];
   readonly compatibilityDigests: string[] = [];
   readonly invocations: Parameters<SessionCompiler["compile"]>[0][] = [];
+  readonly preparedRequests: PreparedCompilerRequest[] = [];
   calls = 0;
   closed = 0;
 
@@ -197,10 +200,21 @@ class FakeCompiler implements SessionCompiler {
     compatibilityDigest: string,
     signal: AbortSignal,
     assertInvocationCurrent?: () => void | Promise<void>,
+    prepared?: PreparedCompilerRequest,
   ): Promise<{ readonly mode: "connected" | "direct" }> {
     const { candidateOutputFile } = _invocation;
     this.calls += 1;
     this.invocations.push(_invocation);
+    if (prepared !== undefined) {
+      this.preparedRequests.push(prepared);
+      for (const classPath of prepared.classPaths) {
+        assert.equal(
+          existsSync(classPath),
+          true,
+          "prepared class path exists while Haxe compiles",
+        );
+      }
+    }
     const step = this.steps.shift() ?? { content: "export const value = 1;\n" };
     step.beforeInvocationGuard?.();
     await assertInvocationCurrent?.();
@@ -2910,6 +2924,7 @@ for (const invalidArgs of [
 
 for (const forbidden of [
   "-D genes.output=src-gen/index.ts",
+  "-D genes.tooling.prepared=caller-owned",
   "--connect 6000",
   "--wait 6000",
   "--server-listen 127.0.0.1:6000",
@@ -3400,4 +3415,269 @@ await withHarness(
   }),
 );
 
+await withHarness(
+  "prepared-compiler-inputs-publish-with-one-generation",
+  async (harness) => {
+    harness.compiler.steps.push(
+      { content: "export const revision = 1;\n" },
+      { content: "export const revision = 2;\n" },
+    );
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "ready");
+
+    const companion = path.join(harness.root, "generated-haxe/CardStyles.hx");
+    const receipt = path.join(harness.root, "generated-haxe/host-receipt.json");
+    const firstCompanion = readFileSync(companion, "utf8");
+    const firstReceipt = readFileSync(receipt, "utf8");
+    const firstOutput = readFileSync(
+      path.join(harness.root, "src-gen/index.ts"),
+      "utf8",
+    );
+
+    harness.session.invalidate({
+      path: "src/Main.hx",
+      impact: { rebuild: true },
+    });
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "degraded");
+    assert.equal(harness.compiler.preparedRequests.length, 2);
+    assert.notEqual(
+      harness.compiler.preparedRequests[0]?.digest,
+      harness.compiler.preparedRequests[1]?.digest,
+      "changed prepared bytes change the Haxe request cache identity",
+    );
+    assert.equal(readFileSync(companion, "utf8"), firstCompanion);
+    assert.equal(readFileSync(receipt, "utf8"), firstReceipt);
+    assert.equal(
+      readFileSync(path.join(harness.root, "src-gen/index.ts"), "utf8"),
+      firstOutput,
+    );
+  },
+  undefined,
+  (options) => ({
+    ...options,
+    prepareRevision: async ({ revision }) => ({
+      ok: true,
+      prepared: {
+        classPaths: ["haxe"],
+        files: [
+          {
+            relativePath: "haxe/CardStyles.hx",
+            content: `typedef CardStyles = { final revision${revision}:String; }\n`,
+            publishPath: "generated-haxe/CardStyles.hx",
+          },
+        ],
+      },
+    }),
+    validate: async (tree) => {
+      assert.equal(tree.extraFiles.length, 1);
+      assert.equal(
+        tree.extraFiles[0]?.logicalPath,
+        "generated-haxe/CardStyles.hx",
+      );
+      if (tree.revision === 2) {
+        return {
+          ok: false,
+          diagnostic: {
+            code: "EXPECTED_REJECTION",
+            message: "the second prepared revision is deliberately rejected",
+          },
+        };
+      }
+      return {
+        ok: true,
+        artifacts: [
+          {
+            path: "generated-haxe/host-receipt.json",
+            content: "{\"accepted\":1}\n",
+          },
+        ],
+      };
+    },
+  }),
+);
+
+await withHarness(
+  "prepared-input-reserved-stage-path",
+  async (harness) => {
+    harness.compiler.steps.push({ content: "export const value = 1;\n" });
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "blocked");
+    assert.equal(harness.compiler.calls, 0);
+    assert.equal(existsSync(path.join(harness.root, "src-gen/index.ts")), false);
+  },
+  undefined,
+  (options) => ({
+    ...options,
+    prepareRevision: () => ({
+      ok: true,
+      prepared: {
+        classPaths: ["output"],
+        files: [
+          {
+            relativePath: "output/Injected.hx",
+            content: "class Injected {}\n",
+          },
+        ],
+      },
+    }),
+  }),
+);
+
+await withHarness(
+  "prepared-stale-file-removal",
+  async (harness) => {
+    harness.compiler.steps.push(
+      { content: "export const revision = 1;\n" },
+      { content: "export const revision = 2;\n" },
+    );
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(existsSync(path.join(harness.root, "public/old.json")), true);
+    currentWatch(harness).change(harness.source);
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "ready");
+    assert.equal(existsSync(path.join(harness.root, "public/old.json")), false);
+    assert.deepEqual(harness.session.inspect().accepted?.files.deleted, [
+      "public/old.json",
+    ]);
+  },
+  undefined,
+  (options) => ({
+    ...options,
+    prepareRevision: ({ revision }) => ({
+      ok: true,
+      prepared: {
+        classPaths: ["haxe"],
+        files: [
+          {
+            relativePath: "haxe/Companion.hx",
+            content: `class Companion { public static final revision = ${revision}; }\n`,
+            publishPath: "public/Companion.hx",
+          },
+          ...(revision === 1
+            ? [
+                {
+                  relativePath: "evidence/old.json",
+                  content: "{\"revision\":1}\n",
+                  publishPath: "public/old.json",
+                },
+              ]
+            : []),
+        ],
+      },
+    }),
+  }),
+);
+
+await withHarness(
+  "prepared-stale-file-drift",
+  async (harness) => {
+    harness.compiler.steps.push(
+      { content: "export const revision = 1;\n" },
+      { content: "export const revision = 2;\n" },
+    );
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    const old = path.join(harness.root, "public/old.json");
+    writeFileSync(old, "{\"outside\":true}\n", "utf8");
+    currentWatch(harness).change(harness.source);
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "degraded");
+    assert.equal(readFileSync(old, "utf8"), "{\"outside\":true}\n");
+    assert.equal(
+      readFileSync(path.join(harness.root, "src-gen/index.ts"), "utf8"),
+      "export const revision = 1;\n",
+    );
+  },
+  undefined,
+  (options) => ({
+    ...options,
+    prepareRevision: ({ revision }) => ({
+      ok: true,
+      prepared: {
+        classPaths: ["haxe"],
+        files: [
+          {
+            relativePath: "haxe/Companion.hx",
+            content: `class Companion { public static final revision = ${revision}; }\n`,
+          },
+          ...(revision === 1
+            ? [
+                {
+                  relativePath: "evidence/old.json",
+                  content: "{\"revision\":1}\n",
+                  publishPath: "public/old.json",
+                },
+              ]
+            : []),
+        ],
+      },
+    }),
+  }),
+);
+
+await withHarness(
+  "prepared-public-generated-output-collision",
+  async (harness) => {
+    harness.compiler.steps.push({ content: "export const value = 1;\n" });
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "blocked");
+    assert.equal(existsSync(path.join(harness.root, "src-gen/index.ts")), false);
+  },
+  undefined,
+  (options) => ({
+    ...options,
+    prepareRevision: () => ({
+      ok: true,
+      prepared: {
+        classPaths: ["haxe"],
+        files: [
+          {
+            relativePath: "haxe/Companion.hx",
+            content: "class Companion {}\n",
+            publishPath: "src-gen/index.ts",
+          },
+        ],
+      },
+    }),
+  }),
+);
+
+await withHarness(
+  "prepared-and-admitted-public-collision",
+  async (harness) => {
+    harness.compiler.steps.push({ content: "export const value = 1;\n" });
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "blocked");
+    assert.equal(existsSync(path.join(harness.root, "public/evidence.json")), false);
+  },
+  undefined,
+  (options) => ({
+    ...options,
+    prepareRevision: () => ({
+      ok: true,
+      prepared: {
+        classPaths: ["haxe"],
+        files: [
+          {
+            relativePath: "haxe/Companion.hx",
+            content: "class Companion {}\n",
+            publishPath: "public/evidence.json",
+          },
+        ],
+      },
+    }),
+    validate: async () => ({
+      ok: true,
+      artifacts: [
+        { path: "public/evidence.json", content: "{\"accepted\":true}\n" },
+      ],
+    }),
+  }),
+);
 console.log("genes tooling development session runtime: ok");

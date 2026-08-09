@@ -3,18 +3,30 @@ import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   copyFileSync,
+  cpSync,
+  existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import os from "node:os";
+import os, { homedir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 import { generateCssModuleCompanion } from "../../tooling/dist/css-modules/index.js";
+import {
+  canonicalDigest,
+  canonicalJson,
+} from "../../tooling/dist/artifacts/index.js";
+import {
+  createGenesDevelopmentSession,
+} from "../../tooling/dist/session/index.js";
 
 const fixtureRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(fixtureRoot, "../..");
@@ -263,6 +275,610 @@ async function bundleAndRun(profile, entry) {
   }
 }
 
+function warmSource({ useTitle, useSelected }) {
+  const fields = ["styles.card"];
+  if (useTitle) fields.push("styles.title");
+  if (useSelected) fields.push("styles.selected");
+  return [
+    "package app;",
+    "",
+    "import genes.css.CssModule.imported;",
+    "",
+    "/** Returns the real class names supplied by the current CSS Module. */",
+    '@:genes.moduleFunction("classNames")',
+    "function classNames():String {",
+    "  final styles:CardStyles = imported(\"./card.module.css\", \"styles\");",
+    `  return [${fields.join(", ")}].join("|");`,
+    "}",
+    "",
+  ].join("\n");
+}
+
+function warmEntrySource() {
+  return [
+    "package app;",
+    "",
+    "/** Small executable entry used by the real loader check. */",
+    "class Entry {",
+    "  static function main():Void trace(Card.classNames());",
+    "}",
+    "",
+  ].join("\n");
+}
+
+function sourceLocationIn(file, relativePath, name) {
+  const css = readFileSync(file, "utf8");
+  const offset = css.indexOf(`.${name}`);
+  assert.notEqual(offset, -1, `${relativePath} contains .${name}`);
+  const before = css.slice(0, offset).split("\n");
+  return {
+    path: relativePath,
+    line: before.length,
+    column: before.at(-1).length + 2,
+  };
+}
+
+async function makeWarmManifest(projectRoot, expected) {
+  const sourceRelative = "styles/card.module.css";
+  const file = path.join(projectRoot, sourceRelative);
+  const processed = await processCss(file);
+  const keys = Object.keys(processed.tokens).sort((left, right) =>
+    Buffer.from(left).compare(Buffer.from(right)),
+  );
+  assert.deepEqual(
+    keys,
+    expected,
+    "the hand-written expectation agrees with the real CSS processor",
+  );
+  const providerLock = JSON.parse(
+    readFileSync(path.join(fixtureRoot, "provider/package-lock.json"), "utf8"),
+  );
+  const processorPackage = providerLock.packages["node_modules/postcss-modules"];
+  return {
+    protocol: "genes.css-module-exports",
+    version: 1,
+    namingPolicy: "genes-haxe-css-fields-v1",
+    binding: {
+      haxeOwner: "app.Card",
+      generatedModule: "app/Card",
+      request: "./card.module.css",
+      hostModulePath: "src-gen/app/card.module.css",
+      companionType: "app.CardStyles",
+    },
+    source: {
+      entry: sourceRelative,
+      inputs: [{ path: sourceRelative, sha256: sha256(readFileSync(file)) }],
+    },
+    producer: {
+      providerId: "genes-css-module-warm-test-provider",
+      providerVersion: "1.0.0",
+      processorId: "postcss-modules",
+      processorVersion: processorPackage.version,
+      processorIntegrity: processorPackage.integrity,
+      configurationSha256: sha256(
+        "generateScopedName=genes_test_[name]__[local]",
+      ),
+    },
+    exports: keys.map((name) => ({
+      name,
+      source: sourceLocationIn(file, sourceRelative, name),
+    })),
+  };
+}
+
+async function prepareWarmRevision(projectRoot, expectedKeys) {
+  const css = path.join(projectRoot, "styles/card.module.css");
+  const manifest = await makeWarmManifest(projectRoot, expectedKeys);
+  const companion = generateCssModuleCompanion({ projectRoot, manifest });
+  return {
+    classPaths: ["generated-haxe"],
+    files: [
+      {
+        relativePath: `generated-haxe/${companion.relativePath}`,
+        content: companion.content,
+        publishPath: `generated-haxe/${companion.relativePath}`,
+      },
+      {
+        relativePath: "evidence/css-module-exports.json",
+        content: `${canonicalJson(companion.manifest)}\n`,
+        publishPath: "generated-haxe/css-module-exports.json",
+      },
+      {
+        relativePath: "host/app/card.module.css",
+        content: readFileSync(css),
+        publishPath: "src-gen/app/card.module.css",
+      },
+      {
+        relativePath: "host/app/card.module.d.css.ts",
+        content: companion.typescriptDeclarationContent,
+        publishPath: companion.typescriptDeclarationRelativePath,
+      },
+    ],
+  };
+}
+
+function haxeExecutable() {
+  const version = execFileSync("haxe", ["--version"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  }).trim();
+  const executable = process.env.HAXE_STD_PATH === undefined
+    ? path.join(
+        homedir(),
+        "haxe",
+        "versions",
+        version,
+        process.platform === "win32" ? "haxe.exe" : "haxe",
+      )
+    : path.join(
+        path.dirname(process.env.HAXE_STD_PATH),
+        process.platform === "win32" ? "haxe.exe" : "haxe",
+      );
+  return { executable, version };
+}
+
+function copyValidationTree(tree, destination) {
+  rmSync(destination, { recursive: true, force: true });
+  mkdirSync(destination, { recursive: true });
+  const seen = new Set();
+  for (const file of [...tree.files, ...tree.extraFiles]) {
+    assert.equal(seen.has(file.logicalPath), false, file.logicalPath);
+    seen.add(file.logicalPath);
+    const target = path.join(destination, ...file.logicalPath.split("/"));
+    mkdirSync(path.dirname(target), { recursive: true });
+    copyFileSync(file.physicalPath, target);
+  }
+}
+
+function snapshotFiles(root, directories) {
+  const entries = [];
+  const visit = (absolute, relative) => {
+    for (const name of readdirSync(absolute).sort()) {
+      const child = path.join(absolute, name);
+      const childRelative = relative.length === 0 ? name : `${relative}/${name}`;
+      const stats = lstatSync(child);
+      assert.equal(stats.isSymbolicLink(), false, childRelative);
+      if (stats.isDirectory()) visit(child, childRelative);
+      else entries.push([childRelative, sha256(readFileSync(child))]);
+    }
+  };
+  for (const directory of directories) {
+    const absolute = path.join(root, directory);
+    if (existsSync(absolute)) visit(absolute, directory);
+  }
+  return entries;
+}
+
+function fileViews(root, logicalRoot) {
+  const files = [];
+  const visit = (absolute, relative) => {
+    for (const name of readdirSync(absolute).sort()) {
+      const child = path.join(absolute, name);
+      const childRelative = relative.length === 0 ? name : `${relative}/${name}`;
+      const stats = lstatSync(child);
+      if (stats.isDirectory()) visit(child, childRelative);
+      else {
+        files.push({
+          logicalPath: `${logicalRoot}/${childRelative}`,
+          physicalPath: child,
+          digest: sha256(readFileSync(child)),
+        });
+      }
+    }
+  };
+  visit(root, "");
+  return files;
+}
+
+function preparedRevisionDigest(prepared) {
+  return canonicalDigest({
+    protocol: "genes.tooling.prepared-revision.v1",
+    classPaths: prepared.classPaths,
+    files: prepared.files.map((file) => {
+      const bytes = typeof file.content === "string"
+        ? Buffer.from(file.content, "utf8")
+        : Buffer.from(file.content);
+      return {
+        path: file.relativePath,
+        sha256: sha256(bytes),
+        sizeBytes: bytes.byteLength,
+        mode: file.mode ?? 0o644,
+        publishPath: file.publishPath ?? null,
+      };
+    }),
+  });
+}
+
+async function isolatedColdSnapshot({
+  projectRoot,
+  expectedKeys,
+  executable,
+  validationRoot,
+}) {
+  const prepared = await prepareWarmRevision(projectRoot, expectedKeys);
+  // Match the session candidate's directory depth. Source maps are relative to
+  // the generated module, so an equally deep isolated build should have the
+  // exact same portable source names without copying the live nonce.
+  const coldRoot = path.join(
+    projectRoot,
+    ".cold/dev/candidates/revision-cold",
+  );
+  const preparedRoot = coldRoot;
+  const outputRoot = path.join(coldRoot, "output");
+  const publicRoot = path.join(coldRoot, "public");
+  rmSync(path.join(projectRoot, ".cold"), { recursive: true, force: true });
+  for (const file of prepared.files) {
+    const target = path.join(preparedRoot, ...file.relativePath.split("/"));
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, file.content, { mode: file.mode ?? 0o644 });
+  }
+  mkdirSync(outputRoot, { recursive: true });
+  execFileSync(
+    executable,
+    [
+      "build.hxml",
+      ...prepared.classPaths.flatMap((classPath) => [
+        "-cp",
+        path.join(preparedRoot, ...classPath.split("/")),
+      ]),
+      "-D",
+      `genes.tooling.prepared=${preparedRevisionDigest(prepared)}`,
+      "-D",
+      `genes.output=${path.join(outputRoot, "index.ts")}`,
+    ],
+    { cwd: projectRoot, stdio: "pipe" },
+  );
+  cpSync(outputRoot, path.join(publicRoot, "src-gen"), { recursive: true });
+  const extraFiles = [];
+  for (const file of prepared.files) {
+    if (file.publishPath === undefined) continue;
+    const source = path.join(preparedRoot, ...file.relativePath.split("/"));
+    const target = path.join(publicRoot, ...file.publishPath.split("/"));
+    mkdirSync(path.dirname(target), { recursive: true });
+    copyFileSync(source, target);
+    extraFiles.push({
+      logicalPath: file.publishPath,
+      physicalPath: target,
+      digest: sha256(readFileSync(target)),
+    });
+  }
+  const receipt = await validateWarmTree(
+    {
+      entryLogicalPath: "src-gen/index.ts",
+      files: fileViews(outputRoot, "src-gen"),
+      extraFiles,
+    },
+    validationRoot,
+  );
+  const receiptFile = path.join(publicRoot, "generated-haxe/host-agreement.json");
+  mkdirSync(path.dirname(receiptFile), { recursive: true });
+  writeFileSync(receiptFile, receipt, "utf8");
+  return {
+    root: publicRoot,
+    snapshot: snapshotFiles(publicRoot, ["src-gen", "generated-haxe"]),
+  };
+}
+
+async function validateWarmTree(tree, validationRoot) {
+  copyValidationTree(tree, validationRoot);
+  const manifestFile = path.join(
+    validationRoot,
+    "generated-haxe/css-module-exports.json",
+  );
+  const manifest = JSON.parse(readFileSync(manifestFile, "utf8"));
+  const expectedKeys = manifest.exports.map((entry) => entry.name).sort();
+  const tsconfig = path.join(validationRoot, "tsconfig.json");
+  writeFileSync(
+    tsconfig,
+    `${JSON.stringify({
+      compilerOptions: {
+        allowArbitraryExtensions: true,
+        lib: ["ES2022", "DOM", "DOM.Iterable"],
+        module: "ESNext",
+        moduleResolution: "Bundler",
+        noEmit: true,
+        strict: true,
+        target: "ES2022",
+      },
+      include: ["src-gen/**/*.ts"],
+    }, null, 2)}\n`,
+    "utf8",
+  );
+  run(path.join(repoRoot, "node_modules/.bin/tsc6"), ["-p", tsconfig], validationRoot);
+
+  const observed = [];
+  const bundle = path.join(validationRoot, "runtime.mjs");
+  await esbuild.build({
+    entryPoints: [path.join(validationRoot, tree.entryLogicalPath)],
+    outfile: bundle,
+    bundle: true,
+    format: "esm",
+    platform: "node",
+    plugins: [cssLoaderPlugin(observed)],
+  });
+  assert.equal(observed.length, 1, "the real loader sees one CSS Module import");
+  assert.deepEqual(observed[0].keys.sort(), expectedKeys);
+  for (const value of Object.values(observed[0].values)) {
+    assert.equal(typeof value, "string");
+    assert.notEqual(value.length, 0);
+  }
+  execFileSync(process.execPath, [bundle], { encoding: "utf8" });
+  return `${canonicalJson({
+    protocol: "genes.css-module-host-agreement",
+    version: 1,
+    manifestSha256: sha256(readFileSync(manifestFile)),
+    observedKeysSha256: sha256(JSON.stringify(expectedKeys)),
+    result: "accepted",
+  })}\n`;
+}
+
+async function exerciseWarmCssModuleSession() {
+  const projectRoot = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-css-warm-")),
+  );
+  const sourceRoot = path.join(projectRoot, "src");
+  const styleRoot = path.join(projectRoot, "styles");
+  const genesSourceRoot = path.join(projectRoot, "genes-src");
+  const helderCopyRoot = path.join(projectRoot, "helder-src");
+  const validationRoot = path.join(projectRoot, ".validation");
+  const css = path.join(styleRoot, "card.module.css");
+  const card = path.join(sourceRoot, "app/Card.hx");
+  const { executable, version } = haxeExecutable();
+  const helderSourceRoot = execFileSync("haxelib", ["path", "helder.set"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  })
+    .split(/\r?\n/u)
+    .find((line) => line.length > 0 && !line.startsWith("-"));
+  assert.notEqual(helderSourceRoot, undefined);
+  let expectedKeys = ["card", "title"];
+  const events = [];
+  try {
+    mkdirSync(path.dirname(card), { recursive: true });
+    mkdirSync(styleRoot, { recursive: true });
+    cpSync(path.join(repoRoot, "src"), genesSourceRoot, { recursive: true });
+    cpSync(helderSourceRoot, helderCopyRoot, { recursive: true });
+    copyFileSync(
+      path.join(repoRoot, "extraParams.hxml"),
+      path.join(projectRoot, "genes-extraParams.hxml"),
+    );
+    writeFileSync(card, warmSource({ useTitle: true, useSelected: false }));
+    writeFileSync(path.join(sourceRoot, "app/Entry.hx"), warmEntrySource());
+    writeFileSync(
+      css,
+      ".card { border: 1px solid; }\n.title { font-weight: 700; }\n",
+    );
+    writeFileSync(
+      path.join(projectRoot, "build.hxml"),
+      [
+        path.join(projectRoot, "genes-extraParams.hxml"),
+        `-cp ${genesSourceRoot}`,
+        `-cp ${helderCopyRoot}`,
+        `-cp ${sourceRoot}`,
+        "-main app.Entry",
+        `-js ${path.join(projectRoot, "ignored/index.ts")}`,
+        "-D genes.ts",
+        "-D js-source-map",
+        "-D no-deprecation-warnings",
+        "-D js-es=6",
+        "-dce full",
+        "-debug",
+        "",
+      ].join("\n"),
+    );
+
+    let recoveryChecks = 0;
+    const sessionOptions = {
+      projectRoot,
+      projectIdentity: "real-css-module-warm-session",
+      hxml: {
+        entryFiles: ["build.hxml"],
+        workingDirectory: projectRoot,
+        allowedRoots: [projectRoot],
+      },
+      publicOutputFile: "src-gen/index.ts",
+      stateDirectory: ".genes/dev",
+      extraInputs: [
+        { path: "styles/card.module.css", impact: { rebuild: true } },
+      ],
+      resolveInvocation: () => ({
+        executable,
+        cwd: projectRoot,
+        args: ["build.hxml"],
+        compatibilityFacts: {
+          fixture: "real-css-module-warm-session",
+          haxe: version,
+        },
+      }),
+      prepareRevision: async () => {
+        try {
+          return {
+            ok: true,
+            prepared: await prepareWarmRevision(projectRoot, expectedKeys),
+          };
+        } catch (error) {
+          return {
+            ok: false,
+            diagnostic: {
+              code: "CSS_MODULE_PREPARATION_FAILED",
+              message: error instanceof Error ? error.message : String(error),
+            },
+          };
+        }
+      },
+      validate: async (tree, { recovery }) => {
+        try {
+          if (recovery) recoveryChecks += 1;
+          const receipt = await validateWarmTree(tree, validationRoot);
+          return {
+            ok: true,
+            artifacts: [{
+              path: "generated-haxe/host-agreement.json",
+              content: receipt,
+            }],
+          };
+        } catch (error) {
+          return {
+            ok: false,
+            diagnostic: {
+              code: "CSS_MODULE_HOST_DISAGREEMENT",
+              message: error instanceof Error ? error.message : String(error),
+            },
+          };
+        }
+      },
+      validatorPolicyFacts: {
+        fixture: "strict-ts-and-real-css-loader",
+        loader: "esbuild-css-module-test-loader-v1",
+      },
+      debounceMs: 0,
+      pollIntervalMs: 60_000,
+      shutdownTimeoutMs: 2_000,
+    };
+    const session = createGenesDevelopmentSession(sessionOptions);
+    session.subscribe((event) => events.push(event));
+    const reconcileEdit = async () => {
+      session.reconcile();
+      await session.waitForIdle();
+    };
+    const expectReady = () => {
+      assert.equal(
+        session.state.kind,
+        "ready",
+        JSON.stringify(session.inspect()),
+      );
+    };
+    const expectRetained = (snapshot, code, message) => {
+      assert.equal(session.state.kind, "degraded", JSON.stringify(session.inspect()));
+      assert.equal(session.state.failure.diagnostic.code, code);
+      if (message !== undefined) {
+        assert.match(session.state.failure.diagnostic.message, message);
+      }
+      assert.deepEqual(
+        snapshotFiles(projectRoot, ["src-gen", "generated-haxe"]),
+        snapshot,
+        "a rejected CSS/Haxe revision keeps every accepted public byte",
+      );
+    };
+    const expectColdMatch = async () => {
+      const publicMap = JSON.parse(
+        readFileSync(path.join(projectRoot, "src-gen/app/Card.ts.map"), "utf8"),
+      );
+      assert.equal(
+        publicMap.sources.includes("../../generated-haxe/app/CardStyles.hx"),
+        true,
+        "the source map names the stable public companion path",
+      );
+      assert.equal(
+        JSON.stringify(publicMap).includes("/.genes/dev/candidates/"),
+        false,
+        "the source map does not expose a private revision path",
+      );
+      const cold = await isolatedColdSnapshot({
+        projectRoot,
+        expectedKeys,
+        executable,
+        validationRoot: path.join(projectRoot, ".cold-validation"),
+      });
+      assert.deepEqual(
+        snapshotFiles(projectRoot, ["src-gen", "generated-haxe"]),
+        cold.snapshot,
+        "the accepted warm tree matches a fresh isolated Haxe build",
+      );
+    };
+
+    try {
+      await session.start();
+      await session.waitForIdle();
+      expectReady();
+      await expectColdMatch();
+
+      expectedKeys = ["card", "selected", "title"];
+      writeFileSync(
+        css,
+        ".card { border: 1px solid; }\n.title { font-weight: 700; }\n.selected { color: red; }\n",
+      );
+      writeFileSync(card, warmSource({ useTitle: true, useSelected: true }));
+      await reconcileEdit();
+      expectReady();
+      await expectColdMatch();
+      const acceptedAfterAdd = snapshotFiles(projectRoot, ["src-gen", "generated-haxe"]);
+
+      expectedKeys = ["card", "selected"];
+      writeFileSync(
+        css,
+        ".card { border: 1px solid; }\n.selected { color: red; }\n",
+      );
+      await reconcileEdit();
+      expectRetained(acceptedAfterAdd, "HAXE_COMPILE_FAILED", /has no field title/u);
+
+      writeFileSync(css, ".card { color: ;\n");
+      await reconcileEdit();
+      expectRetained(acceptedAfterAdd, "CSS_MODULE_PREPARATION_FAILED");
+
+      writeFileSync(card, warmSource({ useTitle: false, useSelected: true }));
+      writeFileSync(
+        css,
+        ".card { border: 2px solid; }\n.selected { color: blue; }\n",
+      );
+      await reconcileEdit();
+      expectReady();
+      await expectColdMatch();
+      const acceptedAfterRepair = snapshotFiles(projectRoot, ["src-gen", "generated-haxe"]);
+
+      rmSync(css, { force: true });
+      await reconcileEdit();
+      expectRetained(acceptedAfterRepair, "CSS_MODULE_PREPARATION_FAILED");
+
+      writeFileSync(
+        css,
+        ".card { border: 2px solid; }\n.selected { color: blue; }\n",
+      );
+      await reconcileEdit();
+      expectReady();
+      await expectColdMatch();
+      assert.equal(
+        events.filter(
+          (event) =>
+            event.event.kind === "compiler-lifecycle" &&
+            event.event.event.kind === "started",
+        ).length,
+        1,
+        "all CSS edits reuse one owned Haxe compiler server",
+      );
+    } finally {
+      await session.close();
+    }
+
+    const restarted = createGenesDevelopmentSession(sessionOptions);
+    try {
+      await restarted.start();
+      await restarted.waitForIdle();
+      assert.equal(
+        recoveryChecks,
+        0,
+        "a clean restart builds a new private candidate; recovery validation is reserved for an unfinished publication journal",
+      );
+      assert.equal(restarted.state.kind, "ready", JSON.stringify(restarted.inspect()));
+      const restartCold = await isolatedColdSnapshot({
+        projectRoot,
+        expectedKeys,
+        executable,
+        validationRoot: path.join(projectRoot, ".restart-cold-validation"),
+      });
+      assert.deepEqual(
+        snapshotFiles(projectRoot, ["src-gen", "generated-haxe"]),
+        restartCold.snapshot,
+        "restart recovery keeps the same complete cold-build result",
+      );
+    } finally {
+      await restarted.close();
+    }
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+}
+
 async function main() {
   rmSync(path.join(fixtureRoot, "generated"), { recursive: true, force: true });
   rmSync(path.join(fixtureRoot, "out"), { recursive: true, force: true });
@@ -421,6 +1037,7 @@ async function main() {
 
   await bundleAndRun("ts", path.join(fixtureRoot, "out/ts/index.ts"));
   await bundleAndRun("classic", path.join(fixtureRoot, "out/classic/index.js"));
+  await exerciseWarmCssModuleSession();
 }
 
 await main();

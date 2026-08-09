@@ -84,12 +84,27 @@ without letting one substitute for another:
 - pinned esbuild loads and executes both outputs through a controlled real
   loader, then checks the reviewed keys and string values.
 
+The same gate now adds a separate warm-development owner. Through one real
+owned Haxe server it accepts an initial CSS Module, adds a class and uses it,
+rejects removal of a still-used class, rejects invalid CSS, repairs the files,
+rejects deletion, and accepts restoration. Every successful warm tree must
+match a new isolated cold build, including declarations and source maps. Every
+failure must leave the earlier companion, processor manifest, loader receipt,
+declaration, maps, and target output byte-for-byte unchanged.
+
+The warm test also runs strict TypeScript and a real controlled loader against
+each candidate before publication. A hand-written expected key list, the Haxe
+type checker, raw whole-tree hashes, and the real loader are independent
+answers; the session is not allowed to approve itself. Focused session tests
+separately reject reserved private paths, collisions with compiler output, and
+collisions between prepared files and validator evidence.
+
 The test processor and bundler live in a private, exact-lockfile fixture. They
-are independent witnesses, not dependencies of the Genes compiler or
-`@genes-ts/tooling`. The gate proves the one-shot framework-neutral contract;
-it does not advance a Next.js, browser, warm-watch, or safe-publication claim.
-Those require their own later owners. See [Closed CSS Module types](CSS_MODULES.md)
-for the user-facing flow and limitations.
+are witnesses, not dependencies of the Genes compiler or
+`@genes-ts/tooling`. This gate proves the framework-neutral one-shot and safe
+warm-publication contracts. It still does not advance a Next.js or browser
+claim; those need a real Next build and browser owner in NextJsHx. See
+[Closed CSS Module types](CSS_MODULES.md) for the user-facing flow and limits.
 
 Compiler representation, runtime/ABI, package publication, security,
 migration, and public-claim changes require a review pass distinct from the

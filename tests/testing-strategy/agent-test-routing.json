@@ -527,22 +527,34 @@
         "target-typecheck",
         "runtime",
         "package-shape",
-        "determinism"
+        "determinism",
+        "transaction",
+        "compiler-server"
       ],
       "ownerPaths": [
         "src/genes/css",
         "src/genes/ts/Imports.hx",
         "tooling/src/css-modules",
+        "tooling/src/session/prepared-files.ts",
+        "tooling/src/session/haxe-driver.ts",
+        "tooling/src/session/publication.ts",
+        "tooling/src/session/runtime.ts",
+        "tooling/src/session/types.ts",
         "tooling/css-modules",
         "tests/css-module-companions",
         "docs/CSS_MODULES.md"
       ],
-      "proves": "A processor-owned exact class list becomes a deterministic closed Haxe companion, both Genes profiles emit one ordinary CSS import, strict TypeScript keeps the public shape closed, and a real loader observes the reviewed runtime keys.",
-      "doesNotProve": "This one-shot framework-neutral tracer does not prove automatic processor discovery, warm publication, editor navigation, or any framework's CSS placement and development-server behavior.",
+      "proves": "A processor-owned exact class list becomes a deterministic closed Haxe companion, both Genes profiles emit one ordinary CSS import, strict TypeScript keeps the public shape closed, and a real loader observes the reviewed runtime keys. One warm Haxe server also accepts valid edits, keeps failed edits out of the public tree, and reproduces each accepted tree with a fresh cold build.",
+      "doesNotProve": "This framework-neutral tracer does not prove automatic processor discovery, editor navigation, or any framework's CSS placement and development-server behavior.",
       "owners": [
         "src/genes/css",
         "src/genes/ts/Imports.hx",
         "tooling/src/css-modules",
+        "tooling/src/session/prepared-files.ts",
+        "tooling/src/session/haxe-driver.ts",
+        "tooling/src/session/publication.ts",
+        "tooling/src/session/runtime.ts",
+        "tooling/src/session/types.ts",
         "tooling/css-modules",
         "tests/css-module-companions",
         "docs/CSS_MODULES.md"
@@ -561,7 +573,9 @@
         "target-typecheck",
         "runtime",
         "package-shape",
-        "determinism"
+        "determinism",
+        "transaction",
+        "compiler-server"
       ],
       "ring": "R0",
       "size": "medium",
@@ -3601,6 +3615,11 @@
         "src/genes/css/**",
         "src/genes/ts/Imports.hx",
         "tooling/src/css-modules/**",
+        "tooling/src/session/prepared-files.ts",
+        "tooling/src/session/haxe-driver.ts",
+        "tooling/src/session/publication.ts",
+        "tooling/src/session/runtime.ts",
+        "tooling/src/session/types.ts",
         "tooling/css-modules/**",
         "tests/css-module-companions/**",
         "docs/CSS_MODULES.md"
@@ -3614,7 +3633,7 @@
         "declarations-packages",
         "host-tooling"
       ],
-      "reason": "Closed CSS Module changes require the exact processor manifest, generated Haxe type, both output profiles, strict target check, and real loader tracer together.",
+      "reason": "Closed CSS Module changes require the exact processor manifest, generated Haxe type, both output profiles, strict target check, real loader, warm Haxe server, and last-good publication together.",
       "expansion": "affected"
     },
     {

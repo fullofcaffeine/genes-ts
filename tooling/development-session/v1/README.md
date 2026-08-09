@@ -153,15 +153,40 @@ host admission             -> candidate is acceptable for this project
 tooling transaction        -> admitted candidate replaces public output
 ```
 
+Some generated Haxe declarations must exist before Haxe can check the authored
+program. `prepareRevision` supports that narrow case. The host returns exact
+file bytes plus the private class paths Haxe should see. Tooling, not the host,
+writes them into the candidate and gives the request a digest that changes when
+any prepared byte, path, mode, or public destination changes. The digest is a
+request check; it does not restart an otherwise compatible owned Haxe server.
+
+A prepared file may include `publishPath`. Such files appear separately in
+`ValidationTree.extraFiles` and join the same final update as the Genes-owned
+files. After successful validation, `AdmissionResult.artifacts` may add a small
+receipt or similar proof created by the validator. The accepted marker records
+the exact path, digest, size, and mode of every extra file so restart recovery
+and later stale-file removal remain exact.
+
+Keep a published generated Haxe source's private `relativePath` equal to its
+`publishPath` when practical. This lets the generated source map name the
+stable public companion path. Tooling reserves the candidate's `output`,
+`admission`, and `generation.json` names for its own work and rejects prepared
+files that try to use them.
+
+The session also reserves the Haxe define `genes.tooling.prepared`. A host must
+not add it to HXML; the session computes the value from the prepared files.
+This prevents an arbitrary caller value from claiming that stale input is
+current.
+
 An admitted candidate whose bytes are unchanged still advances the accepted
 generation and revision, but reports an empty `FileDelta`. Hosts perform no
 reload for that empty delta.
 
 The outer accepted-generation marker binds the last admitted compiler
-inventory. The session remembers the marker's exact file state, and the
-inventory includes the compiler ownership manifest's raw digest, size, and
-mode. A later build refuses to publish over any of those exact authorities when
-they changed outside the session. Unowned neighboring files are preserved;
+inventory and any prepared or validator-produced files. The session remembers
+their exact file states, and the inventory includes the compiler ownership
+manifest's raw digest, size, and mode. A later build refuses to publish over
+any of those exact authorities when they changed outside the session. Unowned neighboring files are preserved;
 an unowned file occupying a newly generated path is a collision, not something
 the session adopts. Generated files are outputs—not a second editable source
 tree.

@@ -12,6 +12,10 @@ it.
 - Add owned Haxe `--wait` server lifecycle management.
 - Add versioned CSS Module export-manifest validation and deterministic closed
   Haxe companion generation without parsing CSS in tooling.
+- Let a development session prepare exact Haxe inputs before typing, include
+  their bytes in the warm request identity, and publish selected companions
+  plus validator evidence with the same accepted Genes generation. The marker
+  records these extra files for exact recovery and stale removal.
 - Publish versioned conformance vectors for host implementations.
 - Define the versioned, automation-friendly DevelopmentSession lifecycle,
   event schema, and conformance scenarios.

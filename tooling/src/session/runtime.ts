@@ -65,8 +65,19 @@ import {
   legacySessionProjectDigest,
   preparePublication,
   readPublishedMarker,
+  rootAdmissionDigest,
   sessionProjectDigest,
+  type PublishedSupplementalFile,
 } from "./publication.js";
+import {
+  readLiveSupplementalFile,
+  removePrivatePreparedFiles,
+  stageAdmittedArtifacts,
+  stagePreparedRevision,
+  supplementalCandidateFiles,
+  type StagedPreparedRevision,
+  type SupplementalFile,
+} from "./prepared-files.js";
 import { PublicationGate } from "./read-write-gate.js";
 import { acquireSessionLock, type SessionLock } from "./session-lock.js";
 import {
@@ -178,6 +189,19 @@ function bytewise(values: Iterable<string>): string[] {
   );
 }
 
+function supplementalIdentity(
+  files: readonly PublishedSupplementalFile[],
+): string {
+  return canonicalDigest({
+    files: files.map((file) => ({
+      path: file.path,
+      sha256: file.sha256,
+      sizeBytes: file.sizeBytes,
+      mode: file.mode,
+    })),
+  } as CanonicalJson);
+}
+
 function containedBy(root: string, candidate: string): boolean {
   const relative = path.relative(root, candidate);
   return (
@@ -272,6 +296,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   #compilerEpoch = 0;
   #publishedManifestDigest: string | null = null;
   #publishedMarkerState: ExpectedFileState = ABSENT_FILE_STATE;
+  #publishedSupplementalFiles: readonly PublishedSupplementalFile[] = Object.freeze([]);
   #mayCleanCandidates = false;
   #acceptWatchChanges = false;
 
@@ -367,6 +392,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       const published = readPublishedMarker(this.#layout);
       this.#publishedManifestDigest = published.manifestDigest;
       this.#publishedMarkerState = published.state;
+      this.#publishedSupplementalFiles = published.supplementalFiles;
       this.#mayCleanCandidates = true;
       this.#cleanCandidates();
       startupPhase = "inventory";
@@ -564,11 +590,11 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     return await this.#admitRecoveredWith(
       plan,
       (manifestDigest) =>
-        legacyAdmissionDigest(
+        Object.freeze([legacyAdmissionDigest(
           this.#layout,
           manifestDigest,
           this.#options.validatorPolicyFacts,
-        ),
+        )]),
     );
   }
 
@@ -589,30 +615,55 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   async #admitRecovered(plan: PublicationPlan): Promise<boolean> {
     return await this.#admitRecoveredWith(
       plan,
-      (manifestDigest) =>
-        admissionDigest(
+      (manifestDigest, supplementalFiles) => {
+        const current = admissionDigest(
           this.#layout,
           manifestDigest,
           this.#options.validatorPolicyFacts,
-        ),
+          supplementalFiles,
+        );
+        return supplementalFiles.length === 0
+          ? Object.freeze([
+              current,
+              rootAdmissionDigest(
+                this.#layout,
+                manifestDigest,
+                this.#options.validatorPolicyFacts,
+              ),
+            ])
+          : Object.freeze([current]);
+      },
     );
   }
 
   async #admitRecoveredWith(
     plan: PublicationPlan,
-    expectedAdmission: (manifestDigest: string) => string,
+    expectedAdmission: (
+      manifestDigest: string,
+      supplementalFiles: readonly PublishedSupplementalFile[],
+    ) => readonly string[],
   ): Promise<boolean> {
     const live = readGenesOutput(
       this.#layout.publicOutputRoot,
       this.#layout.outputIdentity,
       true,
     )!;
-    if (
-      plan.authorizationDigest !== expectedAdmission(live.manifestDigest)
-    ) {
+    const published = readPublishedMarker(this.#layout);
+    if (!expectedAdmission(
+      live.manifestDigest,
+      published.supplementalFiles,
+    ).includes(plan.authorizationDigest)) {
       return false;
     }
-    const tree = this.#validationTree("recovered-live", null, live);
+    const extraFiles = published.supplementalFiles.map((file) =>
+      readLiveSupplementalFile(this.#layout, file),
+    );
+    const tree = this.#validationTree(
+      "recovered-live",
+      null,
+      live,
+      extraFiles,
+    );
     const abort = new AbortController();
     this.#activeAbort = abort;
     try {
@@ -773,6 +824,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     const abort = new AbortController();
     this.#activeAbort = abort;
     let candidateStageRelative: string | null = null;
+    let stagedPrepared: StagedPreparedRevision | null = null;
     let failurePhase: FailurePhase = cause.reinventory
       ? "inventory"
       : "compile";
@@ -824,6 +876,26 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         "output",
       );
       const candidateOutputFile = path.join(outputRoot, this.#layout.outputIdentity);
+      if (this.#options.prepareRevision !== undefined) {
+        const preparation = await this.#options.prepareRevision({
+          revision: cause.revision,
+          signal: abort.signal,
+        });
+        if (this.#closing !== null || abort.signal.aborted) return;
+        if (!preparation.ok) {
+          this.#fail("compile", cause.revision, true, preparation.diagnostic);
+          return;
+        }
+        stagedPrepared = stagePreparedRevision(
+          this.#layout,
+          candidateStageRelative,
+          preparation.prepared,
+        );
+        this.#assertSupplementalPaths(
+          executionPlan.inventory,
+          stagedPrepared.publicFiles.map((file) => file.path),
+        );
+      }
       mkdirSync(path.join(candidateStageRoot, "haxe-target"), {
         recursive: true,
         mode: 0o700,
@@ -858,6 +930,12 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
             );
           }
         },
+        stagedPrepared === null
+          ? undefined
+          : Object.freeze({
+              classPaths: stagedPrepared.classPaths,
+              digest: stagedPrepared.digest,
+            }),
       );
       rmSync(path.join(candidateStageRoot, "haxe-input"), {
         recursive: true,
@@ -878,7 +956,12 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       if (this.#closing !== null || abort.signal.aborted) return;
       failurePhase = "validate";
       const admission = await this.#options.validate(
-        this.#validationTree("candidate", cause.revision, candidate),
+        this.#validationTree(
+          "candidate",
+          cause.revision,
+          candidate,
+          supplementalCandidateFiles(stagedPrepared?.publicFiles ?? []),
+        ),
         { signal: abort.signal, recovery: false },
       );
       if (this.#closing !== null || abort.signal.aborted) return;
@@ -895,6 +978,20 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         );
         return;
       }
+      const admittedFiles = stageAdmittedArtifacts(
+        this.#layout,
+        candidateStageRelative,
+        admission.artifacts ?? [],
+      );
+      this.#assertSupplementalPaths(
+        executionPlan.inventory,
+        admittedFiles.map((file) => file.path),
+      );
+      const supplementalFiles: readonly SupplementalFile[] = Object.freeze([
+        ...(stagedPrepared?.publicFiles ?? []),
+        ...admittedFiles,
+      ]);
+      removePrivatePreparedFiles(stagedPrepared?.privateFiles ?? []);
       this.#requireReconciliation();
       if (cause.revision < this.#newestRebuildRevision) {
         this.#emit({
@@ -925,7 +1022,9 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         const recordedMarker = readPublishedMarker(this.#layout);
         if (
           recordedMarker.manifestDigest !== this.#publishedManifestDigest ||
-          !sameFileState(recordedMarker.state, this.#publishedMarkerState)
+          !sameFileState(recordedMarker.state, this.#publishedMarkerState) ||
+          supplementalIdentity(recordedMarker.supplementalFiles) !==
+            supplementalIdentity(this.#publishedSupplementalFiles)
         ) {
           throw new Error(
             "the accepted-generation marker changed outside this session",
@@ -959,6 +1058,8 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
           this.#options.validatorPolicyFacts,
           this.#sessionNonce,
           this.#publishedMarkerState,
+          supplementalFiles,
+          this.#publishedSupplementalFiles,
         );
         const ticket = prepared.plan.authorizationDigest;
         await this.#dependencies.publish({
@@ -969,6 +1070,20 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         this.#accepted = prepared.accepted;
         this.#publishedManifestDigest = candidate.manifestDigest;
         this.#publishedMarkerState = prepared.plan.commitMarker.next;
+        this.#publishedSupplementalFiles = Object.freeze(
+          supplementalFiles
+            .map((file) =>
+              Object.freeze({
+                path: file.path,
+                sha256: file.digest,
+                sizeBytes: file.sizeBytes,
+                mode: file.mode,
+              }),
+            )
+            .sort((left, right) =>
+              Buffer.from(left.path).compare(Buffer.from(right.path)),
+            ),
+        );
         this.#setState(
           Object.freeze({ kind: "ready", accepted: prepared.accepted }),
           acceptedAt,
@@ -1025,6 +1140,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     kind: ValidationTree["kind"],
     revision: number | null,
     inventory: GenesOutputInventory,
+    extraFiles: ValidationTree["extraFiles"] = Object.freeze([]),
   ): ValidationTree {
     return Object.freeze({
       kind,
@@ -1034,6 +1150,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       entryLogicalPath: this.#layout.publicOutputRelative,
       manifestDigest: inventory.manifestDigest,
       files: validationFiles(this.#layout, inventory),
+      extraFiles: Object.freeze([...extraFiles]),
     });
   }
 
@@ -1125,6 +1242,53 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     }
     for (const classPath of inventory.classPaths) {
       assertClassPathTreeIsReal(classPath);
+    }
+  }
+
+  /** Prevents generated companions or receipts from claiming authored inputs. */
+  #assertSupplementalPaths(
+    inventory: HxmlInventory,
+    publicPaths: readonly string[],
+  ): void {
+    const exactInputs = new Set([
+      ...inventory.hxmlFiles,
+      ...inventory.resourceInputs,
+      ...(this.#options.extraInputs ?? []).map((extra) =>
+        path.resolve(this.#layout.projectRoot, extra.path),
+      ),
+    ]);
+    for (const publicPath of publicPaths) {
+      const absolute = path.resolve(
+        this.#layout.projectRoot,
+        ...publicPath.split("/"),
+      );
+      if (!containedBy(this.#layout.projectRoot, absolute)) {
+        throw new Error(`prepared public path escapes projectRoot: ${publicPath}`);
+      }
+      if (
+        exactInputs.has(absolute) ||
+        inventory.classPaths.some((classPath) => containedBy(classPath, absolute))
+      ) {
+        throw new Error(
+          `prepared public path overlaps an authored compiler input: ${publicPath}`,
+        );
+      }
+      if (
+        portableProjectPathsOverlap(
+          this.#layout.projectRoot,
+          absolute,
+          this.#layout.stateRoot,
+        ) ||
+        portableProjectPathsOverlap(
+          this.#layout.projectRoot,
+          absolute,
+          this.#layout.publicationControlRoot,
+        )
+      ) {
+        throw new Error(
+          `prepared public path overlaps private session state: ${publicPath}`,
+        );
+      }
     }
   }
 

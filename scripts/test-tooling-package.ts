@@ -587,10 +587,14 @@ import {
   type ReconciledWatchSession,
 } from "@genes-ts/tooling/watch";
 import type {
+  AdmittedArtifact,
   DevelopmentSession,
   DevelopmentSnapshot,
   GenesDevelopmentOptions,
   JsonValue,
+  PreparedRevision,
+  PreparationResult,
+  ValidationTree,
 } from "@genes-ts/tooling/session";
 import { createGenesDevelopmentSession } from "@genes-ts/tooling/session";
 import artifactProtocol from "@genes-ts/tooling/artifact-transactions/v1/protocol.schema.json" with { type: "json" };
@@ -638,6 +642,10 @@ const typeWitness:
   | DevelopmentSession<Diagnostic>
   | DevelopmentSnapshot<Diagnostic>
   | GenesDevelopmentOptions<Diagnostic>
+  | PreparedRevision
+  | PreparationResult<Diagnostic>
+  | AdmittedArtifact
+  | ValidationTree
   | CssModuleExportsManifestV1
   | undefined = undefined;
 void runtimeValues;

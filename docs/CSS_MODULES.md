@@ -300,8 +300,9 @@ back to itself.
 
 ## Current scope
 
-This first increment is intentionally one-shot: a host calls it during a build,
-but Genes does not watch CSS files by itself yet.
+The manifest and companion generator stay useful in a one-shot build. A
+long-running host can also compose them with `@genes-ts/tooling/session` for a
+safe warm edit loop.
 
 - hosts supply an exact manifest from a processor they selected and pinned;
 - exact keys wrapped in square brackets are rejected for the reason above;
@@ -309,12 +310,25 @@ but Genes does not watch CSS files by itself yet.
   declaration candidate;
 - the compiler checks the binding and emits an ordinary default import;
 - both output profiles and a real loader are proven.
+- a host session can prepare the companion before Haxe typing, keep one
+  compatible Haxe server warm, validate the complete private candidate, and
+  publish the companion plus generated target files together;
+- failed CSS parsing, missing Haxe fields, strict TypeScript failures, or loader
+  disagreement keep the previous accepted files byte-for-byte.
 
-It does not yet provide automatic processor discovery, watch integration,
-editor-to-CSS navigation, or one all-or-nothing publication covering the
-companion and Genes output. Those need the separate warm-development change so
-a failed edit cannot make the editor and public native output describe
-different generations.
+Genes still does not provide automatic processor discovery or decide a host's
+watch list. The host must watch the authored stylesheet, binding data,
+processor configuration, lock identity, and every processor-reported input.
+Direct editor navigation from a Haxe field to the CSS selector is also not yet
+promised. Published generated Haxe companions do keep a stable source-map path
+when the host uses the same private and public relative path.
+
+The generic last-good promise covers the files that the session owns. If a
+framework dev server independently watches the original `.module.css`, it may
+observe a broken edit before the new Haxe generation is accepted. The later
+framework adapter must state and test whether it serves a staged stylesheet or
+reconciles its server around accepted generations. Genes does not silently copy
+CSS or change the framework's module identity.
 
 NextJsHx integration is also separate. NextJsHx must prove that the import lands
 in the correct native module, production Next builds it, development edits are

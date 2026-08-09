@@ -60,6 +60,7 @@ const FORBIDDEN_DEFINES = Object.freeze([
   "dump-dependencies",
   "dump-path",
   "genes.output",
+  "genes.tooling.prepared",
   "gen_hx_classes",
   "message.log-file",
 ]);
