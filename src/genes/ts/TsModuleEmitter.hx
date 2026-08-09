@@ -35,6 +35,11 @@ import genes.ModuleFunctionPlan.ModuleFunctionEntry;
 import genes.CallableSignaturePlan;
 import genes.ts.TsBoundaryPlan.TsRuntimeByteCacheRead;
 import genes.ts.TsBoundaryPlan.TsRuntimeByteCacheReadAction;
+import genes.ts.TsIndexedAccessPlan.TsIndexedReceiverProjection;
+import genes.ts.TsIndexedAccessPlan.TsIndexedTargetDecision;
+import genes.ts.TsIndexedAccessPlan.TsIndexedReadProjection;
+import genes.ts.TsIndexedAccessPlan.TsIndexedTargetProjection;
+import genes.ts.TsIndexedAccessPlan.TsIndexedTargetWrapper;
 import haxe.ds.Option;
 import haxe.macro.Expr;
 import haxe.macro.Type;
@@ -2673,87 +2678,90 @@ class TsModuleEmitter extends JsModuleEmitter {
       write('!)');
   }
 
-  function emitArrayAccess(e: TypedExpr, receiver: TypedExpr,
-      index: TypedExpr) {
-    final contract = NullishContract.forType(e.t);
-    final normalizeResult = !inAssignTarget && !contract.preservesUndefined
-      && typeAllowsNull(e.t);
-    final assertTypedResult = !inAssignTarget
-      && !contract.preservesUndefined && !typeAllowsNull(e.t);
-    final exactGenericResult = assertTypedResult ? exactTypeParameter(e.t) : null;
-    if (normalizeResult)
-      write('(');
-    else if (exactGenericResult != null)
-      write('(');
-    if (TypeUtil.rawSyntaxReceiverNeedsParens(receiver)) {
-      // Preserve the dedicated raw-syntax precedence repair that originally
-      // owned this path. Ordinary indexing stays with the base emitter so its
-      // source positions, comments, and assignment rendering remain stable.
-      emitChainedAccessReceiver(receiver, typeAllowsNull(receiver.t));
-      write('[');
-      emitValue(index);
-      write(']');
-    } else {
-      super.emitExpr(e);
+  /**
+   * Prints one indexed read from its immutable TypeScript projection.
+   *
+   * Why: `values[index]` can mean an ordinary read, a nullable Haxe value, an
+   * explicit `undefined` boundary, or a generic `T`. Looking only at its type
+   * while printing previously made those cases depend on mutable assignment
+   * state and could suppress a nested receiver's proof.
+   *
+   * What/How: `TsIndexedAccessPlan` already classified the exact typed
+   * occurrence. This method only spells that decision as direct indexing,
+   * `?? null`, `as T`, or a postfix assertion. Receiver presence is emitted
+   * independently, and the receiver and index are each evaluated once.
+   */
+  function emitPlannedArrayAccess(e: TypedExpr, receiver: TypedExpr,
+      index: TypedExpr): Void {
+    final decision = indexedAccessPlan.readDecision(e);
+    switch decision.resultProjection {
+      case NormalizeMissingToHaxeNull | AssertExactTypeParameter(_):
+        write('(');
+      case DirectRead | AssertConcreteSlotPresent:
     }
-    if (normalizeResult)
-      write(' ?? null)');
-    else if (exactGenericResult != null) {
-      write(' as ');
-      TypeEmitter.emitType(this, exactGenericResult);
-      write(')');
-    } else if (assertTypedResult)
-      write('!');
+    emitPlannedIndexedReceiver(receiver, decision.receiverProjection);
+    write('[');
+    emitValue(index);
+    write(']');
+    switch decision.resultProjection {
+      case DirectRead:
+      case NormalizeMissingToHaxeNull:
+        write(' ?? null)');
+      case AssertExactTypeParameter(type):
+        write(' as ');
+        TypeEmitter.emitType(this, type);
+        write(')');
+      case AssertConcreteSlotPresent:
+        write('!');
+    }
+  }
+
+  /** Prints the receiver proof separately from the indexed-slot proof. */
+  function emitPlannedIndexedReceiver(receiver: TypedExpr,
+      projection: TsIndexedReceiverProjection): Void {
+    emitChainedAccessReceiver(receiver, switch projection {
+      case AssertOrdinaryHaxeNullableReceiver: true;
+      case DirectReceiver | FlowAlreadyProvesPresent |
+        BoundaryAlreadyAssertsExactRead: false;
+    });
   }
 
   /**
-   * Returns the canonical type for an indexed read's bare generic parameter.
+   * Prints one writable indexed target without routing it through value-read
+   * emission.
    *
-   * Why: with TypeScript's `noUncheckedIndexedAccess`, reading `values[0]`
-   * from `Array<T>` has the checker-only type `T | undefined`. The usual
-   * postfix assertion removes that extra absence for concrete element types:
-   *
-   * ```haxe
-   * function first<T>(values:Array<T>):T {
-   *   return values[0];
-   * }
-   * ```
-   *
-   * Printing `values[0]!` is too strong for this generic case. In TypeScript,
-   * `!` removes both `undefined` and any `null` already permitted by `T`, so a
-   * later generic call can infer `NonNullable<T>` instead of Haxe's exact `T`:
-   *
-   * ```ts
-   * // Wrong: the expression has type NonNullable<T>.
-   * factory(values[0]!);
-   *
-   * // Correct: remove only the checker-added missing-index possibility.
-   * factory((values[0] as T));
-   * ```
-   *
-   * What/How: return only the canonical compiler type of a bare Haxe type
-   * parameter, including one reached through resolved compiler wrappers. The
-   * emitter must print that returned `TInst`, not the original `TMono` or
-   * `TLazy`: the general type printer deliberately treats unresolved wrappers
-   * conservatively, so passing the wrapper onward could spell this narrow
-   * repair as `as any`. The emitted `as T` is a TypeScript identity assertion:
-   * it returns the same JavaScript value and performs no conversion or runtime
-   * check. Concrete and nullable element types retain their established `!`
-   * and `?? null` projections.
+   * The plan has already proved the exact `TArray` root and every transparent
+   * wrapper. Parentheses remain visible; erased metadata and implicit casts do
+   * not. A postfix assertion is emitted only for the plan's slot-presence or
+   * primitive-coercion decisions. Logical and nullish assignments therefore
+   * keep their complete nullable writable target.
    */
-  static function exactTypeParameter(type: Type, depth = 0): Null<Type> {
-    if (depth > 64)
-      return null;
-    return switch type {
-      case TInst(reference, _)
-        if (reference.get().kind.match(KTypeParameter(_))):
-        type;
-      case TMono(reference) if (reference.get() != null):
-        exactTypeParameter(reference.get(), depth + 1);
-      case TLazy(resolve):
-        exactTypeParameter(resolve(), depth + 1);
+  function emitPlannedIndexedTarget(decision: TsIndexedTargetDecision): Void {
+    emitExpressionPos(decision.authoredTarget);
+    var parenthesisCount = 0;
+    for (wrapper in decision.wrappers)
+      switch wrapper {
+        case Parenthesis:
+          write('(');
+          parenthesisCount++;
+        case ErasedMetadata(_) | ErasedImplicitCast:
+      }
+    switch decision.coreArray.expr {
+      case TArray(receiver, index):
+        emitPlannedIndexedReceiver(receiver, decision.receiverProjection);
+        write('[');
+        emitValue(index);
+        write(']');
       default:
-        null;
+        CompilerDiagnostic.fail('[GTS-INDEX-PLAN-002] A planned indexed target lost its TArray root.',
+          decision.coreArray.pos);
+    }
+    while (parenthesisCount-- > 0)
+      write(')');
+    switch decision.targetProjection {
+      case WriteOnly | DirectNativeReadModifyWrite:
+      case AssertSlotPresent | AssertPrimitiveCoercionDomain(_):
+        write('!');
     }
   }
 
@@ -3048,7 +3056,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TBinop(op = OpAssign, lhs, rhs)
         if (boundaryPlan != null && boundaryPlan.hostCallbackBridge(e) != null):
         final bridge = boundaryPlan.hostCallbackBridge(e);
-        emitAssignmentTarget(lhs);
+        emitAssignmentTargetForOperation(e, lhs);
         writeSpace();
         writeBinop(op);
         writeSpace();
@@ -3060,7 +3068,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         write(')');
       case TBinop(op = OpAssign, lhs = {expr: TField(_, f)}, rhs)
         if (isOverriddenField(f)):
-        emitAssignmentTarget(lhs);
+        emitAssignmentTargetForOperation(e, lhs);
         writeSpace();
         writeBinop(op);
         writeSpace();
@@ -3086,7 +3094,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       case TBinop(op = OpAssign, lhs, rhs)
         if (boundaryPlan != null && boundaryPlan.assignmentBridge(e) != null):
         final bridge = boundaryPlan.assignmentBridge(e);
-        emitAssignmentTarget(lhs);
+        emitAssignmentTargetForOperation(e, lhs);
         writeSpace();
         writeBinop(op);
         writeSpace();
@@ -3097,23 +3105,27 @@ class TsModuleEmitter extends JsModuleEmitter {
         emitValueWithExpectedType(null, bridge.source);
         write(')');
       case TBinop(op = OpAssign | OpAssignOp(_), lhs, rhs):
-        // Avoid optional-field `?? null` rewrites on assignment targets.
-        emitAssignmentTarget(lhs);
+        emitAssignmentTargetForOperation(e, lhs);
         writeSpace();
         writeBinop(op);
         writeSpace();
         emitValueWithExpectedType(lhs.t, rhs);
+      case TUnop(op = OpIncrement | OpDecrement, postFix, target):
+        final decision = indexedAccessPlan.targetDecision(e);
+        if (decision == null) {
+          super.emitExpr(e);
+        } else if (postFix) {
+          emitPlannedIndexedTarget(decision);
+          writeUnop(op);
+        } else {
+          writeUnop(op);
+          emitPlannedIndexedTarget(decision);
+        }
       case TField(_, f)
         if (!inAssignTarget && isOptionalField(f) && isNarrowedOptionalField(e)):
         emitNarrowedOptionalField(e);
       case TArray(receiver, index):
-        // TypeScript widens an indexed Array<T> read to `T | undefined` under
-        // `noUncheckedIndexedAccess`, while Haxe's typed AST keeps the declared
-        // result `T`. Preserve that Haxe contract with a type-only assertion.
-        // Nullable Haxe elements still normalize a missing JavaScript value to
-        // `null`, and Undefinable<T> keeps its explicit `undefined` unchanged.
-        // Assignment targets receive none of these read-only projections.
-        emitArrayAccess(e, receiver, index);
+        emitPlannedArrayAccess(e, receiver, index);
       case TField(x,
         f) // If the receiver type is nullable in TS (`T | null`), TS does not
         // reliably narrow property accesses across statements (e.g. `this.pos`).
@@ -3413,6 +3425,16 @@ class TsModuleEmitter extends JsModuleEmitter {
     emitValue(target);
     currentAssignmentTarget = previousAssignmentTarget;
     inAssignTarget = previousInAssignTarget;
+  }
+
+  /** Uses the indexed plan when this exact operation owns an indexed target. */
+  function emitAssignmentTargetForOperation(operation: TypedExpr,
+      target: TypedExpr): Void {
+    final decision = indexedAccessPlan.targetDecision(operation);
+    if (decision == null)
+      emitAssignmentTarget(target);
+    else
+      emitPlannedIndexedTarget(decision);
   }
 
   /**

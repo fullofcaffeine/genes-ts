@@ -9,7 +9,7 @@ import genes.ts.TsIndexedAccessPlan;
 using haxe.macro.TypedExprTools;
 
 /**
- * Installs exact typed-tree controls for the indexed-access shadow plan.
+ * Installs exact typed-tree controls for the indexed-access plan.
  *
  * Why: Haxe rejects logical assignment in source and erases several harmless
  * target wrappers while typing. Source-only fixtures therefore cannot prove

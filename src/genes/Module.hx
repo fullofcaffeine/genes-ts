@@ -193,9 +193,9 @@ class Module {
   /**
    * Returns the TypeScript-only indexed-expression decisions for this request.
    *
-   * The plan is built after narrowing and value-boundary facts exist. Classic
-   * JavaScript never requests it. The first landing keeps it in shadow mode so
-   * inventory and diagnostics can stabilize before it controls source output.
+   * The plan is built after narrowing and value-boundary facts exist. The
+   * TypeScript emitter consumes its exact occurrence decisions; classic
+   * JavaScript never requests it.
    */
   function get_tsIndexedAccessPlan(): genes.ts.TsIndexedAccessPlan {
     if (tsIndexedAccessPlan == null)

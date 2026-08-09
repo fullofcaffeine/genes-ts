@@ -16,7 +16,7 @@ It also verifies that ordinary assignment targets are not decorated with a
 read-only TypeScript assertion and that classic/standard runtime behavior does
 not change.
 
-## Shadow plan and finite operation matrix
+## Authoritative plan and finite operation matrix
 
 The production TypeScript emitter historically decided indexed reads and
 read/write targets while recursively printing them. That local state cannot
@@ -36,20 +36,52 @@ facts for exact typed Haxe expressions and keeps six questions separate:
 6. Does the surrounding typed expression consume or discard the operation
    result?
 
-This first landing runs the plan in **shadow mode**. The TypeScript emitter
-builds and inventories the plan but does not use it to choose output syntax, so
-the existing generated files and runtime behavior remain unchanged. The
-follow-up emitter change can switch authority only after this finite inventory
-is stable.
+The TypeScript emitter now consumes that plan. It does not inspect a generated
+name, source spelling, or mutable "currently assigning" flag to decide whether
+an indexed target needs a type-only assertion. It asks for the decision attached
+to the exact typed operation, then prints only that syntax.
 
-The source inventory covers plain writes, every admitted arithmetic and
+For example, Haxe accepts this native read-modify-write operation:
+
+```haxe
+return values[0] |= mask;
+```
+
+Haxe lowers the value-producing source into one update and one later read.
+Genes therefore plans and emits both occurrences independently:
+
+```ts
+values1[tmp]! |= mask;
+return values1[tmp]!;
+```
+
+This is not a JavaScript behavior change. The two `!` tokens exist only for the
+TypeScript checker and disappear when TypeScript is erased. The classic Genes
+and standard Haxe lanes execute the same receiver, index, update, and result.
+
+A plain write stays writable without a read assertion:
+
+```ts
+return values[0] = value;
+```
+
+Likewise, logical and nullish assignments keep their nullable writable target.
+Adding `!` there would make a nullable right-hand side invalid even though Haxe
+accepted it.
+
+The typed source inventory covers plain writes, every admitted arithmetic and
 bitwise assignment, prefix and postfix increments/decrements, nullable number
 and string coercion, nested and flow-narrowed receivers, generic reads,
-explicit `undefined`, `Unknown`, and `Dynamic` boundaries. Haxe 4.3 cannot
+explicit `undefined`, `Unknown`, and `Dynamic` boundaries. The runtime
+transcript exercises representative compound operations, effectful receiver
+and index evaluation, nullable coercion, nested targets, and all four update
+forms through TypeScript, classic Genes, and standard Haxe. Haxe 4.3 cannot
 spell retained `&&=` or `||=` in source and erases several target wrappers
 during typing. A focused macro therefore creates typed-expression copies for
 those cases and sends them directly through the same production classifier; it
-does not edit the program being generated.
+does not edit the program being generated. Separate strict TypeScript 5, 6, and
+7 fixtures prove that the planned direct logical targets remain valid without
+an assertion.
 
 Negative typed probes reject undefined-aware or unknown arithmetic,
 unconstrained generic arithmetic, unresolved types, runtime casts,

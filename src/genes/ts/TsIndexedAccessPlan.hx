@@ -181,9 +181,9 @@ private enum TsIndexedTargetRootResult {
  * The builder walks the final typed module once. It uses exact `TypedExpr`
  * objects as private lookup keys and consumes `NullishContract`,
  * `TsNarrowingPlan`, and `TsBoundaryPlan`. It does not inspect source text,
- * generated names, TypeScript diagnostics, or emitted code. The first landing
- * keeps this plan in shadow mode: the TypeScript emitter builds and inventories
- * it, but the established printer still owns output until the follow-up PR.
+ * generated names, TypeScript diagnostics, or emitted code. The TypeScript
+ * emitter consumes these exact occurrence decisions and owns only their final
+ * syntax; classic JavaScript never builds this plan.
  */
 final class TsIndexedAccessPlan {
   final reads: ObjectMap<TypedExpr, TsIndexedReadDecision>;
@@ -669,8 +669,18 @@ private final class TsIndexedAccessPlanBuilder {
   function planReadProjection(expression: TypedExpr,
       receiver: TypedExpr): TsIndexedReadProjection {
     final contract = NullishContract.forType(expression.t);
-    if (contract.dynamicBoundary
-      || NullishContract.forType(receiver.t).dynamicBoundary)
+    // The indexed expression's own Haxe type owns the result contract. Haxe
+    // can lower a precisely typed abstraction such as DynamicAccess<T>.get()
+    // to a TArray whose implementation receiver is Dynamic; that internal
+    // receiver must not erase a nullable, generic, or concrete T result.
+    // A genuinely Dynamic indexed result remains direct through this check.
+    if (contract.dynamicBoundary)
+      return DirectRead;
+    // Indexing an explicit Dynamic receiver can leave the result as an
+    // unresolved compiler monomorph. That is still the authored unchecked
+    // boundary, not permission to invent a concrete read projection.
+    if (hasUnresolvedMonomorph(expression.t)
+      && NullishContract.forType(receiver.t).dynamicBoundary)
       return DirectRead;
     // Haxe's JS standard library uses untyped indexed reads for its two global
     // type registries and for the exact enum value parameter in

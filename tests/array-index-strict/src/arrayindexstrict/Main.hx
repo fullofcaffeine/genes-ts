@@ -5,6 +5,8 @@ import genes.ts.Undefinable;
 /** Same-source proof for Haxe array-read contracts under strict TypeScript. */
 class Main {
   static var genericReadEffects = 0;
+  static var compoundReceiverEffects = 0;
+  static var compoundIndexEffects = 0;
 
   static function ordinary<T>(values: Array<T>, index: Int): T {
     return values[index];
@@ -34,6 +36,60 @@ class Main {
   /** Generic assignment control: the indexed target must remain writable. */
   static function assignGeneric<T>(values: Array<T>, value: T): T {
     return values[0] = value;
+  }
+
+  /** Compound assignment reads the old slot before writing the new value. */
+  static function compoundBitwise(values: Array<Int>, mask: Int): Int {
+    return values[0] |= mask;
+  }
+
+  /** Side-effecting receiver used to prove compound assignment reads it once. */
+  static function effectCompoundValues(values: Array<Int>): Array<Int> {
+    compoundReceiverEffects++;
+    return values;
+  }
+
+  /** Side-effecting index used to prove compound assignment reads it once. */
+  static function effectCompoundIndex(): Int {
+    compoundIndexEffects++;
+    return 0;
+  }
+
+  static function compoundEffects(values: Array<Int>, increment: Int): Int {
+    return effectCompoundValues(values)[effectCompoundIndex()] += increment;
+  }
+
+  /** Nullable elements retain Haxe/JavaScript string coercion while updating. */
+  static function compoundNullable(values: Array<Null<String>>,
+      suffix: String): String {
+    return values[0] += suffix;
+  }
+
+  /** Nullable numbers retain Haxe/JavaScript bitwise coercion while updating. */
+  static function compoundNullableNumber(values: Array<Null<Int>>,
+      bit: Int): Int {
+    return values[0] |= bit;
+  }
+
+  /** Nullish assignment keeps authored null writable. */
+  static function compoundNullCoal(values: Array<Null<String>>,
+      fallback: Null<String>): Null<String> {
+    return values[0] ??= fallback;
+  }
+
+  /** Every indexed receiver before the outer target keeps its own read proof. */
+  static function compoundNested(matrix: Array<Array<Int>>, row: Int,
+      column: Int, increment: Int): Int {
+    return matrix[row][column] += increment;
+  }
+
+  /** Native prefix and postfix syntax must retain their distinct results. */
+  static function updateResults(values: Array<Int>): String {
+    final prefix = ++values[0];
+    final postfix = values[0]++;
+    --values[0];
+    values[0]--;
+    return [prefix, postfix, values[0]].join(",");
   }
 
   /**
@@ -77,6 +133,15 @@ class Main {
       new InvariantValue("fallback"), true);
     final genericEffectValue = genericEffects("effect-value");
     final assignedGeneric = assignGeneric(["before"], "assigned");
+    final compoundBitwiseResult = compoundBitwise([1], 2);
+    final compoundValues = [4];
+    final compoundEffectResult = compoundEffects(compoundValues, 3);
+    final compoundNullableResult = compoundNullable([null], "x");
+    final compoundNullableNumberResult = compoundNullableNumber([null], 1);
+    final compoundNullCoalResult = compoundNullCoal([null], "fallback");
+    final compoundNestedValues = [[5]];
+    final compoundNestedResult = compoundNested(compoundNestedValues, 0, 0, 2);
+    final updateResult = updateResults([4]);
     final numbers = replace([2, 3], 3, 5);
     final namedVoid = new NamedVoidRemovals();
     namedVoid.shift();
@@ -97,8 +162,20 @@ class Main {
       ordinary(nullableValues, 0) == null ? "generic-null" : "unexpected",
       Undefinable.isAbsent(ordinary(undefinedValues,
         0)) ? "generic-undefined" : "unexpected",
-      genericEffectValue == "effect-value" && genericReadEffects == 2 ? "effects-once" : "unexpected",
+      genericEffectValue == "effect-value"
+      && genericReadEffects == 2 ? "effects-once" : "unexpected",
       assignedGeneric,
+      compoundBitwiseResult == 3 ? "compound-bitwise" : "unexpected",
+      compoundEffectResult == 7
+      && compoundValues[0] == 7
+      && compoundReceiverEffects == 1
+      && compoundIndexEffects == 1 ? "compound-effects-once" : "unexpected",
+      compoundNullableResult == "nullx"
+      && compoundNullableNumberResult == 1 ? "compound-null-coercion" : "unexpected",
+      compoundNullCoalResult == "fallback" ? "compound-nullish" : "unexpected",
+      compoundNestedResult == 7
+      && compoundNestedValues[0][0] == 7 ? "compound-nested" : "unexpected",
+      updateResult == "5,5,4" ? "updates" : "unexpected",
       nullable([null], 0) == null ? "null" : "unexpected",
       Undefinable.isAbsent(explicitUndefined(undefinedValues,
         0)) ? "undefined" : "unexpected",
