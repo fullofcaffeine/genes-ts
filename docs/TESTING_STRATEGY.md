@@ -295,7 +295,18 @@ yarn test:tooling-package
 The focused HXML inventory test checks every Haxe 4.3.7 option that receives
 special early handling. Its inline `--option=value` form must fail before a
 library resolver or Haxe can run, while ordinary inline one-value options still
-normalize to the same safe argument pair.
+pass the same safety checks. Focused tests also cover a missing class-path
+directory that is created after inventory, plus an ordinary inline value ending
+in `.hxml`. The standalone inventory must reject that value because its output
+is passed directly to Haxe. The session vector and real development-session
+test prove the private bridge keeps the value as data, removes its helper before
+validation, and never publishes it. The real Haxe fixture reads the define
+during typing, so a missing or rewritten value cannot pass merely because the
+application never used it. The focused inventory test also rejects a line break
+introduced through a separate option value and an already-present broken
+symbolic link. The watcher test creates a symbolic link after a missing nested
+class path was registered and proves the next scan stops before following it,
+whether the link's target exists or is itself still missing.
 
 The package gate then installs the deterministic tarball into a clean Node
 project, type-checks the public factory/types, and imports both the root and

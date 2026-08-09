@@ -45,9 +45,16 @@ it.
   spellings for Haxe 4.3.7's complete early-option set, admit one distinct
   library identity in the v1 single-request resolver, and accept Haxe's ordinary
   `--option=value` spelling for other one-value options;
-  reject every residual `.hxml` token after recursive flattening so Haxe cannot
-  reinterpret an option value as a second, unreviewed HXML program, while still
-  allowing a separate reviewed library request that is removed before execution;
+  reject standalone residual `.hxml` tokens after recursive flattening so Haxe
+  cannot reinterpret an option value as a second, unreviewed HXML program,
+  preserve ordinary inline `.hxml` values through a private checked HXML input
+  and a post-classification environment placeholder,
+  allow a not-yet-created class-path directory to enter the watch set, and still
+  allow a separate reviewed library request that is removed before execution;
+  direct HXML inventory stays safe to execute by rejecting the private-bridge
+  form, reject control characters in expanded separate option values, and use
+  link-aware path checks before every scan so neither a broken link nor a later
+  symbolic-link parent can redirect the watcher;
   reject HXML options that execute shell commands or user programs before host
   acceptance; keep informational changes from discarding an active build; and
   report post-inventory compiler errors at the compile stage.

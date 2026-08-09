@@ -189,6 +189,70 @@ async function main(): Promise<void> {
       "feature=enabled",
     ]);
 
+    write(
+      root,
+      "missing-class-path.hxml",
+      "-cp generated-src\n-cp src\n-main MissingClassPathMain\n--interp\n",
+    );
+    write(
+      root,
+      "src/MissingClassPathMain.hx",
+      "class MissingClassPathMain { static function main():Void {} }\n",
+    );
+    const missingClassPathInventory = await inventoryHxml({
+      entryFiles: ["missing-class-path.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+    });
+    assert.equal(
+      missingClassPathInventory.classPaths.includes(
+        path.join(root, "generated-src"),
+      ),
+      true,
+      "a class path may be watched before its directory is created",
+    );
+    mkdirSync(path.join(root, "generated-src"));
+    const missingClassPathNative = spawnSync(
+      "haxe",
+      missingClassPathInventory.effectiveArguments,
+      { cwd: root, encoding: "utf8", timeout: 2_000 },
+    );
+    assert.equal(missingClassPathNative.error, undefined);
+    assert.equal(
+      missingClassPathNative.status,
+      0,
+      missingClassPathNative.stderr,
+    );
+
+    write(root, "consumed-option-control.hxml", "-cp %BAD_PATH%\n");
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["consumed-option-control.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+          environment: (name) =>
+            name === "BAD_PATH" ? "src\n--cmd=unsafe" : null,
+        }),
+      "invalid-syntax",
+    );
+
+    symlinkSync(
+      "missing-class-path-target",
+      path.join(root, "broken-class-path"),
+      "dir",
+    );
+    write(root, "broken-class-path.hxml", "-cp broken-class-path\n");
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["broken-class-path.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+        }),
+      "unsafe-input",
+    );
+
     write(root, "option-payload.hxml", "Main\n--xml escaped.xml\n");
     write(root, "option-value-hxml.hxml", "--main option-payload.hxml\n");
     await expectFailure(
@@ -207,6 +271,37 @@ async function main(): Promise<void> {
           entryFiles: ["inline-option-value-hxml.hxml"],
           workingDirectory: root,
           allowedRoots: [root],
+        }),
+      "invalid-syntax",
+    );
+
+    write(
+      root,
+      "inline-define-hxml-value.hxml",
+      "--define=config=option-payload.hxml\n-cp src\n-main MissingClassPathMain\n--interp\n",
+    );
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["inline-define-hxml-value.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+        }),
+      "invalid-syntax",
+    );
+    write(
+      root,
+      "inline-define-control.hxml",
+      "--define=config=%INLINE_VALUE%\n",
+    );
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["inline-define-control.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+          environment: (name) =>
+            name === "INLINE_VALUE" ? "safe.hxml\n--cmd=unsafe" : null,
         }),
       "invalid-syntax",
     );

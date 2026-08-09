@@ -822,20 +822,26 @@ because Haxe 4.3.7 ignores them rather than resolving a library. The v1
 single-request resolver admits one distinct library identity because it cannot
 reproduce Haxe's ordered batch resolution for adjacent distinct libraries;
 repeated requests for that identity remain supported. Authored or resolved
-option values ending in `.hxml` fail closed when they would remain in the final
-stream: Haxe's high-level argument pass would otherwise interpret that value as
-another HXML program before normal option arity is applied. The final effective
-stream contains no raw `.hxml` token. A separate resolved library request may
-use that suffix because its name is removed before execution; its resolver
-output still passes the final-stream check. Environment expansion cannot change
-a high-level HXML or library decision. Authored HXML is targetless. The bound compiler request
+standalone option values ending in `.hxml` fail closed when they would remain in
+the final stream: Haxe's high-level argument pass would otherwise interpret that
+value as another HXML program before normal option arity is applied. An ordinary
+inline option such as `--define=config=build.hxml` keeps its exact meaning
+through a private one-line HXML input whose value is carried by an environment
+placeholder. Haxe expands that placeholder only after its high-level HXML-file
+decision, and the private input is removed before publication. A
+standalone HXML inventory rejects that form because it does not own the private
+input needed to make the flattened command safe. A separate resolved library
+request may use that suffix because its name is
+removed before execution; its resolver output still passes the final-stream
+check. Environment expansion cannot change a high-level HXML or library
+decision. Authored HXML is targetless. The bound compiler request
 appends one ordinary private Haxe JS target and one private Genes target, so an
 inactive Genes generator still cannot write public output before admission. The
 HXML closure is complete only after every discovered library has been passed
 through a host-owned authoritative resolver. Haxe executes that flattened
 stream without a live `-lib` re-resolution; unresolved libraries fail before
-Haxe executes. The
-separate marker matters when two successful revisions generate identical bytes:
+Haxe executes. The separate marker matters when two successful revisions
+generate identical bytes:
 generation still advances, the file delta stays empty, and a host correctly
 performs no reload.
 
@@ -846,6 +852,14 @@ options—such as `--run=Main`, `--library=sample`, compiler-server flags, and
 working-directory flags—rather than normalizing rejected or ignored Haxe input
 into an executable command with different behavior. The reviewed set is
 closed and versioned for Haxe 4.3.7.
+
+Class paths are checked against the project roots, and every existing path
+component must be a normal directory rather than a symbolic link. The last
+directory may be absent. Keeping that missing path in the input list lets the
+reconciled watcher notice when generated sources first appear. The watcher
+checks every live path component again before each scan, so a newly created
+symbolic-link parent is rejected before any outside tree is read. It inspects
+the link itself, so a broken symbolic link cannot masquerade as an absent path.
 
 This is not a hostile-macro sandbox. Haxe macros are trusted compile-time code
 and may use filesystem or process APIs; hosts declare macro-owned external

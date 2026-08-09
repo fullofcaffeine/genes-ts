@@ -312,7 +312,7 @@ restarting the command.
   clear input error instead of being silently shortened. Haxe itself resolves
   a repeated library request only once, so the flattened plan does too. The
   usual `--option=value` spelling is accepted for ordinary one-value options
-  and normalized to the same checked argument pair as `--option value`. Haxe
+  and checked as the same option and value as `--option value`. Haxe
   handles a small set of options before its normal option table, so the two
   spellings are not always equivalent. For example, `--run Main` runs `Main`,
   while `--run=Main` is rejected by Haxe. DevelopmentSession rejects inline
@@ -326,13 +326,24 @@ restarting the command.
   The v1 resolver also accepts one distinct library identity only (repeats are
   deduplicated). Haxe batches adjacent distinct libraries, and the current
   single-request callback cannot reproduce that batch's exact dependency order.
-  After recursive flattening, no raw token ending in `.hxml` may reach Haxe.
-  A separate library name is safe because its reviewed resolver replaces it;
-  the resolver's resulting arguments must still pass the no-HXML check. Haxe
-  4.3.7 otherwise treats that token as another argument file even when Genes
-  saw it in the position of an ordinary option value.
-  Environment expansion is rejected where it would change Haxe's high-level
-  staging decision, including an HXML filename or library request.
+  After recursive flattening, no authored or resolved standalone token ending
+  in `.hxml` may reach Haxe. A separate library name is safe because its
+  reviewed resolver replaces it; the resolver's resulting arguments must still
+  pass the same check. An ordinary inline value may itself end in `.hxml`, for
+  example `--define=config=build.hxml`. The session places the checked option
+  in a tiny private HXML file and replaces only its value with a private
+  environment placeholder. Haxe decides that the placeholder is ordinary data
+  before expanding it back to `config=build.hxml`. The session removes the
+  private file before publication. This extra step matters because Haxe 4.3.7
+  otherwise tries to open any argument ending in `.hxml` as another build
+  file, even when that argument is an option's value. The
+  standalone `inventoryHxml()` helper cannot safely create that private file,
+  so it rejects this one form and returns only arguments a caller may pass
+  directly to Haxe.
+  Authored environment expansion is rejected where it would change Haxe's
+  high-level staging decision, including an HXML filename or library request.
+  Every expanded option value is also checked for line breaks and NUL bytes
+  before it can become part of the compiler request.
   DevelopmentSession v1 rejects authored `-C`/`--cwd` and resource options
   until their Haxe lookup semantics have a separate reviewed policy.
   A discovered `-lib` with no resolver makes startup fail before compilation.
@@ -391,7 +402,14 @@ restarting the command.
   compilation identity changes.
 - A source class path may not contain symbolic links. Haxe can follow such a
   link, but a safe watcher deliberately does not; rejecting the link prevents
-  an outside source change from being missed.
+  an outside source change from being missed. The final class-path directory
+  may be absent when the session starts. The watcher keeps that checked path so
+  creating the directory can trigger a later build. Before every later scan,
+  the watcher checks the path again. If a missing parent has become a symbolic
+  link, the scan stops instead of reading through it. The same check uses the
+  link itself rather than its missing target, so a broken symbolic link is
+  rejected instead of being mistaken for a directory that has not been
+  created yet.
 - `acquirePublishedRead()` protects one generated-file read from overlapping
   physical publication. Framework adapters emit no update until the accepted
   event exists.

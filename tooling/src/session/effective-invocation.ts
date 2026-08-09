@@ -4,11 +4,14 @@ import path from "node:path";
 import { canonicalDigest, type CanonicalJson } from "../artifacts/index.js";
 import {
   HAXE_4_3_7_OPTION_ARITY,
-  inventoryHxml,
   type HxmlArgumentPolicy,
   type HxmlInventory,
   type HxmlInventoryOptions,
 } from "../hxml/index.js";
+import {
+  inventoryHxmlForDevelopmentSession,
+  isHaxe437OrdinaryInlineHxmlOption,
+} from "../hxml/inventory.js";
 import type {
   GenesDevelopmentOptions,
   HaxeInvocation,
@@ -79,6 +82,18 @@ export interface BoundHaxeInvocation {
   readonly cwd: string;
   readonly environment: Readonly<Record<string, string>>;
   readonly arguments: readonly string[];
+  /**
+   * Small private HXML files needed to preserve an authored inline option.
+   *
+   * Haxe can mistake any argument ending in `.hxml` for another build file.
+   * The private bridge writes the checked option beside a private environment
+   * placeholder. Haxe expands that placeholder only after it has decided which
+   * arguments are build files, so the original value stays ordinary data.
+   */
+  readonly privateArgumentFiles: readonly {
+    readonly path: string;
+    readonly contents: string;
+  }[];
   readonly candidateRoot: string;
   readonly candidateOutputFile: string;
 }
@@ -121,7 +136,9 @@ export async function buildEffectiveHaxeInvocationPlan<
   invocation: HaxeInvocation,
   hxml: SessionHxmlOptions<Diagnostic>,
   signal: AbortSignal,
-  inventory: typeof inventoryHxml = inventoryHxml,
+  inventory: (
+    options: HxmlInventoryOptions,
+  ) => Promise<HxmlInventory> = inventoryHxmlForDevelopmentSession,
 ): Promise<EffectiveHaxeInvocationPlan> {
   assertEntryArguments(invocation);
   if (invocation.ioPolicy !== HAXE_4_3_7_DEVELOPMENT_JS_POLICY) {
@@ -192,18 +209,55 @@ export function bindHaxeInvocation(
   candidateOutputFile: string,
 ): BoundHaxeInvocation {
   const haxeTarget = path.join(candidateStageRoot, "haxe-target", "compiler.js");
+  const environment: Record<string, string> = {
+    ...(plan.invocation.env ?? {}),
+  };
+  const privateArgumentFiles: {
+    readonly path: string;
+    readonly contents: string;
+  }[] = [];
+  const checkedArguments = plan.inventory.effectiveArguments.map(
+    (argument, index) => {
+      if (!isHaxe437OrdinaryInlineHxmlOption(argument)) {
+        return argument;
+      }
+      const bridge = path.join(
+        candidateStageRoot,
+        "haxe-input",
+        `inline-option-${index}.hxml`,
+      );
+      const equals = argument.indexOf("=");
+      const option = argument.slice(0, equals);
+      const value = argument.slice(equals + 1);
+      const environmentKey = `GENES_TOOLING_HXML_OPTION_VALUE_${index}`;
+      if (Object.hasOwn(environment, environmentKey)) {
+        throw new Error(
+          `Haxe invocation environment uses reserved key ${environmentKey}`,
+        );
+      }
+      environment[environmentKey] = value;
+      privateArgumentFiles.push(
+        Object.freeze({
+          path: bridge,
+          contents: `${option} %${environmentKey}%\n`,
+        }),
+      );
+      return bridge;
+    },
+  );
   return Object.freeze({
     sourceInvocation: plan.invocation,
     executable: plan.invocation.executable,
     cwd: plan.invocation.cwd,
-    environment: plan.invocation.env ?? Object.freeze({}),
+    environment: Object.freeze(environment),
     arguments: Object.freeze([
-      ...plan.inventory.effectiveArguments,
+      ...checkedArguments,
       "--js",
       haxeTarget,
       "-D",
       `genes.output=${candidateOutputFile}`,
     ]),
+    privateArgumentFiles: Object.freeze(privateArgumentFiles),
     candidateRoot: candidateStageRoot,
     candidateOutputFile,
   });

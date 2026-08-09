@@ -154,6 +154,17 @@ export const HAXE_4_3_7_EARLY_INLINE_OPTIONS: ReadonlySet<string> =
     "--display",
   ]);
 
+/** Internal Haxe 4.3.7 spelling check shared with the session binder. */
+export function isHaxe437OrdinaryInlineHxmlOption(argument: string): boolean {
+  const equals = argument.indexOf("=");
+  if (equals <= 0 || !argument.endsWith(".hxml")) return false;
+  const option = argument.slice(0, equals);
+  return (
+    HAXE_4_3_7_OPTION_ARITY[option] === 1 &&
+    !HAXE_4_3_7_EARLY_INLINE_OPTIONS.has(option)
+  );
+}
+
 function fail(kind: HxmlFailureKind, subject: string): never {
   throw new HxmlInventoryError(Object.freeze({ kind, subject }));
 }
@@ -266,10 +277,14 @@ function assertNoSymlinkComponents(
     .split(path.sep)
     .filter((value) => value.length > 0)) {
     current = path.join(current, segment);
-    if (!existsSync(current)) {
+    // `existsSync` also returns false for a broken symbolic link. `lstat`
+    // lets us tell that unsafe link apart from a path that truly does not
+    // exist yet, which is important for generated class-path directories.
+    const status = lstatSync(current, { throwIfNoEntry: false });
+    if (status === undefined) {
       return;
     }
-    if (lstatSync(current).isSymbolicLink()) {
+    if (status.isSymbolicLink()) {
       fail("unsafe-input", subject);
     }
   }
@@ -341,8 +356,9 @@ function libraryRequest(
   });
 }
 
-export async function inventoryHxml(
+async function inventoryHxmlWithPolicy(
   options: HxmlInventoryOptions,
+  allowInlineHxmlOptionValues: boolean,
 ): Promise<HxmlInventory> {
   throwIfAborted(options.signal);
   const maxHxmlFiles = options.maxHxmlFiles ?? DEFAULT_MAX_HXML_FILES;
@@ -413,6 +429,9 @@ export async function inventoryHxml(
       throwIfAborted(options.signal);
       const rawArgument = args[index]!;
       const expandedArgument = expanded(rawArgument, options.environment);
+      if (/[\0\r\n]/u.test(expandedArgument)) {
+        fail("invalid-syntax", `${sourceFile}:argument-control-character`);
+      }
       const equals = expandedArgument.indexOf("=");
       const possibleOption = equals > 0
         ? expandedArgument.slice(0, equals)
@@ -446,7 +465,7 @@ export async function inventoryHxml(
         continue;
       }
 
-      if (expandedArgument.endsWith(".hxml")) {
+      if (!hasInlineValue && expandedArgument.endsWith(".hxml")) {
         fail(
           "invalid-syntax",
           `${sourceFile}:residual-hxml-token:${expandedArgument}`,
@@ -483,12 +502,24 @@ export async function inventoryHxml(
           ? undefined
           : expanded(rawValue, options.environment);
 
+      // The loop validates the option token above, but an option with a
+      // separate value skips that value on the next iteration. Check the
+      // expanded value here so an environment variable cannot add another
+      // HXML line or a NUL byte behind the option's back.
+      if (value !== undefined && /[\0\r\n]/u.test(value)) {
+        fail(
+          "invalid-syntax",
+          `${sourceFile}:${argument}:value-control-character`,
+        );
+      }
+
       if (rawValue !== value && libraryOptions.has(argument)) {
         fail("invalid-syntax", `${sourceFile}:stage-changing-environment`);
       }
 
       if (
         value?.endsWith(".hxml") === true &&
+        (inlineValue === undefined || !allowInlineHxmlOptionValues) &&
         !(libraryOptions.has(argument) && inlineValue === undefined)
       ) {
         fail(
@@ -521,9 +552,19 @@ export async function inventoryHxml(
           resolved,
           `${sourceFile}:classPath`,
         );
-        classPaths.add(
-          canonicalDirectory(resolved, `${sourceFile}:classPath`),
-        );
+        if (existsSync(resolved)) {
+          classPaths.add(
+            canonicalDirectory(resolved, `${sourceFile}:classPath`),
+          );
+        } else {
+          // Keep a not-yet-created class path in the inventory. The first Haxe
+          // compile may fail, but the reconciled watcher can observe the new
+          // directory and let the session recover on the next build.
+          if (/%[A-Za-z0-9_]+%/u.test(value!)) {
+            fail("missing-input", `${sourceFile}:classPath`);
+          }
+          classPaths.add(resolved);
+        }
       }
 
       if (libraryOptions.has(argument)) {
@@ -601,8 +642,16 @@ export async function inventoryHxml(
         continue;
       }
 
-      effectiveArguments.push(argument);
-      if (value !== undefined) effectiveArguments.push(value);
+      if (inlineValue !== undefined && value?.endsWith(".hxml") === true) {
+        // Haxe expands standalone `*.hxml` arguments before it splits an
+        // ordinary `--option=value` token. Preserve this spelling so a value
+        // such as `--define=config=build.hxml` stays data instead of becoming
+        // another HXML file when the flattened command runs.
+        effectiveArguments.push(`${argument}=${value}`);
+      } else {
+        effectiveArguments.push(argument);
+        if (value !== undefined) effectiveArguments.push(value);
+      }
       if (consumesNextArgument) index += 1;
     }
   };
@@ -652,7 +701,11 @@ export async function inventoryHxml(
 
   if (
     libraryClosureComplete &&
-    effectiveArguments.some((argument) => argument.endsWith(".hxml"))
+    effectiveArguments.some(
+      (argument) =>
+        argument.endsWith(".hxml") &&
+        !isHaxe437OrdinaryInlineHxmlOption(argument),
+    )
   ) {
     fail("invalid-syntax", "effectiveArguments:residual-hxml-token");
   }
@@ -675,4 +728,22 @@ export async function inventoryHxml(
     libraries: Object.freeze(libraries),
     effectiveArguments: Object.freeze(effectiveArguments),
   });
+}
+
+/**
+ * Inventories HXML for callers that pass `effectiveArguments` straight to
+ * Haxe. Inline option values ending in `.hxml` are rejected because Haxe would
+ * reopen that command-line token as another HXML file.
+ */
+export function inventoryHxml(
+  options: HxmlInventoryOptions,
+): Promise<HxmlInventory> {
+  return inventoryHxmlWithPolicy(options, false);
+}
+
+/** @internal DevelopmentSession materializes accepted inline values safely. */
+export function inventoryHxmlForDevelopmentSession(
+  options: HxmlInventoryOptions,
+): Promise<HxmlInventory> {
+  return inventoryHxmlWithPolicy(options, true);
 }

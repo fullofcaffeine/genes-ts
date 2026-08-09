@@ -243,7 +243,9 @@ The host invocation contains only ordered top-level HXML files. The executable
 invocation instead receives the sealed flattened arguments from those files
 and library resolutions. Source class paths reject symbolic links because Haxe
 may follow them while the safe watcher does not; accepting both behaviors would
-let the compiler read a change that the session could miss.
+let the compiler read a change that the session could miss. A class-path
+directory may still be missing at startup. The session watches its checked path
+so a generator or developer can create it and cause a later build.
 
 Authored HXML selects no target. Under the reviewed Haxe 4.3.7 policy, the
 session rejects JavaScript and every alternate target selector, then appends
@@ -277,6 +279,16 @@ The complete Haxe 4.3.7 group is:
 
 Some inline forms fail in Haxe. Other inline forms do nothing. The inventory
 rejects both outcomes because neither one has the separate-value meaning.
+Ordinary inline options remain supported even when their value ends in `.hxml`.
+The compiler request keeps that option inside a small private HXML file and
+uses a private environment placeholder for its checked value. Haxe classifies
+the placeholder as ordinary data first, then expands it back to the exact value.
+This is necessary because Haxe 4.3.7 tries to open any argument ending in
+`.hxml` as another build file, including an option's separate value. The private
+file is removed before generated output can be validated or published. This is
+a DevelopmentSession feature. The standalone HXML inventory rejects the form
+because its returned arguments are safe to pass directly to Haxe and it does
+not own a private build directory.
 
 The host may supply environment overrides with the Haxe invocation. For each
 revision, the session combines them with the current Node process environment,
@@ -413,6 +425,11 @@ framework names and does not assume a browser.
   corpus.
 - [`vectors.json`](vectors.json) records startup, admission, scheduling,
   compiler, publication, read-barrier, and shutdown expectations.
+
+The `inline-hxml-option-stays-private` scenario checks the complete special
+case: the compiler sees one checked private HXML input and its matching private
+environment value, validation and publication do not see the helper, and the
+session finishes ready with ordinary public output only.
 
 The scenario scripts name deterministic harness stimuli, not public methods.
 The implementation PR must execute every released vector through controlled

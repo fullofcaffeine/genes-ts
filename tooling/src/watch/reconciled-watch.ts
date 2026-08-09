@@ -78,10 +78,14 @@ function assertNoSymlinkComponents(candidate: string): void {
     .split(path.sep)
     .filter((value) => value.length > 0)) {
     current = path.join(current, segment);
-    if (!existsSync(current)) {
+    // `existsSync` also returns false for a symbolic link whose target is
+    // missing. Inspect the path entry itself so that unsafe link is never
+    // confused with a generated directory that simply does not exist yet.
+    const status = lstatSync(current, { throwIfNoEntry: false });
+    if (status === undefined) {
       return;
     }
-    if (lstatSync(current).isSymbolicLink()) {
+    if (status.isSymbolicLink()) {
       throw new Error(`watch input traverses a symbolic link: ${current}`);
     }
   }
@@ -194,6 +198,10 @@ function capture<Cause>(
 ): Snapshot<Cause> {
   const snapshot: Snapshot<Cause> = new Map();
   for (const input of inputs) {
+    // A missing input can gain a symbolic-link parent after registration.
+    // Check the live path before every scan so reconciliation never follows
+    // that new link into a different tree.
+    assertNoSymlinkComponents(input.path);
     if (input.kind === "exact") {
       addEntry(
         snapshot,
@@ -237,6 +245,7 @@ function changed<Cause>(
 }
 
 function nearestRealDirectory(candidate: string): string {
+  assertNoSymlinkComponents(candidate);
   let current = path.resolve(candidate);
   while (!existsSync(current)) {
     const parent = path.dirname(current);
@@ -261,6 +270,7 @@ function nearestRealDirectory(candidate: string): string {
 function collectTreeDirectories<Cause>(
   input: TreeWatchInput<Cause>,
 ): readonly string[] {
+  assertNoSymlinkComponents(input.path);
   if (!existsSync(input.path)) {
     return Object.freeze([nearestRealDirectory(input.path)]);
   }
