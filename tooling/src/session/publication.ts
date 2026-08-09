@@ -4,7 +4,6 @@ import {
   lstatSync,
   mkdirSync,
   readFileSync,
-  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -24,9 +23,14 @@ import {
   readFileState,
   sameFileState,
 } from "../artifacts/filesystem.js";
+import {
+  portablePathIdentity,
+  validatePortableRelativePath,
+} from "../artifacts/validate-plan.js";
 import type { AcceptedGeneration, FileDelta, JsonValue } from "./types.js";
 import {
   logicalOutputPath,
+  samePhysicalSessionPath,
   type SessionLayout,
 } from "./layout.js";
 import type {
@@ -61,10 +65,20 @@ function stageRelative(
 
 export function sessionProjectDigest(layout: SessionLayout): string {
   return canonicalDigest({
+    protocol: "genes.tooling.development-session-project.v2",
+    projectIdentity: layout.projectIdentity,
+    projectRoot: layout.projectRoot,
+    publicOutputRoot: layout.publicOutputRootAuthority,
+  });
+}
+
+/** The project identity written by DevelopmentSession before root ownership. */
+export function legacySessionProjectDigest(layout: SessionLayout): string {
+  return canonicalDigest({
     protocol: "genes.tooling.development-session-project.v1",
     projectIdentity: layout.projectIdentity,
     projectRoot: layout.projectRoot,
-    publicOutput: layout.publicOutputAuthority,
+    publicOutput: layout.publicEntryAuthority,
   });
 }
 
@@ -74,9 +88,25 @@ export function admissionDigest(
   validatorPolicyFacts: JsonValue,
 ): string {
   return canonicalDigest({
-    protocol: "genes.tooling.development-session-admission.v1",
+    protocol: "genes.tooling.development-session-admission.v2",
     projectIdentity: sessionProjectDigest(layout),
-    publicOutput: layout.publicOutputAuthority,
+    publicOutputRoot: layout.publicOutputRootAuthority,
+    publicEntry: layout.publicEntryAuthority,
+    manifestDigest,
+    validatorPolicyFacts,
+  } as CanonicalJson);
+}
+
+/** The admission identity written by DevelopmentSession before root ownership. */
+export function legacyAdmissionDigest(
+  layout: SessionLayout,
+  manifestDigest: string,
+  validatorPolicyFacts: JsonValue,
+): string {
+  return canonicalDigest({
+    protocol: "genes.tooling.development-session-admission.v1",
+    projectIdentity: legacySessionProjectDigest(layout),
+    publicOutput: layout.publicEntryAuthority,
     manifestDigest,
     validatorPolicyFacts,
   } as CanonicalJson);
@@ -90,6 +120,120 @@ export interface PreparedPublication {
 export interface PublishedMarker {
   readonly manifestDigest: string | null;
   readonly state: ExpectedFileState;
+}
+
+export interface LegacyAcceptedGenerationRecord {
+  readonly protocol: "genes.tooling.accepted-generation.v1";
+  readonly sessionNonce: string;
+  readonly generation: number;
+  readonly revision: number;
+  readonly acceptedAt: number;
+  readonly manifestDigest: string;
+  readonly publicOutput: string;
+  readonly publicOutputPath: string;
+}
+
+/** Parses the exact marker format emitted by the released entry-scoped session. */
+export function parseLegacyAcceptedGeneration(
+  layout: SessionLayout,
+  bytes: string,
+): LegacyAcceptedGenerationRecord {
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(bytes);
+  } catch {
+    throw new Error("legacy accepted-generation marker is not valid JSON");
+  }
+  if (typeof decoded !== "object" || decoded === null || Array.isArray(decoded)) {
+    throw new Error("legacy accepted-generation marker is not an object");
+  }
+  const fields = decoded as Record<string, unknown>;
+  if (
+    Object.keys(fields).sort().join(",") !==
+      "acceptedAt,generation,manifestDigest,protocol,publicOutput,publicOutputPath,revision,sessionNonce" ||
+    fields.protocol !== "genes.tooling.accepted-generation.v1" ||
+    typeof fields.sessionNonce !== "string" ||
+    fields.sessionNonce.length === 0 ||
+    !Number.isInteger(fields.generation) ||
+    (fields.generation as number) <= 0 ||
+    !Number.isInteger(fields.revision) ||
+    (fields.revision as number) <= 0 ||
+    !Number.isInteger(fields.acceptedAt) ||
+    (fields.acceptedAt as number) < 0 ||
+    typeof fields.manifestDigest !== "string" ||
+    !/^[0-9a-f]{64}$/u.test(fields.manifestDigest) ||
+    fields.publicOutput !== layout.publicEntryAuthority ||
+    typeof fields.publicOutputPath !== "string" ||
+    `${canonicalJson(fields as CanonicalJson)}\n` !== bytes
+  ) {
+    throw new Error("legacy accepted-generation marker is invalid or non-canonical");
+  }
+  const record = Object.freeze({
+    protocol: "genes.tooling.accepted-generation.v1" as const,
+    sessionNonce: fields.sessionNonce,
+    generation: fields.generation as number,
+    revision: fields.revision as number,
+    acceptedAt: fields.acceptedAt as number,
+    manifestDigest: fields.manifestDigest,
+    publicOutput: fields.publicOutput,
+    publicOutputPath: fields.publicOutputPath,
+  });
+  let recordedOutputRelative: string;
+  try {
+    recordedOutputRelative = validatePortableRelativePath(
+      record.publicOutputPath,
+      "legacy accepted-generation publicOutputPath",
+    );
+  } catch {
+    throw new Error("legacy accepted-generation marker has an invalid output path");
+  }
+  if (portablePathIdentity(recordedOutputRelative) !== record.publicOutput) {
+    throw new Error("legacy accepted-generation marker has an invalid output identity");
+  }
+  const recordedOutput = path.join(
+    layout.projectRoot,
+    ...recordedOutputRelative.split("/"),
+  );
+  const samePhysicalOutput = samePhysicalSessionPath(
+    recordedOutput,
+    layout.publicOutputFile,
+    "file",
+  );
+  if (
+    record.publicOutputPath !== layout.publicOutputRelative &&
+    !samePhysicalOutput
+  ) {
+    throw new Error(
+      `this output was previously published as ${record.publicOutputPath}; use that original public output path instead of ${layout.publicOutputRelative}`,
+    );
+  }
+  return record;
+}
+
+/** Encodes a v2 marker while preserving the accepted v1 generation facts. */
+export function rootAcceptedGenerationBytes(
+  layout: SessionLayout,
+  accepted: Pick<
+    LegacyAcceptedGenerationRecord,
+    | "sessionNonce"
+    | "generation"
+    | "revision"
+    | "acceptedAt"
+    | "manifestDigest"
+  >,
+): string {
+  return `${canonicalJson({
+    protocol: "genes.tooling.accepted-generation.v2",
+    sessionNonce: accepted.sessionNonce,
+    generation: accepted.generation,
+    revision: accepted.revision,
+    acceptedAt: accepted.acceptedAt,
+    manifestDigest: accepted.manifestDigest,
+    publicOutputRoot: layout.publicOutputRootAuthority,
+    publicOutputRootPath: layout.publicOutputRootRelative ?? ".",
+    publicEntry: layout.publicEntryAuthority,
+    publicEntryPath: layout.publicOutputRelative,
+  })}\n`;
 }
 
 /**
@@ -124,8 +268,8 @@ export function readPublishedMarker(
   const record = decoded as Record<string, unknown>;
   if (
     Object.keys(record).sort().join(",") !==
-      "acceptedAt,generation,manifestDigest,protocol,publicOutput,publicOutputPath,revision,sessionNonce" ||
-    record.protocol !== "genes.tooling.accepted-generation.v1" ||
+      "acceptedAt,generation,manifestDigest,protocol,publicEntry,publicEntryPath,publicOutputRoot,publicOutputRootPath,revision,sessionNonce" ||
+    record.protocol !== "genes.tooling.accepted-generation.v2" ||
     typeof record.sessionNonce !== "string" ||
     record.sessionNonce.length === 0 ||
     !Number.isInteger(record.generation) ||
@@ -136,39 +280,82 @@ export function readPublishedMarker(
     (record.acceptedAt as number) < 0 ||
     typeof record.manifestDigest !== "string" ||
     !/^[0-9a-f]{64}$/u.test(record.manifestDigest) ||
-    record.publicOutput !== layout.publicOutputAuthority ||
-    typeof record.publicOutputPath !== "string" ||
+    record.publicOutputRoot !== layout.publicOutputRootAuthority ||
+    record.publicEntry !== layout.publicEntryAuthority ||
+    typeof record.publicOutputRootPath !== "string" ||
+    typeof record.publicEntryPath !== "string" ||
     `${canonicalJson(record as CanonicalJson)}\n` !== bytes
   ) {
     throw new Error("accepted-generation marker is invalid or non-canonical");
   }
   const recordedOutput = path.join(
     layout.projectRoot,
-    ...(record.publicOutputPath as string).split("/"),
+    ...validatePortableRelativePath(
+      record.publicEntryPath as string,
+      "accepted-generation publicEntryPath",
+    ).split("/"),
   );
   const currentOutput = path.join(
     layout.projectRoot,
     ...layout.publicOutputRelative.split("/"),
   );
-  const samePhysicalOutput =
-    existsSync(recordedOutput) &&
-    existsSync(currentOutput) &&
-    realpathSync.native(recordedOutput) === realpathSync.native(currentOutput);
+  const samePhysicalOutput = samePhysicalSessionPath(
+    recordedOutput,
+    currentOutput,
+    "file",
+  );
+  const recordedRoot = path.join(
+    layout.projectRoot,
+    ...(
+      record.publicOutputRootPath === "."
+        ? []
+        : validatePortableRelativePath(
+            record.publicOutputRootPath as string,
+            "accepted-generation publicOutputRootPath",
+          ).split("/")
+    ),
+  );
+  const currentRoot = layout.publicOutputRoot;
+  const samePhysicalRoot = samePhysicalSessionPath(
+    recordedRoot,
+    currentRoot,
+    "directory",
+  );
+  const recordedRootAuthority =
+    record.publicOutputRootPath === "."
+      ? "project-root:."
+      : `project-relative:${portablePathIdentity(
+          record.publicOutputRootPath as string,
+        )}`;
   if (
-    record.publicOutputPath !== layout.publicOutputRelative &&
+    portablePathIdentity(record.publicEntryPath as string) !==
+      record.publicEntry ||
+    recordedRootAuthority !== record.publicOutputRoot
+  ) {
+    throw new Error("accepted-generation marker has an invalid path identity");
+  }
+  if (
+    record.publicOutputRootPath !== (layout.publicOutputRootRelative ?? ".") &&
+    !samePhysicalRoot
+  ) {
+    throw new Error("public output root spelling differs from its recorded owner");
+  }
+  if (
+    record.publicEntryPath !== layout.publicOutputRelative &&
     !samePhysicalOutput
   ) {
     throw new Error(
-      `this output was previously published as ${record.publicOutputPath}; use that original public output path instead of ${layout.publicOutputRelative}`,
+      `this output was previously published as ${record.publicEntryPath}; use that original public output path instead of ${layout.publicOutputRelative}`,
     );
   }
+  const markerState = readFileState(
+    layout.projectRoot,
+    layout.generationMarkerRelative,
+    "unexpected-live-state",
+  );
   return Object.freeze({
     manifestDigest: record.manifestDigest,
-    state: readFileState(
-      layout.projectRoot,
-      layout.generationMarkerRelative,
-      "unexpected-live-state",
-    ),
+    state: markerState,
   });
 }
 
@@ -263,16 +450,13 @@ export function preparePublication(
     ...markerStageRelative.split("/"),
   );
   mkdirSync(path.dirname(markerAbsolute), { recursive: true, mode: 0o700 });
-  const marker = `${canonicalJson({
-    protocol: "genes.tooling.accepted-generation.v1",
+  const marker = rootAcceptedGenerationBytes(layout, {
     sessionNonce,
     generation,
     revision,
     acceptedAt,
     manifestDigest: candidate.manifestDigest,
-    publicOutput: layout.publicOutputAuthority,
-    publicOutputPath: layout.publicOutputRelative,
-  })}\n`;
+  });
   writeFileSync(markerAbsolute, marker, { mode: 0o600 });
   chmodSync(markerAbsolute, 0o600);
 

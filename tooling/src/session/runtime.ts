@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import {
   existsSync,
   lstatSync,
-  readFileSync,
+  mkdirSync,
   readdirSync,
   realpathSync,
   rmSync,
@@ -35,6 +35,15 @@ import {
   type SessionCompiler,
 } from "./haxe-driver.js";
 import {
+  bindHaxeInvocation,
+  buildEffectiveHaxeInvocationPlan,
+  type EffectiveHaxeInvocationPlan,
+} from "./effective-invocation.js";
+import {
+  auditSessionAuthority,
+  establishSessionAuthority,
+} from "./authority-migration.js";
+import {
   assertCandidateContainsOnlyOwnedFiles,
   readGenesOutput,
   validationFiles,
@@ -42,12 +51,16 @@ import {
 } from "./genes-output.js";
 import {
   logicalOutputPath,
+  materializeSessionPrivateLayout,
+  materializeSessionRuntimeLayout,
   portableProjectPathsOverlap,
   resolveSessionLayout,
   type SessionLayout,
 } from "./layout.js";
 import {
   admissionDigest,
+  legacyAdmissionDigest,
+  legacySessionProjectDigest,
   preparePublication,
   readPublishedMarker,
   sessionProjectDigest,
@@ -76,21 +89,6 @@ import {
 const DEFAULT_DEBOUNCE_MS = 100;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 2_000;
 const ABSENT_FILE_STATE: ExpectedFileState = Object.freeze({ kind: "absent" });
-const SESSION_FORBIDDEN_HXML_OPTIONS = Object.freeze([
-  "--connect",
-  "--wait",
-  "--server-listen",
-  "--server-connect",
-  "--cmd",
-  "--run",
-  "--interp",
-  "-x",
-  "--xml",
-  "--json",
-  "--next",
-  "--each",
-]);
-
 interface BuildCause {
   readonly revision: number;
   readonly paths: readonly string[];
@@ -113,6 +111,9 @@ interface SessionDependencies<Diagnostic extends JsonValue> {
   readonly publish: (options: Parameters<typeof publishArtifacts>[0]) => Promise<PublicationOutcome>;
   readonly recover: (options: Parameters<typeof recoverArtifacts>[0]) => Promise<RecoveryOutcome>;
   readonly acquireLock: typeof acquireSessionLock;
+  readonly establishAuthority: (
+    layout: SessionLayout,
+  ) => Promise<void>;
   readonly nonce: () => string;
 }
 
@@ -125,6 +126,11 @@ const REAL_DEPENDENCIES: SessionDependencies<JsonValue> = {
   publish: publishArtifacts,
   recover: recoverArtifacts,
   acquireLock: acquireSessionLock,
+  establishAuthority: async (layout) =>
+    await establishSessionAuthority(layout, {
+      publish: publishArtifacts,
+      recover: recoverArtifacts,
+    }),
   nonce: () => randomBytes(16).toString("hex"),
 };
 
@@ -142,6 +148,26 @@ function diagnostic(
 
 function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
+}
+
+/** Replaces one private path whether a host reports `/` or `\\` separators. */
+function replacePathSpellings(
+  value: string,
+  privatePath: string,
+  replacement: string,
+): string {
+  const slash = privatePath.replaceAll("\\", "/");
+  const backslash = privatePath.replaceAll("/", "\\");
+  return [...new Set([privatePath, slash, backslash])]
+    .sort((left, right) => right.length - left.length)
+    .reduce(
+      (current, spelling) => current.replaceAll(spelling, replacement),
+      value,
+    );
+}
+
+function isJsonArray(value: JsonValue): value is readonly JsonValue[] {
+  return Array.isArray(value);
 }
 
 function bytewise(values: Iterable<string>): string[] {
@@ -232,6 +258,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   #newestRebuildRevision = 0;
   #accepted: AcceptedGeneration | null = null;
   #inventory: HxmlInventory | null = null;
+  #effectivePlan: EffectiveHaxeInvocationPlan | null = null;
   #watch: ReconciledWatchSession | null = null;
   #lock: SessionLock | null = null;
   #started = false;
@@ -258,6 +285,10 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       options.publicOutputFile,
       options.stateDirectory,
     );
+    // The Haxe server validates its private lease parent in its constructor.
+    // This creates no publication or migration authority; both public control
+    // universes remain untouched until start() holds their lifetime locks.
+    materializeSessionPrivateLayout(this.#layout);
     this.#sessionNonce = dependencies.nonce();
     const shutdownTimeoutMs =
       options.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS;
@@ -328,6 +359,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     let startupPhase: FailurePhase = "recovery";
     try {
       this.#lock = this.#dependencies.acquireLock(this.#layout);
+      materializeSessionRuntimeLayout(this.#layout);
       await this.#recover();
       if (this.#closing !== null || this.#startupAbort.signal.aborted) return;
       const published = readPublishedMarker(this.#layout);
@@ -336,7 +368,10 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       this.#mayCleanCandidates = true;
       this.#cleanCandidates();
       startupPhase = "inventory";
-      this.#inventory = await this.#reinventoryGapSafe(this.#startupAbort.signal);
+      this.#effectivePlan = await this.#replanGapSafe(
+        this.#startupAbort.signal,
+      );
+      this.#inventory = this.#effectivePlan.inventory;
       if (this.#closing !== null || this.#startupAbort.signal.aborted) return;
       if (this.#newestRevision !== 0) {
         throw new Error("initial revision was already assigned");
@@ -503,12 +538,36 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   }
 
   async #recover(): Promise<void> {
+    // Audit every visible entry authority before legacy recovery can change
+    // public files. The same audit runs again during migration to close drift.
+    auditSessionAuthority(this.#layout);
+    // Releases before root ownership stored recovery beside one entry. Read
+    // that location first while both the old and new locks are held.
+    await this.#dependencies.recover({
+      projectRoot: this.#layout.projectRoot,
+      transactionRoot: this.#layout.legacyTransactionRelative,
+      projectIdentity: legacySessionProjectDigest(this.#layout),
+      admitIntended: async (plan) => await this.#admitLegacyRecovered(plan),
+    });
+    await this.#dependencies.establishAuthority(this.#layout);
     await this.#dependencies.recover({
       projectRoot: this.#layout.projectRoot,
       transactionRoot: this.#layout.transactionRelative,
       projectIdentity: sessionProjectDigest(this.#layout),
       admitIntended: async (plan) => await this.#admitRecovered(plan),
     });
+  }
+
+  async #admitLegacyRecovered(plan: PublicationPlan): Promise<boolean> {
+    return await this.#admitRecoveredWith(
+      plan,
+      (manifestDigest) =>
+        legacyAdmissionDigest(
+          this.#layout,
+          manifestDigest,
+          this.#options.validatorPolicyFacts,
+        ),
+    );
   }
 
   #closeWatch(): void {
@@ -526,18 +585,28 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   }
 
   async #admitRecovered(plan: PublicationPlan): Promise<boolean> {
+    return await this.#admitRecoveredWith(
+      plan,
+      (manifestDigest) =>
+        admissionDigest(
+          this.#layout,
+          manifestDigest,
+          this.#options.validatorPolicyFacts,
+        ),
+    );
+  }
+
+  async #admitRecoveredWith(
+    plan: PublicationPlan,
+    expectedAdmission: (manifestDigest: string) => string,
+  ): Promise<boolean> {
     const live = readGenesOutput(
       this.#layout.publicOutputRoot,
       this.#layout.outputIdentity,
       true,
     )!;
     if (
-      plan.authorizationDigest !==
-      admissionDigest(
-        this.#layout,
-        live.manifestDigest,
-        this.#options.validatorPolicyFacts,
-      )
+      plan.authorizationDigest !== expectedAdmission(live.manifestDigest)
     ) {
       return false;
     }
@@ -608,6 +677,13 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       inputs.push({
         kind: "exact",
         path: hxml,
+        cause: { reinventory: true, restartCompiler: true, rebuild: true },
+      });
+    }
+    for (const provenance of inventory.libraryProvenanceFiles) {
+      inputs.push({
+        kind: "exact",
+        path: provenance,
         cause: { reinventory: true, restartCompiler: true, rebuild: true },
       });
     }
@@ -710,27 +786,20 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       this.#emit({ kind: "build-started", revision: cause.revision });
       if (this.#closing !== null || abort.signal.aborted) return;
       if (cause.reinventory) {
-        this.#inventory = await this.#reinventoryGapSafe(abort.signal);
+        this.#effectivePlan = await this.#replanGapSafe(abort.signal);
+        this.#inventory = this.#effectivePlan.inventory;
         if (this.#closing !== null || abort.signal.aborted) return;
         failurePhase = "compile";
       }
       if (cause.restartCompiler) this.#compilerEpoch += 1;
-      const inventory = this.#inventory;
-      if (inventory === null) throw new Error("HXML inventory is unavailable");
-      const invocation = snapshotHaxeInvocation(
-        await this.#options.resolveInvocation({ signal: abort.signal }),
-      );
+      const retainedPlan = this.#effectivePlan;
+      if (retainedPlan === null) {
+        throw new Error("effective Haxe invocation is unavailable");
+      }
+      const executionPlan = await this.#resolveEffectivePlan(abort.signal);
       if (this.#closing !== null || abort.signal.aborted) return;
-      const executionInventory = await this.#dependencies.inventory(
-        this.#inventoryOptions(abort.signal),
-      );
-      this.#assertInventoryContained(executionInventory);
-      if (this.#closing !== null || abort.signal.aborted) return;
-      if (
-        this.#inventoryIdentity(inventory) !==
-        this.#inventoryIdentity(executionInventory)
-      ) {
-        this.#observe(executionInventory.entryHxmlFiles[0]!, {
+      if (retainedPlan.identity !== executionPlan.identity) {
+        this.#observe(executionPlan.inventory.entryHxmlFiles[0]!, {
           reinventory: true,
           restartCompiler: true,
           rebuild: true,
@@ -742,33 +811,34 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         });
         return;
       }
-      this.#assertInvocationHxmlClosure(invocation, executionInventory);
-      const compatibilityDigest = this.#compatibilityDigest(
-        invocation,
-        executionInventory,
-      );
+      const compatibilityDigest = this.#compatibilityDigest(executionPlan);
       candidateStageRelative = `${this.#layout.candidatesRelative}/revision-${cause.revision}-${this.#dependencies.nonce()}`;
-      const outputRoot = path.join(
+      const candidateStageRoot = path.join(
         this.#layout.projectRoot,
         ...candidateStageRelative.split("/"),
+      );
+      const outputRoot = path.join(
+        candidateStageRoot,
         "output",
       );
       const candidateOutputFile = path.join(outputRoot, this.#layout.outputIdentity);
-      const compiler = await this.#compiler.compile(
-        invocation,
-        compatibilityDigest,
+      mkdirSync(path.join(candidateStageRoot, "haxe-target"), {
+        recursive: true,
+        mode: 0o700,
+      });
+      const boundInvocation = bindHaxeInvocation(
+        executionPlan,
+        candidateStageRoot,
         candidateOutputFile,
+      );
+      const compiler = await this.#compiler.compile(
+        boundInvocation,
+        compatibilityDigest,
         abort.signal,
         async () => {
-          const finalInventory = await this.#dependencies.inventory(
-            this.#inventoryOptions(abort.signal),
-          );
-          this.#assertInventoryContained(finalInventory);
-          if (
-            this.#inventoryIdentity(executionInventory) !==
-            this.#inventoryIdentity(finalInventory)
-          ) {
-            this.#observe(finalInventory.entryHxmlFiles[0]!, {
+          const finalPlan = await this.#resolveEffectivePlan(abort.signal);
+          if (executionPlan.identity !== finalPlan.identity) {
+            this.#observe(finalPlan.inventory.entryHxmlFiles[0]!, {
               reinventory: true,
               restartCompiler: true,
               rebuild: true,
@@ -777,7 +847,6 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
               "HXML input changed after invocation validation and before execution",
             );
           }
-          this.#assertInvocationHxmlClosure(invocation, finalInventory);
         },
       );
       if (this.#closing !== null || abort.signal.aborted) return;
@@ -800,7 +869,16 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       );
       if (this.#closing !== null || abort.signal.aborted) return;
       if (!admission.ok) {
-        this.#fail("validate", cause.revision, true, admission.diagnostic);
+        this.#fail(
+          "validate",
+          cause.revision,
+          true,
+          diagnostic(
+            "VALIDATION_REJECTED",
+            "The host validator rejected the private candidate",
+            this.#sanitizePublicJson(admission.diagnostic),
+          ),
+        );
         return;
       }
       this.#requireReconciliation();
@@ -945,128 +1023,41 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     });
   }
 
-  #compatibilityDigest(
-    invocation: HaxeInvocation,
-    inventory: HxmlInventory,
-  ): string {
-    const hxml = inventory.hxmlFiles.map((file) => ({
-      file: path.relative(this.#layout.projectRoot, file).split(path.sep).join("/"),
-      digest: canonicalDigest(readFileSync(file, "utf8")),
-    }));
+  #compatibilityDigest(plan: EffectiveHaxeInvocationPlan): string {
     return canonicalDigest({
-      protocol: "genes.tooling.haxe-compatibility.v1",
+      protocol: "genes.tooling.haxe-compatibility.v2",
       compilerEpoch: this.#compilerEpoch,
-      executable: invocation.executable,
-      cwd: invocation.cwd,
-      args: invocation.args,
-      environment: invocation.env ?? {},
-      compatibilityFacts: invocation.compatibilityFacts,
-      hxml,
-      classPaths: inventory.classPaths,
-      resources: inventory.resourceInputs,
-      libraries: inventory.libraries.map((library) => ({
-        request: library.request,
-        name: library.name,
-        version: library.version,
-        fromFile: library.fromFile,
-      })),
-      libraryClosureComplete: inventory.libraryClosureComplete,
+      effectiveInvocationIdentity: plan.identity,
     } as CanonicalJson);
   }
 
-  #inventoryOptions(signal: AbortSignal): GenesDevelopmentOptions<Diagnostic>["hxml"] {
-    const currentPolicy = this.#options.hxml.argumentPolicy;
-    return Object.freeze({
-      ...this.#options.hxml,
+  async #resolveEffectivePlan(
+    signal: AbortSignal,
+  ): Promise<EffectiveHaxeInvocationPlan> {
+    const invocation = snapshotHaxeInvocation(
+      await this.#options.resolveInvocation({ signal }),
+    );
+    const plan = await buildEffectiveHaxeInvocationPlan(
+      invocation,
+      this.#options.hxml,
       signal,
-      argumentPolicy: Object.freeze({
-        forbiddenOptions: Object.freeze(
-          bytewise(
-            new Set([
-              ...(currentPolicy?.forbiddenOptions ?? []),
-              ...SESSION_FORBIDDEN_HXML_OPTIONS,
-            ]),
-          ),
-        ),
-        forbiddenDefines: Object.freeze(
-          bytewise(
-            new Set([
-              ...(currentPolicy?.forbiddenDefines ?? []),
-              "genes.output",
-            ]),
-          ),
-        ),
-      }),
-    });
+      this.#dependencies.inventory,
+    );
+    this.#assertInventoryContained(plan.inventory);
+    return plan;
   }
 
-  #assertInvocationHxmlClosure(
-    invocation: HaxeInvocation,
-    inventory: HxmlInventory,
-  ): void {
-    const configuredWorkingDirectory = realpathSync.native(
-      path.resolve(this.#options.hxml.workingDirectory),
-    );
-    let invocationWorkingDirectory: string;
-    try {
-      invocationWorkingDirectory = realpathSync.native(
-        path.resolve(invocation.cwd),
-      );
-    } catch {
-      throw new Error("Haxe invocation working directory is unavailable");
-    }
-    if (invocationWorkingDirectory !== configuredWorkingDirectory) {
-      throw new Error(
-        "Haxe invocation must use the same working directory as the inventoried HXML",
-      );
-    }
-    const invoked: string[] = [];
-    for (const argument of invocation.args) {
-      if (argument.startsWith("-") || !argument.endsWith(".hxml")) {
-        throw new Error(
-          "Haxe invocation may contain only the exact top-level HXML files; put build options inside those inventoried files",
-        );
-      }
-      const candidate = path.resolve(invocationWorkingDirectory, argument);
-      assertRealPath(
-        this.#layout.projectRoot,
-        candidate,
-        "Haxe invocation HXML",
-      );
-      try {
-        invoked.push(realpathSync.native(candidate));
-      } catch {
-        throw new Error(`Haxe invocation HXML is unavailable: ${argument}`);
-      }
-    }
-    if (
-      invoked.length !== inventory.entryHxmlFiles.length ||
-      invoked.some((file, index) => file !== inventory.entryHxmlFiles[index])
-    ) {
-      throw new Error(
-        "Haxe invocation must use the exact HXML entries inventoried by the development session",
-      );
-    }
-  }
-
-  async #reinventoryGapSafe(signal: AbortSignal): Promise<HxmlInventory> {
-    let candidate = await this.#dependencies.inventory(
-      this.#inventoryOptions(signal),
-    );
-    this.#assertInventoryContained(candidate);
+  async #replanGapSafe(
+    signal: AbortSignal,
+  ): Promise<EffectiveHaxeInvocationPlan> {
+    let candidate = await this.#resolveEffectivePlan(signal);
     for (let attempt = 0; attempt < 4; attempt += 1) {
       if (this.#closing !== null || signal.aborted) {
         throw new Error("development session startup was cancelled");
       }
-      this.#replaceWatch(candidate);
-      const confirmation = await this.#dependencies.inventory(
-        this.#inventoryOptions(signal),
-      );
-      this.#assertInventoryContained(confirmation);
-      if (
-        this.#inventoryIdentity(candidate) ===
-        this.#inventoryIdentity(confirmation)
-      ) {
+      this.#replaceWatch(candidate.inventory);
+      const confirmation = await this.#resolveEffectivePlan(signal);
+      if (candidate.identity === confirmation.identity) {
         return candidate;
       }
       candidate = confirmation;
@@ -1074,25 +1065,6 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     throw new Error(
       "HXML input identity kept changing while the watch graph was registered",
     );
-  }
-
-  #inventoryIdentity(inventory: HxmlInventory): string {
-    return canonicalDigest({
-      entryHxmlFiles: inventory.entryHxmlFiles,
-      hxml: inventory.hxmlFiles.map((file) => ({
-        file,
-        bytes: canonicalDigest(readFileSync(file, "utf8")),
-      })),
-      classPaths: inventory.classPaths,
-      resourceInputs: inventory.resourceInputs,
-      libraries: inventory.libraries.map((library) => ({
-        request: library.request,
-        name: library.name,
-        version: library.version,
-        fromFile: library.fromFile,
-      })),
-      libraryClosureComplete: inventory.libraryClosureComplete,
-    } as CanonicalJson);
   }
 
   #assertInventoryContained(inventory: HxmlInventory): void {
@@ -1103,6 +1075,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     }
     for (const candidate of [
       ...inventory.hxmlFiles,
+      ...inventory.libraryProvenanceFiles,
       ...inventory.classPaths,
       ...inventory.resourceInputs,
       ...(this.#options.extraInputs ?? []).map((extra) =>
@@ -1155,7 +1128,8 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       this.#layout.projectRoot,
       ...this.#layout.candidatesRelative.split("/"),
     );
-    const withCandidateRoot = message.replaceAll(
+    const withCandidateRoot = replacePathSpellings(
+      message,
       candidateRoot,
       "<private-candidate-root>",
     );
@@ -1163,9 +1137,30 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       /<private-candidate-root>[\\/][^\\/\s:]+/gu,
       "<private-candidate>",
     );
-    return withoutCandidateNonce
-      .replaceAll(this.#layout.stateRoot, "<private-state>")
-      .replaceAll(this.#layout.projectRoot, "<project>");
+    return replacePathSpellings(
+      replacePathSpellings(
+        withoutCandidateNonce,
+        this.#layout.stateRoot,
+        "<private-state>",
+      ),
+      this.#layout.projectRoot,
+      "<project>",
+    );
+  }
+
+  /** Removes session-private paths from every host-authored JSON string. */
+  #sanitizePublicJson(value: JsonValue): JsonValue {
+    if (typeof value === "string") return this.#sanitizeCoreMessage(value);
+    if (value === null || typeof value !== "object") return value;
+    if (isJsonArray(value)) {
+      return Object.freeze(value.map((entry) => this.#sanitizePublicJson(entry)));
+    }
+    const sanitized: Record<string, JsonValue> = {};
+    for (const key of Object.keys(value)) {
+      sanitized[this.#sanitizeCoreMessage(key)] =
+        this.#sanitizePublicJson(value[key]!);
+    }
+    return Object.freeze(sanitized);
   }
 
   #fail(

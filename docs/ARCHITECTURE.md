@@ -757,9 +757,9 @@ or changes compiler semantics. Its positive contract is:
 
 ```text
 observed input revision
-  -> authoritative library + nested HXML closure
   -> immutable effective Haxe invocation
-  -> request-local `genes.output` private compiler tree
+  -> exact nested-HXML + flattened library-argument closure derived from it
+  -> session-owned private Haxe JS target + request-local `genes.output`
   -> exact Genes v2 ownership inventory
   -> host-owned validation
   -> supersession check
@@ -779,16 +779,79 @@ serialized dirty loop, owned Haxe server, and artifact publisher. It does not
 reimplement those mechanisms. The compiler's v2 manifest is the sole generated
 file inventory, including the manifest file's own exact bytes and mode, while a
 separate session generation record is the outer commit marker. Both publication
-authorities live in one stable project/output-scoped control root so selecting a
+authorities live in one stable project/public-root-scoped control root so selecting a
 different private candidate directory cannot bypass crash recovery. Its output
 identity uses the artifact layer's portable NFC/case-folded path model, so a
-case alias cannot acquire a second lock or recovery universe. The HXML closure
-is likewise complete only after every discovered library has been passed
-through a host-owned authoritative resolver; unresolved libraries fail before
+case alias cannot acquire a second lock or recovery universe. One persistent
+entry owner is admitted per public root in v1, preventing two entry-specific
+sessions from publishing overlapping sibling modules through separate
+journals. The owner is written privately and moved into place only after its
+complete bytes are durable. An uncommitted private owner can be removed after
+a stopped write, while a damaged final owner fails closed. Public output and
+`.genes/tooling` cannot contain one another.
+
+The root-scoped design has an explicit upgrade path from the earlier
+entry-scoped session. While holding both lock identities, tooling recovers the
+old journal. It then publishes four small, durable steps:
+
+1. a receipt that describes the exact old marker and live generated manifest
+2. a replacement marker that causes older writers to stop
+3. the root owner
+4. an equivalent root-scoped accepted marker
+
+The ordinary artifact transaction owns every step, so process
+loss can be recovered without exposing half-written control data or changing
+the last-good generated tree. Scanning the stable control directory also
+rejects two older entry markers that claim the same output root. The upgrade
+never guesses which marker must win.
+
+This transition is a one-way tooling upgrade. The replacement v1 marker stops
+the released v1 client for the selected entry. Supported installations must
+not downgrade after migration. A manually started v1 client with another entry
+does not know the v2 root lock and remains outside the compatibility contract.
+The migration receipt remains historical after later v2 generations.
+
+One immutable effective-invocation plan owns the executable, working directory,
+environment, ordered HXML entries and occurrences, exact resolved-library
+arguments/provenance, source roots, and versioned Haxe 4.3.7 compiler-I/O
+policy. Repeated acyclic HXML occurrences keep their repeated argument
+semantics, recursive includes fail rather than disappearing, repeated library
+requests keep Haxe's resolve-once behavior, and `--option=value` is normalized
+before the same option policy runs. Inline library spellings are rejected
+because Haxe 4.3.7 ignores them rather than resolving a library. The v1
+single-request resolver admits one distinct library identity because it cannot
+reproduce Haxe's ordered batch resolution for adjacent distinct libraries;
+repeated requests for that identity remain supported. Authored or resolved
+option values ending in `.hxml` fail closed when they would remain in the final
+stream: Haxe's high-level argument pass would otherwise interpret that value as
+another HXML program before normal option arity is applied. The final effective
+stream contains no raw `.hxml` token. A separate resolved library request may
+use that suffix because its name is removed before execution; its resolver
+output still passes the final-stream check. Environment expansion cannot change
+a high-level HXML or library decision. Authored HXML is targetless. The bound compiler request
+appends one ordinary private Haxe JS target and one private Genes target, so an
+inactive Genes generator still cannot write public output before admission. The
+HXML closure is complete only after every discovered library has been passed
+through a host-owned authoritative resolver. Haxe executes that flattened
+stream without a live `-lib` re-resolution; unresolved libraries fail before
 Haxe executes. The
 separate marker matters when two successful revisions generate identical bytes:
 generation still advances, the file delta stays empty, and a host correctly
 performs no reload.
+
+Haxe's early argument pass also treats several inline spellings differently
+from their separate-value forms. The inventory accepts `--name=value` only for
+ordinary one-value options. It rejects inline forms for the reviewed early
+options—such as `--run=Main`, `--library=sample`, compiler-server flags, and
+working-directory flags—rather than normalizing rejected or ignored Haxe input
+into an executable command with different behavior. The reviewed set is
+closed and versioned for Haxe 4.3.7.
+
+This is not a hostile-macro sandbox. Haxe macros are trusted compile-time code
+and may use filesystem or process APIs; hosts declare macro-owned external
+inputs when they affect rebuild correctness. Preventing arbitrary macro reads
+or writes requires an operating-system sandbox and is outside this bounded
+development-session contract.
 
 Framework policy remains above this boundary. Vite, Next.js, Electron, Expo,
 WordPress, browser transports, device transports, and application servers may

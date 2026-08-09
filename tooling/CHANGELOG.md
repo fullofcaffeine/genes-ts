@@ -21,16 +21,40 @@ it.
   exclusion, exact stale deletion, output-scoped recovery, immutable effective
   invocation checks, authoritative reconciliation, exact drift detection, and
   bounded reentrant owned cleanup.
-- Require the executed Haxe command to match the inventoried working directory
-  and ordered top-level HXML files, reject linked source trees, and keep an
+- Derive HXML inventory and execution from one immutable effective invocation;
+  mirror Haxe 4.3.7 HXML parsing and `%NAME%` expansion; execute the exact
+  flattened library argument stream; include resolved library provenance and
+  source roots; reject linked source trees; and keep an
   accepted output tied to its original physical path spelling.
-- Recognize Haxe's documented short class-path, library, resource, and working
-  directory options;
+- Own one private ordinary Haxe JavaScript target and one private Genes target
+  under a versioned Haxe 4.3.7 I/O policy. Reject authored targets,
+  compiler-side dump/message files, alternate execution modes, and inactive
+  Genes output before any public mutation.
+- Scope locks, journals, markers, and recovery to the portable public output
+  root, persist one entry owner for that root, and keep generated output
+  structurally disjoint from `.genes/tooling`. Publish that owner atomically,
+  discard only an uncommitted private owner file, and reject damage to the
+  final owner. Upgrade released entry-scoped state through an authenticated,
+  recoverable receipt, migration fence, root owner, and translated marker.
+  Keep the upgrade one-way and preserve every accepted-generation fact.
+- Classify every Haxe 4.3.7 option spelling; support class paths and exact
+  library contributions while rejecting CWD/resources until their lookup
+  semantics have a reviewed policy;
+  preserve repeated acyclic HXML arguments, reject recursive HXML includes,
+  keep Haxe's resolve-once behavior for repeated libraries, reject inline
+  spellings for Haxe 4.3.7's complete early-option set, admit one distinct
+  library identity in the v1 single-request resolver, and accept Haxe's ordinary
+  `--option=value` spelling for other one-value options;
+  reject every residual `.hxml` token after recursive flattening so Haxe cannot
+  reinterpret an option value as a second, unreviewed HXML program, while still
+  allowing a separate reviewed library request that is removed before execution;
   reject HXML options that execute shell commands or user programs before host
   acceptance; keep informational changes from discarding an active build; and
   report post-inventory compiler errors at the compile stage.
 - Copy and hash the complete effective Haxe environment for each revision, and
   stop acceptance cleanly when a lifecycle observer closes the session.
+- Remove private candidate, state, and project paths from host validation
+  messages even when the host uses the other platform slash style.
 - Reject Haxe XML/JSON side outputs from the managed HXML graph, and verify the
   complete live publication again after host admission before committing it.
 - Verify every public code and JSON export from the packed package on Node

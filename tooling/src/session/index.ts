@@ -23,6 +23,7 @@ export type {
 export {
   createGenesDevelopmentSession,
 } from "./runtime.js";
+export { HAXE_4_3_7_DEVELOPMENT_JS_POLICY } from "./effective-invocation.js";
 export {
   DEVELOPMENT_SESSION_EVENT_PROTOCOL,
   DEVELOPMENT_SESSION_EVENT_VERSION,

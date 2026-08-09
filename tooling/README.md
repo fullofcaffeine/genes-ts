@@ -49,7 +49,7 @@ authored edit
 ```
 
 An HXML file is Haxe's build-argument file. It names class paths, libraries,
-resources, defines, and other inputs. `inventoryHxml` reads that declared graph
+defines, and other inputs. `inventoryHxml` reads that declared graph
 so the host does not guess which files affect a build.
 
 If you only run Haxe once in CI, keep doing that; this package is for a
@@ -166,12 +166,11 @@ has a concrete watch, warm-compilation, or publication requirement.
 
 ## A first development session
 
-The smallest useful host supplies four project facts:
+The smallest useful host supplies three project facts:
 
-1. which HXML graph to watch;
-2. the exact Haxe invocation;
-3. the public Genes output entry;
-4. a validator for a complete private candidate.
+1. the exact Haxe invocation, whose ordered HXML entries define what to watch;
+2. the public Genes output entry;
+3. a validator for a complete private candidate.
 
 ```ts
 import {
@@ -188,8 +187,6 @@ const session = createGenesDevelopmentSession<Diagnostic>({
   projectRoot: "/workspace/my-app",
   projectIdentity: "my-app/web",
   hxml: {
-    entryFiles: ["build.hxml"],
-    workingDirectory: "/workspace/my-app",
     allowedRoots: ["/workspace/my-app"],
   },
   publicOutputFile: "src-gen/index.tsx",
@@ -201,6 +198,7 @@ const session = createGenesDevelopmentSession<Diagnostic>({
     executable: "/absolute/path/to/haxe",
     cwd: "/workspace/my-app",
     args: ["build.hxml"],
+    ioPolicy: "haxe-4.3.7-development-js-v1",
     compatibilityFacts: { haxe: "4.3.7", genes: "reviewed-commit" },
   }),
 
@@ -228,13 +226,16 @@ await session.close();
 
 This shortest example is library-free. If `build.hxml` contains a
 project-contained development `-lib`, the host must also supply
-`hxml.resolveLibrary`. The resolver is an authority boundary: it must return
-the complete effective HXML expansion for that library, while an empty array
-means the library genuinely contributes no HXML files. A missing resolver is
-deliberately rejected before Haxe starts. DevelopmentSession v1 still requires
-all returned HXML/class-path inputs to stay under `projectRoot`, preserving its
-project-relative watch and event contract; the lower-level inventory API may
-use broader `allowedRoots` when a host owns a different path model.
+`hxml.resolveLibrary`. The resolver is an authority boundary: it returns the
+exact ordered Haxe arguments that `haxelib path` contributes and the files that
+prove that resolution. Empty `arguments` and `provenanceFiles` arrays mean the
+library genuinely contributes nothing. A missing resolver is
+deliberately rejected before Haxe starts. The resolver receives the same frozen
+environment lookup used for HXML expansion. DevelopmentSession v1 still
+requires all returned provenance files and argument-owned inputs to stay under `projectRoot`,
+preserving its project-relative watch and event contract; the lower-level
+inventory API may use broader `allowedRoots` when a host owns a different path
+model.
 
 The application validator never receives a half-generated tree. Genes first
 finishes its own compiler transaction inside a private candidate directory.
@@ -252,39 +253,112 @@ restarting the command.
 - `publicOutputFile` and `stateDirectory` are project-contained, non-overlapping
   scopes. Private candidates and the owned Haxe-server lease live below
   `stateDirectory`. The publication journal and accepted marker instead live
-  in a stable, output-scoped control directory, so changing the private state
-  directory after a crash cannot hide unfinished recovery.
-- The declared HXML inputs, including resolved library HXML and class paths,
+  in a stable, public-root-scoped control directory, so changing the private
+  state directory after a crash cannot hide unfinished recovery. One public
+  root has one persistent entry owner in v1: `src-gen/index.ts` and
+  `src-gen/other.ts` cannot create separate lock and recovery universes for
+  files they may both publish below `src-gen`. The owner record is written as a
+  complete private file and then moved into place in one step, so a stopped
+  process cannot expose a half-written new record. A leftover private file is
+  safe to remove on restart. A damaged final owner still fails closed.
+  Projects created by the older entry-scoped session are upgraded before a new
+  build starts. The session first recovers the older journal, records the exact
+  state being upgraded, replaces the old marker with a stop record that makes
+  older writers fail safely, establishes the root owner, and finally writes the
+  equivalent root-scoped marker. Each step uses the normal recoverable artifact
+  publisher, so a stopped process can resume without changing the last-good
+  generated tree. The migration receipt remains historical evidence after
+  later v2 generations replace the translated marker.
+
+  This upgrade is one-way. The permanent stop record, called the migration
+  fence, makes the released v1 client fail for the migrated entry. The
+  supported package or supervisor must not start v1 tooling after migration.
+  A manually launched v1 client can select a different entry and calculate a
+  different old lock path. V1 does not know the root-scoped protocol, so v2
+  cannot force that unsupported client to read the new lock. Do not downgrade
+  the tooling package or change the entry while an old client is running.
+  Public output may never contain
+  or be contained by `.genes/tooling`; output at the project root is therefore
+  unsupported.
+- The declared HXML inputs, including resolved library arguments, provenance,
+  and class paths,
   must be inside `projectRoot` and must not contain private state,
   publication-control, or generated-output scopes. This keeps watch/event
   paths project-relative in v1. The lower-level inventory API may use broader
-  `allowedRoots` independently. Entry order is retained exactly for invocation
-  checks, and symlinked entry or library-HXML path components fail before
+  `allowedRoots` independently. Entry and occurrence order are retained, and
+  symlinked entry or library-provenance path components fail before
   canonicalization.
-- The session adds the request-local `-D genes.output=<private entry>` itself.
-  It rejects caller-provided `--connect`, server-listen, `genes.output`,
+- Authored HXML is deliberately targetless. The session appends exactly one
+  private ordinary Haxe `--js` target and one private
+  `-D genes.output=<entry>` target. This matters when Genes is missing or
+  fails to activate: ordinary Haxe may still generate JavaScript, but those
+  bytes remain disposable and cannot touch public output before admission.
+  The versioned Haxe 4.3.7 policy classifies every compiler option spelling and
+  rejects every authored target selector,
+  `--no-output`, display/prompt modes, compiler dump/message-log file outputs,
+  caller-provided `--connect`, server-listen, `genes.output`,
   `--next`, and `--each` flags because two lifecycle owners or several output
   compilations would be ambiguous. It also rejects `--cmd`, `--run`,
   `--interp`, and `-x`: these options can run a shell command or the compiled
   program inside Haxe, before the host has checked and accepted the candidate.
-  It rejects `--xml` and `--json` too because they write extra files outside
+  It rejects `--xml`, `-xml`, and `--json` too because they write extra files outside
   the private candidate and safe publication plan.
   The host must run any needed follow-up step explicitly after an accepted
-  generation. The same check visits entry and nested HXML files and every
-  authoritatively resolved library HXML; hiding an override in `child.hxml` or
-  a library's `extraParams.hxml` does not bypass admission.
+  generation. The same check visits entry and nested HXML files and the exact
+  argument stream returned for every library. Haxe executes the flattened
+  stream, so it never reruns `haxelib path` after the final plan check. If the
+  same HXML file is included twice without a cycle, its arguments appear twice
+  just as they do in a direct Haxe command. A recursive include fails with a
+  clear input error instead of being silently shortened. Haxe itself resolves
+  a repeated library request only once, so the flattened plan does too. The
+  usual `--option=value` spelling is accepted for ordinary one-value options
+  and normalized to the same checked argument pair as `--option value`. Haxe
+  handles a small set of options before its normal option table, so the two
+  spellings are not always equivalent. For example, `--run Main` runs `Main`,
+  while `--run=Main` is rejected by Haxe. DevelopmentSession rejects inline
+  spellings for that reviewed set instead of changing the author's input into
+  a command with different behavior. Library options are in that set too:
+  Haxe 4.3.7 ignores `--library=sample` rather than resolving the library.
+  The closed set is `-C`, `--cwd`, `--connect`, `--server-connect`,
+  `--server-listen`, `--wait`, `--run`, `-L`, `--library`, `-lib`, `--jvm`,
+  `--java`, `-java`, `--cs`, `-cs`, and `--display`. A later Haxe version
+  requires a new reviewed table.
+  The v1 resolver also accepts one distinct library identity only (repeats are
+  deduplicated). Haxe batches adjacent distinct libraries, and the current
+  single-request callback cannot reproduce that batch's exact dependency order.
+  After recursive flattening, no raw token ending in `.hxml` may reach Haxe.
+  A separate library name is safe because its reviewed resolver replaces it;
+  the resolver's resulting arguments must still pass the no-HXML check. Haxe
+  4.3.7 otherwise treats that token as another argument file even when Genes
+  saw it in the position of an ordinary option value.
+  Environment expansion is rejected where it would change Haxe's high-level
+  staging decision, including an HXML filename or library request.
+  DevelopmentSession v1 rejects authored `-C`/`--cwd` and resource options
+  until their Haxe lookup semantics have a separate reviewed policy.
   A discovered `-lib` with no resolver makes startup fail before compilation.
-- `resolveInvocation` is copied once per revision. Its optional `env` values
-  override the current Node process environment. The session then copies that
-  complete effective environment, includes it in the compiler-server identity,
+- `resolveInvocation` is copied whenever the session seals or rechecks the
+  effective plan for a revision. Its ordered HXML entries, working directory,
+  and environment are the only authority for HXML interpretation and Haxe
+  execution; `hxml` configuration cannot supply competing values. Optional
+  `env` values override the current Node process environment. The session then
+  copies that complete effective environment, expands Haxe's `%NAME%` form,
+  includes it in the
+  compiler-server identity,
   and passes those same values to Haxe. Changing `PATH`, `HAXELIB_PATH`,
   `HAXE_STD_PATH`, or another ambient value therefore cannot silently reuse a
   server started with older settings. Mutating a retained host array or object
   later cannot change the command.
-- The invocation uses the same working directory and the same ordered
-  top-level HXML files as the input inventory. Put build flags inside those
-  HXML files; extra command-line flags are rejected because otherwise Haxe
-  could compile files that the development loop did not know to watch.
+- The host invocation contains only ordered top-level HXML files. Put build flags
+  inside those HXML files; extra command-line flags are rejected because
+  otherwise Haxe could compile files that the development loop did not know to
+  watch.
+- This is compiler-output and declarative-input authority, not a hostile-code
+  sandbox. Haxe macros are compile-time programs and may use filesystem or
+  process APIs. DevelopmentSession v1 therefore trusts the selected Haxe
+  compiler, standard library, resolved libraries, and project macro code.
+  Macro-owned external inputs must be declared as host `extraInputs` when they
+  affect rebuild correctness. Preventing arbitrary macros from reading or
+  writing outside an operating-system sandbox is a separate architecture.
 - `resolveInvocation().executable` is the native Haxe compiler binary that
   supports `--server-listen` and `--connect`, not a shell command string. The
   process is spawned with structured arguments and `shell: false`.
@@ -305,7 +379,11 @@ restarting the command.
   create separate locks, journals, or accepted markers. Non-NFC paths remain
   invalid portable paths and fail before authority is created. Caller-selected
   private state may not contain or equal `.genes/tooling`, which owns those
-  stable locks and recovery records.
+  stable locks and recovery records. A case-only spelling difference is
+  accepted only when both exact output roots and both exact entry files exist.
+  Each path must name a normal object, and both spellings must resolve to the
+  same object. A symbolic link never counts as that proof. If a crash leaves
+  the entry temporarily absent, restart with the original spelling.
   Haxe server leases and artifact locks are also exact; tooling never adopts
   or kills an unowned process.
 - HXML graph replacement is registration-gap safe: tooling confirms the
@@ -471,7 +549,10 @@ const inventory = await inventoryHxml({
   workingDirectory: projectRoot,
   allowedRoots: [projectRoot, haxeLibraryCache],
   environment: readConfiguredEnvironment,
-  resolveLibrary: resolveLibraryHxml,
+  resolveLibrary: (request) => ({
+    arguments: resolveExactHaxelibArguments(request),
+    provenanceFiles: resolveHaxelibProvenance(request),
+  }),
 });
 
 // Recovery runs before a new build. The host validates the complete state
@@ -614,14 +695,16 @@ The host remains responsible for:
 ## HXML inventory
 
 `inventoryHxml` resolves the Haxe inputs that are stated by one or more HXML
-entry files. It understands nested HXML, ordered `--cwd`/`-C`, class paths,
-resources, libraries, comments, quoting, escaping, and explicit environment
-expansion. The host supplies allowed roots plus environment and library
-resolvers:
+entry files. It mirrors Haxe 4.3.7 whole-line HXML quoting, full-line comments,
+one-space option splitting, and `%NAME%` environment expansion. It understands
+nested HXML, class paths, libraries, and defines. The host supplies allowed
+roots plus environment and library resolvers. V1 rejects `-C`/`--cwd` and
+resource options rather than approximating their process-wide and class-path
+lookup semantics.
 
-Both familiar long options and Haxe's documented short forms are understood:
-`--class-path`/`-cp`/`-p`, `--library`/`-lib`/`-L`, and
-`--resource`/`-resource`/`-r`, plus `--cwd`/`-C`.
+Both familiar long options and Haxe's documented short forms are classified.
+The supported input forms are `--class-path`/`-cp`/`-p` and
+`--library`/`-lib`/`-L`.
 
 ```ts
 import { inventoryHxml } from "@genes-ts/tooling/hxml";
@@ -631,22 +714,27 @@ const inventory = await inventoryHxml({
   workingDirectory: projectRoot,
   allowedRoots: [projectRoot, haxeLibraryCache],
   environment: (name) => configuredEnvironment.get(name) ?? null,
-  resolveLibrary: (request) => resolveLibraryHxml(request),
+  resolveLibrary: (request) => ({
+    arguments: resolveExactHaxelibArguments(request),
+    provenanceFiles: resolveHaxelibProvenance(request),
+  }),
 });
 ```
 
-The result is a deterministic inventory of HXML files, class paths, resources,
-and library requests. `libraryClosureComplete` distinguishes an authoritative
+The result is a deterministic inventory of unique HXML files, occurrences,
+library provenance, class paths, library requests, and the exact flattened
+argument stream. `libraryClosureComplete` distinguishes an authoritative
 empty library expansion from request-only inventory performed without a
 resolver. It contains no framework config files or watch policy.
 Missing values, unsafe paths, links, malformed syntax, resolver failures, and
 budgets fail through `HxmlInventoryError`.
 
 Long-lived hosts may pass an `AbortSignal`; library resolvers receive the same
-signal, and inventory stops waiting even when a resolver ignores it. The
-optional `argumentPolicy` asks this existing traversal to reject selected
-options or defines throughout the complete nested closure. DevelopmentSession
-requires `libraryClosureComplete`, then uses that same traversal for its
+signal and environment lookup, and inventory stops waiting even when a resolver
+ignores it. The optional `argumentPolicy` asks this existing traversal to reject
+selected options or defines throughout the complete nested closure.
+DevelopmentSession requires `libraryClosureComplete`, then uses that same
+traversal for its
 one-compilation/private-output contract rather than maintaining a second HXML
 parser. The lower-level API still permits request-only inventory for hosts that
 only need to list library requests.

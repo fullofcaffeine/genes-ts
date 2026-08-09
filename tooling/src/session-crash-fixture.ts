@@ -1,20 +1,35 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import {
+  canonicalJson,
   publishArtifacts,
   recoverArtifacts,
+  sha256Bytes,
   type ArtifactCheckpoint,
+  type CanonicalJson,
+  type PublicationPlan,
 } from "./artifacts/index.js";
 import { inventoryHxml } from "./hxml/index.js";
+import {
+  establishSessionAuthority,
+  type AuthorityMigrationCheckpoint,
+} from "./session/authority-migration.js";
 import type { HaxeWaitServerEvent } from "./haxe-server/index.js";
 import type {
   ReconciledWatchOptions,
   ReconciledWatchSession,
 } from "./watch/index.js";
 import type { SessionCompiler } from "./session/haxe-driver.js";
-import type { SessionLayout } from "./session/layout.js";
+import {
+  resolveSessionLayout,
+  type SessionLayout,
+} from "./session/layout.js";
+import {
+  legacyAdmissionDigest,
+  legacySessionProjectDigest,
+} from "./session/publication.js";
 import {
   createGenesDevelopmentSessionWithDependencies,
   type SessionDependencies,
@@ -31,6 +46,12 @@ const publicOutputFile =
   process.env.GENES_SESSION_CRASH_OUTPUT ?? "src-gen/index.ts";
 const content = process.env.GENES_SESSION_CRASH_CONTENT ?? "export const value = 1;\n";
 const crashAt = process.env.GENES_SESSION_CRASH_AT as ArtifactCheckpoint | undefined;
+const migrationCrashAt = process.env
+  .GENES_SESSION_MIGRATION_CRASH_AT as AuthorityMigrationCheckpoint | undefined;
+const useLegacyAuthority =
+  process.env.GENES_SESSION_CRASH_LEGACY_AUTHORITY === "true";
+const projectIdentity = "fixture-alternate-state-recovery";
+const validatorPolicyFacts = { fixture: "alternate-state-recovery" } as const;
 if (root === undefined || stateDirectory === undefined) {
   throw new Error("session crash fixture requires root and state directory");
 }
@@ -55,10 +76,10 @@ class FixtureCompiler implements SessionCompiler {
   async compile(
     _invocation: Parameters<SessionCompiler["compile"]>[0],
     _compatibilityDigest: string,
-    candidateOutputFile: string,
     _signal: AbortSignal,
     assertInvocationCurrent?: () => void | Promise<void>,
   ): Promise<{ readonly mode: "direct" }> {
+    const { candidateOutputFile } = _invocation;
     await assertInvocationCurrent?.();
     mkdirSync(path.dirname(candidateOutputFile), { recursive: true });
     writeFileSync(candidateOutputFile, content, "utf8");
@@ -87,9 +108,58 @@ const dependencies: SessionDependencies<JsonValue> = {
     _onEvent: (event: HaxeWaitServerEvent) => void,
     _shutdownTimeoutMs: number,
   ) => new FixtureCompiler(),
-  publish: async (options) =>
-    await publishArtifacts({
+  publish: async (options) => {
+    let plan = options.plan;
+    if (useLegacyAuthority) {
+      const layout = resolveSessionLayout(
+        root,
+        projectIdentity,
+        publicOutputFile,
+        stateDirectory,
+      );
+      const marker = plan.commitMarker.stagedPath;
+      if (marker === null) {
+        throw new Error("legacy crash fixture requires a staged marker");
+      }
+      const markerAbsolute = path.join(root, ...marker.split("/"));
+      const current = JSON.parse(
+        readFileSync(markerAbsolute, "utf8"),
+      ) as Record<string, unknown>;
+      const legacyBytes = `${canonicalJson({
+        protocol: "genes.tooling.accepted-generation.v1",
+        sessionNonce: current.sessionNonce,
+        generation: current.generation,
+        revision: current.revision,
+        acceptedAt: current.acceptedAt,
+        manifestDigest: current.manifestDigest,
+        publicOutput: layout.publicEntryAuthority,
+        publicOutputPath: layout.publicOutputRelative,
+      } as CanonicalJson)}\n`;
+      writeFileSync(markerAbsolute, legacyBytes, "utf8");
+      plan = Object.freeze({
+        ...plan,
+        projectIdentity: legacySessionProjectDigest(layout),
+        authorizationDigest: legacyAdmissionDigest(
+          layout,
+          String(current.manifestDigest),
+          validatorPolicyFacts,
+        ),
+        transactionRoot: layout.legacyTransactionRelative,
+        commitMarker: Object.freeze({
+          ...plan.commitMarker,
+          path: layout.legacyGenerationMarkerRelative,
+          next: Object.freeze({
+            kind: "file" as const,
+            sha256: sha256Bytes(legacyBytes),
+            sizeBytes: Buffer.byteLength(legacyBytes),
+            mode: 0o600,
+          }),
+        }),
+      }) satisfies PublicationPlan;
+    }
+    return await publishArtifacts({
       ...options,
+      plan,
       ...(crashAt === undefined
         ? {}
         : {
@@ -97,18 +167,25 @@ const dependencies: SessionDependencies<JsonValue> = {
               if (checkpoint === crashAt) process.exit(73);
             },
           }),
-    }),
+    });
+  },
   recover: recoverArtifacts,
   acquireLock: acquireSessionLock,
+  establishAuthority: async (layout) =>
+    await establishSessionAuthority(layout, {
+      publish: publishArtifacts,
+      recover: recoverArtifacts,
+      faultInjector: (checkpoint) => {
+        if (checkpoint === migrationCrashAt) process.exit(74);
+      },
+    }),
   nonce: () => "crash-fixture",
 };
 
 const options: GenesDevelopmentOptions<JsonValue> = {
   projectRoot: root,
-  projectIdentity: "fixture-alternate-state-recovery",
+  projectIdentity,
   hxml: {
-    entryFiles: ["build.hxml"],
-    workingDirectory: root,
     allowedRoots: [root],
   },
   publicOutputFile,
@@ -117,10 +194,11 @@ const options: GenesDevelopmentOptions<JsonValue> = {
     executable: "haxe",
     cwd: root,
     args: ["build.hxml"],
+    ioPolicy: "haxe-4.3.7-development-js-v1",
     compatibilityFacts: { fixture: "alternate-state-recovery" },
   }),
   validate: async () => ({ ok: true }),
-  validatorPolicyFacts: { fixture: "alternate-state-recovery" },
+  validatorPolicyFacts,
   debounceMs: 0,
   pollIntervalMs: 10,
   shutdownTimeoutMs: 20,

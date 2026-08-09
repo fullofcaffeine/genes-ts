@@ -17,6 +17,7 @@ import {
   type PublicationPlan,
 } from "./artifacts/index.js";
 import { inventoryHxml } from "./hxml/index.js";
+import { establishSessionAuthority } from "./session/authority-migration.js";
 import type { HaxeWaitServerEvent } from "./haxe-server/index.js";
 import type {
   ReconciledWatchOptions,
@@ -117,9 +118,9 @@ class VectorCompiler implements SessionCompiler {
   async compile(
     _invocation: Parameters<SessionCompiler["compile"]>[0],
     _digest: string,
-    candidateOutputFile: string,
     signal: AbortSignal,
   ): Promise<{ readonly mode: "connected" | "direct" }> {
+    const { candidateOutputFile } = _invocation;
     const step = this.#steps.shift();
     assert.notEqual(step, undefined, "vector requested an unplanned compile");
     if (step!.emitFallback) {
@@ -304,7 +305,7 @@ async function execute(vector: Vector): Promise<void> {
   const source = path.join(sourceRoot, "Main.hx");
   mkdirSync(sourceRoot);
   writeFileSync(source, "class Main {}\n", "utf8");
-  writeFileSync(path.join(root, "build.hxml"), "-cp src\n-main Main\n-js ignored.js\n", "utf8");
+  writeFileSync(path.join(root, "build.hxml"), "-cp src\n-main Main\n", "utf8");
   const hold =
     vector.id === "burst-supersedes-active-candidate" ||
     vector.id === "close-before-first-accepted-is-idempotent"
@@ -365,6 +366,11 @@ async function execute(vector: Vector): Promise<void> {
         ? async () => ({ action: "committed", transactionId: "a".repeat(64) })
         : recoverArtifacts,
     acquireLock: acquireSessionLock,
+    establishAuthority: async (layout) =>
+      await establishSessionAuthority(layout, {
+        publish: publishArtifacts,
+        recover: recoverArtifacts,
+      }),
     nonce: () => `vector${++nonce}`,
   };
   const session = createGenesDevelopmentSessionWithDependencies<JsonValue>(
@@ -372,8 +378,6 @@ async function execute(vector: Vector): Promise<void> {
       projectRoot: root,
       projectIdentity: vector.id,
       hxml: {
-        entryFiles: ["build.hxml"],
-        workingDirectory: root,
         allowedRoots: [root],
       },
       publicOutputFile: "src-gen/index.ts",
@@ -382,6 +386,7 @@ async function execute(vector: Vector): Promise<void> {
         executable: "haxe",
         cwd: root,
         args: ["build.hxml"],
+        ioPolicy: "haxe-4.3.7-development-js-v1",
         compatibilityFacts: { vector: vector.id },
       }),
       validate: async () => {

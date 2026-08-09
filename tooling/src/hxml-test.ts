@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import {
   mkdirSync,
   mkdtempSync,
@@ -11,6 +12,7 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  HAXE_4_3_7_EARLY_INLINE_OPTIONS,
   HxmlInventoryError,
   inventoryHxml,
 } from "./hxml/index.js";
@@ -47,8 +49,7 @@ async function main(): Promise<void> {
       [
         "# comment",
         "-p src",
-        "-C nested",
-        "'nested build.hxml'",
+        "'nested/nested build.hxml'",
         "-L sample:1.2.3",
         "",
       ].join("\n"),
@@ -57,18 +58,16 @@ async function main(): Promise<void> {
       root,
       "nested/nested build.hxml",
       [
-        "--cwd ..",
-        "--class-path \"${SHARED}\"",
-        "-r assets/data.json@data",
-        "cycle.hxml",
+        "--class-path \"%SHARED%\"",
+        "leaf.hxml",
         "",
       ].join("\n"),
     );
-    write(root, "cycle.hxml", "build.hxml\n");
+    write(root, "leaf.hxml", "");
     const library = write(
       root,
       "libraries/sample.hxml",
-      "--class-path ../src\n",
+      `--class-path ${path.join(root, "src")}\n`,
     );
 
     const inventory = await inventoryHxml({
@@ -79,7 +78,7 @@ async function main(): Promise<void> {
       resolveLibrary: (request) => {
         assert.equal(request.name, "sample");
         assert.equal(request.version, "1.2.3");
-        return [library];
+        return { arguments: [library], provenanceFiles: [library] };
       },
     });
     assert.deepEqual(
@@ -90,8 +89,8 @@ async function main(): Promise<void> {
       inventory.hxmlFiles.map((file) => path.relative(root, file)),
       [
         "build.hxml",
-        "cycle.hxml",
         path.join("libraries", "sample.hxml"),
+        "leaf.hxml",
         path.join("nested", "nested build.hxml"),
       ].sort(),
     );
@@ -99,9 +98,10 @@ async function main(): Promise<void> {
       inventory.classPaths.map((file) => path.relative(root, file)).sort(),
       ["shared dir", "src"].sort(),
     );
+    assert.deepEqual(inventory.resourceInputs, []);
     assert.deepEqual(
-      inventory.resourceInputs.map((file) => path.relative(root, file)),
-      [path.join("assets", "data.json")],
+      inventory.libraryProvenanceFiles.map((file) => path.relative(root, file)),
+      [path.join("libraries", "sample.hxml")],
     );
     assert.deepEqual(
       inventory.libraries.map(({ request, name, version }) => ({
@@ -112,6 +112,281 @@ async function main(): Promise<void> {
       [{ request: "sample:1.2.3", name: "sample", version: "1.2.3" }],
     );
     assert.equal(inventory.libraryClosureComplete, true);
+    assert.deepEqual(inventory.effectiveArguments, [
+      "-p",
+      "src",
+      "--class-path",
+      "shared dir",
+      "--class-path",
+      path.join(root, "src"),
+    ]);
+    assert.equal(inventory.effectiveArguments.includes("-L"), false);
+    assert.equal(inventory.effectiveArguments.includes("sample:1.2.3"), false);
+
+    write(root, "carriage-return-lines.hxml", "-cp src\r-main Main\r");
+    const carriageReturnInventory = await inventoryHxml({
+      entryFiles: ["carriage-return-lines.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+    });
+    assert.deepEqual(
+      carriageReturnInventory.effectiveArguments,
+      ["-cp", "src", "-main", "Main"],
+    );
+
+    write(root, "repeated.hxml", "--macro repeated()\n");
+    const repeatedInventory = await inventoryHxml({
+      entryFiles: ["repeated.hxml", "repeated.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+    });
+    assert.deepEqual(
+      repeatedInventory.effectiveArguments,
+      ["--macro", "repeated()", "--macro", "repeated()"],
+      "each acyclic HXML occurrence must keep its arguments",
+    );
+    assert.equal(repeatedInventory.hxmlOccurrences.length, 2);
+
+    write(root, "cycle-a.hxml", "cycle-b.hxml\n");
+    write(root, "cycle-b.hxml", "cycle-a.hxml\n");
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["cycle-a.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+        }),
+      "invalid-syntax",
+    );
+
+    write(root, "environment-library.hxml", "-lib %LIBRARY%\n");
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["environment-library.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+          environment: (name) => (name === "LIBRARY" ? "sample" : null),
+          resolveLibrary: () => ({ arguments: [], provenanceFiles: [] }),
+        }),
+      "invalid-syntax",
+    );
+
+    write(
+      root,
+      "equals-values.hxml",
+      "--class-path=src\n--define=feature=enabled\n",
+    );
+    const equalsValueInventory = await inventoryHxml({
+      entryFiles: ["equals-values.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+    });
+    assert.deepEqual(equalsValueInventory.effectiveArguments, [
+      "--class-path",
+      "src",
+      "--define",
+      "feature=enabled",
+    ]);
+
+    write(root, "option-payload.hxml", "Main\n--xml escaped.xml\n");
+    write(root, "option-value-hxml.hxml", "--main option-payload.hxml\n");
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["option-value-hxml.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+        }),
+      "invalid-syntax",
+    );
+    write(root, "inline-option-value-hxml.hxml", "--main=option-payload.hxml\n");
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["inline-option-value-hxml.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+        }),
+      "invalid-syntax",
+    );
+
+    for (const option of HAXE_4_3_7_EARLY_INLINE_OPTIONS) {
+      let resolverCalls = 0;
+      const fixtureName = option.replaceAll(/[^A-Za-z0-9]+/gu, "-");
+      const fixture = `inline-early-option-${fixtureName}.hxml`;
+      write(root, fixture, `${option}=fixture\n`);
+      await expectFailure(
+        () =>
+          inventoryHxml({
+            entryFiles: [fixture],
+            workingDirectory: root,
+            allowedRoots: [root],
+            resolveLibrary: () => {
+              resolverCalls += 1;
+              return {
+                arguments: ["--macro", "mustNotResolveInlineLibrary()"],
+                provenanceFiles: [],
+              };
+            },
+          }),
+        "invalid-syntax",
+      );
+      assert.equal(
+        resolverCalls,
+        0,
+        `${option}=fixture must fail before an external resolver runs`,
+      );
+    }
+
+    const nativeInlineExit = new Map<string, number>([
+      ["-C", 1],
+      ["--cwd", 1],
+      ["--connect", 1],
+      ["--server-connect", 1],
+      ["--server-listen", 1],
+      ["--wait", 1],
+      ["--run", 1],
+      ["-L", 0],
+      ["--library", 0],
+      ["-lib", 0],
+      ["--jvm", 0],
+      ["--java", 0],
+      ["-java", 0],
+      ["--cs", 1],
+      ["-cs", 1],
+      ["--display", 1],
+    ]);
+    for (const option of HAXE_4_3_7_EARLY_INLINE_OPTIONS) {
+      const native = spawnSync("haxe", [`${option}=fixture`], {
+        cwd: root,
+        encoding: "utf8",
+        timeout: 2_000,
+      });
+      assert.equal(
+        native.error,
+        undefined,
+        `Haxe 4.3.7 inline probe timed out for ${option}=fixture`,
+      );
+      assert.equal(
+        native.status,
+        nativeInlineExit.get(option),
+        `the inventory table must be reviewed if Haxe changes ${option}=fixture`,
+      );
+    }
+
+    write(root, "library-hxml-value.hxml", "-lib hxml-value\n");
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["library-hxml-value.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+          resolveLibrary: () => ({
+            arguments: ["--main", "option-payload.hxml"],
+            provenanceFiles: [],
+          }),
+        }),
+      "invalid-syntax",
+    );
+
+    write(root, "repeated-library.hxml", "-lib repeated\n-lib repeated\n");
+    const repeatedLibraryInventory = await inventoryHxml({
+      entryFiles: ["repeated-library.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+      resolveLibrary: () => ({
+        arguments: ["--macro", "fromLibrary()"],
+        provenanceFiles: [],
+      }),
+    });
+    assert.deepEqual(repeatedLibraryInventory.effectiveArguments, [
+      "--macro",
+      "fromLibrary()",
+    ]);
+    assert.equal(
+      repeatedLibraryInventory.libraries.length,
+      1,
+      "Haxe resolves one library identity once even when HXML repeats it",
+    );
+
+    write(
+      root,
+      "multiple-distinct-libraries.hxml",
+      "-lib first\n-lib second\n",
+    );
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["multiple-distinct-libraries.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+          resolveLibrary: () => ({ arguments: [], provenanceFiles: [] }),
+        }),
+      "invalid-syntax",
+    );
+
+    write(root, "dotted-library.hxml", "-lib sample.hxml\n");
+    const dottedLibraryInventory = await inventoryHxml({
+      entryFiles: ["dotted-library.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+      resolveLibrary: (request) => {
+        assert.equal(request.name, "sample.hxml");
+        return {
+          arguments: ["--macro", "fromDottedLibrary()"],
+          provenanceFiles: [],
+        };
+      },
+    });
+    assert.deepEqual(dottedLibraryInventory.effectiveArguments, [
+      "--macro",
+      "fromDottedLibrary()",
+    ]);
+    const unresolvedDottedLibraryInventory = await inventoryHxml({
+      entryFiles: ["dotted-library.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+    });
+    assert.equal(unresolvedDottedLibraryInventory.libraryClosureComplete, false);
+    assert.deepEqual(unresolvedDottedLibraryInventory.effectiveArguments, [
+      "-lib",
+      "sample.hxml",
+    ]);
+    write(root, "inline-dotted-library.hxml", "--library=sample.hxml\n");
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["inline-dotted-library.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+        }),
+      "invalid-syntax",
+    );
+
+    mkdirSync(path.join(root, "a", "src"), { recursive: true });
+    mkdirSync(path.join(root, "b", "src"), { recursive: true });
+    write(root, "shared-context.hxml", "-cp src\n");
+    write(
+      root,
+      "contextual.hxml",
+      [
+        "-C a",
+        "../shared-context.hxml",
+        "-C ../b",
+        "../shared-context.hxml",
+        "",
+      ].join("\n"),
+    );
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["contextual.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+        }),
+      "invalid-option",
+    );
 
     const orderedFirst = write(root, "ordered-first.hxml", "");
     const orderedSecond = write(root, "ordered-second.hxml", "");
@@ -125,7 +400,7 @@ async function main(): Promise<void> {
       realpathSync.native(orderedFirst),
     ]);
 
-    write(root, "missing-env.hxml", "-cp ${ABSENT}\n");
+    write(root, "missing-env.hxml", "-cp %ABSENT%\n");
     await expectFailure(
       () =>
         inventoryHxml({
@@ -133,18 +408,7 @@ async function main(): Promise<void> {
           workingDirectory: root,
           allowedRoots: [root],
         }),
-      "missing-environment",
-    );
-
-    write(root, "bad-quote.hxml", "-cp 'unterminated\n");
-    await expectFailure(
-      () =>
-        inventoryHxml({
-          entryFiles: ["bad-quote.hxml"],
-          workingDirectory: root,
-          allowedRoots: [root],
-        }),
-      "invalid-syntax",
+      "missing-input",
     );
 
     write(root, "outside.hxml", "../outside.hxml\n");
@@ -175,9 +439,12 @@ async function main(): Promise<void> {
           entryFiles: ["library-via-link.hxml"],
           workingDirectory: root,
           allowedRoots: [root],
-          resolveLibrary: () => [
-            path.join(root, "linked-library-directory/library.hxml"),
-          ],
+          resolveLibrary: () => ({
+            arguments: [],
+            provenanceFiles: [
+              path.join(root, "linked-library-directory/library.hxml"),
+            ],
+          }),
         }),
       "unsafe-input",
     );
@@ -185,7 +452,10 @@ async function main(): Promise<void> {
       entryFiles: ["library-via-link.hxml"],
       workingDirectory: root,
       allowedRoots: [root],
-      resolveLibrary: () => [realLibraryHxml],
+      resolveLibrary: () => ({
+        arguments: [realLibraryHxml],
+        provenanceFiles: [realLibraryHxml],
+      }),
     });
     assert.equal(
       directLibraryInventory.hxmlFiles.includes(
@@ -278,7 +548,10 @@ async function main(): Promise<void> {
           entryFiles: ["relative-library.hxml"],
           workingDirectory: root,
           allowedRoots: [root],
-          resolveLibrary: () => ["relative.hxml"],
+          resolveLibrary: () => ({
+            arguments: [],
+            provenanceFiles: ["relative.hxml"],
+          }),
         }),
       "resolver-failure",
     );
@@ -295,7 +568,7 @@ async function main(): Promise<void> {
       "resolver-failure",
     );
 
-    write(root, "forbidden-child.hxml", "-Dgenes.output=public.ts\n");
+    write(root, "forbidden-child.hxml", "-D genes.output=public.ts\n");
     write(root, "forbidden-parent.hxml", "forbidden-child.hxml\n");
     await expectFailure(
       () =>
@@ -330,7 +603,7 @@ async function main(): Promise<void> {
       signal: abort.signal,
       resolveLibrary: (_request, context) => {
         resolverSignal = context?.signal ?? null;
-        return new Promise<readonly string[]>(() => undefined);
+        return new Promise<never>(() => undefined);
       },
     });
     await new Promise((resolve) => setImmediate(resolve));

@@ -12,11 +12,147 @@ import {
   type HxmlInventory,
   type HxmlInventoryOptions,
   type HxmlLibrary,
+  type HxmlLibraryResolution,
   type HxmlLibraryRequest,
+  type HxmlOccurrence,
 } from "./types.js";
 
 const DEFAULT_MAX_HXML_FILES = 1_000;
+const DEFAULT_MAX_HXML_OCCURRENCES = 1_000;
 const DEFAULT_MAX_ARGUMENTS = 100_000;
+
+/** Exact public option spellings and arities from Haxe 4.3.7 Args. */
+export const HAXE_4_3_7_OPTION_ARITY: Readonly<Record<string, 0 | 1>> =
+  Object.freeze({
+    "--js": 1,
+    "-js": 1,
+    "--lua": 1,
+    "-lua": 1,
+    "--swf": 1,
+    "-swf": 1,
+    "--neko": 1,
+    "-neko": 1,
+    "--php": 1,
+    "-php": 1,
+    "--cpp": 1,
+    "-cpp": 1,
+    "--cppia": 1,
+    "-cppia": 1,
+    "--cs": 1,
+    "-cs": 1,
+    "--java": 1,
+    "-java": 1,
+    "--jvm": 1,
+    "--python": 1,
+    "-python": 1,
+    "--hl": 1,
+    "-hl": 1,
+    "-x": 1,
+    "--interp": 0,
+    // Haxe's normal option table declares `--run` without a value. A separate
+    // compiler pass consumes the following module name before this table runs.
+    "--run": 0,
+    "-p": 1,
+    "--class-path": 1,
+    "-cp": 1,
+    "-m": 1,
+    "--main": 1,
+    "-main": 1,
+    "-L": 1,
+    "--library": 1,
+    "-lib": 1,
+    "-D": 1,
+    "--define": 1,
+    "-v": 0,
+    "--verbose": 0,
+    "--debug": 0,
+    "-debug": 0,
+    "--version": 0,
+    "-version": 0,
+    "-h": 0,
+    "--help": 0,
+    "-help": 0,
+    "--help-defines": 0,
+    "--help-user-defines": 0,
+    "--help-metas": 0,
+    "--help-user-metas": 0,
+    "--dce": 1,
+    "-dce": 1,
+    "--swf-version": 1,
+    "-swf-version": 1,
+    "--swf-header": 1,
+    "-swf-header": 1,
+    "--flash-strict": 0,
+    "--swf-lib": 1,
+    "-swf-lib": 1,
+    "--neko-lib-path": 1,
+    "--swf-lib-extern": 1,
+    "-swf-lib-extern": 1,
+    "--java-lib": 1,
+    "-java-lib": 1,
+    "--java-lib-extern": 1,
+    "--net-lib": 1,
+    "-net-lib": 1,
+    "--net-std": 1,
+    "-net-std": 1,
+    "--c-arg": 1,
+    "-c-arg": 1,
+    "-r": 1,
+    "--resource": 1,
+    "-resource": 1,
+    "--prompt": 0,
+    "-prompt": 0,
+    "--cmd": 1,
+    "-cmd": 1,
+    "--no-traces": 0,
+    "--next": 0,
+    "--each": 0,
+    "--display": 1,
+    "--xml": 1,
+    "-xml": 1,
+    "--json": 1,
+    "--no-output": 0,
+    "--times": 0,
+    "--no-inline": 0,
+    "--no-opt": 0,
+    "--remap": 1,
+    "--macro": 1,
+    "--server-listen": 1,
+    "--wait": 1,
+    "--server-connect": 1,
+    "--connect": 1,
+    "-C": 1,
+    "--cwd": 1,
+    "--haxelib-global": 0,
+    "-w": 1,
+  });
+
+/**
+ * Haxe 4.3.7 handles these options before, or outside, its ordinary option
+ * table. Their `--option=value` spelling is therefore not interchangeable
+ * with the documented separate-value spelling: some fail, while others are
+ * ignored instead of doing what the author requested. Rejecting every
+ * inline form keeps inventory from inventing an effective Haxe invocation.
+ */
+export const HAXE_4_3_7_EARLY_INLINE_OPTIONS: ReadonlySet<string> =
+  new Set([
+    "-C",
+    "--cwd",
+    "--connect",
+    "--server-connect",
+    "--server-listen",
+    "--wait",
+    "--run",
+    "-L",
+    "--library",
+    "-lib",
+    "--jvm",
+    "--java",
+    "-java",
+    "--cs",
+    "-cs",
+    "--display",
+  ]);
 
 function fail(kind: HxmlFailureKind, subject: string): never {
   throw new HxmlInventoryError(Object.freeze({ kind, subject }));
@@ -139,109 +275,47 @@ function assertNoSymlinkComponents(
   }
 }
 
-function tokenizeLine(
-  line: string,
-  file: string,
-  lineNumber: number,
-): readonly string[] {
-  const tokens: string[] = [];
-  let value = "";
-  let quote: "\"" | "'" | null = null;
-  let escaped = false;
-  const push = (): void => {
-    if (value.length > 0) {
-      tokens.push(value);
-      value = "";
-    }
-  };
-  for (let index = 0; index < line.length; index += 1) {
-    const character = line[index]!;
-    if (escaped) {
-      value += character;
-      escaped = false;
-      continue;
-    }
-    if (character === "\\") {
-      escaped = true;
-      continue;
-    }
-    if (quote !== null) {
-      if (character === quote) {
-        quote = null;
-      } else {
-        value += character;
-      }
-      continue;
-    }
-    if (character === "\"" || character === "'") {
-      quote = character;
-      continue;
-    }
-    if (character === "#") {
-      break;
-    }
-    if (/\s/u.test(character)) {
-      push();
-      continue;
-    }
-    value += character;
-  }
-  if (escaped || quote !== null) {
-    fail("invalid-syntax", `${file}:${lineNumber}`);
-  }
-  push();
-  return Object.freeze(tokens);
+function haxeUnquote(value: string): string {
+  if (value.length === 0) return value;
+  const first = value[0];
+  const last = value[value.length - 1];
+  return (first === '"' && last === '"') || (first === "'" && last === "'")
+    ? value.slice(1, -1)
+    : value;
+}
+
+/** Mirrors Haxe 4.3.7 Helper.parse_hxml_data, not shell tokenization. */
+function argumentsFromLine(line: string): readonly string[] {
+  const value = haxeUnquote(line.trim());
+  if (value.length === 0 || value.startsWith("#")) return Object.freeze([]);
+  if (!value.startsWith("-")) return Object.freeze([value]);
+  const separator = value.indexOf(" ");
+  if (separator === -1) return Object.freeze([value]);
+  return Object.freeze([
+    haxeUnquote(value.slice(0, separator)),
+    haxeUnquote(value.slice(separator + 1).trim()),
+  ]);
 }
 
 function argumentsFromFile(file: string): readonly string[] {
   return Object.freeze(
     readFileSync(file, "utf8")
-      .replaceAll("\r\n", "\n")
-      .split("\n")
-      .flatMap((line, index) => tokenizeLine(line, file, index + 1)),
+      .split(/[\r\n]+/u)
+      .flatMap((line) => argumentsFromLine(line)),
   );
 }
 
 function expanded(
   value: string,
   environment: ((name: string) => string | null) | undefined,
-  subject: string,
 ): string {
   return value.replace(
-    /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/gu,
+    /%([A-Za-z0-9_]+)%/gu,
     (_match, name: string) => {
       const replacement = environment?.(name) ?? null;
-      if (replacement === null) {
-        fail("missing-environment", `${subject}:${name}`);
-      }
-      return replacement;
+      return replacement ?? `%${name}%`;
     },
   );
-}
-
-function optionValue(
-  args: readonly string[],
-  index: number,
-  names: readonly string[],
-): { readonly value: string; readonly consumed: number } | null {
-  const argument = args[index]!;
-  for (const name of names) {
-    if (argument === name) {
-      const value = args[index + 1];
-      if (value === undefined) {
-        fail("invalid-syntax", `${name}:missing-value`);
-      }
-      return Object.freeze({ value, consumed: 1 });
-    }
-    if (argument.startsWith(`${name}=`)) {
-      const value = argument.slice(name.length + 1);
-      if (value.length === 0) {
-        fail("invalid-syntax", `${name}:missing-value`);
-      }
-      return Object.freeze({ value, consumed: 0 });
-    }
-  }
-  return null;
 }
 
 function libraryRequest(
@@ -272,11 +346,15 @@ export async function inventoryHxml(
 ): Promise<HxmlInventory> {
   throwIfAborted(options.signal);
   const maxHxmlFiles = options.maxHxmlFiles ?? DEFAULT_MAX_HXML_FILES;
+  const maxHxmlOccurrences =
+    options.maxHxmlOccurrences ?? DEFAULT_MAX_HXML_OCCURRENCES;
   const maxArguments = options.maxArguments ?? DEFAULT_MAX_ARGUMENTS;
   if (
     options.entryFiles.length === 0 ||
     !Number.isInteger(maxHxmlFiles) ||
     maxHxmlFiles <= 0 ||
+    !Number.isInteger(maxHxmlOccurrences) ||
+    maxHxmlOccurrences <= 0 ||
     !Number.isInteger(maxArguments) ||
     maxArguments <= 0
   ) {
@@ -300,14 +378,234 @@ export async function inventoryHxml(
   }
 
   const hxmlFiles = new Set<string>();
+  const libraryProvenanceFiles = new Set<string>();
+  const activeHxmlOccurrences = new Set<string>();
+  const orderedHxmlOccurrences: HxmlOccurrence[] = [];
   const entryHxmlFiles: string[] = [];
   const classPaths = new Set<string>();
   const resources = new Set<string>();
   const libraries: HxmlLibrary[] = [];
-  const libraryKeys = new Set<string>();
+  const recordedLibraries = new Set<string>();
+  const effectiveArguments: string[] = [];
   let libraryClosureComplete = true;
   let argumentCount = 0;
   const resolverSignal = options.signal ?? new AbortController().signal;
+
+  const highLevelOptions = new Set([
+    "-C",
+    "--cwd",
+    "-L",
+    "-lib",
+    "--library",
+  ]);
+  const libraryOptions = new Set(["-L", "-lib", "--library"]);
+  const classPathOptions = new Set(["-p", "-cp", "--class-path"]);
+  const resourceOptions = new Set(["-r", "-resource", "--resource"]);
+
+  const processArguments = async (
+    args: readonly string[],
+    sourceFile: string,
+    cwd: string,
+  ): Promise<void> => {
+    argumentCount += args.length;
+    if (argumentCount > maxArguments) fail("budget-exceeded", "arguments");
+    for (let index = 0; index < args.length; index += 1) {
+      throwIfAborted(options.signal);
+      const rawArgument = args[index]!;
+      const expandedArgument = expanded(rawArgument, options.environment);
+      const equals = expandedArgument.indexOf("=");
+      const possibleOption = equals > 0
+        ? expandedArgument.slice(0, equals)
+        : expandedArgument;
+      if (
+        equals > 0 &&
+        HAXE_4_3_7_EARLY_INLINE_OPTIONS.has(possibleOption)
+      ) {
+        fail(
+          "invalid-syntax",
+          `${sourceFile}:${possibleOption}:early-inline-unsupported-v1`,
+        );
+      }
+      const hasInlineValue =
+        equals > 0 && HAXE_4_3_7_OPTION_ARITY[possibleOption] === 1;
+      const argument = hasInlineValue ? possibleOption : expandedArgument;
+      const inlineValue = hasInlineValue
+        ? expandedArgument.slice(equals + 1)
+        : undefined;
+      if (
+        rawArgument !== expandedArgument &&
+        (highLevelOptions.has(argument) ||
+          (!argument.startsWith("-") && argument.endsWith(".hxml")))
+      ) {
+        fail("invalid-syntax", `${sourceFile}:stage-changing-environment`);
+      }
+
+      if (!rawArgument.startsWith("-") && rawArgument.endsWith(".hxml")) {
+        const nested = path.resolve(cwd, rawArgument);
+        await collect(nested, cwd, `${sourceFile}:nested:${rawArgument}`);
+        continue;
+      }
+
+      if (expandedArgument.endsWith(".hxml")) {
+        fail(
+          "invalid-syntax",
+          `${sourceFile}:residual-hxml-token:${expandedArgument}`,
+        );
+      }
+
+      if (!argument.startsWith("-")) {
+        effectiveArguments.push(argument);
+        continue;
+      }
+
+      const forbiddenOptions = options.argumentPolicy?.forbiddenOptions ?? [];
+      if (forbiddenOptions.includes(argument)) {
+        fail("invalid-option", `${sourceFile}:${argument}`);
+      }
+      const arity = HAXE_4_3_7_OPTION_ARITY[argument];
+      if (arity === undefined) {
+        if (options.argumentPolicy?.rejectUnknownOptions === true) {
+          fail("invalid-option", `${sourceFile}:unknown:${argument}`);
+        }
+        effectiveArguments.push(argument);
+        continue;
+      }
+      const consumesNextArgument = arity === 1 && inlineValue === undefined;
+      const rawValue = inlineValue ?? (consumesNextArgument
+        ? args[index + 1]
+        : undefined);
+      if (arity === 1 && rawValue === undefined) {
+        fail("invalid-syntax", `${sourceFile}:${argument}:missing-value`);
+      }
+      const value = inlineValue !== undefined
+        ? inlineValue
+        : rawValue === undefined
+          ? undefined
+          : expanded(rawValue, options.environment);
+
+      if (rawValue !== value && libraryOptions.has(argument)) {
+        fail("invalid-syntax", `${sourceFile}:stage-changing-environment`);
+      }
+
+      if (
+        value?.endsWith(".hxml") === true &&
+        !(libraryOptions.has(argument) && inlineValue === undefined)
+      ) {
+        fail(
+          "invalid-syntax",
+          `${sourceFile}:${argument}:residual-hxml-token`,
+        );
+      }
+
+      if (argument === "-C" || argument === "--cwd") {
+        fail("invalid-option", `${sourceFile}:${argument}:unsupported-v1`);
+      }
+      if (resourceOptions.has(argument)) {
+        fail("invalid-option", `${sourceFile}:${argument}:unsupported-v1`);
+      }
+
+      if (argument === "-D" || argument === "--define") {
+        const defineName = value!.split("=", 1)[0]!;
+        if (
+          (options.argumentPolicy?.forbiddenDefines ?? []).includes(defineName)
+        ) {
+          fail("invalid-option", `${sourceFile}:define:${defineName}`);
+        }
+      }
+
+      if (classPathOptions.has(argument)) {
+        const resolved = path.resolve(cwd, value!);
+        assertAllowed(allowedRoots, resolved, `${sourceFile}:classPath`);
+        assertNoSymlinkComponents(
+          allowedRoots,
+          resolved,
+          `${sourceFile}:classPath`,
+        );
+        classPaths.add(
+          canonicalDirectory(resolved, `${sourceFile}:classPath`),
+        );
+      }
+
+      if (libraryOptions.has(argument)) {
+        const request = libraryRequest(value!, sourceFile, cwd);
+        if (recordedLibraries.has(request.request)) {
+          if (consumesNextArgument) index += 1;
+          continue;
+        }
+        if (recordedLibraries.size > 0) {
+          fail(
+            "invalid-syntax",
+            `${sourceFile}:multiple-distinct-libraries-unsupported-v1`,
+          );
+        }
+        recordedLibraries.add(request.request);
+        libraries.push(
+          Object.freeze({
+            request: request.request,
+            name: request.name,
+            version: request.version,
+            fromFile: request.fromFile,
+            workingDirectory: request.workingDirectory,
+          }),
+        );
+        if (options.resolveLibrary === undefined) {
+          libraryClosureComplete = false;
+          effectiveArguments.push(argument, value!);
+        } else {
+          let resolution: HxmlLibraryResolution;
+          try {
+            resolution = await awaitWithAbort(
+              options.resolveLibrary(request, {
+                signal: resolverSignal,
+                environment: (name) => options.environment?.(name) ?? null,
+              }),
+              options.signal,
+            );
+          } catch {
+            fail(
+              "resolver-failure",
+              `${sourceFile}:library:${request.request}`,
+            );
+          }
+          for (const [fileIndex, candidate] of
+            resolution.provenanceFiles.entries()) {
+            if (!path.isAbsolute(candidate)) {
+              fail(
+                "resolver-failure",
+                `${sourceFile}:library:${request.request}:provenance[${fileIndex}]`,
+              );
+            }
+            assertNoSymlinkComponents(
+              allowedRoots,
+              candidate,
+              `${sourceFile}:library:${request.request}:provenance[${fileIndex}]`,
+            );
+            const canonical = canonicalFile(
+              candidate,
+              `${sourceFile}:library:${request.request}:provenance[${fileIndex}]`,
+            );
+            assertAllowed(
+              allowedRoots,
+              canonical,
+              `${sourceFile}:library:${request.request}:provenance[${fileIndex}]`,
+            );
+            libraryProvenanceFiles.add(canonical);
+          }
+          await processArguments(
+            Object.freeze([...resolution.arguments]),
+            `${sourceFile}:library:${request.request}`,
+            cwd,
+          );
+        }
+        if (consumesNextArgument) index += 1;
+        continue;
+      }
+
+      effectiveArguments.push(argument);
+      if (value !== undefined) effectiveArguments.push(value);
+      if (consumesNextArgument) index += 1;
+    }
+  };
 
   const collect = async (
     candidate: string,
@@ -318,171 +616,45 @@ export async function inventoryHxml(
     assertNoSymlinkComponents(allowedRoots, candidate, subject);
     const file = canonicalFile(candidate, subject);
     assertAllowed(allowedRoots, file, subject);
-    if (hxmlFiles.has(file)) {
-      return file;
+    const initialCwd = canonicalDirectory(initialDirectory, `${subject}:cwd`);
+    const occurrence = `${file}\0${initialCwd}`;
+    if (activeHxmlOccurrences.has(occurrence)) {
+      fail("invalid-syntax", `${subject}:hxml-cycle:${file}`);
+    }
+    orderedHxmlOccurrences.push(
+      Object.freeze({ file, workingDirectory: initialCwd }),
+    );
+    if (orderedHxmlOccurrences.length > maxHxmlOccurrences) {
+      fail("budget-exceeded", "hxmlOccurrences");
     }
     hxmlFiles.add(file);
     if (hxmlFiles.size > maxHxmlFiles) {
       fail("budget-exceeded", "hxmlFiles");
     }
-    const args = argumentsFromFile(file);
-    argumentCount += args.length;
-    if (argumentCount > maxArguments) {
-      fail("budget-exceeded", "arguments");
-    }
-    let cwd = initialDirectory;
-    for (let index = 0; index < args.length; index += 1) {
-      throwIfAborted(options.signal);
-      const argument = args[index]!;
-      const forbiddenOptions = options.argumentPolicy?.forbiddenOptions ?? [];
-      const forbiddenOption = forbiddenOptions.find(
-        (name) => argument === name || argument.startsWith(`${name}=`),
-      );
-      if (forbiddenOption !== undefined) {
-        fail("invalid-option", `${file}:${forbiddenOption}`);
-      }
-      const define = optionValue(args, index, ["-D", "--define"]);
-      const compactDefine =
-        argument.startsWith("-D") && argument.length > 2
-          ? argument.slice(2)
-          : null;
-      const defineValue = define?.value ?? compactDefine;
-      if (defineValue !== null) {
-        const defineName = defineValue.split("=", 1)[0]!;
-        if (
-          (options.argumentPolicy?.forbiddenDefines ?? []).includes(defineName)
-        ) {
-          fail("invalid-option", `${file}:define:${defineName}`);
-        }
-      }
-      const cwdOption = optionValue(args, index, ["-C", "--cwd"]);
-      if (cwdOption !== null) {
-        const resolved = path.resolve(
-          cwd,
-          expanded(cwdOption.value, options.environment, `${file}:cwd`),
-        );
-        assertAllowed(allowedRoots, resolved, `${file}:cwd`);
-        assertNoSymlinkComponents(allowedRoots, resolved, `${file}:cwd`);
-        cwd = canonicalDirectory(resolved, `${file}:cwd`);
-        index += cwdOption.consumed;
-        continue;
-      }
-      const classPath = optionValue(args, index, [
-        "-p",
-        "-cp",
-        "--class-path",
-      ]);
-      if (classPath !== null) {
-        const resolved = path.resolve(
-          cwd,
-          expanded(classPath.value, options.environment, `${file}:classPath`),
-        );
-        assertAllowed(allowedRoots, resolved, `${file}:classPath`);
-        assertNoSymlinkComponents(
-          allowedRoots,
-          resolved,
-          `${file}:classPath`,
-        );
-        classPaths.add(resolved);
-        index += classPath.consumed;
-        continue;
-      }
-      const resource = optionValue(args, index, [
-        "-r",
-        "-resource",
-        "--resource",
-      ]);
-      if (resource !== null) {
-        const expandedResource = expanded(
-          resource.value,
-          options.environment,
-          `${file}:resource`,
-        );
-        const separator = expandedResource.lastIndexOf("@");
-        const resourcePath =
-          separator === -1
-            ? expandedResource
-            : expandedResource.slice(0, separator);
-        const resolved = path.resolve(cwd, resourcePath);
-        assertAllowed(allowedRoots, resolved, `${file}:resource`);
-        assertNoSymlinkComponents(
-          allowedRoots,
-          resolved,
-          `${file}:resource`,
-        );
-        resources.add(resolved);
-        index += resource.consumed;
-        continue;
-      }
-      const library = optionValue(args, index, ["-L", "-lib", "--library"]);
-      if (library !== null) {
-        const request = libraryRequest(library.value, file, cwd);
-        const key = `${request.request}\0${request.fromFile}\0${request.workingDirectory}`;
-        if (!libraryKeys.has(key)) {
-          libraryKeys.add(key);
-          libraries.push(
-            Object.freeze({
-              request: request.request,
-              name: request.name,
-              version: request.version,
-              fromFile: request.fromFile,
-            }),
-          );
-          let resolvedFiles: readonly string[] = Object.freeze([]);
-          if (options.resolveLibrary === undefined) {
-            libraryClosureComplete = false;
-          } else {
-            try {
-              resolvedFiles =
-                (await awaitWithAbort(
-                  options.resolveLibrary(request, {
-                    signal: resolverSignal,
-                  }),
-                  options.signal,
-                )) ?? Object.freeze([]);
-            } catch {
-              fail("resolver-failure", `${file}:library:${request.request}`);
-            }
-          }
-          for (const [resolvedIndex, resolvedFile] of resolvedFiles.entries()) {
-            if (!path.isAbsolute(resolvedFile)) {
-              fail(
-                "resolver-failure",
-                `${file}:library:${request.request}[${resolvedIndex}]`,
-              );
-            }
-            await collect(
-              resolvedFile,
-              path.dirname(resolvedFile),
-              `${file}:library:${request.request}[${resolvedIndex}]`,
-            );
-          }
-        }
-        index += library.consumed;
-        continue;
-      }
-      if (!argument.startsWith("-") && argument.endsWith(".hxml")) {
-        const nested = path.resolve(
-          cwd,
-          expanded(argument, options.environment, `${file}:nested`),
-        );
-        await collect(nested, cwd, `${file}:nested:${argument}`);
-      }
+    activeHxmlOccurrences.add(occurrence);
+    try {
+      await processArguments(argumentsFromFile(file), file, initialCwd);
+    } finally {
+      activeHxmlOccurrences.delete(occurrence);
     }
     return file;
   };
 
   for (const [index, entry] of options.entryFiles.entries()) {
-    const candidate = path.resolve(
-      workingDirectory,
-      expanded(entry, options.environment, `entryFiles[${index}]`),
-    );
+    const candidate = path.resolve(workingDirectory, entry);
     const canonicalEntry = await collect(
       candidate,
       workingDirectory,
       `entryFiles[${index}]`,
     );
     entryHxmlFiles.push(canonicalEntry);
+  }
+
+  if (
+    libraryClosureComplete &&
+    effectiveArguments.some((argument) => argument.endsWith(".hxml"))
+  ) {
+    fail("invalid-syntax", "effectiveArguments:residual-hxml-token");
   }
 
   libraries.sort((left, right) =>
@@ -493,9 +665,14 @@ export async function inventoryHxml(
   return Object.freeze({
     libraryClosureComplete,
     entryHxmlFiles: Object.freeze(entryHxmlFiles),
+    hxmlOccurrences: Object.freeze(orderedHxmlOccurrences),
     hxmlFiles: Object.freeze(bytewise(hxmlFiles)),
+    libraryProvenanceFiles: Object.freeze(
+      bytewise(libraryProvenanceFiles),
+    ),
     classPaths: Object.freeze(bytewise(classPaths)),
     resourceInputs: Object.freeze(bytewise(resources)),
     libraries: Object.freeze(libraries),
+    effectiveArguments: Object.freeze(effectiveArguments),
   });
 }

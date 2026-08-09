@@ -33,6 +33,20 @@ export interface HxmlLibraryRequest {
 /** Cancellation owned by the caller inventorying an HXML closure. */
 export interface HxmlResolverContext {
   readonly signal: AbortSignal;
+  /** The exact environment lookup used while interpreting this inventory. */
+  readonly environment: (name: string) => string | null;
+}
+
+/**
+ * Exact Haxe arguments and provenance contributed by one Haxelib request.
+ *
+ * `arguments` must be the ordered argument stream that Haxe 4.3.7 would add
+ * after `haxelib path`. The session inventories and executes these bytes. It
+ * never passes the original `-lib` back to Haxe for a second live resolution.
+ */
+export interface HxmlLibraryResolution {
+  readonly arguments: readonly string[];
+  readonly provenanceFiles: readonly string[];
 }
 
 /**
@@ -43,6 +57,8 @@ export interface HxmlResolverContext {
 export interface HxmlArgumentPolicy {
   readonly forbiddenOptions?: readonly string[];
   readonly forbiddenDefines?: readonly string[];
+  /** Reject option spellings absent from the pinned Haxe option manifest. */
+  readonly rejectUnknownOptions?: boolean;
 }
 
 export interface HxmlInventoryOptions {
@@ -50,13 +66,20 @@ export interface HxmlInventoryOptions {
   readonly workingDirectory: string;
   readonly allowedRoots: readonly string[];
   readonly environment?: (name: string) => string | null;
+  /**
+   * Resolves the one distinct library identity admitted by the v1 inventory.
+   * Repeated requests for that identity are deduplicated like Haxe 4.3.7.
+   * Inline library spellings and a second distinct identity fail closed because
+   * this single-request callback cannot reproduce Haxe's high-level batching.
+   */
   readonly resolveLibrary?: (
     request: HxmlLibraryRequest,
     context: HxmlResolverContext,
-  ) => readonly string[] | Promise<readonly string[]>;
+  ) => HxmlLibraryResolution | Promise<HxmlLibraryResolution>;
   readonly signal?: AbortSignal;
   readonly argumentPolicy?: HxmlArgumentPolicy;
   readonly maxHxmlFiles?: number;
+  readonly maxHxmlOccurrences?: number;
   readonly maxArguments?: number;
 }
 
@@ -65,6 +88,13 @@ export interface HxmlLibrary {
   readonly name: string;
   readonly version: string | null;
   readonly fromFile: string;
+  readonly workingDirectory: string;
+}
+
+/** One semantic interpretation of a physical HXML file. */
+export interface HxmlOccurrence {
+  readonly file: string;
+  readonly workingDirectory: string;
 }
 
 export interface HxmlInventory {
@@ -77,8 +107,12 @@ export interface HxmlInventory {
 
   /** Canonical top-level HXML entries, excluding files reached transitively. */
   readonly entryHxmlFiles: readonly string[];
+  readonly hxmlOccurrences: readonly HxmlOccurrence[];
   readonly hxmlFiles: readonly string[];
+  readonly libraryProvenanceFiles: readonly string[];
   readonly classPaths: readonly string[];
   readonly resourceInputs: readonly string[];
   readonly libraries: readonly HxmlLibrary[];
+  /** Exact flattened arguments passed to Haxe before the private JS target. */
+  readonly effectiveArguments: readonly string[];
 }
