@@ -25,8 +25,10 @@ it.
   and ordered top-level HXML files, reject linked source trees, and keep an
   accepted output tied to its original physical path spelling.
 - Recognize Haxe's documented short class-path, library, and resource options;
-  reject HXML post-compile shell commands; keep informational changes from
-  discarding an active build; and report post-inventory compiler errors at the
-  compile stage.
+  reject HXML options that execute shell commands or user programs before host
+  acceptance; keep informational changes from discarding an active build; and
+  report post-inventory compiler errors at the compile stage.
+- Copy and hash the complete effective Haxe environment for each revision, and
+  stop acceptance cleanly when a lifecycle observer closes the session.
 - Verify every public code and JSON export from the packed package on Node
   20.9.0, the package's declared minimum runtime.

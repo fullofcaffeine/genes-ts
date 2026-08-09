@@ -191,10 +191,17 @@ inventoried HXML graph. Source class paths reject symbolic links because Haxe
 may follow them while the safe watcher does not; accepting both behaviors would
 let the compiler read a change that the session could miss.
 
-The session rejects HXML `--cmd`. That Haxe option runs a shell command after
-compilation, outside the private candidate and host validation steps. A host
-that needs a follow-up command must own it explicitly and run it only after an
-accepted generation.
+The session rejects HXML `--cmd`, `--run`, `--interp`, and `-x`. Those Haxe
+options can run a shell command or the compiled program before the private
+candidate has passed the host's checks. A host that needs a follow-up command
+must own it explicitly and run it only after an accepted generation.
+
+The host may supply environment overrides with the Haxe invocation. For each
+revision, the session combines them with the current Node process environment,
+copies the complete result, includes it in the compiler-server identity, and
+passes those exact values to Haxe. An ambient `PATH`, `HAXELIB_PATH`, or
+`HAXE_STD_PATH` change therefore starts a compatible server instead of silently
+reusing one created with older settings.
 
 If an HXML edit is read successfully but Haxe then reports a source error, the
 failure is reported as a compile failure. “HXML inventory failed” is reserved

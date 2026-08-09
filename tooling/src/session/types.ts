@@ -294,6 +294,11 @@ export interface HaxeInvocation {
    */
   readonly args: readonly string[];
 
+  /**
+   * Optional overrides for the current Node process environment. The session
+   * copies the complete effective environment once per revision, includes it
+   * in the compiler-server identity, and uses those same bytes for Haxe.
+   */
   readonly env?: Readonly<Record<string, string>>;
 
   /** Canonical JSON facts used to decide whether a Haxe server is reusable. */

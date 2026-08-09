@@ -264,17 +264,21 @@ restarting the command.
 - The session adds the request-local `-D genes.output=<private entry>` itself.
   It rejects caller-provided `--connect`, server-listen, `genes.output`,
   `--next`, and `--each` flags because two lifecycle owners or several output
-  compilations would be ambiguous. It also rejects `--cmd`: a shell command
-  run by Haxe after compilation would sit outside candidate validation and safe
-  publication. The host must run any needed follow-up step explicitly after an
-  accepted generation. The same check visits entry and nested HXML files and
-  every authoritatively resolved library HXML; hiding an override in
-  `child.hxml` or a library's `extraParams.hxml` does not bypass admission.
+  compilations would be ambiguous. It also rejects `--cmd`, `--run`,
+  `--interp`, and `-x`: these options can run a shell command or the compiled
+  program inside Haxe, before the host has checked and accepted the candidate.
+  The host must run any needed follow-up step explicitly after an accepted
+  generation. The same check visits entry and nested HXML files and every
+  authoritatively resolved library HXML; hiding an override in `child.hxml` or
+  a library's `extraParams.hxml` does not bypass admission.
   A discovered `-lib` with no resolver makes startup fail before compilation.
-- `resolveInvocation` is copied once. The copied executable, arguments,
-  environment, and compatibility facts are the exact values validated,
-  hashed, used to start the server, and executed. Mutating a retained host
-  array later cannot change the command.
+- `resolveInvocation` is copied once per revision. Its optional `env` values
+  override the current Node process environment. The session then copies that
+  complete effective environment, includes it in the compiler-server identity,
+  and passes those same values to Haxe. Changing `PATH`, `HAXELIB_PATH`,
+  `HAXE_STD_PATH`, or another ambient value therefore cannot silently reuse a
+  server started with older settings. Mutating a retained host array or object
+  later cannot change the command.
 - The invocation uses the same working directory and the same ordered
   top-level HXML files as the input inventory. Put build flags inside those
   HXML files; extra command-line flags are rejected because otherwise Haxe

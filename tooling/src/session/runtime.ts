@@ -82,6 +82,9 @@ const SESSION_FORBIDDEN_HXML_OPTIONS = Object.freeze([
   "--server-listen",
   "--server-connect",
   "--cmd",
+  "--run",
+  "--interp",
+  "-x",
   "--next",
   "--each",
 ]);
@@ -675,6 +678,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       revision: this.#newestRevision,
       paths: Object.freeze([relative]),
     });
+    if (this.#closing !== null) return;
     this.#loop.request(
       Object.freeze({
         revision: this.#newestRevision,
@@ -875,7 +879,9 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
           Object.freeze({ kind: "ready", accepted: prepared.accepted }),
           acceptedAt,
         );
+        if (this.#closing !== null || abort.signal.aborted) return;
         this.#emit({ kind: "generation-accepted", accepted: prepared.accepted });
+        if (this.#closing !== null || abort.signal.aborted) return;
         if (!this.#firstAcceptedSettled) {
           this.#firstAcceptedSettled = true;
           this.#resolveFirstAccepted(prepared.accepted);
@@ -1179,6 +1185,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         ? Object.freeze({ kind: "blocked", failure })
         : Object.freeze({ kind: "degraded", accepted: this.#accepted, failure }),
     );
+    if (this.#closing !== null) return;
     this.#emit({ kind: "failed", failure });
     if (!recoverable && !this.#firstAcceptedSettled) {
       this.#firstAcceptedSettled = true;

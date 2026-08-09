@@ -80,6 +80,21 @@ function snapshotJson(value: HaxeInvocation["compatibilityFacts"]): HaxeInvocati
   );
 }
 
+function snapshotEnvironment(
+  ...sources: readonly (
+    | Readonly<Record<string, string | undefined>>
+    | undefined
+  )[]
+): Readonly<Record<string, string>> {
+  const environment: Record<string, string> = {};
+  for (const source of sources) {
+    for (const [key, value] of Object.entries(source ?? {})) {
+      if (value !== undefined) environment[String(key)] = String(value);
+    }
+  }
+  return Object.freeze(environment);
+}
+
 function validateInvocation(invocation: HaxeInvocation): void {
   if (invocation.executable.length === 0 || invocation.cwd.length === 0) {
     throw new Error("HaxeInvocation executable and cwd must not be empty");
@@ -136,18 +151,21 @@ export function snapshotHaxeInvocation(
     executable: String(invocation.executable),
     cwd: String(invocation.cwd),
     args: Object.freeze([...invocation.args].map((argument) => String(argument))),
-    ...(invocation.env === undefined
-      ? {}
-      : {
-          env: Object.freeze(
-            Object.fromEntries(
-              Object.entries(invocation.env).map(([key, value]) => [
-                String(key),
-                String(value),
-              ]),
-            ),
-          ),
-        }),
+    env: snapshotEnvironment(process.env, invocation.env),
+    compatibilityFacts: snapshotJson(invocation.compatibilityFacts),
+  });
+  validateInvocation(snapshot);
+  return snapshot;
+}
+
+function copyEffectiveHaxeInvocation(
+  invocation: HaxeInvocation,
+): HaxeInvocation {
+  const snapshot: HaxeInvocation = Object.freeze({
+    executable: String(invocation.executable),
+    cwd: String(invocation.cwd),
+    args: Object.freeze([...invocation.args].map((argument) => String(argument))),
+    env: snapshotEnvironment(invocation.env),
     compatibilityFacts: snapshotJson(invocation.compatibilityFacts),
   });
   validateInvocation(snapshot);
@@ -198,7 +216,7 @@ function runCommand(
     }
     const child = spawn(invocation.executable, [...args], {
       cwd: invocation.cwd,
-      env: { ...process.env, ...invocation.env },
+      env: invocation.env,
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -305,7 +323,7 @@ export class HaxeSessionCompiler implements SessionCompiler {
     signal: AbortSignal,
     assertInvocationCurrent?: () => void | Promise<void>,
   ): Promise<CompilerResult> {
-    const snapshot = snapshotHaxeInvocation(invocation);
+    const snapshot = copyEffectiveHaxeInvocation(invocation);
     this.#request = {
       invocation: snapshot,
       candidateOutputFile,
@@ -336,7 +354,7 @@ export class HaxeSessionCompiler implements SessionCompiler {
       ["--server-listen", endpoint.argument],
       {
         cwd: invocation.cwd,
-        env: { ...process.env, ...invocation.env },
+        env: invocation.env,
         shell: false,
         stdio: ["ignore", "ignore", "ignore"],
       },

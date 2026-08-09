@@ -943,6 +943,46 @@ await withHarness("identity-rotation", async (harness) => {
   assert.equal(harness.watches[0]!.closed, true);
 });
 
+{
+  const environmentKey = "GENES_SESSION_AMBIENT_IDENTITY_TEST";
+  const previous = process.env[environmentKey];
+  process.env[environmentKey] = "first";
+  try {
+    await withHarness("ambient-environment-rotation", async (harness) => {
+      harness.compiler.steps.push(
+        { content: "export const value = 1;\n" },
+        { content: "export const value = 2;\n" },
+      );
+      await harness.session.start();
+      await harness.session.waitForIdle();
+      process.env[environmentKey] = "second";
+      writeFileSync(
+        harness.source,
+        "class Main { static function main() {} }\n",
+        "utf8",
+      );
+      currentWatch(harness).change(harness.source);
+      await harness.session.waitForIdle();
+      assert.equal(
+        harness.compiler.invocations[0]!.env?.[environmentKey],
+        "first",
+      );
+      assert.equal(
+        harness.compiler.invocations[1]!.env?.[environmentKey],
+        "second",
+      );
+      assert.notEqual(
+        harness.compiler.compatibilityDigests[0],
+        harness.compiler.compatibilityDigests[1],
+        "a changed ambient Haxe environment must change server compatibility",
+      );
+    });
+  } finally {
+    if (previous === undefined) delete process.env[environmentKey];
+    else process.env[environmentKey] = previous;
+  }
+}
+
 await withHarness("reinventory-then-compile-failure", async (harness) => {
   harness.compiler.steps.push(
     { content: "export const value = 1;\n" },
@@ -1199,7 +1239,12 @@ await withHarness("input-overlap", async (harness) => {
   }
 }
 
-for (const stopAt of ["building", "build-started", "candidate-generated"] as const) {
+for (const stopAt of [
+  "inputs-changed",
+  "building",
+  "build-started",
+  "candidate-generated",
+] as const) {
   const harness = makeHarness(`close-from-${stopAt}`);
   let closing: Promise<void> | null = null;
   harness.session.subscribe((event) => {
@@ -1218,6 +1263,34 @@ for (const stopAt of ["building", "build-started", "candidate-generated"] as con
     assert.equal(
       harness.events.some((event) => event.event.kind === "generation-accepted"),
       false,
+    );
+  } finally {
+    await harness.session.close();
+    rmSync(harness.root, { recursive: true, force: true });
+  }
+}
+
+{
+  const harness = makeHarness("close-from-ready");
+  let closing: Promise<void> | null = null;
+  harness.session.subscribe((event) => {
+    if (
+      event.event.kind === "state" &&
+      event.event.state.kind === "ready" &&
+      closing === null
+    ) {
+      closing = harness.session.close();
+    }
+  });
+  try {
+    await harness.session.start();
+    await (closing ?? harness.session.close());
+    await assert.rejects(harness.session.firstAccepted, /closed before/u);
+    assert.equal(harness.session.state.kind, "closed");
+    assert.equal(
+      harness.events.some((event) => event.event.kind === "generation-accepted"),
+      false,
+      "closing from the ready observer must stop the later acceptance event",
     );
   } finally {
     await harness.session.close();
@@ -1637,6 +1710,9 @@ for (const forbidden of [
   "--wait 6000",
   "--server-listen 127.0.0.1:6000",
   "--server-connect 127.0.0.1:6000",
+  "--run Main",
+  "--interp",
+  "-x Main",
   "--next",
   "--each",
 ]) {
@@ -1843,9 +1919,10 @@ await withHarness("hxml-changes-before-execution", async (harness) => {
     await harness.session.waitForIdle();
     assert.equal(harness.session.state.kind, "ready");
     assert.deepEqual(harness.compiler.invocations[0]?.args, ["build.hxml"]);
-    assert.deepEqual(harness.compiler.invocations[0]?.env, {
-      SESSION_FLAG: "before",
-    });
+    assert.equal(
+      harness.compiler.invocations[0]?.env?.SESSION_FLAG,
+      "before",
+    );
     assert.deepEqual(harness.compiler.invocations[0]?.compatibilityFacts, {
       version: "before",
     });
