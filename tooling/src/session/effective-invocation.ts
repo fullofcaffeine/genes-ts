@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { canonicalDigest, type CanonicalJson } from "../artifacts/index.js";
 import {
+  HAXE_4_3_7_OPTION_ARITY,
   inventoryHxml,
   type HxmlArgumentPolicy,
   type HxmlInventory,
@@ -17,51 +18,46 @@ import type {
 export const HAXE_4_3_7_DEVELOPMENT_JS_POLICY =
   "haxe-4.3.7-development-js-v1" as const;
 
-const FORBIDDEN_OPTIONS = Object.freeze([
-  "--cmd",
-  "--connect",
-  "--cpp",
-  "--cppia",
-  "--cs",
-  "--display",
-  "--each",
-  "--haxelib-global",
-  "--help",
-  "--help-defines",
-  "--help-metas",
-  "--help-user-defines",
-  "--help-user-metas",
-  "--hl",
-  "--interp",
-  "--java",
-  "--js",
-  "--json",
-  "--jvm",
-  "--lua",
-  "--neko",
-  "--next",
-  "--no-output",
-  "--php",
-  "--prompt",
-  "--python",
-  "--run",
-  "--server-connect",
-  "--server-listen",
-  "--swf",
-  "--version",
-  "--wait",
-  "--xml",
-  "-js",
-  "-h",
-  "-swf",
-  "-x",
+const ALLOWED_OPTIONS = new Set([
+  "-p",
+  "--class-path",
+  "-cp",
+  "-m",
+  "--main",
+  "-main",
+  "-D",
+  "--define",
+  "-v",
+  "--verbose",
+  "--debug",
+  "-debug",
+  "--dce",
+  "-dce",
+  "--no-traces",
+  "--times",
+  "--no-inline",
+  "--no-opt",
+  "--remap",
+  "--macro",
+  "-w",
+  "-L",
+  "--library",
+  "-lib",
 ]);
+
+/** Every other exact Haxe 4.3.7 spelling is rejected by the fixed JS policy. */
+const FORBIDDEN_OPTIONS = Object.freeze(
+  Object.keys(HAXE_4_3_7_OPTION_ARITY)
+    .filter((option) => !ALLOWED_OPTIONS.has(option))
+    .sort(),
+);
 
 const FORBIDDEN_DEFINES = Object.freeze([
   "dump",
   "dump-dependencies",
   "dump-path",
   "genes.output",
+  "gen_hx_classes",
   "message.log-file",
 ]);
 
@@ -102,6 +98,7 @@ function mergedPolicy(
       [...new Set([...(policy?.forbiddenDefines ?? []), ...FORBIDDEN_DEFINES])]
         .sort(),
     ),
+    rejectUnknownOptions: true,
   });
 }
 
@@ -158,8 +155,13 @@ export async function buildEffectiveHaxeInvocationPlan<
       file,
       digest: canonicalDigest(readFileSync(file, "utf8")),
     })),
+    libraryProvenanceFiles: closure.libraryProvenanceFiles.map((file) => ({
+      file,
+      digest: canonicalDigest(readFileSync(file, "utf8")),
+    })),
     classPaths: closure.classPaths,
     resourceInputs: closure.resourceInputs,
+    effectiveArguments: closure.effectiveArguments,
     libraries: closure.libraries.map((library) => ({
       request: library.request,
       name: library.name,
@@ -196,7 +198,7 @@ export function bindHaxeInvocation(
     cwd: plan.invocation.cwd,
     environment: plan.invocation.env ?? Object.freeze({}),
     arguments: Object.freeze([
-      ...plan.invocation.args,
+      ...plan.inventory.effectiveArguments,
       "--js",
       haxeTarget,
       "-D",

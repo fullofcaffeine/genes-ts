@@ -73,9 +73,9 @@ export interface AcceptedGeneration {
 /**
  * A host-presentable failure plus the generation that remains safe to use.
  *
- * Core tooling never turns `diagnostic` into terminal or browser prose. The
- * host chooses a typed diagnostic model and decides which parts are safe to
- * display outside the local process.
+ * Core tooling never turns `diagnostic` into terminal or browser prose. A host
+ * validator's rejection is wrapped as a core diagnostic after every JSON
+ * string is stripped of private candidate, state, and project paths.
  */
 export interface SessionFailure<Diagnostic extends JsonValue> {
   readonly phase: FailurePhase;

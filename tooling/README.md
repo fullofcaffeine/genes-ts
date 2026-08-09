@@ -49,7 +49,7 @@ authored edit
 ```
 
 An HXML file is Haxe's build-argument file. It names class paths, libraries,
-resources, defines, and other inputs. `inventoryHxml` reads that declared graph
+defines, and other inputs. `inventoryHxml` reads that declared graph
 so the host does not guess which files affect a build.
 
 If you only run Haxe once in CI, keep doing that; this package is for a
@@ -226,13 +226,13 @@ await session.close();
 
 This shortest example is library-free. If `build.hxml` contains a
 project-contained development `-lib`, the host must also supply
-`hxml.resolveLibrary`. The resolver is an authority boundary: it returns both
-the complete effective HXML expansion and every source class path contributed
-by that library. Empty `hxmlFiles` and `classPaths` arrays mean the library
-genuinely contributes neither kind of declarative input. A missing resolver is
+`hxml.resolveLibrary`. The resolver is an authority boundary: it returns the
+exact ordered Haxe arguments that `haxelib path` contributes and the files that
+prove that resolution. Empty `arguments` and `provenanceFiles` arrays mean the
+library genuinely contributes nothing. A missing resolver is
 deliberately rejected before Haxe starts. The resolver receives the same frozen
 environment lookup used for HXML expansion. DevelopmentSession v1 still
-requires all returned HXML/class-path inputs to stay under `projectRoot`,
+requires all returned provenance files and argument-owned inputs to stay under `projectRoot`,
 preserving its project-relative watch and event contract; the lower-level
 inventory API may use broader `allowedRoots` when a host owns a different path
 model.
@@ -260,45 +260,49 @@ restarting the command.
   files they may both publish below `src-gen`. Public output may never contain
   or be contained by `.genes/tooling`; output at the project root is therefore
   unsupported.
-- The declared HXML inputs, including resolved library HXML and class paths,
+- The declared HXML inputs, including resolved library arguments, provenance,
+  and class paths,
   must be inside `projectRoot` and must not contain private state,
   publication-control, or generated-output scopes. This keeps watch/event
   paths project-relative in v1. The lower-level inventory API may use broader
-  `allowedRoots` independently. A physical HXML file is interpreted once per
-  effective working directory, while the watcher registers that physical file
-  only once. Entry and occurrence order are retained, and symlinked entry or
-  library-HXML path components fail before canonicalization.
+  `allowedRoots` independently. Entry and occurrence order are retained, and
+  symlinked entry or library-provenance path components fail before
+  canonicalization.
 - Authored HXML is deliberately targetless. The session appends exactly one
   private ordinary Haxe `--js` target and one private
   `-D genes.output=<entry>` target. This matters when Genes is missing or
   fails to activate: ordinary Haxe may still generate JavaScript, but those
   bytes remain disposable and cannot touch public output before admission.
-  The versioned Haxe 4.3.7 policy rejects every authored target selector,
+  The versioned Haxe 4.3.7 policy classifies every compiler option spelling and
+  rejects every authored target selector,
   `--no-output`, display/prompt modes, compiler dump/message-log file outputs,
   caller-provided `--connect`, server-listen, `genes.output`,
   `--next`, and `--each` flags because two lifecycle owners or several output
   compilations would be ambiguous. It also rejects `--cmd`, `--run`,
   `--interp`, and `-x`: these options can run a shell command or the compiled
   program inside Haxe, before the host has checked and accepted the candidate.
-  It rejects `--xml` and `--json` too because they write extra files outside
+  It rejects `--xml`, `-xml`, and `--json` too because they write extra files outside
   the private candidate and safe publication plan.
   The host must run any needed follow-up step explicitly after an accepted
-  generation. The same check visits entry and nested HXML files and every
-  authoritatively resolved library HXML; hiding an override in `child.hxml` or
-  a library's `extraParams.hxml` does not bypass admission.
+  generation. The same check visits entry and nested HXML files and the exact
+  argument stream returned for every library. Haxe executes the flattened
+  stream, so it never reruns `haxelib path` after the final plan check.
+  DevelopmentSession v1 rejects authored `-C`/`--cwd` and resource options
+  until their Haxe lookup semantics have a separate reviewed policy.
   A discovered `-lib` with no resolver makes startup fail before compilation.
 - `resolveInvocation` is copied whenever the session seals or rechecks the
   effective plan for a revision. Its ordered HXML entries, working directory,
   and environment are the only authority for HXML interpretation and Haxe
   execution; `hxml` configuration cannot supply competing values. Optional
   `env` values override the current Node process environment. The session then
-  copies that complete effective environment, includes it in the
+  copies that complete effective environment, expands Haxe's `%NAME%` form,
+  includes it in the
   compiler-server identity,
   and passes those same values to Haxe. Changing `PATH`, `HAXELIB_PATH`,
   `HAXE_STD_PATH`, or another ambient value therefore cannot silently reuse a
   server started with older settings. Mutating a retained host array or object
   later cannot change the command.
-- The invocation contains only ordered top-level HXML files. Put build flags
+- The host invocation contains only ordered top-level HXML files. Put build flags
   inside those HXML files; extra command-line flags are rejected because
   otherwise Haxe could compile files that the development loop did not know to
   watch.
@@ -496,8 +500,8 @@ const inventory = await inventoryHxml({
   allowedRoots: [projectRoot, haxeLibraryCache],
   environment: readConfiguredEnvironment,
   resolveLibrary: (request) => ({
-    hxmlFiles: resolveLibraryHxml(request),
-    classPaths: resolveLibraryClassPaths(request),
+    arguments: resolveExactHaxelibArguments(request),
+    provenanceFiles: resolveHaxelibProvenance(request),
   }),
 });
 
@@ -641,14 +645,16 @@ The host remains responsible for:
 ## HXML inventory
 
 `inventoryHxml` resolves the Haxe inputs that are stated by one or more HXML
-entry files. It understands nested HXML, ordered `--cwd`/`-C`, class paths,
-resources, libraries, comments, quoting, escaping, and explicit environment
-expansion. The host supplies allowed roots plus environment and library
-resolvers:
+entry files. It mirrors Haxe 4.3.7 whole-line HXML quoting, full-line comments,
+one-space option splitting, and `%NAME%` environment expansion. It understands
+nested HXML, class paths, libraries, and defines. The host supplies allowed
+roots plus environment and library resolvers. V1 rejects `-C`/`--cwd` and
+resource options rather than approximating their process-wide and class-path
+lookup semantics.
 
-Both familiar long options and Haxe's documented short forms are understood:
-`--class-path`/`-cp`/`-p`, `--library`/`-lib`/`-L`, and
-`--resource`/`-resource`/`-r`, plus `--cwd`/`-C`.
+Both familiar long options and Haxe's documented short forms are classified.
+The supported input forms are `--class-path`/`-cp`/`-p` and
+`--library`/`-lib`/`-L`.
 
 ```ts
 import { inventoryHxml } from "@genes-ts/tooling/hxml";
@@ -659,18 +665,15 @@ const inventory = await inventoryHxml({
   allowedRoots: [projectRoot, haxeLibraryCache],
   environment: (name) => configuredEnvironment.get(name) ?? null,
   resolveLibrary: (request) => ({
-    hxmlFiles: resolveLibraryHxml(request),
-    classPaths: resolveLibraryClassPaths(request),
+    arguments: resolveExactHaxelibArguments(request),
+    provenanceFiles: resolveHaxelibProvenance(request),
   }),
 });
 ```
 
-The result is a deterministic inventory of unique HXML files, contextual HXML
-occurrences, class paths, resources, and library requests. An occurrence is the
-pair of one canonical file and the effective working directory in which Haxe
-interprets it. This lets one shared file contribute `a/src` and `b/src` when it
-is included from both directories without registering two physical file
-watchers. `libraryClosureComplete` distinguishes an authoritative
+The result is a deterministic inventory of unique HXML files, occurrences,
+library provenance, class paths, library requests, and the exact flattened
+argument stream. `libraryClosureComplete` distinguishes an authoritative
 empty library expansion from request-only inventory performed without a
 resolver. It contains no framework config files or watch policy.
 Missing values, unsafe paths, links, malformed syntax, resolver failures, and

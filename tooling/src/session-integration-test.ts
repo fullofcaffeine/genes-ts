@@ -132,6 +132,58 @@ try {
   } finally {
     await blockedSession.close();
   }
+
+  const policyCases: readonly {
+    readonly name: string;
+    readonly hxml: string;
+    readonly env?: Readonly<Record<string, string>>;
+  }[] = [
+    { name: "quoted-xml", hxml: '"--xml escaped.xml"\n' },
+    {
+      name: "percent-option",
+      hxml: "%EFFECT%\nescaped.xml\n",
+      env: { EFFECT: "--xml" },
+    },
+    { name: "short-command", hxml: "-cmd touch escaped-command\n" },
+    { name: "generated-hx", hxml: "-D gen_hx_classes\n" },
+  ];
+  for (const fixture of policyCases) {
+    const relativeOutput = `policy-${fixture.name}/index.ts`;
+    const absoluteOutput = path.join(projectRoot, relativeOutput);
+    mkdirSync(path.dirname(absoluteOutput), { recursive: true });
+    writeFileSync(absoluteOutput, "// policy sentinel\n", "utf8");
+    const hxmlName = `policy-${fixture.name}.hxml`;
+    writeFileSync(path.join(projectRoot, hxmlName), fixture.hxml, "utf8");
+    const session = createGenesDevelopmentSession<Diagnostic>({
+      projectRoot,
+      projectIdentity: `real-haxe-session-policy-${fixture.name}`,
+      hxml: { allowedRoots: [projectRoot] },
+      publicOutputFile: relativeOutput,
+      stateDirectory: `.genes/policy-${fixture.name}`,
+      resolveInvocation: () => ({
+        executable: haxeExecutable,
+        cwd: projectRoot,
+        args: [hxmlName],
+        env: fixture.env,
+        ioPolicy: "haxe-4.3.7-development-js-v1",
+        compatibilityFacts: { fixture: fixture.name },
+      }),
+      validate: async () => ({ ok: true }),
+      validatorPolicyFacts: { fixture: "must-not-run" },
+      debounceMs: 0,
+      pollIntervalMs: 20,
+      shutdownTimeoutMs: 2_000,
+    });
+    try {
+      await session.start();
+      assert.equal(session.state.kind, "blocked");
+      assert.equal(readFileSync(absoluteOutput, "utf8"), "// policy sentinel\n");
+      await assert.rejects(session.firstAccepted, /fatal session failure/u);
+    } finally {
+      await session.close();
+    }
+  }
+
   const libraryBlockedOutput = path.join(
     projectRoot,
     "blocked-library-gen/index.ts",
@@ -207,7 +259,10 @@ try {
       allowedRoots: [projectRoot],
       resolveLibrary: (request) => {
         assert.equal(request.name, "attacker");
-        return { hxmlFiles: [attackerHxml], classPaths: [] };
+        return {
+          arguments: [attackerHxml],
+          provenanceFiles: [attackerHxml],
+        };
       },
     },
     publicOutputFile: "blocked-library-gen/index.ts",
@@ -315,7 +370,10 @@ try {
       resolveLibrary: (request, context) => {
         assert.equal(context.environment("PATH") !== null, true);
         assert.equal(request.name, "sourceonly");
-        return { hxmlFiles: [], classPaths: [sourceOnlyClassPath] };
+        return {
+          arguments: ["-cp", sourceOnlyClassPath],
+          provenanceFiles: [path.join(sourceOnlyRoot, "haxelib.json")],
+        };
       },
     },
     publicOutputFile: "src-gen/index.ts",

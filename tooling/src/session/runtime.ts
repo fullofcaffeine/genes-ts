@@ -134,6 +134,10 @@ function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
+function isJsonArray(value: JsonValue): value is readonly JsonValue[] {
+  return Array.isArray(value);
+}
+
 function bytewise(values: Iterable<string>): string[] {
   return [...values].sort((left, right) =>
     Buffer.from(left).compare(Buffer.from(right)),
@@ -605,6 +609,13 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         cause: { reinventory: true, restartCompiler: true, rebuild: true },
       });
     }
+    for (const provenance of inventory.libraryProvenanceFiles) {
+      inputs.push({
+        kind: "exact",
+        path: provenance,
+        cause: { reinventory: true, restartCompiler: true, rebuild: true },
+      });
+    }
     for (const classPath of inventory.classPaths) {
       inputs.push({
         kind: "tree",
@@ -787,7 +798,16 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       );
       if (this.#closing !== null || abort.signal.aborted) return;
       if (!admission.ok) {
-        this.#fail("validate", cause.revision, true, admission.diagnostic);
+        this.#fail(
+          "validate",
+          cause.revision,
+          true,
+          diagnostic(
+            "VALIDATION_REJECTED",
+            "The host validator rejected the private candidate",
+            this.#sanitizePublicJson(admission.diagnostic),
+          ),
+        );
         return;
       }
       this.#requireReconciliation();
@@ -984,6 +1004,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     }
     for (const candidate of [
       ...inventory.hxmlFiles,
+      ...inventory.libraryProvenanceFiles,
       ...inventory.classPaths,
       ...inventory.resourceInputs,
       ...(this.#options.extraInputs ?? []).map((extra) =>
@@ -1047,6 +1068,21 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     return withoutCandidateNonce
       .replaceAll(this.#layout.stateRoot, "<private-state>")
       .replaceAll(this.#layout.projectRoot, "<project>");
+  }
+
+  /** Removes session-private paths from every host-authored JSON string. */
+  #sanitizePublicJson(value: JsonValue): JsonValue {
+    if (typeof value === "string") return this.#sanitizeCoreMessage(value);
+    if (value === null || typeof value !== "object") return value;
+    if (isJsonArray(value)) {
+      return Object.freeze(value.map((entry) => this.#sanitizePublicJson(entry)));
+    }
+    const sanitized: Record<string, JsonValue> = {};
+    for (const key of Object.keys(value)) {
+      sanitized[this.#sanitizeCoreMessage(key)] =
+        this.#sanitizePublicJson(value[key]!);
+    }
+    return Object.freeze(sanitized);
   }
 
   #fail(

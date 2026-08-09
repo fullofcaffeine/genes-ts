@@ -49,7 +49,7 @@ The session contract makes the safe order explicit:
 ```text
 recover an interrupted publication
   -> resolve and freeze the exact Haxe invocation
-  -> inventory that invocation's contextual HXML and library source closure
+  -> inventory that invocation's exact HXML and library argument closure
   -> register the Haxe input graph
   -> assign an input revision
   -> bind one private ordinary Haxe JS target and one private Genes target
@@ -183,21 +183,23 @@ execution, even after the first process exits.
 Library expansion is part of invocation authority. A lower-level HXML inventory
 may list `-lib` requests without resolving them, but DevelopmentSession requires
 an authoritative resolver for every discovered library. That resolver returns
-both effective HXML files, including `extraParams.hxml`, and library source
-class paths. It receives the same frozen environment lookup used by HXML
-expansion. “Resolver returned empty HXML and class-path lists” is distinct from
+the exact ordered arguments that Haxe would receive from `haxelib path` plus
+the files that prove that resolution. The plan flattens those arguments and
+does not pass `-lib` to Haxe again. It receives the same frozen environment
+lookup used by HXML expansion. “Resolver returned empty argument and provenance lists” is distinct from
 “no resolver was provided”; only the former is a complete closure.
 
 The frozen invocation is the authority for the working directory, environment,
 and ordered top-level HXML entries. The `hxml` option cannot supply competing
-copies of those values. A physical HXML file is interpreted separately for
-each effective working directory, while the watcher still registers the file
-only once. Entry, occurrence, and resolved-library paths are checked for
+copies of those values. HXML uses Haxe 4.3.7 whole-line parsing and `%NAME%`
+expansion. V1 rejects authored CWD and resource options rather than claiming a
+partial model. Entry, occurrence, and resolved-library paths are checked for
 symlink components before canonicalization, so an alias cannot erase the path
 that must pass the no-follow policy.
 
-The executable invocation contains only those ordered top-level HXML files.
-Build options belong in the inventoried HXML graph. Source class paths reject symbolic links because Haxe
+The host invocation contains only ordered top-level HXML files. The executable
+invocation instead receives the sealed flattened arguments from those files
+and library resolutions. Source class paths reject symbolic links because Haxe
 may follow them while the safe watcher does not; accepting both behaviors would
 let the compiler read a change that the session could miss.
 

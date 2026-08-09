@@ -47,8 +47,7 @@ async function main(): Promise<void> {
       [
         "# comment",
         "-p src",
-        "-C nested",
-        "'nested build.hxml'",
+        "'nested/nested build.hxml'",
         "-L sample:1.2.3",
         "",
       ].join("\n"),
@@ -57,9 +56,7 @@ async function main(): Promise<void> {
       root,
       "nested/nested build.hxml",
       [
-        "--cwd ..",
-        "--class-path \"${SHARED}\"",
-        "-r assets/data.json@data",
+        "--class-path \"%SHARED%\"",
         "cycle.hxml",
         "",
       ].join("\n"),
@@ -68,7 +65,7 @@ async function main(): Promise<void> {
     const library = write(
       root,
       "libraries/sample.hxml",
-      "--class-path ../src\n",
+      `--class-path ${path.join(root, "src")}\n`,
     );
 
     const inventory = await inventoryHxml({
@@ -79,7 +76,7 @@ async function main(): Promise<void> {
       resolveLibrary: (request) => {
         assert.equal(request.name, "sample");
         assert.equal(request.version, "1.2.3");
-        return { hxmlFiles: [library], classPaths: [] };
+        return { arguments: [library], provenanceFiles: [library] };
       },
     });
     assert.deepEqual(
@@ -99,9 +96,10 @@ async function main(): Promise<void> {
       inventory.classPaths.map((file) => path.relative(root, file)).sort(),
       ["shared dir", "src"].sort(),
     );
+    assert.deepEqual(inventory.resourceInputs, []);
     assert.deepEqual(
-      inventory.resourceInputs.map((file) => path.relative(root, file)),
-      [path.join("assets", "data.json")],
+      inventory.libraryProvenanceFiles.map((file) => path.relative(root, file)),
+      [path.join("libraries", "sample.hxml")],
     );
     assert.deepEqual(
       inventory.libraries.map(({ request, name, version }) => ({
@@ -112,6 +110,27 @@ async function main(): Promise<void> {
       [{ request: "sample:1.2.3", name: "sample", version: "1.2.3" }],
     );
     assert.equal(inventory.libraryClosureComplete, true);
+    assert.deepEqual(inventory.effectiveArguments, [
+      "-p",
+      "src",
+      "--class-path",
+      "shared dir",
+      "--class-path",
+      path.join(root, "src"),
+    ]);
+    assert.equal(inventory.effectiveArguments.includes("-L"), false);
+    assert.equal(inventory.effectiveArguments.includes("sample:1.2.3"), false);
+
+    write(root, "carriage-return-lines.hxml", "-cp src\r-main Main\r");
+    const carriageReturnInventory = await inventoryHxml({
+      entryFiles: ["carriage-return-lines.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+    });
+    assert.deepEqual(
+      carriageReturnInventory.effectiveArguments,
+      ["-cp", "src", "-main", "Main"],
+    );
 
     mkdirSync(path.join(root, "a", "src"), { recursive: true });
     mkdirSync(path.join(root, "b", "src"), { recursive: true });
@@ -127,30 +146,14 @@ async function main(): Promise<void> {
         "",
       ].join("\n"),
     );
-    const contextual = await inventoryHxml({
-      entryFiles: ["contextual.hxml"],
-      workingDirectory: root,
-      allowedRoots: [root],
-    });
-    assert.deepEqual(
-      contextual.classPaths.map((file) => path.relative(root, file)).sort(),
-      [path.join("a", "src"), path.join("b", "src")],
-    );
-    assert.deepEqual(
-      contextual.hxmlOccurrences
-        .filter((occurrence) => occurrence.file.endsWith("shared-context.hxml"))
-        .map((occurrence) => path.relative(root, occurrence.workingDirectory)),
-      ["a", "b"],
-    );
     await expectFailure(
       () =>
         inventoryHxml({
           entryFiles: ["contextual.hxml"],
           workingDirectory: root,
           allowedRoots: [root],
-          maxHxmlOccurrences: 2,
         }),
-      "budget-exceeded",
+      "invalid-option",
     );
 
     const orderedFirst = write(root, "ordered-first.hxml", "");
@@ -165,7 +168,7 @@ async function main(): Promise<void> {
       realpathSync.native(orderedFirst),
     ]);
 
-    write(root, "missing-env.hxml", "-cp ${ABSENT}\n");
+    write(root, "missing-env.hxml", "-cp %ABSENT%\n");
     await expectFailure(
       () =>
         inventoryHxml({
@@ -173,18 +176,7 @@ async function main(): Promise<void> {
           workingDirectory: root,
           allowedRoots: [root],
         }),
-      "missing-environment",
-    );
-
-    write(root, "bad-quote.hxml", "-cp 'unterminated\n");
-    await expectFailure(
-      () =>
-        inventoryHxml({
-          entryFiles: ["bad-quote.hxml"],
-          workingDirectory: root,
-          allowedRoots: [root],
-        }),
-      "invalid-syntax",
+      "missing-input",
     );
 
     write(root, "outside.hxml", "../outside.hxml\n");
@@ -216,10 +208,10 @@ async function main(): Promise<void> {
           workingDirectory: root,
           allowedRoots: [root],
           resolveLibrary: () => ({
-            hxmlFiles: [
+            arguments: [],
+            provenanceFiles: [
               path.join(root, "linked-library-directory/library.hxml"),
             ],
-            classPaths: [],
           }),
         }),
       "unsafe-input",
@@ -229,8 +221,8 @@ async function main(): Promise<void> {
       workingDirectory: root,
       allowedRoots: [root],
       resolveLibrary: () => ({
-        hxmlFiles: [realLibraryHxml],
-        classPaths: [],
+        arguments: [realLibraryHxml],
+        provenanceFiles: [realLibraryHxml],
       }),
     });
     assert.equal(
@@ -325,8 +317,8 @@ async function main(): Promise<void> {
           workingDirectory: root,
           allowedRoots: [root],
           resolveLibrary: () => ({
-            hxmlFiles: ["relative.hxml"],
-            classPaths: [],
+            arguments: [],
+            provenanceFiles: ["relative.hxml"],
           }),
         }),
       "resolver-failure",
@@ -344,7 +336,7 @@ async function main(): Promise<void> {
       "resolver-failure",
     );
 
-    write(root, "forbidden-child.hxml", "-Dgenes.output=public.ts\n");
+    write(root, "forbidden-child.hxml", "-D genes.output=public.ts\n");
     write(root, "forbidden-parent.hxml", "forbidden-child.hxml\n");
     await expectFailure(
       () =>

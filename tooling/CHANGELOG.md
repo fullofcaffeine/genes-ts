@@ -22,8 +22,9 @@ it.
   invocation checks, authoritative reconciliation, exact drift detection, and
   bounded reentrant owned cleanup.
 - Derive HXML inventory and execution from one immutable effective invocation;
-  interpret repeated HXML files per effective working directory; include
-  resolved library source roots; reject linked source trees; and keep an
+  mirror Haxe 4.3.7 HXML parsing and `%NAME%` expansion; execute the exact
+  flattened library argument stream; include resolved library provenance and
+  source roots; reject linked source trees; and keep an
   accepted output tied to its original physical path spelling.
 - Own one private ordinary Haxe JavaScript target and one private Genes target
   under a versioned Haxe 4.3.7 I/O policy. Reject authored targets,
@@ -32,8 +33,9 @@ it.
 - Scope locks, journals, markers, and recovery to the portable public output
   root, persist one entry owner for that root, and keep generated output
   structurally disjoint from `.genes/tooling`.
-- Recognize Haxe's documented short class-path, library, resource, and working
-  directory options;
+- Classify every Haxe 4.3.7 option spelling; support class paths and exact
+  library contributions while rejecting CWD/resources until their lookup
+  semantics have a reviewed policy;
   reject HXML options that execute shell commands or user programs before host
   acceptance; keep informational changes from discarding an active build; and
   report post-inventory compiler errors at the compile stage.

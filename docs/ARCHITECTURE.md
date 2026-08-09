@@ -758,7 +758,7 @@ or changes compiler semantics. Its positive contract is:
 ```text
 observed input revision
   -> immutable effective Haxe invocation
-  -> contextual nested-HXML + library-source closure derived from it
+  -> exact nested-HXML + flattened library-argument closure derived from it
   -> session-owned private Haxe JS target + request-local `genes.output`
   -> exact Genes v2 ownership inventory
   -> host-owned validation
@@ -788,13 +788,14 @@ sessions from publishing overlapping sibling modules through separate
 journals. Public output and `.genes/tooling` cannot contain one another.
 
 One immutable effective-invocation plan owns the executable, working directory,
-environment, ordered HXML entries and contextual occurrences, resolved library
-HXML/source roots, and versioned Haxe 4.3.7 compiler-I/O policy. Authored HXML
+environment, ordered HXML entries and occurrences, exact resolved-library
+arguments/provenance, source roots, and versioned Haxe 4.3.7 compiler-I/O policy. Authored HXML
 is targetless. The bound compiler request appends one ordinary private Haxe JS
 target and one private Genes target, so an inactive Genes generator still
 cannot write public output before admission. The HXML closure is complete only
 after every discovered library has been passed through a host-owned
-authoritative resolver; unresolved libraries fail before Haxe executes. The
+authoritative resolver. Haxe executes that flattened stream without a live
+`-lib` re-resolution; unresolved libraries fail before Haxe executes. The
 separate marker matters when two successful revisions generate identical bytes:
 generation still advances, the file delta stays empty, and a host correctly
 performs no reload.

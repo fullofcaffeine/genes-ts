@@ -37,10 +37,16 @@ export interface HxmlResolverContext {
   readonly environment: (name: string) => string | null;
 }
 
-/** Complete declarative inputs contributed by one resolved Haxelib request. */
+/**
+ * Exact Haxe arguments and provenance contributed by one Haxelib request.
+ *
+ * `arguments` must be the ordered argument stream that Haxe 4.3.7 would add
+ * after `haxelib path`. The session inventories and executes these bytes. It
+ * never passes the original `-lib` back to Haxe for a second live resolution.
+ */
 export interface HxmlLibraryResolution {
-  readonly hxmlFiles: readonly string[];
-  readonly classPaths: readonly string[];
+  readonly arguments: readonly string[];
+  readonly provenanceFiles: readonly string[];
 }
 
 /**
@@ -51,6 +57,8 @@ export interface HxmlLibraryResolution {
 export interface HxmlArgumentPolicy {
   readonly forbiddenOptions?: readonly string[];
   readonly forbiddenDefines?: readonly string[];
+  /** Reject option spellings absent from the pinned Haxe option manifest. */
+  readonly rejectUnknownOptions?: boolean;
 }
 
 export interface HxmlInventoryOptions {
@@ -95,7 +103,10 @@ export interface HxmlInventory {
   readonly entryHxmlFiles: readonly string[];
   readonly hxmlOccurrences: readonly HxmlOccurrence[];
   readonly hxmlFiles: readonly string[];
+  readonly libraryProvenanceFiles: readonly string[];
   readonly classPaths: readonly string[];
   readonly resourceInputs: readonly string[];
   readonly libraries: readonly HxmlLibrary[];
+  /** Exact flattened arguments passed to Haxe before the private JS target. */
+  readonly effectiveArguments: readonly string[];
 }

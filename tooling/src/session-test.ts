@@ -750,8 +750,8 @@ await withHarness(
       hxml: {
         ...options.hxml,
         resolveLibrary: () => ({
-          hxmlFiles: [libraryHxml],
-          classPaths: [],
+          arguments: [libraryHxml],
+          provenanceFiles: [libraryHxml],
         }),
       },
     };
@@ -1009,7 +1009,7 @@ await withHarness(
     mkdirSync(path.join(root, "src-b"));
     writeFileSync(
       path.join(root, "build.hxml"),
-      "-cp ${SRC_DIR}\n-main Main\n",
+      "-cp %SRC_DIR%\n-main Main\n",
       "utf8",
     );
     return {
@@ -1040,11 +1040,28 @@ await withHarness(
       ),
       true,
     );
+    assert.equal(
+      currentWatch(harness).options.inputs.some(
+        (input) =>
+          input.kind === "exact" &&
+          input.path === path.join(harness.root, "libraries", "sample.hxml"),
+      ),
+      true,
+    );
+    const executed = harness.compiler.invocations[0]!.arguments;
+    assert.equal(executed.includes("-lib"), false);
+    assert.equal(executed.includes("sample"), false);
+    assert.equal(
+      executed.includes(path.join(harness.root, "libraries", "sample", "src")),
+      true,
+    );
   },
   undefined,
   (options, root) => {
     const librarySource = path.join(root, "libraries", "sample", "src");
     mkdirSync(librarySource, { recursive: true });
+    const libraryProvenance = path.join(root, "libraries", "sample.hxml");
+    writeFileSync(libraryProvenance, `-cp ${librarySource}\n`, "utf8");
     writeFileSync(
       path.join(root, "build.hxml"),
       "-cp src\n-lib sample\n-main Main\n",
@@ -1056,7 +1073,10 @@ await withHarness(
         ...options.hxml,
         resolveLibrary: (_request, context) => {
           assert.equal(context.environment("SESSION_LIBRARY"), "exact");
-          return { hxmlFiles: [], classPaths: [librarySource] };
+          return {
+            arguments: ["-cp", librarySource],
+            provenanceFiles: [libraryProvenance],
+          };
         },
       },
       resolveInvocation: () => ({
@@ -1488,6 +1508,46 @@ for (const stopAt of [
   }
 }
 
+for (const corruption of ["truncated", "noncanonical", "symlink"] as const) {
+  if (corruption === "symlink" && process.platform === "win32") continue;
+  const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), `genes-session-root-owner-${corruption}-`)),
+  );
+  try {
+    const layout = resolveSessionLayout(
+      root,
+      `fixture-root-owner-${corruption}`,
+      "src-gen/index.ts",
+      ".genes/state",
+    );
+    const initial = acquireSessionLock(layout);
+    initial.release();
+    const owner = path.join(root, ...layout.rootOwnerRelative.split("/"));
+    if (corruption === "truncated") {
+      writeFileSync(owner, '{"protocol":', "utf8");
+    } else if (corruption === "noncanonical") {
+      const decoded: unknown = JSON.parse(readFileSync(owner, "utf8"));
+      writeFileSync(owner, `${JSON.stringify(decoded, null, 2)}\n`, "utf8");
+    } else {
+      const target = path.join(root, "owner-target.json");
+      writeFileSync(target, readFileSync(owner));
+      rmSync(owner, { force: true });
+      symlinkSync(target, owner);
+    }
+    assert.throws(
+      () => acquireSessionLock(layout),
+      /root owner is invalid|root owner is a symbolic link|already bound to a different/u,
+    );
+    assert.equal(
+      existsSync(path.join(root, ...layout.sessionLockRelative.split("/"))),
+      false,
+      "a rejected owner must release the temporary lifetime lock",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 for (const checkpoint of [
   "after-journal-prepared",
   "after-publish:src-gen/index.ts",
@@ -1861,39 +1921,69 @@ for (const forbidden of [
   "--server-listen 127.0.0.1:6000",
   "--server-connect 127.0.0.1:6000",
   "--run Main",
+  "-cmd touch-public",
   "--interp",
   "-x Main",
   "--xml public-api.xml",
+  "-xml public-api.xml",
   "--json public-api.json",
   "-js public.js",
   "--js public.js",
   "-swf public.swf",
   "--swf public.swf",
   "--neko public.n",
+  "-neko public.n",
   "--php public-php",
+  "-php public-php",
   "--cpp public-cpp",
+  "-cpp public-cpp",
+  "-cppia public.cppia",
   "--cs public-cs",
+  "-cs public-cs",
   "--java public-java",
+  "-java public-java",
   "--jvm public.jar",
   "--python public.py",
+  "-python public.py",
   "--lua public.lua",
+  "-lua public.lua",
   "--hl public.hl",
+  "-hl public.hl",
   "--cppia public.cppia",
   "--no-output",
   "--display Main.hx@0",
   "--prompt",
+  "-prompt",
   "--version",
+  "-version",
   "--help",
+  "-help",
   "-h",
   "--help-defines",
   "--help-user-defines",
   "--help-metas",
   "--help-user-metas",
   "--haxelib-global",
+  "-C alternate",
+  "--cwd alternate",
+  "-r asset.txt",
+  "-resource asset.txt",
+  "--resource asset.txt",
+  "--swf-lib native.swf",
+  "-swf-lib native.swf",
+  "--java-lib native.jar",
+  "-java-lib native.jar",
+  "--net-lib native.dll",
+  "-net-lib native.dll",
+  "--net-std native-root",
+  "-net-std native-root",
+  "--c-arg native-argument",
+  "-c-arg native-argument",
   "-D dump",
   "-D dump-path=public-dump",
   "-D dump-dependencies",
   "-D message.log-file=public-messages.log",
+  "-D gen_hx_classes",
   "--next",
   "--each",
 ]) {
@@ -1909,6 +1999,49 @@ for (const forbidden of [
       assert.equal(harness.session.state.kind, "blocked");
       assert.equal(harness.compiler.calls, 0);
       assert.equal(readFileSync(sentinel, "utf8"), "// unchanged sentinel\n");
+    },
+  );
+}
+
+const lexicalPolicyFixtures: readonly {
+  readonly name: string;
+  readonly hxml: string;
+  readonly env: Readonly<Record<string, string>>;
+}[] = [
+  {
+    name: "quoted-xml",
+    hxml: '"--xml public-api.xml"\n',
+    env: {},
+  },
+  {
+    name: "percent-option-injection",
+    hxml: "%EFFECT%\npublic-api.xml\n",
+    env: { EFFECT: "--xml" },
+  },
+] as const;
+for (const fixture of lexicalPolicyFixtures) {
+  await withHarness(
+    `haxe-lexical-policy-${fixture.name}`,
+    async (harness) => {
+      await harness.session.start();
+      assert.equal(harness.session.state.kind, "blocked");
+      assert.equal(harness.compiler.calls, 0);
+      assert.equal(existsSync(path.join(harness.root, "public-api.xml")), false);
+    },
+    undefined,
+    (options, root) => {
+      writeFileSync(path.join(root, "build.hxml"), fixture.hxml, "utf8");
+      return {
+        ...options,
+        resolveInvocation: () => ({
+          executable: "haxe",
+          cwd: root,
+          args: ["build.hxml"],
+          env: fixture.env,
+          ioPolicy: "haxe-4.3.7-development-js-v1",
+          compatibilityFacts: { fixture: fixture.name },
+        }),
+      };
     },
   );
 }
@@ -1976,6 +2109,7 @@ await withHarness(
   (options, root) => {
     const nested = path.join(root, "nested");
     mkdirSync(nested);
+    mkdirSync(path.join(nested, "src"));
     return {
       ...options,
       resolveInvocation: () => ({
@@ -2054,6 +2188,45 @@ await withHarness("hxml-changes-before-execution", async (harness) => {
   assert.equal(harness.compiler.modes.length, 0);
   assert.equal(existsSync(path.join(harness.root, "src-gen/index.ts")), false);
 });
+
+await withHarness(
+  "library-resolution-replans-before-execution",
+  async (harness) => {
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "ready");
+    assert.equal(harness.compiler.calls, 1);
+    assert.equal(harness.compiler.modes.length, 1);
+    const executed = harness.compiler.invocations[0]!.arguments;
+    assert.equal(executed.includes(path.join(harness.root, "libraries", "first")), false);
+    assert.equal(executed.includes(path.join(harness.root, "libraries", "second")), true);
+  },
+  undefined,
+  (options, root) => {
+    const first = path.join(root, "libraries", "first");
+    const second = path.join(root, "libraries", "second");
+    mkdirSync(first, { recursive: true });
+    mkdirSync(second, { recursive: true });
+    const provenance = path.join(root, "libraries", "sample.hxml");
+    writeFileSync(provenance, "# resolver provenance\n", "utf8");
+    writeFileSync(
+      path.join(root, "build.hxml"),
+      "-lib sample\n-main Main\n",
+      "utf8",
+    );
+    let calls = 0;
+    return {
+      ...options,
+      hxml: {
+        ...options.hxml,
+        resolveLibrary: () => ({
+          arguments: ["-cp", ++calls === 1 ? first : second],
+          provenanceFiles: [provenance],
+        }),
+      },
+    };
+  },
+);
 
 {
   const mutableArgs = ["build.hxml"];
@@ -2185,5 +2358,37 @@ await withHarness("diagnostic-multiple-candidate-paths", async (harness) => {
   assert.equal(/revision-\d+-test\d+/u.test(publicRecord), false);
   assert.equal(publicRecord.includes("<private-candidate>"), true);
 });
+
+await withHarness(
+  "validator-diagnostic-private-path-redaction",
+  async (harness) => {
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "blocked");
+    const publicRecord = JSON.stringify({
+      snapshot: harness.session.inspect(),
+      events: harness.events,
+    });
+    assert.equal(publicRecord.includes(harness.root), false);
+    assert.equal(/revision-\d+-test\d+/u.test(publicRecord), false);
+    assert.equal(publicRecord.includes("<private-candidate>"), true);
+  },
+  undefined,
+  (options) => ({
+    ...options,
+    validate: async (tree) => ({
+      ok: false,
+      diagnostic: {
+        code: "HOST_REJECTED",
+        message: `candidate ${tree.physicalRoot}`,
+        [tree.physicalRoot]: "path used as an object key",
+        nested: [
+          tree.files[0]!.physicalPath,
+          { again: tree.physicalRoot },
+        ],
+      },
+    }),
+  }),
+);
 
 console.log("genes tooling development session runtime: ok");
