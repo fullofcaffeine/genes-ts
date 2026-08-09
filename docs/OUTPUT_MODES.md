@@ -4,6 +4,15 @@ genes-ts supports **two output modes** within the same library (`-lib genes-ts`)
 
 The mode is selected by the presence of `-D genes.ts`.
 
+Within the maintained dual-output boundary, both modes consume the same typed
+Haxe program and shared Genes authoring APIs. Selecting a profile changes the
+published artifact and its toolchain—not the application's source model.
+TypeScript/TSX is intended to remain strict and readable; the table below names
+the integrations and compatibility boundary currently checked. Classic ESM
+preserves the exercised runtime behavior for the owned dual-output corpora
+without a generated-TypeScript build step. Profile-specific capabilities may
+lower differently or fail with a documented capability diagnostic.
+
 ## Readiness by surface
 
 The two modes are first-class compiler paths, but their evidence is not
@@ -88,6 +97,14 @@ reviewable generated TypeScript source tree. Do not weaken TypeScript output to
 serve this profile: TS mode remains the default for projects whose generated TS
 is a product surface, while ES6-specific work should have its own fixture or
 smoke gate.
+
+“Performance-oriented” describes the direct delivery path and the classic
+emitter's compact output. TypeScript annotations do not execute after downstream
+compilation, so removing the generated-TypeScript step is not itself a runtime
+optimization. Genes uses distinct TypeScript and classic emitters; compare
+runtime performance with a representative benchmark. Choose this profile
+without measurement when its concrete benefit is simpler or faster builds and
+fewer required tools.
 
 The standing classic gate is `yarn test`. The smaller authoritative side-by-side
 gate is `yarn test:dual-output`; its source, expected semantic transcript,
