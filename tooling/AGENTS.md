@@ -54,6 +54,22 @@ Automation-facing contracts use versioned JSON facts, stable identifiers, and
 real completion barriers; agents must not need to scrape terminal prose or
 depend on timing-only sleeps.
 
+For `DevelopmentSession`, keep three authorities explicit:
+
+- the immutable effective invocation (including contextual entry/nested HXML,
+  resolved library source roots, environment, and versioned compiler-I/O
+  policy) owns what Haxe may execute;
+- the private candidate plus host admission owns what is eligible to publish;
+- the public-root-scoped lock, entry-owner record, journal, accepted marker,
+  and compiler manifest own what
+  may replace the public tree or be recovered after a crash.
+
+Do not turn a failed reconciliation into “no changes,” adopt an unowned live
+file because a candidate wants its path, or keep publication authority only
+under a caller-selected private state directory. Lifecycle observers may call
+`close()` synchronously; install cancellation/ownership state before emitting
+events and recheck it after every observer or awaited host boundary.
+
 The package is independent from compiler semantic-release. Do not publish it,
 change its public version, or dispatch a release workflow without explicit
 authority. It is intentionally unpublished while no external host requires a

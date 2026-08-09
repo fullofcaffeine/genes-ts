@@ -16,7 +16,10 @@ binds that decision to an opaque `authorizationDigest`. The publisher then:
 3. persists a canonical journal before the first live mutation;
 4. moves old files to private backups and publishes new files;
 5. publishes the opaque commit marker last;
-6. records enough state for another process to finish or roll back without
+6. asks the optional host check to admit that complete live result;
+7. reads every live file again after the host check and refuses to commit if
+   an outside writer changed any byte;
+8. records enough state for another process to finish or roll back without
    guessing.
 
 The commit marker is just one exact file transition. A framework may use a

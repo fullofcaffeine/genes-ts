@@ -5,9 +5,11 @@ into a complete, validated, public Genes output tree. It exists so a command,
 framework adapter, human, or AI agent can observe the same lifecycle without
 rebuilding process, watcher, and publication rules from terminal text.
 
-This directory defines the contract only. The first protocol change does not
-yet implement `DevelopmentSession`, start Haxe, watch files, publish output, or
-run a framework server.
+`createGenesDevelopmentSession` now implements this contract by composing the
+repository's existing HXML inventory, reconciled watcher, serialized loop,
+owned Haxe server, and recoverable artifact publisher. The protocol remains
+framework-neutral: the implementation does not run Vite, Next.js, Electron,
+Expo, WordPress, a browser, or any other application service.
 
 ## Who should read what
 
@@ -24,11 +26,15 @@ If you are implementing the session, read this entire file, then:
 1. [`../../src/session/types.ts`](../../src/session/types.ts) for the public
    TypeScript surface;
 2. [`vectors.json`](vectors.json) for required scenarios and outcomes;
-3. the existing HXML, watch, loop, Haxe-server, and artifact implementations
+3. [`../../src/session/runtime.ts`](../../src/session/runtime.ts) for the
+   composition layer;
+4. the existing HXML, watch, loop, Haxe-server, and artifact implementations
    named in [`../../README.md`](../../README.md).
 
-The vectors are executable acceptance requirements for the later runtime.
-They are not illustrative examples that an implementation may ignore.
+The vectors are executable acceptance requirements. The focused runtime suite
+drives every vector through the real state machine with controlled compiler,
+watch, validator, and fault boundaries; they are not illustrative examples an
+implementation may ignore.
 
 ## The practical problem
 
@@ -42,11 +48,14 @@ The session contract makes the safe order explicit:
 
 ```text
 recover an interrupted publication
+  -> resolve and freeze the exact Haxe invocation
+  -> inventory that invocation's exact HXML and library argument closure
   -> register the Haxe input graph
   -> assign an input revision
+  -> bind one private ordinary Haxe JS target and one private Genes target
   -> generate a complete private candidate
   -> ask the host to validate that candidate
-  -> reject it if a newer revision is already known
+  -> reject it if a newer build-requiring revision is already known
   -> publish all admitted files as one recoverable transaction
   -> announce an accepted generation
 ```
@@ -59,6 +68,12 @@ generation number.
 For example, revision 2 may fail strict TypeScript while generation 1 remains
 public. After the developer repairs the source, revision 3 can become
 generation 2.
+
+A host may mark an extra input change as `rebuild: false` when that file cannot
+affect generated output or validation. The session reports this informational
+change and advances `newestRevision`, but it does not discard a valid compile
+already in progress. This is why an accepted generation's `revision` may be
+lower than `newestRevision` until another build-requiring change occurs.
 
 ## States a host presents
 
@@ -104,9 +119,11 @@ accepted event is never emitted before the artifact transaction has committed.
 
 Tooling-owned paths in events and file deltas are project-relative and use `/`
 on every platform. Lists are sorted by UTF-8 byte order, contain no duplicates,
-and do not overlap. Tooling-owned event fields never expose private candidate
-paths. The host remains responsible for mapping its own diagnostic paths to
-logical locations and for sanitizing any diagnostic sent outside the process.
+and do not overlap. Events never expose private candidate, state, or project
+paths. This includes host validation messages and JSON keys that spell a path
+with either `/` or `\\`. A host should still prefer useful logical paths in its
+diagnostics, because replacing a private path can hide the location rather than
+explain it.
 
 One JSON-lines event can therefore be consumed directly by automation:
 
@@ -114,8 +131,10 @@ One JSON-lines event can therefore be consumed directly by automation:
 {"protocol":"genes.tooling.development-session-event","version":1,"sequence":8,"at":1785520800000,"event":{"kind":"generation-accepted","accepted":{"generation":2,"revision":3,"acceptedAt":1785520800000,"manifestDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","compilerMode":"connected","files":{"created":[],"updated":["src-gen/index.tsx"],"deleted":[]},"entryChanged":true}}}
 ```
 
-The diagnostic inside a failure is host-owned JSON. Core tooling preserves it
-but does not invent user-facing prose or decide what is safe to send to a
+The diagnostic inside a validation failure is host-owned JSON. Before it enters
+an event, tooling removes private candidate, state, and project paths from
+every string and object key. It otherwise preserves the host's values. The
+host still decides which remaining application data is safe to send to a
 browser.
 
 ## Private validation and last-good output
@@ -137,6 +156,167 @@ tooling transaction        -> admitted candidate replaces public output
 An admitted candidate whose bytes are unchanged still advances the accepted
 generation and revision, but reports an empty `FileDelta`. Hosts perform no
 reload for that empty delta.
+
+The outer accepted-generation marker binds the last admitted compiler
+inventory. The session remembers the marker's exact file state, and the
+inventory includes the compiler ownership manifest's raw digest, size, and
+mode. A later build refuses to publish over any of those exact authorities when
+they changed outside the session. Unowned neighboring files are preserved;
+an unowned file occupying a newly generated path is a collision, not something
+the session adopts. Generated files are outputs—not a second editable source
+tree.
+
+The publication journal and accepted marker are keyed by project/public-root scope,
+not by the caller's private `stateDirectory`. If a process crashes while using
+`.genes/state-a` and restarts with `.genes/state-b`, the new process still finds
+and resolves the one authoritative journal before inventory or compilation.
+That scope uses the artifact protocol's portable path identity (NFC plus
+case-folding), not the caller's path spelling. Case aliases therefore derive
+one lifetime lock, journal, marker, admission identity, and recovery universe;
+on a case-sensitive host, original-spelling protection prevents an alias from
+becoming a second physical tree. Non-NFC paths are rejected before startup. The
+caller-selected private state directory may not contain or equal the stable
+`.genes/tooling` control root. The public output root cannot contain or be
+contained by that control root either. V1 persistently binds one public root to
+one entry file, because two entry files may both claim the same generated
+sibling modules. A second entry for that root fails before recovery or Haxe
+execution, even after the first process exits. The entry-owner record becomes
+visible only after all of its bytes are safely written. For compatibility with
+an interrupted write, a restart removes an uncommitted private owner file. A
+damaged final owner, non-canonical owner, or linked owner still fails closed.
+
+### Upgrading older session state
+
+Earlier DevelopmentSession builds stored their lock, journal, and accepted
+marker beside one output entry instead of beside the whole output directory.
+The current session upgrades that state before it reads source files or starts
+Haxe:
+
+1. hold the old entry lock and the new output-directory lock.
+2. finish or roll back any old journal.
+3. record exactly which old marker and generated manifest are being upgraded.
+4. replace the old marker with a stop record, so an older Genes process fails
+   instead of publishing after the upgrade.
+5. write the one-entry owner for the output directory.
+6. write a root-scoped marker with the same accepted generation facts.
+
+The receipt, stop record, owner, and new marker are each published through the
+recoverable artifact writer. A process may stop after any step. The next start
+checks the exact bytes and continues safely. Until the final marker exists, the
+previous generated files remain the accepted files. If two older entries claim
+the same output directory, startup refuses to choose between them. The project
+must move one entry to a separate output directory before it can upgrade.
+
+The old marker and the live Genes ownership manifest must contain the same
+manifest digest. This comparison proves that the marker describes the current
+generated tree. Migration stops before it writes a receipt if they differ.
+
+The upgrade is one-way. The stop record is a permanent migration fence. The
+released v1 client cannot parse this fence, so it stops when it uses the same
+entry. Supported installations must not downgrade the tooling package after
+migration. An old client started manually with another entry uses another old
+lock path and does not know the root-scoped protocol. V2 cannot force that
+unsupported client to read the new lock.
+
+The migration receipt records history. Later v2 builds can publish new
+generations without comparing the current generated manifest with the old v1
+manifest in that receipt.
+
+Library expansion is part of invocation authority. A lower-level HXML inventory
+may list `-lib` requests without resolving them, but DevelopmentSession requires
+an authoritative resolver for every discovered library. That resolver returns
+the exact ordered arguments that Haxe would receive from `haxelib path` plus
+the files that prove that resolution. The plan flattens those arguments and
+does not pass `-lib` to Haxe again. It receives the same frozen environment
+lookup used by HXML expansion. “Resolver returned empty argument and provenance lists” is distinct from
+“no resolver was provided”; only the former is a complete closure.
+
+The frozen invocation is the authority for the working directory, environment,
+and ordered top-level HXML entries. The `hxml` option cannot supply competing
+copies of those values. HXML uses Haxe 4.3.7 whole-line parsing and `%NAME%`
+expansion. V1 rejects authored CWD and resource options rather than claiming a
+partial model. Entry, occurrence, and resolved-library paths are checked for
+symlink components before canonicalization, so an alias cannot erase the path
+that must pass the no-follow policy.
+
+The host invocation contains only ordered top-level HXML files. The executable
+invocation instead receives the sealed flattened arguments from those files
+and library resolutions. Source class paths reject symbolic links because Haxe
+may follow them while the safe watcher does not; accepting both behaviors would
+let the compiler read a change that the session could miss. A class-path
+directory may still be missing at startup. The session watches its checked path
+so a generator or developer can create it and cause a later build.
+
+Authored HXML selects no target. Under the reviewed Haxe 4.3.7 policy, the
+session rejects JavaScript and every alternate target selector, then appends
+one private `--js` target and one private `genes.output` target itself. If Genes
+does not activate, ordinary Haxe output remains inside the disposable candidate
+stage and a missing Genes ownership manifest prevents publication.
+
+The session rejects HXML `--cmd`, `--run`, `--interp`, and `-x`. Those Haxe
+options can run a shell command or the compiled program before the private
+candidate has passed the host's checks. It also rejects `--xml` and `--json`
+because they write extra files, and rejects dump/message-log defines plus
+display, prompt, no-output, compiler-server, and multi-compilation modes. A host
+that needs a follow-up command or side output must own it explicitly and run it
+only after an accepted generation. A later supported Haxe version needs a new
+reviewed compiler-I/O policy rather than silently inheriting this table.
+
+For ordinary one-value options, `--name=value` and `--name value` are checked
+as the same input. Haxe 4.3.7 also has a small group of options that it handles
+before that ordinary parsing step. Their inline spelling can mean something
+different: `--run Main` runs a program, but `--run=Main` is rejected. The HXML
+inventory therefore rejects inline spellings for this reviewed group instead
+of changing the author's input into a different Haxe command. The same rule
+explains why inline library forms such as `--library=sample` are rejected.
+
+The complete Haxe 4.3.7 group is:
+
+```text
+-C --cwd --connect --server-connect --server-listen --wait --run
+-L --library -lib --jvm --java -java --cs -cs --display
+```
+
+Some inline forms fail in Haxe. Other inline forms do nothing. The inventory
+rejects both outcomes because neither one has the separate-value meaning.
+Ordinary inline options remain supported even when their value ends in `.hxml`.
+The compiler request keeps that option inside a small private HXML file and
+uses a private environment placeholder for its checked value. Haxe classifies
+the placeholder as ordinary data first, then expands it back to the exact value.
+This is necessary because Haxe 4.3.7 tries to open any argument ending in
+`.hxml` as another build file, including an option's separate value. The private
+file is removed before generated output can be validated or published. This is
+a DevelopmentSession feature. The standalone HXML inventory rejects the form
+because its returned arguments are safe to pass directly to Haxe and it does
+not own a private build directory.
+
+The host may supply environment overrides with the Haxe invocation. For each
+revision, the session combines them with the current Node process environment,
+copies the complete result, includes it in the compiler-server identity, and
+passes those exact values to Haxe. An ambient `PATH`, `HAXELIB_PATH`, or
+`HAXE_STD_PATH` change therefore starts a compatible server instead of silently
+reusing one created with older settings.
+
+This boundary does not sandbox hostile Haxe macros. Macros are compile-time
+programs and can use filesystem and process APIs. V1 trusts the selected Haxe
+toolchain, resolved libraries, and project macro code; macro-owned external
+inputs must be declared as `extraInputs` when they affect rebuild correctness.
+Confining arbitrary macro reads and writes requires an operating-system sandbox
+and is intentionally outside this protocol.
+
+If an HXML edit is read successfully but Haxe then reports a source error, the
+failure is reported as a compile failure. “HXML inventory failed” is reserved
+for errors that actually prevented the session from understanding the HXML
+input graph.
+
+The accepted marker records both the portable output identity and its original
+project-relative spelling. Case aliases still share one lock and recovery
+scope. On a case-sensitive filesystem, a later session must reuse the original
+spelling instead of looking for prior files in a different physical directory.
+Only the two exact output roots and entry files can prove that two spellings
+name the same object. All four paths must exist as normal files or directories.
+A symbolic link cannot provide this proof. If a crash leaves the entry absent,
+restart with its original spelling.
 
 ## Publication and reads
 
@@ -162,7 +342,12 @@ The protocol is intentionally friendly to unattended tools:
 - structured failure phases distinguish compiler, validator, publication,
   and shutdown errors;
 - `waitForIdle()` gives tests a real barrier instead of a timing-only sleep;
-- `reconcile()` asks the existing watcher for an authoritative comparison;
+- `reconcile()` asks the existing watcher for an authoritative comparison and
+  reports whether it succeeded. The two pre-publication comparisons are
+  admission gates: an unknown input state never counts as “no changes.”
+- Publication reads the complete live result again after host admission. If an
+  outside writer changes a file during that callback, the session stops and
+  does not announce an accepted generation or overwrite the outside bytes.
 - `firstAccepted` gates a dependent service without polling files;
 - `close()` and read-lease release are idempotent;
 - human terminal formatting is an adapter over the same event records.
@@ -197,6 +382,12 @@ start the session
   -> use waitForIdle in tests, never a guessed sleep
   -> close once; repeated close calls are safe
 ```
+
+External `invalidate()` calls are accepted only after recovery, inventory, and
+watch registration complete. This keeps revision 1 the first build and prevents
+startup-time events from racing recovery. The registered watcher already
+reconciles the input graph before that first revision, so callers do not need to
+inject a synthetic startup change.
 
 An agent must not modify the public generated tree to “help” recovery. The
 session owns publication and the host owns admission; bypassing either one
@@ -234,6 +425,11 @@ framework names and does not assume a browser.
   corpus.
 - [`vectors.json`](vectors.json) records startup, admission, scheduling,
   compiler, publication, read-barrier, and shutdown expectations.
+
+The `inline-hxml-option-stays-private` scenario checks the complete special
+case: the compiler sees one checked private HXML input and its matching private
+environment value, validation and publication do not see the helper, and the
+session finishes ready with ordinary public output only.
 
 The scenario scripts name deterministic harness stimuli, not public methods.
 The implementation PR must execute every released vector through controlled

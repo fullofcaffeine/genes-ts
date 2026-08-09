@@ -411,6 +411,9 @@ export async function publishArtifacts(
     ) {
       artifactFailure("intended-state-rejected", plan.commitMarker.path);
     }
+    if (liveDisposition(root, plan) !== "next") {
+      artifactFailure("unexpected-live-state", plan.commitMarker.path);
+    }
     updateJournal(root, plan, transactionId, "committed");
 
     unlinkDurable(

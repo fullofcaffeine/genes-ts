@@ -243,6 +243,77 @@ only when all expected files and their aggregate hash match that exact input
 identity. A changed source, changed configuration, missing output, corrupt
 output, or absent cache causes a clean rebuild.
 
+### Development-session tooling
+
+The admitted-generation runtime is tested at four distinct boundaries so one
+green mock does not stand in for filesystem, process, or protocol behavior:
+
+```bash
+yarn --cwd tooling test
+yarn test:tooling-package
+```
+
+- `session-vector-test` validates the released JSON schemas and all exact
+  protocol payload examples.
+- `session-runtime-vector-test` drives all 12 released scenarios through the
+  real state machine with controlled compiler, watcher, validator, and fault
+  boundaries. It checks event/state runs, revisions, generations, first
+  admission, failure phases, publication attempts, and read-barrier behavior.
+- `session-test` uses the real recoverable artifact publisher to prove
+  last-good output, rollback, exact stale deletion, unowned-file preservation,
+  burst supersession, HXML registration-gap closure, compiler-identity
+  rotation, read/publication exclusion, and single-writer ownership. Its
+  adversarial closure cases also cover mutable invocation inputs, nested HXML
+  lifecycle/output flags, unowned path collisions, exact marker/manifest
+  drift, reconciliation failure at both publication claims, startup/close
+  races, private-path sanitization, and process-exit recovery through a
+  different private state directory. It also proves unresolved libraries fail
+  before compilation, resolved library HXML receives the same option policy,
+  portable output aliases share one lock/control/digest identity, alias
+  input/state overlap is rejected, and an alias restart resolves the original
+  journal. It also starts from real entry-scoped output, recovers the older
+  journal, blocks an older live writer, and proves that the upgrade keeps the
+  accepted output while establishing the new root marker. The test stops after
+  journal preparation and file moves within each receipt, migration-fence,
+  owner, and root-marker step. Every restart must remove those journals without
+  rebuilding or changing the accepted output. It also rejects a marker that
+  does not match the live Genes manifest, corrupt receipts, corrupt fences, and
+  conflicting old entry markers. One cross-process fixture compiles and runs
+  the exact released v1 implementation at commit
+  `33ecc1b4476b7090c56cae82775b8ec8d533b898`. The current implementation then
+  recovers that state, blocks a same-entry downgrade, and accepts later v2
+  generations. Direct-path checks reject symbolic links as case-alias evidence.
+  Entry ordering, symlinked parent directories, stable-control/state
+  separation, and repeated private-path sanitization are focused regressions.
+- `session-integration-test` runs the real selected Haxe 4.3.7 compiler twice,
+  proves the request-local private output override, publishes through the
+  compiler's v2 ownership manifest, verifies private candidate paths stay out
+  of generated TypeScript/source maps, proves nested and temporary-library
+  output/multi-compilation HXML fails before public mutation, and proves the
+  second valid build reuses one exact owned server.
+
+The focused HXML inventory test checks every Haxe 4.3.7 option that receives
+special early handling. Its inline `--option=value` form must fail before a
+library resolver or Haxe can run, while ordinary inline one-value options still
+pass the same safety checks. Focused tests also cover a missing class-path
+directory that is created after inventory, plus an ordinary inline value ending
+in `.hxml`. The standalone inventory must reject that value because its output
+is passed directly to Haxe. The session vector and real development-session
+test prove the private bridge keeps the value as data, removes its helper before
+validation, and never publishes it. The real Haxe fixture reads the define
+during typing, so a missing or rewritten value cannot pass merely because the
+application never used it. The focused inventory test also rejects a line break
+introduced through a separate option value and an already-present broken
+symbolic link. The watcher test creates a symbolic link after a missing nested
+class path was registered and proves the next scan stops before following it,
+whether the link's target exists or is itself still missing.
+
+The package gate then installs the deterministic tarball into a clean Node
+project, type-checks the public factory/types, and imports both the root and
+`./session` runtime exports. Framework/browser acceptance remains downstream:
+NextJsHx proves a non-Vite host, while GameCarry is the first maintained Vite,
+strict-TypeScript, React, and agent-facing reference integration.
+
 `yarn test:test-tool-preparation` proves the cold, warm, changed-input,
 corrupt-output, and missing-output paths. Initial local samples were 2.31
 seconds for a rebuild and 0.20 seconds for a verified hit. Those are samples,

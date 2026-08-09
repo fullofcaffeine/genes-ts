@@ -384,13 +384,18 @@ export async function recoverArtifacts(
       `inject-unexpected-live:${transition.path}`,
     );
   }
-  const intended = transitions.every((transition) =>
-    sameFileState(
-      readFileState(root, transition.path, "recovery-conflict"),
-      transition.next,
-    ),
-  );
-  if (intended && (await options.admitIntended(journal.plan))) {
+  const intended = (): boolean =>
+    transitions.every((transition) =>
+      sameFileState(
+        readFileState(root, transition.path, "recovery-conflict"),
+        transition.next,
+      ),
+    );
+  if (
+    intended() &&
+    (await options.admitIntended(journal.plan)) &&
+    intended()
+  ) {
     const committed =
       journal.phase === "committed"
         ? journal

@@ -30,6 +30,9 @@ async function main(): Promise<void> {
   const root = realpathSync.native(
     mkdtempSync(path.join(os.tmpdir(), "genes-watch-")),
   );
+  const outside = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-watch-outside-")),
+  );
   try {
     mkdirSync(path.join(root, "src"), { recursive: true });
     const exact = path.join(root, "build.hxml");
@@ -137,6 +140,62 @@ async function main(): Promise<void> {
     );
     missingSession.close();
 
+    const lateSymlinkErrors: string[] = [];
+    const missingNestedRoot = path.join(root, "late-parent", "nested");
+    const missingNestedSession = watchReconciledInputs({
+      inputs: [
+        {
+          kind: "tree",
+          path: missingNestedRoot,
+          cause: "source",
+          include: (relative) => relative.endsWith(".hx"),
+          rejectSymlinks: true,
+        },
+      ],
+      merge: (left) => left,
+      onChange: () => {},
+      onError: (error) => lateSymlinkErrors.push(error.message),
+      nativeEvents: false,
+      pollIntervalMs: 20,
+    });
+    mkdirSync(path.join(outside, "nested"));
+    writeFileSync(
+      path.join(outside, "nested", "Outside.hx"),
+      "class Outside {}\n",
+      "utf8",
+    );
+    symlinkSync(outside, path.join(root, "late-parent"), "dir");
+    await waitUntil(() => lateSymlinkErrors.length > 0);
+    assert.match(lateSymlinkErrors[0]!, /symbolic link/u);
+    missingNestedSession.close();
+
+    const brokenSymlinkErrors: string[] = [];
+    const missingBrokenRoot = path.join(root, "broken-parent", "nested");
+    const missingBrokenSession = watchReconciledInputs({
+      inputs: [
+        {
+          kind: "tree",
+          path: missingBrokenRoot,
+          cause: "source",
+          include: (relative) => relative.endsWith(".hx"),
+          rejectSymlinks: true,
+        },
+      ],
+      merge: (left) => left,
+      onChange: () => {},
+      onError: (error) => brokenSymlinkErrors.push(error.message),
+      nativeEvents: false,
+      pollIntervalMs: 20,
+    });
+    symlinkSync(
+      path.join(outside, "missing-broken-target"),
+      path.join(root, "broken-parent"),
+      "dir",
+    );
+    await waitUntil(() => brokenSymlinkErrors.length > 0);
+    assert.match(brokenSymlinkErrors[0]!, /symbolic link/u);
+    missingBrokenSession.close();
+
     assert.throws(
       () =>
         watchReconciledInputs({
@@ -190,9 +249,34 @@ async function main(): Promise<void> {
         }),
       /symbolic link/u,
     );
+
+    const linkedPackageTarget = path.join(root, "linked-package-target");
+    mkdirSync(linkedPackageTarget);
+    const strictTreeErrors: string[] = [];
+    const strictTree = watchReconciledInputs({
+      inputs: [
+        {
+          kind: "tree",
+          path: path.join(root, "src"),
+          cause: "source",
+          include: (relative) => relative.endsWith(".hx"),
+          rejectSymlinks: true,
+        },
+      ],
+      merge: (left) => left,
+      onChange: () => {},
+      onError: (error) => strictTreeErrors.push(error.message),
+      nativeEvents: false,
+      pollIntervalMs: 20,
+    });
+    symlinkSync(linkedPackageTarget, path.join(root, "src", "linked-package"));
+    await waitUntil(() => strictTreeErrors.length > 0);
+    assert.match(strictTreeErrors[0]!, /watched tree contains a symbolic link/u);
+    strictTree.close();
     assert.deepEqual(errors, []);
   } finally {
     rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
   }
   console.log("genes tooling reconciled watch: ok");
 }

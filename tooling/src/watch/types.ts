@@ -10,6 +10,12 @@ export interface TreeWatchInput<Cause> {
   readonly cause: Cause;
   readonly include: (relativePath: string) => boolean;
   readonly ignore?: (relativePath: string) => boolean;
+  /**
+   * Fail when the watched tree contains a symbolic link instead of silently
+   * skipping it. Use this when another tool, such as a compiler, may follow
+   * that link and read files the watcher cannot observe safely.
+   */
+  readonly rejectSymlinks?: boolean;
 }
 
 export type WatchInput<Cause> =
@@ -37,7 +43,12 @@ export interface ReconciledWatchOptions<Cause> {
   readonly onRegistered?: () => void;
 }
 
+/** Result of one caller-requested authoritative filesystem comparison. */
+export type ReconciliationResult =
+  | { readonly ok: true; readonly changed: boolean }
+  | { readonly ok: false; readonly error: Error };
+
 export interface ReconciledWatchSession {
-  reconcile(): void;
+  reconcile(): ReconciliationResult;
   close(): void;
 }

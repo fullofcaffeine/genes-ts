@@ -6,6 +6,7 @@ export type {
   DevelopmentEvent,
   DevelopmentEventBody,
   DevelopmentSession,
+  DevelopmentSessionDiagnostic,
   DevelopmentSnapshot,
   DevelopmentState,
   ExternalChange,
@@ -19,6 +20,10 @@ export type {
   SessionFailure,
   ValidationTree,
 } from "./types.js";
+export {
+  createGenesDevelopmentSession,
+} from "./runtime.js";
+export { HAXE_4_3_7_DEVELOPMENT_JS_POLICY } from "./effective-invocation.js";
 export {
   DEVELOPMENT_SESSION_EVENT_PROTOCOL,
   DEVELOPMENT_SESSION_EVENT_VERSION,

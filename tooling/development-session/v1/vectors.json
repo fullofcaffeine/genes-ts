@@ -162,6 +162,167 @@
       }
     },
     {
+      "id": "inline-hxml-option-stays-private",
+      "family": "admission",
+      "covers": [
+        "inline-hxml-option",
+        "private-compiler-input",
+        "public-output-clean"
+      ],
+      "description": "An inline option value ending in .hxml is compiled through one private checked input that is removed before validation and never enters public output.",
+      "script": [
+        "start",
+        "recovery-none",
+        "watch-registered",
+        "build-started",
+        "compile-connected-private-hxml",
+        "private-hxml-removed-before-validation",
+        "candidate-generated",
+        "validate-accepted",
+        "reconcile-current",
+        "publish-succeeded"
+      ],
+      "expected": {
+        "finalState": "ready",
+        "revisionsObserved": 1,
+        "acceptedGenerations": 1,
+        "acceptedRevision": 1,
+        "retainedGeneration": 1,
+        "firstAccepted": "resolved",
+        "publicationAttempts": 1,
+        "publicWrites": 1,
+        "readBarrier": "not-exercised",
+        "eventRuns": [
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "build-started",
+            "count": 1
+          },
+          {
+            "kind": "candidate-generated",
+            "count": 1
+          },
+          {
+            "kind": "state",
+            "count": 1
+          },
+          {
+            "kind": "generation-accepted",
+            "count": 1
+          }
+        ],
+        "stateKinds": [
+          "building",
+          "ready"
+        ],
+        "snapshot": {
+          "state": {
+            "kind": "ready",
+            "accepted": {
+              "generation": 1,
+              "revision": 1,
+              "acceptedAt": 1000004,
+              "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+              "compilerMode": "connected",
+              "files": {
+                "created": [
+                  "src-gen/index.ts"
+                ],
+                "updated": [],
+                "deleted": []
+              },
+              "entryChanged": true
+            }
+          },
+          "lastSequence": 5,
+          "newestRevision": 1,
+          "accepted": {
+            "generation": 1,
+            "revision": 1,
+            "acceptedAt": 1000004,
+            "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+            "compilerMode": "connected",
+            "files": {
+              "created": [
+                "src-gen/index.ts"
+              ],
+              "updated": [],
+              "deleted": []
+            },
+            "entryChanged": true
+          },
+          "lastCompilerEvent": null
+        },
+        "eventChecks": [
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 3,
+            "at": 1000003,
+            "event": {
+              "kind": "candidate-generated",
+              "revision": 1,
+              "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111"
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 4,
+            "at": 1000004,
+            "event": {
+              "kind": "state",
+              "state": {
+                "kind": "ready",
+                "accepted": {
+                  "generation": 1,
+                  "revision": 1,
+                  "acceptedAt": 1000004,
+                  "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                  "compilerMode": "connected",
+                  "files": {
+                    "created": [
+                      "src-gen/index.ts"
+                    ],
+                    "updated": [],
+                    "deleted": []
+                  },
+                  "entryChanged": true
+                }
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 5,
+            "at": 1000005,
+            "event": {
+              "kind": "generation-accepted",
+              "accepted": {
+                "generation": 1,
+                "revision": 1,
+                "acceptedAt": 1000004,
+                "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                "compilerMode": "connected",
+                "files": {
+                  "created": [
+                    "src-gen/index.ts"
+                  ],
+                  "updated": [],
+                  "deleted": []
+                },
+                "entryChanged": true
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "id": "initial-compile-failure-repairs",
       "family": "admission",
       "covers": [
