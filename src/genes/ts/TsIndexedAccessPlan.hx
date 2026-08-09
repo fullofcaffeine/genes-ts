@@ -181,9 +181,9 @@ private enum TsIndexedTargetRootResult {
  * The builder walks the final typed module once. It uses exact `TypedExpr`
  * objects as private lookup keys and consumes `NullishContract`,
  * `TsNarrowingPlan`, and `TsBoundaryPlan`. It does not inspect source text,
- * generated names, TypeScript diagnostics, or emitted code. The first landing
- * keeps this plan in shadow mode: the TypeScript emitter builds and inventories
- * it, but the established printer still owns output until the follow-up PR.
+ * generated names, TypeScript diagnostics, or emitted code. The TypeScript
+ * emitter consumes these exact occurrence decisions and owns only their final
+ * syntax; classic JavaScript never builds this plan.
  */
 final class TsIndexedAccessPlan {
   final reads: ObjectMap<TypedExpr, TsIndexedReadDecision>;
@@ -205,9 +205,9 @@ final class TsIndexedAccessPlan {
    * authorizes output.
    */
   public static function probeTypedOperation(operation: TypedExpr,
-      resultUsed = true): String {
+      resultUsed = true, classifierOnlyForms = true): String {
     return new TsIndexedAccessPlanBuilder().probeTypedOperation(operation,
-      resultUsed);
+      resultUsed, classifierOnlyForms);
   }
 
   /** Classifies one synthetic ordinary indexed read for the focused fixture. */
@@ -331,8 +331,8 @@ private final class TsIndexedAccessPlanBuilder {
   }
 
   #if genes.ts.indexed_access_inventory
-  public function probeTypedOperation(operation: TypedExpr,
-      resultUsed = true): String {
+  public function probeTypedOperation(operation: TypedExpr, resultUsed = true,
+      classifierOnlyForms = true): String {
     final input = switch operation.expr {
       case TBinop(OpAssign, target, _): {target: target, kind: PlainWrite};
       case TBinop(OpAssignOp(binop), target, _): {
@@ -354,7 +354,7 @@ private final class TsIndexedAccessPlanBuilder {
           operation.pos);
     };
     final decision = planTarget(operation, input.target, input.kind,
-      resultUsed ? ResultUsed : ResultDiscarded);
+      resultUsed ? ResultUsed : ResultDiscarded, classifierOnlyForms);
     if (decision == null)
       return
         CompilerDiagnostic.fail("[GTS-INDEX-PLAN-002] The typed probe requires an indexed target.",
@@ -525,8 +525,8 @@ private final class TsIndexedAccessPlanBuilder {
   }
 
   function planTarget(operation: TypedExpr, authoredTarget: TypedExpr,
-      kind: TsIndexedTargetKind,
-      resultUse: TsIndexedResultUse): Null<TsIndexedTargetDecision> {
+      kind: TsIndexedTargetKind, resultUse: TsIndexedResultUse,
+      classifierOnlyForms = false): Null<TsIndexedTargetDecision> {
     final root = switch unwrapTarget(authoredTarget) {
       case NotIndexed: return null;
       case Indexed(found): found;
@@ -542,6 +542,24 @@ private final class TsIndexedAccessPlanBuilder {
       default: return
           CompilerDiagnostic.fail("[GTS-INDEX-PLAN-002] A planned indexed target has no TArray root.",
           root.core.pos);
+    }
+    if (!classifierOnlyForms) {
+      if (root.wrappers.length > 0)
+        return
+          CompilerDiagnostic.fail("[GTS-INDEX-WRAP-001] Haxe 4.3 erases transparent indexed-target wrappers before "
+          +
+            "generation, so wrapper replay remains classifier-only until an emission-level fixture exists.",
+          authoredTarget.pos);
+      switch kind {
+        case Compound(LogicalAnd | LogicalOr | Nullish):
+          return
+            CompilerDiagnostic.fail("[GTS-INDEX-PLAN-001] Haxe 4.3 does not carry retained logical or nullish indexed "
+            +
+              "assignment through generation, so native source emission remains unsupported until an emission-level fixture exists.",
+            operation.pos);
+        case PlainWrite | Compound(Arithmetic(_)) | Compound(Bitwise(_)) |
+          Update(_, _):
+      }
     }
     final decision = new TsIndexedTargetDecision(operation, authoredTarget,
       root.core, root.wrappers, kind, resultUse, planReceiver(receiver),
@@ -669,8 +687,18 @@ private final class TsIndexedAccessPlanBuilder {
   function planReadProjection(expression: TypedExpr,
       receiver: TypedExpr): TsIndexedReadProjection {
     final contract = NullishContract.forType(expression.t);
-    if (contract.dynamicBoundary
-      || NullishContract.forType(receiver.t).dynamicBoundary)
+    // The indexed expression's own Haxe type owns the result contract. Haxe
+    // can lower a precisely typed abstraction such as DynamicAccess<T>.get()
+    // to a TArray whose implementation receiver is Dynamic; that internal
+    // receiver must not erase a nullable, generic, or concrete T result.
+    // A genuinely Dynamic indexed result remains direct through this check.
+    if (contract.dynamicBoundary)
+      return DirectRead;
+    // Indexing an explicit Dynamic receiver can leave the result as an
+    // unresolved compiler monomorph. That is still the authored unchecked
+    // boundary, not permission to invent a concrete read projection.
+    if (hasUnresolvedMonomorph(expression.t)
+      && NullishContract.forType(receiver.t).dynamicBoundary)
       return DirectRead;
     // Haxe's JS standard library uses untyped indexed reads for its two global
     // type registries and for the exact enum value parameter in

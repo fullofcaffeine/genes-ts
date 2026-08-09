@@ -6,10 +6,11 @@ import genes.ts.Unknown;
 /**
  * Typed source inventory for indexed reads, writes, and native updates.
  *
- * This program is compiled only to inspect `TsIndexedAccessPlan`. The first
- * plan PR deliberately does not ask TypeScript to accept the generated update
- * syntax because the existing emitter still owns those bytes. The follow-up
- * PR turns these same cases into strict TypeScript and runtime evidence.
+ * This program inventories `TsIndexedAccessPlan` over the complete typed
+ * operation matrix. The runtime fixture separately compiles and executes the
+ * source-spellable cases through TypeScript, classic Genes, and standard Haxe.
+ * Synthetic logical and wrapper copies remain classifier-only because the
+ * probe deliberately does not mutate the compiler-owned program.
  */
 class Main {
   static function plainWrite<T>(values: Array<T>, value: T): T {

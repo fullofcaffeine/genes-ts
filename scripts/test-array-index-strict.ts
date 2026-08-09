@@ -10,7 +10,7 @@ const scriptRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptRoot, "../..");
 const fixtureRoot = path.join(repoRoot, "tests/array-index-strict");
 const expectedTranscript =
-  "typed|7|generic|generic-null|generic-undefined|effects-once|assigned|null|undefined|3,5|missing|void-once|secondary-array-once|named-shift|named-pop|discarded";
+  "typed|7|generic|generic-null|generic-undefined|effects-once|assigned|compound-bitwise|compound-effects-once|compound-null-coercion|compound-nullish|compound-nested|updates|null|undefined|3,5|missing|void-once|secondary-array-once|named-shift|named-pop|discarded";
 
 /** Runs one deterministic fixture command from the repository root. */
 function run(command: string, args: ReadonlyArray<string>): void {
@@ -95,7 +95,7 @@ const firstInventory = captureHaxe([
 ]);
 strictEqual(firstInventory.status, 0, firstInventory.output);
 const firstInventoryMessages = inventoryMessages(firstInventory.output);
-ok(firstInventoryMessages.length > 0, "shadow build reports indexed decisions");
+ok(firstInventoryMessages.length > 0, "plan build reports indexed decisions");
 
 const secondInventory = captureHaxe([
   "tests/array-index-strict/build-inventory.hxml"
@@ -155,6 +155,12 @@ const rejectedProbes = new Map<string, string>([
   ["syntax-metadata", "GTS-INDEX-WRAP-001"],
   ["explicit-cast", "GTS-INDEX-WRAP-001"],
   ["unsupported-operator", "GTS-INDEX-PLAN-001"],
+  ["emission-logical-and", "GTS-INDEX-PLAN-001"],
+  ["emission-logical-or", "GTS-INDEX-PLAN-001"],
+  ["emission-nullish", "GTS-INDEX-PLAN-001"],
+  ["emission-parenthesis", "GTS-INDEX-WRAP-001"],
+  ["emission-metadata", "GTS-INDEX-WRAP-001"],
+  ["emission-implicit-cast", "GTS-INDEX-WRAP-001"],
   ["registry-compound", "GTS-INDEX-BOUNDARY-001"],
   ["registry-nested", "GTS-INDEX-BOUNDARY-001"],
   ["registry-read-explicit-cast", "GTS-INDEX-BOUNDARY-001"],
@@ -177,6 +183,10 @@ for (const [mode, diagnostic] of rejectedProbes) {
     `${mode} leaves the previously accepted output tree unchanged`);
 }
 
+runGeneratedTypeScriptMatrix(
+  "tests/array-index-strict/tsconfig.inventory-generated.json",
+  { emit: false }
+);
 runGeneratedTypeScriptMatrix(
   "tests/array-index-strict/tsconfig.inventory-logical.json",
   { emit: false }
@@ -222,6 +232,31 @@ ok(typescript.includes("return values[0] = value;"),
   "generic assignment targets remain writable and assertion-free");
 ok(!typescript.includes("(values[0] as T) = value"),
   "the exact generic read assertion is never applied to an assignment target");
+ok(/values\d*\[tmp\]! \|= mask;/.test(typescript),
+  "a lowered bitwise compound target receives its planned read-side assertion");
+ok(/return values\d*\[tmp\]!;/.test(typescript),
+  "the lowered compound result read receives its own planned slot assertion");
+ok(typescript.includes(
+  "Main.effectCompoundValues(Main.observedArray(values))[Main.effectCompoundIndex()]! += Main.effectCompoundIncrement();"
+), "an effectful indexed target remains one native read-modify-write operation");
+ok(typescript.includes("values1[tmp]! += suffix;"),
+  "nullable string compound targets keep their planned coercion projection");
+ok(typescript.includes("values1[tmp]! |= bit;"),
+  "nullable numeric compound targets keep their planned coercion projection");
+ok(typescript.includes(
+  "return values[0] = ((values[0] ?? null) != null)"
+), "Haxe's lowered nullish assignment preserves nullable reads and writes");
+ok(!typescript.includes("values[0]! ??="),
+  "a nullish writable target never receives a non-null assertion");
+ok(typescript.includes("const base: number[] = matrix[row]!;"),
+  "the nested receiver receives its own planned indexed-read assertion");
+ok(typescript.includes("base[column1]! += increment;"),
+  "the outer nested target receives its separate planned assertion");
+ok(typescript.includes("const prefix: number = ++values[0]!;"));
+ok(typescript.includes("const postfix: number = values[0]!++;"));
+ok(typescript.includes("--values[0]!;"));
+ok(typescript.includes("values[0]!--;"),
+  "prefix, postfix, used, and discarded updates retain native syntax");
 ok(typescript.includes("values[0] = first;"));
 ok(typescript.includes("values[1] = second;"));
 ok(!typescript.includes("values[0]! ="),
@@ -268,6 +303,8 @@ for (const relativeFile of [
   const generated = readFileSync(path.join(fixtureRoot, relativeFile), "utf8");
   ok(!generated.includes("values[index]!"),
     `${relativeFile} keeps JavaScript output free of TS-only assertions`);
+  ok(!generated.includes("]!"),
+    `${relativeFile} does not consume the TypeScript-only indexed plan`);
 }
 
 const source = readFileSync(
@@ -295,6 +332,42 @@ strictEqual(
   assertionOrigin.line,
   sourceLine(source, "return values[index];"),
   "the generic assertion preserves the authored indexed-read line"
+);
+const compoundTargetOrigin = sourceMap.originalPositionFor(
+  generatedPoint(typescript, "values1[tmp]! |=")
+);
+ok(
+  compoundTargetOrigin.source?.endsWith("src/arrayindexstrict/Main.hx"),
+  "the compound target maps back to Main.hx"
+);
+strictEqual(
+  compoundTargetOrigin.line,
+  sourceLine(source, "return values[0] |= mask;"),
+  "the compound target preserves the authored operation line"
+);
+const nestedTargetOrigin = sourceMap.originalPositionFor(
+  generatedPoint(typescript, "base[column1]! +=")
+);
+strictEqual(
+  nestedTargetOrigin.line,
+  sourceLine(source, "return matrix[row][column] += increment;"),
+  "the nested target preserves the authored operation line"
+);
+const prefixTargetOrigin = sourceMap.originalPositionFor(
+  generatedPoint(typescript, "++values[0]!")
+);
+strictEqual(
+  prefixTargetOrigin.line,
+  sourceLine(source, "final prefix = ++values[0];"),
+  "the prefix update preserves the authored update line"
+);
+const postfixTargetOrigin = sourceMap.originalPositionFor(
+  generatedPoint(typescript, "values[0]!++")
+);
+strictEqual(
+  postfixTargetOrigin.line,
+  sourceLine(source, "final postfix = values[0]++;"),
+  "the postfix update preserves the authored update line"
 );
 
 process.stdout.write(
