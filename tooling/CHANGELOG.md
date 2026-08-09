@@ -32,7 +32,9 @@ it.
   Genes output before any public mutation.
 - Scope locks, journals, markers, and recovery to the portable public output
   root, persist one entry owner for that root, and keep generated output
-  structurally disjoint from `.genes/tooling`.
+  structurally disjoint from `.genes/tooling`. Publish that owner atomically
+  and repair only a matching older partial write when no accepted generation
+  exists.
 - Classify every Haxe 4.3.7 option spelling; support class paths and exact
   library contributions while rejecting CWD/resources until their lookup
   semantics have a reviewed policy;

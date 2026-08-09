@@ -257,7 +257,11 @@ restarting the command.
   state directory after a crash cannot hide unfinished recovery. One public
   root has one persistent entry owner in v1: `src-gen/index.ts` and
   `src-gen/other.ts` cannot create separate lock and recovery universes for
-  files they may both publish below `src-gen`. Public output may never contain
+  files they may both publish below `src-gen`. The owner record is written as a
+  complete private file and then moved into place in one step, so a stopped
+  process cannot expose a half-written new record. A restart can repair the
+  exact prefix left by the older writer only when no accepted generation exists.
+  Public output may never contain
   or be contained by `.genes/tooling`; output at the project root is therefore
   unsupported.
 - The declared HXML inputs, including resolved library arguments, provenance,

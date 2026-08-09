@@ -1498,10 +1498,11 @@ for (const stopAt of [
     } finally {
       lock.release();
     }
+    mkdirSync(path.join(root, "src-gen"), { recursive: true });
     assert.throws(
       () => acquireSessionLock(second),
       /already bound to a different development-session entry/u,
-      "a public root keeps one entry owner after the first session exits",
+      "an existing public root still keeps one entry owner after the first session exits",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -1542,6 +1543,53 @@ for (const corruption of ["truncated", "noncanonical", "symlink"] as const) {
       existsSync(path.join(root, ...layout.sessionLockRelative.split("/"))),
       false,
       "a rejected owner must release the temporary lifetime lock",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+{
+  const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-root-owner-torn-write-")),
+  );
+  try {
+    const layout = resolveSessionLayout(
+      root,
+      "fixture-root-owner-torn-write",
+      "src-gen/index.ts",
+      ".genes/state",
+    );
+    const initial = acquireSessionLock(layout);
+    initial.release();
+    const owner = path.join(root, ...layout.rootOwnerRelative.split("/"));
+    const complete = readFileSync(owner, "utf8");
+    writeFileSync(owner, complete.slice(0, Math.floor(complete.length / 2)), "utf8");
+    writeFileSync(`${owner}.next`, "unfinished private bytes", "utf8");
+
+    const recovered = acquireSessionLock(layout);
+    recovered.release();
+    assert.equal(
+      readFileSync(owner, "utf8"),
+      complete,
+      "a same-entry restart repairs the exact prefix left by an interrupted older write",
+    );
+    assert.equal(
+      existsSync(`${owner}.next`),
+      false,
+      "a restart removes the earlier uncommitted private owner file",
+    );
+
+    writeFileSync(owner, complete.slice(0, Math.floor(complete.length / 2)), "utf8");
+    writeFileSync(
+      path.join(root, ...layout.generationMarkerRelative.split("/")),
+      "existing accepted-generation evidence\n",
+      "utf8",
+    );
+    assert.throws(
+      () => acquireSessionLock(layout),
+      /root owner is invalid/u,
+      "a torn owner is never replaced when accepted-generation evidence exists",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });

@@ -17,6 +17,12 @@ import {
   sha256Bytes,
   type CanonicalJson,
 } from "../artifacts/index.js";
+import {
+  lstatPresent,
+  renameDurable,
+  unlinkDurable,
+  writeDurableFile,
+} from "../artifacts/filesystem.js";
 import type { SessionLayout } from "./layout.js";
 
 const LOCK_PROTOCOL = "genes.tooling.development-session-lock.v1";
@@ -62,25 +68,54 @@ function claimRootOwner(layout: SessionLayout): void {
     publicEntryAuthority: record.publicEntryAuthority,
     publicEntryPath: record.publicEntryPath,
   })}\n`;
-  try {
-    const descriptor = openSync(absolute, "wx", 0o600);
-    try {
-      writeFileSync(descriptor, bytes);
-    } finally {
-      closeSync(descriptor);
+  const temporary = `${absolute}.next`;
+  const publishNewOwner = (): void => {
+    const staleTemporary = lstatPresent(temporary);
+    if (staleTemporary !== null) {
+      if (staleTemporary.isSymbolicLink() || !staleTemporary.isFile()) {
+        throw new Error("development session root-owner temporary file is invalid");
+      }
+      // A previous process may have stopped after making the complete private
+      // file but before its atomic rename. It never became authority, so the
+      // current lock owner can discard it and build the current record again.
+      unlinkDurable(temporary);
     }
+    writeDurableFile(temporary, bytes, 0o600, true);
+    if (lstatPresent(absolute) !== null) {
+      unlinkDurable(temporary);
+      throw new Error("development session root owner changed while claiming it");
+    }
+    renameDurable(temporary, absolute);
+  };
+
+  const ownerStats = lstatPresent(absolute);
+  if (ownerStats === null) {
+    publishNewOwner();
     return;
-  } catch (error) {
-    const code =
-      typeof error === "object" && error !== null && "code" in error
-        ? (error as { readonly code?: string }).code
-        : undefined;
-    if (code !== "EEXIST") throw error;
   }
-  if (lstatSync(absolute).isSymbolicLink()) {
+  if (ownerStats.isSymbolicLink()) {
     throw new Error("development session root owner is a symbolic link");
   }
+  if (!ownerStats.isFile()) {
+    throw new Error("development session root owner is invalid");
+  }
   const existing = readFileSync(absolute, "utf8");
+  const acceptedMarker = path.join(
+    layout.projectRoot,
+    ...layout.generationMarkerRelative.split("/"),
+  );
+  if (
+    existing.length < bytes.length &&
+    bytes.startsWith(existing) &&
+    lstatPresent(acceptedMarker) === null
+  ) {
+    // Releases before this durable writer existed could leave a prefix of the
+    // intended record. With the root lock held and no accepted generation to
+    // preserve, replace only that exact same-entry prefix.
+    unlinkDurable(absolute);
+    publishNewOwner();
+    return;
+  }
   let decoded: unknown;
   try {
     decoded = JSON.parse(existing);
@@ -149,7 +184,6 @@ function claimRootOwner(layout: SessionLayout): void {
       !projectFilesystemIsCaseInsensitive) ||
     (previous.publicEntryPath !== record.publicEntryPath &&
       !samePhysical(previous.publicEntryPath, record.publicEntryPath) &&
-      !samePhysicalRoot &&
       !projectFilesystemIsCaseInsensitive)
   ) {
     throw new Error(

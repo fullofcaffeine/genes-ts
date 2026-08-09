@@ -785,7 +785,10 @@ identity uses the artifact layer's portable NFC/case-folded path model, so a
 case alias cannot acquire a second lock or recovery universe. One persistent
 entry owner is admitted per public root in v1, preventing two entry-specific
 sessions from publishing overlapping sibling modules through separate
-journals. Public output and `.genes/tooling` cannot contain one another.
+journals. The owner is written privately and moved into place only after its
+complete bytes are durable. An older interrupted prefix can be repaired only
+before any generation has been accepted. Public output and `.genes/tooling`
+cannot contain one another.
 
 One immutable effective-invocation plan owns the executable, working directory,
 environment, ordered HXML entries and occurrences, exact resolved-library

@@ -178,7 +178,11 @@ caller-selected private state directory may not contain or equal the stable
 contained by that control root either. V1 persistently binds one public root to
 one entry file, because two entry files may both claim the same generated
 sibling modules. A second entry for that root fails before recovery or Haxe
-execution, even after the first process exits.
+execution, even after the first process exits. The entry-owner record becomes
+visible only after all of its bytes are safely written. For compatibility with
+the earlier writer, a restart may repair an exact partial prefix of its own
+record only when there is no accepted-generation record to preserve. Other
+corrupt, non-canonical, or linked owner files still fail closed.
 
 Library expansion is part of invocation authority. A lower-level HXML inventory
 may list `-lib` requests without resolving them, but DevelopmentSession requires
