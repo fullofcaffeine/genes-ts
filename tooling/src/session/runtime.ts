@@ -40,6 +40,10 @@ import {
   type EffectiveHaxeInvocationPlan,
 } from "./effective-invocation.js";
 import {
+  auditSessionAuthority,
+  establishSessionAuthority,
+} from "./authority-migration.js";
+import {
   assertCandidateContainsOnlyOwnedFiles,
   readGenesOutput,
   validationFiles,
@@ -47,12 +51,16 @@ import {
 } from "./genes-output.js";
 import {
   logicalOutputPath,
+  materializeSessionPrivateLayout,
+  materializeSessionRuntimeLayout,
   portableProjectPathsOverlap,
   resolveSessionLayout,
   type SessionLayout,
 } from "./layout.js";
 import {
   admissionDigest,
+  legacyAdmissionDigest,
+  legacySessionProjectDigest,
   preparePublication,
   readPublishedMarker,
   sessionProjectDigest,
@@ -103,6 +111,9 @@ interface SessionDependencies<Diagnostic extends JsonValue> {
   readonly publish: (options: Parameters<typeof publishArtifacts>[0]) => Promise<PublicationOutcome>;
   readonly recover: (options: Parameters<typeof recoverArtifacts>[0]) => Promise<RecoveryOutcome>;
   readonly acquireLock: typeof acquireSessionLock;
+  readonly establishAuthority: (
+    layout: SessionLayout,
+  ) => Promise<void>;
   readonly nonce: () => string;
 }
 
@@ -115,6 +126,11 @@ const REAL_DEPENDENCIES: SessionDependencies<JsonValue> = {
   publish: publishArtifacts,
   recover: recoverArtifacts,
   acquireLock: acquireSessionLock,
+  establishAuthority: async (layout) =>
+    await establishSessionAuthority(layout, {
+      publish: publishArtifacts,
+      recover: recoverArtifacts,
+    }),
   nonce: () => randomBytes(16).toString("hex"),
 };
 
@@ -269,6 +285,10 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       options.publicOutputFile,
       options.stateDirectory,
     );
+    // The Haxe server validates its private lease parent in its constructor.
+    // This creates no publication or migration authority; both public control
+    // universes remain untouched until start() holds their lifetime locks.
+    materializeSessionPrivateLayout(this.#layout);
     this.#sessionNonce = dependencies.nonce();
     const shutdownTimeoutMs =
       options.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS;
@@ -339,6 +359,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     let startupPhase: FailurePhase = "recovery";
     try {
       this.#lock = this.#dependencies.acquireLock(this.#layout);
+      materializeSessionRuntimeLayout(this.#layout);
       await this.#recover();
       if (this.#closing !== null || this.#startupAbort.signal.aborted) return;
       const published = readPublishedMarker(this.#layout);
@@ -517,12 +538,36 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   }
 
   async #recover(): Promise<void> {
+    // Audit every visible entry authority before legacy recovery can change
+    // public files. The same audit runs again during migration to close drift.
+    auditSessionAuthority(this.#layout);
+    // Releases before root ownership stored recovery beside one entry. Read
+    // that location first while both the old and new locks are held.
+    await this.#dependencies.recover({
+      projectRoot: this.#layout.projectRoot,
+      transactionRoot: this.#layout.legacyTransactionRelative,
+      projectIdentity: legacySessionProjectDigest(this.#layout),
+      admitIntended: async (plan) => await this.#admitLegacyRecovered(plan),
+    });
+    await this.#dependencies.establishAuthority(this.#layout);
     await this.#dependencies.recover({
       projectRoot: this.#layout.projectRoot,
       transactionRoot: this.#layout.transactionRelative,
       projectIdentity: sessionProjectDigest(this.#layout),
       admitIntended: async (plan) => await this.#admitRecovered(plan),
     });
+  }
+
+  async #admitLegacyRecovered(plan: PublicationPlan): Promise<boolean> {
+    return await this.#admitRecoveredWith(
+      plan,
+      (manifestDigest) =>
+        legacyAdmissionDigest(
+          this.#layout,
+          manifestDigest,
+          this.#options.validatorPolicyFacts,
+        ),
+    );
   }
 
   #closeWatch(): void {
@@ -540,18 +585,28 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   }
 
   async #admitRecovered(plan: PublicationPlan): Promise<boolean> {
+    return await this.#admitRecoveredWith(
+      plan,
+      (manifestDigest) =>
+        admissionDigest(
+          this.#layout,
+          manifestDigest,
+          this.#options.validatorPolicyFacts,
+        ),
+    );
+  }
+
+  async #admitRecoveredWith(
+    plan: PublicationPlan,
+    expectedAdmission: (manifestDigest: string) => string,
+  ): Promise<boolean> {
     const live = readGenesOutput(
       this.#layout.publicOutputRoot,
       this.#layout.outputIdentity,
       true,
     )!;
     if (
-      plan.authorizationDigest !==
-      admissionDigest(
-        this.#layout,
-        live.manifestDigest,
-        this.#options.validatorPolicyFacts,
-      )
+      plan.authorizationDigest !== expectedAdmission(live.manifestDigest)
     ) {
       return false;
     }

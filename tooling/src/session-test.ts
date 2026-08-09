@@ -18,8 +18,14 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { publishArtifacts, recoverArtifacts } from "./artifacts/index.js";
+import {
+  canonicalJson,
+  publishArtifacts,
+  recoverArtifacts,
+  type CanonicalJson,
+} from "./artifacts/index.js";
 import { inventoryHxml } from "./hxml/index.js";
+import { establishSessionAuthority } from "./session/authority-migration.js";
 import type {
   HaxeWaitServerEvent,
 } from "./haxe-server/index.js";
@@ -34,16 +40,25 @@ import {
   snapshotHaxeInvocation,
   type SessionCompiler,
 } from "./session/haxe-driver.js";
-import { resolveSessionLayout, type SessionLayout } from "./session/layout.js";
+import { readGenesOutput } from "./session/genes-output.js";
+import {
+  resolveSessionLayout,
+  samePhysicalSessionPath,
+  type SessionLayout,
+} from "./session/layout.js";
 import {
   admissionDigest,
+  readPublishedMarker,
   sessionProjectDigest,
 } from "./session/publication.js";
 import {
   createGenesDevelopmentSessionWithDependencies,
   type SessionDependencies,
 } from "./session/runtime.js";
-import { acquireSessionLock } from "./session/session-lock.js";
+import {
+  acquireSessionLock,
+  claimSessionRootOwner,
+} from "./session/session-lock.js";
 import type {
   DevelopmentEvent,
   DevelopmentSession,
@@ -103,6 +118,64 @@ function manifestName(owner: string): string {
   const readable = sanitized.slice(0, 48);
   const digest = createHash("sha256").update(owner).digest("hex");
   return `.genes-output-${readable}-${digest}.manifest`;
+}
+
+function legacyControlPaths(layout: SessionLayout): {
+  readonly marker: string;
+  readonly lock: string;
+  readonly transactions: string;
+} {
+  const scope = createHash("sha256")
+    .update(layout.publicEntryAuthority)
+    .digest("hex");
+  const control = `.genes/tooling/session-publications/${scope}`;
+  return Object.freeze({
+    marker: `${control}/accepted-generation.json`,
+    lock: `.genes/tooling/session-locks/${scope}.json`,
+    transactions: `${control}/transactions`,
+  });
+}
+
+function seedOwnedOutput(
+  layout: SessionLayout,
+  content: string,
+): NonNullable<ReturnType<typeof readGenesOutput>> {
+  mkdirSync(layout.publicOutputRoot, { recursive: true });
+  writeFileSync(layout.publicOutputFile, content, "utf8");
+  writeFileSync(
+    path.join(layout.publicOutputRoot, manifestName(layout.outputIdentity)),
+    `genes-output-manifest-v2\nowner-base64:${Buffer.from(layout.outputIdentity).toString("base64")}\n${layout.outputIdentity}\n`,
+    "utf8",
+  );
+  return readGenesOutput(
+    layout.publicOutputRoot,
+    layout.outputIdentity,
+    true,
+  )!;
+}
+
+function writeLegacyMarker(
+  layout: SessionLayout,
+  manifestDigest: string,
+): void {
+  const relative = legacyControlPaths(layout).marker;
+  const absolute = path.join(layout.projectRoot, ...relative.split("/"));
+  mkdirSync(path.dirname(absolute), { recursive: true });
+  const record = {
+    protocol: "genes.tooling.accepted-generation.v1",
+    sessionNonce: "legacy-session",
+    generation: 1,
+    revision: 1,
+    acceptedAt: 1,
+    manifestDigest,
+    publicOutput: layout.publicEntryAuthority,
+    publicOutputPath: layout.publicOutputRelative,
+  } as const;
+  writeFileSync(
+    absolute,
+    `${canonicalJson(record as unknown as CanonicalJson)}\n`,
+    "utf8",
+  );
 }
 
 assert.match(
@@ -279,6 +352,11 @@ function makeHarness(
     publish: publishArtifacts,
     recover: recoverArtifacts,
     acquireLock: acquireSessionLock,
+    establishAuthority: async (layout) =>
+      await establishSessionAuthority(layout, {
+        publish: publishArtifacts,
+        recover: recoverArtifacts,
+      }),
     nonce: () => `test${++nonce}`,
   };
   const dependencies = configure?.(base, root) ?? base;
@@ -384,6 +462,527 @@ await withHarness("initial", async (harness) => {
     "generation-accepted",
   ]);
 });
+
+await withHarness("legacy-entry-state-upgrade", async (harness) => {
+  const layout = resolveSessionLayout(
+    harness.root,
+    "fixture-legacy-entry-state-upgrade",
+    "src-gen/index.ts",
+    ".genes/dev",
+  );
+  const legacy = seedOwnedOutput(layout, "export const legacy = true;\n");
+  writeLegacyMarker(layout, legacy.manifestDigest);
+  harness.compiler.steps.push({ content: "export const current = true;\n" });
+
+  await harness.session.start();
+  await harness.session.waitForIdle();
+
+  assert.equal(harness.session.state.kind, "ready");
+  assert.equal(
+    readFileSync(layout.publicOutputFile, "utf8"),
+    "export const current = true;\n",
+  );
+  assert.equal(
+    existsSync(
+      path.join(
+        harness.root,
+        ...layout.generationMarkerRelative.split("/"),
+      ),
+    ),
+    true,
+    "the first accepted upgrade must establish the new root-scoped marker",
+  );
+  const legacyMarker = JSON.parse(
+    readFileSync(
+      path.join(
+        harness.root,
+        ...layout.legacyGenerationMarkerRelative.split("/"),
+      ),
+      "utf8",
+    ),
+  ) as Record<string, unknown>;
+  assert.equal(
+    legacyMarker.protocol,
+    "genes.tooling.development-session-legacy-fence.v1",
+    "the old entry marker becomes a permanent one-way migration fence",
+  );
+  assert.equal(
+    existsSync(
+      path.join(
+        harness.root,
+        ...layout.authorityMigrationReceiptRelative.split("/"),
+      ),
+    ),
+    true,
+    "the migration keeps durable evidence for later restarts",
+  );
+});
+
+for (const checkpoint of [
+  "after-receipt",
+  "after-fence",
+  "after-owner",
+  "after-root-marker",
+] as const) {
+  const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), `genes-session-upgrade-${checkpoint}-`)),
+  );
+  try {
+    const layout = resolveSessionLayout(
+      root,
+      `fixture-upgrade-${checkpoint}`,
+      "src-gen/index.ts",
+      ".genes/dev",
+    );
+    const legacy = seedOwnedOutput(layout, "export const legacy = true;\n");
+    writeLegacyMarker(layout, legacy.manifestDigest);
+
+    const interruptedLock = acquireSessionLock(layout);
+    try {
+      await assert.rejects(
+        () =>
+          establishSessionAuthority(layout, {
+            publish: publishArtifacts,
+            recover: recoverArtifacts,
+            faultInjector: (current) => {
+              if (current === checkpoint) {
+                throw new Error(`stop after ${checkpoint}`);
+              }
+            },
+          }),
+        new RegExp(`stop after ${checkpoint}`, "u"),
+      );
+    } finally {
+      interruptedLock.release();
+    }
+    assert.equal(
+      readFileSync(layout.publicOutputFile, "utf8"),
+      "export const legacy = true;\n",
+      "an interrupted authority upgrade must preserve the accepted output",
+    );
+
+    const restartLock = acquireSessionLock(layout);
+    try {
+      await establishSessionAuthority(layout, {
+        publish: publishArtifacts,
+        recover: recoverArtifacts,
+      });
+    } finally {
+      restartLock.release();
+    }
+    assert.equal(
+      readPublishedMarker(layout).manifestDigest,
+      legacy.manifestDigest,
+      "a restart must finish the root-scoped marker without rebuilding output",
+    );
+    const fencedLegacy = JSON.parse(
+      readFileSync(
+        path.join(
+          root,
+          ...layout.legacyGenerationMarkerRelative.split("/"),
+        ),
+        "utf8",
+      ),
+    ) as Record<string, unknown>;
+    assert.equal(
+      fencedLegacy.protocol,
+      "genes.tooling.development-session-legacy-fence.v1",
+      "the old marker must stop an older writer after the upgrade",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+{
+  // This is the exact released entry-authority implementation that PR #138
+  // upgrades. Building it in isolation prevents this test from accidentally
+  // recreating v1 state with today's helper code.
+  const legacyRevision = "33ecc1b4476b7090c56cae82775b8ec8d533b898";
+  const repositoryRoot = realpathSync.native(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.."),
+  );
+  const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-origin-main-upgrade-")),
+  );
+  try {
+    const snapshot = path.join(root, "legacy-source");
+    const project = path.join(root, "project");
+    const archive = path.join(root, "legacy.tar");
+    mkdirSync(snapshot);
+    mkdirSync(project);
+    const archived = spawnSync(
+      "git",
+      [
+        "archive",
+        "--format=tar",
+        `--output=${archive}`,
+        legacyRevision,
+        "tooling",
+      ],
+      { cwd: repositoryRoot, encoding: "utf8" },
+    );
+    assert.equal(archived.status, 0, archived.stderr);
+    const extracted = spawnSync("tar", ["-xf", archive, "-C", snapshot], {
+      encoding: "utf8",
+    });
+    assert.equal(extracted.status, 0, extracted.stderr);
+    symlinkSync(
+      path.join(repositoryRoot, "node_modules"),
+      path.join(snapshot, "node_modules"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    const compiled = spawnSync(
+      "npm",
+      ["exec", "--no", "--", "tsc6", "-p", "tooling/tsconfig.json"],
+      { cwd: snapshot, encoding: "utf8" },
+    );
+    assert.equal(
+      compiled.status,
+      0,
+      `released tooling fixture did not compile: ${compiled.stdout}\n${compiled.stderr}`,
+    );
+
+    mkdirSync(path.join(project, "src"));
+    writeFileSync(path.join(project, "src/Main.hx"), "class Main {}\n", "utf8");
+    writeFileSync(path.join(project, "build.hxml"), "-cp src\n-main Main\n", "utf8");
+    const legacyFixture = path.join(
+      snapshot,
+      "tooling/dist/session-crash-fixture.js",
+    );
+    const legacyCrash = spawnSync(process.execPath, [legacyFixture], {
+      cwd: project,
+      env: {
+        ...process.env,
+        GENES_SESSION_CRASH_ROOT: project,
+        GENES_SESSION_CRASH_STATE: ".genes/legacy-state",
+        GENES_SESSION_CRASH_OUTPUT: "src-gen/index.ts",
+        GENES_SESSION_CRASH_CONTENT: "export const releasedV1 = true;\n",
+        GENES_SESSION_CRASH_AT: "after-publish:commit-marker",
+      },
+      encoding: "utf8",
+    });
+    assert.equal(
+      legacyCrash.status,
+      73,
+      `released tooling fixture did not stop at its real commit boundary: ${legacyCrash.stderr}`,
+    );
+
+    const currentFixture = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "session-crash-fixture.js",
+    );
+    const upgraded = spawnSync(process.execPath, [currentFixture], {
+      cwd: project,
+      env: {
+        ...process.env,
+        GENES_SESSION_CRASH_ROOT: project,
+        GENES_SESSION_CRASH_STATE: ".genes/current-state",
+        GENES_SESSION_CRASH_OUTPUT: "src-gen/index.ts",
+        GENES_SESSION_CRASH_CONTENT: "export const upgradedV2 = true;\n",
+      },
+      encoding: "utf8",
+    });
+    assert.equal(
+      upgraded.status,
+      0,
+      `current tooling could not recover released v1 state: ${upgraded.stderr}`,
+    );
+    assert.equal(
+      readFileSync(path.join(project, "src-gen/index.ts"), "utf8"),
+      "export const upgradedV2 = true;\n",
+    );
+    const layout = resolveSessionLayout(
+      project,
+      "fixture-alternate-state-recovery",
+      "src-gen/index.ts",
+      ".genes/current-state",
+    );
+    const fence = JSON.parse(
+      readFileSync(
+        path.join(project, ...layout.legacyGenerationMarkerRelative.split("/")),
+        "utf8",
+      ),
+    ) as Record<string, unknown>;
+    assert.equal(
+      fence.protocol,
+      "genes.tooling.development-session-legacy-fence.v1",
+      "the exact released marker becomes the permanent migration fence",
+    );
+    const downgrade = spawnSync(process.execPath, [legacyFixture], {
+      cwd: project,
+      env: {
+        ...process.env,
+        GENES_SESSION_CRASH_ROOT: project,
+        GENES_SESSION_CRASH_STATE: ".genes/downgrade-state",
+        GENES_SESSION_CRASH_OUTPUT: "src-gen/index.ts",
+        GENES_SESSION_CRASH_CONTENT: "export const downgradedV1 = true;\n",
+      },
+      encoding: "utf8",
+    });
+    assert.notEqual(
+      downgrade.status,
+      0,
+      "the permanent fence must stop the released v1 client for the migrated entry",
+    );
+    assert.equal(
+      readFileSync(path.join(project, "src-gen/index.ts"), "utf8"),
+      "export const upgradedV2 = true;\n",
+      "a rejected downgrade must not change the public output",
+    );
+    const laterRestart = spawnSync(process.execPath, [currentFixture], {
+      cwd: project,
+      env: {
+        ...process.env,
+        GENES_SESSION_CRASH_ROOT: project,
+        GENES_SESSION_CRASH_STATE: ".genes/later-state",
+        GENES_SESSION_CRASH_OUTPUT: "src-gen/index.ts",
+        GENES_SESSION_CRASH_CONTENT: "export const laterV2 = true;\n",
+      },
+      encoding: "utf8",
+    });
+    assert.equal(
+      laterRestart.status,
+      0,
+      `a later v2 generation must not be compared with the historical v1 receipt: ${laterRestart.stderr}`,
+    );
+    assert.equal(
+      readFileSync(path.join(project, "src-gen/index.ts"), "utf8"),
+      "export const laterV2 = true;\n",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+{
+  const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-legacy-translation-")),
+  );
+  try {
+    const layout = resolveSessionLayout(
+      root,
+      "fixture-legacy-translation",
+      "src-gen/index.ts",
+      ".genes/state",
+    );
+    const legacy = seedOwnedOutput(layout, "export const legacy = true;\n");
+    writeLegacyMarker(layout, legacy.manifestDigest);
+    const lock = acquireSessionLock(layout);
+    try {
+      await establishSessionAuthority(layout, {
+        publish: publishArtifacts,
+        recover: recoverArtifacts,
+      });
+      const translated = JSON.parse(
+        readFileSync(
+          path.join(root, ...layout.generationMarkerRelative.split("/")),
+          "utf8",
+        ),
+      ) as Record<string, unknown>;
+      assert.deepEqual(
+        {
+          sessionNonce: translated.sessionNonce,
+          generation: translated.generation,
+          revision: translated.revision,
+          acceptedAt: translated.acceptedAt,
+          manifestDigest: translated.manifestDigest,
+        },
+        {
+          sessionNonce: "legacy-session",
+          generation: 1,
+          revision: 1,
+          acceptedAt: 1,
+          manifestDigest: legacy.manifestDigest,
+        },
+        "translation preserves every accepted-generation fact from v1",
+      );
+    } finally {
+      lock.release();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+{
+  const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-legacy-conflict-")),
+  );
+  try {
+    const selected = resolveSessionLayout(
+      root,
+      "fixture-legacy-conflict",
+      "src-gen/index.ts",
+      ".genes/state-a",
+    );
+    const conflicting = resolveSessionLayout(
+      root,
+      "fixture-legacy-conflict",
+      "src-gen/other.ts",
+      ".genes/state-b",
+    );
+    writeLegacyMarker(conflicting, "a".repeat(64));
+    const lock = acquireSessionLock(selected);
+    try {
+      await assert.rejects(
+        () =>
+          establishSessionAuthority(selected, {
+            publish: publishArtifacts,
+            recover: recoverArtifacts,
+          }),
+        /contradictory legacy entry authorities/u,
+      );
+    } finally {
+      lock.release();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+{
+  const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-legacy-authentication-")),
+  );
+  try {
+    const layout = resolveSessionLayout(
+      root,
+      "fixture-legacy-authentication",
+      "src-gen/index.ts",
+      ".genes/state",
+    );
+    seedOwnedOutput(layout, "export const accepted = true;\n");
+    writeLegacyMarker(layout, "a".repeat(64));
+    const lock = acquireSessionLock(layout);
+    try {
+      await assert.rejects(
+        () =>
+          establishSessionAuthority(layout, {
+            publish: publishArtifacts,
+            recover: recoverArtifacts,
+          }),
+        /does not match the live Genes ownership manifest/u,
+        "migration must authenticate the old marker against the live generated tree",
+      );
+    } finally {
+      lock.release();
+    }
+    assert.equal(
+      readFileSync(layout.publicOutputFile, "utf8"),
+      "export const accepted = true;\n",
+      "an unauthenticated old marker must not change the public output",
+    );
+    assert.equal(
+      existsSync(
+        path.join(root, ...layout.authorityMigrationReceiptRelative.split("/")),
+      ),
+      false,
+      "an unauthenticated old marker must not create migration authority",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+for (const corruption of ["receipt", "fence"] as const) {
+  const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), `genes-session-migration-${corruption}-`)),
+  );
+  try {
+    const layout = resolveSessionLayout(
+      root,
+      `fixture-migration-${corruption}`,
+      "src-gen/index.ts",
+      ".genes/state",
+    );
+    const legacy = seedOwnedOutput(layout, "export const accepted = true;\n");
+    writeLegacyMarker(layout, legacy.manifestDigest);
+    const interrupted = acquireSessionLock(layout);
+    try {
+      await assert.rejects(
+        () =>
+          establishSessionAuthority(layout, {
+            publish: publishArtifacts,
+            recover: recoverArtifacts,
+            faultInjector: (checkpoint) => {
+              if (checkpoint === `after-${corruption}`) {
+                throw new Error(`stop after ${corruption}`);
+              }
+            },
+          }),
+        new RegExp(`stop after ${corruption}`, "u"),
+      );
+    } finally {
+      interrupted.release();
+    }
+
+    const corruptedRelative =
+      corruption === "receipt"
+        ? layout.authorityMigrationReceiptRelative
+        : layout.legacyGenerationMarkerRelative;
+    writeFileSync(
+      path.join(root, ...corruptedRelative.split("/")),
+      "not canonical migration evidence\n",
+      "utf8",
+    );
+
+    const restart = acquireSessionLock(layout);
+    try {
+      await assert.rejects(
+        () =>
+          establishSessionAuthority(layout, {
+            publish: publishArtifacts,
+            recover: recoverArtifacts,
+          }),
+        /migration receipt is not valid JSON|control namespace cannot be audited/u,
+        `a corrupt ${corruption} must stop migration`,
+      );
+    } finally {
+      restart.release();
+    }
+    assert.equal(
+      readFileSync(layout.publicOutputFile, "utf8"),
+      "export const accepted = true;\n",
+      `a corrupt ${corruption} must preserve the accepted output`,
+    );
+    assert.equal(
+      existsSync(path.join(root, ...layout.generationMarkerRelative.split("/"))),
+      false,
+      `a corrupt ${corruption} must not create root publication authority`,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+{
+  const recoveryRoots: string[] = [];
+  await withHarness(
+    "legacy-entry-recovery-scan",
+    async (harness) => {
+      await harness.session.start();
+      await harness.session.waitForIdle();
+      const layout = resolveSessionLayout(
+        harness.root,
+        "fixture-legacy-entry-recovery-scan",
+        "src-gen/index.ts",
+        ".genes/dev",
+      );
+      assert.deepEqual(recoveryRoots, [
+        legacyControlPaths(layout).transactions,
+        layout.transactionRelative,
+      ]);
+    },
+    (dependencies) => ({
+      ...dependencies,
+      recover: async (options) => {
+        recoveryRoots.push(options.transactionRoot);
+        return await recoverArtifacts(options);
+      },
+    }),
+  );
+}
 
 await withHarness("validation-repair", async (harness) => {
   harness.rejectNextValidation({ code: "TS", message: "not assignable" });
@@ -774,6 +1373,25 @@ await withHarness(
       "-cp src\n-main Main\n--cmd touch command-ran.txt\n",
       "utf8",
     );
+    return options;
+  },
+);
+
+await withHarness(
+  "hxml-early-inline-option-stops-before-haxe",
+  async (harness) => {
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "blocked");
+    assert.equal(
+      harness.compiler.calls,
+      0,
+      "a rejected inline --run spelling must never reach the compiler",
+    );
+  },
+  undefined,
+  (options, root) => {
+    writeFileSync(path.join(root, "build.hxml"), "--run=Main\n", "utf8");
     return options;
   },
 );
@@ -1434,6 +2052,51 @@ for (const stopAt of [
 
 {
   const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-legacy-writer-")),
+  );
+  try {
+    const layout = resolveSessionLayout(
+      root,
+      "fixture-legacy-writer",
+      "src-gen/index.ts",
+      ".genes/state",
+    );
+    const legacyLock = path.join(
+      root,
+      ...legacyControlPaths(layout).lock.split("/"),
+    );
+    mkdirSync(path.dirname(legacyLock), { recursive: true });
+    writeFileSync(
+      legacyLock,
+      `${canonicalJson({
+        protocol: "genes.tooling.development-session-lock.v1",
+        projectIdentity: "fixture-legacy-writer",
+        outputIdentity: layout.publicEntryAuthority,
+        hostIdentity: createHash("sha256")
+          .update(`genes.tooling.host\0${os.hostname()}`)
+          .digest("hex"),
+        pid: process.pid,
+        nonce: "legacy-writer",
+      } as CanonicalJson)}\n`,
+      "utf8",
+    );
+    assert.throws(
+      () => acquireSessionLock(layout),
+      /another development session already owns this output/u,
+      "an old entry-scoped session must block the upgraded root-scoped session",
+    );
+    assert.equal(
+      existsSync(path.join(root, ...layout.sessionLockRelative.split("/"))),
+      false,
+      "a rejected upgrade must release the new root-scoped lock",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+{
+  const root = realpathSync.native(
     mkdtempSync(path.join(os.tmpdir(), "genes-session-alias-authority-")),
   );
   try {
@@ -1494,16 +2157,22 @@ for (const stopAt of [
     );
     const lock = acquireSessionLock(first);
     try {
+      claimSessionRootOwner(first);
       assert.throws(() => acquireSessionLock(second), /already owns/u);
     } finally {
       lock.release();
     }
     mkdirSync(path.join(root, "src-gen"), { recursive: true });
-    assert.throws(
-      () => acquireSessionLock(second),
-      /already bound to a different development-session entry/u,
-      "an existing public root still keeps one entry owner after the first session exits",
-    );
+    const competing = acquireSessionLock(second);
+    try {
+      assert.throws(
+        () => claimSessionRootOwner(second),
+        /already bound to a different development-session entry/u,
+        "an existing public root still keeps one entry owner after the first session exits",
+      );
+    } finally {
+      competing.release();
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -1522,6 +2191,7 @@ for (const corruption of ["truncated", "noncanonical", "symlink"] as const) {
       ".genes/state",
     );
     const initial = acquireSessionLock(layout);
+    claimSessionRootOwner(layout);
     initial.release();
     const owner = path.join(root, ...layout.rootOwnerRelative.split("/"));
     if (corruption === "truncated") {
@@ -1535,10 +2205,15 @@ for (const corruption of ["truncated", "noncanonical", "symlink"] as const) {
       rmSync(owner, { force: true });
       symlinkSync(target, owner);
     }
-    assert.throws(
-      () => acquireSessionLock(layout),
-      /root owner is invalid|root owner is a symbolic link|already bound to a different/u,
-    );
+    const lock = acquireSessionLock(layout);
+    try {
+      assert.throws(
+        () => claimSessionRootOwner(layout),
+        /root owner is invalid|root owner is a symbolic link|already bound to a different/u,
+      );
+    } finally {
+      lock.release();
+    }
     assert.equal(
       existsSync(path.join(root, ...layout.sessionLockRelative.split("/"))),
       false,
@@ -1561,6 +2236,7 @@ for (const corruption of ["truncated", "noncanonical", "symlink"] as const) {
       ".genes/state",
     );
     const initial = acquireSessionLock(layout);
+    claimSessionRootOwner(layout);
     initial.release();
     const owner = path.join(root, ...layout.rootOwnerRelative.split("/"));
     const complete = readFileSync(owner, "utf8");
@@ -1568,28 +2244,16 @@ for (const corruption of ["truncated", "noncanonical", "symlink"] as const) {
     writeFileSync(`${owner}.next`, "unfinished private bytes", "utf8");
 
     const recovered = acquireSessionLock(layout);
-    recovered.release();
-    assert.equal(
-      readFileSync(owner, "utf8"),
-      complete,
-      "a same-entry restart repairs the exact prefix left by an interrupted older write",
+    assert.throws(
+      () => claimSessionRootOwner(layout),
+      /root owner is invalid/u,
+      "a torn final owner fails closed instead of being repaired from absence alone",
     );
+    recovered.release();
     assert.equal(
       existsSync(`${owner}.next`),
       false,
-      "a restart removes the earlier uncommitted private owner file",
-    );
-
-    writeFileSync(owner, complete.slice(0, Math.floor(complete.length / 2)), "utf8");
-    writeFileSync(
-      path.join(root, ...layout.generationMarkerRelative.split("/")),
-      "existing accepted-generation evidence\n",
-      "utf8",
-    );
-    assert.throws(
-      () => acquireSessionLock(layout),
-      /root owner is invalid/u,
-      "a torn owner is never replaced when accepted-generation evidence exists",
+      "a restart removes only the uncommitted private owner file",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -1605,10 +2269,6 @@ for (const checkpoint of [
     mkdtempSync(path.join(os.tmpdir(), "genes-session-state-recovery-")),
   );
   try {
-    const caseProbe = path.join(root, "case-probe");
-    mkdirSync(caseProbe);
-    const caseInsensitive = existsSync(path.join(root, "CASE-PROBE"));
-    rmSync(caseProbe, { recursive: true, force: true });
     mkdirSync(path.join(root, "src"));
     writeFileSync(path.join(root, "src/Main.hx"), "class Main {}\n", "utf8");
     writeFileSync(
@@ -1643,9 +2303,7 @@ for (const checkpoint of [
       "src-gen/index.ts",
       ".genes/state-a",
     );
-    const restartOutput = caseInsensitive
-      ? "SRC-GEN/index.ts"
-      : "src-gen/index.ts";
+    const restartOutput = "src-gen/index.ts";
     const layoutB = resolveSessionLayout(
       root,
       "fixture-alternate-state-recovery",
@@ -1689,6 +2347,185 @@ for (const checkpoint of [
       [],
       "alternate private state must recover and remove the original journal",
     );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+{
+  const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-legacy-recovery-")),
+  );
+  try {
+    mkdirSync(path.join(root, "src"));
+    writeFileSync(path.join(root, "src/Main.hx"), "class Main {}\n", "utf8");
+    writeFileSync(path.join(root, "build.hxml"), "-cp src\n-main Main\n", "utf8");
+    const fixture = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "session-crash-fixture.js",
+    );
+    const crashed = spawnSync(process.execPath, [fixture], {
+      cwd: root,
+      env: {
+        ...process.env,
+        GENES_SESSION_CRASH_ROOT: root,
+        GENES_SESSION_CRASH_STATE: ".genes/state-a",
+        GENES_SESSION_CRASH_OUTPUT: "src-gen/index.ts",
+        GENES_SESSION_CRASH_CONTENT: "export const legacy = true;\n",
+        GENES_SESSION_CRASH_AT: "after-publish:commit-marker",
+        GENES_SESSION_CRASH_LEGACY_AUTHORITY: "true",
+      },
+      encoding: "utf8",
+    });
+    assert.equal(crashed.status, 73, crashed.stderr);
+    const layout = resolveSessionLayout(
+      root,
+      "fixture-alternate-state-recovery",
+      "src-gen/index.ts",
+      ".genes/state-b",
+    );
+    assert.equal(
+      existsSync(
+        path.join(root, ...layout.legacyGenerationMarkerRelative.split("/")),
+      ),
+      true,
+    );
+    assert.equal(
+      existsSync(path.join(root, ...layout.generationMarkerRelative.split("/"))),
+      false,
+    );
+
+    const recovered = spawnSync(process.execPath, [fixture], {
+      cwd: root,
+      env: {
+        ...process.env,
+        GENES_SESSION_CRASH_ROOT: root,
+        GENES_SESSION_CRASH_STATE: ".genes/state-b",
+        GENES_SESSION_CRASH_OUTPUT: "src-gen/index.ts",
+        GENES_SESSION_CRASH_CONTENT: "export const current = true;\n",
+      },
+      encoding: "utf8",
+    });
+    assert.equal(recovered.status, 0, recovered.stderr);
+    assert.equal(
+      readFileSync(path.join(root, "src-gen/index.ts"), "utf8"),
+      "export const current = true;\n",
+    );
+    assert.deepEqual(
+      readdirSync(
+        path.join(root, ...layout.legacyTransactionRelative.split("/")),
+      ),
+      [],
+      "the upgraded session must finish and remove the old recovery journal",
+    );
+    assert.equal(
+      existsSync(path.join(root, ...layout.generationMarkerRelative.split("/"))),
+      true,
+      "the accepted upgrade must establish root-scoped recovery state",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+for (const checkpoint of [
+  "during-receipt:after-journal-prepared",
+  "during-receipt:after-publish:commit-marker",
+  "after-receipt",
+  "during-fence:after-journal-prepared",
+  "during-fence:after-backup:commit-marker",
+  "during-fence:after-publish:commit-marker",
+  "after-fence",
+  "during-owner:after-journal-prepared",
+  "during-owner:after-publish:commit-marker",
+  "after-owner",
+  "during-root-marker:after-journal-prepared",
+  "during-root-marker:after-publish:commit-marker",
+  "after-root-marker",
+] as const) {
+  const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-migration-crash-")),
+  );
+  try {
+    mkdirSync(path.join(root, "src"));
+    writeFileSync(path.join(root, "src/Main.hx"), "class Main {}\n", "utf8");
+    writeFileSync(path.join(root, "build.hxml"), "-cp src\n-main Main\n", "utf8");
+    const layout = resolveSessionLayout(
+      root,
+      "fixture-alternate-state-recovery",
+      "src-gen/index.ts",
+      ".genes/state-a",
+    );
+    const legacy = seedOwnedOutput(layout, "export const legacy = true;\n");
+    writeLegacyMarker(layout, legacy.manifestDigest);
+    const fixture = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "session-crash-fixture.js",
+    );
+    const crashed = spawnSync(process.execPath, [fixture], {
+      cwd: root,
+      env: {
+        ...process.env,
+        GENES_SESSION_CRASH_ROOT: root,
+        GENES_SESSION_CRASH_STATE: ".genes/state-a",
+        GENES_SESSION_CRASH_OUTPUT: "src-gen/index.ts",
+        GENES_SESSION_MIGRATION_CRASH_AT: checkpoint,
+      },
+      encoding: "utf8",
+    });
+    assert.equal(
+      crashed.status,
+      74,
+      `migration fixture did not stop at ${checkpoint}: ${crashed.stderr}`,
+    );
+
+    const restarted = spawnSync(process.execPath, [fixture], {
+      cwd: root,
+      env: {
+        ...process.env,
+        GENES_SESSION_CRASH_ROOT: root,
+        GENES_SESSION_CRASH_STATE: ".genes/state-b",
+        GENES_SESSION_CRASH_OUTPUT: "src-gen/index.ts",
+        GENES_SESSION_CRASH_CONTENT: "export const current = true;\n",
+      },
+      encoding: "utf8",
+    });
+    assert.equal(
+      restarted.status,
+      0,
+      `migration restart failed after ${checkpoint}: ${restarted.stderr}`,
+    );
+    assert.equal(
+      readFileSync(path.join(root, "src-gen/index.ts"), "utf8"),
+      "export const current = true;\n",
+    );
+    const fence = JSON.parse(
+      readFileSync(
+        path.join(root, ...layout.legacyGenerationMarkerRelative.split("/")),
+        "utf8",
+      ),
+    ) as Record<string, unknown>;
+    assert.equal(
+      fence.protocol,
+      "genes.tooling.development-session-legacy-fence.v1",
+    );
+    assert.equal(
+      existsSync(
+        path.join(root, ...layout.authorityMigrationReceiptRelative.split("/")),
+      ),
+      true,
+    );
+    for (const step of ["receipt", "fence", "owner", "root-marker"] as const) {
+      const transaction = path.join(
+        root,
+        ...`${layout.authorityMigrationRelative}/transactions/${step}`.split("/"),
+      );
+      assert.deepEqual(
+        existsSync(transaction) ? readdirSync(transaction) : [],
+        [],
+        `restart must remove the ${step} migration journal after ${checkpoint}`,
+      );
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -1816,29 +2653,61 @@ for (const checkpoint of [
     mkdirSync(caseProbe);
     const caseInsensitive = existsSync(path.join(root, "CASE-PROBE"));
     rmSync(caseProbe, { recursive: true, force: true });
-    if (!caseInsensitive) {
-      mkdirSync(path.join(root, "src"));
-      writeFileSync(path.join(root, "src/Main.hx"), "class Main {}\n", "utf8");
-      writeFileSync(
-        path.join(root, "build.hxml"),
-        "-cp src\n-main Main\n",
-        "utf8",
-      );
-      const fixture = path.join(
-        path.dirname(fileURLToPath(import.meta.url)),
-        "session-crash-fixture.js",
-      );
-      const first = spawnSync(process.execPath, [fixture], {
+    mkdirSync(path.join(root, "src"));
+    writeFileSync(path.join(root, "src/Main.hx"), "class Main {}\n", "utf8");
+    writeFileSync(
+      path.join(root, "build.hxml"),
+      "-cp src\n-main Main\n",
+      "utf8",
+    );
+    const fixture = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "session-crash-fixture.js",
+    );
+    const first = spawnSync(process.execPath, [fixture], {
+      cwd: root,
+      env: {
+        ...process.env,
+        GENES_SESSION_CRASH_ROOT: root,
+        GENES_SESSION_CRASH_STATE: ".genes/state-a",
+        GENES_SESSION_CRASH_OUTPUT: "src-gen/index.ts",
+        GENES_SESSION_CRASH_CONTENT: "export const baseline = true;\n",
+      },
+      encoding: "utf8",
+    });
+    assert.equal(first.status, 0, first.stderr);
+    if (caseInsensitive) {
+      const crashed = spawnSync(process.execPath, [fixture], {
         cwd: root,
         env: {
           ...process.env,
           GENES_SESSION_CRASH_ROOT: root,
-          GENES_SESSION_CRASH_STATE: ".genes/state-a",
+          GENES_SESSION_CRASH_STATE: ".genes/state-b",
           GENES_SESSION_CRASH_OUTPUT: "src-gen/index.ts",
+          GENES_SESSION_CRASH_CONTENT: "export const interrupted = true;\n",
+          GENES_SESSION_CRASH_AT: "after-journal-prepared",
         },
         encoding: "utf8",
       });
-      assert.equal(first.status, 0, first.stderr);
+      assert.equal(crashed.status, 73, crashed.stderr);
+      const alias = spawnSync(process.execPath, [fixture], {
+        cwd: root,
+        env: {
+          ...process.env,
+          GENES_SESSION_CRASH_ROOT: root,
+          GENES_SESSION_CRASH_STATE: ".genes/state-c",
+          GENES_SESSION_CRASH_OUTPUT: "SRC-GEN/index.ts",
+          GENES_SESSION_CRASH_CONTENT: "export const alias = true;\n",
+        },
+        encoding: "utf8",
+      });
+      assert.equal(alias.status, 0, alias.stderr);
+      assert.equal(
+        readFileSync(path.join(root, "src-gen/index.ts"), "utf8"),
+        "export const alias = true;\n",
+        "an alias restart may recover when both spellings name the same real output",
+      );
+    } else {
       const alias = spawnSync(process.execPath, [fixture], {
         cwd: root,
         env: {
@@ -1851,6 +2720,83 @@ for (const checkpoint of [
       });
       assert.notEqual(alias.status, 0);
       assert.match(alias.stderr, /use that original public output path/u);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+if (process.platform !== "win32") {
+  const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-symlink-identity-")),
+  );
+  try {
+    const realDirectory = path.join(root, "real-directory");
+    const alias = path.join(root, "alias-directory");
+    mkdirSync(realDirectory);
+    symlinkSync(realDirectory, alias);
+    assert.equal(
+      samePhysicalSessionPath(realDirectory, alias, "directory"),
+      false,
+      "a symbolic link cannot prove that two path spellings are a native case alias",
+    );
+    const realFile = path.join(root, "real-file.ts");
+    const fileAlias = path.join(root, "alias-file.ts");
+    writeFileSync(realFile, "// real\n", "utf8");
+    symlinkSync(realFile, fileAlias);
+    assert.equal(
+      samePhysicalSessionPath(realFile, fileAlias, "file"),
+      false,
+      "a symbolic link cannot prove that two entry spellings are a native case alias",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+if (process.platform !== "win32") {
+  const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-symlink-case-probe-")),
+  );
+  try {
+    const realProbe = path.join(root, "case-probe");
+    mkdirSync(realProbe);
+    const caseInsensitive = existsSync(path.join(root, "CASE-PROBE"));
+    rmSync(realProbe, { recursive: true, force: true });
+    if (!caseInsensitive) {
+      const lower = resolveSessionLayout(
+        root,
+        "fixture-symlink-case-probe",
+        "src-gen/index.ts",
+        ".genes/state-a",
+      );
+      mkdirSync(path.join(root, "src-gen"));
+      writeFileSync(path.join(root, "src-gen/index.ts"), "// lower\n", "utf8");
+      const first = acquireSessionLock(lower);
+      claimSessionRootOwner(lower);
+      first.release();
+
+      // On a case-sensitive filesystem these are two different output roots.
+      // A `.GENES` symlink must not make the second spelling look like a safe
+      // case-only alias of the first root.
+      symlinkSync(path.join(root, ".genes"), path.join(root, ".GENES"));
+      mkdirSync(path.join(root, "SRC-GEN"));
+      writeFileSync(path.join(root, "SRC-GEN/index.ts"), "// upper\n", "utf8");
+      const upper = resolveSessionLayout(
+        root,
+        "fixture-symlink-case-probe",
+        "SRC-GEN/index.ts",
+        ".genes/state-b",
+      );
+      const upperLock = acquireSessionLock(upper);
+      try {
+        assert.throws(
+          () => claimSessionRootOwner(upper),
+          /already bound to a different development-session entry/u,
+        );
+      } finally {
+        upperLock.release();
+      }
     }
   } finally {
     rmSync(root, { recursive: true, force: true });

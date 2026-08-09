@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import {
   mkdirSync,
   mkdtempSync,
@@ -11,6 +12,7 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  HAXE_4_3_7_EARLY_INLINE_OPTIONS,
   HxmlInventoryError,
   inventoryHxml,
 } from "./hxml/index.js";
@@ -209,6 +211,70 @@ async function main(): Promise<void> {
       "invalid-syntax",
     );
 
+    for (const option of HAXE_4_3_7_EARLY_INLINE_OPTIONS) {
+      let resolverCalls = 0;
+      const fixtureName = option.replaceAll(/[^A-Za-z0-9]+/gu, "-");
+      const fixture = `inline-early-option-${fixtureName}.hxml`;
+      write(root, fixture, `${option}=fixture\n`);
+      await expectFailure(
+        () =>
+          inventoryHxml({
+            entryFiles: [fixture],
+            workingDirectory: root,
+            allowedRoots: [root],
+            resolveLibrary: () => {
+              resolverCalls += 1;
+              return {
+                arguments: ["--macro", "mustNotResolveInlineLibrary()"],
+                provenanceFiles: [],
+              };
+            },
+          }),
+        "invalid-syntax",
+      );
+      assert.equal(
+        resolverCalls,
+        0,
+        `${option}=fixture must fail before an external resolver runs`,
+      );
+    }
+
+    const nativeInlineExit = new Map<string, number>([
+      ["-C", 1],
+      ["--cwd", 1],
+      ["--connect", 1],
+      ["--server-connect", 1],
+      ["--server-listen", 1],
+      ["--wait", 1],
+      ["--run", 1],
+      ["-L", 0],
+      ["--library", 0],
+      ["-lib", 0],
+      ["--jvm", 0],
+      ["--java", 0],
+      ["-java", 0],
+      ["--cs", 1],
+      ["-cs", 1],
+      ["--display", 1],
+    ]);
+    for (const option of HAXE_4_3_7_EARLY_INLINE_OPTIONS) {
+      const native = spawnSync("haxe", [`${option}=fixture`], {
+        cwd: root,
+        encoding: "utf8",
+        timeout: 2_000,
+      });
+      assert.equal(
+        native.error,
+        undefined,
+        `Haxe 4.3.7 inline probe timed out for ${option}=fixture`,
+      );
+      assert.equal(
+        native.status,
+        nativeInlineExit.get(option),
+        `the inventory table must be reviewed if Haxe changes ${option}=fixture`,
+      );
+    }
+
     write(root, "library-hxml-value.hxml", "-lib hxml-value\n");
     await expectFailure(
       () =>
@@ -243,36 +309,6 @@ async function main(): Promise<void> {
       1,
       "Haxe resolves one library identity once even when HXML repeats it",
     );
-
-    for (const [name, option] of [
-      ["short", "-lib=sample"],
-      ["long", "--library=sample"],
-      ["alias", "-L=sample"],
-    ] as const) {
-      let resolverCalls = 0;
-      write(root, `inline-library-${name}.hxml`, `${option}\n`);
-      await expectFailure(
-        () =>
-          inventoryHxml({
-            entryFiles: [`inline-library-${name}.hxml`],
-            workingDirectory: root,
-            allowedRoots: [root],
-            resolveLibrary: () => {
-              resolverCalls += 1;
-              return {
-                arguments: ["--macro", "mustNotResolveInlineLibrary()"],
-                provenanceFiles: [],
-              };
-            },
-          }),
-        "invalid-syntax",
-      );
-      assert.equal(
-        resolverCalls,
-        0,
-        `${option} must fail before an external resolver runs`,
-      );
-    }
 
     write(
       root,

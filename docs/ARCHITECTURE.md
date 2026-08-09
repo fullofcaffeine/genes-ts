@@ -786,9 +786,30 @@ case alias cannot acquire a second lock or recovery universe. One persistent
 entry owner is admitted per public root in v1, preventing two entry-specific
 sessions from publishing overlapping sibling modules through separate
 journals. The owner is written privately and moved into place only after its
-complete bytes are durable. An older interrupted prefix can be repaired only
-before any generation has been accepted. Public output and `.genes/tooling`
-cannot contain one another.
+complete bytes are durable. An uncommitted private owner can be removed after
+a stopped write, while a damaged final owner fails closed. Public output and
+`.genes/tooling` cannot contain one another.
+
+The root-scoped design has an explicit upgrade path from the earlier
+entry-scoped session. While holding both lock identities, tooling recovers the
+old journal. It then publishes four small, durable steps:
+
+1. a receipt that describes the exact old marker and live generated manifest
+2. a replacement marker that causes older writers to stop
+3. the root owner
+4. an equivalent root-scoped accepted marker
+
+The ordinary artifact transaction owns every step, so process
+loss can be recovered without exposing half-written control data or changing
+the last-good generated tree. Scanning the stable control directory also
+rejects two older entry markers that claim the same output root. The upgrade
+never guesses which marker must win.
+
+This transition is a one-way tooling upgrade. The replacement v1 marker stops
+the released v1 client for the selected entry. Supported installations must
+not downgrade after migration. A manually started v1 client with another entry
+does not know the v2 root lock and remains outside the compatibility contract.
+The migration receipt remains historical after later v2 generations.
 
 One immutable effective-invocation plan owns the executable, working directory,
 environment, ordered HXML entries and occurrences, exact resolved-library
@@ -817,6 +838,14 @@ Haxe executes. The
 separate marker matters when two successful revisions generate identical bytes:
 generation still advances, the file delta stays empty, and a host correctly
 performs no reload.
+
+Haxe's early argument pass also treats several inline spellings differently
+from their separate-value forms. The inventory accepts `--name=value` only for
+ordinary one-value options. It rejects inline forms for the reviewed early
+options—such as `--run=Main`, `--library=sample`, compiler-server flags, and
+working-directory flags—rather than normalizing rejected or ignored Haxe input
+into an executable command with different behavior. The reviewed set is
+closed and versioned for Haxe 4.3.7.
 
 This is not a hostile-macro sandbox. Haxe macros are trusted compile-time code
 and may use filesystem or process APIs; hosts declare macro-owned external

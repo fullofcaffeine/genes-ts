@@ -25,6 +25,13 @@ export interface SessionLayout {
   readonly candidatesRelative: string;
   readonly transactionRelative: string;
   readonly generationMarkerRelative: string;
+  /** Entry-scoped v1 paths read only while an existing project upgrades. */
+  readonly legacyTransactionRelative: string;
+  readonly legacyGenerationMarkerRelative: string;
+  readonly legacySessionLockRelative: string;
+  /** Stable v1-to-v2 migration evidence and transaction workspace. */
+  readonly authorityMigrationRelative: string;
+  readonly authorityMigrationReceiptRelative: string;
   readonly publicationControlRelative: string;
   readonly publicationControlRoot: string;
   readonly serverLeaseRelative: string;
@@ -40,6 +47,33 @@ function containedBy(root: string, candidate: string): boolean {
       relative !== ".." &&
       !relative.startsWith(`..${path.sep}`))
   );
+}
+
+/**
+ * Proves that two exact path spellings directly name the same existing object.
+ * A final symbolic link is never accepted as evidence of native case folding.
+ */
+export function samePhysicalSessionPath(
+  left: string,
+  right: string,
+  kind: "file" | "directory",
+): boolean {
+  try {
+    const leftStats = lstatSync(left);
+    const rightStats = lstatSync(right);
+    const expectedKind =
+      kind === "file"
+        ? leftStats.isFile() && rightStats.isFile()
+        : leftStats.isDirectory() && rightStats.isDirectory();
+    return (
+      !leftStats.isSymbolicLink() &&
+      !rightStats.isSymbolicLink() &&
+      expectedKind &&
+      realpathSync.native(left) === realpathSync.native(right)
+    );
+  } catch {
+    return false;
+  }
 }
 
 function portableContains(root: string, candidate: string): boolean {
@@ -158,16 +192,16 @@ export function resolveSessionLayout(
       "stateDirectory and stable session-control directory must not overlap",
     );
   }
-  ensureDirectoryNoFollow(projectRoot, stateRelative, 0o700);
   const candidatesRelative = `${stateRelative}/candidates`;
-  ensureDirectoryNoFollow(projectRoot, candidatesRelative, 0o700);
   const lockDirectory = `${stableControlDirectory}/session-locks`;
-  ensureDirectoryNoFollow(projectRoot, lockDirectory, 0o700);
   const lockScope = createHash("sha256")
     .update(publicOutputRootAuthority)
     .digest("hex");
+  const legacyLockScope = createHash("sha256")
+    .update(publicEntryAuthority)
+    .digest("hex");
   const publicationControlDirectory = `${stableControlDirectory}/session-publications/${lockScope}`;
-  ensureDirectoryNoFollow(projectRoot, publicationControlDirectory, 0o700);
+  const legacyPublicationControlDirectory = `${stableControlDirectory}/session-publications/${legacyLockScope}`;
   const publicationControlRoot = path.join(
     projectRoot,
     ...publicationControlDirectory.split("/"),
@@ -188,12 +222,47 @@ export function resolveSessionLayout(
     candidatesRelative,
     transactionRelative: `${publicationControlDirectory}/transactions`,
     generationMarkerRelative: `${publicationControlDirectory}/accepted-generation.json`,
+    legacyTransactionRelative: `${legacyPublicationControlDirectory}/transactions`,
+    legacyGenerationMarkerRelative: `${legacyPublicationControlDirectory}/accepted-generation.json`,
+    legacySessionLockRelative: `${lockDirectory}/${legacyLockScope}.json`,
+    authorityMigrationRelative: `${publicationControlDirectory}/authority-migration`,
+    authorityMigrationReceiptRelative: `${publicationControlDirectory}/authority-migration/receipt.json`,
     publicationControlRelative: publicationControlDirectory,
     publicationControlRoot,
     serverLeaseRelative: `${stateRelative}/haxe-server.json`,
     sessionLockRelative: `${lockDirectory}/${lockScope}.json`,
     rootOwnerRelative: `${publicationControlDirectory}/root-owner.json`,
   });
+}
+
+/** Creates only the common lock directory needed before lifetime exclusion. */
+export function materializeSessionLockLayout(layout: SessionLayout): void {
+  ensureDirectoryNoFollow(
+    layout.projectRoot,
+    path.posix.dirname(layout.sessionLockRelative),
+    0o700,
+  );
+}
+
+/** Creates root-scoped authority storage after both lifetime locks are held. */
+export function materializeSessionAuthorityLayout(layout: SessionLayout): void {
+  ensureDirectoryNoFollow(
+    layout.projectRoot,
+    layout.publicationControlRelative,
+    0o700,
+  );
+}
+
+/** Creates caller-owned compiler state without creating publication records. */
+export function materializeSessionPrivateLayout(layout: SessionLayout): void {
+  ensureDirectoryNoFollow(layout.projectRoot, layout.stateRelative, 0o700);
+  ensureDirectoryNoFollow(layout.projectRoot, layout.candidatesRelative, 0o700);
+}
+
+/** Completes runtime storage after startup authority is excluded. */
+export function materializeSessionRuntimeLayout(layout: SessionLayout): void {
+  materializeSessionPrivateLayout(layout);
+  materializeSessionAuthorityLayout(layout);
 }
 
 /**

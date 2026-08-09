@@ -271,7 +271,19 @@ yarn test:tooling-package
   before compilation, resolved library HXML receives the same option policy,
   portable output aliases share one lock/control/digest identity, alias
   input/state overlap is rejected, and an alias restart resolves the original
-  journal. Entry ordering, symlinked parent directories, stable-control/state
+  journal. It also starts from real entry-scoped output, recovers the older
+  journal, blocks an older live writer, and proves that the upgrade keeps the
+  accepted output while establishing the new root marker. The test stops after
+  journal preparation and file moves within each receipt, migration-fence,
+  owner, and root-marker step. Every restart must remove those journals without
+  rebuilding or changing the accepted output. It also rejects a marker that
+  does not match the live Genes manifest, corrupt receipts, corrupt fences, and
+  conflicting old entry markers. One cross-process fixture compiles and runs
+  the exact released v1 implementation at commit
+  `33ecc1b4476b7090c56cae82775b8ec8d533b898`. The current implementation then
+  recovers that state, blocks a same-entry downgrade, and accepts later v2
+  generations. Direct-path checks reject symbolic links as case-alias evidence.
+  Entry ordering, symlinked parent directories, stable-control/state
   separation, and repeated private-path sanitization are focused regressions.
 - `session-integration-test` runs the real selected Haxe 4.3.7 compiler twice,
   proves the request-local private output override, publishes through the
@@ -279,6 +291,11 @@ yarn test:tooling-package
   of generated TypeScript/source maps, proves nested and temporary-library
   output/multi-compilation HXML fails before public mutation, and proves the
   second valid build reuses one exact owned server.
+
+The focused HXML inventory test checks every Haxe 4.3.7 option that receives
+special early handling. Its inline `--option=value` form must fail before a
+library resolver or Haxe can run, while ordinary inline one-value options still
+normalize to the same safe argument pair.
 
 The package gate then installs the deterministic tarball into a clean Node
 project, type-checks the public factory/types, and imports both the root and

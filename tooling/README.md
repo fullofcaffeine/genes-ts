@@ -259,8 +259,24 @@ restarting the command.
   `src-gen/other.ts` cannot create separate lock and recovery universes for
   files they may both publish below `src-gen`. The owner record is written as a
   complete private file and then moved into place in one step, so a stopped
-  process cannot expose a half-written new record. A restart can repair the
-  exact prefix left by the older writer only when no accepted generation exists.
+  process cannot expose a half-written new record. A leftover private file is
+  safe to remove on restart. A damaged final owner still fails closed.
+  Projects created by the older entry-scoped session are upgraded before a new
+  build starts. The session first recovers the older journal, records the exact
+  state being upgraded, replaces the old marker with a stop record that makes
+  older writers fail safely, establishes the root owner, and finally writes the
+  equivalent root-scoped marker. Each step uses the normal recoverable artifact
+  publisher, so a stopped process can resume without changing the last-good
+  generated tree. The migration receipt remains historical evidence after
+  later v2 generations replace the translated marker.
+
+  This upgrade is one-way. The permanent stop record, called the migration
+  fence, makes the released v1 client fail for the migrated entry. The
+  supported package or supervisor must not start v1 tooling after migration.
+  A manually launched v1 client can select a different entry and calculate a
+  different old lock path. V1 does not know the root-scoped protocol, so v2
+  cannot force that unsupported client to read the new lock. Do not downgrade
+  the tooling package or change the entry while an old client is running.
   Public output may never contain
   or be contained by `.genes/tooling`; output at the project root is therefore
   unsupported.
@@ -295,10 +311,18 @@ restarting the command.
   just as they do in a direct Haxe command. A recursive include fails with a
   clear input error instead of being silently shortened. Haxe itself resolves
   a repeated library request only once, so the flattened plan does too. The
-  usual `--option=value` spelling is accepted for one-value options and
-  normalized to the same checked argument pair as `--option value`.
-  Library options are the exception: Haxe 4.3.7 ignores inline forms such as
-  `--library=sample`, so DevelopmentSession rejects those misleading spellings.
+  usual `--option=value` spelling is accepted for ordinary one-value options
+  and normalized to the same checked argument pair as `--option value`. Haxe
+  handles a small set of options before its normal option table, so the two
+  spellings are not always equivalent. For example, `--run Main` runs `Main`,
+  while `--run=Main` is rejected by Haxe. DevelopmentSession rejects inline
+  spellings for that reviewed set instead of changing the author's input into
+  a command with different behavior. Library options are in that set too:
+  Haxe 4.3.7 ignores `--library=sample` rather than resolving the library.
+  The closed set is `-C`, `--cwd`, `--connect`, `--server-connect`,
+  `--server-listen`, `--wait`, `--run`, `-L`, `--library`, `-lib`, `--jvm`,
+  `--java`, `-java`, `--cs`, `-cs`, and `--display`. A later Haxe version
+  requires a new reviewed table.
   The v1 resolver also accepts one distinct library identity only (repeats are
   deduplicated). Haxe batches adjacent distinct libraries, and the current
   single-request callback cannot reproduce that batch's exact dependency order.
@@ -355,7 +379,11 @@ restarting the command.
   create separate locks, journals, or accepted markers. Non-NFC paths remain
   invalid portable paths and fail before authority is created. Caller-selected
   private state may not contain or equal `.genes/tooling`, which owns those
-  stable locks and recovery records.
+  stable locks and recovery records. A case-only spelling difference is
+  accepted only when both exact output roots and both exact entry files exist.
+  Each path must name a normal object, and both spellings must resolve to the
+  same object. A symbolic link never counts as that proof. If a crash leaves
+  the entry temporarily absent, restart with the original spelling.
   Haxe server leases and artifact locks are also exact; tooling never adopts
   or kills an unowned process.
 - HXML graph replacement is registration-gap safe: tooling confirms the

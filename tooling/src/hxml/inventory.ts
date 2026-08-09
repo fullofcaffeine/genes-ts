@@ -49,7 +49,9 @@ export const HAXE_4_3_7_OPTION_ARITY: Readonly<Record<string, 0 | 1>> =
     "-hl": 1,
     "-x": 1,
     "--interp": 0,
-    "--run": 1,
+    // Haxe's normal option table declares `--run` without a value. A separate
+    // compiler pass consumes the following module name before this table runs.
+    "--run": 0,
     "-p": 1,
     "--class-path": 1,
     "-cp": 1,
@@ -124,6 +126,33 @@ export const HAXE_4_3_7_OPTION_ARITY: Readonly<Record<string, 0 | 1>> =
     "--haxelib-global": 0,
     "-w": 1,
   });
+
+/**
+ * Haxe 4.3.7 handles these options before, or outside, its ordinary option
+ * table. Their `--option=value` spelling is therefore not interchangeable
+ * with the documented separate-value spelling: some fail, while others are
+ * ignored instead of doing what the author requested. Rejecting every
+ * inline form keeps inventory from inventing an effective Haxe invocation.
+ */
+export const HAXE_4_3_7_EARLY_INLINE_OPTIONS: ReadonlySet<string> =
+  new Set([
+    "-C",
+    "--cwd",
+    "--connect",
+    "--server-connect",
+    "--server-listen",
+    "--wait",
+    "--run",
+    "-L",
+    "--library",
+    "-lib",
+    "--jvm",
+    "--java",
+    "-java",
+    "--cs",
+    "-cs",
+    "--display",
+  ]);
 
 function fail(kind: HxmlFailureKind, subject: string): never {
   throw new HxmlInventoryError(Object.freeze({ kind, subject }));
@@ -388,6 +417,15 @@ export async function inventoryHxml(
       const possibleOption = equals > 0
         ? expandedArgument.slice(0, equals)
         : expandedArgument;
+      if (
+        equals > 0 &&
+        HAXE_4_3_7_EARLY_INLINE_OPTIONS.has(possibleOption)
+      ) {
+        fail(
+          "invalid-syntax",
+          `${sourceFile}:${possibleOption}:early-inline-unsupported-v1`,
+        );
+      }
       const hasInlineValue =
         equals > 0 && HAXE_4_3_7_OPTION_ARITY[possibleOption] === 1;
       const argument = hasInlineValue ? possibleOption : expandedArgument;
@@ -400,13 +438,6 @@ export async function inventoryHxml(
           (!argument.startsWith("-") && argument.endsWith(".hxml")))
       ) {
         fail("invalid-syntax", `${sourceFile}:stage-changing-environment`);
-      }
-
-      if (libraryOptions.has(argument) && inlineValue !== undefined) {
-        fail(
-          "invalid-syntax",
-          `${sourceFile}:${argument}:inline-library-unsupported-v1`,
-        );
       }
 
       if (!rawArgument.startsWith("-") && rawArgument.endsWith(".hxml")) {

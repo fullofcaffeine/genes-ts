@@ -32,16 +32,18 @@ it.
   Genes output before any public mutation.
 - Scope locks, journals, markers, and recovery to the portable public output
   root, persist one entry owner for that root, and keep generated output
-  structurally disjoint from `.genes/tooling`. Publish that owner atomically
-  and repair only a matching older partial write when no accepted generation
-  exists.
+  structurally disjoint from `.genes/tooling`. Publish that owner atomically,
+  discard only an uncommitted private owner file, and reject damage to the
+  final owner. Upgrade released entry-scoped state through an authenticated,
+  recoverable receipt, migration fence, root owner, and translated marker.
+  Keep the upgrade one-way and preserve every accepted-generation fact.
 - Classify every Haxe 4.3.7 option spelling; support class paths and exact
   library contributions while rejecting CWD/resources until their lookup
   semantics have a reviewed policy;
   preserve repeated acyclic HXML arguments, reject recursive HXML includes,
   keep Haxe's resolve-once behavior for repeated libraries, reject inline
-  library spellings that Haxe ignores, admit one distinct library identity in
-  the v1 single-request resolver, and accept Haxe's ordinary
+  spellings for Haxe 4.3.7's complete early-option set, admit one distinct
+  library identity in the v1 single-request resolver, and accept Haxe's ordinary
   `--option=value` spelling for other one-value options;
   reject every residual `.hxml` token after recursive flattening so Haxe cannot
   reinterpret an option value as a second, unreviewed HXML program, while still

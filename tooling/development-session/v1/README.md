@@ -182,9 +182,45 @@ one entry file, because two entry files may both claim the same generated
 sibling modules. A second entry for that root fails before recovery or Haxe
 execution, even after the first process exits. The entry-owner record becomes
 visible only after all of its bytes are safely written. For compatibility with
-the earlier writer, a restart may repair an exact partial prefix of its own
-record only when there is no accepted-generation record to preserve. Other
-corrupt, non-canonical, or linked owner files still fail closed.
+an interrupted write, a restart removes an uncommitted private owner file. A
+damaged final owner, non-canonical owner, or linked owner still fails closed.
+
+### Upgrading older session state
+
+Earlier DevelopmentSession builds stored their lock, journal, and accepted
+marker beside one output entry instead of beside the whole output directory.
+The current session upgrades that state before it reads source files or starts
+Haxe:
+
+1. hold the old entry lock and the new output-directory lock.
+2. finish or roll back any old journal.
+3. record exactly which old marker and generated manifest are being upgraded.
+4. replace the old marker with a stop record, so an older Genes process fails
+   instead of publishing after the upgrade.
+5. write the one-entry owner for the output directory.
+6. write a root-scoped marker with the same accepted generation facts.
+
+The receipt, stop record, owner, and new marker are each published through the
+recoverable artifact writer. A process may stop after any step. The next start
+checks the exact bytes and continues safely. Until the final marker exists, the
+previous generated files remain the accepted files. If two older entries claim
+the same output directory, startup refuses to choose between them. The project
+must move one entry to a separate output directory before it can upgrade.
+
+The old marker and the live Genes ownership manifest must contain the same
+manifest digest. This comparison proves that the marker describes the current
+generated tree. Migration stops before it writes a receipt if they differ.
+
+The upgrade is one-way. The stop record is a permanent migration fence. The
+released v1 client cannot parse this fence, so it stops when it uses the same
+entry. Supported installations must not downgrade the tooling package after
+migration. An old client started manually with another entry uses another old
+lock path and does not know the root-scoped protocol. V2 cannot force that
+unsupported client to read the new lock.
+
+The migration receipt records history. Later v2 builds can publish new
+generations without comparing the current generated manifest with the old v1
+manifest in that receipt.
 
 Library expansion is part of invocation authority. A lower-level HXML inventory
 may list `-lib` requests without resolving them, but DevelopmentSession requires
@@ -224,6 +260,24 @@ that needs a follow-up command or side output must own it explicitly and run it
 only after an accepted generation. A later supported Haxe version needs a new
 reviewed compiler-I/O policy rather than silently inheriting this table.
 
+For ordinary one-value options, `--name=value` and `--name value` are checked
+as the same input. Haxe 4.3.7 also has a small group of options that it handles
+before that ordinary parsing step. Their inline spelling can mean something
+different: `--run Main` runs a program, but `--run=Main` is rejected. The HXML
+inventory therefore rejects inline spellings for this reviewed group instead
+of changing the author's input into a different Haxe command. The same rule
+explains why inline library forms such as `--library=sample` are rejected.
+
+The complete Haxe 4.3.7 group is:
+
+```text
+-C --cwd --connect --server-connect --server-listen --wait --run
+-L --library -lib --jvm --java -java --cs -cs --display
+```
+
+Some inline forms fail in Haxe. Other inline forms do nothing. The inventory
+rejects both outcomes because neither one has the separate-value meaning.
+
 The host may supply environment overrides with the Haxe invocation. For each
 revision, the session combines them with the current Node process environment,
 copies the complete result, includes it in the compiler-server identity, and
@@ -247,6 +301,10 @@ The accepted marker records both the portable output identity and its original
 project-relative spelling. Case aliases still share one lock and recovery
 scope. On a case-sensitive filesystem, a later session must reuse the original
 spelling instead of looking for prior files in a different physical directory.
+Only the two exact output roots and entry files can prove that two spellings
+name the same object. All four paths must exist as normal files or directories.
+A symbolic link cannot provide this proof. If a crash leaves the entry absent,
+restart with its original spelling.
 
 ## Publication and reads
 

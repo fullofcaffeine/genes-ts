@@ -4,7 +4,6 @@ import {
   lstatSync,
   openSync,
   readFileSync,
-  realpathSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -23,7 +22,12 @@ import {
   unlinkDurable,
   writeDurableFile,
 } from "../artifacts/filesystem.js";
-import type { SessionLayout } from "./layout.js";
+import {
+  materializeSessionAuthorityLayout,
+  materializeSessionLockLayout,
+  samePhysicalSessionPath,
+  type SessionLayout,
+} from "./layout.js";
 
 const LOCK_PROTOCOL = "genes.tooling.development-session-lock.v1";
 const ROOT_OWNER_PROTOCOL =
@@ -60,26 +64,18 @@ function claimRootOwner(layout: SessionLayout): void {
     publicEntryAuthority: layout.publicEntryAuthority,
     publicEntryPath: layout.publicOutputRelative,
   };
-  const bytes = `${canonicalJson({
-    protocol: record.protocol,
-    projectIdentity: record.projectIdentity,
-    publicOutputRootAuthority: record.publicOutputRootAuthority,
-    publicOutputRootPath: record.publicOutputRootPath,
-    publicEntryAuthority: record.publicEntryAuthority,
-    publicEntryPath: record.publicEntryPath,
-  })}\n`;
+  const bytes = sessionRootOwnerBytes(layout);
   const temporary = `${absolute}.next`;
-  const publishNewOwner = (): void => {
-    const staleTemporary = lstatPresent(temporary);
-    if (staleTemporary !== null) {
-      if (staleTemporary.isSymbolicLink() || !staleTemporary.isFile()) {
-        throw new Error("development session root-owner temporary file is invalid");
-      }
-      // A previous process may have stopped after making the complete private
-      // file but before its atomic rename. It never became authority, so the
-      // current lock owner can discard it and build the current record again.
-      unlinkDurable(temporary);
+  const staleTemporary = lstatPresent(temporary);
+  if (staleTemporary !== null) {
+    if (staleTemporary.isSymbolicLink() || !staleTemporary.isFile()) {
+      throw new Error("development session root-owner temporary file is invalid");
     }
+    // The private file never became authority. Both lifetime locks are held,
+    // so discarding it cannot remove another supported writer's record.
+    unlinkDurable(temporary);
+  }
+  const publishNewOwner = (): void => {
     writeDurableFile(temporary, bytes, 0o600, true);
     if (lstatPresent(absolute) !== null) {
       unlinkDurable(temporary);
@@ -100,22 +96,6 @@ function claimRootOwner(layout: SessionLayout): void {
     throw new Error("development session root owner is invalid");
   }
   const existing = readFileSync(absolute, "utf8");
-  const acceptedMarker = path.join(
-    layout.projectRoot,
-    ...layout.generationMarkerRelative.split("/"),
-  );
-  if (
-    existing.length < bytes.length &&
-    bytes.startsWith(existing) &&
-    lstatPresent(acceptedMarker) === null
-  ) {
-    // Releases before this durable writer existed could leave a prefix of the
-    // intended record. With the root lock held and no accepted generation to
-    // preserve, replace only that exact same-entry prefix.
-    unlinkDurable(absolute);
-    publishNewOwner();
-    return;
-  }
   let decoded: unknown;
   try {
     decoded = JSON.parse(existing);
@@ -155,41 +135,48 @@ function claimRootOwner(layout: SessionLayout): void {
       publicEntryAuthority: previous.publicEntryAuthority,
       publicEntryPath: previous.publicEntryPath,
     })}\n` === existing;
-  const samePhysical = (left: string, right: string): boolean => {
-    const leftAbsolute = path.join(layout.projectRoot, ...left.split("/"));
-    const rightAbsolute = path.join(layout.projectRoot, ...right.split("/"));
-    return (
-      existsSync(leftAbsolute) &&
-      existsSync(rightAbsolute) &&
-      realpathSync.native(leftAbsolute) === realpathSync.native(rightAbsolute)
-    );
-  };
-  const samePhysicalRoot = samePhysical(
-    previous.publicOutputRootPath,
-    record.publicOutputRootPath,
+  const samePhysicalRoot = samePhysicalSessionPath(
+    path.join(layout.projectRoot, ...previous.publicOutputRootPath.split("/")),
+    path.join(layout.projectRoot, ...record.publicOutputRootPath.split("/")),
+    "directory",
   );
-  const genesDirectory = path.join(layout.projectRoot, ".genes");
-  const genesCaseAlias = path.join(layout.projectRoot, ".GENES");
-  const projectFilesystemIsCaseInsensitive =
-    existsSync(genesDirectory) &&
-    existsSync(genesCaseAlias) &&
-    realpathSync.native(genesDirectory) === realpathSync.native(genesCaseAlias);
+  const samePhysicalEntry = samePhysicalSessionPath(
+    path.join(layout.projectRoot, ...previous.publicEntryPath.split("/")),
+    path.join(layout.projectRoot, ...record.publicEntryPath.split("/")),
+    "file",
+  );
   if (
     !canonical ||
     previous.projectIdentity !== record.projectIdentity ||
     previous.publicOutputRootAuthority !== record.publicOutputRootAuthority ||
     previous.publicEntryAuthority !== record.publicEntryAuthority ||
     (previous.publicOutputRootPath !== record.publicOutputRootPath &&
-      !samePhysicalRoot &&
-      !projectFilesystemIsCaseInsensitive) ||
+      !samePhysicalRoot) ||
     (previous.publicEntryPath !== record.publicEntryPath &&
-      !samePhysical(previous.publicEntryPath, record.publicEntryPath) &&
-      !projectFilesystemIsCaseInsensitive)
+      !samePhysicalEntry)
   ) {
     throw new Error(
       "public output root is already bound to a different development-session entry",
     );
   }
+}
+
+/** Canonical bytes used by migration and ordinary root-owner publication. */
+export function sessionRootOwnerBytes(layout: SessionLayout): string {
+  return `${canonicalJson({
+    protocol: ROOT_OWNER_PROTOCOL,
+    projectIdentity: layout.projectIdentity,
+    publicOutputRootAuthority: layout.publicOutputRootAuthority,
+    publicOutputRootPath: layout.publicOutputRootRelative ?? ".",
+    publicEntryAuthority: layout.publicEntryAuthority,
+    publicEntryPath: layout.publicOutputRelative,
+  })}\n`;
+}
+
+/** Establishes or validates the durable owner after startup migration. */
+export function claimSessionRootOwner(layout: SessionLayout): void {
+  materializeSessionAuthorityLayout(layout);
+  claimRootOwner(layout);
 }
 
 function pidIsLive(pid: number): boolean {
@@ -240,16 +227,16 @@ export interface SessionLock {
   release(): void;
 }
 
-/** Claims one session lifetime without adopting or terminating another PID. */
-export function acquireSessionLock(layout: SessionLayout): SessionLock {
-  const absolute = path.join(
-    layout.projectRoot,
-    ...layout.sessionLockRelative.split("/"),
-  );
+function claimLifetimeLock(
+  layout: SessionLayout,
+  relativePath: string,
+  outputIdentity: string,
+): SessionLock {
+  const absolute = path.join(layout.projectRoot, ...relativePath.split("/"));
   const record: LockRecord = {
     protocol: LOCK_PROTOCOL,
     projectIdentity: layout.projectIdentity,
-    outputIdentity: layout.publicOutputRootAuthority,
+    outputIdentity,
     hostIdentity: sha256Bytes(`genes.tooling.host\0${os.hostname()}`),
     pid: process.pid,
     nonce: randomBytes(32).toString("hex"),
@@ -297,14 +284,6 @@ export function acquireSessionLock(layout: SessionLayout): SessionLock {
   };
 
   claim();
-  try {
-    claimRootOwner(layout);
-  } catch (error) {
-    if (existsSync(absolute) && readFileSync(absolute, "utf8") === bytes) {
-      unlinkSync(absolute);
-    }
-    throw error;
-  }
   let released = false;
   return Object.freeze({
     release(): void {
@@ -317,6 +296,40 @@ export function acquireSessionLock(layout: SessionLayout): SessionLock {
       } catch {
         // Exact bytes are the release authority; never remove a replacement.
       }
+    },
+  });
+}
+
+/**
+ * Claims the current root lock and the older entry lock for one session.
+ * Holding both prevents an older Genes process from publishing while a newer
+ * process reads and upgrades its entry-scoped recovery files.
+ */
+export function acquireSessionLock(layout: SessionLayout): SessionLock {
+  materializeSessionLockLayout(layout);
+  const rootLock = claimLifetimeLock(
+    layout,
+    layout.sessionLockRelative,
+    layout.publicOutputRootAuthority,
+  );
+  let legacyLock: SessionLock;
+  try {
+    legacyLock = claimLifetimeLock(
+      layout,
+      layout.legacySessionLockRelative,
+      layout.publicEntryAuthority,
+    );
+  } catch (error) {
+    rootLock.release();
+    throw error;
+  }
+  let released = false;
+  return Object.freeze({
+    release(): void {
+      if (released) return;
+      released = true;
+      rootLock.release();
+      legacyLock.release();
     },
   });
 }

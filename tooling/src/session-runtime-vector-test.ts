@@ -17,6 +17,7 @@ import {
   type PublicationPlan,
 } from "./artifacts/index.js";
 import { inventoryHxml } from "./hxml/index.js";
+import { establishSessionAuthority } from "./session/authority-migration.js";
 import type { HaxeWaitServerEvent } from "./haxe-server/index.js";
 import type {
   ReconciledWatchOptions,
@@ -365,6 +366,11 @@ async function execute(vector: Vector): Promise<void> {
         ? async () => ({ action: "committed", transactionId: "a".repeat(64) })
         : recoverArtifacts,
     acquireLock: acquireSessionLock,
+    establishAuthority: async (layout) =>
+      await establishSessionAuthority(layout, {
+        publish: publishArtifacts,
+        recover: recoverArtifacts,
+      }),
     nonce: () => `vector${++nonce}`,
   };
   const session = createGenesDevelopmentSessionWithDependencies<JsonValue>(
