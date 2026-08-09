@@ -1,0 +1,17 @@
+-lib genes-ts
+
+-cp examples/todoapp/src
+-cp examples/todoapp/contracts
+--main todo.contracts.NullUpdateNegative
+
+--macro haxe.macro.Compiler.nullSafety("todo.shared", Loose, true)
+--macro haxe.macro.Compiler.nullSafety("todo.extern", Loose, true)
+--macro haxe.macro.Compiler.nullSafety("todo.web", Loose, true)
+--macro haxe.macro.Compiler.nullSafety("todo.server", Loose, true)
+--macro haxe.macro.Compiler.nullSafety("todo.contracts", Loose, true)
+
+-js examples/todoapp/contracts/null-update-negative.ts
+-D genes.ts
+-D genes.ts.no_extension
+
+-dce full

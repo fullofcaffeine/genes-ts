@@ -1,7 +1,12 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "examples": {
     "todoapp": {
+      "tier": "flagship-application",
+      "owner": "examples/todoapp",
+      "claimSurfaceIds": ["classic-js-runtime", "typescript-source-runtime", "declarations-packages", "react-hxx-compiler", "browser-framework-runtime"],
+      "distinctiveClaims": ["The same Haxe application builds and runs through both implementation profiles.", "The browser workflow exercises HXX, React, routing, persistence, and backend API behavior."],
+      "claimCeiling": "A maintained full-stack application canary; it does not replace focused compiler fixtures or establish arbitrary framework compatibility.",
       "sourceRoots": ["examples/todoapp/src"],
       "profiles": {
         "ts-strict": {
@@ -58,6 +63,11 @@
       }
     },
     "typescript-target": {
+      "tier": "capability-showcase",
+      "owner": "examples/typescript-target",
+      "claimSurfaceIds": ["classic-js-runtime", "typescript-source-runtime"],
+      "distinctiveClaims": ["The smallest maintained source tree compiles and executes through both implementation profiles."],
+      "claimCeiling": "A small dual-profile onboarding example; it does not claim declaration, browser, or migration coverage.",
       "sourceRoots": ["examples/typescript-target/src"],
       "profiles": {
         "ts-strict": {

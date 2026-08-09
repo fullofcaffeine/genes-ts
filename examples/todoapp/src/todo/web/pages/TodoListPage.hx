@@ -4,6 +4,7 @@ import genes.react.JSX.*;
 import genes.react.React.deps;
 import genes.react.React.useEffect;
 import genes.react.React.useState;
+import genes.react.React.useStateLazy;
 import genes.ts.Imports;
 import todo.extern.ReactRouter.Link;
 import todo.shared.Todo;
@@ -14,6 +15,7 @@ import todo.web.ReactTypes.ChangeEvent;
 import todo.web.ReactTypes.ReactChild;
 import todo.web.ReactTypes.ReactComponent1;
 import todo.web.ReactTypes.ReactElement;
+import todo.web.TodoFilter;
 
 @:jsx_inline_markup
 class TodoListPage {
@@ -41,11 +43,20 @@ class TodoListPage {
     // “indirectly” from TS-only code (Haxe DCE can't see TS imports).
     final _keepTodoText = TodoText.interopBanner();
 
+    // See TodoDetailPage: the escape is for the macro's compiler metadata,
+    // not for the non-null array stored in application state.
+    @:nullSafety(Off)
     final todosState = useState(([] : Array<Todo>));
     final todos = todosState.value;
 
     final titleState = useState("");
     final title = titleState.value;
+
+    final initialFilter: Void->TodoFilter = function(): TodoFilter {
+      return TodoFilter.All;
+    };
+    final filterState = useStateLazy(initialFilter);
+    final filter = filterState.value;
 
     final errorState = useState("");
     final error = errorState.value;
@@ -66,6 +77,14 @@ class TodoListPage {
     function removeTodo(id: TodoId) {
       final next = [for (t in todos) if (t.id != id) t];
       todosState.set(next);
+    }
+
+    function isVisible(todo: Todo): Bool {
+      return switch filter {
+        case All: true;
+        case Open: !todo.completed;
+        case Completed: todo.completed;
+      };
     }
 
     function onAdd() {
@@ -100,7 +119,9 @@ class TodoListPage {
         <input
           type={"checkbox"}
           checked={todo.completed}
-          onChange={() -> Client.updateTodo(todo.id, {completed: !todo.completed}).then(updated -> { replaceTodo(updated); return null; })}
+          onChange={() -> {
+            return Client.updateTodoCompleted(todo.id, !todo.completed).then(updated -> { replaceTodo(updated); return null; });
+          }}
         />
         <Link to={"/todos/" + todo.id} style={{flex: "1"}}>
           {renderTodoTitle(todo)}
@@ -112,6 +133,24 @@ class TodoListPage {
         </button>
       </li>;
     }
+
+    function renderFilterButton(label: String,
+        value: TodoFilter): ReactElement {
+      final selected = filter == value;
+      return <button
+        aria-pressed={selected}
+        onClick={() -> filterState.set(value)}
+        style={{
+          padding: "6px 10px",
+          border: selected ? "1px solid #2563eb" : "1px solid #d1d5db",
+          borderRadius: "999px",
+          backgroundColor: selected ? "#dbeafe" : "white",
+          color: selected ? "#1e3a8a" : "#374151"
+        }}
+      >{label}</button>;
+    }
+
+    final visibleTodos = [for (todo in todos) if (isVisible(todo)) todo];
 
     return <div>
       <h2>Todos</h2>
@@ -125,8 +164,13 @@ class TodoListPage {
         />
         <PrettyButton label={"Add"} onClick={() -> onAdd()} variant={PrettyButtonVariant.Primary} />
       </div>
+      <div style={{display: "flex", gap: "8px", marginBottom: "12px"}}>
+        {renderFilterButton("All todos", TodoFilter.All)}
+        {renderFilterButton("Open todos", TodoFilter.Open)}
+        {renderFilterButton("Completed todos", TodoFilter.Completed)}
+      </div>
       <ul style={{listStyle: "none", padding: "0", margin: "0"}}>
-        {todos.map(renderTodoItem)}
+        {visibleTodos.map(renderTodoItem)}
       </ul>
       <p style={{marginTop: "16px", color: "#666", fontSize: "12px"}}>
         {interopBanner()}

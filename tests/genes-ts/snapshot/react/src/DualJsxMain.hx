@@ -6,12 +6,23 @@ import genes.react.internal.Jsx;
 import genes.react.InputElement;
 import genes.react.ReactRef.RefObject;
 import genes.ts.Imports;
+import UnusedComponent.UnusedComponent;
+import Welcome.Welcome as WelcomeView;
+import WorldArchive.WorldArchive;
+import WorldArchive.WorldArchive as WorldArchiveView;
+import RetainedImportedStatusView.RetainedImportedStatusView;
 
 typedef DualJsxTranscript = {
   final staticHtml: String;
+  final sameNameDirectHtml: String;
+  final sameNameAliasedHtml: String;
+  final zeroPropsHtml: String;
+  final retainedImportedStatusHtml: String;
+  final retainedImportedStatusOrder: String;
   final sameExpressionOrderHtml: String;
   final nestedNameScopeHtml: String;
   final staticTagReadOrderHtml: String;
+  final directImportOrderHtml: String;
   final directAssignmentHtml: String;
   final localComponentHtml: String;
   final capturedChildHtml: String;
@@ -29,6 +40,14 @@ typedef DualJsxTranscript = {
   final svgRefHtml: String;
   final focusedChangeHtml: String;
   final dynamicHtml: String;
+  final privateDynamicHtml: String;
+  final forgedSafeHtml: String;
+  final forgedSharedStaticHtml: String;
+  final forgedSharedDynamicHtml: String;
+  final nestedSharedHtml: String;
+  final malformedTerminalHtml: String;
+  final reorderedCarrierHtml: String;
+  final liftedTailHtml: String;
   final evaluatedHtml: String;
   final arrayPropHtml: String;
   final arrayChildHtml: String;
@@ -84,8 +103,34 @@ typedef OptionalSpreadChildListProps = {
  * which cannot be spelled as a static JSX name and must use createElement in
  * both profiles. Only the final typed JSON string crosses the console boundary.
  */
+// The Haxe formatter does not yet understand component HXX reliably.
+// @formatter:off
 class DualJsxMain {
   static var propEvaluations = 0;
+
+  /**
+   * Keeps one valid HXX shape available for planning without publishing it.
+   *
+   * Compiler-internal fields survive Haxe typing so semantic plans may inspect
+   * them, but `Module.emittableFields` removes them from every implementation
+   * emitter. Source-props accounting must therefore never require an emitter
+   * to consume this declaration or marker.
+  */
+  @:keep
+  @:genes.compilerInternal
+  static function planningOnlyHxx(): Element {
+    final planningOnlyProps = {
+      __genesJsxPropName: "data-planning-only",
+      __genesJsxPropValue: "hidden",
+      __genesJsxPropNext: {
+        __genesJsxPropsEnd: true
+      }
+    };
+    return HxxTestMarkers.root("div", planningOnlyProps, {
+      __genesJsxChildValue: "hidden",
+      __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+    });
+  }
 
   static function syncFormAction(data: PreciseFormData): Void {
     data.has("title");
@@ -118,13 +163,20 @@ class DualJsxMain {
   static function main(): Void {
     final renderToStaticMarkup: Element->String = Imports.namedImport(
       "react-dom/server", "renderToStaticMarkup");
+    final carrierTranscript: Void->String = Imports.namedImport(
+      "./retained-carrier-components.js", "carrierTranscript");
     final heading = "dual";
     final rootProps = {className: "shared", id: "root"};
     final fragment = jsx('<><span>A</span><span>B</span></>');
     final tree = <main {...rootProps}><h1>{heading}</h1>{fragment}</main>;
+    final sameNameDirect = <WorldArchive bundleName="Direct" />;
+    final sameNameAliased = <WorldArchiveView bundleName="Aliased" />;
+    final zeroProps = <WelcomeView />;
+    final retainedImportedStatus = <RetainedImportedStatusView value="MiXeD" />;
     final sameExpressionOrder = renderSameExpressionOrder();
     final nestedNameScope = renderNestedNameScope();
     final staticTagReadOrder = renderStaticTagReadOrder();
+    final directImportOrder = renderDirectImportOrder();
     final directAssignment = renderDirectAssignment();
     final localComponent = renderLocalComponentTags();
     final capturedChild = renderCapturedChild();
@@ -216,6 +268,111 @@ class DualJsxMain {
       __genesJsxChildValue: "D",
       __genesJsxChildNext: {__genesJsxChildrenEnd: true}
     });
+    // These two private-access calls emulate typed shapes produced inside the
+    // HXX macro. They are compiler fixtures, not supported application APIs.
+    // A dynamic tag keeps the createElement carrier path, while a separately
+    // evaluated linked-list tail must not be flattened and evaluated again.
+    final privateDynamicProps = {
+      __genesJsxPropName: "data-private",
+      __genesJsxPropValue: nextPropValue(),
+      __genesJsxPropNext: {
+        __genesJsxPropsEnd: true
+      }
+    };
+    final privateDynamicElement = HxxTestMarkers.root(runtimeTag,
+      privateDynamicProps, {
+        __genesJsxChildValue: "Q",
+        __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+      });
+    final liftedPropsTail = {
+      __genesJsxPropName: "data-tail",
+      __genesJsxPropValue: nextPropValue(),
+      __genesJsxPropNext: {
+        __genesJsxPropsEnd: true
+      }
+    };
+    final liftedPropsHead = {
+      __genesJsxPropName: "data-head",
+      __genesJsxPropValue: "head",
+      __genesJsxPropNext: liftedPropsTail
+    };
+    final liftedTailElement = HxxTestMarkers.root("div", liftedPropsHead, {
+      __genesJsxChildValue: "T",
+      __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+    });
+    final forgedSafeProps = {
+      __genesJsxPropName: "data-safe",
+      __genesJsxPropValue: nextPropValue(),
+      __genesJsxPropNext: {
+        __genesJsxPropsEnd: true
+      }
+    };
+    final forgedSafeElement = HxxTestMarkers.root("div", forgedSafeProps, {
+      __genesJsxChildValue: "S",
+      __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+    });
+    final forgedSharedProps = {
+      __genesJsxPropName: "data-shared",
+      __genesJsxPropValue: nextPropValue(),
+      __genesJsxPropNext: {
+        __genesJsxPropsEnd: true
+      }
+    };
+    final forgedSharedStaticElement = HxxTestMarkers.root("div",
+      forgedSharedProps, {
+        __genesJsxChildValue: "U",
+        __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+      });
+    final forgedSharedDynamicElement = HxxTestMarkers.root(runtimeTag,
+      forgedSharedProps, {
+        __genesJsxChildValue: "V",
+        __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+      });
+    final nestedSharedProps = {
+      __genesJsxPropName: "data-nested-shared",
+      __genesJsxPropValue: nextPropValue(),
+      __genesJsxPropNext: {
+        __genesJsxPropsEnd: true
+      }
+    };
+    final nestedSharedFirst = HxxTestMarkers.child("div",
+      nestedSharedProps, {
+        __genesJsxChildValue: "W",
+        __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+      });
+    final nestedSharedSecond = HxxTestMarkers.child("div",
+      nestedSharedProps, {
+        __genesJsxChildValue: "X",
+        __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+      });
+    final nestedSharedElement = <section>
+      {nestedSharedFirst}{nestedSharedSecond}
+    </section>;
+    final malformedTerminalProps = {
+      __genesJsxPropName: "data-terminal",
+      __genesJsxPropValue: "kept",
+      __genesJsxPropNext: {
+        __genesJsxPropsEnd: true,
+        hiddenEffect: nextPropValue()
+      }
+    };
+    final malformedTerminalElement = HxxTestMarkers.root("div",
+      malformedTerminalProps, {
+        __genesJsxChildValue: "M",
+        __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+      });
+    final reorderedCarrierProps = {
+      __genesJsxPropValue: nextPropValue(),
+      __genesJsxPropName: "data-reordered",
+      __genesJsxPropNext: {
+        __genesJsxPropsEnd: true
+      }
+    };
+    final reorderedCarrierElement = HxxTestMarkers.root("div",
+      reorderedCarrierProps, {
+        __genesJsxChildValue: "R",
+        __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+      });
     final evaluatedProp = {
       __genesJsxPropName: "title",
       __genesJsxPropValue: nextPropValue(),
@@ -246,9 +403,16 @@ class DualJsxMain {
 
     print({
       staticHtml: renderToStaticMarkup(tree),
+      sameNameDirectHtml: renderToStaticMarkup(sameNameDirect),
+      sameNameAliasedHtml: renderToStaticMarkup(sameNameAliased),
+      zeroPropsHtml: renderToStaticMarkup(zeroProps),
+      retainedImportedStatusHtml:
+        renderToStaticMarkup(retainedImportedStatus),
+      retainedImportedStatusOrder: carrierTranscript(),
       sameExpressionOrderHtml: renderToStaticMarkup(sameExpressionOrder),
       nestedNameScopeHtml: renderToStaticMarkup(nestedNameScope),
       staticTagReadOrderHtml: renderToStaticMarkup(staticTagReadOrder),
+      directImportOrderHtml: renderToStaticMarkup(directImportOrder),
       directAssignmentHtml: renderToStaticMarkup(directAssignment),
       localComponentHtml: renderToStaticMarkup(localComponent),
       capturedChildHtml: renderToStaticMarkup(capturedChild),
@@ -268,6 +432,17 @@ class DualJsxMain {
       svgRefHtml: renderToStaticMarkup(svgRefElement),
       focusedChangeHtml: renderToStaticMarkup(focusedChangeElement),
       dynamicHtml: renderToStaticMarkup(dynamicElement),
+      privateDynamicHtml: renderToStaticMarkup(privateDynamicElement),
+      forgedSafeHtml: renderToStaticMarkup(forgedSafeElement),
+      forgedSharedStaticHtml:
+        renderToStaticMarkup(forgedSharedStaticElement),
+      forgedSharedDynamicHtml:
+        renderToStaticMarkup(forgedSharedDynamicElement),
+      nestedSharedHtml: renderToStaticMarkup(nestedSharedElement),
+      malformedTerminalHtml:
+        renderToStaticMarkup(malformedTerminalElement),
+      reorderedCarrierHtml: renderToStaticMarkup(reorderedCarrierElement),
+      liftedTailHtml: renderToStaticMarkup(liftedTailElement),
       evaluatedHtml: renderToStaticMarkup(evaluatedElement),
       arrayPropHtml: renderToStaticMarkup(arrayPropElement),
       arrayChildHtml: renderToStaticMarkup(arrayChildElement),
@@ -322,6 +497,21 @@ class DualJsxMain {
     return <ObservableComponents.Parent>
       <ObservableComponents.Child />
     </ObservableComponents.Parent>;
+  }
+
+  /**
+   * Keeps direct ESM component imports on the explicit child-first schedule.
+   *
+   * A named ESM import does not invoke a property getter, but it is still a
+   * live binding: another module may replace the exported value. Nesting the
+   * child directly inside the parent would read `Parent` before the child's
+   * JSX-runtime call. The established temporary reads it afterward, so Genes
+   * must not treat `@:jsRequire` as proof that this movement is harmless.
+   */
+  static function renderDirectImportOrder(): Element {
+    return <DirectImportComponents.Parent>
+      <DirectImportComponents.Child />
+    </DirectImportComponents.Parent>;
   }
 
   /**
@@ -417,7 +607,7 @@ class DualJsxMain {
     js.Syntax.code("console.log({0})", json);
   }
 }
-
+// @formatter:on
 /** Empty properties used by the local component-order regression. */
 private typedef EmptyComponentProps = {}
 
@@ -440,5 +630,21 @@ private typedef ObservableParentProps = {
 @:jsRequire("./observable-components.js", "default")
 private extern class ObservableComponents {
   static function Parent(props: ObservableParentProps): Element;
+  static function Child(props: EmptyComponentProps): Element;
+}
+
+/**
+ * Direct named ESM imports used to guard live-binding evaluation order.
+ *
+ * The companion native ESM oracle changes a parent export while creating the
+ * child. These fixed React components keep the four generated profiles easy
+ * to render and compare; generated-source assertions verify their child-first
+ * schedule separately.
+ */
+private extern class DirectImportComponents {
+  @:jsRequire("./observable-components.js", "DirectParent")
+  static function Parent(props: ObservableParentProps): Element;
+
+  @:jsRequire("./observable-components.js", "DirectChild")
   static function Child(props: EmptyComponentProps): Element;
 }

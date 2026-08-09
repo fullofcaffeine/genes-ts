@@ -15,6 +15,7 @@ import {
 } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { SourceMapConsumer, type RawSourceMap } from "source-map";
 import { assertNoUnsafeTypes } from "./typing-policy.js";
 import { runGeneratedTypeScriptMatrix, runTypeScript } from "./toolchains.js";
 import { assertHxxDiagnosticRanges } from "./test-hxx-diagnostic-ranges.js";
@@ -54,6 +55,33 @@ function capture(cmd: string, args: ReadonlyArray<string>): string {
   });
 }
 
+/** Proves a direct component name still points to its Haxe declaration. */
+function assertMappedComponent(
+  generatedPath: string,
+  sourcePath: string
+): void {
+  const generated = readFileSync(generatedPath, "utf8");
+  const source = readFileSync(sourcePath, "utf8");
+  const generatedNeedle = "function WorldArchive";
+  const generatedOffset = generated.indexOf(generatedNeedle);
+  const sourceOffset = source.indexOf(generatedNeedle);
+  ok(generatedOffset !== -1, `${generatedPath} contains the component function`);
+  ok(sourceOffset !== -1, `${sourcePath} contains the component function`);
+  const generatedBefore = generated.slice(0, generatedOffset).split("\n");
+  const sourceLine = source.slice(0, sourceOffset).split("\n").length;
+  const map = new SourceMapConsumer(JSON.parse(
+    readFileSync(`${generatedPath}.map`, "utf8")
+  ) as RawSourceMap);
+  const original = map.originalPositionFor({
+    line: generatedBefore.length,
+    column: generatedBefore.at(-1)?.length ?? 0
+  });
+  ok(original.source?.endsWith("WorldArchive.hx"),
+    `${generatedPath} maps the component name to WorldArchive.hx`);
+  strictEqual(original.line, sourceLine,
+    `${generatedPath} maps the component name to its declaration line`);
+}
+
 /** Captures one generated tree so a failed compiler run can prove no publication. */
 function captureGeneratedTree(relPath: string): ReadonlyArray<readonly [string, string]> {
   const root = path.join(repoRoot, relPath);
@@ -78,17 +106,19 @@ function captureGeneratedTree(relPath: string): ReadonlyArray<readonly [string, 
 }
 
 /**
- * Proves source-inline facts never survive beyond their typed compiler tree.
+ * Proves JSX plans and compiler helper types stay inside one warm request.
  *
  * Why: a warm Haxe compiler server reuses one macro process across builds. The
- * plan keys declarations and uses by typed-expression object identity, which
- * is valid only for the current build. An accidental static cache could apply
- * an old rewrite after a source edit.
+ * JSX plan keys are valid only for their current typed tree. Field-level
+ * `@:jsRequire` also makes dependency planning consult the compiler-owned
+ * `genes.Register` and `js.Boot` declarations; retaining either `ModuleType`
+ * in a macro static can make the next request fail while retyping that module.
  *
- * What/How: the test builds an inlineable tree, edits the generated fixture so
- * its child becomes an authored local, then restores the first source—all in
- * one server. The middle build must retain the local, and the final published
- * tree must be byte-identical to the first.
+ * What/How: one server preserves the original intrinsic/authored-local edit
+ * and additionally enters and leaves a direct imported-component tree. A
+ * second server begins with the imported tree and performs the inverse edit.
+ * Every generated shape must match its current source, and restoring either
+ * starting source must restore the complete output tree byte-for-byte.
  */
 async function assertSourceInlineCompilerServerIsolation(): Promise<void> {
   const fixtureRootRel =
@@ -97,11 +127,22 @@ async function assertSourceInlineCompilerServerIsolation(): Promise<void> {
   const sourceRoot = path.join(fixtureRoot, "src");
   const outputRootRel = `${fixtureRootRel}/src-gen`;
   const sourceFile = path.join(sourceRoot, "ServerSourceInline.hx");
-  rmrf(fixtureRootRel);
-  mkdirSync(sourceRoot, { recursive: true });
 
   const inlineable = `package;
 import genes.react.Element;
+
+private typedef ServerEmptyProps = {}
+private typedef ServerParentProps = {
+  final children: Element;
+  final ?label: String;
+}
+
+private extern class ServerComponents {
+  @:jsRequire("./Parent.js", "default")
+  static function Parent(props: ServerParentProps): Element;
+  @:jsRequire("./Child.js", "default")
+  static function Child(props: ServerEmptyProps): Element;
+}
 
 /** Generated warm-server fixture; the test owns and rewrites this file. */
 class ServerSourceInline {
@@ -118,12 +159,16 @@ class ServerSourceInline {
     "return <div><span>{label}</span></div>;",
     "final child = <span>{label}</span>;\n    return <div>{child}</div>;"
   );
-  writeFileSync(sourceFile, inlineable, "utf8");
+  const importedComponents = inlineable.replace(
+    "return <div><span>{label}</span></div>;",
+    "return <ServerComponents.Parent><ServerComponents.Child /></ServerComponents.Parent>;"
+  );
+  const retainedNestedCarrier = inlineable.replace(
+    "return <div><span>{label}</span></div>;",
+    "return <div><ServerComponents.Parent label={label.toUpperCase()}><button><ServerComponents.Child /><span>{label.toLowerCase()}</span></button></ServerComponents.Parent></div>;"
+  );
 
   const compiler = selectedHaxeCompiler(repoRoot);
-  const server = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
-  server.installSignalCleanup();
-
   const buildArguments = [
     "-lib",
     "genes-ts",
@@ -140,10 +185,13 @@ class ServerSourceInline {
     "-dce",
     "full"
   ];
-  const build = async (): Promise<void> => {
+  const build = async (
+    server: OwnedHaxeCompilerServer,
+    label: string
+  ): Promise<string> => {
     const result = await server.compile(
       buildArguments,
-      "HXX source-inline warm build",
+      label,
       compiler.version.startsWith("5.") ? 120_000 : 60_000
     );
     strictEqual(
@@ -152,34 +200,78 @@ class ServerSourceInline {
       `warm Haxe compiler build failed:`
       + `\n${result.stdout}${result.stderr}${server.logs}`
     );
+    return readFileSync(
+      path.join(repoRoot, outputRootRel, "ServerSourceInline.tsx"),
+      "utf8"
+    );
   };
 
-  try {
-    await build();
-    const firstTree = captureGeneratedTree(outputRootRel);
-    const firstSource = readFileSync(
-      path.join(repoRoot, outputRootRel, "ServerSourceInline.tsx"),
-      "utf8"
-    );
-    ok(firstSource.includes("return <div><span>{label}</span></div>"),
-      "warm-server first build did not inline the parser-owned child");
+  const assertIntrinsic = (source: string): void => {
+    ok(source.includes("return <div><span>{label}</span></div>"),
+      "warm-server intrinsic build did not inline the parser-owned child");
+  };
+  const assertAuthoredLocal = (source: string): void => {
+    ok(source.includes("const child: JSX.Element = <span>{label}</span>")
+      && source.includes("return <div>{child}</div>"),
+    "warm-server authored local reused a stale parser-owned child fact");
+  };
+  const assertImportedComponents = (source: string): void => {
+    ok(source.includes("const tmp: JSX.Element = <Child />")
+      && source.includes("return <Parent>{tmp}</Parent>"),
+    "warm-server imported component build did not use current typed bindings");
+  };
+  const assertRetainedNestedCarrier = (source: string): void => {
+    ok(source.includes('{"label": label.toUpperCase()}')
+      && source.includes("const tmp1: JSX.Element = <Child />")
+      && source.includes("<Parent label={tmp.label}>")
+      && !source.includes("__genesJsxProp"),
+    "warm-server nested element did not consume its current source-props fact");
+  };
 
-    writeFileSync(sourceFile, authoredLocal, "utf8");
-    await build();
-    const editedSource = readFileSync(
-      path.join(repoRoot, outputRootRel, "ServerSourceInline.tsx"),
-      "utf8"
-    );
-    ok(editedSource.includes("const child: JSX.Element = <span>{label}</span>"),
-      "warm-server edit reused a stale parser-owned child fact");
+  const runSequence = async (
+    label: string,
+    steps: readonly [
+      readonly [string, (source: string) => void],
+      ...ReadonlyArray<readonly [string, (source: string) => void]>
+    ]
+  ): Promise<void> => {
+    rmrf(fixtureRootRel);
+    mkdirSync(sourceRoot, { recursive: true });
+    writeFileSync(sourceFile, steps[0][0], "utf8");
+    const server = await OwnedHaxeCompilerServer.start(repoRoot, compiler);
+    server.installSignalCleanup();
+    try {
+      steps[0][1](await build(server, `${label} first build`));
+      const firstTree = captureGeneratedTree(outputRootRel);
+      let buildNumber = 2;
+      for (const [source, assertSource] of steps.slice(1)) {
+        writeFileSync(sourceFile, source, "utf8");
+        assertSource(await build(server, `${label} build ${buildNumber}`));
+        buildNumber++;
+      }
+      deepStrictEqual(captureGeneratedTree(outputRootRel), firstTree,
+        `${label} did not restore its original generated tree`);
+    } finally {
+      await server.stop();
+    }
+  };
 
-    writeFileSync(sourceFile, inlineable, "utf8");
-    await build();
-    deepStrictEqual(captureGeneratedTree(outputRootRel), firstTree,
-      "warm-server edit/revert did not restore the original generated tree");
-  } finally {
-    await server.stop();
-  }
+  await runSequence("intrinsic-first warm sequence", [
+    [inlineable, assertIntrinsic],
+    [authoredLocal, assertAuthoredLocal],
+    [inlineable, assertIntrinsic],
+    [retainedNestedCarrier, assertRetainedNestedCarrier],
+    [inlineable, assertIntrinsic],
+    [importedComponents, assertImportedComponents],
+    [inlineable, assertIntrinsic]
+  ]);
+  await runSequence("direct-import-first warm sequence", [
+    [importedComponents, assertImportedComponents],
+    [inlineable, assertIntrinsic],
+    [retainedNestedCarrier, assertRetainedNestedCarrier],
+    [inlineable, assertIntrinsic],
+    [importedComponents, assertImportedComponents]
+  ]);
 }
 
 function parseTranscript(output: string): unknown {
@@ -225,15 +317,15 @@ function copyTsxFixtures(intoRelDir: string): void {
 }
 
 /**
- * Copies the observable static-component module beside one generated profile.
+ * Copies the observable component modules beside one generated profile.
  *
  * The Haxe extern imports `./observable-components.js`. TypeScript profiles use
  * the typed source and compile it with the generated module; JavaScript
- * profiles use the equivalent ESM file directly. Keeping the two small files
- * beside their consumer makes the getter/Proxy ordering probe independent of
- * a package-manager install or machine-local module path.
+ * profiles use the equivalent ESM files directly. Keeping these small fixture
+ * modules beside their consumer makes the getter/Proxy ordering probes
+ * independent of a package-manager install or machine-local module path.
  */
-function copyObservableComponents(
+function copyDualComponentFixtures(
   intoRelDir: string,
   sourceExtension: "ts" | "js"
 ): void {
@@ -241,6 +333,11 @@ function copyObservableComponents(
   cpSync(
     path.join(repoRoot, "tests/genes-ts/snapshot/react/fixtures", fileName),
     path.join(repoRoot, intoRelDir, fileName)
+  );
+  const carrierFileName = `retained-carrier-components.${sourceExtension}`;
+  cpSync(
+    path.join(repoRoot, "tests/genes-ts/snapshot/react/fixtures", carrierFileName),
+    path.join(repoRoot, intoRelDir, carrierFileName)
   );
 }
 
@@ -322,6 +419,11 @@ function assertHaxeHxxNegatives(): void {
       "hxx_negative_dynamic_marker_unsafe_prop",
       "GTS-HXX-TYPE-001",
       "__genesJsxPropValue: unsafeValue"
+    ],
+    [
+      "hxx_negative_fake_hxx_candidate_value",
+      "GTS-JSX-INTENT-011",
+      "Jsx.__hxxJsx"
     ],
     ["hxx_negative_spread_non_object", "GTS-HXX-SPREAD-001"],
     ["hxx_negative_spread_extra", "GTS-HXX-SPREAD-003"],
@@ -813,6 +915,18 @@ ok(automaticTsxSource.includes(
 ) && automaticTsxSource.includes(
   '<input type="submit" formAction={Main.asyncFormAction} />'
 ), "button and input preserve the same checked React 19 formAction contract");
+const importedStatusTree = sourceSection(
+  automaticTsxSource,
+  "const createSignal:",
+  "const GenericInt:"
+);
+ok(importedStatusTree.includes(
+  'const statusEl = {"label": "Count", "value": summary()}'
+) && importedStatusTree.includes(
+  '<Status label={statusEl.label} value={statusEl.value}>'
+), "an imported HXX component keeps prop evaluation in a readable ordinary object");
+strictEqual(importedStatusTree.includes("__genesJsxProp"), false,
+  "a fully accounted HXX prop carrier does not leak protocol fields into TSX");
 const canonicalChildTree = sourceSection(
   automaticTsxSource,
   "static renderChildList(",
@@ -962,6 +1076,11 @@ ok(typedCreateElementSource.includes(
   "ComponentPropsWithRef<typeof TypedButton>"
 ), "metadata-backed component wrappers keep their emitted React prop contract");
 ok(typedCreateElementSource.includes(
+  'const statusEl = {"__genesJsxPropName": "label"'
+) && typedCreateElementSource.includes(
+  "label: statusEl.__genesJsxPropValue"
+), "plain TypeScript keeps the established createElement carrier schedule");
+ok(typedCreateElementSource.includes(
   "createElement(Main.RequiredChild, ({...optionalChildren, children: optionalChildSpreadHtml}"
 ), "typed createElement puts a required nested child in the checked property object");
 ok(typedCreateElementSource.includes(
@@ -1007,12 +1126,31 @@ run("node", ["tests/genes-ts/snapshot/react/out/ts/dist/index.js"]);
 // classic ESM. Static intent remains readable TSX, while a runtime string tag
 // deliberately exercises the shared createElement capability in both modes.
 run("haxe", ["tests/genes-ts/snapshot/react/build-dual-tsx.hxml"]);
-copyObservableComponents(
+copyDualComponentFixtures(
   "tests/genes-ts/snapshot/react/out/dual-tsx/src-gen",
   "ts"
 );
 const dualTsxTreeBeforeInjectedFailure = captureGeneratedTree(
   "tests/genes-ts/snapshot/react/out/dual-tsx/src-gen"
+);
+const sourcePropsPlanningFailure = spawnSync(
+  "haxe",
+  [
+    "tests/genes-ts/snapshot/react/build-dual-tsx.hxml",
+    "-D",
+    "genes.jsx_source_props_test_fail_before_emission"
+  ],
+  { cwd: repoRoot, encoding: "utf8" }
+);
+strictEqual(sourcePropsPlanningFailure.status === 0, false,
+  "the private source-props planning failure unexpectedly compiled");
+ok(`${sourcePropsPlanningFailure.stdout}${sourcePropsPlanningFailure.stderr}`.includes(
+  "[GTS-JSX-SOURCE-PROPS-002]"
+), "the injected source-props planning failure lost its stable diagnostic");
+deepStrictEqual(
+  captureGeneratedTree("tests/genes-ts/snapshot/react/out/dual-tsx/src-gen"),
+  dualTsxTreeBeforeInjectedFailure,
+  "an early source-props planning failure changed the published TSX tree"
 );
 const sourceInlineFailure = spawnSync(
   "haxe",
@@ -1033,10 +1171,84 @@ deepStrictEqual(
   dualTsxTreeBeforeInjectedFailure,
   "a late source-inline consistency failure changed the published TSX tree"
 );
+const sourcePropsFailure = spawnSync(
+  "haxe",
+  [
+    "tests/genes-ts/snapshot/react/build-dual-tsx.hxml",
+    "-D",
+    "genes.jsx_source_props_test_fail_after_emission"
+  ],
+  { cwd: repoRoot, encoding: "utf8" }
+);
+strictEqual(sourcePropsFailure.status === 0, false,
+  "the private source-props consistency failure unexpectedly compiled");
+ok(`${sourcePropsFailure.stdout}${sourcePropsFailure.stderr}`.includes(
+  "[GTS-JSX-SOURCE-PROPS-003]"
+), "the injected source-props failure lost its stable diagnostic");
+deepStrictEqual(
+  captureGeneratedTree("tests/genes-ts/snapshot/react/out/dual-tsx/src-gen"),
+  dualTsxTreeBeforeInjectedFailure,
+  "a late source-props consistency failure changed the published TSX tree"
+);
 const dualTsxSource = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/react/out/dual-tsx/src-gen/DualJsxMain.tsx"),
   "utf8"
 );
+const worldArchiveHaxe = readFileSync(
+  path.join(repoRoot, "tests/genes-ts/snapshot/react/src/WorldArchive.hx"),
+  "utf8"
+);
+ok(worldArchiveHaxe.includes("@:genes.reactComponent")
+  && !worldArchiveHaxe.includes("@:genes.moduleFunction")
+  && !worldArchiveHaxe.includes("@:jsx_inline_markup"),
+"the canonical component source needs only the React role marker");
+const dualTsxWorldArchive = readFileSync(
+  path.join(repoRoot,
+    "tests/genes-ts/snapshot/react/out/dual-tsx/src-gen/WorldArchive.tsx"),
+  "utf8"
+);
+const retainedImportedStatusTsx = readFileSync(
+  path.join(repoRoot,
+    "tests/genes-ts/snapshot/react/out/dual-tsx/src-gen/RetainedImportedStatusView.tsx"),
+  "utf8"
+);
+const retainedTsxProps = retainedImportedStatusTsx.indexOf(
+  'const tmp = {"label": "Nested", "value": recordCarrierProp(props.value)}'
+);
+const retainedTsxChild = retainedImportedStatusTsx.indexOf(
+  "const tmp1: JSX.Element = <RetainedObservableComponents.Child />"
+);
+const retainedTsxParent = retainedImportedStatusTsx.indexOf(
+  "<DirectParent label={tmp.label} value={tmp.value}>"
+);
+ok(retainedTsxProps >= 0
+  && retainedTsxProps < retainedTsxChild
+  && retainedTsxChild < retainedTsxParent,
+"source TSX projects nested carrier props without moving their child-first schedule");
+strictEqual(retainedImportedStatusTsx.includes("__genesJsxProp"), false,
+  "a fully accounted nested HXX carrier does not leak protocol fields into TSX");
+ok(dualTsxWorldArchive.includes(
+  "export function WorldArchive(props: WorldArchiveProps): JSX.Element"
+), "same-name Haxe module/function emits one direct TSX component");
+ok(!dualTsxWorldArchive.includes("WorldArchive_Fields_")
+  && !dualTsxWorldArchive.includes("setHxClass")
+  && !dualTsxWorldArchive.includes("WorldArchive.WorldArchive ="),
+"direct TSX component has no synthetic owner, registration, or static bridge");
+strictEqual(
+  dualTsxSource.match(/import \{WorldArchive\} from "\.\/WorldArchive\.js"/g)?.length,
+  1,
+  "direct and aliased Haxe imports share one exact ESM component binding"
+);
+ok(dualTsxSource.includes(
+  'const sameNameDirect: JSX.Element = <WorldArchive bundleName="Direct" />'
+) && dualTsxSource.includes(
+  'const sameNameAliased: JSX.Element = <WorldArchive bundleName="Aliased" />'
+), "direct and aliased Haxe imports both render through the direct binding");
+strictEqual(existsSync(path.join(repoRoot,
+  "tests/genes-ts/snapshot/react/out/dual-tsx/src-gen/UnusedComponent.tsx")),
+false, "the React marker does not retain an otherwise dead component");
+strictEqual(dualTsxSource.includes("data-planning-only"), false,
+  "a compiler-internal HXX field reached source output");
 ok(dualTsxSource.includes("<main {...rootProps}>"));
 ok(dualTsxSource.includes(
   "const tree1: JSX.Element = <main {...rootProps}><h1>{heading}</h1>{fragment}</main>"
@@ -1045,6 +1257,46 @@ strictEqual(dualTsxSource.includes(
   "const tree: JSX.Element = <h1>{heading}</h1>"
 ), false, "the parser-owned nested heading declaration is omitted");
 ok(dualTsxSource.includes("React__genes_jsx.createElement(runtimeTag"));
+ok(dualTsxSource.includes(
+  'const privateDynamicProps = {"__genesJsxPropName": "data-private"'
+) && dualTsxSource.includes(
+  'createElement(runtimeTag, {"data-private": privateDynamicProps.__genesJsxPropValue}'
+), "a dynamic HXX tag keeps the carrier representation used by createElement");
+ok(dualTsxSource.includes(
+  'const liftedPropsTail = {"__genesJsxPropName": "data-tail"'
+) && dualTsxSource.includes(
+  'data-tail={liftedPropsHead.__genesJsxPropNext.__genesJsxPropValue}'
+), "a separately evaluated prop-list tail is not flattened or evaluated twice");
+strictEqual(dualTsxSource.includes(
+  'const liftedPropsHead = {"data-head"'
+), false, "a lifted prop-list tail cannot authorize an ordinary-object rewrite");
+ok(dualTsxSource.includes(
+  'const forgedSafeProps = {"data-safe": DualJsxMain.nextPropValue()}'
+) && dualTsxSource.includes(
+  '<div data-safe={forgedSafeProps["data-safe"]}>S</div>'
+), "a forgeable candidate is safe when complete accounting admits its sole root");
+ok(dualTsxSource.includes(
+  'const forgedSharedProps = {"__genesJsxPropName": "data-shared"'
+) && dualTsxSource.includes(
+  'data-shared={forgedSharedProps.__genesJsxPropValue}'
+) && dualTsxSource.includes(
+  'createElement(runtimeTag, {"data-shared": forgedSharedProps.__genesJsxPropValue}'
+), "static and dynamic roots sharing one forged carrier retain the linked representation");
+ok(dualTsxSource.includes(
+  'const nestedSharedProps = {"__genesJsxPropName": "data-nested-shared"'
+) && dualTsxSource.match(
+  /data-nested-shared=\{nestedSharedProps\.__genesJsxPropValue\}/g
+)?.length === 2,
+"two nested HXX elements sharing one carrier retain its linked representation");
+ok(dualTsxSource.includes(
+  'const malformedTerminalProps = {"__genesJsxPropName": "data-terminal"'
+) && dualTsxSource.includes('"hiddenEffect": DualJsxMain.nextPropValue()'),
+"an effectful extra terminal field cannot be erased by source projection");
+ok(dualTsxSource.includes(
+  'const reorderedCarrierProps = {"__genesJsxPropValue": DualJsxMain.nextPropValue()'
+) && dualTsxSource.includes(
+  'data-reordered={reorderedCarrierProps.__genesJsxPropValue}'
+), "reordered protocol fields retain the linked representation");
 const dualTsxCallArgument = sourceSection(
   dualTsxSource,
   "static renderSameExpressionOrder(",
@@ -1057,13 +1309,23 @@ ok(dualTsxCallArgument.includes("const OrderedComponent_1: JSX.Element")
 const dualTsxStaticOrder = sourceSection(
   dualTsxSource,
   "static renderStaticTagReadOrder(",
-  "static mutateComponent("
+  "static renderDirectImportOrder("
 );
 ok(dualTsxStaticOrder.includes(
   "const tmp: JSX.Element = <ObservableComponents.Child />"
 ) && dualTsxStaticOrder.includes(
   "return <ObservableComponents.Parent>{tmp}</ObservableComponents.Parent>"
 ), "TSX retains the child local when an extern static tag read is observable");
+const dualTsxDirectImportOrder = sourceSection(
+  dualTsxSource,
+  "static renderDirectImportOrder(",
+  "static renderDirectAssignment("
+);
+ok(dualTsxDirectImportOrder.includes(
+  "const tmp: JSX.Element = <DirectChild />"
+) && dualTsxDirectImportOrder.includes(
+  "return <DirectParent>{tmp}</DirectParent>"
+), "TSX retains the child-first schedule for live direct ESM imports");
 const dualTsxDirectAssignment = sourceSection(
   dualTsxSource,
   "static renderDirectAssignment(",
@@ -1090,8 +1352,8 @@ ok(dualTsxCapturedChild.includes(
   "const child: JSX.Element = <span>captured</span>"
 ) && dualTsxCapturedChild.includes("return <div>{child}</div>"),
 "a child captured by a callback retains its declaration");
-strictEqual(dualTsxSource.includes("__hxxChild"), false,
-  "the parser-only child marker never reaches TSX source");
+strictEqual(dualTsxSource.includes("__hxx"), false,
+  "parser-only HXX provenance markers never reach TSX source");
 ok(dualTsxSource.includes(
   "<dialog open closedby=\"any\" onCancel={function (event: import('react').SyntheticEvent<HTMLDialogElement>)"
 ), "TSX preserves canonical dialog props and the exact event target");
@@ -1135,14 +1397,14 @@ const retainedMetadataAssignment = sourceSection(
 ok(/const ([A-Za-z_$][\w$]*): JSX\.Element = <span>assigned<\/span>;[\s\S]*result = <section>{\1}<\/section>;/.test(
   retainedMetadataAssignment
 ), "an unreviewed typed metadata wrapper retains the generated child seam");
-strictEqual(retainedMetadataTsxSource.includes("__hxxChild"), false,
-  "the parser-only child marker never leaks from the metadata control");
+strictEqual(retainedMetadataTsxSource.includes("__hxx"), false,
+  "parser-only HXX provenance markers never leak from the metadata control");
 
 // The same marker must remain typed when a runtime String selects the
 // intrinsic tag in plain `.ts` createElement output. Static intrinsic and
 // component tags keep their stricter tag-specific property contracts.
 run("haxe", ["tests/genes-ts/snapshot/react/build-dual-ts.hxml"]);
-copyObservableComponents(
+copyDualComponentFixtures(
   "tests/genes-ts/snapshot/react/out/dual-ts/src-gen",
   "ts"
 );
@@ -1150,6 +1412,37 @@ const dualTsSource = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/react/out/dual-ts/src-gen/DualJsxMain.ts"),
   "utf8"
 );
+const dualTsDirectImportOrder = sourceSection(
+  dualTsSource,
+  "static renderDirectImportOrder(",
+  "static renderDirectAssignment("
+);
+ok(dualTsDirectImportOrder.includes(
+  "const tmp: JSX.Element = React__genes_jsx.createElement(DirectChild, null)"
+) && dualTsDirectImportOrder.includes(
+  "return React__genes_jsx.createElement(DirectParent,"
+), "typed createElement retains the direct-import child-first schedule");
+const dualTsWorldArchive = readFileSync(
+  path.join(repoRoot,
+    "tests/genes-ts/snapshot/react/out/dual-ts/src-gen/WorldArchive.ts"),
+  "utf8"
+);
+const retainedImportedStatusTs = readFileSync(
+  path.join(repoRoot,
+    "tests/genes-ts/snapshot/react/out/dual-ts/src-gen/RetainedImportedStatusView.ts"),
+  "utf8"
+);
+ok(retainedImportedStatusTs.includes(
+  'const tmp = {"__genesJsxPropName": "label"'
+) && retainedImportedStatusTs.includes(
+  "label: tmp.__genesJsxPropValue, value: tmp.__genesJsxPropNext.__genesJsxPropValue"
+), "typed createElement keeps the established nested carrier representation");
+ok(dualTsWorldArchive.includes(
+  "export function WorldArchive(props: WorldArchiveProps): JSX.Element"
+) && dualTsWorldArchive.includes("React__genes_jsx.createElement(\"article\"")
+  && !dualTsWorldArchive.includes("WorldArchive_Fields_")
+  && !dualTsWorldArchive.includes("setHxClass"),
+"typed createElement keeps the same direct component contract");
 assertNoUnsafeTypes({
   repoRoot,
   generatedDir: "tests/genes-ts/snapshot/react/out/dual-ts/src-gen",
@@ -1162,8 +1455,8 @@ ok(dualTsSource.includes(
 ok(!dualTsSource.includes(
   "ComponentPropsWithRef<typeof runtimeTag>"
 ), "runtime string props do not claim one statically known intrinsic contract");
-strictEqual(dualTsSource.includes("__hxxChild"), false,
-  "the parser-only child marker normalizes in typed createElement output");
+strictEqual(dualTsSource.includes("__hxx"), false,
+  "parser-only HXX provenance markers normalize in typed createElement output");
 ok(dualTsSource.includes(
   'createElement("dialog", ({open: true, closedby: "any", onCancel: function (event: import(\'react\').SyntheticEvent<HTMLDialogElement>)'
 ), "typed createElement preserves checked dialog props and event typing");
@@ -1187,7 +1480,7 @@ runGeneratedTypeScriptMatrix(
 );
 
 run("haxe", ["tests/genes-ts/snapshot/react/build-dual-classic.hxml"]);
-copyObservableComponents(
+copyDualComponentFixtures(
   "tests/genes-ts/snapshot/react/out/dual-classic",
   "js"
 );
@@ -1195,6 +1488,38 @@ const dualClassicSource = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/react/out/dual-classic/DualJsxMain.js"),
   "utf8"
 );
+const dualClassicDirectImportOrder = sourceSection(
+  dualClassicSource,
+  "static renderDirectImportOrder(",
+  "static renderDirectAssignment("
+);
+ok(dualClassicDirectImportOrder.includes(
+  "const tmp = React__genes_jsx.createElement(DirectChild, null)"
+) && dualClassicDirectImportOrder.includes(
+  "return React__genes_jsx.createElement(DirectParent, null, tmp)"
+), "classic createElement retains the direct-import child-first schedule");
+const dualClassicWorldArchive = readFileSync(
+  path.join(repoRoot,
+    "tests/genes-ts/snapshot/react/out/dual-classic/WorldArchive.js"),
+  "utf8"
+);
+const retainedImportedStatusClassic = readFileSync(
+  path.join(repoRoot,
+    "tests/genes-ts/snapshot/react/out/dual-classic/RetainedImportedStatusView.js"),
+  "utf8"
+);
+ok(retainedImportedStatusClassic.includes(
+  'const tmp = {"__genesJsxPropName": "label"'
+) && retainedImportedStatusClassic.includes(
+  '"label": tmp.__genesJsxPropValue, "value": tmp.__genesJsxPropNext.__genesJsxPropValue'
+), "classic createElement keeps the established nested carrier representation");
+ok(dualClassicWorldArchive.includes("export function WorldArchive(props)")
+  && dualClassicWorldArchive.includes(
+    'React__genes_jsx.createElement("article"'
+  )
+  && !dualClassicWorldArchive.includes("WorldArchive_Fields_")
+  && !dualClassicWorldArchive.includes("hxClasses"),
+"classic createElement keeps the same direct component and runtime behavior");
 ok(dualClassicSource.includes('import * as React__genes_jsx from "react"'));
 ok(dualClassicSource.includes("React__genes_jsx.createElement(\"main\""));
 ok(dualClassicSource.includes(
@@ -1236,10 +1561,10 @@ ok(dualClassicSource.includes(
   'createElement("svg", {"aria-label": "SVG ref", "ref": function (element)'
 ), "classic createElement preserves the same SVG callback");
 strictEqual(dualClassicSource.includes("Jsx.__jsx"), false);
-strictEqual(dualClassicSource.includes("__hxxChild"), false);
+strictEqual(dualClassicSource.includes("__hxx"), false);
 
 run("haxe", ["tests/genes-ts/snapshot/react/build-dual-jsx.hxml"]);
-copyObservableComponents(
+copyDualComponentFixtures(
   "tests/genes-ts/snapshot/react/out/dual-jsx",
   "js"
 );
@@ -1247,11 +1572,57 @@ const dualJsxSource = readFileSync(
   path.join(repoRoot, "tests/genes-ts/snapshot/react/out/dual-jsx/DualJsxMain.jsx"),
   "utf8"
 );
+const dualJsxDirectImportOrder = sourceSection(
+  dualJsxSource,
+  "static renderDirectImportOrder(",
+  "static renderDirectAssignment("
+);
+ok(dualJsxDirectImportOrder.includes(
+  "const tmp = <DirectChild />"
+) && dualJsxDirectImportOrder.includes(
+  "return <DirectParent>{tmp}</DirectParent>"
+), "source JSX retains the child-first schedule for live direct ESM imports");
+const dualJsxWorldArchive = readFileSync(
+  path.join(repoRoot,
+    "tests/genes-ts/snapshot/react/out/dual-jsx/WorldArchive.jsx"),
+  "utf8"
+);
+const retainedImportedStatusJsx = readFileSync(
+  path.join(repoRoot,
+    "tests/genes-ts/snapshot/react/out/dual-jsx/RetainedImportedStatusView.jsx"),
+  "utf8"
+);
+const retainedJsxProps = retainedImportedStatusJsx.indexOf(
+  'const tmp = {"label": "Nested", "value": recordCarrierProp(props.value)}'
+);
+const retainedJsxChild = retainedImportedStatusJsx.indexOf(
+  "const tmp1 = <RetainedObservableComponents.Child />"
+);
+const retainedJsxParent = retainedImportedStatusJsx.indexOf(
+  "<DirectParent label={tmp.label} value={tmp.value}>"
+);
+ok(retainedJsxProps >= 0
+  && retainedJsxProps < retainedJsxChild
+  && retainedJsxChild < retainedJsxParent,
+"source JSX consumes the same nested-carrier fact and keeps child-first order");
+strictEqual(retainedImportedStatusJsx.includes("__genesJsxProp"), false,
+  "a fully accounted nested HXX carrier does not leak protocol fields into JSX");
+ok(dualJsxWorldArchive.includes("export function WorldArchive(props)")
+  && dualJsxWorldArchive.includes(
+    '<article data-component="world-archive">{props.bundleName}</article>'
+  )
+  && !dualJsxWorldArchive.includes("WorldArchive_Fields_")
+  && !dualJsxWorldArchive.includes("hxClasses"),
+"source JSX erases types without changing the direct component contract");
+strictEqual(dualJsxSource.includes("data-planning-only"), false,
+  "a compiler-internal HXX field reached type-erased source JSX");
 ok(dualJsxSource.includes("<main {...rootProps}>"));
 ok(dualJsxSource.includes(
   "const tree1 = <main {...rootProps}><h1>{heading}</h1>{fragment}</main>"
 ), "type-erased JSX consumes the same exact facts without reclaiming owner names");
 ok(dualJsxSource.includes("React__genes_jsx.createElement(runtimeTag"));
+ok(dualJsxSource.includes("__genesJsxPropName"),
+  "an explicitly authored low-level marker is not mistaken for HXX provenance");
 ok(dualJsxSource.includes("const tree1 = function () {")
   && !dualJsxSource.includes(
     'const tree = "outer";\n\t\tconst tree = function () {'
@@ -1275,22 +1646,28 @@ ok(dualJsxSource.includes(
   '<svg aria-label="SVG ref" ref={function (element)'
 ), "type-erased JSX preserves the SVG callback without type syntax");
 strictEqual(dualJsxSource.includes("Jsx.__jsx"), false);
-strictEqual(dualJsxSource.includes("__hxxChild"), false);
+strictEqual(dualJsxSource.includes("__hxx"), false);
 strictEqual(dualJsxSource.includes(": JSX.Element"), false);
 runTypeScript("apiBridge", [
   "-p",
   "tests/genes-ts/snapshot/react/tsconfig.dual-jsx.json"
 ]);
-copyObservableComponents(
+copyDualComponentFixtures(
   "tests/genes-ts/snapshot/react/out/dual-jsx-dist",
   "js"
 );
 
 const expectedTranscript = {
   staticHtml: '<main class="shared" id="root"><h1>dual</h1><span>A</span><span>B</span></main>',
+  sameNameDirectHtml: '<article data-component="world-archive">Direct</article>',
+  sameNameAliasedHtml: '<article data-component="world-archive">Aliased</article>',
+  zeroPropsHtml: '<p data-component="welcome">Ready</p>',
+  retainedImportedStatusHtml: '<article data-component="retained-imported-status"><section data-carrier="retained"><button type="button"><span>child</span><span>mixed</span></button></section></article>',
+  retainedImportedStatusOrder: 'prop,child-tag,child,parent-render,child-render',
   sameExpressionOrderHtml: '<div><span>after</span></div>',
   nestedNameScopeHtml: '<section data-owner="outer"><div><span>inner</span></div></section>',
   staticTagReadOrderHtml: '<section data-order="Child,Parent"><span>child</span></section>',
+  directImportOrderHtml: '<section data-import="direct"><span>direct child</span></section>',
   directAssignmentHtml: '<section><span>assigned</span></section>',
   localComponentHtml: '<section><span>local</span></section>',
   capturedChildHtml: '<div><span>captured</span></div>',
@@ -1308,11 +1685,32 @@ const expectedTranscript = {
   svgRefHtml: '<svg aria-label="SVG ref"></svg>',
   focusedChangeHtml: '<input aria-label="Focused change"/>',
   dynamicHtml: '<aside data-mode="dynamic">D</aside>',
+  privateDynamicHtml: '<aside data-private="evaluated-once">Q</aside>',
+  forgedSafeHtml: '<div data-safe="evaluated-once">S</div>',
+  forgedSharedStaticHtml: '<div data-shared="evaluated-once">U</div>',
+  forgedSharedDynamicHtml: '<aside data-shared="evaluated-once">V</aside>',
+  nestedSharedHtml: '<section><div data-nested-shared="evaluated-once">W</div><div data-nested-shared="evaluated-once">X</div></section>',
+  malformedTerminalHtml: '<div data-terminal="kept">M</div>',
+  reorderedCarrierHtml: '<div data-reordered="evaluated-once">R</div>',
+  liftedTailHtml: '<div data-head="head" data-tail="evaluated-once">T</div>',
   evaluatedHtml: '<div title="evaluated-once">E</div>',
   arrayPropHtml: '<div data-array="evaluated-once">P</div>',
   arrayChildHtml: '<div>evaluated-once</div>',
-  propEvaluations: 3
+  propEvaluations: 10
 };
+const worldArchiveSourcePath = path.join(
+  repoRoot,
+  "tests/genes-ts/snapshot/react/src/WorldArchive.hx"
+);
+for (const generatedPath of [
+  "tests/genes-ts/snapshot/react/out/dual-tsx/src-gen/WorldArchive.tsx",
+  "tests/genes-ts/snapshot/react/out/dual-ts/src-gen/WorldArchive.ts",
+  "tests/genes-ts/snapshot/react/out/dual-jsx/WorldArchive.jsx",
+  "tests/genes-ts/snapshot/react/out/dual-classic/WorldArchive.js"
+]) {
+  assertMappedComponent(path.join(repoRoot, generatedPath),
+    worldArchiveSourcePath);
+}
 const tsxTranscript = parseTranscript(
   capture("node", ["tests/genes-ts/snapshot/react/out/dual-tsx/dist/index.js"])
 );
@@ -1329,6 +1727,17 @@ deepStrictEqual(tsxTranscript, expectedTranscript);
 deepStrictEqual(tsTranscript, expectedTranscript);
 deepStrictEqual(classicTranscript, expectedTranscript);
 deepStrictEqual(jsxTranscript, expectedTranscript);
+
+// Native ESM semantics are the independent oracle for the retained temporary.
+// In the nested expression, JavaScript reads the live `Parent` binding before
+// the child factory call replaces its export. The explicit child temporary
+// performs that call first and therefore reads the replacement parent.
+deepStrictEqual(parseTranscript(capture("node", [
+  "tests/genes-ts/snapshot/react/fixtures/esm-live-binding-runner.mjs"
+])), {
+  nestedParent: "old parent",
+  scheduledParent: "new parent"
+});
 
 // `.tsx` and `.jsx` are deliberately distinct contracts. Rejecting the
 // contradictory `.jsx` + `genes.ts` combination prevents silently erasing the

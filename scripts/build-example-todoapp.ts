@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
+import {
+  execFileSync,
+  spawnSync,
+  type ExecFileSyncOptions
+} from "node:child_process";
 import { copyFileSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -85,10 +89,71 @@ function assertReactRouter8Imports(extension: ".ts" | ".tsx"): void {
   assert.doesNotMatch(modules, /react-router-dom/);
 }
 
+/**
+ * The HTTP decoder guarantees that every update has at least one checked,
+ * non-null field. Keep the generated Store surface from exposing an internal
+ * nullable helper that would let TypeScript callers bypass that guarantee.
+ */
+function assertClosedStoreUpdateSurface(): void {
+  const store = readFileSync(
+    path.join(exampleRoot, "server", "src-gen", "todo", "server", "Store.ts"),
+    "utf8"
+  );
+  assert.doesNotMatch(store, /\bupdateFields\s*\(/);
+  assert.match(store, /\bupdateTitle\(id: string, title: string\)/);
+  assert.match(store, /\bupdateCompleted\(id: string, completed: boolean\)/);
+  assert.match(
+    store,
+    /\bupdateBoth\(id: string, title: string, completed: boolean\)/
+  );
+}
+
+/**
+ * Public Client methods own concrete Todo routes. A generic method/url/body
+ * helper would let generated-TypeScript consumers bypass those checked shapes.
+ */
+function assertClosedClientRequestSurface(extension: ".ts" | ".tsx"): void {
+  const client = readFileSync(
+    path.join(exampleRoot, "web", "src-gen", "todo", "web", `Client${extension}`),
+    "utf8"
+  );
+  assert.doesNotMatch(client, /\brequestJson\s*</);
+  assert.match(client, /\bupdateTodoTitle\(id: string, title: string\)/);
+  assert.match(client, /\bupdateTodoCompleted\(id: string, completed: boolean\)/);
+}
+
+/**
+ * Haxe's ordinary JS mode permits null unless a project opts into null safety.
+ * This negative compilation proves the maintained Todoapp does opt in and that
+ * callers cannot send null through the concrete update helpers.
+ */
+function assertHaxeRejectsNullUpdate(): void {
+  const outputFile = path.join(
+    exampleRoot,
+    "contracts",
+    "null-update-negative.ts"
+  );
+  rmSync(outputFile, { force: true });
+  try {
+    const result = spawnSync(
+      "haxe",
+      ["examples/todoapp/contracts/build-null-update-negative.hxml"],
+      { cwd: repoRoot, encoding: "utf8" }
+    );
+    const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+    assert.notEqual(result.status, 0, "null update unexpectedly compiled in Haxe");
+    assert.match(output, /NullUpdateNegative[.]hx/);
+    assert.match(output, /Null safety: Cannot pass nullable value/);
+  } finally {
+    rmSync(outputFile, { force: true });
+  }
+}
+
 rmrf("web/src-gen");
 rmrf("web/dist");
 rmrf("server/src-gen");
 rmrf("server/dist");
+assertHaxeRejectsNullUpdate();
 
 // Web: variants first (typecheck + snapshots), then build the default runnable app last.
 
@@ -96,6 +161,7 @@ rmrf("server/dist");
 run("haxe", ["examples/todoapp/web/build.lowlevel.hxml"]);
 assertPreciseJsxNamespaceImport(".ts");
 assertReactRouter8Imports(".ts");
+assertClosedClientRequestSurface(".ts");
 assertSnapshots({
   generatedDir: "examples/todoapp/web/src-gen",
   snapshotsDir: "examples/todoapp/web/dist-ts-lowlevel/src-gen",
@@ -113,6 +179,7 @@ rmrf("web/src-gen");
 run("haxe", ["examples/todoapp/web/build.minimal.hxml"]);
 assertPreciseJsxNamespaceImport(".tsx");
 assertReactRouter8Imports(".tsx");
+assertClosedClientRequestSurface(".tsx");
 assertSnapshots({
   generatedDir: "examples/todoapp/web/src-gen",
   snapshotsDir: "examples/todoapp/web/dist-ts-minimal/src-gen",
@@ -130,6 +197,7 @@ rmrf("web/src-gen");
 run("haxe", ["examples/todoapp/web/build.hxml"]);
 assertPreciseJsxNamespaceImport(".tsx");
 assertReactRouter8Imports(".tsx");
+assertClosedClientRequestSurface(".tsx");
 assertSnapshots({
   generatedDir: "examples/todoapp/web/src-gen",
   snapshotsDir: "examples/todoapp/web/dist-ts/src-gen",
@@ -182,6 +250,7 @@ rmSync(path.join(exampleRoot, "web/dist/esbuild-meta.json"));
 // Server: minimal runtime is typechecked only (avoid overwriting the runnable build output).
 rmrf("server/src-gen");
 run("haxe", ["examples/todoapp/server/build.minimal.hxml"]);
+assertClosedStoreUpdateSurface();
 assertSnapshots({
   generatedDir: "examples/todoapp/server/src-gen",
   snapshotsDir: "examples/todoapp/server/dist-ts-minimal/src-gen",
@@ -190,7 +259,13 @@ assertSnapshots({
 assertNoUnsafeTypes({
   repoRoot,
   generatedDir: "examples/todoapp/server/src-gen/todo",
-  fileExts: [".ts"]
+  fileExts: [".ts"],
+  // Express declares the transport value as unknown; ApiRequestDecoder is the
+  // only application module allowed to inspect and narrow that value.
+  allowUnsafeTypeFiles: [
+    "extern/Express.ts",
+    "server/ApiRequestDecoder.ts"
+  ]
 });
 runTypeScript("legacyFloor", [
   "-p",
@@ -201,6 +276,7 @@ runTypeScript("legacyFloor", [
 // Default server build (runnable; emits JS + d.ts into server/dist).
 rmrf("server/src-gen");
 run("haxe", ["examples/todoapp/server/build.hxml"]);
+assertClosedStoreUpdateSurface();
 assertSnapshots({
   generatedDir: "examples/todoapp/server/src-gen",
   snapshotsDir: "examples/todoapp/server/dist-ts/src-gen",
@@ -209,6 +285,10 @@ assertSnapshots({
 assertNoUnsafeTypes({
   repoRoot,
   generatedDir: "examples/todoapp/server/src-gen/todo",
-  fileExts: [".ts"]
+  fileExts: [".ts"],
+  allowUnsafeTypeFiles: [
+    "extern/Express.ts",
+    "server/ApiRequestDecoder.ts"
+  ]
 });
 runGeneratedTypeScriptMatrix("examples/todoapp/server/tsconfig.json");

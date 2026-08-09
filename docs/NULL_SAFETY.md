@@ -126,6 +126,73 @@ Classic JavaScript output has no TypeScript checker. Haxe null safety is still
 useful for the source, while Genes' runtime fixtures verify the emitted
 JavaScript behavior.
 
+## Indexed reads and updates are different operations
+
+`noUncheckedIndexedAccess` makes TypeScript treat `values[index]` as possibly
+`undefined`, even when Haxe has already typed that same expression as `T`.
+Genes cannot solve every indexed occurrence with one postfix `!`:
+
+- a plain write does not read the old slot and needs no read assertion;
+- an ordinary `Array<T>` read must preserve the exact Haxe `T`, including a
+  legitimate nested `null`;
+- `Array<Null<T>>` normalizes a missing JavaScript slot to Haxe `null`;
+- `Array<Undefinable<T>>` must retain its explicit `undefined` boundary;
+- arithmetic and update operators read before writing and require a proven
+  number or string operation domain; and
+- `??=`, `||=`, and `&&=` must retain the complete nullable writable target,
+  because narrowing the target can make a nullable right-hand side invalid.
+
+`TsIndexedAccessPlan` records those facts independently for each exact typed
+expression. It also records whether the surrounding tree consumes or discards
+an assignment/update result, and distinguishes a nullable receiver, such as
+`base` in `base[index]`, from the indexed slot itself. The classifier recognizes
+parentheses, erased metadata, and an erased implicit cast through a closed
+policy, but Haxe 4.3 removes those wrappers before generation. Production
+admission therefore fails closed if a wrapper reaches the final typed program;
+runtime casts and syntax-producing metadata also fail before publication.
+
+Three narrow Haxe-owned forms can retain an unresolved compiler variable after
+typing: `DynamicAccess<Dynamic>.get`, reads and initialization writes on the
+compiler-owned `$hxClasses` and `$hxEnums` registry identifiers, and the indexed
+parameter read inside Haxe's standard `Type.enumParameters` implementation.
+Genes admits registry reads only through a closed field/index chain rooted at
+the exact compiler `TIdent`. Parentheses may group the chain, but metadata,
+casts, aliases, and calls are not part of that grammar.
+Only a direct registry slot accepts a plain initialization write. Compound
+assignments, updates, and writes through a derived registry value fail closed.
+The enum-parameter case additionally requires the exact outer standard-library
+function and the exact argument `TVar`; another local in that function does not
+inherit the exception. An unrelated unresolved indexed type still fails closed.
+
+The TypeScript emitter consumes this plan directly. For example, Haxe accepts
+a bitwise update whose old array slot has the declared type `Int`:
+
+```haxe
+values[index] |= mask;
+```
+
+With `noUncheckedIndexedAccess`, TypeScript adds a checker-only `undefined` to
+that read. The plan authorizes the type-only assertion needed by the native
+operation:
+
+```ts
+values[index]! |= mask;
+```
+
+The emitter does not decide that `!` is safe from the operator spelling or the
+generated text. It prints the exact plan decision for that typed operation.
+Plain writes receive no assertion. Haxe 4.3 rejects retained `&&=` and `||=` and
+lowers source `??=` before Genes runs, so this release does not claim native
+logical/nullish indexed-assignment emission. The classifier records the future
+direct-target decision, while production admission rejects those forms until a
+real emission-level fixture exists. A nested nullable receiver gets its own
+receiver assertion independently from the outer indexed slot.
+
+Prefix and postfix updates remain native TypeScript syntax, preserving their
+different result values. Receiver, index, and right-hand-side expressions are
+still evaluated once and in Haxe order. Classic JavaScript does not build or
+consume this TypeScript-only plan.
+
 ## Loose and Strict modes
 
 Genes begins with Haxe's `Loose` mode because it is a practical source-quality

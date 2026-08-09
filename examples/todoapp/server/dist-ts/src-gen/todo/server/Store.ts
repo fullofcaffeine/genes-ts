@@ -1,10 +1,10 @@
 import {TodoId} from "../shared/TodoId.js"
+import {StringTools} from "../../StringTools.js"
 import * as Fs from "fs"
 import {Exception} from "../../haxe/Exception.js"
 import {Register} from "../../genes/Register.js"
 import type {Todo} from "../shared/Todo.js"
 import type {Console} from "console"
-import type {UpdateTodoBody} from "../shared/Api.js"
 
 export type PersistedStore = {
 	todos: Todo[]
@@ -48,17 +48,39 @@ export class Store extends Register.inherits() {
 		this.save();
 		return todo;
 	}
-	update(id: string, patch: UpdateTodoBody): Todo | null {
+	updateTitle(id: string, title: string): Todo | null {
+		if (StringTools.trim(title).length == 0) {
+			return null;
+		};
 		const todo: Todo | null = this.get(id);
 		if (todo == null) {
 			return null;
 		};
-		if ((patch.title ?? null) != null) {
-			todo.title = (patch.title!);
+		todo.title = title;
+		todo.updatedAt = Store.nowIso();
+		this.save();
+		return todo;
+	}
+	updateCompleted(id: string, completed: boolean): Todo | null {
+		const todo: Todo | null = this.get(id);
+		if (todo == null) {
+			return null;
 		};
-		if ((patch.completed ?? null) != null) {
-			todo.completed = (patch.completed!);
+		todo.completed = completed;
+		todo.updatedAt = Store.nowIso();
+		this.save();
+		return todo;
+	}
+	updateBoth(id: string, title: string, completed: boolean): Todo | null {
+		if (StringTools.trim(title).length == 0) {
+			return null;
 		};
+		const todo: Todo | null = this.get(id);
+		if (todo == null) {
+			return null;
+		};
+		todo.title = title;
+		todo.completed = completed;
 		todo.updatedAt = Store.nowIso();
 		this.save();
 		return todo;

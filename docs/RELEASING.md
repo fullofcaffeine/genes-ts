@@ -350,6 +350,11 @@ yarn test:tooling-package
 
 `yarn --cwd tooling pack:check` is the package-scoped equivalent.
 
+The required Genes CI also installs the exact packed candidate with Node
+20.9.0 and its npm 10 client. This separate check protects the minimum runtime
+declared by `tooling/package.json`; the repository's compiler and build scripts
+continue to use their newer Node versions.
+
 ### Rotating pinned GitHub Actions
 
 Dependabot is configured for weekly GitHub Actions updates. For a proposed

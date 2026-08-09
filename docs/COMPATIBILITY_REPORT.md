@@ -8,6 +8,103 @@ genes-ts supports controlled Haxe-to-TypeScript and classic ESM JavaScript profi
 
 This is an evidence contract, not a cached CI-success badge. `blocking` and `nonblocking-nightly` describe enforcement; current run results remain in CI. Compile, typing, semantic, snapshot, smoke, package, and downstream evidence are intentionally not merged into one score.
 
+## Product-surface scorecards
+
+Each row is an independent claim boundary. A green gate may cover several rows, but it advances only the surface whose behavior and oracle the change actually exercised. The example portfolio is an evidence asset, not another compiler product.
+
+| Surface | Kind | Current bounded claim | Claim ceiling |
+| --- | --- | --- | --- |
+| Classic JavaScript generation and runtime | `product` | Ordinary Haxe programs in the reviewed corpus compile to split ESM JavaScript and preserve the exercised Haxe runtime behavior. | The checked compiler and example corpora; not arbitrary Haxe ecosystem compatibility. |
+| Typed TypeScript generation and runtime | `product` | The reviewed Haxe corpus emits strict, executable TypeScript with the asserted public and runtime semantics. | The checked TypeScript 5/6/7 contracts and fixtures; not all possible Haxe or TypeScript programs. |
+| Declarations and package contracts | `product` | Reviewed classic declarations and package-shaped imports retain precise, consumable public contracts. | The checked declaration consumers and package fixtures; runtime success alone cannot advance this claim. |
+| React, HXX, JSX, and TSX compiler behavior | `product` | Reviewed HXX and React source shapes compile, type-check, map, and execute consistently across their declared source/createElement profiles. | Compiler-facing React/HXX behavior; it does not by itself prove a real browser application. |
+| Browser and framework runtime behavior | `product` | The maintained Todo application runs its distinctive browser workflow in both generated profiles. | The maintained browser scenarios and pinned framework versions; compiler-only React fixtures cannot advance this claim. |
+| Host tooling and publication helpers | `product` | The reviewed host lifecycle and publication primitives work through their protocol, runtime, clean-consumer, and transaction tests. | Framework-neutral primitives only; no framework-specific watcher or deployment policy is implied. |
+| TypeScript-to-Haxe migration tooling | `product` | The documented ts2hx subset translates its checked fixtures transactionally and passes its semantic/runtime comparisons. | The proven migration subset only; it is not arbitrary TypeScript support and does not prove Haxe-to-Genes conformance. |
+| Installation, release, adoption, and downstream contracts | `product` | The reviewed artifacts install cleanly, preserve their declared package shape, and are checked against pinned downstream contracts without laundering those results into compiler conformance. | Pinned package and downstream contracts; nonblocking downstream observations cannot promote a core compiler claim. |
+| Maintained example portfolio | `evidence-portfolio` | Every immediate maintained example is classified and executes no more evidence than its declared tier and profile contract. | Examples are evidence assets, not a substitute for the product surface that owns the behavior. |
+
+### Classic JavaScript generation and runtime
+
+- Owner: Classic emitter and shared Haxe runtime owners
+- Gates: `classic-core`, `css-module-companions`, `dual-output-semantics`, `portable-haxe-smoke`, `acceptance`, `full-ci`
+- Compatibility evidence: `compiler-output-inventory`, `runtime-semantic-differentials`, `official-haxe-dual-profile-smoke`
+- Maintained examples: `todoapp`, `typescript-target`
+- Last clean proof: The current required main/release gates; run results live in GitHub Actions rather than this deterministic manifest.
+- Residual risks: The complete applicable official Haxe inventory remains tracked separately from the five-test smoke.
+
+### Typed TypeScript generation and runtime
+
+- Owner: TypeScript emitter and TypeScript semantic plans
+- Gates: `typescript-full`, `css-module-companions`, `dual-output-semantics`, `portable-haxe-smoke`, `source-maps`, `acceptance`, `full-ci`
+- Compatibility evidence: `compiler-output-inventory`, `public-type-safety`, `runtime-semantic-differentials`, `official-haxe-dual-profile-smoke`
+- Maintained examples: `todoapp`, `typescript-target`
+- Last clean proof: The current required main/release gates; run results live in GitHub Actions rather than this deterministic manifest.
+- Residual risks: Generated-source readability still requires reviewed shape assertions in addition to strict type checking.
+
+### Declarations and package contracts
+
+- Owner: Declaration reachability, type emitters, and package/import plans
+- Gates: `classic-declarations`, `css-module-companions`, `package-imports`, `binding-identity`, `acceptance`, `full-ci`
+- Compatibility evidence: `public-type-safety`, `npm-package-shapes`
+- Maintained examples: `todoapp`
+- Last clean proof: The current required main/release gates; run results live in GitHub Actions rather than this deterministic manifest.
+- Residual risks: Third-party package contracts outside the curated fixtures remain independent evidence.
+
+### React, HXX, JSX, and TSX compiler behavior
+
+- Owner: HXX parser, JSX semantic plan, React helpers, and source emitters
+- Gates: `hxx-tsx`, `hxx-carrier-immutability`, `hxx-event-variance`, `react-hooks`, `react-flight`, `source-maps`, `acceptance`, `full-ci`
+- Compatibility evidence: `reviewed-generated-shape`, `runtime-semantic-differentials`
+- Maintained examples: `todoapp`
+- Last clean proof: The current required main/release gates; run results live in GitHub Actions rather than this deterministic manifest.
+- Residual risks: Framework-version and browser behavior require the separate browser/application scorecard.
+
+### Browser and framework runtime behavior
+
+- Owner: Maintained application QA and Playwright observers
+- Gates: `examples-dual-profile-e2e`, `acceptance`, `full-ci`
+- Compatibility evidence: `same-source-example-smoke`
+- Maintained examples: `todoapp`
+- Last clean proof: The current required main/release gates; run results live in GitHub Actions rather than this deterministic manifest.
+- Residual risks: A browser scenario protects only the user-visible workflow it actually executes.
+
+### Host tooling and publication helpers
+
+- Owner: The optional Node tooling package
+- Gates: `host-tooling`, `css-module-companions`, `full-ci`
+- Compatibility evidence: none; the focused gate is the current owner
+- Maintained examples: none
+- Last clean proof: The host-tooling gate owns live proof in required CI; no compatibility bucket or cached green result is asserted here.
+- Residual risks: Framework integrations must provide their own real host/runtime evidence.
+
+### TypeScript-to-Haxe migration tooling
+
+- Owner: tools/ts2hx
+- Gates: `ts2hx`, `acceptance`, `full-ci`
+- Compatibility evidence: `runtime-semantic-differentials`, `reviewed-generated-shape`, `pinned-toolchain-lanes`
+- Maintained examples: none
+- Last clean proof: The current required main/release gates; run results live in GitHub Actions rather than this deterministic manifest.
+- Residual risks: Unsupported TypeScript syntax and project configurations remain explicit migration boundaries.
+
+### Installation, release, adoption, and downstream contracts
+
+- Owner: Package, release, security, and curated downstream owners
+- Gates: `release-contract`, `package-imports`, `compatibility-inventory`, `full-ci`
+- Compatibility evidence: `npm-package-shapes`, `curated-downstream-contracts`
+- Maintained examples: none
+- Last clean proof: Blocking package/release proof lives in required Actions. Curated downstream proof is nonblocking-nightly and exists only in its latest run artifact; this manifest does not cache a green result.
+- Residual risks: Unpinned consumers and unsupported ecosystems remain outside the release claim.
+
+### Maintained example portfolio
+
+- Owner: examples/profiles.json and the example runner
+- Gates: `examples-dual-profile-e2e`, `full-ci`
+- Compatibility evidence: `same-source-example-smoke`
+- Maintained examples: `todoapp`, `typescript-target`
+- Last clean proof: The current required main/release gates; run results live in GitHub Actions rather than this deterministic manifest.
+- Residual risks: A compile-only future example must not be advertised as runtime or migration proof.
+
 ## Coverage counts
 
 | Evidence class | Metric | Exact count | Disposition |
@@ -25,14 +122,14 @@ This is an evidence contract, not a cached CI-success badge. `blocking` and `non
 | Snapshot stability | genes-ts snapshot profiles | 8 | `blocking` |
 | Snapshot stability | ts2hx reviewed snapshot files | 50 | `blocking` |
 | Runtime smoke and E2E | Same-source dual-profile examples | 2 | `blocking` |
-| Runtime smoke and E2E | Todoapp browser journeys run in each profile | 3 | `blocking` |
+| Runtime smoke and E2E | Todoapp browser journeys run in each profile | 4 | `blocking` |
 | Runtime smoke and E2E | Reviewed active official Haxe test identities | 5 | `blocking` |
 | Runtime smoke and E2E | Independently executed Genes profiles | 2 | `blocking` |
 | Runtime smoke and E2E | Hash-pinned local harness adaptation files | 4 | `blocking` |
 | Toolchain compatibility | Pinned TypeScript lanes | 3 | `blocking` |
 | Toolchain compatibility | Pinned Haxe lanes | 2 | `blocking` |
 | Toolchain compatibility | Pinned Node lanes, runtime floors, and supported range | 5 | `blocking` |
-| Package-shape interoperability | Local package-shape fixtures | 4 | `blocking` |
+| Package-shape interoperability | Local package-shape fixtures | 5 | `blocking` |
 | Package-shape interoperability | dts2hx declaration entrypoints | 3 | `blocking` |
 | Package-shape interoperability | dts2hx package roots | 2 | `blocking` |
 | Downstream pressure tests | Pinned downstream repositories | 2 | `nonblocking-nightly` |
@@ -153,7 +250,7 @@ Named application journeys execute in selected profiles; smoke success is not ge
 
 - Disposition: `blocking`
 - Scope: The minimal example and fullstack todoapp compile from one Haxe source tree through TS and classic ESM profiles.
-- Proves: Both outputs build and execute the same selected application workflows, including validation, CRUD, navigation, and deep links.
+- Proves: Both outputs build and execute the same selected application workflows, including status filtering, validation, CRUD, navigation, and deep links.
 - Does not prove: Two green examples do not imply whole-ecosystem or framework-independent parity.
 - Evidence:
   - [`examples/profiles.json`](../examples/profiles.json)

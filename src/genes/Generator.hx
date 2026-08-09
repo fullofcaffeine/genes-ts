@@ -618,6 +618,8 @@ class Generator {
     #if !genes.disable
     if (Context.defined('js')) {
       final alreadyInstalled = Context.defined(CompilerInternal.GENERATOR_ACTIVE_DEFINE);
+      if (!alreadyInstalled)
+        TypeUtil.refreshCompilerTypes();
       Compiler.define(CompilerInternal.GENERATOR_ACTIVE_DEFINE);
       isolateCompilerOutput(alreadyInstalled);
       LibraryProfile.validate();

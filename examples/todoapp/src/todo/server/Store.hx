@@ -2,7 +2,6 @@ package todo.server;
 
 import js.node.Fs;
 import js.node.console.Console;
-import todo.shared.Api.UpdateTodoBody;
 import todo.shared.Todo;
 import todo.shared.TodoId;
 
@@ -50,14 +49,39 @@ class Store {
     return todo;
   }
 
-  public function update(id: TodoId, patch: UpdateTodoBody): Null<Todo> {
+  public function updateTitle(id: TodoId, title: String): Null<Todo> {
+    // Store is emitted as an importable class. Preserve the domain invariant
+    // even when a target-language consumer calls it without the HTTP decoder.
+    if (StringTools.trim(title).length == 0)
+      return null;
     final todo = get(id);
     if (todo == null)
       return null;
-    if (patch.title != null)
-      todo.title = patch.title;
-    if (patch.completed != null)
-      todo.completed = patch.completed;
+    todo.title = title;
+    todo.updatedAt = nowIso();
+    save();
+    return todo;
+  }
+
+  public function updateCompleted(id: TodoId, completed: Bool): Null<Todo> {
+    final todo = get(id);
+    if (todo == null)
+      return null;
+    todo.completed = completed;
+    todo.updatedAt = nowIso();
+    save();
+    return todo;
+  }
+
+  public function updateBoth(id: TodoId, title: String,
+      completed: Bool): Null<Todo> {
+    if (StringTools.trim(title).length == 0)
+      return null;
+    final todo = get(id);
+    if (todo == null)
+      return null;
+    todo.title = title;
+    todo.completed = completed;
     todo.updatedAt = nowIso();
     save();
     return todo;

@@ -3,6 +3,7 @@ import __genes_import_PrettyButton from "../../../../src-ts/components/PrettyBut
 import {interopBanner as __genes_import_interopBanner} from "../../../../src-ts/interop/haxeInterop"
 import {useState, useEffect} from "react"
 import {TodoText} from "../../shared/TodoText"
+import {TodoFilter} from "../TodoFilter"
 import {Client} from "../Client"
 import {StringTools} from "../../../StringTools"
 import {Link} from "react-router"
@@ -17,6 +18,11 @@ function Component(): JSX.Element {
 	const todos: Todo[] = todosState[0];
 	const titleState: UseStateResult<string> = useState("");
 	const title: string = titleState[0];
+	const initialFilter: (() => TodoFilter) = function () {
+		return TodoFilter.All;
+	};
+	const filterState: UseStateResult<TodoFilter> = useState(initialFilter);
+	const filter: TodoFilter = filterState[0];
 	const errorState: UseStateResult<string> = useState("");
 	const error: string = errorState[0];
 	useEffect(function () {
@@ -50,6 +56,25 @@ function Component(): JSX.Element {
 		const next: Todo[] = _g_1;
 		todosState[1](next);
 	};
+	const isVisible: ((todo: Todo) => boolean) = function (todo: Todo) {
+		switch (filter._hx_index) {
+			case 0: {
+				return true;
+				break;
+			}
+			case 1: {
+				return !todo.completed;
+				break;
+			}
+			case 2: {
+				return todo.completed;
+				break;
+			}
+			default: {
+				throw "unreachable";
+			}
+		};
+	};
 	const onAdd: (() => void) = function () {
 		const trimmed: string = StringTools.trim(title);
 		if (trimmed.length == 0) {
@@ -75,7 +100,7 @@ function Component(): JSX.Element {
 	};
 	const renderTodoItem: ((todo: Todo) => JSX.Element) = function (todo: Todo) {
 		return <li key={todo.id} style={{"display": "flex", "alignItems": "center", "gap": "8px", "padding": "8px 0", "borderBottom": "1px solid #eee"}}><input type="checkbox" checked={todo.completed} onChange={function () {
-			return Client.updateTodo(todo.id, {"completed": !todo.completed}).then(function (updated: Todo) {
+			return Client.updateTodoCompleted(todo.id, !todo.completed).then(function (updated: Todo) {
 				replaceTodo(updated);
 				return null;
 			});
@@ -86,6 +111,22 @@ function Component(): JSX.Element {
 			});
 		}}> Delete </button></li>;
 	};
+	const renderFilterButton: ((label: string, value: TodoFilter) => JSX.Element) = function (label: string, value: TodoFilter) {
+		const selected: boolean = filter == value;
+		return <button aria-pressed={selected} onClick={function () {
+			filterState[1](value);
+		}} style={{"padding": "6px 10px", "border": (selected) ? "1px solid #2563eb" : "1px solid #d1d5db", "borderRadius": "999px", "backgroundColor": (selected) ? "#dbeafe" : "white", "color": (selected) ? "#1e3a8a" : "#374151"}}>{label}</button>;
+	};
+	const _g_2: Todo[] = [];
+	let _g1_2: number = 0;
+	while (_g1_2 < todos.length) {
+		const todo: Todo = todos[_g1_2]!;
+		++_g1_2;
+		if (isVisible(todo)) {
+			_g_2.push(todo);
+		};
+	};
+	const visibleTodos: Todo[] = _g_2;
 	const h2: JSX.Element = <h2>Todos</h2>;
 	const input: JSX.Element = <input value={title} placeholder="New todo" onChange={function (e: ChangeEvent) {
 		titleState[1](e.target.value);
@@ -94,17 +135,21 @@ function Component(): JSX.Element {
 		onAdd();
 	}} variant="primary" />;
 	const div: JSX.Element = <div style={{"display": "flex", "gap": "8px", "marginBottom": "12px"}}>{input}{tmp2}</div>;
+	const tmp4: JSX.Element = renderFilterButton("All todos", TodoFilter.All);
+	const tmp5: JSX.Element = renderFilterButton("Open todos", TodoFilter.Open);
+	const tmp6: JSX.Element = renderFilterButton("Completed todos", TodoFilter.Completed);
+	const div_1: JSX.Element = <div style={{"display": "flex", "gap": "8px", "marginBottom": "12px"}}>{tmp4}{tmp5}{tmp6}</div>;
 	const f: ((arg0: Todo) => JSX.Element) = renderTodoItem;
-	const result: JSX.Element[] = new Array(todos.length);
-	let _g_2: number = 0;
-	const _g1_2: number = todos.length;
-	while (_g_2 < _g1_2) {
-		const i: number = _g_2++;
-		result[i] = f(todos[i]!);
+	const result: JSX.Element[] = new Array(visibleTodos.length);
+	let _g2: number = 0;
+	const _g3: number = visibleTodos.length;
+	while (_g2 < _g3) {
+		const i: number = _g2++;
+		result[i] = f(visibleTodos[i]!);
 	};
 	const ul: JSX.Element = <ul style={{"listStyle": "none", "padding": "0", "margin": "0"}}>{result}</ul>;
-	const tmp5: string = TodoListPage.interopBanner();
-	return <div>{h2}{errorView}{div}{ul}<p style={{"marginTop": "16px", "color": "#666", "fontSize": "12px"}}>{tmp5}</p></div>;
+	const tmp9: string = TodoListPage.interopBanner();
+	return <div>{h2}{errorView}{div}{div_1}{ul}<p style={{"marginTop": "16px", "color": "#666", "fontSize": "12px"}}>{tmp9}</p></div>;
 }
 export class TodoListPage {
 	declare static PrettyButton: ReactComponent1<PrettyButtonProps>;

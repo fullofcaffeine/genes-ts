@@ -55,6 +55,23 @@ yarn test:examples                 # both profiles, API/runtime smoke
 yarn test:examples --playwright    # both profiles, same browser journeys
 ```
 
+Backend changes can use the API-only observer after building the matching
+profile. It exercises the real generated Node server without requiring a web
+bundle, so a backend failure is not hidden by unrelated browser setup:
+
+```bash
+yarn build:example:todoapp
+yarn build:scripts
+node scripts/dist/qa-todoapp.js --profile ts --skip-build --api-only
+
+yarn build:example:todoapp:classic
+node scripts/dist/qa-todoapp.js --profile classic --skip-build --api-only
+```
+
+`--api-only` and `--playwright` are intentionally mutually exclusive because
+they prove different product surfaces. The full example commands above remain
+the broader integration evidence before merge.
+
 ## Graceful TS → JS degradation
 
 The web and server profiles point at the identical `examples/todoapp/src/`
@@ -98,18 +115,98 @@ while allowing both build commands to start from a fresh checkout.
 ## What the harness verifies
 
 - React Router rendering and inline-markup lowering;
-- Express CRUD API behavior and static asset hosting;
+- Express CRUD API behavior, checked decoding of untrusted JSON request
+  bodies, omitted PATCH-field preservation, and static asset hosting;
 - Haxe → authored TS/TSX imports via `genes.ts.Imports`;
 - authored TS → generated Haxe module imports;
 - strict generated TS and classic `.d.ts` consumers on TS 5.5, 6, and 7;
 - absence of unsafe user-module types at the checked boundaries;
+- an All/Open/Completed list filter backed by an ordinary Haxe enum and
+  exhaustive switch; and
 - exact same API and Playwright journeys against both runtime profiles.
+
+The filter is a deliberately bounded application example. Its manually
+authored browser truth table proves that one closed domain value and ordinary
+switch produce the same visible result through TSX and direct classic ESM. It
+does not replace the focused fixtures for generic classes, payload enums,
+exception/finally completion, or adversarial evaluation order.
+
+The server follows the same bounded-proof rule. Express request bodies enter
+Haxe as `genes.ts.Unknown`; `todo.server.ApiRequestDecoder` checks the object
+shape and each field before constructing a `CreateTodoBody` or an internal
+validated update. The public `UpdateTodoBody` is a non-empty union: callers
+must provide `title`, `completed`, or both, and TypeScript callers cannot send
+`null` for either value. Haxe UI code does not accept that wire record directly:
+`Client.updateTodoTitle` and `Client.updateTodoCompleted` take concrete values.
+Every Todoapp HXML enables recursive Loose null safety for the owned
+`todo.shared`, `todo.extern`, `todo.web`, and `todo.server` packages. The
+Playwright-only `todo.e2e` harness is deliberately outside that application
+claim because its host Promise overloads are a separate test-runner boundary.
+A checked negative compilation opts its own caller into null safety and proves
+that passing Haxe `null` to completion is rejected. The few local
+`@:nullSafety(Off)` expressions sit immediately after runtime guards or at
+documented Haxe 4.3.7 macro/anonymous-record narrowing limitations; they do
+not disable checking for a package, class, or method.
+
+The API transcript deliberately sends malformed JSON, arrays, wrong field
+types, `null`, extra fields, an empty patch, and a blank identifier. JSON parser
+failures use the same stable API envelope as decoder failures. The generated
+web client exposes only route-specific request methods rather than a generic
+method/URL/body escape hatch, and the importable generated Store title-update
+methods reject blanks even when a target-language caller bypasses HTTP. The transcript also
+proves that a rejected patch leaves the Todo unchanged, a title-only patch
+preserves `completed`, and a completed-only patch preserves `title`. These checks prove this Todo API
+boundary; focused nullish fixtures remain authoritative for the complete JavaScript
+`null`/`undefined`/missing-property matrix.
 
 `examples/profiles.json` owns the repository-wide example inventory and the
 structured build/runtime/browser command for each profile. The aggregate
 runner executes those records directly without a shell. Adding a new immediate
 directory under `examples/` without declaring and testing both profiles fails
 `yarn test:examples`.
+
+### Living feature coverage
+
+[`feature-coverage.json`](feature-coverage.json) answers a different question
+from the profile manifest: for every stable user-facing Genes feature family,
+where is the evidence today?
+
+Each row gives a separate disposition for source TSX, low-level TypeScript,
+minimal TypeScript, classic JavaScript, classic declarations, Node runtime,
+browser runtime, and the smallest focused fixture. The status words are
+deliberately modest:
+
+- `covered` means the named owner directly exercises that contract;
+- `partial` means the profile exercises a useful representative case while a
+  named focused owner or follow-up retains the remaining shapes;
+- `gap` means Todoapp does not yet exercise the stable feature; and
+- `not-applicable` means that observer cannot prove the contract, such as a
+  runtime test trying to prove declaration precision.
+
+When an application-facing column is incomplete, `applicationDisposition`
+records what should happen next:
+
+- `planned` points to an open Bead for useful Todoapp work that has not landed;
+- `focused-only` points to the exact smaller compiler fixture that owns the
+  remaining edge cases after this app has shown a representative case; and
+- `not-applicable` explains why Todoapp cannot honestly observe the behavior
+  and points to the focused test that does.
+
+The reason and revisit trigger are part of the record. For example, the app
+uses arrays but has no user feature that needs a `Map`, so missing-key semantics
+remain with the focused Array/Map fixture until a real keyed Todo feature or an
+application regression justifies another vertical test. Similarly, dynamic
+imports and module directives are supported compiler contracts, but inventing
+an unused import or directive would not prove useful Todo behavior.
+
+This map does not run the tests or turn one green application into a universal
+compiler claim. Existing focused gates remain authoritative. Run
+`yarn test:agent-test-routing` to reject deleted, duplicate, or missing feature
+IDs; unknown evidence references; dead package scripts and paths; missing,
+closed, or mismatched disposition owners; application evidence on a wholly
+inapplicable row; or a feature family without focused evidence. The stable ID
+list is kept outside this JSON file, so removing a row cannot make the validator
+forget that the feature exists.
 
 ## Generated output and snapshots
 

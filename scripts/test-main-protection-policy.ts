@@ -104,6 +104,28 @@ function main(): void {
     genesTs.includes("- run: yarn test:main-protection-policy"),
     "The required genes-ts job must execute the structural protection policy"
   );
+  const toolingPack = genesTs.indexOf(
+    "- name: Pack tooling for its oldest supported Node release"
+  );
+  const toolingMinimumNode = genesTs.indexOf("node-version: 20.9.0");
+  const toolingMinimumCheck = genesTs.indexOf(
+    "- name: Verify the packed tooling package on Node 20.9"
+  );
+  const toolingRestoreNode = genesTs.indexOf(
+    "- name: Restore the repository Node release"
+  );
+  assert(
+    toolingPack >= 0
+      && toolingPack < toolingMinimumNode
+      && toolingMinimumNode < toolingMinimumCheck
+      && toolingMinimumCheck < toolingRestoreNode,
+    "The required genes-ts job must pack tooling, check Node 20.9, and restore the repository Node release"
+  );
+  assert(
+    genesTs.includes('--tarball "$TOOLING_MINIMUM_TARBALL"')
+      && genesTs.includes('--pack-json "$TOOLING_MINIMUM_PACK_JSON"'),
+    "The Node 20.9 check must inspect the exact packed tooling candidate"
+  );
   for (const [job, nextJob] of [
     ["genes-ts", "genes-ts-smoke-next-lts"],
     ["genes-ts-smoke-next-lts", "haxe-preview"]

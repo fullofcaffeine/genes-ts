@@ -17,3 +17,14 @@ typedef TypeOnlyComponentProps = {
 function Identity(props: TypeOnlyComponentProps): Element {
   return props.child;
 }
+
+/**
+ * Proves that an ordinary component may intentionally render nothing.
+ *
+ * The nullable wrapper remains narrower than the broad React-node contract:
+ * the function returns one exact element or `null`, never text or an array.
+ */
+@:genes.reactComponent
+function OptionalIdentity(props: TypeOnlyComponentProps): Null<Element> {
+  return props.child;
+}

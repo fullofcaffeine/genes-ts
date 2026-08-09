@@ -26,9 +26,14 @@ UPDATE_SNAPSHOTS=1 yarn test:genes-ts:snapshots
 - `out/ts` vs `intended/ts` — low-level `.ts` output (no TSX)
 
 The same directory also owns `DualJsxMain.hx`, which is compiled from one Haxe
-source to TSX and classic Genes ESM. The React gate compares rendered runtime
-transcripts and verifies that disabling a required JSX runtime fails before
-emitting files.
+source to TSX, typed `createElement`, type-erased JSX, and classic JavaScript.
+The runtime transcript imports `WorldArchive` from a same-named Haxe module
+both directly and through a Haxe alias, then renders both paths plus a zero-prop
+component. The generated-source checks require one direct ESM function and no
+disposable `_Fields_` owner, class registration, or static bridge. An imported
+but unused marked component proves that the React role is not a DCE root. The
+same gate compares rendered HTML in all four profiles and verifies that
+disabling a required JSX runtime fails before emitting files.
 
 ### todoapp output
 

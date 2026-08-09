@@ -1,7 +1,7 @@
 package arrayindexstrict;
 
 #if macro
-import genes.ts.TsModuleEmitter;
+import genes.ts.TsIndexedAccessPlan;
 import haxe.macro.Context;
 import haxe.macro.Expr;
 import haxe.macro.Type;
@@ -15,7 +15,7 @@ import haxe.macro.Type;
  * return the canonical type parameter that the TypeScript printer can spell;
  * returning the original lazy or monomorphic wrapper would print `any`.
  */
-@:access(genes.ts.TsModuleEmitter)
+@:access(genes.ts.TsIndexedAccessPlan)
 class ArrayIndexTypeProbe {
   #if macro
   public static macro function validate(): Expr {
@@ -26,7 +26,7 @@ class ArrayIndexTypeProbe {
         Context.error('Expected ArrayIndexTypeSubject class, got ${other}',
           Context.currentPos());
     };
-    final parameter = TsModuleEmitter.exactTypeParameter(subject.params[0].t);
+    final parameter = TsIndexedAccessPlan.exactTypeParameter(subject.params[0].t);
     if (parameter == null)
       Context.error("Could not resolve the fixture's canonical type parameter",
         Context.currentPos());
@@ -34,7 +34,7 @@ class ArrayIndexTypeProbe {
     assertCanonical("lazy", parameter, TLazy(() -> parameter));
 
     final unresolved = Context.makeMonomorph();
-    if (TsModuleEmitter.exactTypeParameter(unresolved) != null)
+    if (TsIndexedAccessPlan.exactTypeParameter(unresolved) != null)
       Context.error("An unresolved monomorph was accepted as an exact type parameter",
         Context.currentPos());
     if (!Context.unify(unresolved, parameter))
@@ -45,7 +45,7 @@ class ArrayIndexTypeProbe {
     var tooDeep = parameter;
     for (_ in 0...66)
       tooDeep = lazy(tooDeep);
-    if (TsModuleEmitter.exactTypeParameter(tooDeep) != null)
+    if (TsIndexedAccessPlan.exactTypeParameter(tooDeep) != null)
       Context.error("An unexpectedly deep lazy chain bypassed the recursion guard",
         Context.currentPos());
 
@@ -58,7 +58,7 @@ class ArrayIndexTypeProbe {
 
   static function assertCanonical(label: String, expected: Type,
       wrapper: Type): Void {
-    final actual = TsModuleEmitter.exactTypeParameter(wrapper);
+    final actual = TsIndexedAccessPlan.exactTypeParameter(wrapper);
     switch [expected, actual] {
       case [TInst(expectedReference, _), TInst(actualReference, _)]
         if (expectedReference.get().module == actualReference.get().module

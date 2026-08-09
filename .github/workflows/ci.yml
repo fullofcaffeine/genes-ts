@@ -292,6 +292,43 @@ jobs:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('yarn.lock') }}
       - run: yarn install --frozen-lockfile
+      - name: Pack tooling for its oldest supported Node release
+        run: |
+          set -euo pipefail
+          yarn build:scripts
+          yarn --cwd tooling build
+          destination="${RUNNER_TEMP}/tooling-minimum-runtime"
+          mkdir -p "$destination"
+          npm pack ./tooling --json --pack-destination "$destination" \
+            > "${RUNNER_TEMP}/tooling-minimum-runtime-pack.json"
+          filename="$(node -e '
+            const fs = require("node:fs");
+            const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            if (!Array.isArray(result) || result.length !== 1 ||
+                typeof result[0]?.filename !== "string") process.exit(1);
+            process.stdout.write(result[0].filename);
+          ' "${RUNNER_TEMP}/tooling-minimum-runtime-pack.json")"
+          echo "TOOLING_MINIMUM_TARBALL=${destination}/${filename}" >> "$GITHUB_ENV"
+          echo "TOOLING_MINIMUM_PACK_JSON=${RUNNER_TEMP}/tooling-minimum-runtime-pack.json" >> "$GITHUB_ENV"
+      - name: Select the tooling package's oldest supported Node release
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.9.0
+      - name: Verify the packed tooling package on Node 20.9
+        run: |
+          set -euo pipefail
+          test "$(node --version)" = "v20.9.0"
+          node scripts/dist/test-tooling-package.js \
+            --tarball "$TOOLING_MINIMUM_TARBALL" \
+            --pack-json "$TOOLING_MINIMUM_PACK_JSON"
+      - name: Restore the repository Node release
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.toolchains.outputs.node-stable }}
+          cache: yarn
+          cache-dependency-path: yarn.lock
+      - run: corepack enable
+      - run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
       # This job is a required status. Run the structural policy here so a
       # required-check rename or matrix change is rejected on the PR that
       # proposes it, before GitHub settings and workflow output can diverge.

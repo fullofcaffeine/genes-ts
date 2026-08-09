@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "contract": "genes-agent-test-routing",
   "statement": "This validated plan maps Genes changes to focused, smoke, affected, full, and release evidence. Selection is observation-only until its audited confidence window completes; the existing full gate remains required.",
   "evidenceAxes": [
@@ -18,6 +18,125 @@
     {
       "id": "migration-tool",
       "meaning": "The experimental ts2hx TypeScript-to-Haxe subset, which remains independent from Haxe-to-TS/JS compiler correctness."
+    }
+  ],
+  "productSurfaces": [
+    {
+      "id": "classic-js-runtime",
+      "label": "Classic JavaScript generation and runtime",
+      "kind": "product",
+      "owner": "Classic emitter and shared Haxe runtime owners",
+      "claim": "Ordinary Haxe programs in the reviewed corpus compile to split ESM JavaScript and preserve the exercised Haxe runtime behavior.",
+      "gateIds": ["classic-core", "css-module-companions", "dual-output-semantics", "portable-haxe-smoke", "acceptance", "full-ci"],
+      "evidenceBucketIds": ["compiler-output-inventory", "runtime-semantic-differentials", "official-haxe-dual-profile-smoke"],
+      "exampleIds": ["todoapp", "typescript-target"],
+      "claimCeiling": "The checked compiler and example corpora; not arbitrary Haxe ecosystem compatibility.",
+      "lastCleanProof": "The current required main/release gates; run results live in GitHub Actions rather than this deterministic manifest.",
+      "residualRisks": ["The complete applicable official Haxe inventory remains tracked separately from the five-test smoke."]
+    },
+    {
+      "id": "typescript-source-runtime",
+      "label": "Typed TypeScript generation and runtime",
+      "kind": "product",
+      "owner": "TypeScript emitter and TypeScript semantic plans",
+      "claim": "The reviewed Haxe corpus emits strict, executable TypeScript with the asserted public and runtime semantics.",
+      "gateIds": ["typescript-full", "css-module-companions", "dual-output-semantics", "portable-haxe-smoke", "source-maps", "acceptance", "full-ci"],
+      "evidenceBucketIds": ["compiler-output-inventory", "public-type-safety", "runtime-semantic-differentials", "official-haxe-dual-profile-smoke"],
+      "exampleIds": ["todoapp", "typescript-target"],
+      "claimCeiling": "The checked TypeScript 5/6/7 contracts and fixtures; not all possible Haxe or TypeScript programs.",
+      "lastCleanProof": "The current required main/release gates; run results live in GitHub Actions rather than this deterministic manifest.",
+      "residualRisks": ["Generated-source readability still requires reviewed shape assertions in addition to strict type checking."]
+    },
+    {
+      "id": "declarations-packages",
+      "label": "Declarations and package contracts",
+      "kind": "product",
+      "owner": "Declaration reachability, type emitters, and package/import plans",
+      "claim": "Reviewed classic declarations and package-shaped imports retain precise, consumable public contracts.",
+      "gateIds": ["classic-declarations", "css-module-companions", "package-imports", "binding-identity", "acceptance", "full-ci"],
+      "evidenceBucketIds": ["public-type-safety", "npm-package-shapes"],
+      "exampleIds": ["todoapp"],
+      "claimCeiling": "The checked declaration consumers and package fixtures; runtime success alone cannot advance this claim.",
+      "lastCleanProof": "The current required main/release gates; run results live in GitHub Actions rather than this deterministic manifest.",
+      "residualRisks": ["Third-party package contracts outside the curated fixtures remain independent evidence."]
+    },
+    {
+      "id": "react-hxx-compiler",
+      "label": "React, HXX, JSX, and TSX compiler behavior",
+      "kind": "product",
+      "owner": "HXX parser, JSX semantic plan, React helpers, and source emitters",
+      "claim": "Reviewed HXX and React source shapes compile, type-check, map, and execute consistently across their declared source/createElement profiles.",
+      "gateIds": ["hxx-tsx", "hxx-carrier-immutability", "hxx-event-variance", "react-hooks", "react-flight", "source-maps", "acceptance", "full-ci"],
+      "evidenceBucketIds": ["reviewed-generated-shape", "runtime-semantic-differentials"],
+      "exampleIds": ["todoapp"],
+      "claimCeiling": "Compiler-facing React/HXX behavior; it does not by itself prove a real browser application.",
+      "lastCleanProof": "The current required main/release gates; run results live in GitHub Actions rather than this deterministic manifest.",
+      "residualRisks": ["Framework-version and browser behavior require the separate browser/application scorecard."]
+    },
+    {
+      "id": "browser-framework-runtime",
+      "label": "Browser and framework runtime behavior",
+      "kind": "product",
+      "owner": "Maintained application QA and Playwright observers",
+      "claim": "The maintained Todo application runs its distinctive browser workflow in both generated profiles.",
+      "gateIds": ["examples-dual-profile-e2e", "acceptance", "full-ci"],
+      "evidenceBucketIds": ["same-source-example-smoke"],
+      "exampleIds": ["todoapp"],
+      "claimCeiling": "The maintained browser scenarios and pinned framework versions; compiler-only React fixtures cannot advance this claim.",
+      "lastCleanProof": "The current required main/release gates; run results live in GitHub Actions rather than this deterministic manifest.",
+      "residualRisks": ["A browser scenario protects only the user-visible workflow it actually executes."]
+    },
+    {
+      "id": "host-tooling",
+      "label": "Host tooling and publication helpers",
+      "kind": "product",
+      "owner": "The optional Node tooling package",
+      "claim": "The reviewed host lifecycle and publication primitives work through their protocol, runtime, clean-consumer, and transaction tests.",
+      "gateIds": ["host-tooling", "css-module-companions", "full-ci"],
+      "evidenceBucketIds": [],
+      "exampleIds": [],
+      "claimCeiling": "Framework-neutral primitives only; no framework-specific watcher or deployment policy is implied.",
+      "lastCleanProof": "The host-tooling gate owns live proof in required CI; no compatibility bucket or cached green result is asserted here.",
+      "residualRisks": ["Framework integrations must provide their own real host/runtime evidence."]
+    },
+    {
+      "id": "ts2hx-migration",
+      "label": "TypeScript-to-Haxe migration tooling",
+      "kind": "product",
+      "owner": "tools/ts2hx",
+      "claim": "The documented ts2hx subset translates its checked fixtures transactionally and passes its semantic/runtime comparisons.",
+      "gateIds": ["ts2hx", "acceptance", "full-ci"],
+      "evidenceBucketIds": ["runtime-semantic-differentials", "reviewed-generated-shape", "pinned-toolchain-lanes"],
+      "exampleIds": [],
+      "claimCeiling": "The proven migration subset only; it is not arbitrary TypeScript support and does not prove Haxe-to-Genes conformance.",
+      "lastCleanProof": "The current required main/release gates; run results live in GitHub Actions rather than this deterministic manifest.",
+      "residualRisks": ["Unsupported TypeScript syntax and project configurations remain explicit migration boundaries."]
+    },
+    {
+      "id": "distribution-adoption",
+      "label": "Installation, release, adoption, and downstream contracts",
+      "kind": "product",
+      "owner": "Package, release, security, and curated downstream owners",
+      "claim": "The reviewed artifacts install cleanly, preserve their declared package shape, and are checked against pinned downstream contracts without laundering those results into compiler conformance.",
+      "gateIds": ["release-contract", "package-imports", "compatibility-inventory", "full-ci"],
+      "evidenceBucketIds": ["npm-package-shapes", "curated-downstream-contracts"],
+      "exampleIds": [],
+      "claimCeiling": "Pinned package and downstream contracts; nonblocking downstream observations cannot promote a core compiler claim.",
+      "lastCleanProof": "Blocking package/release proof lives in required Actions. Curated downstream proof is nonblocking-nightly and exists only in its latest run artifact; this manifest does not cache a green result.",
+      "residualRisks": ["Unpinned consumers and unsupported ecosystems remain outside the release claim."]
+    },
+    {
+      "id": "example-portfolio",
+      "label": "Maintained example portfolio",
+      "kind": "evidence-portfolio",
+      "owner": "examples/profiles.json and the example runner",
+      "claim": "Every immediate maintained example is classified and executes no more evidence than its declared tier and profile contract.",
+      "gateIds": ["examples-dual-profile-e2e", "full-ci"],
+      "evidenceBucketIds": ["same-source-example-smoke"],
+      "exampleIds": ["todoapp", "typescript-target"],
+      "claimCeiling": "Examples are evidence assets, not a substitute for the product surface that owns the behavior.",
+      "lastCleanProof": "The current required main/release gates; run results live in GitHub Actions rather than this deterministic manifest.",
+      "residualRisks": ["A compile-only future example must not be advertised as runtime or migration proof."]
     }
   ],
   "gates": [
@@ -381,6 +500,78 @@
       "command": "yarn test:dual-output",
       "artifacts": [
         ".tmp/test-evidence/test-plan/dual-output-semantics.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
+      "id": "css-module-companions",
+      "packageScript": "test:css-module-companions",
+      "runnerTokens": [
+        "npm ci --prefix tests/css-module-companions/provider --ignore-scripts",
+        "node tests/css-module-companions/run.mjs"
+      ],
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "package-shape",
+        "determinism"
+      ],
+      "ownerPaths": [
+        "src/genes/css",
+        "src/genes/ts/Imports.hx",
+        "tooling/src/css-modules",
+        "tooling/css-modules",
+        "tests/css-module-companions",
+        "docs/CSS_MODULES.md"
+      ],
+      "proves": "A processor-owned exact class list becomes a deterministic closed Haxe companion, both Genes profiles emit one ordinary CSS import, strict TypeScript keeps the public shape closed, and a real loader observes the reviewed runtime keys.",
+      "doesNotProve": "This one-shot framework-neutral tracer does not prove automatic processor discovery, warm publication, editor navigation, or any framework's CSS placement and development-server behavior.",
+      "owners": [
+        "src/genes/css",
+        "src/genes/ts/Imports.hx",
+        "tooling/src/css-modules",
+        "tooling/css-modules",
+        "tests/css-module-companions",
+        "docs/CSS_MODULES.md"
+      ],
+      "families": [
+        "compiler",
+        "tooling",
+        "generated-output",
+        "typescript",
+        "runtime",
+        "package"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime",
+        "package-shape",
+        "determinism"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 300,
+      "historicalDurationMs": null,
+      "cacheMode": "required-clean",
+      "command": "yarn test:css-module-companions",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/css-module-companions.log"
       ],
       "remoteJobs": [
         "genes-ts"
@@ -2398,14 +2589,18 @@
       "ownerPaths": [
         "scripts/test-agent-test-routing.ts",
         "scripts/test-test-plan-selection.ts",
-        "tests/testing-strategy/agent-test-routing.json"
+        "scripts/test-todoapp-feature-coverage.ts",
+        "tests/testing-strategy/agent-test-routing.json",
+        "examples/todoapp/feature-coverage.json"
       ],
       "proves": "The machine-readable test plan, ownership, commands, impact rules, and required CI placement remain internally consistent and fail closed.",
       "doesNotProve": "Plan validation does not execute compiler semantics or make observation-mode selection authoritative.",
       "owners": [
         "scripts/test-agent-test-routing.ts",
         "scripts/test-test-plan-selection.ts",
-        "tests/testing-strategy/agent-test-routing.json"
+        "scripts/test-todoapp-feature-coverage.ts",
+        "tests/testing-strategy/agent-test-routing.json",
+        "examples/todoapp/feature-coverage.json"
       ],
       "families": [
         "policy"
@@ -2428,7 +2623,8 @@
       ],
       "runnerTokens": [
         "scripts/dist/test-agent-test-routing.js",
-        "scripts/dist/test-test-plan-selection.js"
+        "scripts/dist/test-test-plan-selection.js",
+        "scripts/dist/test-todoapp-feature-coverage.js"
       ]
     },
     {
@@ -2984,6 +3180,10 @@
         {
           "gate": "package-imports",
           "when": "package exports, subpaths, CommonJS, externs, or dts2hx ingestion changes"
+        },
+        {
+          "gate": "css-module-companions",
+          "when": "closed CSS Module manifests, generated companions, typed CSS imports, or real loader agreement changes"
         }
       ],
       "inspect": [
@@ -3396,6 +3596,28 @@
   },
   "impactRules": [
     {
+      "id": "css-module-companions",
+      "patterns": [
+        "src/genes/css/**",
+        "src/genes/ts/Imports.hx",
+        "tooling/src/css-modules/**",
+        "tooling/css-modules/**",
+        "tests/css-module-companions/**",
+        "docs/CSS_MODULES.md"
+      ],
+      "selects": [
+        "css-module-companions"
+      ],
+      "affectedSurfaceIds": [
+        "classic-js-runtime",
+        "typescript-source-runtime",
+        "declarations-packages",
+        "host-tooling"
+      ],
+      "reason": "Closed CSS Module changes require the exact processor manifest, generated Haxe type, both output profiles, strict target check, and real loader tracer together.",
+      "expansion": "affected"
+    },
+    {
       "id": "host-tooling",
       "patterns": [
         "tooling/**",
@@ -3405,6 +3627,7 @@
       "selects": [
         "host-tooling"
       ],
+      "affectedSurfaceIds": ["host-tooling"],
       "reason": "Framework-neutral host tooling changes require their runtime, protocol, clean-consumer, and deterministic package evidence.",
       "expansion": "affected"
     },
@@ -3416,6 +3639,13 @@
         "extraParams.hxml",
         "test.hxml"
       ],
+      "affectedExcludePatterns": [
+        "src/genes/es/**",
+        "src/genes/ts/**",
+        "src/genes/dts/**",
+        "src/genes/react/**",
+        "src/genes/Jsx*.hx"
+      ],
       "selects": [
         "stdlib-overrides",
         "portable-haxe-smoke",
@@ -3426,14 +3656,32 @@
         "acceptance",
         "full-ci"
       ],
-      "reason": "Compiler, generator, runtime, or stdlib changes can affect both output profiles and every downstream evidence surface.",
+      "affectedSurfaceIds": ["classic-js-runtime", "typescript-source-runtime", "declarations-packages", "react-hxx-compiler"],
+      "reason": "Compiler, generator, runtime, or stdlib changes can affect both output profiles, declarations, and HXX compilation; selected backstops may cover additional surfaces without marking them affected.",
       "expansion": "full"
+    },
+    {
+      "id": "shared-js-emitter",
+      "patterns": [
+        "src/genes/es/**"
+      ],
+      "selects": [
+        "portable-haxe-smoke",
+        "typescript-full",
+        "classic-core",
+        "dual-output-semantics",
+        "hxx-tsx",
+        "source-maps",
+        "acceptance"
+      ],
+      "affectedSurfaceIds": ["classic-js-runtime", "typescript-source-runtime", "declarations-packages", "react-hxx-compiler"],
+      "reason": "The shared JavaScript emitter is inherited by the TypeScript implementation and classic declaration emitters; it also owns shared JSX expression emission, so changes can affect all four compiler-facing product surfaces.",
+      "expansion": "affected"
     },
     {
       "id": "typescript-output",
       "patterns": [
         "src/genes/ts/**",
-        "src/genes/dts/**",
         "docs/typescript-target/**"
       ],
       "selects": [
@@ -3444,7 +3692,25 @@
         "source-maps",
         "acceptance"
       ],
+      "affectedSurfaceIds": ["typescript-source-runtime", "declarations-packages"],
       "reason": "Type projection and declaration changes require strict generated TypeScript plus paired classic/declaration evidence.",
+      "expansion": "affected"
+    },
+    {
+      "id": "declaration-output",
+      "patterns": [
+        "src/genes/dts/**"
+      ],
+      "selects": [
+        "portable-haxe-smoke",
+        "typescript-full",
+        "classic-declarations",
+        "dual-output-semantics",
+        "source-maps",
+        "acceptance"
+      ],
+      "affectedSurfaceIds": ["declarations-packages"],
+      "reason": "Classic declaration emitters own the published .d.ts contract; TypeScript and dual-profile gates remain conservative backstops without reclassifying runtime surfaces as affected.",
       "expansion": "affected"
     },
     {
@@ -3455,6 +3721,9 @@
         "tests/**/react/**",
         "examples/todoapp/web/**"
       ],
+      "affectedExcludePatterns": [
+        "tests/**/react/**"
+      ],
       "selects": [
         "hxx-tsx",
         "hxx-carrier-immutability",
@@ -3464,13 +3733,33 @@
         "examples-dual-profile-e2e",
         "acceptance"
       ],
+      "affectedSurfaceIds": ["react-hxx-compiler", "browser-framework-runtime"],
       "reason": "HXX and React changes cross Haxe validation, four source/createElement profiles, runtime behavior, and browser contracts.",
+      "expansion": "affected-extended"
+    },
+    {
+      "id": "react-hxx-fixtures",
+      "patterns": [
+        "tests/**/react/**"
+      ],
+      "selects": [
+        "hxx-tsx",
+        "hxx-carrier-immutability",
+        "hxx-event-variance",
+        "react-hooks",
+        "react-flight",
+        "examples-dual-profile-e2e",
+        "acceptance"
+      ],
+      "affectedSurfaceIds": ["react-hxx-compiler"],
+      "reason": "Compiler-owned React fixtures change HXX/code-generation evidence; the browser example remains a selected backstop rather than an affected product claim.",
       "expansion": "affected-extended"
     },
     {
       "id": "test-harness-policy",
       "patterns": [
         "scripts/test-*",
+        "scripts/compatibility-report.ts",
         "scripts/prepare-test-tools.mjs",
         "scripts/acceptance-gate-ownership.ts",
         "tests/testing-strategy/**",
@@ -3479,6 +3768,7 @@
         "docs/COMPATIBILITY_REPORT.json",
         "docs/COMPATIBILITY_REPORT.md",
         ".github/workflows/**",
+        ".github/pull_request_template.md",
         "docs/TESTING_STRATEGY.md",
         "AGENTS.md",
         "src/genes/AGENTS.md",
@@ -3496,6 +3786,7 @@
         "acceptance",
         "full-ci"
       ],
+      "affectedSurfaceIds": ["classic-js-runtime", "typescript-source-runtime", "declarations-packages", "react-hxx-compiler", "browser-framework-runtime", "host-tooling", "ts2hx-migration", "distribution-adoption", "example-portfolio"],
       "reason": "A selector, runner, manifest, workflow, or policy change must not validate itself only through the subset it selected.",
       "expansion": "full"
     },
@@ -3508,6 +3799,7 @@
       "selects": [
         "ts2hx"
       ],
+      "affectedSurfaceIds": ["ts2hx-migration"],
       "reason": "ts2hx has independent migration ownership and does not count as Haxe-to-Genes conformance.",
       "expansion": "affected"
     },
@@ -3515,7 +3807,6 @@
       "id": "package-release-security",
       "patterns": [
         "haxelib.json",
-        "yarn.lock",
         "scripts/release/**",
         "scripts/secret-scan.ts",
         "scripts/osv-scan.ts",
@@ -3530,7 +3821,25 @@
         "portable-haxe-smoke",
         "full-ci"
       ],
+      "affectedSurfaceIds": ["declarations-packages", "distribution-adoption"],
       "reason": "Public install, dependency, release, recovery, and security changes require clean-consumer and policy owners.",
+      "expansion": "full"
+    },
+    {
+      "id": "dependency-lockfile",
+      "patterns": [
+        "yarn.lock"
+      ],
+      "selects": [
+        "release-contract",
+        "compatibility-inventory",
+        "package-imports",
+        "portable-haxe-smoke",
+        "acceptance",
+        "full-ci"
+      ],
+      "affectedSurfaceIds": ["classic-js-runtime", "typescript-source-runtime", "declarations-packages", "react-hxx-compiler", "browser-framework-runtime", "host-tooling", "ts2hx-migration", "distribution-adoption"],
+      "reason": "The shared dependency graph can change every compiler, framework, tooling, migration, and distribution product even when the selected full backstop also covers the example inventory.",
       "expansion": "full"
     },
     {
@@ -3545,7 +3854,41 @@
         "portable-haxe-smoke",
         "acceptance"
       ],
-      "reason": "Maintained applications need both-profile build/runtime evidence without replacing compiler conformance.",
+      "affectedSurfaceIds": ["example-portfolio"],
+      "reason": "Any maintained-example change affects the evidence portfolio; example-specific rules below add only the product claims that the example's declared observers can prove.",
+      "expansion": "affected-extended"
+    },
+    {
+      "id": "todoapp-example",
+      "exampleId": "todoapp",
+      "patterns": [
+        "examples/todoapp/**",
+        "scripts/build-example-todoapp*",
+        "scripts/qa-todoapp.ts"
+      ],
+      "selects": [
+        "examples-dual-profile-e2e",
+        "portable-haxe-smoke",
+        "acceptance"
+      ],
+      "affectedSurfaceIds": ["classic-js-runtime", "typescript-source-runtime", "declarations-packages", "react-hxx-compiler", "browser-framework-runtime"],
+      "reason": "The flagship Todoapp runs both compiler profiles, declarations, HXX/React, and Playwright, so its changed paths may affect each product surface that its manifest explicitly claims.",
+      "expansion": "affected-extended"
+    },
+    {
+      "id": "typescript-target-example",
+      "exampleId": "typescript-target",
+      "patterns": [
+        "examples/typescript-target/**",
+        "scripts/build-example-typescript-target.ts"
+      ],
+      "selects": [
+        "examples-dual-profile-e2e",
+        "portable-haxe-smoke",
+        "acceptance"
+      ],
+      "affectedSurfaceIds": ["classic-js-runtime", "typescript-source-runtime"],
+      "reason": "The capability showcase executes classic and TypeScript output, but it has no declaration or browser observer and therefore cannot advance those scorecards.",
       "expansion": "affected-extended"
     },
     {
@@ -3557,6 +3900,7 @@
       "selects": [
         "agent-guides"
       ],
+      "affectedSurfaceIds": [],
       "reason": "Non-policy documentation runs its link/command guide owner but may use the documented docs-only fast path.",
       "expansion": "docs-only"
     }

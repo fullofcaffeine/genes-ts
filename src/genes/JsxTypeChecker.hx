@@ -773,8 +773,8 @@ class JsxTypeChecker {
     // accept a value that can actually be null.
     if (nullableInner(resolvedActual) != null || literalNull)
       return false;
-    final browserElementCompatibility = browserElementValueAssignability(
-      resolvedActual, resolvedExpected);
+    final browserElementCompatibility = browserElementValueAssignability(resolvedActual,
+      resolvedExpected);
     if (browserElementCompatibility != null)
       return browserElementCompatibility;
     final nativeGlobalCompatibility = nativeGlobalAssignability(resolvedActual,
@@ -887,7 +887,7 @@ class JsxTypeChecker {
           return false;
       return union.length > 0;
     }
-    if (isNodeContract(resolved) || isElementContract(resolved)
+    if (isNodeContract(resolved) || isExactElementContract(resolved)
       || isScalarNode(resolved, depth + 1))
       return true;
     final element = arrayElement(resolved);
@@ -1183,11 +1183,11 @@ class JsxTypeChecker {
    * through this path: `Element` extends `Node`, but it must still mean one
    * exact element when used as a component property.
    */
-  static function isElementContract(type: Type): Bool {
+  public static function isExactElementContract(type: Type): Bool {
     final resolved = resolveAliases(type);
     final nullable = nullableInner(resolved);
     if (nullable != null)
-      return isElementContract(nullable);
+      return isExactElementContract(nullable);
     return switch resolved {
       case TInst(classRef, _):
         classHasElementContract(classRef);
@@ -1313,8 +1313,7 @@ class JsxTypeChecker {
             && abstractRef.get().name == 'Undefinable')):
         allowsAuthoredNullLiteral(inner, depth + 1);
       case TType(typeRef, [inner])
-        if (typeRef.get().pack.length == 0
-          && typeRef.get().name == 'Null'):
+        if (typeRef.get().pack.length == 0 && typeRef.get().name == 'Null'):
         allowsAuthoredNullLiteral(inner, depth + 1);
       case TType(_, _):
         allowsAuthoredNullLiteral(Context.follow(type), depth + 1);

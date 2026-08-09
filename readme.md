@@ -65,6 +65,8 @@ dual-output boundary remains the checked corpus described in
 - `docs/NULL_SAFETY.md` — package-scoped Haxe null safety, TypeScript
   `strictNullChecks`, and JavaScript `null`/`undefined` boundaries
 - `docs/MODULE_FUNCTIONS.md` — analyzer-visible module functions without a delegating wrapper
+- `docs/CSS_MODULES.md` — processor-authoritative closed CSS Module types,
+  exact TypeScript import declarations, and both runtime output modes
 - `docs/ARCHITECTURE_ROADMAP.md` — readiness boundary and shared TS/JS architecture roadmap
 - `docs/TOOLCHAINS.md` — blocking and preview Haxe/Node/TypeScript lanes
 - `docs/ts2hx/USAGE.md` — ts2hx workflows (TS/JS → Haxe) + roundtrip harness
@@ -82,6 +84,8 @@ dual-output boundary remains the checked corpus described in
   - inline markup (`return <div>...</div>;`), default-on in TypeScript mode
   - equivalent React-compatible `createElement(...)` lowering in classic JS
 - **JS/TS interop helpers** via `genes.ts.Imports` (consume existing TS/TSX easily)
+- **Closed CSS Module types** from a host processor's exact manifest, with
+  Haxe completion, early missing-class errors, and one ordinary runtime import
 - **Generic ESM directive prologues** via literal-only
   `@:genes.moduleDirective(...)`, shared by TypeScript and classic output
 - **Analyzer-visible module functions** via validated

@@ -274,10 +274,10 @@
           "kind": "source-pattern",
           "path": "examples/todoapp/e2e/src/todo/e2e/Main.hx",
           "match": "PW\\.testPage\\(",
-          "expected": 3
+          "expected": 4
         }
       ],
-      "proves": "Both outputs build and execute the same selected application workflows, including validation, CRUD, navigation, and deep links.",
+      "proves": "Both outputs build and execute the same selected application workflows, including status filtering, validation, CRUD, navigation, and deep links.",
       "doesNotProve": "Two green examples do not imply whole-ecosystem or framework-independent parity."
     },
     {
@@ -398,7 +398,7 @@
           "kind": "tracked-files",
           "path": "tests/genes-ts/package-shapes/packages",
           "match": "^[^/]+/package\\.json$",
-          "expected": 4
+          "expected": 5
         },
         {
           "id": "dts2hx-entrypoints",

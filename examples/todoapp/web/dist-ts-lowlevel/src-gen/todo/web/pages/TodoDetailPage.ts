@@ -42,7 +42,7 @@ function Component(): JSX.Element {
 			errorState[1]("Title is required");
 			return;
 		};
-		Client.updateTodo(id, {"title": trimmed}).then(function (updated: Todo) {
+		Client.updateTodoTitle(id, trimmed).then(function (updated: Todo) {
 			todoState[1](updated);
 			navigate("/");
 		})["catch"](function (_) {

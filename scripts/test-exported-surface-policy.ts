@@ -6,6 +6,7 @@ import {
   auditExportedSurfaces,
   type ExportedSurfaceFinding
 } from "./exported-surface-policy.js";
+import { findUnsafeTypeKeywords } from "./typing-policy.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,6 +19,22 @@ const boundaryManifestPath = "tests/typing-policy/exported-surface-boundaries.js
  * accept, then proves narrow documented boundaries remain usable.
  */
 function main(): void {
+  const syntaxFindings = findUnsafeTypeKeywords(
+    "generated-boundary.ts",
+    [
+      "// `unknown` and `any` in documentation are not type nodes.",
+      "export type Boundary = Request<Record<string, string>, unknown, any>;"
+    ].join("\n")
+  );
+  assert.deepEqual(
+    syntaxFindings.map(finding => finding.text.trim()),
+    [
+      "export type Boundary = Request<Record<string, string>, unknown, any>;",
+      "export type Boundary = Request<Record<string, string>, unknown, any>;"
+    ],
+    "the generated-source audit must catch unsafe types in every generic argument"
+  );
+
   const unsafeFindings = auditExportedSurfaces({
     repoRoot,
     tsconfigPath,

@@ -1,14 +1,101 @@
 # Testing strategy (genes-ts)
 
-genes-ts has two major things to keep reliable:
-1) the **compiler** (classic Genes JS mode and `-D genes.ts` mode)
-2) **every checked-in example in both output profiles**, including the
-   fullstack todoapp as a realistic tooling/integration gate
+genes-ts has several independently claim-bearing product surfaces. Keep their
+evidence separate:
+
+1. classic JavaScript generation and runtime;
+2. typed TypeScript generation and runtime;
+3. declarations and package contracts;
+4. React/HXX compiler behavior;
+5. browser and framework runtime behavior;
+6. host tooling;
+7. ts2hx migration behavior; and
+8. installation, release, adoption, and pinned downstream contracts.
+
+Maintained examples form a ninth scorecard, but it is an **evidence portfolio**,
+not another product. A green Todo application cannot prove every compiler rule,
+and a green compiler fixture cannot prove the browser workflow.
+
+The canonical scorecards live in
+[`tests/testing-strategy/agent-test-routing.json`](../tests/testing-strategy/agent-test-routing.json)
+and are rendered into
+[`COMPATIBILITY_REPORT.md`](COMPATIBILITY_REPORT.md#product-surface-scorecards).
+Each card names its bounded claim, gates, evidence buckets, examples, ceiling,
+and residual risks. One surface's green result must never advance another
+surface's claim.
 
 This repo follows the **testing trophy**:
 - **Lots of fast deterministic tests** (snapshots + typecheck)
 - **Some runtime integration tests** (Node execution)
 - **A small number of E2E tests** (Playwright) for the example app
+
+## Behavior-first evidence
+
+Before automating a meaningful behavior change broadly, record one concrete
+scenario: its input/preconditions, compilation or user action, observable
+result, important error case, owning product surface, and protected claim. A
+Bead acceptance section, fixture table, or Given/When/Then paragraph is enough;
+Genes does not require Gherkin.
+
+Use the lowest faithful observer and preserve a reviewable red-to-green trail:
+
+1. Run the smallest owner against the old or tempting-wrong behavior. Record
+   the exact command and concise expected failure in the Bead or PR. A separate
+   red commit is optional.
+2. State the oracle independently of the implementation: Haxe/JS/TS semantics,
+   a manually reviewed minimal expectation, a pinned differential, an invariant,
+   or a real consumer. Do not generate expected output with the code under test.
+3. Make the focused owner green, then run the next broader contract.
+4. For a new capability, prove one **tracer bullet** first: authored source
+   through Genes, target check/build, the relevant package/framework boundary,
+   and a real runtime or system observer. Expand permutations only afterward.
+5. When a browser or high-level test discovers a compiler defect, keep the
+   representative real-boundary proof and add a small deterministic compiler
+   regression. This “double lock” preserves both diagnosis and user value.
+
+Snapshots are reviewed oracles only when their provenance and semantic change
+are explained. Refreshing generated files without that review is not evidence.
+Mocks may support a focused owner, but they cannot replace a package, browser,
+filesystem, compiler-server, or runtime boundary that the claim explicitly
+names.
+
+### Closed CSS Module tracer
+
+`yarn test:css-module-companions` is the first tracer bullet for exact CSS
+Module types. It intentionally crosses several existing product surfaces
+without letting one substitute for another:
+
+- a hand-reviewed JSON file owns the five expected class keys;
+- pinned `postcss-modules` independently reports its runtime exports;
+- host tooling validates that manifest, checks source hashes, and generates the
+  closed Haxe companion twice to prove deterministic bytes;
+- Haxe accepts valid fields and rejects missing, untyped, wrong-owner,
+  wrong-request, and nonliteral cases at authored source positions;
+- tooling rejects a hashed non-CSS entry, a generated module that differs from
+  the Haxe owner, a companion that reuses the authored owner module, a
+  declaration path that differs from the emitted import, and cross-platform
+  drive-path syntax before returning generated files;
+- strict TypeScript first rejects the usual broad CSS wildcard declaration,
+  then accepts the generated exact per-file declaration; its negative consumer
+  separately proves there is no arbitrary-key escape;
+- the classic and TypeScript profiles each emit one default CSS import;
+- classic JavaScript also emits a `.d.ts` contract that preserves the closed
+  CSS Module return type for TypeScript callers; and
+- pinned esbuild loads and executes both outputs through a controlled real
+  loader, then checks the reviewed keys and string values.
+
+The test processor and bundler live in a private, exact-lockfile fixture. They
+are independent witnesses, not dependencies of the Genes compiler or
+`@genes-ts/tooling`. The gate proves the one-shot framework-neutral contract;
+it does not advance a Next.js, browser, warm-watch, or safe-publication claim.
+Those require their own later owners. See [Closed CSS Module types](CSS_MODULES.md)
+for the user-facing flow and limitations.
+
+Compiler representation, runtime/ABI, package publication, security,
+migration, and public-claim changes require a review pass distinct from the
+implementation. Challenge test sensitivity, oracle independence, negative
+cases, mocked boundaries, selector omissions, scorecard laundering, and
+over-broad prose; record each finding and disposition in the PR.
 
 ## Agent and contributor guide contract
 
@@ -70,9 +157,51 @@ yarn test:agent-test-routing
 
 The validator fails when IDs collide, commands or owner roots disappear,
 official smoke hashes drift, a gate becomes unreachable, an impact rule names
-an unknown gate, or required CI no longer runs the plan and smoke. The selector
+an unknown gate or product surface, a surface lacks selected evidence, or
+required CI no longer runs the plan and smoke. The selector
 also has executable examples for compiler, TypeScript, React/HXX, harness,
 package/release, ts2hx, ordinary documentation, unknown, and ambiguous changes.
+
+Selection reports deliberately distinguish **affected surfaces** from
+**covered surfaces**. “Affected” comes only from the changed path's explicit
+impact rule or direct test owner. “Covered” lists everything the selected gates
+happen to exercise. Selecting broad `full-ci` can cover the browser scorecard
+without claiming a compiler-core edit changed browser behavior. Unknown paths
+mark every surface affected because the repository cannot narrow them safely.
+When a broad rule overlaps a more-specific compiler subtree, the broad rule may
+still select conservative backstops while excluding its affected-surface claim;
+the focused TypeScript/declaration or React/HXX rule then owns that attribution.
+Declaration-only emitters therefore affect the declaration/package card without
+advancing the TypeScript runtime card. The shared `src/genes/es/**` emitter is
+not classic-only: TypeScript and classic declaration emitters subclass it, and
+both implementation profiles use its JSX expression support. Its focused rule
+therefore affects classic, TypeScript, declarations, and the React/HXX compiler
+card.
+The dependency lockfile is deliberately different: it can change every product
+surface, so it marks all product scorecards affected even though the example
+portfolio remains an evidence inventory rather than another product.
+
+Maintained examples follow their executable claim ceiling rather than one broad
+`examples/**` product rule. Every example change affects the example portfolio;
+the Todoapp additionally affects the five surfaces proved by its dual-profile,
+declaration, HXX, and Playwright observers, while the smaller
+`typescript-target` showcase affects only classic and TypeScript runtime. A
+future compile-only snippet may list no product claims. Similarly, a checked
+React compiler fixture can affect HXX and generated TypeScript evidence while
+the selected Playwright gate remains covered backstop evidence, not proof that
+browser behavior itself changed.
+The manifest validator ties each claim-bearing example route back to that
+example's declared owner and requires the route's affected products to match
+the example claims exactly, so adding or reclassifying an example fails closed
+until its change routing is equally precise.
+
+Direct test ownership answers which command should run; it does not answer
+which product implementation changed. Owner-only fixture paths therefore add
+their gate and appear under covered surfaces, but only an explicit impact rule
+may add an affected surface. This prevents a broad source-map test from making
+an unrelated fixture look like a React/HXX product change. Test-policy sources
+such as the compatibility-report generator have their own all-scorecard rule,
+because changing how evidence is summarized can alter every published claim.
 
 Unknown means no rule or declared owner recognizes a changed path. Ambiguous
 means more than one executable impact rule or declared gate owner claims it.
@@ -562,8 +691,64 @@ yarn test:downstream:curated --execute --allow-host-network --id pimono-hx # exp
 
 ### What we test
 
-`examples/profiles.json` enumerates every immediate example directory and owns
-its `ts-strict` and `classic-esm` commands. The aggregate runner rejects an
+`examples/profiles.json` enumerates every immediate example directory, assigns
+an owner and tier, names the exact product surfaces and distinctive claims it
+supports, states a claim ceiling, and owns its `ts-strict` and `classic-esm`
+commands. The current tiers are:
+
+- **flagship application** — a maintained vertical application with real
+  runtime/system observers (`todoapp`);
+- **capability showcase** — a smaller executable onboarding path
+  (`typescript-target`); and
+- **compile-only snippet** — allowed for future narrow syntax demonstrations,
+  but never runtime, migration, package, or browser proof.
+
+The Todoapp-specific living coverage map is
+[`examples/todoapp/feature-coverage.json`](../examples/todoapp/feature-coverage.json).
+It inventories stable feature contracts across the TSX, low-level TypeScript,
+minimal TypeScript, classic JavaScript, classic declaration, Node, browser, and
+focused-fixture columns. It is a disposition map rather than another runner:
+`covered`, `partial`, `gap`, and `not-applicable` say exactly how far that
+observer can advance the claim, while evidence-owner records point back to the
+existing executable commands and files.
+
+`yarn test:agent-test-routing` validates the map and runs deliberate red
+controls for deleted, missing, and duplicate stable IDs; dead command and file
+owners; and invalid application dispositions. A disposition explains who owns
+the part that Todoapp does not currently prove:
+
+- `planned` names an open or in-progress Bead for useful application work that
+  still needs to land;
+- `focused-only` names the exact focused fixture that deliberately owns the
+  remaining edge cases after Todoapp has exercised a representative case; and
+- `not-applicable` says the Todoapp is the wrong observer for the contract,
+  names its focused owner, and carries no application-profile evidence.
+
+Every disposition includes a plain-language reason and the event that would
+justify revisiting it. Rows that are complete for every applicable observer do
+not need one. The required feature-ID inventory lives in the validator rather
+than in the manifest it checks, so deleting a row cannot also delete the test's
+expectation. Every row retains a focused owner because a flagship application
+is broad integration evidence, not the lowest faithful observer for compiler
+edge cases, diagnostics, source maps, transactions, or lifecycle failures.
+
+Do not add a `Map`, dynamic import, module directive, deliberate name
+collision, reflection call, or another construct merely to turn a coverage
+cell green. Add application evidence when a real Todo workflow needs that
+behavior. Otherwise keep the smaller focused fixture as the authoritative
+test. `not-applicable` is scoped only to this application observer; it never
+means that Genes does not support the feature.
+
+The manifest validator ties claims to observers rather than tier labels alone.
+Classic and TypeScript runtime claims require their matching runtime commands;
+browser and React/HXX example claims require Playwright in both profiles; and
+the declaration/package claim is limited to the both-profile flagship path.
+Host tooling, ts2hx, and distribution claims have their own independent owners
+and cannot be borrowed from an example. A compile-only snippet therefore lists
+no product-surface claim at all, while remaining classified in the example
+portfolio.
+
+The aggregate runner rejects an
 unowned directory, validates every structured command before execution, and
 invokes each profile directly without a shell. Identical build commands are
 deduplicated, but every declared runtime contract still executes. The runner
@@ -672,8 +857,9 @@ files fail without changing either version. CI runs this focused contract in
 both supported Beads lanes.
 
 `test:secrets` scans the repository and committed history for credentials,
-while `test:vulns` checks the pinned dependency graph. Both execute locally and
-as separate GitHub jobs. The pre-commit scan reduces the chance of publishing a
+while `test:vulns` checks every lockfile installed by required tests, including
+the focused CSS Modules processor/loader fixture. Both execute locally and as
+separate GitHub jobs. The pre-commit scan reduces the chance of publishing a
 secret-bearing branch; the required full-history scan remains the hosted
 backstop when a local hook is absent or explicitly bypassed.
 

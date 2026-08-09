@@ -243,6 +243,215 @@ function assertInlinedJsxChildMapping(): void {
     "Inlined JSX child changed its authored source column");
 }
 
+/** Proves normalized HXX prop storage and its JSX read keep authored provenance. */
+function assertNormalizedHxxPropMappings(): void {
+  const originalPath = path.join(reactFixtureRoot, "src/Main.hx");
+  const original = readFileSync(originalPath, "utf8");
+  const originalPosition = tokenPosition(original, "summary()}");
+
+  const profiles = [
+    {
+      name: "automatic TSX",
+      generatedPath: path.join(reactFixtureRoot, "out/tsx/src-gen/Main.tsx")
+    },
+    {
+      name: "classic TSX",
+      hxml: "tests/genes-ts/snapshot/react/build-tsx-classic.hxml",
+      output: "tests/genes-ts/snapshot/react/out/tsx-classic",
+      generatedPath: path.join(
+        reactFixtureRoot, "out/tsx-classic/src-gen/Main.tsx")
+    },
+    {
+      name: "source JSX",
+      hxml: "tests/genes-ts/snapshot/react/build-jsx.hxml",
+      output: "tests/genes-ts/snapshot/react/out/jsx",
+      generatedPath: path.join(reactFixtureRoot, "out/jsx/Main.jsx")
+    }
+  ] as const;
+
+  for (const profile of profiles) {
+    if ("hxml" in profile) {
+      rmrf(profile.output);
+      run("haxe", [profile.hxml, "-debug"]);
+    }
+    const generated = readFileSync(profile.generatedPath, "utf8");
+    const consumer = new SourceMapConsumer(decodeRawSourceMap(
+      readFileSync(`${profile.generatedPath}.map`, "utf8")
+    ));
+    const readPosition = tokenPosition(generated, "statusEl.value");
+    const segments: Array<{
+      source: string | null;
+      originalLine: number | null;
+      originalColumn: number | null;
+    }> = [];
+    consumer.eachMapping((mapping) => {
+      if (mapping.generatedLine === readPosition.line
+        && mapping.generatedColumn === readPosition.column) {
+        segments.push({
+          source: mapping.source,
+          originalLine: mapping.originalLine,
+          originalColumn: mapping.originalColumn
+        });
+      }
+    });
+    strictEqual(segments.length, 1,
+      `${profile.name} must emit exactly one segment at statusEl.value`);
+    ok(segments[0].source?.endsWith("/src/Main.hx") === true,
+      `${profile.name} property read lost its authored module`);
+    strictEqual(segments[0].originalLine, originalPosition.line,
+      `${profile.name} property read changed its authored line`);
+    strictEqual(segments[0].originalColumn, originalPosition.column,
+      `${profile.name} property read changed its authored column`);
+
+    for (const position of [
+      readPosition,
+      {line: readPosition.line, column: readPosition.column + "statusEl.".length}
+    ]) {
+      const mapped = consumer.originalPositionFor(position);
+      ok(mapped.source?.endsWith("/src/Main.hx") === true,
+        `${profile.name} property token lost its authored module`);
+      strictEqual(mapped.line, originalPosition.line,
+        `${profile.name} property token changed its authored line`);
+      strictEqual(mapped.column, originalPosition.column,
+        `${profile.name} property token changed its authored column`);
+    }
+
+    const initializer = consumer.originalPositionFor(
+      tokenPosition(generated, "summary()}")
+    );
+    ok(initializer.source?.endsWith("/src/Main.hx") === true,
+      `${profile.name} ordinary-object initializer lost its authored module`);
+    strictEqual(initializer.line, originalPosition.line,
+      `${profile.name} ordinary-object initializer changed its authored line`);
+    strictEqual(initializer.column, originalPosition.column,
+      `${profile.name} ordinary-object initializer changed its authored column`);
+  }
+}
+
+/** Proves a retained nested HXX element keeps the same authored prop origin. */
+function assertNestedHxxPropMappings(): void {
+  const originalPath = path.join(
+    reactFixtureRoot,
+    "src/RetainedImportedStatusView.hx"
+  );
+  const original = readFileSync(originalPath, "utf8");
+  const expectedReads = [
+    {
+      generated: "tmp.label",
+      original: tokenPosition(original, 'label="Nested"')
+    },
+    {
+      generated: "tmp.value",
+      original: tokenPosition(
+        original,
+        "RetainedPropsOrder.recordProp(props.value)"
+      )
+    }
+  ] as const;
+  const profiles = [
+    {
+      name: "automatic TSX nested carrier",
+      hxml: "tests/genes-ts/snapshot/react/build-dual-tsx.hxml",
+      output: "tests/genes-ts/snapshot/react/out/dual-tsx",
+      extraArguments: [],
+      generatedPath: path.join(
+        reactFixtureRoot,
+        "out/dual-tsx/src-gen/RetainedImportedStatusView.tsx"
+      )
+    },
+    {
+      name: "classic TSX nested carrier",
+      hxml: "tests/genes-ts/snapshot/react/build-dual-tsx.hxml",
+      output: "tests/genes-ts/snapshot/react/out/dual-tsx-classic",
+      extraArguments: [
+        "-D",
+        "genes.output=tests/genes-ts/snapshot/react/out/dual-tsx-classic/src-gen/index.tsx",
+        "-D",
+        "genes.ts.jsx_classic"
+      ],
+      generatedPath: path.join(
+        reactFixtureRoot,
+        "out/dual-tsx-classic/src-gen/RetainedImportedStatusView.tsx"
+      )
+    },
+    {
+      name: "source JSX nested carrier",
+      hxml: "tests/genes-ts/snapshot/react/build-dual-jsx.hxml",
+      output: "tests/genes-ts/snapshot/react/out/dual-jsx",
+      extraArguments: [],
+      generatedPath: path.join(
+        reactFixtureRoot,
+        "out/dual-jsx/RetainedImportedStatusView.jsx"
+      )
+    }
+  ] as const;
+
+  for (const profile of profiles) {
+    rmrf(profile.output);
+    run("haxe", [profile.hxml, "-debug", ...profile.extraArguments]);
+    const generated = readFileSync(profile.generatedPath, "utf8");
+    const consumer = new SourceMapConsumer(decodeRawSourceMap(
+      readFileSync(`${profile.generatedPath}.map`, "utf8")
+    ));
+    for (const expectedRead of expectedReads) {
+      const readPosition = tokenPosition(generated, expectedRead.generated);
+      const segments: Array<{
+        source: string | null;
+        originalLine: number | null;
+        originalColumn: number | null;
+      }> = [];
+      consumer.eachMapping((mapping) => {
+        if (mapping.generatedLine === readPosition.line
+          && mapping.generatedColumn === readPosition.column) {
+          segments.push({
+            source: mapping.source,
+            originalLine: mapping.originalLine,
+            originalColumn: mapping.originalColumn
+          });
+        }
+      });
+      strictEqual(segments.length, 1,
+        `${profile.name} must emit one segment at ${expectedRead.generated}`);
+      ok(segments[0].source?.endsWith(
+        "/src/RetainedImportedStatusView.hx") === true,
+      `${profile.name} ${expectedRead.generated} lost its authored module`);
+      strictEqual(segments[0].originalLine, expectedRead.original.line,
+        `${profile.name} ${expectedRead.generated} changed its authored line`);
+      strictEqual(segments[0].originalColumn, expectedRead.original.column,
+        `${profile.name} ${expectedRead.generated} changed its authored column`);
+
+      for (const position of [
+        readPosition,
+        {
+          line: readPosition.line,
+          column: readPosition.column + "tmp.".length
+        }
+      ]) {
+        const mapped = consumer.originalPositionFor(position);
+        ok(mapped.source?.endsWith(
+          "/src/RetainedImportedStatusView.hx") === true,
+        `${profile.name} ${expectedRead.generated} token lost its authored module`);
+        strictEqual(mapped.line, expectedRead.original.line,
+          `${profile.name} ${expectedRead.generated} token changed its authored line`);
+        strictEqual(mapped.column, expectedRead.original.column,
+          `${profile.name} ${expectedRead.generated} token changed its authored column`);
+      }
+    }
+
+    const initializerPosition = expectedReads[1].original;
+    const initializer = consumer.originalPositionFor(
+      tokenPosition(generated, "recordCarrierProp(props.value)")
+    );
+    ok(initializer.source?.endsWith(
+      "/src/RetainedImportedStatusView.hx") === true,
+    `${profile.name} nested initializer lost its authored module`);
+    strictEqual(initializer.line, initializerPosition.line,
+      `${profile.name} nested initializer changed its authored line`);
+    strictEqual(initializer.column, initializerPosition.column,
+      `${profile.name} nested initializer changed its authored column`);
+  }
+}
+
 /**
  * Proves a planned TypeScript identity wrapper and its inner value both retain
  * the authored Haxe boundary. The wrapper maps to the whole call/return
@@ -377,6 +586,8 @@ try {
 
   assertOverlappingClassPathIdentities();
   assertInlinedJsxChildMapping();
+  assertNormalizedHxxPropMappings();
+  assertNestedHxxPropMappings();
   assertBoundaryWrapperMappings();
 
   console.log("ok");

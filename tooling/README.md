@@ -97,6 +97,7 @@ watch/loop pair, or only the owned Haxe server.
 | `@genes-ts/tooling/loop` | Debounces bursts and prevents overlapping rebuilds | How change causes merge and what one rebuild performs |
 | `@genes-ts/tooling/haxe-server` | Owns and safely reuses one compatible `haxe --wait` process | Haxe discovery, compiler arguments, diagnostics, and compatibility identity |
 | `@genes-ts/tooling/artifacts` | Publishes an exact authorized file transition with crash recovery | Generation, validation, file ownership, and adoption policy |
+| `@genes-ts/tooling/css-modules` | Checks processor-owned export manifests and generates closed Haxe companions plus exact per-file TypeScript declarations | CSS parsing, processor choice, framework placement, and runtime loader agreement |
 
 The `@genes-ts/tooling/session` subpath now defines the public
 `DevelopmentSession` v1 types, and `development-session/v1` publishes its JSON
@@ -196,6 +197,13 @@ yarn test:tooling-package
 `yarn test:tooling-package` builds a deterministic tarball, installs it into a
 clean temporary project, type-checks every code subpath, imports every runtime
 and conformance-data subpath, and verifies the reviewed file inventory.
+
+The required Genes CI repeats the packed-consumer check on Node 20.9.0, which
+is the package's oldest supported Node release. The runtime fixture loads JSON
+exports through Node's `createRequire` API because Node 20.9 predates the newer
+`with { type: "json" }` import syntax. The strict TypeScript consumer still
+checks the modern static-import form. Both paths resolve the same public
+package exports.
 
 Install an exact reviewed GitHub commit from another Node project with npm
 11.18.0:

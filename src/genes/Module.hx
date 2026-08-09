@@ -102,6 +102,7 @@ class Module {
   public var templateLiteralPlan(get, null): TemplateLiteralPlan;
   public var tsNarrowingPlan(get, null): genes.ts.TsNarrowingPlan;
   public var tsBoundaryPlan(get, null): genes.ts.TsBoundaryPlan;
+  public var tsIndexedAccessPlan(get, null): genes.ts.TsIndexedAccessPlan;
   public var dependencyPlan(get, null): DependencyPlan;
   public var typeDependencies(get, null): Dependencies;
   public var declarationDependencies(get, null): Dependencies;
@@ -187,6 +188,19 @@ class Module {
     if (tsBoundaryPlan == null)
       tsBoundaryPlan = genes.ts.TsBoundaryPlan.build(this);
     return tsBoundaryPlan;
+  }
+
+  /**
+   * Returns the TypeScript-only indexed-expression decisions for this request.
+   *
+   * The plan is built after narrowing and value-boundary facts exist. The
+   * TypeScript emitter consumes its exact occurrence decisions; classic
+   * JavaScript never requests it.
+   */
+  function get_tsIndexedAccessPlan(): genes.ts.TsIndexedAccessPlan {
+    if (tsIndexedAccessPlan == null)
+      tsIndexedAccessPlan = genes.ts.TsIndexedAccessPlan.build(this);
+    return tsIndexedAccessPlan;
   }
 
   /** Returns the shared target-neutral temporary plan for this module. */
@@ -330,6 +344,7 @@ class Module {
       jsxPlan = null;
       tsNarrowingPlan = null;
       tsBoundaryPlan = null;
+      tsIndexedAccessPlan = null;
       dependencyPlan = null;
       typeDependencies = null;
       declarationDependencies = null;

@@ -98,6 +98,18 @@ class Main {
     return value;
   }
 
+  #if server_indexed_plan
+  /** Exercises request-local indexed planning under the warm compiler. */
+  static function indexedDecision(values: Array<Int>, rhs: Int): Dynamic {
+    #if server_indexed_dynamic
+    final dynamicValues: Dynamic = values;
+    return dynamicValues[0] += rhs;
+    #else
+    return values[0] += rhs;
+    #end
+  }
+  #end
+
   #if server_jsx
   /**
    * Keeps real inline markup reachable in the `.tsx` and `.jsx` server lanes.
@@ -108,9 +120,27 @@ class Main {
    * TypeScript/JavaScript module under a JSX filename.
    */
   static function profileElement(): Element {
-    return <section data-server-profile="source">
-      <span>server-jsx</span>
-    </section>;
+    final sourceProps = {
+      __genesJsxPropName: "data-server-profile",
+      __genesJsxPropValue: "source",
+      __genesJsxPropNext: {
+        __genesJsxPropsEnd: true
+      }
+    };
+    final sourceElement = ServerHxxMarkers.root("section", sourceProps, {
+      __genesJsxChildValue: "server-jsx",
+      __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+    });
+    #if server_shared_props
+    final runtimeTag = "aside";
+    final sharedDynamicElement = ServerHxxMarkers.root(runtimeTag,
+      sourceProps, {
+        __genesJsxChildValue: "shared",
+        __genesJsxChildNext: {__genesJsxChildrenEnd: true}
+      });
+    sharedDynamicElement;
+    #end
+    return sourceElement;
   }
   #end
 
@@ -124,20 +154,27 @@ class Main {
     // The harness recompiles this exact call position with String, then Int,
     // then String again so a cached typed tree must carry its own witness
     // instead of depending on macro static state from a previous request.
-    final current = genes.ts.TypeArguments.call(
-      RuntimePackage.identity(witness), witness);
+    final current = genes.ts.TypeArguments.call(RuntimePackage.identity(witness),
+      witness);
     var transcript = "project-a:" + current + ":" + Extra.value();
     #if server_removed
     transcript += ":" + Removed.value();
     #end
     #if server_import_matrix
-    transcript += ":" + DefaultMarker.value + ":" + NamedMarker.value
-      + ":" + ConfigMarker.project;
+    transcript += ":"
+      + DefaultMarker.value
+      + ":"
+      + NamedMarker.value
+      + ":"
+      + ConfigMarker.project;
     #end
     #if server_jsx
     // Retain the checked markup under full DCE without imposing a browser or
     // React runtime step on this compiler-server lifecycle fixture.
     profileElement();
+    #end
+    #if server_indexed_plan
+    transcript += ":" + indexedDecision([1], 2);
     #end
     trace(transform(transcript));
   }

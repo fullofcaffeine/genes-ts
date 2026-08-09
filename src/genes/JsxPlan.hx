@@ -79,10 +79,12 @@ enum JsxIntent {
   FragmentIntent(children: Array<JsxChildIntent>, pos: Position);
 }
 
-/** The four typed calls in the internal JSX marker protocol. */
+/** The typed calls in the internal JSX marker protocol. */
 private enum JsxMarkerKind {
   ElementMarker;
   FragmentMarker;
+  HxxElementMarker;
+  HxxFragmentMarker;
   HxxChildElementMarker;
   HxxChildFragmentMarker;
 }
@@ -106,6 +108,76 @@ private typedef HxxChildMarkerIdentity = {
   final call: TypedExpr;
   final owner: Ref<ClassType>;
   final field: Ref<ClassField>;
+}
+
+/** Every declaration and traversed read of one exact local in this request. */
+private final class JsxLocalUseInventory {
+  public final local: TVar;
+  public final declarations: Array<{
+    final declaration: TypedExpr;
+    final initializer: Null<TypedExpr>;
+  }> = [];
+  public final occurrences: Array<TypedExpr> = [];
+
+  public function new(local: TVar) {
+    this.local = local;
+  }
+}
+
+/** One static HXX element worth checking for the bounded props projection. */
+private typedef JsxSourcePropsCandidate = {
+  final marker: TypedExpr;
+  final rootOccurrence: TypedExpr;
+  final local: TVar;
+  final props: Array<JsxPropIntent>;
+}
+
+/** One exact named property within a fully accounted HXX carrier. */
+@:noCompletion
+final class JsxSourcePropFact {
+  public final name: String;
+  public final value: TypedExpr;
+  public final root: TypedExpr;
+  public final path: Array<JsxValueAccess>;
+  public final mappingPos: Position;
+
+  public function new(name: String, value: TypedExpr, root: TypedExpr,
+      path: Array<JsxValueAccess>) {
+    this.name = name;
+    this.value = value;
+    this.root = root;
+    this.path = path.copy();
+    mappingPos = value.pos;
+  }
+}
+
+/**
+ * One immutable permission for the narrow source-props representation change.
+ *
+ * The HXX candidate marker is deliberately not authority: another macro can
+ * mint it with `@:privateAccess`. The fact exists only when the complete typed
+ * module proves one declaration, one static marker consumer, one exact inline
+ * linked carrier, and no other occurrence of the carrier local.
+ */
+@:noCompletion
+final class JsxSourcePropsFact {
+  public final local: TVar;
+  public final declaration: TypedExpr;
+  public final initializer: TypedExpr;
+  public final marker: TypedExpr;
+  public final rootOccurrence: TypedExpr;
+  public final props: Array<JsxSourcePropFact>;
+
+  public function new(local: TVar, declaration: TypedExpr,
+      initializer: TypedExpr, marker: TypedExpr, rootOccurrence: TypedExpr,
+      props: Array<JsxSourcePropFact>) {
+    this.local = local;
+    this.declaration = declaration;
+    this.initializer = initializer;
+    this.marker = marker;
+    this.rootOccurrence = rootOccurrence;
+    this.props = props.copy();
+  }
 }
 
 /** Exact function-like owner used only while proving one source rewrite. */
@@ -262,6 +334,131 @@ final class JsxSourceInlineConsumer {
 }
 
 /**
+ * Per-source-emitter accounting for exact ordinary-props projections.
+ *
+ * The immutable plan decides whether a representation change is legal. This
+ * consumer only proves that one emitter changed every planned occurrence once:
+ * the marker, declaration/initializer, and each linked field read. A partial
+ * or duplicate rewrite fails before the staged output transaction commits.
+ */
+@:noCompletion
+final class JsxSourcePropsConsumer {
+  final facts: Array<JsxSourcePropsFact>;
+  final byMarker = new ObjectMap<TypedExpr, JsxSourcePropsFact>();
+  final byDeclaration = new ObjectMap<TypedExpr, JsxSourcePropsFact>();
+  final consumedMarkers = new ObjectMap<TypedExpr, Bool>();
+  final consumedDeclarations = new ObjectMap<TypedExpr, Bool>();
+  final consumedProps = new ObjectMap<JsxSourcePropFact, Bool>();
+
+  public function new(facts: Array<JsxSourcePropsFact>) {
+    this.facts = facts;
+    for (fact in facts) {
+      byMarker.set(fact.marker, fact);
+      byDeclaration.set(fact.declaration, fact);
+    }
+  }
+
+  /** Accounts for the exact static HXX root selected by the plan. */
+  public function consumeMarker(marker: TypedExpr): Void {
+    final fact = byMarker.get(marker);
+    if (fact == null)
+      return;
+    if (consumedMarkers.exists(marker))
+      CompilerDiagnostic.fail('[GTS-JSX-SOURCE-PROPS-003] A planned HXX props marker was '
+        + 'emitted more than once. This is a compiler emission error.',
+        marker.pos);
+    consumedMarkers.set(marker, true);
+  }
+
+  /** Returns ordinary named fields only for the exact planned declaration. */
+  public function propsForDeclaration(declaration: TypedExpr, local: TVar,
+      initializer: TypedExpr): Null<Array<JsxSourcePropFact>> {
+    final fact = byDeclaration.get(declaration);
+    if (fact == null)
+      return null;
+    if (fact.local.id != local.id || fact.initializer != initializer)
+      return
+        CompilerDiagnostic.fail('[GTS-JSX-SOURCE-PROPS-003] A planned HXX props declaration no '
+        + 'longer owns its exact local and initializer.',
+        declaration.pos);
+    if (consumedDeclarations.exists(declaration))
+      return
+        CompilerDiagnostic.fail('[GTS-JSX-SOURCE-PROPS-003] A planned HXX props declaration was '
+        + 'emitted more than once. This is a compiler emission error.',
+        declaration.pos);
+    consumedDeclarations.set(declaration, true);
+    return fact.props.copy();
+  }
+
+  /**
+   * Returns the carrier local only for one exact planned linked-field read.
+   *
+   * Paths are compared segment by segment because intent parsing reconstructs
+   * immutable path arrays for each emitter. Typed roots and values still use
+   * exact compiler-owned object identity; names and positions never authorize
+   * a match.
+   */
+  public function localForFieldRead(marker: TypedExpr, root: TypedExpr,
+      path: Array<JsxValueAccess>, name: String, value: TypedExpr): Null<TVar> {
+    final fact = byMarker.get(marker);
+    if (fact == null)
+      return null;
+    for (prop in fact.props) {
+      if (prop.name != name
+        || prop.value != value
+        || prop.root != root
+        || !samePath(prop.path, path))
+        continue;
+      if (consumedProps.exists(prop))
+        return
+          CompilerDiagnostic.fail('[GTS-JSX-SOURCE-PROPS-003] A planned HXX property read was '
+          + 'emitted more than once. This is a compiler emission error.',
+          prop.mappingPos);
+      consumedProps.set(prop, true);
+      return fact.local;
+    }
+    return null;
+  }
+
+  /** Ensures every accepted representation change was emitted completely. */
+  public function validate(): Void {
+    #if genes.jsx_source_props_test_fail_after_emission
+    if (facts.length > 0)
+      CompilerDiagnostic.fail('[GTS-JSX-SOURCE-PROPS-003] Injected source-props consumption '
+        + 'failure for output-transaction evidence.',
+        facts[0].marker.pos);
+    #end
+    for (fact in facts) {
+      if (!consumedMarkers.exists(fact.marker)
+        || !consumedDeclarations.exists(fact.declaration))
+        CompilerDiagnostic.fail('[GTS-JSX-SOURCE-PROPS-003] A planned HXX props rewrite was only '
+          + 'partly emitted. Its exact marker and declaration must be consumed '
+          + 'once.',
+          fact.marker.pos);
+      for (prop in fact.props)
+        if (!consumedProps.exists(prop))
+          CompilerDiagnostic.fail('[GTS-JSX-SOURCE-PROPS-003] A planned HXX property read was not '
+            + 'consumed by the source emitter.',
+            prop.mappingPos);
+    }
+  }
+
+  static function samePath(left: Array<JsxValueAccess>,
+      right: Array<JsxValueAccess>): Bool {
+    if (left.length != right.length)
+      return false;
+    for (index in 0...left.length)
+      switch [left[index], right[index]] {
+        case [JsxObjectField(leftName), JsxObjectField(rightName)]
+          if (leftName == rightName):
+        default:
+          return false;
+      }
+    return true;
+  }
+}
+
+/**
  * Explicit capability contract for emitting a `JsxPlan`.
  *
  * Why: JSX used to be recognized only while the TypeScript printer was already
@@ -375,22 +572,27 @@ class JsxCapabilityPolicy {
  *
  * What: the plan classifies intrinsic, dynamic-intrinsic, and component tags;
  * ordered named/spread properties; fragments; children; evaluation origins;
- * marker provenance; and whether nested markup fills a required `children`
+ * marker classification; and whether nested markup fills a required `children`
  * property. It records local initializers because the typer—or reviewed
  * migration code—may lift marker containers into locals. Their field values
  * must then be read, not inlined and evaluated a second time.
  *
- * How: `build` performs four deterministic typed-AST passes. The first
- * captures every initializer by stable `TVar.id`; the second validates every
- * marker, records its permitted carrier-local path, and freezes module
- * capability facts. The third rejects any extra read, write, or escape of a
- * carrier local. The fourth records exact parser-owned nested-child rewrites
- * for source JSX only. `intentForCall` is reused during printing, but performs
- * no target choice. Invalid marker shapes or ownership violations fail with
- * stable IDs and their original Haxe source position.
+ * How: `build` first records the exact expression surface available to
+ * implementation emitters, then inventories declarations, initializers, and
+ * every traversed local occurrence by stable `TVar.id`. Later passes validate
+ * markers, record permitted carrier paths, reject extra carrier use, admit an
+ * ordinary props projection only through exact use, shape, and output-surface
+ * accounting, and plan the separate exact HXX nested-child rewrites for source
+ * JSX. `intentForCall` is reused during printing, but performs no target
+ * choice. Invalid marker shapes or ownership violations fail with stable IDs
+ * and their original Haxe source position.
  */
 class JsxPlan {
   final localInitializers: Map<Int, TypedExpr> = [];
+  final localUseInventory: Map<Int, JsxLocalUseInventory> = [];
+  final sourcePropsCandidates: Array<JsxSourcePropsCandidate> = [];
+  final sourcePropsFacts: Array<JsxSourcePropsFact> = [];
+  final implementationExpressions = new ObjectMap<TypedExpr, Bool>();
   final sourceInlineFacts: Array<JsxSourceInlineFact> = [];
   final sourceInlineByChildId: Map<Int, JsxSourceInlineFact> = [];
   final sourceInlineByDeclaration = new ObjectMap<TypedExpr,
@@ -441,6 +643,20 @@ class JsxPlan {
     return new JsxSourceInlineConsumer(sourceInlineFacts.copy());
   }
 
+  /** Creates one exact accounting view for source-only props projections. */
+  public function sourcePropsConsumer(profile: JsxEmissionProfile): JsxSourcePropsConsumer {
+    switch profile {
+      case TsxAutomatic | TsxClassic | JavaScriptJsxAutomatic:
+      case TypeScriptCreateElement | ClassicCreateElement:
+        return
+          CompilerDiagnostic.fail('[GTS-JSX-SOURCE-PROPS-004] A createElement output profile '
+          + 'attempted to consume source-only HXX props facts. This is a '
+          + 'compiler configuration error.',
+          firstPosition);
+    }
+    return new JsxSourcePropsConsumer(sourcePropsFacts.copy());
+  }
+
   /**
    * Returns the Haxe-specialized property contract recorded by validation.
    *
@@ -477,10 +693,26 @@ class JsxPlan {
   public static function build(module: Module): JsxPlan {
     final plan = new JsxPlan();
     var checker: Null<JsxTypeChecker> = null;
+    plan.visitImplementationExpressions(module,
+      expression -> plan.implementationExpressions.set(expression, true));
     plan.visitModuleExpressions(module, expression -> {
-      switch unwrap(expression).expr {
+      switch expression.expr {
         case TVar(variable, initializer) if (initializer != null):
           plan.localInitializers.set(variable.id, initializer);
+          final inventory = plan.inventoryFor(variable);
+          inventory.declarations.push({
+            declaration: expression,
+            initializer: initializer
+          });
+        case TVar(variable, null):
+          plan.inventoryFor(variable).declarations.push({
+            declaration: expression,
+            initializer: null
+          });
+        case TLocal(variable):
+          // Count traversal occurrences, not distinct expression objects. A
+          // macro may reuse one TypedExpr in multiple parent positions.
+          plan.inventoryFor(variable).occurrences.push(expression);
         default:
       }
     });
@@ -514,16 +746,33 @@ class JsxPlan {
           plan.dynamicIntrinsic = true;
         default:
       }
+      plan.collectSourcePropsCandidate(expression, intent);
     });
     plan.collectingCarrierUses = false;
     if (plan.carrierLocalIds.iterator().hasNext())
       plan.validateCarrierOwnership(module);
+    plan.finalizeSourcePropsFacts();
+    #if genes.jsx_source_props_test_fail_before_emission
+    if (plan.sourcePropsFacts.length > 0)
+      CompilerDiagnostic.fail('[GTS-JSX-SOURCE-PROPS-002] Injected source-props planning '
+        + 'failure for output-transaction evidence.',
+        plan.sourcePropsFacts[0].marker.pos);
+    #end
     plan.planSourceInlineLocals(module);
     plan.validateSourceInlineFacts();
     return plan;
   }
 
   function new() {}
+
+  function inventoryFor(local: TVar): JsxLocalUseInventory {
+    final existing = localUseInventory.get(local.id);
+    if (existing != null)
+      return existing;
+    final created = new JsxLocalUseInventory(local);
+    localUseInventory.set(local.id, created);
+    return created;
+  }
 
   function get_hasIntents(): Bool {
     return intentCount > 0;
@@ -541,7 +790,8 @@ class JsxPlan {
   /** Returns validated intent when `callee` is a marker, otherwise null. */
   public function intentForCall(callee: TypedExpr,
       arguments: Array<TypedExpr>): Null<JsxIntent> {
-    return switch markerKind(callee) {
+    final kind = markerKind(callee);
+    return switch kind {
       case ElementMarker | HxxChildElementMarker:
         if (arguments.length != 3)
           markerError('GTS-JSX-INTENT-001',
@@ -550,14 +800,49 @@ class JsxPlan {
         final props = propsIntent(arguments[1]);
         final children = childrenIntent(arguments[2]);
         ElementIntent(tag, props, children, arguments[0].pos);
+      case HxxElementMarker:
+        if (arguments.length != 4)
+          markerError('GTS-JSX-INTENT-001',
+            'HXX element marker expects candidate, tag, props, and children',
+            callee.pos);
+        requireHxxRootCandidate(arguments[0]);
+        final tag = tagIntent(arguments[1]);
+        final props = propsIntent(arguments[2]);
+        final children = childrenIntent(arguments[3]);
+        ElementIntent(tag, props, children, arguments[1].pos);
       case FragmentMarker | HxxChildFragmentMarker:
         if (arguments.length != 1)
           markerError('GTS-JSX-INTENT-002',
             'Fragment marker expects one children array', callee.pos);
         FragmentIntent(childrenIntent(arguments[0]), arguments[0].pos);
+      case HxxFragmentMarker:
+        if (arguments.length != 2)
+          markerError('GTS-JSX-INTENT-002',
+            'HXX fragment marker expects candidate and one children array',
+            callee.pos);
+        requireHxxRootCandidate(arguments[0]);
+        FragmentIntent(childrenIntent(arguments[1]), arguments[1].pos);
       case null:
         null;
     }
+  }
+
+  /**
+   * Recognizes the forgeable HXX source-projection candidate token.
+   *
+   * This exact field identity narrows analysis but grants no representation
+   * authority. Complete local-use and carrier-shape accounting decide whether
+   * a source props projection is legal.
+   */
+  function requireHxxRootCandidate(expression: TypedExpr): Void {
+    final valid = switch unwrap(expression).expr {
+      case TField(_, FStatic(_.get() => owner, _.get() => field)): owner.pack.join('.') == 'genes.react.internal' && owner.name == 'HxxRootCandidate' && field.name == 'issue';
+      default: false;
+    }
+    if (!valid)
+      markerError('GTS-JSX-INTENT-011',
+        'HXX root marker requires the exact source-projection candidate',
+        expression.pos);
   }
 
   /** True for a nested child marker after metadata/cast wrappers are removed. */
@@ -571,8 +856,8 @@ class JsxPlan {
   /** Marker identity is based on the compiler-owned extern declaration. */
   public static function markerName(callee: TypedExpr): Null<String> {
     return switch markerKind(callee) {
-      case ElementMarker | HxxChildElementMarker: '__jsx';
-      case FragmentMarker | HxxChildFragmentMarker: '__frag';
+      case ElementMarker | HxxElementMarker | HxxChildElementMarker: '__jsx';
+      case FragmentMarker | HxxFragmentMarker | HxxChildFragmentMarker: '__frag';
       case null: null;
     }
   }
@@ -586,6 +871,8 @@ class JsxPlan {
         switch field.name {
           case '__jsx': ElementMarker;
           case '__frag': FragmentMarker;
+          case '__hxxJsx': HxxElementMarker;
+          case '__hxxFrag': HxxFragmentMarker;
           case '__hxxChildJsx': HxxChildElementMarker;
           case '__hxxChildFrag': HxxChildFragmentMarker;
           default: null;
@@ -656,6 +943,194 @@ class JsxPlan {
     final sourceRoot = markerLocalSource(expression);
     final resolved = resolveMarkerLocal(expression);
     return readProps(resolved, sourceRoot, [], 0);
+  }
+
+  /** Collects a static HXX element without authorizing a representation. */
+  function collectSourcePropsCandidate(expression: TypedExpr,
+      intent: JsxIntent): Void {
+    if (!collectingCarrierUses)
+      return;
+    final marker = sourcePropsUnwrap(expression);
+    // The visitor also reaches transparent parents around the same call. The
+    // inner call is the one runtime marker occurrence; do not register the
+    // same candidate again through each wrapper.
+    if (marker != expression)
+      return;
+    // Compiler-internal fields remain available to JSX validation but no
+    // implementation emitter visits them. Requiring one of their candidates
+    // to be consumed would reject a valid module at emitter finalization.
+    if (!implementationExpressions.exists(marker))
+      return;
+    final propsArgument = switch marker.expr {
+      case TCall(callee, found):
+        switch markerKind(callee) {
+          case HxxElementMarker if (found.length == 4): found[2];
+          case HxxChildElementMarker if (found.length == 3): found[1];
+          default: return;
+        }
+      default: return;
+    }
+    switch intent {
+      case ElementIntent(DynamicIntrinsicTag(_), _, _, _):
+        // Dynamic elements retain createElement and the linked carrier.
+        return;
+      case ElementIntent(_, props, _, _):
+        final rootOccurrence = sourcePropsUnwrap(propsArgument);
+        final local = switch rootOccurrence.expr {
+          case TLocal(found): found;
+          default: return;
+        }
+        sourcePropsCandidates.push({
+          marker: marker,
+          rootOccurrence: rootOccurrence,
+          local: local,
+          props: props.copy()
+        });
+      case FragmentIntent(_, _):
+    }
+  }
+
+  /**
+   * Authorizes only one declaration, one root occurrence, and one exact chain.
+   *
+   * A forgeable marker is harmless here: every runtime consumer of the linked
+   * representation is inventoried first, and the fact exists only when the
+   * selected root is the sole traversed occurrence of that exact local.
+   */
+  function finalizeSourcePropsFacts(): Void {
+    // Count once before validating candidates. A module can contain many HXX
+    // roots, so rescanning the full candidate list for every root would make
+    // otherwise linear source-props planning quadratic.
+    final candidatesByLocalId: Map<Int, Int> = [];
+    for (candidate in sourcePropsCandidates) {
+      final localId = candidate.local.id;
+      final count = candidatesByLocalId.get(localId);
+      candidatesByLocalId.set(localId, count == null ? 1 : count + 1);
+    }
+
+    for (candidate in sourcePropsCandidates) {
+      if (candidatesByLocalId.get(candidate.local.id) != 1)
+        continue;
+
+      final inventory = localUseInventory.get(candidate.local.id);
+      if (inventory == null
+        || inventory.local.id != candidate.local.id
+        || inventory.declarations.length != 1
+        || inventory.occurrences.length != 1
+        || inventory.occurrences[0] != candidate.rootOccurrence)
+        continue;
+
+      final declaration = inventory.declarations[0];
+      final initializer = declaration.initializer;
+      if (initializer == null)
+        continue;
+      if (!implementationExpressions.exists(declaration.declaration)
+        || !implementationExpressions.exists(initializer)
+        || !implementationExpressions.exists(candidate.rootOccurrence))
+        continue;
+      switch initializer.expr {
+        case TObjectDecl(_):
+        default:
+          continue;
+      }
+
+      final exactProps = exactSourceProps(initializer,
+        candidate.rootOccurrence);
+      if (exactProps == null || !sourcePropsAgree(candidate.props, exactProps))
+        continue;
+      sourcePropsFacts.push(new JsxSourcePropsFact(candidate.local,
+        declaration.declaration, initializer, candidate.marker,
+        candidate.rootOccurrence, exactProps));
+    }
+  }
+
+  /** Parses only the exact inline named-prop grammar admitted for projection. */
+  function exactSourceProps(initializer: TypedExpr,
+      root: TypedExpr): Null<Array<JsxSourcePropFact>> {
+    final out: Array<JsxSourcePropFact> = [];
+    final names: Map<String, Bool> = [];
+
+    function read(node: TypedExpr, path: Array<JsxValueAccess>,
+        depth: Int): Bool {
+      if (depth > 4096)
+        return false;
+      final fields = switch node.expr {
+        case TObjectDecl(found): found;
+        default: return false;
+      }
+      if (fields.length == 1 && fields[0].name == '__genesJsxPropsEnd')
+        return switch fields[0].expr.expr {
+          case TConst(TBool(true)): true;
+          default: false;
+        };
+      if (fields.length != 3
+        || fields[0].name != '__genesJsxPropName'
+        || fields[1].name != '__genesJsxPropValue'
+        || fields[2].name != '__genesJsxPropNext')
+        return false;
+      final name = switch fields[0].expr.expr {
+        case TConst(TString(found)): found;
+        default: return false;
+      }
+      if (name == '__proto__' || names.exists(name))
+        return false;
+      names.set(name, true);
+      final value = fields[1].expr;
+      out.push(new JsxSourcePropFact(name, value, root,
+        appendPath(path, '__genesJsxPropValue')));
+      return read(fields[2].expr, appendPath(path, '__genesJsxPropNext'),
+        depth + 1);
+    }
+
+    return read(initializer, [], 0) ? out : null;
+  }
+
+  /** Requires exact semantic/property agreement with the validated JSX intent. */
+  function sourcePropsAgree(intent: Array<JsxPropIntent>,
+      exact: Array<JsxSourcePropFact>): Bool {
+    if (intent.length != exact.length)
+      return false;
+    for (index in 0...intent.length) {
+      final fact = exact[index];
+      switch intent[index] {
+        case NamedProp(name, value, RuntimeValuePath(root, path)):
+          if (name != fact.name
+            || value != fact.value
+            || root != fact.root
+            || !sameSourcePropsPath(path, fact.path))
+            return false;
+        case NamedProp(_, _, DirectValue) | SpreadProp(_, _):
+          return false;
+      }
+    }
+    return true;
+  }
+
+  static function sameSourcePropsPath(left: Array<JsxValueAccess>,
+      right: Array<JsxValueAccess>): Bool {
+    if (left.length != right.length)
+      return false;
+    for (index in 0...left.length)
+      switch [left[index], right[index]] {
+        case [JsxObjectField(leftName), JsxObjectField(rightName)]
+          if (leftName == rightName):
+        default:
+          return false;
+      }
+    return true;
+  }
+
+  /** Source-props permission unwraps no macro metadata or runtime cast. */
+  static function sourcePropsUnwrap(expression: TypedExpr): TypedExpr {
+    var current = expression;
+    while (current != null)
+      switch current.expr {
+        case TCast(inner, null) | TParenthesis(inner):
+          current = inner;
+        default:
+          return current;
+      }
+    return expression;
   }
 
   function readChildren(expression: TypedExpr, sourceRoot: Null<TypedExpr>,
@@ -931,21 +1406,7 @@ class JsxPlan {
       visitScopes(root, MemberRootOwner(root), rootOrdinal, {value: 0});
     }
 
-    for (member in module.members) {
-      if (!Module.memberProjection(member).emitImplementation)
-        continue;
-      switch member {
-        case MClass(owner, _, fields):
-          for (field in Module.emittableFields(fields))
-            if (field.expr != null)
-              visitRoot(field.expr);
-          if (owner.init != null)
-            visitRoot(owner.init);
-        case MMain(expression):
-          visitRoot(expression);
-        case MEnum(_, _) | MType(_, _):
-      }
-    }
+    visitImplementationRoots(module, visitRoot);
   }
 
   /** Plans candidates whose declaration and sole parent use share one block. */
@@ -1397,6 +1858,45 @@ class JsxPlan {
         case MMain(expression):
           walk(expression);
         default:
+      }
+    }
+  }
+
+  /** Visits the exact expression surface available to implementation emitters. */
+  function visitImplementationExpressions(module: Module,
+      visit: TypedExpr->Void): Void {
+    function walk(expression: TypedExpr): Void {
+      if (expression == null)
+        return;
+      visit(expression);
+      expression.iter(walk);
+    }
+    visitImplementationRoots(module, walk);
+  }
+
+  /**
+   * Shares one implementation-root projection with all source-only JSX plans.
+   *
+   * Compiler-internal fields remain in `Module.members` for semantic analysis,
+   * but `Module.emittableFields` removes them before either implementation
+   * emitter runs. A source-only fact that requires occurrence accounting must
+   * therefore begin from these roots rather than the broader semantic tree.
+   */
+  function visitImplementationRoots(module: Module,
+      visitRoot: TypedExpr->Void): Void {
+    for (member in module.members) {
+      if (!Module.memberProjection(member).emitImplementation)
+        continue;
+      switch member {
+        case MClass(owner, _, fields):
+          for (field in Module.emittableFields(fields))
+            if (field.expr != null)
+              visitRoot(field.expr);
+          if (owner.init != null)
+            visitRoot(owner.init);
+        case MMain(expression):
+          visitRoot(expression);
+        case MEnum(_, _) | MType(_, _):
       }
     }
   }

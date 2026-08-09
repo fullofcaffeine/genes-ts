@@ -14,6 +14,14 @@ function Child(): ReactNode {
   return createElement("span", null, "child");
 }
 
+export function DirectParent(props: ParentProps): ReactNode {
+  return createElement("section", { "data-import": "direct" }, props.children);
+}
+
+export function DirectChild(): ReactNode {
+  return createElement("span", null, "direct child");
+}
+
 const components = new Proxy({ Parent, Child }, {
   get(target, property, receiver) {
     if (property === "Parent" || property === "Child") {

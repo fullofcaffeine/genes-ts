@@ -162,6 +162,124 @@ the record to change could make those two views disagree. The focused
 carriers still evaluate side effects exactly once in TypeScript and classic
 JavaScript, while unsafe use fails before prior output is replaced.
 
+### Readable props when Haxe preserves evaluation order
+
+An imported component can make Haxe lift the HXX property record into a local.
+This is not an arbitrary temporary. It preserves the rule that property values
+run before nested child expressions:
+
+```haxe
+final Status: StatusProps->Element =
+  Imports.defaultImport("./components/Status.js");
+
+final view = <Status label="Count" value={summary()}>
+  <span>{count.get()}</span>
+</Status>;
+```
+
+This does not mean every JSX operation compiles through a separate props
+object. Haxe creates this local only when the typed expression needs that
+evaluation point. The readable projection below cleans up a local that already
+exists; it never introduces one merely to make the generated source look
+different.
+
+The typed Haxe tree evaluates `summary()` into the property carrier, then
+evaluates `count.get()` for the child, and finally creates the element. Older
+source-preserving output exposed the carrier protocol itself:
+
+```tsx
+const view = {
+  "__genesJsxPropName": "label",
+  "__genesJsxPropValue": "Count",
+  "__genesJsxPropNext": {
+    "__genesJsxPropName": "value",
+    "__genesJsxPropValue": summary(),
+    "__genesJsxPropNext": {"__genesJsxPropsEnd": true}
+  }
+};
+const child = count.get();
+const element = <Status
+  label={view.__genesJsxPropValue}
+  value={view.__genesJsxPropNext.__genesJsxPropValue}
+><span>{child}</span></Status>;
+```
+
+TSX and JSX now keep the same evaluation points while spelling the temporary
+as an ordinary property object:
+
+```tsx
+const view = {"label": "Count", "value": summary()};
+const child = count.get();
+const element = <Status label={view.label} value={view.value}>
+  <span>{child}</span>
+</Status>;
+```
+
+Inlining `summary()` directly into the final element while leaving `child`
+above it would run the child first and change the program. The ordinary object
+removes compiler vocabulary without making that unsafe move.
+
+The HXX root carries a nominal candidate value, but that value is deliberately
+not authorization. Another macro can mint it with `@:privateAccess`. It only
+tells Genes that the root is worth checking for the readable projection.
+
+The same cleanup also applies when an HXX element remains as a nested
+temporary. For example, a component imported from an npm package may need to
+stay after an observable child lookup:
+
+```tsx
+const props = {label: "Count", value: summary()};
+const child = <ObservableComponents.Child />;
+const element = <ImportedPanel label={props.label} value={props.value}>
+  {child}
+</ImportedPanel>;
+```
+
+Genes removes the linked-list field names from `props`, but it does not move
+`element` into its parent or move the imported component read ahead of
+`child`. ESM imports are live bindings, so that lookup timing can be observable
+even though ordinary imports look like simple constants. This props cleanup
+and nested-element inlining are therefore separate decisions.
+
+That copied-candidate case is a rare compiler edge case, mainly relevant to a
+macro that deliberately constructs or shares Genes' internal HXX expression.
+It is not a normal React workflow or an application security claim. It matters
+because the compiler must still fail closed for unusual valid macro input:
+changing only some uses of the linked object could make a missed use read
+`undefined`, while ignoring an extra effectful field could remove behavior.
+
+Authorization comes from complete request-local accounting instead. The exact
+carrier local must have one declaration, one static HXX element occurrence,
+and no other typed occurrence anywhere in the module. That element may be the
+root marker or a parser-created nested marker that remains scheduled. Its
+initializer must be one
+fully inline linked chain whose nodes contain exactly the name, value, and next
+fields in their original evaluation order, followed by exactly
+`{__genesJsxPropsEnd: true}`. Every parsed name, value expression, root, and
+linked access path must agree with the already validated JSX intent. Each TSX
+or JSX emitter then accounts for the marker, declaration, and every property
+read exactly once before the staged output may commit.
+
+This makes a forged candidate safe: a single exact static consumer may still
+qualify because nothing can observe the linked representation, while a carrier
+shared with another root, another nested element, a dynamic root, or any other
+code keeps its linked shape. Provenance is not used as a security boundary.
+
+A carrier containing a spread also stays unchanged for now: expanding the
+spread earlier could observe a getter or a child-side mutation at a different
+time. The same conservative rule applies when Haxe has already evaluated a
+linked-list tail into a separate local; flattening across that seam could run
+an effectful property twice. Duplicate property names and the special
+JavaScript object-literal key `__proto__` likewise keep the carrier, because a
+normal object would not represent them exactly. A runtime string tag also keeps
+the carrier expected by its `createElement` fallback instead of mixing the two
+representations. Typed `createElement` and classic JavaScript profiles keep
+their existing explicit schedule and runtime output.
+
+Extra or reordered protocol fields also keep the linked carrier. In
+particular, an effectful extra field on the terminal object must still execute;
+field-name lookup alone is never allowed to erase it.
+
 ## Canonical source JSX trees
 
 Haxe sometimes lifts nested HXX elements into locals while it types the linked
@@ -231,6 +349,31 @@ child local preserves the original `Child,Parent` read order. Code may read a
 component field into a local first when it wants an explicit, stable lexical
 value.
 
+A direct named ESM import also keeps the generated child temporary. This case
+looks safer because reading an import does not call a getter, but ESM imports
+are *live bindings*: when the exporting module assigns a new value, later
+reads by the importing module see that new value. Compare these two JavaScript
+evaluation orders:
+
+```tsx
+// Parent is read first, then creating Child may replace the exported Parent.
+return <Parent><Child /></Parent>;
+
+// Child is created first, then the current Parent binding is read.
+const child = <Child />;
+return <Parent>{child}</Parent>;
+```
+
+The two forms normally render the same thing, but a custom JSX runtime can run
+code while it creates `Child`, and that code can cause the exporting module to
+replace `Parent`. The nested form would use the old parent while the temporary
+form would use the new one. `@:jsRequire` proves where a value is imported
+from; it does not prove that the export can never change. Genes therefore
+retains the child temporary unless a future compiler contract can prove that
+the exact imported export is immutable. The focused test includes a small
+native ESM program that observes both results, so this limit is based on
+JavaScript behavior rather than generated-text preference.
+
 Genes also does not rename the surviving parent merely because a generated
 child disappeared. For example, Haxe may call that parent `tree1`; matching
 spellings do not prove why Haxe added the suffix. Keeping `tree1` is harmless,
@@ -267,11 +410,20 @@ focused injected-failure test proves that a late accounting error leaves the
 previous generated tree byte-for-byte unchanged.
 
 These identities live only in one `JsxPlan`; they are never static or reused
-between compiler requests. The focused suite also builds an inlineable child,
-edits it into an authored local, and restores it through one warm Haxe compiler
-server. The middle build must retain the authored local and the restored build
-must exactly match the first. This guards against stale object identities or
-rewrite decisions surviving a compiler-server request.
+between compiler requests. The focused suite builds an inlineable child, edits
+it into an authored local, enters and leaves a direct component imported with
+field-level `@:jsRequire`, and restores the first source through one warm Haxe
+compiler server. A second server begins with the imported component and runs
+the inverse order. Every middle build must reflect its current source, and each
+restored build must exactly match its first complete output tree.
+
+The imported-component steps also protect a lower compiler lifecycle boundary.
+Dependency planning needs typed declarations for Genes' `genes.Register` and
+Haxe's `js.Boot` runtime helpers. Those compiler objects are refreshed for each
+request; keeping one in a macro static after the request ends can make Haxe
+report that the helper is redefined on the next edit. Testing both request
+orders guards the JSX plan and these helper declarations without treating JSX
+names or generated text as lifecycle authority.
 
 The normalization is intentionally limited to profiles that preserve JSX
 syntax. Typed `.ts` and classic `.js` still emit the established explicit

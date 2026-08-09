@@ -248,6 +248,25 @@ in one sentence: which exact Haxe evidence authorizes which output change. State
 the important non-goals beside it. A pull request remains reviewable when every
 code path and fixture can be traced back to that contract.
 
+For meaningful behavior changes, also record the concrete scenario before
+broad automation: input/preconditions, compilation or user action, observable
+result, important error case, owning product surface, and protected claim. Run
+the smallest faithful owner against the pre-fix or tempting-wrong behavior and
+preserve the exact command plus concise red result in the Bead or PR; a separate
+red commit is optional. State an independent oracle—Haxe/JS/TS semantics, a
+manually reviewed expectation, pinned differential, invariant, or real consumer
+behavior—rather than generating the expected value with Genes itself.
+
+New capabilities begin with one vertical tracer bullet from authored source
+through Genes, target checking/building, any claimed package or framework
+boundary, and a real runtime/system observer. If a high-level test discovers a
+compiler bug, retain that representative boundary proof and add the smallest
+deterministic compiler regression. Keep affected product surfaces separate
+from surfaces merely covered by a broad gate; `full-ci` coverage is not
+permission to broaden a claim. Read
+[`docs/TESTING_STRATEGY.md#behavior-first-evidence`](docs/TESTING_STRATEGY.md#behavior-first-evidence)
+for the full evidence contract.
+
 This rule does not limit how complete that contract may be. Implement every
 compiler path, output profile, compatibility behavior, diagnostic, and test
 needed for the promised feature to work. Split only independently useful
@@ -261,14 +280,22 @@ landing order. The current PR may depend on a prerequisite Bead, but it is not
 complete until every blocking prerequisite and all in-contract work have
 landed and been validated together.
 
-Before implementing a slice that already appears unusually large, technically
-complex, architecturally ambiguous, or likely to run for a long time, tell the
-user and suggest an Oracle architecture review—even if an initial Bead split is
-already apparent. Give the Oracle the existing implementation plans and Bead
-graph, ask it to challenge the proposed boundaries, and request a recommended
-sequence of smaller contracts with dependencies, acceptance evidence, and stop
-criteria. A routine bounded local task that is not unusually complex or
-architecturally ambiguous does not need this ceremony.
+Before implementing genuinely critical work, suggest Oracle planning when the
+problem or safe plan remains unusually hard or materially undefined, competing
+compiler paths are consequential and difficult to reverse, or ownership and
+acceptance criteria cannot be established safely. Give Oracle the existing
+plans and Bead graph, ask it to challenge the boundaries, and request smaller
+contracts with dependencies, evidence, and stop criteria. Size, duration,
+unfamiliarity, or generic extra confidence alone do not justify escalation.
+
+For rare Oracle planning or review, invoke the globally installed
+`$oracle-review` skill. Let its caf-oracle facade own the request ledger, exact
+agent provenance, checked evidence bundle, dedicated browser dispatch,
+recovery, response capture, disposition, and archive; do not maintain a
+parallel `/tmp/oracle` queue or manually upload and paste when the tool is
+available. If `$show-me-your-work` is active, its trail records only the
+escalation decision, request identity/status, and reconciled outcome. The scope
+tripwires and classification rules in this repository remain authoritative.
 
 Classify each review finding before changing code:
 
@@ -319,9 +346,10 @@ At that checkpoint:
 4. If the work has become disproportionately long, repeatedly non-convergent,
    or architecturally ambiguous, propose an independent high-capability
    architecture review—the **Oracle** in current project terminology—before
-   another implementation cycle. Include full relevant repository snapshots,
-   the reduced cases, failed approaches, invariants, current plans and Beads,
-   and precise questions about both architecture and the proposed split.
+   another implementation cycle. Use `$oracle-review` to package the full
+   relevant repository snapshots, reduced cases, failed approaches, invariants,
+   current plans and Beads, and precise questions about both architecture and
+   the proposed split.
 5. Resume only after the user accepts a deliberately smaller fallback, the
    existing scope becomes finite again, or an Oracle response is reconciled
    into a finite design. Treat external review as design input; repository

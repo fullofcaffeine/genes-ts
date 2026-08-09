@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
+import ts from "./typescript-api.js";
 
 export type AssertNoUnsafeTypesOptions = {
   repoRoot: string;
@@ -9,11 +10,39 @@ export type AssertNoUnsafeTypesOptions = {
   allowUnsafeTypeFiles?: ReadonlyArray<string>;
 };
 
-type Match = {
+export type UnsafeTypeMatch = {
   file: string;
   line: number;
   text: string;
 };
+
+/**
+ * Finds actual TypeScript `any` and `unknown` type nodes.
+ *
+ * A text regex used to miss later generic arguments such as
+ * `Request<Params, unknown, unknown>`. Parsing the syntax also avoids treating
+ * explanatory comments or string literals as unsafe types.
+ */
+export function findUnsafeTypeKeywords(file: string, text: string): UnsafeTypeMatch[] {
+  const scriptKind = file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, scriptKind);
+  const lines = text.split(/\r?\n/);
+  const matches: UnsafeTypeMatch[] = [];
+
+  const visit = (node: ts.Node): void => {
+    if (node.kind === ts.SyntaxKind.AnyKeyword || node.kind === ts.SyntaxKind.UnknownKeyword) {
+      const position = source.getLineAndCharacterOfPosition(node.getStart(source));
+      matches.push({
+        file,
+        line: position.line + 1,
+        text: lines[position.line] ?? ""
+      });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return matches;
+}
 
 function collectFiles(dir: string, exts: ReadonlySet<string>, out: string[]): void {
   for (const entry of readdirSync(dir)) {
@@ -51,29 +80,14 @@ export function assertNoUnsafeTypes({
   const files: string[] = [];
   collectFiles(absGeneratedDir, exts, files);
 
-  const forbidden = [
-    /\bas any\b/,
-    /\bas unknown\b/,
-    /:\s*any\b/,
-    /:\s*unknown\b/,
-    /<\s*any\b/,
-    /<\s*unknown\b/
-  ];
-
-  const matches: Match[] = [];
+  const matches: UnsafeTypeMatch[] = [];
   for (const absFile of files) {
     const rel = path.relative(absGeneratedDir, absFile);
     if (isIgnored(rel, ignore)) continue;
     if (allowedFiles.has(rel)) continue;
     const text = readFileSync(absFile, "utf8");
-    const lines = text.split(/\r?\n/);
-    for (let i = 0; i < lines.length; i++) {
-      const lineText = lines[i] ?? "";
-      if (forbidden.some((re) => re.test(lineText))) {
-        matches.push({ file: path.join(generatedDir, rel), line: i + 1, text: lineText });
-        if (matches.length >= 50) break;
-      }
-    }
+    matches.push(...findUnsafeTypeKeywords(path.join(generatedDir, rel), text));
+    if (matches.length > 50) matches.length = 50;
     if (matches.length >= 50) break;
   }
 

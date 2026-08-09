@@ -1,0 +1,10 @@
+-lib genes-ts
+-cp tests/array-index-strict/inventory
+--macro arrayindexinventory.ArrayIndexInventoryProbe.install()
+--main arrayindexinventory.Main
+-js tests/array-index-strict/out/inventory/index.ts
+-D genes.ts
+-D genes.ts.indexed_access_inventory
+-D no-deprecation-warnings
+-D js-es=6
+-dce full
