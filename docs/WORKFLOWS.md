@@ -28,19 +28,24 @@ The short rule is:
 - use ts2hx only when migrating implementation source and review its manifest;
 - use externs or dts2hx when consuming declarations from an existing package.
 
-Both output choices start from the same Haxe declarations and Genes APIs. In a
-supported dual-output program, changing the profile is a build decision rather
-than a source-language or framework fork. The TypeScript path should participate
-in TypeScript-native modules, types, source maps, React tooling, and bundlers;
-the classic path removes the generated-TS compilation step while preserving the
-same runtime meaning.
+Within the maintained dual-output boundary, both choices start from the same
+Haxe declarations and shared Genes authoring APIs. Changing the profile is a
+build decision rather than a source-language or framework fork. The checked
+TypeScript path covers strict modules and types, Haxe-to-TypeScript source maps,
+React, and the repository's named bundler workflows; the classic path removes
+the generated-TS compilation step while preserving the exercised runtime
+behavior. Features advertised as dual-output require owned evidence in both
+profiles. Profile-specific capabilities may instead fail with a documented
+capability diagnostic.
 
 Omitting TypeScript does not by itself make the program execute faster because
-TypeScript types erase before runtime. Choose direct JavaScript for build and
-deployment simplicity, then measure runtime performance separately. Likewise,
-`ts2hx` is an explicit, fail-closed migration tool for a proven source subset;
-Genes does not advertise arbitrary TypeScript-to-JavaScript conversion through
-Haxe.
+TypeScript annotations do not execute after downstream compilation. Genes uses
+distinct TypeScript and classic emitters, so measure runtime performance
+separately. Choose direct JavaScript for build and deployment simplicity.
+Likewise, `ts2hx` is an explicit, fail-closed migration tool for a proven source
+subset, not arbitrary TypeScript-to-JavaScript conversion through Haxe. A strict
+generated tree selected with `--runtime-profile genes-esm` may target both
+maintained Genes profiles; assisted output carries no execution or parity claim.
 
 ## Install and verify the checkout
 

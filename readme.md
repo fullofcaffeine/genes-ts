@@ -19,35 +19,44 @@ same-source dual-output behavior have explicit compatibility gates and a
 remaining roadmap. See `docs/ARCHITECTURE_ROADMAP.md` for the precise readiness
 boundary and planned shared architecture.
 
-## One Haxe API, two first-class ecosystem outputs
+## One Haxe authoring model, two first-class outputs
 
-Genes is designed so an application can keep one typed Haxe source model and
-one set of Genes APIs while selecting the output that fits its host:
+Inside the maintained dual-output boundary, an application can keep one typed
+Haxe source model and shared Genes authoring APIs while selecting the output
+that fits its host:
 
 ```text
 typed Haxe source
-  -> strict, ecosystem-native TypeScript or TSX  (-D genes.ts)
-  -> direct classic ESM JavaScript or JSX        (omit -D genes.ts)
+  -> strict, readable TypeScript or TSX     (-D genes.ts)
+  -> direct classic ESM JavaScript or JSX   (omit -D genes.ts)
 ```
 
 TypeScript output is a product surface, not an intermediate syntax dump. It
-should use idiomatic modules, precise types, declarations, source maps, and
-framework-compatible source so ordinary TypeScript, React, lint, editor, and
-bundler tooling can consume it naturally. Classic output keeps the same Haxe
-runtime behavior without requiring a TypeScript compilation step. A supported
-Genes feature is not complete merely because one profile happens to work.
+should remain readable and fit the checked host workflows. Repository evidence
+covers idiomatic ESM, strict TypeScript typing, downstream declaration
+generation, Haxe-to-TypeScript source maps, React, and an esbuild-based
+application path. It does not imply compatibility with arbitrary linters,
+editors, bundlers, package shapes, or composed source maps. For the checked
+dual-output corpora, classic output preserves the exercised Haxe runtime
+behavior without requiring a TypeScript compilation step. Features advertised
+as dual-output require owned evidence in both profiles; profile-specific
+capabilities may lower explicitly or fail with a documented diagnostic.
 
-Direct JavaScript is not automatically faster at runtime: TypeScript types are
-erased, so equivalent TS-compiled and direct-JS programs normally execute the
-same JavaScript semantics. The direct profile is useful when a shorter build
-path, fewer toolchain requirements, or a deployable JavaScript artifact matters.
+Direct JavaScript is not inherently faster at runtime. TypeScript annotations
+do not execute after downstream compilation, so removing that compilation step
+is not itself a runtime-speed optimization. Genes uses distinct TypeScript and
+classic emitters, so measure runtime performance separately. The direct profile
+is useful when a shorter build path, fewer toolchain requirements, or a
+deployable JavaScript artifact matters.
 
 This is also different from converting arbitrary TypeScript directly to
 JavaScript. TypeScript already provides that compilation step. The experimental
-`ts2hx` workflow can migrate a proven TypeScript subset into Haxe; that resulting
-Haxe source can then use either Genes output profile. The exact supported
-dual-output boundary remains the checked corpus described in
-[`docs/OUTPUT_MODES.md`](docs/OUTPUT_MODES.md), not a blanket compatibility claim.
+`ts2hx` workflow can migrate its strict, proven subset into Haxe. With
+`--runtime-profile genes-esm`, supported generated trees target both maintained
+Genes output profiles; assisted output carries no execution or parity claim.
+The exact supported dual-output boundary remains the checked corpus described
+in [`docs/OUTPUT_MODES.md`](docs/OUTPUT_MODES.md), not a blanket compatibility
+claim.
 
 ## Documentation
 

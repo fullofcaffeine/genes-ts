@@ -4,13 +4,14 @@ genes-ts supports **two output modes** within the same library (`-lib genes-ts`)
 
 The mode is selected by the presence of `-D genes.ts`.
 
-Both modes consume the same typed Haxe program and public Genes APIs. For the
-maintained dual-output boundary, selecting a profile changes the published
-artifact and its toolchain—not the application's source model. TypeScript/TSX
-is expected to look and integrate like native ecosystem source; classic ESM
-provides equivalent runtime behavior without a generated-TypeScript build step.
-The evidence table below states where that promise is currently proven rather
-than implying universal compatibility.
+Within the maintained dual-output boundary, both modes consume the same typed
+Haxe program and shared Genes authoring APIs. Selecting a profile changes the
+published artifact and its toolchain—not the application's source model.
+TypeScript/TSX is intended to remain strict and readable; the table below names
+the integrations and compatibility boundary currently checked. Classic ESM
+preserves the exercised runtime behavior for the owned dual-output corpora
+without a generated-TypeScript build step. Profile-specific capabilities may
+lower differently or fail with a documented capability diagnostic.
 
 ## Readiness by surface
 
@@ -98,9 +99,10 @@ is a product surface, while ES6-specific work should have its own fixture or
 smoke gate.
 
 “Performance-oriented” describes the direct delivery path and the classic
-emitter's compact output; it is not a promise that removing TypeScript types
-makes equivalent code execute faster. TypeScript erases its types. Compare
-runtime performance with a representative benchmark, and choose this profile
+emitter's compact output. TypeScript annotations do not execute after downstream
+compilation, so removing the generated-TypeScript step is not itself a runtime
+optimization. Genes uses distinct TypeScript and classic emitters; compare
+runtime performance with a representative benchmark. Choose this profile
 without measurement when its concrete benefit is simpler or faster builds and
 fewer required tools.
 
