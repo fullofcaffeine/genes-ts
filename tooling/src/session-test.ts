@@ -1713,6 +1713,8 @@ for (const forbidden of [
   "--run Main",
   "--interp",
   "-x Main",
+  "--xml public-api.xml",
+  "--json public-api.json",
   "--next",
   "--each",
 ]) {

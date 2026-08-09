@@ -351,6 +351,45 @@ for (const admission of [
   }
 }
 
+const changedDuringAdmissionRoot = mkdtempSync(
+  path.join(
+    realpathSync.native(tmpdir()),
+    "genes-tooling-admission-live-change-",
+  ),
+);
+try {
+  materializeMixedFixture(changedDuringAdmissionRoot);
+  await assert.rejects(
+    () =>
+      publishArtifacts({
+        projectRoot: changedDuringAdmissionRoot,
+        plan: publishPlan,
+        admitIntended: () => {
+          writeFileSync(
+            path.join(changedDuringAdmissionRoot, "generated/update.js"),
+            "changed by another writer\n",
+            "utf8",
+          );
+          return true;
+        },
+      }),
+    (error: unknown) =>
+      error instanceof ArtifactTransactionError &&
+      error.failure.kind === "recovery-conflict",
+    "a changed live file must not become an accepted publication",
+  );
+  assert.equal(
+    readFileSync(
+      path.join(changedDuringAdmissionRoot, "generated/update.js"),
+      "utf8",
+    ),
+    "changed by another writer\n",
+    "recovery must not overwrite bytes written by another process",
+  );
+} finally {
+  rmSync(changedDuringAdmissionRoot, { recursive: true, force: true });
+}
+
 function crashPublish(
   root: string,
   checkpoint: ArtifactCheckpoint,

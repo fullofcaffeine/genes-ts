@@ -193,8 +193,10 @@ let the compiler read a change that the session could miss.
 
 The session rejects HXML `--cmd`, `--run`, `--interp`, and `-x`. Those Haxe
 options can run a shell command or the compiled program before the private
-candidate has passed the host's checks. A host that needs a follow-up command
-must own it explicitly and run it only after an accepted generation.
+candidate has passed the host's checks. It also rejects `--xml` and `--json`
+because they write extra files outside the private candidate. A host that needs
+a follow-up command or side output must own it explicitly and run it only after
+an accepted generation.
 
 The host may supply environment overrides with the Haxe invocation. For each
 revision, the session combines them with the current Node process environment,
@@ -240,6 +242,9 @@ The protocol is intentionally friendly to unattended tools:
 - `reconcile()` asks the existing watcher for an authoritative comparison and
   reports whether it succeeded. The two pre-publication comparisons are
   admission gates: an unknown input state never counts as “no changes.”
+- Publication reads the complete live result again after host admission. If an
+  outside writer changes a file during that callback, the session stops and
+  does not announce an accepted generation or overwrite the outside bytes.
 - `firstAccepted` gates a dependent service without polling files;
 - `close()` and read-lease release are idempotent;
 - human terminal formatting is an adapter over the same event records.

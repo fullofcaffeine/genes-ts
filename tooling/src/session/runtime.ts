@@ -85,6 +85,8 @@ const SESSION_FORBIDDEN_HXML_OPTIONS = Object.freeze([
   "--run",
   "--interp",
   "-x",
+  "--xml",
+  "--json",
   "--next",
   "--each",
 ]);

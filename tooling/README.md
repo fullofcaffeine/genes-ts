@@ -267,6 +267,8 @@ restarting the command.
   compilations would be ambiguous. It also rejects `--cmd`, `--run`,
   `--interp`, and `-x`: these options can run a shell command or the compiled
   program inside Haxe, before the host has checked and accepted the candidate.
+  It rejects `--xml` and `--json` too because they write extra files outside
+  the private candidate and safe publication plan.
   The host must run any needed follow-up step explicitly after an accepted
   generation. The same check visits entry and nested HXML files and every
   authoritatively resolved library HXML; hiding an override in `child.hxml` or
@@ -577,8 +579,10 @@ const outcome = await publishArtifacts({
 Before changing a live file, the publisher checks every live and staged state,
 takes a project-scoped lock, and writes a canonical durable journal. It moves
 the plan's opaque `commitMarker` last, then offers the exact intended live state
-to the optional host-owned `admitIntended` callback before committing. A
-rejection, caught filesystem error, or validator error rolls back immediately.
+to the optional host-owned `admitIntended` callback before committing. It reads
+every live file again after that callback, so an outside edit cannot be recorded
+as accepted. A rejection, caught filesystem error, or validator error rolls
+back immediately without overwriting outside bytes.
 If the process exits, a later process calls
 `recoverArtifacts`:
 
@@ -610,14 +614,14 @@ The host remains responsible for:
 ## HXML inventory
 
 `inventoryHxml` resolves the Haxe inputs that are stated by one or more HXML
-entry files. It understands nested HXML, ordered `--cwd`, class paths,
+entry files. It understands nested HXML, ordered `--cwd`/`-C`, class paths,
 resources, libraries, comments, quoting, escaping, and explicit environment
 expansion. The host supplies allowed roots plus environment and library
 resolvers:
 
 Both familiar long options and Haxe's documented short forms are understood:
 `--class-path`/`-cp`/`-p`, `--library`/`-lib`/`-L`, and
-`--resource`/`-resource`/`-r`.
+`--resource`/`-resource`/`-r`, plus `--cwd`/`-C`.
 
 ```ts
 import { inventoryHxml } from "@genes-ts/tooling/hxml";

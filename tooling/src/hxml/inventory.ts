@@ -355,7 +355,7 @@ export async function inventoryHxml(
           fail("invalid-option", `${file}:define:${defineName}`);
         }
       }
-      const cwdOption = optionValue(args, index, ["--cwd"]);
+      const cwdOption = optionValue(args, index, ["-C", "--cwd"]);
       if (cwdOption !== null) {
         const resolved = path.resolve(
           cwd,

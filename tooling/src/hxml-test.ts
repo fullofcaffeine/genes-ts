@@ -47,7 +47,7 @@ async function main(): Promise<void> {
       [
         "# comment",
         "-p src",
-        "--cwd nested",
+        "-C nested",
         "'nested build.hxml'",
         "-L sample:1.2.3",
         "",
