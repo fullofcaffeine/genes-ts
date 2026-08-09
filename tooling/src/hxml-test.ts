@@ -46,10 +46,10 @@ async function main(): Promise<void> {
       "build.hxml",
       [
         "# comment",
-        "--class-path src",
+        "-p src",
         "--cwd nested",
         "'nested build.hxml'",
-        "-lib sample:1.2.3",
+        "-L sample:1.2.3",
         "",
       ].join("\n"),
     );
@@ -59,7 +59,7 @@ async function main(): Promise<void> {
       [
         "--cwd ..",
         "--class-path \"${SHARED}\"",
-        "--resource assets/data.json@data",
+        "-r assets/data.json@data",
         "cycle.hxml",
         "",
       ].join("\n"),

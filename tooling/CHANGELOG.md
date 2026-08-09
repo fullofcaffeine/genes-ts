@@ -24,5 +24,9 @@ it.
 - Require the executed Haxe command to match the inventoried working directory
   and ordered top-level HXML files, reject linked source trees, and keep an
   accepted output tied to its original physical path spelling.
+- Recognize Haxe's documented short class-path, library, and resource options;
+  reject HXML post-compile shell commands; keep informational changes from
+  discarding an active build; and report post-inventory compiler errors at the
+  compile stage.
 - Verify every public code and JSON export from the packed package on Node
   20.9.0, the package's declared minimum runtime.

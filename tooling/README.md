@@ -128,12 +128,18 @@ A quick mental model for the three counters is:
 | Counter | What changes it | What it tells you |
 | --- | --- | --- |
 | `sequence` | Every emitted event | The exact order in which this session reported facts |
-| `revision` | A newly observed input state | Which authored/configuration state a build represents |
+| `revision` | A newly observed input state | Which authored/configuration change the session has seen |
 | `generation` | Successful validation and publication | Which complete public tree a host may safely consume |
 
 For example, revision 2 can fail while generation 1 stays public. A repaired
 revision 3 can then become generation 2. This is expected recovery, not a
 counter mismatch.
+
+An explicitly informational change (`rebuild: false`) still advances the
+observed revision and emits `inputs-changed`, but it does not discard a safe
+build already in progress. The accepted generation may therefore name the
+latest revision that actually required a build while `newestRevision` also
+includes later informational changes.
 
 The accepted-generation event deliberately says nothing about how a framework
 must react. A browser host can request hot replacement or a reload; a desktop,
@@ -258,8 +264,11 @@ restarting the command.
 - The session adds the request-local `-D genes.output=<private entry>` itself.
   It rejects caller-provided `--connect`, server-listen, `genes.output`,
   `--next`, and `--each` flags because two lifecycle owners or several output
-  compilations would be ambiguous. The same check visits entry and nested HXML
-  files and every authoritatively resolved library HXML; hiding an override in
+  compilations would be ambiguous. It also rejects `--cmd`: a shell command
+  run by Haxe after compilation would sit outside candidate validation and safe
+  publication. The host must run any needed follow-up step explicitly after an
+  accepted generation. The same check visits entry and nested HXML files and
+  every authoritatively resolved library HXML; hiding an override in
   `child.hxml` or a library's `extraParams.hxml` does not bypass admission.
   A discovered `-lib` with no resolver makes startup fail before compilation.
 - `resolveInvocation` is copied once. The copied executable, arguments,
@@ -601,6 +610,10 @@ entry files. It understands nested HXML, ordered `--cwd`, class paths,
 resources, libraries, comments, quoting, escaping, and explicit environment
 expansion. The host supplies allowed roots plus environment and library
 resolvers:
+
+Both familiar long options and Haxe's documented short forms are understood:
+`--class-path`/`-cp`/`-p`, `--library`/`-lib`/`-L`, and
+`--resource`/`-resource`/`-r`.
 
 ```ts
 import { inventoryHxml } from "@genes-ts/tooling/hxml";

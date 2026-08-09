@@ -81,6 +81,7 @@ const SESSION_FORBIDDEN_HXML_OPTIONS = Object.freeze([
   "--wait",
   "--server-listen",
   "--server-connect",
+  "--cmd",
   "--next",
   "--each",
 ]);
@@ -223,6 +224,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   #lastSequence = 0;
   #lastCompilerEvent: DevelopmentSnapshot<Diagnostic>["lastCompilerEvent"] = null;
   #newestRevision = 0;
+  #newestRebuildRevision = 0;
   #accepted: AcceptedGeneration | null = null;
   #inventory: HxmlInventory | null = null;
   #watch: ReconciledWatchSession | null = null;
@@ -335,6 +337,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         throw new Error("initial revision was already assigned");
       }
       this.#newestRevision = 1;
+      this.#newestRebuildRevision = 1;
       this.#startupReady = true;
       this.#acceptWatchChanges = true;
       this.#loop.request(
@@ -660,6 +663,9 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       return;
     }
     this.#newestRevision += 1;
+    if (impact.rebuild) {
+      this.#newestRebuildRevision = this.#newestRevision;
+    }
     const relative = path
       .relative(this.#layout.projectRoot, absolutePath)
       .split(path.sep)
@@ -700,6 +706,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       if (cause.reinventory) {
         this.#inventory = await this.#reinventoryGapSafe(abort.signal);
         if (this.#closing !== null || abort.signal.aborted) return;
+        failurePhase = "compile";
       }
       if (cause.restartCompiler) this.#compilerEpoch += 1;
       const inventory = this.#inventory;
@@ -791,7 +798,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         return;
       }
       this.#requireReconciliation();
-      if (cause.revision !== this.#newestRevision) {
+      if (cause.revision < this.#newestRebuildRevision) {
         this.#emit({
           kind: "candidate-superseded",
           revision: cause.revision,
@@ -804,7 +811,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       await this.#gate.runWrite(async () => {
         if (this.#closing !== null || abort.signal.aborted) return;
         this.#requireReconciliation();
-        if (cause.revision !== this.#newestRevision) {
+        if (cause.revision < this.#newestRebuildRevision) {
           this.#emit({
             kind: "candidate-superseded",
             revision: cause.revision,
@@ -876,7 +883,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       }, abort.signal);
     } catch (error) {
       if (this.#closing !== null || abort.signal.aborted) return;
-      if (cause.revision !== this.#newestRevision) {
+      if (cause.revision < this.#newestRebuildRevision) {
         this.#emit({
           kind: "candidate-superseded",
           revision: cause.revision,

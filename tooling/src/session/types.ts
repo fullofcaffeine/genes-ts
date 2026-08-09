@@ -288,9 +288,9 @@ export interface HaxeInvocation {
   readonly cwd: string;
 
   /**
-   * Structured arguments only. A conforming session rejects `--wait`,
-   * `--connect`, and caller-provided Genes output overrides because it owns
-   * those lifecycle and candidate-output decisions.
+   * Structured arguments only. A conforming session accepts only the exact
+   * ordered top-level HXML files here. Build flags belong inside the HXML,
+   * where the session can inspect them before Haxe runs.
    */
   readonly args: readonly string[];
 
@@ -302,6 +302,11 @@ export interface HaxeInvocation {
 
 /** What an explicit host-owned change invalidates. */
 export interface ChangeImpact {
+  /**
+   * Set this to `false` only when the changed file cannot affect generated
+   * output or validation. The session still reports the change, but it does
+   * not discard an otherwise valid build that is already in progress.
+   */
   readonly rebuild?: boolean;
   readonly reinventory?: boolean;
   readonly restartCompiler?: boolean;

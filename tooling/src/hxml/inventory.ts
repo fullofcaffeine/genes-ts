@@ -367,7 +367,11 @@ export async function inventoryHxml(
         index += cwdOption.consumed;
         continue;
       }
-      const classPath = optionValue(args, index, ["-cp", "--class-path"]);
+      const classPath = optionValue(args, index, [
+        "-p",
+        "-cp",
+        "--class-path",
+      ]);
       if (classPath !== null) {
         const resolved = path.resolve(
           cwd,
@@ -383,7 +387,11 @@ export async function inventoryHxml(
         index += classPath.consumed;
         continue;
       }
-      const resource = optionValue(args, index, ["-resource", "--resource"]);
+      const resource = optionValue(args, index, [
+        "-r",
+        "-resource",
+        "--resource",
+      ]);
       if (resource !== null) {
         const expandedResource = expanded(
           resource.value,
@@ -406,7 +414,7 @@ export async function inventoryHxml(
         index += resource.consumed;
         continue;
       }
-      const library = optionValue(args, index, ["-lib", "--library"]);
+      const library = optionValue(args, index, ["-L", "-lib", "--library"]);
       if (library !== null) {
         const request = libraryRequest(library.value, file, cwd);
         const key = `${request.request}\0${request.fromFile}\0${request.workingDirectory}`;

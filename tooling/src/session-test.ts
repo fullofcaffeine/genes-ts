@@ -451,6 +451,35 @@ await withHarness("burst", async (harness) => {
   );
 });
 
+await withHarness("no-build-change-during-build", async (harness) => {
+  const hold = deferred<void>();
+  harness.compiler.steps.push({ content: "export const value = 1;\n", hold });
+  const starting = harness.session.start();
+  await new Promise<void>((resolve) => {
+    const unsubscribe = harness.session.subscribe((event) => {
+      if (event.event.kind === "build-started") {
+        unsubscribe();
+        resolve();
+      }
+    });
+  });
+  harness.session.invalidate({
+    path: "notes.txt",
+    impact: { rebuild: false },
+  });
+  hold.resolve();
+  await starting;
+  await harness.session.waitForIdle();
+  assert.equal(harness.compiler.calls, 1);
+  assert.equal(harness.session.state.kind, "ready");
+  assert.equal(harness.session.inspect().accepted?.revision, 1);
+  assert.equal(harness.session.inspect().newestRevision, 2);
+  assert.equal(
+    readFileSync(path.join(harness.root, "src-gen/index.ts"), "utf8"),
+    "export const value = 1;\n",
+  );
+});
+
 await withHarness("read-gate", async (harness) => {
   harness.compiler.steps.push(
     { content: "export const value = 1;\n" },
@@ -728,6 +757,26 @@ await withHarness(
 );
 
 await withHarness(
+  "hxml-post-compile-command-is-forbidden",
+  async (harness) => {
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "blocked");
+    assert.equal(harness.compiler.calls, 0);
+    assert.equal(existsSync(path.join(harness.root, "command-ran.txt")), false);
+  },
+  undefined,
+  (options, root) => {
+    writeFileSync(
+      path.join(root, "build.hxml"),
+      "-cp src\n-main Main\n-js ignored.js\n--cmd touch command-ran.txt\n",
+      "utf8",
+    );
+    return options;
+  },
+);
+
+await withHarness(
   "input-output-portable-alias",
   async (harness) => {
     await harness.session.start();
@@ -892,6 +941,34 @@ await withHarness("identity-rotation", async (harness) => {
   );
   assert.equal(harness.watches.length >= 2, true);
   assert.equal(harness.watches[0]!.closed, true);
+});
+
+await withHarness("reinventory-then-compile-failure", async (harness) => {
+  harness.compiler.steps.push(
+    { content: "export const value = 1;\n" },
+    { fail: "Haxe source error after HXML refresh" },
+  );
+  await harness.session.start();
+  await harness.session.waitForIdle();
+  writeFileSync(
+    path.join(harness.root, "build.hxml"),
+    "-cp src\n-main Main\n-js ignored.js\n-D refreshed\n",
+    "utf8",
+  );
+  currentWatch(harness).change(path.join(harness.root, "build.hxml"));
+  await harness.session.waitForIdle();
+  assert.equal(harness.session.state.kind, "degraded");
+  const failure = harness.events
+    .filter((event) => event.event.kind === "failed")
+    .at(-1);
+  assert.equal(failure?.event.kind, "failed");
+  if (failure?.event.kind === "failed") {
+    assert.equal(failure.event.failure.phase, "compile");
+    assert.equal(
+      (failure.event.failure.diagnostic as { readonly code: string }).code,
+      "HAXE_COMPILE_FAILED",
+    );
+  }
 });
 
 await withHarness("registration-gap", async (harness) => {

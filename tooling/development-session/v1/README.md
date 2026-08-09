@@ -53,7 +53,7 @@ recover an interrupted publication
   -> resolve every library HXML and snapshot/check the effective invocation
   -> generate a complete private candidate
   -> ask the host to validate that candidate
-  -> reject it if a newer revision is already known
+  -> reject it if a newer build-requiring revision is already known
   -> publish all admitted files as one recoverable transaction
   -> announce an accepted generation
 ```
@@ -66,6 +66,12 @@ generation number.
 For example, revision 2 may fail strict TypeScript while generation 1 remains
 public. After the developer repairs the source, revision 3 can become
 generation 2.
+
+A host may mark an extra input change as `rebuild: false` when that file cannot
+affect generated output or validation. The session reports this informational
+change and advances `newestRevision`, but it does not discard a valid compile
+already in progress. This is why an accepted generation's `revision` may be
+lower than `newestRevision` until another build-requiring change occurs.
 
 ## States a host presents
 
@@ -184,6 +190,16 @@ contain only those ordered top-level HXML files. Build options belong in the
 inventoried HXML graph. Source class paths reject symbolic links because Haxe
 may follow them while the safe watcher does not; accepting both behaviors would
 let the compiler read a change that the session could miss.
+
+The session rejects HXML `--cmd`. That Haxe option runs a shell command after
+compilation, outside the private candidate and host validation steps. A host
+that needs a follow-up command must own it explicitly and run it only after an
+accepted generation.
+
+If an HXML edit is read successfully but Haxe then reports a source error, the
+failure is reported as a compile failure. “HXML inventory failed” is reserved
+for errors that actually prevented the session from understanding the HXML
+input graph.
 
 The accepted marker records both the portable output identity and its original
 project-relative spelling. Case aliases still share one lock and recovery
