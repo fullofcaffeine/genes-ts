@@ -84,6 +84,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   var localTsTypeOverrides: Map<Int, String> = [];
   var narrowingPlan: Null<TsNarrowingPlan> = null;
   var boundaryPlan: Null<TsBoundaryPlan> = null;
+  var indexedAccessPlan: Null<TsIndexedAccessPlan> = null;
   var currentCallableSignature: Null<CallableSignaturePlan> = null;
   var inRawSyntaxTemplate: Bool = false;
   var suppressOptionalFieldNullNormalization: Bool = false;
@@ -226,6 +227,17 @@ class TsModuleEmitter extends JsModuleEmitter {
     configureTemplateLiterals(module.templateLiteralPlan);
     narrowingPlan = module.tsNarrowingPlan;
     boundaryPlan = module.tsBoundaryPlan;
+    indexedAccessPlan = module.tsIndexedAccessPlan;
+    #if genes.ts.indexed_access_inventory
+    for (entry in indexedAccessPlan.inventoryEntries())
+      haxe.macro.Context.info("[GTS-INDEX-INVENTORY] "
+        + module.module
+        + ":"
+        + entry.ordinal
+        + ":"
+        + entry.description,
+        entry.pos);
+    #end
     final jsxPlan = module.jsxPlan;
     final jsxCapability = JsxCapabilityPolicy.current();
     final needsJsxNamespaceImport = jsxPlan.hasIntents
