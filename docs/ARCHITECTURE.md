@@ -801,13 +801,13 @@ because Haxe 4.3.7 ignores them rather than resolving a library. The v1
 single-request resolver admits one distinct library identity because it cannot
 reproduce Haxe's ordered batch resolution for adjacent distinct libraries;
 repeated requests for that identity remain supported. Authored or resolved
-option values ending in `.hxml` fail closed when they would remain in the final stream: Haxe's
-high-level argument pass would otherwise interpret that value as another HXML
-program before normal option arity is applied. The final effective stream
-contains no raw `.hxml` token. A separate resolved library request may use that
-suffix because its name is removed before execution; its resolver output still
-passes the final-stream check. Environment expansion cannot change a high-level
-HXML or library decision. Authored HXML is targetless. The bound compiler request
+option values ending in `.hxml` fail closed when they would remain in the final
+stream: Haxe's high-level argument pass would otherwise interpret that value as
+another HXML program before normal option arity is applied. The final effective
+stream contains no raw `.hxml` token. A separate resolved library request may
+use that suffix because its name is removed before execution; its resolver
+output still passes the final-stream check. Environment expansion cannot change
+a high-level HXML or library decision. Authored HXML is targetless. The bound compiler request
 appends one ordinary private Haxe JS target and one private Genes target, so an
 inactive Genes generator still cannot write public output before admission. The
 HXML closure is complete only after every discovered library has been passed
