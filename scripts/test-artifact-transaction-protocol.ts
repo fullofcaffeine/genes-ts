@@ -401,12 +401,17 @@ type StepFact = {
 
 function validateStep(value: Json, subject: string): StepFact {
   const candidate = object(value, subject);
-  exact(candidate, ["action", "admitIntended", "fault", "expect"], subject);
+  exact(
+    candidate,
+    ["action", "admitPlan", "admitIntended", "fault", "expect"],
+    subject,
+  );
   const action = oneOf(
     candidate.action,
     ["publish", "recover"],
     `${subject}.action`,
   );
+  boolean(candidate.admitPlan, `${subject}.admitPlan`);
   boolean(candidate.admitIntended, `${subject}.admitIntended`);
   let faultKind: string | null = null;
   let faultAt: string | null = null;
@@ -496,6 +501,9 @@ const REQUIRED_COVERAGE = [
   "intended-state-admission",
   "authorization-binding",
   "plan-binding",
+  "recovery-plan-admission",
+  "pre-mutation-refusal",
+  "preserved-recovery",
 ] as const;
 
 const REQUIRED_FORWARD_CHECKPOINTS = [

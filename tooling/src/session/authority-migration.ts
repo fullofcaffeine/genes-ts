@@ -460,6 +460,35 @@ function auditedRootAuthority(publicEntryPath: string): string {
     : `project-relative:${portablePathIdentity(parent)}`;
 }
 
+function transactionTreeHasFiles(absolute: string): boolean {
+  const stats = lstatPresent(absolute);
+  if (stats === null) return false;
+  if (stats.isSymbolicLink()) {
+    throw new Error("development-session recovery folder is a symbolic link");
+  }
+  if (stats.isFile()) return true;
+  if (!stats.isDirectory()) {
+    throw new Error("development-session recovery folder is invalid");
+  }
+  return readdirSync(absolute, { withFileTypes: true }).some((entry) => {
+    if (entry.isSymbolicLink()) {
+      throw new Error(
+        "development-session recovery folder contains a symbolic link",
+      );
+    }
+    return transactionTreeHasFiles(path.join(absolute, entry.name));
+  });
+}
+
+function scopeHasPendingRecovery(scopeAbsolute: string): boolean {
+  return (
+    transactionTreeHasFiles(path.join(scopeAbsolute, "transactions")) ||
+    transactionTreeHasFiles(
+      path.join(scopeAbsolute, "authority-migration", "transactions"),
+    )
+  );
+}
+
 /** Refuses to guess when two older entries both claim one output directory. */
 export function auditSessionAuthority(layout: SessionLayout): void {
   const controlRelative = ".genes/tooling/session-publications";
@@ -472,15 +501,24 @@ export function auditSessionAuthority(layout: SessionLayout): void {
   if (controlStats.isSymbolicLink() || !controlStats.isDirectory()) {
     throw new Error("development-session publication control root is invalid");
   }
+  const currentScopes = new Set([
+    path.posix.basename(layout.publicationControlRelative),
+    path.posix.basename(path.posix.dirname(layout.legacyTransactionRelative)),
+  ]);
   for (const entry of readdirSync(controlAbsolute, { withFileTypes: true })) {
     if (entry.isSymbolicLink() || !entry.isDirectory()) {
       throw new Error("development-session publication control scope is invalid");
     }
-    const marker = path.join(
-      controlAbsolute,
-      entry.name,
-      "accepted-generation.json",
-    );
+    const scopeAbsolute = path.join(controlAbsolute, entry.name);
+    if (
+      !currentScopes.has(entry.name) &&
+      scopeHasPendingRecovery(scopeAbsolute)
+    ) {
+      throw new Error(
+        "an unfinished update for another output folder must be recovered by that folder before this session can start",
+      );
+    }
+    const marker = path.join(scopeAbsolute, "accepted-generation.json");
     const markerStats = lstatPresent(marker);
     if (markerStats === null) continue;
     if (markerStats.isSymbolicLink() || !markerStats.isFile()) {
@@ -528,7 +566,8 @@ export function auditSessionAuthority(layout: SessionLayout): void {
       expectedScope = sha256Bytes(entryAuthority);
     } else if (
       fields.protocol === "genes.tooling.accepted-generation.v2" ||
-      fields.protocol === "genes.tooling.accepted-generation.v3"
+      fields.protocol === "genes.tooling.accepted-generation.v3" ||
+      fields.protocol === "genes.tooling.accepted-generation.v4"
     ) {
       if (
         typeof fields.publicOutputRoot !== "string" ||

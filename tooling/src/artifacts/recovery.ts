@@ -320,6 +320,12 @@ export async function recoverArtifacts(
         `${transactionRoot}/${JOURNAL_FILE}`,
       );
     }
+    if (
+      options.admitPlan !== undefined &&
+      !(await options.admitPlan(journal.plan))
+    ) {
+      artifactFailure("recovery-conflict", transactionRoot);
+    }
     const transitions = [
       ...journal.plan.artifacts,
       journal.plan.commitMarker,
@@ -374,6 +380,12 @@ export async function recoverArtifacts(
   }
   if (lock.pid !== process.pid && pidIsLive(lock.pid)) {
     artifactFailure("active-writer", `${transactionRoot}/${LOCK_FILE}`);
+  }
+  if (
+    options.admitPlan !== undefined &&
+    !(await options.admitPlan(journal.plan))
+  ) {
+    artifactFailure("recovery-conflict", transactionRoot);
   }
   exactControlBytes(lockAbsolute, lockBytes);
   exactControlBytes(journalAbsolute, journalBytes);

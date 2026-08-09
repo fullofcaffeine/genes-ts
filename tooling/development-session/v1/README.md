@@ -164,14 +164,49 @@ A prepared file may include `publishPath`. Such files appear separately in
 `ValidationTree.extraFiles` and join the same final update as the Genes-owned
 files. After successful validation, `AdmissionResult.artifacts` may add a small
 receipt or similar proof created by the validator. The accepted marker records
-the exact path, digest, size, and mode of every extra file so restart recovery
-and later stale-file removal remain exact.
+the exact source, path, digest, size, and mode of every extra file. The source
+states whether preparation or validation created the file.
+
+During restart recovery, validation must return every validator artifact saved
+by the current marker format with the same path, bytes, size, and mode. A
+missing artifact rejects the recovery. Preparation owns prepared files, so
+validation does not return those files as artifacts.
+
+The marker format has grown without changing the meaning of older saved files.
+Version 2 did not list extra files. Version 3 listed them but did not record
+whether preparation or validation produced each one. Version 4 records that
+source. An older format cannot prove which newly returned validator files it
+previously owned, so recovery checks only the facts that format saved. The next
+successful normal build writes version 4 and uses the exact current rule.
+
+Before replaying a saved update, the session reads the current HXML inputs and
+registers the reconciled input watch around that read. It then checks every
+saved public transition path and performs one final filesystem comparison. If a
+generated path became authored source while the process was stopped—or while
+startup was checking it—startup refuses before recovery restores, removes, or
+replaces that file. When recovery validates an already complete result, it
+repeats this input check after validation and before accepting the result. The
+saved journal remains available after the ownership conflict is resolved.
+
+Preparation errors use the stable session code `PREPARATION_REJECTED`.
+`diagnostic.details` contains the exact host error after Genes removes private
+project and candidate paths. Validation errors use the same shape with
+`VALIDATION_REJECTED`. Hosts can show the specific reason without exposing a
+private filesystem path from the developer machine.
+
+The versioned examples include `supplemental-files-publish-and-delete`. It
+proves that a prepared input and a validator receipt join generation 1, then a
+later accepted generation updates the input and removes the receipt together.
+The `publish-failure-rolls-back` example also carries both kinds of file and
+proves that a failed update restores their earlier bytes along with the Genes
+output. Host implementations should run these examples against their real
+session adapter; checking the JSON shape alone is not enough.
 
 Keep a published generated Haxe source's private `relativePath` equal to its
 `publishPath` when practical. This lets the generated source map name the
 stable public companion path. Tooling reserves the candidate's `output`,
-`admission`, and `generation.json` names for its own work and rejects prepared
-files that try to use them.
+`admission`, `haxe-input`, `haxe-target`, and `generation.json` names for its
+own work and rejects prepared files that try to use them.
 
 The session also reserves the Haxe define `genes.tooling.prepared`. A host must
 not add it to HXML; the session computes the value from the prepared files.
@@ -210,6 +245,16 @@ visible only after all of its bytes are safely written. For compatibility with
 an interrupted write, a restart removes an uncommitted private owner file. A
 damaged final owner, non-canonical owner, or linked owner still fails closed.
 
+A small owner file, called the project lifetime lock, covers the complete
+project root. Thus, two development sessions cannot publish project-relative
+extra files at the same time. This rule also applies when their main output
+folders differ. A host that needs multiple output graphs must coordinate them
+through one development session. The narrower locks remain part of safe
+recovery and upgrade handling. If a crashed update remains under another output
+folder, a new folder stops before publishing and identifies the unfinished
+work. Restart the original output first; after its update is recovered or
+rolled back, the new folder can start.
+
 ### Upgrading older session state
 
 Earlier DevelopmentSession builds stored their lock, journal, and accepted
@@ -243,9 +288,24 @@ migration. An old client started manually with another entry uses another old
 lock path and does not know the root-scoped protocol. V2 cannot force that
 unsupported client to read the new lock.
 
-The migration receipt records history. Later v2 builds can publish new
-generations without comparing the current generated manifest with the old v1
-manifest in that receipt.
+The migration receipt records history. Later root-scoped builds can publish new
+generations without comparing the current generated manifest with the old
+entry-scoped manifest in that receipt.
+
+Generated output, prepared public files, and validator receipts may not use any
+path below `.genes/tooling`. The whole directory stores locks and recovery
+records for all outputs, so an ordinary generated file must never replace one
+of those records.
+
+Root markers written before supplemental files were introduced remain
+readable. Version 2 names only the Genes output tree. Version 3 also names each
+extra file. Version 4 adds whether preparation or validation created that file.
+During restart recovery, the session uses the same digest shape as the saved
+marker. It does not add a field to an older record and then reject valid work.
+Startup and HXML re-inventory also compare every saved extra file with the
+current authored inputs. If a generated path has become authored source, the
+session stops and leaves that file untouched instead of removing it as stale
+output.
 
 Library expansion is part of invocation authority. A lower-level HXML inventory
 may list `-lib` requests without resolving them, but DevelopmentSession requires

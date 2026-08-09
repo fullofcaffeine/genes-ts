@@ -26,6 +26,7 @@ import {
 } from "../../tooling/dist/artifacts/index.js";
 import {
   createGenesDevelopmentSession,
+  HAXE_4_3_7_DEVELOPMENT_JS_POLICY,
 } from "../../tooling/dist/session/index.js";
 
 const fixtureRoot = path.dirname(fileURLToPath(import.meta.url));
@@ -505,6 +506,7 @@ async function isolatedColdSnapshot({
   );
   const preparedRoot = coldRoot;
   const outputRoot = path.join(coldRoot, "output");
+  const haxeTarget = path.join(coldRoot, "haxe-target/compiler.js");
   const publicRoot = path.join(coldRoot, "public");
   rmSync(path.join(projectRoot, ".cold"), { recursive: true, force: true });
   for (const file of prepared.files) {
@@ -513,10 +515,13 @@ async function isolatedColdSnapshot({
     writeFileSync(target, file.content, { mode: file.mode ?? 0o644 });
   }
   mkdirSync(outputRoot, { recursive: true });
+  mkdirSync(path.dirname(haxeTarget), { recursive: true });
   execFileSync(
     executable,
     [
       "build.hxml",
+      "--js",
+      haxeTarget,
       ...prepared.classPaths.flatMap((classPath) => [
         "-cp",
         path.join(preparedRoot, ...classPath.split("/")),
@@ -656,7 +661,6 @@ async function exerciseWarmCssModuleSession() {
         `-cp ${helderCopyRoot}`,
         `-cp ${sourceRoot}`,
         "-main app.Entry",
-        `-js ${path.join(projectRoot, "ignored/index.ts")}`,
         "-D genes.ts",
         "-D js-source-map",
         "-D no-deprecation-warnings",
@@ -672,8 +676,6 @@ async function exerciseWarmCssModuleSession() {
       projectRoot,
       projectIdentity: "real-css-module-warm-session",
       hxml: {
-        entryFiles: ["build.hxml"],
-        workingDirectory: projectRoot,
         allowedRoots: [projectRoot],
       },
       publicOutputFile: "src-gen/index.ts",
@@ -685,6 +687,7 @@ async function exerciseWarmCssModuleSession() {
         executable,
         cwd: projectRoot,
         args: ["build.hxml"],
+        ioPolicy: HAXE_4_3_7_DEVELOPMENT_JS_POLICY,
         compatibilityFacts: {
           fixture: "real-css-module-warm-session",
           haxe: version,
@@ -748,11 +751,18 @@ async function exerciseWarmCssModuleSession() {
         JSON.stringify(session.inspect()),
       );
     };
-    const expectRetained = (snapshot, code, message) => {
+    const expectRetained = (snapshot, code, message, hostCode) => {
       assert.equal(session.state.kind, "degraded", JSON.stringify(session.inspect()));
       assert.equal(session.state.failure.diagnostic.code, code);
       if (message !== undefined) {
         assert.match(session.state.failure.diagnostic.message, message);
+      }
+      if (hostCode !== undefined) {
+        assert.equal(
+          session.state.failure.diagnostic.details?.code,
+          hostCode,
+          "the general preparation error must retain the exact CSS error",
+        );
       }
       assert.deepEqual(
         snapshotFiles(projectRoot, ["src-gen", "generated-haxe"]),
@@ -814,7 +824,12 @@ async function exerciseWarmCssModuleSession() {
 
       writeFileSync(css, ".card { color: ;\n");
       await reconcileEdit();
-      expectRetained(acceptedAfterAdd, "CSS_MODULE_PREPARATION_FAILED");
+      expectRetained(
+        acceptedAfterAdd,
+        "PREPARATION_REJECTED",
+        undefined,
+        "CSS_MODULE_PREPARATION_FAILED",
+      );
 
       writeFileSync(card, warmSource({ useTitle: false, useSelected: true }));
       writeFileSync(
@@ -828,7 +843,12 @@ async function exerciseWarmCssModuleSession() {
 
       rmSync(css, { force: true });
       await reconcileEdit();
-      expectRetained(acceptedAfterRepair, "CSS_MODULE_PREPARATION_FAILED");
+      expectRetained(
+        acceptedAfterRepair,
+        "PREPARATION_REJECTED",
+        undefined,
+        "CSS_MODULE_PREPARATION_FAILED",
+      );
 
       writeFileSync(
         css,

@@ -16,6 +16,17 @@ it.
   their bytes in the warm request identity, and publish selected companions
   plus validator evidence with the same accepted Genes generation. The marker
   records these extra files for exact recovery and stale removal.
+- Keep restart recovery compatible with accepted markers written before extra
+  files existed, and reserve the complete `.genes/tooling` control directory
+  so generated or host-provided files cannot overwrite any session's locks or
+  recovery records.
+- Keep the earlier version-3 supplemental marker and admission digest readable;
+  write source ownership under version 4, and block a different output folder
+  while the original folder still has unfinished recovery work.
+- Register and reconcile the current Haxe input watch before replaying an
+  interrupted publication, so an older generated file cannot be restored into
+  a path that becomes authored before or during restart. Saved plans exposed to
+  host policy are deeply read-only.
 - Publish versioned conformance vectors for host implementations.
 - Define the versioned, automation-friendly DevelopmentSession lifecycle,
   event schema, and conformance scenarios.

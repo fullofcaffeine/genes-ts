@@ -60,17 +60,17 @@ import {
   type SessionLayout,
 } from "./layout.js";
 import {
-  admissionDigest,
   legacyAdmissionDigest,
   legacySessionProjectDigest,
   preparePublication,
   readPublishedMarker,
-  rootAdmissionDigest,
+  recoveredAdmissionDigests,
   sessionProjectDigest,
   type PublishedSupplementalFile,
 } from "./publication.js";
 import {
   readLiveSupplementalFile,
+  recoveredArtifactsMatchPublishedFiles,
   removePrivatePreparedFiles,
   stageAdmittedArtifacts,
   stagePreparedRevision,
@@ -194,6 +194,7 @@ function supplementalIdentity(
 ): string {
   return canonicalDigest({
     files: files.map((file) => ({
+      source: file.source,
       path: file.path,
       sha256: file.sha256,
       sizeBytes: file.sizeBytes,
@@ -387,7 +388,14 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     try {
       this.#lock = this.#dependencies.acquireLock(this.#layout);
       materializeSessionRuntimeLayout(this.#layout);
-      await this.#recover();
+      // Read the current authored Haxe inputs before an older interrupted
+      // update can restore or remove any generated file.
+      startupPhase = "inventory";
+      let recoveryPlan = await this.#resolveEffectivePlan(
+        this.#startupAbort.signal,
+      );
+      startupPhase = "recovery";
+      recoveryPlan = await this.#recover(recoveryPlan);
       if (this.#closing !== null || this.#startupAbort.signal.aborted) return;
       const published = readPublishedMarker(this.#layout);
       this.#publishedManifestDigest = published.manifestDigest;
@@ -398,8 +406,13 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       startupPhase = "inventory";
       this.#effectivePlan = await this.#replanGapSafe(
         this.#startupAbort.signal,
+        recoveryPlan,
       );
       this.#inventory = this.#effectivePlan.inventory;
+      this.#assertSupplementalPaths(
+        this.#inventory,
+        this.#publishedSupplementalFiles.map((file) => file.path),
+      );
       if (this.#closing !== null || this.#startupAbort.signal.aborted) return;
       if (this.#newestRevision !== 0) {
         throw new Error("initial revision was already assigned");
@@ -565,25 +578,57 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     this.#listeners.clear();
   }
 
-  async #recover(): Promise<void> {
+  async #recover(
+    initialPlan: EffectiveHaxeInvocationPlan,
+  ): Promise<EffectiveHaxeInvocationPlan> {
     // Audit every visible entry authority before legacy recovery can change
     // public files. The same audit runs again during migration to close drift.
     auditSessionAuthority(this.#layout);
+    let currentPlan = initialPlan;
+    const admitPlan = async (plan: PublicationPlan): Promise<boolean> => {
+      // Recovery may have been waiting since an older process stopped. Install
+      // the reconciled input watch around the refreshed HXML facts, then require
+      // one last filesystem comparison before allowing public-file changes.
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        currentPlan = await this.#replanGapSafe(
+          this.#startupAbort.signal,
+          currentPlan,
+        );
+        this.#assertSupplementalPaths(
+          currentPlan.inventory,
+          plan.artifacts.map((transition) => transition.path),
+        );
+        if (!this.#requireReconciliation()) {
+          return true;
+        }
+        currentPlan = await this.#resolveEffectivePlan(
+          this.#startupAbort.signal,
+        );
+      }
+      throw new Error(
+        "HXML input identity kept changing around recovery",
+      );
+    };
     // Releases before root ownership stored recovery beside one entry. Read
     // that location first while both the old and new locks are held.
     await this.#dependencies.recover({
       projectRoot: this.#layout.projectRoot,
       transactionRoot: this.#layout.legacyTransactionRelative,
       projectIdentity: legacySessionProjectDigest(this.#layout),
-      admitIntended: async (plan) => await this.#admitLegacyRecovered(plan),
+      admitPlan,
+      admitIntended: async (plan) =>
+        (await this.#admitLegacyRecovered(plan)) && (await admitPlan(plan)),
     });
     await this.#dependencies.establishAuthority(this.#layout);
     await this.#dependencies.recover({
       projectRoot: this.#layout.projectRoot,
       transactionRoot: this.#layout.transactionRelative,
       projectIdentity: sessionProjectDigest(this.#layout),
-      admitIntended: async (plan) => await this.#admitRecovered(plan),
+      admitPlan,
+      admitIntended: async (plan) =>
+        (await this.#admitRecovered(plan)) && (await admitPlan(plan)),
     });
+    return currentPlan;
   }
 
   async #admitLegacyRecovered(plan: PublicationPlan): Promise<boolean> {
@@ -603,36 +648,26 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     this.#watch = null;
   }
 
-  #requireReconciliation(): void {
+  #requireReconciliation(): boolean {
     const result = this.reconcile();
     if (!result.ok) {
       throw new Error(
         `authoritative input reconciliation failed: ${result.error.message}`,
       );
     }
+    return result.changed;
   }
 
   async #admitRecovered(plan: PublicationPlan): Promise<boolean> {
     return await this.#admitRecoveredWith(
       plan,
-      (manifestDigest, supplementalFiles) => {
-        const current = admissionDigest(
+      (manifestDigest, _supplementalFiles, marker) =>
+        recoveredAdmissionDigests(
           this.#layout,
           manifestDigest,
           this.#options.validatorPolicyFacts,
-          supplementalFiles,
-        );
-        return supplementalFiles.length === 0
-          ? Object.freeze([
-              current,
-              rootAdmissionDigest(
-                this.#layout,
-                manifestDigest,
-                this.#options.validatorPolicyFacts,
-              ),
-            ])
-          : Object.freeze([current]);
-      },
+          marker,
+        ),
     );
   }
 
@@ -641,6 +676,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     expectedAdmission: (
       manifestDigest: string,
       supplementalFiles: readonly PublishedSupplementalFile[],
+      marker: ReturnType<typeof readPublishedMarker>,
     ) => readonly string[],
   ): Promise<boolean> {
     const live = readGenesOutput(
@@ -652,6 +688,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     if (!expectedAdmission(
       live.manifestDigest,
       published.supplementalFiles,
+      published,
     ).includes(plan.authorizationDigest)) {
       return false;
     }
@@ -671,7 +708,16 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         signal: abort.signal,
         recovery: true,
       });
-      return result.ok;
+      if (!result.ok) return false;
+      try {
+        return recoveredArtifactsMatchPublishedFiles(
+          result.artifacts ?? [],
+          published.supplementalFiles,
+          published.format,
+        );
+      } catch {
+        return false;
+      }
     } finally {
       if (this.#activeAbort === abort) this.#activeAbort = null;
     }
@@ -842,6 +888,10 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       if (cause.reinventory) {
         this.#effectivePlan = await this.#replanGapSafe(abort.signal);
         this.#inventory = this.#effectivePlan.inventory;
+        this.#assertSupplementalPaths(
+          this.#inventory,
+          this.#publishedSupplementalFiles.map((file) => file.path),
+        );
         if (this.#closing !== null || abort.signal.aborted) return;
         failurePhase = "compile";
       }
@@ -883,7 +933,16 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         });
         if (this.#closing !== null || abort.signal.aborted) return;
         if (!preparation.ok) {
-          this.#fail("compile", cause.revision, true, preparation.diagnostic);
+          this.#fail(
+            "compile",
+            cause.revision,
+            true,
+            diagnostic(
+              "PREPARATION_REJECTED",
+              "The host preparation step could not prepare the compiler inputs",
+              this.#sanitizePublicJson(preparation.diagnostic),
+            ),
+          );
           return;
         }
         stagedPrepared = stagePreparedRevision(
@@ -1074,6 +1133,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
           supplementalFiles
             .map((file) =>
               Object.freeze({
+                source: file.source,
                 path: file.path,
                 sha256: file.digest,
                 sizeBytes: file.sizeBytes,
@@ -1180,8 +1240,10 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
 
   async #replanGapSafe(
     signal: AbortSignal,
+    initialCandidate?: EffectiveHaxeInvocationPlan,
   ): Promise<EffectiveHaxeInvocationPlan> {
-    let candidate = await this.#resolveEffectivePlan(signal);
+    let candidate =
+      initialCandidate ?? await this.#resolveEffectivePlan(signal);
     for (let attempt = 0; attempt < 4; attempt += 1) {
       if (this.#closing !== null || signal.aborted) {
         throw new Error("development session startup was cancelled");
@@ -1232,11 +1294,11 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         portableProjectPathsOverlap(
           this.#layout.projectRoot,
           candidate,
-          this.#layout.publicationControlRoot,
+          this.#layout.stableControlRoot,
         )
       ) {
         throw new Error(
-          `development-session input overlaps state, publication control, or generated output: ${candidate}`,
+          `development-session input overlaps state, stable session-control files, or generated output: ${candidate}`,
         );
       }
     }
@@ -1250,13 +1312,15 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     inventory: HxmlInventory,
     publicPaths: readonly string[],
   ): void {
-    const exactInputs = new Set([
+    const authoredInputs = [
       ...inventory.hxmlFiles,
+      ...inventory.libraryProvenanceFiles,
       ...inventory.resourceInputs,
       ...(this.#options.extraInputs ?? []).map((extra) =>
         path.resolve(this.#layout.projectRoot, extra.path),
       ),
-    ]);
+      ...inventory.classPaths,
+    ];
     for (const publicPath of publicPaths) {
       const absolute = path.resolve(
         this.#layout.projectRoot,
@@ -1266,8 +1330,13 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         throw new Error(`prepared public path escapes projectRoot: ${publicPath}`);
       }
       if (
-        exactInputs.has(absolute) ||
-        inventory.classPaths.some((classPath) => containedBy(classPath, absolute))
+        authoredInputs.some((input) =>
+          portableProjectPathsOverlap(
+            this.#layout.projectRoot,
+            input,
+            absolute,
+          ),
+        )
       ) {
         throw new Error(
           `prepared public path overlaps an authored compiler input: ${publicPath}`,
@@ -1282,11 +1351,11 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         portableProjectPathsOverlap(
           this.#layout.projectRoot,
           absolute,
-          this.#layout.publicationControlRoot,
+          this.#layout.stableControlRoot,
         )
       ) {
         throw new Error(
-          `prepared public path overlaps private session state: ${publicPath}`,
+          `host-provided public path overlaps private state or stable session-control files: ${publicPath}`,
         );
       }
     }

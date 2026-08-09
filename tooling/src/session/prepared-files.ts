@@ -27,10 +27,18 @@ import type {
 import type { SessionLayout } from "./layout.js";
 
 const DEFAULT_MODE = 0o644;
-const RESERVED_STAGE_PATHS = ["admission", "generation.json", "output"] as const;
+const RESERVED_STAGE_PATHS = [
+  "admission",
+  "generation.json",
+  "haxe-input",
+  "haxe-target",
+  "output",
+] as const;
 
 /** Exact staged bytes that may join the outer accepted generation. */
 export interface SupplementalFile {
+  /** Which host step owns reproducing this file during restart recovery. */
+  readonly source: "prepared" | "validator";
   readonly path: string;
   readonly stagedPath: string;
   readonly absolutePath: string;
@@ -95,6 +103,7 @@ function stagedFile(
   publicPath: string,
   content: string | Uint8Array,
   mode: number | undefined,
+  source: SupplementalFile["source"],
 ): SupplementalFile {
   const bytes = bytesOf(content);
   const absolutePath = path.join(
@@ -105,6 +114,7 @@ function stagedFile(
   writeFileSync(absolutePath, bytes, { mode: checkedMode(mode, publicPath) });
   chmodSync(absolutePath, checkedMode(mode, publicPath));
   return Object.freeze({
+    source,
     path: publicPath,
     stagedPath,
     absolutePath,
@@ -193,6 +203,7 @@ export function stagePreparedRevision(
       publicPath ?? relativePath,
       file.content,
       file.mode,
+      "prepared",
     );
     digestFiles.push({
       path: relativePath,
@@ -251,6 +262,7 @@ export function stageAdmittedArtifacts(
         paths[index]!,
         artifact.content,
         artifact.mode,
+        "validator",
       ),
     ),
   );
@@ -277,6 +289,89 @@ export function supplementalCandidateFiles(
       }),
     ),
   );
+}
+
+/**
+ * Confirms that evidence recomputed during restart still matches the exact
+ * supplemental file already present in the interrupted publication.
+ *
+ * Recovery may only finish an intended update; it cannot publish replacement
+ * validator bytes because no private candidate remains to own that change.
+ */
+export function recoveredArtifactsMatchPublishedFiles(
+  artifacts: readonly AdmittedArtifact[],
+  publishedFiles: readonly {
+    readonly source: "legacy" | "prepared" | "validator";
+    readonly path: string;
+    readonly sha256: string;
+    readonly sizeBytes: number;
+    readonly mode: number;
+  }[],
+  markerFormat: "absent" | "v2" | "v3" | "v4" = "v4",
+): boolean {
+  const paths = artifacts.map((artifact, index) =>
+    validatePortableRelativePath(
+      artifact.path,
+      `recovery artifacts[${index}].path`,
+    ),
+  );
+  uniquePortablePaths(paths, "recovery artifact");
+  if (markerFormat === "absent" || markerFormat === "v2") {
+    // These formats could not save validator files. New validator output is
+    // checked by the next normal build rather than blocking old recovery.
+    return true;
+  }
+  if (markerFormat === "v3") {
+    // V3 saved every extra file without saying which host step produced it.
+    // Preserve its original recovery rule: returned files that were saved
+    // must match, while omitted or newly introduced validator files cannot be
+    // classified until the next successful build writes a v4 marker.
+    const publishedByIdentity = new Map(
+      publishedFiles.map((file) =>
+        [portablePathIdentity(file.path), file] as const,
+      ),
+    );
+    for (const [index, artifact] of artifacts.entries()) {
+      const artifactPath = paths[index]!;
+      const published = publishedByIdentity.get(
+        portablePathIdentity(artifactPath),
+      );
+      if (published === undefined) continue;
+      if (published.path !== artifactPath) return false;
+      const bytes = bytesOf(artifact.content);
+      if (
+        sha256Bytes(bytes) !== published.sha256 ||
+        bytes.byteLength !== published.sizeBytes ||
+        checkedMode(artifact.mode, artifactPath) !== published.mode
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
+  const expectedValidatorFiles = publishedFiles.filter(
+    (file) => file.source === "validator",
+  );
+  if (artifacts.length !== expectedValidatorFiles.length) return false;
+  const publishedByIdentity = new Map(
+    expectedValidatorFiles.map((file) =>
+      [portablePathIdentity(file.path), file] as const,
+    ),
+  );
+  for (const [index, artifact] of artifacts.entries()) {
+    const artifactPath = paths[index]!;
+    const published = publishedByIdentity.get(portablePathIdentity(artifactPath));
+    if (published === undefined || published.path !== artifactPath) return false;
+    const bytes = bytesOf(artifact.content);
+    if (
+      sha256Bytes(bytes) !== published.sha256 ||
+      bytes.byteLength !== published.sizeBytes ||
+      checkedMode(artifact.mode, artifactPath) !== published.mode
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export function removePrivatePreparedFiles(files: readonly string[]): void {
