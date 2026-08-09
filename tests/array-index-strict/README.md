@@ -65,9 +65,15 @@ A plain write stays writable without a read assertion:
 return values[0] = value;
 ```
 
-Likewise, logical and nullish assignments keep their nullable writable target.
-Adding `!` there would make a nullable right-hand side invalid even though Haxe
-accepted it.
+Logical and nullish assignments need a direct nullable writable target; adding
+`!` would make a nullable right-hand side invalid. Haxe 4.3, however, cannot
+carry retained `&&=`, `||=`, or `??=` indexed operations into Genes' generated
+program. It rejects the first two spellings and lowers the third before the
+custom generator runs. This PR therefore does **not** claim native source
+emission for those forms. The classifier records their required future
+decision, while production admission fails closed if such a typed form ever
+arrives. A future Haxe version can enable emission only after a real fixture
+passes the exact operation through `TsModuleEmitter` and strict TypeScript.
 
 The typed source inventory covers plain writes, every admitted arithmetic and
 bitwise assignment, prefix and postfix increments/decrements, nullable number
@@ -80,10 +86,12 @@ and standard Haxe. The Proxy transcript requires the exact order
 `receiver,index,get,rhs,set`, with every step occurring once. Haxe 4.3 cannot
 spell retained `&&=` or `||=` in source and erases several target wrappers
 during typing. A focused macro therefore creates typed-expression copies for
-those cases and sends them directly through the same production classifier; it
-does not edit the program being generated. Separate strict TypeScript 5, 6, and
-7 fixtures prove that the planned direct logical targets remain valid without
-an assertion.
+those cases and sends them directly through the same classifier; it does not
+edit the program being generated. Separate strict TypeScript 5, 6, and 7
+fixtures prove that direct logical targets are a viable future syntax choice.
+Additional negative probes apply the real production-admission rule and prove
+that logical/nullish operations and transparent wrappers stop before emission
+today. Classifier evidence is deliberately not presented as emitter evidence.
 
 Negative typed probes reject undefined-aware or unknown arithmetic,
 unconstrained generic arithmetic, unresolved types, runtime casts,

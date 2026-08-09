@@ -2730,22 +2730,24 @@ class TsModuleEmitter extends JsModuleEmitter {
    * Prints one writable indexed target without routing it through value-read
    * emission.
    *
-   * The plan has already proved the exact `TArray` root and every transparent
-   * wrapper. Parentheses remain visible; erased metadata and implicit casts do
-   * not. A postfix assertion is emitted only for the plan's slot-presence or
-   * primitive-coercion decisions. Logical and nullish assignments therefore
-   * keep their complete nullable writable target.
+   * The plan has already proved the exact wrapper-free `TArray` root. Haxe 4.3
+   * cannot carry logical/nullish indexed assignments or transparent target
+   * wrappers into the generated program, so the plan rejects those
+   * classifier-only forms before this method can run. A postfix assertion is
+   * emitted only for a proved slot-presence or primitive-coercion decision.
    */
   function emitPlannedIndexedTarget(decision: TsIndexedTargetDecision): Void {
+    if (decision.wrappers.length > 0)
+      CompilerDiagnostic.fail('[GTS-INDEX-WRAP-001] A classifier-only indexed target wrapper reached TypeScript emission.',
+        decision.authoredTarget.pos);
+    switch decision.kind {
+      case Compound(LogicalAnd | LogicalOr | Nullish):
+        CompilerDiagnostic.fail('[GTS-INDEX-PLAN-001] A classifier-only logical or nullish indexed assignment reached TypeScript emission.',
+          decision.operation.pos);
+      case PlainWrite | Compound(Arithmetic(_)) | Compound(Bitwise(_)) |
+        Update(_, _):
+    }
     emitExpressionPos(decision.authoredTarget);
-    var parenthesisCount = 0;
-    for (wrapper in decision.wrappers)
-      switch wrapper {
-        case Parenthesis:
-          write('(');
-          parenthesisCount++;
-        case ErasedMetadata(_) | ErasedImplicitCast:
-      }
     switch decision.coreArray.expr {
       case TArray(receiver, index):
         emitPlannedIndexedReceiver(receiver, decision.receiverProjection);
@@ -2756,8 +2758,6 @@ class TsModuleEmitter extends JsModuleEmitter {
         CompilerDiagnostic.fail('[GTS-INDEX-PLAN-002] A planned indexed target lost its TArray root.',
           decision.coreArray.pos);
     }
-    while (parenthesisCount-- > 0)
-      write(')');
     switch decision.targetProjection {
       case WriteOnly | DirectNativeReadModifyWrite:
       case AssertSlotPresent | AssertPrimitiveCoercionDomain(_):

@@ -145,9 +145,11 @@ Genes cannot solve every indexed occurrence with one postfix `!`:
 `TsIndexedAccessPlan` records those facts independently for each exact typed
 expression. It also records whether the surrounding tree consumes or discards
 an assignment/update result, and distinguishes a nullable receiver, such as
-`base` in `base[index]`, from the indexed slot itself. Parentheses, erased
-metadata, and an erased implicit cast are accepted only through a closed wrapper
-policy; runtime casts and syntax-producing metadata fail before publication.
+`base` in `base[index]`, from the indexed slot itself. The classifier recognizes
+parentheses, erased metadata, and an erased implicit cast through a closed
+policy, but Haxe 4.3 removes those wrappers before generation. Production
+admission therefore fails closed if a wrapper reaches the final typed program;
+runtime casts and syntax-producing metadata also fail before publication.
 
 Three narrow Haxe-owned forms can retain an unresolved compiler variable after
 typing: `DynamicAccess<Dynamic>.get`, reads and initialization writes on the
@@ -179,9 +181,12 @@ values[index]! |= mask;
 
 The emitter does not decide that `!` is safe from the operator spelling or the
 generated text. It prints the exact plan decision for that typed operation.
-Plain writes and logical/nullish assignments receive no assertion, because
-their complete writable type must remain intact. A nested nullable receiver
-gets its own receiver assertion independently from the outer indexed slot.
+Plain writes receive no assertion. Haxe 4.3 rejects retained `&&=` and `||=` and
+lowers source `??=` before Genes runs, so this release does not claim native
+logical/nullish indexed-assignment emission. The classifier records the future
+direct-target decision, while production admission rejects those forms until a
+real emission-level fixture exists. A nested nullable receiver gets its own
+receiver assertion independently from the outer indexed slot.
 
 Prefix and postfix updates remain native TypeScript syntax, preserving their
 different result values. Receiver, index, and right-hand-side expressions are

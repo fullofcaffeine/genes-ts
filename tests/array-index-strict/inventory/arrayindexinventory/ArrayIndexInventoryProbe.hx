@@ -124,6 +124,30 @@ class ArrayIndexInventoryProbe {
       case "unsupported-operator":
         reject(fields, "rejectedOperator",
           operation -> replaceOperator(operation, OpAssignOp(OpInterval)));
+      case "emission-logical-and":
+        rejectEmission(fields, "typedLogicalAnd",
+          operation -> replaceOperator(operation, OpAssignOp(OpBoolAnd)));
+      case "emission-logical-or":
+        rejectEmission(fields, "typedLogicalOr",
+          operation -> replaceOperator(operation, OpAssignOp(OpBoolOr)));
+      case "emission-nullish":
+        rejectEmission(fields, "typedLogicalAnd",
+          operation -> replaceOperator(operation, OpAssignOp(OpNullCoal)));
+      case "emission-parenthesis":
+        rejectEmission(fields, "typedParenthesis",
+          operation -> wrapTarget(operation,
+            target -> typed(TParenthesis(target), target)));
+      case "emission-metadata":
+        rejectEmission(fields, "typedMetadata",
+          operation -> wrapTarget(operation, target -> typed(TMeta({
+            name: ":indexedInventory",
+            params: [],
+            pos: target.pos
+          }, target), target)));
+      case "emission-implicit-cast":
+        rejectEmission(fields, "typedImplicitCast",
+          operation -> wrapTarget(operation,
+            target -> typed(TCast(target, null), target)));
       case "registry-compound":
         reject(fields, "rejectedRegistryCompound", operation -> {
           replaceOperator(operation, OpAssignOp(OpAdd));
@@ -183,6 +207,23 @@ class ArrayIndexInventoryProbe {
     transform(operation);
     TsIndexedAccessPlan.probeTypedOperation(operation);
     Context.error('typed negative probe "$name" was accepted', operation.pos);
+  }
+
+  /**
+   * Applies production emission admission to a classifier-only typed copy.
+   *
+   * Haxe 4.3 cannot carry these forms into the generated program. The plan may
+   * still describe them for future design work, but the production build must
+   * stop before the emitter until a real emission-level fixture becomes
+   * possible.
+   */
+  static function rejectEmission(fields: Map<String, ClassField>,
+      name: String, transform: TypedExpr->Void): Void {
+    final operation = operation(fields, name);
+    transform(operation);
+    TsIndexedAccessPlan.probeTypedOperation(operation, true, false);
+    Context.error('classifier-only emission probe "$name" was accepted',
+      operation.pos);
   }
 
   static function rejectRead(fields: Map<String, ClassField>, name: String,
