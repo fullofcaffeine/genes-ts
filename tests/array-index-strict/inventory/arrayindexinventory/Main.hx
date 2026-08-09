@@ -119,8 +119,8 @@ class Main {
     return values[0];
   }
 
-  static function typedEnumParameterRead(value: Array<Dynamic>,
-      other: Array<Dynamic>, index: Int): Dynamic {
+  static function enumParameters(value: Array<Dynamic>, other: Array<Dynamic>,
+      index: Int): Dynamic {
     if (other[index] == null)
       return value[index];
     return value[index];
@@ -179,6 +179,25 @@ class Main {
     return values[0];
   }
 
+  static function rejectedRegistryWriteMetadata(values: Array<Dynamic>,
+      rhs: Dynamic): Dynamic {
+    return values[0] = rhs;
+  }
+
+  static function rejectedRegistryReadMetadata(values: Array<Dynamic>): Dynamic {
+    return values[0];
+  }
+
+  static function rejectedRegistryReadAlias(values: Array<Dynamic>): Dynamic {
+    final alias = values;
+    return alias[0];
+  }
+
+  static function rejectedRegistryReadCall(factory: Void->
+    Array<Dynamic>): Dynamic {
+    return factory()[0];
+  }
+
   static function boundaryReads<T>(genericValues: Array<T>,
       nullableValues: Array<Null<String>>,
       undefinableValues: Array<Undefinable<String>>,
@@ -213,7 +232,7 @@ class Main {
     typedImplicitCast([7], 2);
     typedRegistryWrite(["before"], "after");
     typedRegistryRead(["value"]);
-    typedEnumParameterRead(["value"], ["other"], 0);
+    enumParameters(["value"], ["other"], 0);
     boundaryReads(["value"], [null], [Undefinable.absent()],
       [Unknown.fromBoundary("unknown")], ["dynamic"]);
   }

@@ -154,8 +154,8 @@ typing: `DynamicAccess<Dynamic>.get`, reads and initialization writes on the
 compiler-owned `$hxClasses` and `$hxEnums` registry identifiers, and the indexed
 parameter read inside Haxe's standard `Type.enumParameters` implementation.
 Genes admits registry reads only through a closed field/index chain rooted at
-the exact compiler `TIdent`, with only erased compiler wrappers along the way;
-aliases, calls, and explicit casts are not part of that grammar.
+the exact compiler `TIdent`. Parentheses may group the chain, but metadata,
+casts, aliases, and calls are not part of that grammar.
 Only a direct registry slot accepts a plain initialization write. Compound
 assignments, updates, and writes through a derived registry value fail closed.
 The enum-parameter case additionally requires the exact outer standard-library

@@ -158,7 +158,12 @@ const rejectedProbes = new Map<string, string>([
   ["registry-compound", "GTS-INDEX-BOUNDARY-001"],
   ["registry-nested", "GTS-INDEX-BOUNDARY-001"],
   ["registry-read-explicit-cast", "GTS-INDEX-BOUNDARY-001"],
-  ["enum-parameter-other-read", "GTS-INDEX-BOUNDARY-001"]
+  ["registry-write-syntax-metadata", "GTS-INDEX-BOUNDARY-001"],
+  ["registry-read-syntax-metadata", "GTS-INDEX-BOUNDARY-001"],
+  ["registry-read-alias", "GTS-INDEX-BOUNDARY-001"],
+  ["registry-read-call", "GTS-INDEX-BOUNDARY-001"],
+  ["enum-parameter-other-read", "GTS-INDEX-BOUNDARY-001"],
+  ["enum-parameter-noncanonical-owner", "GTS-INDEX-BOUNDARY-001"]
 ]);
 for (const [mode, diagnostic] of rejectedProbes) {
   const rejected = captureHaxe([

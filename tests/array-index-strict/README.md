@@ -54,9 +54,10 @@ does not edit the program being generated.
 Negative typed probes reject undefined-aware or unknown arithmetic,
 unconstrained generic arithmetic, unresolved types, runtime casts,
 syntax-producing metadata, operators outside the reviewed matrix, compound or
-nested writes through Haxe's runtime registries, an explicit cast around a
-registry read, and an unresolved local that only resembles the exact
-`Type.enumParameters` parameter. The inventory also distinguishes
+nested writes through Haxe's runtime registries, metadata or casts around a
+registry access, registry aliases and calls, a same-named noncanonical
+`enumParameters` function, and an unresolved local that only resembles the
+exact standard-library parameter. The inventory also distinguishes
 value-producing and discarded assignments and every prefix and postfix update.
 Every rejection must preserve the last accepted output tree. The
 compiler-server fixture then runs a safe request, a `Dynamic` request, and the

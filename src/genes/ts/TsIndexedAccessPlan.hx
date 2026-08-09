@@ -3,8 +3,6 @@ package genes.ts;
 #if macro
 import genes.CompilerDiagnostic;
 import genes.Module;
-import genes.Module.Field;
-import genes.Module.FieldKind;
 import genes.NullishContract;
 import haxe.ds.ObjectMap;
 import haxe.macro.Context;
@@ -147,6 +145,13 @@ private typedef TsIndexedTargetRoot = {
   final wrappers: Array<TsIndexedTargetWrapper>;
 }
 
+private typedef TsIndexedFieldIdentity = {
+  final name: String;
+  final kind: genes.FieldKind;
+  final isStatic: Bool;
+  final expression: TypedExpr;
+}
+
 private enum TsIndexedTargetRootResult {
   NotIndexed;
   Indexed(root: TsIndexedTargetRoot);
@@ -222,6 +227,13 @@ final class TsIndexedAccessPlan {
     return new TsIndexedAccessPlanBuilder()
       .probeHaxeEnumParameterRead(expression, parameter);
   }
+
+  /** Runs the real outer-owner check against one typed function fixture. */
+  public static function probeHaxeEnumParametersFunction(owner: ClassType,
+      expression: TypedExpr): String {
+    return new TsIndexedAccessPlanBuilder()
+      .probeHaxeEnumParametersFunction(owner, expression);
+  }
   #end
 
   public function new(reads: ObjectMap<TypedExpr, TsIndexedReadDecision>,
@@ -279,7 +291,7 @@ private final class TsIndexedAccessPlanBuilder {
   var narrowingPlan: TsNarrowingPlan;
   var boundaryPlan: TsBoundaryPlan;
   var currentOwner: Null<ClassType>;
-  var currentField: Null<Field>;
+  var currentField: Null<TsIndexedFieldIdentity>;
   var currentHaxeEnumParameter: Null<TVar>;
 
   public function new() {}
@@ -293,7 +305,12 @@ private final class TsIndexedAccessPlanBuilder {
           for (field in fields)
             if (field.expr != null) {
               currentOwner = classType;
-              currentField = field;
+              currentField = {
+                name: field.name,
+                kind: field.kind,
+                isStatic: field.isStatic,
+                expression: field.expr
+              };
               currentHaxeEnumParameter = null;
               visit(field.expr, ResultUsed);
             }
@@ -361,6 +378,24 @@ private final class TsIndexedAccessPlanBuilder {
       parameter: TVar): String {
     currentHaxeEnumParameter = parameter;
     return probeTypedRead(expression);
+  }
+
+  public function probeHaxeEnumParametersFunction(owner: ClassType,
+      expression: TypedExpr): String {
+    currentOwner = owner;
+    currentField = {
+      name: "enumParameters",
+      kind: genes.FieldKind.Method,
+      isStatic: true,
+      expression: expression
+    };
+    currentHaxeEnumParameter = null;
+    visit(expression, ResultUsed);
+    if (inventory.length == 0)
+      return
+        CompilerDiagnostic.fail("[GTS-INDEX-PLAN-002] The enum-parameter function probe found no indexed occurrence.",
+        expression.pos);
+    return inventory[0].description;
   }
   #end
 
@@ -806,7 +841,7 @@ private final class TsIndexedAccessPlanBuilder {
       // TIdent is the complete typed identity for these JS-generator
       // intrinsics; it has no ClassField or ModuleType owner.
       case TIdent("$hxClasses" | "$hxEnums"): true;
-      case TParenthesis(inner) | TMeta(_, inner):
+      case TParenthesis(inner):
         isDirectHaxeDynamicRegistry(inner);
       default: false;
     }
@@ -827,15 +862,16 @@ private final class TsIndexedAccessPlanBuilder {
   /**
    * Recognizes the closed, read-only registry chain emitted by Haxe.
    *
-   * Unlike target detection, this deliberately rejects an explicit cast. An
-   * explicit cast is a new boundary rather than transparent compiler syntax.
+   * Unlike general target traversal, this rejects metadata and casts. Those
+   * wrappers can change emitted syntax and are not present in Haxe's real
+   * runtime-registry read chain.
    */
   static function isHaxeDynamicRegistryReadChain(expression: TypedExpr): Bool {
     return switch expression.expr {
       case TIdent("$hxClasses" | "$hxEnums"): true;
       case TArray(inner, _) | TField(inner, _):
         isHaxeDynamicRegistryReadChain(inner);
-      case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, null):
+      case TParenthesis(inner):
         isHaxeDynamicRegistryReadChain(inner);
       default: false;
     }
@@ -849,9 +885,9 @@ private final class TsIndexedAccessPlanBuilder {
       && currentOwner.module == "Type"
       && currentOwner.name == "Type"
       && currentField.name == "enumParameters"
-      && currentField.kind == Method
+      && currentField.kind == genes.FieldKind.Method
       && currentField.isStatic
-      && currentField.expr == expression;
+      && currentField.expression == expression;
   }
 
   /** Authorizes only the precise `e[p]` receiver parameter from that function. */

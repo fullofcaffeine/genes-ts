@@ -37,10 +37,13 @@ class ArrayIndexInventoryProbe {
 
   static function inspect(types: Array<ModuleType>, mode: String): Void {
     final fields = new Map<String, ClassField>();
+    var owner: Null<ClassType> = null;
     for (type in types)
       switch type {
         case TClassDecl(reference) if (reference.get().module == OWNER_MODULE):
-          for (field in reference.get().statics.get())
+          final classType = reference.get();
+          owner = classType;
+          for (field in classType.statics.get())
             fields.set(field.name, field);
         default:
       }
@@ -67,7 +70,7 @@ class ArrayIndexInventoryProbe {
       replaceDirectRegistryRead(read, "$hxEnums");
       read.t = Context.makeMonomorph();
     });
-    probeEnumParameterRead(fields, "typedEnumParameterRead", "value", "value");
+    probeEnumParameterRead(fields, "enumParameters", "value", "value");
     switch mode {
       case "positive":
       case "undefined-arithmetic":
@@ -136,9 +139,29 @@ class ArrayIndexInventoryProbe {
           replaceExplicitCastRegistryRead(read, "$hxEnums");
           read.t = Context.makeMonomorph();
         });
+      case "registry-write-syntax-metadata":
+        reject(fields, "rejectedRegistryWriteMetadata", operation -> {
+          replaceRegistryReceiverWithMetadata(indexedTarget(operation),
+            "$hxClasses");
+          indexedTarget(operation).t = Context.makeMonomorph();
+        });
+      case "registry-read-syntax-metadata":
+        rejectIndexedRead(fields, "rejectedRegistryReadMetadata", read -> {
+          replaceRegistryReceiverWithMetadata(read, "$hxEnums");
+          read.t = Context.makeMonomorph();
+        });
+      case "registry-read-alias":
+        rejectIndexedRead(fields, "rejectedRegistryReadAlias",
+          read -> read.t = Context.makeMonomorph());
+      case "registry-read-call":
+        rejectIndexedRead(fields, "rejectedRegistryReadCall",
+          read -> read.t = Context.makeMonomorph());
       case "enum-parameter-other-read":
-        rejectEnumParameterRead(fields, "typedEnumParameterRead", "other",
-          "value");
+        rejectEnumParameterRead(fields, "enumParameters", "other", "value");
+      case "enum-parameter-noncanonical-owner":
+        if (owner == null)
+          Context.error("missing typed probe owner", Context.currentPos());
+        rejectEnumParameterFunction(fields, owner);
       default:
         Context.error('unknown indexed-access probe mode "$mode"',
           Context.currentPos());
@@ -206,6 +229,20 @@ class ArrayIndexInventoryProbe {
     TsIndexedAccessPlan.probeHaxeEnumParameterRead(read, parameter);
     Context.error('typed negative enum-parameter read "$receiverName" was accepted',
       read.pos);
+  }
+
+  static function rejectEnumParameterFunction(fields: Map<String, ClassField>,
+      owner: ClassType): Void {
+    final field = fields.get("enumParameters");
+    if (field == null || field.expr() == null)
+      Context.error('missing typed probe method "enumParameters"',
+        Context.currentPos());
+    final expression = field.expr();
+    final parameter = argumentVariableInExpression(expression, "value");
+    final read = indexedReadForVariable(expression, parameter);
+    read.t = Context.makeMonomorph();
+    TsIndexedAccessPlan.probeHaxeEnumParametersFunction(owner, expression);
+    Context.error("noncanonical enumParameters owner was accepted", read.pos);
   }
 
   static function operation(fields: Map<String, ClassField>,
@@ -368,6 +405,27 @@ class ArrayIndexInventoryProbe {
     }
   }
 
+  static function replaceRegistryReceiverWithMetadata(read: TypedExpr,
+      name: String): Void {
+    switch read.expr {
+      case TArray(receiver, index):
+        final registry = typed(TIdent(name), receiver);
+        final metadata = {
+          name: ":loopLabel",
+          params: [
+            {
+              expr: EConst(CInt("0")),
+              pos: receiver.pos
+            }
+          ],
+          pos: receiver.pos
+        };
+        read.expr = TArray(typed(TMeta(metadata, registry), receiver), index);
+      default:
+        Context.error("typed probe expected an indexed read", read.pos);
+    }
+  }
+
   static function argumentType(fields: Map<String, ClassField>,
       fieldName: String, argumentName: String): Type {
     final field = fields.get(fieldName);
@@ -398,6 +456,43 @@ class ArrayIndexInventoryProbe {
         Context.error('typed probe method "$fieldName" is not a function',
           field == null ? Context.currentPos() : field.pos);
     }
+  }
+
+  static function argumentVariableInExpression(expression: TypedExpr,
+      argumentName: String): TVar {
+    return switch expression.expr {
+      case TFunction(functionValue):
+        for (argument in functionValue.args)
+          if (argument.v.name == argumentName)
+            return argument.v;
+        Context.error('typed probe function has no "$argumentName" argument',
+          expression.pos);
+      default:
+        Context.error("typed probe expression is not a function",
+          expression.pos);
+    }
+  }
+
+  static function indexedReadForVariable(expression: TypedExpr,
+      receiver: TVar): TypedExpr {
+    function visit(current: TypedExpr): Null<TypedExpr> {
+      switch current.expr {
+        case TArray({expr: TLocal(variable)}, _)
+          if (variable.id == receiver.id):
+          return current;
+        default:
+      }
+      for (child in children(current)) {
+        final found = visit(child);
+        if (found != null)
+          return found;
+      }
+      return null;
+    }
+    final found = visit(expression);
+    return
+      found == null ? Context.error('typed probe function has no indexed read for "${receiver.name}"',
+      expression.pos) : found;
   }
 
   static function typed(definition: TypedExprDef,
