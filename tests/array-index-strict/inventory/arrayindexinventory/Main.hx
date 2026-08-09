@@ -110,6 +110,22 @@ class Main {
     return values[0] = rhs;
   }
 
+  static function typedRegistryWrite(values: Array<Dynamic>,
+      rhs: Dynamic): Dynamic {
+    return values[0] = rhs;
+  }
+
+  static function typedRegistryRead(values: Array<Dynamic>): Dynamic {
+    return values[0];
+  }
+
+  static function typedEnumParameterRead(value: Array<Dynamic>,
+      other: Array<Dynamic>, index: Int): Dynamic {
+    if (other[index] == null)
+      return value[index];
+    return value[index];
+  }
+
   static function rejectedUndefined(values: Array<Undefinable<Int>>,
       rhs: Undefinable<Int>): Undefinable<Int> {
     return values[0] = rhs;
@@ -150,6 +166,19 @@ class Main {
     return values[0] = rhs;
   }
 
+  static function rejectedRegistryCompound(values: Array<Int>, rhs: Int): Int {
+    return values[0] = rhs;
+  }
+
+  static function rejectedRegistryNested(values: Array<Array<Int>>,
+      rhs: Int): Int {
+    return values[0][0] = rhs;
+  }
+
+  static function rejectedRegistryReadCast(values: Array<Dynamic>): Dynamic {
+    return values[0];
+  }
+
   static function boundaryReads<T>(genericValues: Array<T>,
       nullableValues: Array<Null<String>>,
       undefinableValues: Array<Undefinable<String>>,
@@ -182,6 +211,9 @@ class Main {
     typedParenthesis([7], 2);
     typedMetadata([7], 2);
     typedImplicitCast([7], 2);
+    typedRegistryWrite(["before"], "after");
+    typedRegistryRead(["value"]);
+    typedEnumParameterRead(["value"], ["other"], 0);
     boundaryReads(["value"], [null], [Undefinable.absent()],
       [Unknown.fromBoundary("unknown")], ["dynamic"]);
   }

@@ -3,6 +3,8 @@ package genes.ts;
 #if macro
 import genes.CompilerDiagnostic;
 import genes.Module;
+import genes.Module.Field;
+import genes.Module.FieldKind;
 import genes.NullishContract;
 import haxe.ds.ObjectMap;
 import haxe.macro.Context;
@@ -40,6 +42,12 @@ enum TsIndexedTargetKind {
   PlainWrite;
   Compound(kind: TsIndexedCompoundKind);
   Update(kind: TsIndexedUpdateKind, form: TsIndexedUpdateForm);
+}
+
+/** Whether the surrounding typed expression consumes an operation result. */
+enum TsIndexedResultUse {
+  ResultUsed;
+  ResultDiscarded;
 }
 
 /** How TypeScript can treat the value that appears before one index access. */
@@ -101,12 +109,13 @@ final class TsIndexedTargetDecision {
   public final coreArray: TypedExpr;
   public final wrappers: Array<TsIndexedTargetWrapper>;
   public final kind: TsIndexedTargetKind;
+  public final resultUse: TsIndexedResultUse;
   public final receiverProjection: TsIndexedReceiverProjection;
   public final targetProjection: TsIndexedTargetProjection;
 
   public function new(operation: TypedExpr, authoredTarget: TypedExpr,
       coreArray: TypedExpr, wrappers: Array<TsIndexedTargetWrapper>,
-      kind: TsIndexedTargetKind,
+      kind: TsIndexedTargetKind, resultUse: TsIndexedResultUse,
       receiverProjection: TsIndexedReceiverProjection,
       targetProjection: TsIndexedTargetProjection) {
     this.operation = operation;
@@ -114,6 +123,7 @@ final class TsIndexedTargetDecision {
     this.coreArray = coreArray;
     this.wrappers = wrappers.copy();
     this.kind = kind;
+    this.resultUse = resultUse;
     this.receiverProjection = receiverProjection;
     this.targetProjection = targetProjection;
   }
@@ -158,7 +168,8 @@ private enum TsIndexedTargetRootResult {
  * This request-local plan stores one decision for each exact typed `TArray`
  * read and each exact parent operation whose target is an indexed expression.
  * Receiver presence, slot presence, primitive coercion, writable-target type,
- * and wrapper transparency remain separate closed facts.
+ * wrapper transparency, and consumed-versus-discarded results remain separate
+ * closed facts.
  *
  * How
  * ---
@@ -188,13 +199,28 @@ final class TsIndexedAccessPlan {
    * methods. This hook is absent from ordinary compiler builds and never
    * authorizes output.
    */
-  public static function probeTypedOperation(operation: TypedExpr): String {
-    return new TsIndexedAccessPlanBuilder().probeTypedOperation(operation);
+  public static function probeTypedOperation(operation: TypedExpr,
+      resultUsed = true): String {
+    return new TsIndexedAccessPlanBuilder().probeTypedOperation(operation,
+      resultUsed);
   }
 
   /** Classifies one synthetic ordinary indexed read for the focused fixture. */
   public static function probeTypedRead(expression: TypedExpr): String {
     return new TsIndexedAccessPlanBuilder().probeTypedRead(expression);
+  }
+
+  /**
+   * Proves that the Haxe-owned enum-parameter exception follows one TVar.
+   *
+   * The production path additionally requires the exact Type.enumParameters
+   * owner and outer function. This hook isolates the final local-identity
+   * check so a different local in that same context can fail closed.
+   */
+  public static function probeHaxeEnumParameterRead(expression: TypedExpr,
+      parameter: TVar): String {
+    return new TsIndexedAccessPlanBuilder()
+      .probeHaxeEnumParameterRead(expression, parameter);
   }
   #end
 
@@ -253,7 +279,8 @@ private final class TsIndexedAccessPlanBuilder {
   var narrowingPlan: TsNarrowingPlan;
   var boundaryPlan: TsBoundaryPlan;
   var currentOwner: Null<ClassType>;
-  var currentFieldName: Null<String>;
+  var currentField: Null<Field>;
+  var currentHaxeEnumParameter: Null<TVar>;
 
   public function new() {}
 
@@ -266,17 +293,20 @@ private final class TsIndexedAccessPlanBuilder {
           for (field in fields)
             if (field.expr != null) {
               currentOwner = classType;
-              currentFieldName = field.name;
-              visit(field.expr);
+              currentField = field;
+              currentHaxeEnumParameter = null;
+              visit(field.expr, ResultUsed);
             }
           if (classType.init != null) {
-            currentFieldName = null;
-            visit(classType.init);
+            currentField = null;
+            currentHaxeEnumParameter = null;
+            visit(classType.init, ResultDiscarded);
           }
         case MMain(expression):
           currentOwner = null;
-          currentFieldName = null;
-          visit(expression);
+          currentField = null;
+          currentHaxeEnumParameter = null;
+          visit(expression, ResultDiscarded);
         case MEnum(_, _) | MType(_, _):
       }
     }
@@ -284,7 +314,8 @@ private final class TsIndexedAccessPlanBuilder {
   }
 
   #if genes.ts.indexed_access_inventory
-  public function probeTypedOperation(operation: TypedExpr): String {
+  public function probeTypedOperation(operation: TypedExpr,
+      resultUsed = true): String {
     final input = switch operation.expr {
       case TBinop(OpAssign, target, _): {target: target, kind: PlainWrite};
       case TBinop(OpAssignOp(binop), target, _): {
@@ -305,7 +336,8 @@ private final class TsIndexedAccessPlanBuilder {
           + "update operation.",
           operation.pos);
     };
-    final decision = planTarget(operation, input.target, input.kind);
+    final decision = planTarget(operation, input.target, input.kind,
+      resultUsed ? ResultUsed : ResultDiscarded);
     if (decision == null)
       return
         CompilerDiagnostic.fail("[GTS-INDEX-PLAN-002] The typed probe requires an indexed target.",
@@ -324,56 +356,109 @@ private final class TsIndexedAccessPlanBuilder {
     }
     return inventory[0].description;
   }
+
+  public function probeHaxeEnumParameterRead(expression: TypedExpr,
+      parameter: TVar): String {
+    currentHaxeEnumParameter = parameter;
+    return probeTypedRead(expression);
+  }
   #end
 
-  /** Walks each operation in evaluation order while preserving use roles. */
-  function visit(expression: TypedExpr): Void {
+  /** Walks each operation in evaluation order while preserving result roles. */
+  function visit(expression: TypedExpr, resultUse: TsIndexedResultUse): Void {
     switch expression.expr {
       case TBinop(OpAssign, target, rhs):
-        visitAssignment(expression, target, rhs, PlainWrite);
+        visitAssignment(expression, target, rhs, PlainWrite, resultUse);
       case TBinop(OpAssignOp(binop), target, rhs):
         if (indexedBelow(target))
           visitAssignment(expression, target, rhs,
-            Compound(classifyCompound(expression, binop)));
+            Compound(classifyCompound(expression, binop)), resultUse);
         else {
-          visit(target);
-          visit(rhs);
+          visit(target, ResultUsed);
+          visit(rhs, ResultUsed);
         }
       case TUnop(OpIncrement, postFix, target):
         visitUpdate(expression, target,
-          Update(Increment, postFix ? Postfix : Prefix));
+          Update(Increment, postFix ? Postfix : Prefix), resultUse);
       case TUnop(OpDecrement, postFix, target):
         visitUpdate(expression, target,
-          Update(Decrement, postFix ? Postfix : Prefix));
+          Update(Decrement, postFix ? Postfix : Prefix), resultUse);
       case TArray(receiver, index):
         planRead(expression, receiver);
-        visit(receiver);
-        visit(index);
+        visit(receiver, ResultUsed);
+        visit(index, ResultUsed);
       case TFunction(func):
+        final previousEnumParameter = currentHaxeEnumParameter;
+        currentHaxeEnumParameter = isDirectHaxeEnumParametersFunction(expression)
+          && func.args.length == 1 ? func.args[0].v : null;
         for (argument in func.args)
           if (argument.value != null)
-            visit(argument.value);
-        visit(func.expr);
+            visit(argument.value, ResultUsed);
+        visit(func.expr, isVoidType(func.t) ? ResultDiscarded : ResultUsed);
+        currentHaxeEnumParameter = previousEnumParameter;
+      case TBlock(expressions):
+        final blockUse = isVoidType(expression.t) ? ResultDiscarded : resultUse;
+        for (index in 0...expressions.length)
+          visit(expressions[index],
+            index == expressions.length - 1 ? blockUse : ResultDiscarded);
+      case TIf(condition, positive, negative):
+        visit(condition, ResultUsed);
+        final branchUse = isVoidType(expression.t) ? ResultDiscarded : resultUse;
+        visit(positive, branchUse);
+        if (negative != null)
+          visit(negative, branchUse);
+      case TSwitch(subject, cases, fallback):
+        visit(subject, ResultUsed);
+        final branchUse = isVoidType(expression.t) ? ResultDiscarded : resultUse;
+        for (caseValue in cases) {
+          for (value in caseValue.values)
+            visit(value, ResultUsed);
+          visit(caseValue.expr, branchUse);
+        }
+        if (fallback != null)
+          visit(fallback, branchUse);
+      case TTry(body, catches):
+        final branchUse = isVoidType(expression.t) ? ResultDiscarded : resultUse;
+        visit(body, branchUse);
+        for (catchValue in catches)
+          visit(catchValue.expr, branchUse);
+      case TFor(_, iterator, body):
+        visit(iterator, ResultUsed);
+        visit(body, ResultDiscarded);
+      case TWhile(condition, body, _):
+        visit(condition, ResultUsed);
+        visit(body, ResultDiscarded);
+      case TVar(_, initializer):
+        if (initializer != null)
+          visit(initializer, ResultUsed);
+      case TReturn(value):
+        if (value != null)
+          visit(value, ResultUsed);
+      case TThrow(value):
+        visit(value, ResultUsed);
+      case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, _):
+        visit(inner, resultUse);
       default:
-        expression.iter(visit);
+        expression.iter(child -> visit(child, ResultUsed));
     }
   }
 
   function visitAssignment(operation: TypedExpr, target: TypedExpr,
-      rhs: TypedExpr, kind: TsIndexedTargetKind): Void {
-    final planned = planTarget(operation, target, kind);
+      rhs: TypedExpr, kind: TsIndexedTargetKind,
+      resultUse: TsIndexedResultUse): Void {
+    final planned = planTarget(operation, target, kind, resultUse);
     if (planned == null)
-      visit(target);
+      visit(target, ResultUsed);
     else
       visitTargetChildren(planned);
-    visit(rhs);
+    visit(rhs, ResultUsed);
   }
 
   function visitUpdate(operation: TypedExpr, target: TypedExpr,
-      kind: TsIndexedTargetKind): Void {
-    final planned = planTarget(operation, target, kind);
+      kind: TsIndexedTargetKind, resultUse: TsIndexedResultUse): Void {
+    final planned = planTarget(operation, target, kind, resultUse);
     if (planned == null)
-      visit(target);
+      visit(target, ResultUsed);
     else
       visitTargetChildren(planned);
   }
@@ -381,8 +466,8 @@ private final class TsIndexedAccessPlanBuilder {
   function visitTargetChildren(decision: TsIndexedTargetDecision): Void {
     switch decision.coreArray.expr {
       case TArray(receiver, index):
-        visit(receiver);
-        visit(index);
+        visit(receiver, ResultUsed);
+        visit(index, ResultUsed);
       default:
         CompilerDiagnostic.fail("[GTS-INDEX-PLAN-002] A planned indexed target lost its TArray root.",
           decision.coreArray.pos);
@@ -405,7 +490,8 @@ private final class TsIndexedAccessPlanBuilder {
   }
 
   function planTarget(operation: TypedExpr, authoredTarget: TypedExpr,
-      kind: TsIndexedTargetKind): Null<TsIndexedTargetDecision> {
+      kind: TsIndexedTargetKind,
+      resultUse: TsIndexedResultUse): Null<TsIndexedTargetDecision> {
     final root = switch unwrapTarget(authoredTarget) {
       case NotIndexed: return null;
       case Indexed(found): found;
@@ -423,14 +509,15 @@ private final class TsIndexedAccessPlanBuilder {
           root.core.pos);
     }
     final decision = new TsIndexedTargetDecision(operation, authoredTarget,
-      root.core, root.wrappers, kind, planReceiver(receiver),
+      root.core, root.wrappers, kind, resultUse, planReceiver(receiver),
       planTargetProjection(root.core, kind));
     targets.set(operation, decision);
     targetRoots.set(root.core, true);
     record("target:" + describeTargetKind(kind) + ":"
       + describeReceiver(decision.receiverProjection) + ":"
       + describeTargetProjection(decision.targetProjection) + ":wrappers="
-      + describeWrappers(root.wrappers),
+      + describeWrappers(root.wrappers) + ":result="
+      + describeResultUse(resultUse),
       operation.pos);
     return decision;
   }
@@ -551,12 +638,14 @@ private final class TsIndexedAccessPlanBuilder {
       || NullishContract.forType(receiver.t).dynamicBoundary)
       return DirectRead;
     // Haxe's JS standard library uses untyped indexed reads for its two global
-    // type registries and inside Type.enumParameters. Those exact compiler
-    // identities can retain an unresolved result even though their Haxe
-    // contract uses null for a missing value. No other unresolved read enters.
+    // type registries and for the exact enum value parameter in
+    // Type.enumParameters. Inlined enum helpers retain a closed registry read
+    // chain made only of field and index steps rooted at the compiler TIdent.
+    // No call, local alias, write target, or unrelated read enters.
     if (hasUnresolvedMonomorph(expression.t)
       && (isDynamicAccessWithDynamicPayload(receiver.t)
-        || isHaxeDynamicRegistry(receiver) || isHaxeTypeEnumParameters()))
+        || isHaxeDynamicRegistryReadChain(receiver)
+        || isExactHaxeEnumParameterRead(receiver)))
       return NormalizeMissingToHaxeNull;
     if (hasUnresolvedMonomorph(expression.t))
       return
@@ -575,8 +664,23 @@ private final class TsIndexedAccessPlanBuilder {
   static function planTargetProjection(core: TypedExpr,
       kind: TsIndexedTargetKind): TsIndexedTargetProjection {
     final contract = NullishContract.forType(core.t);
-    if (contract.dynamicBoundary || indexedReceiverIsDynamic(core)
-      || indexedReceiverIsHaxeDynamicRegistry(core))
+    if (indexedReceiverContainsHaxeDynamicRegistry(core)) {
+      if (!indexedReceiverIsDirectHaxeDynamicRegistry(core))
+        return
+          CompilerDiagnostic.fail("[GTS-INDEX-BOUNDARY-001] A value derived from Haxe's runtime "
+          + "type registry is not an authorized indexed write target.",
+          core.pos);
+      return switch kind {
+        case PlainWrite:
+          WriteOnly;
+        default:
+          CompilerDiagnostic.fail("[GTS-INDEX-BOUNDARY-001] Haxe's runtime type registries admit "
+            +
+            "only direct initialization writes, not compound assignments or updates.",
+            core.pos);
+      }
+    }
+    if (contract.dynamicBoundary || indexedReceiverIsDynamic(core))
       return kind == PlainWrite ? WriteOnly : DirectNativeReadModifyWrite;
     if (hasUnresolvedMonomorph(core.t))
       return
@@ -656,10 +760,18 @@ private final class TsIndexedAccessPlanBuilder {
     }
   }
 
-  /** Whether an indexed target writes Haxe's own heterogeneous registry. */
-  static function indexedReceiverIsHaxeDynamicRegistry(expression: TypedExpr): Bool {
+  /** Whether an indexed target writes one direct Haxe runtime registry slot. */
+  static function indexedReceiverIsDirectHaxeDynamicRegistry(expression: TypedExpr): Bool {
     return switch expression.expr {
-      case TArray(receiver, _): isHaxeDynamicRegistry(receiver);
+      case TArray(receiver, _): isDirectHaxeDynamicRegistry(receiver);
+      default: false;
+    }
+  }
+
+  /** Whether an indexed target receiver is derived from a Haxe registry. */
+  static function indexedReceiverContainsHaxeDynamicRegistry(expression: TypedExpr): Bool {
+    return switch expression.expr {
+      case TArray(receiver, _): containsHaxeDynamicRegistry(receiver);
       default: false;
     }
   }
@@ -688,26 +800,68 @@ private final class TsIndexedAccessPlanBuilder {
     }
   }
 
-  /** Recognizes Haxe's two compiler-owned heterogeneous runtime registries. */
-  static function isHaxeDynamicRegistry(expression: TypedExpr): Bool {
+  /** Recognizes only the two direct compiler-owned runtime registry values. */
+  static function isDirectHaxeDynamicRegistry(expression: TypedExpr): Bool {
     return switch expression.expr {
       // TIdent is the complete typed identity for these JS-generator
       // intrinsics; it has no ClassField or ModuleType owner.
       case TIdent("$hxClasses" | "$hxEnums"): true;
-      case TArray(inner, _) | TField(inner, _):
-        isHaxeDynamicRegistry(inner);
-      case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, _):
-        isHaxeDynamicRegistry(inner);
+      case TParenthesis(inner) | TMeta(_, inner):
+        isDirectHaxeDynamicRegistry(inner);
       default: false;
     }
   }
 
-  /** Recognizes only the untyped parameter read in Haxe's standard Type API. */
-  function isHaxeTypeEnumParameters(): Bool {
-    if (currentOwner == null || currentFieldName == null)
+  /** Detects a registry anywhere in a receiver chain so it cannot be widened. */
+  static function containsHaxeDynamicRegistry(expression: TypedExpr): Bool {
+    return switch expression.expr {
+      case TIdent("$hxClasses" | "$hxEnums"): true;
+      case TArray(inner, _) | TField(inner, _):
+        containsHaxeDynamicRegistry(inner);
+      case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, _):
+        containsHaxeDynamicRegistry(inner);
+      default: false;
+    }
+  }
+
+  /**
+   * Recognizes the closed, read-only registry chain emitted by Haxe.
+   *
+   * Unlike target detection, this deliberately rejects an explicit cast. An
+   * explicit cast is a new boundary rather than transparent compiler syntax.
+   */
+  static function isHaxeDynamicRegistryReadChain(expression: TypedExpr): Bool {
+    return switch expression.expr {
+      case TIdent("$hxClasses" | "$hxEnums"): true;
+      case TArray(inner, _) | TField(inner, _):
+        isHaxeDynamicRegistryReadChain(inner);
+      case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, null):
+        isHaxeDynamicRegistryReadChain(inner);
+      default: false;
+    }
+  }
+
+  /** Recognizes the exact outer function that owns Haxe's enum parameter. */
+  function isDirectHaxeEnumParametersFunction(expression: TypedExpr): Bool {
+    if (currentOwner == null || currentField == null)
       return false;
-    return currentOwner.pack.length == 0 && currentOwner.module == "Type"
-      && currentOwner.name == "Type" && currentFieldName == "enumParameters";
+    return currentOwner.pack.length == 0
+      && currentOwner.module == "Type"
+      && currentOwner.name == "Type"
+      && currentField.name == "enumParameters"
+      && currentField.kind == Method
+      && currentField.isStatic
+      && currentField.expr == expression;
+  }
+
+  /** Authorizes only the precise `e[p]` receiver parameter from that function. */
+  function isExactHaxeEnumParameterRead(receiver: TypedExpr): Bool {
+    if (currentHaxeEnumParameter == null)
+      return false;
+    return switch receiver.expr {
+      case TLocal(variable): variable.id == currentHaxeEnumParameter.id;
+      default: false;
+    }
   }
 
   static function hasUnresolvedMonomorph(type: Type, depth = 0): Bool {
@@ -749,6 +903,15 @@ private final class TsIndexedAccessPlanBuilder {
         hasUnresolvedRoot(resolve(), depth + 1);
       case TType(_, _):
         hasUnresolvedRoot(Context.follow(type), depth + 1);
+      default:
+        false;
+    }
+  }
+
+  /** Whether one typed function/block result is intentionally discarded. */
+  static function isVoidType(type: Type): Bool {
+    return switch Context.follow(type) {
+      case TAbstract(reference, _): final value = reference.get(); value.pack.length == 0 && value.module == "StdTypes" && value.name == "Void";
       default:
         false;
     }
@@ -799,6 +962,13 @@ private final class TsIndexedAccessPlanBuilder {
       case AssertSlotPresent: "assert-slot";
       case AssertPrimitiveCoercionDomain(NumberDomain): "coerce-number";
       case AssertPrimitiveCoercionDomain(StringDomain): "coerce-string";
+    }
+  }
+
+  static function describeResultUse(resultUse: TsIndexedResultUse): String {
+    return switch resultUse {
+      case ResultUsed: "used";
+      case ResultDiscarded: "discarded";
     }
   }
 

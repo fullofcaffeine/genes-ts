@@ -26,13 +26,15 @@ break another valid spelling, especially a logical assignment whose right-hand
 side is still nullable.
 
 `TsIndexedAccessPlan` moves that decision before printing. It records immutable
-facts for exact typed Haxe expressions and keeps five questions separate:
+facts for exact typed Haxe expressions and keeps six questions separate:
 
 1. Is the receiver itself present?
 2. Is the indexed slot present under Haxe's contract?
 3. Does the operator have a proven JavaScript number or string domain?
 4. Must the target remain writable as a nullable or undefined-aware value?
 5. Is every wrapper transparent in an assignment target?
+6. Does the surrounding typed expression consume or discard the operation
+   result?
 
 This first landing runs the plan in **shadow mode**. The TypeScript emitter
 builds and inventories the plan but does not use it to choose output syntax, so
@@ -51,9 +53,14 @@ does not edit the program being generated.
 
 Negative typed probes reject undefined-aware or unknown arithmetic,
 unconstrained generic arithmetic, unresolved types, runtime casts,
-syntax-producing metadata, and operators outside the reviewed matrix. Every
-rejection must preserve the last accepted output tree. The compiler-server
-fixture then runs a safe request, a `Dynamic` request, and the safe request
+syntax-producing metadata, operators outside the reviewed matrix, compound or
+nested writes through Haxe's runtime registries, an explicit cast around a
+registry read, and an unresolved local that only resembles the exact
+`Type.enumParameters` parameter. The inventory also distinguishes
+value-producing and discarded assignments and every prefix and postfix update.
+Every rejection must preserve the last accepted output tree. The
+compiler-server fixture then runs a safe request, a `Dynamic` request, and the
+safe request
 again, requiring each warm decision inventory to match its isolated cold build
 and the restored output to match the first bytes.
 

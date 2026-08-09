@@ -143,17 +143,24 @@ Genes cannot solve every indexed occurrence with one postfix `!`:
   because narrowing the target can make a nullable right-hand side invalid.
 
 `TsIndexedAccessPlan` records those facts independently for each exact typed
-expression. It also distinguishes a nullable receiver, such as `base` in
-`base[index]`, from the indexed slot itself. Parentheses, erased metadata, and
-an erased implicit cast are accepted only through a closed wrapper policy;
-runtime casts and syntax-producing metadata fail before publication.
+expression. It also records whether the surrounding tree consumes or discards
+an assignment/update result, and distinguishes a nullable receiver, such as
+`base` in `base[index]`, from the indexed slot itself. Parentheses, erased
+metadata, and an erased implicit cast are accepted only through a closed wrapper
+policy; runtime casts and syntax-producing metadata fail before publication.
 
 Three narrow Haxe-owned forms can retain an unresolved compiler variable after
 typing: `DynamicAccess<Dynamic>.get`, reads and initialization writes on the
 compiler-owned `$hxClasses` and `$hxEnums` registry identifiers, and the indexed
 parameter read inside Haxe's standard `Type.enumParameters` implementation.
-Genes recognizes only those exact owners and preserves their runtime contract.
-An unrelated unresolved indexed type still fails closed.
+Genes admits registry reads only through a closed field/index chain rooted at
+the exact compiler `TIdent`, with only erased compiler wrappers along the way;
+aliases, calls, and explicit casts are not part of that grammar.
+Only a direct registry slot accepts a plain initialization write. Compound
+assignments, updates, and writes through a derived registry value fail closed.
+The enum-parameter case additionally requires the exact outer standard-library
+function and the exact argument `TVar`; another local in that function does not
+inherit the exception. An unrelated unresolved indexed type still fails closed.
 
 The first plan release is deliberately shadow-only. It builds and tests the
 immutable decisions while the established TypeScript emitter continues to

@@ -108,25 +108,32 @@ deepStrictEqual(
 );
 
 for (const expected of [
-  "target:logical-and:direct:direct-rmw:wrappers=none",
-  "target:logical-or:direct:direct-rmw:wrappers=none",
-  "target:write:direct:write-only:wrappers=parenthesis",
-  "target:write:direct:write-only:wrappers=metadata(:indexedInventory)",
-  "target:write:direct:write-only:wrappers=implicit-cast"
+  "target:logical-and:direct:direct-rmw:wrappers=none:result=used",
+  "target:logical-or:direct:direct-rmw:wrappers=none:result=used",
+  "target:write:direct:write-only:wrappers=parenthesis:result=used",
+  "target:write:direct:write-only:wrappers=metadata(:indexedInventory):result=used",
+  "target:write:direct:write-only:wrappers=implicit-cast:result=used",
+  "target:write:direct:write-only:wrappers=none:result=used",
+  "read:direct:normalize-null"
 ]) {
   ok(firstInventoryMessages.includes(expected),
     `typed probe records ${expected}`);
 }
 
 for (const expected of [
-  "target:arithmetic-OpAdd:direct:coerce-string:wrappers=none",
-  "target:bitwise-OpOr:direct:coerce-number:wrappers=none",
-  "target:prefix-increment:direct:assert-slot:wrappers=none",
-  "target:postfix-increment:direct:assert-slot:wrappers=none",
-  "target:prefix-decrement:direct:assert-slot:wrappers=none",
-  "target:postfix-decrement:direct:assert-slot:wrappers=none",
-  "target:arithmetic-OpAdd:assert-nullable:assert-slot:wrappers=none",
-  "target:arithmetic-OpAdd:flow-present:assert-slot:wrappers=none",
+  "target:arithmetic-OpAdd:direct:coerce-string:wrappers=none:result=discarded",
+  "target:bitwise-OpOr:direct:coerce-number:wrappers=none:result=discarded",
+  "target:prefix-increment:direct:assert-slot:wrappers=none:result=used",
+  "target:postfix-increment:direct:assert-slot:wrappers=none:result=used",
+  "target:prefix-decrement:direct:assert-slot:wrappers=none:result=used",
+  "target:postfix-decrement:direct:assert-slot:wrappers=none:result=used",
+  "target:prefix-increment:direct:assert-slot:wrappers=none:result=discarded",
+  "target:postfix-increment:direct:assert-slot:wrappers=none:result=discarded",
+  "target:prefix-decrement:direct:assert-slot:wrappers=none:result=discarded",
+  "target:postfix-decrement:direct:assert-slot:wrappers=none:result=discarded",
+  "target:write:direct:write-only:wrappers=none:result=discarded",
+  "target:arithmetic-OpAdd:assert-nullable:assert-slot:wrappers=none:result=discarded",
+  "target:arithmetic-OpAdd:flow-present:assert-slot:wrappers=none:result=discarded",
   "read:direct:assert-type-parameter",
   "read:direct:normalize-null"
 ]) {
@@ -147,7 +154,11 @@ const rejectedProbes = new Map<string, string>([
   ["unknown-receiver", "GTS-INDEX-BOUNDARY-001"],
   ["syntax-metadata", "GTS-INDEX-WRAP-001"],
   ["explicit-cast", "GTS-INDEX-WRAP-001"],
-  ["unsupported-operator", "GTS-INDEX-PLAN-001"]
+  ["unsupported-operator", "GTS-INDEX-PLAN-001"],
+  ["registry-compound", "GTS-INDEX-BOUNDARY-001"],
+  ["registry-nested", "GTS-INDEX-BOUNDARY-001"],
+  ["registry-read-explicit-cast", "GTS-INDEX-BOUNDARY-001"],
+  ["enum-parameter-other-read", "GTS-INDEX-BOUNDARY-001"]
 ]);
 for (const [mode, diagnostic] of rejectedProbes) {
   const rejected = captureHaxe([

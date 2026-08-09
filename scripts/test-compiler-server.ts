@@ -413,7 +413,7 @@ async function assertIndexedAccessServerIsolation(
     (cold, warm) => {
       safeInventory = indexedInventory(cold);
       ok(safeInventory.includes(
-        "target:arithmetic-OpAdd:direct:assert-slot:wrappers=none"
+        "target:arithmetic-OpAdd:direct:assert-slot:wrappers=none:result=discarded"
       ), "safe indexed request records its concrete-slot decision");
       deepStrictEqual(
         indexedInventory(warm),
@@ -435,7 +435,7 @@ async function assertIndexedAccessServerIsolation(
     (cold, warm) => {
       const coldInventory = indexedInventory(cold);
       ok(coldInventory.includes(
-        "target:arithmetic-OpAdd:direct:direct-rmw:wrappers=none"
+        "target:arithmetic-OpAdd:direct:direct-rmw:wrappers=none:result=discarded"
       ), "Dynamic indexed request retains its explicit unchecked boundary");
       deepStrictEqual(
         indexedInventory(warm),
