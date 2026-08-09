@@ -236,29 +236,29 @@ async function main(): Promise<void> {
       "invalid-syntax",
     );
     write(root, "inline-option-value-hxml.hxml", "--main=option-payload.hxml\n");
-    const inlineOptionValueInventory = await inventoryHxml({
-      entryFiles: ["inline-option-value-hxml.hxml"],
-      workingDirectory: root,
-      allowedRoots: [root],
-    });
-    assert.deepEqual(inlineOptionValueInventory.effectiveArguments, [
-      "--main=option-payload.hxml",
-    ]);
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["inline-option-value-hxml.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+        }),
+      "invalid-syntax",
+    );
 
     write(
       root,
       "inline-define-hxml-value.hxml",
       "--define=config=option-payload.hxml\n-cp src\n-main MissingClassPathMain\n--interp\n",
     );
-    const inlineDefineInventory = await inventoryHxml({
-      entryFiles: ["inline-define-hxml-value.hxml"],
-      workingDirectory: root,
-      allowedRoots: [root],
-    });
-    assert.equal(
-      inlineDefineInventory.effectiveArguments[0],
-      "--define=config=option-payload.hxml",
-      "the inline spelling must stay intact so Haxe does not reopen its value as HXML",
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["inline-define-hxml-value.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+        }),
+      "invalid-syntax",
     );
     write(
       root,

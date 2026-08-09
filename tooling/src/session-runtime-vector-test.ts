@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -17,6 +18,7 @@ import {
   type PublicationPlan,
 } from "./artifacts/index.js";
 import { inventoryHxml } from "./hxml/index.js";
+import { inventoryHxmlForDevelopmentSession } from "./hxml/inventory.js";
 import { establishSessionAuthority } from "./session/authority-migration.js";
 import type { HaxeWaitServerEvent } from "./haxe-server/index.js";
 import type {
@@ -101,11 +103,13 @@ interface CompileStep {
   readonly content: string;
   readonly hold?: Deferred<void>;
   readonly emitFallback?: boolean;
+  readonly expectPrivateHxml?: boolean;
 }
 
 class VectorCompiler implements SessionCompiler {
   readonly #steps: CompileStep[];
   readonly #onEvent: (event: HaxeWaitServerEvent) => void;
+  readonly privateHxmlInputs: string[] = [];
 
   constructor(
     steps: CompileStep[],
@@ -116,13 +120,26 @@ class VectorCompiler implements SessionCompiler {
   }
 
   async compile(
-    _invocation: Parameters<SessionCompiler["compile"]>[0],
+    invocation: Parameters<SessionCompiler["compile"]>[0],
     _digest: string,
     signal: AbortSignal,
   ): Promise<{ readonly mode: "connected" | "direct" }> {
-    const { candidateOutputFile } = _invocation;
+    const { candidateOutputFile } = invocation;
     const step = this.#steps.shift();
     assert.notEqual(step, undefined, "vector requested an unplanned compile");
+    if (step!.expectPrivateHxml === true) {
+      assert.equal(invocation.privateArgumentFiles.length, 1);
+      const input = invocation.privateArgumentFiles[0]!;
+      assert.equal(invocation.arguments.includes(input.path), true);
+      assert.equal(existsSync(input.path), true);
+      assert.equal(
+        readFileSync(input.path, "utf8"),
+        "--define=session-note=payload.hxml\n",
+      );
+      this.privateHxmlInputs.push(input.path);
+    } else {
+      assert.equal(invocation.privateArgumentFiles.length, 0);
+    }
     if (step!.emitFallback) {
       this.#onEvent({ kind: "fallback", reason: "server-unresponsive" });
     }
@@ -241,6 +258,7 @@ function compileSteps(
   return vector.script.flatMap((step) => {
     if (
       step !== "compile-connected" &&
+      step !== "compile-connected-private-hxml" &&
       step !== "compile-direct" &&
       step !== "compile-failed"
     ) {
@@ -259,6 +277,7 @@ function compileSteps(
         fail: step === "compile-failed",
         mode: step === "compile-direct" ? "direct" : "connected",
         content: `export const value = ${unchanged ? 1 : current + 1};\n`,
+        expectPrivateHxml: step === "compile-connected-private-hxml",
         ...(shouldHold ? { hold } : {}),
         emitFallback:
           vector.id === "late-attach-observes-compiler-fallback" && current === 0,
@@ -305,7 +324,19 @@ async function execute(vector: Vector): Promise<void> {
   const source = path.join(sourceRoot, "Main.hx");
   mkdirSync(sourceRoot);
   writeFileSync(source, "class Main {}\n", "utf8");
-  writeFileSync(path.join(root, "build.hxml"), "-cp src\n-main Main\n", "utf8");
+  const expectsPrivateHxml = vector.script.includes(
+    "compile-connected-private-hxml",
+  );
+  writeFileSync(
+    path.join(root, "build.hxml"),
+    expectsPrivateHxml
+      ? "-cp src\n-main Main\n--define=session-note=payload.hxml\n"
+      : "-cp src\n-main Main\n",
+    "utf8",
+  );
+  if (expectsPrivateHxml) {
+    writeFileSync(path.join(root, "payload.hxml"), "fixture payload\n", "utf8");
+  }
   const hold =
     vector.id === "burst-supersedes-active-candidate" ||
     vector.id === "close-before-first-accepted-is-idempotent"
@@ -327,7 +358,9 @@ async function execute(vector: Vector): Promise<void> {
         ? async () => {
             throw new Error("hxml inventory failed");
           }
-        : inventoryHxml,
+        : expectsPrivateHxml
+          ? inventoryHxmlForDevelopmentSession
+          : inventoryHxml,
     watch: <Cause>(options: ReconciledWatchOptions<Cause>) => {
       const watch = new VectorWatch(options);
       watches.push(watch as VectorWatch<unknown>);
@@ -341,6 +374,21 @@ async function execute(vector: Vector): Promise<void> {
       return compiler;
     },
     publish: async (options) => {
+      if (expectsPrivateHxml) {
+        assert.notEqual(compiler, null);
+        assert.equal(compiler!.privateHxmlInputs.length, 1);
+        assert.equal(
+          compiler!.privateHxmlInputs.every((input) => !existsSync(input)),
+          true,
+          "private HXML input must be removed before publication",
+        );
+        assert.equal(
+          options.plan.artifacts.some((artifact) =>
+            artifact.path.includes("haxe-input"),
+          ),
+          false,
+        );
+      }
       publicationAttempts += 1;
       const changesPublic = changesPublicArtifacts(options.plan);
       const failing =
@@ -390,6 +438,14 @@ async function execute(vector: Vector): Promise<void> {
         compatibilityFacts: { vector: vector.id },
       }),
       validate: async () => {
+        if (expectsPrivateHxml) {
+          assert.notEqual(compiler, null);
+          assert.equal(
+            compiler!.privateHxmlInputs.every((input) => !existsSync(input)),
+            true,
+            "private HXML input must be removed before validation",
+          );
+        }
         const rejected = validations.shift();
         if (rejected === undefined) {
           throw new Error(`${vector.id}: unplanned validation`);
@@ -528,6 +584,14 @@ async function execute(vector: Vector): Promise<void> {
       );
     }
     assert.notEqual(compiler, null, `${vector.id}: compiler controller was not created`);
+    if (expectsPrivateHxml) {
+      assert.equal(compiler!.privateHxmlInputs.length, 1);
+      assert.equal(
+        compiler!.privateHxmlInputs.every((input) => !existsSync(input)),
+        true,
+      );
+      assert.equal(existsSync(path.join(root, "src-gen", "haxe-input")), false);
+    }
   } finally {
     await session.close();
     rmSync(root, { recursive: true, force: true });

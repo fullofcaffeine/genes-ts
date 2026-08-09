@@ -22,6 +22,7 @@ import {
 } from "../artifacts/index.js";
 import { sameFileState } from "../artifacts/filesystem.js";
 import { inventoryHxml, type HxmlInventory } from "../hxml/index.js";
+import { inventoryHxmlForDevelopmentSession } from "../hxml/inventory.js";
 import { SerializedDirtyLoop } from "../loop/index.js";
 import {
   watchReconciledInputs,
@@ -120,7 +121,7 @@ interface SessionDependencies<Diagnostic extends JsonValue> {
 
 const REAL_DEPENDENCIES: SessionDependencies<JsonValue> = {
   now: () => Date.now(),
-  inventory: inventoryHxml,
+  inventory: inventoryHxmlForDevelopmentSession,
   watch: watchReconciledInputs,
   createCompiler: (layout, onEvent, shutdownTimeoutMs) =>
     new HaxeSessionCompiler(layout, onEvent, shutdownTimeoutMs),

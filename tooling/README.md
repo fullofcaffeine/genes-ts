@@ -333,7 +333,10 @@ restarting the command.
   example `--define=config=build.hxml`. The session keeps that exact inline
   spelling in a tiny private HXML file while compiling, then removes it before
   publication. This matters because splitting the option and value on the Haxe
-  command line would make Haxe reopen the value as another build file.
+  command line would make Haxe reopen the value as another build file. The
+  standalone `inventoryHxml()` helper cannot safely create that private file,
+  so it rejects this one form and returns only arguments a caller may pass
+  directly to Haxe.
   Environment expansion is rejected where it would change Haxe's high-level
   staging decision, including an HXML filename or library request.
   DevelopmentSession v1 rejects authored `-C`/`--cwd` and resource options
@@ -396,7 +399,9 @@ restarting the command.
   link, but a safe watcher deliberately does not; rejecting the link prevents
   an outside source change from being missed. The final class-path directory
   may be absent when the session starts. The watcher keeps that checked path so
-  creating the directory can trigger a later build.
+  creating the directory can trigger a later build. Before every later scan,
+  the watcher checks the path again. If a missing parent has become a symbolic
+  link, the scan stops instead of reading through it.
 - `acquirePublishedRead()` protects one generated-file read from overlapping
   physical publication. Framework adapters emit no update until the accepted
   event exists.

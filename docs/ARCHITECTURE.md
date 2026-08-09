@@ -827,7 +827,9 @@ the final stream: Haxe's high-level argument pass would otherwise interpret that
 value as another HXML program before normal option arity is applied. An ordinary
 inline option such as `--define=config=build.hxml` keeps its exact meaning
 through a private one-line HXML input that is removed before publication. A
-separate resolved library request may use that suffix because its name is
+standalone HXML inventory rejects that form because it does not own the private
+input needed to make the flattened command safe. A separate resolved library
+request may use that suffix because its name is
 removed before execution; its resolver output still passes the final-stream
 check. Environment expansion cannot change a high-level HXML or library
 decision. Authored HXML is targetless. The bound compiler request
@@ -852,7 +854,9 @@ closed and versioned for Haxe 4.3.7.
 Class paths are checked against the project roots, and every existing path
 component must be a normal directory rather than a symbolic link. The last
 directory may be absent. Keeping that missing path in the input list lets the
-reconciled watcher notice when generated sources first appear.
+reconciled watcher notice when generated sources first appear. The watcher
+checks every live path component again before each scan, so a newly created
+symbolic-link parent is rejected before any outside tree is read.
 
 This is not a hostile-macro sandbox. Haxe macros are trusted compile-time code
 and may use filesystem or process APIs; hosts declare macro-owned external

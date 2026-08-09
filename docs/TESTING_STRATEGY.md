@@ -297,8 +297,12 @@ special early handling. Its inline `--option=value` form must fail before a
 library resolver or Haxe can run, while ordinary inline one-value options still
 pass the same safety checks. Focused tests also cover a missing class-path
 directory that is created after inventory, plus an ordinary inline value ending
-in `.hxml`. The real development-session test proves that value stays data and
-cannot be reopened as a second HXML file during the flattened Haxe build.
+in `.hxml`. The standalone inventory must reject that value because its output
+is passed directly to Haxe. The session vector and real development-session
+test prove the private bridge keeps the value as data, removes its helper before
+validation, and never publishes it. The watcher test also creates a symbolic
+link after a missing nested class path was registered and proves the next scan
+stops before following it.
 
 The package gate then installs the deterministic tarball into a clean Node
 project, type-checks the public factory/types, and imports both the root and

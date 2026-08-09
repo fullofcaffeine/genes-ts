@@ -50,6 +50,9 @@ it.
   preserve ordinary inline `.hxml` values through a private checked HXML input,
   allow a not-yet-created class-path directory to enter the watch set, and still
   allow a separate reviewed library request that is removed before execution;
+  direct HXML inventory stays safe to execute by rejecting the private-bridge
+  form, and watched paths are checked again before every scan so a later
+  symbolic-link parent cannot redirect the watcher;
   reject HXML options that execute shell commands or user programs before host
   acceptance; keep informational changes from discarding an active build; and
   report post-inventory compiler errors at the compile stage.

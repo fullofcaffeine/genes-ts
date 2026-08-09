@@ -4,12 +4,14 @@ import path from "node:path";
 import { canonicalDigest, type CanonicalJson } from "../artifacts/index.js";
 import {
   HAXE_4_3_7_OPTION_ARITY,
-  inventoryHxml,
   type HxmlArgumentPolicy,
   type HxmlInventory,
   type HxmlInventoryOptions,
 } from "../hxml/index.js";
-import { isHaxe437OrdinaryInlineHxmlOption } from "../hxml/inventory.js";
+import {
+  inventoryHxmlForDevelopmentSession,
+  isHaxe437OrdinaryInlineHxmlOption,
+} from "../hxml/inventory.js";
 import type {
   GenesDevelopmentOptions,
   HaxeInvocation,
@@ -133,7 +135,9 @@ export async function buildEffectiveHaxeInvocationPlan<
   invocation: HaxeInvocation,
   hxml: SessionHxmlOptions<Diagnostic>,
   signal: AbortSignal,
-  inventory: typeof inventoryHxml = inventoryHxml,
+  inventory: (
+    options: HxmlInventoryOptions,
+  ) => Promise<HxmlInventory> = inventoryHxmlForDevelopmentSession,
 ): Promise<EffectiveHaxeInvocationPlan> {
   assertEntryArguments(invocation);
   if (invocation.ioPolicy !== HAXE_4_3_7_DEVELOPMENT_JS_POLICY) {

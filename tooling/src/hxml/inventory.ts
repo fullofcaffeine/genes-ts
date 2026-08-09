@@ -352,8 +352,9 @@ function libraryRequest(
   });
 }
 
-export async function inventoryHxml(
+async function inventoryHxmlWithPolicy(
   options: HxmlInventoryOptions,
+  allowInlineHxmlOptionValues: boolean,
 ): Promise<HxmlInventory> {
   throwIfAborted(options.signal);
   const maxHxmlFiles = options.maxHxmlFiles ?? DEFAULT_MAX_HXML_FILES;
@@ -503,7 +504,7 @@ export async function inventoryHxml(
 
       if (
         value?.endsWith(".hxml") === true &&
-        inlineValue === undefined &&
+        (inlineValue === undefined || !allowInlineHxmlOptionValues) &&
         !(libraryOptions.has(argument) && inlineValue === undefined)
       ) {
         fail(
@@ -712,4 +713,22 @@ export async function inventoryHxml(
     libraries: Object.freeze(libraries),
     effectiveArguments: Object.freeze(effectiveArguments),
   });
+}
+
+/**
+ * Inventories HXML for callers that pass `effectiveArguments` straight to
+ * Haxe. Inline option values ending in `.hxml` are rejected because Haxe would
+ * reopen that command-line token as another HXML file.
+ */
+export function inventoryHxml(
+  options: HxmlInventoryOptions,
+): Promise<HxmlInventory> {
+  return inventoryHxmlWithPolicy(options, false);
+}
+
+/** @internal DevelopmentSession materializes accepted inline values safely. */
+export function inventoryHxmlForDevelopmentSession(
+  options: HxmlInventoryOptions,
+): Promise<HxmlInventory> {
+  return inventoryHxmlWithPolicy(options, true);
 }

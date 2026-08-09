@@ -113,6 +113,10 @@ export interface HxmlInventory {
   readonly classPaths: readonly string[];
   readonly resourceInputs: readonly string[];
   readonly libraries: readonly HxmlLibrary[];
-  /** Exact flattened arguments passed to Haxe before the private JS target. */
+  /**
+   * Exact flattened arguments that a direct caller can safely pass to Haxe.
+   * The public inventory rejects inline values ending in `.hxml`; the complete
+   * DevelopmentSession supports them through its private checked input.
+   */
   readonly effectiveArguments: readonly string[];
 }

@@ -194,6 +194,10 @@ function capture<Cause>(
 ): Snapshot<Cause> {
   const snapshot: Snapshot<Cause> = new Map();
   for (const input of inputs) {
+    // A missing input can gain a symbolic-link parent after registration.
+    // Check the live path before every scan so reconciliation never follows
+    // that new link into a different tree.
+    assertNoSymlinkComponents(input.path);
     if (input.kind === "exact") {
       addEntry(
         snapshot,
@@ -237,6 +241,7 @@ function changed<Cause>(
 }
 
 function nearestRealDirectory(candidate: string): string {
+  assertNoSymlinkComponents(candidate);
   let current = path.resolve(candidate);
   while (!existsSync(current)) {
     const parent = path.dirname(current);
@@ -261,6 +266,7 @@ function nearestRealDirectory(candidate: string): string {
 function collectTreeDirectories<Cause>(
   input: TreeWatchInput<Cause>,
 ): readonly string[] {
+  assertNoSymlinkComponents(input.path);
   if (!existsSync(input.path)) {
     return Object.freeze([nearestRealDirectory(input.path)]);
   }
