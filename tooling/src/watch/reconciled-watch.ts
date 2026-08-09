@@ -167,6 +167,9 @@ function scanTree<Cause>(
       if (input.ignore?.(relative) === true) {
         continue;
       }
+      if (child.isSymbolicLink() && input.rejectSymlinks === true) {
+        throw new Error(`watched tree contains a symbolic link: ${absolute}`);
+      }
       if (child.isDirectory()) {
         visit(absolute);
       } else if (input.include(relative)) {
@@ -271,6 +274,11 @@ function collectTreeDirectories<Cause>(
     for (const child of readdirSync(directory, { withFileTypes: true }).sort(
       (left, right) => Buffer.from(left.name).compare(Buffer.from(right.name)),
     )) {
+      if (child.isSymbolicLink() && input.rejectSymlinks === true) {
+        throw new Error(
+          `watched tree contains a symbolic link: ${path.join(directory, child.name)}`,
+        );
+      }
       if (!child.isDirectory()) {
         continue;
       }

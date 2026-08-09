@@ -248,8 +248,11 @@ try {
     stateDirectory: ".genes/dev",
     resolveInvocation: () => ({
       executable: haxeExecutable,
-      cwd: repositoryRoot,
-      args: [path.join(projectRoot, "build.hxml")],
+      // The session inventories this exact working directory and HXML. Keeping
+      // the real invocation identical proves the compiler cannot gain hidden
+      // command-line inputs after the watch set was chosen.
+      cwd: projectRoot,
+      args: ["build.hxml"],
       compatibilityFacts: {
         fixture: "real-haxe-session",
         haxe: haxeVersion,

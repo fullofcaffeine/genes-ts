@@ -1,5 +1,12 @@
 import { randomBytes } from "node:crypto";
-import { readFileSync, realpathSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+} from "node:fs";
 import path from "node:path";
 
 import {
@@ -145,6 +152,44 @@ function containedBy(root: string, candidate: string): boolean {
       relative !== ".." &&
       !relative.startsWith(`..${path.sep}`))
   );
+}
+
+function assertRealPath(root: string, candidate: string, label: string): void {
+  const absolute = path.resolve(candidate);
+  if (!containedBy(root, absolute)) {
+    throw new Error(`${label} must be inside projectRoot`);
+  }
+  let current = root;
+  for (const segment of path.relative(root, absolute).split(path.sep)) {
+    if (segment.length === 0) continue;
+    current = path.join(current, segment);
+    if (!existsSync(current)) return;
+    if (lstatSync(current).isSymbolicLink()) {
+      throw new Error(`${label} traverses a symbolic link: ${current}`);
+    }
+  }
+}
+
+function assertClassPathTreeIsReal(classPath: string): void {
+  if (!existsSync(classPath)) return;
+  const visit = (directory: string): void => {
+    for (const child of readdirSync(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, child.name);
+      if (child.isSymbolicLink()) {
+        throw new Error(
+          `development-session class path contains a symbolic link: ${absolute}`,
+        );
+      }
+      if (child.isDirectory()) visit(absolute);
+    }
+  };
+  const stats = lstatSync(classPath);
+  if (stats.isSymbolicLink() || !stats.isDirectory()) {
+    throw new Error(
+      `development-session class path must be a real directory: ${classPath}`,
+    );
+  }
+  visit(classPath);
 }
 
 function mergeCause(left: BuildCause, right: BuildCause): BuildCause {
@@ -563,6 +608,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         kind: "tree",
         path: classPath,
         include: (relative) => relative.endsWith(".hx"),
+        rejectSymlinks: true,
         cause: { reinventory: false, restartCompiler: false, rebuild: true },
       });
     }
@@ -943,29 +989,41 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     invocation: HaxeInvocation,
     inventory: HxmlInventory,
   ): void {
+    const configuredWorkingDirectory = realpathSync.native(
+      path.resolve(this.#options.hxml.workingDirectory),
+    );
+    let invocationWorkingDirectory: string;
+    try {
+      invocationWorkingDirectory = realpathSync.native(
+        path.resolve(invocation.cwd),
+      );
+    } catch {
+      throw new Error("Haxe invocation working directory is unavailable");
+    }
+    if (invocationWorkingDirectory !== configuredWorkingDirectory) {
+      throw new Error(
+        "Haxe invocation must use the same working directory as the inventoried HXML",
+      );
+    }
     const invoked: string[] = [];
-    let cwd = invocation.cwd;
-    for (let index = 0; index < invocation.args.length; index += 1) {
-      const argument = invocation.args[index]!;
-      if (argument === "--cwd") {
-        const value = invocation.args[index + 1];
-        if (value === undefined) throw new Error("Haxe invocation --cwd has no value");
-        cwd = path.resolve(cwd, value);
-        index += 1;
-        continue;
+    for (const argument of invocation.args) {
+      if (argument.startsWith("-") || !argument.endsWith(".hxml")) {
+        throw new Error(
+          "Haxe invocation may contain only the exact top-level HXML files; put build options inside those inventoried files",
+        );
       }
-      if (argument.startsWith("--cwd=")) {
-        cwd = path.resolve(cwd, argument.slice("--cwd=".length));
-        continue;
-      }
-      if (argument.startsWith("-") || !argument.endsWith(".hxml")) continue;
+      const candidate = path.resolve(invocationWorkingDirectory, argument);
+      assertRealPath(
+        this.#layout.projectRoot,
+        candidate,
+        "Haxe invocation HXML",
+      );
       try {
-        invoked.push(realpathSync.native(path.resolve(cwd, argument)));
+        invoked.push(realpathSync.native(candidate));
       } catch {
         throw new Error(`Haxe invocation HXML is unavailable: ${argument}`);
       }
     }
-    invoked.sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
     if (
       invoked.length !== inventory.entryHxmlFiles.length ||
       invoked.some((file, index) => file !== inventory.entryHxmlFiles[index])
@@ -1062,6 +1120,9 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
           `development-session input overlaps state, publication control, or generated output: ${candidate}`,
         );
       }
+    }
+    for (const classPath of inventory.classPaths) {
+      assertClassPathTreeIsReal(classPath);
     }
   }
 

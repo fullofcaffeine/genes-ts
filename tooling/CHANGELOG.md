@@ -21,5 +21,8 @@ it.
   exclusion, exact stale deletion, output-scoped recovery, immutable effective
   invocation checks, authoritative reconciliation, exact drift detection, and
   bounded reentrant owned cleanup.
+- Require the executed Haxe command to match the inventoried working directory
+  and ordered top-level HXML files, reject linked source trees, and keep an
+  accepted output tied to its original physical path spelling.
 - Verify every public code and JSON export from the packed package on Node
   20.9.0, the package's declared minimum runtime.

@@ -4,6 +4,7 @@ import {
   lstatSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -123,7 +124,7 @@ export function readPublishedMarker(
   const record = decoded as Record<string, unknown>;
   if (
     Object.keys(record).sort().join(",") !==
-      "acceptedAt,generation,manifestDigest,protocol,publicOutput,revision,sessionNonce" ||
+      "acceptedAt,generation,manifestDigest,protocol,publicOutput,publicOutputPath,revision,sessionNonce" ||
     record.protocol !== "genes.tooling.accepted-generation.v1" ||
     typeof record.sessionNonce !== "string" ||
     record.sessionNonce.length === 0 ||
@@ -136,9 +137,30 @@ export function readPublishedMarker(
     typeof record.manifestDigest !== "string" ||
     !/^[0-9a-f]{64}$/u.test(record.manifestDigest) ||
     record.publicOutput !== layout.publicOutputAuthority ||
+    typeof record.publicOutputPath !== "string" ||
     `${canonicalJson(record as CanonicalJson)}\n` !== bytes
   ) {
     throw new Error("accepted-generation marker is invalid or non-canonical");
+  }
+  const recordedOutput = path.join(
+    layout.projectRoot,
+    ...(record.publicOutputPath as string).split("/"),
+  );
+  const currentOutput = path.join(
+    layout.projectRoot,
+    ...layout.publicOutputRelative.split("/"),
+  );
+  const samePhysicalOutput =
+    existsSync(recordedOutput) &&
+    existsSync(currentOutput) &&
+    realpathSync.native(recordedOutput) === realpathSync.native(currentOutput);
+  if (
+    record.publicOutputPath !== layout.publicOutputRelative &&
+    !samePhysicalOutput
+  ) {
+    throw new Error(
+      `this output was previously published as ${record.publicOutputPath}; use that original public output path instead of ${layout.publicOutputRelative}`,
+    );
   }
   return Object.freeze({
     manifestDigest: record.manifestDigest,
@@ -249,6 +271,7 @@ export function preparePublication(
     acceptedAt,
     manifestDigest: candidate.manifestDigest,
     publicOutput: layout.publicOutputAuthority,
+    publicOutputPath: layout.publicOutputRelative,
   })}\n`;
   writeFileSync(markerAbsolute, marker, { mode: 0o600 });
   chmodSync(markerAbsolute, 0o600);

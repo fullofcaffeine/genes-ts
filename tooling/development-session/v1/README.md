@@ -179,6 +179,17 @@ inventoried closure with the executable invocation. Entry and resolved-library
 paths are checked for symlink components before canonicalization, so an alias
 cannot erase the path that must pass the no-follow policy.
 
+The executable invocation must also use the inventory's working directory and
+contain only those ordered top-level HXML files. Build options belong in the
+inventoried HXML graph. Source class paths reject symbolic links because Haxe
+may follow them while the safe watcher does not; accepting both behaviors would
+let the compiler read a change that the session could miss.
+
+The accepted marker records both the portable output identity and its original
+project-relative spelling. Case aliases still share one lock and recovery
+scope. On a case-sensitive filesystem, a later session must reuse the original
+spelling instead of looking for prior files in a different physical directory.
+
 ## Publication and reads
 
 Filesystem publication moves more than one file. A request that reads a

@@ -266,6 +266,10 @@ restarting the command.
   environment, and compatibility facts are the exact values validated,
   hashed, used to start the server, and executed. Mutating a retained host
   array later cannot change the command.
+- The invocation uses the same working directory and the same ordered
+  top-level HXML files as the input inventory. Put build flags inside those
+  HXML files; extra command-line flags are rejected because otherwise Haxe
+  could compile files that the development loop did not know to watch.
 - `resolveInvocation().executable` is the native Haxe compiler binary that
   supports `--server-listen` and `--connect`, not a shell command string. The
   process is spawned with structured arguments and `shell: false`.
@@ -292,6 +296,9 @@ restarting the command.
 - HXML graph replacement is registration-gap safe: tooling confirms the
   inventory after the new watcher exists and rotates the owned compiler when
   compilation identity changes.
+- A source class path may not contain symbolic links. Haxe can follow such a
+  link, but a safe watcher deliberately does not; rejecting the link prevents
+  an outside source change from being missed.
 - `acquirePublishedRead()` protects one generated-file read from overlapping
   physical publication. Framework adapters emit no update until the accepted
   event exists.

@@ -1372,6 +1372,56 @@ for (const checkpoint of [
 
 {
   const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-alias-restart-")),
+  );
+  try {
+    const caseProbe = path.join(root, "case-probe");
+    mkdirSync(caseProbe);
+    const caseInsensitive = existsSync(path.join(root, "CASE-PROBE"));
+    rmSync(caseProbe, { recursive: true, force: true });
+    if (!caseInsensitive) {
+      mkdirSync(path.join(root, "src"));
+      writeFileSync(path.join(root, "src/Main.hx"), "class Main {}\n", "utf8");
+      writeFileSync(
+        path.join(root, "build.hxml"),
+        "-cp src\n-main Main\n-js ignored.js\n",
+        "utf8",
+      );
+      const fixture = path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "session-crash-fixture.js",
+      );
+      const first = spawnSync(process.execPath, [fixture], {
+        cwd: root,
+        env: {
+          ...process.env,
+          GENES_SESSION_CRASH_ROOT: root,
+          GENES_SESSION_CRASH_STATE: ".genes/state-a",
+          GENES_SESSION_CRASH_OUTPUT: "src-gen/index.ts",
+        },
+        encoding: "utf8",
+      });
+      assert.equal(first.status, 0, first.stderr);
+      const alias = spawnSync(process.execPath, [fixture], {
+        cwd: root,
+        env: {
+          ...process.env,
+          GENES_SESSION_CRASH_ROOT: root,
+          GENES_SESSION_CRASH_STATE: ".genes/state-b",
+          GENES_SESSION_CRASH_OUTPUT: "SRC-GEN/index.ts",
+        },
+        encoding: "utf8",
+      });
+      assert.notEqual(alias.status, 0);
+      assert.match(alias.stderr, /use that original public output path/u);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+{
+  const root = realpathSync.native(
     mkdtempSync(path.join(os.tmpdir(), "genes-session-layout-")),
   );
   try {
@@ -1563,6 +1613,105 @@ await withHarness(
     }),
   }),
 );
+
+await withHarness(
+  "invocation-hxml-order-mismatch",
+  async (harness) => {
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "blocked");
+    assert.equal(harness.compiler.calls, 0);
+  },
+  undefined,
+  (options, root) => {
+    writeFileSync(path.join(root, "first.hxml"), "-cp src\n", "utf8");
+    writeFileSync(path.join(root, "second.hxml"), "-main Main\n", "utf8");
+    return {
+      ...options,
+      hxml: {
+        ...options.hxml,
+        entryFiles: ["first.hxml", "second.hxml"],
+      },
+      resolveInvocation: () => ({
+        executable: "haxe",
+        cwd: root,
+        args: ["second.hxml", "first.hxml"],
+        compatibilityFacts: { fixture: "wrong-entry-order" },
+      }),
+    };
+  },
+);
+
+await withHarness(
+  "invocation-working-directory-mismatch",
+  async (harness) => {
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "blocked");
+    assert.equal(harness.compiler.calls, 0);
+  },
+  undefined,
+  (options, root) => {
+    const nested = path.join(root, "nested");
+    mkdirSync(nested);
+    return {
+      ...options,
+      resolveInvocation: () => ({
+        executable: "haxe",
+        cwd: nested,
+        args: ["../build.hxml"],
+        compatibilityFacts: { fixture: "wrong-working-directory" },
+      }),
+    };
+  },
+);
+
+await withHarness(
+  "invocation-extra-arguments",
+  async (harness) => {
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "blocked");
+    assert.equal(harness.compiler.calls, 0);
+  },
+  undefined,
+  (options, root) => ({
+    ...options,
+    resolveInvocation: () => ({
+      executable: "haxe",
+      cwd: root,
+      args: ["build.hxml", "-cp", "../shared"],
+      compatibilityFacts: { fixture: "extra-arguments" },
+    }),
+  }),
+);
+
+{
+  const outside = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-outside-source-")),
+  );
+  const harness = makeHarness("symlinked-class-path-entry");
+  try {
+    mkdirSync(path.join(outside, "package"));
+    writeFileSync(
+      path.join(outside, "package", "Hidden.hx"),
+      "package package; class Hidden {}\n",
+      "utf8",
+    );
+    symlinkSync(
+      path.join(outside, "package"),
+      path.join(harness.root, "src", "package"),
+    );
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "blocked");
+    assert.equal(harness.compiler.calls, 0);
+  } finally {
+    await harness.session.close();
+    rmSync(harness.root, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+}
 
 await withHarness("hxml-changes-before-execution", async (harness) => {
   harness.compiler.steps.push({
