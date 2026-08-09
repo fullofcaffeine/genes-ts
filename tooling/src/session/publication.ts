@@ -61,10 +61,10 @@ function stageRelative(
 
 export function sessionProjectDigest(layout: SessionLayout): string {
   return canonicalDigest({
-    protocol: "genes.tooling.development-session-project.v1",
+    protocol: "genes.tooling.development-session-project.v2",
     projectIdentity: layout.projectIdentity,
     projectRoot: layout.projectRoot,
-    publicOutput: layout.publicOutputAuthority,
+    publicOutputRoot: layout.publicOutputRootAuthority,
   });
 }
 
@@ -74,9 +74,10 @@ export function admissionDigest(
   validatorPolicyFacts: JsonValue,
 ): string {
   return canonicalDigest({
-    protocol: "genes.tooling.development-session-admission.v1",
+    protocol: "genes.tooling.development-session-admission.v2",
     projectIdentity: sessionProjectDigest(layout),
-    publicOutput: layout.publicOutputAuthority,
+    publicOutputRoot: layout.publicOutputRootAuthority,
+    publicEntry: layout.publicEntryAuthority,
     manifestDigest,
     validatorPolicyFacts,
   } as CanonicalJson);
@@ -124,8 +125,8 @@ export function readPublishedMarker(
   const record = decoded as Record<string, unknown>;
   if (
     Object.keys(record).sort().join(",") !==
-      "acceptedAt,generation,manifestDigest,protocol,publicOutput,publicOutputPath,revision,sessionNonce" ||
-    record.protocol !== "genes.tooling.accepted-generation.v1" ||
+      "acceptedAt,generation,manifestDigest,protocol,publicEntry,publicEntryPath,publicOutputRoot,publicOutputRootPath,revision,sessionNonce" ||
+    record.protocol !== "genes.tooling.accepted-generation.v2" ||
     typeof record.sessionNonce !== "string" ||
     record.sessionNonce.length === 0 ||
     !Number.isInteger(record.generation) ||
@@ -136,15 +137,17 @@ export function readPublishedMarker(
     (record.acceptedAt as number) < 0 ||
     typeof record.manifestDigest !== "string" ||
     !/^[0-9a-f]{64}$/u.test(record.manifestDigest) ||
-    record.publicOutput !== layout.publicOutputAuthority ||
-    typeof record.publicOutputPath !== "string" ||
+    record.publicOutputRoot !== layout.publicOutputRootAuthority ||
+    record.publicEntry !== layout.publicEntryAuthority ||
+    typeof record.publicOutputRootPath !== "string" ||
+    typeof record.publicEntryPath !== "string" ||
     `${canonicalJson(record as CanonicalJson)}\n` !== bytes
   ) {
     throw new Error("accepted-generation marker is invalid or non-canonical");
   }
   const recordedOutput = path.join(
     layout.projectRoot,
-    ...(record.publicOutputPath as string).split("/"),
+    ...(record.publicEntryPath as string).split("/"),
   );
   const currentOutput = path.join(
     layout.projectRoot,
@@ -154,12 +157,27 @@ export function readPublishedMarker(
     existsSync(recordedOutput) &&
     existsSync(currentOutput) &&
     realpathSync.native(recordedOutput) === realpathSync.native(currentOutput);
+  const recordedRoot = path.join(
+    layout.projectRoot,
+    ...(record.publicOutputRootPath as string).split("/"),
+  );
+  const currentRoot = layout.publicOutputRoot;
+  const samePhysicalRoot =
+    existsSync(recordedRoot) &&
+    existsSync(currentRoot) &&
+    realpathSync.native(recordedRoot) === realpathSync.native(currentRoot);
   if (
-    record.publicOutputPath !== layout.publicOutputRelative &&
+    record.publicOutputRootPath !== (layout.publicOutputRootRelative ?? ".") &&
+    !samePhysicalRoot
+  ) {
+    throw new Error("public output root spelling differs from its recorded owner");
+  }
+  if (
+    record.publicEntryPath !== layout.publicOutputRelative &&
     !samePhysicalOutput
   ) {
     throw new Error(
-      `this output was previously published as ${record.publicOutputPath}; use that original public output path instead of ${layout.publicOutputRelative}`,
+      `this output was previously published as ${record.publicEntryPath}; use that original public output path instead of ${layout.publicOutputRelative}`,
     );
   }
   return Object.freeze({
@@ -264,14 +282,16 @@ export function preparePublication(
   );
   mkdirSync(path.dirname(markerAbsolute), { recursive: true, mode: 0o700 });
   const marker = `${canonicalJson({
-    protocol: "genes.tooling.accepted-generation.v1",
+    protocol: "genes.tooling.accepted-generation.v2",
     sessionNonce,
     generation,
     revision,
     acceptedAt,
     manifestDigest: candidate.manifestDigest,
-    publicOutput: layout.publicOutputAuthority,
-    publicOutputPath: layout.publicOutputRelative,
+    publicOutputRoot: layout.publicOutputRootAuthority,
+    publicOutputRootPath: layout.publicOutputRootRelative ?? ".",
+    publicEntry: layout.publicEntryAuthority,
+    publicEntryPath: layout.publicOutputRelative,
   })}\n`;
   writeFileSync(markerAbsolute, marker, { mode: 0o600 });
   chmodSync(markerAbsolute, 0o600);

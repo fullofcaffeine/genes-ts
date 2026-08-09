@@ -294,6 +294,9 @@ export interface HaxeInvocation {
    */
   readonly args: readonly string[];
 
+  /** Reviewed compiler target/output capability matrix selected by the host. */
+  readonly ioPolicy: "haxe-4.3.7-development-js-v1";
+
   /**
    * Optional overrides for the current Node process environment. The session
    * copies the complete effective environment once per revision, includes it
@@ -331,7 +334,14 @@ export interface ObservedExtraInput extends ExternalChange {}
 export interface GenesDevelopmentOptions<Diagnostic extends JsonValue> {
   readonly projectRoot: string;
   readonly projectIdentity: string;
-  readonly hxml: HxmlInventoryOptions;
+  /**
+   * HXML resolver, containment, and budget policy. Entry files, working
+   * directory, and environment come only from the immutable Haxe invocation.
+   */
+  readonly hxml: Omit<
+    HxmlInventoryOptions,
+    "entryFiles" | "workingDirectory" | "environment" | "signal"
+  >;
 
   /** Explicit public entry owned by this session; never inferred from output. */
   readonly publicOutputFile: string;

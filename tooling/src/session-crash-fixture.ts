@@ -55,10 +55,10 @@ class FixtureCompiler implements SessionCompiler {
   async compile(
     _invocation: Parameters<SessionCompiler["compile"]>[0],
     _compatibilityDigest: string,
-    candidateOutputFile: string,
     _signal: AbortSignal,
     assertInvocationCurrent?: () => void | Promise<void>,
   ): Promise<{ readonly mode: "direct" }> {
+    const { candidateOutputFile } = _invocation;
     await assertInvocationCurrent?.();
     mkdirSync(path.dirname(candidateOutputFile), { recursive: true });
     writeFileSync(candidateOutputFile, content, "utf8");
@@ -107,8 +107,6 @@ const options: GenesDevelopmentOptions<JsonValue> = {
   projectRoot: root,
   projectIdentity: "fixture-alternate-state-recovery",
   hxml: {
-    entryFiles: ["build.hxml"],
-    workingDirectory: root,
     allowedRoots: [root],
   },
   publicOutputFile,
@@ -117,6 +115,7 @@ const options: GenesDevelopmentOptions<JsonValue> = {
     executable: "haxe",
     cwd: root,
     args: ["build.hxml"],
+    ioPolicy: "haxe-4.3.7-development-js-v1",
     compatibilityFacts: { fixture: "alternate-state-recovery" },
   }),
   validate: async () => ({ ok: true }),

@@ -10,6 +10,10 @@ import {
 } from "../haxe-server/index.js";
 import type { HaxeInvocation } from "./types.js";
 import type { SessionLayout } from "./layout.js";
+import {
+  HAXE_4_3_7_DEVELOPMENT_JS_POLICY,
+  type BoundHaxeInvocation,
+} from "./effective-invocation.js";
 
 const LOG_LIMIT = 128_000;
 
@@ -19,9 +23,8 @@ export interface CompilerResult {
 
 export interface SessionCompiler {
   compile(
-    invocation: HaxeInvocation,
+    invocation: BoundHaxeInvocation,
     compatibilityDigest: string,
-    candidateOutputFile: string,
     signal: AbortSignal,
     assertInvocationCurrent?: () => void | Promise<void>,
   ): Promise<CompilerResult>;
@@ -36,8 +39,7 @@ interface CommandResult {
 }
 
 interface ActiveRequest {
-  readonly invocation: HaxeInvocation;
-  readonly candidateOutputFile: string;
+  readonly invocation: BoundHaxeInvocation;
   readonly signal: AbortSignal;
   readonly assertInvocationCurrent?: () => void | Promise<void>;
 }
@@ -45,10 +47,10 @@ interface ActiveRequest {
 class HaxeCommandError extends Error {
   readonly result: CommandResult;
 
-  constructor(result: CommandResult, candidateOutputFile: string) {
+  constructor(result: CommandResult, candidateRoot: string) {
     const raw = `${result.stderr}\n${result.stdout}`.trim();
     const sanitized = raw.replaceAll(
-      path.dirname(candidateOutputFile),
+      candidateRoot,
       "<private-candidate>",
     );
     super(sanitized.length === 0 ? "Haxe compilation failed" : sanitized);
@@ -98,6 +100,9 @@ function snapshotEnvironment(
 function validateInvocation(invocation: HaxeInvocation): void {
   if (invocation.executable.length === 0 || invocation.cwd.length === 0) {
     throw new Error("HaxeInvocation executable and cwd must not be empty");
+  }
+  if (invocation.ioPolicy !== HAXE_4_3_7_DEVELOPMENT_JS_POLICY) {
+    throw new Error("HaxeInvocation uses an unsupported compiler I/O policy");
   }
   if (
     invocation.args.some(
@@ -151,6 +156,7 @@ export function snapshotHaxeInvocation(
     executable: String(invocation.executable),
     cwd: String(invocation.cwd),
     args: Object.freeze([...invocation.args].map((argument) => String(argument))),
+    ioPolicy: invocation.ioPolicy,
     env: snapshotEnvironment(process.env, invocation.env),
     compatibilityFacts: snapshotJson(invocation.compatibilityFacts),
   });
@@ -158,30 +164,13 @@ export function snapshotHaxeInvocation(
   return snapshot;
 }
 
-function copyEffectiveHaxeInvocation(
-  invocation: HaxeInvocation,
-): HaxeInvocation {
-  const snapshot: HaxeInvocation = Object.freeze({
-    executable: String(invocation.executable),
-    cwd: String(invocation.cwd),
-    args: Object.freeze([...invocation.args].map((argument) => String(argument))),
-    env: snapshotEnvironment(invocation.env),
-    compatibilityFacts: snapshotJson(invocation.compatibilityFacts),
-  });
-  validateInvocation(snapshot);
-  return snapshot;
-}
-
 function commandArgs(
-  invocation: HaxeInvocation,
-  candidateOutputFile: string,
+  invocation: BoundHaxeInvocation,
   endpoint: HaxeWaitEndpoint | null,
 ): readonly string[] {
   return Object.freeze([
     ...(endpoint === null ? [] : ["--connect", endpoint.argument]),
-    ...invocation.args,
-    "-D",
-    `genes.output=${candidateOutputFile}`,
+    ...invocation.arguments,
   ]);
 }
 
@@ -204,7 +193,7 @@ function terminate(child: ChildProcess, timeoutMs: number): Promise<void> {
 }
 
 function runCommand(
-  invocation: HaxeInvocation,
+  invocation: BoundHaxeInvocation,
   args: readonly string[],
   signal: AbortSignal,
   shutdownTimeoutMs: number,
@@ -216,7 +205,7 @@ function runCommand(
     }
     const child = spawn(invocation.executable, [...args], {
       cwd: invocation.cwd,
-      env: invocation.env,
+      env: invocation.environment,
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -317,16 +306,13 @@ export class HaxeSessionCompiler implements SessionCompiler {
   }
 
   async compile(
-    invocation: HaxeInvocation,
+    invocation: BoundHaxeInvocation,
     compatibilityDigest: string,
-    candidateOutputFile: string,
     signal: AbortSignal,
     assertInvocationCurrent?: () => void | Promise<void>,
   ): Promise<CompilerResult> {
-    const snapshot = copyEffectiveHaxeInvocation(invocation);
     this.#request = {
-      invocation: snapshot,
-      candidateOutputFile,
+      invocation,
       signal,
       assertInvocationCurrent,
     };
@@ -354,7 +340,7 @@ export class HaxeSessionCompiler implements SessionCompiler {
       ["--server-listen", endpoint.argument],
       {
         cwd: invocation.cwd,
-        env: invocation.env,
+        env: invocation.environment,
         shell: false,
         stdio: ["ignore", "ignore", "ignore"],
       },
@@ -403,12 +389,12 @@ export class HaxeSessionCompiler implements SessionCompiler {
     }
     const result = await runCommand(
       request.invocation,
-      commandArgs(request.invocation, request.candidateOutputFile, endpoint),
+      commandArgs(request.invocation, endpoint),
       request.signal,
       this.#shutdownTimeoutMs,
     );
     if (result.code !== 0) {
-      throw new HaxeCommandError(result, request.candidateOutputFile);
+      throw new HaxeCommandError(result, request.invocation.candidateRoot);
     }
     return Object.freeze({ mode });
   }

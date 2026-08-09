@@ -48,9 +48,11 @@ The session contract makes the safe order explicit:
 
 ```text
 recover an interrupted publication
+  -> resolve and freeze the exact Haxe invocation
+  -> inventory that invocation's contextual HXML and library source closure
   -> register the Haxe input graph
   -> assign an input revision
-  -> resolve every library HXML and snapshot/check the effective invocation
+  -> bind one private ordinary Haxe JS target and one private Genes target
   -> generate a complete private candidate
   -> ask the host to validate that candidate
   -> reject it if a newer build-requiring revision is already known
@@ -162,41 +164,57 @@ an unowned file occupying a newly generated path is a collision, not something
 the session adopts. Generated files are outputs—not a second editable source
 tree.
 
-The publication journal and accepted marker are keyed by project/output scope,
+The publication journal and accepted marker are keyed by project/public-root scope,
 not by the caller's private `stateDirectory`. If a process crashes while using
 `.genes/state-a` and restarts with `.genes/state-b`, the new process still finds
 and resolves the one authoritative journal before inventory or compilation.
 That scope uses the artifact protocol's portable path identity (NFC plus
-case-folding), not the caller's path spelling. Case aliases therefore share one
-lifetime lock, journal, marker, admission identity, and recovery universe even
-on a case-sensitive host; non-NFC paths are rejected before startup. The
+case-folding), not the caller's path spelling. Case aliases therefore derive
+one lifetime lock, journal, marker, admission identity, and recovery universe;
+on a case-sensitive host, original-spelling protection prevents an alias from
+becoming a second physical tree. Non-NFC paths are rejected before startup. The
 caller-selected private state directory may not contain or equal the stable
-`.genes/tooling` control root.
+`.genes/tooling` control root. The public output root cannot contain or be
+contained by that control root either. V1 persistently binds one public root to
+one entry file, because two entry files may both claim the same generated
+sibling modules. A second entry for that root fails before recovery or Haxe
+execution, even after the first process exits.
 
 Library expansion is part of invocation authority. A lower-level HXML inventory
 may list `-lib` requests without resolving them, but DevelopmentSession requires
-an authoritative resolver for every discovered library. The existing argument
-policy then visits each returned HXML, including `extraParams.hxml`, before Haxe
-can run. “Resolver returned no effective HXML” is distinct from “no resolver was
-provided”; only the former is a complete closure.
+an authoritative resolver for every discovered library. That resolver returns
+both effective HXML files, including `extraParams.hxml`, and library source
+class paths. It receives the same frozen environment lookup used by HXML
+expansion. “Resolver returned empty HXML and class-path lists” is distinct from
+“no resolver was provided”; only the former is a complete closure.
 
-Top-level HXML entries retain caller order when the session compares the
-inventoried closure with the executable invocation. Entry and resolved-library
-paths are checked for symlink components before canonicalization, so an alias
-cannot erase the path that must pass the no-follow policy.
+The frozen invocation is the authority for the working directory, environment,
+and ordered top-level HXML entries. The `hxml` option cannot supply competing
+copies of those values. A physical HXML file is interpreted separately for
+each effective working directory, while the watcher still registers the file
+only once. Entry, occurrence, and resolved-library paths are checked for
+symlink components before canonicalization, so an alias cannot erase the path
+that must pass the no-follow policy.
 
-The executable invocation must also use the inventory's working directory and
-contain only those ordered top-level HXML files. Build options belong in the
-inventoried HXML graph. Source class paths reject symbolic links because Haxe
+The executable invocation contains only those ordered top-level HXML files.
+Build options belong in the inventoried HXML graph. Source class paths reject symbolic links because Haxe
 may follow them while the safe watcher does not; accepting both behaviors would
 let the compiler read a change that the session could miss.
+
+Authored HXML selects no target. Under the reviewed Haxe 4.3.7 policy, the
+session rejects JavaScript and every alternate target selector, then appends
+one private `--js` target and one private `genes.output` target itself. If Genes
+does not activate, ordinary Haxe output remains inside the disposable candidate
+stage and a missing Genes ownership manifest prevents publication.
 
 The session rejects HXML `--cmd`, `--run`, `--interp`, and `-x`. Those Haxe
 options can run a shell command or the compiled program before the private
 candidate has passed the host's checks. It also rejects `--xml` and `--json`
-because they write extra files outside the private candidate. A host that needs
-a follow-up command or side output must own it explicitly and run it only after
-an accepted generation.
+because they write extra files, and rejects dump/message-log defines plus
+display, prompt, no-output, compiler-server, and multi-compilation modes. A host
+that needs a follow-up command or side output must own it explicitly and run it
+only after an accepted generation. A later supported Haxe version needs a new
+reviewed compiler-I/O policy rather than silently inheriting this table.
 
 The host may supply environment overrides with the Haxe invocation. For each
 revision, the session combines them with the current Node process environment,
@@ -204,6 +222,13 @@ copies the complete result, includes it in the compiler-server identity, and
 passes those exact values to Haxe. An ambient `PATH`, `HAXELIB_PATH`, or
 `HAXE_STD_PATH` change therefore starts a compatible server instead of silently
 reusing one created with older settings.
+
+This boundary does not sandbox hostile Haxe macros. Macros are compile-time
+programs and can use filesystem and process APIs. V1 trusts the selected Haxe
+toolchain, resolved libraries, and project macro code; macro-owned external
+inputs must be declared as `extraInputs` when they affect rebuild correctness.
+Confining arbitrary macro reads and writes requires an operating-system sandbox
+and is intentionally outside this protocol.
 
 If an HXML edit is read successfully but Haxe then reports a source error, the
 failure is reported as a compile failure. “HXML inventory failed” is reserved

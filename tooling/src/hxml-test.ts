@@ -79,7 +79,7 @@ async function main(): Promise<void> {
       resolveLibrary: (request) => {
         assert.equal(request.name, "sample");
         assert.equal(request.version, "1.2.3");
-        return [library];
+        return { hxmlFiles: [library], classPaths: [] };
       },
     });
     assert.deepEqual(
@@ -112,6 +112,46 @@ async function main(): Promise<void> {
       [{ request: "sample:1.2.3", name: "sample", version: "1.2.3" }],
     );
     assert.equal(inventory.libraryClosureComplete, true);
+
+    mkdirSync(path.join(root, "a", "src"), { recursive: true });
+    mkdirSync(path.join(root, "b", "src"), { recursive: true });
+    write(root, "shared-context.hxml", "-cp src\n");
+    write(
+      root,
+      "contextual.hxml",
+      [
+        "-C a",
+        "../shared-context.hxml",
+        "-C ../b",
+        "../shared-context.hxml",
+        "",
+      ].join("\n"),
+    );
+    const contextual = await inventoryHxml({
+      entryFiles: ["contextual.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+    });
+    assert.deepEqual(
+      contextual.classPaths.map((file) => path.relative(root, file)).sort(),
+      [path.join("a", "src"), path.join("b", "src")],
+    );
+    assert.deepEqual(
+      contextual.hxmlOccurrences
+        .filter((occurrence) => occurrence.file.endsWith("shared-context.hxml"))
+        .map((occurrence) => path.relative(root, occurrence.workingDirectory)),
+      ["a", "b"],
+    );
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["contextual.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+          maxHxmlOccurrences: 2,
+        }),
+      "budget-exceeded",
+    );
 
     const orderedFirst = write(root, "ordered-first.hxml", "");
     const orderedSecond = write(root, "ordered-second.hxml", "");
@@ -175,9 +215,12 @@ async function main(): Promise<void> {
           entryFiles: ["library-via-link.hxml"],
           workingDirectory: root,
           allowedRoots: [root],
-          resolveLibrary: () => [
-            path.join(root, "linked-library-directory/library.hxml"),
-          ],
+          resolveLibrary: () => ({
+            hxmlFiles: [
+              path.join(root, "linked-library-directory/library.hxml"),
+            ],
+            classPaths: [],
+          }),
         }),
       "unsafe-input",
     );
@@ -185,7 +228,10 @@ async function main(): Promise<void> {
       entryFiles: ["library-via-link.hxml"],
       workingDirectory: root,
       allowedRoots: [root],
-      resolveLibrary: () => [realLibraryHxml],
+      resolveLibrary: () => ({
+        hxmlFiles: [realLibraryHxml],
+        classPaths: [],
+      }),
     });
     assert.equal(
       directLibraryInventory.hxmlFiles.includes(
@@ -278,7 +324,10 @@ async function main(): Promise<void> {
           entryFiles: ["relative-library.hxml"],
           workingDirectory: root,
           allowedRoots: [root],
-          resolveLibrary: () => ["relative.hxml"],
+          resolveLibrary: () => ({
+            hxmlFiles: ["relative.hxml"],
+            classPaths: [],
+          }),
         }),
       "resolver-failure",
     );
@@ -330,7 +379,7 @@ async function main(): Promise<void> {
       signal: abort.signal,
       resolveLibrary: (_request, context) => {
         resolverSignal = context?.signal ?? null;
-        return new Promise<readonly string[]>(() => undefined);
+        return new Promise<never>(() => undefined);
       },
     });
     await new Promise((resolve) => setImmediate(resolve));

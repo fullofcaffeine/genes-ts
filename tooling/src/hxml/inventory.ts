@@ -12,10 +12,13 @@ import {
   type HxmlInventory,
   type HxmlInventoryOptions,
   type HxmlLibrary,
+  type HxmlLibraryResolution,
   type HxmlLibraryRequest,
+  type HxmlOccurrence,
 } from "./types.js";
 
 const DEFAULT_MAX_HXML_FILES = 1_000;
+const DEFAULT_MAX_HXML_OCCURRENCES = 1_000;
 const DEFAULT_MAX_ARGUMENTS = 100_000;
 
 function fail(kind: HxmlFailureKind, subject: string): never {
@@ -272,11 +275,15 @@ export async function inventoryHxml(
 ): Promise<HxmlInventory> {
   throwIfAborted(options.signal);
   const maxHxmlFiles = options.maxHxmlFiles ?? DEFAULT_MAX_HXML_FILES;
+  const maxHxmlOccurrences =
+    options.maxHxmlOccurrences ?? DEFAULT_MAX_HXML_OCCURRENCES;
   const maxArguments = options.maxArguments ?? DEFAULT_MAX_ARGUMENTS;
   if (
     options.entryFiles.length === 0 ||
     !Number.isInteger(maxHxmlFiles) ||
     maxHxmlFiles <= 0 ||
+    !Number.isInteger(maxHxmlOccurrences) ||
+    maxHxmlOccurrences <= 0 ||
     !Number.isInteger(maxArguments) ||
     maxArguments <= 0
   ) {
@@ -300,6 +307,8 @@ export async function inventoryHxml(
   }
 
   const hxmlFiles = new Set<string>();
+  const hxmlOccurrences = new Set<string>();
+  const orderedHxmlOccurrences: HxmlOccurrence[] = [];
   const entryHxmlFiles: string[] = [];
   const classPaths = new Set<string>();
   const resources = new Set<string>();
@@ -318,8 +327,17 @@ export async function inventoryHxml(
     assertNoSymlinkComponents(allowedRoots, candidate, subject);
     const file = canonicalFile(candidate, subject);
     assertAllowed(allowedRoots, file, subject);
-    if (hxmlFiles.has(file)) {
+    const initialCwd = canonicalDirectory(initialDirectory, `${subject}:cwd`);
+    const occurrence = `${file}\0${initialCwd}`;
+    if (hxmlOccurrences.has(occurrence)) {
       return file;
+    }
+    hxmlOccurrences.add(occurrence);
+    orderedHxmlOccurrences.push(
+      Object.freeze({ file, workingDirectory: initialCwd }),
+    );
+    if (hxmlOccurrences.size > maxHxmlOccurrences) {
+      fail("budget-exceeded", "hxmlOccurrences");
     }
     hxmlFiles.add(file);
     if (hxmlFiles.size > maxHxmlFiles) {
@@ -330,7 +348,7 @@ export async function inventoryHxml(
     if (argumentCount > maxArguments) {
       fail("budget-exceeded", "arguments");
     }
-    let cwd = initialDirectory;
+    let cwd = initialCwd;
     for (let index = 0; index < args.length; index += 1) {
       throwIfAborted(options.signal);
       const argument = args[index]!;
@@ -426,25 +444,30 @@ export async function inventoryHxml(
               name: request.name,
               version: request.version,
               fromFile: request.fromFile,
+              workingDirectory: request.workingDirectory,
             }),
           );
-          let resolvedFiles: readonly string[] = Object.freeze([]);
+          let resolution: HxmlLibraryResolution = Object.freeze({
+            hxmlFiles: Object.freeze([]),
+            classPaths: Object.freeze([]),
+          });
           if (options.resolveLibrary === undefined) {
             libraryClosureComplete = false;
           } else {
             try {
-              resolvedFiles =
+              resolution =
                 (await awaitWithAbort(
                   options.resolveLibrary(request, {
                     signal: resolverSignal,
+                    environment: (name) => options.environment?.(name) ?? null,
                   }),
                   options.signal,
-                )) ?? Object.freeze([]);
+                )) ?? resolution;
             } catch {
               fail("resolver-failure", `${file}:library:${request.request}`);
             }
           }
-          for (const [resolvedIndex, resolvedFile] of resolvedFiles.entries()) {
+          for (const [resolvedIndex, resolvedFile] of resolution.hxmlFiles.entries()) {
             if (!path.isAbsolute(resolvedFile)) {
               fail(
                 "resolver-failure",
@@ -456,6 +479,29 @@ export async function inventoryHxml(
               path.dirname(resolvedFile),
               `${file}:library:${request.request}[${resolvedIndex}]`,
             );
+          }
+          for (const [resolvedIndex, resolvedClassPath] of resolution.classPaths.entries()) {
+            if (!path.isAbsolute(resolvedClassPath)) {
+              fail(
+                "resolver-failure",
+                `${file}:library:${request.request}:classPath[${resolvedIndex}]`,
+              );
+            }
+            assertNoSymlinkComponents(
+              allowedRoots,
+              resolvedClassPath,
+              `${file}:library:${request.request}:classPath[${resolvedIndex}]`,
+            );
+            const canonicalClassPath = canonicalDirectory(
+              resolvedClassPath,
+              `${file}:library:${request.request}:classPath[${resolvedIndex}]`,
+            );
+            assertAllowed(
+              allowedRoots,
+              canonicalClassPath,
+              `${file}:library:${request.request}:classPath[${resolvedIndex}]`,
+            );
+            classPaths.add(canonicalClassPath);
           }
         }
         index += library.consumed;
@@ -493,6 +539,7 @@ export async function inventoryHxml(
   return Object.freeze({
     libraryClosureComplete,
     entryHxmlFiles: Object.freeze(entryHxmlFiles),
+    hxmlOccurrences: Object.freeze(orderedHxmlOccurrences),
     hxmlFiles: Object.freeze(bytewise(hxmlFiles)),
     classPaths: Object.freeze(bytewise(classPaths)),
     resourceInputs: Object.freeze(bytewise(resources)),

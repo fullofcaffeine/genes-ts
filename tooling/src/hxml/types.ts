@@ -33,6 +33,14 @@ export interface HxmlLibraryRequest {
 /** Cancellation owned by the caller inventorying an HXML closure. */
 export interface HxmlResolverContext {
   readonly signal: AbortSignal;
+  /** The exact environment lookup used while interpreting this inventory. */
+  readonly environment: (name: string) => string | null;
+}
+
+/** Complete declarative inputs contributed by one resolved Haxelib request. */
+export interface HxmlLibraryResolution {
+  readonly hxmlFiles: readonly string[];
+  readonly classPaths: readonly string[];
 }
 
 /**
@@ -53,10 +61,11 @@ export interface HxmlInventoryOptions {
   readonly resolveLibrary?: (
     request: HxmlLibraryRequest,
     context: HxmlResolverContext,
-  ) => readonly string[] | Promise<readonly string[]>;
+  ) => HxmlLibraryResolution | Promise<HxmlLibraryResolution>;
   readonly signal?: AbortSignal;
   readonly argumentPolicy?: HxmlArgumentPolicy;
   readonly maxHxmlFiles?: number;
+  readonly maxHxmlOccurrences?: number;
   readonly maxArguments?: number;
 }
 
@@ -65,6 +74,13 @@ export interface HxmlLibrary {
   readonly name: string;
   readonly version: string | null;
   readonly fromFile: string;
+  readonly workingDirectory: string;
+}
+
+/** One semantic interpretation of a physical HXML file. */
+export interface HxmlOccurrence {
+  readonly file: string;
+  readonly workingDirectory: string;
 }
 
 export interface HxmlInventory {
@@ -77,6 +93,7 @@ export interface HxmlInventory {
 
   /** Canonical top-level HXML entries, excluding files reached transitively. */
   readonly entryHxmlFiles: readonly string[];
+  readonly hxmlOccurrences: readonly HxmlOccurrence[];
   readonly hxmlFiles: readonly string[];
   readonly classPaths: readonly string[];
   readonly resourceInputs: readonly string[];

@@ -21,9 +21,17 @@ it.
   exclusion, exact stale deletion, output-scoped recovery, immutable effective
   invocation checks, authoritative reconciliation, exact drift detection, and
   bounded reentrant owned cleanup.
-- Require the executed Haxe command to match the inventoried working directory
-  and ordered top-level HXML files, reject linked source trees, and keep an
+- Derive HXML inventory and execution from one immutable effective invocation;
+  interpret repeated HXML files per effective working directory; include
+  resolved library source roots; reject linked source trees; and keep an
   accepted output tied to its original physical path spelling.
+- Own one private ordinary Haxe JavaScript target and one private Genes target
+  under a versioned Haxe 4.3.7 I/O policy. Reject authored targets,
+  compiler-side dump/message files, alternate execution modes, and inactive
+  Genes output before any public mutation.
+- Scope locks, journals, markers, and recovery to the portable public output
+  root, persist one entry owner for that root, and keep generated output
+  structurally disjoint from `.genes/tooling`.
 - Recognize Haxe's documented short class-path, library, resource, and working
   directory options;
   reject HXML options that execute shell commands or user programs before host

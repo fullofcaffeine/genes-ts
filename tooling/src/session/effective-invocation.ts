@@ -1,0 +1,208 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
+import { canonicalDigest, type CanonicalJson } from "../artifacts/index.js";
+import {
+  inventoryHxml,
+  type HxmlArgumentPolicy,
+  type HxmlInventory,
+  type HxmlInventoryOptions,
+} from "../hxml/index.js";
+import type {
+  GenesDevelopmentOptions,
+  HaxeInvocation,
+  JsonValue,
+} from "./types.js";
+
+export const HAXE_4_3_7_DEVELOPMENT_JS_POLICY =
+  "haxe-4.3.7-development-js-v1" as const;
+
+const FORBIDDEN_OPTIONS = Object.freeze([
+  "--cmd",
+  "--connect",
+  "--cpp",
+  "--cppia",
+  "--cs",
+  "--display",
+  "--each",
+  "--haxelib-global",
+  "--help",
+  "--help-defines",
+  "--help-metas",
+  "--help-user-defines",
+  "--help-user-metas",
+  "--hl",
+  "--interp",
+  "--java",
+  "--js",
+  "--json",
+  "--jvm",
+  "--lua",
+  "--neko",
+  "--next",
+  "--no-output",
+  "--php",
+  "--prompt",
+  "--python",
+  "--run",
+  "--server-connect",
+  "--server-listen",
+  "--swf",
+  "--version",
+  "--wait",
+  "--xml",
+  "-js",
+  "-h",
+  "-swf",
+  "-x",
+]);
+
+const FORBIDDEN_DEFINES = Object.freeze([
+  "dump",
+  "dump-dependencies",
+  "dump-path",
+  "genes.output",
+  "message.log-file",
+]);
+
+/**
+ * One immutable authority shared by inventory, watching, server compatibility,
+ * and execution. No sibling HXML configuration may change these facts after
+ * the host invocation has been copied.
+ */
+export interface EffectiveHaxeInvocationPlan {
+  readonly invocation: HaxeInvocation;
+  readonly inventory: HxmlInventory;
+  readonly ioPolicyId: HaxeInvocation["ioPolicy"];
+  readonly identity: string;
+}
+
+export interface BoundHaxeInvocation {
+  readonly sourceInvocation: HaxeInvocation;
+  readonly executable: string;
+  readonly cwd: string;
+  readonly environment: Readonly<Record<string, string>>;
+  readonly arguments: readonly string[];
+  readonly candidateRoot: string;
+  readonly candidateOutputFile: string;
+}
+
+type SessionHxmlOptions<Diagnostic extends JsonValue> =
+  GenesDevelopmentOptions<Diagnostic>["hxml"];
+
+function mergedPolicy(
+  policy: HxmlArgumentPolicy | undefined,
+): HxmlArgumentPolicy {
+  return Object.freeze({
+    forbiddenOptions: Object.freeze(
+      [...new Set([...(policy?.forbiddenOptions ?? []), ...FORBIDDEN_OPTIONS])]
+        .sort(),
+    ),
+    forbiddenDefines: Object.freeze(
+      [...new Set([...(policy?.forbiddenDefines ?? []), ...FORBIDDEN_DEFINES])]
+        .sort(),
+    ),
+  });
+}
+
+function assertEntryArguments(invocation: HaxeInvocation): void {
+  if (invocation.args.length === 0) {
+    throw new Error("Haxe invocation must contain at least one HXML entry");
+  }
+  for (const argument of invocation.args) {
+    if (argument.startsWith("-") || !argument.endsWith(".hxml")) {
+      throw new Error(
+        "Haxe invocation may contain only ordered top-level HXML files; DevelopmentSession owns target and output arguments",
+      );
+    }
+  }
+}
+
+export async function buildEffectiveHaxeInvocationPlan<
+  Diagnostic extends JsonValue,
+>(
+  invocation: HaxeInvocation,
+  hxml: SessionHxmlOptions<Diagnostic>,
+  signal: AbortSignal,
+  inventory: typeof inventoryHxml = inventoryHxml,
+): Promise<EffectiveHaxeInvocationPlan> {
+  assertEntryArguments(invocation);
+  if (invocation.ioPolicy !== HAXE_4_3_7_DEVELOPMENT_JS_POLICY) {
+    throw new Error("unsupported DevelopmentSession compiler I/O policy");
+  }
+  const environment: Readonly<Record<string, string>> =
+    invocation.env ?? Object.freeze({});
+  const options: HxmlInventoryOptions = Object.freeze({
+    ...hxml,
+    entryFiles: invocation.args,
+    workingDirectory: invocation.cwd,
+    environment: (name: string) => environment[name] ?? null,
+    signal,
+    argumentPolicy: mergedPolicy(hxml.argumentPolicy),
+  });
+  const closure = await inventory(options);
+  const identity = canonicalDigest({
+    protocol: "genes.tooling.effective-haxe-invocation.v1",
+    executable: invocation.executable,
+    cwd: invocation.cwd,
+    arguments: invocation.args,
+    environment,
+    compatibilityFacts: invocation.compatibilityFacts,
+    ioPolicyId: invocation.ioPolicy,
+    entryHxmlFiles: closure.entryHxmlFiles,
+    hxmlOccurrences: closure.hxmlOccurrences.map((occurrence) => ({
+      file: occurrence.file,
+      workingDirectory: occurrence.workingDirectory,
+    })),
+    hxmlFiles: closure.hxmlFiles.map((file) => ({
+      file,
+      digest: canonicalDigest(readFileSync(file, "utf8")),
+    })),
+    classPaths: closure.classPaths,
+    resourceInputs: closure.resourceInputs,
+    libraries: closure.libraries.map((library) => ({
+      request: library.request,
+      name: library.name,
+      version: library.version,
+      fromFile: library.fromFile,
+      workingDirectory: library.workingDirectory,
+    })),
+    libraryClosureComplete: closure.libraryClosureComplete,
+  } satisfies CanonicalJson);
+  return Object.freeze({
+    invocation,
+    inventory: closure,
+    ioPolicyId: invocation.ioPolicy,
+    identity,
+  });
+}
+
+/**
+ * Adds the only two output paths Haxe may own for one revision.
+ *
+ * The ordinary JavaScript target is deliberately outside the Genes ownership
+ * root but inside the disposable candidate stage. If Genes does not activate,
+ * Haxe can create that private file but cannot mutate the public output tree.
+ */
+export function bindHaxeInvocation(
+  plan: EffectiveHaxeInvocationPlan,
+  candidateStageRoot: string,
+  candidateOutputFile: string,
+): BoundHaxeInvocation {
+  const haxeTarget = path.join(candidateStageRoot, "haxe-target", "compiler.js");
+  return Object.freeze({
+    sourceInvocation: plan.invocation,
+    executable: plan.invocation.executable,
+    cwd: plan.invocation.cwd,
+    environment: plan.invocation.env ?? Object.freeze({}),
+    arguments: Object.freeze([
+      ...plan.invocation.args,
+      "--js",
+      haxeTarget,
+      "-D",
+      `genes.output=${candidateOutputFile}`,
+    ]),
+    candidateRoot: candidateStageRoot,
+    candidateOutputFile,
+  });
+}

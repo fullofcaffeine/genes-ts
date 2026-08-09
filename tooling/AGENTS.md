@@ -56,10 +56,12 @@ depend on timing-only sleeps.
 
 For `DevelopmentSession`, keep three authorities explicit:
 
-- the immutable effective invocation (including entry/nested HXML policy)
-  owns what Haxe may execute;
+- the immutable effective invocation (including contextual entry/nested HXML,
+  resolved library source roots, environment, and versioned compiler-I/O
+  policy) owns what Haxe may execute;
 - the private candidate plus host admission owns what is eligible to publish;
-- the output-scoped journal, accepted marker, and compiler manifest own what
+- the public-root-scoped lock, entry-owner record, journal, accepted marker,
+  and compiler manifest own what
   may replace the public tree or be recovered after a crash.
 
 Do not turn a failed reconciliation into “no changes,” adopt an unowned live

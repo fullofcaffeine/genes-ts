@@ -31,7 +31,7 @@ import type {
   WatchInput,
 } from "./watch/index.js";
 import {
-  HaxeSessionCompiler,
+  snapshotHaxeInvocation,
   type SessionCompiler,
 } from "./session/haxe-driver.js";
 import { resolveSessionLayout, type SessionLayout } from "./session/layout.js";
@@ -122,10 +122,10 @@ class FakeCompiler implements SessionCompiler {
   async compile(
     _invocation: Parameters<SessionCompiler["compile"]>[0],
     compatibilityDigest: string,
-    candidateOutputFile: string,
     signal: AbortSignal,
     assertInvocationCurrent?: () => void | Promise<void>,
   ): Promise<{ readonly mode: "connected" | "direct" }> {
+    const { candidateOutputFile } = _invocation;
     this.calls += 1;
     this.invocations.push(_invocation);
     const step = this.steps.shift() ?? { content: "export const value = 1;\n" };
@@ -258,7 +258,7 @@ function makeHarness(
   const source = path.join(sourceRoot, "Main.hx");
   mkdirSync(sourceRoot);
   writeFileSync(source, "class Main {}\n", "utf8");
-  writeFileSync(path.join(root, "build.hxml"), "-cp src\n-main Main\n-js ignored.js\n", "utf8");
+  writeFileSync(path.join(root, "build.hxml"), "-cp src\n-main Main\n", "utf8");
   const compiler = new FakeCompiler();
   const watches: FakeWatch<unknown>[] = [];
   let clock = 1_000_000;
@@ -287,8 +287,6 @@ function makeHarness(
     projectRoot: root,
     projectIdentity: `fixture-${name}`,
     hxml: {
-      entryFiles: ["build.hxml"],
-      workingDirectory: root,
       allowedRoots: [root],
     },
     publicOutputFile: "src-gen/index.ts",
@@ -297,6 +295,7 @@ function makeHarness(
       executable: "haxe",
       cwd: root,
       args: ["build.hxml"],
+      ioPolicy: "haxe-4.3.7-development-js-v1",
       compatibilityFacts: { version: "fixture" },
     }),
     validate: async () => validation.shift() ?? { ok: true },
@@ -720,7 +719,7 @@ await withHarness(
   (options, root) => {
     writeFileSync(
       path.join(root, "build.hxml"),
-      "-cp src\n-lib unresolved\n-main Main\n-js ignored.js\n",
+      "-cp src\n-lib unresolved\n-main Main\n",
       "utf8",
     );
     return options;
@@ -743,14 +742,17 @@ await withHarness(
     writeFileSync(libraryHxml, "--next\n", "utf8");
     writeFileSync(
       path.join(root, "build.hxml"),
-      "-cp src\n-lib attacker\n-main Main\n-js ignored.js\n",
+      "-cp src\n-lib attacker\n-main Main\n",
       "utf8",
     );
     return {
       ...options,
       hxml: {
         ...options.hxml,
-        resolveLibrary: () => [libraryHxml],
+        resolveLibrary: () => ({
+          hxmlFiles: [libraryHxml],
+          classPaths: [],
+        }),
       },
     };
   },
@@ -769,7 +771,7 @@ await withHarness(
   (options, root) => {
     writeFileSync(
       path.join(root, "build.hxml"),
-      "-cp src\n-main Main\n-js ignored.js\n--cmd touch command-ran.txt\n",
+      "-cp src\n-main Main\n--cmd touch command-ran.txt\n",
       "utf8",
     );
     return options;
@@ -929,7 +931,7 @@ await withHarness("identity-rotation", async (harness) => {
   await harness.session.waitForIdle();
   writeFileSync(
     path.join(harness.root, "build.hxml"),
-    "-cp src\n-main Main\n-js ignored.js\n-D changed-identity\n",
+    "-cp src\n-main Main\n-D changed-identity\n",
     "utf8",
   );
   currentWatch(harness).change(path.join(harness.root, "build.hxml"));
@@ -964,11 +966,11 @@ await withHarness("identity-rotation", async (harness) => {
       currentWatch(harness).change(harness.source);
       await harness.session.waitForIdle();
       assert.equal(
-        harness.compiler.invocations[0]!.env?.[environmentKey],
+        harness.compiler.invocations[0]!.environment[environmentKey],
         "first",
       );
       assert.equal(
-        harness.compiler.invocations[1]!.env?.[environmentKey],
+        harness.compiler.invocations[1]!.environment[environmentKey],
         "second",
       );
       assert.notEqual(
@@ -983,6 +985,92 @@ await withHarness("identity-rotation", async (harness) => {
   }
 }
 
+await withHarness(
+  "invocation-environment-owns-hxml-expansion",
+  async (harness) => {
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "ready");
+    const treeInputs = currentWatch(harness).options.inputs.filter(
+      (input) => input.kind === "tree",
+    );
+    assert.equal(
+      treeInputs.some((input) => input.path === path.join(harness.root, "src-b")),
+      true,
+    );
+    assert.equal(
+      treeInputs.some((input) => input.path === path.join(harness.root, "src-a")),
+      false,
+    );
+  },
+  undefined,
+  (options, root) => {
+    mkdirSync(path.join(root, "src-a"));
+    mkdirSync(path.join(root, "src-b"));
+    writeFileSync(
+      path.join(root, "build.hxml"),
+      "-cp ${SRC_DIR}\n-main Main\n",
+      "utf8",
+    );
+    return {
+      ...options,
+      resolveInvocation: () => ({
+        executable: "haxe",
+        cwd: root,
+        args: ["build.hxml"],
+        env: { SRC_DIR: "src-b" },
+        ioPolicy: "haxe-4.3.7-development-js-v1",
+        compatibilityFacts: { fixture: "invocation-environment" },
+      }),
+    };
+  },
+);
+
+await withHarness(
+  "resolved-library-class-path-is-watched",
+  async (harness) => {
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "ready");
+    assert.equal(
+      currentWatch(harness).options.inputs.some(
+        (input) =>
+          input.kind === "tree" &&
+          input.path === path.join(harness.root, "libraries", "sample", "src"),
+      ),
+      true,
+    );
+  },
+  undefined,
+  (options, root) => {
+    const librarySource = path.join(root, "libraries", "sample", "src");
+    mkdirSync(librarySource, { recursive: true });
+    writeFileSync(
+      path.join(root, "build.hxml"),
+      "-cp src\n-lib sample\n-main Main\n",
+      "utf8",
+    );
+    return {
+      ...options,
+      hxml: {
+        ...options.hxml,
+        resolveLibrary: (_request, context) => {
+          assert.equal(context.environment("SESSION_LIBRARY"), "exact");
+          return { hxmlFiles: [], classPaths: [librarySource] };
+        },
+      },
+      resolveInvocation: () => ({
+        executable: "haxe",
+        cwd: root,
+        args: ["build.hxml"],
+        env: { SESSION_LIBRARY: "exact" },
+        ioPolicy: "haxe-4.3.7-development-js-v1",
+        compatibilityFacts: { fixture: "library-source-root" },
+      }),
+    };
+  },
+);
+
 await withHarness("reinventory-then-compile-failure", async (harness) => {
   harness.compiler.steps.push(
     { content: "export const value = 1;\n" },
@@ -992,7 +1080,7 @@ await withHarness("reinventory-then-compile-failure", async (harness) => {
   await harness.session.waitForIdle();
   writeFileSync(
     path.join(harness.root, "build.hxml"),
-    "-cp src\n-main Main\n-js ignored.js\n-D refreshed\n",
+    "-cp src\n-main Main\n-D refreshed\n",
     "utf8",
   );
   currentWatch(harness).change(path.join(harness.root, "build.hxml"));
@@ -1030,7 +1118,7 @@ await withHarness("registration-gap", async (harness) => {
         writeFileSync(path.join(secondSource, "Main.hx"), "class Main {}\n", "utf8");
         writeFileSync(
           path.join(root, "build.hxml"),
-          "-cp src-next\n-main Main\n-js ignored.js\n",
+          "-cp src-next\n-main Main\n",
           "utf8",
         );
       }
@@ -1045,7 +1133,7 @@ await withHarness("input-overlap", async (harness) => {
   writeFileSync(path.join(invalidInput, "Main.hx"), "class Main {}\n", "utf8");
   writeFileSync(
     path.join(harness.root, "build.hxml"),
-    "-cp .genes/dev/authored\n-main Main\n-js ignored.js\n",
+    "-cp .genes/dev/authored\n-main Main\n",
     "utf8",
   );
   await harness.session.start();
@@ -1158,7 +1246,7 @@ await withHarness("input-overlap", async (harness) => {
 {
   let resolverSignal: AbortSignal | null = null;
   let rejectResolver!: (error: Error) => void;
-  const resolverNever = new Promise<readonly string[]>((_resolve, reject) => {
+  const resolverNever = new Promise<never>((_resolve, reject) => {
     rejectResolver = reject;
   });
   const harness = makeHarness(
@@ -1167,7 +1255,7 @@ await withHarness("input-overlap", async (harness) => {
     (options, root) => {
       writeFileSync(
         path.join(root, "build.hxml"),
-        "-cp src\n-lib held\n-main Main\n-js ignored.js\n",
+        "-cp src\n-lib held\n-main Main\n",
         "utf8",
       );
       return {
@@ -1361,6 +1449,45 @@ for (const stopAt of [
   }
 }
 
+{
+  const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-root-owner-")),
+  );
+  try {
+    const first = resolveSessionLayout(
+      root,
+      "fixture-root-owner",
+      "src-gen/index.ts",
+      ".genes/state-a",
+    );
+    const second = resolveSessionLayout(
+      root,
+      "fixture-root-owner",
+      "src-gen/other.ts",
+      ".genes/state-b",
+    );
+    assert.equal(first.sessionLockRelative, second.sessionLockRelative);
+    assert.equal(first.transactionRelative, second.transactionRelative);
+    assert.notEqual(
+      admissionDigest(first, "a".repeat(64), { fixture: "root-owner" }),
+      admissionDigest(second, "a".repeat(64), { fixture: "root-owner" }),
+    );
+    const lock = acquireSessionLock(first);
+    try {
+      assert.throws(() => acquireSessionLock(second), /already owns/u);
+    } finally {
+      lock.release();
+    }
+    assert.throws(
+      () => acquireSessionLock(second),
+      /already bound to a different development-session entry/u,
+      "a public root keeps one entry owner after the first session exits",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 for (const checkpoint of [
   "after-journal-prepared",
   "after-publish:src-gen/index.ts",
@@ -1378,7 +1505,7 @@ for (const checkpoint of [
     writeFileSync(path.join(root, "src/Main.hx"), "class Main {}\n", "utf8");
     writeFileSync(
       path.join(root, "build.hxml"),
-      "-cp src\n-main Main\n-js ignored.js\n",
+      "-cp src\n-main Main\n",
       "utf8",
     );
     const fixture = path.join(
@@ -1468,7 +1595,7 @@ for (const checkpoint of [
     writeFileSync(path.join(root, "src/Main.hx"), "class Main {}\n", "utf8");
     writeFileSync(
       path.join(root, "build.hxml"),
-      "-cp src\n-main Main\n-js ignored.js\n",
+      "-cp src\n-main Main\n",
       "utf8",
     );
     const fixture = path.join(
@@ -1522,6 +1649,58 @@ for (const checkpoint of [
 
 {
   const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-root-owner-recovery-")),
+  );
+  try {
+    mkdirSync(path.join(root, "src"));
+    writeFileSync(path.join(root, "src/Main.hx"), "class Main {}\n", "utf8");
+    writeFileSync(path.join(root, "build.hxml"), "-cp src\n-main Main\n", "utf8");
+    const fixture = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "session-crash-fixture.js",
+    );
+    const crashed = spawnSync(process.execPath, [fixture], {
+      cwd: root,
+      env: {
+        ...process.env,
+        GENES_SESSION_CRASH_ROOT: root,
+        GENES_SESSION_CRASH_STATE: ".genes/state-a",
+        GENES_SESSION_CRASH_OUTPUT: "src-gen/index.ts",
+        GENES_SESSION_CRASH_AT: "after-journal-prepared",
+      },
+      encoding: "utf8",
+    });
+    assert.equal(crashed.status, 73, crashed.stderr);
+    const competing = spawnSync(process.execPath, [fixture], {
+      cwd: root,
+      env: {
+        ...process.env,
+        GENES_SESSION_CRASH_ROOT: root,
+        GENES_SESSION_CRASH_STATE: ".genes/state-b",
+        GENES_SESSION_CRASH_OUTPUT: "src-gen/other.ts",
+      },
+      encoding: "utf8",
+    });
+    assert.notEqual(competing.status, 0);
+    assert.match(competing.stderr, /already bound to a different/u);
+    const ownerRestart = spawnSync(process.execPath, [fixture], {
+      cwd: root,
+      env: {
+        ...process.env,
+        GENES_SESSION_CRASH_ROOT: root,
+        GENES_SESSION_CRASH_STATE: ".genes/state-c",
+        GENES_SESSION_CRASH_OUTPUT: "src-gen/index.ts",
+      },
+      encoding: "utf8",
+    });
+    assert.equal(ownerRestart.status, 0, ownerRestart.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+{
+  const root = realpathSync.native(
     mkdtempSync(path.join(os.tmpdir(), "genes-session-alias-restart-")),
   );
   try {
@@ -1534,7 +1713,7 @@ for (const checkpoint of [
       writeFileSync(path.join(root, "src/Main.hx"), "class Main {}\n", "utf8");
       writeFileSync(
         path.join(root, "build.hxml"),
-        "-cp src\n-main Main\n-js ignored.js\n",
+        "-cp src\n-main Main\n",
         "utf8",
       );
       const fixture = path.join(
@@ -1614,6 +1793,23 @@ for (const checkpoint of [
         "caller-selected private state must not contain stable locks or recovery authority",
       );
     }
+    for (const publicOutput of [
+      "index.ts",
+      ".genes/index.ts",
+      ".genes/tooling/generated/index.ts",
+      ".GENES/TOOLING/generated/index.ts",
+    ] as const) {
+      assert.throws(
+        () =>
+          resolveSessionLayout(
+            root,
+            `invalid-public-control-overlap-${publicOutput}`,
+            publicOutput,
+            ".private/session-state",
+          ),
+        /public output root and stable session-control directory must not overlap/u,
+      );
+    }
     assert.throws(
       () =>
         resolveSessionLayout(
@@ -1641,67 +1837,21 @@ for (const checkpoint of [
   }
 }
 
-{
-  const root = realpathSync.native(
-    mkdtempSync(path.join(os.tmpdir(), "genes-session-invocation-")),
+for (const invalidArgs of [
+  ["build.hxml", "--connect", "6000"],
+  ["build.hxml", "-D", "genes.output=stolen.ts"],
+  ["build.hxml", "--next"],
+  ["build.hxml", "--each"],
+]) {
+  assert.throws(() =>
+    snapshotHaxeInvocation({
+      executable: "haxe",
+      cwd: process.cwd(),
+      args: invalidArgs,
+      ioPolicy: "haxe-4.3.7-development-js-v1",
+      compatibilityFacts: { fixture: invalidArgs.join(" ") },
+    }),
   );
-  try {
-    const layout = resolveSessionLayout(
-      root,
-      "invalid-invocation",
-      "src-gen/index.ts",
-      ".genes/dev",
-    );
-    const compiler = new HaxeSessionCompiler(layout, () => undefined, 20);
-    const abort = new AbortController();
-    await assert.rejects(
-      compiler.compile(
-        {
-          executable: "haxe",
-          cwd: root,
-          args: ["build.hxml", "--connect", "6000"],
-          compatibilityFacts: { fixture: "forbidden-connect" },
-        },
-        "invalid",
-        path.join(root, ".genes/dev/candidate/index.ts"),
-        abort.signal,
-      ),
-      /must not contain compiler-server flags/u,
-    );
-    await assert.rejects(
-      compiler.compile(
-        {
-          executable: "haxe",
-          cwd: root,
-          args: ["build.hxml", "-D", "genes.output=stolen.ts"],
-          compatibilityFacts: { fixture: "forbidden-output" },
-        },
-        "invalid",
-        path.join(root, ".genes/dev/candidate/index.ts"),
-        abort.signal,
-      ),
-      /must not define genes\.output/u,
-    );
-    for (const flag of ["--next", "--each"]) {
-      await assert.rejects(
-        compiler.compile(
-          {
-            executable: "haxe",
-            cwd: root,
-            args: ["build.hxml", flag],
-            compatibilityFacts: { fixture: flag },
-          },
-          "invalid",
-          path.join(root, ".genes/dev/candidate/index.ts"),
-          abort.signal,
-        ),
-        /must not contain compiler-server flags/u,
-      );
-    }
-    await compiler.close();
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
 }
 
 for (const forbidden of [
@@ -1715,6 +1865,35 @@ for (const forbidden of [
   "-x Main",
   "--xml public-api.xml",
   "--json public-api.json",
+  "-js public.js",
+  "--js public.js",
+  "-swf public.swf",
+  "--swf public.swf",
+  "--neko public.n",
+  "--php public-php",
+  "--cpp public-cpp",
+  "--cs public-cs",
+  "--java public-java",
+  "--jvm public.jar",
+  "--python public.py",
+  "--lua public.lua",
+  "--hl public.hl",
+  "--cppia public.cppia",
+  "--no-output",
+  "--display Main.hx@0",
+  "--prompt",
+  "--version",
+  "--help",
+  "-h",
+  "--help-defines",
+  "--help-user-defines",
+  "--help-metas",
+  "--help-user-metas",
+  "--haxelib-global",
+  "-D dump",
+  "-D dump-path=public-dump",
+  "-D dump-dependencies",
+  "-D message.log-file=public-messages.log",
   "--next",
   "--each",
 ]) {
@@ -1735,27 +1914,17 @@ for (const forbidden of [
 }
 
 await withHarness(
-  "invocation-hxml-closure-mismatch",
+  "invocation-hxml-owns-entry-closure",
   async (harness) => {
     writeFileSync(
       path.join(harness.root, "different.hxml"),
-      "-cp src\n-main Main\n-js ignored.js\n",
+      "-cp src\n-main Main\n",
       "utf8",
     );
     await harness.session.start();
     await harness.session.waitForIdle();
-    assert.equal(harness.session.state.kind, "blocked");
-    assert.equal(harness.compiler.calls, 0);
-    const failure = harness.events
-      .filter((event) => event.event.kind === "failed")
-      .at(-1);
-    assert.equal(failure?.event.kind, "failed");
-    if (failure?.event.kind === "failed") {
-      assert.match(
-        String(failure.event.failure.diagnostic.message),
-        /exact HXML entries/u,
-      );
-    }
+    assert.equal(harness.session.state.kind, "ready");
+    assert.equal(harness.compiler.calls, 1);
   },
   undefined,
   (options) => ({
@@ -1764,18 +1933,19 @@ await withHarness(
       executable: "haxe",
       cwd: options.projectRoot,
       args: ["different.hxml"],
+      ioPolicy: "haxe-4.3.7-development-js-v1",
       compatibilityFacts: { fixture: "wrong-closure" },
     }),
   }),
 );
 
 await withHarness(
-  "invocation-hxml-order-mismatch",
+  "invocation-hxml-owns-entry-order",
   async (harness) => {
     await harness.session.start();
     await harness.session.waitForIdle();
-    assert.equal(harness.session.state.kind, "blocked");
-    assert.equal(harness.compiler.calls, 0);
+    assert.equal(harness.session.state.kind, "ready");
+    assert.equal(harness.compiler.calls, 1);
   },
   undefined,
   (options, root) => {
@@ -1783,14 +1953,11 @@ await withHarness(
     writeFileSync(path.join(root, "second.hxml"), "-main Main\n", "utf8");
     return {
       ...options,
-      hxml: {
-        ...options.hxml,
-        entryFiles: ["first.hxml", "second.hxml"],
-      },
       resolveInvocation: () => ({
         executable: "haxe",
         cwd: root,
         args: ["second.hxml", "first.hxml"],
+        ioPolicy: "haxe-4.3.7-development-js-v1",
         compatibilityFacts: { fixture: "wrong-entry-order" },
       }),
     };
@@ -1798,12 +1965,12 @@ await withHarness(
 );
 
 await withHarness(
-  "invocation-working-directory-mismatch",
+  "invocation-owns-working-directory",
   async (harness) => {
     await harness.session.start();
     await harness.session.waitForIdle();
-    assert.equal(harness.session.state.kind, "blocked");
-    assert.equal(harness.compiler.calls, 0);
+    assert.equal(harness.session.state.kind, "ready");
+    assert.equal(harness.compiler.calls, 1);
   },
   undefined,
   (options, root) => {
@@ -1815,6 +1982,7 @@ await withHarness(
         executable: "haxe",
         cwd: nested,
         args: ["../build.hxml"],
+        ioPolicy: "haxe-4.3.7-development-js-v1",
         compatibilityFacts: { fixture: "wrong-working-directory" },
       }),
     };
@@ -1836,6 +2004,7 @@ await withHarness(
       executable: "haxe",
       cwd: root,
       args: ["build.hxml", "-cp", "../shared"],
+      ioPolicy: "haxe-4.3.7-development-js-v1",
       compatibilityFacts: { fixture: "extra-arguments" },
     }),
   }),
@@ -1892,7 +2061,7 @@ await withHarness("hxml-changes-before-execution", async (harness) => {
   const mutableFacts: { version: string } = { version: "before" };
   let inventoryCalls = 0;
   const harness = makeHarness(
-    "immutable-invocation",
+    "changed-invocation-is-rejected-before-execution",
     (dependencies) => ({
       ...dependencies,
       inventory: async (options) => {
@@ -1912,6 +2081,7 @@ await withHarness("hxml-changes-before-execution", async (harness) => {
         cwd: options.projectRoot,
         args: mutableArgs,
         env: mutableEnv,
+        ioPolicy: "haxe-4.3.7-development-js-v1",
         compatibilityFacts: mutableFacts,
       }),
     }),
@@ -1919,15 +2089,21 @@ await withHarness("hxml-changes-before-execution", async (harness) => {
   try {
     await harness.session.start();
     await harness.session.waitForIdle();
-    assert.equal(harness.session.state.kind, "ready");
-    assert.deepEqual(harness.compiler.invocations[0]?.args, ["build.hxml"]);
+    assert.equal(harness.session.state.kind, "blocked");
+    assert.equal(harness.compiler.calls, 1);
+    assert.equal(harness.compiler.modes.length, 0);
+    assert.deepEqual(
+      harness.compiler.invocations[0]?.sourceInvocation.args,
+      ["build.hxml"],
+    );
     assert.equal(
-      harness.compiler.invocations[0]?.env?.SESSION_FLAG,
+      harness.compiler.invocations[0]?.environment.SESSION_FLAG,
       "before",
     );
-    assert.deepEqual(harness.compiler.invocations[0]?.compatibilityFacts, {
-      version: "before",
-    });
+    assert.deepEqual(
+      harness.compiler.invocations[0]?.sourceInvocation.compatibilityFacts,
+      { version: "before" },
+    );
   } finally {
     await harness.session.close();
     rmSync(harness.root, { recursive: true, force: true });

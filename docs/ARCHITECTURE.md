@@ -757,9 +757,9 @@ or changes compiler semantics. Its positive contract is:
 
 ```text
 observed input revision
-  -> authoritative library + nested HXML closure
   -> immutable effective Haxe invocation
-  -> request-local `genes.output` private compiler tree
+  -> contextual nested-HXML + library-source closure derived from it
+  -> session-owned private Haxe JS target + request-local `genes.output`
   -> exact Genes v2 ownership inventory
   -> host-owned validation
   -> supersession check
@@ -779,16 +779,31 @@ serialized dirty loop, owned Haxe server, and artifact publisher. It does not
 reimplement those mechanisms. The compiler's v2 manifest is the sole generated
 file inventory, including the manifest file's own exact bytes and mode, while a
 separate session generation record is the outer commit marker. Both publication
-authorities live in one stable project/output-scoped control root so selecting a
+authorities live in one stable project/public-root-scoped control root so selecting a
 different private candidate directory cannot bypass crash recovery. Its output
 identity uses the artifact layer's portable NFC/case-folded path model, so a
-case alias cannot acquire a second lock or recovery universe. The HXML closure
-is likewise complete only after every discovered library has been passed
-through a host-owned authoritative resolver; unresolved libraries fail before
-Haxe executes. The
+case alias cannot acquire a second lock or recovery universe. One persistent
+entry owner is admitted per public root in v1, preventing two entry-specific
+sessions from publishing overlapping sibling modules through separate
+journals. Public output and `.genes/tooling` cannot contain one another.
+
+One immutable effective-invocation plan owns the executable, working directory,
+environment, ordered HXML entries and contextual occurrences, resolved library
+HXML/source roots, and versioned Haxe 4.3.7 compiler-I/O policy. Authored HXML
+is targetless. The bound compiler request appends one ordinary private Haxe JS
+target and one private Genes target, so an inactive Genes generator still
+cannot write public output before admission. The HXML closure is complete only
+after every discovered library has been passed through a host-owned
+authoritative resolver; unresolved libraries fail before Haxe executes. The
 separate marker matters when two successful revisions generate identical bytes:
 generation still advances, the file delta stays empty, and a host correctly
 performs no reload.
+
+This is not a hostile-macro sandbox. Haxe macros are trusted compile-time code
+and may use filesystem or process APIs; hosts declare macro-owned external
+inputs when they affect rebuild correctness. Preventing arbitrary macro reads
+or writes requires an operating-system sandbox and is outside this bounded
+development-session contract.
 
 Framework policy remains above this boundary. Vite, Next.js, Electron, Expo,
 WordPress, browser transports, device transports, and application servers may

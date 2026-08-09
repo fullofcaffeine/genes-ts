@@ -13,8 +13,10 @@ export interface SessionLayout {
   readonly projectIdentity: string;
   readonly publicOutputFile: string;
   readonly publicOutputRelative: string;
-  /** NFC/case-folded identity used by every lock and recovery authority. */
-  readonly publicOutputAuthority: string;
+  /** NFC/case-folded identity used by locks and recovery authority. */
+  readonly publicOutputRootAuthority: string;
+  /** NFC/case-folded identity of the one entry admitted within that root. */
+  readonly publicEntryAuthority: string;
   readonly publicOutputRoot: string;
   readonly publicOutputRootRelative: string | null;
   readonly outputIdentity: string;
@@ -27,6 +29,7 @@ export interface SessionLayout {
   readonly publicationControlRoot: string;
   readonly serverLeaseRelative: string;
   readonly sessionLockRelative: string;
+  readonly rootOwnerRelative: string;
 }
 
 function containedBy(root: string, candidate: string): boolean {
@@ -136,11 +139,20 @@ export function resolveSessionLayout(
     publicOutputFile,
     "publicOutputFile",
   );
-  const publicOutputAuthority = portablePathIdentity(publicOutputRelative);
+  const publicOutputRootAuthority =
+    publicOutputRootRelative === null
+      ? "project-root:."
+      : `project-relative:${portablePathIdentity(publicOutputRootRelative)}`;
+  const publicEntryAuthority = portablePathIdentity(publicOutputRelative);
+  const stableControlDirectory = ".genes/tooling";
+  if (portableOverlap(publicOutputRootRelative ?? "", stableControlDirectory)) {
+    throw new Error(
+      "public output root and stable session-control directory must not overlap",
+    );
+  }
   if (portableOverlap(publicOutputRootRelative ?? "", stateRelative)) {
     throw new Error("stateDirectory and public output root must not overlap");
   }
-  const stableControlDirectory = ".genes/tooling";
   if (portableOverlap(stableControlDirectory, stateRelative)) {
     throw new Error(
       "stateDirectory and stable session-control directory must not overlap",
@@ -152,7 +164,7 @@ export function resolveSessionLayout(
   const lockDirectory = `${stableControlDirectory}/session-locks`;
   ensureDirectoryNoFollow(projectRoot, lockDirectory, 0o700);
   const lockScope = createHash("sha256")
-    .update(publicOutputAuthority)
+    .update(publicOutputRootAuthority)
     .digest("hex");
   const publicationControlDirectory = `${stableControlDirectory}/session-publications/${lockScope}`;
   ensureDirectoryNoFollow(projectRoot, publicationControlDirectory, 0o700);
@@ -166,7 +178,8 @@ export function resolveSessionLayout(
     projectIdentity,
     publicOutputFile,
     publicOutputRelative,
-    publicOutputAuthority,
+    publicOutputRootAuthority,
+    publicEntryAuthority,
     publicOutputRoot,
     publicOutputRootRelative,
     outputIdentity,
@@ -179,6 +192,7 @@ export function resolveSessionLayout(
     publicationControlRoot,
     serverLeaseRelative: `${stateRelative}/haxe-server.json`,
     sessionLockRelative: `${lockDirectory}/${lockScope}.json`,
+    rootOwnerRelative: `${publicationControlDirectory}/root-owner.json`,
   });
 }
 

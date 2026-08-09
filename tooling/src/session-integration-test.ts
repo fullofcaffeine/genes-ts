@@ -76,7 +76,7 @@ try {
     [
       "package;",
       "class Main {",
-      "  static function main():Void trace('ready');",
+      "  static function main():Void trace(SourceOnly.value);",
       "}",
       "",
     ].join("\n"),
@@ -103,8 +103,6 @@ try {
     projectRoot,
     projectIdentity: "real-haxe-session-forbidden-hxml",
     hxml: {
-      entryFiles: ["malicious.hxml"],
-      workingDirectory: projectRoot,
       allowedRoots: [projectRoot],
     },
     publicOutputFile: "blocked-gen/index.ts",
@@ -113,6 +111,7 @@ try {
       executable: haxeExecutable,
       cwd: projectRoot,
       args: ["malicious.hxml"],
+      ioPolicy: "haxe-4.3.7-development-js-v1",
       compatibilityFacts: { fixture: "forbidden-effective-hxml" },
     }),
     validate: async () => ({ ok: true }),
@@ -164,13 +163,39 @@ try {
     cwd: projectRoot,
     encoding: "utf8",
   });
+  const sourceOnlyRoot = path.join(projectRoot, "source-only-library");
+  const sourceOnlyClassPath = path.join(sourceOnlyRoot, "src");
+  mkdirSync(sourceOnlyClassPath, { recursive: true });
+  writeFileSync(
+    path.join(sourceOnlyRoot, "haxelib.json"),
+    `${JSON.stringify({
+      name: "sourceonly",
+      url: "https://example.invalid/sourceonly",
+      license: "MIT",
+      tags: [],
+      description: "DevelopmentSession source-root fixture",
+      version: "1.0.0",
+      classPath: "src",
+      releasenote: "fixture",
+      contributors: ["maintainer"],
+    })}\n`,
+    "utf8",
+  );
+  writeFileSync(
+    path.join(sourceOnlyClassPath, "SourceOnly.hx"),
+    "class SourceOnly { public static final value = 1; }\n",
+    "utf8",
+  );
+  execFileSync("haxelib", ["dev", "sourceonly", sourceOnlyRoot], {
+    cwd: projectRoot,
+    encoding: "utf8",
+  });
   writeFileSync(
     path.join(projectRoot, "malicious-library.hxml"),
     [
       "-lib attacker",
       `-cp ${sourceRoot}`,
       "-main Main",
-      `-js ${path.join(projectRoot, "ignored-library/index.js")}`,
       "",
     ].join("\n"),
     "utf8",
@@ -179,12 +204,10 @@ try {
     projectRoot,
     projectIdentity: "real-haxe-session-forbidden-library-hxml",
     hxml: {
-      entryFiles: ["malicious-library.hxml"],
-      workingDirectory: projectRoot,
       allowedRoots: [projectRoot],
       resolveLibrary: (request) => {
         assert.equal(request.name, "attacker");
-        return [attackerHxml];
+        return { hxmlFiles: [attackerHxml], classPaths: [] };
       },
     },
     publicOutputFile: "blocked-library-gen/index.ts",
@@ -193,6 +216,7 @@ try {
       executable: haxeExecutable,
       cwd: projectRoot,
       args: ["malicious-library.hxml"],
+      ioPolicy: "haxe-4.3.7-development-js-v1",
       compatibilityFacts: { fixture: "forbidden-library-hxml" },
     }),
     validate: async () => ({ ok: true }),
@@ -216,7 +240,54 @@ try {
   } finally {
     await libraryBlockedSession.close();
   }
-  const ignoredOutput = path.join(projectRoot, "ignored", "index.ts");
+
+  const inactiveOutput = path.join(projectRoot, "inactive-gen/index.ts");
+  mkdirSync(path.dirname(inactiveOutput), { recursive: true });
+  writeFileSync(inactiveOutput, "// inactive Genes sentinel\n", "utf8");
+  const inactiveSource = path.join(projectRoot, "inactive-src");
+  mkdirSync(inactiveSource);
+  writeFileSync(
+    path.join(inactiveSource, "InactiveMain.hx"),
+    "class InactiveMain { static function main():Void trace('plain Haxe'); }\n",
+    "utf8",
+  );
+  writeFileSync(
+    path.join(projectRoot, "inactive.hxml"),
+    [`-cp ${inactiveSource}`, "-main InactiveMain", ""].join("\n"),
+    "utf8",
+  );
+  const inactiveSession = createGenesDevelopmentSession<Diagnostic>({
+    projectRoot,
+    projectIdentity: "real-haxe-session-inactive-genes",
+    hxml: { allowedRoots: [projectRoot] },
+    publicOutputFile: "inactive-gen/index.ts",
+    stateDirectory: ".genes/inactive-dev",
+    resolveInvocation: () => ({
+      executable: haxeExecutable,
+      cwd: projectRoot,
+      args: ["inactive.hxml"],
+      ioPolicy: "haxe-4.3.7-development-js-v1",
+      compatibilityFacts: { fixture: "inactive-genes-private-haxe-target" },
+    }),
+    validate: async () => ({ ok: true }),
+    validatorPolicyFacts: { fixture: "must-not-publish" },
+    debounceMs: 0,
+    pollIntervalMs: 20,
+    shutdownTimeoutMs: 2_000,
+  });
+  try {
+    await inactiveSession.start();
+    await inactiveSession.waitForIdle();
+    assert.equal(inactiveSession.state.kind, "blocked");
+    assert.equal(
+      readFileSync(inactiveOutput, "utf8"),
+      "// inactive Genes sentinel\n",
+      "ordinary Haxe output must stay private when Genes does not produce a candidate manifest",
+    );
+  } finally {
+    await inactiveSession.close();
+  }
+
   writeFileSync(
     path.join(projectRoot, "build.hxml"),
     [
@@ -224,8 +295,8 @@ try {
       `-cp ${fixtureGenesSourceRoot}`,
       `-cp ${fixtureHelderSourceRoot}`,
       `-cp ${sourceRoot}`,
+      "-lib sourceonly",
       "-main Main",
-      `-js ${ignoredOutput}`,
       "-D genes.ts",
       "-D js-source-map",
       "-D js-es=6",
@@ -240,9 +311,12 @@ try {
     projectRoot,
     projectIdentity: "real-haxe-session-fixture",
     hxml: {
-      entryFiles: ["build.hxml"],
-      workingDirectory: projectRoot,
       allowedRoots: [projectRoot],
+      resolveLibrary: (request, context) => {
+        assert.equal(context.environment("PATH") !== null, true);
+        assert.equal(request.name, "sourceonly");
+        return { hxmlFiles: [], classPaths: [sourceOnlyClassPath] };
+      },
     },
     publicOutputFile: "src-gen/index.ts",
     stateDirectory: ".genes/dev",
@@ -253,6 +327,7 @@ try {
       // command-line inputs after the watch set was chosen.
       cwd: projectRoot,
       args: ["build.hxml"],
+      ioPolicy: "haxe-4.3.7-development-js-v1",
       compatibilityFacts: {
         fixture: "real-haxe-session",
         haxe: haxeVersion,
@@ -327,6 +402,24 @@ try {
       ).length,
       1,
       "the unchanged second build must reuse the owned Haxe server",
+    );
+    writeFileSync(
+      path.join(sourceOnlyClassPath, "SourceOnly.hx"),
+      "class SourceOnly { public static final value = 2; }\n",
+      "utf8",
+    );
+    const deadline = Date.now() + 3_000;
+    while (
+      (session.inspect().accepted?.generation ?? 0) < 3 &&
+      Date.now() < deadline
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      await session.waitForIdle();
+    }
+    assert.equal(
+      session.inspect().accepted?.generation,
+      3,
+      "editing a source-only Haxelib class path must trigger a real rebuild",
     );
   } finally {
     await session.close();
