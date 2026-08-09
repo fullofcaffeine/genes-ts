@@ -198,6 +198,13 @@ yarn test:tooling-package
 clean temporary project, type-checks every code subpath, imports every runtime
 and conformance-data subpath, and verifies the reviewed file inventory.
 
+The required Genes CI repeats the packed-consumer check on Node 20.9.0, which
+is the package's oldest supported Node release. The runtime fixture loads JSON
+exports through Node's `createRequire` API because Node 20.9 predates the newer
+`with { type: "json" }` import syntax. The strict TypeScript consumer still
+checks the modern static-import form. Both paths resolve the same public
+package exports.
+
 Install an exact reviewed GitHub commit from another Node project with npm
 11.18.0:
 

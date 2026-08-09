@@ -480,7 +480,7 @@ function verifyPackageMetadata(): { name: string; version: string } {
   const scripts = packageJson.scripts;
   assert(
     isRecord(scripts) &&
-      scripts.build === "tsc6 -p tsconfig.json" &&
+      scripts.build === "npm exec --no -- tsc6 -p tsconfig.json" &&
       scripts.prepare === "npm run build",
     "Git-source installation must build the tooling subpackage without repository-root scripts"
   );
@@ -645,7 +645,8 @@ void typeWitness;
   );
   writeFileSync(
     path.join(consumer, "runtime.mjs"),
-    `import * as root from "@genes-ts/tooling";
+    `import { createRequire } from "node:module";
+import * as root from "@genes-ts/tooling";
 import * as artifacts from "@genes-ts/tooling/artifacts";
 import * as cssModules from "@genes-ts/tooling/css-modules";
 import * as hxml from "@genes-ts/tooling/hxml";
@@ -653,17 +654,22 @@ import * as loop from "@genes-ts/tooling/loop";
 import * as server from "@genes-ts/tooling/haxe-server";
 import * as session from "@genes-ts/tooling/session";
 import * as watch from "@genes-ts/tooling/watch";
-import artifactProtocol from "@genes-ts/tooling/artifact-transactions/v1/protocol.schema.json" with { type: "json" };
-import artifactVectors from "@genes-ts/tooling/artifact-transactions/v1/vectors.json" with { type: "json" };
-import artifactVectorSchema from "@genes-ts/tooling/artifact-transactions/v1/vectors.schema.json" with { type: "json" };
-import waitVectors from "@genes-ts/tooling/haxe-wait-server/v1/vectors.json" with { type: "json" };
-import waitVectorSchema from "@genes-ts/tooling/haxe-wait-server/v1/vectors.schema.json" with { type: "json" };
-import watchVectors from "@genes-ts/tooling/watch-orchestration/v1/vectors.json" with { type: "json" };
-import watchVectorSchema from "@genes-ts/tooling/watch-orchestration/v1/vectors.schema.json" with { type: "json" };
-import sessionProtocol from "@genes-ts/tooling/development-session/v1/protocol.schema.json" with { type: "json" };
-import sessionVectors from "@genes-ts/tooling/development-session/v1/vectors.json" with { type: "json" };
-import sessionVectorSchema from "@genes-ts/tooling/development-session/v1/vectors.schema.json" with { type: "json" };
-import cssModuleSchema from "@genes-ts/tooling/css-modules/v1/exports.schema.json" with { type: "json" };
+
+// Node 20.9 predates the 'with { type: "json" }' import syntax. createRequire
+// still resolves the package export map and loads the real JSON value, so this
+// fixture can prove every declared runtime without raising the package floor.
+const requireJson = createRequire(import.meta.url);
+const artifactProtocol = requireJson("@genes-ts/tooling/artifact-transactions/v1/protocol.schema.json");
+const artifactVectors = requireJson("@genes-ts/tooling/artifact-transactions/v1/vectors.json");
+const artifactVectorSchema = requireJson("@genes-ts/tooling/artifact-transactions/v1/vectors.schema.json");
+const waitVectors = requireJson("@genes-ts/tooling/haxe-wait-server/v1/vectors.json");
+const waitVectorSchema = requireJson("@genes-ts/tooling/haxe-wait-server/v1/vectors.schema.json");
+const watchVectors = requireJson("@genes-ts/tooling/watch-orchestration/v1/vectors.json");
+const watchVectorSchema = requireJson("@genes-ts/tooling/watch-orchestration/v1/vectors.schema.json");
+const sessionProtocol = requireJson("@genes-ts/tooling/development-session/v1/protocol.schema.json");
+const sessionVectors = requireJson("@genes-ts/tooling/development-session/v1/vectors.json");
+const sessionVectorSchema = requireJson("@genes-ts/tooling/development-session/v1/vectors.schema.json");
+const cssModuleSchema = requireJson("@genes-ts/tooling/css-modules/v1/exports.schema.json");
 
 const witnesses = [
   root.publishArtifacts,
@@ -699,6 +705,7 @@ for (const vectors of [
   sessionProtocol,
   sessionVectors,
   sessionVectorSchema,
+  cssModuleSchema,
 ]) {
   if (typeof vectors !== "object" || vectors === null) {
     throw new Error("a public tooling vector export is missing");
