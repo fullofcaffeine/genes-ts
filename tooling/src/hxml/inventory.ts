@@ -402,6 +402,13 @@ export async function inventoryHxml(
         fail("invalid-syntax", `${sourceFile}:stage-changing-environment`);
       }
 
+      if (libraryOptions.has(argument) && inlineValue !== undefined) {
+        fail(
+          "invalid-syntax",
+          `${sourceFile}:${argument}:inline-library-unsupported-v1`,
+        );
+      }
+
       if (!rawArgument.startsWith("-") && rawArgument.endsWith(".hxml")) {
         const nested = path.resolve(cwd, rawArgument);
         await collect(nested, cwd, `${sourceFile}:nested:${rawArgument}`);
@@ -493,6 +500,12 @@ export async function inventoryHxml(
         if (recordedLibraries.has(request.request)) {
           if (consumesNextArgument) index += 1;
           continue;
+        }
+        if (recordedLibraries.size > 0) {
+          fail(
+            "invalid-syntax",
+            `${sourceFile}:multiple-distinct-libraries-unsupported-v1`,
+          );
         }
         recordedLibraries.add(request.request);
         libraries.push(

@@ -796,8 +796,12 @@ arguments/provenance, source roots, and versioned Haxe 4.3.7 compiler-I/O
 policy. Repeated acyclic HXML occurrences keep their repeated argument
 semantics, recursive includes fail rather than disappearing, repeated library
 requests keep Haxe's resolve-once behavior, and `--option=value` is normalized
-before the same option policy runs. Authored or resolved option values ending
-in `.hxml` fail closed when they would remain in the final stream: Haxe's
+before the same option policy runs. Inline library spellings are rejected
+because Haxe 4.3.7 ignores them rather than resolving a library. The v1
+single-request resolver admits one distinct library identity because it cannot
+reproduce Haxe's ordered batch resolution for adjacent distinct libraries;
+repeated requests for that identity remain supported. Authored or resolved
+option values ending in `.hxml` fail closed when they would remain in the final stream: Haxe's
 high-level argument pass would otherwise interpret that value as another HXML
 program before normal option arity is applied. The final effective stream
 contains no raw `.hxml` token. A separate resolved library request may use that

@@ -244,6 +244,52 @@ async function main(): Promise<void> {
       "Haxe resolves one library identity once even when HXML repeats it",
     );
 
+    for (const [name, option] of [
+      ["short", "-lib=sample"],
+      ["long", "--library=sample"],
+      ["alias", "-L=sample"],
+    ] as const) {
+      let resolverCalls = 0;
+      write(root, `inline-library-${name}.hxml`, `${option}\n`);
+      await expectFailure(
+        () =>
+          inventoryHxml({
+            entryFiles: [`inline-library-${name}.hxml`],
+            workingDirectory: root,
+            allowedRoots: [root],
+            resolveLibrary: () => {
+              resolverCalls += 1;
+              return {
+                arguments: ["--macro", "mustNotResolveInlineLibrary()"],
+                provenanceFiles: [],
+              };
+            },
+          }),
+        "invalid-syntax",
+      );
+      assert.equal(
+        resolverCalls,
+        0,
+        `${option} must fail before an external resolver runs`,
+      );
+    }
+
+    write(
+      root,
+      "multiple-distinct-libraries.hxml",
+      "-lib first\n-lib second\n",
+    );
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["multiple-distinct-libraries.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+          resolveLibrary: () => ({ arguments: [], provenanceFiles: [] }),
+        }),
+      "invalid-syntax",
+    );
+
     write(root, "dotted-library.hxml", "-lib sample.hxml\n");
     const dottedLibraryInventory = await inventoryHxml({
       entryFiles: ["dotted-library.hxml"],

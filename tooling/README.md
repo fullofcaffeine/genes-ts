@@ -297,6 +297,11 @@ restarting the command.
   a repeated library request only once, so the flattened plan does too. The
   usual `--option=value` spelling is accepted for one-value options and
   normalized to the same checked argument pair as `--option value`.
+  Library options are the exception: Haxe 4.3.7 ignores inline forms such as
+  `--library=sample`, so DevelopmentSession rejects those misleading spellings.
+  The v1 resolver also accepts one distinct library identity only (repeats are
+  deduplicated). Haxe batches adjacent distinct libraries, and the current
+  single-request callback cannot reproduce that batch's exact dependency order.
   After recursive flattening, no raw token ending in `.hxml` may reach Haxe.
   A separate library name is safe because its reviewed resolver replaces it;
   the resolver's resulting arguments must still pass the no-HXML check. Haxe

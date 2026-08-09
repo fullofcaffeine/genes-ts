@@ -39,8 +39,10 @@ it.
   library contributions while rejecting CWD/resources until their lookup
   semantics have a reviewed policy;
   preserve repeated acyclic HXML arguments, reject recursive HXML includes,
-  keep Haxe's resolve-once behavior for repeated libraries, and accept Haxe's
-  ordinary `--option=value` spelling;
+  keep Haxe's resolve-once behavior for repeated libraries, reject inline
+  library spellings that Haxe ignores, admit one distinct library identity in
+  the v1 single-request resolver, and accept Haxe's ordinary
+  `--option=value` spelling for other one-value options;
   reject every residual `.hxml` token after recursive flattening so Haxe cannot
   reinterpret an option value as a second, unreviewed HXML program, while still
   allowing a separate reviewed library request that is removed before execution;

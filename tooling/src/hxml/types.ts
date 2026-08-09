@@ -66,6 +66,12 @@ export interface HxmlInventoryOptions {
   readonly workingDirectory: string;
   readonly allowedRoots: readonly string[];
   readonly environment?: (name: string) => string | null;
+  /**
+   * Resolves the one distinct library identity admitted by the v1 inventory.
+   * Repeated requests for that identity are deduplicated like Haxe 4.3.7.
+   * Inline library spellings and a second distinct identity fail closed because
+   * this single-request callback cannot reproduce Haxe's high-level batching.
+   */
   readonly resolveLibrary?: (
     request: HxmlLibraryRequest,
     context: HxmlResolverContext,
