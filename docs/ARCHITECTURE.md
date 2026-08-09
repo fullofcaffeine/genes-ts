@@ -796,12 +796,17 @@ arguments/provenance, source roots, and versioned Haxe 4.3.7 compiler-I/O
 policy. Repeated acyclic HXML occurrences keep their repeated argument
 semantics, recursive includes fail rather than disappearing, and
 `--option=value` is normalized before the same option policy runs. Authored
-HXML is targetless. The bound compiler request appends one ordinary private
-Haxe JS target and one private Genes target, so an inactive Genes generator
-still cannot write public output before admission. The HXML closure is complete
-only after every discovered library has been passed through a host-owned
-authoritative resolver. Haxe executes that flattened stream without a live
-`-lib` re-resolution; unresolved libraries fail before Haxe executes. The
+or resolved option values ending in `.hxml` fail closed: Haxe's high-level
+argument pass would otherwise interpret that value as another HXML program
+before normal option arity is applied. The final effective stream contains no
+raw `.hxml` token. Environment expansion cannot change a high-level HXML or
+library decision. Authored HXML is targetless. The bound compiler request
+appends one ordinary private Haxe JS target and one private Genes target, so an
+inactive Genes generator still cannot write public output before admission. The
+HXML closure is complete only after every discovered library has been passed
+through a host-owned authoritative resolver. Haxe executes that flattened
+stream without a live `-lib` re-resolution; unresolved libraries fail before
+Haxe executes. The
 separate marker matters when two successful revisions generate identical bytes:
 generation still advances, the file delta stays empty, and a host correctly
 performs no reload.

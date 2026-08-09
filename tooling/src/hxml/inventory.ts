@@ -409,6 +409,13 @@ export async function inventoryHxml(
         continue;
       }
 
+      if (expandedArgument.endsWith(".hxml")) {
+        fail(
+          "invalid-syntax",
+          `${sourceFile}:residual-hxml-token:${expandedArgument}`,
+        );
+      }
+
       if (!argument.startsWith("-")) {
         effectiveArguments.push(argument);
         continue;
@@ -438,6 +445,17 @@ export async function inventoryHxml(
         : rawValue === undefined
           ? undefined
           : expanded(rawValue, options.environment);
+
+      if (rawValue !== value && libraryOptions.has(argument)) {
+        fail("invalid-syntax", `${sourceFile}:stage-changing-environment`);
+      }
+
+      if (value?.endsWith(".hxml") === true) {
+        fail(
+          "invalid-syntax",
+          `${sourceFile}:${argument}:residual-hxml-token`,
+        );
+      }
 
       if (argument === "-C" || argument === "--cwd") {
         fail("invalid-option", `${sourceFile}:${argument}:unsupported-v1`);
@@ -595,6 +613,10 @@ export async function inventoryHxml(
       `entryFiles[${index}]`,
     );
     entryHxmlFiles.push(canonicalEntry);
+  }
+
+  if (effectiveArguments.some((argument) => argument.endsWith(".hxml"))) {
+    fail("invalid-syntax", "effectiveArguments:residual-hxml-token");
   }
 
   libraries.sort((left, right) =>

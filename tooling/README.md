@@ -296,6 +296,11 @@ restarting the command.
   clear input error instead of being silently shortened. The usual
   `--option=value` spelling is accepted for one-value options and normalized to
   the same checked argument pair as `--option value`.
+  After recursive flattening, no raw token ending in `.hxml` may remain. Haxe
+  4.3.7 otherwise treats that token as another argument file even when Genes
+  saw it in the position of an ordinary option value.
+  Environment expansion is rejected where it would change Haxe's high-level
+  staging decision, including an HXML filename or library request.
   DevelopmentSession v1 rejects authored `-C`/`--cwd` and resource options
   until their Haxe lookup semantics have a separate reviewed policy.
   A discovered `-lib` with no resolver makes startup fail before compilation.

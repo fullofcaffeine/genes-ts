@@ -157,6 +157,19 @@ async function main(): Promise<void> {
       "invalid-syntax",
     );
 
+    write(root, "environment-library.hxml", "-lib %LIBRARY%\n");
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["environment-library.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+          environment: (name) => (name === "LIBRARY" ? "sample" : null),
+          resolveLibrary: () => ({ arguments: [], provenanceFiles: [] }),
+        }),
+      "invalid-syntax",
+    );
+
     write(
       root,
       "equals-values.hxml",
@@ -173,6 +186,43 @@ async function main(): Promise<void> {
       "--define",
       "feature=enabled",
     ]);
+
+    write(root, "option-payload.hxml", "Main\n--xml escaped.xml\n");
+    write(root, "option-value-hxml.hxml", "--main option-payload.hxml\n");
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["option-value-hxml.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+        }),
+      "invalid-syntax",
+    );
+    write(root, "inline-option-value-hxml.hxml", "--main=option-payload.hxml\n");
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["inline-option-value-hxml.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+        }),
+      "invalid-syntax",
+    );
+
+    write(root, "library-hxml-value.hxml", "-lib hxml-value\n");
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["library-hxml-value.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+          resolveLibrary: () => ({
+            arguments: ["--main", "option-payload.hxml"],
+            provenanceFiles: [],
+          }),
+        }),
+      "invalid-syntax",
+    );
 
     write(root, "repeated-library.hxml", "-lib repeated\n-lib repeated\n");
     const repeatedLibraryInventory = await inventoryHxml({

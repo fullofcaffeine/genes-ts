@@ -40,6 +40,8 @@ it.
   semantics have a reviewed policy;
   preserve repeated acyclic HXML arguments, reject recursive HXML includes,
   and accept Haxe's ordinary `--option=value` spelling;
+  reject every residual `.hxml` token after recursive flattening so Haxe cannot
+  reinterpret an option value as a second, unreviewed HXML program;
   reject HXML options that execute shell commands or user programs before host
   acceptance; keep informational changes from discarding an active build; and
   report post-inventory compiler errors at the compile stage.

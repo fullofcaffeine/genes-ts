@@ -186,6 +186,70 @@ try {
     }
   }
 
+  const optionValueHxmlOutput = path.join(
+    projectRoot,
+    "policy-option-value-hxml/index.ts",
+  );
+  const optionValueHxmlXml = path.join(
+    projectRoot,
+    "policy-option-value-hxml/types.xml",
+  );
+  mkdirSync(path.dirname(optionValueHxmlOutput), { recursive: true });
+  writeFileSync(optionValueHxmlOutput, "// option-value sentinel\n", "utf8");
+  writeFileSync(optionValueHxmlXml, "<!-- xml sentinel -->\n", "utf8");
+  writeFileSync(
+    path.join(projectRoot, "policy-option-value-payload.hxml"),
+    ["Main", `--xml ${optionValueHxmlXml}`, ""].join("\n"),
+    "utf8",
+  );
+  writeFileSync(
+    path.join(projectRoot, "policy-option-value.hxml"),
+    [
+      `-cp ${sourceRoot}`,
+      "--main policy-option-value-payload.hxml",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  const optionValueHxmlSession = createGenesDevelopmentSession<Diagnostic>({
+    projectRoot,
+    projectIdentity: "real-haxe-session-policy-option-value-hxml",
+    hxml: { allowedRoots: [projectRoot] },
+    publicOutputFile: "policy-option-value-hxml/index.ts",
+    stateDirectory: ".genes/policy-option-value-hxml",
+    resolveInvocation: () => ({
+      executable: haxeExecutable,
+      cwd: projectRoot,
+      args: ["policy-option-value.hxml"],
+      ioPolicy: "haxe-4.3.7-development-js-v1",
+      compatibilityFacts: { fixture: "option-value-hxml" },
+    }),
+    validate: async () => ({ ok: true }),
+    validatorPolicyFacts: { fixture: "must-not-run" },
+    debounceMs: 0,
+    pollIntervalMs: 20,
+    shutdownTimeoutMs: 2_000,
+  });
+  try {
+    await optionValueHxmlSession.start();
+    assert.equal(optionValueHxmlSession.state.kind, "blocked");
+    assert.equal(
+      readFileSync(optionValueHxmlOutput, "utf8"),
+      "// option-value sentinel\n",
+    );
+    assert.equal(
+      readFileSync(optionValueHxmlXml, "utf8"),
+      "<!-- xml sentinel -->\n",
+      "an HXML-looking option value must not let Haxe discover an unreviewed XML output",
+    );
+    await assert.rejects(
+      optionValueHxmlSession.firstAccepted,
+      /fatal session failure/u,
+    );
+  } finally {
+    await optionValueHxmlSession.close();
+  }
+
   const libraryBlockedOutput = path.join(
     projectRoot,
     "blocked-library-gen/index.ts",
