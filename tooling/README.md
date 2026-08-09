@@ -293,10 +293,13 @@ restarting the command.
   stream, so it never reruns `haxelib path` after the final plan check. If the
   same HXML file is included twice without a cycle, its arguments appear twice
   just as they do in a direct Haxe command. A recursive include fails with a
-  clear input error instead of being silently shortened. The usual
-  `--option=value` spelling is accepted for one-value options and normalized to
-  the same checked argument pair as `--option value`.
-  After recursive flattening, no raw token ending in `.hxml` may remain. Haxe
+  clear input error instead of being silently shortened. Haxe itself resolves
+  a repeated library request only once, so the flattened plan does too. The
+  usual `--option=value` spelling is accepted for one-value options and
+  normalized to the same checked argument pair as `--option value`.
+  After recursive flattening, no raw token ending in `.hxml` may reach Haxe.
+  A separate library name is safe because its reviewed resolver replaces it;
+  the resolver's resulting arguments must still pass the no-HXML check. Haxe
   4.3.7 otherwise treats that token as another argument file even when Genes
   saw it in the position of an ordinary option value.
   Environment expansion is rejected where it would change Haxe's high-level

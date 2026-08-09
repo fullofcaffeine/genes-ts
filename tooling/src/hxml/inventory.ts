@@ -357,7 +357,6 @@ export async function inventoryHxml(
   const resources = new Set<string>();
   const libraries: HxmlLibrary[] = [];
   const recordedLibraries = new Set<string>();
-  const activeLibraries = new Set<string>();
   const effectiveArguments: string[] = [];
   let libraryClosureComplete = true;
   let argumentCount = 0;
@@ -450,7 +449,10 @@ export async function inventoryHxml(
         fail("invalid-syntax", `${sourceFile}:stage-changing-environment`);
       }
 
-      if (value?.endsWith(".hxml") === true) {
+      if (
+        value?.endsWith(".hxml") === true &&
+        !(libraryOptions.has(argument) && inlineValue === undefined)
+      ) {
         fail(
           "invalid-syntax",
           `${sourceFile}:${argument}:residual-hxml-token`,
@@ -488,79 +490,68 @@ export async function inventoryHxml(
 
       if (libraryOptions.has(argument)) {
         const request = libraryRequest(value!, sourceFile, cwd);
-        if (!recordedLibraries.has(request.request)) {
-          recordedLibraries.add(request.request);
-          libraries.push(
-            Object.freeze({
-              request: request.request,
-              name: request.name,
-              version: request.version,
-              fromFile: request.fromFile,
-              workingDirectory: request.workingDirectory,
-            }),
-          );
+        if (recordedLibraries.has(request.request)) {
+          if (consumesNextArgument) index += 1;
+          continue;
         }
+        recordedLibraries.add(request.request);
+        libraries.push(
+          Object.freeze({
+            request: request.request,
+            name: request.name,
+            version: request.version,
+            fromFile: request.fromFile,
+            workingDirectory: request.workingDirectory,
+          }),
+        );
         if (options.resolveLibrary === undefined) {
           libraryClosureComplete = false;
           effectiveArguments.push(argument, value!);
         } else {
-          const activeLibrary = `${request.request}\0${cwd}`;
-          if (activeLibraries.has(activeLibrary)) {
+          let resolution: HxmlLibraryResolution;
+          try {
+            resolution = await awaitWithAbort(
+              options.resolveLibrary(request, {
+                signal: resolverSignal,
+                environment: (name) => options.environment?.(name) ?? null,
+              }),
+              options.signal,
+            );
+          } catch {
             fail(
-              "invalid-syntax",
-              `${sourceFile}:library-cycle:${request.request}`,
+              "resolver-failure",
+              `${sourceFile}:library:${request.request}`,
             );
           }
-          activeLibraries.add(activeLibrary);
-          try {
-            let resolution: HxmlLibraryResolution;
-            try {
-              resolution = await awaitWithAbort(
-                options.resolveLibrary(request, {
-                  signal: resolverSignal,
-                  environment: (name) =>
-                    options.environment?.(name) ?? null,
-                }),
-                options.signal,
-              );
-            } catch {
+          for (const [fileIndex, candidate] of
+            resolution.provenanceFiles.entries()) {
+            if (!path.isAbsolute(candidate)) {
               fail(
                 "resolver-failure",
-                `${sourceFile}:library:${request.request}`,
+                `${sourceFile}:library:${request.request}:provenance[${fileIndex}]`,
               );
             }
-            for (const [fileIndex, candidate] of
-              resolution.provenanceFiles.entries()) {
-              if (!path.isAbsolute(candidate)) {
-                fail(
-                  "resolver-failure",
-                  `${sourceFile}:library:${request.request}:provenance[${fileIndex}]`,
-                );
-              }
-              assertNoSymlinkComponents(
-                allowedRoots,
-                candidate,
-                `${sourceFile}:library:${request.request}:provenance[${fileIndex}]`,
-              );
-              const canonical = canonicalFile(
-                candidate,
-                `${sourceFile}:library:${request.request}:provenance[${fileIndex}]`,
-              );
-              assertAllowed(
-                allowedRoots,
-                canonical,
-                `${sourceFile}:library:${request.request}:provenance[${fileIndex}]`,
-              );
-              libraryProvenanceFiles.add(canonical);
-            }
-            await processArguments(
-              Object.freeze([...resolution.arguments]),
-              `${sourceFile}:library:${request.request}`,
-              cwd,
+            assertNoSymlinkComponents(
+              allowedRoots,
+              candidate,
+              `${sourceFile}:library:${request.request}:provenance[${fileIndex}]`,
             );
-          } finally {
-            activeLibraries.delete(activeLibrary);
+            const canonical = canonicalFile(
+              candidate,
+              `${sourceFile}:library:${request.request}:provenance[${fileIndex}]`,
+            );
+            assertAllowed(
+              allowedRoots,
+              canonical,
+              `${sourceFile}:library:${request.request}:provenance[${fileIndex}]`,
+            );
+            libraryProvenanceFiles.add(canonical);
           }
+          await processArguments(
+            Object.freeze([...resolution.arguments]),
+            `${sourceFile}:library:${request.request}`,
+            cwd,
+          );
         }
         if (consumesNextArgument) index += 1;
         continue;
@@ -615,7 +606,10 @@ export async function inventoryHxml(
     entryHxmlFiles.push(canonicalEntry);
   }
 
-  if (effectiveArguments.some((argument) => argument.endsWith(".hxml"))) {
+  if (
+    libraryClosureComplete &&
+    effectiveArguments.some((argument) => argument.endsWith(".hxml"))
+  ) {
     fail("invalid-syntax", "effectiveArguments:residual-hxml-token");
   }
 

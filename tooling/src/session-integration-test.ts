@@ -424,6 +424,7 @@ try {
       `--class-path=${fixtureHelderSourceRoot}`,
       `--class-path=${sourceRoot}`,
       "-lib sourceonly",
+      "-lib sourceonly",
       "-main Main",
       "--define=genes.ts",
       "--define=js-source-map",

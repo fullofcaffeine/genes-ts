@@ -794,13 +794,16 @@ One immutable effective-invocation plan owns the executable, working directory,
 environment, ordered HXML entries and occurrences, exact resolved-library
 arguments/provenance, source roots, and versioned Haxe 4.3.7 compiler-I/O
 policy. Repeated acyclic HXML occurrences keep their repeated argument
-semantics, recursive includes fail rather than disappearing, and
-`--option=value` is normalized before the same option policy runs. Authored
-or resolved option values ending in `.hxml` fail closed: Haxe's high-level
-argument pass would otherwise interpret that value as another HXML program
-before normal option arity is applied. The final effective stream contains no
-raw `.hxml` token. Environment expansion cannot change a high-level HXML or
-library decision. Authored HXML is targetless. The bound compiler request
+semantics, recursive includes fail rather than disappearing, repeated library
+requests keep Haxe's resolve-once behavior, and `--option=value` is normalized
+before the same option policy runs. Authored or resolved option values ending
+in `.hxml` fail closed when they would remain in the final stream: Haxe's
+high-level argument pass would otherwise interpret that value as another HXML
+program before normal option arity is applied. The final effective stream
+contains no raw `.hxml` token. A separate resolved library request may use that
+suffix because its name is removed before execution; its resolver output still
+passes the final-stream check. Environment expansion cannot change a high-level
+HXML or library decision. Authored HXML is targetless. The bound compiler request
 appends one ordinary private Haxe JS target and one private Genes target, so an
 inactive Genes generator still cannot write public output before admission. The
 HXML closure is complete only after every discovered library has been passed

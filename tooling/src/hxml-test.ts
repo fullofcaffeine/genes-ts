@@ -237,13 +237,49 @@ async function main(): Promise<void> {
     assert.deepEqual(repeatedLibraryInventory.effectiveArguments, [
       "--macro",
       "fromLibrary()",
-      "--macro",
-      "fromLibrary()",
     ]);
     assert.equal(
       repeatedLibraryInventory.libraries.length,
       1,
-      "the input inventory records one library identity while preserving both argument occurrences",
+      "Haxe resolves one library identity once even when HXML repeats it",
+    );
+
+    write(root, "dotted-library.hxml", "-lib sample.hxml\n");
+    const dottedLibraryInventory = await inventoryHxml({
+      entryFiles: ["dotted-library.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+      resolveLibrary: (request) => {
+        assert.equal(request.name, "sample.hxml");
+        return {
+          arguments: ["--macro", "fromDottedLibrary()"],
+          provenanceFiles: [],
+        };
+      },
+    });
+    assert.deepEqual(dottedLibraryInventory.effectiveArguments, [
+      "--macro",
+      "fromDottedLibrary()",
+    ]);
+    const unresolvedDottedLibraryInventory = await inventoryHxml({
+      entryFiles: ["dotted-library.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+    });
+    assert.equal(unresolvedDottedLibraryInventory.libraryClosureComplete, false);
+    assert.deepEqual(unresolvedDottedLibraryInventory.effectiveArguments, [
+      "-lib",
+      "sample.hxml",
+    ]);
+    write(root, "inline-dotted-library.hxml", "--library=sample.hxml\n");
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["inline-dotted-library.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+        }),
+      "invalid-syntax",
     );
 
     mkdirSync(path.join(root, "a", "src"), { recursive: true });
