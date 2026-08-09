@@ -287,7 +287,7 @@ export class Register {
 		if ((o!).hx__closures__ == null) {
 			(o!).hx__closures__ = {};
 		} else {
-			f = ((o!).hx__closures__[m.__id__] ?? null);
+			f = (o!).hx__closures__[m.__id__];
 		};
 		if (f == null) {
 			f = m.bind(o);
