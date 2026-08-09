@@ -305,7 +305,8 @@ during typing, so a missing or rewritten value cannot pass merely because the
 application never used it. The focused inventory test also rejects a line break
 introduced through a separate option value and an already-present broken
 symbolic link. The watcher test creates a symbolic link after a missing nested
-class path was registered and proves the next scan stops before following it.
+class path was registered and proves the next scan stops before following it,
+whether the link's target exists or is itself still missing.
 
 The package gate then installs the deterministic tarball into a clean Node
 project, type-checks the public factory/types, and imports both the root and

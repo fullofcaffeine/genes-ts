@@ -169,6 +169,33 @@ async function main(): Promise<void> {
     assert.match(lateSymlinkErrors[0]!, /symbolic link/u);
     missingNestedSession.close();
 
+    const brokenSymlinkErrors: string[] = [];
+    const missingBrokenRoot = path.join(root, "broken-parent", "nested");
+    const missingBrokenSession = watchReconciledInputs({
+      inputs: [
+        {
+          kind: "tree",
+          path: missingBrokenRoot,
+          cause: "source",
+          include: (relative) => relative.endsWith(".hx"),
+          rejectSymlinks: true,
+        },
+      ],
+      merge: (left) => left,
+      onChange: () => {},
+      onError: (error) => brokenSymlinkErrors.push(error.message),
+      nativeEvents: false,
+      pollIntervalMs: 20,
+    });
+    symlinkSync(
+      path.join(outside, "missing-broken-target"),
+      path.join(root, "broken-parent"),
+      "dir",
+    );
+    await waitUntil(() => brokenSymlinkErrors.length > 0);
+    assert.match(brokenSymlinkErrors[0]!, /symbolic link/u);
+    missingBrokenSession.close();
+
     assert.throws(
       () =>
         watchReconciledInputs({

@@ -78,10 +78,14 @@ function assertNoSymlinkComponents(candidate: string): void {
     .split(path.sep)
     .filter((value) => value.length > 0)) {
     current = path.join(current, segment);
-    if (!existsSync(current)) {
+    // `existsSync` also returns false for a symbolic link whose target is
+    // missing. Inspect the path entry itself so that unsafe link is never
+    // confused with a generated directory that simply does not exist yet.
+    const status = lstatSync(current, { throwIfNoEntry: false });
+    if (status === undefined) {
       return;
     }
-    if (lstatSync(current).isSymbolicLink()) {
+    if (status.isSymbolicLink()) {
       throw new Error(`watch input traverses a symbolic link: ${current}`);
     }
   }
