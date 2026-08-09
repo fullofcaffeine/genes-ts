@@ -57,11 +57,11 @@ async function main(): Promise<void> {
       "nested/nested build.hxml",
       [
         "--class-path \"%SHARED%\"",
-        "cycle.hxml",
+        "leaf.hxml",
         "",
       ].join("\n"),
     );
-    write(root, "cycle.hxml", "build.hxml\n");
+    write(root, "leaf.hxml", "");
     const library = write(
       root,
       "libraries/sample.hxml",
@@ -87,8 +87,8 @@ async function main(): Promise<void> {
       inventory.hxmlFiles.map((file) => path.relative(root, file)),
       [
         "build.hxml",
-        "cycle.hxml",
         path.join("libraries", "sample.hxml"),
+        "leaf.hxml",
         path.join("nested", "nested build.hxml"),
       ].sort(),
     );
@@ -130,6 +130,70 @@ async function main(): Promise<void> {
     assert.deepEqual(
       carriageReturnInventory.effectiveArguments,
       ["-cp", "src", "-main", "Main"],
+    );
+
+    write(root, "repeated.hxml", "--macro repeated()\n");
+    const repeatedInventory = await inventoryHxml({
+      entryFiles: ["repeated.hxml", "repeated.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+    });
+    assert.deepEqual(
+      repeatedInventory.effectiveArguments,
+      ["--macro", "repeated()", "--macro", "repeated()"],
+      "each acyclic HXML occurrence must keep its arguments",
+    );
+    assert.equal(repeatedInventory.hxmlOccurrences.length, 2);
+
+    write(root, "cycle-a.hxml", "cycle-b.hxml\n");
+    write(root, "cycle-b.hxml", "cycle-a.hxml\n");
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["cycle-a.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+        }),
+      "invalid-syntax",
+    );
+
+    write(
+      root,
+      "equals-values.hxml",
+      "--class-path=src\n--define=feature=enabled\n",
+    );
+    const equalsValueInventory = await inventoryHxml({
+      entryFiles: ["equals-values.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+    });
+    assert.deepEqual(equalsValueInventory.effectiveArguments, [
+      "--class-path",
+      "src",
+      "--define",
+      "feature=enabled",
+    ]);
+
+    write(root, "repeated-library.hxml", "-lib repeated\n-lib repeated\n");
+    const repeatedLibraryInventory = await inventoryHxml({
+      entryFiles: ["repeated-library.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+      resolveLibrary: () => ({
+        arguments: ["--macro", "fromLibrary()"],
+        provenanceFiles: [],
+      }),
+    });
+    assert.deepEqual(repeatedLibraryInventory.effectiveArguments, [
+      "--macro",
+      "fromLibrary()",
+      "--macro",
+      "fromLibrary()",
+    ]);
+    assert.equal(
+      repeatedLibraryInventory.libraries.length,
+      1,
+      "the input inventory records one library identity while preserving both argument occurrences",
     );
 
     mkdirSync(path.join(root, "a", "src"), { recursive: true });

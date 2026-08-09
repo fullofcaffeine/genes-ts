@@ -2418,24 +2418,39 @@ await withHarness(
       events: harness.events,
     });
     assert.equal(publicRecord.includes(harness.root), false);
+    const alternateRoot = harness.root
+      .split(path.sep)
+      .join(path.sep === "/" ? "\\" : "/");
+    assert.equal(
+      publicRecord.includes(alternateRoot),
+      false,
+      "host diagnostics must hide private paths written with either slash style",
+    );
     assert.equal(/revision-\d+-test\d+/u.test(publicRecord), false);
     assert.equal(publicRecord.includes("<private-candidate>"), true);
   },
   undefined,
   (options) => ({
     ...options,
-    validate: async (tree) => ({
-      ok: false,
-      diagnostic: {
-        code: "HOST_REJECTED",
-        message: `candidate ${tree.physicalRoot}`,
-        [tree.physicalRoot]: "path used as an object key",
-        nested: [
-          tree.files[0]!.physicalPath,
-          { again: tree.physicalRoot },
-        ],
-      },
-    }),
+    validate: async (tree) => {
+      const alternateRoot = tree.physicalRoot
+        .split(path.sep)
+        .join(path.sep === "/" ? "\\" : "/");
+      return {
+        ok: false,
+        diagnostic: {
+          code: "HOST_REJECTED",
+          message: `candidate ${alternateRoot}`,
+          [alternateRoot]: "path used as an object key",
+          nested: [
+            tree.files[0]!.physicalPath
+              .split(path.sep)
+              .join(path.sep === "/" ? "\\" : "/"),
+            { again: alternateRoot },
+          ],
+        },
+      };
+    },
   }),
 );
 

@@ -119,9 +119,11 @@ accepted event is never emitted before the artifact transaction has committed.
 
 Tooling-owned paths in events and file deltas are project-relative and use `/`
 on every platform. Lists are sorted by UTF-8 byte order, contain no duplicates,
-and do not overlap. Tooling-owned event fields never expose private candidate
-paths. The host remains responsible for mapping its own diagnostic paths to
-logical locations and for sanitizing any diagnostic sent outside the process.
+and do not overlap. Events never expose private candidate, state, or project
+paths. This includes host validation messages and JSON keys that spell a path
+with either `/` or `\\`. A host should still prefer useful logical paths in its
+diagnostics, because replacing a private path can hide the location rather than
+explain it.
 
 One JSON-lines event can therefore be consumed directly by automation:
 
@@ -129,10 +131,10 @@ One JSON-lines event can therefore be consumed directly by automation:
 {"protocol":"genes.tooling.development-session-event","version":1,"sequence":8,"at":1785520800000,"event":{"kind":"generation-accepted","accepted":{"generation":2,"revision":3,"acceptedAt":1785520800000,"manifestDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","compilerMode":"connected","files":{"created":[],"updated":["src-gen/index.tsx"],"deleted":[]},"entryChanged":true}}}
 ```
 
-The diagnostic inside a validation failure is host-owned JSON. Core tooling
-does not rewrite host data. Diagnostics produced by the session itself use
-logical subjects and sanitize private candidate/state paths before they enter
-an event; a host still decides which diagnostic data is safe to send to a
+The diagnostic inside a validation failure is host-owned JSON. Before it enters
+an event, tooling removes private candidate, state, and project paths from
+every string and object key. It otherwise preserves the host's values. The
+host still decides which remaining application data is safe to send to a
 browser.
 
 ## Private validation and last-good output

@@ -134,6 +134,22 @@ function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
+/** Replaces one private path whether a host reports `/` or `\\` separators. */
+function replacePathSpellings(
+  value: string,
+  privatePath: string,
+  replacement: string,
+): string {
+  const slash = privatePath.replaceAll("\\", "/");
+  const backslash = privatePath.replaceAll("/", "\\");
+  return [...new Set([privatePath, slash, backslash])]
+    .sort((left, right) => right.length - left.length)
+    .reduce(
+      (current, spelling) => current.replaceAll(spelling, replacement),
+      value,
+    );
+}
+
 function isJsonArray(value: JsonValue): value is readonly JsonValue[] {
   return Array.isArray(value);
 }
@@ -1057,7 +1073,8 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       this.#layout.projectRoot,
       ...this.#layout.candidatesRelative.split("/"),
     );
-    const withCandidateRoot = message.replaceAll(
+    const withCandidateRoot = replacePathSpellings(
+      message,
       candidateRoot,
       "<private-candidate-root>",
     );
@@ -1065,9 +1082,15 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       /<private-candidate-root>[\\/][^\\/\s:]+/gu,
       "<private-candidate>",
     );
-    return withoutCandidateNonce
-      .replaceAll(this.#layout.stateRoot, "<private-state>")
-      .replaceAll(this.#layout.projectRoot, "<project>");
+    return replacePathSpellings(
+      replacePathSpellings(
+        withoutCandidateNonce,
+        this.#layout.stateRoot,
+        "<private-state>",
+      ),
+      this.#layout.projectRoot,
+      "<project>",
+    );
   }
 
   /** Removes session-private paths from every host-authored JSON string. */

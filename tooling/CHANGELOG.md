@@ -38,11 +38,15 @@ it.
 - Classify every Haxe 4.3.7 option spelling; support class paths and exact
   library contributions while rejecting CWD/resources until their lookup
   semantics have a reviewed policy;
+  preserve repeated acyclic HXML arguments, reject recursive HXML includes,
+  and accept Haxe's ordinary `--option=value` spelling;
   reject HXML options that execute shell commands or user programs before host
   acceptance; keep informational changes from discarding an active build; and
   report post-inventory compiler errors at the compile stage.
 - Copy and hash the complete effective Haxe environment for each revision, and
   stop acceptance cleanly when a lifecycle observer closes the session.
+- Remove private candidate, state, and project paths from host validation
+  messages even when the host uses the other platform slash style.
 - Reject Haxe XML/JSON side outputs from the managed HXML graph, and verify the
   complete live publication again after host admission before committing it.
 - Verify every public code and JSON export from the packed package on Node

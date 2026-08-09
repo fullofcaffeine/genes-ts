@@ -145,6 +145,8 @@ try {
       env: { EFFECT: "--xml" },
     },
     { name: "short-command", hxml: "-cmd touch escaped-command\n" },
+    { name: "equals-command", hxml: "--cmd=touch escaped-command\n" },
+    { name: "equals-target", hxml: "--js=escaped-target.js\n" },
     { name: "generated-hx", hxml: "-D gen_hx_classes\n" },
   ];
   for (const fixture of policyCases) {
@@ -344,18 +346,25 @@ try {
   }
 
   writeFileSync(
+    path.join(projectRoot, "repeated-flags.hxml"),
+    "--define=session-repeated\n",
+    "utf8",
+  );
+  writeFileSync(
     path.join(projectRoot, "build.hxml"),
     [
       path.join(projectRoot, "genes-extraParams.hxml"),
-      `-cp ${fixtureGenesSourceRoot}`,
-      `-cp ${fixtureHelderSourceRoot}`,
-      `-cp ${sourceRoot}`,
+      "repeated-flags.hxml",
+      "repeated-flags.hxml",
+      `--class-path=${fixtureGenesSourceRoot}`,
+      `--class-path=${fixtureHelderSourceRoot}`,
+      `--class-path=${sourceRoot}`,
       "-lib sourceonly",
       "-main Main",
-      "-D genes.ts",
-      "-D js-source-map",
-      "-D js-es=6",
-      "-dce full",
+      "--define=genes.ts",
+      "--define=js-source-map",
+      "--define=js-es=6",
+      "--dce=full",
       "",
     ].join("\n"),
     "utf8",

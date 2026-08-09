@@ -290,7 +290,12 @@ restarting the command.
   The host must run any needed follow-up step explicitly after an accepted
   generation. The same check visits entry and nested HXML files and the exact
   argument stream returned for every library. Haxe executes the flattened
-  stream, so it never reruns `haxelib path` after the final plan check.
+  stream, so it never reruns `haxelib path` after the final plan check. If the
+  same HXML file is included twice without a cycle, its arguments appear twice
+  just as they do in a direct Haxe command. A recursive include fails with a
+  clear input error instead of being silently shortened. The usual
+  `--option=value` spelling is accepted for one-value options and normalized to
+  the same checked argument pair as `--option value`.
   DevelopmentSession v1 rejects authored `-C`/`--cwd` and resource options
   until their Haxe lookup semantics have a separate reviewed policy.
   A discovered `-lib` with no resolver makes startup fail before compilation.

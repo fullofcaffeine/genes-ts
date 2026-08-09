@@ -350,13 +350,14 @@ export async function inventoryHxml(
 
   const hxmlFiles = new Set<string>();
   const libraryProvenanceFiles = new Set<string>();
-  const hxmlOccurrences = new Set<string>();
+  const activeHxmlOccurrences = new Set<string>();
   const orderedHxmlOccurrences: HxmlOccurrence[] = [];
   const entryHxmlFiles: string[] = [];
   const classPaths = new Set<string>();
   const resources = new Set<string>();
   const libraries: HxmlLibrary[] = [];
-  const resolvedLibraries = new Set<string>();
+  const recordedLibraries = new Set<string>();
+  const activeLibraries = new Set<string>();
   const effectiveArguments: string[] = [];
   let libraryClosureComplete = true;
   let argumentCount = 0;
@@ -383,9 +384,19 @@ export async function inventoryHxml(
     for (let index = 0; index < args.length; index += 1) {
       throwIfAborted(options.signal);
       const rawArgument = args[index]!;
-      const argument = expanded(rawArgument, options.environment);
+      const expandedArgument = expanded(rawArgument, options.environment);
+      const equals = expandedArgument.indexOf("=");
+      const possibleOption = equals > 0
+        ? expandedArgument.slice(0, equals)
+        : expandedArgument;
+      const hasInlineValue =
+        equals > 0 && HAXE_4_3_7_OPTION_ARITY[possibleOption] === 1;
+      const argument = hasInlineValue ? possibleOption : expandedArgument;
+      const inlineValue = hasInlineValue
+        ? expandedArgument.slice(equals + 1)
+        : undefined;
       if (
-        rawArgument !== argument &&
+        rawArgument !== expandedArgument &&
         (highLevelOptions.has(argument) ||
           (!argument.startsWith("-") && argument.endsWith(".hxml")))
       ) {
@@ -415,13 +426,18 @@ export async function inventoryHxml(
         effectiveArguments.push(argument);
         continue;
       }
-      const rawValue = arity === 1 ? args[index + 1] : undefined;
+      const consumesNextArgument = arity === 1 && inlineValue === undefined;
+      const rawValue = inlineValue ?? (consumesNextArgument
+        ? args[index + 1]
+        : undefined);
       if (arity === 1 && rawValue === undefined) {
         fail("invalid-syntax", `${sourceFile}:${argument}:missing-value`);
       }
-      const value = rawValue === undefined
-        ? undefined
-        : expanded(rawValue, options.environment);
+      const value = inlineValue !== undefined
+        ? inlineValue
+        : rawValue === undefined
+          ? undefined
+          : expanded(rawValue, options.environment);
 
       if (argument === "-C" || argument === "--cwd") {
         fail("invalid-option", `${sourceFile}:${argument}:unsupported-v1`);
@@ -454,8 +470,8 @@ export async function inventoryHxml(
 
       if (libraryOptions.has(argument)) {
         const request = libraryRequest(value!, sourceFile, cwd);
-        if (!resolvedLibraries.has(request.request)) {
-          resolvedLibraries.add(request.request);
+        if (!recordedLibraries.has(request.request)) {
+          recordedLibraries.add(request.request);
           libraries.push(
             Object.freeze({
               request: request.request,
@@ -465,10 +481,20 @@ export async function inventoryHxml(
               workingDirectory: request.workingDirectory,
             }),
           );
-          if (options.resolveLibrary === undefined) {
-            libraryClosureComplete = false;
-            effectiveArguments.push(argument, value!);
-          } else {
+        }
+        if (options.resolveLibrary === undefined) {
+          libraryClosureComplete = false;
+          effectiveArguments.push(argument, value!);
+        } else {
+          const activeLibrary = `${request.request}\0${cwd}`;
+          if (activeLibraries.has(activeLibrary)) {
+            fail(
+              "invalid-syntax",
+              `${sourceFile}:library-cycle:${request.request}`,
+            );
+          }
+          activeLibraries.add(activeLibrary);
+          try {
             let resolution: HxmlLibraryResolution;
             try {
               resolution = await awaitWithAbort(
@@ -514,15 +540,17 @@ export async function inventoryHxml(
               `${sourceFile}:library:${request.request}`,
               cwd,
             );
+          } finally {
+            activeLibraries.delete(activeLibrary);
           }
         }
-        index += 1;
+        if (consumesNextArgument) index += 1;
         continue;
       }
 
       effectiveArguments.push(argument);
       if (value !== undefined) effectiveArguments.push(value);
-      index += arity;
+      if (consumesNextArgument) index += 1;
     }
   };
 
@@ -537,21 +565,25 @@ export async function inventoryHxml(
     assertAllowed(allowedRoots, file, subject);
     const initialCwd = canonicalDirectory(initialDirectory, `${subject}:cwd`);
     const occurrence = `${file}\0${initialCwd}`;
-    if (hxmlOccurrences.has(occurrence)) {
-      return file;
+    if (activeHxmlOccurrences.has(occurrence)) {
+      fail("invalid-syntax", `${subject}:hxml-cycle:${file}`);
     }
-    hxmlOccurrences.add(occurrence);
     orderedHxmlOccurrences.push(
       Object.freeze({ file, workingDirectory: initialCwd }),
     );
-    if (hxmlOccurrences.size > maxHxmlOccurrences) {
+    if (orderedHxmlOccurrences.length > maxHxmlOccurrences) {
       fail("budget-exceeded", "hxmlOccurrences");
     }
     hxmlFiles.add(file);
     if (hxmlFiles.size > maxHxmlFiles) {
       fail("budget-exceeded", "hxmlFiles");
     }
-    await processArguments(argumentsFromFile(file), file, initialCwd);
+    activeHxmlOccurrences.add(occurrence);
+    try {
+      await processArguments(argumentsFromFile(file), file, initialCwd);
+    } finally {
+      activeHxmlOccurrences.delete(occurrence);
+    }
     return file;
   };
 
