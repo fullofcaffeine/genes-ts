@@ -198,7 +198,7 @@ function releaseView(tag, options = {}) {
           "view",
           tag,
           "--json",
-          "tagName,isDraft,isImmutable,isPrerelease,body,assets",
+          "tagName,targetCommitish,isDraft,isImmutable,isPrerelease,body,assets",
         ],
         options
       )
@@ -251,6 +251,32 @@ function ensureTagPointsToSource({ tag, commit, options = {} }) {
   const actual = run("git", ["rev-list", "-n", "1", tag], options).trim();
   if (actual !== commit) {
     fail(`${tag} points to ${actual}, not reviewed source ${commit}`);
+  }
+}
+
+/**
+ * Checks the release source before any draft asset can be uploaded.
+ *
+ * GitHub may keep a new draft's tag uncreated until publication. If the tag
+ * already exists, it is the stronger source fact and must point to the exact
+ * commit. If it does not exist yet, the draft must record that exact commit as
+ * its future tag target. The caller repeats this check before publication and
+ * verifies the real tag after publication.
+ */
+function verifyDraftSource({ release, tag, commit, options = {} }) {
+  const remoteTag = run(
+    "git",
+    ["ls-remote", "--tags", "origin", `refs/tags/${tag}`],
+    options
+  ).trim();
+  if (remoteTag !== "") {
+    ensureTagPointsToSource({ tag, commit, options });
+    return;
+  }
+  if (release.targetCommitish !== commit) {
+    fail(
+      `${tag} will be created from ${release.targetCommitish}, not reviewed source ${commit}`
+    );
   }
 }
 
@@ -327,7 +353,7 @@ function completeToolingGithubRelease({
       release = releaseView(tag, options);
     }
     if (!release || !release.isDraft) fail("tooling release draft is unavailable");
-    ensureTagPointsToSource({ tag, commit, options });
+    verifyDraftSource({ release, tag, commit, options });
     if (release.body.replace(/\r\n/g, "\n") !== notes) {
       fail("existing tooling release draft has different notes");
     }
@@ -344,6 +370,7 @@ function completeToolingGithubRelease({
     release = releaseView(tag, options);
     verifyReleaseShape({ release, tag, notes, names, requireImmutable: false });
     compareHostedAssets({ assetDirectory, names, tag, options });
+    verifyDraftSource({ release, tag, commit, options });
     runGh(
       ["release", "edit", tag, "--draft=false", "--latest=false"],
       options

@@ -80,10 +80,11 @@ const releasePublisher = readFileSync(
 );
 assert.match(releasePublisher, /"--latest=false"/);
 assert(
-  releasePublisher.indexOf("ensureTagPointsToSource({ tag, commit, options })") <
+  releasePublisher.indexOf("verifyDraftSource({ release, tag, commit, options })") <
     releasePublisher.indexOf('"release", "upload"'),
-  "the publisher must verify an existing tag before uploading assets"
+  "the publisher must verify an existing tag or exact draft target before uploading assets"
 );
+assert.match(releasePublisher, /release\.targetCommitish !== commit/);
 
 for (const reference of workflow.matchAll(/uses:\s+([^\s#]+)/g)) {
   assert.match(
