@@ -111,7 +111,7 @@ const finalTagCheckInPublisher = releasePublisher.lastIndexOf(
   "verifyDraftSource({ release, tag, commit, options })"
 );
 const publishDraft = releasePublisher.lastIndexOf(
-  '["release", "edit", tag, "--draft=false", "--latest=false"]'
+  '"--prerelease=false",\n        "--draft=false"'
 );
 assert(
   finalMainCheckInPublisher > 0 &&
@@ -119,6 +119,11 @@ assert(
     finalTagCheckInPublisher < publishDraft,
   "the publisher must re-check main, then keep the tag-source check last before publication"
 );
+assert.match(releasePublisher, /tagName,targetCommitish,name,isDraft/);
+assert.match(releasePublisher, /verifyReleaseMetadata\(\{ release, tag, title, notes \}\)/);
+assert.match(releasePublisher, /"--target", commit/);
+assert.match(releasePublisher, /"--title", title/);
+assert.match(releasePublisher, /"--notes-file", notesFile/);
 
 for (const reference of workflow.matchAll(/uses:\s+([^\s#]+)/g)) {
   assert.match(

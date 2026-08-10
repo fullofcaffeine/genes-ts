@@ -220,7 +220,7 @@ function releaseView(tag, options = {}) {
           "view",
           tag,
           "--json",
-          "tagName,targetCommitish,isDraft,isImmutable,isPrerelease,body,assets",
+          "tagName,targetCommitish,name,isDraft,isImmutable,isPrerelease,body,assets",
         ],
         options
       )
@@ -232,12 +232,17 @@ function releaseView(tag, options = {}) {
   }
 }
 
-function verifyReleaseShape({ release, tag, notes, names, requireImmutable }) {
+function verifyReleaseMetadata({ release, tag, title, notes }) {
   if (!release || release.tagName !== tag) fail(`GitHub Release ${tag} is missing`);
+  if (release.name !== title) fail("hosted tooling release title differs from the reviewed title");
   if (release.isPrerelease) fail("tooling release must not be a prerelease");
   if (release.body.replace(/\r\n/g, "\n") !== notes) {
     fail("hosted tooling release notes differ from the reviewed notes");
   }
+}
+
+function verifyReleaseShape({ release, tag, title, notes, names, requireImmutable }) {
+  verifyReleaseMetadata({ release, tag, title, notes });
   if (requireImmutable && (release.isDraft || !release.isImmutable)) {
     fail("published tooling release is not immutable");
   }
@@ -351,11 +356,12 @@ function completeToolingGithubRelease({
 
   const names = validateLocalAssets({ assetDirectory, commit, version });
   const notes = releaseNotes(version, commit);
+  const title = `@genes-ts/tooling ${version}`;
   const options = { cwd, env: { ...process.env, GH_REPO: repository } };
   let release = releaseView(tag, options);
 
   if (release && !release.isDraft) {
-    verifyReleaseShape({ release, tag, notes, names, requireImmutable: true });
+    verifyReleaseShape({ release, tag, title, notes, names, requireImmutable: true });
     ensureTagPointsToSource({ tag, commit, options });
     compareHostedAssets({ assetDirectory, names, tag, options });
     console.log(`[tooling-release] ${tag} is already complete and immutable`);
@@ -379,7 +385,7 @@ function completeToolingGithubRelease({
           "--draft",
           "--latest=false",
           "--title",
-          `@genes-ts/tooling ${version}`,
+          title,
           "--notes-file",
           notesFile,
         ],
@@ -388,10 +394,8 @@ function completeToolingGithubRelease({
       release = releaseView(tag, options);
     }
     if (!release || !release.isDraft) fail("tooling release draft is unavailable");
+    verifyReleaseMetadata({ release, tag, title, notes });
     verifyDraftSource({ release, tag, commit, options });
-    if (release.body.replace(/\r\n/g, "\n") !== notes) {
-      fail("existing tooling release draft has different notes");
-    }
 
     const hosted = new Set((release.assets || []).map(({ name }) => name));
     for (const name of hosted) {
@@ -411,19 +415,30 @@ function completeToolingGithubRelease({
         runGh(["release", "upload", tag, path.join(assetDirectory, name)], options);
       }
     }
-    release = releaseView(tag, options);
-    verifyReleaseShape({ release, tag, notes, names, requireImmutable: false });
-    compareHostedAssets({ assetDirectory, names, tag, options });
     ensureCurrentMain({ commit, options });
+    // Refresh all mutable draft facts after uploads and the main check. The
+    // final edit also writes the reviewed metadata again in the same request
+    // that makes the release public.
+    release = releaseView(tag, options);
+    verifyReleaseShape({ release, tag, title, notes, names, requireImmutable: false });
+    compareHostedAssets({ assetDirectory, names, tag, options });
     // Keep the tag check last. Another maintainer may create the tag while the
     // main fetch runs, and publishing must stop if that tag names other source.
     verifyDraftSource({ release, tag, commit, options });
     runGh(
-      ["release", "edit", tag, "--draft=false", "--latest=false"],
+      [
+        "release", "edit", tag,
+        "--target", commit,
+        "--title", title,
+        "--notes-file", notesFile,
+        "--prerelease=false",
+        "--draft=false",
+        "--latest=false",
+      ],
       options
     );
     release = releaseView(tag, options);
-    verifyReleaseShape({ release, tag, notes, names, requireImmutable: true });
+    verifyReleaseShape({ release, tag, title, notes, names, requireImmutable: true });
     compareHostedAssets({ assetDirectory, names, tag, options });
     ensureTagPointsToSource({ tag, commit, options });
     console.log(`[tooling-release] completed immutable ${tag}`);
