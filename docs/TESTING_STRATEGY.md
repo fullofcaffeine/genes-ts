@@ -1058,8 +1058,8 @@ yarn test:tooling-github-release
 
 This check proves that the workflow accepts only an exact `main` commit and
 matching authorization text. It also proves deterministic package bytes,
-exact release files, safe retries, and final hosted-byte checks. It does not
-publish a release.
+an exact tag created before the draft, exact release files, safe retries, and
+final hosted-byte checks. It does not publish a release.
 
 Run the separate npm workflow and live-settings proof with:
 

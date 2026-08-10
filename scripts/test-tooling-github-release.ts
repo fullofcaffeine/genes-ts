@@ -26,6 +26,13 @@ const releaseHelpers = require(
     commit: string;
     execute(command: string, arguments_: string[]): string;
   }): void;
+  ensureExactTag(options: {
+    commit: string;
+    repository: string;
+    tag: string;
+    executeGh(arguments_: string[]): string;
+    verifyTag(options: { commit: string; tag: string }): void;
+  }): void;
   releaseNotes(version: string, commit: string): string;
   validateLocalAssets(options: {
     assetDirectory: string;
@@ -121,6 +128,13 @@ assert.match(releasePublisher, /verifyReleaseMetadata\(\{ release, tag, title, n
 assert.match(releasePublisher, /"--target", commit/);
 assert.match(releasePublisher, /"--title", title/);
 assert.match(releasePublisher, /"--notes-file", notesFile/);
+assert(
+  releasePublisher.indexOf(
+    "  ensureExactTag({ repository, tag, commit, options });"
+  ) <
+    releasePublisher.indexOf("let release = releaseView(tag, options)"),
+  "the publisher must create and verify the exact tag before it creates or resumes a draft"
+);
 
 for (const reference of workflow.matchAll(/uses:\s+([^\s#]+)/g)) {
   assert.match(
@@ -165,6 +179,41 @@ assert.throws(
       },
     }),
   /origin\/main moved/
+);
+const tagCommands: string[] = [];
+const verifiedTags: string[] = [];
+releaseHelpers.ensureExactTag({
+  commit: currentCommit,
+  repository: "fullofcaffeine/genes-ts",
+  tag: "tooling-v0.1.0",
+  executeGh(arguments_) {
+    tagCommands.push(arguments_.join(" "));
+    throw new Error("the tag already exists");
+  },
+  verifyTag({ commit, tag }) {
+    verifiedTags.push(`${tag}@${commit}`);
+  },
+});
+assert.deepEqual(tagCommands, [
+  `api --method POST repos/fullofcaffeine/genes-ts/git/refs -f ref=refs/tags/tooling-v0.1.0 -f sha=${currentCommit}`,
+]);
+assert.deepEqual(verifiedTags, [
+  `tooling-v0.1.0@${currentCommit}`,
+]);
+assert.throws(
+  () =>
+    releaseHelpers.ensureExactTag({
+      commit: currentCommit,
+      repository: "fullofcaffeine/genes-ts",
+      tag: "tooling-v0.1.0",
+      executeGh() {
+        throw new Error("the tag already exists");
+      },
+      verifyTag() {
+        throw new Error("tag points to different source");
+      },
+    }),
+  /tag points to different source/
 );
 const notes = releaseHelpers.releaseNotes(
   "0.1.0",

@@ -282,6 +282,41 @@ function ensureTagPointsToSource({ tag, commit, options = {} }) {
 }
 
 /**
+ * Creates the release tag at the reviewed commit before a draft can become
+ * public. The GitHub create operation is atomic: only one caller can create
+ * the name. If another caller wins, the required follow-up check accepts only
+ * the same commit.
+ */
+function ensureExactTag({
+  repository,
+  tag,
+  commit,
+  options = {},
+  executeGh = runGh,
+  verifyTag = ensureTagPointsToSource,
+}) {
+  try {
+    executeGh(
+      [
+        "api",
+        "--method",
+        "POST",
+        `repos/${repository}/git/refs`,
+        "-f",
+        `ref=refs/tags/${tag}`,
+        "-f",
+        `sha=${commit}`,
+      ],
+      options
+    );
+  } catch (_error) {
+    // A matching retry reports that the name exists. The exact check below
+    // distinguishes that safe case from a wrong tag or a failed creation.
+  }
+  verifyTag({ tag, commit, options });
+}
+
+/**
  * Confirms that the reviewed commit is still current immediately before the
  * draft becomes public. Uploading and comparing files can take long enough for
  * main to advance after the workflow's earlier check.
@@ -297,25 +332,15 @@ function ensureCurrentMain({ commit, options = {}, execute = run }) {
 /**
  * Checks the release source before any draft asset can be uploaded.
  *
- * GitHub may keep a new draft's tag uncreated until publication. If the tag
- * already exists, it is the stronger source fact and must point to the exact
- * commit. If it does not exist yet, the draft must record that exact commit as
- * its future tag target. The caller repeats this check before publication and
- * verifies the real tag after publication.
+ * The publisher creates the exact tag before it creates or resumes a draft.
+ * Every later source check therefore requires that real tag. A missing tag is
+ * an error, even when the draft still records the expected future target.
  */
 function verifyDraftSource({ release, tag, commit, options = {} }) {
-  const remoteTag = run(
-    "git",
-    ["ls-remote", "--tags", "origin", `refs/tags/${tag}`],
-    options
-  ).trim();
-  if (remoteTag !== "") {
-    ensureTagPointsToSource({ tag, commit, options });
-    return;
-  }
+  ensureTagPointsToSource({ tag, commit, options });
   if (release.targetCommitish !== commit) {
     fail(
-      `${tag} will be created from ${release.targetCommitish}, not reviewed source ${commit}`
+      `${tag} draft records ${release.targetCommitish}, not reviewed source ${commit}`
     );
   }
 }
@@ -358,6 +383,7 @@ function completeToolingGithubRelease({
   const notes = releaseNotes(version, commit);
   const title = `@genes-ts/tooling ${version}`;
   const options = { cwd, env: { ...process.env, GH_REPO: repository } };
+  ensureExactTag({ repository, tag, commit, options });
   let release = releaseView(tag, options);
 
   if (release && !release.isDraft) {
@@ -470,6 +496,7 @@ module.exports = {
   assetNames,
   completeToolingGithubRelease,
   ensureCurrentMain,
+  ensureExactTag,
   releaseNotes,
   validateLocalAssets,
   versionFromTag,
