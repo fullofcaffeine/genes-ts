@@ -3463,13 +3463,16 @@ for (const checkpoint of [
         "an alias restart may recover when both spellings name the same real output",
       );
     } else {
+      // Keep the output folder unchanged here. This branch checks the entry
+      // file spelling; changing the folder too would correctly fail at the
+      // earlier folder-ownership check and hide the behavior under test.
       const alias = spawnSync(process.execPath, [fixture], {
         cwd: root,
         env: {
           ...process.env,
           GENES_SESSION_CRASH_ROOT: root,
           GENES_SESSION_CRASH_STATE: ".genes/state-b",
-          GENES_SESSION_CRASH_OUTPUT: "SRC-GEN/index.ts",
+          GENES_SESSION_CRASH_OUTPUT: "src-gen/INDEX.ts",
         },
         encoding: "utf8",
       });
