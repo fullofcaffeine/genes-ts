@@ -361,80 +361,18 @@ This matters for package builds because silently omitting `index.ts`,
 `index.js`, or `index.d.ts` would leave the owner file on disk but remove the
 public import path the author explicitly requested.
 
-## Why direct module values are deferred
+## Direct module values use a separate rule
 
-This capability deliberately covers functions, not eagerly evaluated values.
-The difference is when JavaScript runs the code.
+Genes also supports closed module-level data through `@:genes.moduleValue`.
+The value rule is separate because a JavaScript `const` initializer runs while
+its module loads. A function body runs only after code calls the function.
 
-Declaring a function creates the function binding without executing its body:
+The value rule accepts constants, nested array or object literals, and exact
+references to earlier selected values. It rejects calls and other computed
+expressions before output publication.
 
-```ts
-export function getFirst(): number {
-  return second;
-}
-
-export const second = 2;
-```
-
-Calling `getFirst()` after the module has initialized is ordinary JavaScript.
-By contrast, a `const` initializer executes immediately as the module loads:
-
-```haxe
-@:genes.moduleValue("first")
-final first = makeValue();
-
-@:genes.moduleValue("second")
-final second = 2;
-
-function makeValue():Int {
-  return second;
-}
-```
-
-Naively turning those fields into direct ESM values would produce:
-
-```ts
-export const first = makeValue();
-export const second = 2;
-
-function makeValue(): number {
-  return second;
-}
-```
-
-JavaScript begins evaluating `first` before it has initialized `second`.
-Although the name `second` is already in scope, reading it during this interval
-throws `ReferenceError`. JavaScript calls that interval the **temporal dead
-zone**, or TDZ.
-
-The older synthetic-owner representation does not have identical behavior: a
-not-yet-assigned object property is generally read as `undefined`. Proving that
-every possible initializer call, callback, constructor, alias, and control-flow
-path cannot reach a later value would require a separate initialization
-contract—not a small extension of function relocation.
-
-Genes therefore reports this explicit diagnostic instead of ignoring the
-metadata or emitting a misleading direct value:
-
-```text
-GENES-MODULE-VALUE-DEFERRED-001
-```
-
-Remove `@:genes.moduleValue` to keep the established field representation. If
-the value is genuinely computed on demand, expose that operation as a
-`@:genes.moduleFunction`:
-
-```haxe
-@:genes.moduleFunction("getFirst")
-function getFirst():Int {
-  return makeValue();
-}
-```
-
-A future direct-value proposal can support a deliberately small closed-data
-subset—such as constants and literal arrays/objects—under its own reviewable
-rules. Calls and other eager computations are not silently accepted by this
-function feature.
+Read [`MODULE_VALUES.md`](MODULE_VALUES.md) for the complete contract, output
+examples, and the reason that later-value reads are unsafe.
 
 ## What remains equivalent
 

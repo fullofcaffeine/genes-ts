@@ -18,6 +18,7 @@ class DefinitionEmitter extends ModuleEmitter {
   var currentCallableSignature: Null<CallableSignaturePlan> = null;
 
   public function emitDefinition(module: Module) {
+    moduleValuePlan = module.moduleValuePlan;
     final dependencies = module.declarationDependencies;
     final endTimer = timer('emitDefinition');
     ctx.typeAccessor = type -> TypeAccessor.forTypeScript(type,
@@ -248,8 +249,9 @@ class DefinitionEmitter extends ModuleEmitter {
           // direct ESM name. That name can intentionally differ from Haxe's
           // source field name, so classic declarations must consume the same
           // plan instead of reconstructing the old synthetic-owner spelling.
-          final directEntry = moduleFunctionPlan.entryFor(cl, field);
-          emitIdent(directEntry == null ? (TypeUtil.nativeName(field.meta) ?? field.name) : directEntry.requestedName);
+          final directFunction = moduleFunctionPlan.entryFor(cl, field);
+          final directValue = moduleValuePlan.entryFor(cl, field);
+          emitIdent(directFunction != null ? directFunction.requestedName : directValue != null ? directValue.requestedName : (TypeUtil.nativeName(field.meta) ?? field.name));
           write(': ');
           if (field.tsType != null)
             write(field.tsType);

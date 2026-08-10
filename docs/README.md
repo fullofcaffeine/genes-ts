@@ -19,6 +19,7 @@ feature surface beyond the quick examples in `readme.md`.
 - `OUTPUT_MODES.md#reusable-library-profile` — opt-in matched runtime and declaration surfaces for packages
 - `OUTPUT_MODES.md#typescript-aware-helpers-that-still-run-as-es6` — how TS-aware helper types erase to runnable ES6 without weakening TS output
 - `MODULE_FUNCTIONS.md` — opt-in, analyzer-visible module functions that preserve the public Haxe static-method API
+- `MODULE_VALUES.md` — closed module-level Haxe data emitted as direct ESM constants
 - `STDLIB_OVERRIDES.md` — narrowly reviewed JavaScript stdlib overlays,
   provenance guards, Reflaxe relationship, and the `haxe.io.Bytes` example
 - `PACKAGING.md` — how to publish libraries/apps in both output modes

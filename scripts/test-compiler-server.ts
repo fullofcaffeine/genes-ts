@@ -650,7 +650,8 @@ async function runRuntimeEvidence(
       ][index]
     );
     ok(
-      resultText(result).includes("project-a:a1:extra-a-v1"),
+      resultText(result).includes(
+        "project-a:a1:extra-a-v1:closed-module-data"),
       `Runtime ${index} did not execute the current Project A tree`
     );
   }

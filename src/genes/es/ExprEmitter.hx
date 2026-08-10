@@ -507,6 +507,18 @@ class ExprEmitter extends Emitter {
         else
           write(ctx.typeAccessor(TypeAccessor.forStaticFieldBinding(owner,
             field, request.requestedName)));
+      case TField(_, FStatic(ownerRef, fieldRef))
+        if (currentModule != null
+          && DirectModuleBinding.isModuleFieldsOwner(ownerRef.get())
+          && ModuleValuePlan.requestedName(fieldRef.get()) != null):
+        final owner = ownerRef.get();
+        final field = fieldRef.get();
+        final requestedName = ModuleValuePlan.requestedName(field);
+        if (owner.module == currentModule.module)
+          write(requestedName);
+        else
+          write(ctx.typeAccessor(TypeAccessor.forStaticFieldBinding(owner,
+            field, requestedName)));
       case TField(_, FStatic(_.get() => {
         pack: [],
         name: ''

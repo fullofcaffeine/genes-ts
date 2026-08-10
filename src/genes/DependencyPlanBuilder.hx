@@ -104,8 +104,8 @@ class DependencyPlanBuilder {
   }
 
   function collectRuntimeEdges(): Void {
-    var onlyRegisterFreeDirectModuleFunctions = module.members.length > 0;
-    var hasDirectModuleFunctionOwner = false;
+    var onlyRegisterFreeDirectModuleBindings = module.members.length > 0;
+    var hasDirectModuleBindingOwner = false;
     // Validate compiler-owned string templates before output projection opens
     // any implementation writer. The plan itself adds no dependency edge.
     module.templateLiteralPlan;
@@ -311,6 +311,11 @@ class DependencyPlanBuilder {
           final request = module.resolveModuleFunction(owner, field);
           return request != null
             && request.isSourceModuleBinding ? request : null;
+        }, (owner, field) -> {
+          final ownerValue = owner.get();
+          if (!DirectModuleBinding.isModuleFieldsOwner(ownerValue))
+            return null;
+          return ModuleValuePlan.requestedName(field.get());
         });
       for (occurrence in occurrences) {
         switch occurrence {
@@ -336,6 +341,25 @@ class DependencyPlanBuilder {
                 BindingIdentity.create(dependency,
                   fieldOrigin(owner, field.name)))),
               'runtime.module-function', field.pos);
+          case RuntimeTypeOccurrence.DirectModuleValue(ownerRef, fieldRef,
+            requestedName):
+            final owner = ownerRef.get();
+            final field = fieldRef.get();
+            if (owner.module == module.module)
+              continue;
+            final dependency: DependencySpec = {
+              type: DependencyType.DName,
+              name: requestedName,
+              path: owner.module,
+              external: false,
+              memberPath: [],
+              pos: field.pos
+            };
+            addEdge(RuntimeValue, TClassDecl(ownerRef),
+              Bound(new DependencyImport(dependency,
+                BindingIdentity.create(dependency,
+                  fieldOrigin(owner, field.name)))),
+              'runtime.module-value', field.pos);
         }
       }
     }
@@ -434,20 +458,17 @@ class DependencyPlanBuilder {
       switch member {
         case MClass(cl, _, fields):
           final emittableFields = Module.emittableFields(fields);
-          final directOwner = ModuleFunctionPlan.isModuleFieldsOwner(cl)
-            && cl.init == null
-            && emittableFields.length > 0
-            && emittableFields.filter(field ->
-              module.moduleFunctionRequestPlan.entryFor(cl, field) == null)
-              .length == 0;
+          final directOwner = DirectModuleBinding.canOmitSyntheticOwner(cl,
+            emittableFields);
           if (directOwner) {
-            hasDirectModuleFunctionOwner = true;
+            hasDirectModuleBindingOwner = true;
             if (emittableFields.filter(field ->
-              !directFunctionNeedsNoRegister(field))
+              module.moduleFunctionRequestPlan.entryFor(cl, field) != null
+              && !directFunctionNeedsNoRegister(field))
               .length > 0)
-              onlyRegisterFreeDirectModuleFunctions = false;
+              onlyRegisterFreeDirectModuleBindings = false;
           } else
-            onlyRegisterFreeDirectModuleFunctions = false;
+            onlyRegisterFreeDirectModuleBindings = false;
           for (parent in cl.interfaces)
             addReference(RuntimeValue, TClassDecl(parent.t),
               'runtime.interface', cl.pos);
@@ -464,17 +485,16 @@ class DependencyPlanBuilder {
             addFromExpr(field.expr, CompilerInternal.isField(field.meta));
           addFromExpr(cl.init, true);
         case MMain(expression):
-          onlyRegisterFreeDirectModuleFunctions = false;
+          onlyRegisterFreeDirectModuleBindings = false;
           addFromExpr(expression);
         case MEnum(_, _):
-          onlyRegisterFreeDirectModuleFunctions = false;
+          onlyRegisterFreeDirectModuleBindings = false;
         case MType(_, _):
       }
     }
     if (module.module != 'genes.Register'
       && (module.hasFeature('js.Lib.global')
-        || !onlyRegisterFreeDirectModuleFunctions
-        || !hasDirectModuleFunctionOwner))
+        || !onlyRegisterFreeDirectModuleBindings || !hasDirectModuleBindingOwner))
       addReference(RuntimeValue, TypeUtil.registerType,
         'runtime.registration', Context.currentPos());
   }

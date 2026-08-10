@@ -74,6 +74,7 @@ claim.
 - `docs/NULL_SAFETY.md` — package-scoped Haxe null safety, TypeScript
   `strictNullChecks`, and JavaScript `null`/`undefined` boundaries
 - `docs/MODULE_FUNCTIONS.md` — analyzer-visible module functions without a delegating wrapper
+- `docs/MODULE_VALUES.md` — closed module-level values as direct ESM constants
 - `docs/CSS_MODULES.md` — processor-authoritative closed CSS Module types,
   exact TypeScript import declarations, and both runtime output modes
 - `docs/ARCHITECTURE_ROADMAP.md` — readiness boundary and shared TS/JS architecture roadmap
@@ -103,6 +104,9 @@ claim.
   a delegating wrapper; pair it with matching `@:expose("exactName")` to publish
   that same function through stable owner-module and compilation-root ESM
   bindings in both TypeScript and JavaScript profiles
+- **Closed direct module values** via `@:genes.moduleValue("exactName")`, which
+  emits literal Haxe data as a typed ESM `const` and rejects unsafe eager
+  computations before JavaScript can fail during module loading
 - **npm declaration ingestion** via a pinned, deterministic dts2hx bridge whose
   externs are exercised through both TS and classic JS output
 - **Async/await sugar** (`@:async` + `await(...)`) emitting native `async`/`await`

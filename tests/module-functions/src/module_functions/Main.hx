@@ -15,7 +15,10 @@ import module_functions.TopLevelExposed.authoredTopLevelName;
 import module_functions.TopLevelMixed.mixedOrdinary;
 import module_functions.TopLevelMixed.mixedSelected;
 import module_functions.TopLevel.topLevelIdentity;
+import module_functions.TopLevel.metadata;
+import module_functions.TopLevel.metadataAlias;
 import module_functions.TopLevelSibling.topLevelIdentity as siblingTopLevelIdentity;
+import module_functions.TopLevelSibling.metadata as siblingMetadata;
 
 /** Executes admitted runtime behavior without target-specific escape syntax. */
 class Main {
@@ -43,6 +46,9 @@ class Main {
       Std.string(SecondarySelected.selected(1)),
       topLevelIdentity("top-level"),
       siblingTopLevelIdentity("top-level-sibling"),
+      metadata.title,
+      metadataAlias.title,
+      siblingMetadata.title,
       Std.string(extractTopLevelValue(new TopLevelReceiver(7))()),
       Std.string(mixedSelected() + mixedOrdinary),
       collisionTranscript(),
