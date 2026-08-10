@@ -332,15 +332,24 @@ function ensureCurrentMain({ commit, options = {}, execute = run }) {
 /**
  * Checks the release source before any draft asset can be uploaded.
  *
- * The publisher creates the exact tag before it creates or resumes a draft.
- * Every later source check therefore requires that real tag. A missing tag is
- * an error, even when the draft still records the expected future target.
+ * Before uploads, an existing tag is stronger than the draft target and must
+ * identify the reviewed commit. A new draft may not have a tag yet, so its
+ * target must name that commit. The final check runs after the publisher
+ * creates or verifies the real tag.
  */
 function verifyDraftSource({ release, tag, commit, options = {} }) {
-  ensureTagPointsToSource({ tag, commit, options });
+  const remoteTag = run(
+    "git",
+    ["ls-remote", "--tags", "origin", `refs/tags/${tag}`],
+    options
+  ).trim();
+  if (remoteTag !== "") {
+    ensureTagPointsToSource({ tag, commit, options });
+    return;
+  }
   if (release.targetCommitish !== commit) {
     fail(
-      `${tag} draft records ${release.targetCommitish}, not reviewed source ${commit}`
+      `${tag} will be created from ${release.targetCommitish}, not reviewed source ${commit}`
     );
   }
 }
@@ -383,7 +392,6 @@ function completeToolingGithubRelease({
   const notes = releaseNotes(version, commit);
   const title = `@genes-ts/tooling ${version}`;
   const options = { cwd, env: { ...process.env, GH_REPO: repository } };
-  ensureExactTag({ repository, tag, commit, options });
   let release = releaseView(tag, options);
 
   if (release && !release.isDraft) {
@@ -448,8 +456,10 @@ function completeToolingGithubRelease({
     release = releaseView(tag, options);
     verifyReleaseShape({ release, tag, title, notes, names, requireImmutable: false });
     compareHostedAssets({ assetDirectory, names, tag, options });
-    // Keep the tag check last. Another maintainer may create the tag while the
-    // main fetch runs, and publishing must stop if that tag names other source.
+    // Create the protected tag only after the candidate and current main pass
+    // every check. If another caller created it first, accept only the exact
+    // reviewed commit. Keep the real-tag check last before publication.
+    ensureExactTag({ repository, tag, commit, options });
     verifyDraftSource({ release, tag, commit, options });
     runGh(
       [

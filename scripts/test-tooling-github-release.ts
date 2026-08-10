@@ -114,27 +114,26 @@ const finalMainCheckInPublisher = releasePublisher.lastIndexOf(
 const finalTagCheckInPublisher = releasePublisher.lastIndexOf(
   "verifyDraftSource({ release, tag, commit, options })"
 );
+const exactTagCreation = releasePublisher.lastIndexOf(
+  "ensureExactTag({ repository, tag, commit, options })"
+);
 const publishDraft = releasePublisher.lastIndexOf(
   '"--prerelease=false",\n        "--draft=false"'
 );
 assert(
   finalMainCheckInPublisher > 0 &&
+    exactTagCreation >= 0 &&
+    finalMainCheckInPublisher < exactTagCreation &&
+    exactTagCreation < finalTagCheckInPublisher &&
     finalMainCheckInPublisher < finalTagCheckInPublisher &&
     finalTagCheckInPublisher < publishDraft,
-  "the publisher must re-check main, then keep the tag-source check last before publication"
+  "the publisher must re-check main, create the exact tag, and verify it before publication"
 );
 assert.match(releasePublisher, /tagName,targetCommitish,name,isDraft/);
 assert.match(releasePublisher, /verifyReleaseMetadata\(\{ release, tag, title, notes \}\)/);
 assert.match(releasePublisher, /"--target", commit/);
 assert.match(releasePublisher, /"--title", title/);
 assert.match(releasePublisher, /"--notes-file", notesFile/);
-assert(
-  releasePublisher.indexOf(
-    "  ensureExactTag({ repository, tag, commit, options });"
-  ) <
-    releasePublisher.indexOf("let release = releaseView(tag, options)"),
-  "the publisher must create and verify the exact tag before it creates or resumes a draft"
-);
 
 for (const reference of workflow.matchAll(/uses:\s+([^\s#]+)/g)) {
   assert.match(
