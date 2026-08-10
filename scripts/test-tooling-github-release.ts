@@ -104,6 +104,16 @@ assert.match(workflow, /NPM_RELEASE_INTEGRITY: "sha512-/);
 assert.match(workflow, /npm install --global "npm@\$\{NPM_RELEASE_VERSION\}"/);
 assert.match(workflow, /tooling-v\$\{RELEASE_VERSION\}/);
 assert.match(workflow, /yarn test:ci/);
+const goSetup = workflow.indexOf(
+  "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0"
+);
+const beadsInstall = workflow.indexOf("yarn beads:install");
+const completeReleaseGate = workflow.indexOf("yarn test:ci");
+assert(
+  goSetup > 0 && goSetup < beadsInstall && beadsInstall < completeReleaseGate,
+  "the release workflow must set up pinned Go, then install Beads, before the complete release gate"
+);
+assert.match(workflow, /go-version: "1\.26\.5"/);
 assert.match(workflow, /npm pack \.\/tooling --json/);
 assert.match(workflow, /cmp .*first.*second/s);
 assert.match(workflow, /node scripts\/dist\/test-tooling-package\.js/);
