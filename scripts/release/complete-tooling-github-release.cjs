@@ -392,6 +392,11 @@ function completeToolingGithubRelease({
   const notes = releaseNotes(version, commit);
   const title = `@genes-ts/tooling ${version}`;
   const options = { cwd, env: { ...process.env, GH_REPO: repository } };
+  // A draft creation can create its missing tag automatically. Check main and
+  // create the exact protected tag first, so GitHub never chooses that source
+  // on our behalf. A later main update does not change this locked release.
+  ensureCurrentMain({ commit, options });
+  ensureExactTag({ repository, tag, commit, options });
   let release = releaseView(tag, options);
 
   if (release && !release.isDraft) {
@@ -449,18 +454,19 @@ function completeToolingGithubRelease({
         runGh(["release", "upload", tag, path.join(assetDirectory, name)], options);
       }
     }
-    ensureCurrentMain({ commit, options });
     // Refresh all mutable draft facts after uploads and the main check. The
     // final edit also writes the reviewed metadata again in the same request
     // that makes the release public.
     release = releaseView(tag, options);
     verifyReleaseShape({ release, tag, title, notes, names, requireImmutable: false });
     compareHostedAssets({ assetDirectory, names, tag, options });
-    // Create the protected tag only after the candidate and current main pass
-    // every check. If another caller created it first, accept only the exact
-    // reviewed commit. Keep the real-tag check last before publication.
-    ensureExactTag({ repository, tag, commit, options });
     verifyDraftSource({ release, tag, commit, options });
+    // The tag check can take long enough for another authorized maintainer to
+    // change a draft. Read and compare every mutable fact once more before the
+    // request that makes those files immutable.
+    release = releaseView(tag, options);
+    verifyReleaseShape({ release, tag, title, notes, names, requireImmutable: false });
+    compareHostedAssets({ assetDirectory, names, tag, options });
     runGh(
       [
         "release", "edit", tag,

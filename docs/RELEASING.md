@@ -270,13 +270,16 @@ exactly:
   and complete file list; and
 - `sbom.spdx.json`, the package's SPDX software inventory.
 
-The publisher creates a draft and compares every uploaded byte with the local
-candidate. It then checks current `main`, creates the exact protected tag at
-the reviewed commit, and publishes the draft. If another process creates the
-tag first, the publisher continues only when that tag points to the same
-commit. On a retry, it checks every file already present in the draft before
-uploading any missing file. A retry may finish an incomplete draft or verify
-an already-complete immutable release. It refuses
+The publisher checks current `main` and creates the exact protected tag at the
+reviewed commit before GitHub can create a draft tag automatically. A later
+change to `main` does not change that locked release source. The publisher then
+creates or resumes a draft and compares every uploaded byte with the local
+candidate. It checks the complete draft again after the final tag check and
+immediately before publication. If another process creates the tag first, the
+publisher continues only when that tag points to the same commit. On a retry,
+it checks every file already present in the draft before uploading any missing
+file. A retry may finish an incomplete draft or verify an already-complete
+immutable release. It refuses
 different notes, unexpected assets, changed bytes, a moved tag, or a source
 commit other than protected `main`. It reads the archive itself and checks the
 receipt's source, npm integrity, two checksums, and complete file list before

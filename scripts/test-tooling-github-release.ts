@@ -120,14 +120,35 @@ const exactTagCreation = releasePublisher.lastIndexOf(
 const publishDraft = releasePublisher.lastIndexOf(
   '"--prerelease=false",\n        "--draft=false"'
 );
+const firstReleaseRead = releasePublisher.indexOf(
+  "let release = releaseView(tag, options)"
+);
+const finalDraftRefresh = releasePublisher.lastIndexOf(
+  "release = releaseView(tag, options);",
+  publishDraft
+);
+const finalDraftShapeCheck = releasePublisher.lastIndexOf(
+  "verifyReleaseShape({ release, tag, title, notes, names, requireImmutable: false })",
+  publishDraft
+);
+const finalDraftByteCheck = releasePublisher.lastIndexOf(
+  "compareHostedAssets({ assetDirectory, names, tag, options })",
+  publishDraft
+);
 assert(
   finalMainCheckInPublisher > 0 &&
     exactTagCreation >= 0 &&
     finalMainCheckInPublisher < exactTagCreation &&
-    exactTagCreation < finalTagCheckInPublisher &&
-    finalMainCheckInPublisher < finalTagCheckInPublisher &&
-    finalTagCheckInPublisher < publishDraft,
-  "the publisher must re-check main, create the exact tag, and verify it before publication"
+    exactTagCreation < firstReleaseRead,
+  "the publisher must re-check main and create the exact tag before any draft can create it"
+);
+assert(
+  finalTagCheckInPublisher > 0 &&
+    finalTagCheckInPublisher < finalDraftRefresh &&
+    finalDraftRefresh < finalDraftShapeCheck &&
+    finalDraftShapeCheck < finalDraftByteCheck &&
+    finalDraftByteCheck < publishDraft,
+  "the publisher must refresh and compare the draft again after the final tag check"
 );
 assert.match(releasePublisher, /tagName,targetCommitish,name,isDraft/);
 assert.match(releasePublisher, /verifyReleaseMetadata\(\{ release, tag, title, notes \}\)/);
