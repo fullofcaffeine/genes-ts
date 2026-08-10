@@ -1,6 +1,7 @@
 package servercase;
 
 import genes.ts.Imports;
+import servercase.ModuleData.moduleLabel;
 #if server_jsx
 import genes.react.Element;
 #end
@@ -156,7 +157,12 @@ class Main {
     // instead of depending on macro static state from a previous request.
     final current = genes.ts.TypeArguments.call(RuntimePackage.identity(witness),
       witness);
-    var transcript = "project-a:" + current + ":" + Extra.value();
+    var transcript = "project-a:"
+      + current
+      + ":"
+      + Extra.value()
+      + ":"
+      + moduleLabel.value;
     #if server_removed
     transcript += ":" + Removed.value();
     #end

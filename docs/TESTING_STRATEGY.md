@@ -879,9 +879,10 @@ npm run test:acceptance
 ```
 
 `test:acceptance` is the normal stable pull-request owner for the focused
-module-function and strict-array-index contracts. Module functions exercise a
-single Haxe module's exported functions across TypeScript, TSX, classic
-JavaScript, declarations, runtime registration, DCE, and source maps. Strict
+direct-module-binding and strict-array-index contracts. The direct-binding
+fixture exercises functions and closed values across TypeScript, TSX, classic
+JavaScript, declarations, runtime imports, DCE, source maps, and failed-output
+rollback. Strict
 array indexing proves that generated TypeScript remains valid with
 `noUncheckedIndexedAccess` while preserving the classic and standard Haxe
 runtime result.

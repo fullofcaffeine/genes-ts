@@ -32,7 +32,6 @@ class ModuleFunctionRequestPlan {
   var complete: Null<Array<ModuleFunctionEntry>>;
 
   public static function build(module: Module): ModuleFunctionRequestPlan {
-    ModuleFunctionPlan.rejectDeferredModuleValues(module);
     final entries: Array<ModuleFunctionEntry> = [];
     final candidates: Array<StaticFieldOriginKey> = [];
     for (member in module.members) {

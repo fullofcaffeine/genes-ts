@@ -24,11 +24,25 @@ function originalModuleFunction(): Int {
 }
 #end
 
-#if module_value_deferred
-@:genes.moduleValue("metadata")
-final metadata = {
-  title: "deferred"
-};
+#if (module_value_arity || module_value_arity_multiple
+  || module_value_nonliteral || module_value_empty
+  || module_value_identifier || module_value_public_name
+  || module_value_native_name || module_value_dual_marker
+  || module_value_mutable || module_value_function || module_value_call
+  || module_value_constructor || module_value_operator || module_value_local
+  || module_value_control_flow || module_value_function_value
+  || module_value_property || module_value_enum
+  || module_value_explicit_cast || module_value_later_reference
+  || module_value_mixed)
+@:keep
+class ModuleValueWitness {
+  static final value = ModuleValueInvalid.value;
+}
+#elseif module_value_class_static
+@:keep
+class ModuleValueWitness {
+  static final value = ModuleValueInvalid.value;
+}
 #end
 
 @:keep

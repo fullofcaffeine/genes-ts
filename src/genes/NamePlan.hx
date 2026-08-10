@@ -309,6 +309,11 @@ private class NamePlanBuilder {
         if (request != null && request.isSourceModuleBinding
           && ownerRef.get().module == currentModule.module)
           scope.reserved.set(request.requestedName, true);
+        final valueName = ModuleValuePlan.requestedName(fieldRef.get());
+        if (valueName != null
+          && DirectModuleBinding.isModuleFieldsOwner(ownerRef.get())
+          && ownerRef.get().module == currentModule.module)
+          scope.reserved.set(valueName, true);
       default:
     }
     expression.iter(child -> reserveDirectBindings(child, scope));

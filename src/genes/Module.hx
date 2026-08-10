@@ -12,6 +12,7 @@ import genes.util.Timer.timer;
 import genes.TypeAccessor;
 import genes.BindingIdentity.StaticFieldOriginKey;
 import genes.ModuleFunctionPlan.ModuleFunctionEntry;
+import genes.ModuleValuePlan.ModuleValueEntry;
 import genes.PublicSurface.PublicMember;
 import genes.PublicSurface.PublicMemberOwnership;
 
@@ -113,6 +114,7 @@ class Module {
   public var localBindingPlan(get, null): LocalBindingPlan;
   public var moduleFunctionRequestPlan(get, null): ModuleFunctionRequestPlan;
   public var moduleFunctionPlan(get, null): ModuleFunctionPlan;
+  public var moduleValuePlan(get, null): ModuleValuePlan;
 
   final context: ModuleContext;
   final cycleCache = new Map<String, Bool>();
@@ -267,9 +269,18 @@ class Module {
 
   /** Validates final unaliasable collisions and returns emitter projection. */
   function get_moduleFunctionPlan(): ModuleFunctionPlan {
-    if (moduleFunctionPlan == null)
+    if (moduleFunctionPlan == null) {
       moduleFunctionPlan = ModuleFunctionPlan.build(this);
+      get_moduleValuePlan();
+    }
     return moduleFunctionPlan;
+  }
+
+  /** Validates and returns the closed direct module-value plan. */
+  function get_moduleValuePlan(): ModuleValuePlan {
+    if (moduleValuePlan == null)
+      moduleValuePlan = ModuleValuePlan.build(this);
+    return moduleValuePlan;
   }
 
   /**
@@ -355,6 +366,7 @@ class Module {
       localBindingPlan = null;
       moduleFunctionRequestPlan = null;
       moduleFunctionPlan = null;
+      moduleValuePlan = null;
       namePlans.clear();
       cycleCache.clear();
     }

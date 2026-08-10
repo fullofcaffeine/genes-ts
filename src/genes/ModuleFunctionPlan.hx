@@ -40,7 +40,7 @@ class ModuleFunctionEntry {
   }
 }
 
-private typedef ModuleBindingFact = {
+typedef ModuleBindingFact = {
   final name: String;
   final kind: String;
   final pos: Position;
@@ -88,7 +88,6 @@ private typedef LexicalRejection = {
  */
 class ModuleFunctionPlan {
   static final METADATA = ':genes.moduleFunction';
-  static final DEFERRED_VALUE_METADATA = ':genes.moduleValue';
   static final EXPOSE_METADATA = ':expose';
 
   final entries: Array<ModuleFunctionEntry>;
@@ -125,44 +124,15 @@ class ModuleFunctionPlan {
     return new ModuleFunctionPlan(entries);
   }
 
-  /**
-   * Rejects the deliberately deferred direct-value spelling.
-   *
-   * Why: declaring a JavaScript function does not execute its body, but
-   * initializing an exported `const` evaluates its value immediately while
-   * the module loads. A value initializer can therefore reach a later `const`
-   * while that binding is still in JavaScript's temporal dead zone and throw a
-   * `ReferenceError`, even when the old synthetic-owner output only observed
-   * an as-yet-unassigned property.
-   *
-   * What: the function-only feature fails explicitly instead of silently
-   * ignoring metadata that could make an author believe a direct value was
-   * emitted.
-   *
-   * How: scan only retained implementation fields and report the metadata's
-   * exact source position before dependency aliases or output writers are
-   * opened. A future value feature needs its own finite initialization
-   * contract; it must not grow this function-relocation plan.
-   */
-  public static function rejectDeferredModuleValues(module: Module): Void {
-    for (member in module.members) {
-      switch member {
-        case MClass(owner, _, fields):
-          for (field in Module.emittableFields(fields)) {
-            final metadata = field.meta == null ? [] : field.meta.extract(DEFERRED_VALUE_METADATA);
-            if (metadata.length == 0)
-              continue;
-            CompilerDiagnostic.fail('GENES-MODULE-VALUE-DEFERRED-001: '
-              + '@:genes.moduleValue on ${owner.name}.${field.name} is not '
-              + 'supported in this release. A JavaScript const initializer '
-              + 'runs while its module loads, and reading a later const before '
-              + 'that declaration has executed throws ReferenceError (the '
-              + 'temporal dead zone). Remove the metadata or expose a '
-              + '@:genes.moduleFunction that computes the value when called.',
-              metadata[0].pos);
-          }
-        case MEnum(_, _) | MType(_, _) | MMain(_):
-      }
+  /** Reads one valid literal request before complete function validation. */
+  public static function requestedNameFromMetadata(meta: MetaAccess): Null<String> {
+    final requests = meta.extract(METADATA);
+    return switch requests {
+      case [{params: [{expr: EConst(CString(value))}]}]
+        if (value.length > 0 && IdentifierPolicy.isValidModuleBinding(value)):
+        value;
+      default:
+        null;
     }
   }
 
@@ -226,6 +196,14 @@ class ModuleFunctionPlan {
       metadata: Array<MetadataEntry>, ownerFields: Array<Field>,
       exposeMetadata: Array<MetadataEntry>): ModuleFunctionEntry {
     final first = metadata[0];
+    if (field.meta != null
+      && field.meta.has(DirectModuleBinding.VALUE_METADATA)) {
+      return
+        CompilerDiagnostic.fail('GENES-DIRECT-MODULE-BINDING-CONFLICT-001: '
+        + '${owner.name}.${field.name} cannot be both '
+        + '@:genes.moduleFunction and @:genes.moduleValue',
+        first.pos);
+    }
     if (metadata.length != 1 || first.params.length != 1) {
       return
         CompilerDiagnostic.fail('GENES-MODULE-FUNCTION-ARITY-001: @:genes.moduleFunction on '
@@ -480,7 +458,7 @@ class ModuleFunctionPlan {
     };
   }
 
-  static function bindingInventory(module: Module): Array<ModuleBindingFact> {
+  public static function bindingInventory(module: Module): Array<ModuleBindingFact> {
     final result: Array<ModuleBindingFact> = [];
     function add(name: String, kind: String, pos: Position): Void {
       for (existing in result)
@@ -497,9 +475,12 @@ class ModuleFunctionPlan {
           #if (haxe_ver >= 4.2)
           if (owner.kind.match(KModuleFields(_))) {
             for (field in Module.emittableFields(fields))
-              if (field.isStatic && field.isPublic
+              if (field.isStatic
+                && field.isPublic
                 && module.moduleFunctionRequestPlan.entryFor(owner,
-                  field) == null)
+                  field) == null
+                && (field.meta == null
+                  || ModuleValuePlan.requestedNameFromMetadata(field.meta) == null))
                 add(field.name, 'public module field ${field.name}', field.pos);
           }
           #end

@@ -155,6 +155,17 @@ function assertTopLevelSourceMap(profile: "classic" | "ts" | "tsx",
   strictEqual(returnOriginal.line,
     sourceLine(haxeSource, "return value"),
     `${profile} direct module function body maps to its Haxe return`);
+
+  const metadataOriginal = map.originalPositionFor(
+    generatedPoint(source, "export const metadata"));
+  strictEqual(metadataOriginal.line,
+    sourceLine(haxeSource, "final metadata: ModuleMetadata"),
+    `${profile} direct module value maps to its Haxe declaration`);
+  const titleOriginal = map.originalPositionFor(
+    generatedPoint(source, '"direct module value"'));
+  strictEqual(titleOriginal.line,
+    sourceLine(haxeSource, 'title: "direct module value"'),
+    `${profile} direct module value keeps its literal source line`);
 }
 
 function assertClosureSourceMaps(profile: "classic" | "ts" | "tsx",
@@ -269,6 +280,7 @@ function assertImplementationShape(relative: string): void {
 
 function assertTopLevelImplementationShape(relative: string): void {
   const source = readFileSync(path.join(outputRoot, relative), "utf8");
+  const sibling = relative.includes("TopLevelSibling");
   ok(source.includes(relative.endsWith(".js")
     ? "export function topLevelIdentity(value)"
     : "export function topLevelIdentity<T>(value: T): T"),
@@ -279,6 +291,22 @@ function assertTopLevelImplementationShape(relative: string): void {
     `${relative} retains Register when the project-wide global feature emits its prelude`);
   ok(source.includes("const $global = Register.$global"),
     `${relative} emits the global compatibility alias with its planned helper`);
+  ok(source.includes("export const metadata")
+    && source.includes(sibling
+      ? '"title": "sibling module value"'
+      : '"title": "direct module value"'),
+    `${relative} emits closed data as one direct constant`);
+  if (!sibling) {
+    ok(source.includes('"tags": ["typed", "esm"]')
+      && source.includes('"featured": true'),
+      `${relative} preserves nested arrays and objects`);
+    ok(source.includes("export const metadataAlias")
+      && source.includes("= metadata"),
+      `${relative} emits an exact earlier-value reference`);
+    ok(!source.includes("deadMetadata")
+      && !source.includes("must not reach output"),
+      `${relative} proves that the annotation does not retain dead data`);
+  }
 }
 
 function assertTopLevelBindImplementationShape(relative: string): void {
@@ -604,7 +632,6 @@ console.log(moduleInitValue());`;
 }
 
 const negativeCases = [
-  ["module_value_deferred", "GENES-MODULE-VALUE-DEFERRED-001"],
   ["module_function_arity", "GENES-MODULE-FUNCTION-ARITY-001"],
   ["module_function_arity_multiple", "GENES-MODULE-FUNCTION-ARITY-001"],
   ["module_function_nonliteral", "GENES-MODULE-FUNCTION-LITERAL-002"],
@@ -663,7 +690,29 @@ const negativeCases = [
   [
     "module_function_expose_identifier",
     "GENES-MODULE-FUNCTION-EXPOSE-IDENTIFIER-014"
-  ]
+  ],
+  ["module_value_arity", "GENES-MODULE-VALUE-ARITY-001"],
+  ["module_value_arity_multiple", "GENES-MODULE-VALUE-ARITY-001"],
+  ["module_value_nonliteral", "GENES-MODULE-VALUE-LITERAL-002"],
+  ["module_value_empty", "GENES-MODULE-VALUE-EMPTY-003"],
+  ["module_value_identifier", "GENES-MODULE-VALUE-IDENTIFIER-004"],
+  ["module_value_class_static", "GENES-MODULE-VALUE-OWNER-006"],
+  ["module_value_mutable", "GENES-MODULE-VALUE-MUTABLE-009"],
+  ["module_value_function", "GENES-MODULE-VALUE-SHAPE-007"],
+  ["module_value_public_name", "GENES-MODULE-VALUE-PUBLIC-NAME-010"],
+  ["module_value_native_name", "GENES-MODULE-VALUE-NATIVE-NAME-011"],
+  ["module_value_dual_marker", "GENES-DIRECT-MODULE-BINDING-CONFLICT-001"],
+  ["module_value_mixed", "GENES-MODULE-VALUE-MIXED-OWNER-013"],
+  ["module_value_call", "GENES-MODULE-VALUE-CLOSED-001"],
+  ["module_value_constructor", "GENES-MODULE-VALUE-CLOSED-001"],
+  ["module_value_operator", "GENES-MODULE-VALUE-CLOSED-001"],
+  ["module_value_local", "GENES-MODULE-VALUE-CLOSED-001"],
+  ["module_value_control_flow", "GENES-MODULE-VALUE-CLOSED-001"],
+  ["module_value_function_value", "GENES-MODULE-VALUE-CLOSED-001"],
+  ["module_value_property", "GENES-MODULE-VALUE-CLOSED-001"],
+  ["module_value_enum", "GENES-MODULE-VALUE-CLOSED-001"],
+  ["module_value_explicit_cast", "GENES-MODULE-VALUE-CLOSED-001"],
+  ["module_value_later_reference", "GENES-MODULE-VALUE-CLOSED-001"]
 ] as const;
 
 function assertCompileFailure(profile: "classic" | "ts",
@@ -693,7 +742,7 @@ function assertCompileFailure(profile: "classic" | "ts",
   const diagnostics = `${result.stdout ?? ""}${result.stderr ?? ""}`;
   ok(diagnostics.includes(diagnostic),
     `${profile}/${define} reports ${diagnostic}\n${diagnostics}`);
-  ok(/module_function_invalid\/Main\.hx:\d+:/.test(diagnostics),
+  ok(/module_function_invalid\/(?:Main|ModuleValueInvalid)\.hx:\d+:/.test(diagnostics),
     `${profile}/${define} reports a Haxe source position\n${diagnostics}`);
   strictEqual(readFileSync(output, "utf8"), sentinel,
     `${profile}/${define} preserves prior public output`);
@@ -815,15 +864,22 @@ for (const relative of [
   "tsx/src-gen/module_functions/Main.tsx"
 ]) {
   const source = readFileSync(path.join(outputRoot, relative), "utf8");
-  ok(source.includes('import {topLevelIdentity} from "./TopLevel.js"'),
+  ok(source.includes('from "./TopLevel.js"')
+    && source.includes("topLevelIdentity")
+    && source.includes("metadata")
+    && source.includes("metadataAlias"),
     `${relative} imports the direct module binding`);
-  ok(source.includes(
-    'import {topLevelIdentity as topLevelIdentity__1} from "./TopLevelSibling.js"'),
+  ok(source.includes('topLevelIdentity as topLevelIdentity__1')
+    && source.includes('metadata as metadata__1'),
     `${relative} preserves same-named module-local ESM identity`);
   ok(source.includes('topLevelIdentity("top-level")'),
     `${relative} calls the direct module binding`);
   ok(source.includes('topLevelIdentity__1("top-level-sibling")'),
     `${relative} calls the aliased sibling module binding`);
+  ok(source.includes("metadata.title")
+    && source.includes("metadataAlias.title")
+    && source.includes("metadata__1.title"),
+    `${relative} reads direct module values through exact ESM bindings`);
   ok(source.includes(
     'import {extractTopLevelValue} from "./TopLevelBind.js"'),
     `${relative} imports the relocated method-extraction function directly`);
@@ -985,6 +1041,10 @@ const classicTopLevelDeclaration = readFileSync(path.join(outputRoot,
 ok(classicTopLevelDeclaration.includes(
   "export const topLevelIdentity: <T>(value: T) => T"),
   "classic declarations preserve the direct generic module field");
+ok(classicTopLevelDeclaration.includes("export const metadata: ModuleMetadata")
+  && classicTopLevelDeclaration.includes(
+    "export const metadataAlias: ModuleMetadata"),
+  "classic declarations keep the closed direct-value type");
 const tsDeclaration = readFileSync(path.join(outputRoot,
   "ts/dist/out/ts/src-gen/module_functions/Selected.d.ts"), "utf8");
 ok(tsDeclaration.includes("static selected"));
@@ -1020,6 +1080,11 @@ const tsTopLevelDeclaration = readFileSync(path.join(outputRoot,
 ok(tsTopLevelDeclaration.includes(
   "export declare function topLevelIdentity<T>(value: T): T"),
   "tsc declarations preserve the direct generic module function");
+ok(tsTopLevelDeclaration.includes(
+  "export declare const metadata: ModuleMetadata")
+  && tsTopLevelDeclaration.includes(
+    "export declare const metadataAlias: ModuleMetadata"),
+  "tsc declarations keep the closed direct-value type");
 const tsxDeclaration = readFileSync(path.join(outputRoot,
   "ts/dist/out/tsx/src-gen/module_functions/Selected.d.ts"), "utf8");
 strictEqual(tsxDeclaration, tsDeclaration,
