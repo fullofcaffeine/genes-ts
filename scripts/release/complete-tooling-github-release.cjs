@@ -317,9 +317,8 @@ function ensureExactTag({
 }
 
 /**
- * Confirms that the reviewed commit is still current immediately before the
- * draft becomes public. Uploading and comparing files can take long enough for
- * main to advance after the workflow's earlier check.
+ * Confirms that the reviewed commit is current before the first tag creation.
+ * A retry with an existing exact tag does not call this function.
  */
 function ensureCurrentMain({ commit, options = {}, execute = run }) {
   execute("git", ["fetch", "--no-tags", "origin", "main"], options);
@@ -330,27 +329,79 @@ function ensureCurrentMain({ commit, options = {}, execute = run }) {
 }
 
 /**
- * Checks the release source before any draft asset can be uploaded.
- *
- * Before uploads, an existing tag is stronger than the draft target and must
- * identify the reviewed commit. A new draft may not have a tag yet, so its
- * target must name that commit. The final check runs after the publisher
- * creates or verifies the real tag.
+ * Reports whether the remote already contains this exact tag name.
  */
-function verifyDraftSource({ release, tag, commit, options = {} }) {
-  const remoteTag = run(
+function remoteTagExists({ tag, options = {}, execute = run }) {
+  return execute(
     "git",
     ["ls-remote", "--tags", "origin", `refs/tags/${tag}`],
     options
-  ).trim();
-  if (remoteTag !== "") {
-    ensureTagPointsToSource({ tag, commit, options });
+  ).trim() !== "";
+}
+
+/**
+ * Locks one release source before GitHub can create a draft.
+ *
+ * A first attempt can create the tag only while the reviewed commit is current
+ * main. A retry can continue after main moves because the protected tag already
+ * locks the exact source. A wrong existing tag always stops the release.
+ */
+function ensureReleaseTag({
+  repository,
+  tag,
+  commit,
+  options = {},
+  findTag = remoteTagExists,
+  checkMain = ensureCurrentMain,
+  createTag = ensureExactTag,
+  verifyTag = ensureTagPointsToSource,
+}) {
+  if (findTag({ tag, options })) {
+    verifyTag({ tag, commit, options });
     return;
   }
-  if (release.targetCommitish !== commit) {
-    fail(
-      `${tag} will be created from ${release.targetCommitish}, not reviewed source ${commit}`
+  checkMain({ commit, options });
+  createTag({ repository, tag, commit, options });
+}
+
+/**
+ * Checks the protected tag before draft assets can be uploaded or published.
+ */
+function verifyDraftSource({ tag, commit, options = {} }) {
+  ensureTagPointsToSource({ tag, commit, options });
+}
+
+/**
+ * Asks GitHub to publish the draft and returns a possible request error.
+ *
+ * A network connection can close after GitHub publishes the release. The
+ * caller must always read and verify the hosted release before it reports that
+ * this request failed.
+ */
+function requestDraftPublication({
+  tag,
+  commit,
+  title,
+  notesFile,
+  options = {},
+  executeGh = runGh,
+}) {
+  try {
+    executeGh(
+      [
+        "release", "edit", tag,
+        "--target", commit,
+        "--title", title,
+        "--notes-file", notesFile,
+        "--prerelease=false",
+        "--draft=false",
+        "--latest=false",
+      ],
+      options
     );
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error : new Error(String(error));
   }
 }
 
@@ -392,11 +443,9 @@ function completeToolingGithubRelease({
   const notes = releaseNotes(version, commit);
   const title = `@genes-ts/tooling ${version}`;
   const options = { cwd, env: { ...process.env, GH_REPO: repository } };
-  // A draft creation can create its missing tag automatically. Check main and
-  // create the exact protected tag first, so GitHub never chooses that source
-  // on our behalf. A later main update does not change this locked release.
-  ensureCurrentMain({ commit, options });
-  ensureExactTag({ repository, tag, commit, options });
+  // A draft creation can create its missing tag automatically. Lock the source
+  // first. A safe retry can use an exact existing tag after main moves.
+  ensureReleaseTag({ repository, tag, commit, options });
   let release = releaseView(tag, options);
 
   if (release && !release.isDraft) {
@@ -467,22 +516,34 @@ function completeToolingGithubRelease({
     release = releaseView(tag, options);
     verifyReleaseShape({ release, tag, title, notes, names, requireImmutable: false });
     compareHostedAssets({ assetDirectory, names, tag, options });
-    runGh(
-      [
-        "release", "edit", tag,
-        "--target", commit,
-        "--title", title,
-        "--notes-file", notesFile,
-        "--prerelease=false",
-        "--draft=false",
-        "--latest=false",
-      ],
-      options
-    );
-    release = releaseView(tag, options);
-    verifyReleaseShape({ release, tag, title, notes, names, requireImmutable: true });
-    compareHostedAssets({ assetDirectory, names, tag, options });
-    ensureTagPointsToSource({ tag, commit, options });
+    const publicationError = requestDraftPublication({
+      tag,
+      commit,
+      title,
+      notesFile,
+      options,
+    });
+    try {
+      release = releaseView(tag, options);
+      verifyReleaseShape({ release, tag, title, notes, names, requireImmutable: true });
+      compareHostedAssets({ assetDirectory, names, tag, options });
+      ensureTagPointsToSource({ tag, commit, options });
+    } catch (error) {
+      if (publicationError) {
+        const verificationMessage =
+          error instanceof Error ? error.message : String(error);
+        fail(
+          `GitHub publication request failed (${publicationError.message}); ` +
+          `the final hosted release check also failed (${verificationMessage})`
+        );
+      }
+      throw error;
+    }
+    if (publicationError) {
+      console.log(
+        "[tooling-release] publish command reported an error; hosted verification succeeded"
+      );
+    }
     console.log(`[tooling-release] completed immutable ${tag}`);
     return release;
   } finally {
@@ -513,6 +574,8 @@ module.exports = {
   completeToolingGithubRelease,
   ensureCurrentMain,
   ensureExactTag,
+  ensureReleaseTag,
+  requestDraftPublication,
   releaseNotes,
   validateLocalAssets,
   versionFromTag,

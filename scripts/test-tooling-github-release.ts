@@ -33,6 +33,26 @@ const releaseHelpers = require(
     executeGh(arguments_: string[]): string;
     verifyTag(options: { commit: string; tag: string }): void;
   }): void;
+  ensureReleaseTag(options: {
+    commit: string;
+    repository: string;
+    tag: string;
+    findTag(options: { tag: string }): boolean;
+    checkMain(options: { commit: string }): void;
+    createTag(options: {
+      commit: string;
+      repository: string;
+      tag: string;
+    }): void;
+    verifyTag(options: { commit: string; tag: string }): void;
+  }): void;
+  requestDraftPublication(options: {
+    commit: string;
+    notesFile: string;
+    tag: string;
+    title: string;
+    executeGh(arguments_: string[]): string;
+  }): Error | null;
   releaseNotes(version: string, commit: string): string;
   validateLocalAssets(options: {
     assetDirectory: string;
@@ -78,13 +98,15 @@ assert.match(
   /node scripts\/release\/complete-tooling-github-release\.cjs/
 );
 const finalMainCheck = workflow.lastIndexOf("git fetch --no-tags origin main");
-const publisherCall = workflow.lastIndexOf(
-  "node scripts/release/complete-tooling-github-release.cjs"
-);
 assert(
-  finalMainCheck > 0 && finalMainCheck < publisherCall,
-  "the workflow must re-check current main immediately before publishing"
+  finalMainCheck > 0 && finalMainCheck < workflow.indexOf("yarn test:ci"),
+  "the workflow must check current main before it runs release code"
 );
+assert.match(
+  workflow,
+  /git ls-remote --exit-code --tags origin "refs\/tags\/\$tag"/
+);
+assert.match(workflow, /git rev-list -n 1 "\$tag"/);
 assert.doesNotMatch(workflow, /npm publish|haxelib submit|semantic-release/);
 
 const releasePublisher = readFileSync(
@@ -95,9 +117,8 @@ assert.match(releasePublisher, /"--latest=false"/);
 assert(
   releasePublisher.indexOf("verifyDraftSource({ release, tag, commit, options })") <
     releasePublisher.indexOf('"release", "upload"'),
-  "the publisher must verify an existing tag or exact draft target before uploading assets"
+  "the publisher must verify the protected tag before uploading assets"
 );
-assert.match(releasePublisher, /release\.targetCommitish !== commit/);
 const existingAssetCheck = releasePublisher.indexOf(
   "names: names.filter((name) => hosted.has(name))"
 );
@@ -108,47 +129,60 @@ assert(
   existingAssetCheck > 0 && existingAssetCheck < missingAssetUpload,
   "a resumed draft must compare every existing asset before uploading a missing file"
 );
-const finalMainCheckInPublisher = releasePublisher.lastIndexOf(
-  "ensureCurrentMain({ commit, options })"
-);
 const finalTagCheckInPublisher = releasePublisher.lastIndexOf(
   "verifyDraftSource({ release, tag, commit, options })"
 );
-const exactTagCreation = releasePublisher.lastIndexOf(
-  "ensureExactTag({ repository, tag, commit, options })"
+const releaseTagLock = releasePublisher.lastIndexOf(
+  "ensureReleaseTag({ repository, tag, commit, options })"
 );
-const publishDraft = releasePublisher.lastIndexOf(
-  '"--prerelease=false",\n        "--draft=false"'
+const publicationRequest = releasePublisher.lastIndexOf(
+  "requestDraftPublication({"
 );
 const firstReleaseRead = releasePublisher.indexOf(
   "let release = releaseView(tag, options)"
 );
 const finalDraftRefresh = releasePublisher.lastIndexOf(
   "release = releaseView(tag, options);",
-  publishDraft
+  publicationRequest
 );
 const finalDraftShapeCheck = releasePublisher.lastIndexOf(
   "verifyReleaseShape({ release, tag, title, notes, names, requireImmutable: false })",
-  publishDraft
+  publicationRequest
 );
 const finalDraftByteCheck = releasePublisher.lastIndexOf(
   "compareHostedAssets({ assetDirectory, names, tag, options })",
-  publishDraft
+  publicationRequest
+);
+const fullByteCheckBeforeFinalTag = releasePublisher.lastIndexOf(
+  "compareHostedAssets({ assetDirectory, names, tag, options })",
+  finalTagCheckInPublisher
+);
+const publishedReleaseRead = releasePublisher.indexOf(
+  "release = releaseView(tag, options);",
+  publicationRequest
+);
+const publishedReleaseShapeCheck = releasePublisher.indexOf(
+  "verifyReleaseShape({ release, tag, title, notes, names, requireImmutable: true })",
+  publishedReleaseRead
 );
 assert(
-  finalMainCheckInPublisher > 0 &&
-    exactTagCreation >= 0 &&
-    finalMainCheckInPublisher < exactTagCreation &&
-    exactTagCreation < firstReleaseRead,
-  "the publisher must re-check main and create the exact tag before any draft can create it"
+  releaseTagLock >= 0 && releaseTagLock < firstReleaseRead,
+  "the publisher must lock the release tag before any draft can create it"
 );
 assert(
-  finalTagCheckInPublisher > 0 &&
+  fullByteCheckBeforeFinalTag > missingAssetUpload &&
+    fullByteCheckBeforeFinalTag < finalTagCheckInPublisher &&
     finalTagCheckInPublisher < finalDraftRefresh &&
     finalDraftRefresh < finalDraftShapeCheck &&
     finalDraftShapeCheck < finalDraftByteCheck &&
-    finalDraftByteCheck < publishDraft,
+    finalDraftByteCheck < publicationRequest,
   "the publisher must refresh and compare the draft again after the final tag check"
+);
+assert(
+  publicationRequest > finalDraftByteCheck &&
+    publicationRequest < publishedReleaseRead &&
+    publishedReleaseRead < publishedReleaseShapeCheck,
+  "the publisher must verify the final hosted release even when the publish response is lost"
 );
 assert.match(releasePublisher, /tagName,targetCommitish,name,isDraft/);
 assert.match(releasePublisher, /verifyReleaseMetadata\(\{ release, tag, title, notes \}\)/);
@@ -234,6 +268,95 @@ assert.throws(
       },
     }),
   /tag points to different source/
+);
+const releaseTagSteps: string[] = [];
+releaseHelpers.ensureReleaseTag({
+  commit: currentCommit,
+  repository: "fullofcaffeine/genes-ts",
+  tag: "tooling-v0.1.0",
+  findTag() {
+    releaseTagSteps.push("find");
+    return true;
+  },
+  checkMain() {
+    releaseTagSteps.push("main");
+  },
+  createTag() {
+    releaseTagSteps.push("create");
+  },
+  verifyTag() {
+    releaseTagSteps.push("verify");
+  },
+});
+assert.deepEqual(releaseTagSteps, ["find", "verify"]);
+
+assert.throws(
+  () =>
+    releaseHelpers.ensureReleaseTag({
+      commit: currentCommit,
+      repository: "fullofcaffeine/genes-ts",
+      tag: "tooling-v0.1.0",
+      findTag() {
+        return true;
+      },
+      checkMain() {
+        throw new Error("main check must not run for an existing tag");
+      },
+      createTag() {
+        throw new Error("tag creation must not run for an existing tag");
+      },
+      verifyTag() {
+        throw new Error("existing tag points to another commit");
+      },
+    }),
+  /existing tag points to another commit/
+);
+
+releaseTagSteps.length = 0;
+releaseHelpers.ensureReleaseTag({
+  commit: currentCommit,
+  repository: "fullofcaffeine/genes-ts",
+  tag: "tooling-v0.1.0",
+  findTag() {
+    releaseTagSteps.push("find");
+    return false;
+  },
+  checkMain() {
+    releaseTagSteps.push("main");
+  },
+  createTag() {
+    releaseTagSteps.push("create");
+  },
+  verifyTag() {
+    releaseTagSteps.push("verify");
+  },
+});
+assert.deepEqual(releaseTagSteps, ["find", "main", "create"]);
+
+const lostPublishResponse = new Error("connection closed after publication");
+assert.equal(
+  releaseHelpers.requestDraftPublication({
+    commit: currentCommit,
+    notesFile: "/tmp/notes.md",
+    tag: "tooling-v0.1.0",
+    title: "@genes-ts/tooling 0.1.0",
+    executeGh() {
+      throw lostPublishResponse;
+    },
+  }),
+  lostPublishResponse
+);
+assert.equal(
+  releaseHelpers.requestDraftPublication({
+    commit: currentCommit,
+    notesFile: "/tmp/notes.md",
+    tag: "tooling-v0.1.0",
+    title: "@genes-ts/tooling 0.1.0",
+    executeGh() {
+      return "published";
+    },
+  }),
+  null
 );
 const notes = releaseHelpers.releaseNotes(
   "0.1.0",

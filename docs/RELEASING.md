@@ -256,6 +256,9 @@ commit: <exact 40-character commit currently at origin/main>
 authorization: publish @genes-ts/tooling@0.1.0 to GitHub from <same commit> without npm
 ```
 
+For a retry after `main` moves, use the same commit only when the exact
+protected tooling tag already points to it.
+
 The workflow installs the reviewed npm 11.18.0 command, reruns the complete
 Genes gate, packs the tooling package twice, and requires identical bytes. The
 checkout does not leave its write credential available to install or test
@@ -270,23 +273,30 @@ exactly:
   and complete file list; and
 - `sbom.spdx.json`, the package's SPDX software inventory.
 
-The publisher checks current `main` and creates the exact protected tag at the
-reviewed commit before GitHub can create a draft tag automatically. A later
-change to `main` does not change that locked release source. The publisher then
-creates or resumes a draft and compares every uploaded byte with the local
-candidate. It checks the complete draft again after the final tag check and
-immediately before publication. If another process creates the tag first, the
-publisher continues only when that tag points to the same commit. On a retry,
-it checks every file already present in the draft before uploading any missing
-file. A retry may finish an incomplete draft or verify an already-complete
-immutable release. It refuses
-different notes, unexpected assets, changed bytes, a moved tag, or a source
-commit other than protected `main`. It reads the archive itself and checks the
-receipt's source, npm integrity, two checksums, and complete file list before
-uploading anything. Immediately before publication, it fetches `main` again
-and stops if `main` moved while the tests ran. The tooling release is also
-marked as not “Latest,” so it cannot replace the compiler release shown as the
-repository's main download. It never deletes or replaces a tag or asset.
+On a first attempt, the publisher requires the reviewed commit to be current
+`main`. It then creates the exact protected tag before GitHub can create a tag
+from draft details. A later change to `main` does not change this locked source.
+
+A retry can continue after `main` moves only when the protected tag already
+points to the reviewed commit. This rule lets an interrupted release finish.
+It does not accept a missing or different tag for an older commit.
+
+The publisher creates or resumes a draft and compares each uploaded file with
+the local candidate. It checks the complete draft again after the final tag
+check and immediately before publication. A retry checks each existing file
+before it uploads a missing file.
+
+GitHub can publish the draft and then lose the command response. The publisher
+always reads the public release after that request. If the exact immutable
+release exists, the run succeeds after it checks all files and the protected
+tag. If publication did not occur, the failed request and failed final check
+remain visible together.
+
+The publisher refuses different notes, unexpected files, changed bytes, or a
+moved tag. It reads the archive and checks the receipt's source, npm integrity,
+two checksums, and complete file list before upload. It marks the tooling
+release as not “Latest,” so it cannot replace the compiler release shown as the
+repository's main download. It never deletes or replaces a tag or file.
 
 Before the first release, the live **Immutable semantic version tags** ruleset
 must cover both `refs/tags/v*` and `refs/tags/tooling-v*`. Check that setting
