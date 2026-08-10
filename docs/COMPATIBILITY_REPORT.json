@@ -239,6 +239,7 @@
       "claim": "The reviewed artifacts install cleanly, preserve their declared package shape, and are checked against pinned downstream contracts without laundering those results into compiler conformance.",
       "gateIds": [
         "release-contract",
+        "tooling-github-release-contract",
         "package-imports",
         "compatibility-inventory",
         "full-ci"

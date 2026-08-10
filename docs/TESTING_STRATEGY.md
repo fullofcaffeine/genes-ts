@@ -1041,19 +1041,46 @@ GitHub's workflow `GITHUB_TOKEN` cannot request. CI intentionally uses only
 release contract.
 
 The compiler release job and the independent `@genes-ts/tooling` release
-workflow can create externally visible artifacts, so their executable action
+workflow can create publicly visible files, so their executable action
 identities are stricter than ordinary CI: every release-job `uses:` reference
 is a reviewed full commit SHA with a same-line release-version comment. The
-tooling workflow additionally depends on a live GitHub environment that
-prevents self-review and administrator bypass.
+GitHub-only archive workflow does not require a second-person approval. The
+manual start is the release action, so the workflow does not ask for a typed
+approval sentence. A first attempt requires an exact version and current
+`main` commit. An exact tag at current `main` also remains a first attempt. A
+retry can use the same commit after `main` moves only when the protected tag
+locks that source and a draft or public GitHub Release exists for the tag. A
+tag alone does not prove an interrupted release. The workflow records this
+choice before it runs repository code. It keeps the package source at the
+requested commit, but it runs the publisher from the reviewed workflow commit.
+Before starting the workflow, the operator also runs the read-only host check
+in [`RELEASING.md`](RELEASING.md). The separate npm workflow keeps its
+existing protected-environment rules.
 
-Run the repository and live-settings proof with:
+Run the GitHub archive check with:
+
+```bash
+yarn test:tooling-github-release
+```
+
+This check proves that a first attempt accepts only an exact `main` commit. A
+retry can use an existing protected tag only when it points to the same
+reviewed commit and has an existing draft or public Release. It also proves
+that recovery runs the reviewed publisher without changing the package source.
+The check also proves deterministic
+package bytes, exact release files, safe retries, and a second hosted-byte check
+immediately before publication. A lost publish response cannot hide a complete
+immutable release. The final hosted check also repeats for a short bounded
+period while GitHub updates its public state. This check does not publish a
+release.
+
+Run the separate npm workflow and live-settings proof with:
 
 ```bash
 yarn test:tooling-release-workflow
 ```
 
-The tooling test rejects mutable action tags, exercises fail-closed
+The npm tooling test rejects mutable action tags, exercises fail-closed
 environment-policy mutations, verifies the compiler ignores tooling-scoped
 Conventional Commits, and reads the public live
 `tooling-npm-production` environment. It does not dispatch a workflow, request

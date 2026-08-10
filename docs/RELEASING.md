@@ -95,8 +95,9 @@ Two repository-host controls are mandatory:
 
 1. GitHub immutable Releases are enabled, so published assets and notes cannot
    be edited in place.
-2. The active **Immutable semantic version tags** ruleset covers
-   `refs/tags/v*` and blocks tag deletion and non-fast-forward updates.
+2. The active **Immutable semantic version tags** ruleset covers compiler
+   `refs/tags/v*` and tooling `refs/tags/tooling-v*` tags, and blocks tag
+   deletion and non-fast-forward updates.
 
 Audit them before changing release infrastructure and during periodic
 repository administration:
@@ -224,6 +225,99 @@ repository root package instead. If durable prebuilt GitHub-only distribution
 is needed before npm, publish a reviewed `.tgz` as an immutable,
 checksum-documented GitHub Release asset.
 
+### GitHub-only tooling archive
+
+The manual **Release tooling GitHub archive** workflow publishes the reviewed
+prebuilt package without contacting the npm registry. It uses a separate
+`tooling-vX.Y.Z` tag, so it cannot create or change a compiler/Haxelib release.
+
+The workflow runs directly after the operator starts it. Starting the manual
+workflow is the release action. It does not require a second approval or a
+typed approval sentence. The operator gives the exact version and commit.
+
+Before starting the run, the operator must run this read-only host check with
+a GitHub credential that has `Administration: read`:
+
+```bash
+node scripts/release/verify-host-controls.cjs fullofcaffeine/genes-ts
+```
+
+This confirms that published GitHub Releases cannot be edited. It also confirms
+that compiler and tooling version tags cannot be moved or deleted. The
+short-lived workflow token cannot read these repository settings. For this
+reason, the operator runs the check before each release. Actions does not store
+a long-lived administrator token.
+
+The operator supplies two workflow inputs:
+
+```text
+version: 0.1.0
+commit: <exact 40-character commit currently at origin/main>
+```
+
+For a retry after `main` moves, start a new manual run with the same commit.
+This is valid only when the exact protected tooling tag already points to it.
+
+The workflow installs the reviewed npm 11.18.0 command, reruns the complete
+Genes gate, packs the tooling package twice, and requires identical bytes. The
+checkout does not leave its write credential available to install or test
+commands. The first inline source check receives the GitHub token only to find
+an existing recovery Release. The final release command also receives the
+token. Repository code does not receive it before the final command. The
+workflow then verifies the package in clean consumers on the repository Node
+release and Node 20.9.0 with npm 10. The immutable GitHub Release contains
+exactly:
+
+- `genes-ts-tooling-X.Y.Z.tgz`;
+- its `.sha256` sidecar;
+- `release-receipt.json`, which records the source, npm integrity, checksums,
+  and complete file list; and
+- `sbom.spdx.json`, the package's SPDX software inventory.
+
+The workflow checks out the requested commit without a stored release
+credential. It also checks out the current workflow commit in a separate
+directory. The requested commit supplies the package source and its tests. The
+current workflow commit supplies the release command. Thus, a later recovery
+uses reviewed release fixes without changing the package bytes.
+
+Before it runs repository code, the workflow classifies the run as `first` or
+`recovery`. A first attempt requires the reviewed commit to be current `main`.
+An exact tag at current `main` remains a first attempt, even if a prior run
+stopped before it created a Release. A recovery for an older commit requires
+the protected tag and an existing draft or public GitHub Release for that tag.
+A tag by itself is not recovery proof.
+
+The workflow keeps this first classification for the complete run. A tag that
+appears later cannot turn a first attempt into a recovery. The publisher then
+creates or verifies the exact protected tag before GitHub can create a tag from
+draft details. A later change to `main` does not change this locked source.
+
+A retry can continue after `main` moves only when the protected tag already
+points to the reviewed commit. This rule lets an interrupted release finish.
+It does not accept a missing or different tag for an older commit.
+
+The publisher creates or resumes a draft and compares each uploaded file with
+the local candidate. It checks the complete draft again after the final tag
+check and immediately before publication. A retry checks each existing file
+before it uploads a missing file.
+
+GitHub can publish the draft and then lose the command response. The publisher
+always reads the public release after that request. It repeats this final check
+for a short bounded period because GitHub can take time to show the immutable
+state. If the exact immutable release exists, the run succeeds after it checks
+all files and the protected tag. If publication did not occur, the failed
+request and failed final check remain visible together.
+
+The publisher refuses different notes, unexpected files, changed bytes, or a
+moved tag. It reads the archive and checks the receipt's source, npm integrity,
+two checksums, and complete file list before upload. It marks the tooling
+release as not “Latest,” so it cannot replace the compiler release shown as the
+repository's main download. It never deletes or replaces a tag or file.
+
+Before the first release, the live **Immutable semantic version tags** ruleset
+must cover both `refs/tags/v*` and `refs/tags/tooling-v*`. Check that setting
+with the Administration-read operator audit described above.
+
 npm 10.9.4 is explicitly unsupported for this Git-subdirectory path: it parses
 the selector but installs the repository root. Use the deterministic tarball
 path when npm 11.18.0 is unavailable or dependency build scripts are disabled.
@@ -233,9 +327,9 @@ host is ready to adopt a reviewed public version. It is not required merely
 because the package exists. See [`../tooling/README.md`](../tooling/README.md)
 for the package boundary, examples, and pre-publication workflows.
 
-An ordinary merge never publishes tooling. Publication is available only
-through the manual **Release tooling npm package** workflow. Before its first
-OIDC use, repository administrators must configure:
+An ordinary merge never publishes tooling. npm publication is available only
+through the separate manual **Release tooling npm package** workflow. Before
+its first OIDC use, repository administrators must configure:
 
 - npm trusted publishing for this repository and the
   `.github/workflows/release-tooling.yml` workflow;

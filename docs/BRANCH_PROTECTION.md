@@ -51,10 +51,11 @@ workflow specifically so publication can depend on its exact-SHA result.
 This preserves branch protection and avoids a second, untested release commit.
 
 Version tags have a separate active ruleset named
-**Immutable semantic version tags**. It targets `refs/tags/v*` and blocks
-deletion and non-fast-forward updates. Published GitHub Releases are also
-immutable, which locks their notes and assets. Together these controls mean a
-released version cannot later be made to identify different source or bytes.
+**Immutable semantic version tags**. It targets compiler `refs/tags/v*` tags
+and tooling `refs/tags/tooling-v*` tags, and blocks deletion and
+non-fast-forward updates. Published GitHub Releases are also immutable, which
+locks their notes and assets. Together these controls mean a released version
+cannot later be made to identify different source or bytes.
 
 Audit them with a maintainer credential that has repository
 `Administration: read`:

@@ -336,6 +336,9 @@ jobs:
       # Release settings live outside Git. Keep their public live-policy check
       # in this required job so a weakened environment blocks ordinary PRs.
       - run: yarn test:tooling-release-workflow
+      # The GitHub-only tooling archive has a separate package and tag. Check
+      # its source, asset, and no-npm rules in the same required job.
+      - run: yarn test:tooling-github-release
       # These non-publishing checks exercise the real SemVer analyzer, exact
       # artifact bytes, and fail-closed recovery before main can publish them.
       - run: yarn test:release

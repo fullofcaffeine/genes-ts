@@ -118,7 +118,7 @@
       "kind": "product",
       "owner": "Package, release, security, and curated downstream owners",
       "claim": "The reviewed artifacts install cleanly, preserve their declared package shape, and are checked against pinned downstream contracts without laundering those results into compiler conformance.",
-      "gateIds": ["release-contract", "package-imports", "compatibility-inventory", "full-ci"],
+      "gateIds": ["release-contract", "tooling-github-release-contract", "package-imports", "compatibility-inventory", "full-ci"],
       "evidenceBucketIds": ["npm-package-shapes", "curated-downstream-contracts"],
       "exampleIds": [],
       "claimCeiling": "Pinned package and downstream contracts; nonblocking downstream observations cannot promote a core compiler claim.",
@@ -2889,6 +2889,70 @@
       ]
     },
     {
+      "id": "tooling-github-release-contract",
+      "packageScript": "test:tooling-github-release",
+      "runnerTokens": [
+        "node scripts/dist/test-tooling-github-release.js"
+      ],
+      "tier": "focused",
+      "cost": "fast",
+      "axes": [
+        "repository-policy"
+      ],
+      "profiles": [
+        "repository"
+      ],
+      "evidence": [
+        "policy",
+        "security",
+        "determinism",
+        "package-shape"
+      ],
+      "ownerPaths": [
+        ".github/workflows/release-tooling-github.yml",
+        "scripts/release/complete-tooling-github-release.cjs",
+        "scripts/test-tooling-github-release.ts",
+        "scripts/release/release-host-controls.cjs",
+        "docs/RELEASING.md",
+        "tooling/README.md"
+      ],
+      "proves": "The manual GitHub-only tooling release stays tied to protected main, verifies exact package bytes, and cannot publish npm or compiler packages.",
+      "doesNotProve": "This local policy check does not create a hosted Release or replace clean package-consumer evidence.",
+      "owners": [
+        ".github/workflows/release-tooling-github.yml",
+        "scripts/release/complete-tooling-github-release.cjs",
+        "scripts/test-tooling-github-release.ts",
+        "scripts/release/release-host-controls.cjs",
+        "docs/RELEASING.md",
+        "tooling/README.md"
+      ],
+      "families": [
+        "policy",
+        "security",
+        "determinism",
+        "package"
+      ],
+      "capabilities": [
+        "policy",
+        "security",
+        "determinism",
+        "package-shape"
+      ],
+      "ring": "R5",
+      "size": "small",
+      "alwaysRun": false,
+      "timeoutSeconds": 180,
+      "historicalDurationMs": null,
+      "cacheMode": "required-clean",
+      "command": "yarn test:tooling-github-release",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/tooling-github-release.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
       "id": "full-ci",
       "packageScript": "test:ci",
       "runnerTokens": [
@@ -2896,6 +2960,7 @@
         "yarn test:main-protection-policy",
         "yarn test:release",
         "yarn test:tooling-release-workflow",
+        "yarn test:tooling-github-release",
         "yarn test:precommit-hook",
         "yarn test:secrets",
         "yarn test:vulns",
@@ -3476,6 +3541,10 @@
         {
           "gate": "release-contract",
           "when": "SemVer, release workflow, artifact bytes, publication ordering, or release recovery changes"
+        },
+        {
+          "gate": "tooling-github-release-contract",
+          "when": "the GitHub-only tooling archive, tooling tags, hosted bytes, or npm-free release recovery changes"
         }
       ],
       "inspect": [
@@ -3835,6 +3904,7 @@
       ],
       "selects": [
         "release-contract",
+        "tooling-github-release-contract",
         "compatibility-inventory",
         "package-imports",
         "portable-haxe-smoke",

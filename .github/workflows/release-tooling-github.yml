@@ -1,0 +1,172 @@
+name: Release tooling GitHub archive
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact @genes-ts/tooling SemVer
+        required: true
+        type: string
+      commit:
+        description: Exact current main commit, or source of an existing exact tooling tag
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-tooling-github
+  cancel-in-progress: false
+
+env:
+  YARN_VERSION: "1.22.22"
+  NPM_RELEASE_VERSION: "11.18.0"
+  NPM_RELEASE_INTEGRITY: "sha512-T67M4L5wNm0cZ7EBLErcEkY1SmzEW/WJ+SADBzsFUY1UdAPfFHXFQtZ6SEXiK0+vzXysCvAsepbMaBTwnrAD+w=="
+
+jobs:
+  release:
+    name: Publish immutable tooling archive
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: release-source
+    steps:
+      - name: Checkout the reviewed release controller
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: release-controller
+      - name: Checkout the requested package source without release credentials
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.commit }}
+          path: release-source
+      - id: source
+        name: Verify protected source before running repository code
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_COMMIT: ${{ inputs.commit }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          test "$GITHUB_SHA" = "$(git -C ../release-controller rev-parse HEAD)"
+          test "$RELEASE_COMMIT" = "$(git rev-parse HEAD)"
+          git fetch --no-tags origin main
+          current_main="$(git rev-parse origin/main)"
+          tag="tooling-v${RELEASE_VERSION}"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" > /dev/null; then
+            git fetch origin "refs/tags/$tag:refs/tags/$tag"
+            test "$RELEASE_COMMIT" = "$(git rev-list -n 1 "$tag")"
+            if [ "$RELEASE_COMMIT" = "$current_main" ]; then
+              printf 'mode=first\n' >> "$GITHUB_OUTPUT"
+            else
+              release_tag="$(gh api --paginate \
+                "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+                --jq ".[] | select(.tag_name == \"$tag\") | .tag_name")"
+              test "$release_tag" = "$tag"
+              printf 'mode=recovery\n' >> "$GITHUB_OUTPUT"
+            fi
+          else
+            test "$RELEASE_COMMIT" = "$current_main"
+            printf 'mode=first\n' >> "$GITHUB_OUTPUT"
+          fi
+      - id: toolchains
+        run: node scripts/emit-toolchain-outputs.mjs
+      - name: Set up the repository Node.js release
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: ${{ steps.toolchains.outputs.node-next-lts }}
+          package-manager-cache: false
+      - name: Install the exact npm CLI used to create the archive
+        run: |
+          set -euo pipefail
+          test "$(npm view "npm@${NPM_RELEASE_VERSION}" dist.integrity)" = \
+            "$NPM_RELEASE_INTEGRITY"
+          npm install --global "npm@${NPM_RELEASE_VERSION}"
+          test "$(npm --version)" = "$NPM_RELEASE_VERSION"
+      - run: corepack enable
+      - run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
+      - run: yarn install --frozen-lockfile
+      - name: Verify the release inputs and checked-out source
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_COMMIT: ${{ inputs.commit }}
+        run: |
+          set -euo pipefail
+          test "$RELEASE_COMMIT" = "$(git rev-parse HEAD)"
+          test "$(node -p "require('./tooling/package.json').version")" = "$RELEASE_VERSION"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+      - name: Run the complete Genes release gate
+        run: yarn test:ci
+      - name: Pack the tooling archive twice and create release evidence
+        env:
+          RELEASE_COMMIT: ${{ inputs.commit }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          yarn --cwd tooling build
+          first="${RUNNER_TEMP}/tooling-first"
+          second="${RUNNER_TEMP}/tooling-second"
+          release="${RUNNER_TEMP}/tooling-release"
+          mkdir -p "$first" "$second" "$release"
+          npm pack ./tooling --json --pack-destination "$first" > "${RUNNER_TEMP}/tooling-first.json"
+          npm pack ./tooling --json --pack-destination "$second" > "${RUNNER_TEMP}/tooling-second.json"
+          filename="genes-ts-tooling-${RELEASE_VERSION}.tgz"
+          test -f "$first/$filename"
+          test -f "$second/$filename"
+          cmp "$first/$filename" "$second/$filename"
+          cp "$first/$filename" "$release/$filename"
+          (cd "$release" && sha256sum "$filename" > "$filename.sha256")
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$RELEASE_COMMIT")"
+          export GENES_RELEASE_COMMIT="$RELEASE_COMMIT"
+          node scripts/dist/create-tooling-release-evidence.js \
+            --tarball "$release/$filename" \
+            --pack-json "${RUNNER_TEMP}/tooling-first.json" \
+            --output "$release"
+          node scripts/dist/test-tooling-package.js \
+            --tarball "$release/$filename" \
+            --pack-json "${RUNNER_TEMP}/tooling-first.json"
+          printf 'TOOLING_RELEASE_DIRECTORY=%s\n' "$release" >> "$GITHUB_ENV"
+      - name: Verify the exact archive on the oldest supported Node.js release
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 20.9.0
+          package-manager-cache: false
+      - name: Run the clean npm 10 consumer
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          test "$(npm --version | cut -d. -f1)" = "10"
+          node scripts/dist/test-tooling-package.js \
+            --tarball "${TOOLING_RELEASE_DIRECTORY}/genes-ts-tooling-${RELEASE_VERSION}.tgz" \
+            --pack-json "${RUNNER_TEMP}/tooling-first.json"
+      - name: Restore the repository Node.js release
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: ${{ steps.toolchains.outputs.node-next-lts }}
+          package-manager-cache: false
+      - name: Publish or verify the immutable GitHub-only release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          TOOLING_RELEASE_SOURCE_SHA: ${{ inputs.commit }}
+          TOOLING_RELEASE_SOURCE_MODE: ${{ steps.source.outputs.mode }}
+          NODE_PATH: ${{ github.workspace }}/release-source/node_modules
+        run: |
+          set -euo pipefail
+          test "$TOOLING_RELEASE_SOURCE_SHA" = "$(git rev-parse HEAD)"
+          tag="tooling-v${RELEASE_VERSION}"
+          node ../release-controller/scripts/release/complete-tooling-github-release.cjs \
+            "$tag" "$TOOLING_RELEASE_DIRECTORY"

@@ -15,7 +15,7 @@ function runGh(args, options = {}) {
  * The local release code can validate bytes before upload, but repository
  * settings own what happens afterward. This check therefore requires both
  * immutable GitHub Releases and a tag ruleset that blocks deletion or movement
- * of every `v*` tag.
+ * of every compiler `v*` tag and tooling `tooling-v*` tag.
  *
  * GitHub classifies both settings APIs as repository Administration data. Run
  * this operator audit with a maintainer token that has Administration:read.
@@ -73,10 +73,15 @@ function verifyHostReleaseControls({
   const ruleTypes = new Set(
     (ruleset.rules || []).map(({ type }) => type)
   );
+  const requiredIncludes = new Set([
+    "refs/tags/v*",
+    "refs/tags/tooling-v*",
+  ]);
+  const actualIncludes = Array.isArray(includes) ? new Set(includes) : null;
   if (
     !Array.isArray(includes) ||
-    includes.length !== 1 ||
-    includes[0] !== "refs/tags/v*" ||
+    actualIncludes.size !== requiredIncludes.size ||
+    [...requiredIncludes].some((include) => !actualIncludes.has(include)) ||
     !Array.isArray(excludes) ||
     excludes.length !== 0 ||
     !Array.isArray(bypassActors) ||
@@ -87,7 +92,7 @@ function verifyHostReleaseControls({
     !ruleTypes.has("non_fast_forward")
   ) {
     throw new Error(
-      "semantic-version tag ruleset does not prevent update and deletion"
+      "version-tag ruleset does not prevent compiler and tooling tag update and deletion"
     );
   }
 
