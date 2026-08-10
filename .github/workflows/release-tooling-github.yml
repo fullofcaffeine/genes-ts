@@ -97,6 +97,8 @@ jobs:
       - run: corepack enable
       - run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
       - run: yarn install --frozen-lockfile
+      - name: Install the pinned Beads client required by repository tests
+        run: yarn beads:install
       - name: Verify the release inputs and checked-out source
         env:
           RELEASE_VERSION: ${{ inputs.version }}

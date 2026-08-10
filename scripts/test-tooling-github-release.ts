@@ -104,6 +104,12 @@ assert.match(workflow, /NPM_RELEASE_INTEGRITY: "sha512-/);
 assert.match(workflow, /npm install --global "npm@\$\{NPM_RELEASE_VERSION\}"/);
 assert.match(workflow, /tooling-v\$\{RELEASE_VERSION\}/);
 assert.match(workflow, /yarn test:ci/);
+const beadsInstall = workflow.indexOf("yarn beads:install");
+const completeReleaseGate = workflow.indexOf("yarn test:ci");
+assert(
+  beadsInstall > 0 && beadsInstall < completeReleaseGate,
+  "the release workflow must install the pinned Beads client before the complete release gate"
+);
 assert.match(workflow, /npm pack \.\/tooling --json/);
 assert.match(workflow, /cmp .*first.*second/s);
 assert.match(workflow, /node scripts\/dist\/test-tooling-package\.js/);
