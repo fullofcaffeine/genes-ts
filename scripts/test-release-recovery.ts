@@ -417,6 +417,19 @@ const controls = verifyHostReleaseControls({
 assert.equal(controls.ruleset.id, 42);
 for (const [label, mutation] of [
   [
+    "duplicate compiler pattern without tooling pattern",
+    {
+      bypass_actors: [],
+      conditions: {
+        ref_name: {
+          include: ["refs/tags/v*", "refs/tags/v*"],
+          exclude: [],
+        },
+      },
+      rules: [{ type: "deletion" }, { type: "non_fast_forward" }],
+    },
+  ],
+  [
     "excluded version tags",
     {
       bypass_actors: [],

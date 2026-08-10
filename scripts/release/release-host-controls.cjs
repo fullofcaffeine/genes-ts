@@ -77,10 +77,11 @@ function verifyHostReleaseControls({
     "refs/tags/v*",
     "refs/tags/tooling-v*",
   ]);
+  const actualIncludes = Array.isArray(includes) ? new Set(includes) : null;
   if (
     !Array.isArray(includes) ||
-    includes.length !== requiredIncludes.size ||
-    includes.some((include) => !requiredIncludes.has(include)) ||
+    actualIncludes.size !== requiredIncludes.size ||
+    [...requiredIncludes].some((include) => !actualIncludes.has(include)) ||
     !Array.isArray(excludes) ||
     excludes.length !== 0 ||
     !Array.isArray(bypassActors) ||

@@ -22,6 +22,10 @@ const releaseHelpers = require(
   path.join(repoRoot, "scripts/release/complete-tooling-github-release.cjs")
 ) as {
   assetNames(version: string): readonly string[];
+  ensureCurrentMain(options: {
+    commit: string;
+    execute(command: string, arguments_: string[]): string;
+  }): void;
   releaseNotes(version: string, commit: string): string;
   validateLocalAssets(options: {
     assetDirectory: string;
@@ -100,6 +104,16 @@ assert(
   existingAssetCheck > 0 && existingAssetCheck < missingAssetUpload,
   "a resumed draft must compare every existing asset before uploading a missing file"
 );
+const finalMainCheckInPublisher = releasePublisher.lastIndexOf(
+  "ensureCurrentMain({ commit, options })"
+);
+const publishDraft = releasePublisher.lastIndexOf(
+  '["release", "edit", tag, "--draft=false", "--latest=false"]'
+);
+assert(
+  finalMainCheckInPublisher > 0 && finalMainCheckInPublisher < publishDraft,
+  "the publisher must re-check current main immediately before making the draft public"
+);
 
 for (const reference of workflow.matchAll(/uses:\s+([^\s#]+)/g)) {
   assert.match(
@@ -120,6 +134,31 @@ assert.deepEqual(releaseHelpers.assetNames("0.1.0"), [
   "release-receipt.json",
   "sbom.spdx.json",
 ]);
+const currentCommit = "1111111111111111111111111111111111111111";
+const mainCommands: string[] = [];
+releaseHelpers.ensureCurrentMain({
+  commit: currentCommit,
+  execute(command, arguments_) {
+    mainCommands.push(`${command} ${arguments_.join(" ")}`);
+    return arguments_[0] === "rev-parse" ? `${currentCommit}\n` : "";
+  },
+});
+assert.deepEqual(mainCommands, [
+  "git fetch --no-tags origin main",
+  "git rev-parse origin/main",
+]);
+assert.throws(
+  () =>
+    releaseHelpers.ensureCurrentMain({
+      commit: currentCommit,
+      execute(_command, arguments_) {
+        return arguments_[0] === "rev-parse"
+          ? `${"2".repeat(40)}\n`
+          : "";
+      },
+    }),
+  /origin\/main moved/
+);
 const notes = releaseHelpers.releaseNotes(
   "0.1.0",
   "1111111111111111111111111111111111111111"

@@ -277,6 +277,19 @@ function ensureTagPointsToSource({ tag, commit, options = {} }) {
 }
 
 /**
+ * Confirms that the reviewed commit is still current immediately before the
+ * draft becomes public. Uploading and comparing files can take long enough for
+ * main to advance after the workflow's earlier check.
+ */
+function ensureCurrentMain({ commit, options = {}, execute = run }) {
+  execute("git", ["fetch", "--no-tags", "origin", "main"], options);
+  const current = execute("git", ["rev-parse", "origin/main"], options).trim();
+  if (current !== commit) {
+    fail(`origin/main moved to ${current}; reviewed source is ${commit}`);
+  }
+}
+
+/**
  * Checks the release source before any draft asset can be uploaded.
  *
  * GitHub may keep a new draft's tag uncreated until publication. If the tag
@@ -402,6 +415,7 @@ function completeToolingGithubRelease({
     verifyReleaseShape({ release, tag, notes, names, requireImmutable: false });
     compareHostedAssets({ assetDirectory, names, tag, options });
     verifyDraftSource({ release, tag, commit, options });
+    ensureCurrentMain({ commit, options });
     runGh(
       ["release", "edit", tag, "--draft=false", "--latest=false"],
       options
@@ -438,6 +452,7 @@ if (require.main === module) {
 module.exports = {
   assetNames,
   completeToolingGithubRelease,
+  ensureCurrentMain,
   releaseNotes,
   validateLocalAssets,
   versionFromTag,
