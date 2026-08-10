@@ -36,7 +36,7 @@ evidence.
 | Haxe compile smoke | Generated Haxe parses and types on the exercised JS profile. | Runtime behavior or non-JS portability. |
 | Runtime smoke | A selected generated entry executes and prints its marker. | Edge cases or behavioral equivalence with the original TypeScript. |
 | Roundtrip smoke | Original TS and Haxe→genes-ts→TS execute selected common workflows; guarded user modules avoid `any`/`unknown`. | Whole-program parity; the three fixtures explicitly exclude one unsupported top-level entry file each. |
-| Semantic differential | The original TS, classic Genes JS, and genes-ts→JS event traces match for 16 declared contracts. | Syntax/categories outside those contracts. |
+| Semantic differential | The original TS, classic Genes JS, and genes-ts→JS event traces match for 18 declared contracts. | Syntax/categories outside those contracts. |
 | Strict diagnostics/transaction test | Unsupported source receives stable spans/IDs and cannot leave a partial output tree. | That the unsupported feature has been implemented. |
 
 ## Current semantic support matrix
