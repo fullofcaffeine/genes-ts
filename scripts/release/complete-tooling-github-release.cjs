@@ -69,7 +69,7 @@ function assetNames(version) {
 function releaseNotes(version, commit) {
   const tag = `tooling-v${version}`;
   const tarball = `genes-ts-tooling-${version}.tgz`;
-  return `@genes-ts/tooling ${version} is the first reviewed GitHub-only distribution of Genes' framework-neutral host tooling.
+  return `@genes-ts/tooling ${version} is a reviewed GitHub-only distribution of Genes' framework-neutral host tooling.
 
 It is intended for early consumers that need exact package bytes without an npm-registry release. npm can install the attached archive directly:
 
@@ -414,8 +414,10 @@ function completeToolingGithubRelease({
     release = releaseView(tag, options);
     verifyReleaseShape({ release, tag, notes, names, requireImmutable: false });
     compareHostedAssets({ assetDirectory, names, tag, options });
-    verifyDraftSource({ release, tag, commit, options });
     ensureCurrentMain({ commit, options });
+    // Keep the tag check last. Another maintainer may create the tag while the
+    // main fetch runs, and publishing must stop if that tag names other source.
+    verifyDraftSource({ release, tag, commit, options });
     runGh(
       ["release", "edit", tag, "--draft=false", "--latest=false"],
       options

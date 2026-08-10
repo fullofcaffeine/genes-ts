@@ -107,12 +107,17 @@ assert(
 const finalMainCheckInPublisher = releasePublisher.lastIndexOf(
   "ensureCurrentMain({ commit, options })"
 );
+const finalTagCheckInPublisher = releasePublisher.lastIndexOf(
+  "verifyDraftSource({ release, tag, commit, options })"
+);
 const publishDraft = releasePublisher.lastIndexOf(
   '["release", "edit", tag, "--draft=false", "--latest=false"]'
 );
 assert(
-  finalMainCheckInPublisher > 0 && finalMainCheckInPublisher < publishDraft,
-  "the publisher must re-check current main immediately before making the draft public"
+  finalMainCheckInPublisher > 0 &&
+    finalMainCheckInPublisher < finalTagCheckInPublisher &&
+    finalTagCheckInPublisher < publishDraft,
+  "the publisher must re-check main, then keep the tag-source check last before publication"
 );
 
 for (const reference of workflow.matchAll(/uses:\s+([^\s#]+)/g)) {
