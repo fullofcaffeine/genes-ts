@@ -176,7 +176,24 @@ try {
   );
   writeFileSync(
     path.join(fixture, "sbom.spdx.json"),
-    `${JSON.stringify({ spdxVersion: "SPDX-2.3" })}\n`
+    `${JSON.stringify({
+      spdxVersion: "SPDX-2.3",
+      name: "@genes-ts/tooling-0.1.0",
+      packages: [
+        {
+          name: "@genes-ts/tooling",
+          versionInfo: "0.1.0",
+          checksums: [{ algorithm: "SHA512", checksumValue: digest512 }],
+          externalRefs: [
+            {
+              referenceCategory: "PACKAGE-MANAGER",
+              referenceType: "purl",
+              referenceLocator: "pkg:npm/%40genes-ts/tooling@0.1.0",
+            },
+          ],
+        },
+      ],
+    })}\n`
   );
   releaseHelpers.validateLocalAssets({
     assetDirectory: fixture,
@@ -210,6 +227,34 @@ try {
   );
   receipt.artifact.files[0].size -= 1;
   writeFileSync(receiptPath, `${JSON.stringify(receipt)}\n`);
+  const sbomPath = path.join(fixture, "sbom.spdx.json");
+  const sbom = JSON.parse(readFileSync(sbomPath, "utf8"));
+  sbom.packages[0].checksums[0].checksumValue = "wrong";
+  writeFileSync(sbomPath, `${JSON.stringify(sbom)}\n`);
+  assert.throws(
+    () =>
+      releaseHelpers.validateLocalAssets({
+        assetDirectory: fixture,
+        commit,
+        version: "0.1.0",
+      }),
+    /SBOM does not match/
+  );
+  sbom.packages[0].checksums[0].checksumValue = digest512;
+  sbom.packages[0].externalRefs[0].referenceLocator = "pkg:npm/wrong@0.1.0";
+  writeFileSync(sbomPath, `${JSON.stringify(sbom)}\n`);
+  assert.throws(
+    () =>
+      releaseHelpers.validateLocalAssets({
+        assetDirectory: fixture,
+        commit,
+        version: "0.1.0",
+      }),
+    /SBOM does not match/
+  );
+  sbom.packages[0].externalRefs[0].referenceLocator =
+    "pkg:npm/%40genes-ts/tooling@0.1.0";
+  writeFileSync(sbomPath, `${JSON.stringify(sbom)}\n`);
   writeFileSync(path.join(fixture, `${tarball}.sha256`), `wrong  ${tarball}\n`);
   assert.throws(
     () =>

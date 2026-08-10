@@ -183,8 +183,30 @@ function validateLocalAssets({ assetDirectory, commit, version }) {
     path.join(assetDirectory, "sbom.spdx.json"),
     "SPDX document"
   );
-  if (sbom.spdxVersion !== "SPDX-2.3") {
-    fail("tooling release SBOM must use SPDX 2.3");
+  const sbomPackage =
+    Array.isArray(sbom.packages) && sbom.packages.length === 1
+      ? sbom.packages[0]
+      : null;
+  const expectedPurl = `pkg:npm/%40genes-ts/tooling@${version}`;
+  if (
+    sbom.spdxVersion !== "SPDX-2.3" ||
+    sbom.name !== `@genes-ts/tooling-${version}` ||
+    !sbomPackage ||
+    sbomPackage.name !== "@genes-ts/tooling" ||
+    sbomPackage.versionInfo !== version ||
+    !Array.isArray(sbomPackage.checksums) ||
+    sbomPackage.checksums.length !== 1 ||
+    sbomPackage.checksums[0].algorithm !== "SHA512" ||
+    sbomPackage.checksums[0].checksumValue !== digest512 ||
+    !Array.isArray(sbomPackage.externalRefs) ||
+    sbomPackage.externalRefs.length !== 1 ||
+    sbomPackage.externalRefs[0].referenceCategory !== "PACKAGE-MANAGER" ||
+    sbomPackage.externalRefs[0].referenceType !== "purl" ||
+    sbomPackage.externalRefs[0].referenceLocator !== expectedPurl
+  ) {
+    fail(
+      "tooling release SBOM does not match the archive checksum, package, version, and npm package URL"
+    );
   }
   return names;
 }
