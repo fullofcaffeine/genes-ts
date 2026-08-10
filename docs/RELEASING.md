@@ -261,7 +261,9 @@ This is valid only when the exact protected tooling tag already points to it.
 The workflow installs the reviewed npm 11.18.0 command, reruns the complete
 Genes gate, packs the tooling package twice, and requires identical bytes. The
 checkout does not leave its write credential available to install or test
-commands. Only the final release command receives the GitHub token. The
+commands. The first inline source check receives the GitHub token only to find
+an existing recovery Release. The final release command also receives the
+token. Repository code does not receive it before the final command. The
 workflow then verifies the package in clean consumers on the repository Node
 release and Node 20.9.0 with npm 10. The immutable GitHub Release contains
 exactly:
@@ -276,7 +278,8 @@ The workflow checks out the requested commit without a stored release
 credential. Before it runs repository code, it classifies the run as `first`
 or `recovery`. A first attempt requires the reviewed commit to be current
 `main`. A recovery requires the protected tag to exist at that first check and
-to point to the reviewed commit.
+to point to the reviewed commit. It also requires an existing draft or public
+GitHub Release for that tag. A tag by itself is not recovery proof.
 
 The workflow keeps this first classification for the complete run. A tag that
 appears later cannot turn a first attempt into a recovery. The publisher then

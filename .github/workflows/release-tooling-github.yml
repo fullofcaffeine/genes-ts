@@ -40,6 +40,8 @@ jobs:
       - id: source
         name: Verify protected source before running repository code
         env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
           RELEASE_COMMIT: ${{ inputs.commit }}
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
@@ -52,6 +54,8 @@ jobs:
           if git ls-remote --exit-code --tags origin "refs/tags/$tag" > /dev/null; then
             git fetch origin "refs/tags/$tag:refs/tags/$tag"
             test "$RELEASE_COMMIT" = "$(git rev-list -n 1 "$tag")"
+            release_tag="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$tag" --jq '.tag_name')"
+            test "$release_tag" = "$tag"
             printf 'mode=recovery\n' >> "$GITHUB_OUTPUT"
           else
             test "$RELEASE_COMMIT" = "$(git rev-parse origin/main)"

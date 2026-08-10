@@ -124,6 +124,15 @@ assert.match(
   /git ls-remote --exit-code --tags origin "refs\/tags\/\$tag"/
 );
 assert.match(workflow, /git rev-list -n 1 "\$tag"/);
+assert.match(
+  workflow,
+  /gh api "repos\/\$\{GITHUB_REPOSITORY\}\/releases\/tags\/\$tag" --jq '\.tag_name'/
+);
+assert(
+  workflow.indexOf("gh api \"repos/${GITHUB_REPOSITORY}/releases/tags/$tag\"") <
+    workflow.indexOf("mode=recovery"),
+  "recovery mode must require an existing GitHub Release, not only a tag"
+);
 assert.match(workflow, /mode=recovery/);
 assert.match(workflow, /mode=first/);
 assert.match(workflow, /TOOLING_RELEASE_SOURCE_MODE: \$\{\{ steps\.source\.outputs\.mode \}\}/);
