@@ -95,7 +95,10 @@ assert.doesNotMatch(workflow, /^\s*environment:/m);
 assert.doesNotMatch(workflow, /verify-tooling-release-environment/);
 assert.match(workflow, /permissions:\n\s+contents: write/);
 assert.match(workflow, /persist-credentials: false/);
+assert.match(workflow, /ref: \$\{\{ github\.sha \}\}\n\s+path: release-controller/);
 assert.match(workflow, /ref: \$\{\{ inputs\.commit \}\}/);
+assert.match(workflow, /path: release-source/);
+assert.match(workflow, /working-directory: release-source/);
 assert.match(workflow, /NPM_RELEASE_VERSION: "11\.18\.0"/);
 assert.match(workflow, /NPM_RELEASE_INTEGRITY: "sha512-/);
 assert.match(workflow, /npm install --global "npm@\$\{NPM_RELEASE_VERSION\}"/);
@@ -112,7 +115,7 @@ assert.doesNotMatch(
 );
 assert.match(
   workflow,
-  /node scripts\/release\/complete-tooling-github-release\.cjs/
+  /node \.\.\/release-controller\/scripts\/release\/complete-tooling-github-release\.cjs/
 );
 const finalMainCheck = workflow.lastIndexOf("git fetch --no-tags origin main");
 assert(
@@ -126,12 +129,16 @@ assert.match(
 assert.match(workflow, /git rev-list -n 1 "\$tag"/);
 assert.match(
   workflow,
-  /gh api "repos\/\$\{GITHUB_REPOSITORY\}\/releases\/tags\/\$tag" --jq '\.tag_name'/
+  /gh api --paginate[\s\\]*"repos\/\$\{GITHUB_REPOSITORY\}\/releases\?per_page=100"/
 );
 assert(
-  workflow.indexOf("gh api \"repos/${GITHUB_REPOSITORY}/releases/tags/$tag\"") <
+  workflow.indexOf("gh api --paginate") <
     workflow.indexOf("mode=recovery"),
   "recovery mode must require an existing GitHub Release, not only a tag"
+);
+assert.match(
+  workflow,
+  /if \[ "\$RELEASE_COMMIT" = "\$current_main" \]; then[\s\S]*mode=first[\s\S]*else[\s\S]*gh api --paginate[\s\S]*mode=recovery/
 );
 assert.match(workflow, /mode=recovery/);
 assert.match(workflow, /mode=first/);

@@ -1047,14 +1047,15 @@ is a reviewed full commit SHA with a same-line release-version comment. The
 GitHub-only archive workflow does not require a second-person approval. The
 manual start is the release action, so the workflow does not ask for a typed
 approval sentence. A first attempt requires an exact version and current
-`main` commit. A retry can use the same commit after `main` moves only when the
-protected tooling tag already locks that source and a GitHub Release already
-exists for that tag. A tag alone does not prove an interrupted release. The
-workflow records this choice before it runs repository code. A later tag
-cannot change a first attempt into recovery. Before starting the workflow, the
-operator also runs the read-only host check in
-[`RELEASING.md`](RELEASING.md). The separate npm workflow keeps its existing
-protected-environment rules.
+`main` commit. An exact tag at current `main` also remains a first attempt. A
+retry can use the same commit after `main` moves only when the protected tag
+locks that source and a draft or public GitHub Release exists for the tag. A
+tag alone does not prove an interrupted release. The workflow records this
+choice before it runs repository code. It keeps the package source at the
+requested commit, but it runs the publisher from the reviewed workflow commit.
+Before starting the workflow, the operator also runs the read-only host check
+in [`RELEASING.md`](RELEASING.md). The separate npm workflow keeps its
+existing protected-environment rules.
 
 Run the GitHub archive check with:
 
@@ -1064,7 +1065,9 @@ yarn test:tooling-github-release
 
 This check proves that a first attempt accepts only an exact `main` commit. A
 retry can use an existing protected tag only when it points to the same
-reviewed commit and has an existing Release. It also proves deterministic
+reviewed commit and has an existing draft or public Release. It also proves
+that recovery runs the reviewed publisher without changing the package source.
+The check also proves deterministic
 package bytes, exact release files, safe retries, and a second hosted-byte check
 immediately before publication. A lost publish response cannot hide a complete
 immutable release. The final hosted check also repeats for a short bounded

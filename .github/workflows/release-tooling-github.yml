@@ -30,13 +30,24 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: release-source
     steps:
-      - name: Checkout the requested source without release credentials
+      - name: Checkout the reviewed release controller
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: release-controller
+      - name: Checkout the requested package source without release credentials
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
           persist-credentials: false
           ref: ${{ inputs.commit }}
+          path: release-source
       - id: source
         name: Verify protected source before running repository code
         env:
@@ -48,17 +59,25 @@ jobs:
           set -euo pipefail
           [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          test "$GITHUB_SHA" = "$(git -C ../release-controller rev-parse HEAD)"
           test "$RELEASE_COMMIT" = "$(git rev-parse HEAD)"
           git fetch --no-tags origin main
+          current_main="$(git rev-parse origin/main)"
           tag="tooling-v${RELEASE_VERSION}"
           if git ls-remote --exit-code --tags origin "refs/tags/$tag" > /dev/null; then
             git fetch origin "refs/tags/$tag:refs/tags/$tag"
             test "$RELEASE_COMMIT" = "$(git rev-list -n 1 "$tag")"
-            release_tag="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$tag" --jq '.tag_name')"
-            test "$release_tag" = "$tag"
-            printf 'mode=recovery\n' >> "$GITHUB_OUTPUT"
+            if [ "$RELEASE_COMMIT" = "$current_main" ]; then
+              printf 'mode=first\n' >> "$GITHUB_OUTPUT"
+            else
+              release_tag="$(gh api --paginate \
+                "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+                --jq ".[] | select(.tag_name == \"$tag\") | .tag_name")"
+              test "$release_tag" = "$tag"
+              printf 'mode=recovery\n' >> "$GITHUB_OUTPUT"
+            fi
           else
-            test "$RELEASE_COMMIT" = "$(git rev-parse origin/main)"
+            test "$RELEASE_COMMIT" = "$current_main"
             printf 'mode=first\n' >> "$GITHUB_OUTPUT"
           fi
       - id: toolchains
@@ -144,9 +163,10 @@ jobs:
           RELEASE_VERSION: ${{ inputs.version }}
           TOOLING_RELEASE_SOURCE_SHA: ${{ inputs.commit }}
           TOOLING_RELEASE_SOURCE_MODE: ${{ steps.source.outputs.mode }}
+          NODE_PATH: ${{ github.workspace }}/release-source/node_modules
         run: |
           set -euo pipefail
           test "$TOOLING_RELEASE_SOURCE_SHA" = "$(git rev-parse HEAD)"
           tag="tooling-v${RELEASE_VERSION}"
-          node scripts/release/complete-tooling-github-release.cjs \
+          node ../release-controller/scripts/release/complete-tooling-github-release.cjs \
             "$tag" "$TOOLING_RELEASE_DIRECTORY"

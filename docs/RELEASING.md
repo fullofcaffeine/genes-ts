@@ -275,11 +275,17 @@ exactly:
 - `sbom.spdx.json`, the package's SPDX software inventory.
 
 The workflow checks out the requested commit without a stored release
-credential. Before it runs repository code, it classifies the run as `first`
-or `recovery`. A first attempt requires the reviewed commit to be current
-`main`. A recovery requires the protected tag to exist at that first check and
-to point to the reviewed commit. It also requires an existing draft or public
-GitHub Release for that tag. A tag by itself is not recovery proof.
+credential. It also checks out the current workflow commit in a separate
+directory. The requested commit supplies the package source and its tests. The
+current workflow commit supplies the release command. Thus, a later recovery
+uses reviewed release fixes without changing the package bytes.
+
+Before it runs repository code, the workflow classifies the run as `first` or
+`recovery`. A first attempt requires the reviewed commit to be current `main`.
+An exact tag at current `main` remains a first attempt, even if a prior run
+stopped before it created a Release. A recovery for an older commit requires
+the protected tag and an existing draft or public GitHub Release for that tag.
+A tag by itself is not recovery proof.
 
 The workflow keeps this first classification for the complete run. A tag that
 appears later cannot turn a first attempt into a recovery. The publisher then
