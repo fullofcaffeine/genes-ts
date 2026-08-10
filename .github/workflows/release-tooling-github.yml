@@ -11,10 +11,6 @@ on:
         description: Exact current main commit, or source of an existing exact tooling tag
         required: true
         type: string
-      authorization:
-        description: "Type: publish @genes-ts/tooling@VERSION to GitHub from COMMIT without npm"
-        required: true
-        type: string
 
 permissions:
   contents: write
@@ -35,26 +31,31 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - name: Checkout the protected source commit
+      - name: Checkout the requested source without release credentials
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
           persist-credentials: false
-          ref: ${{ github.sha }}
-      - name: Verify protected source before running repository code
+          ref: ${{ inputs.commit }}
+      - id: source
+        name: Verify protected source before running repository code
         env:
           RELEASE_COMMIT: ${{ inputs.commit }}
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
+          [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
           test "$RELEASE_COMMIT" = "$(git rev-parse HEAD)"
           git fetch --no-tags origin main
           tag="tooling-v${RELEASE_VERSION}"
           if git ls-remote --exit-code --tags origin "refs/tags/$tag" > /dev/null; then
             git fetch origin "refs/tags/$tag:refs/tags/$tag"
             test "$RELEASE_COMMIT" = "$(git rev-list -n 1 "$tag")"
+            printf 'mode=recovery\n' >> "$GITHUB_OUTPUT"
           else
             test "$RELEASE_COMMIT" = "$(git rev-parse origin/main)"
+            printf 'mode=first\n' >> "$GITHUB_OUTPUT"
           fi
       - id: toolchains
         run: node scripts/emit-toolchain-outputs.mjs
@@ -73,15 +74,12 @@ jobs:
       - run: corepack enable
       - run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
       - run: yarn install --frozen-lockfile
-      - name: Verify explicit GitHub-only release authorization
+      - name: Verify the release inputs and checked-out source
         env:
           RELEASE_VERSION: ${{ inputs.version }}
           RELEASE_COMMIT: ${{ inputs.commit }}
-          RELEASE_AUTHORIZATION: ${{ inputs.authorization }}
         run: |
           set -euo pipefail
-          expected="publish @genes-ts/tooling@${RELEASE_VERSION} to GitHub from ${RELEASE_COMMIT} without npm"
-          test "$RELEASE_AUTHORIZATION" = "$expected"
           test "$RELEASE_COMMIT" = "$(git rev-parse HEAD)"
           test "$(node -p "require('./tooling/package.json').version")" = "$RELEASE_VERSION"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
@@ -141,6 +139,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           RELEASE_VERSION: ${{ inputs.version }}
           TOOLING_RELEASE_SOURCE_SHA: ${{ inputs.commit }}
+          TOOLING_RELEASE_SOURCE_MODE: ${{ steps.source.outputs.mode }}
         run: |
           set -euo pipefail
           test "$TOOLING_RELEASE_SOURCE_SHA" = "$(git rev-parse HEAD)"

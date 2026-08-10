@@ -36,6 +36,7 @@ const releaseHelpers = require(
   ensureReleaseTag(options: {
     commit: string;
     repository: string;
+    sourceMode: "first" | "recovery";
     tag: string;
     findTag(options: { tag: string }): boolean;
     checkMain(options: { commit: string }): void;
@@ -53,6 +54,21 @@ const releaseHelpers = require(
     title: string;
     executeGh(arguments_: string[]): string;
   }): Error | null;
+  verifyFinalHostedRelease(options: {
+    assetDirectory: string;
+    attempts: number;
+    commit: string;
+    names: readonly string[];
+    notes: string;
+    retryDelayMs: number;
+    tag: string;
+    title: string;
+    readRelease(tag: string): object;
+    verifyShape(options: { release: object }): void;
+    compareAssets(options: { tag: string }): void;
+    verifyTag(options: { commit: string; tag: string }): void;
+    waitForRetry(milliseconds: number): void;
+  }): object;
   releaseNotes(version: string, commit: string): string;
   validateLocalAssets(options: {
     assetDirectory: string;
@@ -79,6 +95,7 @@ assert.doesNotMatch(workflow, /^\s*environment:/m);
 assert.doesNotMatch(workflow, /verify-tooling-release-environment/);
 assert.match(workflow, /permissions:\n\s+contents: write/);
 assert.match(workflow, /persist-credentials: false/);
+assert.match(workflow, /ref: \$\{\{ inputs\.commit \}\}/);
 assert.match(workflow, /NPM_RELEASE_VERSION: "11\.18\.0"/);
 assert.match(workflow, /NPM_RELEASE_INTEGRITY: "sha512-/);
 assert.match(workflow, /npm install --global "npm@\$\{NPM_RELEASE_VERSION\}"/);
@@ -89,9 +106,9 @@ assert.match(workflow, /cmp .*first.*second/s);
 assert.match(workflow, /node scripts\/dist\/test-tooling-package\.js/);
 assert.match(workflow, /node-version: 20\.9\.0/);
 assert.match(workflow, /test "\$\(npm --version \| cut -d\. -f1\)" = "10"/);
-assert.match(
+assert.doesNotMatch(
   workflow,
-  /publish @genes-ts\/tooling@\$\{RELEASE_VERSION\} to GitHub from \$\{RELEASE_COMMIT\} without npm/
+  /authorization|RELEASE_AUTHORIZATION|Verify explicit GitHub-only release authorization/i
 );
 assert.match(
   workflow,
@@ -107,6 +124,9 @@ assert.match(
   /git ls-remote --exit-code --tags origin "refs\/tags\/\$tag"/
 );
 assert.match(workflow, /git rev-list -n 1 "\$tag"/);
+assert.match(workflow, /mode=recovery/);
+assert.match(workflow, /mode=first/);
+assert.match(workflow, /TOOLING_RELEASE_SOURCE_MODE: \$\{\{ steps\.source\.outputs\.mode \}\}/);
 assert.doesNotMatch(workflow, /npm publish|haxelib submit|semantic-release/);
 
 const releasePublisher = readFileSync(
@@ -133,7 +153,7 @@ const finalTagCheckInPublisher = releasePublisher.lastIndexOf(
   "verifyDraftSource({ release, tag, commit, options })"
 );
 const releaseTagLock = releasePublisher.lastIndexOf(
-  "ensureReleaseTag({ repository, tag, commit, options })"
+  "ensureReleaseTag({"
 );
 const publicationRequest = releasePublisher.lastIndexOf(
   "requestDraftPublication({"
@@ -157,13 +177,9 @@ const fullByteCheckBeforeFinalTag = releasePublisher.lastIndexOf(
   "compareHostedAssets({ assetDirectory, names, tag, options })",
   finalTagCheckInPublisher
 );
-const publishedReleaseRead = releasePublisher.indexOf(
-  "release = releaseView(tag, options);",
+const finalHostedVerification = releasePublisher.indexOf(
+  "verifyFinalHostedRelease({",
   publicationRequest
-);
-const publishedReleaseShapeCheck = releasePublisher.indexOf(
-  "verifyReleaseShape({ release, tag, title, notes, names, requireImmutable: true })",
-  publishedReleaseRead
 );
 assert(
   releaseTagLock >= 0 && releaseTagLock < firstReleaseRead,
@@ -180,8 +196,7 @@ assert(
 );
 assert(
   publicationRequest > finalDraftByteCheck &&
-    publicationRequest < publishedReleaseRead &&
-    publishedReleaseRead < publishedReleaseShapeCheck,
+    publicationRequest < finalHostedVerification,
   "the publisher must verify the final hosted release even when the publish response is lost"
 );
 assert.match(releasePublisher, /tagName,targetCommitish,name,isDraft/);
@@ -273,6 +288,7 @@ const releaseTagSteps: string[] = [];
 releaseHelpers.ensureReleaseTag({
   commit: currentCommit,
   repository: "fullofcaffeine/genes-ts",
+  sourceMode: "recovery",
   tag: "tooling-v0.1.0",
   findTag() {
     releaseTagSteps.push("find");
@@ -295,6 +311,7 @@ assert.throws(
     releaseHelpers.ensureReleaseTag({
       commit: currentCommit,
       repository: "fullofcaffeine/genes-ts",
+      sourceMode: "recovery",
       tag: "tooling-v0.1.0",
       findTag() {
         return true;
@@ -316,6 +333,7 @@ releaseTagSteps.length = 0;
 releaseHelpers.ensureReleaseTag({
   commit: currentCommit,
   repository: "fullofcaffeine/genes-ts",
+  sourceMode: "first",
   tag: "tooling-v0.1.0",
   findTag() {
     releaseTagSteps.push("find");
@@ -331,7 +349,28 @@ releaseHelpers.ensureReleaseTag({
     releaseTagSteps.push("verify");
   },
 });
-assert.deepEqual(releaseTagSteps, ["find", "main", "create"]);
+assert.deepEqual(releaseTagSteps, ["main", "create"]);
+
+assert.throws(
+  () =>
+    releaseHelpers.ensureReleaseTag({
+      commit: currentCommit,
+      repository: "fullofcaffeine/genes-ts",
+      sourceMode: "recovery",
+      tag: "tooling-v0.1.0",
+      findTag() {
+        return false;
+      },
+      checkMain() {
+        throw new Error("recovery must not fall back to current main");
+      },
+      createTag() {
+        throw new Error("recovery must not create a missing tag");
+      },
+      verifyTag() {},
+    }),
+  /recovery tag is missing/
+);
 
 const lostPublishResponse = new Error("connection closed after publication");
 assert.equal(
@@ -358,6 +397,41 @@ assert.equal(
   }),
   null
 );
+
+let finalReleaseReads = 0;
+const finalReleaseWaits: number[] = [];
+const finalReleaseChecks: string[] = [];
+const finalRelease = releaseHelpers.verifyFinalHostedRelease({
+  assetDirectory: "/tmp/release",
+  attempts: 3,
+  commit: currentCommit,
+  names: ["package.tgz"],
+  notes: "reviewed notes",
+  retryDelayMs: 7,
+  tag: "tooling-v0.1.0",
+  title: "@genes-ts/tooling 0.1.0",
+  readRelease() {
+    finalReleaseReads += 1;
+    if (finalReleaseReads < 3) throw new Error("release is not visible yet");
+    return { isImmutable: true };
+  },
+  verifyShape() {
+    finalReleaseChecks.push("shape");
+  },
+  compareAssets() {
+    finalReleaseChecks.push("bytes");
+  },
+  verifyTag() {
+    finalReleaseChecks.push("tag");
+  },
+  waitForRetry(milliseconds) {
+    finalReleaseWaits.push(milliseconds);
+  },
+});
+assert.deepEqual(finalRelease, { isImmutable: true });
+assert.equal(finalReleaseReads, 3);
+assert.deepEqual(finalReleaseWaits, [7, 7]);
+assert.deepEqual(finalReleaseChecks, ["shape", "bytes", "tag"]);
 const notes = releaseHelpers.releaseNotes(
   "0.1.0",
   "1111111111111111111111111111111111111111"

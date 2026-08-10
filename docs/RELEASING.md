@@ -231,9 +231,9 @@ The manual **Release tooling GitHub archive** workflow publishes the reviewed
 prebuilt package without contacting the npm registry. It uses a separate
 `tooling-vX.Y.Z` tag, so it cannot create or change a compiler/Haxelib release.
 
-The workflow runs directly after the operator starts it. It does not pause for
-a second-person approval. The operator gives the exact version, commit, and
-authorization text.
+The workflow runs directly after the operator starts it. Starting the manual
+workflow is the release action. It does not require a second approval or a
+typed approval sentence. The operator gives the exact version and commit.
 
 Before starting the run, the operator must run this read-only host check with
 a GitHub credential that has `Administration: read`:
@@ -248,16 +248,15 @@ short-lived workflow token cannot read these repository settings. For this
 reason, the operator runs the check before each release. Actions does not store
 a long-lived administrator token.
 
-The operator supplies all three workflow inputs:
+The operator supplies two workflow inputs:
 
 ```text
 version: 0.1.0
 commit: <exact 40-character commit currently at origin/main>
-authorization: publish @genes-ts/tooling@0.1.0 to GitHub from <same commit> without npm
 ```
 
-For a retry after `main` moves, use the same commit only when the exact
-protected tooling tag already points to it.
+For a retry after `main` moves, start a new manual run with the same commit.
+This is valid only when the exact protected tooling tag already points to it.
 
 The workflow installs the reviewed npm 11.18.0 command, reruns the complete
 Genes gate, packs the tooling package twice, and requires identical bytes. The
@@ -273,9 +272,16 @@ exactly:
   and complete file list; and
 - `sbom.spdx.json`, the package's SPDX software inventory.
 
-On a first attempt, the publisher requires the reviewed commit to be current
-`main`. It then creates the exact protected tag before GitHub can create a tag
-from draft details. A later change to `main` does not change this locked source.
+The workflow checks out the requested commit without a stored release
+credential. Before it runs repository code, it classifies the run as `first`
+or `recovery`. A first attempt requires the reviewed commit to be current
+`main`. A recovery requires the protected tag to exist at that first check and
+to point to the reviewed commit.
+
+The workflow keeps this first classification for the complete run. A tag that
+appears later cannot turn a first attempt into a recovery. The publisher then
+creates or verifies the exact protected tag before GitHub can create a tag from
+draft details. A later change to `main` does not change this locked source.
 
 A retry can continue after `main` moves only when the protected tag already
 points to the reviewed commit. This rule lets an interrupted release finish.
@@ -287,10 +293,11 @@ check and immediately before publication. A retry checks each existing file
 before it uploads a missing file.
 
 GitHub can publish the draft and then lose the command response. The publisher
-always reads the public release after that request. If the exact immutable
-release exists, the run succeeds after it checks all files and the protected
-tag. If publication did not occur, the failed request and failed final check
-remain visible together.
+always reads the public release after that request. It repeats this final check
+for a short bounded period because GitHub can take time to show the immutable
+state. If the exact immutable release exists, the run succeeds after it checks
+all files and the protected tag. If publication did not occur, the failed
+request and failed final check remain visible together.
 
 The publisher refuses different notes, unexpected files, changed bytes, or a
 moved tag. It reads the archive and checks the receipt's source, npm integrity,

@@ -1044,11 +1044,14 @@ The compiler release job and the independent `@genes-ts/tooling` release
 workflow can create publicly visible files, so their executable action
 identities are stricter than ordinary CI: every release-job `uses:` reference
 is a reviewed full commit SHA with a same-line release-version comment. The
-GitHub-only archive workflow does not require a second-person approval. A
-first attempt requires an exact version, current `main` commit, and matching
-manual authorization text. A retry can use the same commit after `main` moves
-only when the protected tooling tag already locks that source. Before starting
-the workflow, the operator also runs the read-only host check in
+GitHub-only archive workflow does not require a second-person approval. The
+manual start is the release action, so the workflow does not ask for a typed
+approval sentence. A first attempt requires an exact version and current
+`main` commit. A retry can use the same commit after `main` moves only when the
+protected tooling tag already locks that source. The workflow records this
+choice before it runs repository code. A later tag cannot change a first
+attempt into recovery. Before starting the workflow, the operator also runs
+the read-only host check in
 [`RELEASING.md`](RELEASING.md). The separate npm workflow keeps its existing
 protected-environment rules.
 
@@ -1058,12 +1061,14 @@ Run the GitHub archive check with:
 yarn test:tooling-github-release
 ```
 
-This check proves that a first attempt accepts only an exact `main` commit and
-matching authorization text. A retry can use an existing protected tag only
-when it points to the same reviewed commit. It also proves deterministic
+This check proves that a first attempt accepts only an exact `main` commit. A
+retry can use an existing protected tag only when it points to the same
+reviewed commit. It also proves deterministic
 package bytes, exact release files, safe retries, and a second hosted-byte check
 immediately before publication. A lost publish response cannot hide a complete
-immutable release. This check does not publish a release.
+immutable release. The final hosted check also repeats for a short bounded
+period while GitHub updates its public state. This check does not publish a
+release.
 
 Run the separate npm workflow and live-settings proof with:
 

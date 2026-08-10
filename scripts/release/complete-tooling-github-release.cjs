@@ -350,18 +350,82 @@ function ensureReleaseTag({
   repository,
   tag,
   commit,
+  sourceMode,
   options = {},
   findTag = remoteTagExists,
   checkMain = ensureCurrentMain,
   createTag = ensureExactTag,
   verifyTag = ensureTagPointsToSource,
 }) {
-  if (findTag({ tag, options })) {
+  if (sourceMode === "recovery") {
+    if (!findTag({ tag, options })) {
+      fail(`recovery tag is missing: ${tag}`);
+    }
     verifyTag({ tag, commit, options });
     return;
   }
+  if (sourceMode !== "first") {
+    fail("tooling release source mode must be first or recovery");
+  }
   checkMain({ commit, options });
   createTag({ repository, tag, commit, options });
+}
+
+function wait(milliseconds) {
+  const state = new Int32Array(new SharedArrayBuffer(4));
+  Atomics.wait(state, 0, 0, milliseconds);
+}
+
+/**
+ * Repeats the final public Release check while GitHub settles its state.
+ *
+ * Each attempt checks the immutable release details, all hosted bytes, and the
+ * protected tag. A bounded retry handles a short delay without hiding a real
+ * mismatch.
+ */
+function verifyFinalHostedRelease({
+  assetDirectory,
+  names,
+  tag,
+  commit,
+  title,
+  notes,
+  options = {},
+  attempts = 6,
+  retryDelayMs = 1000,
+  readRelease = releaseView,
+  verifyShape = verifyReleaseShape,
+  compareAssets = compareHostedAssets,
+  verifyTag = ensureTagPointsToSource,
+  waitForRetry = wait,
+}) {
+  if (!Number.isInteger(attempts) || attempts < 1) {
+    fail("final release check needs at least one attempt");
+  }
+  if (!Number.isInteger(retryDelayMs) || retryDelayMs < 0) {
+    fail("final release retry delay must be a non-negative integer");
+  }
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const release = readRelease(tag, options);
+      verifyShape({
+        release,
+        tag,
+        title,
+        notes,
+        names,
+        requireImmutable: true,
+      });
+      compareAssets({ assetDirectory, names, tag, options });
+      verifyTag({ tag, commit, options });
+      return release;
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) waitForRetry(retryDelayMs);
+    }
+  }
+  throw lastError;
 }
 
 /**
@@ -419,6 +483,7 @@ function completeToolingGithubRelease({
   commit,
   repository,
   tag,
+  sourceMode,
   cwd = process.cwd(),
 }) {
   if (!/^[0-9a-f]{40}$/.test(commit)) fail("source commit must be forty hex characters");
@@ -445,7 +510,7 @@ function completeToolingGithubRelease({
   const options = { cwd, env: { ...process.env, GH_REPO: repository } };
   // A draft creation can create its missing tag automatically. Lock the source
   // first. A safe retry can use an exact existing tag after main moves.
-  ensureReleaseTag({ repository, tag, commit, options });
+  ensureReleaseTag({ repository, tag, commit, sourceMode, options });
   let release = releaseView(tag, options);
 
   if (release && !release.isDraft) {
@@ -503,7 +568,7 @@ function completeToolingGithubRelease({
         runGh(["release", "upload", tag, path.join(assetDirectory, name)], options);
       }
     }
-    // Refresh all mutable draft facts after uploads and the main check. The
+    // Refresh all mutable draft facts after uploads and the source check. The
     // final edit also writes the reviewed metadata again in the same request
     // that makes the release public.
     release = releaseView(tag, options);
@@ -524,10 +589,15 @@ function completeToolingGithubRelease({
       options,
     });
     try {
-      release = releaseView(tag, options);
-      verifyReleaseShape({ release, tag, title, notes, names, requireImmutable: true });
-      compareHostedAssets({ assetDirectory, names, tag, options });
-      ensureTagPointsToSource({ tag, commit, options });
+      release = verifyFinalHostedRelease({
+        assetDirectory,
+        names,
+        tag,
+        commit,
+        title,
+        notes,
+        options,
+      });
     } catch (error) {
       if (publicationError) {
         const verificationMessage =
@@ -562,6 +632,7 @@ if (require.main === module) {
       assetDirectory: path.resolve(assetDirectory),
       commit: process.env.TOOLING_RELEASE_SOURCE_SHA || "",
       repository: process.env.GITHUB_REPOSITORY || "",
+      sourceMode: process.env.TOOLING_RELEASE_SOURCE_MODE || "",
     });
   } catch (error) {
     console.error(`[tooling-release] ERROR: ${error.message}`);
@@ -576,6 +647,7 @@ module.exports = {
   ensureExactTag,
   ensureReleaseTag,
   requestDraftPublication,
+  verifyFinalHostedRelease,
   releaseNotes,
   validateLocalAssets,
   versionFromTag,
