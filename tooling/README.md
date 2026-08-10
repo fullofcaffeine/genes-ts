@@ -651,8 +651,10 @@ Use this exact example only after the named Release exists. Check its published
 `.sha256` file and `release-receipt.json` before pinning it in a lockfile. The
 manual release workflow reruns the complete Genes tests, proves two package
 builds have identical bytes, checks a clean npm 10 consumer, and publishes no
-npm or Haxelib package. See the release guide for the complete safety and
-recovery rules.
+npm or Haxelib package. It also checks the receipt against the archive's real
+bytes and file list, and it keeps this tooling-only archive from replacing the
+compiler as GitHub's “Latest” release. See the release guide for the complete
+safety and recovery rules.
 
 The tooling package has independent version metadata so a future distribution
 does not create a compiler/Haxelib release. The dormant, explicitly authorized

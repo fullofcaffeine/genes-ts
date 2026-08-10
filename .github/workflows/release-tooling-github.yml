@@ -25,6 +25,8 @@ concurrency:
 
 env:
   YARN_VERSION: "1.22.22"
+  NPM_RELEASE_VERSION: "11.18.0"
+  NPM_RELEASE_INTEGRITY: "sha512-T67M4L5wNm0cZ7EBLErcEkY1SmzEW/WJ+SADBzsFUY1UdAPfFHXFQtZ6SEXiK0+vzXysCvAsepbMaBTwnrAD+w=="
 
 jobs:
   release:
@@ -37,6 +39,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
+          persist-credentials: false
           ref: ${{ github.sha }}
       - name: Verify protected source before running repository code
         env:
@@ -53,6 +56,13 @@ jobs:
         with:
           node-version: ${{ steps.toolchains.outputs.node-next-lts }}
           package-manager-cache: false
+      - name: Install the exact npm CLI used to create the archive
+        run: |
+          set -euo pipefail
+          test "$(npm view "npm@${NPM_RELEASE_VERSION}" dist.integrity)" = \
+            "$NPM_RELEASE_INTEGRITY"
+          npm install --global "npm@${NPM_RELEASE_VERSION}"
+          test "$(npm --version)" = "$NPM_RELEASE_VERSION"
       - run: corepack enable
       - run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
       - run: yarn install --frozen-lockfile
@@ -127,6 +137,9 @@ jobs:
           TOOLING_RELEASE_SOURCE_SHA: ${{ inputs.commit }}
         run: |
           set -euo pipefail
+          git fetch --no-tags origin main
+          test "$TOOLING_RELEASE_SOURCE_SHA" = "$(git rev-parse HEAD)"
+          test "$TOOLING_RELEASE_SOURCE_SHA" = "$(git rev-parse origin/main)"
           tag="tooling-v${RELEASE_VERSION}"
           node scripts/release/complete-tooling-github-release.cjs \
             "$tag" "$TOOLING_RELEASE_DIRECTORY"

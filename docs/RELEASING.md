@@ -239,10 +239,13 @@ commit: <exact 40-character commit currently at origin/main>
 authorization: publish @genes-ts/tooling@0.1.0 to GitHub from <same commit> without npm
 ```
 
-The workflow reruns the complete Genes gate, packs the tooling package twice,
-and requires identical bytes. It then verifies the package in clean consumers
-on the repository Node release and Node 20.9.0 with npm 10. The immutable
-GitHub Release contains exactly:
+The workflow installs the reviewed npm 11.18.0 command, reruns the complete
+Genes gate, packs the tooling package twice, and requires identical bytes. The
+checkout does not leave its write credential available to install or test
+commands. Only the final release command receives the GitHub token. The
+workflow then verifies the package in clean consumers on the repository Node
+release and Node 20.9.0 with npm 10. The immutable GitHub Release contains
+exactly:
 
 - `genes-ts-tooling-X.Y.Z.tgz`;
 - its `.sha256` sidecar;
@@ -254,8 +257,12 @@ The publisher first creates a draft, compares every uploaded byte with the
 locally reviewed candidate, and only then publishes it. A retry may finish an
 incomplete draft or verify an already-complete immutable release. It refuses
 different notes, unexpected assets, changed bytes, a moved tag, or a source
-commit other than protected `main`. It never deletes or replaces a tag or
-asset.
+commit other than protected `main`. It reads the archive itself and checks the
+receipt's source, npm integrity, two checksums, and complete file list before
+uploading anything. Immediately before publication, it fetches `main` again
+and stops if `main` moved while the tests ran. The tooling release is also
+marked as not “Latest,” so it cannot replace the compiler release shown as the
+repository's main download. It never deletes or replaces a tag or asset.
 
 Before the first release, the live **Immutable semantic version tags** ruleset
 must cover both `refs/tags/v*` and `refs/tags/tooling-v*`. Check that setting

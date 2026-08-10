@@ -29,6 +29,7 @@ const {
 } = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const tar = require("tar");
 
 function fail(message) {
   throw new Error(message);
@@ -86,6 +87,45 @@ function sha256(file) {
   return createHash("sha256").update(readFileSync(file)).digest("hex");
 }
 
+function sha512(file) {
+  return createHash("sha512").update(readFileSync(file)).digest("hex");
+}
+
+/**
+ * Reads the package file list from the archive users will install.
+ *
+ * The nearby receipt is useful evidence, but it cannot prove itself. Reading
+ * the archive here prevents an old or incorrect receipt from being published
+ * beside different package bytes.
+ */
+function readArchiveFiles(tarball) {
+  const files = [];
+  tar.list({
+    file: tarball,
+    sync: true,
+    strict: true,
+    onReadEntry(entry) {
+      if (entry.type !== "File") {
+        fail(`tooling archive contains ${entry.type}: ${entry.path}`);
+      }
+      if (!entry.path.startsWith("package/")) {
+        fail(`tooling archive entry is outside package/: ${entry.path}`);
+      }
+      const relativePath = entry.path.slice("package/".length);
+      if (relativePath.length === 0 || relativePath.startsWith("/")) {
+        fail(`tooling archive entry has an invalid path: ${entry.path}`);
+      }
+      files.push({ path: relativePath, size: entry.size });
+    },
+  });
+  if (files.length === 0) fail("tooling archive contains no package files");
+  const paths = files.map(({ path: filePath }) => filePath);
+  if (new Set(paths).size !== paths.length) {
+    fail("tooling archive contains a duplicate file path");
+  }
+  return files.sort((left, right) => left.path.localeCompare(right.path));
+}
+
 function readJson(file, label) {
   const value = JSON.parse(readFileSync(file, "utf8"));
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -104,6 +144,9 @@ function validateLocalAssets({ assetDirectory, commit, version }) {
   const tarballName = names[0];
   const tarball = path.join(assetDirectory, tarballName);
   const digest = sha256(tarball);
+  const digest512 = sha512(tarball);
+  const integrity = `sha512-${Buffer.from(digest512, "hex").toString("base64")}`;
+  const archiveFiles = readArchiveFiles(tarball);
   const sidecar = readFileSync(
     path.join(assetDirectory, `${tarballName}.sha256`),
     "utf8"
@@ -117,16 +160,23 @@ function validateLocalAssets({ assetDirectory, commit, version }) {
     "release receipt"
   );
   if (
+    receipt.schemaVersion !== 1 ||
     !receipt.package ||
     receipt.package.name !== "@genes-ts/tooling" ||
     receipt.package.version !== version ||
     !receipt.source ||
+    receipt.source.repository !== "https://github.com/fullofcaffeine/genes-ts" ||
     receipt.source.commit !== commit ||
     !receipt.artifact ||
     receipt.artifact.filename !== tarballName ||
-    receipt.artifact.sha256 !== digest
+    receipt.artifact.sha256 !== digest ||
+    receipt.artifact.sha512 !== digest512 ||
+    receipt.artifact.integrity !== integrity ||
+    JSON.stringify(receipt.artifact.files) !== JSON.stringify(archiveFiles)
   ) {
-    fail("release receipt does not match the archive, version, and source commit");
+    fail(
+      "release receipt does not match the archive bytes, file list, package, and source commit"
+    );
   }
 
   const sbom = readJson(
@@ -266,6 +316,7 @@ function completeToolingGithubRelease({
           "--target",
           commit,
           "--draft",
+          "--latest=false",
           "--title",
           `@genes-ts/tooling ${version}`,
           "--notes-file",
@@ -276,6 +327,7 @@ function completeToolingGithubRelease({
       release = releaseView(tag, options);
     }
     if (!release || !release.isDraft) fail("tooling release draft is unavailable");
+    ensureTagPointsToSource({ tag, commit, options });
     if (release.body.replace(/\r\n/g, "\n") !== notes) {
       fail("existing tooling release draft has different notes");
     }
@@ -292,8 +344,10 @@ function completeToolingGithubRelease({
     release = releaseView(tag, options);
     verifyReleaseShape({ release, tag, notes, names, requireImmutable: false });
     compareHostedAssets({ assetDirectory, names, tag, options });
-    ensureTagPointsToSource({ tag, commit, options });
-    runGh(["release", "edit", tag, "--draft=false"], options);
+    runGh(
+      ["release", "edit", tag, "--draft=false", "--latest=false"],
+      options
+    );
     release = releaseView(tag, options);
     verifyReleaseShape({ release, tag, notes, names, requireImmutable: true });
     compareHostedAssets({ assetDirectory, names, tag, options });

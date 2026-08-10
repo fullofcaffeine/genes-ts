@@ -1,7 +1,9 @@
 import { strict as assert } from "node:assert";
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   rmSync,
   writeFileSync,
@@ -43,6 +45,10 @@ assert.match(workflow, /^name: Release tooling GitHub archive$/m);
 assert.match(workflow, /^  workflow_dispatch:$/m);
 assert.match(workflow, /if: github\.ref == 'refs\/heads\/main'/);
 assert.match(workflow, /permissions:\n\s+contents: write/);
+assert.match(workflow, /persist-credentials: false/);
+assert.match(workflow, /NPM_RELEASE_VERSION: "11\.18\.0"/);
+assert.match(workflow, /NPM_RELEASE_INTEGRITY: "sha512-/);
+assert.match(workflow, /npm install --global "npm@\$\{NPM_RELEASE_VERSION\}"/);
 assert.match(workflow, /tooling-v\$\{RELEASE_VERSION\}/);
 assert.match(workflow, /yarn test:ci/);
 assert.match(workflow, /npm pack \.\/tooling --json/);
@@ -58,7 +64,26 @@ assert.match(
   workflow,
   /node scripts\/release\/complete-tooling-github-release\.cjs/
 );
+const finalMainCheck = workflow.lastIndexOf("git fetch --no-tags origin main");
+const publisherCall = workflow.lastIndexOf(
+  "node scripts/release/complete-tooling-github-release.cjs"
+);
+assert(
+  finalMainCheck > 0 && finalMainCheck < publisherCall,
+  "the workflow must re-check current main immediately before publishing"
+);
 assert.doesNotMatch(workflow, /npm publish|haxelib submit|semantic-release/);
+
+const releasePublisher = readFileSync(
+  path.join(repoRoot, "scripts/release/complete-tooling-github-release.cjs"),
+  "utf8"
+);
+assert.match(releasePublisher, /"--latest=false"/);
+assert(
+  releasePublisher.indexOf("ensureTagPointsToSource({ tag, commit, options })") <
+    releasePublisher.indexOf('"release", "upload"'),
+  "the publisher must verify an existing tag before uploading assets"
+);
 
 for (const reference of workflow.matchAll(/uses:\s+([^\s#]+)/g)) {
   assert.match(
@@ -90,16 +115,62 @@ const fixture = mkdtempSync(path.join(os.tmpdir(), "genes-tooling-release-test-"
 try {
   const commit = "1111111111111111111111111111111111111111";
   const tarball = "genes-ts-tooling-0.1.0.tgz";
-  const tarballBytes = Buffer.from("reviewed package bytes", "utf8");
+  const archiveRoot = path.join(fixture, "archive");
+  mkdirSync(path.join(archiveRoot, "package"), { recursive: true });
+  const packageFiles = [
+    { path: "file.txt", bytes: Buffer.from("reviewed package bytes", "utf8") },
+    {
+      path: "package.json",
+      bytes: Buffer.from(
+        '{"name":"@genes-ts/tooling","version":"0.1.0"}\n',
+        "utf8"
+      ),
+    },
+  ] as const;
+  for (const file of packageFiles) {
+    writeFileSync(path.join(archiveRoot, "package", file.path), file.bytes);
+  }
+  const packed = spawnSync(
+    "tar",
+    [
+      "-czf",
+      path.join(fixture, tarball),
+      "-C",
+      archiveRoot,
+      ...packageFiles.map((file) => `package/${file.path}`),
+    ],
+    {
+      encoding: "utf8",
+      env: { ...process.env, COPYFILE_DISABLE: "1" },
+    }
+  );
+  assert.equal(packed.status, 0, packed.stderr);
+  rmSync(archiveRoot, { recursive: true, force: true });
+  const tarballBytes = readFileSync(path.join(fixture, tarball));
   const digest = createHash("sha256").update(tarballBytes).digest("hex");
+  const digest512 = createHash("sha512").update(tarballBytes).digest("hex");
+  const integrity = `sha512-${Buffer.from(digest512, "hex").toString("base64")}`;
   writeFileSync(path.join(fixture, tarball), tarballBytes);
   writeFileSync(path.join(fixture, `${tarball}.sha256`), `${digest}  ${tarball}\n`);
   writeFileSync(
     path.join(fixture, "release-receipt.json"),
     `${JSON.stringify({
+      schemaVersion: 1,
       package: { name: "@genes-ts/tooling", version: "0.1.0" },
-      source: { commit },
-      artifact: { filename: tarball, sha256: digest },
+      source: {
+        repository: "https://github.com/fullofcaffeine/genes-ts",
+        commit,
+      },
+      artifact: {
+        filename: tarball,
+        integrity,
+        sha256: digest,
+        sha512: digest512,
+        files: packageFiles.map((file) => ({
+          path: file.path,
+          size: file.bytes.length,
+        })),
+      },
     })}\n`
   );
   writeFileSync(
@@ -111,6 +182,33 @@ try {
     commit,
     version: "0.1.0",
   });
+  const receiptPath = path.join(fixture, "release-receipt.json");
+  const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+  receipt.artifact.integrity = "sha512-wrong";
+  writeFileSync(receiptPath, `${JSON.stringify(receipt)}\n`);
+  assert.throws(
+    () =>
+      releaseHelpers.validateLocalAssets({
+        assetDirectory: fixture,
+        commit,
+        version: "0.1.0",
+      }),
+    /archive bytes, file list/
+  );
+  receipt.artifact.integrity = integrity;
+  receipt.artifact.files[0].size += 1;
+  writeFileSync(receiptPath, `${JSON.stringify(receipt)}\n`);
+  assert.throws(
+    () =>
+      releaseHelpers.validateLocalAssets({
+        assetDirectory: fixture,
+        commit,
+        version: "0.1.0",
+      }),
+    /archive bytes, file list/
+  );
+  receipt.artifact.files[0].size -= 1;
+  writeFileSync(receiptPath, `${JSON.stringify(receipt)}\n`);
   writeFileSync(path.join(fixture, `${tarball}.sha256`), `wrong  ${tarball}\n`);
   assert.throws(
     () =>
