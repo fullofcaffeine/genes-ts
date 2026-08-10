@@ -231,25 +231,22 @@ The manual **Release tooling GitHub archive** workflow publishes the reviewed
 prebuilt package without contacting the npm registry. It uses a separate
 `tooling-vX.Y.Z` tag, so it cannot create or change a compiler/Haxelib release.
 
-Public tooling archives use the protected `tooling-npm-production` GitHub
-environment. The name is historical: this same environment now guards both npm
-publication and GitHub-only tooling archives. It requires approval from another
-maintainer, prevents the person who started the run from approving it, and does
-not let administrators skip review. The workflow checks those live settings
-before it installs or builds anything.
+The workflow runs directly after the operator starts it. It does not pause for
+a second-person approval. The operator gives the exact version, commit, and
+authorization text.
 
-Immediately before approving the run, the reviewer must also run the read-only
-host check below with a GitHub credential that has `Administration: read`:
+Before starting the run, the operator must run this read-only host check with
+a GitHub credential that has `Administration: read`:
 
 ```bash
 node scripts/release/verify-host-controls.cjs fullofcaffeine/genes-ts
 ```
 
-This confirms that published GitHub Releases cannot be edited and that neither
-compiler nor tooling version tags can be moved or deleted. The short-lived
-workflow token cannot read those repository-administration settings, so the
-independent approval is the safe boundary; no long-lived administrator token
-is stored in Actions.
+This confirms that published GitHub Releases cannot be edited. It also confirms
+that compiler and tooling version tags cannot be moved or deleted. The
+short-lived workflow token cannot read these repository settings. For this
+reason, the operator runs the check before each release. Actions does not store
+a long-lived administrator token.
 
 The operator supplies all three workflow inputs:
 

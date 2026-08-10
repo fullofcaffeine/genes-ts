@@ -48,11 +48,8 @@ const workflow = readFileSync(workflowPath, "utf8");
 assert.match(workflow, /^name: Release tooling GitHub archive$/m);
 assert.match(workflow, /^  workflow_dispatch:$/m);
 assert.match(workflow, /if: github\.ref == 'refs\/heads\/main'/);
-assert.match(workflow, /environment: tooling-npm-production/);
-assert.match(
-  workflow,
-  /node scripts\/verify-tooling-release-environment\.mjs --live/
-);
+assert.doesNotMatch(workflow, /^\s*environment:/m);
+assert.doesNotMatch(workflow, /verify-tooling-release-environment/);
 assert.match(workflow, /permissions:\n\s+contents: write/);
 assert.match(workflow, /persist-credentials: false/);
 assert.match(workflow, /NPM_RELEASE_VERSION: "11\.18\.0"/);

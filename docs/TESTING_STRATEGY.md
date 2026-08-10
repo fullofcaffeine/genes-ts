@@ -1044,20 +1044,30 @@ The compiler release job and the independent `@genes-ts/tooling` release
 workflow can create publicly visible files, so their executable action
 identities are stricter than ordinary CI: every release-job `uses:` reference
 is a reviewed full commit SHA with a same-line release-version comment. The
-tooling workflow additionally depends on a live GitHub environment that
-prevents self-review and administrator bypass. That approval boundary protects
-both npm and GitHub-only tooling publication despite its historical
-`tooling-npm-production` name. Before approving a GitHub-only archive, the
-reviewer also runs the read-only host-control check documented in
-[`RELEASING.md`](RELEASING.md).
+GitHub-only archive workflow does not require a second-person approval. It
+instead requires an exact version, current `main` commit, and matching manual
+authorization text. Before starting the workflow, the operator also runs the
+read-only host check in [`RELEASING.md`](RELEASING.md). The separate npm
+workflow keeps its existing protected-environment rules.
 
-Run the repository and live-settings proof with:
+Run the GitHub archive check with:
+
+```bash
+yarn test:tooling-github-release
+```
+
+This check proves that the workflow accepts only an exact `main` commit and
+matching authorization text. It also proves deterministic package bytes,
+exact release files, safe retries, and final hosted-byte checks. It does not
+publish a release.
+
+Run the separate npm workflow and live-settings proof with:
 
 ```bash
 yarn test:tooling-release-workflow
 ```
 
-The tooling test rejects mutable action tags, exercises fail-closed
+The npm tooling test rejects mutable action tags, exercises fail-closed
 environment-policy mutations, verifies the compiler ignores tooling-scoped
 Conventional Commits, and reads the public live
 `tooling-npm-production` environment. It does not dispatch a workflow, request
