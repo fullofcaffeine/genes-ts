@@ -104,6 +104,12 @@ jobs:
           cache: false
       - name: Install the pinned Beads client required by repository tests
         run: yarn beads:install
+      - name: Install the supported Haxe compiler required by repository tests
+        run: yarn lix install haxe ${{ steps.toolchains.outputs.haxe-stable }}
+      - name: Select the supported Haxe compiler
+        run: yarn lix use haxe ${{ steps.toolchains.outputs.haxe-stable }}
+      - name: Install the Haxe formatter required by repository tests
+        run: yarn haxelib install formatter 1.18.0 --quiet
       - name: Verify the release inputs and checked-out source
         env:
           RELEASE_VERSION: ${{ inputs.version }}
