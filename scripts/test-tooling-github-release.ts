@@ -108,10 +108,24 @@ const goSetup = workflow.indexOf(
   "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0"
 );
 const beadsInstall = workflow.indexOf("yarn beads:install");
+const haxeInstall = workflow.indexOf(
+  "yarn lix install haxe ${{ steps.toolchains.outputs.haxe-stable }}"
+);
+const haxeSelect = workflow.indexOf(
+  "yarn lix use haxe ${{ steps.toolchains.outputs.haxe-stable }}"
+);
+const formatterInstall = workflow.indexOf(
+  "yarn haxelib install formatter 1.18.0 --quiet"
+);
 const completeReleaseGate = workflow.indexOf("yarn test:ci");
 assert(
-  goSetup > 0 && goSetup < beadsInstall && beadsInstall < completeReleaseGate,
-  "the release workflow must set up pinned Go, then install Beads, before the complete release gate"
+  goSetup > 0 &&
+    goSetup < beadsInstall &&
+    beadsInstall < haxeInstall &&
+    haxeInstall < haxeSelect &&
+    haxeSelect < formatterInstall &&
+    formatterInstall < completeReleaseGate,
+  "the release workflow must prepare Go, Beads, Haxe, and the formatter before the complete release gate"
 );
 assert.match(workflow, /go-version: "1\.26\.5"/);
 assert.match(workflow, /npm pack \.\/tooling --json/);
