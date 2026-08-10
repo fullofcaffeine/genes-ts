@@ -231,6 +231,26 @@ The manual **Release tooling GitHub archive** workflow publishes the reviewed
 prebuilt package without contacting the npm registry. It uses a separate
 `tooling-vX.Y.Z` tag, so it cannot create or change a compiler/Haxelib release.
 
+Public tooling archives use the protected `tooling-npm-production` GitHub
+environment. The name is historical: this same environment now guards both npm
+publication and GitHub-only tooling archives. It requires approval from another
+maintainer, prevents the person who started the run from approving it, and does
+not let administrators skip review. The workflow checks those live settings
+before it installs or builds anything.
+
+Immediately before approving the run, the reviewer must also run the read-only
+host check below with a GitHub credential that has `Administration: read`:
+
+```bash
+node scripts/release/verify-host-controls.cjs fullofcaffeine/genes-ts
+```
+
+This confirms that published GitHub Releases cannot be edited and that neither
+compiler nor tooling version tags can be moved or deleted. The short-lived
+workflow token cannot read those repository-administration settings, so the
+independent approval is the safe boundary; no long-lived administrator token
+is stored in Actions.
+
 The operator supplies all three workflow inputs:
 
 ```text
@@ -254,8 +274,10 @@ exactly:
 - `sbom.spdx.json`, the package's SPDX software inventory.
 
 The publisher first creates a draft, compares every uploaded byte with the
-locally reviewed candidate, and only then publishes it. A retry may finish an
-incomplete draft or verify an already-complete immutable release. It refuses
+locally reviewed candidate, and only then publishes it. On a retry, it checks
+every file already present in the draft before uploading any missing file. A
+retry may finish an incomplete draft or verify an already-complete immutable
+release. It refuses
 different notes, unexpected assets, changed bytes, a moved tag, or a source
 commit other than protected `main`. It reads the archive itself and checks the
 receipt's source, npm integrity, two checksums, and complete file list before

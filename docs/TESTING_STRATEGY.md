@@ -1041,11 +1041,15 @@ GitHub's workflow `GITHUB_TOKEN` cannot request. CI intentionally uses only
 release contract.
 
 The compiler release job and the independent `@genes-ts/tooling` release
-workflow can create externally visible artifacts, so their executable action
+workflow can create publicly visible files, so their executable action
 identities are stricter than ordinary CI: every release-job `uses:` reference
 is a reviewed full commit SHA with a same-line release-version comment. The
 tooling workflow additionally depends on a live GitHub environment that
-prevents self-review and administrator bypass.
+prevents self-review and administrator bypass. That approval boundary protects
+both npm and GitHub-only tooling publication despite its historical
+`tooling-npm-production` name. Before approving a GitHub-only archive, the
+reviewer also runs the read-only host-control check documented in
+[`RELEASING.md`](RELEASING.md).
 
 Run the repository and live-settings proof with:
 

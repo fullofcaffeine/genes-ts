@@ -384,6 +384,15 @@ function completeToolingGithubRelease({
     for (const name of hosted) {
       if (!names.includes(name)) fail(`unexpected existing release asset: ${name}`);
     }
+    // A retry may find some files from an interrupted upload. Check those
+    // bytes first. If any existing file differs, stop before adding more files
+    // to a draft that cannot be repaired by deleting or replacing assets.
+    compareHostedAssets({
+      assetDirectory,
+      names: names.filter((name) => hosted.has(name)),
+      tag,
+      options,
+    });
     for (const name of names) {
       if (!hosted.has(name)) {
         runGh(["release", "upload", tag, path.join(assetDirectory, name)], options);

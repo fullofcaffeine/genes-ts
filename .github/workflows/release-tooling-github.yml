@@ -34,6 +34,11 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    # Reuse the existing tooling publication approval boundary. Its historical
+    # name mentions npm, but it protects any public tooling release: another
+    # maintainer must approve, the dispatcher cannot approve their own run,
+    # and administrators cannot skip review.
+    environment: tooling-npm-production
     steps:
       - name: Checkout the protected source commit
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -49,6 +54,8 @@ jobs:
           test "$RELEASE_COMMIT" = "$(git rev-parse HEAD)"
           git fetch --no-tags origin main
           test "$RELEASE_COMMIT" = "$(git rev-parse origin/main)"
+      - name: Verify the live tooling approval rules
+        run: node scripts/verify-tooling-release-environment.mjs --live
       - id: toolchains
         run: node scripts/emit-toolchain-outputs.mjs
       - name: Set up the repository Node.js release

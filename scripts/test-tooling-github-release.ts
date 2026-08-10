@@ -44,6 +44,11 @@ const workflow = readFileSync(workflowPath, "utf8");
 assert.match(workflow, /^name: Release tooling GitHub archive$/m);
 assert.match(workflow, /^  workflow_dispatch:$/m);
 assert.match(workflow, /if: github\.ref == 'refs\/heads\/main'/);
+assert.match(workflow, /environment: tooling-npm-production/);
+assert.match(
+  workflow,
+  /node scripts\/verify-tooling-release-environment\.mjs --live/
+);
 assert.match(workflow, /permissions:\n\s+contents: write/);
 assert.match(workflow, /persist-credentials: false/);
 assert.match(workflow, /NPM_RELEASE_VERSION: "11\.18\.0"/);
@@ -85,6 +90,16 @@ assert(
   "the publisher must verify an existing tag or exact draft target before uploading assets"
 );
 assert.match(releasePublisher, /release\.targetCommitish !== commit/);
+const existingAssetCheck = releasePublisher.indexOf(
+  "names: names.filter((name) => hosted.has(name))"
+);
+const missingAssetUpload = releasePublisher.indexOf(
+  'runGh(["release", "upload"'
+);
+assert(
+  existingAssetCheck > 0 && existingAssetCheck < missingAssetUpload,
+  "a resumed draft must compare every existing asset before uploading a missing file"
+);
 
 for (const reference of workflow.matchAll(/uses:\s+([^\s#]+)/g)) {
   assert.match(
