@@ -224,6 +224,8 @@ Examples of these helpers:
 - `genes.ts.Unknown` for untrusted runtime values that should be decoded or narrowed before application code uses them.
 - `genes.ts.UnknownNarrow`, `UnknownRecord`, and `UnknownArray` for guarded reads from untrusted JavaScript values.
 - `genes.ts.Imports` for typed imports from existing JS/TS/TSX modules without hand-writing fragile import strings at every call site.
+- `genes.js.ArrayCallbacks` as a Haxe static extension for native JavaScript
+  Array operations such as `findIndex` that Haxe 4.3 does not expose.
 - `genes.TemplateLiteral` when a string's template shape is part of its TypeScript type.
 - `@:ts.instanceType` for CommonJS `export =` constructor values whose `@types`
   declaration exposes the instance through a merged namespace, and for package
@@ -242,6 +244,40 @@ Examples of these helpers:
 They are useful when the JavaScript/TypeScript ecosystem has a real contract that Haxe does not express directly. The helper gives that contract a Haxe name, keeps the unsafety or TS-specific syntax in one maintained place, and lets the compiler choose the right output for each target.
 
 genes-ts handles this with small Haxe helper abstractions instead of asking you to write raw TypeScript strings everywhere.
+
+For example, import `ArrayCallbacks` with `using` so the native operation reads
+like the familiar JavaScript Array method:
+
+```haxe
+using genes.js.ArrayCallbacks;
+
+final index = ["draft", "ready"].findIndex(value -> value == "ready");
+```
+
+The helper is inline. TypeScript output contains the native operation directly:
+
+```ts
+const index: number = ["draft", "ready"].findIndex(function (value: string): boolean {
+  return value == "ready";
+});
+```
+
+Classic Genes JavaScript emits the same operation with the type annotations
+removed:
+
+```js
+const index = ["draft", "ready"].findIndex(function (value) {
+  return value == "ready";
+});
+```
+
+The result follows JavaScript: it is the first matching index, or `-1`.
+This initial helper gives the Haxe callback only the value. The broader
+JavaScript callback also receives the index and source array; a later API can
+expose those arguments without weakening this simple contract.
+
+The longer `ArrayCallbacks.findIndex(values, callback)` form is still valid,
+but the extension form is the normal application API.
 
 `Undefinable<T>` means “a `T`, or JavaScript `undefined`.” It exists because many JS/TS APIs use `undefined` to mean “not provided,” while Haxe `Null<T>` naturally maps to `null`. Keeping that distinction matters for strict TypeScript APIs, optional object fields, DOM/Node/npm externs, and config/env maps where `null` and `undefined` are different contracts.
 

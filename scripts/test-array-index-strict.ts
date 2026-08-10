@@ -10,7 +10,7 @@ const scriptRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptRoot, "../..");
 const fixtureRoot = path.join(repoRoot, "tests/array-index-strict");
 const expectedTranscript =
-  "typed|7|generic|generic-null|generic-undefined|effects-once|assigned|compound-bitwise|compound-effects-once|compound-null-coercion|compound-nullish|compound-nested|updates|null|undefined|3,5|missing|void-once|secondary-array-once|named-shift|named-pop|discarded";
+  "typed|7|generic|generic-null|generic-undefined|effects-once|assigned|compound-bitwise|compound-effects-once|compound-null-coercion|compound-nullish|compound-nested|updates|null|undefined|3,5|missing|void-once|secondary-array-once|named-shift|named-pop|discarded|native-find-index";
 
 /** Runs one deterministic fixture command from the repository root. */
 function run(command: string, args: ReadonlyArray<string>): void {
@@ -286,6 +286,14 @@ ok(!typescript.includes("(namedValues.pop() ?? null)"),
 ok(typescript.includes("discarded.shift();"));
 ok(!typescript.includes("(discarded.shift() ?? null)"),
   "a discarded native Array result does not need value normalization");
+ok(
+  /\["first", "match"\]\.findIndex\(function \(value: string\)/.test(typescript),
+  "the typed helper emits direct JavaScript Array.prototype.findIndex"
+);
+ok(
+  !typescript.includes("ArrayCallbacks.findIndex"),
+  "the typed helper has no runtime wrapper"
+);
 
 for (const relativeFile of [
   "out/ts/src-gen/genes/Register.ts",
@@ -305,6 +313,8 @@ for (const relativeFile of [
     `${relativeFile} keeps JavaScript output free of TS-only assertions`);
   ok(!generated.includes("]!"),
     `${relativeFile} does not consume the TypeScript-only indexed plan`);
+  ok(/\["first",\s*"match"\]\.findIndex\(/.test(generated),
+    `${relativeFile} uses the native JavaScript findIndex operation`);
 }
 
 const source = readFileSync(
@@ -372,5 +382,5 @@ strictEqual(
 
 process.stdout.write(
   "array-index-strict:ok "
-    + "(TS noUncheckedIndexedAccess + wrappers + classic + standard + maps)\n"
+    + "(TS noUncheckedIndexedAccess + native findIndex + wrappers + classic + standard + maps)\n"
 );
