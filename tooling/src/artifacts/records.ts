@@ -238,7 +238,14 @@ export function parsePublicationPlan(value: unknown): PublicationPlan {
     ),
   };
   try {
-    return validatePublicationPlan(plan);
+    validatePublicationPlan(plan);
+    for (const transition of [...plan.artifacts, plan.commitMarker]) {
+      Object.freeze(transition.prior);
+      Object.freeze(transition.next);
+      Object.freeze(transition);
+    }
+    Object.freeze(plan.artifacts);
+    return Object.freeze(plan);
   } catch {
     malformed("$.plan");
   }

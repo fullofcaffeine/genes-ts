@@ -21,12 +21,19 @@ export interface CompilerResult {
   readonly mode: "connected" | "direct";
 }
 
+/** Private inputs that vary per request without changing wait-server ownership. */
+export interface PreparedCompilerRequest {
+  readonly classPaths: readonly string[];
+  readonly digest: string;
+}
+
 export interface SessionCompiler {
   compile(
     invocation: BoundHaxeInvocation,
     compatibilityDigest: string,
     signal: AbortSignal,
     assertInvocationCurrent?: () => void | Promise<void>,
+    prepared?: PreparedCompilerRequest,
   ): Promise<CompilerResult>;
   close(): Promise<void>;
 }
@@ -42,6 +49,7 @@ interface ActiveRequest {
   readonly invocation: BoundHaxeInvocation;
   readonly signal: AbortSignal;
   readonly assertInvocationCurrent?: () => void | Promise<void>;
+  readonly prepared?: PreparedCompilerRequest;
 }
 
 class HaxeCommandError extends Error {
@@ -167,10 +175,15 @@ export function snapshotHaxeInvocation(
 function commandArgs(
   invocation: BoundHaxeInvocation,
   endpoint: HaxeWaitEndpoint | null,
+  prepared: PreparedCompilerRequest | undefined,
 ): readonly string[] {
   return Object.freeze([
     ...(endpoint === null ? [] : ["--connect", endpoint.argument]),
     ...invocation.arguments,
+    ...(prepared?.classPaths.flatMap((classPath) => ["-cp", classPath]) ?? []),
+    ...(prepared === undefined
+      ? []
+      : ["-D", `genes.tooling.prepared=${prepared.digest}`]),
   ]);
 }
 
@@ -310,11 +323,13 @@ export class HaxeSessionCompiler implements SessionCompiler {
     compatibilityDigest: string,
     signal: AbortSignal,
     assertInvocationCurrent?: () => void | Promise<void>,
+    prepared?: PreparedCompilerRequest,
   ): Promise<CompilerResult> {
     this.#request = {
       invocation,
       signal,
       assertInvocationCurrent,
+      prepared,
     };
     try {
       await this.#server.ensure(compatibilityDigest);
@@ -389,7 +404,7 @@ export class HaxeSessionCompiler implements SessionCompiler {
     }
     const result = await runCommand(
       request.invocation,
-      commandArgs(request.invocation, endpoint),
+      commandArgs(request.invocation, endpoint, request.prepared),
       request.signal,
       this.#shutdownTimeoutMs,
     );

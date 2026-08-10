@@ -32,6 +32,8 @@ export interface SessionLayout {
   /** Stable v1-to-v2 migration evidence and transaction workspace. */
   readonly authorityMigrationRelative: string;
   readonly authorityMigrationReceiptRelative: string;
+  /** Stable project-local locks and recovery records for every output scope. */
+  readonly stableControlRoot: string;
   readonly publicationControlRelative: string;
   readonly publicationControlRoot: string;
   readonly serverLeaseRelative: string;
@@ -192,6 +194,15 @@ export function resolveSessionLayout(
       "stateDirectory and stable session-control directory must not overlap",
     );
   }
+  if (portableContains(stableControlDirectory, publicOutputRelative)) {
+    throw new Error(
+      "publicOutputFile must not be inside the stable session-control directory",
+    );
+  }
+  const stableControlRoot = path.join(
+    projectRoot,
+    ...stableControlDirectory.split("/"),
+  );
   const candidatesRelative = `${stateRelative}/candidates`;
   const lockDirectory = `${stableControlDirectory}/session-locks`;
   const lockScope = createHash("sha256")
@@ -227,6 +238,7 @@ export function resolveSessionLayout(
     legacySessionLockRelative: `${lockDirectory}/${legacyLockScope}.json`,
     authorityMigrationRelative: `${publicationControlDirectory}/authority-migration`,
     authorityMigrationReceiptRelative: `${publicationControlDirectory}/authority-migration/receipt.json`,
+    stableControlRoot,
     publicationControlRelative: publicationControlDirectory,
     publicationControlRoot,
     serverLeaseRelative: `${stateRelative}/haxe-server.json`,

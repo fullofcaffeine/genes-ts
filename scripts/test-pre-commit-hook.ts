@@ -15,6 +15,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { requirePinnedBeads } from "./beads-client.js";
+
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(scriptDirectory, "../..");
 const preCommitRunner = path.join(scriptDirectory, "pre-commit.js");
@@ -76,6 +78,42 @@ function writeExecutable(file: string, contents: string): void {
 }
 
 /**
+ * Selects a real Beads client for the disposable repository.
+ *
+ * Compatibility jobs intentionally put an older standalone `bd` on PATH. A
+ * local PATH may instead contain a repository-aware wrapper that cannot run in
+ * a new temporary checkout. Probe from the neutral parent directory first;
+ * when that probe fails, use Genes' exact pinned client.
+ */
+function fixtureBeads(
+  neutralDirectory: string,
+  environment: NodeJS.ProcessEnv,
+): string {
+  let candidate = "";
+  try {
+    candidate = run(
+      repositoryRoot,
+      "sh",
+      ["-c", "command -v bd"],
+      environment,
+    );
+  } catch {
+    // The repository pin below remains the normal fail-closed fallback.
+  }
+  if (candidate.length > 0) {
+    const probe = spawnSync(candidate, ["version"], {
+      cwd: neutralDirectory,
+      env: environment,
+      encoding: "utf8",
+    });
+    if (probe.status === 0 && probe.stdout.trim().startsWith("bd version ")) {
+      return candidate;
+    }
+  }
+  return requirePinnedBeads(repositoryRoot);
+}
+
+/**
  * Exercises the real Git hook boundary in a disposable repository.
  *
  * Why: static inspection cannot prove that Beads upgrades preserve the Genes
@@ -102,7 +140,7 @@ function verifyPreCommitBoundary(): void {
   const root = mkdtempSync(path.join(tmpdir(), "genes-pre-commit-"));
   const primary = path.join(root, "primary");
   const linked = path.join(root, "linked");
-  const realBd = run(repositoryRoot, "sh", ["-c", "command -v bd"], environment);
+  const realBd = fixtureBeads(root, environment);
   mkdirSync(primary);
 
   try {
@@ -112,7 +150,7 @@ function verifyPreCommitBoundary(): void {
 
     run(
       primary,
-      "bd",
+      realBd,
       [
         "init",
         "--non-interactive",
@@ -178,7 +216,7 @@ function verifyPreCommitBoundary(): void {
       [hookInstaller, "--repo-root", primary, "--beads-bin", realBd],
       environment
     );
-    run(primary, "bd", ["hooks", "install", "--chain"], environment);
+    run(primary, realBd, ["hooks", "install", "--chain"], environment);
     installedHook = readFileSync(hookPath, "utf8");
     strictEqual(count(installedHook, genesMarker), 1, "reinstall duplicated Genes hook");
     strictEqual(count(installedHook, beadsMarker), 1, "reinstall duplicated Beads hook");

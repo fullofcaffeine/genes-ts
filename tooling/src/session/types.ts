@@ -266,6 +266,46 @@ export interface CandidateFile {
   readonly digest: string;
 }
 
+/**
+ * One exact file created before Haxe typing starts.
+ *
+ * The session copies these bytes into a private revision directory. A file may
+ * also name a project-relative `publishPath`; that copy becomes public only
+ * when the same revision's Genes output passes validation and publication.
+ */
+export interface PreparedRevisionFile {
+  /** Portable path below this revision's private candidate directory. */
+  readonly relativePath: string;
+  readonly content: string | Uint8Array;
+  readonly mode?: number;
+  readonly publishPath?: string;
+}
+
+/** Private Haxe inputs and optional public files prepared for one revision. */
+export interface PreparedRevision {
+  /** Portable directories below the private candidate directory. */
+  readonly classPaths: readonly string[];
+  readonly files: readonly PreparedRevisionFile[];
+}
+
+/** A typed host result for pre-typing input preparation. */
+export type PreparationResult<Diagnostic extends JsonValue> =
+  | { readonly ok: true; readonly prepared: PreparedRevision }
+  | { readonly ok: false; readonly diagnostic: Diagnostic };
+
+/**
+ * One file produced by successful host validation.
+ *
+ * A host can use this for a loader-agreement receipt or another small piece of
+ * evidence that only exists after validation. The file is published in the
+ * same transaction as the candidate it describes.
+ */
+export interface AdmittedArtifact {
+  readonly path: string;
+  readonly content: string | Uint8Array;
+  readonly mode?: number;
+}
+
 /** A complete tree checked before it is allowed to replace public output. */
 export interface ValidationTree {
   readonly kind: "candidate" | "recovered-live";
@@ -275,11 +315,13 @@ export interface ValidationTree {
   readonly entryLogicalPath: string;
   readonly manifestDigest: string;
   readonly files: readonly CandidateFile[];
+  /** Host-prepared or validator-produced files outside the Genes manifest. */
+  readonly extraFiles: readonly CandidateFile[];
 }
 
 /** The host's typed admission decision for one complete candidate tree. */
 export type AdmissionResult<Diagnostic extends JsonValue> =
-  | { readonly ok: true }
+  | { readonly ok: true; readonly artifacts?: readonly AdmittedArtifact[] }
   | { readonly ok: false; readonly diagnostic: Diagnostic };
 
 /** Exact Haxe command and compatibility evidence resolved by the host. */
@@ -350,6 +392,20 @@ export interface GenesDevelopmentOptions<Diagnostic extends JsonValue> {
   readonly stateDirectory: string;
 
   readonly extraInputs?: readonly ObservedExtraInput[];
+
+  /**
+   * Creates exact private inputs before Haxe types this revision.
+   *
+   * The callback returns bytes rather than writing into session directories.
+   * Tooling validates their paths, computes their identity, writes a private
+   * copy, and adds only the declared class paths to this Haxe request.
+   */
+  readonly prepareRevision?: (context: {
+    readonly revision: number;
+    readonly signal: AbortSignal;
+  }) =>
+    | PreparationResult<Diagnostic>
+    | Promise<PreparationResult<Diagnostic>>;
 
   resolveInvocation(context: {
     readonly signal: AbortSignal;

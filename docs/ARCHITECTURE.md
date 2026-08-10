@@ -759,6 +759,7 @@ or changes compiler semantics. Its positive contract is:
 observed input revision
   -> immutable effective Haxe invocation
   -> exact nested-HXML + flattened library-argument closure derived from it
+  -> optional exact host-prepared Haxe inputs
   -> session-owned private Haxe JS target + request-local `genes.output`
   -> exact Genes v2 ownership inventory
   -> host-owned validation
@@ -809,7 +810,7 @@ This transition is a one-way tooling upgrade. The replacement v1 marker stops
 the released v1 client for the selected entry. Supported installations must
 not downgrade after migration. A manually started v1 client with another entry
 does not know the v2 root lock and remains outside the compatibility contract.
-The migration receipt remains historical after later v2 generations.
+The migration receipt remains historical after later root-scoped generations.
 
 One immutable effective-invocation plan owns the executable, working directory,
 environment, ordered HXML entries and occurrences, exact resolved-library
@@ -866,6 +867,51 @@ and may use filesystem or process APIs; hosts declare macro-owned external
 inputs when they affect rebuild correctness. Preventing arbitrary macro reads
 or writes requires an operating-system sandbox and is outside this bounded
 development-session contract.
+
+Host-prepared Haxe inputs solve a timing problem rather than changing compiler
+ownership. A closed declaration such as a CSS Module companion must exist
+before Haxe types authored field access, so it cannot be an ordinary Genes
+output. The session accepts exact bytes, stages them inside the private
+candidate, adds only their declared class paths to that request, and includes a
+content digest in `genes.tooling.prepared`. That define changes the Haxe request
+cache identity without changing the compatible wait-server identity. No typed
+Haxe object or class-name registry survives in the Node process.
+
+Prepared files with public destinations and validator-produced receipts are
+supplemental owned files. The outer transaction publishes them with the Genes
+manifest and target output, records their exact file states in the accepted
+marker, deletes only their previously recorded stale paths, and checks them
+again during recovery. Current version-4 markers also record whether
+preparation or validation produced each file. Restart recovery then requires
+validation to return every saved validator artifact again with exactly the
+saved bytes. A missing receipt is old evidence and cannot be kept. Version-2
+and version-3 records remain readable with the smaller set of facts they
+originally saved; the next accepted build upgrades them to version 4. A
+generated companion can use the same candidate and public relative path so its
+source-map name remains stable after publication. The host still owns how
+those prepared bytes were discovered and whether a real framework loader
+agrees with them.
+
+Recovery registers the reconciled input watch around a fresh read of the HXML
+input graph before replaying an interrupted update. Every saved public
+transition is checked against those current inputs, followed by one final
+filesystem comparison. If a formerly generated path became authored source
+while the process was stopped—or while startup was checking it—recovery refuses
+before it restores, removes, or replaces that file. An already complete result
+is checked again after host validation and before acceptance. The journal
+remains available for a safe resolution. The saved plan passed to host policy
+is deeply read-only, so that policy cannot accidentally change which files
+recovery uses.
+
+A small owner file, called the project lifetime lock, admits one development
+session for the project root. Output-root and older entry locks remain for safe
+upgrades. Those narrower locks cannot protect extra files because two output
+roots can choose the same project-relative path. The project lock gives those
+files one writer without forcing hosts to place them under the Genes output
+folder. While holding that lock, startup also checks every other output scope
+for unfinished publication files. It refuses to start a different output until
+the original output has recovered or rolled back its update. This prevents an
+older journal from later undoing newer shared-file bytes.
 
 Framework policy remains above this boundary. Vite, Next.js, Electron, Expo,
 WordPress, browser transports, device transports, and application servers may

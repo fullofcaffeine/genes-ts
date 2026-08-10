@@ -1,5 +1,6 @@
 export type {
   AcceptedGeneration,
+  AdmittedArtifact,
   AdmissionResult,
   CandidateFile,
   ChangeImpact,
@@ -16,6 +17,9 @@ export type {
   HaxeInvocation,
   JsonValue,
   ObservedExtraInput,
+  PreparedRevision,
+  PreparedRevisionFile,
+  PreparationResult,
   PublishedReadLease,
   SessionFailure,
   ValidationTree,

@@ -40,6 +40,9 @@ import { acquireSessionLock } from "./session/session-lock.js";
 import type {
   DevelopmentEvent,
   DevelopmentSession,
+  DevelopmentSnapshot,
+  DevelopmentState,
+  FileDelta,
   JsonValue,
 } from "./session/types.js";
 
@@ -73,7 +76,19 @@ interface Vector {
     readonly eventRuns: readonly EventRun[];
     readonly stateKinds: readonly StateKind[];
     readonly eventChecks: readonly DevelopmentEvent<JsonValue>[];
+    readonly snapshot: DevelopmentSnapshot<JsonValue>;
   };
+}
+
+function supplementalPreparedContent(revision: number): string {
+  return `typedef FeatureFacts = { final revision${revision}:String; }\n`;
+}
+
+function usesSupplementalFiles(vector: Vector): boolean {
+  return (
+    vector.id === "supplemental-files-publish-and-delete" ||
+    vector.id === "publish-failure-rolls-back"
+  );
 }
 
 interface Corpus {
@@ -222,6 +237,51 @@ function compress(kinds: readonly string[]): readonly EventRun[] {
     else runs.push({ kind, count: 1 });
   }
   return runs;
+}
+
+/** Lists the published files that a public session state says are still in use. */
+function stateFileDeltas(
+  state: DevelopmentState<JsonValue>,
+): readonly FileDelta[] {
+  switch (state.kind) {
+    case "opening":
+      return [];
+    case "building":
+    case "closing":
+    case "closed":
+      return state.retained === null ? [] : [state.retained.files];
+    case "blocked":
+      return state.failure.retained === null
+        ? []
+        : [state.failure.retained.files];
+    case "ready":
+      return [state.accepted.files];
+    case "degraded":
+      return [
+        state.accepted.files,
+        ...(state.failure.retained === null
+          ? []
+          : [state.failure.retained.files]),
+      ];
+  }
+}
+
+/** Checks each saved example's file list against the real running session. */
+function eventFileDeltas(
+  event: DevelopmentEvent<JsonValue>,
+): readonly FileDelta[] {
+  switch (event.event.kind) {
+    case "state":
+      return stateFileDeltas(event.event.state);
+    case "generation-accepted":
+      return [event.event.accepted.files];
+    case "failed":
+      return event.event.failure.retained === null
+        ? []
+        : [event.event.failure.retained.files];
+    default:
+      return [];
+  }
 }
 
 function changesPublicArtifacts(plan: PublicationPlan): boolean {
@@ -445,7 +505,7 @@ async function execute(vector: Vector): Promise<void> {
         ioPolicy: "haxe-4.3.7-development-js-v1",
         compatibilityFacts: { vector: vector.id },
       }),
-      validate: async () => {
+      validate: async (tree) => {
         if (expectsPrivateHxml) {
           assert.notEqual(compiler, null);
           assert.equal(
@@ -458,10 +518,49 @@ async function execute(vector: Vector): Promise<void> {
         if (rejected === undefined) {
           throw new Error(`${vector.id}: unplanned validation`);
         }
+        const revision = tree.revision;
+        assert.notEqual(
+          revision,
+          null,
+          `${vector.id}: candidate has a revision`,
+        );
         return rejected === null
-          ? { ok: true }
+          ? {
+              ok: true,
+              ...(usesSupplementalFiles(vector) &&
+              (vector.id === "publish-failure-rolls-back" || revision === 1)
+                ? {
+                    artifacts: [
+                      {
+                        path: "generated-evidence/receipt.json",
+                        content: `{"revision":${revision}}\n`,
+                      },
+                    ],
+                  }
+                : {}),
+            }
           : { ok: false, diagnostic: rejected };
       },
+      ...(usesSupplementalFiles(vector)
+        ? {
+            prepareRevision: (request: {
+              readonly revision: number;
+              readonly signal: AbortSignal;
+            }) => ({
+              ok: true as const,
+              prepared: {
+                classPaths: ["generated-haxe"],
+                files: [
+                  {
+                    relativePath: "generated-haxe/FeatureFacts.hx",
+                    publishPath: "generated-haxe/FeatureFacts.hx",
+                    content: supplementalPreparedContent(request.revision),
+                  },
+                ],
+              },
+            }),
+          }
+        : {}),
       validatorPolicyFacts: { vector: vector.id },
       debounceMs: 0,
       pollIntervalMs: 10,
@@ -488,6 +587,7 @@ async function execute(vector: Vector): Promise<void> {
       case "compile-failure-retains-last-good":
       case "validation-failure-retains-last-good":
       case "publish-failure-rolls-back":
+      case "supplemental-files-publish-and-delete":
       case "unchanged-candidate-advances-generation":
         await session.waitForIdle();
         watch().change(source);
@@ -551,6 +651,11 @@ async function execute(vector: Vector): Promise<void> {
       vector.expected.retainedGeneration,
       vector.id,
     );
+    assert.deepEqual(
+      session.inspect().accepted?.files ?? null,
+      vector.expected.snapshot.accepted?.files ?? null,
+      `${vector.id}: accepted file changes differ from the real session`,
+    );
     assert.equal(
       await settlePromise(session.firstAccepted),
       vector.expected.firstAccepted,
@@ -570,6 +675,19 @@ async function execute(vector: Vector): Promise<void> {
       vector.expected.stateKinds,
       `${vector.id}: state trace mismatch`,
     );
+    for (const expectedEvent of vector.expected.eventChecks) {
+      const actualEvent = events.find(
+        (event) => event.sequence === expectedEvent.sequence,
+      );
+      if (actualEvent === undefined) {
+        assert.fail(`${vector.id}: missing event ${expectedEvent.sequence}`);
+      }
+      assert.deepEqual(
+        eventFileDeltas(actualEvent),
+        eventFileDeltas(expectedEvent),
+        `${vector.id}: event ${expectedEvent.sequence} file changes differ`,
+      );
+    }
     assert.equal(
       vector.expected.readBarrier === "publication-waited-for-reader"
         ? vector.id === "publication-waits-for-reader"
@@ -599,6 +717,26 @@ async function execute(vector: Vector): Promise<void> {
         true,
       );
       assert.equal(existsSync(path.join(root, "src-gen", "haxe-input")), false);
+    }
+    if (vector.id === "supplemental-files-publish-and-delete") {
+      assert.equal(
+        readFileSync(path.join(root, "generated-haxe/FeatureFacts.hx"), "utf8"),
+        supplementalPreparedContent(2),
+      );
+      assert.equal(
+        existsSync(path.join(root, "generated-evidence/receipt.json")),
+        false,
+      );
+    }
+    if (vector.id === "publish-failure-rolls-back") {
+      assert.equal(
+        readFileSync(path.join(root, "generated-haxe/FeatureFacts.hx"), "utf8"),
+        supplementalPreparedContent(1),
+      );
+      assert.equal(
+        readFileSync(path.join(root, "generated-evidence/receipt.json"), "utf8"),
+        '{"revision":1}\n',
+      );
     }
   } finally {
     await session.close();

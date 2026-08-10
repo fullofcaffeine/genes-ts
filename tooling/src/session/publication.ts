@@ -30,6 +30,7 @@ import {
 import type { AcceptedGeneration, FileDelta, JsonValue } from "./types.js";
 import {
   logicalOutputPath,
+  portableProjectPathsOverlap,
   samePhysicalSessionPath,
   type SessionLayout,
 } from "./layout.js";
@@ -37,6 +38,10 @@ import type {
   GenesOutputInventory,
   GenesOwnedFile,
 } from "./genes-output.js";
+import {
+  supplementalState,
+  type SupplementalFile,
+} from "./prepared-files.js";
 
 const ABSENT = Object.freeze({ kind: "absent" as const });
 
@@ -86,6 +91,53 @@ export function admissionDigest(
   layout: SessionLayout,
   manifestDigest: string,
   validatorPolicyFacts: JsonValue,
+  supplementalFiles: readonly PublishedSupplementalFile[] = [],
+): string {
+  return canonicalDigest({
+    protocol: "genes.tooling.development-session-admission.v4",
+    projectIdentity: sessionProjectDigest(layout),
+    publicOutputRoot: layout.publicOutputRootAuthority,
+    publicEntry: layout.publicEntryAuthority,
+    manifestDigest,
+    supplementalFiles: supplementalFiles.map((file) => ({
+      source: file.source,
+      path: file.path,
+      sha256: file.sha256,
+      sizeBytes: file.sizeBytes,
+      mode: file.mode,
+    })),
+    validatorPolicyFacts,
+  } as CanonicalJson);
+}
+
+/** Rebuilds the exact admission identity written by the older v3 format. */
+export function legacySupplementalAdmissionDigest(
+  layout: SessionLayout,
+  manifestDigest: string,
+  validatorPolicyFacts: JsonValue,
+  supplementalFiles: readonly PublishedSupplementalFile[],
+): string {
+  return canonicalDigest({
+    protocol: "genes.tooling.development-session-admission.v3",
+    projectIdentity: sessionProjectDigest(layout),
+    publicOutputRoot: layout.publicOutputRootAuthority,
+    publicEntry: layout.publicEntryAuthority,
+    manifestDigest,
+    supplementalFiles: supplementalFiles.map((file) => ({
+      path: file.path,
+      sha256: file.sha256,
+      sizeBytes: file.sizeBytes,
+      mode: file.mode,
+    })),
+    validatorPolicyFacts,
+  } as CanonicalJson);
+}
+
+/** The admission identity emitted before supplemental files joined a build. */
+export function rootAdmissionDigest(
+  layout: SessionLayout,
+  manifestDigest: string,
+  validatorPolicyFacts: JsonValue,
 ): string {
   return canonicalDigest({
     protocol: "genes.tooling.development-session-admission.v2",
@@ -118,8 +170,78 @@ export interface PreparedPublication {
 }
 
 export interface PublishedMarker {
+  readonly format: "absent" | "v2" | "v3" | "v4";
   readonly manifestDigest: string | null;
   readonly state: ExpectedFileState;
+  readonly supplementalFiles: readonly PublishedSupplementalFile[];
+}
+
+export interface PublishedSupplementalFile {
+  /** `legacy` means the older v3 marker did not record which step owned it. */
+  readonly source: "legacy" | "prepared" | "validator";
+  readonly path: string;
+  readonly sha256: string;
+  readonly sizeBytes: number;
+  readonly mode: number;
+}
+
+function parseSupplementalFiles(
+  value: unknown,
+  format: "v3" | "v4",
+): readonly PublishedSupplementalFile[] {
+  if (!Array.isArray(value)) {
+    throw new Error("accepted-generation supplemental files are not an array");
+  }
+  const paths = new Map<string, string>();
+  const files = value.map((entry) => {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      throw new Error("accepted-generation supplemental file is not an object");
+    }
+    const record = entry as Record<string, unknown>;
+    const expectedKeys = format === "v3"
+      ? "mode,path,sha256,sizeBytes"
+      : "mode,path,sha256,sizeBytes,source";
+    if (
+      Object.keys(record).sort().join(",") !== expectedKeys ||
+      (format === "v4" &&
+        record.source !== "prepared" &&
+        record.source !== "validator") ||
+      typeof record.path !== "string" ||
+      typeof record.sha256 !== "string" ||
+      !/^[0-9a-f]{64}$/u.test(record.sha256) ||
+      !Number.isInteger(record.sizeBytes) ||
+      (record.sizeBytes as number) < 0 ||
+      !Number.isInteger(record.mode) ||
+      (record.mode as number) < 0 ||
+      (record.mode as number) > 0o777
+    ) {
+      throw new Error("accepted-generation supplemental file is invalid");
+    }
+    const portablePath = validatePortableRelativePath(
+      record.path,
+      "accepted-generation supplemental file",
+    );
+    const identity = portablePathIdentity(portablePath);
+    if (paths.has(identity)) {
+      throw new Error("accepted-generation supplemental files collide by path");
+    }
+    paths.set(identity, portablePath);
+    return Object.freeze({
+      source:
+        format === "v3"
+          ? "legacy" as const
+          : record.source as "prepared" | "validator",
+      path: portablePath,
+      sha256: record.sha256,
+      sizeBytes: record.sizeBytes as number,
+      mode: record.mode as number,
+    });
+  });
+  return Object.freeze(
+    files.sort((left, right) =>
+      Buffer.from(left.path).compare(Buffer.from(right.path)),
+    ),
+  );
 }
 
 export interface LegacyAcceptedGenerationRecord {
@@ -236,6 +358,40 @@ export function rootAcceptedGenerationBytes(
   })}\n`;
 }
 
+/** Encodes a root-owned generation that also records non-Genes files. */
+export function acceptedGenerationBytes(
+  layout: SessionLayout,
+  accepted: Pick<
+    LegacyAcceptedGenerationRecord,
+    | "sessionNonce"
+    | "generation"
+    | "revision"
+    | "acceptedAt"
+    | "manifestDigest"
+  >,
+  supplementalFiles: readonly PublishedSupplementalFile[],
+): string {
+  return `${canonicalJson({
+    protocol: "genes.tooling.accepted-generation.v4",
+    sessionNonce: accepted.sessionNonce,
+    generation: accepted.generation,
+    revision: accepted.revision,
+    acceptedAt: accepted.acceptedAt,
+    manifestDigest: accepted.manifestDigest,
+    publicOutputRoot: layout.publicOutputRootAuthority,
+    publicOutputRootPath: layout.publicOutputRootRelative ?? ".",
+    publicEntry: layout.publicEntryAuthority,
+    publicEntryPath: layout.publicOutputRelative,
+    supplementalFiles: supplementalFiles.map((file) => ({
+      source: file.source,
+      path: file.path,
+      sha256: file.sha256,
+      sizeBytes: file.sizeBytes,
+      mode: file.mode,
+    })),
+  })}\n`;
+}
+
 /**
  * Reads the last outer commit marker without treating it as a current-session
  * admission. Its manifest digest is drift evidence only: a new session still
@@ -249,7 +405,12 @@ export function readPublishedMarker(
     ...layout.generationMarkerRelative.split("/"),
   );
   if (!existsSync(absolute)) {
-    return Object.freeze({ manifestDigest: null, state: ABSENT });
+    return Object.freeze({
+      format: "absent",
+      manifestDigest: null,
+      state: ABSENT,
+      supplementalFiles: Object.freeze([]),
+    });
   }
   const stats = lstatSync(absolute);
   if (stats.isSymbolicLink() || !stats.isFile()) {
@@ -266,10 +427,16 @@ export function readPublishedMarker(
     throw new Error("accepted-generation marker is not an object");
   }
   const record = decoded as Record<string, unknown>;
+  const protocol = record.protocol;
+  const v2 = protocol === "genes.tooling.accepted-generation.v2";
+  const v3 = protocol === "genes.tooling.accepted-generation.v3";
+  const v4 = protocol === "genes.tooling.accepted-generation.v4";
+  const expectedKeys = v2
+    ? "acceptedAt,generation,manifestDigest,protocol,publicEntry,publicEntryPath,publicOutputRoot,publicOutputRootPath,revision,sessionNonce"
+    : "acceptedAt,generation,manifestDigest,protocol,publicEntry,publicEntryPath,publicOutputRoot,publicOutputRootPath,revision,sessionNonce,supplementalFiles";
   if (
-    Object.keys(record).sort().join(",") !==
-      "acceptedAt,generation,manifestDigest,protocol,publicEntry,publicEntryPath,publicOutputRoot,publicOutputRootPath,revision,sessionNonce" ||
-    record.protocol !== "genes.tooling.accepted-generation.v2" ||
+    (!v2 && !v3 && !v4) ||
+    Object.keys(record).sort().join(",") !== expectedKeys ||
     typeof record.sessionNonce !== "string" ||
     record.sessionNonce.length === 0 ||
     !Number.isInteger(record.generation) ||
@@ -353,10 +520,87 @@ export function readPublishedMarker(
     layout.generationMarkerRelative,
     "unexpected-live-state",
   );
+  const supplementalFiles = v2
+    ? Object.freeze([])
+    : parseSupplementalFiles(record.supplementalFiles, v3 ? "v3" : "v4");
+  for (const file of supplementalFiles) {
+    const absolute = path.join(layout.projectRoot, ...file.path.split("/"));
+    if (
+      portableProjectPathsOverlap(
+        layout.projectRoot,
+        absolute,
+        layout.stateRoot,
+      ) ||
+      portableProjectPathsOverlap(
+        layout.projectRoot,
+        absolute,
+        layout.stableControlRoot,
+      )
+    ) {
+      throw new Error(
+        `accepted supplemental file overlaps private state or stable session-control files: ${file.path}`,
+      );
+    }
+  }
   return Object.freeze({
+    format: v2 ? "v2" : v3 ? "v3" : "v4",
     manifestDigest: record.manifestDigest,
     state: markerState,
+    supplementalFiles,
   });
+}
+
+/**
+ * Rebuilds the exact admission identities that may match an interrupted
+ * publication.
+ *
+ * A v2 marker names only the Genes output tree. The older v3 marker names
+ * extra files but not the step that produced them. V4 records that missing
+ * fact. When no marker exists yet, recovery may be finishing any format, so
+ * every empty-file identity remains valid.
+ */
+export function recoveredAdmissionDigests(
+  layout: SessionLayout,
+  manifestDigest: string,
+  validatorPolicyFacts: JsonValue,
+  marker: PublishedMarker,
+): readonly string[] {
+  if (marker.format === "v4") {
+    return Object.freeze([
+      admissionDigest(
+        layout,
+        manifestDigest,
+        validatorPolicyFacts,
+        marker.supplementalFiles,
+      ),
+    ]);
+  }
+  if (marker.format === "v3") {
+    return Object.freeze([
+      legacySupplementalAdmissionDigest(
+        layout,
+        manifestDigest,
+        validatorPolicyFacts,
+        marker.supplementalFiles,
+      ),
+    ]);
+  }
+  const v2 = rootAdmissionDigest(
+    layout,
+    manifestDigest,
+    validatorPolicyFacts,
+  );
+  if (marker.format === "v2") return Object.freeze([v2]);
+  return Object.freeze([
+    admissionDigest(layout, manifestDigest, validatorPolicyFacts),
+    legacySupplementalAdmissionDigest(
+      layout,
+      manifestDigest,
+      validatorPolicyFacts,
+      Object.freeze([]),
+    ),
+    v2,
+  ]);
 }
 
 /**
@@ -379,7 +623,20 @@ export function preparePublication(
   validatorPolicyFacts: JsonValue,
   sessionNonce: string,
   priorMarker: ExpectedFileState,
+  supplementalFiles: readonly SupplementalFile[],
+  priorSupplementalFiles: readonly PublishedSupplementalFile[],
 ): PreparedPublication {
+  const publishedSupplemental = Object.freeze(
+    [...supplementalFiles].sort((left, right) =>
+      Buffer.from(left.path).compare(Buffer.from(right.path)),
+    ),
+  );
+  const candidateSupplementalIdentities = new Set(
+    publishedSupplemental.map((file) => portablePathIdentity(file.path)),
+  );
+  if (candidateSupplementalIdentities.size !== publishedSupplemental.length) {
+    throw new Error("prepared and admitted artifacts collide by portable path");
+  }
   const candidateByPath = new Map(
     candidate.files.map((file) => [file.relativePath, file] as const),
   );
@@ -441,6 +698,89 @@ export function preparePublication(
   });
   if (!manifestChanges) rmSync(candidate.manifestPath, { force: true });
 
+  const supplementalByPath = new Map(
+    publishedSupplemental.map((file) =>
+      [portablePathIdentity(file.path), file] as const,
+    ),
+  );
+  const priorSupplementalByPath = new Map(
+    priorSupplementalFiles.map((file) =>
+      [portablePathIdentity(file.path), file] as const,
+    ),
+  );
+  for (const [identity, next] of supplementalByPath) {
+    const previous = priorSupplementalByPath.get(identity);
+    if (previous !== undefined && previous.path !== next.path) {
+      throw new Error(
+        `supplemental file path spelling changed: ${previous.path} and ${next.path}`,
+      );
+    }
+  }
+  const supplementalIdentities = bytewise(
+    new Set([...supplementalByPath.keys(), ...priorSupplementalByPath.keys()]),
+  );
+  for (const identity of supplementalIdentities) {
+    const next = supplementalByPath.get(identity);
+    const previous = priorSupplementalByPath.get(identity);
+    const livePath = next?.path ?? previous!.path;
+    const priorState: ExpectedFileState = previous === undefined
+      ? ABSENT
+      : Object.freeze({
+          kind: "file" as const,
+          sha256: previous.sha256,
+          sizeBytes: previous.sizeBytes,
+          mode: previous.mode,
+        });
+    const nextState: ExpectedFileState = next === undefined
+      ? ABSENT
+      : supplementalState(next);
+    const changes = !sameFileState(priorState, nextState);
+    if (!changes && next !== undefined) {
+      rmSync(next.absolutePath, { force: true });
+    }
+    artifacts.push({
+      path: livePath,
+      prior: priorState,
+      next: nextState,
+      stagedPath: changes && next !== undefined ? next.stagedPath : null,
+    });
+    if (changes && priorState.kind === "absent" && nextState.kind === "file") {
+      created.push(livePath);
+    } else if (
+      changes &&
+      priorState.kind === "file" &&
+      nextState.kind === "absent"
+    ) {
+      deleted.push(livePath);
+    } else if (changes) {
+      updated.push(livePath);
+    }
+  }
+
+  const artifactIdentities = new Map<string, string>();
+  for (const artifact of artifacts) {
+    const identity = portablePathIdentity(artifact.path);
+    const previous = artifactIdentities.get(identity);
+    if (previous !== undefined) {
+      throw new Error(
+        `prepared or admitted artifact collides with generated output: ${previous} and ${artifact.path}`,
+      );
+    }
+    artifactIdentities.set(identity, artifact.path);
+  }
+  for (const [identity, artifactPath] of artifactIdentities) {
+    let ancestor = identity;
+    while (ancestor.includes("/")) {
+      ancestor = ancestor.slice(0, ancestor.lastIndexOf("/"));
+      const previous = artifactIdentities.get(ancestor);
+      if (previous !== undefined) {
+        throw new Error(
+          `prepared or admitted artifact collides with generated output: ${previous} and ${artifactPath}`,
+        );
+      }
+    }
+  }
+
   artifacts.sort((left, right) =>
     left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
   );
@@ -450,13 +790,23 @@ export function preparePublication(
     ...markerStageRelative.split("/"),
   );
   mkdirSync(path.dirname(markerAbsolute), { recursive: true, mode: 0o700 });
-  const marker = rootAcceptedGenerationBytes(layout, {
-    sessionNonce,
-    generation,
-    revision,
-    acceptedAt,
-    manifestDigest: candidate.manifestDigest,
-  });
+  const marker = acceptedGenerationBytes(
+    layout,
+    {
+      sessionNonce,
+      generation,
+      revision,
+      acceptedAt,
+      manifestDigest: candidate.manifestDigest,
+    },
+    publishedSupplemental.map((file) => ({
+      source: file.source,
+      path: file.path,
+      sha256: file.digest,
+      sizeBytes: file.sizeBytes,
+      mode: file.mode,
+    })),
+  );
   writeFileSync(markerAbsolute, marker, { mode: 0o600 });
   chmodSync(markerAbsolute, 0o600);
 
@@ -481,6 +831,13 @@ export function preparePublication(
     layout,
     candidate.manifestDigest,
     validatorPolicyFacts,
+    publishedSupplemental.map((file) => ({
+      source: file.source,
+      path: file.path,
+      sha256: file.digest,
+      sizeBytes: file.sizeBytes,
+      mode: file.mode,
+    })),
   );
   const plan: PublicationPlan = Object.freeze({
     protocol: ARTIFACT_PLAN_PROTOCOL,

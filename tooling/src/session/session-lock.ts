@@ -30,6 +30,7 @@ import {
 } from "./layout.js";
 
 const LOCK_PROTOCOL = "genes.tooling.development-session-lock.v1";
+const PROJECT_LOCK_RELATIVE = ".genes/tooling/session-locks/project.json";
 const ROOT_OWNER_PROTOCOL =
   "genes.tooling.development-session-root-owner.v1" as const;
 
@@ -231,6 +232,7 @@ function claimLifetimeLock(
   layout: SessionLayout,
   relativePath: string,
   outputIdentity: string,
+  subject: "output" | "project",
 ): SessionLock {
   const absolute = path.join(layout.projectRoot, ...relativePath.split("/"));
   const record: LockRecord = {
@@ -272,7 +274,7 @@ function claimLifetimeLock(
       }
       if (pidIsLive(previous.pid)) {
         throw new Error(
-          `another development session already owns this output (pid ${previous.pid})`,
+          `another development session already owns this ${subject} (pid ${previous.pid})`,
         );
       }
       if (readFileSync(absolute, "utf8") !== previousBytes) {
@@ -301,26 +303,43 @@ function claimLifetimeLock(
 }
 
 /**
- * Claims the current root lock and the older entry lock for one session.
- * Holding both prevents an older Genes process from publishing while a newer
- * process reads and upgrades its entry-scoped recovery files.
+ * Claims one project lock plus the current root and older entry locks.
+ *
+ * The project lock keeps two output roots from changing the same supplemental
+ * file. The narrower locks also keep older Genes processes from publishing
+ * while a newer process reads and upgrades entry-scoped recovery files.
  */
 export function acquireSessionLock(layout: SessionLayout): SessionLock {
   materializeSessionLockLayout(layout);
-  const rootLock = claimLifetimeLock(
+  const projectLock = claimLifetimeLock(
     layout,
-    layout.sessionLockRelative,
-    layout.publicOutputRootAuthority,
+    PROJECT_LOCK_RELATIVE,
+    "project",
+    "project",
   );
+  let rootLock: SessionLock;
+  try {
+    rootLock = claimLifetimeLock(
+      layout,
+      layout.sessionLockRelative,
+      layout.publicOutputRootAuthority,
+      "output",
+    );
+  } catch (error) {
+    projectLock.release();
+    throw error;
+  }
   let legacyLock: SessionLock;
   try {
     legacyLock = claimLifetimeLock(
       layout,
       layout.legacySessionLockRelative,
       layout.publicEntryAuthority,
+      "output",
     );
   } catch (error) {
     rootLock.release();
+    projectLock.release();
     throw error;
   }
   let released = false;
@@ -328,8 +347,9 @@ export function acquireSessionLock(layout: SessionLayout): SessionLock {
     release(): void {
       if (released) return;
       released = true;
-      rootLock.release();
       legacyLock.release();
+      rootLock.release();
+      projectLock.release();
     },
   });
 }

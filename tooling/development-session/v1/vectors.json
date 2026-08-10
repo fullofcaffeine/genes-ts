@@ -1974,9 +1974,11 @@
       "covers": [
         "publication-failure",
         "rollback",
-        "last-good"
+        "last-good",
+        "supplemental-publication",
+        "supplemental-rollback"
       ],
-      "description": "A publication failure restores the exact prior tree, retains generation 1, and reports a degraded publish-phase failure.",
+      "description": "A publication failure restores the exact prior generated output, prepared input, and validator receipt; it retains generation 1 and reports a degraded publish-phase failure.",
       "script": [
         "start",
         "recovery-none",
@@ -2068,6 +2070,8 @@
               "compilerMode": "connected",
               "files": {
                 "created": [
+                  "generated-evidence/receipt.json",
+                  "generated-haxe/FeatureFacts.hx",
                   "src-gen/index.ts"
                 ],
                 "updated": [],
@@ -2091,6 +2095,8 @@
                 "compilerMode": "connected",
                 "files": {
                   "created": [
+                    "generated-evidence/receipt.json",
+                    "generated-haxe/FeatureFacts.hx",
                     "src-gen/index.ts"
                   ],
                   "updated": [],
@@ -2110,6 +2116,8 @@
             "compilerMode": "connected",
             "files": {
               "created": [
+                "generated-evidence/receipt.json",
+                "generated-haxe/FeatureFacts.hx",
                 "src-gen/index.ts"
               ],
               "updated": [],
@@ -2135,6 +2143,8 @@
                 "compilerMode": "connected",
                 "files": {
                   "created": [
+                    "generated-evidence/receipt.json",
+                    "generated-haxe/FeatureFacts.hx",
                     "src-gen/index.ts"
                   ],
                   "updated": [],
@@ -2185,6 +2195,8 @@
                   "compilerMode": "connected",
                   "files": {
                     "created": [
+                      "generated-evidence/receipt.json",
+                      "generated-haxe/FeatureFacts.hx",
                       "src-gen/index.ts"
                     ],
                     "updated": [],
@@ -2208,6 +2220,8 @@
                     "compilerMode": "connected",
                     "files": {
                       "created": [
+                        "generated-evidence/receipt.json",
+                        "generated-haxe/FeatureFacts.hx",
                         "src-gen/index.ts"
                       ],
                       "updated": [],
@@ -2242,6 +2256,8 @@
                   "compilerMode": "connected",
                   "files": {
                     "created": [
+                      "generated-evidence/receipt.json",
+                      "generated-haxe/FeatureFacts.hx",
                       "src-gen/index.ts"
                     ],
                     "updated": [],
@@ -2249,6 +2265,152 @@
                   },
                   "entryChanged": true
                 }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "supplemental-files-publish-and-delete",
+      "family": "publication",
+      "covers": [
+        "supplemental-publication",
+        "supplemental-stale-deletion",
+        "single-generation-commit"
+      ],
+      "description": "Prepared input and a validator receipt publish with generation 1; generation 2 updates the prepared input and removes the now-absent receipt in the same accepted update.",
+      "script": [
+        "start",
+        "recovery-none",
+        "watch-registered",
+        "build-started",
+        "compile-connected",
+        "candidate-generated",
+        "validate-accepted",
+        "reconcile-current",
+        "publish-succeeded",
+        "input-change",
+        "build-started",
+        "compile-connected",
+        "candidate-generated",
+        "validate-accepted",
+        "reconcile-current",
+        "publish-succeeded"
+      ],
+      "expected": {
+        "finalState": "ready",
+        "revisionsObserved": 2,
+        "acceptedGenerations": 2,
+        "acceptedRevision": 2,
+        "retainedGeneration": 2,
+        "firstAccepted": "resolved",
+        "publicationAttempts": 2,
+        "publicWrites": 2,
+        "readBarrier": "not-exercised",
+        "eventRuns": [
+          { "kind": "state", "count": 1 },
+          { "kind": "build-started", "count": 1 },
+          { "kind": "candidate-generated", "count": 1 },
+          { "kind": "state", "count": 1 },
+          { "kind": "generation-accepted", "count": 1 },
+          { "kind": "inputs-changed", "count": 1 },
+          { "kind": "state", "count": 1 },
+          { "kind": "build-started", "count": 1 },
+          { "kind": "candidate-generated", "count": 1 },
+          { "kind": "state", "count": 1 },
+          { "kind": "generation-accepted", "count": 1 }
+        ],
+        "stateKinds": ["building", "ready", "building", "ready"],
+        "snapshot": {
+          "state": {
+            "kind": "ready",
+            "accepted": {
+              "generation": 2,
+              "revision": 2,
+              "acceptedAt": 1000010,
+              "manifestDigest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "compilerMode": "connected",
+              "files": {
+                "created": [],
+                "updated": [
+                  "generated-haxe/FeatureFacts.hx",
+                  "src-gen/index.ts"
+                ],
+                "deleted": ["generated-evidence/receipt.json"]
+              },
+              "entryChanged": true
+            }
+          },
+          "lastSequence": 11,
+          "newestRevision": 2,
+          "accepted": {
+            "generation": 2,
+            "revision": 2,
+            "acceptedAt": 1000010,
+            "manifestDigest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "compilerMode": "connected",
+            "files": {
+              "created": [],
+              "updated": [
+                "generated-haxe/FeatureFacts.hx",
+                "src-gen/index.ts"
+              ],
+              "deleted": ["generated-evidence/receipt.json"]
+            },
+            "entryChanged": true
+          },
+          "lastCompilerEvent": null
+        },
+        "eventChecks": [
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 5,
+            "at": 1000005,
+            "event": {
+              "kind": "generation-accepted",
+              "accepted": {
+                "generation": 1,
+                "revision": 1,
+                "acceptedAt": 1000004,
+                "manifestDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+                "compilerMode": "connected",
+                "files": {
+                  "created": [
+                    "generated-evidence/receipt.json",
+                    "generated-haxe/FeatureFacts.hx",
+                    "src-gen/index.ts"
+                  ],
+                  "updated": [],
+                  "deleted": []
+                },
+                "entryChanged": true
+              }
+            }
+          },
+          {
+            "protocol": "genes.tooling.development-session-event",
+            "version": 1,
+            "sequence": 11,
+            "at": 1000011,
+            "event": {
+              "kind": "generation-accepted",
+              "accepted": {
+                "generation": 2,
+                "revision": 2,
+                "acceptedAt": 1000010,
+                "manifestDigest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                "compilerMode": "connected",
+                "files": {
+                  "created": [],
+                  "updated": [
+                    "generated-haxe/FeatureFacts.hx",
+                    "src-gen/index.ts"
+                  ],
+                  "deleted": ["generated-evidence/receipt.json"]
+                },
+                "entryChanged": true
               }
             }
           }

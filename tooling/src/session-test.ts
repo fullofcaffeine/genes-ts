@@ -19,10 +19,15 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  ARTIFACT_PLAN_PROTOCOL,
+  ARTIFACT_PLAN_VERSION,
+  canonicalDigest,
   canonicalJson,
   publishArtifacts,
   recoverArtifacts,
+  sha256Bytes,
   type CanonicalJson,
+  type PublicationPlan,
 } from "./artifacts/index.js";
 import { inventoryHxml } from "./hxml/index.js";
 import { establishSessionAuthority } from "./session/authority-migration.js";
@@ -37,7 +42,9 @@ import type {
   WatchInput,
 } from "./watch/index.js";
 import {
+  HaxeSessionCompiler,
   snapshotHaxeInvocation,
+  type PreparedCompilerRequest,
   type SessionCompiler,
 } from "./session/haxe-driver.js";
 import { readGenesOutput } from "./session/genes-output.js";
@@ -47,6 +54,10 @@ import {
   type SessionLayout,
 } from "./session/layout.js";
 import {
+  recoveredArtifactsMatchPublishedFiles,
+} from "./session/prepared-files.js";
+import {
+  acceptedGenerationBytes,
   admissionDigest,
   readPublishedMarker,
   sessionProjectDigest,
@@ -189,6 +200,7 @@ class FakeCompiler implements SessionCompiler {
   readonly modes: Array<"connected" | "direct"> = [];
   readonly compatibilityDigests: string[] = [];
   readonly invocations: Parameters<SessionCompiler["compile"]>[0][] = [];
+  readonly preparedRequests: PreparedCompilerRequest[] = [];
   calls = 0;
   closed = 0;
 
@@ -197,10 +209,21 @@ class FakeCompiler implements SessionCompiler {
     compatibilityDigest: string,
     signal: AbortSignal,
     assertInvocationCurrent?: () => void | Promise<void>,
+    prepared?: PreparedCompilerRequest,
   ): Promise<{ readonly mode: "connected" | "direct" }> {
     const { candidateOutputFile } = _invocation;
     this.calls += 1;
     this.invocations.push(_invocation);
+    if (prepared !== undefined) {
+      this.preparedRequests.push(prepared);
+      for (const classPath of prepared.classPaths) {
+        assert.equal(
+          existsSync(classPath),
+          true,
+          "prepared class path exists while Haxe compiles",
+        );
+      }
+    }
     const step = this.steps.shift() ?? { content: "export const value = 1;\n" };
     step.beforeInvocationGuard?.();
     await assertInvocationCurrent?.();
@@ -410,6 +433,10 @@ function currentWatch(harness: Harness): FakeWatch<unknown> {
 
 function eventKinds(harness: Harness): string[] {
   return harness.events.map((event) => event.event.kind);
+}
+
+function currentState(harness: Harness): DevelopmentSession<TestDiagnostic>["state"] {
+  return harness.session.state;
 }
 
 async function withHarness(
@@ -1781,7 +1808,7 @@ await withHarness("input-overlap", async (harness) => {
     assert.equal(harness.session.state.failure.recoverable, false);
     assert.match(
       String(harness.session.state.failure.diagnostic.message),
-      /overlaps state, publication control, or generated output/u,
+      /overlaps state, stable session-control files, or generated output/u,
     );
   }
   await assert.rejects(harness.session.firstAccepted, /fatal session failure/u);
@@ -2052,6 +2079,42 @@ for (const stopAt of [
 
 {
   const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-project-writer-")),
+  );
+  const first = resolveSessionLayout(
+    root,
+    "fixture-project-writer",
+    "first-output/index.ts",
+    ".genes/first-state",
+  );
+  const second = resolveSessionLayout(
+    root,
+    "fixture-project-writer",
+    "second-output/index.ts",
+    ".genes/second-state",
+  );
+  let competing: ReturnType<typeof acquireSessionLock> | null = null;
+  const owner = acquireSessionLock(first);
+  try {
+    try {
+      competing = acquireSessionLock(second);
+      assert.fail("a second project session unexpectedly acquired its lock");
+    } catch (error) {
+      assert.match(
+        String(error),
+        /another development session already owns this project/u,
+        "different output folders must not publish shared supplemental files at the same time",
+      );
+    }
+  } finally {
+    if (competing !== null) competing.release();
+    owner.release();
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+{
+  const root = realpathSync.native(
     mkdtempSync(path.join(os.tmpdir(), "genes-session-legacy-writer-")),
   );
   try {
@@ -2260,6 +2323,526 @@ for (const corruption of ["truncated", "noncanonical", "symlink"] as const) {
   }
 }
 
+await withHarness(
+  "root-v2-admission-recovery",
+  async (harness) => {
+    harness.compiler.steps.push({ content: "export const current = true;\n" });
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(
+      harness.session.state.kind,
+      "ready",
+      `a valid root-owned publication saved before supplemental files were added must survive an upgrade restart: ${JSON.stringify(harness.session.state)}`,
+    );
+    assert.equal((await harness.session.firstAccepted).generation, 1);
+  },
+  (dependencies, root) => {
+    const layout = resolveSessionLayout(
+      root,
+      "fixture-root-v2-admission-recovery",
+      "src-gen/index.ts",
+      ".genes/dev",
+    );
+    const setupLock = acquireSessionLock(layout);
+    try {
+      claimSessionRootOwner(layout);
+    } finally {
+      setupLock.release();
+    }
+    mkdirSync(layout.publicOutputRoot, { recursive: true });
+    writeFileSync(
+      layout.publicOutputFile,
+      "export const legacy = true;\n",
+      "utf8",
+    );
+    writeFileSync(
+      path.join(layout.publicOutputRoot, manifestName(layout.outputIdentity)),
+      `genes-output-manifest-v2\nowner-base64:${Buffer.from(layout.outputIdentity).toString("base64")}\n${layout.outputIdentity}\n`,
+      "utf8",
+    );
+    const live = readGenesOutput(
+      layout.publicOutputRoot,
+      layout.outputIdentity,
+      true,
+    )!;
+    const marker = `${canonicalJson({
+      protocol: "genes.tooling.accepted-generation.v2",
+      sessionNonce: "root-v2-session",
+      generation: 4,
+      revision: 7,
+      acceptedAt: 999_999,
+      manifestDigest: live.manifestDigest,
+      publicOutputRoot: layout.publicOutputRootAuthority,
+      publicOutputRootPath: layout.publicOutputRootRelative ?? ".",
+      publicEntry: layout.publicEntryAuthority,
+      publicEntryPath: layout.publicOutputRelative,
+    })}\n`;
+    const markerPath = path.join(
+      root,
+      ...layout.generationMarkerRelative.split("/"),
+    );
+    mkdirSync(path.dirname(markerPath), { recursive: true });
+    writeFileSync(markerPath, marker, { mode: 0o600 });
+    const rootV2Authorization = canonicalDigest({
+      protocol: "genes.tooling.development-session-admission.v2",
+      projectIdentity: sessionProjectDigest(layout),
+      publicOutputRoot: layout.publicOutputRootAuthority,
+      publicEntry: layout.publicEntryAuthority,
+      manifestDigest: live.manifestDigest,
+      validatorPolicyFacts: { policy: "fixture" },
+    } as CanonicalJson);
+    const absent = Object.freeze({ kind: "absent" as const });
+    const plan: PublicationPlan = Object.freeze({
+      protocol: ARTIFACT_PLAN_PROTOCOL,
+      version: ARTIFACT_PLAN_VERSION,
+      projectIdentity: sessionProjectDigest(layout),
+      authorizationDigest: rootV2Authorization,
+      transactionRoot: layout.transactionRelative,
+      stageRoot: `${layout.candidatesRelative}/root-v2-recovery`,
+      artifacts: Object.freeze([]),
+      commitMarker: Object.freeze({
+        path: layout.generationMarkerRelative,
+        prior: absent,
+        next: absent,
+        stagedPath: null,
+      }),
+    });
+    return {
+      ...dependencies,
+      recover: async (options) => {
+        if (options.transactionRoot === layout.legacyTransactionRelative) {
+          return { action: "none", transactionId: null };
+        }
+        assert.equal(
+          await options.admitIntended(plan),
+          true,
+          "recovery must use the v2 digest shape recorded by the saved marker",
+        );
+        return { action: "committed", transactionId: "a".repeat(64) };
+      },
+    };
+  },
+  (options) => ({
+    ...options,
+    validate: async (_tree, context) =>
+      context.recovery
+        ? {
+            ok: true,
+            artifacts: [
+              {
+                path: "new-validator/receipt.json",
+                content: "{\"new\":true}\n",
+              },
+            ],
+          }
+        : { ok: true },
+  }),
+);
+
+await withHarness(
+  "root-v3-admission-recovery",
+  async (harness) => {
+    harness.compiler.steps.push({ content: "export const current = true;\n" });
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(
+      harness.session.state.kind,
+      "ready",
+      `a saved version-3 publication must remain readable after the marker format grows: ${JSON.stringify(harness.session.state)}`,
+    );
+  },
+  (dependencies, root) => {
+    const layout = resolveSessionLayout(
+      root,
+      "fixture-root-v3-admission-recovery",
+      "src-gen/index.ts",
+      ".genes/dev",
+    );
+    const setupLock = acquireSessionLock(layout);
+    try {
+      claimSessionRootOwner(layout);
+    } finally {
+      setupLock.release();
+    }
+    const live = seedOwnedOutput(layout, "export const recovered = true;\n");
+    const receiptPath = "generated-evidence/legacy-receipt.json";
+    const receiptBytes = "{\"legacy\":true}\n";
+    const receiptAbsolute = path.join(root, ...receiptPath.split("/"));
+    mkdirSync(path.dirname(receiptAbsolute), { recursive: true });
+    writeFileSync(receiptAbsolute, receiptBytes, { mode: 0o644 });
+    const legacySupplemental = [
+      {
+        path: receiptPath,
+        sha256: sha256Bytes(receiptBytes),
+        sizeBytes: Buffer.byteLength(receiptBytes),
+        mode: 0o644,
+      },
+    ] as const;
+    const marker = `${canonicalJson({
+      protocol: "genes.tooling.accepted-generation.v3",
+      sessionNonce: "root-v3-session",
+      generation: 4,
+      revision: 7,
+      acceptedAt: 999_999,
+      manifestDigest: live.manifestDigest,
+      publicOutputRoot: layout.publicOutputRootAuthority,
+      publicOutputRootPath: layout.publicOutputRootRelative ?? ".",
+      publicEntry: layout.publicEntryAuthority,
+      publicEntryPath: layout.publicOutputRelative,
+      supplementalFiles: legacySupplemental,
+    } as CanonicalJson)}\n`;
+    const markerPath = path.join(
+      root,
+      ...layout.generationMarkerRelative.split("/"),
+    );
+    mkdirSync(path.dirname(markerPath), { recursive: true });
+    writeFileSync(markerPath, marker, { mode: 0o600 });
+    const plan: PublicationPlan = Object.freeze({
+      protocol: ARTIFACT_PLAN_PROTOCOL,
+      version: ARTIFACT_PLAN_VERSION,
+      projectIdentity: sessionProjectDigest(layout),
+      authorizationDigest: canonicalDigest({
+        protocol: "genes.tooling.development-session-admission.v3",
+        projectIdentity: sessionProjectDigest(layout),
+        publicOutputRoot: layout.publicOutputRootAuthority,
+        publicEntry: layout.publicEntryAuthority,
+        manifestDigest: live.manifestDigest,
+        supplementalFiles: legacySupplemental,
+        validatorPolicyFacts: { policy: "fixture" },
+      } as CanonicalJson),
+      transactionRoot: layout.transactionRelative,
+      stageRoot: `${layout.candidatesRelative}/root-v3-recovery`,
+      artifacts: Object.freeze([]),
+      commitMarker: Object.freeze({
+        path: layout.generationMarkerRelative,
+        prior: Object.freeze({ kind: "absent" as const }),
+        next: Object.freeze({ kind: "absent" as const }),
+        stagedPath: null,
+      }),
+    });
+    return {
+      ...dependencies,
+      recover: async (options) => {
+        if (options.transactionRoot === layout.legacyTransactionRelative) {
+          return { action: "none", transactionId: null };
+        }
+        assert.equal(
+          await options.admitIntended(plan),
+          true,
+          "recovery must accept the exact admission digest written by the older version-3 format",
+        );
+        return { action: "committed", transactionId: "c".repeat(64) };
+      },
+    };
+  },
+  (options) => ({
+    ...options,
+    validate: async (_tree, context) =>
+      context.recovery
+        ? {
+            ok: true,
+            artifacts: [
+              {
+                path: "generated-evidence/legacy-receipt.json",
+                content: "{\"legacy\":true}\n",
+              },
+              {
+                path: "generated-evidence/new-receipt.json",
+                content: "{\"new\":true}\n",
+              },
+            ],
+          }
+        : { ok: true },
+  }),
+);
+
+{
+  let recoveryChecked = false;
+  await withHarness(
+    "recovery-rejects-changed-validator-artifact",
+    async (harness) => {
+      harness.compiler.steps.push({ content: "export const current = true;\n" });
+      await harness.session.start();
+      await harness.session.waitForIdle();
+      assert.equal(
+        recoveryChecked,
+        true,
+        "restart must ask the host to check the intended recovered files",
+      );
+      assert.equal(
+        harness.session.state.kind,
+        "ready",
+        `a stale recovered receipt must be refused before the new revision builds: ${JSON.stringify(harness.session.state)}`,
+      );
+    },
+    (dependencies, root) => {
+      const layout = resolveSessionLayout(
+        root,
+        "fixture-recovery-rejects-changed-validator-artifact",
+        "src-gen/index.ts",
+        ".genes/dev",
+      );
+      const setupLock = acquireSessionLock(layout);
+      try {
+        claimSessionRootOwner(layout);
+      } finally {
+        setupLock.release();
+      }
+      const live = seedOwnedOutput(layout, "export const recovered = true;\n");
+      const receiptPath = "generated-haxe/host-receipt.json";
+      const receiptBytes = "{\"accepted\":1}\n";
+      const receiptAbsolute = path.join(root, ...receiptPath.split("/"));
+      mkdirSync(path.dirname(receiptAbsolute), { recursive: true });
+      writeFileSync(receiptAbsolute, receiptBytes, { mode: 0o644 });
+      const supplemental = Object.freeze([
+        Object.freeze({
+          source: "validator" as const,
+          path: receiptPath,
+          sha256: sha256Bytes(receiptBytes),
+          sizeBytes: Buffer.byteLength(receiptBytes),
+          mode: 0o644,
+        }),
+      ]);
+      const marker = acceptedGenerationBytes(
+        layout,
+        {
+          sessionNonce: "recovered-receipt",
+          generation: 2,
+          revision: 3,
+          acceptedAt: 999_999,
+          manifestDigest: live.manifestDigest,
+        },
+        supplemental,
+      );
+      const markerPath = path.join(
+        root,
+        ...layout.generationMarkerRelative.split("/"),
+      );
+      mkdirSync(path.dirname(markerPath), { recursive: true });
+      writeFileSync(markerPath, marker, { mode: 0o600 });
+      const plan: PublicationPlan = Object.freeze({
+        protocol: ARTIFACT_PLAN_PROTOCOL,
+        version: ARTIFACT_PLAN_VERSION,
+        projectIdentity: sessionProjectDigest(layout),
+        authorizationDigest: admissionDigest(
+          layout,
+          live.manifestDigest,
+          { policy: "fixture" },
+          supplemental,
+        ),
+        transactionRoot: layout.transactionRelative,
+        stageRoot: `${layout.candidatesRelative}/recovered-receipt`,
+        artifacts: Object.freeze([]),
+        commitMarker: Object.freeze({
+          path: layout.generationMarkerRelative,
+          prior: Object.freeze({ kind: "absent" as const }),
+          next: Object.freeze({ kind: "absent" as const }),
+          stagedPath: null,
+        }),
+      });
+      return {
+        ...dependencies,
+        recover: async (options) => {
+          if (options.transactionRoot === layout.legacyTransactionRelative) {
+            return { action: "none", transactionId: null };
+          }
+          recoveryChecked = true;
+          assert.equal(
+            await options.admitIntended(plan),
+            false,
+            "recovery must reject a validator receipt whose new bytes differ from the saved live receipt",
+          );
+          return { action: "rolled-back", transactionId: "b".repeat(64) };
+        },
+      };
+    },
+    (options) => ({
+      ...options,
+      validate: async (_tree, context) =>
+        context.recovery
+          ? {
+              ok: true,
+              artifacts: [
+                {
+                  path: "generated-haxe/host-receipt.json",
+                  content: "{\"accepted\":2}\n",
+                },
+              ],
+            }
+          : { ok: true },
+    }),
+  );
+}
+
+assert.equal(
+  recoveredArtifactsMatchPublishedFiles(
+    [],
+    [
+      {
+        source: "validator",
+        path: "generated-evidence/receipt.json",
+        sha256: "a".repeat(64),
+        sizeBytes: 2,
+        mode: 0o644,
+      },
+    ],
+  ),
+  false,
+  "recovery must not keep a saved validator receipt when validation no longer returns it",
+);
+assert.equal(
+  recoveredArtifactsMatchPublishedFiles(
+    [],
+    [
+      {
+        source: "prepared",
+        path: "generated-haxe/FeatureFacts.hx",
+        sha256: "b".repeat(64),
+        sizeBytes: 2,
+        mode: 0o644,
+      },
+    ],
+  ),
+  true,
+  "recovery does not ask validation to reproduce a file owned by preparation",
+);
+
+{
+  const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-control-output-")),
+  );
+  try {
+    assert.throws(
+      () =>
+        resolveSessionLayout(
+          root,
+          "fixture-control-output",
+          ".genes/tooling/session-locks/app.ts",
+          ".genes/dev",
+        ),
+      /stable session-control/u,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+{
+  const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-control-marker-")),
+  );
+  try {
+    const layout = resolveSessionLayout(
+      root,
+      "fixture-control-marker",
+      "src-gen/index.ts",
+      ".genes/dev",
+    );
+    const markerPath = path.join(
+      root,
+      ...layout.generationMarkerRelative.split("/"),
+    );
+    mkdirSync(path.dirname(markerPath), { recursive: true });
+    writeFileSync(
+      markerPath,
+      `${canonicalJson({
+        protocol: "genes.tooling.accepted-generation.v4",
+        sessionNonce: "control-marker",
+        generation: 1,
+        revision: 1,
+        acceptedAt: 1,
+        manifestDigest: "a".repeat(64),
+        publicOutputRoot: layout.publicOutputRootAuthority,
+        publicOutputRootPath: layout.publicOutputRootRelative ?? ".",
+        publicEntry: layout.publicEntryAuthority,
+        publicEntryPath: layout.publicOutputRelative,
+        supplementalFiles: [
+          {
+            source: "prepared",
+            path: ".genes/tooling/session-locks/host.json",
+            sha256: "b".repeat(64),
+            sizeBytes: 2,
+            mode: 0o600,
+          },
+        ],
+      } as CanonicalJson)}\n`,
+      "utf8",
+    );
+    assert.throws(
+      () => readPublishedMarker(layout),
+      /accepted supplemental file overlaps private state or stable session-control files/u,
+      "a saved marker cannot turn a session control file into ordinary generated output",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+await withHarness(
+  "prepared-file-cannot-claim-session-controls",
+  async (harness) => {
+    harness.compiler.steps.push({ content: "export const value = 1;\n" });
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "blocked");
+    assert.equal(harness.compiler.calls, 0);
+    assert.equal(
+      existsSync(
+        path.join(harness.root, ".genes/tooling/session-locks/host.json"),
+      ),
+      false,
+    );
+  },
+  undefined,
+  (options) => ({
+    ...options,
+    prepareRevision: () => ({
+      ok: true,
+      prepared: {
+        classPaths: ["haxe"],
+        files: [
+          {
+            relativePath: "haxe/Prepared.hx",
+            content: "class Prepared {}\n",
+            publishPath: ".genes/tooling/session-locks/host.json",
+          },
+        ],
+      },
+    }),
+  }),
+);
+
+await withHarness(
+  "admitted-file-cannot-claim-sibling-session-controls",
+  async (harness) => {
+    harness.compiler.steps.push({ content: "export const value = 1;\n" });
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "blocked");
+    assert.equal(
+      existsSync(
+        path.join(
+          harness.root,
+          ".genes/tooling/session-publications/sibling/receipt.json",
+        ),
+      ),
+      false,
+    );
+  },
+  undefined,
+  (options) => ({
+    ...options,
+    validate: async () => ({
+      ok: true,
+      artifacts: [
+        {
+          path: ".genes/tooling/session-publications/sibling/receipt.json",
+          content: "{}\n",
+        },
+      ],
+    }),
+  }),
+);
 for (const checkpoint of [
   "after-journal-prepared",
   "after-publish:src-gen/index.ts",
@@ -2646,6 +3229,178 @@ for (const checkpoint of [
 
 {
   const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-foreign-recovery-")),
+  );
+  try {
+    mkdirSync(path.join(root, "src"));
+    writeFileSync(path.join(root, "src/Main.hx"), "class Main {}\n", "utf8");
+    writeFileSync(path.join(root, "build.hxml"), "-cp src\n-main Main\n", "utf8");
+    const fixture = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "session-crash-fixture.js",
+    );
+    const baseline = spawnSync(process.execPath, [fixture], {
+      cwd: root,
+      env: {
+        ...process.env,
+        GENES_SESSION_CRASH_ROOT: root,
+        GENES_SESSION_CRASH_STATE: ".genes/state-a",
+        GENES_SESSION_CRASH_OUTPUT: "first-output/index.ts",
+        GENES_SESSION_CRASH_CONTENT: "export const baseline = true;\n",
+      },
+      encoding: "utf8",
+    });
+    assert.equal(baseline.status, 0, baseline.stderr);
+
+    const crashed = spawnSync(process.execPath, [fixture], {
+      cwd: root,
+      env: {
+        ...process.env,
+        GENES_SESSION_CRASH_ROOT: root,
+        GENES_SESSION_CRASH_STATE: ".genes/state-b",
+        GENES_SESSION_CRASH_OUTPUT: "first-output/index.ts",
+        GENES_SESSION_CRASH_CONTENT: "export const recovered = true;\n",
+        GENES_SESSION_CRASH_SUPPLEMENTAL_PATH: "shared/generated.txt",
+        GENES_SESSION_CRASH_SUPPLEMENTAL_CONTENT: "first session\n",
+        GENES_SESSION_CRASH_AT: "after-journal-prepared",
+      },
+      encoding: "utf8",
+    });
+    assert.equal(crashed.status, 73, crashed.stderr);
+
+    const competing = spawnSync(process.execPath, [fixture], {
+      cwd: root,
+      env: {
+        ...process.env,
+        GENES_SESSION_CRASH_ROOT: root,
+        GENES_SESSION_CRASH_STATE: ".genes/state-c",
+        GENES_SESSION_CRASH_OUTPUT: "second-output/index.ts",
+        GENES_SESSION_CRASH_CONTENT: "export const competing = true;\n",
+        GENES_SESSION_CRASH_SUPPLEMENTAL_PATH: "shared/generated.txt",
+        GENES_SESSION_CRASH_SUPPLEMENTAL_CONTENT: "second session\n",
+      },
+      encoding: "utf8",
+    });
+    assert.notEqual(
+      competing.status,
+      0,
+      "a different output folder must not publish while another folder has unfinished recovery work",
+    );
+    assert.match(
+      competing.stderr,
+      /unfinished update for another output folder/u,
+    );
+    assert.equal(
+      existsSync(path.join(root, "shared/generated.txt")),
+      false,
+      "the competing session must not publish the shared file",
+    );
+
+    const recovered = spawnSync(process.execPath, [fixture], {
+      cwd: root,
+      env: {
+        ...process.env,
+        GENES_SESSION_CRASH_ROOT: root,
+        GENES_SESSION_CRASH_STATE: ".genes/state-d",
+        GENES_SESSION_CRASH_OUTPUT: "first-output/index.ts",
+        GENES_SESSION_CRASH_CONTENT: "export const recovered = true;\n",
+        GENES_SESSION_CRASH_SUPPLEMENTAL_PATH: "shared/generated.txt",
+        GENES_SESSION_CRASH_SUPPLEMENTAL_CONTENT: "first session\n",
+      },
+      encoding: "utf8",
+    });
+    assert.equal(recovered.status, 0, recovered.stderr);
+    assert.equal(
+      readFileSync(path.join(root, "shared/generated.txt"), "utf8"),
+      "first session\n",
+      "the original output folder can recover before another folder starts",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+{
+  const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-recovery-input-")),
+  );
+  try {
+    mkdirSync(path.join(root, "src"));
+    writeFileSync(path.join(root, "src/Main.hx"), "class Main {}\n", "utf8");
+    writeFileSync(path.join(root, "build.hxml"), "-cp src\n-main Main\n", "utf8");
+    const fixture = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "session-crash-fixture.js",
+    );
+    const generatedPath = "new-authored-root/GeneratedFacts.hx";
+    const baseline = spawnSync(process.execPath, [fixture], {
+      cwd: root,
+      env: {
+        ...process.env,
+        GENES_SESSION_CRASH_ROOT: root,
+        GENES_SESSION_CRASH_STATE: ".genes/state-input-a",
+        GENES_SESSION_CRASH_OUTPUT: "src-gen/index.ts",
+        GENES_SESSION_CRASH_CONTENT: "export const baseline = true;\n",
+        GENES_SESSION_CRASH_SUPPLEMENTAL_PATH: generatedPath,
+        GENES_SESSION_CRASH_SUPPLEMENTAL_CONTENT: "package new_authored_root;\n",
+      },
+      encoding: "utf8",
+    });
+    assert.equal(baseline.status, 0, baseline.stderr);
+
+    const crashed = spawnSync(process.execPath, [fixture], {
+      cwd: root,
+      env: {
+        ...process.env,
+        GENES_SESSION_CRASH_ROOT: root,
+        GENES_SESSION_CRASH_STATE: ".genes/state-input-b",
+        GENES_SESSION_CRASH_OUTPUT: "src-gen/index.ts",
+        GENES_SESSION_CRASH_CONTENT: "export const removed = true;\n",
+        GENES_SESSION_CRASH_AT: `after-backup:${generatedPath}`,
+      },
+      encoding: "utf8",
+    });
+    assert.equal(crashed.status, 73, crashed.stderr);
+    assert.equal(
+      existsSync(path.join(root, ...generatedPath.split("/"))),
+      false,
+      "the interrupted update leaves the old generated file in its private backup",
+    );
+
+    const restart = spawnSync(process.execPath, [fixture], {
+      cwd: root,
+      env: {
+        ...process.env,
+        GENES_SESSION_CRASH_ROOT: root,
+        GENES_SESSION_CRASH_STATE: ".genes/state-input-c",
+        GENES_SESSION_CRASH_OUTPUT: "src-gen/index.ts",
+        GENES_SESSION_CRASH_CONTENT: "export const restart = true;\n",
+        GENES_SESSION_HXML_ON_WATCH:
+          "-cp src\n-cp new-authored-root\n-main Main\n",
+      },
+      encoding: "utf8",
+    });
+    assert.notEqual(
+      restart.status,
+      0,
+      "restart must stop when its input graph changes around recovery",
+    );
+    assert.match(
+      restart.stderr,
+      /overlaps an authored compiler input/u,
+    );
+    assert.equal(
+      existsSync(path.join(root, ...generatedPath.split("/"))),
+      false,
+      "recovery must leave the newly authored input path untouched after the startup race",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+{
+  const root = realpathSync.native(
     mkdtempSync(path.join(os.tmpdir(), "genes-session-alias-restart-")),
   );
   try {
@@ -2910,6 +3665,7 @@ for (const invalidArgs of [
 
 for (const forbidden of [
   "-D genes.output=src-gen/index.ts",
+  "-D genes.tooling.prepared=caller-owned",
   "--connect 6000",
   "--wait 6000",
   "--server-listen 127.0.0.1:6000",
@@ -3400,4 +4156,534 @@ await withHarness(
   }),
 );
 
+await withHarness(
+  "preparation-diagnostic-private-path-redaction",
+  async (harness) => {
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "blocked");
+    const publicRecord = JSON.stringify({
+      snapshot: harness.session.inspect(),
+      events: harness.events,
+    });
+    assert.equal(publicRecord.includes(harness.root), false);
+    assert.equal(publicRecord.includes("<project>"), true);
+  },
+  undefined,
+  (options, root) => ({
+    ...options,
+    prepareRevision: () => ({
+      ok: false,
+      diagnostic: {
+        code: "PREPARATION_FAILED",
+        message: `could not prepare ${root}`,
+        [root]: "path used as an object key",
+        nested: [root, { again: root }],
+      },
+    }),
+  }),
+);
+
+await withHarness(
+  "prepared-compiler-inputs-publish-with-one-generation",
+  async (harness) => {
+    harness.compiler.steps.push(
+      { content: "export const revision = 1;\n" },
+      { content: "export const revision = 2;\n" },
+    );
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "ready");
+
+    const companion = path.join(harness.root, "generated-haxe/CardStyles.hx");
+    const receipt = path.join(harness.root, "generated-haxe/host-receipt.json");
+    const firstCompanion = readFileSync(companion, "utf8");
+    const firstReceipt = readFileSync(receipt, "utf8");
+    const firstOutput = readFileSync(
+      path.join(harness.root, "src-gen/index.ts"),
+      "utf8",
+    );
+
+    harness.session.invalidate({
+      path: "src/Main.hx",
+      impact: { rebuild: true },
+    });
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "degraded");
+    assert.equal(harness.compiler.preparedRequests.length, 2);
+    assert.notEqual(
+      harness.compiler.preparedRequests[0]?.digest,
+      harness.compiler.preparedRequests[1]?.digest,
+      "changed prepared bytes change the Haxe request cache identity",
+    );
+    assert.equal(readFileSync(companion, "utf8"), firstCompanion);
+    assert.equal(readFileSync(receipt, "utf8"), firstReceipt);
+    assert.equal(
+      readFileSync(path.join(harness.root, "src-gen/index.ts"), "utf8"),
+      firstOutput,
+    );
+  },
+  undefined,
+  (options) => ({
+    ...options,
+    prepareRevision: async ({ revision }) => ({
+      ok: true,
+      prepared: {
+        classPaths: ["haxe"],
+        files: [
+          {
+            relativePath: "haxe/CardStyles.hx",
+            content: `typedef CardStyles = { final revision${revision}:String; }\n`,
+            publishPath: "generated-haxe/CardStyles.hx",
+          },
+        ],
+      },
+    }),
+    validate: async (tree) => {
+      assert.equal(tree.extraFiles.length, 1);
+      assert.equal(
+        tree.extraFiles[0]?.logicalPath,
+        "generated-haxe/CardStyles.hx",
+      );
+      if (tree.revision === 2) {
+        return {
+          ok: false,
+          diagnostic: {
+            code: "EXPECTED_REJECTION",
+            message: "the second prepared revision is deliberately rejected",
+          },
+        };
+      }
+      return {
+        ok: true,
+        artifacts: [
+          {
+            path: "generated-haxe/host-receipt.json",
+            content: "{\"accepted\":1}\n",
+          },
+        ],
+      };
+    },
+  }),
+);
+
+for (const reservedPath of ["output", "haxe-input", "haxe-target"] as const) {
+  await withHarness(
+    `prepared-input-reserved-stage-path-${reservedPath}`,
+    async (harness) => {
+      harness.compiler.steps.push({ content: "export const value = 1;\n" });
+      await harness.session.start();
+      await harness.session.waitForIdle();
+      assert.equal(harness.session.state.kind, "blocked");
+      assert.equal(
+        harness.compiler.calls,
+        0,
+        "private session folders must be rejected before Haxe reads them",
+      );
+      assert.equal(
+        existsSync(path.join(harness.root, "src-gen/index.ts")),
+        false,
+      );
+    },
+    undefined,
+    (options) => ({
+      ...options,
+      prepareRevision: () => ({
+        ok: true,
+        prepared: {
+          classPaths: [reservedPath],
+          files: [
+            {
+              relativePath: `${reservedPath}/Injected.hx`,
+              content: "class Injected {}\n",
+            },
+          ],
+        },
+      }),
+    }),
+  );
+}
+
+await withHarness(
+  "prepared-public-portable-class-path-alias",
+  async (harness) => {
+    harness.compiler.steps.push({ content: "export const value = 1;\n" });
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "blocked");
+    assert.equal(
+      harness.compiler.calls,
+      0,
+      "a portable alias of an authored class path must fail before compilation",
+    );
+    assert.equal(existsSync(path.join(harness.root, "SRC/Generated.hx")), false);
+  },
+  undefined,
+  (options) => ({
+    ...options,
+    prepareRevision: () => ({
+      ok: true,
+      prepared: {
+        classPaths: ["haxe"],
+        files: [
+          {
+            relativePath: "haxe/Generated.hx",
+            content: "class Generated {}\n",
+            publishPath: "SRC/Generated.hx",
+          },
+        ],
+      },
+    }),
+  }),
+);
+
+await withHarness(
+  "prepared-public-library-provenance-input",
+  async (harness) => {
+    harness.compiler.steps.push({ content: "export const value = 1;\n" });
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "blocked");
+    assert.equal(
+      harness.compiler.calls,
+      0,
+      "a library's resolution record is authored compiler input and must stay untouched",
+    );
+  },
+  undefined,
+  (options, root) => {
+    const libraryRoot = path.join(root, "libraries/sample");
+    const provenance = path.join(root, "libraries/sample.hxml");
+    mkdirSync(libraryRoot, { recursive: true });
+    writeFileSync(provenance, "# library resolution evidence\n", "utf8");
+    writeFileSync(
+      path.join(root, "build.hxml"),
+      "-lib sample\n-main Main\n",
+      "utf8",
+    );
+    return {
+      ...options,
+      hxml: {
+        ...options.hxml,
+        resolveLibrary: () => ({
+          arguments: ["-cp", libraryRoot],
+          provenanceFiles: [provenance],
+        }),
+      },
+      prepareRevision: () => ({
+        ok: true,
+        prepared: {
+          classPaths: ["haxe"],
+          files: [
+            {
+              relativePath: "haxe/Generated.hx",
+              content: "class Generated {}\n",
+              publishPath: "libraries/sample.hxml",
+            },
+          ],
+        },
+      }),
+    };
+  },
+);
+
+await withHarness(
+  "prepared-stale-file-removal",
+  async (harness) => {
+    harness.compiler.steps.push(
+      { content: "export const revision = 1;\n" },
+      { content: "export const revision = 2;\n" },
+    );
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(existsSync(path.join(harness.root, "public/old.json")), true);
+    currentWatch(harness).change(harness.source);
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "ready");
+    assert.equal(existsSync(path.join(harness.root, "public/old.json")), false);
+    assert.deepEqual(harness.session.inspect().accepted?.files.deleted, [
+      "public/old.json",
+    ]);
+  },
+  undefined,
+  (options) => ({
+    ...options,
+    prepareRevision: ({ revision }) => ({
+      ok: true,
+      prepared: {
+        classPaths: ["haxe"],
+        files: [
+          {
+            relativePath: "haxe/Companion.hx",
+            content: `class Companion { public static final revision = ${revision}; }\n`,
+            publishPath: "public/Companion.hx",
+          },
+          ...(revision === 1
+            ? [
+                {
+                  relativePath: "evidence/old.json",
+                  content: "{\"revision\":1}\n",
+                  publishPath: "public/old.json",
+                },
+              ]
+            : []),
+        ],
+      },
+    }),
+  }),
+);
+
+await withHarness(
+  "prepared-stale-file-drift",
+  async (harness) => {
+    harness.compiler.steps.push(
+      { content: "export const revision = 1;\n" },
+      { content: "export const revision = 2;\n" },
+    );
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    const old = path.join(harness.root, "public/old.json");
+    writeFileSync(old, "{\"outside\":true}\n", "utf8");
+    currentWatch(harness).change(harness.source);
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "degraded");
+    assert.equal(readFileSync(old, "utf8"), "{\"outside\":true}\n");
+    assert.equal(
+      readFileSync(path.join(harness.root, "src-gen/index.ts"), "utf8"),
+      "export const revision = 1;\n",
+    );
+  },
+  undefined,
+  (options) => ({
+    ...options,
+    prepareRevision: ({ revision }) => ({
+      ok: true,
+      prepared: {
+        classPaths: ["haxe"],
+        files: [
+          {
+            relativePath: "haxe/Companion.hx",
+            content: `class Companion { public static final revision = ${revision}; }\n`,
+          },
+          ...(revision === 1
+            ? [
+                {
+                  relativePath: "evidence/old.json",
+                  content: "{\"revision\":1}\n",
+                  publishPath: "public/old.json",
+                },
+              ]
+            : []),
+        ],
+      },
+    }),
+  }),
+);
+
+await withHarness(
+  "published-prepared-file-cannot-become-authored-input",
+  async (harness) => {
+    harness.compiler.steps.push({ content: "export const revision = 1;\n" });
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    const companion = path.join(
+      harness.root,
+      "generated-haxe/CardStyles.hx",
+    );
+    const acceptedBytes = readFileSync(companion, "utf8");
+
+    writeFileSync(
+      path.join(harness.root, "build.hxml"),
+      "-cp src\n-cp generated-haxe\n-main Main\n",
+      "utf8",
+    );
+    currentWatch(harness).change(path.join(harness.root, "build.hxml"));
+    await harness.session.waitForIdle();
+
+    assert.equal(harness.session.state.kind, "degraded");
+    assert.equal(harness.compiler.calls, 1);
+    assert.equal(
+      readFileSync(companion, "utf8"),
+      acceptedBytes,
+      "the session must not delete a prior generated file after HXML makes it authored input",
+    );
+  },
+  undefined,
+  (options) => ({
+    ...options,
+    prepareRevision: ({ revision }) => ({
+      ok: true,
+      prepared: {
+        classPaths: ["haxe"],
+        files: [
+          {
+            relativePath: "haxe/CardStyles.hx",
+            content: `typedef CardStyles = { final revision${revision}:String; }\n`,
+            publishPath: "generated-haxe/CardStyles.hx",
+          },
+        ],
+      },
+    }),
+  }),
+);
+
+await withHarness(
+  "published-prepared-path-spelling-cannot-change",
+  async (harness) => {
+    harness.compiler.steps.push(
+      { content: "export const revision = 1;\n" },
+      { content: "export const revision = 2;\n" },
+    );
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "ready");
+    const acceptedPath = path.join(
+      harness.root,
+      "generated-haxe/CardStyles.hx",
+    );
+    const acceptedBytes = readFileSync(acceptedPath, "utf8");
+
+    harness.session.invalidate({
+      path: "src/Main.hx",
+      impact: { rebuild: true },
+    });
+    await harness.session.waitForIdle();
+
+    const degraded = currentState(harness);
+    assert.equal(degraded.kind, "degraded");
+    assert.match(
+      String(degraded.failure.diagnostic.message),
+      /supplemental file path spelling changed/u,
+      "a non-portable rename should be explained before publication starts",
+    );
+    assert.equal(readFileSync(acceptedPath, "utf8"), acceptedBytes);
+    assert.deepEqual(
+      readdirSync(path.join(harness.root, "generated-haxe")),
+      ["CardStyles.hx"],
+      "the accepted path spelling remains unchanged",
+    );
+  },
+  undefined,
+  (options) => ({
+    ...options,
+    prepareRevision: ({ revision }) => ({
+      ok: true,
+      prepared: {
+        classPaths: ["haxe"],
+        files: [
+          {
+            relativePath: "haxe/CardStyles.hx",
+            content: `typedef CardStyles = { final revision${revision}:String; }\n`,
+            publishPath:
+              revision === 1
+                ? "generated-haxe/CardStyles.hx"
+                : "Generated-Haxe/CardStyles.hx",
+          },
+        ],
+      },
+    }),
+  }),
+);
+
+await withHarness(
+  "prepared-public-generated-output-collision",
+  async (harness) => {
+    harness.compiler.steps.push({ content: "export const value = 1;\n" });
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "blocked");
+    assert.equal(existsSync(path.join(harness.root, "src-gen/index.ts")), false);
+  },
+  undefined,
+  (options) => ({
+    ...options,
+    prepareRevision: () => ({
+      ok: true,
+      prepared: {
+        classPaths: ["haxe"],
+        files: [
+          {
+            relativePath: "haxe/Companion.hx",
+            content: "class Companion {}\n",
+            publishPath: "src-gen/index.ts",
+          },
+        ],
+      },
+    }),
+  }),
+);
+
+for (const collisionPath of [
+  "src-gen",
+  "src-gen/index.ts/receipt.json",
+] as const) {
+  await withHarness(
+    `prepared-public-generated-output-tree-collision-${collisionPath.replaceAll("/", "-")}`,
+    async (harness) => {
+      harness.compiler.steps.push({ content: "export const value = 1;\n" });
+      await harness.session.start();
+      await harness.session.waitForIdle();
+      assert.equal(harness.session.state.kind, "blocked");
+      if (harness.session.state.kind === "blocked") {
+        assert.match(
+          String(harness.session.state.failure.diagnostic.message),
+          /prepared or admitted artifact collides with generated output/u,
+          "parent and child output collisions should be explained before publication starts",
+        );
+      }
+      assert.equal(existsSync(path.join(harness.root, "src-gen/index.ts")), false);
+    },
+    undefined,
+    (options) => ({
+      ...options,
+      prepareRevision: () => ({
+        ok: true,
+        prepared: {
+          classPaths: ["haxe"],
+          files: [
+            {
+              relativePath: "haxe/Companion.hx",
+              content: "class Companion {}\n",
+              publishPath: collisionPath,
+            },
+          ],
+        },
+      }),
+    }),
+  );
+}
+
+await withHarness(
+  "prepared-and-admitted-public-collision",
+  async (harness) => {
+    harness.compiler.steps.push({ content: "export const value = 1;\n" });
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "blocked");
+    assert.equal(existsSync(path.join(harness.root, "public/evidence.json")), false);
+  },
+  undefined,
+  (options) => ({
+    ...options,
+    prepareRevision: () => ({
+      ok: true,
+      prepared: {
+        classPaths: ["haxe"],
+        files: [
+          {
+            relativePath: "haxe/Companion.hx",
+            content: "class Companion {}\n",
+            publishPath: "public/evidence.json",
+          },
+        ],
+      },
+    }),
+    validate: async () => ({
+      ok: true,
+      artifacts: [
+        { path: "public/evidence.json", content: "{\"accepted\":true}\n" },
+      ],
+    }),
+  }),
+);
 console.log("genes tooling development session runtime: ok");

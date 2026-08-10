@@ -142,6 +142,15 @@ export interface RecoverOptions {
   readonly projectRoot: string;
   readonly transactionRoot: PortableRelativePath;
   readonly projectIdentity: Sha256;
+  /**
+   * Checks the saved plan after its journal and any owner file are validated,
+   * but before recovery restores, removes, or replaces any public file.
+   * The saved plan is deeply read-only at runtime as well as in TypeScript.
+   * Returning false leaves the saved recovery work and public files untouched.
+   */
+  readonly admitPlan?: (
+    plan: PublicationPlan,
+  ) => boolean | Promise<boolean>;
   readonly admitIntended: (plan: PublicationPlan) => boolean | Promise<boolean>;
   readonly faultInjector?: (checkpoint: ArtifactCheckpoint) => void;
 }

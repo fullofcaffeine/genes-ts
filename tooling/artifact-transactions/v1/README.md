@@ -64,6 +64,12 @@ translate a plan into its native API, inject the named logical checkpoints, and
 compare the structured result. Framework-only tests remain in their own
 repositories.
 
+Every step states both host decisions explicitly. `admitPlan` controls the
+pre-mutation saved-plan check during recovery; it has no effect on publication.
+`admitIntended` controls the later check of the complete intended live result.
+Keeping both booleans required prevents an adapter from silently skipping the
+new recovery boundary while still reporting that it passed this corpus.
+
 A mutation without `at` is part of initial setup. `at: "after-preflight"`
 means the adapter must first complete its normal authorization/preflight, then
 change that entry before the publisher's own exact-state verification. This
@@ -98,6 +104,15 @@ Recovery has only three safe choices:
 - refuse without mutation when live, stage, backup, lock, or journal state is
   ambiguous.
 
+The runtime may also ask the host to re-admit the saved plan after the journal
+and any owner file are validated but before recovery changes a public file.
+This catches a host policy change made while the process was stopped—for
+example, a path that used to be generated becoming authored source. Host
+rejection leaves both the public files and recovery journal untouched so the
+conflict can be resolved without guessing. The callback's saved plan is deeply
+read-only at runtime, preventing host code from accidentally changing which
+files recovery will apply.
+
 An interrupted rollback is itself journaled and resumable. Repeating recovery
 after a terminal outcome is a no-op.
 
@@ -124,7 +139,7 @@ The runtime reports facts; a host turns those facts into its own diagnostics.
 | `untrusted-lock` | Lock identity, host, project, nonce, or transaction binding cannot be trusted. |
 | `malformed-journal` | Journal shape, canonical bytes, digest, authorization, or plan binding is invalid. |
 | `orphan-control-state` | A lock or journal exists without the exact companion state required to interpret it. |
-| `recovery-conflict` | Recovery found bytes or entries matching neither journaled state. |
+| `recovery-conflict` | Recovery found contradictory live state, or the host rejected the saved plan before mutation. |
 | `filesystem-unsupported` | Required durable or same-device filesystem semantics are unavailable. |
 | `filesystem-permission` | Metadata, synchronization, rename, or cleanup was denied. |
 | `control-path-collision` | A reserved private transaction path contains an unexpected entry. |

@@ -218,6 +218,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "published", "failure": null, "live": "next", "control": "absent" }
@@ -236,6 +237,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "published", "failure": null, "live": "next", "control": "absent" }
@@ -254,6 +256,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": null,
           "expect": {
@@ -277,6 +280,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "published", "failure": null, "live": "next", "control": "absent" }
@@ -295,6 +299,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "unchanged", "failure": null, "live": "next", "control": "absent" }
@@ -315,6 +320,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": {
@@ -340,6 +346,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": {
@@ -365,6 +372,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": {
@@ -390,6 +398,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": {
@@ -415,6 +424,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": {
@@ -440,6 +450,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": {
@@ -463,6 +474,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "failed", "failure": { "kind": "path-escape", "subject": "/generated/create.js" }, "live": "prior", "control": "absent" }
@@ -481,6 +493,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "failed", "failure": { "kind": "path-escape", "subject": "../generated/create.js" }, "live": "prior", "control": "absent" }
@@ -499,6 +512,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "failed", "failure": { "kind": "path-escape", "subject": "generated\\create.js" }, "live": "prior", "control": "absent" }
@@ -517,6 +531,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "failed", "failure": { "kind": "portable-path-collision", "subject": "Generated/create.js" }, "live": "prior", "control": "absent" }
@@ -535,6 +550,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "failed", "failure": { "kind": "invalid-plan", "subject": "generated/owner.json" }, "live": "prior", "control": "absent" }
@@ -553,6 +569,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "failed", "failure": { "kind": "invalid-plan", "subject": "generated/remove.js" }, "live": "prior", "control": "absent" }
@@ -571,6 +588,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "failed", "failure": { "kind": "invalid-plan", "subject": "generated/create.js" }, "live": "prior", "control": "absent" }
@@ -591,6 +609,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "failed", "failure": { "kind": "symlink-traversal", "subject": "." }, "live": "prior", "control": "absent" }
@@ -611,6 +630,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "failed", "failure": { "kind": "symlink-traversal", "subject": "generated" }, "live": "ambiguous", "control": "absent" }
@@ -631,6 +651,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "failed", "failure": { "kind": "symlink-traversal", "subject": "generated/create.js" }, "live": "ambiguous", "control": "absent" }
@@ -651,6 +672,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "failed", "failure": { "kind": "symlink-traversal", "subject": ".genes-tooling/stage/generated/create.js" }, "live": "prior", "control": "absent" }
@@ -671,6 +693,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "failed", "failure": { "kind": "symlink-traversal", "subject": ".genes-tooling/transactions/work/backup" }, "live": "prior", "control": "preserved" }
@@ -691,6 +714,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "failed", "failure": { "kind": "symlink-traversal", "subject": ".genes-tooling/transactions/lock" }, "live": "prior", "control": "preserved" }
@@ -711,6 +735,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "failed", "failure": { "kind": "symlink-traversal", "subject": ".genes-tooling/transactions/journal.json" }, "live": "prior", "control": "preserved" }
@@ -729,6 +754,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "failed", "failure": { "kind": "active-writer", "subject": ".genes-tooling/transactions/lock" }, "live": "prior", "control": "preserved" }
@@ -747,6 +773,7 @@
       "steps": [
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": null,
           "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
@@ -765,6 +792,7 @@
       "steps": [
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": null,
           "expect": { "outcome": "failed", "failure": { "kind": "untrusted-lock", "subject": ".genes-tooling/transactions/lock" }, "live": "prior", "control": "preserved" }
@@ -783,6 +811,7 @@
       "steps": [
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": null,
           "expect": { "outcome": "failed", "failure": { "kind": "untrusted-lock", "subject": ".genes-tooling/transactions/lock" }, "live": "prior", "control": "preserved" }
@@ -801,6 +830,7 @@
       "steps": [
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": null,
           "expect": { "outcome": "failed", "failure": { "kind": "orphan-control-state", "subject": ".genes-tooling/transactions/lock" }, "live": "prior", "control": "preserved" }
@@ -819,6 +849,7 @@
       "steps": [
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": null,
           "expect": { "outcome": "failed", "failure": { "kind": "orphan-control-state", "subject": ".genes-tooling/transactions/journal.json" }, "live": "prior", "control": "preserved" }
@@ -837,6 +868,7 @@
       "steps": [
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": null,
           "expect": { "outcome": "failed", "failure": { "kind": "malformed-journal", "subject": ".genes-tooling/transactions/journal.json" }, "live": "prior", "control": "preserved" }
@@ -855,6 +887,7 @@
       "steps": [
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": null,
           "expect": { "outcome": "failed", "failure": { "kind": "malformed-journal", "subject": "authorizationDigest" }, "live": "prior", "control": "preserved" }
@@ -873,6 +906,7 @@
       "steps": [
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": null,
           "expect": { "outcome": "failed", "failure": { "kind": "malformed-journal", "subject": "planDigest" }, "live": "prior", "control": "preserved" }
@@ -891,12 +925,14 @@
       "steps": [
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "committed", "failure": null, "live": "next", "control": "absent" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "none", "failure": null, "live": "next", "control": "absent" }
@@ -915,9 +951,34 @@
       "steps": [
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "committed", "failure": null, "live": "next", "control": "absent" }
+        }
+      ]
+    },
+    {
+      "id": "recover-saved-plan-rejected-before-mutation",
+      "covers": ["recovery-plan-admission", "pre-mutation-refusal", "preserved-recovery"],
+      "plan": "mixed",
+      "planMutation": "none",
+      "initial": "next",
+      "stage": "absent",
+      "control": { "lock": "dead-same-host", "journal": "published" },
+      "mutations": [],
+      "steps": [
+        {
+          "action": "recover",
+          "admitPlan": false,
+          "admitIntended": true,
+          "fault": null,
+          "expect": {
+            "outcome": "failed",
+            "failure": { "kind": "recovery-conflict", "subject": ".genes-tooling/transactions" },
+            "live": "next",
+            "control": "preserved"
+          }
         }
       ]
     },
@@ -933,6 +994,7 @@
       "steps": [
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": null,
           "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
@@ -951,12 +1013,14 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": { "kind": "process-exit", "at": "after-publish:generated/create.js" },
           "expect": { "outcome": "crashed", "failure": null, "live": "recoverable", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
@@ -975,12 +1039,14 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": { "kind": "process-exit", "at": "after-publish:generated/create.js" },
           "expect": { "outcome": "crashed", "failure": null, "live": "recoverable", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": { "kind": "io-error", "at": "inject-unexpected-live:generated/create.js" },
           "expect": {
@@ -1004,12 +1070,14 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": { "kind": "process-exit", "at": "after-journal-prepared" },
           "expect": { "outcome": "crashed", "failure": null, "live": "prior", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": null,
           "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
@@ -1028,12 +1096,14 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": { "kind": "process-exit", "at": "after-phase-publishing" },
           "expect": { "outcome": "crashed", "failure": null, "live": "prior", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": null,
           "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
@@ -1052,12 +1122,14 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": { "kind": "process-exit", "at": "after-publish:generated/create.js" },
           "expect": { "outcome": "crashed", "failure": null, "live": "recoverable", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": null,
           "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
@@ -1076,12 +1148,14 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": { "kind": "process-exit", "at": "after-backup:generated/remove.js" },
           "expect": { "outcome": "crashed", "failure": null, "live": "recoverable", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": null,
           "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
@@ -1100,12 +1174,14 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": { "kind": "process-exit", "at": "after-backup:generated/update.js" },
           "expect": { "outcome": "crashed", "failure": null, "live": "recoverable", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": null,
           "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
@@ -1124,12 +1200,14 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": { "kind": "process-exit", "at": "after-publish:generated/update.js" },
           "expect": { "outcome": "crashed", "failure": null, "live": "recoverable", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": null,
           "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
@@ -1148,12 +1226,14 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": { "kind": "process-exit", "at": "after-backup:commit-marker" },
           "expect": { "outcome": "crashed", "failure": null, "live": "recoverable", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": null,
           "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
@@ -1172,12 +1252,14 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": { "kind": "process-exit", "at": "after-publish:commit-marker" },
           "expect": { "outcome": "crashed", "failure": null, "live": "next", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "committed", "failure": null, "live": "next", "control": "absent" }
@@ -1196,12 +1278,14 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": { "kind": "process-exit", "at": "after-phase-published" },
           "expect": { "outcome": "crashed", "failure": null, "live": "next", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "committed", "failure": null, "live": "next", "control": "absent" }
@@ -1220,12 +1304,14 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": { "kind": "process-exit", "at": "after-cleanup:work-root" },
           "expect": { "outcome": "crashed", "failure": null, "live": "next", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "committed", "failure": null, "live": "next", "control": "absent" }
@@ -1244,12 +1330,14 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": { "kind": "process-exit", "at": "after-cleanup:journal" },
           "expect": { "outcome": "crashed", "failure": null, "live": "next", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "committed", "failure": null, "live": "next", "control": "absent" }
@@ -1268,12 +1356,14 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": { "kind": "process-exit", "at": "after-cleanup:lock" },
           "expect": { "outcome": "crashed", "failure": null, "live": "next", "control": "absent" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "none", "failure": null, "live": "next", "control": "absent" }
@@ -1292,18 +1382,21 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": { "kind": "process-exit", "at": "after-publish:commit-marker" },
           "expect": { "outcome": "crashed", "failure": null, "live": "next", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": { "kind": "process-exit", "at": "after-phase-rolling-back" },
           "expect": { "outcome": "crashed", "failure": null, "live": "next", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": null,
           "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
@@ -1322,18 +1415,21 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": { "kind": "process-exit", "at": "after-publish:commit-marker" },
           "expect": { "outcome": "crashed", "failure": null, "live": "next", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": { "kind": "process-exit", "at": "after-remove-next:commit-marker" },
           "expect": { "outcome": "crashed", "failure": null, "live": "recoverable", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": null,
           "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
@@ -1352,18 +1448,21 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": { "kind": "process-exit", "at": "after-publish:commit-marker" },
           "expect": { "outcome": "crashed", "failure": null, "live": "next", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": { "kind": "process-exit", "at": "after-restore-prior:commit-marker" },
           "expect": { "outcome": "crashed", "failure": null, "live": "recoverable", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": null,
           "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
@@ -1382,18 +1481,21 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": { "kind": "process-exit", "at": "after-publish:commit-marker" },
           "expect": { "outcome": "crashed", "failure": null, "live": "next", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": { "kind": "process-exit", "at": "after-remove-next:generated/create.js" },
           "expect": { "outcome": "crashed", "failure": null, "live": "recoverable", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": null,
           "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
@@ -1412,18 +1514,21 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": { "kind": "process-exit", "at": "after-publish:commit-marker" },
           "expect": { "outcome": "crashed", "failure": null, "live": "next", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": { "kind": "process-exit", "at": "after-remove-next:generated/update.js" },
           "expect": { "outcome": "crashed", "failure": null, "live": "recoverable", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": null,
           "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
@@ -1442,18 +1547,21 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": { "kind": "process-exit", "at": "after-publish:commit-marker" },
           "expect": { "outcome": "crashed", "failure": null, "live": "next", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": { "kind": "process-exit", "at": "after-restore-prior:generated/update.js" },
           "expect": { "outcome": "crashed", "failure": null, "live": "recoverable", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": null,
           "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
@@ -1472,18 +1580,21 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": { "kind": "process-exit", "at": "after-publish:commit-marker" },
           "expect": { "outcome": "crashed", "failure": null, "live": "next", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": { "kind": "process-exit", "at": "after-restore-prior:generated/remove.js" },
           "expect": { "outcome": "crashed", "failure": null, "live": "recoverable", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": null,
           "expect": { "outcome": "rolled-back", "failure": null, "live": "prior", "control": "absent" }
@@ -1502,30 +1613,35 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": { "kind": "process-exit", "at": "after-publish:commit-marker" },
           "expect": { "outcome": "crashed", "failure": null, "live": "next", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": { "kind": "process-exit", "at": "after-cleanup:work-root" },
           "expect": { "outcome": "crashed", "failure": null, "live": "prior", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": { "kind": "process-exit", "at": "after-cleanup:journal" },
           "expect": { "outcome": "crashed", "failure": null, "live": "prior", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": { "kind": "process-exit", "at": "after-cleanup:lock" },
           "expect": { "outcome": "crashed", "failure": null, "live": "prior", "control": "absent" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": null,
           "expect": { "outcome": "none", "failure": null, "live": "prior", "control": "absent" }
@@ -1546,6 +1662,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "failed", "failure": { "kind": "control-path-collision", "subject": ".genes-tooling/transactions" }, "live": "prior", "control": "preserved" }
@@ -1566,6 +1683,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": null,
           "expect": { "outcome": "failed", "failure": { "kind": "filesystem-unsupported", "subject": "generated/create.js" }, "live": "ambiguous", "control": "absent" }
@@ -1584,6 +1702,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": { "kind": "cross-device", "at": "before-publish:generated/create.js" },
           "expect": { "outcome": "failed", "failure": { "kind": "filesystem-unsupported", "subject": "generated/create.js" }, "live": "prior", "control": "absent" }
@@ -1602,6 +1721,7 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": { "kind": "permission-denied", "at": "before-publish:generated/update.js" },
           "expect": { "outcome": "failed", "failure": { "kind": "filesystem-permission", "subject": "generated/update.js" }, "live": "prior", "control": "absent" }
@@ -1620,12 +1740,14 @@
       "steps": [
         {
           "action": "publish",
+          "admitPlan": true,
           "admitIntended": true,
           "fault": { "kind": "process-exit", "at": "after-publish:generated/update.js" },
           "expect": { "outcome": "crashed", "failure": null, "live": "recoverable", "control": "durable" }
         },
         {
           "action": "recover",
+          "admitPlan": true,
           "admitIntended": false,
           "fault": { "kind": "permission-denied", "at": "before-restore-prior:generated/update.js" },
           "expect": { "outcome": "failed", "failure": { "kind": "filesystem-permission", "subject": "generated/update.js" }, "live": "recoverable", "control": "preserved" }

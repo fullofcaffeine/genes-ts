@@ -460,6 +460,125 @@ try {
   rmSync(recoverRollbackRoot, { recursive: true, force: true });
 }
 
+const recoverPlanRejectionRoot = mkdtempSync(
+  path.join(
+    realpathSync.native(tmpdir()),
+    "genes-tooling-recover-plan-rejection-",
+  ),
+);
+try {
+  crashPublish(
+    recoverPlanRejectionRoot,
+    "after-publish:generated/update.js",
+  );
+  const publicText = (relative: string): string | null => {
+    const absolute = path.join(recoverPlanRejectionRoot, relative);
+    return existsSync(absolute) ? readFileSync(absolute, "utf8") : null;
+  };
+  const publicSnapshot = () => Object.freeze({
+    update: publicText("generated/update.js"),
+    remove: publicText("generated/remove.js"),
+    create: publicText("generated/create.js"),
+    owner: publicText("generated/owner.json"),
+  });
+  const before = publicSnapshot();
+  let intendedAdmissions = 0;
+  await assert.rejects(
+    () =>
+      recoverArtifacts({
+        projectRoot: recoverPlanRejectionRoot,
+        transactionRoot: publishPlan.transactionRoot,
+        projectIdentity: publishPlan.projectIdentity,
+        admitPlan: () => false,
+        admitIntended: () => {
+          intendedAdmissions += 1;
+          return true;
+        },
+      }),
+    (error: unknown) =>
+      error instanceof ArtifactTransactionError &&
+      error.failure.kind === "recovery-conflict",
+    "a host must be able to reject an outdated recovery plan before mutation",
+  );
+  assert.equal(intendedAdmissions, 0);
+  assert.deepEqual(
+    publicSnapshot(),
+    before,
+    "plan rejection must leave every public file exactly as recovery found it",
+  );
+  assert.equal(
+    existsSync(
+      path.join(
+        recoverPlanRejectionRoot,
+        ".genes-tooling/transactions/journal.json",
+      ),
+    ),
+    true,
+    "the untouched journal remains available after the host fixes its policy",
+  );
+} finally {
+  rmSync(recoverPlanRejectionRoot, { recursive: true, force: true });
+}
+
+const recoverPlanMutationRoot = mkdtempSync(
+  path.join(
+    realpathSync.native(tmpdir()),
+    "genes-tooling-recover-plan-mutation-",
+  ),
+);
+try {
+  crashPublish(
+    recoverPlanMutationRoot,
+    "after-publish:generated/update.js",
+  );
+  let mutationApplied: boolean | null = null;
+  const outcome = await recoverArtifacts({
+    projectRoot: recoverPlanMutationRoot,
+    transactionRoot: publishPlan.transactionRoot,
+    projectIdentity: publishPlan.projectIdentity,
+    admitPlan: (plan) => {
+      assert.equal(Object.isFrozen(plan), true);
+      assert.equal(Object.isFrozen(plan.artifacts), true);
+      assert.equal(Object.isFrozen(plan.artifacts[0]), true);
+      assert.equal(Object.isFrozen(plan.artifacts[0]!.prior), true);
+      assert.equal(Object.isFrozen(plan.artifacts[0]!.next), true);
+      mutationApplied = Reflect.set(plan, "artifacts", Object.freeze([]));
+      assert.equal(
+        Reflect.set(plan.artifacts[0]!, "path", "generated/skipped.js"),
+        false,
+      );
+      return true;
+    },
+    admitIntended: () => true,
+  });
+  assert.equal(
+    mutationApplied,
+    false,
+    "a host callback must receive a recovery plan it cannot modify",
+  );
+  assert.equal(outcome.action, "rolled-back");
+  assert.equal(
+    readFileSync(
+      path.join(recoverPlanMutationRoot, "generated/update.js"),
+      "utf8",
+    ),
+    "old update\n",
+  );
+  assert.equal(
+    readFileSync(
+      path.join(recoverPlanMutationRoot, "generated/remove.js"),
+      "utf8",
+    ),
+    "old remove\n",
+  );
+  assert.equal(
+    existsSync(path.join(recoverPlanMutationRoot, "generated/create.js")),
+    false,
+  );
+} finally {
+  rmSync(recoverPlanMutationRoot, { recursive: true, force: true });
+}
+
 const recoverCommitRoot = mkdtempSync(
   path.join(realpathSync.native(tmpdir()), "genes-tooling-recover-commit-"),
 );

@@ -123,9 +123,10 @@
     "step": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["action", "admitIntended", "fault", "expect"],
+      "required": ["action", "admitPlan", "admitIntended", "fault", "expect"],
       "properties": {
         "action": { "enum": ["publish", "recover"] },
+        "admitPlan": { "type": "boolean" },
         "admitIntended": { "type": "boolean" },
         "fault": {
           "oneOf": [

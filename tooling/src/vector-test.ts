@@ -84,6 +84,7 @@ interface ExpectedStep {
 
 interface VectorStep {
   readonly action: "publish" | "recover";
+  readonly admitPlan: boolean;
   readonly admitIntended: boolean;
   readonly fault: Fault | null;
   readonly expect: ExpectedStep;
@@ -487,6 +488,7 @@ function runChild(
       action: step.action,
       projectRoot: root,
       plan,
+      admitPlan: step.admitPlan,
       admitIntended: step.admitIntended,
       fault: step.fault,
     }),
@@ -536,6 +538,7 @@ async function runDirect(
             projectRoot: root,
             transactionRoot: plan.transactionRoot,
             projectIdentity: plan.projectIdentity,
+            admitPlan: () => step.admitPlan,
             admitIntended: () => step.admitIntended,
             faultInjector: directFault(root, step.fault),
           });

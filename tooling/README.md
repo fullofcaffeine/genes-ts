@@ -248,6 +248,93 @@ If validation fails after an earlier success, `state.kind` becomes
 `"blocked"`; the watcher remains alive so a later edit can recover without
 restarting the command.
 
+### Files that must exist before Haxe checks the program
+
+Some hosts create exact Haxe input from another tool. A CSS Modules host, for
+example, asks its real CSS processor for the exported class names and creates a
+closed Haxe companion before Haxe can check `styles.card`.
+
+Use `prepareRevision` for that case. Return the exact bytes instead of writing
+into the session's private directories yourself:
+
+```ts
+prepareRevision: async ({ signal }) => {
+  const companion = await makeClosedCompanion({ signal });
+  return {
+    ok: true,
+    prepared: {
+      classPaths: ["generated-haxe"],
+      files: [{
+        relativePath: "generated-haxe/app/CardStyles.hx",
+        content: companion.haxe,
+        publishPath: "generated-haxe/app/CardStyles.hx",
+      }],
+    },
+  };
+},
+```
+
+Tooling writes those bytes into the private candidate, includes their digest in
+that Haxe request, and keeps the same compatible Haxe server alive. A changed
+companion therefore cannot be mistaken for an older cached type.
+
+`publishPath` is optional. When present, that file joins the same final update
+as the Genes output. A generated Haxe source that should remain navigable after
+publication should normally use the same `relativePath` and `publishPath`, as
+shown above. That gives source maps a stable public path instead of a temporary
+build path.
+
+The validator sees these future public files in `tree.extraFiles`. It may
+return small evidence files in `artifacts` after its checks pass:
+
+```ts
+validate: async (tree, context) => {
+  const receipt = await checkWithRealLoader(tree, context);
+  return {
+    ok: true,
+    artifacts: [{
+      path: "generated-haxe/css-loader-agreement.json",
+      content: receipt,
+    }],
+  };
+},
+```
+
+Prepared files, validator evidence, declarations, maps, and generated JS/TS are
+then published or rolled back together. A rejected edit leaves the earlier
+accepted set unchanged. The host still decides how to parse CSS, which loader
+is authoritative, and how its live development server handles an invalid
+authored stylesheet.
+
+Current accepted-generation records remember whether each extra file came from
+`prepareRevision` or from validation. During restart recovery, every saved
+validator file must be returned again with the same path, bytes, size, and file
+mode. Omitting an earlier receipt rejects recovery instead of silently keeping
+stale evidence.
+
+Older records remain readable. Version 2 did not list extra files. Version 3
+listed them but did not say whether preparation or validation created each
+one. Version 4 adds that missing source. Recovery keeps the rules that the
+saved format could actually prove: version 4 checks every saved validator file;
+version 3 checks any saved file that validation returns; version 2 ignores new
+validator output until the next normal build. The next accepted build writes a
+version 4 record and restores the stricter rule.
+
+When preparation rejects a revision, the session reports
+`PREPARATION_REJECTED`. Its `details` field contains the exact host diagnostic
+after Genes removes private project and candidate paths. Validation rejections
+use the same shape with `VALIDATION_REJECTED`. This keeps one stable session
+error code while preserving the host-specific reason for display.
+
+Only one development session can own a project root at a time. This rule also
+applies when the main output folders differ. The shared lock prevents two
+sessions from claiming the same `publishPath` or validator artifact. A host
+that needs several output graphs must coordinate them through one development
+session. Startup also looks for unfinished updates belonging to another output
+folder. If it finds one, it stops before changing files and asks the host to
+restart that original output first. After the original update is recovered or
+rolled back, the other output can start normally.
+
 ### Rules a host should not have to rediscover
 
 - `publicOutputFile` and `stateDirectory` are project-contained, non-overlapping
@@ -280,6 +367,19 @@ restarting the command.
   Public output may never contain
   or be contained by `.genes/tooling`; output at the project root is therefore
   unsupported.
+  Prepared public files and validator receipts also may not use any path below
+  `.genes/tooling`. That whole directory is reserved for every session's locks
+  and recovery records, not only the current output's records.
+
+  A version 2 accepted marker names the root-owned Genes output tree. Version 3
+  also names each prepared or validator-produced file, but cannot distinguish
+  which step created it. Version 4 records that source. Restart recovery reads
+  all three formats and rebuilds the matching authorization value, so an
+  upgrade does not reject valid earlier work merely because a newer format
+  learned more. On startup and after an HXML change, the session also checks
+  saved paths against the current authored inputs. If a path has become
+  authored source, startup or rebuilding stops and leaves the file untouched
+  instead of deleting it as old generated output.
 - The declared HXML inputs, including resolved library arguments, provenance,
   and class paths,
   must be inside `projectRoot` and must not contain private state,
@@ -297,8 +397,12 @@ restarting the command.
   rejects every authored target selector,
   `--no-output`, display/prompt modes, compiler dump/message-log file outputs,
   caller-provided `--connect`, server-listen, `genes.output`,
-  `--next`, and `--each` flags because two lifecycle owners or several output
-  compilations would be ambiguous. It also rejects `--cmd`, `--run`,
+  `genes.tooling.prepared`, `--next`, and `--each` flags because two lifecycle
+  owners or several output compilations would be ambiguous. When
+  `prepareRevision` is used, the session owns
+  `-D genes.tooling.prepared=<exact digest>` so a warm compiler cannot reuse an
+  older generated input. Both private defines are reserved and may not appear
+  in the HXML graph. It also rejects `--cmd`, `--run`,
   `--interp`, and `-x`: these options can run a shell command or the compiled
   program inside Haxe, before the host has checked and accepted the candidate.
   It rejects `--xml`, `-xml`, and `--json` too because they write extra files outside
@@ -579,6 +683,8 @@ await recoverArtifacts({
   projectRoot,
   transactionRoot: ".my-host/transactions",
   projectIdentity,
+  admitPlan: (journaledPlan) =>
+    savedPathsStillBelongToGeneratedOutput(journaledPlan, inventory),
   admitIntended: validateGeneratedTree,
 });
 
@@ -692,16 +798,25 @@ const outcome = await recoverArtifacts({
   projectRoot: "/real/project/root",
   transactionRoot: ".my-host/transactions",
   projectIdentity,
+  admitPlan: (journaledPlan) =>
+    savedPathsStillBelongToGeneratedOutput(journaledPlan),
   admitIntended: async (journaledPlan) =>
     validateCompleteIntendedGeneration(journaledPlan),
 });
 ```
 
-Recovery finalizes only when every live file matches the journaled intended
-state and the host admits that exact plan. Otherwise it restores the exact
-prior state. Ambiguous bytes, paths, links, locks, journals, or backups produce
-an `ArtifactTransactionError` with a structured framework-neutral
-`failure.kind` and `failure.subject`; recovery never guesses.
+After it validates the journal and any owner file, recovery calls the optional
+`admitPlan` check before restoring, removing, or replacing any public file. A
+host uses this to catch policy changes made while the process was stopped, such
+as a formerly generated path becoming authored source. The callback receives a
+deeply read-only saved plan, so host code cannot accidentally alter
+the list that recovery will apply. Returning false leaves the journal and every
+public file untouched. If the saved plan is still allowed, recovery finalizes
+only when every live file matches the journaled intended state and the host
+admits that exact result. Otherwise it restores the exact prior state.
+Ambiguous bytes, paths, links, locks, journals, or backups produce an
+`ArtifactTransactionError` with a structured framework-neutral `failure.kind`
+and `failure.subject`; recovery never guesses.
 
 The host remains responsible for:
 

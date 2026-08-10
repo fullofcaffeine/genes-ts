@@ -13,6 +13,7 @@ interface Request {
   readonly action: "publish" | "recover";
   readonly projectRoot: string;
   readonly plan: PublicationPlan;
+  readonly admitPlan: boolean;
   readonly admitIntended: boolean;
   readonly fault: {
     readonly kind: "process-exit";
@@ -44,6 +45,7 @@ try {
           projectRoot: request.projectRoot,
           transactionRoot: request.plan.transactionRoot,
           projectIdentity: request.plan.projectIdentity,
+          admitPlan: () => request.admitPlan,
           admitIntended: () => request.admitIntended,
           faultInjector,
         });

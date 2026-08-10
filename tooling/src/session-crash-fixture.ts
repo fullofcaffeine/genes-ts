@@ -45,11 +45,16 @@ const stateDirectory = process.env.GENES_SESSION_CRASH_STATE;
 const publicOutputFile =
   process.env.GENES_SESSION_CRASH_OUTPUT ?? "src-gen/index.ts";
 const content = process.env.GENES_SESSION_CRASH_CONTENT ?? "export const value = 1;\n";
+const supplementalPath = process.env.GENES_SESSION_CRASH_SUPPLEMENTAL_PATH;
+const supplementalContent =
+  process.env.GENES_SESSION_CRASH_SUPPLEMENTAL_CONTENT ??
+  "generated supplemental file\n";
 const crashAt = process.env.GENES_SESSION_CRASH_AT as ArtifactCheckpoint | undefined;
 const migrationCrashAt = process.env
   .GENES_SESSION_MIGRATION_CRASH_AT as AuthorityMigrationCheckpoint | undefined;
 const useLegacyAuthority =
   process.env.GENES_SESSION_CRASH_LEGACY_AUTHORITY === "true";
+let hxmlOnFirstWatch = process.env.GENES_SESSION_HXML_ON_WATCH;
 const projectIdentity = "fixture-alternate-state-recovery";
 const validatorPolicyFacts = { fixture: "alternate-state-recovery" } as const;
 if (root === undefined || stateDirectory === undefined) {
@@ -98,11 +103,17 @@ class FixtureCompiler implements SessionCompiler {
 const dependencies: SessionDependencies<JsonValue> = {
   now: () => Date.now(),
   inventory: inventoryHxml,
-  watch: <Cause>(_options: ReconciledWatchOptions<Cause>): ReconciledWatchSession =>
-    Object.freeze({
+  watch: <Cause>(options: ReconciledWatchOptions<Cause>): ReconciledWatchSession => {
+    options.onRegistered?.();
+    if (hxmlOnFirstWatch !== undefined) {
+      writeFileSync(path.join(root, "build.hxml"), hxmlOnFirstWatch, "utf8");
+      hxmlOnFirstWatch = undefined;
+    }
+    return Object.freeze({
       reconcile: () => Object.freeze({ ok: true as const, changed: false }),
       close: () => undefined,
-    }),
+    });
+  },
   createCompiler: (
     _layout: SessionLayout,
     _onEvent: (event: HaxeWaitServerEvent) => void,
@@ -197,6 +208,23 @@ const options: GenesDevelopmentOptions<JsonValue> = {
     ioPolicy: "haxe-4.3.7-development-js-v1",
     compatibilityFacts: { fixture: "alternate-state-recovery" },
   }),
+  ...(supplementalPath === undefined
+    ? {}
+    : {
+        prepareRevision: async () => ({
+          ok: true as const,
+          prepared: {
+            classPaths: [],
+            files: [
+              {
+                relativePath: "prepared/shared-supplemental.txt",
+                publishPath: supplementalPath,
+                content: supplementalContent,
+              },
+            ],
+          },
+        }),
+      }),
   validate: async () => ({ ok: true }),
   validatorPolicyFacts,
   debounceMs: 0,
