@@ -95,8 +95,9 @@ Two repository-host controls are mandatory:
 
 1. GitHub immutable Releases are enabled, so published assets and notes cannot
    be edited in place.
-2. The active **Immutable semantic version tags** ruleset covers
-   `refs/tags/v*` and blocks tag deletion and non-fast-forward updates.
+2. The active **Immutable semantic version tags** ruleset covers compiler
+   `refs/tags/v*` and tooling `refs/tags/tooling-v*` tags, and blocks tag
+   deletion and non-fast-forward updates.
 
 Audit them before changing release infrastructure and during periodic
 repository administration:
@@ -224,6 +225,42 @@ repository root package instead. If durable prebuilt GitHub-only distribution
 is needed before npm, publish a reviewed `.tgz` as an immutable,
 checksum-documented GitHub Release asset.
 
+### GitHub-only tooling archive
+
+The manual **Release tooling GitHub archive** workflow publishes the reviewed
+prebuilt package without contacting the npm registry. It uses a separate
+`tooling-vX.Y.Z` tag, so it cannot create or change a compiler/Haxelib release.
+
+The operator supplies all three workflow inputs:
+
+```text
+version: 0.1.0
+commit: <exact 40-character commit currently at origin/main>
+authorization: publish @genes-ts/tooling@0.1.0 to GitHub from <same commit> without npm
+```
+
+The workflow reruns the complete Genes gate, packs the tooling package twice,
+and requires identical bytes. It then verifies the package in clean consumers
+on the repository Node release and Node 20.9.0 with npm 10. The immutable
+GitHub Release contains exactly:
+
+- `genes-ts-tooling-X.Y.Z.tgz`;
+- its `.sha256` sidecar;
+- `release-receipt.json`, which records the source, npm integrity, checksums,
+  and complete file list; and
+- `sbom.spdx.json`, the package's SPDX software inventory.
+
+The publisher first creates a draft, compares every uploaded byte with the
+locally reviewed candidate, and only then publishes it. A retry may finish an
+incomplete draft or verify an already-complete immutable release. It refuses
+different notes, unexpected assets, changed bytes, a moved tag, or a source
+commit other than protected `main`. It never deletes or replaces a tag or
+asset.
+
+Before the first release, the live **Immutable semantic version tags** ruleset
+must cover both `refs/tags/v*` and `refs/tags/tooling-v*`. Check that setting
+with the Administration-read operator audit described above.
+
 npm 10.9.4 is explicitly unsupported for this Git-subdirectory path: it parses
 the selector but installs the repository root. Use the deterministic tarball
 path when npm 11.18.0 is unavailable or dependency build scripts are disabled.
@@ -233,9 +270,9 @@ host is ready to adopt a reviewed public version. It is not required merely
 because the package exists. See [`../tooling/README.md`](../tooling/README.md)
 for the package boundary, examples, and pre-publication workflows.
 
-An ordinary merge never publishes tooling. Publication is available only
-through the manual **Release tooling npm package** workflow. Before its first
-OIDC use, repository administrators must configure:
+An ordinary merge never publishes tooling. npm publication is available only
+through the separate manual **Release tooling npm package** workflow. Before
+its first OIDC use, repository administrators must configure:
 
 - npm trusted publishing for this repository and the
   `.github/workflows/release-tooling.yml` workflow;

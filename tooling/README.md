@@ -632,10 +632,27 @@ npm install "/absolute/path/to/genes/tooling/$TARBALL"
 
 Use a 40-character Git commit when recording which source produced a tarball.
 A plain dependency without `::path:tooling` is **not** equivalent: it selects
-the repository-root package. If an external host later needs a prebuilt
-GitHub-only artifact, publish the reviewed `.tgz` as an immutable,
-checksum-documented GitHub Release asset and install that exact tarball URL.
-No such public tooling asset is promised by the repository today.
+the repository-root package.
+
+For npm 10 and other consumers that need a prebuilt package, Genes can publish
+the same reviewed `.tgz` through a separate immutable `tooling-vX.Y.Z` GitHub
+Release. npm installs that URL normally even though the package is not on the
+npm registry:
+
+```json
+{
+  "dependencies": {
+    "@genes-ts/tooling": "https://github.com/fullofcaffeine/genes-ts/releases/download/tooling-v0.1.0/genes-ts-tooling-0.1.0.tgz"
+  }
+}
+```
+
+Use this exact example only after the named Release exists. Check its published
+`.sha256` file and `release-receipt.json` before pinning it in a lockfile. The
+manual release workflow reruns the complete Genes tests, proves two package
+builds have identical bytes, checks a clean npm 10 consumer, and publishes no
+npm or Haxelib package. See the release guide for the complete safety and
+recovery rules.
 
 The tooling package has independent version metadata so a future distribution
 does not create a compiler/Haxelib release. The dormant, explicitly authorized

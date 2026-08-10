@@ -90,7 +90,7 @@ Each row is an independent claim boundary. A green gate may cover several rows, 
 ### Installation, release, adoption, and downstream contracts
 
 - Owner: Package, release, security, and curated downstream owners
-- Gates: `release-contract`, `package-imports`, `compatibility-inventory`, `full-ci`
+- Gates: `release-contract`, `tooling-github-release-contract`, `package-imports`, `compatibility-inventory`, `full-ci`
 - Compatibility evidence: `npm-package-shapes`, `curated-downstream-contracts`
 - Maintained examples: none
 - Last clean proof: Blocking package/release proof lives in required Actions. Curated downstream proof is nonblocking-nightly and exists only in its latest run artifact; this manifest does not cache a green result.

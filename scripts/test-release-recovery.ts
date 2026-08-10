@@ -403,7 +403,10 @@ const controls = verifyHostReleaseControls({
         id: 42,
         bypass_actors: [],
         conditions: {
-          ref_name: { include: ["refs/tags/v*"], exclude: [] },
+          ref_name: {
+            include: ["refs/tags/v*", "refs/tags/tooling-v*"],
+            exclude: [],
+          },
         },
         rules: [{ type: "deletion" }, { type: "non_fast_forward" }],
       });
@@ -419,7 +422,7 @@ for (const [label, mutation] of [
       bypass_actors: [],
       conditions: {
         ref_name: {
-          include: ["refs/tags/v*"],
+          include: ["refs/tags/v*", "refs/tags/tooling-v*"],
           exclude: ["refs/tags/v0.*"],
         },
       },
@@ -431,7 +434,10 @@ for (const [label, mutation] of [
     {
       bypass_actors: [{ actor_type: "RepositoryRole", actor_id: 5 }],
       conditions: {
-        ref_name: { include: ["refs/tags/v*"], exclude: [] },
+        ref_name: {
+          include: ["refs/tags/v*", "refs/tags/tooling-v*"],
+          exclude: [],
+        },
       },
       rules: [{ type: "deletion" }, { type: "non_fast_forward" }],
     },
