@@ -6,11 +6,12 @@ it.
 
 ## 0.2.0
 
-- Let Haxe macros write small declared data values into private session slots.
-  Give validation byte copies without filesystem paths. Publish a value only
-  when the host returns it as an approved output file. A stopped update rolls
-  back and rebuilds before commit. After commit, restart keeps the complete
-  public result and finishes only private cleanup.
+- Let a trusted Haxe macro write a small, named value during a build. The host
+  receives a copy of the bytes, not the path to an internal file. The value
+  becomes public only when the host approves it as an output file. If the build
+  stops early, Genes restores the previous result and rebuilds. If cleanup is
+  interrupted after publication, Genes keeps the complete new result and
+  finishes the cleanup after restart.
 
 ## 0.1.0
 
