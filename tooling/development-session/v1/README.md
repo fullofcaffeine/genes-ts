@@ -175,8 +175,10 @@ valid only during that validation call. Compiler data stays private unless the
 validator returns derived or identical bytes through `AdmissionResult.artifacts`.
 
 A stopped update that used compiler data cannot replay its validation step.
-The private value no longer exists after the stopped process. The next session
-rolls back that update and starts a new Haxe build before publication.
+The private value no longer exists after the stopped process. Before the
+public update is committed, the next session rolls it back and starts a new
+Haxe build. After commit, restart keeps the complete public result and finishes
+only the leftover private cleanup.
 
 See [Data that a Haxe macro returns to the host](../../README.md#data-that-a-haxe-macro-returns-to-the-host)
 for complete Haxe and TypeScript examples.

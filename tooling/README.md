@@ -383,9 +383,10 @@ Compiler data stays private by default. The example publishes
 file through `AdmissionResult.artifacts`. Tooling publishes that file with the
 Genes output in one complete update.
 
-If the process stops during that update, the next session rolls it back and
-does a new Haxe build. It does not replay validation with missing private data.
-The previous accepted generation stays unchanged until the new build passes.
+If the process stops before the public update is committed, the next session
+rolls it back and does a new Haxe build. It does not replay validation with
+missing private data. If the public update is already committed, restart keeps
+those complete public files and only removes leftover private control files.
 
 The first contract accepts at most 64 values. Each value can be at most 8 MiB,
 and their declared total can be at most 16 MiB. IDs use lowercase letters,

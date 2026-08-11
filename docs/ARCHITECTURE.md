@@ -909,10 +909,12 @@ Those files then join the existing outer transaction with generated JS or TS.
 This keeps one public update and avoids a second publisher for macro-created
 data.
 
-An accepted update that used compiler data requires a new build after a stop.
+An unfinished update that used compiler data requires a new build after a stop.
 The stopped process owned the private values. Thus, restart cannot reproduce
-the old validation result safely. Recovery rolls back the unfinished update
-and builds the newest source state instead.
+the old validation result safely. Recovery rolls back before the durable
+commit and builds the newest source state. If commit already finished,
+recovery keeps the complete public result and removes only private control
+files that remain.
 
 Recovery registers the reconciled input watch around a fresh read of the HXML
 input graph before replaying an interrupted update. Every saved public

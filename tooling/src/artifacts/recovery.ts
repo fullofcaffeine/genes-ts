@@ -403,15 +403,32 @@ export async function recoverArtifacts(
         transition.next,
       ),
     );
+  if (journal.phase === "committed") {
+    const livePrior = transitions.every((transition) =>
+      sameFileState(
+        readFileState(root, transition.path, "recovery-conflict"),
+        transition.prior,
+      ),
+    );
+    const liveNext = intended();
+    if (!livePrior && !liveNext) {
+      artifactFailure("recovery-conflict", transactionRoot);
+    }
+    // Publication or rollback already reached its durable final state before
+    // this phase was recorded. Only private cleanup remains, so backups may
+    // already be gone and the host must not be asked to validate again.
+    cleanupTerminal(root, journal, lockBytes, options.faultInjector);
+    return {
+      action: liveNext ? "committed" : "rolled-back",
+      transactionId: journal.transactionId,
+    };
+  }
   if (
     intended() &&
     (await options.admitIntended(journal.plan)) &&
     intended()
   ) {
-    const committed =
-      journal.phase === "committed"
-        ? journal
-        : persistPhase(root, journal, "committed");
+    const committed = persistPhase(root, journal, "committed");
     cleanupTerminal(root, committed, lockBytes, options.faultInjector);
     return {
       action: "committed",

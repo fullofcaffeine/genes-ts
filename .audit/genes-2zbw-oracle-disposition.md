@@ -55,9 +55,10 @@ evidence can justify a compatible increase.
 The validator can return a public copy or derived files as approved outputs.
 The existing outer publisher will publish all approved files together.
 
-If an interrupted publication used compiler data, recovery will roll back to
-the prior public tree and start a fresh build. It will not validate incomplete
-public bytes without the original private data.
+If publication stops before commit, recovery will roll back to the prior public
+tree and start a fresh build. It will not validate incomplete public bytes
+without the original private data. If commit already finished, recovery keeps
+that complete public result and removes only leftover private control files.
 
 ## Verification and open gaps
 

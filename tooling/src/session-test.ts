@@ -3165,6 +3165,7 @@ for (const checkpoint of [
 for (const checkpoint of [
   "after-publish:src-gen/index.ts",
   "after-publish:commit-marker",
+  "after-cleanup:work-root",
 ] as const) {
   const root = realpathSync.native(
     mkdtempSync(path.join(os.tmpdir(), "genes-session-compiler-data-recovery-")),

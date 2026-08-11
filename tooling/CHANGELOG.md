@@ -19,7 +19,8 @@ it.
 - Let Haxe macros write small declared data values into private session slots.
   Give validation byte copies without filesystem paths. Publish a value only
   when the host returns it as an approved output file. A stopped update rolls
-  back and rebuilds because restart cannot safely recreate the private data.
+  back and rebuilds before commit. After commit, restart keeps the complete
+  public result and finishes only private cleanup.
 - Keep restart recovery compatible with accepted markers written before extra
   files existed, and reserve the complete `.genes/tooling` control directory
   so generated or host-provided files cannot overwrite any session's locks or
