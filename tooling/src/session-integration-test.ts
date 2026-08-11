@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   cpSync,
   existsSync,
@@ -81,6 +81,8 @@ try {
       '    if (value != "policy-option-value-payload.hxml") {',
       '      haxe.macro.Context.error("session-note define changed before typing: " + Std.string(value), haxe.macro.Context.currentPos());',
       "    }",
+      '    final compilerData = sys.io.File.getContent("compiler-data-value.txt");',
+      '    genes.tooling.CompilerData.writeUtf8("session.note", compilerData);',
       "    return macro $v{value};",
       "  }",
       "  static function main():Void trace(SourceOnly.value + sessionNote());",
@@ -89,6 +91,126 @@ try {
     ].join("\n"),
     "utf8",
   );
+  writeFileSync(
+    path.join(projectRoot, "compiler-data-value.txt"),
+    "{\"note\":\"first\"}\n",
+    "utf8",
+  );
+
+  const compilerDataDiagnosticRoot = path.join(
+    projectRoot,
+    "compiler-data-diagnostics",
+  );
+  mkdirSync(compilerDataDiagnosticRoot);
+  const diagnosticSlot = path.join(compilerDataDiagnosticRoot, "slot.data");
+  const diagnosticDescriptor = path.join(
+    compilerDataDiagnosticRoot,
+    "request.descriptor",
+  );
+  const compilerDataDiagnosticCases: readonly {
+    readonly name: string;
+    readonly statements: readonly string[];
+    readonly declaration?: {
+      readonly id: string;
+      readonly maxBytes: number;
+    };
+    readonly expected: RegExp;
+  }[] = [
+    {
+      name: "missing-session",
+      statements: [
+        'genes.tooling.CompilerData.writeUtf8("plan", "{}");',
+      ],
+      expected: /compiler data requires a DevelopmentSession declaration/u,
+    },
+    {
+      name: "unknown-id",
+      statements: [
+        'genes.tooling.CompilerData.writeUtf8("missing", "{}");',
+      ],
+      declaration: { id: "plan", maxBytes: 64 },
+      expected: /compiler data id is not declared: missing/u,
+    },
+    {
+      name: "duplicate-write",
+      statements: [
+        'genes.tooling.CompilerData.writeUtf8("plan", "{}");',
+        'genes.tooling.CompilerData.writeUtf8("plan", "{}");',
+      ],
+      declaration: { id: "plan", maxBytes: 64 },
+      expected: /compiler data plan was written more than once/u,
+    },
+    {
+      name: "oversize",
+      statements: [
+        'genes.tooling.CompilerData.writeUtf8("plan", "too large");',
+      ],
+      declaration: { id: "plan", maxBytes: 2 },
+      expected: /compiler data plan exceeds its byte limit/u,
+    },
+  ];
+  for (const diagnosticCase of compilerDataDiagnosticCases) {
+    rmSync(diagnosticSlot, { force: true });
+    const sourceName = `CompilerData${diagnosticCase.name.replaceAll("-", "_")}`;
+    writeFileSync(
+      path.join(compilerDataDiagnosticRoot, `${sourceName}.hx`),
+      [
+        `class ${sourceName} {`,
+        "  static macro function produce():haxe.macro.Expr {",
+        ...diagnosticCase.statements.map((statement) => `    ${statement}`),
+        "    return macro null;",
+        "  }",
+        "  static function main():Void produce();",
+        "}",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    const descriptorArguments: string[] = [];
+    if (diagnosticCase.declaration !== undefined) {
+      writeFileSync(
+        diagnosticDescriptor,
+        [
+          "genes.tooling.compiler-data-request-v1",
+          [
+            Buffer.from(diagnosticCase.declaration.id).toString("base64"),
+            String(diagnosticCase.declaration.maxBytes),
+            Buffer.from(diagnosticSlot).toString("base64"),
+          ].join("\t"),
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+      descriptorArguments.push(
+        "-D",
+        `genes.tooling.compiler-data=${diagnosticDescriptor}`,
+      );
+    }
+    const result = spawnSync(
+      haxeExecutable,
+      [
+        "-cp",
+        fixtureGenesSourceRoot,
+        "-cp",
+        compilerDataDiagnosticRoot,
+        "-main",
+        sourceName,
+        "--interp",
+        ...descriptorArguments,
+      ],
+      { cwd: projectRoot, encoding: "utf8" },
+    );
+    assert.notEqual(
+      result.status,
+      0,
+      `${diagnosticCase.name} must fail at the Haxe call`,
+    );
+    assert.match(
+      `${result.stdout}\n${result.stderr}`,
+      diagnosticCase.expected,
+      `${diagnosticCase.name} must explain how to correct the call`,
+    );
+  }
   const blockedOutput = path.join(projectRoot, "blocked-gen/index.ts");
   mkdirSync(path.dirname(blockedOutput), { recursive: true });
   writeFileSync(blockedOutput, "// public sentinel\n", "utf8");
@@ -421,29 +543,34 @@ try {
     "--define=session-repeated\n",
     "utf8",
   );
+  const commonBuildArguments = [
+    path.join(projectRoot, "genes-extraParams.hxml"),
+    "repeated-flags.hxml",
+    "repeated-flags.hxml",
+    `--class-path=${fixtureGenesSourceRoot}`,
+    `--class-path=${fixtureHelderSourceRoot}`,
+    `--class-path=${sourceRoot}`,
+    "-lib sourceonly",
+    "-lib sourceonly",
+    "-main Main",
+    "--define=session-note=policy-option-value-payload.hxml",
+    "--define=js-source-map",
+    "--define=js-es=6",
+    "--dce=full",
+  ];
   writeFileSync(
     path.join(projectRoot, "build.hxml"),
-    [
-      path.join(projectRoot, "genes-extraParams.hxml"),
-      "repeated-flags.hxml",
-      "repeated-flags.hxml",
-      `--class-path=${fixtureGenesSourceRoot}`,
-      `--class-path=${fixtureHelderSourceRoot}`,
-      `--class-path=${sourceRoot}`,
-      "-lib sourceonly",
-      "-lib sourceonly",
-      "-main Main",
-      "--define=genes.ts",
-      "--define=session-note=policy-option-value-payload.hxml",
-      "--define=js-source-map",
-      "--define=js-es=6",
-      "--dce=full",
-      "",
-    ].join("\n"),
+    [...commonBuildArguments, "--define=genes.ts", ""].join("\n"),
+    "utf8",
+  );
+  writeFileSync(
+    path.join(projectRoot, "build.classic.hxml"),
+    [...commonBuildArguments, ""].join("\n"),
     "utf8",
   );
 
   const events: DevelopmentEvent<Diagnostic>[] = [];
+  const observedCompilerData: string[] = [];
   const session = createGenesDevelopmentSession<Diagnostic>({
     projectRoot,
     projectIdentity: "real-haxe-session-fixture",
@@ -460,6 +587,13 @@ try {
     },
     publicOutputFile: "src-gen/index.ts",
     stateDirectory: ".genes/dev",
+    compilerData: [{ id: "session.note", maxBytes: 1_024 }],
+    extraInputs: [
+      {
+        path: "compiler-data-value.txt",
+        impact: { rebuild: true },
+      },
+    ],
     resolveInvocation: () => ({
       executable: haxeExecutable,
       // The session inventories this exact working directory and HXML. Keeping
@@ -477,7 +611,13 @@ try {
       const entry = tree.files.find(
         (file) => file.logicalPath === "src-gen/index.ts",
       );
-      return entry === undefined || readFileSync(entry.physicalPath).byteLength === 0
+      const note = tree.compilerData.find((file) => file.id === "session.note");
+      if (note !== undefined) {
+        observedCompilerData.push(Buffer.from(note.readBytes()).toString("utf8"));
+      }
+      return entry === undefined ||
+        readFileSync(entry.physicalPath).byteLength === 0 ||
+        note === undefined
         ? {
             ok: false,
             diagnostic: {
@@ -485,7 +625,15 @@ try {
               message: "candidate did not contain a non-empty generated entry",
             },
           }
-        : { ok: true };
+        : {
+            ok: true,
+            artifacts: [
+              {
+                path: "session-note.txt",
+                content: note.readBytes(),
+              },
+            ],
+          };
     },
     validatorPolicyFacts: { fixture: "entry-contains-main" },
     debounceMs: 0,
@@ -509,6 +657,10 @@ try {
       true,
     );
     assert.equal(
+      readFileSync(path.join(projectRoot, "session-note.txt"), "utf8"),
+      "{\"note\":\"first\"}\n",
+    );
+    assert.equal(
       readFileSync(optionValueHxmlXml, "utf8"),
       "<!-- xml sentinel -->\n",
       "an inline define value ending in .hxml must stay data during the real Haxe build",
@@ -527,8 +679,13 @@ try {
       );
     }
 
+    writeFileSync(
+      path.join(projectRoot, "compiler-data-value.txt"),
+      "{\"note\":\"second\"}\n",
+      "utf8",
+    );
     session.invalidate({
-      path: "src/Main.hx",
+      path: "compiler-data-value.txt",
       impact: { rebuild: true },
     });
     await session.waitForIdle();
@@ -536,9 +693,17 @@ try {
     assert.equal(session.inspect().accepted?.compilerMode, "connected");
     assert.deepEqual(session.inspect().accepted?.files, {
       created: [],
-      updated: [],
+      updated: ["session-note.txt"],
       deleted: [],
     });
+    assert.equal(
+      readFileSync(path.join(projectRoot, "session-note.txt"), "utf8"),
+      "{\"note\":\"second\"}\n",
+    );
+    assert.deepEqual(observedCompilerData.slice(0, 2), [
+      "{\"note\":\"first\"}\n",
+      "{\"note\":\"second\"}\n",
+    ]);
     assert.equal(
       events.filter(
         (event) =>
@@ -568,6 +733,117 @@ try {
     );
   } finally {
     await session.close();
+  }
+
+  const classicEvents: DevelopmentEvent<Diagnostic>[] = [];
+  const classicSession = createGenesDevelopmentSession<Diagnostic>({
+    projectRoot,
+    projectIdentity: "real-haxe-session-classic-fixture",
+    hxml: {
+      allowedRoots: [projectRoot],
+      resolveLibrary: (request) => {
+        assert.equal(request.name, "sourceonly");
+        return {
+          arguments: ["-cp", sourceOnlyClassPath],
+          provenanceFiles: [path.join(sourceOnlyRoot, "haxelib.json")],
+        };
+      },
+    },
+    publicOutputFile: "classic-gen/index.js",
+    stateDirectory: ".genes/classic-dev",
+    compilerData: [{ id: "session.note", maxBytes: 1_024 }],
+    extraInputs: [
+      {
+        path: "compiler-data-value.txt",
+        impact: { rebuild: true },
+      },
+    ],
+    resolveInvocation: () => ({
+      executable: haxeExecutable,
+      cwd: projectRoot,
+      args: ["build.classic.hxml"],
+      ioPolicy: "haxe-4.3.7-development-js-v1",
+      compatibilityFacts: {
+        fixture: "real-haxe-session-classic",
+        haxe: haxeVersion,
+      },
+    }),
+    validate: async (tree) => {
+      const entry = tree.files.find(
+        (file) => file.logicalPath === "classic-gen/index.js",
+      );
+      const note = tree.compilerData.find((file) => file.id === "session.note");
+      return entry === undefined ||
+        readFileSync(entry.physicalPath).byteLength === 0 ||
+        note === undefined
+        ? {
+            ok: false,
+            diagnostic: {
+              code: "MISSING_CLASSIC_MAIN",
+              message: "classic candidate was incomplete",
+            },
+          }
+        : {
+            ok: true,
+            artifacts: [
+              {
+                path: "classic-session-note.json",
+                content: note.readBytes(),
+              },
+            ],
+          };
+    },
+    validatorPolicyFacts: { fixture: "classic-entry-contains-main" },
+    debounceMs: 0,
+    pollIntervalMs: 20,
+    shutdownTimeoutMs: 2_000,
+  });
+  classicSession.subscribe((event) => classicEvents.push(event));
+  try {
+    await classicSession.start();
+    await classicSession.waitForIdle();
+    assert.equal(
+      classicSession.state.kind,
+      "ready",
+      `classic Haxe session did not admit its first candidate: ${JSON.stringify(classicSession.inspect())}`,
+    );
+    assert.equal(
+      readFileSync(path.join(projectRoot, "classic-session-note.json"), "utf8"),
+      "{\"note\":\"second\"}\n",
+    );
+    assert.equal(
+      readFileSync(path.join(projectRoot, "classic-gen/index.js"), "utf8")
+        .includes("genes.tooling.compiler-data"),
+      false,
+      "the private compiler-data request must not enter classic runtime output",
+    );
+
+    writeFileSync(
+      path.join(projectRoot, "compiler-data-value.txt"),
+      "{\"note\":\"classic-warm\"}\n",
+      "utf8",
+    );
+    classicSession.invalidate({
+      path: "compiler-data-value.txt",
+      impact: { rebuild: true },
+    });
+    await classicSession.waitForIdle();
+    assert.equal(classicSession.inspect().accepted?.generation, 2);
+    assert.equal(
+      readFileSync(path.join(projectRoot, "classic-session-note.json"), "utf8"),
+      "{\"note\":\"classic-warm\"}\n",
+    );
+    assert.equal(
+      classicEvents.filter(
+        (event) =>
+          event.event.kind === "compiler-lifecycle" &&
+          event.event.event.kind === "started",
+      ).length,
+      1,
+      "the classic warm rebuild must reuse one owned Haxe server",
+    );
+  } finally {
+    await classicSession.close();
   }
 } finally {
   rmSync(projectRoot, { recursive: true, force: true });

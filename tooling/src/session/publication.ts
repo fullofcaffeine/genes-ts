@@ -92,6 +92,34 @@ export function admissionDigest(
   manifestDigest: string,
   validatorPolicyFacts: JsonValue,
   supplementalFiles: readonly PublishedSupplementalFile[] = [],
+  recoveryMode: AdmissionRecoveryMode = "replayable",
+): string {
+  return canonicalDigest({
+    protocol: "genes.tooling.development-session-admission.v5",
+    projectIdentity: sessionProjectDigest(layout),
+    publicOutputRoot: layout.publicOutputRootAuthority,
+    publicEntry: layout.publicEntryAuthority,
+    manifestDigest,
+    supplementalFiles: supplementalFiles.map((file) => ({
+      source: file.source,
+      path: file.path,
+      sha256: file.sha256,
+      sizeBytes: file.sizeBytes,
+      mode: file.mode,
+    })),
+    recoveryMode,
+    validatorPolicyFacts,
+  } as CanonicalJson);
+}
+
+export type AdmissionRecoveryMode = "replayable" | "rebuild-required";
+
+/** Rebuilds the exact identity written before recovery mode joined admission. */
+function v4AdmissionDigest(
+  layout: SessionLayout,
+  manifestDigest: string,
+  validatorPolicyFacts: JsonValue,
+  supplementalFiles: readonly PublishedSupplementalFile[] = [],
 ): string {
   return canonicalDigest({
     protocol: "genes.tooling.development-session-admission.v4",
@@ -573,6 +601,12 @@ export function recoveredAdmissionDigests(
         validatorPolicyFacts,
         marker.supplementalFiles,
       ),
+      v4AdmissionDigest(
+        layout,
+        manifestDigest,
+        validatorPolicyFacts,
+        marker.supplementalFiles,
+      ),
     ]);
   }
   if (marker.format === "v3") {
@@ -593,6 +627,7 @@ export function recoveredAdmissionDigests(
   if (marker.format === "v2") return Object.freeze([v2]);
   return Object.freeze([
     admissionDigest(layout, manifestDigest, validatorPolicyFacts),
+    v4AdmissionDigest(layout, manifestDigest, validatorPolicyFacts),
     legacySupplementalAdmissionDigest(
       layout,
       manifestDigest,
@@ -601,6 +636,36 @@ export function recoveredAdmissionDigests(
     ),
     v2,
   ]);
+}
+
+/** Classifies one interrupted admission without recreating private data. */
+export function recoveredAdmissionMode(
+  layout: SessionLayout,
+  manifestDigest: string,
+  validatorPolicyFacts: JsonValue,
+  marker: PublishedMarker,
+  authorizationDigest: string,
+): AdmissionRecoveryMode | null {
+  if (
+    authorizationDigest ===
+    admissionDigest(
+      layout,
+      manifestDigest,
+      validatorPolicyFacts,
+      marker.supplementalFiles,
+      "rebuild-required",
+    )
+  ) {
+    return "rebuild-required";
+  }
+  return recoveredAdmissionDigests(
+    layout,
+    manifestDigest,
+    validatorPolicyFacts,
+    marker,
+  ).includes(authorizationDigest)
+    ? "replayable"
+    : null;
 }
 
 /**
@@ -625,6 +690,7 @@ export function preparePublication(
   priorMarker: ExpectedFileState,
   supplementalFiles: readonly SupplementalFile[],
   priorSupplementalFiles: readonly PublishedSupplementalFile[],
+  recoveryMode: AdmissionRecoveryMode = "replayable",
 ): PreparedPublication {
   const publishedSupplemental = Object.freeze(
     [...supplementalFiles].sort((left, right) =>
@@ -838,6 +904,7 @@ export function preparePublication(
       sizeBytes: file.sizeBytes,
       mode: file.mode,
     })),
+    recoveryMode,
   );
   const plan: PublicationPlan = Object.freeze({
     protocol: ARTIFACT_PLAN_PROTOCOL,

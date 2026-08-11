@@ -4,6 +4,8 @@ export type {
   AdmissionResult,
   CandidateFile,
   ChangeImpact,
+  CompilerDataDeclaration,
+  CompilerDataFile,
   DevelopmentEvent,
   DevelopmentEventBody,
   DevelopmentSession,

@@ -761,7 +761,9 @@ observed input revision
   -> exact nested-HXML + flattened library-argument closure derived from it
   -> optional exact host-prepared Haxe inputs
   -> session-owned private Haxe JS target + request-local `genes.output`
+  -> optional declared compiler data created by Haxe macros
   -> exact Genes v2 ownership inventory
+  -> exact path-free compiler-data snapshot
   -> host-owned validation
   -> supersession check
   -> recoverable public artifact transaction
@@ -891,6 +893,26 @@ generated companion can use the same candidate and public relative path so its
 source-map name remains stable after publication. The host still owns how
 those prepared bytes were discovered and whether a real framework loader
 agrees with them.
+
+Declared compiler data moves in the other direction. A Haxe macro can create
+a small plan or manifest while Haxe checks typed source. The session declares
+each logical ID and size limit before compilation, then gives Haxe an opaque
+private file for that ID. The macro never receives a public destination.
+
+After Haxe finishes, tooling checks the complete private directory and copies
+each stable file into a path-free validation value. The host can inspect its
+digest, size, and exact bytes. The private value does not join the Genes
+compiler transaction and does not become a runtime module.
+
+The host can return approved output files through `AdmissionResult.artifacts`.
+Those files then join the existing outer transaction with generated JS or TS.
+This keeps one public update and avoids a second publisher for macro-created
+data.
+
+An accepted update that used compiler data requires a new build after a stop.
+The stopped process owned the private values. Thus, restart cannot reproduce
+the old validation result safely. Recovery rolls back the unfinished update
+and builds the newest source state instead.
 
 Recovery registers the reconciled input watch around a fresh read of the HXML
 input graph before replaying an interrupted update. Every saved public

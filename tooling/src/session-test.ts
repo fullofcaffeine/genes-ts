@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import {
   chmodSync,
   existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -49,6 +50,10 @@ import {
 } from "./session/haxe-driver.js";
 import { readGenesOutput } from "./session/genes-output.js";
 import {
+  COMPILER_DATA_DEFINE,
+  snapshotCompilerDataDeclarations,
+} from "./session/compiler-data.js";
+import {
   resolveSessionLayout,
   samePhysicalSessionPath,
   type SessionLayout,
@@ -93,6 +98,14 @@ interface CompileStep {
   readonly mode?: "connected" | "direct";
   readonly afterGenerate?: (outputRoot: string, owner: string) => void;
   readonly beforeInvocationGuard?: () => void;
+  readonly compilerData?: Readonly<Record<string, string>>;
+  readonly afterCompilerData?: (slots: readonly FakeCompilerDataSlot[]) => void;
+}
+
+interface FakeCompilerDataSlot {
+  readonly id: string;
+  readonly maxBytes: number;
+  readonly path: string;
 }
 
 interface Deferred<Value> {
@@ -244,6 +257,39 @@ class FakeCompiler implements SessionCompiler {
         typeof step.fail === "function"
           ? step.fail(candidateOutputFile)
           : step.fail,
+      );
+    }
+    const compilerDataArgument = _invocation.arguments.find((argument) =>
+      argument.startsWith(`${COMPILER_DATA_DEFINE}=`),
+    );
+    if (compilerDataArgument !== undefined) {
+      const descriptorPath = compilerDataArgument.slice(
+        `${COMPILER_DATA_DEFINE}=`.length,
+      );
+      const lines = readFileSync(descriptorPath, "utf8").split("\n");
+      assert.equal(lines.shift(), "genes.tooling.compiler-data-request-v1");
+      const slots = lines.filter((line) => line.length > 0).map((line) => {
+        const fields = line.split("\t");
+        assert.equal(fields.length, 3);
+        const maxBytes = Number(fields[1]);
+        assert.equal(Number.isSafeInteger(maxBytes), true);
+        return Object.freeze({
+          id: Buffer.from(fields[0]!, "base64").toString("utf8"),
+          maxBytes,
+          path: Buffer.from(fields[2]!, "base64").toString("utf8"),
+        });
+      });
+      for (const [id, bytes] of Object.entries(step.compilerData ?? {})) {
+        const slot = slots.find((candidate) => candidate.id === id);
+        assert.notEqual(slot, undefined, `unknown fake compiler-data id ${id}`);
+        writeFileSync(slot!.path, bytes, "utf8");
+      }
+      step.afterCompilerData?.(slots);
+    } else {
+      assert.equal(
+        step.compilerData,
+        undefined,
+        "fake compiler data requires a session descriptor",
       );
     }
     this.compatibilityDigests.push(compatibilityDigest);
@@ -489,6 +535,187 @@ await withHarness("initial", async (harness) => {
     "generation-accepted",
   ]);
 });
+
+{
+  const mutable = [
+    { id: "second.plan", maxBytes: 64 },
+    { id: "first.plan", maxBytes: 64 },
+  ];
+  let staleRead: (() => Uint8Array) | null = null;
+  await withHarness(
+    "compiler-data-two-slots",
+    async (harness) => {
+      mutable[0]!.maxBytes = 1;
+      mutable.push({ id: "late.plan", maxBytes: 64 });
+      harness.compiler.steps.push({
+        compilerData: {
+          "first.plan": "{\"value\":1}\n",
+          "second.plan": "second\n",
+        },
+      });
+      await harness.session.start();
+      await harness.session.waitForIdle();
+      assert.equal(
+        harness.session.state.kind,
+        "ready",
+        JSON.stringify(harness.events),
+      );
+      assert.equal(
+        readFileSync(path.join(harness.root, "plans/first.json"), "utf8"),
+        "{\"value\":1}\n",
+      );
+      assert.throws(
+        () => staleRead?.(),
+        /no longer available after validation/u,
+      );
+    },
+    undefined,
+    (options) => ({
+      ...options,
+      compilerData: mutable,
+      validate: async (tree) => {
+        assert.deepEqual(
+          tree.compilerData.map((file) => file.id),
+          ["first.plan", "second.plan"],
+        );
+        const first = tree.compilerData[0]!;
+        assert.equal(
+          first.digest,
+          sha256Bytes(Buffer.from("{\"value\":1}\n")),
+        );
+        assert.equal(first.sizeBytes, Buffer.byteLength("{\"value\":1}\n"));
+        const copy = first.readBytes();
+        assert.equal(Buffer.from(copy).toString("utf8"), "{\"value\":1}\n");
+        copy.fill(0);
+        assert.equal(
+          Buffer.from(first.readBytes()).toString("utf8"),
+          "{\"value\":1}\n",
+        );
+        staleRead = first.readBytes;
+        return {
+          ok: true,
+          artifacts: [
+            {
+              path: "plans/first.json",
+              content: first.readBytes(),
+            },
+          ],
+        };
+      },
+    }),
+  );
+}
+
+assert.throws(
+  () =>
+    snapshotCompilerDataDeclarations([
+      { id: "same", maxBytes: 1 },
+      { id: "same", maxBytes: 1 },
+    ]),
+  /duplicate id: same/u,
+);
+assert.throws(
+  () => snapshotCompilerDataDeclarations([{ id: "Not Portable", maxBytes: 1 }]),
+  /must match/u,
+);
+assert.throws(
+  () => snapshotCompilerDataDeclarations([{ id: "plan", maxBytes: 0 }]),
+  /positive safe integer/u,
+);
+assert.throws(
+  () =>
+    snapshotCompilerDataDeclarations(
+      Array.from({ length: 65 }, (_, index) => ({
+        id: `plan-${index}`,
+        maxBytes: 1,
+      })),
+    ),
+  /at most 64 declarations/u,
+);
+assert.throws(
+  () =>
+    snapshotCompilerDataDeclarations([
+      { id: "plan-a", maxBytes: 8 * 1024 * 1024 },
+      { id: "plan-b", maxBytes: 8 * 1024 * 1024 },
+      { id: "plan-c", maxBytes: 1 },
+    ]),
+  /total maxBytes must not exceed/u,
+);
+
+for (const fixture of [
+  {
+    name: "missing",
+    step: {},
+    message: /compiler data plan is missing/u,
+  },
+  {
+    name: "unexpected",
+    step: {
+      compilerData: { plan: "ok" },
+      afterCompilerData: (slots: readonly FakeCompilerDataSlot[]) => {
+        writeFileSync(path.join(path.dirname(slots[0]!.path), "extra.data"), "x");
+      },
+    },
+    message: /contains an unexpected slot/u,
+  },
+  {
+    name: "oversize",
+    step: { compilerData: { plan: "toolong" } },
+    message: /exceeds its byte limit/u,
+  },
+  {
+    name: "symbolic-link",
+    step: {
+      afterCompilerData: (slots: readonly FakeCompilerDataSlot[]) => {
+        const slot = slots[0]!;
+        const target = path.join(path.dirname(path.dirname(slot.path)), "haxe-target", "plan-target");
+        writeFileSync(target, "linked", "utf8");
+        symlinkSync(target, slot.path);
+      },
+    },
+    message: /must be one real file/u,
+  },
+  {
+    name: "hard-link",
+    step: {
+      afterCompilerData: (slots: readonly FakeCompilerDataSlot[]) => {
+        const slot = slots[0]!;
+        const target = path.join(path.dirname(path.dirname(slot.path)), "haxe-target", "plan-target");
+        writeFileSync(target, "linked", "utf8");
+        linkSync(target, slot.path);
+      },
+    },
+    message: /must be one real file/u,
+  },
+] as const) {
+  let validations = 0;
+  await withHarness(
+    `compiler-data-${fixture.name}`,
+    async (harness) => {
+      harness.compiler.steps.push(fixture.step);
+      await harness.session.start();
+      await harness.session.waitForIdle();
+      assert.equal(harness.session.state.kind, "blocked");
+      assert.equal(validations, 0);
+      assert.equal(eventKinds(harness).includes("candidate-generated"), false);
+      const failed = harness.events.find((event) => event.event.kind === "failed");
+      assert.notEqual(failed, undefined);
+      assert.match(JSON.stringify(failed), fixture.message);
+      assert.doesNotMatch(JSON.stringify(failed), /genes-session-/u);
+    },
+    undefined,
+    (options) => ({
+      ...options,
+      compilerData: [
+        { id: "plan", maxBytes: fixture.name === "oversize" ? 2 : 64 },
+      ],
+      validate: async () => {
+        validations += 1;
+        return { ok: true };
+      },
+    }),
+  );
+}
 
 await withHarness("legacy-entry-state-upgrade", async (harness) => {
   const layout = resolveSessionLayout(
@@ -2935,6 +3162,91 @@ for (const checkpoint of [
   }
 }
 
+for (const checkpoint of [
+  "after-publish:src-gen/index.ts",
+  "after-publish:commit-marker",
+] as const) {
+  const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-compiler-data-recovery-")),
+  );
+  try {
+    mkdirSync(path.join(root, "src"));
+    writeFileSync(path.join(root, "src/Main.hx"), "class Main {}\n", "utf8");
+    writeFileSync(
+      path.join(root, "build.hxml"),
+      "-cp src\n-main Main\n",
+      "utf8",
+    );
+    const fixture = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "session-crash-fixture.js",
+    );
+    const crashed = spawnSync(process.execPath, [fixture], {
+      cwd: root,
+      env: {
+        ...process.env,
+        GENES_SESSION_CRASH_ROOT: root,
+        GENES_SESSION_CRASH_STATE: ".genes/state-a",
+        GENES_SESSION_CRASH_OUTPUT: "src-gen/index.ts",
+        GENES_SESSION_CRASH_CONTENT: "export const revision = 'A';\n",
+        GENES_SESSION_CRASH_COMPILER_DATA: "{\"revision\":\"A\"}\n",
+        GENES_SESSION_CRASH_AT: checkpoint,
+      },
+      encoding: "utf8",
+    });
+    assert.equal(
+      crashed.status,
+      73,
+      `compiler-data crash fixture failed at ${checkpoint}: ${crashed.stdout}\n${crashed.stderr}`,
+    );
+
+    const recovered = spawnSync(process.execPath, [fixture], {
+      cwd: root,
+      env: {
+        ...process.env,
+        GENES_SESSION_CRASH_ROOT: root,
+        GENES_SESSION_CRASH_STATE: ".genes/state-b",
+        GENES_SESSION_CRASH_OUTPUT: "src-gen/index.ts",
+        GENES_SESSION_CRASH_CONTENT: "export const revision = 'B';\n",
+        GENES_SESSION_CRASH_COMPILER_DATA: "{\"revision\":\"B\"}\n",
+      },
+      encoding: "utf8",
+    });
+    assert.equal(
+      recovered.status,
+      0,
+      `compiler-data recovery failed at ${checkpoint}: ${recovered.stdout}\n${recovered.stderr}`,
+    );
+    assert.equal(
+      readFileSync(path.join(root, "src-gen/index.ts"), "utf8"),
+      "export const revision = 'B';\n",
+      "restart must rebuild target output from the newest source state",
+    );
+    assert.equal(
+      readFileSync(path.join(root, "compiler-data-receipt.json"), "utf8"),
+      "{\"revision\":\"B\"}\n",
+      "restart must rebuild data-derived public output instead of replaying old validation",
+    );
+    const layout = resolveSessionLayout(
+      root,
+      "fixture-alternate-state-recovery",
+      "src-gen/index.ts",
+      ".genes/state-b",
+    );
+    const transactionRoot = path.join(
+      root,
+      ...layout.transactionRelative.split("/"),
+    );
+    assert.deepEqual(
+      existsSync(transactionRoot) ? readdirSync(transactionRoot) : [],
+      [],
+      "the rebuilt generation must leave no unfinished recovery work",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 {
   const root = realpathSync.native(
     mkdtempSync(path.join(os.tmpdir(), "genes-session-legacy-recovery-")),
@@ -3652,6 +3964,7 @@ if (process.platform !== "win32") {
 for (const invalidArgs of [
   ["build.hxml", "--connect", "6000"],
   ["build.hxml", "-D", "genes.output=stolen.ts"],
+  ["build.hxml", "-D", "genes.tooling.compiler-data=stolen"],
   ["build.hxml", "--next"],
   ["build.hxml", "--each"],
 ]) {
@@ -3669,6 +3982,7 @@ for (const invalidArgs of [
 for (const forbidden of [
   "-D genes.output=src-gen/index.ts",
   "-D genes.tooling.prepared=caller-owned",
+  "-D genes.tooling.compiler-data=caller-owned",
   "--connect 6000",
   "--wait 6000",
   "--server-listen 127.0.0.1:6000",
@@ -4270,7 +4584,12 @@ await withHarness(
   }),
 );
 
-for (const reservedPath of ["output", "haxe-input", "haxe-target"] as const) {
+for (const reservedPath of [
+  "compiler-data",
+  "output",
+  "haxe-input",
+  "haxe-target",
+] as const) {
   await withHarness(
     `prepared-input-reserved-stage-path-${reservedPath}`,
     async (harness) => {

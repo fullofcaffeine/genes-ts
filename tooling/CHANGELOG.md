@@ -16,6 +16,10 @@ it.
   their bytes in the warm request identity, and publish selected companions
   plus validator evidence with the same accepted Genes generation. The marker
   records these extra files for exact recovery and stale removal.
+- Let Haxe macros write small declared data values into private session slots.
+  Give validation byte copies without filesystem paths. Publish a value only
+  when the host returns it as an approved output file. A stopped update rolls
+  back and rebuilds because restart cannot safely recreate the private data.
 - Keep restart recovery compatible with accepted markers written before extra
   files existed, and reserve the complete `.genes/tooling` control directory
   so generated or host-provided files cannot overwrite any session's locks or

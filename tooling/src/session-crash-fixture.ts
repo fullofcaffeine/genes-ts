@@ -34,6 +34,7 @@ import {
   createGenesDevelopmentSessionWithDependencies,
   type SessionDependencies,
 } from "./session/runtime.js";
+import { COMPILER_DATA_DEFINE } from "./session/compiler-data.js";
 import { acquireSessionLock } from "./session/session-lock.js";
 import type {
   GenesDevelopmentOptions,
@@ -49,6 +50,7 @@ const supplementalPath = process.env.GENES_SESSION_CRASH_SUPPLEMENTAL_PATH;
 const supplementalContent =
   process.env.GENES_SESSION_CRASH_SUPPLEMENTAL_CONTENT ??
   "generated supplemental file\n";
+const compilerDataContent = process.env.GENES_SESSION_CRASH_COMPILER_DATA;
 const crashAt = process.env.GENES_SESSION_CRASH_AT as ArtifactCheckpoint | undefined;
 const migrationCrashAt = process.env
   .GENES_SESSION_MIGRATION_CRASH_AT as AuthorityMigrationCheckpoint | undefined;
@@ -79,13 +81,42 @@ function manifestName(owner: string): string {
 
 class FixtureCompiler implements SessionCompiler {
   async compile(
-    _invocation: Parameters<SessionCompiler["compile"]>[0],
+    invocation: Parameters<SessionCompiler["compile"]>[0],
     _compatibilityDigest: string,
     _signal: AbortSignal,
     assertInvocationCurrent?: () => void | Promise<void>,
   ): Promise<{ readonly mode: "direct" }> {
-    const { candidateOutputFile } = _invocation;
+    const { candidateOutputFile } = invocation;
     await assertInvocationCurrent?.();
+    if (compilerDataContent !== undefined) {
+      const request = invocation.arguments.find((argument) =>
+        argument.startsWith(`${COMPILER_DATA_DEFINE}=`),
+      );
+      if (request === undefined) {
+        throw new Error("crash fixture did not receive its compiler-data request");
+      }
+      const descriptorPath = request.slice(`${COMPILER_DATA_DEFINE}=`.length);
+      const lines = readFileSync(descriptorPath, "utf8").split("\n");
+      if (lines.shift() !== "genes.tooling.compiler-data-request-v1") {
+        throw new Error("crash fixture received an invalid compiler-data request");
+      }
+      const slot = lines
+        .filter((line) => line.length > 0)
+        .map((line) => line.split("\t"))
+        .find(
+          (fields) =>
+            Buffer.from(fields[0]!, "base64").toString("utf8") ===
+            "crash.receipt",
+        );
+      if (slot === undefined || slot.length !== 3) {
+        throw new Error("crash fixture could not find its compiler-data slot");
+      }
+      writeFileSync(
+        Buffer.from(slot[2]!, "base64").toString("utf8"),
+        compilerDataContent,
+        "utf8",
+      );
+    }
     mkdirSync(path.dirname(candidateOutputFile), { recursive: true });
     writeFileSync(candidateOutputFile, content, "utf8");
     const owner = path.basename(candidateOutputFile);
@@ -201,6 +232,11 @@ const options: GenesDevelopmentOptions<JsonValue> = {
   },
   publicOutputFile,
   stateDirectory,
+  ...(compilerDataContent === undefined
+    ? {}
+    : {
+        compilerData: [{ id: "crash.receipt", maxBytes: 1_024 }],
+      }),
   resolveInvocation: () => ({
     executable: "haxe",
     cwd: root,
@@ -225,7 +261,32 @@ const options: GenesDevelopmentOptions<JsonValue> = {
           },
         }),
       }),
-  validate: async () => ({ ok: true }),
+  validate: async (tree, context) => {
+    if (compilerDataContent === undefined) return { ok: true };
+    if (context.recovery) {
+      throw new Error(
+        "a compiler-data generation must rebuild instead of replaying validation",
+      );
+    }
+    const receipt = tree.compilerData.find(
+      (file) => file.id === "crash.receipt",
+    );
+    if (receipt === undefined) {
+      return {
+        ok: false,
+        diagnostic: "compiler-data receipt is missing",
+      };
+    }
+    return {
+      ok: true,
+      artifacts: [
+        {
+          path: "compiler-data-receipt.json",
+          content: receipt.readBytes(),
+        },
+      ],
+    };
+  },
   validatorPolicyFacts,
   debounceMs: 0,
   pollIntervalMs: 10,

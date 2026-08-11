@@ -266,6 +266,30 @@ export interface CandidateFile {
   readonly digest: string;
 }
 
+/** One required private data value that Haxe must produce for each revision. */
+export interface CompilerDataDeclaration {
+  /** Stable logical identity. This value is not a file path. */
+  readonly id: string;
+
+  /** Largest accepted value for this declaration. */
+  readonly maxBytes: number;
+}
+
+/** One copy of compiler-created data with no filesystem path. */
+export interface CompilerDataFile {
+  /** Stable logical identity from the session declaration. */
+  readonly id: string;
+
+  /** Lowercase SHA-256 digest of the exact bytes. */
+  readonly digest: string;
+
+  /** Exact byte count of the captured value. */
+  readonly sizeBytes: number;
+
+  /** Returns a new copy while the current validation call is active. */
+  readBytes(): Uint8Array;
+}
+
 /**
  * One exact file created before Haxe typing starts.
  *
@@ -317,6 +341,8 @@ export interface ValidationTree {
   readonly files: readonly CandidateFile[];
   /** Host-prepared or validator-produced files outside the Genes manifest. */
   readonly extraFiles: readonly CandidateFile[];
+  /** Required private data produced by Haxe for this candidate. */
+  readonly compilerData: readonly CompilerDataFile[];
 }
 
 /** The host's typed admission decision for one complete candidate tree. */
@@ -392,6 +418,14 @@ export interface GenesDevelopmentOptions<Diagnostic extends JsonValue> {
   readonly stateDirectory: string;
 
   readonly extraInputs?: readonly ObservedExtraInput[];
+
+  /**
+   * Complete list of private data values that Haxe must create for a revision.
+   *
+   * The session copies and validates this list when it is constructed. The
+   * files stay private unless the host returns approved public artifacts.
+   */
+  readonly compilerData?: readonly CompilerDataDeclaration[];
 
   /**
    * Creates exact private inputs before Haxe types this revision.

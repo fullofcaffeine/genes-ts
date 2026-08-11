@@ -29,6 +29,7 @@ import type { SessionLayout } from "./layout.js";
 const DEFAULT_MODE = 0o644;
 const RESERVED_STAGE_PATHS = [
   "admission",
+  "compiler-data",
   "generation.json",
   "haxe-input",
   "haxe-target",

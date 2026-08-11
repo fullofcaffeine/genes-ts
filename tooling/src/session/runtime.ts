@@ -42,6 +42,11 @@ import {
   type EffectiveHaxeInvocationPlan,
 } from "./effective-invocation.js";
 import {
+  captureCompilerData,
+  snapshotCompilerDataDeclarations,
+  stageCompilerData,
+} from "./compiler-data.js";
+import {
   auditSessionAuthority,
   establishSessionAuthority,
 } from "./authority-migration.js";
@@ -64,8 +69,9 @@ import {
   legacySessionProjectDigest,
   preparePublication,
   readPublishedMarker,
-  recoveredAdmissionDigests,
+  recoveredAdmissionMode,
   sessionProjectDigest,
+  type AdmissionRecoveryMode,
   type PublishedSupplementalFile,
 } from "./publication.js";
 import {
@@ -84,6 +90,7 @@ import {
   DEVELOPMENT_SESSION_EVENT_PROTOCOL,
   DEVELOPMENT_SESSION_EVENT_VERSION,
   type AcceptedGeneration,
+  type AdmissionResult,
   type DevelopmentEvent,
   type DevelopmentEventBody,
   type DevelopmentSession,
@@ -272,6 +279,9 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     (event: DevelopmentEvent<Diagnostic>) => void
   >();
   readonly #sessionNonce: string;
+  readonly #compilerDataDeclarations: ReturnType<
+    typeof snapshotCompilerDataDeclarations
+  >;
   readonly #loop: SerializedDirtyLoop<BuildCause>;
   readonly #compiler: SessionCompiler;
   readonly #firstAcceptedPromise: Promise<AcceptedGeneration>;
@@ -306,6 +316,9 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     dependencies: SessionDependencies<Diagnostic>,
   ) {
     this.#options = options;
+    this.#compilerDataDeclarations = snapshotCompilerDataDeclarations(
+      options.compilerData,
+    );
     this.#dependencies = dependencies;
     this.#layout = resolveSessionLayout(
       options.projectRoot,
@@ -635,11 +648,14 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     return await this.#admitRecoveredWith(
       plan,
       (manifestDigest) =>
-        Object.freeze([legacyAdmissionDigest(
-          this.#layout,
-          manifestDigest,
-          this.#options.validatorPolicyFacts,
-        )]),
+        plan.authorizationDigest ===
+          legacyAdmissionDigest(
+            this.#layout,
+            manifestDigest,
+            this.#options.validatorPolicyFacts,
+          )
+          ? "replayable"
+          : null,
     );
   }
 
@@ -662,22 +678,23 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     return await this.#admitRecoveredWith(
       plan,
       (manifestDigest, _supplementalFiles, marker) =>
-        recoveredAdmissionDigests(
+        recoveredAdmissionMode(
           this.#layout,
           manifestDigest,
           this.#options.validatorPolicyFacts,
           marker,
+          plan.authorizationDigest,
         ),
     );
   }
 
   async #admitRecoveredWith(
     plan: PublicationPlan,
-    expectedAdmission: (
+    admissionMode: (
       manifestDigest: string,
       supplementalFiles: readonly PublishedSupplementalFile[],
       marker: ReturnType<typeof readPublishedMarker>,
-    ) => readonly string[],
+    ) => AdmissionRecoveryMode | null,
   ): Promise<boolean> {
     const live = readGenesOutput(
       this.#layout.publicOutputRoot,
@@ -685,11 +702,13 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       true,
     )!;
     const published = readPublishedMarker(this.#layout);
-    if (!expectedAdmission(
-      live.manifestDigest,
-      published.supplementalFiles,
-      published,
-    ).includes(plan.authorizationDigest)) {
+    if (
+      admissionMode(
+        live.manifestDigest,
+        published.supplementalFiles,
+        published,
+      ) !== "replayable"
+    ) {
       return false;
     }
     const extraFiles = published.supplementalFiles.map((file) =>
@@ -926,6 +945,10 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         "output",
       );
       const candidateOutputFile = path.join(outputRoot, this.#layout.outputIdentity);
+      const stagedCompilerData = stageCompilerData(
+        candidateStageRoot,
+        this.#compilerDataDeclarations,
+      );
       if (this.#options.prepareRevision !== undefined) {
         const preparation = await this.#options.prepareRevision({
           revision: cause.revision,
@@ -963,6 +986,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         executionPlan,
         candidateStageRoot,
         candidateOutputFile,
+        stagedCompilerData?.descriptorPath,
       );
       for (const input of boundInvocation.privateArgumentFiles) {
         mkdirSync(path.dirname(input.path), { recursive: true, mode: 0o700 });
@@ -996,10 +1020,6 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
               digest: stagedPrepared.digest,
             }),
       );
-      rmSync(path.join(candidateStageRoot, "haxe-input"), {
-        recursive: true,
-        force: true,
-      });
       if (this.#closing !== null || abort.signal.aborted) return;
       const candidate = readGenesOutput(
         outputRoot,
@@ -1007,22 +1027,36 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         true,
       )!;
       assertCandidateContainsOnlyOwnedFiles(candidate);
+      const capturedCompilerData = captureCompilerData(stagedCompilerData);
+      rmSync(path.join(candidateStageRoot, "haxe-input"), {
+        recursive: true,
+        force: true,
+      });
       this.#emit({
         kind: "candidate-generated",
         revision: cause.revision,
         manifestDigest: candidate.manifestDigest,
       });
-      if (this.#closing !== null || abort.signal.aborted) return;
+      if (this.#closing !== null || abort.signal.aborted) {
+        capturedCompilerData.dispose();
+        return;
+      }
       failurePhase = "validate";
-      const admission = await this.#options.validate(
-        this.#validationTree(
-          "candidate",
-          cause.revision,
-          candidate,
-          supplementalCandidateFiles(stagedPrepared?.publicFiles ?? []),
-        ),
-        { signal: abort.signal, recovery: false },
-      );
+      let admission: AdmissionResult<Diagnostic>;
+      try {
+        admission = await this.#options.validate(
+          this.#validationTree(
+            "candidate",
+            cause.revision,
+            candidate,
+            supplementalCandidateFiles(stagedPrepared?.publicFiles ?? []),
+            capturedCompilerData.files,
+          ),
+          { signal: abort.signal, recovery: false },
+        );
+      } finally {
+        capturedCompilerData.dispose();
+      }
       if (this.#closing !== null || abort.signal.aborted) return;
       if (!admission.ok) {
         this.#fail(
@@ -1119,6 +1153,11 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
           this.#publishedMarkerState,
           supplementalFiles,
           this.#publishedSupplementalFiles,
+          // A stopped process cannot reproduce macro-created private bytes.
+          // Recovery must roll back this update and compile the source again.
+          this.#compilerDataDeclarations.length === 0
+            ? "replayable"
+            : "rebuild-required",
         );
         const ticket = prepared.plan.authorizationDigest;
         await this.#dependencies.publish({
@@ -1201,6 +1240,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     revision: number | null,
     inventory: GenesOutputInventory,
     extraFiles: ValidationTree["extraFiles"] = Object.freeze([]),
+    compilerData: ValidationTree["compilerData"] = Object.freeze([]),
   ): ValidationTree {
     return Object.freeze({
       kind,
@@ -1211,6 +1251,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       manifestDigest: inventory.manifestDigest,
       files: validationFiles(this.#layout, inventory),
       extraFiles: Object.freeze([...extraFiles]),
+      compilerData: Object.freeze([...compilerData]),
     });
   }
 
