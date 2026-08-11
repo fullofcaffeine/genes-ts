@@ -4,6 +4,14 @@ All notable changes to `@genes-ts/tooling` are recorded here. This package has
 its own version and release lifecycle; compiler/Haxelib releases do not publish
 it.
 
+## 0.2.0
+
+- Let Haxe macros write small declared data values into private session slots.
+  Give validation byte copies without filesystem paths. Publish a value only
+  when the host returns it as an approved output file. A stopped update rolls
+  back and rebuilds before commit. After commit, restart keeps the complete
+  public result and finishes only private cleanup.
+
 ## 0.1.0
 
 - Add framework-neutral durable artifact publication and recovery.
@@ -16,11 +24,6 @@ it.
   their bytes in the warm request identity, and publish selected companions
   plus validator evidence with the same accepted Genes generation. The marker
   records these extra files for exact recovery and stale removal.
-- Let Haxe macros write small declared data values into private session slots.
-  Give validation byte copies without filesystem paths. Publish a value only
-  when the host returns it as an approved output file. A stopped update rolls
-  back and rebuilds before commit. After commit, restart keeps the complete
-  public result and finishes only private cleanup.
 - Keep restart recovery compatible with accepted markers written before extra
   files existed, and reserve the complete `.genes/tooling` control directory
   so generated or host-provided files cannot overwrite any session's locks or
