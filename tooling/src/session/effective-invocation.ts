@@ -17,6 +17,7 @@ import type {
   HaxeInvocation,
   JsonValue,
 } from "./types.js";
+import { COMPILER_DATA_DEFINE } from "./compiler-data.js";
 
 export const HAXE_4_3_7_DEVELOPMENT_JS_POLICY =
   "haxe-4.3.7-development-js-v1" as const;
@@ -60,6 +61,7 @@ const FORBIDDEN_DEFINES = Object.freeze([
   "dump-dependencies",
   "dump-path",
   "genes.output",
+  COMPILER_DATA_DEFINE,
   "genes.tooling.prepared",
   "gen_hx_classes",
   "message.log-file",
@@ -208,6 +210,7 @@ export function bindHaxeInvocation(
   plan: EffectiveHaxeInvocationPlan,
   candidateStageRoot: string,
   candidateOutputFile: string,
+  compilerDataDescriptorPath?: string,
 ): BoundHaxeInvocation {
   const haxeTarget = path.join(candidateStageRoot, "haxe-target", "compiler.js");
   const environment: Record<string, string> = {
@@ -257,6 +260,9 @@ export function bindHaxeInvocation(
       haxeTarget,
       "-D",
       `genes.output=${candidateOutputFile}`,
+      ...(compilerDataDescriptorPath === undefined
+        ? []
+        : ["-D", `${COMPILER_DATA_DEFINE}=${compilerDataDescriptorPath}`]),
     ]),
     privateArgumentFiles: Object.freeze(privateArgumentFiles),
     candidateRoot: candidateStageRoot,

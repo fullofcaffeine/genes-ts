@@ -300,12 +300,19 @@ yarn test:tooling-package
   generations. Direct-path checks reject symbolic links as case-alias evidence.
   Entry ordering, symlinked parent directories, stable-control/state
   separation, and repeated private-path sanitization are focused regressions.
-- `session-integration-test` runs the real selected Haxe 4.3.7 compiler twice,
-  proves the request-local private output override, publishes through the
-  compiler's v2 ownership manifest, verifies private candidate paths stay out
-  of generated TypeScript/source maps, proves nested and temporary-library
-  output/multi-compilation HXML fails before public mutation, and proves the
-  second valid build reuses one exact owned server.
+  The same test checks declared compiler-data limits, exact bytes and digests,
+  access without filesystem paths, linked files, missing or extra files, and
+  expired reads. A crash test covers a stopped compiler-data update. Recovery
+  rolls back and rebuilds instead of validating without the private bytes.
+- `session-integration-test` uses the selected Haxe 4.3.7 compiler for both
+  TypeScript and classic JavaScript output. A real module-level Haxe macro
+  writes declared JSON during typing. The host validates and publishes those
+  bytes with each generated tree. Warm edits reuse one owned Haxe server in
+  each profile. Direct Haxe cases also reject a missing session declaration,
+  an unknown ID, a duplicate write, and an oversized value at the macro call.
+  The test still proves the private output override, the compiler's v2
+  ownership manifest, source-map path safety, and HXML policy before public
+  mutation.
 
 The focused HXML inventory test checks every Haxe 4.3.7 option that receives
 special early handling. Its inline `--option=value` form must fail before a

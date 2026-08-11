@@ -14,6 +14,7 @@ import {
   HAXE_4_3_7_DEVELOPMENT_JS_POLICY,
   type BoundHaxeInvocation,
 } from "./effective-invocation.js";
+import { COMPILER_DATA_DEFINE } from "./compiler-data.js";
 
 const LOG_LIMIT = 128_000;
 
@@ -130,24 +131,29 @@ function validateInvocation(invocation: HaxeInvocation): void {
   ) {
     throw new Error("HaxeInvocation must not contain compiler-server flags");
   }
-  if (
-    invocation.args.some(
-      (argument) =>
-        argument === "genes.output" ||
-        argument.startsWith("genes.output=") ||
-        argument.startsWith("-Dgenes.output") ||
-        argument.startsWith("--define=genes.output"),
-    )
-  ) {
-    throw new Error("HaxeInvocation must not define genes.output");
+  const reservedDefines = ["genes.output", COMPILER_DATA_DEFINE];
+  for (const reserved of reservedDefines) {
+    if (
+      invocation.args.some(
+        (argument) =>
+          argument === reserved ||
+          argument.startsWith(`${reserved}=`) ||
+          argument.startsWith(`-D${reserved}`) ||
+          argument.startsWith(`--define=${reserved}`),
+      )
+    ) {
+      throw new Error(`HaxeInvocation must not define ${reserved}`);
+    }
   }
   for (let index = 0; index < invocation.args.length - 1; index += 1) {
-    if (
-      (invocation.args[index] === "-D" ||
-        invocation.args[index] === "--define") &&
-      invocation.args[index + 1]!.startsWith("genes.output")
-    ) {
-      throw new Error("HaxeInvocation must not define genes.output");
+    if (invocation.args[index] === "-D" || invocation.args[index] === "--define") {
+      const value = invocation.args[index + 1]!;
+      const reserved = reservedDefines.find(
+        (candidate) => value === candidate || value.startsWith(`${candidate}=`),
+      );
+      if (reserved !== undefined) {
+        throw new Error(`HaxeInvocation must not define ${reserved}`);
+      }
     }
   }
 }

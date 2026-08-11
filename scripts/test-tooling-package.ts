@@ -588,6 +588,8 @@ import {
 } from "@genes-ts/tooling/watch";
 import type {
   AdmittedArtifact,
+  CompilerDataDeclaration,
+  CompilerDataFile,
   DevelopmentSession,
   DevelopmentSnapshot,
   GenesDevelopmentOptions,
@@ -645,6 +647,8 @@ const typeWitness:
   | PreparedRevision
   | PreparationResult<Diagnostic>
   | AdmittedArtifact
+  | CompilerDataDeclaration
+  | CompilerDataFile
   | ValidationTree
   | CssModuleExportsManifestV1
   | undefined = undefined;

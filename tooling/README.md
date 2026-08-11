@@ -306,6 +306,95 @@ accepted set unchanged. The host still decides how to parse CSS, which loader
 is authoritative, and how its live development server handles an invalid
 authored stylesheet.
 
+### Data that a Haxe macro returns to the host
+
+Sometimes Haxe discovers a small data value while it checks the program. For
+example, a macro can create a route list or an asset list from typed Haxe
+declarations. The host needs those bytes before it decides whether to publish
+the complete generation.
+
+Use `compilerData` for this direction of data flow:
+
+```text
+Haxe macro -> private named value -> host validation -> optional public file
+```
+
+This direction differs from `prepareRevision`. Preparation sends host-created
+Haxe input into the compiler. Compiler data sends macro-created bytes back to
+the host after Haxe finishes.
+
+First, the host declares every required value and its maximum size:
+
+```ts
+const session = createGenesDevelopmentSession<Diagnostic>({
+  // The other session options stay the same.
+  compilerData: [{ id: "build.note", maxBytes: 1024 }],
+
+  validate: async (tree) => {
+    const note = tree.compilerData.find((file) => file.id === "build.note");
+    if (note === undefined) {
+      return {
+        ok: false,
+        diagnostic: {
+          code: "BUILD_NOTE_MISSING",
+          message: "Haxe did not create the required build note",
+        },
+      };
+    }
+
+    console.log(note.digest, note.sizeBytes);
+    return {
+      ok: true,
+      artifacts: [{
+        path: "build-note.json",
+        content: note.readBytes(),
+      }],
+    };
+  },
+  validatorPolicyFacts: { buildNote: 1 },
+});
+```
+
+Then a Haxe macro writes the declared value:
+
+```haxe
+package app.build;
+
+import genes.tooling.CompilerData.writeUtf8;
+import haxe.macro.Expr;
+
+/** Records one small fact that the host checks with the generated program. */
+macro function recordBuildNote():Expr {
+  writeUtf8("build.note", '{"checked":true}\n');
+  return macro null;
+}
+```
+
+The macro receives no public path. The session gives it one private slot for
+`build.note`. Haxe rejects an unknown ID, a second write, or a value that is
+too large.
+
+The validator receives the exact SHA-256 digest (content checksum) and size.
+`readBytes()` returns a new copy during that validation call. The method stops
+working after validation returns. Thus, a later build cannot read stale bytes.
+
+Compiler data stays private by default. The example publishes
+`build-note.json` only because the validator returns it as an approved output
+file through `AdmissionResult.artifacts`. Tooling publishes that file with the
+Genes output in one complete update.
+
+If the process stops before the public update is committed, the next session
+rolls it back and does a new Haxe build. It does not replay validation with
+missing private data. If the public update is already committed, restart keeps
+those complete public files and only removes leftover private control files.
+
+The first contract accepts at most 64 values. Each value can be at most 8 MiB,
+and their declared total can be at most 16 MiB. IDs use lowercase letters,
+numbers, `.`, `_`, or `-` and do not contain file paths.
+
+This API does not sandbox Haxe macros. Macros remain trusted compile-time code.
+The session checks only the declared private files that cross into validation.
+
 Current accepted-generation records remember whether each extra file came from
 `prepareRevision` or from validation. During restart recovery, every saved
 validator file must be returned again with the same path, bytes, size, and file
@@ -397,12 +486,14 @@ rolled back, the other output can start normally.
   rejects every authored target selector,
   `--no-output`, display/prompt modes, compiler dump/message-log file outputs,
   caller-provided `--connect`, server-listen, `genes.output`,
-  `genes.tooling.prepared`, `--next`, and `--each` flags because two lifecycle
-  owners or several output compilations would be ambiguous. When
+  `genes.tooling.prepared`, `genes.tooling.compiler-data`, `--next`, and
+  `--each` flags because two lifecycle owners or several output compilations
+  would be ambiguous. When
   `prepareRevision` is used, the session owns
   `-D genes.tooling.prepared=<exact digest>` so a warm compiler cannot reuse an
-  older generated input. Both private defines are reserved and may not appear
-  in the HXML graph. It also rejects `--cmd`, `--run`,
+  older generated input. When `compilerData` is used, the session owns the
+  request-local private request file. These private defines may not appear in
+  the HXML graph. It also rejects `--cmd`, `--run`,
   `--interp`, and `-x`: these options can run a shell command or the compiled
   program inside Haxe, before the host has checked and accepted the candidate.
   It rejects `--xml`, `-xml`, and `--json` too because they write extra files outside

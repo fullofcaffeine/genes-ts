@@ -623,4 +623,61 @@ try {
   rmSync(recoverCommitRoot, { recursive: true, force: true });
 }
 
+const recoverCommittedCleanupRoot = mkdtempSync(
+  path.join(
+    realpathSync.native(tmpdir()),
+    "genes-tooling-recover-committed-cleanup-",
+  ),
+);
+try {
+  crashPublish(recoverCommittedCleanupRoot, "after-cleanup:work-root");
+  let admissions = 0;
+  const recovery = await recoverArtifacts({
+    projectRoot: recoverCommittedCleanupRoot,
+    transactionRoot: publishPlan.transactionRoot,
+    projectIdentity: publishPlan.projectIdentity,
+    admitIntended: () => {
+      admissions += 1;
+      return false;
+    },
+  });
+  assert.equal(
+    recovery.action,
+    "committed",
+    "a committed journal must finish cleanup after rollback files are gone",
+  );
+  assert.equal(
+    admissions,
+    0,
+    "terminal cleanup must not ask the host to validate an already committed update again",
+  );
+  assert.equal(
+    readFileSync(
+      path.join(recoverCommittedCleanupRoot, "generated/update.js"),
+      "utf8",
+    ),
+    "new update\n",
+  );
+  assert.equal(
+    existsSync(
+      path.join(
+        recoverCommittedCleanupRoot,
+        ".genes-tooling/transactions/journal.json",
+      ),
+    ),
+    false,
+  );
+  assert.equal(
+    existsSync(
+      path.join(
+        recoverCommittedCleanupRoot,
+        ".genes-tooling/transactions/lock",
+      ),
+    ),
+    false,
+  );
+} finally {
+  rmSync(recoverCommittedCleanupRoot, { recursive: true, force: true });
+}
+
 process.stdout.write("genes tooling artifact foundations: ok\n");

@@ -160,6 +160,29 @@ writes them into the candidate and gives the request a digest that changes when
 any prepared byte, path, mode, or public destination changes. The digest is a
 request check; it does not restart an otherwise compatible owned Haxe server.
 
+A macro can also create a small data value while Haxe checks the program. The
+host declares each required value in `compilerData` before the session starts.
+The declaration contains a logical ID and a maximum byte count, not a path.
+
+During compilation, the macro calls
+`genes.tooling.CompilerData.writeUtf8(id, content)` or `writeBytes(id, content)`.
+The session gives the macro one private file for that ID. It rejects missing,
+extra, linked, changed, duplicate, or oversized values before validation.
+
+The validator receives each accepted value in `ValidationTree.compilerData`.
+It can read the exact digest, size, and a fresh byte copy. The copy method is
+valid only during that validation call. Compiler data stays private unless the
+validator returns derived or identical bytes through `AdmissionResult.artifacts`.
+
+A stopped update that used compiler data cannot replay its validation step.
+The private value no longer exists after the stopped process. Before the
+public update is committed, the next session rolls it back and starts a new
+Haxe build. After commit, restart keeps the complete public result and finishes
+only the leftover private cleanup.
+
+See [Data that a Haxe macro returns to the host](../../README.md#data-that-a-haxe-macro-returns-to-the-host)
+for complete Haxe and TypeScript examples.
+
 A prepared file may include `publishPath`. Such files appear separately in
 `ValidationTree.extraFiles` and join the same final update as the Genes-owned
 files. After successful validation, `AdmissionResult.artifacts` may add a small
@@ -205,13 +228,14 @@ session adapter; checking the JSON shape alone is not enough.
 Keep a published generated Haxe source's private `relativePath` equal to its
 `publishPath` when practical. This lets the generated source map name the
 stable public companion path. Tooling reserves the candidate's `output`,
-`admission`, `haxe-input`, `haxe-target`, and `generation.json` names for its
-own work and rejects prepared files that try to use them.
+`admission`, `compiler-data`, `haxe-input`, `haxe-target`, and
+`generation.json` names for its own work. It rejects prepared files that try
+to use them.
 
-The session also reserves the Haxe define `genes.tooling.prepared`. A host must
-not add it to HXML; the session computes the value from the prepared files.
-This prevents an arbitrary caller value from claiming that stale input is
-current.
+The session also reserves the Haxe defines `genes.tooling.prepared` and
+`genes.tooling.compiler-data`. A host must not add them to HXML. The session
+computes the first value from prepared files and keeps the second request-local.
+This prevents a caller from claiming stale input or choosing a write path.
 
 An admitted candidate whose bytes are unchanged still advances the accepted
 generation and revision, but reports an empty `FileDelta`. Hosts perform no
