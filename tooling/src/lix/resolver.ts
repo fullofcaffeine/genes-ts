@@ -5,10 +5,12 @@ import {
   readFileSync,
   readdirSync,
   realpathSync,
+  type Dirent,
 } from "node:fs";
 import path from "node:path";
 import { TextDecoder } from "node:util";
 
+import { HAXE_4_3_7_OPTION_ARITY } from "../hxml/index.js";
 import {
   LixLibraryResolverError,
   type LixLibraryResolverFailureCode,
@@ -104,8 +106,17 @@ function scopeFiles(projectRoot: string): readonly string[] {
       "Lix scope directory haxe_libraries must be a real directory",
     );
   }
+  let entries: Dirent<string>[];
+  try {
+    entries = readdirSync(directory, { withFileTypes: true });
+  } catch {
+    fail(
+      "LIX_RESOLVER_UNSAFE_SCOPE",
+      "Lix scope directory haxe_libraries cannot be read",
+    );
+  }
   return Object.freeze(
-    readdirSync(directory, { withFileTypes: true })
+    entries
       .filter((entry) => entry.name.endsWith(".hxml"))
       .map((entry) => {
         if (!entry.isFile() || entry.isSymbolicLink()) {
@@ -427,15 +438,12 @@ function parseOutput(stdout: string, projectRoot: string): {
   const argumentsResult: string[] = [];
   const roots = new Set<string>();
   const manifests = new Set<string>();
-  for (const raw of normalizedOutput.split("\n")) {
-    if (raw.length === 0) continue;
-    if (raw !== raw.trim()) {
-      fail(
-        "LIX_RESOLVER_MALFORMED_OUTPUT",
-        "Lix haxelib output has leading or trailing whitespace",
-      );
-    }
-    const line = haxeUnquote(raw);
+  const lines = normalizedOutput
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = haxeUnquote(lines[lineIndex]!);
     if (!line.startsWith("-") && line.endsWith(".hxml")) {
       const hxml = path.resolve(projectRoot, line);
       let hxmlStats: ReturnType<typeof lstatSync>;
@@ -487,7 +495,14 @@ function parseOutput(stdout: string, projectRoot: string): {
         : whitespace === -1
           ? null
           : line.slice(whitespace).trimStart();
-      const value = rawValue === null ? null : haxeUnquote(rawValue);
+      let value = rawValue === null ? null : haxeUnquote(rawValue);
+      if (value === null && HAXE_4_3_7_OPTION_ARITY[option] === 1) {
+        const nextLine = lines[lineIndex + 1];
+        if (nextLine !== undefined) {
+          value = haxeUnquote(nextLine);
+          lineIndex += 1;
+        }
+      }
       if (value !== null && value.length === 0) {
         fail(
           "LIX_RESOLVER_MALFORMED_OUTPUT",

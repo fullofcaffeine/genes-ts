@@ -1079,9 +1079,14 @@ it with its checked arguments before Haxe starts. Inline class paths, such as
 removed before the filesystem check. This supports package folders with
 spaces without treating the quotes as part of the folder name.
 
-An option line keeps its option and value in the same order. The one exception
-is `-L <path>` from `haxelib path`. Haxe 4.3.7 changes that option to
-`--neko-lib-path <path>`, so the resolver makes the same change.
+The resolver ignores normal spaces at the start or end of each output line,
+as Haxe does for HXML input. An option and its value can be on one line or on
+two lines. Both forms keep the same ordered Haxe arguments.
+
+The one spelling change is `-L <path>` from `haxelib path`. Haxe 4.3.7 changes
+that option to `--neko-lib-path <path>`, so the resolver makes the same change.
+The managed development session accepts this checked path. It does not permit
+an application to select a different output target or run a command.
 
 The resolver waits until the command closes its output pipes. This rule keeps
 output from a child process complete, even when a process exits before its last
@@ -1091,8 +1096,9 @@ output targets, and other arguments that a managed development session must
 not run.
 Invalid paths, links, command failures, cancellation, timeouts, oversized
 output, and invalid text fail with a `LixLibraryResolverError` and a stable
-`code`. A proof file that becomes unreadable or disappears also returns this
-stable error. It does not leak a raw filesystem error to the host.
+`code`. An unreadable scope folder, or a proof file that becomes unreadable or
+disappears, also returns this stable error. It does not leak a raw filesystem
+error to the host.
 
 ## Reconciled watching
 

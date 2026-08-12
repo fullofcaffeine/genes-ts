@@ -152,6 +152,20 @@ assert.deepEqual(crlfOutput.arguments, [
   "crlf=1",
 ]);
 
+const splitDefineProgram = fakeProgram(
+  "split-define",
+  'process.stdout.write("-D\\nsplit-define=1\\n");',
+);
+const splitDefine = await resolveLixLibraryGroup({
+  projectRoot,
+  requests: [request("first")],
+  command: {
+    executable: process.execPath,
+    argsPrefix: [splitDefineProgram],
+  },
+});
+assert.deepEqual(splitDefine.arguments, ["-D", "split-define=1"]);
+
 const inlineClassPathProgram = fakeProgram(
   "inline-class-path",
   `process.stdout.write(${JSON.stringify(`--class-path=${firstSource}\n`)});`,
@@ -168,6 +182,34 @@ assert.deepEqual(inlineClassPath.arguments, ["-cp", canonical(firstSource)]);
 assert.deepEqual(inlineClassPath.allowedRoots, [
   canonical(path.join(libraryRoot, "first")),
 ]);
+
+const splitClassPathProgram = fakeProgram(
+  "split-class-path",
+  `process.stdout.write(${JSON.stringify(`-cp\n\n${firstSource}\n`)});`,
+);
+const splitClassPath = await resolveLixLibraryGroup({
+  projectRoot,
+  requests: [request("first")],
+  command: {
+    executable: process.execPath,
+    argsPrefix: [splitClassPathProgram],
+  },
+});
+assert.deepEqual(splitClassPath.arguments, ["-cp", canonical(firstSource)]);
+
+const indentedClassPathProgram = fakeProgram(
+  "indented-class-path",
+  `process.stdout.write(${JSON.stringify(`  -cp ${firstSource}  \n`)});`,
+);
+const indentedClassPath = await resolveLixLibraryGroup({
+  projectRoot,
+  requests: [request("first")],
+  command: {
+    executable: process.execPath,
+    argsPrefix: [indentedClassPathProgram],
+  },
+});
+assert.deepEqual(indentedClassPath.arguments, ["-cp", canonical(firstSource)]);
 
 const quotedClassPathProgram = fakeProgram(
   "quoted-class-path",
@@ -471,6 +513,27 @@ try {
   );
 } finally {
   writeFileSync(disappearingScope, "# pinned first scope\n", "utf8");
+}
+
+if (process.platform !== "win32") {
+  const scopeDirectory = path.join(projectRoot, "haxe_libraries");
+  chmodSync(scopeDirectory, 0o000);
+  try {
+    await expectCode(
+      () =>
+        resolveLixLibraryGroup({
+          projectRoot,
+          requests: [request("first")],
+          command: {
+            executable: process.execPath,
+            argsPrefix: [program],
+          },
+        }),
+      "LIX_RESOLVER_UNSAFE_SCOPE",
+    );
+  } finally {
+    chmodSync(scopeDirectory, 0o755);
+  }
 }
 
 rmSync(root, { force: true, recursive: true });

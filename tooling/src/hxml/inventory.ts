@@ -592,6 +592,17 @@ async function inventoryHxmlWithPolicy(
         }
       }
 
+      if (argument === "--neko-lib-path") {
+        const resolved = path.resolve(cwd, value!);
+        assertAllowed(allowedRoots, resolved, `${sourceFile}:nekoLibraryPath`);
+        assertNoSymlinkComponents(
+          allowedRoots,
+          resolved,
+          `${sourceFile}:nekoLibraryPath`,
+        );
+        canonicalDirectory(resolved, `${sourceFile}:nekoLibraryPath`);
+      }
+
       if (inlineValue !== undefined && value?.endsWith(".hxml") === true) {
         // Haxe expands standalone `*.hxml` arguments before it splits an
         // ordinary `--option=value` token. Preserve this spelling so a value
