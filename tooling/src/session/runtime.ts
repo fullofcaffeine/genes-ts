@@ -177,6 +177,17 @@ function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
+class ExistingGenerationStartupError extends Error {
+  readonly phase: "validate" | "publish";
+
+  constructor(phase: "validate" | "publish", cause: unknown) {
+    const error = asError(cause);
+    super(error.message);
+    this.name = "ExistingGenerationStartupError";
+    this.phase = phase;
+  }
+}
+
 /** Replaces one private path whether a host reports `/` or `\\` separators. */
 function replacePathSpellings(
   value: string,
@@ -343,6 +354,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   #publishedSupplementalFiles: readonly PublishedSupplementalFile[] = Object.freeze([]);
   #mayCleanCandidates = false;
   #acceptWatchChanges = false;
+  #startupInputChanged = false;
 
   constructor(
     options: GenesDevelopmentOptions<Diagnostic>,
@@ -462,6 +474,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         this.#inventory,
         this.#publishedSupplementalFiles.map((file) => file.path),
       );
+      startupPhase = "recovery";
       const existing = await this.#resumeExistingGeneration(published);
       if (this.#closing !== null || this.#startupAbort.signal.aborted) return;
       if (this.#newestRevision !== 0) {
@@ -486,15 +499,23 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       );
     } catch (error) {
       const normalized = asError(error);
+      const failurePhase =
+        error instanceof ExistingGenerationStartupError
+          ? error.phase
+          : startupPhase;
       if (this.#closing === null) {
         this.#fail(
-          startupPhase,
+          failurePhase,
           null,
           false,
           diagnostic(
-            startupPhase === "inventory"
+            failurePhase === "inventory"
               ? "HXML_INVENTORY_FAILED"
-              : "SESSION_RECOVERY_FAILED",
+              : failurePhase === "validate"
+                ? "HOST_VALIDATION_FAILED"
+                : failurePhase === "publish"
+                  ? "PUBLICATION_FAILED"
+                  : "SESSION_RECOVERY_FAILED",
             this.#sanitizeCoreMessage(normalized.message),
           ),
         );
@@ -534,17 +555,28 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         inventory,
         checked.published.map((file) => file.path),
       );
-      const admission = await this.#options.validate(
-        this.#validationTree(
-          "recovered-live",
-          null,
-          live,
-          checked.candidates,
-        ),
-        { signal: this.#startupAbort.signal, recovery: true },
-      );
+      let admission: AdmissionResult<Diagnostic>;
+      try {
+        admission = await this.#options.validate(
+          this.#validationTree(
+            "recovered-live",
+            null,
+            live,
+            checked.candidates,
+          ),
+          { signal: this.#startupAbort.signal, recovery: true },
+        );
+      } catch (error) {
+        throw new ExistingGenerationStartupError("validate", error);
+      }
+      if (this.#closing !== null || this.#startupAbort.signal.aborted) {
+        return null;
+      }
       if (!admission.ok) {
-        throw new Error("the host validator rejected the existing generation");
+        throw new ExistingGenerationStartupError(
+          "validate",
+          "the host validator rejected the existing generation",
+        );
       }
       if (
         !recoveredArtifactsMatchPublishedFiles(
@@ -553,9 +585,26 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
           "v4",
         )
       ) {
-        throw new Error(
+        throw new ExistingGenerationStartupError(
+          "validate",
           "the host validator did not reproduce the exact existing supplemental files",
         );
+      }
+      const reconciliationChanged = this.#requireReconciliation();
+      const changedDuringValidation =
+        this.#startupInputChanged || reconciliationChanged;
+      this.#assertSupplementalPaths(
+        inventory,
+        checked.published.map((file) => file.path),
+      );
+      if (changedDuringValidation) {
+        throw new ExistingGenerationStartupError(
+          "validate",
+          "authored inputs changed while the existing generation was checked",
+        );
+      }
+      if (this.#closing !== null || this.#startupAbort.signal.aborted) {
+        return null;
       }
       const stageRelativePath =
         `${this.#layout.candidatesRelative}/existing-${this.#dependencies.nonce()}`;
@@ -570,11 +619,15 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
           this.#sessionNonce,
         );
         const ticket = prepared.plan.authorizationDigest;
-        await this.#dependencies.publish({
-          projectRoot: this.#layout.projectRoot,
-          plan: prepared.plan,
-          admitIntended: (plan) => plan.authorizationDigest === ticket,
-        });
+        try {
+          await this.#dependencies.publish({
+            projectRoot: this.#layout.projectRoot,
+            plan: prepared.plan,
+            admitIntended: (plan) => plan.authorizationDigest === ticket,
+          });
+        } catch (error) {
+          throw new ExistingGenerationStartupError("publish", error);
+        }
         const recorded = readPublishedMarker(this.#layout);
         this.#publishedManifestDigest = recorded.manifestDigest;
         this.#publishedMarkerState = recorded.state;
@@ -604,17 +657,28 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     const extraFiles = published.supplementalFiles.map((file) =>
       readLiveSupplementalFile(this.#layout, file),
     );
-    const admission = await this.#options.validate(
-      this.#validationTree(
-        "recovered-live",
-        null,
-        live,
-        extraFiles,
-      ),
-      { signal: this.#startupAbort.signal, recovery: true },
-    );
+    let admission: AdmissionResult<Diagnostic>;
+    try {
+      admission = await this.#options.validate(
+        this.#validationTree(
+          "recovered-live",
+          null,
+          live,
+          extraFiles,
+        ),
+        { signal: this.#startupAbort.signal, recovery: true },
+      );
+    } catch (error) {
+      throw new ExistingGenerationStartupError("validate", error);
+    }
+    if (this.#closing !== null || this.#startupAbort.signal.aborted) {
+      return null;
+    }
     if (!admission.ok) {
-      throw new Error("the host validator rejected the accepted generation");
+      throw new ExistingGenerationStartupError(
+        "validate",
+        "the host validator rejected the accepted generation",
+      );
     }
     if (
       !recoveredArtifactsMatchPublishedFiles(
@@ -623,8 +687,26 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         published.format,
       )
     ) {
-      throw new Error(
+      throw new ExistingGenerationStartupError(
+        "validate",
         "the host validator did not reproduce the accepted supplemental files",
+      );
+    }
+    const inventory = this.#inventory;
+    if (inventory === null) {
+      throw new Error("accepted generation has no HXML inventory");
+    }
+    const reconciliationChanged = this.#requireReconciliation();
+    const changedDuringValidation =
+      this.#startupInputChanged || reconciliationChanged;
+    this.#assertSupplementalPaths(
+      inventory,
+      published.supplementalFiles.map((file) => file.path),
+    );
+    if (changedDuringValidation) {
+      throw new ExistingGenerationStartupError(
+        "validate",
+        "authored inputs changed while the accepted generation was checked",
       );
     }
     const accepted: AcceptedGeneration = Object.freeze({
@@ -644,6 +726,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   #acceptExisting(accepted: AcceptedGeneration): void {
     this.#accepted = accepted;
     this.#setState(Object.freeze({ kind: "ready", accepted }), accepted.acceptedAt);
+    if (this.#closing !== null) return;
     this.#emit({ kind: "generation-accepted", accepted });
     if (!this.#firstAcceptedSettled) {
       this.#firstAcceptedSettled = true;
@@ -945,6 +1028,8 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       onChange: (change) => {
         if (this.#acceptWatchChanges) {
           this.#observe(change.path, change.cause);
+        } else {
+          this.#startupInputChanged = true;
         }
       },
       onError: (error) => {

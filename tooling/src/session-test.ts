@@ -898,6 +898,149 @@ await withHarness(
   },
 );
 
+await withHarness(
+  "existing-generation-ready-callback-can-close",
+  async (harness) => {
+    let observed = false;
+    harness.session.subscribe((record) => {
+      if (
+        record.event.kind !== "state" ||
+        record.event.state.kind !== "ready" ||
+        observed
+      ) {
+        return;
+      }
+      observed = true;
+      void harness.session.close();
+    });
+    await harness.session.start();
+    await harness.session.close();
+    await assert.rejects(
+      harness.session.firstAccepted,
+      /closed before its first admission/u,
+    );
+    assert.equal(observed, true);
+    assert.equal(
+      harness.events.some((record) => record.event.kind === "generation-accepted"),
+      false,
+      "closing from ready must stop the later acceptance notification",
+    );
+  },
+  undefined,
+  (options, root) => {
+    const seeded = seedExistingHostGeneration(
+      root,
+      "fixture-existing-generation-ready-callback-can-close",
+    );
+    return {
+      ...options,
+      existingGeneration: { import: seeded.import },
+      validate: async () => ({
+        ok: true,
+        artifacts: [{ path: "app/page.ts", content: seeded.adapterBytes }],
+      }),
+    };
+  },
+);
+
+{
+  const validationStarted = deferred<void>();
+  const releaseValidation = deferred<void>();
+  await withHarness(
+    "existing-generation-close-during-validation",
+    async (harness) => {
+      const start = harness.session.start();
+      await validationStarted.promise;
+      const close = harness.session.close();
+      releaseValidation.resolve();
+      await Promise.all([start, close]);
+      await assert.rejects(
+        harness.session.firstAccepted,
+        /closed before its first admission/u,
+      );
+      const layout = resolveSessionLayout(
+        harness.root,
+        "fixture-existing-generation-close-during-validation",
+        "src-gen/index.ts",
+        ".genes/dev",
+      );
+      assert.equal(
+        readPublishedMarker(layout).manifestDigest,
+        null,
+        "shutdown during validation must not publish a handoff marker",
+      );
+    },
+    undefined,
+    (options, root) => {
+      const seeded = seedExistingHostGeneration(
+        root,
+        "fixture-existing-generation-close-during-validation",
+      );
+      return {
+        ...options,
+        existingGeneration: { import: seeded.import },
+        validate: async () => {
+          validationStarted.resolve();
+          await releaseValidation.promise;
+          return {
+            ok: true,
+            artifacts: [{ path: "app/page.ts", content: seeded.adapterBytes }],
+          };
+        },
+      };
+    },
+  );
+}
+
+{
+  const validationStarted = deferred<void>();
+  const releaseValidation = deferred<void>();
+  await withHarness(
+    "existing-generation-input-change-during-validation",
+    async (harness) => {
+      const start = harness.session.start();
+      await validationStarted.promise;
+      writeFileSync(harness.source, "class Main { static final changed = true; }\n");
+      currentWatch(harness).change(harness.source);
+      releaseValidation.resolve();
+      await start;
+      await assert.rejects(harness.session.firstAccepted, /fatal session failure/u);
+      const failed = harness.events.find((record) => record.event.kind === "failed");
+      assert.equal(
+        failed?.event.kind === "failed" ? failed.event.failure.phase : null,
+        "validate",
+      );
+      assert.match(JSON.stringify(failed), /authored inputs changed/u);
+      const layout = resolveSessionLayout(
+        harness.root,
+        "fixture-existing-generation-input-change-during-validation",
+        "src-gen/index.ts",
+        ".genes/dev",
+      );
+      assert.equal(readPublishedMarker(layout).manifestDigest, null);
+    },
+    undefined,
+    (options, root) => {
+      const seeded = seedExistingHostGeneration(
+        root,
+        "fixture-existing-generation-input-change-during-validation",
+      );
+      return {
+        ...options,
+        existingGeneration: { import: seeded.import },
+        validate: async () => {
+          validationStarted.resolve();
+          await releaseValidation.promise;
+          return {
+            ok: true,
+            artifacts: [{ path: "app/page.ts", content: seeded.adapterBytes }],
+          };
+        },
+      };
+    },
+  );
+}
+
 {
   const root = realpathSync.native(
     mkdtempSync(path.join(os.tmpdir(), "genes-session-supplemental-parent-link-")),
