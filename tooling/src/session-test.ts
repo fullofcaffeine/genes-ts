@@ -661,6 +661,52 @@ await withHarness(
     } finally {
       await restarted.session.close();
     }
+
+    const restartValidationStarted = deferred<void>();
+    const releaseRestartValidation = deferred<void>();
+    const changedRestart = makeHarness(
+      "existing-host-generation",
+      undefined,
+      (options, root) => ({
+        ...options,
+        existingGeneration: {},
+        validate: async () => {
+          restartValidationStarted.resolve();
+          await releaseRestartValidation.promise;
+          return {
+            ok: true,
+            artifacts: [
+              {
+                path: "app/page.ts",
+                content: readFileSync(path.join(root, "app/page.ts")),
+              },
+            ],
+          };
+        },
+      }),
+      harness.root,
+    );
+    try {
+      const start = changedRestart.session.start();
+      await restartValidationStarted.promise;
+      writeFileSync(
+        path.join(harness.root, "src-gen/index.ts"),
+        "export const changedDuringValidation = true;\n",
+        "utf8",
+      );
+      releaseRestartValidation.resolve();
+      await start;
+      await assert.rejects(
+        changedRestart.session.firstAccepted,
+        /fatal session failure/u,
+      );
+      const failed = changedRestart.events.find(
+        (record) => record.event.kind === "failed",
+      );
+      assert.match(JSON.stringify(failed), /changed while the host checked it/u);
+    } finally {
+      await changedRestart.session.close();
+    }
   },
   undefined,
   (options, root) => {
@@ -938,6 +984,69 @@ await withHarness(
       validate: async () => ({
         ok: true,
         artifacts: [{ path: "app/page.ts", content: seeded.adapterBytes }],
+      }),
+    };
+  },
+);
+
+await withHarness(
+  "existing-generation-accepted-callback-can-close",
+  async (harness) => {
+    let observed = false;
+    harness.session.subscribe((record) => {
+      if (record.event.kind !== "generation-accepted" || observed) return;
+      observed = true;
+      void harness.session.close();
+    });
+    await harness.session.start();
+    await harness.session.close();
+    await assert.rejects(
+      harness.session.firstAccepted,
+      /closed before its first admission/u,
+    );
+    assert.equal(observed, true);
+  },
+  undefined,
+  (options, root) => {
+    const seeded = seedExistingHostGeneration(
+      root,
+      "fixture-existing-generation-accepted-callback-can-close",
+    );
+    return {
+      ...options,
+      existingGeneration: { import: seeded.import },
+      validate: async () => ({
+        ok: true,
+        artifacts: [{ path: "app/page.ts", content: seeded.adapterBytes }],
+      }),
+    };
+  },
+);
+
+await withHarness(
+  "existing-generation-validator-diagnostic",
+  async (harness) => {
+    await harness.session.start();
+    await assert.rejects(harness.session.firstAccepted, /fatal session failure/u);
+    const failed = harness.events.find((record) => record.event.kind === "failed");
+    assert.match(JSON.stringify(failed), /HOST-FIXTURE-REJECTED/u);
+    assert.match(JSON.stringify(failed), /framework adapter did not match/u);
+  },
+  undefined,
+  (options, root) => {
+    const seeded = seedExistingHostGeneration(
+      root,
+      "fixture-existing-generation-validator-diagnostic",
+    );
+    return {
+      ...options,
+      existingGeneration: { import: seeded.import },
+      validate: async () => ({
+        ok: false,
+        diagnostic: {
+          code: "HOST-FIXTURE-REJECTED",
+          message: "framework adapter did not match",
+        },
       }),
     };
   },

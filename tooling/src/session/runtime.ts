@@ -179,12 +179,18 @@ function asError(error: unknown): Error {
 
 class ExistingGenerationStartupError extends Error {
   readonly phase: "validate" | "publish";
+  readonly details?: JsonValue;
 
-  constructor(phase: "validate" | "publish", cause: unknown) {
+  constructor(
+    phase: "validate" | "publish",
+    cause: unknown,
+    details?: JsonValue,
+  ) {
     const error = asError(cause);
     super(error.message);
     this.name = "ExistingGenerationStartupError";
     this.phase = phase;
+    this.details = details;
   }
 }
 
@@ -517,6 +523,10 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
                   ? "PUBLICATION_FAILED"
                   : "SESSION_RECOVERY_FAILED",
             this.#sanitizeCoreMessage(normalized.message),
+            error instanceof ExistingGenerationStartupError &&
+                error.details !== undefined
+              ? this.#sanitizePublicJson(error.details)
+              : undefined,
           ),
         );
       }
@@ -576,6 +586,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         throw new ExistingGenerationStartupError(
           "validate",
           "the host validator rejected the existing generation",
+          admission.diagnostic,
         );
       }
       if (
@@ -609,30 +620,30 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       const stageRelativePath =
         `${this.#layout.candidatesRelative}/existing-${this.#dependencies.nonce()}`;
       try {
-        const prepared = prepareExistingGenerationImport(
-          this.#layout,
-          stageRelativePath,
-          live,
-          checked.published,
-          this.#dependencies.now(),
-          this.#options.validatorPolicyFacts,
-          this.#sessionNonce,
-        );
-        const ticket = prepared.plan.authorizationDigest;
         try {
+          const prepared = prepareExistingGenerationImport(
+            this.#layout,
+            stageRelativePath,
+            live,
+            checked.published,
+            this.#dependencies.now(),
+            this.#options.validatorPolicyFacts,
+            this.#sessionNonce,
+          );
+          const ticket = prepared.plan.authorizationDigest;
           await this.#dependencies.publish({
             projectRoot: this.#layout.projectRoot,
             plan: prepared.plan,
             admitIntended: (plan) => plan.authorizationDigest === ticket,
           });
+          const recorded = readPublishedMarker(this.#layout);
+          this.#publishedManifestDigest = recorded.manifestDigest;
+          this.#publishedMarkerState = recorded.state;
+          this.#publishedSupplementalFiles = recorded.supplementalFiles;
+          return prepared.accepted;
         } catch (error) {
           throw new ExistingGenerationStartupError("publish", error);
         }
-        const recorded = readPublishedMarker(this.#layout);
-        this.#publishedManifestDigest = recorded.manifestDigest;
-        this.#publishedMarkerState = recorded.state;
-        this.#publishedSupplementalFiles = recorded.supplementalFiles;
-        return prepared.accepted;
       } finally {
         rmSync(
           path.join(
@@ -678,6 +689,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       throw new ExistingGenerationStartupError(
         "validate",
         "the host validator rejected the accepted generation",
+        admission.diagnostic,
       );
     }
     if (
@@ -709,6 +721,20 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         "authored inputs changed while the accepted generation was checked",
       );
     }
+    const currentLive = readGenesOutput(
+      this.#layout.publicOutputRoot,
+      this.#layout.outputIdentity,
+      true,
+    )!;
+    if (currentLive.manifestDigest !== published.manifestDigest) {
+      throw new ExistingGenerationStartupError(
+        "validate",
+        "the accepted Genes output changed while the host checked it",
+      );
+    }
+    for (const file of published.supplementalFiles) {
+      readLiveSupplementalFile(this.#layout, file);
+    }
     const accepted: AcceptedGeneration = Object.freeze({
       ...published.accepted,
       manifestDigest: published.manifestDigest,
@@ -728,6 +754,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     this.#setState(Object.freeze({ kind: "ready", accepted }), accepted.acceptedAt);
     if (this.#closing !== null) return;
     this.#emit({ kind: "generation-accepted", accepted });
+    if (this.#closing !== null) return;
     if (!this.#firstAcceptedSettled) {
       this.#firstAcceptedSettled = true;
       this.#resolveFirstAccepted(accepted);
