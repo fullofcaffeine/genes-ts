@@ -194,7 +194,7 @@ function seedExistingHostGeneration(
     "src-gen/index.ts",
     ".genes/dev",
   );
-  const live = seedOwnedOutput(layout, "export const legacy = true;\n");
+  seedOwnedOutput(layout, "export const legacy = true;\n");
   const adapterPath = path.join(root, "app/page.ts");
   mkdirSync(path.dirname(adapterPath), { recursive: true });
   const adapterBytes = Buffer.from(
@@ -204,7 +204,6 @@ function seedExistingHostGeneration(
   writeFileSync(adapterPath, adapterBytes);
   const policy = snapshotExistingGenerationPolicy({
     import: {
-      manifestDigest: live.manifestDigest,
       supplementalFiles: [
         {
           path: "app/page.ts",
@@ -890,7 +889,6 @@ await withHarness(
       ...options,
       existingGeneration: {
         import: {
-          manifestDigest: seeded.import.manifestDigest,
           supplementalFiles: [
             {
               path: "src-gen/index.ts",
@@ -908,15 +906,7 @@ await withHarness(
 assert.throws(
   () =>
     snapshotExistingGenerationPolicy({
-      import: { manifestDigest: "not-a-digest", supplementalFiles: [] },
-    }),
-  /manifestDigest must be one lowercase SHA-256 digest/u,
-);
-assert.throws(
-  () =>
-    snapshotExistingGenerationPolicy({
       import: {
-        manifestDigest: "a".repeat(64),
         supplementalFiles: [
           { path: "App/page.ts", sha256: "b".repeat(64), sizeBytes: 1, mode: 0o644 },
           { path: "app/page.ts", sha256: "c".repeat(64), sizeBytes: 1, mode: 0o644 },

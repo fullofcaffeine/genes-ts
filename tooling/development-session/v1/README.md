@@ -96,10 +96,10 @@ generation impossible.
 
 A host can also ask the session to check an existing generated application
 before the first new build. This is useful when the host is replacing an older
-publisher. The first handoff requires the exact Genes manifest digest and the
-exact path, digest, size, and mode of every other generated file. These facts
-must come from the older host's trusted ownership record. Genes never discovers
-ownership by scanning a directory.
+publisher. Genes reads and checks its own output manifest. The first handoff
+also requires the exact path, digest, size, and mode of every other generated
+file. These facts must come from the older host's trusted ownership record.
+Genes never discovers ownership by scanning a directory.
 
 The normal host validator checks this live tree again. If all checks pass,
 Genes records the existing tree without rewriting it and reports

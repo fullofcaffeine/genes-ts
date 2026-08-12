@@ -520,9 +520,6 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
           "existing Genes output has no session marker; provide an exact import claim",
         );
       }
-      if (live.manifestDigest !== imported.manifestDigest) {
-        throw new Error("existing generation import names a different Genes manifest");
-      }
       const checked = checkExistingGenerationFiles(this.#layout, imported);
       const inventory = this.#inventory;
       if (inventory === null) {
@@ -598,7 +595,6 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     }
     assertImportMatchesPublished(
       this.#existingGeneration.import,
-      published.manifestDigest,
       published.supplementalFiles,
     );
     const extraFiles = published.supplementalFiles.map((file) =>

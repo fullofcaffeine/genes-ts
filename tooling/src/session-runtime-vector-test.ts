@@ -21,7 +21,6 @@ import {
 import { inventoryHxml } from "./hxml/index.js";
 import { inventoryHxmlForDevelopmentSession } from "./hxml/inventory.js";
 import { establishSessionAuthority } from "./session/authority-migration.js";
-import { readGenesOutput } from "./session/genes-output.js";
 import {
   bindHaxeInvocation,
   buildEffectiveHaxeInvocationPlan,
@@ -436,11 +435,6 @@ async function execute(vector: Vector): Promise<void> {
       `genes-output-manifest-v2\nowner-base64:${Buffer.from(layout.outputIdentity).toString("base64")}\n${layout.outputIdentity}\n`,
       "utf8",
     );
-    const live = readGenesOutput(
-      layout.publicOutputRoot,
-      layout.outputIdentity,
-      true,
-    )!;
     const adapterPath = path.join(root, "host/entry.ts");
     mkdirSync(path.dirname(adapterPath), { recursive: true });
     existingAdapter = Buffer.from(
@@ -449,7 +443,6 @@ async function execute(vector: Vector): Promise<void> {
     );
     writeFileSync(adapterPath, existingAdapter);
     existingImport = Object.freeze({
-      manifestDigest: live.manifestDigest,
       supplementalFiles: Object.freeze([
         Object.freeze({
           path: "host/entry.ts",

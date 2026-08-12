@@ -19,11 +19,6 @@ import type {
   ExistingGenerationPolicy,
 } from "./types.js";
 
-export interface CheckedExistingGeneration {
-  readonly manifestDigest: string;
-  readonly supplementalFiles: readonly PublishedSupplementalFile[];
-}
-
 /** Copies and validates the optional host claim before the session starts. */
 export function snapshotExistingGenerationPolicy(
   policy: ExistingGenerationPolicy | undefined,
@@ -31,9 +26,6 @@ export function snapshotExistingGenerationPolicy(
   if (policy === undefined) return null;
   const imported = policy.import;
   if (imported === undefined) return Object.freeze({});
-  if (!/^[0-9a-f]{64}$/u.test(imported.manifestDigest)) {
-    throw new Error("existing generation manifestDigest must be one lowercase SHA-256 digest");
-  }
   const seen = new Map<string, string>();
   const supplementalFiles = imported.supplementalFiles.map((file, index) => {
     const portablePath = validatePortableRelativePath(
@@ -69,7 +61,6 @@ export function snapshotExistingGenerationPolicy(
   );
   return Object.freeze({
     import: Object.freeze({
-      manifestDigest: imported.manifestDigest,
       supplementalFiles: Object.freeze(supplementalFiles),
     }),
   });
@@ -131,13 +122,9 @@ export function checkExistingGenerationFiles(
 /** Requires an optional old-host claim to agree with the session marker. */
 export function assertImportMatchesPublished(
   imported: ExistingGenerationImport | undefined,
-  manifestDigest: string,
   files: readonly PublishedSupplementalFile[],
 ): void {
   if (imported === undefined) return;
-  if (imported.manifestDigest !== manifestDigest) {
-    throw new Error("existing generation import names a different Genes manifest");
-  }
   if (imported.supplementalFiles.length !== files.length) {
     throw new Error("existing generation import names a different supplemental file set");
   }

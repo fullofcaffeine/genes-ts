@@ -236,9 +236,6 @@ const session = createGenesDevelopmentSession<Diagnostic>({
   // ...the normal options above...
   existingGeneration: {
     import: {
-      // Digest from the existing Genes output manifest.
-      manifestDigest: oldManifest.genesManifestSha256,
-
       // Other generated files that belong to the same accepted app, such as
       // framework entry files. Derive these facts from the old host manifest.
       supplementalFiles: oldManifest.files.map((file) => ({
@@ -252,10 +249,12 @@ const session = createGenesDevelopmentSession<Diagnostic>({
 });
 ```
 
-Genes checks every named file. It does not scan a directory and guess which
-files are generated. The host's normal validator must also accept the complete
-live tree. Genes then writes only its small acceptance record; it does not
-rewrite the generated application during the handoff.
+Genes reads and checks its own output manifest. The host does not need to know
+that manifest's private format. Genes also checks every extra file named by the
+host. It does not scan a directory and guess which files are generated. The
+host's normal validator must accept the complete live tree. Genes then writes
+only its small acceptance record; it does not rewrite the generated application
+during the handoff.
 
 `firstAccepted` resolves with `compilerMode: "external"` after this check.
 The session then starts a normal build. If that first build fails, the session

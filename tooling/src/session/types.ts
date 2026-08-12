@@ -334,7 +334,6 @@ export interface ExistingGenerationFile {
  * complete tree. It never infers ownership from a directory scan.
  */
 export interface ExistingGenerationImport {
-  readonly manifestDigest: string;
   /** Files outside the main Genes output, such as framework entry files. */
   readonly supplementalFiles: readonly ExistingGenerationFile[];
 }
