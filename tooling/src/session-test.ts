@@ -206,7 +206,7 @@ function seedExistingHostGeneration(
   writeFileSync(adapterPath, adapterBytes);
   const policy = snapshotExistingGenerationPolicy({
     import: {
-      genesFiles: live.files.map((file) => ({
+      genesFiles: [...live.files, live.manifestFile].map((file) => ({
         path: logicalOutputPath(layout, file.relativePath),
         sha256: file.digest,
         sizeBytes: file.sizeBytes,

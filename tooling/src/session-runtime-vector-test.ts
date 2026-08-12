@@ -430,11 +430,15 @@ async function execute(vector: Vector): Promise<void> {
     );
     mkdirSync(layout.publicOutputRoot, { recursive: true });
     writeFileSync(layout.publicOutputFile, "export const existing = true;\n", "utf8");
-    writeFileSync(
-      path.join(layout.publicOutputRoot, manifestName(layout.outputIdentity)),
+    const ownershipManifestPath = path.join(
+      layout.publicOutputRoot,
+      manifestName(layout.outputIdentity),
+    );
+    const ownershipManifestBytes = Buffer.from(
       `genes-output-manifest-v2\nowner-base64:${Buffer.from(layout.outputIdentity).toString("base64")}\n${layout.outputIdentity}\n`,
       "utf8",
     );
+    writeFileSync(ownershipManifestPath, ownershipManifestBytes);
     const adapterPath = path.join(root, "host/entry.ts");
     mkdirSync(path.dirname(adapterPath), { recursive: true });
     existingAdapter = Buffer.from(
@@ -451,6 +455,12 @@ async function execute(vector: Vector): Promise<void> {
             .digest("hex"),
           sizeBytes: Buffer.byteLength("export const existing = true;\n"),
           mode: statSync(layout.publicOutputFile).mode & 0o777,
+        }),
+        Object.freeze({
+          path: `src-gen/${path.basename(ownershipManifestPath)}`,
+          sha256: createHash("sha256").update(ownershipManifestBytes).digest("hex"),
+          sizeBytes: ownershipManifestBytes.byteLength,
+          mode: statSync(ownershipManifestPath).mode & 0o777,
         }),
       ]),
       supplementalFiles: Object.freeze([

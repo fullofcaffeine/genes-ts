@@ -93,12 +93,16 @@ export function checkExistingGenesFiles(
   imported: ExistingGenerationImport,
   live: GenesOutputInventory,
 ): void {
-  const actual = live.files.map((file) => Object.freeze({
-    path: logicalOutputPath(layout, file.relativePath),
-    sha256: file.digest,
-    sizeBytes: file.sizeBytes,
-    mode: file.mode,
-  }));
+  const actual = [...live.files, live.manifestFile]
+    .map((file) => Object.freeze({
+      path: logicalOutputPath(layout, file.relativePath),
+      sha256: file.digest,
+      sizeBytes: file.sizeBytes,
+      mode: file.mode,
+    }))
+    .sort((left, right) =>
+      left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
+    );
   if (actual.length !== imported.genesFiles.length) {
     throw new Error("existing generation import names a different Genes file set");
   }
