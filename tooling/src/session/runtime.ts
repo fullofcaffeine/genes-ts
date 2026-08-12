@@ -1672,13 +1672,22 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     }
     for (const extra of this.#options.extraInputs ?? []) {
       if ((extra.kind ?? "exact") === "tree") {
+        const absolute = path.resolve(this.#layout.projectRoot, extra.path);
+        const allowedRoot = inventory.allowedRoots
+          .filter((root) => containedBy(root, absolute))
+          .sort((left, right) => right.length - left.length)[0];
+        if (allowedRoot === undefined) {
+          throw new Error(
+            `development-session input must be inside a declared HXML root: ${absolute}`,
+          );
+        }
         assertRealPath(
-          this.#layout.projectRoot,
-          path.resolve(this.#layout.projectRoot, extra.path),
+          allowedRoot,
+          absolute,
           "development-session extra input tree",
         );
         assertInputTreeIsReal(
-          path.resolve(this.#layout.projectRoot, extra.path),
+          absolute,
           "development-session extra input tree",
         );
       }

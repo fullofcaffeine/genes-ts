@@ -101,6 +101,13 @@
       "expected": "success"
     },
     {
+      "id": "watch-poll-tree-empty-directory",
+      "family": "watch",
+      "covers": ["tree-input", "empty-directory", "create", "remove"],
+      "description": "Polling observes creation and removal of an included empty directory inside a tree.",
+      "expected": "success"
+    },
+    {
       "id": "watch-filter-ignore",
       "family": "watch",
       "covers": ["include-filter", "ignored-root"],
