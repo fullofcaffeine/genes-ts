@@ -164,6 +164,14 @@ async function main(): Promise<void> {
       true,
       "an all-descendant tree records an empty directory addition",
     );
+    directoryChanges.length = 0;
+    rmSync(emptyDirectory, { recursive: true, force: true });
+    assert.deepEqual(directorySession.reconcile(), { ok: true, changed: true });
+    assert.equal(
+      directoryChanges.some((change) => change.path === emptyDirectory),
+      true,
+      "an all-descendant tree records an empty directory removal",
+    );
     directorySession.close();
 
     const lateSymlinkErrors: string[] = [];

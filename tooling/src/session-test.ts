@@ -2973,6 +2973,62 @@ await withHarness(
   let externalRoot = "";
   try {
     await withHarness(
+      "external-extra-input-tree",
+      async (harness) => {
+        await harness.session.start();
+        await harness.session.waitForIdle();
+        assert.equal(harness.session.state.kind, "ready", JSON.stringify(harness.events));
+        const input = path.join(externalRoot, "schema", "domain.json");
+        writeFileSync(input, '{"version":2}\n', "utf8");
+        currentWatch(harness).change(input);
+        await harness.session.waitForIdle();
+        assert.equal(harness.compiler.invocations.length, 2);
+        assert.equal(
+          /@external\/\d+\/schema\/domain\.json/u.test(
+            JSON.stringify(harness.events),
+          ),
+          true,
+          "an approved external tree uses a private stable path in public events",
+        );
+      },
+      undefined,
+      (options, root) => {
+        externalRoot = realpathSync.native(
+          mkdtempSync(path.join(os.tmpdir(), "genes-external-extra-input-")),
+        );
+        mkdirSync(path.join(externalRoot, "schema"), { recursive: true });
+        writeFileSync(
+          path.join(externalRoot, "schema", "domain.json"),
+          '{"version":1}\n',
+          "utf8",
+        );
+        return {
+          ...options,
+          hxml: {
+            ...options.hxml,
+            allowedRoots: [root, externalRoot],
+          },
+          extraInputs: [
+            {
+              kind: "tree" as const,
+              path: path.join(externalRoot, "schema"),
+              impact: { rebuild: true },
+            },
+          ],
+        };
+      },
+    );
+  } finally {
+    if (externalRoot !== "") {
+      rmSync(externalRoot, { recursive: true, force: true });
+    }
+  }
+}
+
+{
+  let externalRoot = "";
+  try {
+    await withHarness(
       "external-diagnostic-private-path-redaction",
       async (harness) => {
         await harness.session.start();
