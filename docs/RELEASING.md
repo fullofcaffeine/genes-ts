@@ -251,9 +251,18 @@ a long-lived administrator token.
 The operator supplies two workflow inputs:
 
 ```text
-version: 0.1.0
+version: <exact version in tooling/package.json>
 commit: <exact 40-character commit currently at origin/main>
 ```
+
+If a tooling feature also needs a new Haxe helper, release the matching Genes
+compiler first. Use a compiler-facing Conventional Commit such as `feat:`, not
+the excluded `tooling` scope. Wait for the protected `vX.Y.Z` tag and compiler
+Release to pass their checks. Only then start the tooling archive workflow for
+the same source commit. For compiler data in tooling `0.2.0`, this means that
+the verified Genes `v1.50.0` Release must exist before `tooling-v0.2.0` is
+published. This order prevents a host from installing tooling whose Haxe
+helper is not available yet.
 
 For a retry after `main` moves, start a new manual run with the same commit.
 This is valid only when the exact protected tooling tag already points to it.

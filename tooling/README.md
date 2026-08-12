@@ -654,7 +654,9 @@ archive URL until the `tooling-v0.2.0` GitHub Release exists and its checksum
 and receipt have been verified. Compiler data also needs Genes `1.50.0` or
 later. That compiler release contains the Haxe helper that writes the private
 named value. The tooling archive contains the host code that reads and checks
-it. Pin both versions because neither package replaces the other.
+it. The release operator must publish and verify Genes `v1.50.0` before the
+`tooling-v0.2.0` archive. Pin both versions because neither package replaces
+the other.
 
 ### Guidance for agents in consuming repositories
 
