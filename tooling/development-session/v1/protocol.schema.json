@@ -8,9 +8,15 @@
       "type": "integer",
       "minimum": 1
     },
-    "portablePath": {
+    "publishedPath": {
       "type": "string",
-      "description": "A slash-normalized project path or private logical external-input path.",
+      "description": "A slash-normalized path inside the public project output.",
+      "minLength": 1,
+      "pattern": "^(?!@external(?:/|$))(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*\\\\)(?!.*\\u0000)[^/]+(?:/[^/]+)*$"
+    },
+    "inputPath": {
+      "type": "string",
+      "description": "A slash-normalized project input or private logical external-input path.",
       "minLength": 1,
       "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*\\\\)(?!.*\\u0000)[^/]+(?:/[^/]+)*$"
     },
@@ -26,17 +32,17 @@
         "created": {
           "type": "array",
           "uniqueItems": true,
-          "items": { "$ref": "#/$defs/portablePath" }
+          "items": { "$ref": "#/$defs/publishedPath" }
         },
         "updated": {
           "type": "array",
           "uniqueItems": true,
-          "items": { "$ref": "#/$defs/portablePath" }
+          "items": { "$ref": "#/$defs/publishedPath" }
         },
         "deleted": {
           "type": "array",
           "uniqueItems": true,
-          "items": { "$ref": "#/$defs/portablePath" }
+          "items": { "$ref": "#/$defs/publishedPath" }
         }
       }
     },
@@ -280,7 +286,7 @@
               "type": "array",
               "minItems": 1,
               "uniqueItems": true,
-              "items": { "$ref": "#/$defs/portablePath" }
+              "items": { "$ref": "#/$defs/inputPath" }
             }
           }
         },

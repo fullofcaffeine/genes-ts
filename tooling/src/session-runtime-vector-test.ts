@@ -388,9 +388,17 @@ async function execute(vector: Vector): Promise<void> {
   const root = realpathSync.native(
     mkdtempSync(path.join(os.tmpdir(), `genes-vector-${vector.id}-`)),
   );
-  const sourceRoot = path.join(root, "src");
+  const usesExternalInput = vector.id === "initial-compile-failure-repairs";
+  const externalRoot = usesExternalInput
+    ? realpathSync.native(
+        mkdtempSync(path.join(os.tmpdir(), "zz-genes-vector-external-")),
+      )
+    : null;
+  const sourceRoot = usesExternalInput
+    ? path.join(externalRoot!, "library", "src")
+    : path.join(root, "src");
   const source = path.join(sourceRoot, "Main.hx");
-  mkdirSync(sourceRoot);
+  mkdirSync(sourceRoot, { recursive: true });
   writeFileSync(source, "class Main {}\n", "utf8");
   const expectsPrivateHxml = vector.script.includes(
     "compile-connected-private-hxml",
@@ -399,7 +407,7 @@ async function execute(vector: Vector): Promise<void> {
     path.join(root, "build.hxml"),
     expectsPrivateHxml
       ? "-cp src\n-main Main\n--define=session-note=payload.hxml\n"
-      : "-cp src\n-main Main\n",
+      : `-cp ${sourceRoot}\n-main Main\n`,
     "utf8",
   );
   if (expectsPrivateHxml) {
@@ -494,7 +502,8 @@ async function execute(vector: Vector): Promise<void> {
       projectRoot: root,
       projectIdentity: vector.id,
       hxml: {
-        allowedRoots: [root],
+        allowedRoots:
+          externalRoot === null ? [root] : [root, externalRoot],
       },
       publicOutputFile: "src-gen/index.ts",
       stateDirectory: ".genes/dev",
@@ -687,6 +696,16 @@ async function execute(vector: Vector): Promise<void> {
         eventFileDeltas(expectedEvent),
         `${vector.id}: event ${expectedEvent.sequence} file changes differ`,
       );
+      if (
+        expectedEvent.event.kind === "inputs-changed" &&
+        actualEvent.event.kind === "inputs-changed"
+      ) {
+        assert.deepEqual(
+          actualEvent.event.paths,
+          expectedEvent.event.paths,
+          `${vector.id}: event ${expectedEvent.sequence} input paths differ`,
+        );
+      }
     }
     assert.equal(
       vector.expected.readBarrier === "publication-waited-for-reader"
@@ -741,6 +760,9 @@ async function execute(vector: Vector): Promise<void> {
   } finally {
     await session.close();
     rmSync(root, { recursive: true, force: true });
+    if (externalRoot !== null) {
+      rmSync(externalRoot, { recursive: true, force: true });
+    }
   }
 }
 
