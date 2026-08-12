@@ -662,14 +662,14 @@ path while still giving hosts exact, checksum-verified package bytes.
 
 The session runtime is implemented and exercised by all 14 released
 conformance scenarios plus a real cold/warm Haxe integration fixture. Version
-`0.1.0` is available as a GitHub archive, not as an npm-registry package.
-Version `0.2.0` adds the compiler-data bridge described above. Do not use its
-archive URL until the `tooling-v0.2.0` GitHub Release exists and its checksum
-and receipt have been verified. Compiler data also needs Genes `1.50.0` or
-later. That compiler release contains the Haxe helper that writes the private
-named value. The tooling archive contains the host code that reads and checks
-it. The release operator must publish and verify Genes `v1.50.0` before the
-`tooling-v0.2.0` archive. Pin both versions because neither package replaces
+`0.3.0` adds ordered library groups and declared external library roots. Do not
+use its archive URL until the `tooling-v0.3.0` GitHub Release exists. Verify its
+checksum and receipt before use.
+
+Version `0.2.0` added the compiler-data bridge described above. Compiler data
+needs Genes `1.50.0` or later. That compiler release contains the Haxe helper
+that writes the private named value. The tooling archive contains the host code
+that reads and checks it. Pin both versions because neither package replaces
 the other.
 
 ### Guidance for agents in consuming repositories
@@ -755,7 +755,7 @@ npm registry:
 ```json
 {
   "dependencies": {
-    "@genes-ts/tooling": "https://github.com/fullofcaffeine/genes-ts/releases/download/tooling-v0.2.0/genes-ts-tooling-0.2.0.tgz"
+    "@genes-ts/tooling": "https://github.com/fullofcaffeine/genes-ts/releases/download/tooling-v0.3.0/genes-ts-tooling-0.3.0.tgz"
   }
 }
 ```
