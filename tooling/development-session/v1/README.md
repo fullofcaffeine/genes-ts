@@ -94,6 +94,23 @@ That lets one development command remain alive while the author fixes the
 source. It rejects if a fatal startup failure or closure makes a first
 generation impossible.
 
+A host can also ask the session to check an existing generated application
+before the first new build. This is useful when the host is replacing an older
+publisher. The first handoff requires the exact Genes manifest digest and the
+exact path, digest, size, and mode of every other generated file. These facts
+must come from the older host's trusted ownership record. Genes never discovers
+ownership by scanning a directory.
+
+The normal host validator checks this live tree again. If all checks pass,
+Genes records the existing tree without rewriting it and reports
+`compilerMode: "external"`. `firstAccepted` then resolves immediately. A broken
+first rebuild changes the session to `degraded`, but the checked old generation
+stays public. Later starts can pass an empty existing-generation policy to
+check the session's own saved record again.
+
+This is an explicit opt-in. Without it, a new session still requires its own
+successful build before `firstAccepted` resolves.
+
 Here is the distinction a newcomer usually needs most:
 
 | State | What the developer sees | Is a usable public generation available? |
@@ -229,6 +246,12 @@ The `publish-failure-rolls-back` example also carries both kinds of file and
 proves that a failed update restores their earlier bytes along with the Genes
 output. Host implementations should run these examples against their real
 session adapter; checking the JSON shape alone is not enough.
+
+An existing-generation handoff uses the same publication safety. All old Genes
+files and other generated files are listed as unchanged. The only new public
+file is the session's acceptance record. If writing that record stops partway,
+the normal recovery code finishes or rolls back the small update. It never
+recreates, deletes, or replaces the imported application files.
 
 Keep a published generated Haxe source's private `relativePath` equal to its
 `publishPath` when practical. This lets the generated source map name the

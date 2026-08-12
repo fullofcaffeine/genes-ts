@@ -63,7 +63,7 @@
         "revision": { "$ref": "#/$defs/positiveInteger" },
         "acceptedAt": { "type": "number", "minimum": 0 },
         "manifestDigest": { "$ref": "#/$defs/digest" },
-        "compilerMode": { "enum": ["connected", "direct"] },
+        "compilerMode": { "enum": ["connected", "direct", "external"] },
         "files": { "$ref": "#/$defs/fileDelta" },
         "entryChanged": { "type": "boolean" }
       }

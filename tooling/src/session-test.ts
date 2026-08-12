@@ -58,6 +58,7 @@ import {
   samePhysicalSessionPath,
   type SessionLayout,
 } from "./session/layout.js";
+import { snapshotExistingGenerationPolicy } from "./session/existing-generation.js";
 import {
   recoveredArtifactsMatchPublishedFiles,
 } from "./session/prepared-files.js";
@@ -78,6 +79,7 @@ import {
 import type {
   DevelopmentEvent,
   DevelopmentSession,
+  ExistingGenerationImport,
   GenesDevelopmentOptions,
   JsonValue,
 } from "./session/types.js";
@@ -176,6 +178,51 @@ function seedOwnedOutput(
     layout.outputIdentity,
     true,
   )!;
+}
+
+function seedExistingHostGeneration(
+  root: string,
+  projectIdentity: string,
+): {
+  readonly adapterPath: string;
+  readonly adapterBytes: Buffer;
+  readonly import: ExistingGenerationImport;
+} {
+  const layout = resolveSessionLayout(
+    root,
+    projectIdentity,
+    "src-gen/index.ts",
+    ".genes/dev",
+  );
+  const live = seedOwnedOutput(layout, "export const legacy = true;\n");
+  const adapterPath = path.join(root, "app/page.ts");
+  mkdirSync(path.dirname(adapterPath), { recursive: true });
+  const adapterBytes = Buffer.from(
+    "export { value } from \"../src-gen/index.js\";\n",
+    "utf8",
+  );
+  writeFileSync(adapterPath, adapterBytes);
+  const policy = snapshotExistingGenerationPolicy({
+    import: {
+      manifestDigest: live.manifestDigest,
+      supplementalFiles: [
+        {
+          path: "app/page.ts",
+          sha256: sha256Bytes(adapterBytes),
+          sizeBytes: adapterBytes.byteLength,
+          mode: statSync(adapterPath).mode & 0o777,
+        },
+      ],
+    },
+  });
+  if (policy?.import === undefined) {
+    throw new Error("fixture existing-generation claim was not preserved");
+  }
+  return Object.freeze({
+    adapterPath,
+    adapterBytes,
+    import: policy.import,
+  });
 }
 
 function writeLegacyMarker(
@@ -392,13 +439,14 @@ function makeHarness(
     options: GenesDevelopmentOptions<TestDiagnostic>,
     root: string,
   ) => GenesDevelopmentOptions<TestDiagnostic>,
+  existingRoot?: string,
 ): Harness {
-  const root = realpathSync.native(
+  const root = existingRoot ?? realpathSync.native(
     mkdtempSync(path.join(os.tmpdir(), `genes-session-${name}-`)),
   );
   const sourceRoot = path.join(root, "src");
   const source = path.join(sourceRoot, "Main.hx");
-  mkdirSync(sourceRoot);
+  mkdirSync(sourceRoot, { recursive: true });
   writeFileSync(source, "class Main {}\n", "utf8");
   writeFileSync(path.join(root, "build.hxml"), "-cp src\n-main Main\n", "utf8");
   const compiler = new FakeCompiler();
@@ -535,6 +583,348 @@ await withHarness("initial", async (harness) => {
     "generation-accepted",
   ]);
 });
+
+await withHarness(
+  "existing-host-generation",
+  async (harness) => {
+    harness.compiler.steps.push(
+      { fail: "fixture first build is broken" },
+      { content: "export const current = true;\n" },
+    );
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(
+      harness.session.state.kind,
+      "degraded",
+      `the exact imported generation must remain available after a broken first build: ${JSON.stringify(harness.events)}`,
+    );
+    const imported = await harness.session.firstAccepted;
+    assert.equal(imported.generation, 1);
+    assert.equal(imported.compilerMode, "external");
+    assert.equal(
+      readFileSync(path.join(harness.root, "src-gen/index.ts"), "utf8"),
+      "export const legacy = true;\n",
+    );
+
+    harness.session.invalidate({
+      path: "src/Main.hx",
+      impact: { rebuild: true },
+    });
+    await harness.session.waitForIdle();
+    const recovered = currentState(harness);
+    assert.equal(recovered.kind, "ready");
+    assert.equal(
+      recovered.kind === "ready"
+        ? recovered.accepted.generation
+        : 0,
+      2,
+    );
+    assert.equal(
+      readFileSync(path.join(harness.root, "src-gen/index.ts"), "utf8"),
+      "export const current = true;\n",
+    );
+
+    await harness.session.close();
+    const restarted = makeHarness(
+      "existing-host-generation",
+      undefined,
+      (options, root) => ({
+        ...options,
+        existingGeneration: {},
+        validate: async () => ({
+          ok: true,
+          artifacts: [
+            {
+              path: "app/page.ts",
+              content: readFileSync(path.join(root, "app/page.ts")),
+            },
+          ],
+        }),
+      }),
+      harness.root,
+    );
+    try {
+      restarted.compiler.steps.push({ fail: "fixture restart build is broken" });
+      await restarted.session.start();
+      await restarted.session.waitForIdle();
+      const resumed = await restarted.session.firstAccepted;
+      assert.equal(resumed.generation, 2);
+      assert.equal(resumed.compilerMode, "external");
+      assert.equal(currentState(restarted).kind, "degraded");
+    } finally {
+      await restarted.session.close();
+    }
+  },
+  undefined,
+  (options, root) => {
+    const seeded = seedExistingHostGeneration(
+      root,
+      "fixture-existing-host-generation",
+    );
+    return {
+      ...options,
+      existingGeneration: {
+        import: seeded.import,
+      },
+      validate: async () => ({
+        ok: true,
+        artifacts: [
+          {
+            path: "app/page.ts",
+            content: seeded.adapterBytes,
+          },
+        ],
+      }),
+    };
+  },
+);
+
+for (const checkpoint of [
+  "after-journal-prepared",
+  "after-publish:commit-marker",
+] as const) {
+  let adapterPath = "";
+  let adapterBytes: Uint8Array = new Uint8Array();
+  const fixtureName = `existing-generation-import-${checkpoint}`;
+  await withHarness(
+    fixtureName,
+    async (harness) => {
+      await harness.session.start();
+      await assert.rejects(harness.session.firstAccepted, /fatal session failure/u);
+      assert.equal(
+        readFileSync(path.join(harness.root, "src-gen/index.ts"), "utf8"),
+        "export const legacy = true;\n",
+        `a stopped handoff at ${checkpoint} must preserve the old Genes output`,
+      );
+      assert.deepEqual(
+        readFileSync(adapterPath),
+        adapterBytes,
+        `a stopped handoff at ${checkpoint} must preserve the old framework file`,
+      );
+      const layout = resolveSessionLayout(
+        harness.root,
+        `fixture-${fixtureName}`,
+        "src-gen/index.ts",
+        ".genes/dev",
+      );
+      assert.equal(
+        readPublishedMarker(layout).manifestDigest,
+        null,
+        `a stopped handoff at ${checkpoint} must not leave a false acceptance record`,
+      );
+    },
+    (dependencies) => ({
+      ...dependencies,
+      publish: async (options) =>
+        await publishArtifacts({
+          ...options,
+          faultInjector: (current) => {
+            if (current === checkpoint) {
+              throw new Error(`stop existing-generation import at ${checkpoint}`);
+            }
+          },
+        }),
+    }),
+    (options, root) => {
+      const seeded = seedExistingHostGeneration(root, `fixture-${fixtureName}`);
+      adapterPath = seeded.adapterPath;
+      adapterBytes = seeded.adapterBytes;
+      return {
+        ...options,
+        existingGeneration: { import: seeded.import },
+        validate: async () => ({
+          ok: true,
+          artifacts: [{ path: "app/page.ts", content: adapterBytes }],
+        }),
+      };
+    },
+  );
+}
+
+for (const fixture of [
+  {
+    name: "missing-file",
+    change(adapterPath: string, _root: string): void {
+      rmSync(adapterPath);
+    },
+    expected: /existing generation file changed/u,
+  },
+  {
+    name: "changed-mode",
+    change(adapterPath: string, _root: string): void {
+      chmodSync(adapterPath, 0o755);
+    },
+    expected: /existing generation file changed/u,
+  },
+  {
+    name: "changed-file",
+    change(adapterPath: string, _root: string): void {
+      writeFileSync(adapterPath, "user-owned replacement\n", "utf8");
+    },
+    expected: /existing generation file changed/u,
+  },
+  {
+    name: "symbolic-link",
+    change(adapterPath: string, root: string): void {
+      const target = path.join(root, "adapter-target.ts");
+      writeFileSync(target, "export const target = true;\n", "utf8");
+      rmSync(adapterPath);
+      symlinkSync(target, adapterPath);
+    },
+    expected: /symlink-traversal/u,
+  },
+] as const) {
+  let adapterPath = "";
+  let liveBytes: Uint8Array = new Uint8Array();
+  await withHarness(
+    `existing-generation-${fixture.name}`,
+    async (harness) => {
+      fixture.change(adapterPath, harness.root);
+      await harness.session.start();
+      await assert.rejects(harness.session.firstAccepted, /fatal session failure/u);
+      assert.equal(currentState(harness).kind, "blocked");
+      assert.equal(
+        readFileSync(path.join(harness.root, "src-gen/index.ts"), "utf8"),
+        "export const legacy = true;\n",
+      );
+      const failed = harness.events.find((event) => event.event.kind === "failed");
+      assert.match(JSON.stringify(failed), fixture.expected);
+      if (fixture.name === "changed-file") {
+        assert.equal(
+          readFileSync(adapterPath, "utf8"),
+          "user-owned replacement\n",
+          "a rejected import must not restore or overwrite changed live bytes",
+        );
+      }
+    },
+    undefined,
+    (options, root) => {
+      const seeded = seedExistingHostGeneration(
+        root,
+        `fixture-existing-generation-${fixture.name}`,
+      );
+      adapterPath = seeded.adapterPath;
+      liveBytes = seeded.adapterBytes;
+      return {
+        ...options,
+        existingGeneration: { import: seeded.import },
+        validate: async () => ({
+          ok: true,
+          artifacts: [{ path: "app/page.ts", content: liveBytes }],
+        }),
+      };
+    },
+  );
+}
+
+await withHarness(
+  "existing-generation-validator-mismatch",
+  async (harness) => {
+    await harness.session.start();
+    await assert.rejects(harness.session.firstAccepted, /fatal session failure/u);
+    assert.equal(currentState(harness).kind, "blocked");
+    assert.equal(
+      readFileSync(path.join(harness.root, "app/page.ts"), "utf8"),
+      "export { value } from \"../src-gen/index.js\";\n",
+    );
+  },
+  undefined,
+  (options, root) => {
+    const seeded = seedExistingHostGeneration(
+      root,
+      "fixture-existing-generation-validator-mismatch",
+    );
+    return {
+      ...options,
+      existingGeneration: { import: seeded.import },
+      validate: async () => ({
+        ok: true,
+        artifacts: [
+          { path: "app/page.ts", content: "different validator bytes\n" },
+        ],
+      }),
+    };
+  },
+);
+
+await withHarness(
+  "existing-generation-missing-claim",
+  async (harness) => {
+    await harness.session.start();
+    await assert.rejects(harness.session.firstAccepted, /fatal session failure/u);
+    const failed = harness.events.find((event) => event.event.kind === "failed");
+    assert.match(JSON.stringify(failed), /provide an exact import claim/u);
+  },
+  undefined,
+  (options, root) => {
+    seedExistingHostGeneration(
+      root,
+      "fixture-existing-generation-missing-claim",
+    );
+    return { ...options, existingGeneration: {} };
+  },
+);
+
+await withHarness(
+  "existing-generation-overlaps-genes-output",
+  async (harness) => {
+    await harness.session.start();
+    await assert.rejects(harness.session.firstAccepted, /fatal session failure/u);
+    const failed = harness.events.find((event) => event.event.kind === "failed");
+    assert.match(JSON.stringify(failed), /overlaps session-owned paths/u);
+    assert.equal(
+      readFileSync(path.join(harness.root, "src-gen/index.ts"), "utf8"),
+      "export const legacy = true;\n",
+      "a rejected claim must leave the old Genes output unchanged",
+    );
+  },
+  undefined,
+  (options, root) => {
+    const seeded = seedExistingHostGeneration(
+      root,
+      "fixture-existing-generation-overlaps-genes-output",
+    );
+    const outputPath = path.join(root, "src-gen/index.ts");
+    const outputBytes = readFileSync(outputPath);
+    return {
+      ...options,
+      existingGeneration: {
+        import: {
+          manifestDigest: seeded.import.manifestDigest,
+          supplementalFiles: [
+            {
+              path: "src-gen/index.ts",
+              sha256: sha256Bytes(outputBytes),
+              sizeBytes: outputBytes.byteLength,
+              mode: statSync(outputPath).mode & 0o777,
+            },
+          ],
+        },
+      },
+    };
+  },
+);
+
+assert.throws(
+  () =>
+    snapshotExistingGenerationPolicy({
+      import: { manifestDigest: "not-a-digest", supplementalFiles: [] },
+    }),
+  /manifestDigest must be one lowercase SHA-256 digest/u,
+);
+assert.throws(
+  () =>
+    snapshotExistingGenerationPolicy({
+      import: {
+        manifestDigest: "a".repeat(64),
+        supplementalFiles: [
+          { path: "App/page.ts", sha256: "b".repeat(64), sizeBytes: 1, mode: 0o644 },
+          { path: "app/page.ts", sha256: "c".repeat(64), sizeBytes: 1, mode: 0o644 },
+        ],
+      },
+    }),
+  /paths collide on a portable filesystem/u,
+);
 
 {
   const mutable = [

@@ -225,6 +225,52 @@ await session.firstAccepted; // safe point for starting a dependent dev server
 await session.close();
 ```
 
+### Keep an existing generated app during the first session build
+
+A host can move an existing project to `DevelopmentSession` without deleting
+its last working generated files. The old host must provide exact evidence
+from its own trusted ownership record:
+
+```ts
+const session = createGenesDevelopmentSession<Diagnostic>({
+  // ...the normal options above...
+  existingGeneration: {
+    import: {
+      // Digest from the existing Genes output manifest.
+      manifestDigest: oldManifest.genesManifestSha256,
+
+      // Other generated files that belong to the same accepted app, such as
+      // framework entry files. Derive these facts from the old host manifest.
+      supplementalFiles: oldManifest.files.map((file) => ({
+        path: file.path,
+        sha256: file.sha256,
+        sizeBytes: file.sizeBytes,
+        mode: file.mode,
+      })),
+    },
+  },
+});
+```
+
+Genes checks every named file. It does not scan a directory and guess which
+files are generated. The host's normal validator must also accept the complete
+live tree. Genes then writes only its small acceptance record; it does not
+rewrite the generated application during the handoff.
+
+`firstAccepted` resolves with `compilerMode: "external"` after this check.
+The session then starts a normal build. If that first build fails, the session
+enters `degraded` state and keeps the imported app available. A later good
+build replaces it through the usual safe publication step.
+
+After the first handoff, later starts can use `existingGeneration: {}`. This
+tells Genes to check and reuse the generation already recorded by the session.
+Omit `existingGeneration` when a fresh session build must be the only accepted
+starting point.
+
+The import fails before it changes any public file when a digest, byte count,
+file mode, path, symbolic-link check, or validator result differs. This strict
+check prevents an old ownership record from claiming a user-edited file.
+
 This shortest example is library-free. If `build.hxml` contains one distinct
 `-lib` request, the host can supply `hxml.resolveLibrary`. If it contains two
 or more distinct libraries, use `hxml.resolveLibraries`. Haxe resolves adjacent

@@ -200,6 +200,11 @@ export interface PreparedPublication {
 export interface PublishedMarker {
   readonly format: "absent" | "v2" | "v3" | "v4";
   readonly manifestDigest: string | null;
+  readonly accepted: Readonly<{
+    readonly generation: number;
+    readonly revision: number;
+    readonly acceptedAt: number;
+  }> | null;
   readonly state: ExpectedFileState;
   readonly supplementalFiles: readonly PublishedSupplementalFile[];
 }
@@ -436,6 +441,7 @@ export function readPublishedMarker(
     return Object.freeze({
       format: "absent",
       manifestDigest: null,
+      accepted: null,
       state: ABSENT,
       supplementalFiles: Object.freeze([]),
     });
@@ -573,6 +579,11 @@ export function readPublishedMarker(
   return Object.freeze({
     format: v2 ? "v2" : v3 ? "v3" : "v4",
     manifestDigest: record.manifestDigest,
+    accepted: Object.freeze({
+      generation: record.generation as number,
+      revision: record.revision as number,
+      acceptedAt: record.acceptedAt as number,
+    }),
     state: markerState,
     supplementalFiles,
   });
@@ -666,6 +677,145 @@ export function recoveredAdmissionMode(
   ).includes(authorizationDigest)
     ? "replayable"
     : null;
+}
+
+/**
+ * Records an exact live tree from an older host without rewriting that tree.
+ *
+ * Every generated and supplemental file appears as an unchanged transition.
+ * The only new public byte is DevelopmentSession's commit marker.
+ */
+export function prepareExistingGenerationImport(
+  layout: SessionLayout,
+  stageRelativePath: string,
+  live: GenesOutputInventory,
+  supplementalFiles: readonly PublishedSupplementalFile[],
+  acceptedAt: number,
+  validatorPolicyFacts: JsonValue,
+  sessionNonce: string,
+): PreparedPublication {
+  const accepted: AcceptedGeneration = Object.freeze({
+    generation: 1,
+    revision: 1,
+    acceptedAt,
+    manifestDigest: live.manifestDigest,
+    compilerMode: "external",
+    files: Object.freeze({
+      created: Object.freeze([]),
+      updated: Object.freeze([]),
+      deleted: Object.freeze([]),
+    }),
+    entryChanged: false,
+  });
+  const artifacts: PublicationPlan["artifacts"][number][] = [
+    ...live.files.map((file) => {
+      const exact = state(file);
+      return Object.freeze({
+        path: logicalOutputPath(layout, file.relativePath),
+        prior: exact,
+        next: exact,
+        stagedPath: null,
+      });
+    }),
+    (() => {
+      const exact = state(live.manifestFile);
+      return Object.freeze({
+        path: logicalOutputPath(layout, live.manifestName),
+        prior: exact,
+        next: exact,
+        stagedPath: null,
+      });
+    })(),
+    ...supplementalFiles.map((file) => {
+      const exact: ExpectedFileState = Object.freeze({
+        kind: "file",
+        sha256: file.sha256,
+        sizeBytes: file.sizeBytes,
+        mode: file.mode,
+      });
+      return Object.freeze({
+        path: file.path,
+        prior: exact,
+        next: exact,
+        stagedPath: null,
+      });
+    }),
+  ];
+  const identities = new Map<string, string>();
+  for (const artifact of artifacts) {
+    const identity = portablePathIdentity(artifact.path);
+    const previous = identities.get(identity);
+    if (previous !== undefined) {
+      throw new Error(
+        `existing generation files collide by path: ${previous} and ${artifact.path}`,
+      );
+    }
+    identities.set(identity, artifact.path);
+  }
+  for (const [identity, artifactPath] of identities) {
+    let ancestor = identity;
+    while (ancestor.includes("/")) {
+      ancestor = ancestor.slice(0, ancestor.lastIndexOf("/"));
+      const previous = identities.get(ancestor);
+      if (previous !== undefined) {
+        throw new Error(
+          `existing generation file overlaps another file: ${previous} and ${artifactPath}`,
+        );
+      }
+    }
+  }
+  artifacts.sort((left, right) =>
+    Buffer.from(left.path).compare(Buffer.from(right.path)),
+  );
+
+  const markerStageRelative = `${stageRelativePath}/generation.json`;
+  const markerAbsolute = path.join(
+    layout.projectRoot,
+    ...markerStageRelative.split("/"),
+  );
+  mkdirSync(path.dirname(markerAbsolute), { recursive: true, mode: 0o700 });
+  const marker = acceptedGenerationBytes(
+    layout,
+    {
+      sessionNonce,
+      generation: accepted.generation,
+      revision: accepted.revision,
+      acceptedAt: accepted.acceptedAt,
+      manifestDigest: accepted.manifestDigest,
+    },
+    supplementalFiles,
+  );
+  writeFileSync(markerAbsolute, marker, { mode: 0o600 });
+  chmodSync(markerAbsolute, 0o600);
+  const authorization = admissionDigest(
+    layout,
+    live.manifestDigest,
+    validatorPolicyFacts,
+    supplementalFiles,
+  );
+  return Object.freeze({
+    accepted,
+    plan: Object.freeze({
+      protocol: ARTIFACT_PLAN_PROTOCOL,
+      version: ARTIFACT_PLAN_VERSION,
+      projectIdentity: sessionProjectDigest(layout),
+      authorizationDigest: authorization,
+      transactionRoot: layout.transactionRelative,
+      stageRoot: stageRelativePath,
+      artifacts: Object.freeze(artifacts),
+      commitMarker: Object.freeze({
+        path: layout.generationMarkerRelative,
+        prior: ABSENT,
+        next: Object.freeze({
+          kind: "file" as const,
+          sha256: sha256Bytes(marker),
+          sizeBytes: Buffer.byteLength(marker),
+          mode: 0o600,
+        }),
+        stagedPath: markerStageRelative,
+      }),
+    }),
+  });
 }
 
 /**
