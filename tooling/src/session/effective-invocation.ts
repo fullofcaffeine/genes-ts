@@ -35,6 +35,7 @@ const ALLOWED_OPTIONS = new Set([
   "--verbose",
   "--debug",
   "-debug",
+  "--neko-lib-path",
   "--dce",
   "-dce",
   "--no-traces",

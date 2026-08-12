@@ -4,6 +4,23 @@ All notable changes to `@genes-ts/tooling` are recorded here. This package has
 its own version and release lifecycle; compiler/Haxelib releases do not publish
 it.
 
+## Unreleased
+
+- Add a safe Lix resolver for an ordered Haxe library group. It uses one
+  shell-free `haxelib path` call and returns the exact Haxe arguments, package
+  folders, and proof files that a development session needs.
+- Let a trusted library resolver return the exact external package folders
+  found by its answer. HXML inventory checks those folders before it accepts
+  any returned class path or proof file, so a host does not need to trust a
+  whole package cache in advance.
+- Wait for the Lix command to close its output pipes before parsing it. Keep a
+  bare HXML result as checked HXML input, and reject links inside returned
+  package paths.
+- Accept inline and split HXML options, quoted paths, and normal surrounding
+  spaces from Lix output. Keep unreadable scope folders and unreadable or
+  removed proof files inside the resolver's stable error types. Admit checked
+  Neko library paths into a managed development session.
+
 ## 0.3.0
 
 - Resolve adjacent Haxe libraries as ordered groups, matching Haxe 4.3.7's

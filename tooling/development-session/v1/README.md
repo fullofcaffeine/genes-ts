@@ -350,6 +350,11 @@ lookup used by HXML expansion. “Resolver returned empty argument and proof
 lists” is distinct from “no resolver was provided”; only the former is a
 complete closure.
 
+A trusted resolver can also return exact external package folders in
+`allowedRoots`. The session checks each folder before it accepts a returned
+class path or proof file. This lets a package resolver discover selected
+package locations without making the host trust a complete shared cache.
+
 The frozen invocation is the authority for the working directory, environment,
 and ordered top-level HXML entries. The `hxml` option cannot supply competing
 copies of those values. HXML uses Haxe 4.3.7 whole-line parsing and `%NAME%`

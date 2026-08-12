@@ -4252,6 +4252,49 @@ for (const invalidArgs of [
   );
 }
 
+await withHarness(
+  "neko-library-path-is-session-safe",
+  async (harness) => {
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "ready");
+    assert.equal(harness.compiler.calls, 1);
+    assert.equal(
+      harness.compiler.invocations[0]!.arguments.includes("--neko-lib-path"),
+      true,
+    );
+  },
+  undefined,
+  (options, root) => {
+    mkdirSync(path.join(root, "ndll"));
+    writeFileSync(
+      path.join(root, "build.hxml"),
+      "-cp src\n-main Main\n--neko-lib-path ndll\n",
+      "utf8",
+    );
+    return options;
+  },
+);
+
+await withHarness(
+  "neko-library-path-stays-inside-an-allowed-root",
+  async (harness) => {
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "blocked");
+    assert.equal(harness.compiler.calls, 0);
+  },
+  undefined,
+  (options, root) => {
+    writeFileSync(
+      path.join(root, "build.hxml"),
+      "-cp src\n-main Main\n--neko-lib-path ..\n",
+      "utf8",
+    );
+    return options;
+  },
+);
+
 for (const forbidden of [
   "-D genes.output=src-gen/index.ts",
   "-D genes.tooling.prepared=caller-owned",

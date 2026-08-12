@@ -1,6 +1,7 @@
 export * from "./artifacts/index.js";
 export * from "./css-modules/index.js";
 export * from "./hxml/index.js";
+export * from "./lix/index.js";
 export * from "./haxe-server/index.js";
 export * from "./loop/index.js";
 export * from "./session/index.js";

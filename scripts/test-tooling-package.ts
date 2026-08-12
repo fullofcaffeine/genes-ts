@@ -374,6 +374,7 @@ const expectedPublicExports = [
   "./haxe-wait-server/v1/vectors.json",
   "./haxe-wait-server/v1/vectors.schema.json",
   "./hxml",
+  "./lix",
   "./loop",
   "./session",
   "./watch",
@@ -417,6 +418,8 @@ function verifyInventory(result: PackResult): readonly string[] {
     "dist/css-modules/index.d.ts",
     "dist/hxml/index.js",
     "dist/hxml/index.d.ts",
+    "dist/lix/index.js",
+    "dist/lix/index.d.ts",
     "dist/watch/index.js",
     "dist/watch/index.d.ts",
     "dist/loop/index.js",
@@ -576,6 +579,10 @@ import {
   type CssModuleExportsManifestV1,
 } from "@genes-ts/tooling/css-modules";
 import { inventoryHxml, type HxmlInventory } from "@genes-ts/tooling/hxml";
+import {
+  resolveLixLibraryGroup,
+  type ResolvedLixLibraryGroup,
+} from "@genes-ts/tooling/lix";
 import { SerializedDirtyLoop } from "@genes-ts/tooling/loop";
 import {
   OwnedHaxeWaitServer,
@@ -616,6 +623,7 @@ const runtimeValues = [
   recoverArtifacts,
   generateCssModuleCompanion,
   inventoryHxml,
+  resolveLixLibraryGroup,
   SerializedDirtyLoop,
   OwnedHaxeWaitServer,
   reserveLoopbackEndpoint,
@@ -638,6 +646,7 @@ type Diagnostic = { readonly code: string; readonly details: readonly JsonValue[
 const typeWitness:
   | PublicationPlan
   | HxmlInventory
+  | ResolvedLixLibraryGroup
   | HaxeWaitEndpoint
   | ReconciledWatchSession
   | DevelopmentEvent<Diagnostic>
@@ -664,6 +673,7 @@ import * as root from "@genes-ts/tooling";
 import * as artifacts from "@genes-ts/tooling/artifacts";
 import * as cssModules from "@genes-ts/tooling/css-modules";
 import * as hxml from "@genes-ts/tooling/hxml";
+import * as lix from "@genes-ts/tooling/lix";
 import * as loop from "@genes-ts/tooling/loop";
 import * as server from "@genes-ts/tooling/haxe-server";
 import * as session from "@genes-ts/tooling/session";
@@ -690,6 +700,7 @@ const witnesses = [
   artifacts.recoverArtifacts,
   cssModules.generateCssModuleCompanion,
   hxml.inventoryHxml,
+  lix.resolveLixLibraryGroup,
   loop.SerializedDirtyLoop,
   server.OwnedHaxeWaitServer,
   server.reserveLoopbackEndpoint,
@@ -699,7 +710,7 @@ const witnesses = [
   cssModuleSchema,
   session.createGenesDevelopmentSession,
 ];
-if (witnesses.slice(0, 8).some((value) => typeof value !== "function")) {
+if (witnesses.slice(0, 9).some((value) => typeof value !== "function")) {
   throw new Error("a public tooling runtime export is missing");
 }
 if (

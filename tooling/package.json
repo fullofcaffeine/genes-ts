@@ -45,6 +45,10 @@
       "types": "./dist/hxml/index.d.ts",
       "import": "./dist/hxml/index.js"
     },
+    "./lix": {
+      "types": "./dist/lix/index.d.ts",
+      "import": "./dist/lix/index.js"
+    },
     "./haxe-server": {
       "types": "./dist/haxe-server/index.d.ts",
       "import": "./dist/haxe-server/index.js"
@@ -86,6 +90,10 @@
     "dist/hxml/**/*.d.ts.map",
     "dist/hxml/**/*.js",
     "dist/hxml/**/*.js.map",
+    "dist/lix/**/*.d.ts",
+    "dist/lix/**/*.d.ts.map",
+    "dist/lix/**/*.js",
+    "dist/lix/**/*.js.map",
     "dist/haxe-server/**/*.d.ts",
     "dist/haxe-server/**/*.d.ts.map",
     "dist/haxe-server/**/*.js",
@@ -111,7 +119,7 @@
   "scripts": {
     "build": "npm exec --no -- tsc6 -p tsconfig.json",
     "prepare": "npm run build",
-    "test": "yarn build && node dist/test.js && node dist/vector-test.js && node dist/loop-test.js && node dist/hxml-test.js && node dist/css-modules-test.js && node dist/watch-test.js && node dist/watch-vector-test.js && node dist/haxe-server-test.js && node dist/haxe-server-vector-test.js && node dist/session-vector-test.js && node dist/session-runtime-vector-test.js && node dist/session-test.js && node dist/session-integration-test.js",
+    "test": "yarn build && node dist/test.js && node dist/vector-test.js && node dist/loop-test.js && node dist/hxml-test.js && node dist/lix-test.js && node dist/css-modules-test.js && node dist/watch-test.js && node dist/watch-vector-test.js && node dist/haxe-server-test.js && node dist/haxe-server-vector-test.js && node dist/session-vector-test.js && node dist/session-runtime-vector-test.js && node dist/session-test.js && node dist/session-integration-test.js",
     "pack:check": "yarn build && node ../scripts/dist/test-tooling-package.js"
   },
   "devDependencies": {
