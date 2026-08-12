@@ -1123,19 +1123,30 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     }
     for (const extra of this.#options.extraInputs ?? []) {
       const absolute = path.resolve(this.#layout.projectRoot, extra.path);
-      inputs.push({
-        kind: "exact",
-        path: absolute,
-        cause: {
-          reinventory: extra.impact.reinventory === true,
-          restartCompiler: extra.impact.restartCompiler === true,
-          rebuild:
-            extra.impact.rebuild !== false ||
-            extra.impact.revalidate === true ||
-            extra.impact.reinventory === true ||
-            extra.impact.restartCompiler === true,
-        },
-      });
+      const kind = extra.kind ?? "exact";
+      if (kind !== "exact" && kind !== "tree") {
+        throw new Error(`development-session extra input has an invalid kind: ${String(kind)}`);
+      }
+      const cause = {
+        reinventory: extra.impact.reinventory === true,
+        restartCompiler: extra.impact.restartCompiler === true,
+        rebuild:
+          extra.impact.rebuild !== false ||
+          extra.impact.revalidate === true ||
+          extra.impact.reinventory === true ||
+          extra.impact.restartCompiler === true,
+      };
+      if (kind === "tree") {
+        inputs.push({
+          kind: "tree",
+          path: absolute,
+          cause,
+          include: (_relative: string) => true,
+          rejectSymlinks: true,
+        });
+      } else {
+        inputs.push({ kind: "exact", path: absolute, cause });
+      }
     }
     return Object.freeze(inputs);
   }

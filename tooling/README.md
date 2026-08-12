@@ -638,6 +638,21 @@ rolled back, the other output can start normally.
   Macro-owned external inputs must be declared as host `extraInputs` when they
   affect rebuild correctness. Preventing arbitrary macros from reading or
   writing outside an operating-system sandbox is a separate architecture.
+- An extra input watches one exact path by default. Set `kind: "tree"` when a
+  whole directory affects generation. A tree observes edits, additions, and
+  removals below that directory. It rejects symbolic links rather than hiding
+  files that Haxe or a macro could still read:
+
+  ```ts
+  extraInputs: [{
+    kind: "tree",
+    path: "schema",
+    impact: { rebuild: true, restartCompiler: true },
+  }]
+  ```
+
+  The tree form intentionally has no glob language. Declare a narrower root
+  when only one subtree belongs to the build.
 - `resolveInvocation().executable` is the native Haxe compiler binary that
   supports `--server-listen` and `--connect`, not a shell command string. The
   process is spawned with structured arguments and `shell: false`.
