@@ -4,6 +4,14 @@ All notable changes to `@genes-ts/tooling` are recorded here. This package has
 its own version and release lifecycle; compiler/Haxelib releases do not publish
 it.
 
+## Unreleased
+
+- Let a host import one exact generated application when it moves to
+  `DevelopmentSession`. Genes checks the old ownership facts and the live
+  files, runs the normal host validator, and records the handoff without
+  rewriting the application. A broken first rebuild keeps that checked output
+  available until a later build succeeds.
+
 ## 0.4.0
 
 - Add a safe Lix resolver for an ordered Haxe library group. It uses one

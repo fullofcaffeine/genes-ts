@@ -65,7 +65,8 @@ export interface AcceptedGeneration {
 
   readonly acceptedAt: number;
   readonly manifestDigest: string;
-  readonly compilerMode: "connected" | "direct";
+  /** `external` means Genes checked and reused an earlier generated tree. */
+  readonly compilerMode: "connected" | "direct" | "external";
   readonly files: FileDelta;
   readonly entryChanged: boolean;
 }
@@ -317,6 +318,40 @@ export interface PreparedRevision {
   readonly files: readonly PreparedRevisionFile[];
 }
 
+/** One exact generated file named by an older host ownership record. */
+export interface ExistingGenerationFile {
+  readonly path: string;
+  readonly sha256: string;
+  readonly sizeBytes: number;
+  readonly mode: number;
+}
+
+/**
+ * Exact evidence for a generated tree that predates DevelopmentSession.
+ *
+ * The host derives this claim from its own trusted ownership record. Tooling
+ * checks every live byte and then asks the normal validator to accept the
+ * complete tree. It never infers ownership from a directory scan.
+ */
+export interface ExistingGenerationImport {
+  /** Files inside the main Genes output, from the older host record. */
+  readonly genesFiles: readonly ExistingGenerationFile[];
+
+  /** Files outside the main Genes output, such as framework entry files. */
+  readonly supplementalFiles: readonly ExistingGenerationFile[];
+}
+
+/**
+ * Opts into reusing a validated public generation when a session starts.
+ *
+ * An empty object can reuse a generation already recorded by
+ * DevelopmentSession. `import` is required only for the first handoff from an
+ * older host publisher.
+ */
+export interface ExistingGenerationPolicy {
+  readonly import?: ExistingGenerationImport;
+}
+
 /** A typed host result for pre-typing input preparation. */
 export type PreparationResult<Diagnostic extends JsonValue> =
   | { readonly ok: true; readonly prepared: PreparedRevision }
@@ -431,6 +466,13 @@ export interface GenesDevelopmentOptions<Diagnostic extends JsonValue> {
    * files stay private unless the host returns approved public artifacts.
    */
   readonly compilerData?: readonly CompilerDataDeclaration[];
+
+  /**
+   * Revalidates an existing complete tree before the first new compilation.
+   * This lets a host keep its last accepted application running while a broken
+   * first edit is repaired. The default remains a fresh session-owned build.
+   */
+  readonly existingGeneration?: ExistingGenerationPolicy;
 
   /**
    * Creates exact private inputs before Haxe types this revision.

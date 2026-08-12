@@ -26,6 +26,7 @@
         "start",
         "recovery-none",
         "recovery-committed",
+        "existing-generation-imported",
         "watch-registered",
         "input-change",
         "input-burst-20",

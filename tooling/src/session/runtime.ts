@@ -65,8 +65,15 @@ import {
   type SessionLayout,
 } from "./layout.js";
 import {
+  assertImportMatchesPublished,
+  checkExistingGenerationFiles,
+  checkExistingGenesFiles,
+  snapshotExistingGenerationPolicy,
+} from "./existing-generation.js";
+import {
   legacyAdmissionDigest,
   legacySessionProjectDigest,
+  prepareExistingGenerationImport,
   preparePublication,
   readPublishedMarker,
   recoveredAdmissionMode,
@@ -168,6 +175,23 @@ function diagnostic(
 
 function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
+}
+
+class ExistingGenerationStartupError extends Error {
+  readonly phase: "validate" | "publish";
+  readonly details?: JsonValue;
+
+  constructor(
+    phase: "validate" | "publish",
+    cause: unknown,
+    details?: JsonValue,
+  ) {
+    const error = asError(cause);
+    super(error.message);
+    this.name = "ExistingGenerationStartupError";
+    this.phase = phase;
+    this.details = details;
+  }
 }
 
 /** Replaces one private path whether a host reports `/` or `\\` separators. */
@@ -305,6 +329,9 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   readonly #compilerDataDeclarations: ReturnType<
     typeof snapshotCompilerDataDeclarations
   >;
+  readonly #existingGeneration: ReturnType<
+    typeof snapshotExistingGenerationPolicy
+  >;
   readonly #loop: SerializedDirtyLoop<BuildCause>;
   readonly #compiler: SessionCompiler;
   readonly #firstAcceptedPromise: Promise<AcceptedGeneration>;
@@ -333,6 +360,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   #publishedSupplementalFiles: readonly PublishedSupplementalFile[] = Object.freeze([]);
   #mayCleanCandidates = false;
   #acceptWatchChanges = false;
+  #startupInputChanged = false;
 
   constructor(
     options: GenesDevelopmentOptions<Diagnostic>,
@@ -341,6 +369,9 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     this.#options = options;
     this.#compilerDataDeclarations = snapshotCompilerDataDeclarations(
       options.compilerData,
+    );
+    this.#existingGeneration = snapshotExistingGenerationPolicy(
+      options.existingGeneration,
     );
     this.#dependencies = dependencies;
     this.#layout = resolveSessionLayout(
@@ -449,17 +480,23 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         this.#inventory,
         this.#publishedSupplementalFiles.map((file) => file.path),
       );
+      startupPhase = "recovery";
+      const existing = await this.#resumeExistingGeneration(published);
       if (this.#closing !== null || this.#startupAbort.signal.aborted) return;
       if (this.#newestRevision !== 0) {
         throw new Error("initial revision was already assigned");
       }
-      this.#newestRevision = 1;
-      this.#newestRebuildRevision = 1;
+      const firstBuildRevision = (existing?.revision ?? 0) + 1;
+      this.#newestRevision = firstBuildRevision;
+      this.#newestRebuildRevision = firstBuildRevision;
       this.#startupReady = true;
       this.#acceptWatchChanges = true;
+      if (existing !== null) {
+        this.#acceptExisting(existing);
+      }
       this.#loop.request(
         Object.freeze({
-          revision: 1,
+          revision: firstBuildRevision,
           paths: Object.freeze([]),
           reinventory: false,
           restartCompiler: false,
@@ -468,21 +505,259 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       );
     } catch (error) {
       const normalized = asError(error);
+      const failurePhase =
+        error instanceof ExistingGenerationStartupError
+          ? error.phase
+          : startupPhase;
       if (this.#closing === null) {
         this.#fail(
-          startupPhase,
+          failurePhase,
           null,
           false,
           diagnostic(
-            startupPhase === "inventory"
+            failurePhase === "inventory"
               ? "HXML_INVENTORY_FAILED"
-              : "SESSION_RECOVERY_FAILED",
+              : failurePhase === "validate"
+                ? "HOST_VALIDATION_FAILED"
+                : failurePhase === "publish"
+                  ? "PUBLICATION_FAILED"
+                  : "SESSION_RECOVERY_FAILED",
             this.#sanitizeCoreMessage(normalized.message),
+            error instanceof ExistingGenerationStartupError &&
+                error.details !== undefined
+              ? this.#sanitizePublicJson(error.details)
+              : undefined,
           ),
         );
       }
       this.#lock?.release();
       this.#lock = null;
+    }
+  }
+
+  async #resumeExistingGeneration(
+    published: ReturnType<typeof readPublishedMarker>,
+  ): Promise<AcceptedGeneration | null> {
+    if (this.#existingGeneration === null) return null;
+    const live = readGenesOutput(
+      this.#layout.publicOutputRoot,
+      this.#layout.outputIdentity,
+      false,
+    );
+    if (published.manifestDigest === null) {
+      const imported = this.#existingGeneration.import;
+      if (live === null) {
+        if (imported === undefined) return null;
+        throw new Error("existing generation import has no live Genes output");
+      }
+      if (imported === undefined) {
+        throw new Error(
+          "existing Genes output has no session marker; provide an exact import claim",
+        );
+      }
+      checkExistingGenesFiles(this.#layout, imported, live);
+      const checked = checkExistingGenerationFiles(this.#layout, imported);
+      const inventory = this.#inventory;
+      if (inventory === null) {
+        throw new Error("existing generation import has no HXML inventory");
+      }
+      this.#assertSupplementalPaths(
+        inventory,
+        checked.published.map((file) => file.path),
+      );
+      let admission: AdmissionResult<Diagnostic>;
+      try {
+        admission = await this.#options.validate(
+          this.#validationTree(
+            "recovered-live",
+            null,
+            live,
+            checked.candidates,
+          ),
+          { signal: this.#startupAbort.signal, recovery: true },
+        );
+      } catch (error) {
+        throw new ExistingGenerationStartupError("validate", error);
+      }
+      if (this.#closing !== null || this.#startupAbort.signal.aborted) {
+        return null;
+      }
+      if (!admission.ok) {
+        throw new ExistingGenerationStartupError(
+          "validate",
+          "the host validator rejected the existing generation",
+          admission.diagnostic,
+        );
+      }
+      if (
+        !recoveredArtifactsMatchPublishedFiles(
+          admission.artifacts ?? [],
+          checked.published,
+          "v4",
+        )
+      ) {
+        throw new ExistingGenerationStartupError(
+          "validate",
+          "the host validator did not reproduce the exact existing supplemental files",
+        );
+      }
+      const reconciliationChanged = this.#requireReconciliation();
+      const changedDuringValidation =
+        this.#startupInputChanged || reconciliationChanged;
+      this.#assertSupplementalPaths(
+        inventory,
+        checked.published.map((file) => file.path),
+      );
+      if (changedDuringValidation) {
+        throw new ExistingGenerationStartupError(
+          "validate",
+          "authored inputs changed while the existing generation was checked",
+        );
+      }
+      if (this.#closing !== null || this.#startupAbort.signal.aborted) {
+        return null;
+      }
+      const stageRelativePath =
+        `${this.#layout.candidatesRelative}/existing-${this.#dependencies.nonce()}`;
+      try {
+        try {
+          const prepared = prepareExistingGenerationImport(
+            this.#layout,
+            stageRelativePath,
+            live,
+            checked.published,
+            this.#dependencies.now(),
+            this.#options.validatorPolicyFacts,
+            this.#sessionNonce,
+          );
+          const ticket = prepared.plan.authorizationDigest;
+          await this.#dependencies.publish({
+            projectRoot: this.#layout.projectRoot,
+            plan: prepared.plan,
+            admitIntended: (plan) => plan.authorizationDigest === ticket,
+          });
+          const recorded = readPublishedMarker(this.#layout);
+          this.#publishedManifestDigest = recorded.manifestDigest;
+          this.#publishedMarkerState = recorded.state;
+          this.#publishedSupplementalFiles = recorded.supplementalFiles;
+          return prepared.accepted;
+        } catch (error) {
+          throw new ExistingGenerationStartupError("publish", error);
+        }
+      } finally {
+        rmSync(
+          path.join(
+            this.#layout.projectRoot,
+            ...stageRelativePath.split("/"),
+          ),
+          { recursive: true, force: true },
+        );
+      }
+    }
+
+    if (live === null || live.manifestDigest !== published.manifestDigest) {
+      throw new Error("the accepted existing Genes output changed");
+    }
+    if (published.accepted === null) {
+      throw new Error("the accepted-generation marker has no generation facts");
+    }
+    assertImportMatchesPublished(
+      this.#existingGeneration.import,
+      published.supplementalFiles,
+    );
+    const extraFiles = published.supplementalFiles.map((file) =>
+      readLiveSupplementalFile(this.#layout, file),
+    );
+    let admission: AdmissionResult<Diagnostic>;
+    try {
+      admission = await this.#options.validate(
+        this.#validationTree(
+          "recovered-live",
+          null,
+          live,
+          extraFiles,
+        ),
+        { signal: this.#startupAbort.signal, recovery: true },
+      );
+    } catch (error) {
+      throw new ExistingGenerationStartupError("validate", error);
+    }
+    if (this.#closing !== null || this.#startupAbort.signal.aborted) {
+      return null;
+    }
+    if (!admission.ok) {
+      throw new ExistingGenerationStartupError(
+        "validate",
+        "the host validator rejected the accepted generation",
+        admission.diagnostic,
+      );
+    }
+    if (
+      !recoveredArtifactsMatchPublishedFiles(
+        admission.artifacts ?? [],
+        published.supplementalFiles,
+        published.format,
+      )
+    ) {
+      throw new ExistingGenerationStartupError(
+        "validate",
+        "the host validator did not reproduce the accepted supplemental files",
+      );
+    }
+    const inventory = this.#inventory;
+    if (inventory === null) {
+      throw new Error("accepted generation has no HXML inventory");
+    }
+    const reconciliationChanged = this.#requireReconciliation();
+    const changedDuringValidation =
+      this.#startupInputChanged || reconciliationChanged;
+    this.#assertSupplementalPaths(
+      inventory,
+      published.supplementalFiles.map((file) => file.path),
+    );
+    if (changedDuringValidation) {
+      throw new ExistingGenerationStartupError(
+        "validate",
+        "authored inputs changed while the accepted generation was checked",
+      );
+    }
+    const currentLive = readGenesOutput(
+      this.#layout.publicOutputRoot,
+      this.#layout.outputIdentity,
+      true,
+    )!;
+    if (currentLive.manifestDigest !== published.manifestDigest) {
+      throw new ExistingGenerationStartupError(
+        "validate",
+        "the accepted Genes output changed while the host checked it",
+      );
+    }
+    for (const file of published.supplementalFiles) {
+      readLiveSupplementalFile(this.#layout, file);
+    }
+    const accepted: AcceptedGeneration = Object.freeze({
+      ...published.accepted,
+      manifestDigest: published.manifestDigest,
+      compilerMode: "external",
+      files: Object.freeze({
+        created: Object.freeze([]),
+        updated: Object.freeze([]),
+        deleted: Object.freeze([]),
+      }),
+      entryChanged: false,
+    });
+    return accepted;
+  }
+
+  #acceptExisting(accepted: AcceptedGeneration): void {
+    this.#accepted = accepted;
+    this.#setState(Object.freeze({ kind: "ready", accepted }), accepted.acceptedAt);
+    if (this.#closing !== null) return;
+    this.#emit({ kind: "generation-accepted", accepted });
+    if (this.#closing !== null) return;
+    if (!this.#firstAcceptedSettled) {
+      this.#firstAcceptedSettled = true;
+      this.#resolveFirstAccepted(accepted);
     }
   }
 
@@ -780,6 +1055,8 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       onChange: (change) => {
         if (this.#acceptWatchChanges) {
           this.#observe(change.path, change.cause);
+        } else {
+          this.#startupInputChanged = true;
         }
       },
       onError: (error) => {

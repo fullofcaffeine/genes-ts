@@ -7,6 +7,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import os from "node:os";
@@ -31,7 +32,7 @@ import type {
   WatchInput,
 } from "./watch/index.js";
 import type { SessionCompiler } from "./session/haxe-driver.js";
-import type { SessionLayout } from "./session/layout.js";
+import { resolveSessionLayout, type SessionLayout } from "./session/layout.js";
 import {
   createGenesDevelopmentSessionWithDependencies,
   type SessionDependencies,
@@ -42,6 +43,7 @@ import type {
   DevelopmentSession,
   DevelopmentSnapshot,
   DevelopmentState,
+  ExistingGenerationImport,
   FileDelta,
   JsonValue,
 } from "./session/types.js";
@@ -415,6 +417,62 @@ async function execute(vector: Vector): Promise<void> {
   if (expectsPrivateHxml) {
     writeFileSync(path.join(root, "payload.hxml"), "fixture payload\n", "utf8");
   }
+  const usesExistingGeneration =
+    vector.id === "existing-generation-survives-first-build-failure";
+  let existingImport: ExistingGenerationImport | undefined;
+  let existingAdapter: Buffer | null = null;
+  if (usesExistingGeneration) {
+    const layout = resolveSessionLayout(
+      root,
+      vector.id,
+      "src-gen/index.ts",
+      ".genes/dev",
+    );
+    mkdirSync(layout.publicOutputRoot, { recursive: true });
+    writeFileSync(layout.publicOutputFile, "export const existing = true;\n", "utf8");
+    const ownershipManifestPath = path.join(
+      layout.publicOutputRoot,
+      manifestName(layout.outputIdentity),
+    );
+    const ownershipManifestBytes = Buffer.from(
+      `genes-output-manifest-v2\nowner-base64:${Buffer.from(layout.outputIdentity).toString("base64")}\n${layout.outputIdentity}\n`,
+      "utf8",
+    );
+    writeFileSync(ownershipManifestPath, ownershipManifestBytes);
+    const adapterPath = path.join(root, "host/entry.ts");
+    mkdirSync(path.dirname(adapterPath), { recursive: true });
+    existingAdapter = Buffer.from(
+      "export { existing } from \"../src-gen/index.js\";\n",
+      "utf8",
+    );
+    writeFileSync(adapterPath, existingAdapter);
+    existingImport = Object.freeze({
+      genesFiles: Object.freeze([
+        Object.freeze({
+          path: "src-gen/index.ts",
+          sha256: createHash("sha256")
+            .update("export const existing = true;\n")
+            .digest("hex"),
+          sizeBytes: Buffer.byteLength("export const existing = true;\n"),
+          mode: statSync(layout.publicOutputFile).mode & 0o777,
+        }),
+        Object.freeze({
+          path: `src-gen/${path.basename(ownershipManifestPath)}`,
+          sha256: createHash("sha256").update(ownershipManifestBytes).digest("hex"),
+          sizeBytes: ownershipManifestBytes.byteLength,
+          mode: statSync(ownershipManifestPath).mode & 0o777,
+        }),
+      ]),
+      supplementalFiles: Object.freeze([
+        Object.freeze({
+          path: "host/entry.ts",
+          sha256: createHash("sha256").update(existingAdapter).digest("hex"),
+          sizeBytes: existingAdapter.byteLength,
+          mode: statSync(adapterPath).mode & 0o777,
+        }),
+      ]),
+    });
+  }
   const hold =
     vector.id === "burst-supersedes-active-candidate" ||
     vector.id === "close-before-first-accepted-is-idempotent"
@@ -530,14 +588,28 @@ async function execute(vector: Vector): Promise<void> {
           throw new Error(`${vector.id}: unplanned validation`);
         }
         const revision = tree.revision;
-        assert.notEqual(
-          revision,
-          null,
-          `${vector.id}: candidate has a revision`,
-        );
+        if (usesExistingGeneration) {
+          assert.equal(revision, null, `${vector.id}: imported tree has no build revision`);
+        } else {
+          assert.notEqual(
+            revision,
+            null,
+            `${vector.id}: candidate has a revision`,
+          );
+        }
         return rejected === null
           ? {
               ok: true,
+              ...(usesExistingGeneration
+                ? {
+                    artifacts: [
+                      {
+                        path: "host/entry.ts",
+                        content: existingAdapter!,
+                      },
+                    ],
+                  }
+                : {}),
               ...(usesSupplementalFiles(vector) &&
               (vector.id === "publish-failure-rolls-back" || revision === 1)
                 ? {
@@ -573,6 +645,9 @@ async function execute(vector: Vector): Promise<void> {
           }
         : {}),
       validatorPolicyFacts: { vector: vector.id },
+      ...(existingImport === undefined
+        ? {}
+        : { existingGeneration: { import: existingImport } }),
       debounceMs: 0,
       pollIntervalMs: 10,
       shutdownTimeoutMs: 20,
