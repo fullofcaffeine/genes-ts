@@ -140,6 +140,32 @@ async function main(): Promise<void> {
     );
     missingSession.close();
 
+    const directoryChanges: Array<ReconciledWatchChange<string>> = [];
+    const directorySession = watchReconciledInputs({
+      inputs: [
+        {
+          kind: "tree",
+          path: path.join(root, "src"),
+          cause: "all-descendants",
+          include: () => true,
+        },
+      ],
+      merge: (left) => left,
+      onChange: (change) => directoryChanges.push(change),
+      onError: (error) => errors.push(error.message),
+      nativeEvents: false,
+      pollIntervalMs: 1_000,
+    });
+    const emptyDirectory = path.join(root, "src", "empty-domain");
+    mkdirSync(emptyDirectory);
+    assert.deepEqual(directorySession.reconcile(), { ok: true, changed: true });
+    assert.equal(
+      directoryChanges.some((change) => change.path === emptyDirectory),
+      true,
+      "an all-descendant tree records an empty directory addition",
+    );
+    directorySession.close();
+
     const lateSymlinkErrors: string[] = [];
     const missingNestedRoot = path.join(root, "late-parent", "nested");
     const missingNestedSession = watchReconciledInputs({

@@ -283,26 +283,24 @@ function assertRealPath(root: string, candidate: string, label: string): void {
   }
 }
 
-function assertClassPathTreeIsReal(classPath: string): void {
-  if (!existsSync(classPath)) return;
+function assertInputTreeIsReal(inputTree: string, label: string): void {
+  if (!existsSync(inputTree)) return;
   const visit = (directory: string): void => {
     for (const child of readdirSync(directory, { withFileTypes: true })) {
       const absolute = path.join(directory, child.name);
       if (child.isSymbolicLink()) {
         throw new Error(
-          `development-session class path contains a symbolic link: ${absolute}`,
+          `${label} contains a symbolic link: ${absolute}`,
         );
       }
       if (child.isDirectory()) visit(absolute);
     }
   };
-  const stats = lstatSync(classPath);
+  const stats = lstatSync(inputTree);
   if (stats.isSymbolicLink() || !stats.isDirectory()) {
-    throw new Error(
-      `development-session class path must be a real directory: ${classPath}`,
-    );
+    throw new Error(`${label} must be a real directory: ${inputTree}`);
   }
-  visit(classPath);
+  visit(inputTree);
 }
 
 function mergeCause(left: BuildCause, right: BuildCause): BuildCause {
@@ -1697,7 +1695,15 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       }
     }
     for (const classPath of inventory.classPaths) {
-      assertClassPathTreeIsReal(classPath);
+      assertInputTreeIsReal(classPath, "development-session class path");
+    }
+    for (const extra of this.#options.extraInputs ?? []) {
+      if ((extra.kind ?? "exact") === "tree") {
+        assertInputTreeIsReal(
+          path.resolve(this.#layout.projectRoot, extra.path),
+          "development-session extra input tree",
+        );
+      }
     }
   }
 

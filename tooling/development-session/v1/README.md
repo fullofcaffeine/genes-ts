@@ -77,8 +77,9 @@ lower than `newestRevision` until another build-requiring change occurs.
 
 An extra input uses `kind: "exact"` by default. Use `kind: "tree"` for a
 directory whose descendant edits, additions, and removals affect the build.
-The tree watcher rejects symbolic links. It does not use globs or guess which
-parts of a larger directory are relevant.
+This includes empty descendant directories, because a Haxe macro can inspect
+folder structure. The session rejects a link before Haxe can read the tree.
+It does not use globs or guess which parts of a larger directory are relevant.
 
 ## States a host presents
 

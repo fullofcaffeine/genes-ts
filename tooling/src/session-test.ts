@@ -2481,6 +2481,35 @@ await withHarness(
   },
 );
 
+await withHarness(
+  "host-extra-input-tree-rejects-startup-link",
+  async (harness) => {
+    await harness.session.start();
+    await assert.rejects(harness.session.firstAccepted, /fatal session failure/u);
+    assert.equal(harness.compiler.calls, 0, "Haxe must not read an unsafe tree");
+    const failed = harness.events.find((event) => event.event.kind === "failed");
+    assert.match(JSON.stringify(failed), /extra input tree contains a symbolic link/u);
+  },
+  undefined,
+  (options, root) => {
+    const schema = path.join(root, "schema");
+    const target = path.join(root, "schema-target.json");
+    mkdirSync(schema);
+    writeFileSync(target, "{}\n", "utf8");
+    symlinkSync(target, path.join(schema, "linked.json"));
+    return {
+      ...options,
+      extraInputs: [
+        {
+          kind: "tree",
+          path: "schema",
+          impact: { rebuild: true },
+        },
+      ],
+    };
+  },
+);
+
 for (const field of ["generation", "revision", "acceptedAt", "sessionNonce"] as const) {
   await withHarness(`marker-drift-${field}`, async (harness) => {
     harness.compiler.steps.push(
