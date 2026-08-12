@@ -23,11 +23,15 @@ const projectRoot = path.join(root, "project");
 const libraryRoot = path.join(root, "libraries");
 const firstSource = path.join(libraryRoot, "first", "src");
 const secondSource = path.join(libraryRoot, "second", "src");
+const spacedLibraryRoot = path.join(libraryRoot, "with spaces");
+const spacedSource = path.join(spacedLibraryRoot, "src");
 mkdirSync(path.join(projectRoot, "haxe_libraries"), { recursive: true });
 mkdirSync(firstSource, { recursive: true });
 mkdirSync(secondSource, { recursive: true });
+mkdirSync(spacedSource, { recursive: true });
 writeFileSync(path.join(libraryRoot, "first", "haxelib.json"), '{"name":"first"}\n', "utf8");
 writeFileSync(path.join(libraryRoot, "second", "haxelib.json"), '{"name":"second"}\n', "utf8");
+writeFileSync(path.join(spacedLibraryRoot, "haxelib.json"), '{"name":"with-spaces"}\n', "utf8");
 
 for (const name of ["first", "second"]) {
   writeFileSync(
@@ -147,6 +151,38 @@ assert.deepEqual(crlfOutput.arguments, [
   "-D",
   "crlf=1",
 ]);
+
+const inlineClassPathProgram = fakeProgram(
+  "inline-class-path",
+  `process.stdout.write(${JSON.stringify(`--class-path=${firstSource}\n`)});`,
+);
+const inlineClassPath = await resolveLixLibraryGroup({
+  projectRoot,
+  requests: [request("first")],
+  command: {
+    executable: process.execPath,
+    argsPrefix: [inlineClassPathProgram],
+  },
+});
+assert.deepEqual(inlineClassPath.arguments, ["-cp", canonical(firstSource)]);
+assert.deepEqual(inlineClassPath.allowedRoots, [
+  canonical(path.join(libraryRoot, "first")),
+]);
+
+const quotedClassPathProgram = fakeProgram(
+  "quoted-class-path",
+  `process.stdout.write(${JSON.stringify(`-cp "${spacedSource}"\n`)});`,
+);
+const quotedClassPath = await resolveLixLibraryGroup({
+  projectRoot,
+  requests: [request("first")],
+  command: {
+    executable: process.execPath,
+    argsPrefix: [quotedClassPathProgram],
+  },
+});
+assert.deepEqual(quotedClassPath.arguments, ["-cp", canonical(spacedSource)]);
+assert.deepEqual(quotedClassPath.allowedRoots, [canonical(spacedLibraryRoot)]);
 
 const firstNekoLibrary = path.join(libraryRoot, "first", "ndll");
 mkdirSync(firstNekoLibrary);
@@ -375,6 +411,67 @@ await expectCode(
     }),
   "LIX_RESOLVER_ABORTED",
 );
+
+if (process.platform !== "win32") {
+  const firstManifest = path.join(libraryRoot, "first", "haxelib.json");
+  chmodSync(firstManifest, 0o000);
+  try {
+    await expectCode(
+      () =>
+        resolveLixLibraryGroup({
+          projectRoot,
+          requests: [request("first")],
+          command: {
+            executable: process.execPath,
+            argsPrefix: [
+              fakeProgram(
+                "unreadable-proof",
+                `process.stdout.write(${JSON.stringify(`${firstSource}\n`)});`,
+              ),
+            ],
+          },
+        }),
+      "LIX_RESOLVER_UNSAFE_LIBRARY",
+    );
+  } finally {
+    chmodSync(firstManifest, 0o644);
+  }
+}
+
+const disappearingScope = path.join(
+  projectRoot,
+  "haxe_libraries",
+  "first.hxml",
+);
+try {
+  await expectCode(
+    () =>
+      resolveLixLibraryGroup({
+        projectRoot,
+        requests: [request("first")],
+        command: {
+          executable: process.execPath,
+          argsPrefix: [
+            fakeProgram(
+              "removed-scope-proof",
+              [
+                'const fs = require("node:fs");',
+                "fs.unlinkSync(process.env.SCOPE_FILE);",
+                "process.stdout.write(process.env.LIBRARY_SOURCE + '\\n');",
+              ].join("\n"),
+            ),
+          ],
+          environment: {
+            LIBRARY_SOURCE: firstSource,
+            SCOPE_FILE: disappearingScope,
+          },
+        },
+      }),
+    "LIX_RESOLVER_UNSAFE_SCOPE",
+  );
+} finally {
+  writeFileSync(disappearingScope, "# pinned first scope\n", "utf8");
+}
 
 rmSync(root, { force: true, recursive: true });
 console.log(

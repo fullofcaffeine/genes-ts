@@ -399,6 +399,17 @@ function realPackageRoot(classPath: string): string {
   );
 }
 
+/** Mirrors Haxe 4.3.7 HXML quoting without applying shell rules. */
+function haxeUnquote(value: string): string {
+  if (value.length === 0) return value;
+  const first = value[0];
+  const last = value[value.length - 1];
+  return (first === '"' && last === '"') ||
+    (first === "'" && last === "'")
+    ? value.slice(1, -1)
+    : value;
+}
+
 function parseOutput(stdout: string, projectRoot: string): {
   readonly arguments: readonly string[];
   readonly packageRoots: readonly string[];
@@ -424,7 +435,7 @@ function parseOutput(stdout: string, projectRoot: string): {
         "Lix haxelib output has leading or trailing whitespace",
       );
     }
-    const line = raw;
+    const line = haxeUnquote(raw);
     if (!line.startsWith("-") && line.endsWith(".hxml")) {
       const hxml = path.resolve(projectRoot, line);
       let hxmlStats: ReturnType<typeof lstatSync>;
@@ -457,9 +468,26 @@ function parseOutput(stdout: string, projectRoot: string): {
       continue;
     }
     if (line.startsWith("-")) {
-      const separator = line.search(/\s/u);
-      const option = separator === -1 ? line : line.slice(0, separator);
-      const value = separator === -1 ? null : line.slice(separator).trimStart();
+      const whitespace = line.search(/\s/u);
+      const equals = line.indexOf("=");
+      const possibleInlineOption =
+        equals > 0 && (whitespace === -1 || equals < whitespace)
+          ? line.slice(0, equals)
+          : null;
+      const hasInlineClassPath =
+        possibleInlineOption !== null &&
+        CLASS_PATH_OPTIONS.has(possibleInlineOption);
+      const option = hasInlineClassPath
+        ? possibleInlineOption
+        : whitespace === -1
+          ? line
+          : line.slice(0, whitespace);
+      const rawValue = hasInlineClassPath
+        ? line.slice(equals + 1)
+        : whitespace === -1
+          ? null
+          : line.slice(whitespace).trimStart();
+      const value = rawValue === null ? null : haxeUnquote(rawValue);
       if (value !== null && value.length === 0) {
         fail(
           "LIX_RESOLVER_MALFORMED_OUTPUT",
@@ -539,7 +567,18 @@ export async function resolveLixLibraryGroup(
   );
   // Reading each proof byte here makes unreadable scope or package evidence a
   // resolver failure instead of a later watcher surprise.
-  for (const file of provenanceFiles) readFileSync(file);
+  const scopeSet = new Set(scopes);
+  for (const file of provenanceFiles) {
+    try {
+      readFileSync(file);
+    } catch {
+      const scope = scopeSet.has(file);
+      fail(
+        scope ? "LIX_RESOLVER_UNSAFE_SCOPE" : "LIX_RESOLVER_UNSAFE_LIBRARY",
+        `${scope ? "Lix scope file" : "Lix package manifest"} cannot be read after resolution: ${file}`,
+      );
+    }
+  }
   return Object.freeze({
     requests,
     allowedRoots: parsed.packageRoots,

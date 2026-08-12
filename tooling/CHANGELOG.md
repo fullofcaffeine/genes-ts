@@ -16,6 +16,8 @@ it.
 - Wait for the Lix command to close its output pipes before parsing it. Keep a
   bare HXML result as checked HXML input, and reject links inside returned
   package paths.
+- Accept inline class-path options and HXML-quoted paths from Lix output. Keep
+  unreadable or removed proof files inside the resolver's stable error types.
 
 ## 0.3.0
 
