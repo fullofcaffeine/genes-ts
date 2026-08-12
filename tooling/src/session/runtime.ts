@@ -1469,7 +1469,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       /<private-candidate-root>[\\/][^\\/\s:]+/gu,
       "<private-candidate>",
     );
-    return replacePathSpellings(
+    const withoutProjectPaths = replacePathSpellings(
       replacePathSpellings(
         withoutCandidateNonce,
         this.#layout.stateRoot,
@@ -1477,6 +1477,17 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       ),
       this.#layout.projectRoot,
       "<project>",
+    );
+    const declaredRoots = (
+      this.#inventory?.allowedRoots ??
+      this.#options.hxml.allowedRoots.map((root) => path.resolve(root))
+    )
+      .map((root, index) => ({ root, index }))
+      .sort((left, right) => right.root.length - left.root.length);
+    return declaredRoots.reduce(
+      (current, { root, index }) =>
+        replacePathSpellings(current, root, `<external-root-${index}>`),
+      withoutProjectPaths,
     );
   }
 

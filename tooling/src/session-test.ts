@@ -2078,6 +2078,63 @@ await withHarness(
   }
 }
 
+{
+  let externalRoot = "";
+  try {
+    await withHarness(
+      "external-diagnostic-private-path-redaction",
+      async (harness) => {
+        await harness.session.start();
+        await harness.session.waitForIdle();
+        assert.equal(harness.session.state.kind, "blocked");
+        const publicRecord = JSON.stringify({
+          snapshot: harness.session.inspect(),
+          events: harness.events,
+        });
+        assert.equal(
+          publicRecord.includes(externalRoot),
+          false,
+          "public diagnostics must hide declared external roots",
+        );
+        const alternateRoot = externalRoot
+          .split(path.sep)
+          .join(path.sep === "/" ? "\\" : "/");
+        assert.equal(
+          publicRecord.includes(alternateRoot),
+          false,
+          "public diagnostics must hide external roots with either slash style",
+        );
+        assert.equal(publicRecord.includes("<external-root-"), true);
+      },
+      undefined,
+      (options, root) => {
+        externalRoot = realpathSync.native(
+          mkdtempSync(path.join(os.tmpdir(), "genes-external-diagnostic-")),
+        );
+        return {
+          ...options,
+          hxml: {
+            ...options.hxml,
+            allowedRoots: [root, externalRoot],
+          },
+          validate: async () => ({
+            ok: false,
+            diagnostic: {
+              code: "HOST_REJECTED",
+              message: `external source ${externalRoot}`,
+              [externalRoot]: "path used as an object key",
+            },
+          }),
+        };
+      },
+    );
+  } finally {
+    if (externalRoot !== "") {
+      rmSync(externalRoot, { recursive: true, force: true });
+    }
+  }
+}
+
 await withHarness("reinventory-then-compile-failure", async (harness) => {
   harness.compiler.steps.push(
     { content: "export const value = 1;\n" },

@@ -125,7 +125,9 @@ no duplicates, and do not overlap. Events never expose private candidate,
 state, project, or external root paths. This includes host validation messages
 and JSON keys that spell a path with either `/` or `\\`. A host should still
 prefer useful logical paths in its diagnostics, because replacing a private
-path can hide the location rather than explain it.
+path can hide the location rather than explain it. The replacement
+`<external-root-N>` identifies the declared root without exposing its local
+folder.
 
 One JSON-lines event can therefore be consumed directly by automation:
 
