@@ -404,7 +404,10 @@ function parseOutput(stdout: string, projectRoot: string): {
   readonly packageRoots: readonly string[];
   readonly packageManifests: readonly string[];
 } {
-  if (UNSAFE_TEXT.test(stdout)) {
+  // Windows commands use CRLF. Remove the CR only when it is part of that
+  // line ending, then reject every remaining control character as before.
+  const normalizedOutput = stdout.replaceAll("\r\n", "\n");
+  if (UNSAFE_TEXT.test(normalizedOutput)) {
     fail(
       "LIX_RESOLVER_MALFORMED_OUTPUT",
       "Lix haxelib output contains unsafe control text",
@@ -413,7 +416,7 @@ function parseOutput(stdout: string, projectRoot: string): {
   const argumentsResult: string[] = [];
   const roots = new Set<string>();
   const manifests = new Set<string>();
-  for (const raw of stdout.replaceAll("\r\n", "\n").split("\n")) {
+  for (const raw of normalizedOutput.split("\n")) {
     if (raw.length === 0) continue;
     if (raw !== raw.trim()) {
       fail(
@@ -463,18 +466,21 @@ function parseOutput(stdout: string, projectRoot: string): {
           `Lix haxelib option ${option} has no value`,
         );
       }
-      if (CLASS_PATH_OPTIONS.has(option)) {
+      if (CLASS_PATH_OPTIONS.has(option) || option === "-L") {
         if (value === null) {
           fail(
             "LIX_RESOLVER_MALFORMED_OUTPUT",
-            `Lix haxelib option ${option} must contain one class path`,
+            `Lix haxelib option ${option} must contain one path`,
           );
         }
-        const classPath = path.resolve(projectRoot, value);
-        const root = realPackageRoot(classPath);
+        const libraryPath = path.resolve(projectRoot, value);
+        const root = realPackageRoot(libraryPath);
         roots.add(root);
         manifests.add(path.join(root, "haxelib.json"));
-        argumentsResult.push("-cp", realpathSync.native(classPath));
+        argumentsResult.push(
+          option === "-L" ? "--neko-lib-path" : "-cp",
+          realpathSync.native(libraryPath),
+        );
       } else {
         argumentsResult.push(option);
         if (value !== null) argumentsResult.push(value);

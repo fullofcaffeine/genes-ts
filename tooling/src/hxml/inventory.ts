@@ -610,7 +610,15 @@ async function inventoryHxmlWithPolicy(
     if (pendingLibraries.length === 0) return;
     const batch = pendingLibraries.splice(0, pendingLibraries.length);
     const requests = Object.freeze(batch.map((entry) => entry.request));
-    for (const request of requests) {
+    // Haxe keeps duplicates that occur in one adjacent group, but it removes a
+    // library that was already resolved in an earlier group. Take the snapshot
+    // before recording this group so both parts of that behavior stay intact.
+    const unresolvedRequests = Object.freeze(
+      requests.filter(
+        (request) => !recordedLibraryMetadata.has(request.request),
+      ),
+    );
+    for (const request of unresolvedRequests) {
       if (recordedLibraryMetadata.has(request.request)) continue;
       recordedLibraryMetadata.add(request.request);
       libraries.push(
@@ -634,22 +642,27 @@ async function inventoryHxmlWithPolicy(
       }
       return;
     }
+    if (unresolvedRequests.length === 0) return;
 
     let resolution: HxmlLibraryResolution;
-    const subject = `${requests[0]!.fromFile}:libraries:${requests
+    const subject = `${unresolvedRequests[0]!.fromFile}:libraries:${unresolvedRequests
       .map((request) => request.request)
       .join(",")}`;
     try {
       if (options.resolveLibraries !== undefined) {
         resolution = await awaitWithAbort(
-          options.resolveLibraries(requests, {
+          options.resolveLibraries(unresolvedRequests, {
             signal: resolverSignal,
             environment: (name) => options.environment?.(name) ?? null,
           }),
           options.signal,
         );
       } else {
-        const distinct = [...new Set(requests.map((request) => request.request))];
+        const distinct = [
+          ...new Set(
+            unresolvedRequests.map((request) => request.request),
+          ),
+        ];
         const requested = distinct[0]!;
         if (
           distinct.length > 1 ||
@@ -657,13 +670,13 @@ async function inventoryHxmlWithPolicy(
         ) {
           fail(
             "invalid-syntax",
-            `${requests[0]!.fromFile}:multiple-distinct-libraries-require-batch-resolver`,
+            `${unresolvedRequests[0]!.fromFile}:multiple-distinct-libraries-require-batch-resolver`,
           );
         }
         if (legacyResolvedLibrary === requested) return;
         legacyResolvedLibrary = requested;
         resolution = await awaitWithAbort(
-          options.resolveLibrary!(requests[0]!, {
+          options.resolveLibrary!(unresolvedRequests[0]!, {
             signal: resolverSignal,
             environment: (name) => options.environment?.(name) ?? null,
           }),

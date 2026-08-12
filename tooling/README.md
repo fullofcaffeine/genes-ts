@@ -1024,9 +1024,13 @@ ordered library group. It does not use a shell, install packages, or choose a
 version.
 
 ```ts
+import { createRequire } from "node:module";
 import path from "node:path";
 import { inventoryHxml } from "@genes-ts/tooling/hxml";
 import { resolveLixLibraryGroup } from "@genes-ts/tooling/lix";
+
+const requireFromProject = createRequire(path.join(projectRoot, "package.json"));
+const lixHaxelib = requireFromProject.resolve("lix/bin/haxelibshim.js");
 
 const inventory = await inventoryHxml({
   entryFiles: ["build.hxml"],
@@ -1037,12 +1041,17 @@ const inventory = await inventoryHxml({
       projectRoot,
       requests,
       command: {
-        executable: path.join(projectRoot, "node_modules/.bin/haxelib"),
+        executable: process.execPath,
+        argsPrefix: [lixHaxelib],
       },
       signal,
     }),
 });
 ```
+
+The example starts the Lix JavaScript entry point with Node. This command works
+on Windows and Unix systems. It also keeps `shell: false`, so no shell parses
+the library names or paths.
 
 The resolver returns three facts:
 
@@ -1066,7 +1075,9 @@ path becomes a checked, full `-cp <path>` pair. Relative paths use the project
 folder, which supports a library developed in that same project. A bare
 `.hxml` path stays an HXML input. The HXML reader checks that file and replaces
 it with its checked arguments before Haxe starts. An option line keeps its
-option and value in the same order.
+option and value in the same order. The one exception is `-L <path>` from
+`haxelib path`. Haxe 4.3.7 changes that option to
+`--neko-lib-path <path>`, so the resolver makes the same change.
 
 The resolver waits until the command closes its output pipes. This rule keeps
 output from a child process complete, even when a process exits before its last

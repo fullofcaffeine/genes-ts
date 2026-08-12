@@ -486,6 +486,38 @@ async function main(): Promise<void> {
 
     write(
       root,
+      "repeated-separate-library-batches.hxml",
+      "-lib repeated\n-D separates-batches\n-lib repeated\n",
+    );
+    const repeatedSeparateBatches: string[][] = [];
+    const repeatedSeparateInventory = await inventoryHxml({
+      entryFiles: ["repeated-separate-library-batches.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+      resolveLibraries: (requests) => {
+        repeatedSeparateBatches.push(
+          requests.map((request) => request.request),
+        );
+        return {
+          arguments: ["--macro", "fromRepeatedLibrary()"],
+          provenanceFiles: [],
+        };
+      },
+    });
+    assert.deepEqual(
+      repeatedSeparateBatches,
+      [["repeated"]],
+      "Haxe must not resolve the same library again in a later batch",
+    );
+    assert.deepEqual(repeatedSeparateInventory.effectiveArguments, [
+      "--macro",
+      "fromRepeatedLibrary()",
+      "-D",
+      "separates-batches",
+    ]);
+
+    write(
+      root,
       "repeated-library-batch.hxml",
       "-lib repeated\n-lib repeated\n",
     );

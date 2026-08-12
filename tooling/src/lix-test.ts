@@ -129,6 +129,56 @@ const delayedOutput = await resolveLixLibraryGroup({
 });
 assert.deepEqual(delayedOutput.arguments, ["-cp", canonical(firstSource)]);
 
+const crlfOutputProgram = fakeProgram(
+  "crlf-output",
+  `process.stdout.write(${JSON.stringify(`${firstSource}\r\n-D crlf=1\r\n`)});`,
+);
+const crlfOutput = await resolveLixLibraryGroup({
+  projectRoot,
+  requests: [request("first")],
+  command: {
+    executable: process.execPath,
+    argsPrefix: [crlfOutputProgram],
+  },
+});
+assert.deepEqual(crlfOutput.arguments, [
+  "-cp",
+  canonical(firstSource),
+  "-D",
+  "crlf=1",
+]);
+
+const firstNekoLibrary = path.join(libraryRoot, "first", "ndll");
+mkdirSync(firstNekoLibrary);
+const nekoLibraryOutputProgram = fakeProgram(
+  "neko-library-output",
+  `process.stdout.write(${JSON.stringify(`-L ${firstNekoLibrary}\n`)});`,
+);
+writeFileSync(
+  path.join(projectRoot, "neko-library.hxml"),
+  "-lib first\n",
+  "utf8",
+);
+const nekoLibraryInventory = await inventoryHxml({
+  entryFiles: ["neko-library.hxml"],
+  workingDirectory: projectRoot,
+  allowedRoots: [projectRoot],
+  resolveLibraries: (requests, context) =>
+    resolveLixLibraryGroup({
+      projectRoot,
+      requests,
+      command: {
+        executable: process.execPath,
+        argsPrefix: [nekoLibraryOutputProgram],
+      },
+      signal: context.signal,
+    }),
+});
+assert.deepEqual(nekoLibraryInventory.effectiveArguments, [
+  "--neko-lib-path",
+  canonical(firstNekoLibrary),
+]);
+
 writeFileSync(
   path.join(projectRoot, "lix-extra.hxml"),
   "-D via-lix-hxml=1\n",
