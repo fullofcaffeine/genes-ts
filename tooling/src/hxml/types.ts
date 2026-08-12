@@ -47,6 +47,15 @@ export interface HxmlResolverContext {
 export interface HxmlLibraryResolution {
   readonly arguments: readonly string[];
   readonly provenanceFiles: readonly string[];
+  /**
+   * Exact external folders trusted by this resolver answer.
+   *
+   * Use this only when the resolver discovers package locations itself. The
+   * inventory checks and returns these roots before it accepts any contributed
+   * class path or proof file. A host can still declare stable roots up front
+   * through `HxmlInventoryOptions.allowedRoots`.
+   */
+  readonly allowedRoots?: readonly string[];
 }
 
 /**

@@ -99,6 +99,7 @@ watch/loop pair, or only the owned Haxe server.
 | `@genes-ts/tooling/haxe-server` | Owns and safely reuses one compatible `haxe --wait` process | Haxe discovery, compiler arguments, diagnostics, and compatibility identity |
 | `@genes-ts/tooling/artifacts` | Publishes an exact authorized file transition with crash recovery | Generation, validation, file ownership, and adoption policy |
 | `@genes-ts/tooling/css-modules` | Checks processor-owned export manifests and generates closed Haxe companions plus exact per-file TypeScript declarations | CSS parsing, processor choice, framework placement, and runtime loader agreement |
+| `@genes-ts/tooling/lix` | Resolves one ordered library group through a project-installed Lix `haxelib` command | Installing packages, choosing versions, and presenting host-specific errors |
 | `@genes-ts/tooling/session` | Runs one admitted-generation lifecycle over the five primitives above | Haxe location/arguments, validation policy, framework lifecycle, diagnostics, and top-level signals |
 
 The `@genes-ts/tooling/session` subpath exports
@@ -232,7 +233,9 @@ group and can preserve that order.
 
 A resolver decides which library files the compiler may trust. It returns the
 exact ordered arguments that `haxelib path` contributes and the files that
-prove the result. Empty
+prove the result. A resolver that discovers an external package folder can
+also return that exact folder in `allowedRoots`. The inventory checks the new
+root before it accepts any file from it. Empty
 `arguments` and `provenanceFiles` arrays mean that the library contributes
 nothing. A missing resolver is rejected before Haxe starts. Both callbacks
 receive the same frozen environment lookup used for HXML expansion.
@@ -801,7 +804,7 @@ const mergeCause = (left: Cause, right: Cause): Cause =>
 const inventory = await inventoryHxml({
   entryFiles: ["build.hxml"],
   workingDirectory: projectRoot,
-  allowedRoots: [projectRoot, haxeLibraryCache],
+  allowedRoots: [projectRoot],
   environment: readConfiguredEnvironment,
   resolveLibrary: (request) => ({
     arguments: resolveExactHaxelibArguments(request),
@@ -982,6 +985,7 @@ const inventory = await inventoryHxml({
   resolveLibraries: (requests) => ({
     arguments: resolveExactHaxelibArguments(requests),
     provenanceFiles: resolveHaxelibProvenance(requests),
+    allowedRoots: resolveExactPackageRoots(requests),
   }),
 });
 ```
@@ -989,7 +993,9 @@ const inventory = await inventoryHxml({
 `resolveLibraries` receives each adjacent group in authored order. This matches
 Haxe 4.3.7, which asks `haxelib path` to resolve the complete group. Use the
 older `resolveLibrary` callback only when the project has one distinct library.
-Do not supply both callbacks.
+Do not supply both callbacks. A resolver can return exact `allowedRoots` when
+it discovers package folders. The inventory checks and adds those roots before
+it checks the returned class paths and proof files.
 
 The result is a deterministic inventory of unique HXML files, occurrences,
 library provenance, class paths, library requests, and the exact flattened
@@ -1009,6 +1015,61 @@ traversal for its
 one-compilation/private-output contract rather than maintaining a second HXML
 parser. The lower-level API still permits request-only inventory for hosts that
 only need to list library requests.
+
+### Resolve scoped Lix libraries
+
+Use `@genes-ts/tooling/lix` when the project uses Lix scope files in
+`haxe_libraries/`. The helper runs one exact `haxelib path` command for each
+ordered library group. It does not use a shell, install packages, or choose a
+version.
+
+```ts
+import path from "node:path";
+import { inventoryHxml } from "@genes-ts/tooling/hxml";
+import { resolveLixLibraryGroup } from "@genes-ts/tooling/lix";
+
+const inventory = await inventoryHxml({
+  entryFiles: ["build.hxml"],
+  workingDirectory: projectRoot,
+  allowedRoots: [projectRoot],
+  resolveLibraries: (requests, { signal }) =>
+    resolveLixLibraryGroup({
+      projectRoot,
+      requests,
+      command: {
+        executable: path.join(projectRoot, "node_modules/.bin/haxelib"),
+      },
+      signal,
+    }),
+});
+```
+
+The resolver returns three facts:
+
+- `arguments` is the exact ordered argument list that Haxe receives.
+- `provenanceFiles` contains the Lix scope files and package manifests that
+  prove where the answer came from.
+- `allowedRoots` contains only the package folders found by that answer.
+
+HXML inventory checks those folders before it accepts a class path or proof
+file. This lets a host trust the selected packages without trusting the whole
+Lix cache.
+
+The host must still record the installed Lix version in its compiler identity.
+It must also watch the package lock or other file that selects that version.
+The resolver treats every current `haxe_libraries/*.hxml` file as proof because
+one scope file can refer to another library. A scope change causes a new
+resolution; a changed package folder becomes a new checked root.
+
+The helper accepts the ordinary line-based output from `haxelib path`. A bare
+path becomes a checked, full `-cp <path>` pair. Relative paths use the project
+folder, which supports a library developed in that same project. An option line
+keeps its option and value in the same order. The later HXML check still rejects
+commands, alternate output targets, and other arguments that a managed
+development session must not run.
+Invalid paths, links, command failures, cancellation, timeouts, oversized
+output, and invalid text fail with a `LixLibraryResolverError` and a stable
+`code`.
 
 ## Reconciled watching
 

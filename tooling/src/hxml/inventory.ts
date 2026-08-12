@@ -380,13 +380,14 @@ async function inventoryHxmlWithPolicy(
     options.workingDirectory,
     "workingDirectory",
   );
-  const allowedRoots = Object.freeze(
+  const allowedRootSet = new Set(
+    options.allowedRoots.map((root, index) =>
+      canonicalDirectory(root, `allowedRoots[${index}]`),
+    ),
+  );
+  let allowedRoots = Object.freeze(
     bytewise(
-      new Set(
-        options.allowedRoots.map((root, index) =>
-          canonicalDirectory(root, `allowedRoots[${index}]`),
-        ),
-      ),
+      allowedRootSet,
     ),
   );
   if (allowedRoots.length === 0) {
@@ -673,6 +674,18 @@ async function inventoryHxmlWithPolicy(
       if (error instanceof HxmlInventoryError) throw error;
       fail("resolver-failure", subject);
     }
+
+    for (const [rootIndex, candidate] of (
+      resolution.allowedRoots ?? []
+    ).entries()) {
+      if (!path.isAbsolute(candidate)) {
+        fail("resolver-failure", `${subject}:allowedRoots[${rootIndex}]`);
+      }
+      allowedRootSet.add(
+        canonicalDirectory(candidate, `${subject}:allowedRoots[${rootIndex}]`),
+      );
+    }
+    allowedRoots = Object.freeze(bytewise(allowedRootSet));
 
     for (const [fileIndex, candidate] of resolution.provenanceFiles.entries()) {
       if (!path.isAbsolute(candidate)) {

@@ -13,6 +13,7 @@ host workflow, package boundary, examples, and current distribution status.
 | --- | --- |
 | Durable publication and recovery | `src/artifacts/`, `artifact-transactions/v1/` |
 | HXML input discovery | `src/hxml/` |
+| Lix library resolution | `src/lix/` |
 | Reconciled native/polling watch | `src/watch/`, `watch-orchestration/v1/` |
 | Serialized newest-state rebuilds | `src/loop/` |
 | Owned Haxe `--wait` lifecycle | `src/haxe-server/`, `haxe-wait-server/v1/` |

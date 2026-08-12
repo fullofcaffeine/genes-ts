@@ -555,6 +555,26 @@ async function main(): Promise<void> {
         true,
       );
 
+      const resolverOwnedRootInventory = await inventoryHxml({
+        entryFiles: ["multiple-distinct-libraries.hxml"],
+        workingDirectory: root,
+        allowedRoots: [root],
+        resolveLibraries: () => ({
+          ...externalResolution,
+          allowedRoots: [externalLibraryRoot],
+        }),
+      });
+      assert.equal(
+        resolverOwnedRootInventory.allowedRoots.includes(
+          realpathSync.native(externalLibraryRoot),
+        ),
+        true,
+      );
+      assert.equal(
+        resolverOwnedRootInventory.classPaths.includes(externalSource),
+        true,
+      );
+
       const linkedSource = path.join(externalLibraryRoot, "linked-src");
       symlinkSync(externalSource, linkedSource, "dir");
       await expectFailure(
