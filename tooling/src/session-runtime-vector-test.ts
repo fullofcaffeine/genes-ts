@@ -391,6 +391,7 @@ async function execute(vector: Vector): Promise<void> {
     mkdtempSync(path.join(os.tmpdir(), `genes-vector-${vector.id}-`)),
   );
   const usesExternalInput = vector.id === "initial-compile-failure-repairs";
+  const usesTreeExtraInput = vector.id === "compile-failure-retains-last-good";
   const externalRoot = usesExternalInput
     ? realpathSync.native(
         mkdtempSync(path.join(os.tmpdir(), "zz-genes-vector-external-")),
@@ -416,6 +417,11 @@ async function execute(vector: Vector): Promise<void> {
   );
   if (expectsPrivateHxml) {
     writeFileSync(path.join(root, "payload.hxml"), "fixture payload\n", "utf8");
+  }
+  const treeExtraInput = path.join(root, "schema", "nested", "domain.json");
+  if (usesTreeExtraInput) {
+    mkdirSync(path.dirname(treeExtraInput), { recursive: true });
+    writeFileSync(treeExtraInput, "{\"version\":1}\n", "utf8");
   }
   const usesExistingGeneration =
     vector.id === "existing-generation-survives-first-build-failure";
@@ -648,6 +654,17 @@ async function execute(vector: Vector): Promise<void> {
       ...(existingImport === undefined
         ? {}
         : { existingGeneration: { import: existingImport } }),
+      ...(usesTreeExtraInput
+        ? {
+            extraInputs: [
+              {
+                kind: "tree" as const,
+                path: "schema",
+                impact: { rebuild: true },
+              },
+            ],
+          }
+        : {}),
       debounceMs: 0,
       pollIntervalMs: 10,
       shutdownTimeoutMs: 20,
@@ -676,7 +693,7 @@ async function execute(vector: Vector): Promise<void> {
       case "supplemental-files-publish-and-delete":
       case "unchanged-candidate-advances-generation":
         await session.waitForIdle();
-        watch().change(source);
+        watch().change(usesTreeExtraInput ? treeExtraInput : source);
         await session.waitForIdle();
         break;
       case "burst-supersedes-active-candidate":

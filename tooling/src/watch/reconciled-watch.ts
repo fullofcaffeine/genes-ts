@@ -175,6 +175,16 @@ function scanTree<Cause>(
         throw new Error(`watched tree contains a symbolic link: ${absolute}`);
       }
       if (child.isDirectory()) {
+        if (input.include(relative)) {
+          addEntry(
+            snapshot,
+            absolute,
+            input.cause,
+            "directory",
+            merge,
+            maxEntries,
+          );
+        }
         visit(absolute);
       } else if (input.include(relative)) {
         addEntry(
