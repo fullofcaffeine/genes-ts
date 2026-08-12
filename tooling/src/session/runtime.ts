@@ -1672,6 +1672,11 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     }
     for (const extra of this.#options.extraInputs ?? []) {
       if ((extra.kind ?? "exact") === "tree") {
+        assertRealPath(
+          this.#layout.projectRoot,
+          path.resolve(this.#layout.projectRoot, extra.path),
+          "development-session extra input tree",
+        );
         assertInputTreeIsReal(
           path.resolve(this.#layout.projectRoot, extra.path),
           "development-session extra input tree",

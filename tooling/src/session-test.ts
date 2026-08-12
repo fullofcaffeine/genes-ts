@@ -2401,6 +2401,34 @@ await withHarness(
   },
 );
 
+await withHarness(
+  "host-extra-input-tree-rejects-linked-parent",
+  async (harness) => {
+    await harness.session.start();
+    await assert.rejects(harness.session.firstAccepted, /fatal session failure/u);
+    assert.equal(harness.compiler.calls, 0, "Haxe must not read through a linked parent");
+    const failed = harness.events.find((event) => event.event.kind === "failed");
+    assert.match(JSON.stringify(failed), /extra input tree traverses a symbolic link/u);
+  },
+  undefined,
+  (options, root) => {
+    const target = path.join(root, "schema-target/current");
+    mkdirSync(target, { recursive: true });
+    writeFileSync(path.join(target, "domain.json"), "{}\n", "utf8");
+    symlinkSync(path.join(root, "schema-target"), path.join(root, "schema"));
+    return {
+      ...options,
+      extraInputs: [
+        {
+          kind: "tree",
+          path: "schema/current",
+          impact: { rebuild: true },
+        },
+      ],
+    };
+  },
+);
+
 for (const field of ["generation", "revision", "acceptedAt", "sessionNonce"] as const) {
   await withHarness(`marker-drift-${field}`, async (harness) => {
     harness.compiler.steps.push(
