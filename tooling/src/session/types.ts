@@ -127,6 +127,10 @@ export type DevelopmentEventBody<Diagnostic extends JsonValue> =
   | {
       readonly kind: "inputs-changed";
       readonly revision: number;
+      /**
+       * Project-relative input paths, or private `@external/<root-index>/...`
+       * names for inputs in another declared HXML root.
+       */
       readonly paths: readonly string[];
     }
   | { readonly kind: "build-started"; readonly revision: number }

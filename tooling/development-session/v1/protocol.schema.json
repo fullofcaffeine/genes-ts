@@ -10,6 +10,7 @@
     },
     "portablePath": {
       "type": "string",
+      "description": "A slash-normalized project path or private logical external-input path.",
       "minLength": 1,
       "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*\\\\)(?!.*\\u0000)[^/]+(?:/[^/]+)*$"
     },

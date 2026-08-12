@@ -162,7 +162,11 @@ const portablePath = protocolSchema.$defs.portablePath as {
   readonly pattern: string;
 };
 const portablePathPattern = new RegExp(portablePath.pattern, "u");
-for (const accepted of ["src-gen/index.ts", "generated/éxample.tsx"]) {
+for (const accepted of [
+  "src-gen/index.ts",
+  "generated/éxample.tsx",
+  "@external/1/library/src/Value.hx",
+]) {
   assert.match(accepted, portablePathPattern);
 }
 for (const rejected of [

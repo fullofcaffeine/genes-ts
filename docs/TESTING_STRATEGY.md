@@ -300,6 +300,10 @@ yarn test:tooling-package
   generations. Direct-path checks reject symbolic links as case-alias evidence.
   Entry ordering, symlinked parent directories, stable-control/state
   separation, and repeated private-path sanitization are focused regressions.
+  A two-library case keeps both external class paths and proof files in the
+  watch set. An external source edit rebuilds with a private logical event path.
+  A proof-file edit also changes the warm compiler identity. Undeclared and
+  linked external paths fail before the compiler runs.
   The same test checks declared compiler-data limits, exact bytes and digests,
   access without filesystem paths, linked files, missing or extra files, and
   expired reads. A crash test covers a stopped compiler-data update. Recovery
@@ -308,7 +312,9 @@ yarn test:tooling-package
   TypeScript and classic JavaScript output. A real module-level Haxe macro
   writes declared JSON during typing. The host validates and publishes those
   bytes with each generated tree. Warm edits reuse one owned Haxe server in
-  each profile. Direct Haxe cases also reject a missing session declaration,
+  each profile. The authored program uses two distinct libraries outside the
+  project folder, and an edit to one library triggers a real warm rebuild.
+  Direct Haxe cases also reject a missing session declaration,
   an unknown ID, a duplicate write, and an oversized value at the macro call.
   The test still proves the private output override, the compiler's v2
   ownership manifest, source-map path safety, and HXML policy before public

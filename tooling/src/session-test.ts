@@ -1963,6 +1963,121 @@ await withHarness(
   },
 );
 
+{
+  let externalRoot = "";
+  let firstProof = "";
+  try {
+    await withHarness(
+      "external-library-roots-are-watched",
+      async (harness) => {
+        await harness.session.start();
+        await harness.session.waitForIdle();
+        assert.equal(harness.session.state.kind, "ready");
+        const firstSource = path.join(externalRoot, "first", "src");
+        const secondSource = path.join(externalRoot, "second", "src");
+        assert.equal(
+          currentWatch(harness).options.inputs.some(
+            (input) => input.kind === "tree" && input.path === firstSource,
+          ),
+          true,
+        );
+        assert.equal(
+          currentWatch(harness).options.inputs.some(
+            (input) => input.kind === "tree" && input.path === secondSource,
+          ),
+          true,
+        );
+        const executed = harness.compiler.invocations[0]!.arguments;
+        assert.equal(executed.includes(firstSource), true);
+        assert.equal(executed.includes(secondSource), true);
+
+        const changed = path.join(firstSource, "First.hx");
+        writeFileSync(
+          changed,
+          "class First { public static final value = 2; }\n",
+          "utf8",
+        );
+        currentWatch(harness).change(changed);
+        await harness.session.waitForIdle();
+        assert.equal(harness.compiler.invocations.length, 2);
+        const event = harness.events
+          .filter((record) => record.event.kind === "inputs-changed")
+          .at(-1);
+        assert.equal(event?.event.kind, "inputs-changed");
+        if (event?.event.kind === "inputs-changed") {
+          assert.equal(event.event.paths.length, 1);
+          assert.match(
+            event.event.paths[0]!,
+            /^@external\/[0-9]+\/first\/src\/First\.hx$/u,
+          );
+        }
+
+        const identityBeforeProofEdit =
+          harness.compiler.compatibilityDigests.at(-1);
+        writeFileSync(firstProof, "# changed library proof\n", "utf8");
+        currentWatch(harness).change(firstProof);
+        await harness.session.waitForIdle();
+        assert.equal(harness.compiler.invocations.length, 3);
+        assert.notEqual(
+          harness.compiler.compatibilityDigests.at(-1),
+          identityBeforeProofEdit,
+          "a changed library proof must rotate the warm compiler identity",
+        );
+      },
+      undefined,
+      (options, root) => {
+        externalRoot = realpathSync.native(
+          mkdtempSync(path.join(os.tmpdir(), "genes-external-libraries-")),
+        );
+        const firstSource = path.join(externalRoot, "first", "src");
+        const secondSource = path.join(externalRoot, "second", "src");
+        mkdirSync(firstSource, { recursive: true });
+        mkdirSync(secondSource, { recursive: true });
+        writeFileSync(
+          path.join(firstSource, "First.hx"),
+          "class First {}\n",
+          "utf8",
+        );
+        writeFileSync(
+          path.join(secondSource, "Second.hx"),
+          "class Second {}\n",
+          "utf8",
+        );
+        firstProof = path.join(externalRoot, "first.hxml");
+        const secondProof = path.join(externalRoot, "second.hxml");
+        writeFileSync(firstProof, `-cp ${firstSource}\n`, "utf8");
+        writeFileSync(secondProof, `-cp ${secondSource}\n`, "utf8");
+        writeFileSync(
+          path.join(root, "build.hxml"),
+          "-cp src\n-lib first\n-lib second\n-main Main\n",
+          "utf8",
+        );
+        return {
+          ...options,
+          hxml: {
+            ...options.hxml,
+            allowedRoots: [root, externalRoot],
+            resolveLibraries: (requests) => {
+              assert.deepEqual(
+                requests.map((request) => request.request),
+                ["first", "second"],
+              );
+              return {
+                arguments: ["-cp", firstSource, "-cp", secondSource],
+                provenanceFiles: [firstProof, secondProof],
+              };
+            },
+          },
+        };
+      },
+    );
+  } finally {
+    if (externalRoot !== "") {
+      rmSync(externalRoot, { recursive: true, force: true });
+    }
+  }
+}
+
 await withHarness("reinventory-then-compile-failure", async (harness) => {
   harness.compiler.steps.push(
     { content: "export const value = 1;\n" },

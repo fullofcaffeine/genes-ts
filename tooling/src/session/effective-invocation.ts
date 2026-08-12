@@ -166,6 +166,7 @@ export async function buildEffectiveHaxeInvocationPlan<
     environment,
     compatibilityFacts: invocation.compatibilityFacts,
     ioPolicyId: invocation.ioPolicy,
+    allowedRoots: closure.allowedRoots,
     entryHxmlFiles: closure.entryHxmlFiles,
     hxmlOccurrences: closure.hxmlOccurrences.map((occurrence) => ({
       file: occurrence.file,

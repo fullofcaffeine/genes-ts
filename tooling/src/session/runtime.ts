@@ -220,6 +220,20 @@ function containedBy(root: string, candidate: string): boolean {
   );
 }
 
+function pathsOverlap(left: string, right: string): boolean {
+  return containedBy(left, right) || containedBy(right, left);
+}
+
+function inputOverlapsProjectPath(
+  projectRoot: string,
+  input: string,
+  projectPath: string,
+): boolean {
+  return containedBy(projectRoot, input)
+    ? portableProjectPathsOverlap(projectRoot, input, projectPath)
+    : pathsOverlap(input, projectPath);
+}
+
 function assertRealPath(root: string, candidate: string, label: string): void {
   const absolute = path.resolve(candidate);
   if (!containedBy(root, absolute)) {
@@ -849,14 +863,18 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     },
   ): void {
     if (this.#closing !== null) return;
-    if (!containedBy(this.#layout.projectRoot, absolutePath)) {
+    const inventory = this.#inventory;
+    if (
+      inventory === null ||
+      !inventory.allowedRoots.some((root) => containedBy(root, absolutePath))
+    ) {
       this.#fail(
         "watch",
         this.#newestRevision || null,
         false,
         diagnostic(
-          "WATCH_PATH_ESCAPED_PROJECT",
-          "watch input escaped projectRoot",
+          "WATCH_PATH_ESCAPED_ALLOWED_ROOTS",
+          "watch input escaped the declared HXML roots",
         ),
       );
       return;
@@ -865,10 +883,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     if (impact.rebuild) {
       this.#newestRebuildRevision = this.#newestRevision;
     }
-    const relative = path
-      .relative(this.#layout.projectRoot, absolutePath)
-      .split(path.sep)
-      .join("/");
+    const relative = this.#logicalInputPath(inventory, absolutePath);
     this.#emit({
       kind: "inputs-changed",
       revision: this.#newestRevision,
@@ -882,6 +897,35 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         ...impact,
       }),
     );
+  }
+
+  /**
+   * Keeps external machine paths private while giving each watched root a
+   * stable, readable name for this session. Project files keep their familiar
+   * project-relative paths. Files in another declared root use
+   * `@external/<root-index>/<path-within-root>`.
+   */
+  #logicalInputPath(inventory: HxmlInventory, absolutePath: string): string {
+    if (containedBy(this.#layout.projectRoot, absolutePath)) {
+      return path
+        .relative(this.#layout.projectRoot, absolutePath)
+        .split(path.sep)
+        .join("/");
+    }
+    const candidates = inventory.allowedRoots
+      .map((root, index) => ({ root, index }))
+      .filter(({ root }) => containedBy(root, absolutePath))
+      .sort((left, right) => right.root.length - left.root.length);
+    const owner = candidates[0];
+    if (owner === undefined) {
+      throw new Error("watch input escaped the declared HXML roots");
+    }
+    const relative = path.relative(owner.root, absolutePath)
+      .split(path.sep)
+      .join("/");
+    return relative.length === 0
+      ? `@external/${owner.index}`
+      : `@external/${owner.index}/${relative}`;
   }
 
   async #build(cause: BuildCause): Promise<void> {
@@ -1316,23 +1360,23 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         path.resolve(this.#layout.projectRoot, extra.path),
       ),
     ]) {
-      if (!containedBy(this.#layout.projectRoot, candidate)) {
+      if (!inventory.allowedRoots.some((root) => containedBy(root, candidate))) {
         throw new Error(
-          `development-session input must be inside projectRoot: ${candidate}`,
+          `development-session input must be inside a declared HXML root: ${candidate}`,
         );
       }
       if (
-        portableProjectPathsOverlap(
+        inputOverlapsProjectPath(
           this.#layout.projectRoot,
           candidate,
           this.#layout.stateRoot,
         ) ||
-        portableProjectPathsOverlap(
+        inputOverlapsProjectPath(
           this.#layout.projectRoot,
           candidate,
           this.#layout.publicOutputRoot,
         ) ||
-        portableProjectPathsOverlap(
+        inputOverlapsProjectPath(
           this.#layout.projectRoot,
           candidate,
           this.#layout.stableControlRoot,
@@ -1372,7 +1416,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       }
       if (
         authoredInputs.some((input) =>
-          portableProjectPathsOverlap(
+          inputOverlapsProjectPath(
             this.#layout.projectRoot,
             input,
             absolute,
