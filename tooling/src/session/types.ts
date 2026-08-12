@@ -318,7 +318,7 @@ export interface PreparedRevision {
   readonly files: readonly PreparedRevisionFile[];
 }
 
-/** One exact extra generated file named by an older host ownership record. */
+/** One exact generated file named by an older host ownership record. */
 export interface ExistingGenerationFile {
   readonly path: string;
   readonly sha256: string;
@@ -334,6 +334,9 @@ export interface ExistingGenerationFile {
  * complete tree. It never infers ownership from a directory scan.
  */
 export interface ExistingGenerationImport {
+  /** Files inside the main Genes output, from the older host record. */
+  readonly genesFiles: readonly ExistingGenerationFile[];
+
   /** Files outside the main Genes output, such as framework entry files. */
   readonly supplementalFiles: readonly ExistingGenerationFile[];
 }

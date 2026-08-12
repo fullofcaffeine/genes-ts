@@ -765,7 +765,7 @@ export function prepareExistingGenerationImport(
     }
   }
   artifacts.sort((left, right) =>
-    Buffer.from(left.path).compare(Buffer.from(right.path)),
+    left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
   );
 
   const markerStageRelative = `${stageRelativePath}/generation.json`;

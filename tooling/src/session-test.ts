@@ -54,12 +54,14 @@ import {
   snapshotCompilerDataDeclarations,
 } from "./session/compiler-data.js";
 import {
+  logicalOutputPath,
   resolveSessionLayout,
   samePhysicalSessionPath,
   type SessionLayout,
 } from "./session/layout.js";
 import { snapshotExistingGenerationPolicy } from "./session/existing-generation.js";
 import {
+  readLiveSupplementalFile,
   recoveredArtifactsMatchPublishedFiles,
 } from "./session/prepared-files.js";
 import {
@@ -194,7 +196,7 @@ function seedExistingHostGeneration(
     "src-gen/index.ts",
     ".genes/dev",
   );
-  seedOwnedOutput(layout, "export const legacy = true;\n");
+  const live = seedOwnedOutput(layout, "export const legacy = true;\n");
   const adapterPath = path.join(root, "app/page.ts");
   mkdirSync(path.dirname(adapterPath), { recursive: true });
   const adapterBytes = Buffer.from(
@@ -204,6 +206,12 @@ function seedExistingHostGeneration(
   writeFileSync(adapterPath, adapterBytes);
   const policy = snapshotExistingGenerationPolicy({
     import: {
+      genesFiles: live.files.map((file) => ({
+        path: logicalOutputPath(layout, file.relativePath),
+        sha256: file.digest,
+        sizeBytes: file.sizeBytes,
+        mode: file.mode,
+      })),
       supplementalFiles: [
         {
           path: "app/page.ts",
@@ -817,6 +825,111 @@ for (const fixture of [
 }
 
 await withHarness(
+  "existing-generation-changed-genes-file",
+  async (harness) => {
+    writeFileSync(
+      path.join(harness.root, "src-gen/index.ts"),
+      "export const userEdit = true;\n",
+      "utf8",
+    );
+    await harness.session.start();
+    await assert.rejects(harness.session.firstAccepted, /fatal session failure/u);
+    const failed = harness.events.find((event) => event.event.kind === "failed");
+    assert.match(JSON.stringify(failed), /existing Genes output changed/u);
+    assert.equal(
+      readFileSync(path.join(harness.root, "src-gen/index.ts"), "utf8"),
+      "export const userEdit = true;\n",
+      "a rejected handoff must not overwrite the edited compiler output",
+    );
+  },
+  undefined,
+  (options, root) => {
+    const seeded = seedExistingHostGeneration(
+      root,
+      "fixture-existing-generation-changed-genes-file",
+    );
+    return {
+      ...options,
+      existingGeneration: { import: seeded.import },
+      validate: async () => ({
+        ok: true,
+        artifacts: [{ path: "app/page.ts", content: seeded.adapterBytes }],
+      }),
+    };
+  },
+);
+
+await withHarness(
+  "existing-generation-accepted-callback-can-invalidate",
+  async (harness) => {
+    let callbackError: Error | null = null;
+    let observed = false;
+    harness.session.subscribe((record) => {
+      if (record.event.kind !== "generation-accepted" || observed) return;
+      observed = true;
+      try {
+        harness.session.invalidate({
+          path: "src/Main.hx",
+          impact: { rebuild: true },
+        });
+      } catch (error) {
+        callbackError = error instanceof Error ? error : new Error("unknown callback error");
+      }
+    });
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(observed, true);
+    assert.equal(callbackError, null);
+  },
+  undefined,
+  (options, root) => {
+    const seeded = seedExistingHostGeneration(
+      root,
+      "fixture-existing-generation-accepted-callback-can-invalidate",
+    );
+    return {
+      ...options,
+      existingGeneration: { import: seeded.import },
+      validate: async () => ({
+        ok: true,
+        artifacts: [{ path: "app/page.ts", content: seeded.adapterBytes }],
+      }),
+    };
+  },
+);
+
+{
+  const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), "genes-session-supplemental-parent-link-")),
+  );
+  try {
+    const layout = resolveSessionLayout(
+      root,
+      "fixture-supplemental-parent-link",
+      "src-gen/index.ts",
+      ".genes/dev",
+    );
+    const realParent = path.join(root, "real-app");
+    mkdirSync(realParent, { recursive: true });
+    const bytes = Buffer.from("export const page = true;\n", "utf8");
+    const realFile = path.join(realParent, "page.ts");
+    writeFileSync(realFile, bytes);
+    symlinkSync(realParent, path.join(root, "app"));
+    assert.throws(
+      () => readLiveSupplementalFile(layout, {
+        path: "app/page.ts",
+        sha256: sha256Bytes(bytes),
+        sizeBytes: bytes.byteLength,
+        mode: statSync(realFile).mode & 0o777,
+      }),
+      /symlink-traversal/u,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+await withHarness(
   "existing-generation-validator-mismatch",
   async (harness) => {
     await harness.session.start();
@@ -883,15 +996,17 @@ await withHarness(
       root,
       "fixture-existing-generation-overlaps-genes-output",
     );
-    const outputPath = path.join(root, "src-gen/index.ts");
-    const outputBytes = readFileSync(outputPath);
+    const outputPath = path.join(root, "src-gen/host.ts");
+    const outputBytes = Buffer.from("export const host = true;\n", "utf8");
+    writeFileSync(outputPath, outputBytes);
     return {
       ...options,
       existingGeneration: {
         import: {
+          genesFiles: seeded.import.genesFiles,
           supplementalFiles: [
             {
-              path: "src-gen/index.ts",
+              path: "src-gen/host.ts",
               sha256: sha256Bytes(outputBytes),
               sizeBytes: outputBytes.byteLength,
               mode: statSync(outputPath).mode & 0o777,
@@ -907,6 +1022,7 @@ assert.throws(
   () =>
     snapshotExistingGenerationPolicy({
       import: {
+        genesFiles: [],
         supplementalFiles: [
           { path: "App/page.ts", sha256: "b".repeat(64), sizeBytes: 1, mode: 0o644 },
           { path: "app/page.ts", sha256: "c".repeat(64), sizeBytes: 1, mode: 0o644 },

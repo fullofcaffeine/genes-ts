@@ -11,6 +11,7 @@ import {
   sha256Bytes,
   type CanonicalJson,
 } from "../artifacts/index.js";
+import { inspectParentsNoFollow } from "../artifacts/filesystem.js";
 import type { CandidateFile } from "./types.js";
 import {
   logicalOutputPath,
@@ -117,6 +118,7 @@ function readOwnedFile(root: string, relativePath: string): GenesOwnedFile {
   ) {
     throw new Error(`Genes output path escapes its root: ${relativePath}`);
   }
+  inspectParentsNoFollow(root, relativePath, false);
   const stats = lstatSync(absolutePath);
   if (stats.isSymbolicLink() || !stats.isFile()) {
     throw new Error(`Genes output path is not a real file: ${absolutePath}`);

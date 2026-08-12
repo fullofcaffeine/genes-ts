@@ -9,10 +9,12 @@ import {
   validatePortableRelativePath,
 } from "../artifacts/validate-plan.js";
 import {
+  logicalOutputPath,
   portableProjectPathsOverlap,
   type SessionLayout,
 } from "./layout.js";
 import type { PublishedSupplementalFile } from "./publication.js";
+import type { GenesOutputInventory } from "./genes-output.js";
 import type {
   CandidateFile,
   ExistingGenerationImport,
@@ -27,43 +29,90 @@ export function snapshotExistingGenerationPolicy(
   const imported = policy.import;
   if (imported === undefined) return Object.freeze({});
   const seen = new Map<string, string>();
-  const supplementalFiles = imported.supplementalFiles.map((file, index) => {
-    const portablePath = validatePortableRelativePath(
-      file.path,
-      `existingGeneration.import.supplementalFiles[${index}].path`,
-    );
-    const identity = portablePathIdentity(portablePath);
-    const previous = seen.get(identity);
-    if (previous !== undefined) {
-      throw new Error(
-        `existing generation paths collide on a portable filesystem: ${previous} and ${portablePath}`,
+  const snapshotFiles = (
+    files: ExistingGenerationImport["genesFiles"],
+    subject: "genesFiles" | "supplementalFiles",
+  ) =>
+    files.map((file, index) => {
+      const portablePath = validatePortableRelativePath(
+        file.path,
+        `existingGeneration.import.${subject}[${index}].path`,
       );
-    }
-    seen.set(identity, portablePath);
-    if (!/^[0-9a-f]{64}$/u.test(file.sha256)) {
-      throw new Error(`existing generation file has an invalid SHA-256 digest: ${portablePath}`);
-    }
-    if (!Number.isSafeInteger(file.sizeBytes) || file.sizeBytes < 0) {
-      throw new Error(`existing generation file has an invalid byte size: ${portablePath}`);
-    }
-    if (!Number.isInteger(file.mode) || file.mode < 0 || file.mode > 0o777) {
-      throw new Error(`existing generation file has an invalid mode: ${portablePath}`);
-    }
-    return Object.freeze({
-      path: portablePath,
-      sha256: file.sha256,
-      sizeBytes: file.sizeBytes,
-      mode: file.mode,
+      const identity = portablePathIdentity(portablePath);
+      const previous = seen.get(identity);
+      if (previous !== undefined) {
+        throw new Error(
+          `existing generation paths collide on a portable filesystem: ${previous} and ${portablePath}`,
+        );
+      }
+      seen.set(identity, portablePath);
+      if (!/^[0-9a-f]{64}$/u.test(file.sha256)) {
+        throw new Error(
+          `existing generation file has an invalid SHA-256 digest: ${portablePath}`,
+        );
+      }
+      if (!Number.isSafeInteger(file.sizeBytes) || file.sizeBytes < 0) {
+        throw new Error(
+          `existing generation file has an invalid byte size: ${portablePath}`,
+        );
+      }
+      if (!Number.isInteger(file.mode) || file.mode < 0 || file.mode > 0o777) {
+        throw new Error(
+          `existing generation file has an invalid mode: ${portablePath}`,
+        );
+      }
+      return Object.freeze({
+        path: portablePath,
+        sha256: file.sha256,
+        sizeBytes: file.sizeBytes,
+        mode: file.mode,
+      });
     });
-  });
+  const genesFiles = snapshotFiles(imported.genesFiles, "genesFiles");
+  const supplementalFiles = snapshotFiles(
+    imported.supplementalFiles,
+    "supplementalFiles",
+  );
+  genesFiles.sort((left, right) =>
+    left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
+  );
   supplementalFiles.sort((left, right) =>
-    Buffer.from(left.path).compare(Buffer.from(right.path)),
+    left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
   );
   return Object.freeze({
     import: Object.freeze({
+      genesFiles: Object.freeze(genesFiles),
       supplementalFiles: Object.freeze(supplementalFiles),
     }),
   });
+}
+
+/** Checks the older host's exact claim for every compiler-owned output file. */
+export function checkExistingGenesFiles(
+  layout: SessionLayout,
+  imported: ExistingGenerationImport,
+  live: GenesOutputInventory,
+): void {
+  const actual = live.files.map((file) => Object.freeze({
+    path: logicalOutputPath(layout, file.relativePath),
+    sha256: file.digest,
+    sizeBytes: file.sizeBytes,
+    mode: file.mode,
+  }));
+  if (actual.length !== imported.genesFiles.length) {
+    throw new Error("existing generation import names a different Genes file set");
+  }
+  for (const [index, expected] of imported.genesFiles.entries()) {
+    const file = actual[index]!;
+    if (
+      expected.path !== file.path ||
+      expected.sha256 !== file.sha256 ||
+      expected.sizeBytes !== file.sizeBytes ||
+      expected.mode !== file.mode
+    ) {
+      throw new Error(`existing Genes output changed: ${expected.path}`);
+    }
+  }
 }
 
 /** Checks every claimed file against the live tree without following links. */

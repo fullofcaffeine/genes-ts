@@ -16,6 +16,10 @@ import {
   type ExpectedFileState,
 } from "../artifacts/index.js";
 import {
+  readFileState,
+  sameFileState,
+} from "../artifacts/filesystem.js";
+import {
   portablePathIdentity,
   validatePortableRelativePath,
 } from "../artifacts/validate-plan.js";
@@ -389,11 +393,24 @@ export function readLiveSupplementalFile(
   },
 ): CandidateFile {
   const absolutePath = path.join(layout.projectRoot, ...file.path.split("/"));
+  const actual = readFileState(
+    layout.projectRoot,
+    file.path,
+    "unexpected-live-state",
+  );
+  const expected = Object.freeze({
+    kind: "file" as const,
+    sha256: file.sha256,
+    sizeBytes: file.sizeBytes,
+    mode: file.mode,
+  });
+  if (!sameFileState(actual, expected)) {
+    throw new Error(`accepted supplemental file changed: ${file.path}`);
+  }
   const bytes = readFileSync(absolutePath);
   if (
     bytes.byteLength !== file.sizeBytes ||
-    sha256Bytes(bytes) !== file.sha256 ||
-    (lstatSync(absolutePath).mode & 0o777) !== file.mode
+    sha256Bytes(bytes) !== file.sha256
   ) {
     throw new Error(`accepted supplemental file changed: ${file.path}`);
   }

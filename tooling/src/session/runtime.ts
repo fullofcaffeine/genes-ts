@@ -67,6 +67,7 @@ import {
 import {
   assertImportMatchesPublished,
   checkExistingGenerationFiles,
+  checkExistingGenesFiles,
   snapshotExistingGenerationPolicy,
 } from "./existing-generation.js";
 import {
@@ -471,6 +472,9 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       this.#newestRebuildRevision = firstBuildRevision;
       this.#startupReady = true;
       this.#acceptWatchChanges = true;
+      if (existing !== null) {
+        this.#acceptExisting(existing);
+      }
       this.#loop.request(
         Object.freeze({
           revision: firstBuildRevision,
@@ -520,6 +524,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
           "existing Genes output has no session marker; provide an exact import claim",
         );
       }
+      checkExistingGenesFiles(this.#layout, imported, live);
       const checked = checkExistingGenerationFiles(this.#layout, imported);
       const inventory = this.#inventory;
       if (inventory === null) {
@@ -574,7 +579,6 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         this.#publishedManifestDigest = recorded.manifestDigest;
         this.#publishedMarkerState = recorded.state;
         this.#publishedSupplementalFiles = recorded.supplementalFiles;
-        this.#acceptExisting(prepared.accepted);
         return prepared.accepted;
       } finally {
         rmSync(
@@ -634,7 +638,6 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       }),
       entryChanged: false,
     });
-    this.#acceptExisting(accepted);
     return accepted;
   }
 

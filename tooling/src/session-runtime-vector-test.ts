@@ -443,6 +443,16 @@ async function execute(vector: Vector): Promise<void> {
     );
     writeFileSync(adapterPath, existingAdapter);
     existingImport = Object.freeze({
+      genesFiles: Object.freeze([
+        Object.freeze({
+          path: "src-gen/index.ts",
+          sha256: createHash("sha256")
+            .update("export const existing = true;\n")
+            .digest("hex"),
+          sizeBytes: Buffer.byteLength("export const existing = true;\n"),
+          mode: statSync(layout.publicOutputFile).mode & 0o777,
+        }),
+      ]),
       supplementalFiles: Object.freeze([
         Object.freeze({
           path: "host/entry.ts",

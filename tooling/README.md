@@ -236,6 +236,16 @@ const session = createGenesDevelopmentSession<Diagnostic>({
   // ...the normal options above...
   existingGeneration: {
     import: {
+      // Every compiler-created file named by the old host record. This proves
+      // that a person did not edit the generated implementation before the
+      // first handoff.
+      genesFiles: oldManifest.genesFiles.map((file) => ({
+        path: file.path,
+        sha256: file.sha256,
+        sizeBytes: file.sizeBytes,
+        mode: file.mode,
+      })),
+
       // Other generated files that belong to the same accepted app, such as
       // framework entry files. Derive these facts from the old host manifest.
       supplementalFiles: oldManifest.files.map((file) => ({
@@ -249,8 +259,9 @@ const session = createGenesDevelopmentSession<Diagnostic>({
 });
 ```
 
-Genes reads and checks its own output manifest. The host does not need to know
-that manifest's private format. Genes also checks every extra file named by the
+Genes reads its own output manifest, while the old host supplies exact facts
+for each compiler-created file. The host does not need to know the Genes
+manifest's private format. Genes also checks every extra file named by the
 host. It does not scan a directory and guess which files are generated. The
 host's normal validator must accept the complete live tree. Genes then writes
 only its small acceptance record; it does not rewrite the generated application
