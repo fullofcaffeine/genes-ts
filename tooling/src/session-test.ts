@@ -1332,6 +1332,22 @@ await withHarness("no-build-change-during-build", async (harness) => {
   );
 });
 
+await withHarness(
+  "explicit-invalidation-reserves-external-prefix",
+  async (harness) => {
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.throws(
+      () =>
+        harness.session.invalidate({
+          path: "@external/config.json",
+          impact: { rebuild: false },
+        }),
+      /reserved for private external-input names/u,
+    );
+  },
+);
+
 await withHarness("read-gate", async (harness) => {
   harness.compiler.steps.push(
     { content: "export const value = 1;\n" },
@@ -1899,6 +1915,31 @@ await withHarness(
 );
 
 await withHarness(
+  "project-input-reserves-external-logical-prefix",
+  async (harness) => {
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "blocked");
+    assert.equal(harness.compiler.calls, 0);
+    assert.match(
+      JSON.stringify(harness.session.inspect()),
+      /@external, which is reserved for private external-input names/u,
+    );
+  },
+  undefined,
+  (options, root) => {
+    const reservedSource = path.join(root, "@external", "src");
+    mkdirSync(reservedSource, { recursive: true });
+    writeFileSync(
+      path.join(root, "build.hxml"),
+      `-cp ${reservedSource}\n-main Main\n`,
+      "utf8",
+    );
+    return options;
+  },
+);
+
+await withHarness(
   "resolved-library-class-path-is-watched",
   async (harness) => {
     await harness.session.start();
@@ -1962,6 +2003,226 @@ await withHarness(
     };
   },
 );
+
+{
+  let externalRoot = "";
+  let firstProof = "";
+  try {
+    await withHarness(
+      "external-library-roots-are-watched",
+      async (harness) => {
+        await harness.session.start();
+        await harness.session.waitForIdle();
+        assert.equal(harness.session.state.kind, "ready");
+        const firstSource = path.join(externalRoot, "first", "src");
+        const secondSource = path.join(externalRoot, "second", "src");
+        assert.equal(
+          currentWatch(harness).options.inputs.some(
+            (input) => input.kind === "tree" && input.path === firstSource,
+          ),
+          true,
+        );
+        assert.equal(
+          currentWatch(harness).options.inputs.some(
+            (input) => input.kind === "tree" && input.path === secondSource,
+          ),
+          true,
+        );
+        const executed = harness.compiler.invocations[0]!.arguments;
+        assert.equal(executed.includes(firstSource), true);
+        assert.equal(executed.includes(secondSource), true);
+
+        const changed = path.join(firstSource, "First.hx");
+        writeFileSync(
+          changed,
+          "class First { public static final value = 2; }\n",
+          "utf8",
+        );
+        currentWatch(harness).change(changed);
+        await harness.session.waitForIdle();
+        assert.equal(harness.compiler.invocations.length, 2);
+        const event = harness.events
+          .filter((record) => record.event.kind === "inputs-changed")
+          .at(-1);
+        assert.equal(event?.event.kind, "inputs-changed");
+        if (event?.event.kind === "inputs-changed") {
+          assert.equal(event.event.paths.length, 1);
+          assert.match(
+            event.event.paths[0]!,
+            /^@external\/[0-9]+\/first\/src\/First\.hx$/u,
+          );
+        }
+
+        const identityBeforeProofEdit =
+          harness.compiler.compatibilityDigests.at(-1);
+        writeFileSync(firstProof, "# changed library proof\n", "utf8");
+        currentWatch(harness).change(firstProof);
+        await harness.session.waitForIdle();
+        assert.equal(harness.compiler.invocations.length, 3);
+        assert.notEqual(
+          harness.compiler.compatibilityDigests.at(-1),
+          identityBeforeProofEdit,
+          "a changed library proof must rotate the warm compiler identity",
+        );
+      },
+      undefined,
+      (options, root) => {
+        externalRoot = realpathSync.native(
+          mkdtempSync(path.join(os.tmpdir(), "genes-external-libraries-")),
+        );
+        const firstSource = path.join(externalRoot, "first", "src");
+        const secondSource = path.join(externalRoot, "second", "src");
+        mkdirSync(firstSource, { recursive: true });
+        mkdirSync(secondSource, { recursive: true });
+        writeFileSync(
+          path.join(firstSource, "First.hx"),
+          "class First {}\n",
+          "utf8",
+        );
+        writeFileSync(
+          path.join(secondSource, "Second.hx"),
+          "class Second {}\n",
+          "utf8",
+        );
+        firstProof = path.join(externalRoot, "first.hxml");
+        const secondProof = path.join(externalRoot, "second.hxml");
+        writeFileSync(firstProof, `-cp ${firstSource}\n`, "utf8");
+        writeFileSync(secondProof, `-cp ${secondSource}\n`, "utf8");
+        writeFileSync(
+          path.join(root, "build.hxml"),
+          "-cp src\n-lib first\n-lib second\n-main Main\n",
+          "utf8",
+        );
+        return {
+          ...options,
+          hxml: {
+            ...options.hxml,
+            allowedRoots: [root, externalRoot],
+            resolveLibraries: (requests) => {
+              assert.deepEqual(
+                requests.map((request) => request.request),
+                ["first", "second"],
+              );
+              return {
+                arguments: ["-cp", firstSource, "-cp", secondSource],
+                provenanceFiles: [firstProof, secondProof],
+              };
+            },
+          },
+        };
+      },
+    );
+  } finally {
+    if (externalRoot !== "") {
+      rmSync(externalRoot, { recursive: true, force: true });
+    }
+  }
+}
+
+{
+  let externalRoot = "";
+  try {
+    await withHarness(
+      "external-diagnostic-private-path-redaction",
+      async (harness) => {
+        await harness.session.start();
+        await harness.session.waitForIdle();
+        assert.equal(harness.session.state.kind, "blocked");
+        const publicRecord = JSON.stringify({
+          snapshot: harness.session.inspect(),
+          events: harness.events,
+        });
+        assert.equal(
+          publicRecord.includes(externalRoot),
+          false,
+          "public diagnostics must hide declared external roots",
+        );
+        const alternateRoot = externalRoot
+          .split(path.sep)
+          .join(path.sep === "/" ? "\\" : "/");
+        assert.equal(
+          publicRecord.includes(alternateRoot),
+          false,
+          "public diagnostics must hide external roots with either slash style",
+        );
+        assert.equal(publicRecord.includes("<external-root-"), true);
+      },
+      undefined,
+      (options, root) => {
+        externalRoot = `${root}-library`;
+        mkdirSync(externalRoot);
+        externalRoot = realpathSync.native(externalRoot);
+        return {
+          ...options,
+          hxml: {
+            ...options.hxml,
+            allowedRoots: [root, externalRoot],
+          },
+          validate: async () => ({
+            ok: false,
+            diagnostic: {
+              code: "HOST_REJECTED",
+              message: `external source ${externalRoot}`,
+              [externalRoot]: "path used as an object key",
+            },
+          }),
+        };
+      },
+    );
+  } finally {
+    if (externalRoot !== "") {
+      rmSync(externalRoot, { recursive: true, force: true });
+    }
+  }
+}
+
+if (process.platform !== "win32") {
+  let canonicalExternalRoot = "";
+  let externalAlias = "";
+  try {
+    // Startup errors can occur before the full input inventory is active. The
+    // fallback sanitizer must still hide the real target of an allowed alias.
+    await withHarness(
+      "external-root-alias-is-redacted-after-inventory-failure",
+      async (harness) => {
+        await harness.session.start();
+        await harness.session.waitForIdle();
+        assert.equal(harness.session.state.kind, "blocked");
+        const publicRecord = JSON.stringify({
+          snapshot: harness.session.inspect(),
+          events: harness.events,
+        });
+        assert.equal(publicRecord.includes(canonicalExternalRoot), false);
+        assert.equal(publicRecord.includes(externalAlias), false);
+        assert.equal(publicRecord.includes("<external-root-"), true);
+      },
+      undefined,
+      (options, root) => {
+        canonicalExternalRoot = `${root}-real-library`;
+        externalAlias = `${root}-library-alias`;
+        mkdirSync(canonicalExternalRoot);
+        symlinkSync(canonicalExternalRoot, externalAlias, "dir");
+        return {
+          ...options,
+          resolveInvocation: async () => {
+            throw new Error(
+              `invocation resolver failed at ${canonicalExternalRoot}`,
+            );
+          },
+          hxml: {
+            ...options.hxml,
+            allowedRoots: [root, externalAlias],
+          },
+        };
+      },
+    );
+  } finally {
+    if (externalAlias !== "") rmSync(externalAlias, { force: true });
+    if (canonicalExternalRoot !== "") {
+      rmSync(canonicalExternalRoot, { recursive: true, force: true });
+    }
+  }
+}
 
 await withHarness("reinventory-then-compile-failure", async (harness) => {
   harness.compiler.steps.push(
@@ -3939,6 +4200,17 @@ if (process.platform !== "win32") {
       () =>
         resolveSessionLayout(
           root,
+          "invalid-reserved-public-prefix",
+          "@external/index.ts",
+          ".genes/dev-reserved-prefix",
+        ),
+      /reserved for private external-input names/u,
+      "public output must not use the private external-input namespace",
+    );
+    assert.throws(
+      () =>
+        resolveSessionLayout(
+          root,
           "invalid-normalization-alias",
           "src-ge\u0301n/index.ts",
           ".genes/dev-normalization",
@@ -5009,4 +5281,51 @@ await withHarness(
     }),
   }),
 );
+
+for (const source of ["prepared", "admitted"] as const) {
+  await withHarness(
+    `${source}-public-path-reserves-external-prefix`,
+    async (harness) => {
+      harness.compiler.steps.push({ content: "export const value = 1;\n" });
+      await harness.session.start();
+      await harness.session.waitForIdle();
+      assert.equal(harness.session.state.kind, "blocked");
+      assert.equal(
+        existsSync(path.join(harness.root, "@external/receipt.json")),
+        false,
+      );
+    },
+    undefined,
+    (options) => ({
+      ...options,
+      ...(source === "prepared"
+        ? {
+            prepareRevision: () => ({
+              ok: true as const,
+              prepared: {
+                classPaths: ["haxe"],
+                files: [
+                  {
+                    relativePath: "haxe/Receipt.hx",
+                    content: "class Receipt {}\n",
+                    publishPath: "@external/receipt.json",
+                  },
+                ],
+              },
+            }),
+          }
+        : {
+            validate: async () => ({
+              ok: true as const,
+              artifacts: [
+                {
+                  path: "@external/receipt.json",
+                  content: "{\"accepted\":true}\n",
+                },
+              ],
+            }),
+          }),
+    }),
+  );
+}
 console.log("genes tooling development session runtime: ok");

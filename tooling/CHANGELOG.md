@@ -6,6 +6,12 @@ it.
 
 ## 0.2.0
 
+- Resolve adjacent Haxe libraries as ordered groups, matching Haxe 4.3.7's
+  `haxelib path` behavior. A development session can now compile and watch
+  several trusted libraries outside the project folder when the host declares
+  their allowed roots. Undeclared and linked paths still fail before Haxe runs.
+  Public events hide machine-local library folders behind the reserved
+  `@external/<root-index>` root name. A child adds its path after that name.
 - Let a trusted Haxe macro write a small, named value during a build. The host
   receives a copy of the bytes, not the path to an internal file. The value
   becomes public only when the host approves it as an output file. If the build
@@ -65,10 +71,10 @@ it.
   library contributions while rejecting CWD/resources until their lookup
   semantics have a reviewed policy;
   preserve repeated acyclic HXML arguments, reject recursive HXML includes,
-  keep Haxe's resolve-once behavior for repeated libraries, reject inline
-  spellings for Haxe 4.3.7's complete early-option set, admit one distinct
-  library identity in the v1 single-request resolver, and accept Haxe's ordinary
-  `--option=value` spelling for other one-value options;
+  preserve repeated values in ordered library groups, reject inline
+  spellings for Haxe 4.3.7's complete early-option set, keep the single-library
+  resolver compatible, add ordered multi-library batches, and accept Haxe's
+  ordinary `--option=value` spelling for other one-value options;
   reject standalone residual `.hxml` tokens after recursive flattening so Haxe
   cannot reinterpret an option value as a second, unreviewed HXML program,
   preserve ordinary inline `.hxml` values through a private checked HXML input

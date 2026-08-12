@@ -220,6 +220,29 @@ function containedBy(root: string, candidate: string): boolean {
   );
 }
 
+function pathsOverlap(left: string, right: string): boolean {
+  return containedBy(left, right) || containedBy(right, left);
+}
+
+function inputOverlapsProjectPath(
+  projectRoot: string,
+  input: string,
+  projectPath: string,
+): boolean {
+  return containedBy(projectRoot, input)
+    ? portableProjectPathsOverlap(projectRoot, input, projectPath)
+    : pathsOverlap(input, projectPath);
+}
+
+function usesExternalLogicalNamespace(
+  projectRoot: string,
+  input: string,
+): boolean {
+  if (!containedBy(projectRoot, input)) return false;
+  const relative = path.relative(projectRoot, input).split(path.sep).join("/");
+  return relative === "@external" || relative.startsWith("@external/");
+}
+
 function assertRealPath(root: string, candidate: string, label: string): void {
   const absolute = path.resolve(candidate);
   if (!containedBy(root, absolute)) {
@@ -849,14 +872,18 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     },
   ): void {
     if (this.#closing !== null) return;
-    if (!containedBy(this.#layout.projectRoot, absolutePath)) {
+    const inventory = this.#inventory;
+    if (
+      inventory === null ||
+      !inventory.allowedRoots.some((root) => containedBy(root, absolutePath))
+    ) {
       this.#fail(
         "watch",
         this.#newestRevision || null,
         false,
         diagnostic(
-          "WATCH_PATH_ESCAPED_PROJECT",
-          "watch input escaped projectRoot",
+          "WATCH_PATH_ESCAPED_ALLOWED_ROOTS",
+          "watch input escaped the declared HXML roots",
         ),
       );
       return;
@@ -865,10 +892,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     if (impact.rebuild) {
       this.#newestRebuildRevision = this.#newestRevision;
     }
-    const relative = path
-      .relative(this.#layout.projectRoot, absolutePath)
-      .split(path.sep)
-      .join("/");
+    const relative = this.#logicalInputPath(inventory, absolutePath);
     this.#emit({
       kind: "inputs-changed",
       revision: this.#newestRevision,
@@ -882,6 +906,42 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         ...impact,
       }),
     );
+  }
+
+  /**
+   * Keeps external machine paths private while giving each watched root a
+   * stable, readable name for this session. Project files keep their familiar
+   * project-relative paths. Another declared root uses
+   * `@external/<root-index>`. A file below it adds its path after that name.
+   */
+  #logicalInputPath(inventory: HxmlInventory, absolutePath: string): string {
+    if (containedBy(this.#layout.projectRoot, absolutePath)) {
+      if (
+        usesExternalLogicalNamespace(this.#layout.projectRoot, absolutePath)
+      ) {
+        throw new Error(
+          "project input must not use @external, which is reserved for private external-input names",
+        );
+      }
+      return path
+        .relative(this.#layout.projectRoot, absolutePath)
+        .split(path.sep)
+        .join("/");
+    }
+    const candidates = inventory.allowedRoots
+      .map((root, index) => ({ root, index }))
+      .filter(({ root }) => containedBy(root, absolutePath))
+      .sort((left, right) => right.root.length - left.root.length);
+    const owner = candidates[0];
+    if (owner === undefined) {
+      throw new Error("watch input escaped the declared HXML roots");
+    }
+    const relative = path.relative(owner.root, absolutePath)
+      .split(path.sep)
+      .join("/");
+    return relative.length === 0
+      ? `@external/${owner.index}`
+      : `@external/${owner.index}/${relative}`;
   }
 
   async #build(cause: BuildCause): Promise<void> {
@@ -1316,23 +1376,28 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         path.resolve(this.#layout.projectRoot, extra.path),
       ),
     ]) {
-      if (!containedBy(this.#layout.projectRoot, candidate)) {
+      if (!inventory.allowedRoots.some((root) => containedBy(root, candidate))) {
         throw new Error(
-          `development-session input must be inside projectRoot: ${candidate}`,
+          `development-session input must be inside a declared HXML root: ${candidate}`,
+        );
+      }
+      if (usesExternalLogicalNamespace(this.#layout.projectRoot, candidate)) {
+        throw new Error(
+          "project input must not use @external, which is reserved for private external-input names",
         );
       }
       if (
-        portableProjectPathsOverlap(
+        inputOverlapsProjectPath(
           this.#layout.projectRoot,
           candidate,
           this.#layout.stateRoot,
         ) ||
-        portableProjectPathsOverlap(
+        inputOverlapsProjectPath(
           this.#layout.projectRoot,
           candidate,
           this.#layout.publicOutputRoot,
         ) ||
-        portableProjectPathsOverlap(
+        inputOverlapsProjectPath(
           this.#layout.projectRoot,
           candidate,
           this.#layout.stableControlRoot,
@@ -1370,9 +1435,14 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       if (!containedBy(this.#layout.projectRoot, absolute)) {
         throw new Error(`prepared public path escapes projectRoot: ${publicPath}`);
       }
+      if (usesExternalLogicalNamespace(this.#layout.projectRoot, absolute)) {
+        throw new Error(
+          "prepared public path must not use @external, which is reserved for private external-input names",
+        );
+      }
       if (
         authoredInputs.some((input) =>
-          portableProjectPathsOverlap(
+          inputOverlapsProjectPath(
             this.#layout.projectRoot,
             input,
             absolute,
@@ -1416,24 +1486,54 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       this.#layout.projectRoot,
       ...this.#layout.candidatesRelative.split("/"),
     );
-    const withCandidateRoot = replacePathSpellings(
-      message,
-      candidateRoot,
-      "<private-candidate-root>",
+    const declaredExternalRoots = (
+      this.#inventory?.allowedRoots ??
+      this.#options.hxml.allowedRoots.map((root) => {
+        const absolute = path.resolve(root);
+        try {
+          return realpathSync.native(absolute);
+        } catch {
+          return absolute;
+        }
+      })
+    )
+      .map((root, index) => ({ root, index }))
+      .filter(({ root }) => !containedBy(this.#layout.projectRoot, root));
+    const replacements = [
+      {
+        root: candidateRoot,
+        replacement: "<private-candidate-root>",
+        priority: 0,
+      },
+      {
+        root: this.#layout.stateRoot,
+        replacement: "<private-state>",
+        priority: 1,
+      },
+      ...declaredExternalRoots.map(({ root, index }) => ({
+        root,
+        replacement: `<external-root-${index}>`,
+        priority: 2,
+      })),
+      {
+        root: this.#layout.projectRoot,
+        replacement: "<project>",
+        priority: 3,
+      },
+    ].sort(
+      (left, right) =>
+        right.root.length - left.root.length || left.priority - right.priority,
     );
-    const withoutCandidateNonce = withCandidateRoot.replace(
-      /<private-candidate-root>[\\/][^\\/\s:]+/gu,
-      "<private-candidate>",
-    );
-    return replacePathSpellings(
-      replacePathSpellings(
-        withoutCandidateNonce,
-        this.#layout.stateRoot,
-        "<private-state>",
-      ),
-      this.#layout.projectRoot,
-      "<project>",
-    );
+    return replacements
+      .reduce(
+        (current, { root, replacement }) =>
+          replacePathSpellings(current, root, replacement),
+        message,
+      )
+      .replace(
+        /<private-candidate-root>[\\/][^\\/\s:]+/gu,
+        "<private-candidate>",
+      );
   }
 
   /** Removes session-private paths from every host-authored JSON string. */

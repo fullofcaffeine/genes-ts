@@ -150,6 +150,8 @@ for (const definition of [
   "eventBody",
   "failure",
   "fileDelta",
+  "inputPath",
+  "publishedPath",
   "state",
 ]) {
   assert.equal(
@@ -158,12 +160,29 @@ for (const definition of [
     `event schema is missing $defs.${definition}`,
   );
 }
-const portablePath = protocolSchema.$defs.portablePath as {
+const publishedPath = protocolSchema.$defs.publishedPath as {
   readonly pattern: string;
 };
-const portablePathPattern = new RegExp(portablePath.pattern, "u");
+const inputPath = protocolSchema.$defs.inputPath as {
+  readonly pattern: string;
+};
+const publishedPathPattern = new RegExp(publishedPath.pattern, "u");
+const inputPathPattern = new RegExp(inputPath.pattern, "u");
 for (const accepted of ["src-gen/index.ts", "generated/éxample.tsx"]) {
-  assert.match(accepted, portablePathPattern);
+  assert.match(accepted, publishedPathPattern);
+  assert.match(accepted, inputPathPattern);
+}
+assert.doesNotMatch(
+  "@external/1/library/src/Value.hx",
+  publishedPathPattern,
+);
+assert.match("@external/1/library/src/Value.hx", inputPathPattern);
+for (const malformedExternalInput of [
+  "@external",
+  "@external/not-a-number",
+  "@external/01/library/src/Value.hx",
+]) {
+  assert.doesNotMatch(malformedExternalInput, inputPathPattern);
 }
 for (const rejected of [
   "",
@@ -175,7 +194,8 @@ for (const rejected of [
   "windows\\path.ts",
   "nul\0path.ts",
 ]) {
-  assert.doesNotMatch(rejected, portablePathPattern);
+  assert.doesNotMatch(rejected, publishedPathPattern);
+  assert.doesNotMatch(rejected, inputPathPattern);
 }
 
 const vectorSchema = JSON.parse(
@@ -238,6 +258,42 @@ assert.equal(
   validateCorpus(invalidSequenceCorpus),
   false,
   "the released validator must reject an invalid protocol event",
+);
+const externalPublishedPathCorpus = structuredClone(corpus) as unknown as {
+  vectors: Array<{
+    expected: {
+      snapshot: {
+        accepted: { files: { created: string[] } } | null;
+      };
+    };
+  }>;
+};
+externalPublishedPathCorpus.vectors[0].expected.snapshot.accepted!.files.created = [
+  "@external/1/library/src/Value.hx",
+];
+assert.equal(
+  validateCorpus(externalPublishedPathCorpus),
+  false,
+  "published file lists must reject private external-input paths",
+);
+const malformedExternalInputCorpus = structuredClone(corpus) as unknown as {
+  vectors: Array<{
+    expected: {
+      eventChecks: Array<{
+        event: { kind: string; paths?: string[] };
+      }>;
+    };
+  }>;
+};
+const externalInputEvent = malformedExternalInputCorpus.vectors
+  .flatMap((vector) => vector.expected.eventChecks)
+  .find((event) => event.event.kind === "inputs-changed");
+assert.notEqual(externalInputEvent, undefined);
+externalInputEvent!.event.paths = ["@external/not-a-number/Main.hx"];
+assert.equal(
+  validateCorpus(malformedExternalInputCorpus),
+  false,
+  "input-change events must reject malformed private external-input paths",
 );
 const privatePathCorpus = structuredClone(corpus) as unknown as {
   vectors: Array<{
@@ -475,6 +531,7 @@ for (const required of [
   "commit-before-notify",
   "current-session-admission",
   "direct-fallback",
+  "external-input-logical-path",
   "first-accepted-rejection",
   "idempotent-close",
   "inline-hxml-option",

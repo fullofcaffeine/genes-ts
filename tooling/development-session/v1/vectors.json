@@ -328,6 +328,7 @@
       "covers": [
         "initial-blocked",
         "compile-failure",
+        "external-input-logical-path",
         "repair-without-restart"
       ],
       "description": "An initial compiler failure publishes nothing, keeps firstAccepted pending, and a later valid revision becomes generation 1.",
@@ -470,7 +471,7 @@
               "kind": "inputs-changed",
               "revision": 2,
               "paths": [
-                "src/Main.hx"
+                "@external/1/library/src/Main.hx"
               ]
             }
           },

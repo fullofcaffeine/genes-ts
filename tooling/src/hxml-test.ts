@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
+  chmodSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -420,6 +422,240 @@ async function main(): Promise<void> {
         }),
       "invalid-syntax",
     );
+
+    const resolvedLibraryBatches: string[][] = [];
+    const multipleLibraryInventory = await inventoryHxml({
+      entryFiles: ["multiple-distinct-libraries.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+      resolveLibraries: (requests) => {
+        resolvedLibraryBatches.push(requests.map((request) => request.request));
+        return {
+          arguments: [
+            "--macro",
+            "fromFirstAndSecondLibraries()",
+          ],
+          provenanceFiles: [],
+        };
+      },
+    });
+    assert.deepEqual(
+      resolvedLibraryBatches,
+      [["first", "second"]],
+      "adjacent libraries must reach the resolver as Haxe's ordered batch",
+    );
+    assert.deepEqual(multipleLibraryInventory.effectiveArguments, [
+      "--macro",
+      "fromFirstAndSecondLibraries()",
+    ]);
+
+    write(root, "nested-library-batch.hxml", "-lib second\n");
+    write(
+      root,
+      "nested-library-parent.hxml",
+      "-lib first\nnested-library-batch.hxml\n-lib third\n",
+    );
+    const nestedBatches: string[][] = [];
+    await inventoryHxml({
+      entryFiles: ["nested-library-parent.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+      resolveLibraries: (requests) => {
+        nestedBatches.push(requests.map((request) => request.request));
+        return { arguments: [], provenanceFiles: [] };
+      },
+    });
+    assert.deepEqual(nestedBatches, [["first", "second", "third"]]);
+
+    write(
+      root,
+      "separate-library-batches.hxml",
+      "-lib first\n-D separates-batches\n-lib second\n",
+    );
+    const separateBatches: string[][] = [];
+    await inventoryHxml({
+      entryFiles: ["separate-library-batches.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+      resolveLibraries: (requests) => {
+        separateBatches.push(requests.map((request) => request.request));
+        return { arguments: [], provenanceFiles: [] };
+      },
+    });
+    assert.deepEqual(separateBatches, [["first"], ["second"]]);
+
+    write(
+      root,
+      "repeated-library-batch.hxml",
+      "-lib repeated\n-lib repeated\n",
+    );
+    const repeatedBatches: string[][] = [];
+    await inventoryHxml({
+      entryFiles: ["repeated-library-batch.hxml"],
+      workingDirectory: root,
+      allowedRoots: [root],
+      resolveLibraries: (requests) => {
+        repeatedBatches.push(requests.map((request) => request.request));
+        return { arguments: [], provenanceFiles: [] };
+      },
+    });
+    assert.deepEqual(repeatedBatches, [["repeated", "repeated"]]);
+
+    await expectFailure(
+      () =>
+        inventoryHxml({
+          entryFiles: ["multiple-distinct-libraries.hxml"],
+          workingDirectory: root,
+          allowedRoots: [root],
+          resolveLibrary: () => ({ arguments: [], provenanceFiles: [] }),
+          resolveLibraries: () => ({ arguments: [], provenanceFiles: [] }),
+        }),
+      "invalid-option",
+    );
+
+    const externalLibraryRoot = realpathSync.native(
+      mkdtempSync(path.join(os.tmpdir(), "genes-hxml-libraries-")),
+    );
+    try {
+      const externalSource = path.join(externalLibraryRoot, "first", "src");
+      mkdirSync(externalSource, { recursive: true });
+      writeFileSync(
+        path.join(externalSource, "First.hx"),
+        "class First {}\n",
+        "utf8",
+      );
+      const externalProof = write(
+        externalLibraryRoot,
+        "first/haxelib.json",
+        "{}\n",
+      );
+      const externalResolution = {
+        arguments: ["-cp", externalSource],
+        provenanceFiles: [externalProof],
+      };
+      await expectFailure(
+        () =>
+          inventoryHxml({
+            entryFiles: ["multiple-distinct-libraries.hxml"],
+            workingDirectory: root,
+            allowedRoots: [root],
+            resolveLibraries: () => externalResolution,
+          }),
+        "unsafe-input",
+      );
+      const externalInventory = await inventoryHxml({
+        entryFiles: ["multiple-distinct-libraries.hxml"],
+        workingDirectory: root,
+        allowedRoots: [root, externalLibraryRoot],
+        resolveLibraries: () => externalResolution,
+      });
+      assert.equal(externalInventory.classPaths.includes(externalSource), true);
+      assert.equal(
+        externalInventory.libraryProvenanceFiles.includes(externalProof),
+        true,
+      );
+
+      const linkedSource = path.join(externalLibraryRoot, "linked-src");
+      symlinkSync(externalSource, linkedSource, "dir");
+      await expectFailure(
+        () =>
+          inventoryHxml({
+            entryFiles: ["multiple-distinct-libraries.hxml"],
+            workingDirectory: root,
+            allowedRoots: [root, externalLibraryRoot],
+            resolveLibraries: () => ({
+              arguments: ["-cp", linkedSource],
+              provenanceFiles: [externalProof],
+            }),
+          }),
+        "unsafe-input",
+      );
+    } finally {
+      rmSync(externalLibraryRoot, { recursive: true, force: true });
+    }
+
+    const fakeBin = path.join(root, "fake-bin");
+    mkdirSync(fakeBin);
+    const haxelibTrace = path.join(root, "haxelib-trace.txt");
+    const fakeHaxelibProgram = write(
+      root,
+      "fake-bin/fake-haxelib.cjs",
+      [
+        'const fs = require("node:fs");',
+        'const lines = ["--call--", ...process.argv.slice(2), ""];',
+        'fs.appendFileSync(process.env.HAXELIB_TRACE, lines.join("\\n"));',
+        "",
+      ].join("\n"),
+    );
+    if (process.platform === "win32") {
+      write(
+        root,
+        "fake-bin/haxelib.cmd",
+        `@echo off\r\n"${process.execPath}" "${fakeHaxelibProgram}" %*\r\n`,
+      );
+    } else {
+      const fakeHaxelib = write(
+        root,
+        "fake-bin/haxelib",
+        `#!/bin/sh\nexec "${process.execPath}" "${fakeHaxelibProgram}" "$@"\n`,
+      );
+      chmodSync(fakeHaxelib, 0o755);
+    }
+    const haxeVersion = spawnSync("haxe", ["--version"], {
+      cwd: root,
+      encoding: "utf8",
+    }).stdout.trim();
+    const nativeHaxe =
+      process.env.HAXE_STD_PATH === undefined
+        ? path.join(
+            os.homedir(),
+            "haxe",
+            "versions",
+            haxeVersion,
+            process.platform === "win32" ? "haxe.exe" : "haxe",
+          )
+        : path.join(
+            path.dirname(process.env.HAXE_STD_PATH),
+            process.platform === "win32" ? "haxe.exe" : "haxe",
+          );
+    const nativeBatch = spawnSync(
+      nativeHaxe,
+      [
+        "-lib",
+        "first",
+        "-lib",
+        "second",
+        "-cp",
+        "src",
+        "-main",
+        "MissingClassPathMain",
+        "--interp",
+      ],
+      {
+        cwd: root,
+        encoding: "utf8",
+        timeout: 2_000,
+        env: {
+          ...process.env,
+          PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ""}`,
+          HAXELIB_TRACE: haxelibTrace,
+        },
+      },
+    );
+    assert.equal(nativeBatch.error, undefined);
+    assert.equal(nativeBatch.status, 0, nativeBatch.stderr);
+    const nativeTrace = readFileSync(haxelibTrace, "utf8").split("\n");
+    assert.equal(
+      nativeTrace.filter((line) => line === "--call--").length,
+      1,
+      "Haxe must resolve one adjacent library group with one haxelib call",
+    );
+    assert.deepEqual(nativeTrace.slice(-4), [
+      "path",
+      "first",
+      "second",
+      "",
+    ]);
 
     write(root, "dotted-library.hxml", "-lib sample.hxml\n");
     const dottedLibraryInventory = await inventoryHxml({

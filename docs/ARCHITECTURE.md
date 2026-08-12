@@ -818,15 +818,17 @@ One immutable effective-invocation plan owns the executable, working directory,
 environment, ordered HXML entries and occurrences, exact resolved-library
 arguments/provenance, source roots, and versioned Haxe 4.3.7 compiler-I/O
 policy. Repeated acyclic HXML occurrences keep their repeated argument
-semantics, recursive includes fail rather than disappearing, repeated library
-requests keep Haxe's resolve-once behavior, and `--option=value` is normalized
+semantics, recursive includes fail rather than disappearing, ordered library
+groups preserve repeated values, and `--option=value` is normalized
 before the same option policy runs. Inline library spellings are rejected
 because Haxe 4.3.7 ignores them rather than resolving a library. The v1
-single-request resolver admits one distinct library identity because it cannot
-reproduce Haxe's ordered batch resolution for adjacent distinct libraries;
-repeated requests for that identity remain supported. Authored or resolved
-standalone option values ending in `.hxml` fail closed when they would remain in
-the final stream: Haxe's high-level argument pass would otherwise interpret that
+`resolveLibrary` callback admits one distinct library identity. The
+`resolveLibraries` callback admits several and receives each adjacent ordered
+group exactly as Haxe 4.3.7 sends it to one `haxelib path` call. A non-library
+option ends the current group. The compatibility callback reuses its first
+single-library result. Authored or resolved standalone option values ending in
+`.hxml` fail closed when they would remain in the final stream: Haxe's
+high-level argument pass would otherwise interpret that
 value as another HXML program before normal option arity is applied. An ordinary
 inline option such as `--define=config=build.hxml` keeps its exact meaning
 through a private one-line HXML input whose value is carried by an environment
@@ -843,8 +845,11 @@ inactive Genes generator still cannot write public output before admission. The
 HXML closure is complete only after every discovered library has been passed
 through a host-owned authoritative resolver. Haxe executes that flattened
 stream without a live `-lib` re-resolution; unresolved libraries fail before
-Haxe executes. The separate marker matters when two successful revisions
-generate identical bytes:
+Haxe executes. Library sources and proof files may live outside the project
+only under explicit allowed roots. These inputs are watched and join the
+compiler identity, while event records use private logical external paths.
+Undeclared and linked paths fail before compilation. The separate marker
+matters when two successful revisions generate identical bytes:
 generation still advances, the file delta stays empty, and a host correctly
 performs no reload.
 

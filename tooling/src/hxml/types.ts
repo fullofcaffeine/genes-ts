@@ -64,16 +64,30 @@ export interface HxmlArgumentPolicy {
 export interface HxmlInventoryOptions {
   readonly entryFiles: readonly string[];
   readonly workingDirectory: string;
+  /** Explicit folders that can contain HXML, source, and library proof files. */
   readonly allowedRoots: readonly string[];
   readonly environment?: (name: string) => string | null;
   /**
-   * Resolves the one distinct library identity admitted by the v1 inventory.
-   * Repeated requests for that identity are deduplicated like Haxe 4.3.7.
+   * Resolves one distinct library identity through the compatibility callback.
+   * Repeated requests for that identity reuse the first resolved result.
    * Inline library spellings and a second distinct identity fail closed because
    * this single-request callback cannot reproduce Haxe's high-level batching.
    */
   readonly resolveLibrary?: (
     request: HxmlLibraryRequest,
+    context: HxmlResolverContext,
+  ) => HxmlLibraryResolution | Promise<HxmlLibraryResolution>;
+  /**
+   * Resolves one adjacent, ordered Haxe library batch.
+   *
+   * Haxe 4.3.7 sends adjacent `-lib` values to one `haxelib path` call. The
+   * libraries can affect each other's dependency order, so a host that accepts
+   * several distinct libraries must resolve the complete batch at once. The
+   * older `resolveLibrary` callback remains available for one distinct library
+   * identity only. Supplying both callbacks is an error.
+   */
+  readonly resolveLibraries?: (
+    requests: readonly HxmlLibraryRequest[],
     context: HxmlResolverContext,
   ) => HxmlLibraryResolution | Promise<HxmlLibraryResolution>;
   readonly signal?: AbortSignal;
@@ -104,6 +118,9 @@ export interface HxmlInventory {
    * resolver is request-only inventory and leaves this false.
    */
   readonly libraryClosureComplete: boolean;
+
+  /** Canonical roots that authorized every returned input path. */
+  readonly allowedRoots: readonly string[];
 
   /** Canonical top-level HXML entries, excluding files reached transitively. */
   readonly entryHxmlFiles: readonly string[];

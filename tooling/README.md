@@ -224,18 +224,29 @@ await session.firstAccepted; // safe point for starting a dependent dev server
 await session.close();
 ```
 
-This shortest example is library-free. If `build.hxml` contains a
-project-contained development `-lib`, the host must also supply
-`hxml.resolveLibrary`. The resolver is an authority boundary: it returns the
-exact ordered Haxe arguments that `haxelib path` contributes and the files that
-prove that resolution. Empty `arguments` and `provenanceFiles` arrays mean the
-library genuinely contributes nothing. A missing resolver is
-deliberately rejected before Haxe starts. The resolver receives the same frozen
-environment lookup used for HXML expansion. DevelopmentSession v1 still
-requires all returned provenance files and argument-owned inputs to stay under `projectRoot`,
-preserving its project-relative watch and event contract; the lower-level
-inventory API may use broader `allowedRoots` when a host owns a different path
-model.
+This shortest example is library-free. If `build.hxml` contains one distinct
+`-lib` request, the host can supply `hxml.resolveLibrary`. If it contains two
+or more distinct libraries, use `hxml.resolveLibraries`. Haxe resolves adjacent
+libraries as one ordered group, so the second callback receives the complete
+group and can preserve that order.
+
+A resolver decides which library files the compiler may trust. It returns the
+exact ordered arguments that `haxelib path` contributes and the files that
+prove the result. Empty
+`arguments` and `provenanceFiles` arrays mean that the library contributes
+nothing. A missing resolver is rejected before Haxe starts. Both callbacks
+receive the same frozen environment lookup used for HXML expansion.
+
+Library sources and proof files can be outside `projectRoot`. The host must add
+each trusted folder to `hxml.allowedRoots`. The session watches those inputs.
+It also uses them when it decides whether a warm compiler can be reused. It
+rejects undeclared or linked paths before compilation. Events keep project
+paths unchanged. An external path is
+reported as `@external/<root-index>` for the root itself. A file below it uses
+`@external/<root-index>/<path>`. Machine-local folders do not enter logs or
+host messages. The first project path segment `@external` is
+reserved for these private event names. A project input or public output must
+use a different first segment.
 
 The application validator never receives a half-generated tree. Genes first
 finishes its own compiler transaction inside a private candidate directory.
@@ -470,13 +481,12 @@ rolled back, the other output can start normally.
   authored source, startup or rebuilding stops and leaves the file untouched
   instead of deleting it as old generated output.
 - The declared HXML inputs, including resolved library arguments, provenance,
-  and class paths,
-  must be inside `projectRoot` and must not contain private state,
-  publication-control, or generated-output scopes. This keeps watch/event
-  paths project-relative in v1. The lower-level inventory API may use broader
-  `allowedRoots` independently. Entry and occurrence order are retained, and
-  symlinked entry or library-provenance path components fail before
-  canonicalization.
+  and class paths, must be inside an explicit `hxml.allowedRoots` folder. They
+  must not overlap private state, publication control, or generated output.
+  Project inputs keep project-relative event paths. External inputs use the
+  root name `@external/<root-index>`. A child adds its path after that name.
+  Entry and occurrence order are retained. A linked entry, class path, or
+  library proof fails before compilation.
 - Authored HXML is deliberately targetless. The session appends exactly one
   private ordinary Haxe `--js` target and one private
   `-D genes.output=<entry>` target. This matters when Genes is missing or
@@ -504,9 +514,11 @@ rolled back, the other output can start normally.
   stream, so it never reruns `haxelib path` after the final plan check. If the
   same HXML file is included twice without a cycle, its arguments appear twice
   just as they do in a direct Haxe command. A recursive include fails with a
-  clear input error instead of being silently shortened. Haxe itself resolves
-  a repeated library request only once, so the flattened plan does too. The
-  usual `--option=value` spelling is accepted for ordinary one-value options
+  clear input error instead of being silently shortened. Haxe preserves
+  repeated library names in its ordered group. The compatibility
+  `resolveLibrary` callback instead reuses the first result for its one allowed
+  identity. The usual `--option=value` spelling is accepted for ordinary
+  one-value options
   and checked as the same option and value as `--option value`. Haxe
   handles a small set of options before its normal option table, so the two
   spellings are not always equivalent. For example, `--run Main` runs `Main`,
@@ -518,9 +530,11 @@ rolled back, the other output can start normally.
   `--server-listen`, `--wait`, `--run`, `-L`, `--library`, `-lib`, `--jvm`,
   `--java`, `-java`, `--cs`, `-cs`, and `--display`. A later Haxe version
   requires a new reviewed table.
-  The v1 resolver also accepts one distinct library identity only (repeats are
-  deduplicated). Haxe batches adjacent distinct libraries, and the current
-  single-request callback cannot reproduce that batch's exact dependency order.
+  The older `resolveLibrary` callback accepts one distinct library identity
+  only. Repeats are resolved once. Use `resolveLibraries` for two or more
+  distinct libraries. It receives each adjacent ordered group exactly as Haxe
+  4.3.7 sends that group to `haxelib path`. A normal option between two library
+  requests starts a new group.
   After recursive flattening, no authored or resolved standalone token ending
   in `.hxml` may reach Haxe. A separate library name is safe because its
   reviewed resolver replaces it; the resolver's resulting arguments must still
@@ -965,16 +979,22 @@ const inventory = await inventoryHxml({
   workingDirectory: projectRoot,
   allowedRoots: [projectRoot, haxeLibraryCache],
   environment: (name) => configuredEnvironment.get(name) ?? null,
-  resolveLibrary: (request) => ({
-    arguments: resolveExactHaxelibArguments(request),
-    provenanceFiles: resolveHaxelibProvenance(request),
+  resolveLibraries: (requests) => ({
+    arguments: resolveExactHaxelibArguments(requests),
+    provenanceFiles: resolveHaxelibProvenance(requests),
   }),
 });
 ```
 
+`resolveLibraries` receives each adjacent group in authored order. This matches
+Haxe 4.3.7, which asks `haxelib path` to resolve the complete group. Use the
+older `resolveLibrary` callback only when the project has one distinct library.
+Do not supply both callbacks.
+
 The result is a deterministic inventory of unique HXML files, occurrences,
 library provenance, class paths, library requests, and the exact flattened
-argument stream. `libraryClosureComplete` distinguishes an authoritative
+argument stream. It also returns the canonical `allowedRoots` that authorized
+those inputs. `libraryClosureComplete` distinguishes an authoritative
 empty library expansion from request-only inventory performed without a
 resolver. It contains no framework config files or watch policy.
 Missing values, unsafe paths, links, malformed syntax, resolver failures, and

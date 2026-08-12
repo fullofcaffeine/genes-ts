@@ -117,13 +117,18 @@ so a listener handling that outcome can already read the new state. An
 accepted event is never emitted before the artifact transaction has committed.
 `firstAccepted` resolves after that event is delivered.
 
-Tooling-owned paths in events and file deltas are project-relative and use `/`
-on every platform. Lists are sorted by UTF-8 byte order, contain no duplicates,
-and do not overlap. Events never expose private candidate, state, or project
-paths. This includes host validation messages and JSON keys that spell a path
-with either `/` or `\\`. A host should still prefer useful logical paths in its
-diagnostics, because replacing a private path can hide the location rather than
-explain it.
+Published file paths in events and file deltas are project-relative and use
+`/` on every platform. An `inputs-changed` event uses the same form for project
+inputs. An input in another declared HXML root uses the private logical form
+`@external/<root-index>` for the root itself. A file below it uses
+`@external/<root-index>/<path>`. Lists use UTF-8 byte order. They contain no
+duplicates and do not overlap. Events never expose private candidate,
+state, project, or external root paths. This includes host validation messages
+and JSON keys that spell a path with either `/` or `\\`. A host should still
+prefer useful logical paths in its diagnostics, because replacing a private
+path can hide the location rather than explain it. The replacement
+`<external-root-N>` identifies the declared root without exposing its local
+folder.
 
 One JSON-lines event can therefore be consumed directly by automation:
 
@@ -333,34 +338,47 @@ output.
 
 Library expansion is part of invocation authority. A lower-level HXML inventory
 may list `-lib` requests without resolving them, but DevelopmentSession requires
-an authoritative resolver for every discovered library. That resolver returns
-the exact ordered arguments that Haxe would receive from `haxelib path` plus
-the files that prove that resolution. The plan flattens those arguments and
-does not pass `-lib` to Haxe again. It receives the same frozen environment
-lookup used by HXML expansion. “Resolver returned empty argument and provenance lists” is distinct from
-“no resolver was provided”; only the former is a complete closure.
+an authoritative resolver for every discovered library. `resolveLibrary`
+supports one distinct library. `resolveLibraries` supports several libraries
+and receives each adjacent group in authored order, matching Haxe 4.3.7's one
+`haxelib path` call for that group. A normal option starts a new group.
+
+The resolver returns the exact ordered arguments that Haxe would receive plus
+the files that prove the result. The plan flattens those arguments and does not
+pass `-lib` to Haxe again. Both callbacks receive the same frozen environment
+lookup used by HXML expansion. “Resolver returned empty argument and proof
+lists” is distinct from “no resolver was provided”; only the former is a
+complete closure.
 
 The frozen invocation is the authority for the working directory, environment,
 and ordered top-level HXML entries. The `hxml` option cannot supply competing
 copies of those values. HXML uses Haxe 4.3.7 whole-line parsing and `%NAME%`
 expansion. V1 rejects authored CWD and resource options rather than claiming a
-partial model. Entry, occurrence, and resolved-library paths are checked for
-symlink components before canonicalization, so an alias cannot erase the path
-that must pass the no-follow policy.
+partial model. The host explicitly lists every trusted source or proof folder
+in `hxml.allowedRoots`. An external library can be outside `projectRoot`, but
+an undeclared path cannot enter the plan. Entry, occurrence, class-path, and
+resolved-library paths are checked for links before compilation.
 
 The host invocation contains only ordered top-level HXML files. The executable
 invocation instead receives the sealed flattened arguments from those files
 and library resolutions. Source class paths reject symbolic links because Haxe
-may follow them while the safe watcher does not; accepting both behaviors would
+may follow them while the safe watcher does not. Accepting both behaviors would
 let the compiler read a change that the session could miss. A class-path
 directory may still be missing at startup. The session watches its checked path
-so a generator or developer can create it and cause a later build.
+so a generator or developer can create it and cause a later build. Project
+events keep project-relative paths. External inputs use
+`@external/<root-index>` for a root. A child adds its path after that name.
+Machine-local folders stay private.
 
 Authored HXML selects no target. Under the reviewed Haxe 4.3.7 policy, the
 session rejects JavaScript and every alternate target selector, then appends
 one private `--js` target and one private `genes.output` target itself. If Genes
 does not activate, ordinary Haxe output remains inside the disposable candidate
 stage and a missing Genes ownership manifest prevents publication.
+
+The first project path segment `@external` is reserved for private external
+input names in public events. A project input or public output must use a
+different first segment.
 
 The session rejects HXML `--cmd`, `--run`, `--interp`, and `-x`. Those Haxe
 options can run a shell command or the compiled program before the private

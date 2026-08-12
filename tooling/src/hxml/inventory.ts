@@ -392,6 +392,12 @@ async function inventoryHxmlWithPolicy(
   if (allowedRoots.length === 0) {
     fail("invalid-option", "allowedRoots");
   }
+  if (
+    options.resolveLibrary !== undefined &&
+    options.resolveLibraries !== undefined
+  ) {
+    fail("invalid-option", "resolveLibrary and resolveLibraries are exclusive");
+  }
 
   const hxmlFiles = new Set<string>();
   const libraryProvenanceFiles = new Set<string>();
@@ -401,7 +407,12 @@ async function inventoryHxmlWithPolicy(
   const classPaths = new Set<string>();
   const resources = new Set<string>();
   const libraries: HxmlLibrary[] = [];
-  const recordedLibraries = new Set<string>();
+  const recordedLibraryMetadata = new Set<string>();
+  let legacyResolvedLibrary: string | null = null;
+  const pendingLibraries: {
+    readonly option: string;
+    readonly request: HxmlLibraryRequest;
+  }[] = [];
   const effectiveArguments: string[] = [];
   let libraryClosureComplete = true;
   let argumentCount = 0;
@@ -417,6 +428,8 @@ async function inventoryHxmlWithPolicy(
   const libraryOptions = new Set(["-L", "-lib", "--library"]);
   const classPathOptions = new Set(["-p", "-cp", "--class-path"]);
   const resourceOptions = new Set(["-r", "-resource", "--resource"]);
+
+  let flushLibraries: () => Promise<void>;
 
   const processArguments = async (
     args: readonly string[],
@@ -473,6 +486,7 @@ async function inventoryHxmlWithPolicy(
       }
 
       if (!argument.startsWith("-")) {
+        await flushLibraries();
         effectiveArguments.push(argument);
         continue;
       }
@@ -486,6 +500,7 @@ async function inventoryHxmlWithPolicy(
         if (options.argumentPolicy?.rejectUnknownOptions === true) {
           fail("invalid-option", `${sourceFile}:unknown:${argument}`);
         }
+        await flushLibraries();
         effectiveArguments.push(argument);
         continue;
       }
@@ -528,6 +543,15 @@ async function inventoryHxmlWithPolicy(
         );
       }
 
+      if (libraryOptions.has(argument)) {
+        const request = libraryRequest(value!, sourceFile, cwd);
+        pendingLibraries.push(Object.freeze({ option: argument, request }));
+        if (consumesNextArgument) index += 1;
+        continue;
+      }
+
+      await flushLibraries();
+
       if (argument === "-C" || argument === "--cwd") {
         fail("invalid-option", `${sourceFile}:${argument}:unsupported-v1`);
       }
@@ -567,81 +591,6 @@ async function inventoryHxmlWithPolicy(
         }
       }
 
-      if (libraryOptions.has(argument)) {
-        const request = libraryRequest(value!, sourceFile, cwd);
-        if (recordedLibraries.has(request.request)) {
-          if (consumesNextArgument) index += 1;
-          continue;
-        }
-        if (recordedLibraries.size > 0) {
-          fail(
-            "invalid-syntax",
-            `${sourceFile}:multiple-distinct-libraries-unsupported-v1`,
-          );
-        }
-        recordedLibraries.add(request.request);
-        libraries.push(
-          Object.freeze({
-            request: request.request,
-            name: request.name,
-            version: request.version,
-            fromFile: request.fromFile,
-            workingDirectory: request.workingDirectory,
-          }),
-        );
-        if (options.resolveLibrary === undefined) {
-          libraryClosureComplete = false;
-          effectiveArguments.push(argument, value!);
-        } else {
-          let resolution: HxmlLibraryResolution;
-          try {
-            resolution = await awaitWithAbort(
-              options.resolveLibrary(request, {
-                signal: resolverSignal,
-                environment: (name) => options.environment?.(name) ?? null,
-              }),
-              options.signal,
-            );
-          } catch {
-            fail(
-              "resolver-failure",
-              `${sourceFile}:library:${request.request}`,
-            );
-          }
-          for (const [fileIndex, candidate] of
-            resolution.provenanceFiles.entries()) {
-            if (!path.isAbsolute(candidate)) {
-              fail(
-                "resolver-failure",
-                `${sourceFile}:library:${request.request}:provenance[${fileIndex}]`,
-              );
-            }
-            assertNoSymlinkComponents(
-              allowedRoots,
-              candidate,
-              `${sourceFile}:library:${request.request}:provenance[${fileIndex}]`,
-            );
-            const canonical = canonicalFile(
-              candidate,
-              `${sourceFile}:library:${request.request}:provenance[${fileIndex}]`,
-            );
-            assertAllowed(
-              allowedRoots,
-              canonical,
-              `${sourceFile}:library:${request.request}:provenance[${fileIndex}]`,
-            );
-            libraryProvenanceFiles.add(canonical);
-          }
-          await processArguments(
-            Object.freeze([...resolution.arguments]),
-            `${sourceFile}:library:${request.request}`,
-            cwd,
-          );
-        }
-        if (consumesNextArgument) index += 1;
-        continue;
-      }
-
       if (inlineValue !== undefined && value?.endsWith(".hxml") === true) {
         // Haxe expands standalone `*.hxml` arguments before it splits an
         // ordinary `--option=value` token. Preserve this spelling so a value
@@ -654,6 +603,103 @@ async function inventoryHxmlWithPolicy(
       }
       if (consumesNextArgument) index += 1;
     }
+  };
+
+  flushLibraries = async (): Promise<void> => {
+    if (pendingLibraries.length === 0) return;
+    const batch = pendingLibraries.splice(0, pendingLibraries.length);
+    const requests = Object.freeze(batch.map((entry) => entry.request));
+    for (const request of requests) {
+      if (recordedLibraryMetadata.has(request.request)) continue;
+      recordedLibraryMetadata.add(request.request);
+      libraries.push(
+        Object.freeze({
+          request: request.request,
+          name: request.name,
+          version: request.version,
+          fromFile: request.fromFile,
+          workingDirectory: request.workingDirectory,
+        }),
+      );
+    }
+
+    if (
+      options.resolveLibrary === undefined &&
+      options.resolveLibraries === undefined
+    ) {
+      libraryClosureComplete = false;
+      for (const entry of batch) {
+        effectiveArguments.push(entry.option, entry.request.request);
+      }
+      return;
+    }
+
+    let resolution: HxmlLibraryResolution;
+    const subject = `${requests[0]!.fromFile}:libraries:${requests
+      .map((request) => request.request)
+      .join(",")}`;
+    try {
+      if (options.resolveLibraries !== undefined) {
+        resolution = await awaitWithAbort(
+          options.resolveLibraries(requests, {
+            signal: resolverSignal,
+            environment: (name) => options.environment?.(name) ?? null,
+          }),
+          options.signal,
+        );
+      } else {
+        const distinct = [...new Set(requests.map((request) => request.request))];
+        const requested = distinct[0]!;
+        if (
+          distinct.length > 1 ||
+          (legacyResolvedLibrary !== null && legacyResolvedLibrary !== requested)
+        ) {
+          fail(
+            "invalid-syntax",
+            `${requests[0]!.fromFile}:multiple-distinct-libraries-require-batch-resolver`,
+          );
+        }
+        if (legacyResolvedLibrary === requested) return;
+        legacyResolvedLibrary = requested;
+        resolution = await awaitWithAbort(
+          options.resolveLibrary!(requests[0]!, {
+            signal: resolverSignal,
+            environment: (name) => options.environment?.(name) ?? null,
+          }),
+          options.signal,
+        );
+      }
+    } catch (error) {
+      if (error instanceof HxmlInventoryError) throw error;
+      fail("resolver-failure", subject);
+    }
+
+    for (const [fileIndex, candidate] of resolution.provenanceFiles.entries()) {
+      if (!path.isAbsolute(candidate)) {
+        fail("resolver-failure", `${subject}:provenance[${fileIndex}]`);
+      }
+      assertNoSymlinkComponents(
+        allowedRoots,
+        candidate,
+        `${subject}:provenance[${fileIndex}]`,
+      );
+      const canonical = canonicalFile(
+        candidate,
+        `${subject}:provenance[${fileIndex}]`,
+      );
+      assertAllowed(
+        allowedRoots,
+        canonical,
+        `${subject}:provenance[${fileIndex}]`,
+      );
+      libraryProvenanceFiles.add(canonical);
+    }
+    await processArguments(
+      Object.freeze([...resolution.arguments]),
+      subject,
+      requests[0]!.workingDirectory,
+    );
+    await flushLibraries();
   };
 
   const collect = async (
@@ -698,6 +744,7 @@ async function inventoryHxmlWithPolicy(
     );
     entryHxmlFiles.push(canonicalEntry);
   }
+  await flushLibraries();
 
   if (
     libraryClosureComplete &&
@@ -717,6 +764,7 @@ async function inventoryHxmlWithPolicy(
   );
   return Object.freeze({
     libraryClosureComplete,
+    allowedRoots,
     entryHxmlFiles: Object.freeze(entryHxmlFiles),
     hxmlOccurrences: Object.freeze(orderedHxmlOccurrences),
     hxmlFiles: Object.freeze(bytewise(hxmlFiles)),

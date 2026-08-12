@@ -32,6 +32,9 @@ const repositoryRoot = realpathSync.native(
 const projectRoot = realpathSync.native(
   mkdtempSync(path.join(os.tmpdir(), "genes-session-real-")),
 );
+const externalLibraryRoot = realpathSync.native(
+  mkdtempSync(path.join(os.tmpdir(), "genes-session-libraries-")),
+);
 const haxeVersion = execFileSync("haxe", ["--version"], {
   cwd: repositoryRoot,
   encoding: "utf8",
@@ -85,7 +88,7 @@ try {
       '    genes.tooling.CompilerData.writeUtf8("session.note", compilerData);',
       "    return macro $v{value};",
       "  }",
-      "  static function main():Void trace(SourceOnly.value + sessionNote());",
+      "  static function main():Void trace(SourceOnly.value + SessionHelper.value + sessionNote());",
       "}",
       "",
     ].join("\n"),
@@ -410,7 +413,7 @@ try {
     cwd: projectRoot,
     encoding: "utf8",
   });
-  const sourceOnlyRoot = path.join(projectRoot, "source-only-library");
+  const sourceOnlyRoot = path.join(externalLibraryRoot, "source-only-library");
   const sourceOnlyClassPath = path.join(sourceOnlyRoot, "src");
   mkdirSync(sourceOnlyClassPath, { recursive: true });
   writeFileSync(
@@ -433,10 +436,29 @@ try {
     "class SourceOnly { public static final value = 1; }\n",
     "utf8",
   );
-  execFileSync("haxelib", ["dev", "sourceonly", sourceOnlyRoot], {
-    cwd: projectRoot,
-    encoding: "utf8",
-  });
+  const helperRoot = path.join(externalLibraryRoot, "session-helper-library");
+  const helperClassPath = path.join(helperRoot, "src");
+  mkdirSync(helperClassPath, { recursive: true });
+  writeFileSync(
+    path.join(helperRoot, "haxelib.json"),
+    `${JSON.stringify({
+      name: "sessionhelper",
+      url: "https://example.invalid/sessionhelper",
+      license: "MIT",
+      tags: [],
+      description: "Second DevelopmentSession library fixture",
+      version: "1.0.0",
+      classPath: "src",
+      releasenote: "fixture",
+      contributors: ["maintainer"],
+    })}\n`,
+    "utf8",
+  );
+  writeFileSync(
+    path.join(helperClassPath, "SessionHelper.hx"),
+    "class SessionHelper { public static final value = 10; }\n",
+    "utf8",
+  );
   writeFileSync(
     path.join(projectRoot, "malicious-library.hxml"),
     [
@@ -551,7 +573,7 @@ try {
     `--class-path=${fixtureHelderSourceRoot}`,
     `--class-path=${sourceRoot}`,
     "-lib sourceonly",
-    "-lib sourceonly",
+    "-lib sessionhelper",
     "-main Main",
     "--define=session-note=policy-option-value-payload.hxml",
     "--define=js-source-map",
@@ -575,13 +597,24 @@ try {
     projectRoot,
     projectIdentity: "real-haxe-session-fixture",
     hxml: {
-      allowedRoots: [projectRoot],
-      resolveLibrary: (request, context) => {
+      allowedRoots: [projectRoot, externalLibraryRoot],
+      resolveLibraries: (requests, context) => {
         assert.equal(context.environment("PATH") !== null, true);
-        assert.equal(request.name, "sourceonly");
+        assert.deepEqual(
+          requests.map((request) => request.name),
+          ["sourceonly", "sessionhelper"],
+        );
         return {
-          arguments: ["-cp", sourceOnlyClassPath],
-          provenanceFiles: [path.join(sourceOnlyRoot, "haxelib.json")],
+          arguments: [
+            "-cp",
+            sourceOnlyClassPath,
+            "-cp",
+            helperClassPath,
+          ],
+          provenanceFiles: [
+            path.join(sourceOnlyRoot, "haxelib.json"),
+            path.join(helperRoot, "haxelib.json"),
+          ],
         };
       },
     },
@@ -740,12 +773,23 @@ try {
     projectRoot,
     projectIdentity: "real-haxe-session-classic-fixture",
     hxml: {
-      allowedRoots: [projectRoot],
-      resolveLibrary: (request) => {
-        assert.equal(request.name, "sourceonly");
+      allowedRoots: [projectRoot, externalLibraryRoot],
+      resolveLibraries: (requests) => {
+        assert.deepEqual(
+          requests.map((request) => request.name),
+          ["sourceonly", "sessionhelper"],
+        );
         return {
-          arguments: ["-cp", sourceOnlyClassPath],
-          provenanceFiles: [path.join(sourceOnlyRoot, "haxelib.json")],
+          arguments: [
+            "-cp",
+            sourceOnlyClassPath,
+            "-cp",
+            helperClassPath,
+          ],
+          provenanceFiles: [
+            path.join(sourceOnlyRoot, "haxelib.json"),
+            path.join(helperRoot, "haxelib.json"),
+          ],
         };
       },
     },
@@ -847,6 +891,7 @@ try {
   }
 } finally {
   rmSync(projectRoot, { recursive: true, force: true });
+  rmSync(externalLibraryRoot, { recursive: true, force: true });
 }
 
 console.log("genes tooling development session real Haxe integration: ok");
