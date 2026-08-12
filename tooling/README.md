@@ -484,9 +484,9 @@ rolled back, the other output can start normally.
   and class paths, must be inside an explicit `hxml.allowedRoots` folder. They
   must not overlap private state, publication control, or generated output.
   Project inputs keep project-relative event paths. External inputs use the
-  private logical form `@external/<root-index>/<path>`. Entry and occurrence
-  order are retained. A linked entry, class path, or library proof fails before
-  compilation.
+  root name `@external/<root-index>`. A child adds its path after that name.
+  Entry and occurrence order are retained. A linked entry, class path, or
+  library proof fails before compilation.
 - Authored HXML is deliberately targetless. The session appends exactly one
   private ordinary Haxe `--js` target and one private
   `-D genes.output=<entry>` target. This matters when Genes is missing or

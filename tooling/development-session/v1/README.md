@@ -367,7 +367,8 @@ let the compiler read a change that the session could miss. A class-path
 directory may still be missing at startup. The session watches its checked path
 so a generator or developer can create it and cause a later build. Project
 events keep project-relative paths. External inputs use
-`@external/<root-index>/<path>` so machine-local folders stay private.
+`@external/<root-index>` for a root. A child adds its path after that name.
+Machine-local folders stay private.
 
 Authored HXML selects no target. Under the reviewed Haxe 4.3.7 policy, the
 session rejects JavaScript and every alternate target selector, then appends

@@ -911,8 +911,8 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   /**
    * Keeps external machine paths private while giving each watched root a
    * stable, readable name for this session. Project files keep their familiar
-   * project-relative paths. Files in another declared root use
-   * `@external/<root-index>/<path-within-root>`.
+   * project-relative paths. Another declared root uses
+   * `@external/<root-index>`. A file below it adds its path after that name.
    */
   #logicalInputPath(inventory: HxmlInventory, absolutePath: string): string {
     if (containedBy(this.#layout.projectRoot, absolutePath)) {
