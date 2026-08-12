@@ -651,7 +651,10 @@ conformance scenarios plus a real cold/warm Haxe integration fixture. Version
 `0.1.0` is available as a GitHub archive, not as an npm-registry package.
 Version `0.2.0` adds the compiler-data bridge described above. Do not use its
 archive URL until the `tooling-v0.2.0` GitHub Release exists and its checksum
-and receipt have been verified.
+and receipt have been verified. Compiler data also needs Genes `1.50.0` or
+later. That compiler release contains the Haxe helper that writes the private
+named value. The tooling archive contains the host code that reads and checks
+it. Pin both versions because neither package replaces the other.
 
 ### Guidance for agents in consuming repositories
 
