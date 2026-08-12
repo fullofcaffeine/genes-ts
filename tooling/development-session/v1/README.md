@@ -120,8 +120,9 @@ accepted event is never emitted before the artifact transaction has committed.
 Published file paths in events and file deltas are project-relative and use
 `/` on every platform. An `inputs-changed` event uses the same form for project
 inputs. An input in another declared HXML root uses the private logical form
-`@external/<root-index>/<path>`. Lists are sorted by UTF-8 byte order, contain
-no duplicates, and do not overlap. Events never expose private candidate,
+`@external/<root-index>` for the root itself. A file below it uses
+`@external/<root-index>/<path>`. Lists use UTF-8 byte order. They contain no
+duplicates and do not overlap. Events never expose private candidate,
 state, project, or external root paths. This includes host validation messages
 and JSON keys that spell a path with either `/` or `\\`. A host should still
 prefer useful logical paths in its diagnostics, because replacing a private

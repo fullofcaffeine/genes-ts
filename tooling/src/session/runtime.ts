@@ -916,6 +916,13 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
    */
   #logicalInputPath(inventory: HxmlInventory, absolutePath: string): string {
     if (containedBy(this.#layout.projectRoot, absolutePath)) {
+      if (
+        usesExternalLogicalNamespace(this.#layout.projectRoot, absolutePath)
+      ) {
+        throw new Error(
+          "project input must not use @external, which is reserved for private external-input names",
+        );
+      }
       return path
         .relative(this.#layout.projectRoot, absolutePath)
         .split(path.sep)
@@ -1428,6 +1435,11 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       if (!containedBy(this.#layout.projectRoot, absolute)) {
         throw new Error(`prepared public path escapes projectRoot: ${publicPath}`);
       }
+      if (usesExternalLogicalNamespace(this.#layout.projectRoot, absolute)) {
+        throw new Error(
+          "prepared public path must not use @external, which is reserved for private external-input names",
+        );
+      }
       if (
         authoredInputs.some((input) =>
           inputOverlapsProjectPath(
@@ -1476,7 +1488,14 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     );
     const declaredExternalRoots = (
       this.#inventory?.allowedRoots ??
-      this.#options.hxml.allowedRoots.map((root) => path.resolve(root))
+      this.#options.hxml.allowedRoots.map((root) => {
+        const absolute = path.resolve(root);
+        try {
+          return realpathSync.native(absolute);
+        } catch {
+          return absolute;
+        }
+      })
     )
       .map((root, index) => ({ root, index }))
       .filter(({ root }) => !containedBy(this.#layout.projectRoot, root));

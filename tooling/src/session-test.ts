@@ -1332,6 +1332,22 @@ await withHarness("no-build-change-during-build", async (harness) => {
   );
 });
 
+await withHarness(
+  "explicit-invalidation-reserves-external-prefix",
+  async (harness) => {
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.throws(
+      () =>
+        harness.session.invalidate({
+          path: "@external/config.json",
+          impact: { rebuild: false },
+        }),
+      /reserved for private external-input names/u,
+    );
+  },
+);
+
 await withHarness("read-gate", async (harness) => {
   harness.compiler.steps.push(
     { content: "export const value = 1;\n" },
@@ -2156,6 +2172,54 @@ await withHarness(
   } finally {
     if (externalRoot !== "") {
       rmSync(externalRoot, { recursive: true, force: true });
+    }
+  }
+}
+
+if (process.platform !== "win32") {
+  let canonicalExternalRoot = "";
+  let externalAlias = "";
+  try {
+    // Startup errors can occur before the full input inventory is active. The
+    // fallback sanitizer must still hide the real target of an allowed alias.
+    await withHarness(
+      "external-root-alias-is-redacted-after-inventory-failure",
+      async (harness) => {
+        await harness.session.start();
+        await harness.session.waitForIdle();
+        assert.equal(harness.session.state.kind, "blocked");
+        const publicRecord = JSON.stringify({
+          snapshot: harness.session.inspect(),
+          events: harness.events,
+        });
+        assert.equal(publicRecord.includes(canonicalExternalRoot), false);
+        assert.equal(publicRecord.includes(externalAlias), false);
+        assert.equal(publicRecord.includes("<external-root-"), true);
+      },
+      undefined,
+      (options, root) => {
+        canonicalExternalRoot = `${root}-real-library`;
+        externalAlias = `${root}-library-alias`;
+        mkdirSync(canonicalExternalRoot);
+        symlinkSync(canonicalExternalRoot, externalAlias, "dir");
+        return {
+          ...options,
+          resolveInvocation: async () => {
+            throw new Error(
+              `invocation resolver failed at ${canonicalExternalRoot}`,
+            );
+          },
+          hxml: {
+            ...options.hxml,
+            allowedRoots: [root, externalAlias],
+          },
+        };
+      },
+    );
+  } finally {
+    if (externalAlias !== "") rmSync(externalAlias, { force: true });
+    if (canonicalExternalRoot !== "") {
+      rmSync(canonicalExternalRoot, { recursive: true, force: true });
     }
   }
 }
@@ -5217,4 +5281,51 @@ await withHarness(
     }),
   }),
 );
+
+for (const source of ["prepared", "admitted"] as const) {
+  await withHarness(
+    `${source}-public-path-reserves-external-prefix`,
+    async (harness) => {
+      harness.compiler.steps.push({ content: "export const value = 1;\n" });
+      await harness.session.start();
+      await harness.session.waitForIdle();
+      assert.equal(harness.session.state.kind, "blocked");
+      assert.equal(
+        existsSync(path.join(harness.root, "@external/receipt.json")),
+        false,
+      );
+    },
+    undefined,
+    (options) => ({
+      ...options,
+      ...(source === "prepared"
+        ? {
+            prepareRevision: () => ({
+              ok: true as const,
+              prepared: {
+                classPaths: ["haxe"],
+                files: [
+                  {
+                    relativePath: "haxe/Receipt.hx",
+                    content: "class Receipt {}\n",
+                    publishPath: "@external/receipt.json",
+                  },
+                ],
+              },
+            }),
+          }
+        : {
+            validate: async () => ({
+              ok: true as const,
+              artifacts: [
+                {
+                  path: "@external/receipt.json",
+                  content: "{\"accepted\":true}\n",
+                },
+              ],
+            }),
+          }),
+    }),
+  );
+}
 console.log("genes tooling development session runtime: ok");

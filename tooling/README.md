@@ -242,8 +242,9 @@ each trusted folder to `hxml.allowedRoots`. The session watches those inputs.
 It also uses them when it decides whether a warm compiler can be reused. It
 rejects undeclared or linked paths before compilation. Events keep project
 paths unchanged. An external path is
-reported as `@external/<root-index>/<path>` so machine-local folders do not
-enter logs or host messages. The first project path segment `@external` is
+reported as `@external/<root-index>` for the root itself. A file below it uses
+`@external/<root-index>/<path>`. Machine-local folders do not enter logs or
+host messages. The first project path segment `@external` is
 reserved for these private event names. A project input or public output must
 use a different first segment.
 
