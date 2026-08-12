@@ -175,6 +175,14 @@ export function resolveSessionLayout(
     publicOutputFile,
     "publicOutputFile",
   );
+  if (
+    publicOutputRelative === "@external" ||
+    publicOutputRelative.startsWith("@external/")
+  ) {
+    throw new Error(
+      "publicOutputFile must not use @external, which is reserved for private external-input names",
+    );
+  }
   const publicOutputRootAuthority =
     publicOutputRootRelative === null
       ? "project-root:."

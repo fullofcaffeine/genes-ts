@@ -243,7 +243,9 @@ It also uses them when it decides whether a warm compiler can be reused. It
 rejects undeclared or linked paths before compilation. Events keep project
 paths unchanged. An external path is
 reported as `@external/<root-index>/<path>` so machine-local folders do not
-enter logs or host messages.
+enter logs or host messages. The first project path segment `@external` is
+reserved for these private event names. A project input or public output must
+use a different first segment.
 
 The application validator never receives a half-generated tree. Genes first
 finishes its own compiler transaction inside a private candidate directory.

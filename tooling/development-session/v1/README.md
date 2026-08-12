@@ -374,6 +374,10 @@ one private `--js` target and one private `genes.output` target itself. If Genes
 does not activate, ordinary Haxe output remains inside the disposable candidate
 stage and a missing Genes ownership manifest prevents publication.
 
+The first project path segment `@external` is reserved for private external
+input names in public events. A project input or public output must use a
+different first segment.
+
 The session rejects HXML `--cmd`, `--run`, `--interp`, and `-x`. Those Haxe
 options can run a shell command or the compiled program before the private
 candidate has passed the host's checks. It also rejects `--xml` and `--json`

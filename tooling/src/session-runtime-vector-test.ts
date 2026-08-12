@@ -407,7 +407,9 @@ async function execute(vector: Vector): Promise<void> {
     path.join(root, "build.hxml"),
     expectsPrivateHxml
       ? "-cp src\n-main Main\n--define=session-note=payload.hxml\n"
-      : `-cp ${sourceRoot}\n-main Main\n`,
+      : usesExternalInput
+        ? `-cp ${sourceRoot}\n-main Main\n`
+        : "-cp src\n-main Main\n",
     "utf8",
   );
   if (expectsPrivateHxml) {

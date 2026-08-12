@@ -1899,6 +1899,31 @@ await withHarness(
 );
 
 await withHarness(
+  "project-input-reserves-external-logical-prefix",
+  async (harness) => {
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.state.kind, "blocked");
+    assert.equal(harness.compiler.calls, 0);
+    assert.match(
+      JSON.stringify(harness.session.inspect()),
+      /@external, which is reserved for private external-input names/u,
+    );
+  },
+  undefined,
+  (options, root) => {
+    const reservedSource = path.join(root, "@external", "src");
+    mkdirSync(reservedSource, { recursive: true });
+    writeFileSync(
+      path.join(root, "build.hxml"),
+      `-cp ${reservedSource}\n-main Main\n`,
+      "utf8",
+    );
+    return options;
+  },
+);
+
+await withHarness(
   "resolved-library-class-path-is-watched",
   async (harness) => {
     await harness.session.start();
@@ -2108,9 +2133,9 @@ await withHarness(
       },
       undefined,
       (options, root) => {
-        externalRoot = realpathSync.native(
-          mkdtempSync(path.join(os.tmpdir(), "genes-external-diagnostic-")),
-        );
+        externalRoot = `${root}-library`;
+        mkdirSync(externalRoot);
+        externalRoot = realpathSync.native(externalRoot);
         return {
           ...options,
           hxml: {
@@ -4107,6 +4132,17 @@ if (process.platform !== "win32") {
         /public output root and stable session-control directory must not overlap/u,
       );
     }
+    assert.throws(
+      () =>
+        resolveSessionLayout(
+          root,
+          "invalid-reserved-public-prefix",
+          "@external/index.ts",
+          ".genes/dev-reserved-prefix",
+        ),
+      /reserved for private external-input names/u,
+      "public output must not use the private external-input namespace",
+    );
     assert.throws(
       () =>
         resolveSessionLayout(

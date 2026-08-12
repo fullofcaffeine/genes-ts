@@ -234,6 +234,15 @@ function inputOverlapsProjectPath(
     : pathsOverlap(input, projectPath);
 }
 
+function usesExternalLogicalNamespace(
+  projectRoot: string,
+  input: string,
+): boolean {
+  if (!containedBy(projectRoot, input)) return false;
+  const relative = path.relative(projectRoot, input).split(path.sep).join("/");
+  return relative === "@external" || relative.startsWith("@external/");
+}
+
 function assertRealPath(root: string, candidate: string, label: string): void {
   const absolute = path.resolve(candidate);
   if (!containedBy(root, absolute)) {
@@ -1365,6 +1374,11 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
           `development-session input must be inside a declared HXML root: ${candidate}`,
         );
       }
+      if (usesExternalLogicalNamespace(this.#layout.projectRoot, candidate)) {
+        throw new Error(
+          "project input must not use @external, which is reserved for private external-input names",
+        );
+      }
       if (
         inputOverlapsProjectPath(
           this.#layout.projectRoot,
@@ -1460,35 +1474,47 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       this.#layout.projectRoot,
       ...this.#layout.candidatesRelative.split("/"),
     );
-    const withCandidateRoot = replacePathSpellings(
-      message,
-      candidateRoot,
-      "<private-candidate-root>",
-    );
-    const withoutCandidateNonce = withCandidateRoot.replace(
-      /<private-candidate-root>[\\/][^\\/\s:]+/gu,
-      "<private-candidate>",
-    );
-    const withoutProjectPaths = replacePathSpellings(
-      replacePathSpellings(
-        withoutCandidateNonce,
-        this.#layout.stateRoot,
-        "<private-state>",
-      ),
-      this.#layout.projectRoot,
-      "<project>",
-    );
-    const declaredRoots = (
+    const declaredExternalRoots = (
       this.#inventory?.allowedRoots ??
       this.#options.hxml.allowedRoots.map((root) => path.resolve(root))
     )
       .map((root, index) => ({ root, index }))
-      .sort((left, right) => right.root.length - left.root.length);
-    return declaredRoots.reduce(
-      (current, { root, index }) =>
-        replacePathSpellings(current, root, `<external-root-${index}>`),
-      withoutProjectPaths,
+      .filter(({ root }) => !containedBy(this.#layout.projectRoot, root));
+    const replacements = [
+      {
+        root: candidateRoot,
+        replacement: "<private-candidate-root>",
+        priority: 0,
+      },
+      {
+        root: this.#layout.stateRoot,
+        replacement: "<private-state>",
+        priority: 1,
+      },
+      ...declaredExternalRoots.map(({ root, index }) => ({
+        root,
+        replacement: `<external-root-${index}>`,
+        priority: 2,
+      })),
+      {
+        root: this.#layout.projectRoot,
+        replacement: "<project>",
+        priority: 3,
+      },
+    ].sort(
+      (left, right) =>
+        right.root.length - left.root.length || left.priority - right.priority,
     );
+    return replacements
+      .reduce(
+        (current, { root, replacement }) =>
+          replacePathSpellings(current, root, replacement),
+        message,
+      )
+      .replace(
+        /<private-candidate-root>[\\/][^\\/\s:]+/gu,
+        "<private-candidate>",
+      );
   }
 
   /** Removes session-private paths from every host-authored JSON string. */

@@ -18,7 +18,7 @@
       "type": "string",
       "description": "A slash-normalized project input or private logical external-input path.",
       "minLength": 1,
-      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*\\\\)(?!.*\\u0000)[^/]+(?:/[^/]+)*$"
+      "pattern": "^(?:(?!@external(?:/|$))(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*\\\\)(?!.*\\u0000)[^/]+(?:/[^/]+)*|@external/(?:0|[1-9][0-9]*)(?:/(?!\\.\\.?(?:/|$))[^/\\\\\\u0000]+)*)$"
     },
     "digest": {
       "type": "string",

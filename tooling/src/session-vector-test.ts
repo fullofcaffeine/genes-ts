@@ -177,6 +177,13 @@ assert.doesNotMatch(
   publishedPathPattern,
 );
 assert.match("@external/1/library/src/Value.hx", inputPathPattern);
+for (const malformedExternalInput of [
+  "@external",
+  "@external/not-a-number",
+  "@external/01/library/src/Value.hx",
+]) {
+  assert.doesNotMatch(malformedExternalInput, inputPathPattern);
+}
 for (const rejected of [
   "",
   "/absolute.ts",
@@ -268,6 +275,25 @@ assert.equal(
   validateCorpus(externalPublishedPathCorpus),
   false,
   "published file lists must reject private external-input paths",
+);
+const malformedExternalInputCorpus = structuredClone(corpus) as unknown as {
+  vectors: Array<{
+    expected: {
+      eventChecks: Array<{
+        event: { kind: string; paths?: string[] };
+      }>;
+    };
+  }>;
+};
+const externalInputEvent = malformedExternalInputCorpus.vectors
+  .flatMap((vector) => vector.expected.eventChecks)
+  .find((event) => event.event.kind === "inputs-changed");
+assert.notEqual(externalInputEvent, undefined);
+externalInputEvent!.event.paths = ["@external/not-a-number/Main.hx"];
+assert.equal(
+  validateCorpus(malformedExternalInputCorpus),
+  false,
+  "input-change events must reject malformed private external-input paths",
 );
 const privatePathCorpus = structuredClone(corpus) as unknown as {
   vectors: Array<{
