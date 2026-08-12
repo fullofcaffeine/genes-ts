@@ -638,17 +638,25 @@ keep only buffered events whose sequence is newer than the snapshot, and use
 `src-gen` to repair a failed build; the public tree is the session's last-good
 record.
 
-## Availability before a public package release
+## Availability without npm publication
 
 The package is currently developed and tested inside the Genes repository; it
-has not been published to npm. npm publication is intentionally deferred until
-a real external host is ready to adopt a reviewed version.
+has not been published to npm. npm publication remains intentionally deferred.
+Instead, stable consumers can install an immutable, prebuilt archive from the
+Genes GitHub Releases page. This keeps npm out of the current distribution
+path while still giving hosts exact, checksum-verified package bytes.
 
-The session runtime is implemented and exercised by all 12 released
-conformance scenarios plus a real cold/warm Haxe integration fixture. The
-package is still repository-local until the separate release and downstream
-acceptance work completes; do not describe `0.1.0` as an npm release before
-that immutable publication exists.
+The session runtime is implemented and exercised by all 14 released
+conformance scenarios plus a real cold/warm Haxe integration fixture. Version
+`0.1.0` is available as a GitHub archive, not as an npm-registry package.
+Version `0.2.0` adds the compiler-data bridge described above. Do not use its
+archive URL until the `tooling-v0.2.0` GitHub Release exists and its checksum
+and receipt have been verified. Compiler data also needs Genes `1.50.0` or
+later. That compiler release contains the Haxe helper that writes the private
+named value. The tooling archive contains the host code that reads and checks
+it. The release operator must publish and verify Genes `v1.50.0` before the
+`tooling-v0.2.0` archive. Pin both versions because neither package replaces
+the other.
 
 ### Guidance for agents in consuming repositories
 
@@ -733,7 +741,7 @@ npm registry:
 ```json
 {
   "dependencies": {
-    "@genes-ts/tooling": "https://github.com/fullofcaffeine/genes-ts/releases/download/tooling-v0.1.0/genes-ts-tooling-0.1.0.tgz"
+    "@genes-ts/tooling": "https://github.com/fullofcaffeine/genes-ts/releases/download/tooling-v0.2.0/genes-ts-tooling-0.2.0.tgz"
   }
 }
 ```
