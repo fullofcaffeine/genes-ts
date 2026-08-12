@@ -78,6 +78,26 @@
         "closed"
       ]
     },
+    "extraInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path", "impact"],
+      "properties": {
+        "kind": { "enum": ["exact", "tree"] },
+        "path": { "type": "string", "minLength": 1 },
+        "impact": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "rebuild": { "type": "boolean" },
+            "revalidate": { "type": "boolean" },
+            "reinventory": { "type": "boolean" },
+            "restartCompiler": { "type": "boolean" }
+          }
+        }
+      }
+    },
     "eventRun": {
       "type": "object",
       "additionalProperties": false,
@@ -180,6 +200,11 @@
           "type": "array",
           "minItems": 1,
           "items": { "$ref": "#/$defs/scriptStep" }
+        },
+        "extraInputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/extraInput" }
         },
         "expected": { "$ref": "#/$defs/expected" }
       }

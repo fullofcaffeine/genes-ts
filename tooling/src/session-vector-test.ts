@@ -11,6 +11,7 @@ import {
   type DevelopmentSnapshot,
   type GenesDevelopmentOptions,
   type JsonValue,
+  type ObservedExtraInput,
 } from "./session/index.js";
 
 type Family =
@@ -67,6 +68,7 @@ interface Vector {
   readonly family: Family;
   readonly covers: readonly string[];
   readonly description: string;
+  readonly extraInputs?: readonly ObservedExtraInput[];
   readonly script: readonly string[];
   readonly expected: Expected;
 }
@@ -222,7 +224,14 @@ assert.equal(
   "https://genes-ts.dev/schemas/development-session-vectors-v1.json",
 );
 assert.deepEqual(vectorSchema.required, ["protocol", "version", "vectors"]);
-for (const definition of ["eventKind", "eventRun", "expected", "scriptStep", "vector"]) {
+for (const definition of [
+  "eventKind",
+  "eventRun",
+  "expected",
+  "extraInput",
+  "scriptStep",
+  "vector",
+]) {
   assert.equal(
     definition in vectorSchema.$defs,
     true,
@@ -377,9 +386,11 @@ const scriptSteps = new Set([
 ]);
 
 for (const vector of corpus.vectors) {
+  const keys = ["covers", "description", "expected", "family", "id", "script"];
+  if (vector.extraInputs !== undefined) keys.push("extraInputs");
   assert.deepEqual(
     Object.keys(vector).sort(),
-    ["covers", "description", "expected", "family", "id", "script"],
+    keys.sort(),
   );
   assert.match(vector.id, /^[a-z0-9]+(?:-[a-z0-9]+)*$/u);
   assert.equal(families.has(vector.family), true);
