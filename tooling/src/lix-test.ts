@@ -103,13 +103,15 @@ const canonical = (value: string): string => realpathSync.native(value);
 const sorted = (values: readonly string[]): readonly string[] =>
   [...values].sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
 
+const delayedWriterProgram = fakeProgram(
+  "delayed-writer",
+  'setTimeout(() => process.stdout.write(process.env.DELAYED_OUTPUT + "\\n"), 80);',
+);
 const delayedOutputProgram = fakeProgram(
   "delayed-output",
   [
     'const { spawn } = require("node:child_process");',
-    `const child = spawn(process.execPath, ["-e", ${JSON.stringify(
-      `setTimeout(() => process.stdout.write(${JSON.stringify(firstSource + "\n")}), 80);`,
-    )}], { stdio: ["ignore", 1, 2] });`,
+    "const child = spawn(process.execPath, [process.env.DELAYED_WRITER], { stdio: [\"ignore\", 1, 2] });",
     "child.unref();",
   ].join("\n"),
 );
@@ -119,6 +121,10 @@ const delayedOutput = await resolveLixLibraryGroup({
   command: {
     executable: process.execPath,
     argsPrefix: [delayedOutputProgram],
+    environment: {
+      DELAYED_OUTPUT: firstSource,
+      DELAYED_WRITER: delayedWriterProgram,
+    },
   },
 });
 assert.deepEqual(delayedOutput.arguments, ["-cp", canonical(firstSource)]);
