@@ -13,6 +13,9 @@ it.
   found by its answer. HXML inventory checks those folders before it accepts
   any returned class path or proof file, so a host does not need to trust a
   whole package cache in advance.
+- Wait for the Lix command to close its output pipes before parsing it. Keep a
+  bare HXML result as checked HXML input, and reject links inside returned
+  package paths.
 
 ## 0.3.0
 

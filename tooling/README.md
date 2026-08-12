@@ -1063,10 +1063,17 @@ resolution; a changed package folder becomes a new checked root.
 
 The helper accepts the ordinary line-based output from `haxelib path`. A bare
 path becomes a checked, full `-cp <path>` pair. Relative paths use the project
-folder, which supports a library developed in that same project. An option line
-keeps its option and value in the same order. The later HXML check still rejects
-commands, alternate output targets, and other arguments that a managed
-development session must not run.
+folder, which supports a library developed in that same project. A bare
+`.hxml` path stays an HXML input. The HXML reader checks that file and replaces
+it with its checked arguments before Haxe starts. An option line keeps its
+option and value in the same order.
+
+The resolver waits until the command closes its output pipes. This rule keeps
+output from a child process complete, even when a process exits before its last
+output bytes arrive. It also rejects a linked package folder or a link inside a
+returned package path. The later HXML check still rejects commands, alternate
+output targets, and other arguments that a managed development session must
+not run.
 Invalid paths, links, command failures, cancellation, timeouts, oversized
 output, and invalid text fail with a `LixLibraryResolverError` and a stable
 `code`.

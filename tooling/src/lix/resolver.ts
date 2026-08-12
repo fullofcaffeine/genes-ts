@@ -296,7 +296,10 @@ async function runHaxelib(
         `Cannot start the Lix haxelib command: ${error.message}`,
       )));
     });
-    child.once("exit", (code, signal) => {
+    // `exit` can arrive while a child or grandchild still owns one of the
+    // pipes. `close` means that Node has also received the final stdout and
+    // stderr bytes, so a large library result cannot be parsed too early.
+    child.once("close", (code, signal) => {
       if (complete) return;
       let stdoutText: string;
       let stderrText: string;
@@ -322,6 +325,35 @@ async function runHaxelib(
   });
 }
 
+function assertNoSymbolicLinkComponents(
+  root: string,
+  candidate: string,
+  label: string,
+): void {
+  const absoluteRoot = path.resolve(root);
+  const absolute = path.resolve(candidate);
+  if (!containedBy(absoluteRoot, absolute)) {
+    fail("LIX_RESOLVER_UNSAFE_LIBRARY", `${label} escapes its package root`);
+  }
+  let current = path.dirname(absoluteRoot);
+  for (const segment of path.relative(current, absolute).split(path.sep)) {
+    if (segment.length === 0) continue;
+    current = path.join(current, segment);
+    let stats: ReturnType<typeof lstatSync>;
+    try {
+      stats = lstatSync(current);
+    } catch {
+      fail("LIX_RESOLVER_UNSAFE_LIBRARY", `${label} is missing: ${current}`);
+    }
+    if (stats.isSymbolicLink()) {
+      fail(
+        "LIX_RESOLVER_UNSAFE_LIBRARY",
+        `${label} passes through a symbolic link: ${current}`,
+      );
+    }
+  }
+}
+
 function realPackageRoot(classPath: string): string {
   const absolute = path.resolve(classPath);
   let stats: ReturnType<typeof lstatSync>;
@@ -339,8 +371,7 @@ function realPackageRoot(classPath: string): string {
       `Lix haxelib class path must be a real directory: ${absolute}`,
     );
   }
-  const realClassPath = realpathSync.native(absolute);
-  let current = realClassPath;
+  let current = absolute;
   for (let depth = 0; depth < 64; depth += 1) {
     const manifest = path.join(current, "haxelib.json");
     if (existsSync(manifest)) {
@@ -351,6 +382,11 @@ function realPackageRoot(classPath: string): string {
           `Lix package manifest must be a real file: ${manifest}`,
         );
       }
+      assertNoSymbolicLinkComponents(
+        current,
+        absolute,
+        "Lix haxelib class path",
+      );
       return realpathSync.native(current);
     }
     const parent = path.dirname(current);
@@ -359,7 +395,7 @@ function realPackageRoot(classPath: string): string {
   }
   fail(
     "LIX_RESOLVER_UNSAFE_LIBRARY",
-    `Lix haxelib class path has no containing haxelib.json: ${realClassPath}`,
+    `Lix haxelib class path has no containing haxelib.json: ${absolute}`,
   );
 }
 
@@ -386,6 +422,37 @@ function parseOutput(stdout: string, projectRoot: string): {
       );
     }
     const line = raw;
+    if (!line.startsWith("-") && line.endsWith(".hxml")) {
+      const hxml = path.resolve(projectRoot, line);
+      let hxmlStats: ReturnType<typeof lstatSync>;
+      try {
+        hxmlStats = lstatSync(hxml);
+      } catch {
+        fail(
+          "LIX_RESOLVER_UNSAFE_LIBRARY",
+          `Lix haxelib returned a missing HXML file: ${hxml}`,
+        );
+      }
+      if (hxmlStats.isSymbolicLink() || !hxmlStats.isFile()) {
+        fail(
+          "LIX_RESOLVER_UNSAFE_LIBRARY",
+          `Lix haxelib HXML path must be a real file: ${hxml}`,
+        );
+      }
+      if (containedBy(projectRoot, hxml)) {
+        assertNoSymbolicLinkComponents(
+          projectRoot,
+          hxml,
+          "Lix haxelib HXML file",
+        );
+      } else {
+        const root = realPackageRoot(path.dirname(hxml));
+        roots.add(root);
+        manifests.add(path.join(root, "haxelib.json"));
+      }
+      argumentsResult.push(realpathSync.native(hxml));
+      continue;
+    }
     if (line.startsWith("-")) {
       const separator = line.search(/\s/u);
       const option = separator === -1 ? line : line.slice(0, separator);

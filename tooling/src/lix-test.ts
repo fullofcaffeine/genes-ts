@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import os from "node:os";
@@ -101,6 +102,79 @@ const result = await resolveLixLibraryGroup({
 const canonical = (value: string): string => realpathSync.native(value);
 const sorted = (values: readonly string[]): readonly string[] =>
   [...values].sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
+
+const delayedOutputProgram = fakeProgram(
+  "delayed-output",
+  [
+    'const { spawn } = require("node:child_process");',
+    `const child = spawn(process.execPath, ["-e", ${JSON.stringify(
+      `setTimeout(() => process.stdout.write(${JSON.stringify(firstSource + "\n")}), 80);`,
+    )}], { stdio: ["ignore", 1, 2] });`,
+    "child.unref();",
+  ].join("\n"),
+);
+const delayedOutput = await resolveLixLibraryGroup({
+  projectRoot,
+  requests: [request("first")],
+  command: {
+    executable: process.execPath,
+    argsPrefix: [delayedOutputProgram],
+  },
+});
+assert.deepEqual(delayedOutput.arguments, ["-cp", canonical(firstSource)]);
+
+writeFileSync(
+  path.join(projectRoot, "lix-extra.hxml"),
+  "-D via-lix-hxml=1\n",
+  "utf8",
+);
+const hxmlOutputProgram = fakeProgram(
+  "hxml-output",
+  'process.stdout.write("lix-extra.hxml\\n");',
+);
+const hxmlInventory = await inventoryHxml({
+  entryFiles: ["build.hxml"],
+  workingDirectory: projectRoot,
+  allowedRoots: [projectRoot],
+  resolveLibraries: (requests, context) =>
+    resolveLixLibraryGroup({
+      projectRoot,
+      requests,
+      command: {
+        executable: process.execPath,
+        argsPrefix: [hxmlOutputProgram],
+      },
+      signal: context.signal,
+    }),
+});
+assert.deepEqual(hxmlInventory.effectiveArguments, [
+  "-D",
+  "via-lix-hxml=1",
+]);
+assert.equal(
+  hxmlInventory.hxmlFiles.includes(canonical(path.join(projectRoot, "lix-extra.hxml"))),
+  true,
+);
+
+const linkedPackageRoot = path.join(root, "linked-package");
+symlinkSync(path.join(libraryRoot, "first"), linkedPackageRoot, "dir");
+await expectCode(
+  () =>
+    resolveLixLibraryGroup({
+      projectRoot,
+      requests: [request("first")],
+      command: {
+        executable: process.execPath,
+        argsPrefix: [
+          fakeProgram(
+            "linked-output",
+            `process.stdout.write(${JSON.stringify(path.join(linkedPackageRoot, "src") + "\n")});`,
+          ),
+        ],
+      },
+    }),
+  "LIX_RESOLVER_UNSAFE_LIBRARY",
+);
 
 assert.deepEqual(result.arguments, [
   "-cp",
