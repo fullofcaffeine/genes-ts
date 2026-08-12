@@ -2327,6 +2327,51 @@ await withHarness(
   },
 );
 
+await withHarness(
+  "host-extra-input-tree",
+  async (harness) => {
+    harness.compiler.steps.push(
+      { content: "export const value = 1;\n" },
+      { content: "export const value = 2;\n" },
+    );
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.inspect().accepted?.generation, 1);
+
+    const nested = path.join(harness.root, "schema/nested/domain.json");
+    mkdirSync(path.dirname(nested), { recursive: true });
+    writeFileSync(nested, "{\"version\":2}\n", "utf8");
+    currentWatch(harness).change(nested);
+    await harness.session.waitForIdle();
+
+    assert.equal(harness.session.inspect().accepted?.generation, 2);
+    const watchedTree = currentWatch(harness).options.inputs.find(
+      (input) => input.path === path.join(harness.root, "schema"),
+    );
+    assert.equal(watchedTree?.kind, "tree");
+    assert.equal(
+      watchedTree?.kind === "tree" && watchedTree.rejectSymlinks,
+      true,
+      "host input trees must fail when a link could hide changed input",
+    );
+  },
+  undefined,
+  (options, root) => {
+    mkdirSync(path.join(root, "schema"));
+    writeFileSync(path.join(root, "schema/domain.json"), "{\"version\":1}\n", "utf8");
+    return {
+      ...options,
+      extraInputs: [
+        {
+          kind: "tree",
+          path: "schema",
+          impact: { rebuild: true, restartCompiler: true },
+        },
+      ],
+    };
+  },
+);
+
 for (const field of ["generation", "revision", "acceptedAt", "sessionNonce"] as const) {
   await withHarness(`marker-drift-${field}`, async (harness) => {
     harness.compiler.steps.push(

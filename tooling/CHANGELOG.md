@@ -6,6 +6,9 @@ it.
 
 ## Unreleased
 
+- Let hosts declare a whole extra input directory for `DevelopmentSession`.
+  Descendant edits, additions, and removals now request the declared rebuild,
+  while symbolic links fail instead of hiding input from the watcher.
 - Let a host import one exact generated application when it moves to
   `DevelopmentSession`. Genes checks the old ownership facts and the live
   files, runs the normal host validator, and records the handoff without

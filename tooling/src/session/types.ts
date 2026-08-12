@@ -435,8 +435,16 @@ export interface ExternalChange {
   readonly impact: ChangeImpact;
 }
 
-/** An explicit extra input observed by the session within an allowed root. */
-export interface ObservedExtraInput extends ExternalChange {}
+/**
+ * An explicit host-owned input observed within an allowed root.
+ *
+ * `exact` watches one file or path. `tree` watches every real file below one
+ * directory, including later additions and removals. Trees reject symbolic
+ * links so a compiler or macro cannot read bytes that the watcher missed.
+ */
+export interface ObservedExtraInput extends ExternalChange {
+  readonly kind?: "exact" | "tree";
+}
 
 /** Host policy and project identity supplied to a DevelopmentSession. */
 export interface GenesDevelopmentOptions<Diagnostic extends JsonValue> {

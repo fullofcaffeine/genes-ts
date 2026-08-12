@@ -84,7 +84,7 @@ try {
       '    if (value != "policy-option-value-payload.hxml") {',
       '      haxe.macro.Context.error("session-note define changed before typing: " + Std.string(value), haxe.macro.Context.currentPos());',
       "    }",
-      '    final compilerData = sys.io.File.getContent("compiler-data-value.txt");',
+      '    final compilerData = sys.io.File.getContent("compiler-inputs/value.txt");',
       '    genes.tooling.CompilerData.writeUtf8("session.note", compilerData);',
       "    return macro $v{value};",
       "  }",
@@ -94,8 +94,9 @@ try {
     ].join("\n"),
     "utf8",
   );
+  mkdirSync(path.join(projectRoot, "compiler-inputs"));
   writeFileSync(
-    path.join(projectRoot, "compiler-data-value.txt"),
+    path.join(projectRoot, "compiler-inputs/value.txt"),
     "{\"note\":\"first\"}\n",
     "utf8",
   );
@@ -623,7 +624,8 @@ try {
     compilerData: [{ id: "session.note", maxBytes: 1_024 }],
     extraInputs: [
       {
-        path: "compiler-data-value.txt",
+        kind: "tree",
+        path: "compiler-inputs",
         impact: { rebuild: true },
       },
     ],
@@ -713,15 +715,18 @@ try {
     }
 
     writeFileSync(
-      path.join(projectRoot, "compiler-data-value.txt"),
+      path.join(projectRoot, "compiler-inputs/value.txt"),
       "{\"note\":\"second\"}\n",
       "utf8",
     );
-    session.invalidate({
-      path: "compiler-data-value.txt",
-      impact: { rebuild: true },
-    });
-    await session.waitForIdle();
+    const extraInputDeadline = Date.now() + 3_000;
+    while (
+      (session.inspect().accepted?.generation ?? 0) < 2 &&
+      Date.now() < extraInputDeadline
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      await session.waitForIdle();
+    }
     assert.equal(session.inspect().accepted?.generation, 2);
     assert.equal(session.inspect().accepted?.compilerMode, "connected");
     assert.deepEqual(session.inspect().accepted?.files, {
@@ -798,7 +803,8 @@ try {
     compilerData: [{ id: "session.note", maxBytes: 1_024 }],
     extraInputs: [
       {
-        path: "compiler-data-value.txt",
+        kind: "tree",
+        path: "compiler-inputs",
         impact: { rebuild: true },
       },
     ],
@@ -863,15 +869,18 @@ try {
     );
 
     writeFileSync(
-      path.join(projectRoot, "compiler-data-value.txt"),
+      path.join(projectRoot, "compiler-inputs/value.txt"),
       "{\"note\":\"classic-warm\"}\n",
       "utf8",
     );
-    classicSession.invalidate({
-      path: "compiler-data-value.txt",
-      impact: { rebuild: true },
-    });
-    await classicSession.waitForIdle();
+    const classicExtraInputDeadline = Date.now() + 3_000;
+    while (
+      (classicSession.inspect().accepted?.generation ?? 0) < 2 &&
+      Date.now() < classicExtraInputDeadline
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      await classicSession.waitForIdle();
+    }
     assert.equal(classicSession.inspect().accepted?.generation, 2);
     assert.equal(
       readFileSync(path.join(projectRoot, "classic-session-note.json"), "utf8"),

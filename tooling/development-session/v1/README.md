@@ -75,6 +75,11 @@ change and advances `newestRevision`, but it does not discard a valid compile
 already in progress. This is why an accepted generation's `revision` may be
 lower than `newestRevision` until another build-requiring change occurs.
 
+An extra input uses `kind: "exact"` by default. Use `kind: "tree"` for a
+directory whose descendant edits, additions, and removals affect the build.
+The tree watcher rejects symbolic links. It does not use globs or guess which
+parts of a larger directory are relevant.
+
 ## States a host presents
 
 - `opening`: recovery and input registration have not completed.
