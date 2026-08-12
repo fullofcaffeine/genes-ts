@@ -665,9 +665,11 @@ path while still giving hosts exact, checksum-verified package bytes.
 
 The session runtime is implemented and exercised by all 14 released
 conformance scenarios plus a real cold/warm Haxe integration fixture. Version
-`0.3.0` adds ordered library groups and declared external library roots. Do not
-use its archive URL until the `tooling-v0.3.0` GitHub Release exists. Verify its
-checksum and receipt before use.
+`0.4.0` adds the safe, reusable Lix resolver described below. It asks a
+project-selected Lix command for one ordered library group and checks the
+returned Haxe arguments, package folders, and proof files before Haxe starts.
+Do not use its archive URL until the `tooling-v0.4.0` GitHub Release exists.
+Verify its checksum and receipt before use.
 
 Version `0.2.0` added the compiler-data bridge described above. Compiler data
 needs Genes `1.50.0` or later. That compiler release contains the Haxe helper
@@ -758,7 +760,7 @@ npm registry:
 ```json
 {
   "dependencies": {
-    "@genes-ts/tooling": "https://github.com/fullofcaffeine/genes-ts/releases/download/tooling-v0.3.0/genes-ts-tooling-0.3.0.tgz"
+    "@genes-ts/tooling": "https://github.com/fullofcaffeine/genes-ts/releases/download/tooling-v0.4.0/genes-ts-tooling-0.4.0.tgz"
   }
 }
 ```

@@ -1,6 +1,6 @@
 {
   "name": "@genes-ts/tooling",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Framework-neutral host tooling for Haxe-to-JavaScript and Haxe-to-TypeScript projects.",
   "type": "module",
   "license": "MIT",

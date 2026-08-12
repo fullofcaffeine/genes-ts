@@ -4,7 +4,7 @@ All notable changes to `@genes-ts/tooling` are recorded here. This package has
 its own version and release lifecycle; compiler/Haxelib releases do not publish
 it.
 
-## Unreleased
+## 0.4.0
 
 - Add a safe Lix resolver for an ordered Haxe library group. It uses one
   shell-free `haxelib path` call and returns the exact Haxe arguments, package
