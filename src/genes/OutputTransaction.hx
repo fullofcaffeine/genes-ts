@@ -73,9 +73,7 @@ class OutputTransaction {
    * stored inside the manifest for mismatch detection.
    */
   public function new(outputDirectory: String, entrypointIdentity: String) {
-    outputRoot = absolutePath(outputDirectory.length == 0
-      ? '.'
-      : outputDirectory);
+    outputRoot = absolutePath(outputDirectory.length == 0 ? '.' : outputDirectory);
     outputRootExisted = FileSystem.exists(outputRoot);
     outputPrefix = outputRoot.endsWith('/') ? outputRoot : outputRoot + '/';
     ownerIdentity = validateOwnerIdentity(entrypointIdentity);
@@ -87,9 +85,17 @@ class OutputTransaction {
   /**
    * Creates a writer whose close operation stages text outside the public tree.
    *
-   * The writer deliberately preserves the existing empty-file behavior: an
-   * emitter that writes nothing owns no path. Closing twice is harmless, while
-   * writes after close diagnose an emitter lifecycle bug.
+   * Why: emitters finish through several syntax-specific paths. Some leave
+   * blank lines at EOF, while a source-map footer historically left no final
+   * newline. Generated source should have one stable publication format.
+   *
+   * What/How: close removes trailing ASCII line-ending whitespace from the
+   * complete non-empty source and appends exactly one LF before staging it.
+   * This writer is the shared boundary for implementation and declaration
+   * source. `writeContent()` deliberately leaves maps, manifests, and other
+   * non-emitter artifacts unchanged. An emitter that writes nothing still owns
+   * no path. Closing twice is harmless, while writes after close diagnose an
+   * emitter lifecycle bug.
    */
   public function writer(path: String): Writer {
     final relative = relativePath(path);
@@ -104,7 +110,7 @@ class OutputTransaction {
         return;
       closed = true;
       if (buffer.length > 0)
-        register(relative, buffer.toString());
+        register(relative, canonicalSourceEof(buffer.toString()));
     });
   }
 
@@ -195,7 +201,8 @@ class OutputTransaction {
       for (relative in publicationPaths) {
         final target = targetPath(relative);
         #if genes.unchanged_no_rewrite
-        if (FileSystem.exists(target) && !FileSystem.isDirectory(target)
+        if (FileSystem.exists(target)
+          && !FileSystem.isDirectory(target)
           && File.getContent(target) == File.getContent(stagePath(relative)))
           continue;
         #end
@@ -212,8 +219,7 @@ class OutputTransaction {
         // the easier pre-publication staging path.
         #if genes.output_transaction_test_fail_during_commit
         if (published == 1)
-          throw new haxe.Exception(
-            'Genes output transaction test failure during publication');
+          throw new haxe.Exception('Genes output transaction test failure during publication');
         #end
       }
 
@@ -242,8 +248,7 @@ class OutputTransaction {
     }
 
     if (rollbackError != null)
-      throw new haxe.Exception(
-        'Genes output rollback failed after "${originalError.message}": '
+      throw new haxe.Exception('Genes output rollback failed after "${originalError.message}": '
         + rollbackError.message,
         rollbackError);
     throw originalError;
@@ -274,8 +279,7 @@ class OutputTransaction {
       throw new haxe.Exception('Unsupported Genes output manifest: $path');
     if (lines.length < 2
       || withoutCarriageReturn(lines[1]) != manifestOwnerLine())
-      throw new haxe.Exception(
-        'Genes output manifest owner does not match "$ownerIdentity": $path');
+      throw new haxe.Exception('Genes output manifest owner does not match "$ownerIdentity": $path');
 
     final seen: Map<String, Bool> = new Map();
     final result = [];
@@ -294,7 +298,10 @@ class OutputTransaction {
   }
 
   function manifestText(paths: Array<String>): String {
-    return MANIFEST_HEADER + '\n' + manifestOwnerLine() + '\n'
+    return MANIFEST_HEADER
+      + '\n'
+      + manifestOwnerLine()
+      + '\n'
       + (paths.length == 0 ? '' : paths.join('\n') + '\n');
   }
 
@@ -318,7 +325,8 @@ class OutputTransaction {
   }
 
   function removeNewEmptyRoot(): Void {
-    if (!outputRootExisted && FileSystem.exists(outputRoot)
+    if (!outputRootExisted
+      && FileSystem.exists(outputRoot)
       && FileSystem.isDirectory(outputRoot)
       && FileSystem.readDirectory(outputRoot).length == 0)
       FileSystem.deleteDirectory(outputRoot);
@@ -332,8 +340,7 @@ class OutputTransaction {
       final target = targetPath(relative);
       if (FileSystem.exists(target)) {
         if (FileSystem.isDirectory(target))
-          throw new haxe.Exception(
-            'Cannot roll back output file replaced by a directory: $target');
+          throw new haxe.Exception('Cannot roll back output file replaced by a directory: $target');
         FileSystem.deleteFile(target);
       }
       if (backups.exists(relative)) {
@@ -368,8 +375,7 @@ class OutputTransaction {
   function relativePath(path: String): String {
     final absolute = absolutePath(path);
     if (!absolute.startsWith(outputPrefix))
-      throw new haxe.Exception(
-        'Genes output path escapes $outputRoot: $absolute');
+      throw new haxe.Exception('Genes output path escapes $outputRoot: $absolute');
     assertNoSymlinkTraversal(absolute);
     return validateRelative(absolute.substr(outputPrefix.length));
   }
@@ -400,9 +406,8 @@ class OutputTransaction {
   function firstSymlinkTraversal(path: String): Null<String> {
     var current = absolutePath(path);
     final comparableRoot = comparablePath(outputRoot);
-    final comparablePrefix = comparableRoot.endsWith('/')
-      ? comparableRoot
-      : comparableRoot + '/';
+    final comparablePrefix = comparableRoot.endsWith('/') ? comparableRoot : comparableRoot
+      + '/';
     final comparableCandidate = comparablePath(current);
     if (comparableCandidate != comparableRoot
       && !comparableCandidate.startsWith(comparablePrefix))
@@ -444,8 +449,7 @@ class OutputTransaction {
   static function validateRelative(path: String): String {
     final normalized = path.replace('\\', '/');
     if (normalized.length == 0 || normalized.startsWith('/')
-      || normalized.indexOf('\x00') != -1
-      || normalized.indexOf('\n') != -1
+      || normalized.indexOf('\x00') != -1 || normalized.indexOf('\n') != -1
       || normalized.indexOf('\r') != -1)
       throw new haxe.Exception('Invalid Genes output path: $path');
     final segments = normalized.split('/');
@@ -466,31 +470,51 @@ class OutputTransaction {
     for (index in 0...value.length) {
       final code = value.charCodeAt(index);
       final allowed = code >= 'a'.code && code <= 'z'.code
-        || code >= 'A'.code && code <= 'Z'.code
-        || code >= '0'.code && code <= '9'.code
-        || code == '-'.code || code == '_'.code || code == '.'.code;
+        || code >= 'A'.code && code <= 'Z'.code || code >= '0'.code
+        && code <= '9'.code || code == '-'.code || code == '_'.code
+        || code == '.'.code;
       result.addChar(allowed ? code : '_'.code);
     }
     final sanitized = result.toString();
-    final readable = (sanitized.length == 0 ? 'output' : sanitized)
-      .substr(0, READABLE_SCOPE_LIMIT);
+    final readable = (sanitized.length == 0 ? 'output' : sanitized).substr(0,
+      READABLE_SCOPE_LIMIT);
     return readable + '-' + Sha256.encode(value);
   }
 
   static function validateOwnerIdentity(value: String): String {
     final normalized = value.replace('\\', '/');
     if (normalized.length == 0 || normalized.indexOf('/') != -1
-      || normalized.indexOf('\x00') != -1
-      || normalized.indexOf('\n') != -1
-      || normalized.indexOf('\r') != -1
-      || normalized == '.' || normalized == '..')
-      throw new haxe.Exception(
-        'Invalid Genes output transaction owner: $value');
+      || normalized.indexOf('\x00') != -1 || normalized.indexOf('\n') != -1
+      || normalized.indexOf('\r') != -1 || normalized == '.'
+      || normalized == '..')
+      throw new haxe.Exception('Invalid Genes output transaction owner: $value');
     return normalized;
   }
 
   static function withoutCarriageReturn(value: String): String {
     return value.endsWith('\r') ? value.substr(0, value.length - 1) : value;
+  }
+
+  /**
+   * Returns non-empty generated source with one LF and no trailing blank line.
+   *
+   * A small explicit ASCII scan keeps the rule narrower than a general string
+   * trim: only spaces, tabs, CRs, and LFs at the physical end are publication
+   * formatting. Source text and Unicode whitespace everywhere else remain
+   * exact emitter output.
+   */
+  static function canonicalSourceEof(content: String): String {
+    var end = content.length;
+    while (end > 0 && isSourceEofWhitespace(content.charCodeAt(end - 1)))
+      end--;
+    return content.substr(0, end) + '\n';
+  }
+
+  static inline function isSourceEofWhitespace(code: Int): Bool {
+    return code == ' '.code
+      || code == '\t'.code
+      || code == '\r'.code
+      || code == '\n'.code;
   }
 
   static function sortedKeys<T>(values: Map<String, T>): Array<String> {

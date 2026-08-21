@@ -1,5 +1,7 @@
 package transaction;
 
+import transaction.CanonicalEof.canonicalEof;
+
 /**
  * Builds several independently emitted modules for output-transaction QA.
  *
@@ -8,7 +10,7 @@ package transaction;
  */
 class Main {
   static function values(): Array<String> {
-    final result = [MarkerA.value(), MarkerB.value()];
+    final result = [canonicalEof(MarkerA.value()), MarkerB.value()];
     #if output_transaction_include_stale
     result.push(StaleMarker.value());
     #end

@@ -39,6 +39,8 @@ type OwnerScopeBuild = {
   readonly genesTs: boolean;
 };
 
+type SourceSuffix = "ts" | "tsx" | "js" | "jsx" | "mjs";
+
 const profiles: ReadonlyArray<Profile> = [
   {
     id: "ts",
@@ -273,6 +275,118 @@ function captureTree(root: string): Readonly<Record<string, string>> {
     ]);
   }
   return Object.fromEntries(entries);
+}
+
+/**
+ * Proves every non-empty generated source has one canonical final newline.
+ *
+ * Maps and manifests are intentionally outside this contract. The compiler's
+ * emitter writers own implementation and declaration source, including TSX,
+ * JSX, MJS, and the synthetic module-function footer exercised below.
+ */
+function assertCanonicalSourceEofs(root: string, label: string): void {
+  const sources = walkFiles(root).filter((absolute) =>
+    /\.(?:[cm]?js|jsx|tsx?)$/.test(absolute)
+  );
+  ok(sources.length > 0, `${label}: no generated source artifacts found`);
+  for (const absolute of sources) {
+    const relative = path.relative(root, absolute).replaceAll("\\", "/");
+    const content = readFileSync(absolute, "utf8");
+    ok(content.length > 1, `${label}: empty source artifact: ${relative}`);
+    ok(content.endsWith("\n"),
+      `${label}: source has no final LF: ${relative}`);
+    ok(!/[ \t\r\n]$/.test(content.slice(0, -1)),
+      `${label}: source has trailing whitespace before its final LF: ${relative}`);
+  }
+}
+
+/** Builds one map-free TS or classic source tree for exact EOF evidence. */
+function runMapFreeSourceProfile(
+  profile: Profile,
+  suffix: SourceSuffix
+): string {
+  const outputRoot = path.join(
+    fixtureRoot,
+    "out",
+    `eof-${suffix}-no-map`
+  );
+  const output = path.relative(
+    repoRoot,
+    path.join(outputRoot, `index.${suffix}`)
+  ).replaceAll("\\", "/");
+  execFileSync("haxe", [
+    "-lib",
+    "genes-ts",
+    "-cp",
+    "tests/output-transaction/src",
+    "--main",
+    "transaction.Main",
+    "-js",
+    output,
+    "-D",
+    profile.id === "ts" ? "genes.ts" : "dts",
+    "-D",
+    "genes.unchanged_no_rewrite",
+    "-D",
+    "no-deprecation-warnings",
+    "-D",
+    "js-es=6",
+    "-dce",
+    "full"
+  ], {
+    cwd: repoRoot,
+    stdio: "inherit"
+  });
+  return outputRoot;
+}
+
+/**
+ * Exercises extra emitter newlines without a later source-map footer.
+ *
+ * The ordinary transaction profiles cover map-enabled cold and warm builds.
+ * These profiles keep the synthetic module-function footer at the physical
+ * end of each source file, where the original blank-line defect appeared.
+ */
+function assertMapFreeSourceEofs(): void {
+  for (const profile of profiles) {
+    const suffixes: ReadonlyArray<SourceSuffix> = profile.id === "ts"
+      ? ["ts", "tsx"]
+      : ["js", "jsx", "mjs"];
+    const warmSuffix: SourceSuffix = profile.id === "ts" ? "ts" : "js";
+    for (const suffix of suffixes) {
+      const outputRoot = path.join(
+        fixtureRoot,
+        "out",
+        `eof-${suffix}-no-map`
+      );
+      rmSync(outputRoot, { recursive: true, force: true });
+      runMapFreeSourceProfile(profile, suffix);
+      assertCanonicalSourceEofs(outputRoot, `${suffix} no-map cold build`);
+
+      const moduleSource = readFileSync(
+        path.join(outputRoot, `transaction/CanonicalEof.${suffix}`),
+        "utf8"
+      );
+      ok(moduleSource.includes("CanonicalEof_Fields_"),
+        `${suffix}: reduced fixture did not emit the synthetic function footer`);
+      ok(!walkFiles(outputRoot).some((absolute) => absolute.endsWith(".map")),
+        `${suffix}: map-free profile emitted a source map`);
+
+      // The ordinary TS and JS suffixes prove byte-stable warm publication.
+      // Alternate suffixes use the same writer and need only prove their cold
+      // source inventory because suffix selection is already tested elsewhere.
+      if (suffix === warmSuffix) {
+        const cold = captureTree(outputRoot);
+        runMapFreeSourceProfile(profile, suffix);
+        assertCanonicalSourceEofs(outputRoot, `${suffix} no-map warm build`);
+        deepStrictEqual(
+          captureTree(outputRoot),
+          cold,
+          `${suffix}: map-free warm build changed the output tree`
+        );
+      }
+    }
+  }
 }
 
 type OutputManifest = {
@@ -561,6 +675,7 @@ for (const profile of profiles) {
   }
 
   run(profile, initialDefines);
+  assertCanonicalSourceEofs(outputRoot, `${profile.id} mapped cold build`);
   const initialManifest = outputManifest(outputRoot, profile.entrypoint);
   const exactManifestContents = readFileSync(initialManifest.absolutePath, "utf8");
 
@@ -669,6 +784,7 @@ for (const profile of profiles) {
 
   const published = captureTree(outputRoot);
   run(profile, ["output_transaction_v2"]);
+  assertCanonicalSourceEofs(outputRoot, `${profile.id} mapped warm build`);
   deepStrictEqual(
     captureTree(outputRoot),
     published,
@@ -677,7 +793,8 @@ for (const profile of profiles) {
   assertNoTransactionDebris(outputRoot);
 }
 
+assertMapFreeSourceEofs();
 assertIndependentEntrypointOwners();
 assertSymlinkContainment();
 
-console.log("output-transaction:ok (exact owners + writer boundary + TS/classic rollback + stale ownership + POSIX symlink containment)");
+console.log("output-transaction:ok (canonical source EOFs + exact owners + writer boundary + TS/classic rollback + stale ownership + POSIX symlink containment)");
