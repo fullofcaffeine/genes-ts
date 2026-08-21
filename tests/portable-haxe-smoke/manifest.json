@@ -16,7 +16,7 @@
   },
   "runnerAdaptation": {
     "disposition": "upstream-harness-adaptation",
-    "reason": "The five selected Haxe tests use utest assertions, but the complete historical utest runner also pulls in unrelated dynamic reporting and browser code that is not part of this strict-TypeScript smoke. The local adapter invokes the exact selected test methods, preserves each assertion predicate, counts every assertion, and fails closed when an unsupported assertion helper appears.",
+    "reason": "The six selected Haxe tests use utest assertions, but the complete historical utest runner also pulls in unrelated dynamic reporting and browser code that is not part of this strict-TypeScript smoke. The local adapter invokes the exact selected test methods, preserves each assertion predicate, counts every assertion, and fails closed when an unsupported assertion helper appears.",
     "upstream": [
       {
         "path": "src/utest/Assert.hx",
@@ -34,7 +34,7 @@
       },
       {
         "path": "tests/portable-haxe-smoke/src/utest/ITest.hx",
-        "sha256": "2f77a829c157d22fbf04adb61695a27b98a734c75cebb5729cb3aa43bdd0adf2"
+        "sha256": "dc637aea0bb08a445855c6a79b8b03a4a9fe0a64915fc6c0eec56990e16671c6"
       },
       {
         "path": "tests/portable-haxe-smoke/src/portable/PortableSmokeBuilder.hx",

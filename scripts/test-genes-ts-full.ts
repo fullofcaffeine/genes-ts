@@ -43,6 +43,18 @@ rmrf("tests/genes-ts/full/out");
 
 run("haxe", ["tests/genes-ts/full/build.hxml"]);
 
+const restOutput = readFileSync(
+  path.join(repoRoot, "tests/genes-ts/full/out/src-gen/tests/TestRest.ts"),
+  "utf8"
+);
+if (!restOutput.includes(
+  "optionalBeforeRest(arg: string | null = null, ...values: number[])"
+)) {
+  throw new Error(
+    "An optional parameter before rest no longer receives the exact Haxe null default."
+  );
+}
+
 if (!existsSync(path.join(
   repoRoot,
   "tests/genes-ts/full/out/src-gen/tests/typeonly/TypeOnlyHelper.ts"
