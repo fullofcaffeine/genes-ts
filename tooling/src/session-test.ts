@@ -3150,6 +3150,81 @@ if (process.platform !== "win32") {
     }
   }
 
+  let canonicalResolverRoot = "";
+  let resolverAlias = "";
+  try {
+    await withHarness(
+      "resolver-owned-extra-tree-alias-error-is-redacted",
+      async (harness) => {
+        await harness.session.start();
+        await harness.session.waitForIdle();
+        assert.equal(harness.session.state.kind, "blocked");
+        const publicRecord = JSON.stringify({
+          snapshot: harness.session.inspect(),
+          events: harness.events,
+        });
+        assert.equal(
+          publicRecord.includes(canonicalResolverRoot),
+          false,
+          "startup diagnostics must hide the canonical resolver root",
+        );
+        assert.equal(
+          publicRecord.includes(resolverAlias),
+          false,
+          "startup diagnostics must hide a resolver-owned root alias",
+        );
+        assert.equal(
+          publicRecord.includes(
+            "development-session input must be inside a declared HXML root",
+          ),
+          true,
+        );
+      },
+      undefined,
+      (options, root) => {
+        canonicalResolverRoot = realpathSync.native(
+          mkdtempSync(path.join(os.tmpdir(), "genes-resolver-alias-input-")),
+        );
+        resolverAlias = mkdtempSync(
+          path.join(os.tmpdir(), "genes-resolver-alias-link-"),
+        );
+        rmSync(resolverAlias, { recursive: true, force: true });
+        symlinkSync(canonicalResolverRoot, resolverAlias, "dir");
+        const schemaRoot = path.join(resolverAlias, "schema");
+        mkdirSync(path.join(canonicalResolverRoot, "schema"));
+        writeFileSync(
+          path.join(root, "build.hxml"),
+          "-cp src\n-lib external\n-main Main\n",
+          "utf8",
+        );
+        return {
+          ...options,
+          hxml: {
+            ...options.hxml,
+            allowedRoots: [root],
+            resolveLibraries: () => ({
+              arguments: [],
+              provenanceFiles: [],
+              allowedRoots: [resolverAlias],
+            }),
+          },
+          extraInputs: [
+            {
+              kind: "tree" as const,
+              path: schemaRoot,
+              impact: { rebuild: true },
+            },
+          ],
+        };
+      },
+    );
+  } finally {
+    if (resolverAlias !== "") rmSync(resolverAlias, { force: true });
+    if (canonicalResolverRoot !== "") {
+      rmSync(canonicalResolverRoot, { recursive: true, force: true });
+    }
+  }
+
   let canonicalExternalRoot = "";
   let externalAlias = "";
   try {

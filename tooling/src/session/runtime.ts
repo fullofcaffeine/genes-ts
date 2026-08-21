@@ -1673,7 +1673,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     ]) {
       if (!inventory.allowedRoots.some((root) => containedBy(root, candidate))) {
         throw new Error(
-          `development-session input must be inside a declared HXML root: ${candidate}`,
+          "development-session input must be inside a declared HXML root",
         );
       }
       if (usesExternalLogicalNamespace(this.#layout.projectRoot, candidate)) {
@@ -1714,7 +1714,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
           .sort((left, right) => right.length - left.length)[0];
         if (allowedRoot === undefined) {
           throw new Error(
-            `development-session input must be inside a declared HXML root: ${absolute}`,
+            "development-session input must be inside a declared HXML root",
           );
         }
         assertRealPath(
