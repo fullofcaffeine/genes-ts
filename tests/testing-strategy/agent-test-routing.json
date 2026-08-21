@@ -9,7 +9,7 @@
     },
     {
       "id": "portable-haxe",
-      "meaning": "Pinned official Haxe source compiled, target-checked, and executed through one exact Genes profile. The current evidence is a five-test smoke per profile, not the full applicable suite."
+      "meaning": "Pinned official Haxe source compiled, target-checked, and executed through one exact Genes profile. The current evidence is a six-test smoke per profile, not the full applicable suite."
     },
     {
       "id": "repository-policy",
@@ -32,7 +32,7 @@
       "exampleIds": ["todoapp", "typescript-target"],
       "claimCeiling": "The checked compiler and example corpora; not arbitrary Haxe ecosystem compatibility.",
       "lastCleanProof": "The current required main/release gates; run results live in GitHub Actions rather than this deterministic manifest.",
-      "residualRisks": ["The complete applicable official Haxe inventory remains tracked separately from the five-test smoke."]
+      "residualRisks": ["The complete applicable official Haxe inventory remains tracked separately from the six-test smoke."]
     },
     {
       "id": "typescript-source-runtime",
@@ -2716,7 +2716,7 @@
         "scripts/test-portable-haxe-smoke.ts",
         "tests/portable-haxe-smoke"
       ],
-      "proves": "The exact five-test official Haxe 4.3.7 smoke inventory compiles from a packaged Genes artifact, target-checks, and executes 44 assertions in each profile.",
+      "proves": "The exact six-test official Haxe 4.3.7 smoke inventory compiles from a packaged Genes artifact, target-checks, and executes 45 assertions in each profile.",
       "doesNotProve": "This is a published smoke subset, not the complete applicable official Haxe tests/unit contract.",
       "owners": [
         "scripts/test-portable-haxe-smoke.ts",
@@ -3647,7 +3647,7 @@
   ],
   "plannedPortableHaxeEvidence": {
     "status": "smoke-implemented",
-    "currentClaim": "Each Genes profile passes the published five-test official Haxe 4.3.7 smoke subset after target checking and Node execution. This is not the complete applicable official tests/unit contract.",
+    "currentClaim": "Each Genes profile passes the published six-test official Haxe 4.3.7 smoke subset after target checking and Node execution. This is not the complete applicable official tests/unit contract.",
     "haxeRevision": "e0b355c6be312c1b17382603f018cf52522ec651",
     "utestRevision": "a94f8812e8786f2b5fec52ce9f26927591d26327",
     "profiles": [
@@ -3663,7 +3663,7 @@
       {
         "id": "smoke",
         "bead": "genes-brxy.2",
-        "outcome": "Implemented as a five-test, 44-assertion dual-profile packaged smoke with strict target checks and runtime execution."
+        "outcome": "Implemented as a six-test, 45-assertion dual-profile packaged smoke with strict target checks and runtime execution."
       },
       {
         "id": "representative-expansion",

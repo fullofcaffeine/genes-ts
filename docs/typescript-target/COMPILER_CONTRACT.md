@@ -193,6 +193,9 @@ This is intended for bundler workflows and TS `moduleResolution: "Bundler"`.
 
 - **Supported/recommended profile:** `strict: true`; repository fixtures use
   strict TypeScript configurations.
+- A Haxe optional parameter remains omittable when only a rest parameter
+  follows it. Genes emits the nullable default needed for the function body to
+  observe Haxe `null`; the rest parameter does not increase minimum arity.
 - The consuming project owns `tsconfig.json`. Compiling under looser settings
   does not change the compiler's type-emission contract, while a passing strict
   build still proves only the public/consumer cases the project exercises.

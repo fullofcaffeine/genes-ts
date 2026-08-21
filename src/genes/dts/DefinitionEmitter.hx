@@ -341,20 +341,13 @@ class DefinitionEmitter extends ModuleEmitter {
                   TypeEmitter.emitParams(this,
                     field.callableSignature.parameterTypes(), true);
                 write('(');
-                var optionalPos = args.length;
-                for (i in 0...args.length) {
-                  final fromEnd = args.length - 1 - i;
-                  if (args[fromEnd].opt)
-                    optionalPos = fromEnd;
-                  else
-                    break;
-                }
+                final noOptionalUntil = TypeUtil.lastRequiredParameterIndex(args);
                 for (i in joinIt(0...args.length, write.bind(', '))) {
                   final arg = args[i];
                   if (TypeUtil.isRest(arg.t))
                     write('...');
                   emitIdent(arg.name);
-                  final nullish = NullishContract.forParameter(arg.t, arg.opt && i >= optionalPos);
+                  final nullish = NullishContract.forParameter(arg.t, arg.opt && i > noOptionalUntil);
                   if (nullish.emitOptionalSyntax)
                     write('?');
                   write(': ');

@@ -1881,15 +1881,10 @@ class TsModuleEmitter extends JsModuleEmitter {
     final cachedArgs = cachedSig != null
       && cachedSig.args.length == canonicalArgs.length ? cachedSig.args : null;
     var noOptionalUntil = -1;
-    var hadOptional = true;
     for (i in 0...canonicalArgs.length) {
       final optional = cachedArgs != null ? cachedArgs[i].opt : canonicalArgs[i].opt;
-      if (optional) {
-        hadOptional = true;
-      } else if (hadOptional) {
+      if (!optional && !TypeUtil.isRest(canonicalArgs[i].t))
         noOptionalUntil = i;
-        hadOptional = false;
-      }
     }
 
     for (i in 0...prefixCount) {
@@ -3327,17 +3322,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           case TFun(args, _): args;
           default: [];
         }
-        var noOptionalUntil = -1;
-        var hadOptional = true;
-        for (i in 0...args.length) {
-          final arg = args[i];
-          if (arg.opt) {
-            hadOptional = true;
-          } else if (hadOptional && !arg.opt) {
-            noOptionalUntil = i;
-            hadOptional = false;
-          }
-        }
+        final noOptionalUntil = TypeUtil.lastRequiredParameterIndex(args);
         write('function (');
         for (i in joinIt(0...f.args.length, write.bind(', '))) {
           final arg = f.args[i];
@@ -4059,16 +4044,10 @@ class TsModuleEmitter extends JsModuleEmitter {
           && cachedSig.args.length == args.length) ? cachedSig.args : null;
         // Handle Haxe optional argument skipping semantics (same as TypeEmitter.emitArgs).
         var noOptionalUntil = -1;
-        var hadOptional = true;
         for (i in 0...args.length) {
-          final arg = args[i];
-          final opt = cachedArgs != null ? cachedArgs[i].opt : arg.opt;
-          if (opt) {
-            hadOptional = true;
-          } else if (hadOptional && !opt) {
+          final optional = cachedArgs != null ? cachedArgs[i].opt : args[i].opt;
+          if (!optional && !TypeUtil.isRest(args[i].t))
             noOptionalUntil = i;
-            hadOptional = false;
-          }
         }
 
         for (i in genes.util.IteratorUtil.joinIt(0...args.length,
@@ -4383,17 +4362,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   function emitFunctionTypeArguments(type: Type) {
     switch type {
       case TFun(args, _):
-        var noOptionalUntil = -1;
-        var hadOptional = true;
-        for (i in 0...args.length) {
-          final arg = args[i];
-          if (arg.opt)
-            hadOptional = true;
-          else if (hadOptional) {
-            noOptionalUntil = i;
-            hadOptional = false;
-          }
-        }
+        final noOptionalUntil = TypeUtil.lastRequiredParameterIndex(args);
         for (i in joinIt(0...args.length, write.bind(', '))) {
           final arg = args[i];
           if (genes.util.TypeUtil.isRest(arg.t))

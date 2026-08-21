@@ -21,6 +21,7 @@ import {
   ConstrainedStaticSignatureApi
 } from "../../bin/tests/staticcallable/ConstrainedStaticFactory.js";
 import type { StaticConstraint } from "../../bin/tests/staticcallable/StaticConstraint.js";
+import { OptionalBeforeRest } from "../../bin/tests/classicdts/OptionalBeforeRest.js";
 
 declare const map: IMap<string, number>;
 declare const declarationOnlyShape: DeclarationOnlyShape;
@@ -96,6 +97,12 @@ const invalidWrappedStatic: InferredStaticFactory<number> =
 // @ts-expect-error the ordinary declared method generic remains precise.
 const invalidOrdinaryStatic: number =
   StaticCallableSignatureApi.ordinary("wrong");
+
+// A rest parameter accepts zero values, so it cannot make the preceding Haxe
+// optional parameter required for classic declaration consumers.
+declare const restSurface: OptionalBeforeRest;
+restSurface.optionalBeforeRest();
+restSurface.optionalBeforeRest("label", 1, 2);
 
 // Classic declaration interfaces should remain closed as well.
 // @ts-expect-error Unknown members are not part of haxe.Constraints.IMap.

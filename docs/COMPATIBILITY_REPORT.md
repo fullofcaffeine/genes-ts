@@ -4,7 +4,7 @@ This file is generated deterministically by `yarn report:compatibility --write`.
 
 ## Reading this report
 
-genes-ts supports controlled Haxe-to-TypeScript and classic ESM JavaScript profiles. This evidence inventory maps bounded Genes product claims and one five-test official Haxe smoke subset to exact gates; it is not a blanket certification of arbitrary Haxe or npm programs and does not claim the complete applicable official Haxe suite.
+genes-ts supports controlled Haxe-to-TypeScript and classic ESM JavaScript profiles. This evidence inventory maps bounded Genes product claims and one six-test official Haxe smoke subset to exact gates; it is not a blanket certification of arbitrary Haxe or npm programs and does not claim the complete applicable official Haxe suite.
 
 This is an evidence contract, not a cached CI-success badge. `blocking` and `nonblocking-nightly` describe enforcement; current run results remain in CI. Compile, typing, semantic, snapshot, smoke, package, and downstream evidence are intentionally not merged into one score.
 
@@ -31,7 +31,7 @@ Each row is an independent claim boundary. A green gate may cover several rows, 
 - Compatibility evidence: `compiler-output-inventory`, `runtime-semantic-differentials`, `official-haxe-dual-profile-smoke`
 - Maintained examples: `todoapp`, `typescript-target`
 - Last clean proof: The current required main/release gates; run results live in GitHub Actions rather than this deterministic manifest.
-- Residual risks: The complete applicable official Haxe inventory remains tracked separately from the five-test smoke.
+- Residual risks: The complete applicable official Haxe inventory remains tracked separately from the six-test smoke.
 
 ### Typed TypeScript generation and runtime
 
@@ -123,7 +123,7 @@ Each row is an independent claim boundary. A green gate may cover several rows, 
 | Snapshot stability | ts2hx reviewed snapshot files | 50 | `blocking` |
 | Runtime smoke and E2E | Same-source dual-profile examples | 2 | `blocking` |
 | Runtime smoke and E2E | Todoapp browser journeys run in each profile | 4 | `blocking` |
-| Runtime smoke and E2E | Reviewed active official Haxe test identities | 5 | `blocking` |
+| Runtime smoke and E2E | Reviewed active official Haxe test identities | 6 | `blocking` |
 | Runtime smoke and E2E | Independently executed Genes profiles | 2 | `blocking` |
 | Runtime smoke and E2E | Hash-pinned local harness adaptation files | 4 | `blocking` |
 | Toolchain compatibility | Pinned TypeScript lanes | 3 | `blocking` |
@@ -265,9 +265,9 @@ Named application journeys execute in selected profiles; smoke success is not ge
 ### Pinned official Haxe 4.3.7 dual-profile smoke
 
 - Disposition: `blocking`
-- Scope: Five exact official Haxe tests from shared language, unitstd, and issue families compile through a packaged Genes artifact in classic and TypeScript profiles, pass each target checker, and execute 44 assertions per profile under Node.
-- Proves: The published five-test official Haxe 4.3.7 smoke subset passes after target checking and runtime execution in each Genes profile, and the harness fails closed for generation, target, module-load, assertion, runtime, timeout, and missing-test failures.
-- Does not prove: Five tests do not establish the complete active official tests/unit contract, capability coverage, Haxe preview compatibility, or any Genes-native declaration, HXX, package, source-map, transaction, or application claim outside the smoke.
+- Scope: Six exact official Haxe tests from shared language, unitstd, and issue families compile through a packaged Genes artifact in classic and TypeScript profiles, pass each target checker, and execute 45 assertions per profile under Node.
+- Proves: The published six-test official Haxe 4.3.7 smoke subset passes after target checking and runtime execution in each Genes profile, and the harness fails closed for generation, target, module-load, assertion, runtime, timeout, and missing-test failures.
+- Does not prove: Six tests do not establish the complete active official tests/unit contract, capability coverage, Haxe preview compatibility, or any Genes-native declaration, HXX, package, source-map, transaction, or application claim outside the smoke.
 - Evidence:
   - [`tests/portable-haxe-smoke/manifest.json`](../tests/portable-haxe-smoke/manifest.json)
   - [`scripts/test-portable-haxe-smoke.ts`](../scripts/test-portable-haxe-smoke.ts)

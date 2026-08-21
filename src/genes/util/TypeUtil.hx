@@ -519,6 +519,26 @@ class TypeUtil {
     }
   }
 
+  /**
+   * Returns the final parameter position that TypeScript callers must supply.
+   *
+   * Haxe marks a rest parameter as non-optional in the typed function shape,
+   * but a rest parameter accepts zero values. It therefore cannot make an
+   * earlier optional parameter required in the emitted TypeScript signature.
+   */
+  public static function lastRequiredParameterIndex(arguments: Array<{
+    opt: Bool,
+    t: Type
+  }>): Int {
+    var lastRequired = -1;
+    for (index in 0...arguments.length) {
+      final argument = arguments[index];
+      if (!argument.opt && !isRest(argument.t))
+        lastRequired = index;
+    }
+    return lastRequired;
+  }
+
   public static function moduleTypeModule(module: ModuleType) {
     return switch module {
       case TClassDecl(_.get() => {module: module}): module;

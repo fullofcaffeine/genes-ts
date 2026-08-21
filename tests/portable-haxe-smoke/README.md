@@ -1,11 +1,11 @@
 # Official Haxe smoke for both Genes profiles
 
-This fixture runs five active tests selected from the official Haxe 4.3.7
+This fixture runs six active tests selected from the official Haxe 4.3.7
 suite at commit `e0b355c6be312c1b17382603f018cf52522ec651`:
 
 - three methods from the shared language class `TestNumericSeparator`;
 - one generated `unitstd` case from `IntIterator.unit.hx`; and
-- issue regression `Issue10032`.
+- issue regressions `Issue10018` and `Issue10032`.
 
 The exact same upstream source files are compiled once through classic Genes
 ESM JavaScript and once through `-D genes.ts`. Classic output is syntax-checked
@@ -13,7 +13,7 @@ and executed directly. TypeScript output is checked with the pinned strict
 TypeScript floor, compiled to JavaScript, and executed. The runner compares the
 active utest identities and per-test assertion outcomes across profiles.
 `manifest.json` pins the reviewed count for every test (`12`, `11`, `11`, `9`,
-and `1`) as well as the 44-assertion profile total. This is intentionally
+`1`, and `1`) as well as the 45-assertion profile total. This is intentionally
 stricter than checking that every test ran: silently skipping one assertion in
 both profiles must fail rather than look like equivalent success.
 

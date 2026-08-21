@@ -559,8 +559,8 @@ function main(): void {
   assert(portableManifest.contract === "genes-official-haxe-smoke",
     "Portable smoke manifest contract changed unexpectedly");
   const activeTests = portableManifest.activeTests;
-  assert(Array.isArray(activeTests) && activeTests.length === 5,
-    "Portable smoke must retain five reviewed active test identities");
+  assert(Array.isArray(activeTests) && activeTests.length === 6,
+    "Portable smoke must retain six reviewed active test identities");
   const portableProfiles = portableManifest.profiles;
   assert(Array.isArray(portableProfiles)
     && portableProfiles.map((entry, index) =>
