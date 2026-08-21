@@ -769,9 +769,19 @@
       "covers": [
         "degraded",
         "last-good",
-        "compile-failure"
+        "compile-failure",
+        "extra-input-tree-descendant"
       ],
-      "description": "After generation 1, a compiler failure leaves that generation public and reports a degraded state.",
+      "description": "After generation 1, a change below a declared extra input tree starts a rebuild. A compiler failure leaves generation 1 public and reports a degraded state.",
+      "extraInputs": [
+        {
+          "kind": "tree",
+          "path": "schema",
+          "impact": {
+            "rebuild": true
+          }
+        }
+      ],
       "script": [
         "start",
         "recovery-none",
@@ -951,7 +961,7 @@
               "kind": "inputs-changed",
               "revision": 2,
               "paths": [
-                "src/Main.hx"
+                "schema/nested/domain.json"
               ]
             }
           },

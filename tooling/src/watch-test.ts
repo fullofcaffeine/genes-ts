@@ -15,6 +15,7 @@ import {
   watchReconciledInputs,
   type ReconciledWatchChange,
 } from "./watch/index.js";
+import { assertRealInputTrees } from "./watch/reconciled-watch.js";
 
 async function waitUntil(predicate: () => boolean): Promise<void> {
   const deadline = Date.now() + 2_000;
@@ -140,6 +141,40 @@ async function main(): Promise<void> {
     );
     missingSession.close();
 
+    const directoryChanges: Array<ReconciledWatchChange<string>> = [];
+    const directorySession = watchReconciledInputs({
+      inputs: [
+        {
+          kind: "tree",
+          path: path.join(root, "src"),
+          cause: "all-descendants",
+          include: () => true,
+        },
+      ],
+      merge: (left) => left,
+      onChange: (change) => directoryChanges.push(change),
+      onError: (error) => errors.push(error.message),
+      nativeEvents: false,
+      pollIntervalMs: 1_000,
+    });
+    const emptyDirectory = path.join(root, "src", "empty-domain");
+    mkdirSync(emptyDirectory);
+    assert.deepEqual(directorySession.reconcile(), { ok: true, changed: true });
+    assert.equal(
+      directoryChanges.some((change) => change.path === emptyDirectory),
+      true,
+      "an all-descendant tree records an empty directory addition",
+    );
+    directoryChanges.length = 0;
+    rmSync(emptyDirectory, { recursive: true, force: true });
+    assert.deepEqual(directorySession.reconcile(), { ok: true, changed: true });
+    assert.equal(
+      directoryChanges.some((change) => change.path === emptyDirectory),
+      true,
+      "an all-descendant tree records an empty directory removal",
+    );
+    directorySession.close();
+
     const lateSymlinkErrors: string[] = [];
     const missingNestedRoot = path.join(root, "late-parent", "nested");
     const missingNestedSession = watchReconciledInputs({
@@ -195,6 +230,26 @@ async function main(): Promise<void> {
     await waitUntil(() => brokenSymlinkErrors.length > 0);
     assert.match(brokenSymlinkErrors[0]!, /symbolic link/u);
     missingBrokenSession.close();
+
+    const boundedTree = path.join(root, "bounded-tree");
+    mkdirSync(boundedTree);
+    for (const name of ["one.txt", "two.txt", "three.txt", "four.txt"]) {
+      writeFileSync(path.join(boundedTree, name), `${name}\n`, "utf8");
+    }
+    assert.throws(
+      () =>
+        assertRealInputTrees(
+          [
+            {
+              path: boundedTree,
+              label: "bounded development-session input",
+            },
+          ],
+          3,
+        ),
+      /entry budget/u,
+      "pre-watch tree validation must stop at the watcher's entry ceiling",
+    );
 
     assert.throws(
       () =>

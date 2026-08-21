@@ -3,7 +3,6 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
-  readdirSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -30,6 +29,7 @@ import {
   type ReconciledWatchSession,
   type WatchInput,
 } from "../watch/index.js";
+import { assertRealInputTrees } from "../watch/reconciled-watch.js";
 import type { HaxeWaitServerEvent } from "../haxe-server/index.js";
 import {
   HaxeSessionCompiler,
@@ -281,28 +281,6 @@ function assertRealPath(root: string, candidate: string, label: string): void {
       throw new Error(`${label} traverses a symbolic link: ${current}`);
     }
   }
-}
-
-function assertClassPathTreeIsReal(classPath: string): void {
-  if (!existsSync(classPath)) return;
-  const visit = (directory: string): void => {
-    for (const child of readdirSync(directory, { withFileTypes: true })) {
-      const absolute = path.join(directory, child.name);
-      if (child.isSymbolicLink()) {
-        throw new Error(
-          `development-session class path contains a symbolic link: ${absolute}`,
-        );
-      }
-      if (child.isDirectory()) visit(absolute);
-    }
-  };
-  const stats = lstatSync(classPath);
-  if (stats.isSymbolicLink() || !stats.isDirectory()) {
-    throw new Error(
-      `development-session class path must be a real directory: ${classPath}`,
-    );
-  }
-  visit(classPath);
 }
 
 function mergeCause(left: BuildCause, right: BuildCause): BuildCause {
@@ -1041,39 +1019,52 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   }
 
   #replaceWatch(inventory: HxmlInventory): void {
-    const next = this.#dependencies.watch<{
-      readonly reinventory: boolean;
-      readonly restartCompiler: boolean;
-      readonly rebuild: boolean;
-    }>({
-      inputs: this.#watchInputs(inventory),
-      merge: (left, right) => ({
-        reinventory: left.reinventory || right.reinventory,
-        restartCompiler: left.restartCompiler || right.restartCompiler,
-        rebuild: left.rebuild || right.rebuild,
-      }),
-      onChange: (change) => {
-        if (this.#acceptWatchChanges) {
-          this.#observe(change.path, change.cause);
-        } else {
-          this.#startupInputChanged = true;
-        }
-      },
-      onError: (error) => {
-        if (this.#closing === null) {
-          this.#fail(
-            "watch",
-            this.#newestRevision || null,
-            true,
-            diagnostic(
-              "INPUT_WATCH_FAILED",
-              this.#sanitizeCoreMessage(error.message),
-            ),
-          );
-        }
-      },
-      pollIntervalMs: this.#options.pollIntervalMs,
-    });
+    let next: ReconciledWatchSession;
+    try {
+      next = this.#dependencies.watch<{
+        readonly reinventory: boolean;
+        readonly restartCompiler: boolean;
+        readonly rebuild: boolean;
+      }>({
+        inputs: this.#watchInputs(inventory),
+        merge: (left, right) => ({
+          reinventory: left.reinventory || right.reinventory,
+          restartCompiler: left.restartCompiler || right.restartCompiler,
+          rebuild: left.rebuild || right.rebuild,
+        }),
+        onChange: (change) => {
+          if (this.#acceptWatchChanges) {
+            this.#observe(change.path, change.cause);
+          } else {
+            this.#startupInputChanged = true;
+          }
+        },
+        onError: (error) => {
+          if (this.#closing === null) {
+            this.#fail(
+              "watch",
+              this.#newestRevision || null,
+              true,
+              diagnostic(
+                "INPUT_WATCH_FAILED",
+                this.#sanitizeCoreMessage(
+                  error.message,
+                  inventory.allowedRoots,
+                ),
+              ),
+            );
+          }
+        },
+        pollIntervalMs: this.#options.pollIntervalMs,
+      });
+    } catch (error) {
+      throw new Error(
+        this.#sanitizeCoreMessage(
+          asError(error).message,
+          inventory.allowedRoots,
+        ),
+      );
+    }
     const previous = this.#watch;
     this.#watch = next;
     previous?.close();
@@ -1123,19 +1114,30 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     }
     for (const extra of this.#options.extraInputs ?? []) {
       const absolute = path.resolve(this.#layout.projectRoot, extra.path);
-      inputs.push({
-        kind: "exact",
-        path: absolute,
-        cause: {
-          reinventory: extra.impact.reinventory === true,
-          restartCompiler: extra.impact.restartCompiler === true,
-          rebuild:
-            extra.impact.rebuild !== false ||
-            extra.impact.revalidate === true ||
-            extra.impact.reinventory === true ||
-            extra.impact.restartCompiler === true,
-        },
-      });
+      const kind = extra.kind ?? "exact";
+      if (kind !== "exact" && kind !== "tree") {
+        throw new Error(`development-session extra input has an invalid kind: ${String(kind)}`);
+      }
+      const cause = {
+        reinventory: extra.impact.reinventory === true,
+        restartCompiler: extra.impact.restartCompiler === true,
+        rebuild:
+          extra.impact.rebuild !== false ||
+          extra.impact.revalidate === true ||
+          extra.impact.reinventory === true ||
+          extra.impact.restartCompiler === true,
+      };
+      if (kind === "tree") {
+        inputs.push({
+          kind: "tree",
+          path: absolute,
+          cause,
+          include: (_relative: string) => true,
+          rejectSymlinks: true,
+        });
+      } else {
+        inputs.push({ kind: "exact", path: absolute, cause });
+      }
     }
     return Object.freeze(inputs);
   }
@@ -1612,7 +1614,16 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       signal,
       this.#dependencies.inventory,
     );
-    this.#assertInventoryContained(plan.inventory);
+    try {
+      this.#assertInventoryContained(plan.inventory);
+    } catch (error) {
+      throw new Error(
+        this.#sanitizeCoreMessage(
+          asError(error).message,
+          plan.inventory.allowedRoots,
+        ),
+      );
+    }
     return plan;
   }
 
@@ -1655,7 +1666,7 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     ]) {
       if (!inventory.allowedRoots.some((root) => containedBy(root, candidate))) {
         throw new Error(
-          `development-session input must be inside a declared HXML root: ${candidate}`,
+          "development-session input must be inside a declared HXML root",
         );
       }
       if (usesExternalLogicalNamespace(this.#layout.projectRoot, candidate)) {
@@ -1685,9 +1696,36 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         );
       }
     }
-    for (const classPath of inventory.classPaths) {
-      assertClassPathTreeIsReal(classPath);
+    const realInputTrees: Array<{
+      readonly path: string;
+      readonly label: string;
+    }> = inventory.classPaths.map((classPath) => ({
+      path: classPath,
+      label: "development-session class path",
+    }));
+    for (const extra of this.#options.extraInputs ?? []) {
+      if ((extra.kind ?? "exact") === "tree") {
+        const absolute = path.resolve(this.#layout.projectRoot, extra.path);
+        const allowedRoot = inventory.allowedRoots
+          .filter((root) => containedBy(root, absolute))
+          .sort((left, right) => right.length - left.length)[0];
+        if (allowedRoot === undefined) {
+          throw new Error(
+            "development-session input must be inside a declared HXML root",
+          );
+        }
+        assertRealPath(
+          allowedRoot,
+          absolute,
+          "development-session extra input tree",
+        );
+        realInputTrees.push({
+          path: absolute,
+          label: "development-session extra input tree",
+        });
+      }
     }
+    assertRealInputTrees(realInputTrees);
   }
 
   /** Prevents generated companions or receipts from claiming authored inputs. */
@@ -1758,12 +1796,16 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     rmSync(absolute, { recursive: true, force: true });
   }
 
-  #sanitizeCoreMessage(message: string): string {
+  #sanitizeCoreMessage(
+    message: string,
+    allowedRoots?: readonly string[],
+  ): string {
     const candidateRoot = path.join(
       this.#layout.projectRoot,
       ...this.#layout.candidatesRelative.split("/"),
     );
     const declaredExternalRoots = (
+      allowedRoots ??
       this.#inventory?.allowedRoots ??
       this.#options.hxml.allowedRoots.map((root) => {
         const absolute = path.resolve(root);

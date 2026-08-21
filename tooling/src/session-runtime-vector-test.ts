@@ -65,6 +65,16 @@ interface EventRun {
 interface Vector {
   readonly id: string;
   readonly script: readonly string[];
+  readonly extraInputs?: readonly {
+    readonly kind: "exact" | "tree";
+    readonly path: string;
+    readonly impact: {
+      readonly rebuild?: boolean;
+      readonly revalidate?: boolean;
+      readonly reinventory?: boolean;
+      readonly restartCompiler?: boolean;
+    };
+  }[];
   readonly expected: {
     readonly finalState: StateKind;
     readonly revisionsObserved: number;
@@ -391,6 +401,9 @@ async function execute(vector: Vector): Promise<void> {
     mkdtempSync(path.join(os.tmpdir(), `genes-vector-${vector.id}-`)),
   );
   const usesExternalInput = vector.id === "initial-compile-failure-repairs";
+  const treeExtraInputPolicy = vector.extraInputs?.find(
+    (input) => input.kind === "tree",
+  );
   const externalRoot = usesExternalInput
     ? realpathSync.native(
         mkdtempSync(path.join(os.tmpdir(), "zz-genes-vector-external-")),
@@ -416,6 +429,19 @@ async function execute(vector: Vector): Promise<void> {
   );
   if (expectsPrivateHxml) {
     writeFileSync(path.join(root, "payload.hxml"), "fixture payload\n", "utf8");
+  }
+  const treeExtraInput =
+    treeExtraInputPolicy === undefined
+      ? null
+      : path.join(
+          root,
+          ...treeExtraInputPolicy.path.split("/"),
+          "nested",
+          "domain.json",
+        );
+  if (treeExtraInput !== null) {
+    mkdirSync(path.dirname(treeExtraInput), { recursive: true });
+    writeFileSync(treeExtraInput, "{\"version\":1}\n", "utf8");
   }
   const usesExistingGeneration =
     vector.id === "existing-generation-survives-first-build-failure";
@@ -648,6 +674,9 @@ async function execute(vector: Vector): Promise<void> {
       ...(existingImport === undefined
         ? {}
         : { existingGeneration: { import: existingImport } }),
+      ...(vector.extraInputs === undefined
+        ? {}
+        : { extraInputs: vector.extraInputs }),
       debounceMs: 0,
       pollIntervalMs: 10,
       shutdownTimeoutMs: 20,
@@ -676,7 +705,7 @@ async function execute(vector: Vector): Promise<void> {
       case "supplemental-files-publish-and-delete":
       case "unchanged-candidate-advances-generation":
         await session.waitForIdle();
-        watch().change(source);
+        watch().change(treeExtraInput ?? source);
         await session.waitForIdle();
         break;
       case "burst-supersedes-active-candidate":

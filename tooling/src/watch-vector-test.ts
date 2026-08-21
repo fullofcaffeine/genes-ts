@@ -73,6 +73,7 @@ const runtimeIds = [
   "watch-native-exact",
   "watch-poll-exact",
   "watch-poll-tree-create-remove",
+  "watch-poll-tree-empty-directory",
   "watch-registration-gap",
   "watch-snapshot-budget",
   "watch-symlink-input",

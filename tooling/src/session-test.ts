@@ -35,12 +35,13 @@ import { establishSessionAuthority } from "./session/authority-migration.js";
 import type {
   HaxeWaitServerEvent,
 } from "./haxe-server/index.js";
-import type {
-  ReconciledWatchChange,
-  ReconciledWatchOptions,
-  ReconciledWatchSession,
-  ReconciliationResult,
-  WatchInput,
+import {
+  watchReconciledInputs,
+  type ReconciledWatchChange,
+  type ReconciledWatchOptions,
+  type ReconciledWatchSession,
+  type ReconciliationResult,
+  type WatchInput,
 } from "./watch/index.js";
 import {
   HaxeSessionCompiler,
@@ -2436,6 +2437,108 @@ await withHarness(
   },
 );
 
+await withHarness(
+  "host-extra-input-tree",
+  async (harness) => {
+    harness.compiler.steps.push(
+      { content: "export const value = 1;\n" },
+      { content: "export const value = 2;\n" },
+    );
+    await harness.session.start();
+    await harness.session.waitForIdle();
+    assert.equal(harness.session.inspect().accepted?.generation, 1);
+
+    const nested = path.join(harness.root, "schema/nested/domain.json");
+    mkdirSync(path.dirname(nested), { recursive: true });
+    writeFileSync(nested, "{\"version\":2}\n", "utf8");
+    currentWatch(harness).change(nested);
+    await harness.session.waitForIdle();
+
+    assert.equal(harness.session.inspect().accepted?.generation, 2);
+    const watchedTree = currentWatch(harness).options.inputs.find(
+      (input) => input.path === path.join(harness.root, "schema"),
+    );
+    assert.equal(watchedTree?.kind, "tree");
+    assert.equal(
+      watchedTree?.kind === "tree" && watchedTree.rejectSymlinks,
+      true,
+      "host input trees must fail when a link could hide changed input",
+    );
+  },
+  undefined,
+  (options, root) => {
+    mkdirSync(path.join(root, "schema"));
+    writeFileSync(path.join(root, "schema/domain.json"), "{\"version\":1}\n", "utf8");
+    return {
+      ...options,
+      extraInputs: [
+        {
+          kind: "tree",
+          path: "schema",
+          impact: { rebuild: true, restartCompiler: true },
+        },
+      ],
+    };
+  },
+);
+
+await withHarness(
+  "host-extra-input-tree-rejects-startup-link",
+  async (harness) => {
+    await harness.session.start();
+    await assert.rejects(harness.session.firstAccepted, /fatal session failure/u);
+    assert.equal(harness.compiler.calls, 0, "Haxe must not read an unsafe tree");
+    const failed = harness.events.find((event) => event.event.kind === "failed");
+    assert.match(JSON.stringify(failed), /extra input tree contains a symbolic link/u);
+  },
+  undefined,
+  (options, root) => {
+    const schema = path.join(root, "schema");
+    const target = path.join(root, "schema-target.json");
+    mkdirSync(schema);
+    writeFileSync(target, "{}\n", "utf8");
+    symlinkSync(target, path.join(schema, "linked.json"));
+    return {
+      ...options,
+      extraInputs: [
+        {
+          kind: "tree",
+          path: "schema",
+          impact: { rebuild: true },
+        },
+      ],
+    };
+  },
+);
+
+await withHarness(
+  "host-extra-input-tree-rejects-linked-parent",
+  async (harness) => {
+    await harness.session.start();
+    await assert.rejects(harness.session.firstAccepted, /fatal session failure/u);
+    assert.equal(harness.compiler.calls, 0, "Haxe must not read through a linked parent");
+    const failed = harness.events.find((event) => event.event.kind === "failed");
+    assert.match(JSON.stringify(failed), /extra input tree traverses a symbolic link/u);
+  },
+  undefined,
+  (options, root) => {
+    const target = path.join(root, "schema-target/current");
+    mkdirSync(target, { recursive: true });
+    writeFileSync(path.join(target, "domain.json"), "{}\n", "utf8");
+    symlinkSync(path.join(root, "schema-target"), path.join(root, "schema"));
+    return {
+      ...options,
+      extraInputs: [
+        {
+          kind: "tree",
+          path: "schema/current",
+          impact: { rebuild: true },
+        },
+      ],
+    };
+  },
+);
+
 for (const field of ["generation", "revision", "acceptedAt", "sessionNonce"] as const) {
   await withHarness(`marker-drift-${field}`, async (harness) => {
     harness.compiler.steps.push(
@@ -2871,6 +2974,62 @@ await withHarness(
   let externalRoot = "";
   try {
     await withHarness(
+      "external-extra-input-tree",
+      async (harness) => {
+        await harness.session.start();
+        await harness.session.waitForIdle();
+        assert.equal(harness.session.state.kind, "ready", JSON.stringify(harness.events));
+        const input = path.join(externalRoot, "schema", "domain.json");
+        writeFileSync(input, '{"version":2}\n', "utf8");
+        currentWatch(harness).change(input);
+        await harness.session.waitForIdle();
+        assert.equal(harness.compiler.invocations.length, 2);
+        assert.equal(
+          /@external\/\d+\/schema\/domain\.json/u.test(
+            JSON.stringify(harness.events),
+          ),
+          true,
+          "an approved external tree uses a private stable path in public events",
+        );
+      },
+      undefined,
+      (options, root) => {
+        externalRoot = realpathSync.native(
+          mkdtempSync(path.join(os.tmpdir(), "genes-external-extra-input-")),
+        );
+        mkdirSync(path.join(externalRoot, "schema"), { recursive: true });
+        writeFileSync(
+          path.join(externalRoot, "schema", "domain.json"),
+          '{"version":1}\n',
+          "utf8",
+        );
+        return {
+          ...options,
+          hxml: {
+            ...options.hxml,
+            allowedRoots: [root, externalRoot],
+          },
+          extraInputs: [
+            {
+              kind: "tree" as const,
+              path: path.join(externalRoot, "schema"),
+              impact: { rebuild: true },
+            },
+          ],
+        };
+      },
+    );
+  } finally {
+    if (externalRoot !== "") {
+      rmSync(externalRoot, { recursive: true, force: true });
+    }
+  }
+}
+
+{
+  let externalRoot = "";
+  try {
+    await withHarness(
       "external-diagnostic-private-path-redaction",
       async (harness) => {
         await harness.session.start();
@@ -2925,6 +3084,233 @@ await withHarness(
 }
 
 if (process.platform !== "win32") {
+  let resolverRoot = "";
+  try {
+    await withHarness(
+      "resolver-owned-extra-tree-error-is-redacted",
+      async (harness) => {
+        await harness.session.start();
+        await harness.session.waitForIdle();
+        assert.equal(harness.session.state.kind, "blocked");
+        const publicRecord = JSON.stringify({
+          snapshot: harness.session.inspect(),
+          events: harness.events,
+        });
+        assert.equal(
+          publicRecord.includes(resolverRoot),
+          false,
+          "startup diagnostics must hide roots added by a library resolver",
+        );
+        assert.equal(publicRecord.includes("<external-root-"), true);
+      },
+      undefined,
+      (options, root) => {
+        resolverRoot = realpathSync.native(
+          mkdtempSync(path.join(os.tmpdir(), "genes-resolver-extra-input-")),
+        );
+        const schemaRoot = path.join(resolverRoot, "schema");
+        mkdirSync(schemaRoot);
+        const target = path.join(resolverRoot, "target.json");
+        writeFileSync(target, "{}\n", "utf8");
+        symlinkSync(target, path.join(schemaRoot, "linked.json"), "file");
+        writeFileSync(
+          path.join(root, "build.hxml"),
+          "-cp src\n-lib external\n-main Main\n",
+          "utf8",
+        );
+        return {
+          ...options,
+          hxml: {
+            ...options.hxml,
+            allowedRoots: [root],
+            resolveLibraries: (requests) => {
+              assert.deepEqual(
+                requests.map((request) => request.request),
+                ["external"],
+              );
+              return {
+                arguments: [],
+                provenanceFiles: [],
+                allowedRoots: [resolverRoot],
+              };
+            },
+          },
+          extraInputs: [
+            {
+              kind: "tree" as const,
+              path: schemaRoot,
+              impact: { rebuild: true },
+            },
+          ],
+        };
+      },
+    );
+  } finally {
+    if (resolverRoot !== "") {
+      rmSync(resolverRoot, { recursive: true, force: true });
+    }
+  }
+
+  let registrationRaceRoot = "";
+  try {
+    await withHarness(
+      "resolver-owned-watch-registration-error-is-redacted",
+      async (harness) => {
+        await harness.session.start();
+        await harness.session.waitForIdle();
+        assert.equal(harness.session.state.kind, "blocked");
+        assert.equal(
+          harness.compiler.calls,
+          0,
+          "Haxe must not read a tree that changed during watch registration",
+        );
+        const publicRecord = JSON.stringify({
+          snapshot: harness.session.inspect(),
+          events: harness.events,
+        });
+        assert.equal(
+          publicRecord.includes(registrationRaceRoot),
+          false,
+          "watch registration diagnostics must hide resolver-owned roots",
+        );
+        assert.equal(publicRecord.includes("<external-root-"), true);
+      },
+      (dependencies) => {
+        let linkCreated = false;
+        return {
+          ...dependencies,
+          watch: <Cause>(options: ReconciledWatchOptions<Cause>) => {
+            if (!linkCreated) {
+              linkCreated = true;
+              symlinkSync(
+                path.join(registrationRaceRoot, "target.json"),
+                path.join(registrationRaceRoot, "schema", "linked.json"),
+                "file",
+              );
+            }
+            return watchReconciledInputs({
+              ...options,
+              nativeEvents: false,
+            });
+          },
+        };
+      },
+      (options, root) => {
+        registrationRaceRoot = realpathSync.native(
+          mkdtempSync(path.join(os.tmpdir(), "genes-resolver-watch-race-")),
+        );
+        mkdirSync(path.join(registrationRaceRoot, "schema"));
+        writeFileSync(
+          path.join(registrationRaceRoot, "target.json"),
+          "{}\n",
+          "utf8",
+        );
+        writeFileSync(
+          path.join(root, "build.hxml"),
+          "-cp src\n-lib external\n-main Main\n",
+          "utf8",
+        );
+        return {
+          ...options,
+          hxml: {
+            ...options.hxml,
+            resolveLibraries: () => ({
+              arguments: [],
+              provenanceFiles: [],
+              allowedRoots: [registrationRaceRoot],
+            }),
+          },
+          extraInputs: [
+            {
+              kind: "tree" as const,
+              path: path.join(registrationRaceRoot, "schema"),
+              impact: { rebuild: true },
+            },
+          ],
+        };
+      },
+    );
+  } finally {
+    if (registrationRaceRoot !== "") {
+      rmSync(registrationRaceRoot, { recursive: true, force: true });
+    }
+  }
+
+  let canonicalResolverRoot = "";
+  let resolverAlias = "";
+  try {
+    await withHarness(
+      "resolver-owned-extra-tree-alias-error-is-redacted",
+      async (harness) => {
+        await harness.session.start();
+        await harness.session.waitForIdle();
+        assert.equal(harness.session.state.kind, "blocked");
+        const publicRecord = JSON.stringify({
+          snapshot: harness.session.inspect(),
+          events: harness.events,
+        });
+        assert.equal(
+          publicRecord.includes(canonicalResolverRoot),
+          false,
+          "startup diagnostics must hide the canonical resolver root",
+        );
+        assert.equal(
+          publicRecord.includes(resolverAlias),
+          false,
+          "startup diagnostics must hide a resolver-owned root alias",
+        );
+        assert.equal(
+          publicRecord.includes(
+            "development-session input must be inside a declared HXML root",
+          ),
+          true,
+        );
+      },
+      undefined,
+      (options, root) => {
+        canonicalResolverRoot = realpathSync.native(
+          mkdtempSync(path.join(os.tmpdir(), "genes-resolver-alias-input-")),
+        );
+        resolverAlias = mkdtempSync(
+          path.join(os.tmpdir(), "genes-resolver-alias-link-"),
+        );
+        rmSync(resolverAlias, { recursive: true, force: true });
+        symlinkSync(canonicalResolverRoot, resolverAlias, "dir");
+        const schemaRoot = path.join(resolverAlias, "schema");
+        mkdirSync(path.join(canonicalResolverRoot, "schema"));
+        writeFileSync(
+          path.join(root, "build.hxml"),
+          "-cp src\n-lib external\n-main Main\n",
+          "utf8",
+        );
+        return {
+          ...options,
+          hxml: {
+            ...options.hxml,
+            allowedRoots: [root],
+            resolveLibraries: () => ({
+              arguments: [],
+              provenanceFiles: [],
+              allowedRoots: [resolverAlias],
+            }),
+          },
+          extraInputs: [
+            {
+              kind: "tree" as const,
+              path: schemaRoot,
+              impact: { rebuild: true },
+            },
+          ],
+        };
+      },
+    );
+  } finally {
+    if (resolverAlias !== "") rmSync(resolverAlias, { force: true });
+    if (canonicalResolverRoot !== "") {
+      rmSync(canonicalResolverRoot, { recursive: true, force: true });
+    }
+  }
+
   let canonicalExternalRoot = "";
   let externalAlias = "";
   try {
