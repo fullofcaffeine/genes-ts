@@ -387,7 +387,7 @@ two evidence axes separate.
 
 `yarn test:smoke` currently proves a deliberately bounded result:
 
-> Each Genes profile passes the published five-test official Haxe 4.3.7 smoke
+> Each Genes profile passes the published six-test official Haxe 4.3.7 smoke
 > subset after target checking and Node execution. This is not the complete
 > applicable official `tests/unit` contract.
 
@@ -397,7 +397,7 @@ The pinned inputs are:
 - utest revision `a94f8812e8786f2b5fec52ce9f26927591d26327`;
 - three `TestNumericSeparator` methods;
 - the generated `IntIterator.unit.hx` specification; and
-- issue regression `Issue10032`.
+- issue regressions `Issue10018` and `Issue10032`.
 
 The runner downloads or archives those revisions into an ignored cache,
 verifies every selected source hash and license record, packages the current
@@ -409,7 +409,7 @@ classic:    Haxe -> packaged Genes -> ESM JavaScript -> node --check -> Node
 typescript: Haxe -> packaged Genes -> TypeScript 5.5.4 strict -> JavaScript -> Node
 ```
 
-Both profiles currently execute 44 assertions. The machine report includes
+Both profiles currently execute 45 assertions. The machine report includes
 every test ID, per-test assertion/failure count, source identity, exact runtime
 toolchain, stage duration, command, log, and generated tree:
 
@@ -435,7 +435,7 @@ last successful public evidence tree byte-identical.
 
 The complete active official inventory, representative expansion, capability
 shards, Haxe preview source manifest, and full release-package suite remain
-tracked work. Do not turn the five-test result into a compatibility percentage
+tracked work. Do not turn the six-test result into a compatibility percentage
 or say Genes “passes the Haxe suite.”
 
 ## Measured starting point

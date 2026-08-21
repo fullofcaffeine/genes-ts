@@ -883,18 +883,9 @@ class TypeEmitter {
     final write = writer.write;
     // here we handle haxe's crazy argument skipping:
     // we allow trailing optional args, but if there's non-optional
-    // args after the optional ones, we consider them non-optional for TS
-    var noOptionalUntil = -1;
-    var hadOptional = true;
-    for (i in 0...args.length) {
-      var arg = args[i];
-      if (arg.opt) {
-        hadOptional = true;
-      } else if (hadOptional && !arg.opt) {
-        noOptionalUntil = i;
-        hadOptional = false;
-      }
-    }
+    // positional args after the optional ones, we consider them non-optional
+    // for TS. Rest parameters accept zero values and do not count here.
+    final noOptionalUntil = TypeUtil.lastRequiredParameterIndex(args);
 
     for (i in joinIt(0...args.length, write.bind(', '))) {
       var arg = args[i];

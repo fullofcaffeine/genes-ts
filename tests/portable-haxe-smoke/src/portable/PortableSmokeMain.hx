@@ -2,6 +2,7 @@ package portable;
 
 import js.Node;
 import unit.TestNumericSeparator;
+import unit.issues.Issue10018;
 import unit.issues.Issue10032;
 import utest.Assert;
 
@@ -29,6 +30,7 @@ typedef PortableTestResult = {
  * utest's human-oriented report.
  */
 @:access(unit.issues.Issue10032)
+@:access(unit.issues.Issue10018)
 final class PortableSmokeMain {
   static function main(): Void {
     Assert.reset();
@@ -51,6 +53,9 @@ final class PortableSmokeMain {
     #end
 
     #if !genes.portable.inject_missing_active
+    final optionalBeforeRest = new Issue10018();
+    run("unit.issues.Issue10018.test", optionalBeforeRest.test, activeTests,
+      tests);
     final issue = new Issue10032();
     run("unit.issues.Issue10032.test", issue.test, activeTests, tests);
     #end

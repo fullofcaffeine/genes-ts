@@ -1,6 +1,7 @@
 package genes.ts;
 
 import genes.EmittedMemberName;
+import genes.util.TypeUtil;
 import haxe.macro.Context;
 import haxe.macro.Type;
 
@@ -93,8 +94,7 @@ class TsReflectionClassValue {
     }
   }
 
-  static function fieldConflicts(emittedName: String,
-      field: ClassField): Bool {
+  static function fieldConflicts(emittedName: String, field: ClassField): Bool {
     if (signatureConflicts(emittedName, field.type))
       return true;
     for (signature in field.overloads.get())
@@ -103,13 +103,11 @@ class TsReflectionClassValue {
     return false;
   }
 
-  static function signatureConflicts(emittedName: String,
-      type: Type): Bool {
+  static function signatureConflicts(emittedName: String, type: Type): Bool {
     return switch Context.follow(type) {
       case TFun(arguments, result):
         switch emittedName {
-          case 'toString':
-            requiredArity(arguments) > 0 || !isCoreString(result);
+          case 'toString': requiredArity(arguments) > 0 || !isCoreString(result);
           case 'apply':
             requiredArity(arguments) > 2;
           case 'call' | 'bind':
@@ -130,29 +128,22 @@ class TsReflectionClassValue {
   /**
    * Returns the minimum positional arity emitted by TypeScript.
    *
-   * A Haxe optional argument before a later required argument cannot use `?`
-   * syntax in TypeScript, so every position through the final required
-   * argument remains part of the callable's minimum arity.
+   * A Haxe optional argument before a later required positional argument
+   * cannot use `?` syntax in TypeScript, so every position through that final
+   * argument remains part of the callable's minimum arity. A rest parameter
+   * accepts zero values and does not increase that arity.
    */
   static function requiredArity(arguments: Array<{
-      name: String,
-      opt: Bool,
-      t: Type
-    }>): Int {
-    var required = 0;
-    for (index in 0...arguments.length)
-      if (!arguments[index].opt)
-        required = index + 1;
-    return required;
+    name: String,
+    opt: Bool,
+    t: Type
+  }>): Int {
+    return TypeUtil.lastRequiredParameterIndex(arguments) + 1;
   }
 
   static function isCoreString(type: Type): Bool {
     return switch Context.follow(type) {
-      case TInst(reference, _):
-        final value = reference.get();
-        value.pack.length == 0
-          && value.module == 'String'
-          && value.name == 'String';
+      case TInst(reference, _): final value = reference.get(); value.pack.length == 0 && value.module == 'String' && value.name == 'String';
       case TDynamic(_):
         true;
       default:

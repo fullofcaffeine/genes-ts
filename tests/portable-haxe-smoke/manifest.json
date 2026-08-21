@@ -42,7 +42,7 @@
       },
       {
         "path": "tests/portable-haxe-smoke/src/portable/PortableSmokeMain.hx",
-        "sha256": "5d2cddbc566e687f43fcd74f15cd16a7fe87d9d5db40e81dc2be0156eb275531"
+        "sha256": "5d90eabe17dca565f8ba79de4baaa4070c27a2ae47425b0019f9fa80e486f55e"
       }
     ]
   },
@@ -66,6 +66,11 @@
       "family": "unitstd",
       "path": "tests/unit/src/unitstd/IntIterator.unit.hx",
       "sha256": "dbd81c1cf9c4d58843145f2f975ec8c9131dc190272ccd3947ce4f3e7c5c9c31"
+    },
+    {
+      "family": "issue",
+      "path": "tests/unit/src/unit/issues/Issue10018.hx",
+      "sha256": "fbb04063f5368fc952a1be4ca5820266e7fe832f73595b43951de433da30f445"
     },
     {
       "family": "issue",
@@ -95,12 +100,17 @@
       "expectedAssertions": 9
     },
     {
+      "id": "unit.issues.Issue10018.test",
+      "family": "issue",
+      "expectedAssertions": 1
+    },
+    {
       "id": "unit.issues.Issue10032.test",
       "family": "issue",
       "expectedAssertions": 1
     }
   ],
-  "expectedAssertionsPerProfile": 44,
+  "expectedAssertionsPerProfile": 45,
   "profiles": [
     {
       "id": "classic-esm",
@@ -122,5 +132,5 @@
       "runtime": "node after tsc"
     }
   ],
-  "claim": "This is a five-test official Haxe 4.3.7 smoke subset in each Genes profile, not the full applicable official suite."
+  "claim": "This is a six-test official Haxe 4.3.7 smoke subset in each Genes profile, not the full applicable official suite."
 }

@@ -6,6 +6,7 @@ import haxe.macro.Expr;
 import haxe.macro.Expr.Position;
 import haxe.macro.Type;
 import genes.dts.TypeEmitter;
+import genes.util.TypeUtil;
 
 using StringTools;
 using haxe.macro.TypeTools;
@@ -223,17 +224,7 @@ class TypeReferenceCollector {
           }
 
       case TFun(arguments, result):
-        var noOptionalUntil = -1;
-        var hadOptional = true;
-        for (index in 0...arguments.length) {
-          final argument = arguments[index];
-          if (argument.opt)
-            hadOptional = true;
-          else if (hadOptional) {
-            noOptionalUntil = index;
-            hadOptional = false;
-          }
-        }
+        final noOptionalUntil = TypeUtil.lastRequiredParameterIndex(arguments);
         for (index in 0...arguments.length) {
           final argument = arguments[index];
           final nullish = NullishContract.forParameter(argument.t, argument.opt && index > noOptionalUntil);
