@@ -32,6 +32,14 @@ export type {
 export {
   createGenesDevelopmentSession,
 } from "./runtime.js";
+export type {
+  GenesOutputInventory,
+  GenesOwnedFile,
+} from "./genes-output.js";
+export {
+  assertCandidateContainsOnlyOwnedFiles,
+  readGenesOutput,
+} from "./genes-output.js";
 export { HAXE_4_3_7_DEVELOPMENT_JS_POLICY } from "./effective-invocation.js";
 export {
   DEVELOPMENT_SESSION_EVENT_PROTOCOL,

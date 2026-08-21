@@ -104,8 +104,15 @@ watch/loop pair, or only the owned Haxe server.
 
 The `@genes-ts/tooling/session` subpath exports
 `createGenesDevelopmentSession`, the public `DevelopmentSession` v1 types, and
-the protocol constants. `development-session/v1` publishes the matching JSON
-event schema and conformance vectors.
+the protocol constants. It also exports `readGenesOutput` and
+`assertCandidateContainsOnlyOwnedFiles` for hosts that run a one-shot Haxe
+build before they start a managed session. These helpers read the compiler's
+exact ownership manifest and reject neighboring files that the compiler did
+not name. A host can therefore record an honest handoff without learning or
+copying the manifest's private text format. Relative output roots are resolved
+against the caller's current working directory before the returned inventory
+and file paths are frozen. `development-session/v1` publishes the matching
+JSON event schema and conformance vectors.
 
 That session contract moves generic last-good mechanics into tooling while the
 host keeps the important policy decision:
