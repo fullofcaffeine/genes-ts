@@ -1621,7 +1621,16 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
       signal,
       this.#dependencies.inventory,
     );
-    this.#assertInventoryContained(plan.inventory);
+    try {
+      this.#assertInventoryContained(plan.inventory);
+    } catch (error) {
+      throw new Error(
+        this.#sanitizeCoreMessage(
+          asError(error).message,
+          plan.inventory.allowedRoots,
+        ),
+      );
+    }
     return plan;
   }
 
@@ -1789,12 +1798,16 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
     rmSync(absolute, { recursive: true, force: true });
   }
 
-  #sanitizeCoreMessage(message: string): string {
+  #sanitizeCoreMessage(
+    message: string,
+    allowedRoots?: readonly string[],
+  ): string {
     const candidateRoot = path.join(
       this.#layout.projectRoot,
       ...this.#layout.candidatesRelative.split("/"),
     );
     const declaredExternalRoots = (
+      allowedRoots ??
       this.#inventory?.allowedRoots ??
       this.#options.hxml.allowedRoots.map((root) => {
         const absolute = path.resolve(root);

@@ -3083,6 +3083,73 @@ await withHarness(
 }
 
 if (process.platform !== "win32") {
+  let resolverRoot = "";
+  try {
+    await withHarness(
+      "resolver-owned-extra-tree-error-is-redacted",
+      async (harness) => {
+        await harness.session.start();
+        await harness.session.waitForIdle();
+        assert.equal(harness.session.state.kind, "blocked");
+        const publicRecord = JSON.stringify({
+          snapshot: harness.session.inspect(),
+          events: harness.events,
+        });
+        assert.equal(
+          publicRecord.includes(resolverRoot),
+          false,
+          "startup diagnostics must hide roots added by a library resolver",
+        );
+        assert.equal(publicRecord.includes("<external-root-"), true);
+      },
+      undefined,
+      (options, root) => {
+        resolverRoot = realpathSync.native(
+          mkdtempSync(path.join(os.tmpdir(), "genes-resolver-extra-input-")),
+        );
+        const schemaRoot = path.join(resolverRoot, "schema");
+        mkdirSync(schemaRoot);
+        const target = path.join(resolverRoot, "target.json");
+        writeFileSync(target, "{}\n", "utf8");
+        symlinkSync(target, path.join(schemaRoot, "linked.json"), "file");
+        writeFileSync(
+          path.join(root, "build.hxml"),
+          "-cp src\n-lib external\n-main Main\n",
+          "utf8",
+        );
+        return {
+          ...options,
+          hxml: {
+            ...options.hxml,
+            allowedRoots: [root],
+            resolveLibraries: (requests) => {
+              assert.deepEqual(
+                requests.map((request) => request.request),
+                ["external"],
+              );
+              return {
+                arguments: [],
+                provenanceFiles: [],
+                allowedRoots: [resolverRoot],
+              };
+            },
+          },
+          extraInputs: [
+            {
+              kind: "tree" as const,
+              path: schemaRoot,
+              impact: { rebuild: true },
+            },
+          ],
+        };
+      },
+    );
+  } finally {
+    if (resolverRoot !== "") {
+      rmSync(resolverRoot, { recursive: true, force: true });
+    }
+  }
+
   let canonicalExternalRoot = "";
   let externalAlias = "";
   try {
