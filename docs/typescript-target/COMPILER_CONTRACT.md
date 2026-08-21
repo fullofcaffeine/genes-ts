@@ -88,6 +88,10 @@ for the complete host contract, failure behavior, and repeated-define caveat.
 - One compilation is published transactionally. Implementations, declarations,
   source maps, and TS support files become visible only after every planned
   artifact has emitted successfully.
+- Every non-empty implementation, declaration, or TS support source file ends
+  with exactly one LF and no trailing blank line. This publication rule covers
+  `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, and `.d.ts`; it does not normalize source
+  maps, manifests, or other non-source artifacts.
 - A hidden `.genes-output-<readable-entry>-<digest>.manifest` records both the
   exact configured output basename (including `.ts`, `.tsx`, or `.js`) and the
   relative paths that entrypoint owns. The readable part is for people; the

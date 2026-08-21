@@ -67,6 +67,9 @@ where multiple emitters or passes need the same semantic decision.
    manifest-owned paths, and rolls the whole mutation set back on failure. Its
    v2 owner is the exact configured output basename including the extension;
    a readable SHA-256-scoped filename keeps distinct entrypoints isolated.
+   Before staging non-empty implementation, declaration, and support source,
+   its shared emitter-writer boundary removes trailing ASCII line-ending
+   whitespace and appends one LF. Maps and manifests keep their exact bytes.
    Before reading or mutating an existing destination or private stage path,
    the transaction compares its lexical absolute path with the symlink-resolving
    `FileSystem.fullPath`. A mismatch fails closed, and abort cleanup
