@@ -35,12 +35,13 @@ import { establishSessionAuthority } from "./session/authority-migration.js";
 import type {
   HaxeWaitServerEvent,
 } from "./haxe-server/index.js";
-import type {
-  ReconciledWatchChange,
-  ReconciledWatchOptions,
-  ReconciledWatchSession,
-  ReconciliationResult,
-  WatchInput,
+import {
+  watchReconciledInputs,
+  type ReconciledWatchChange,
+  type ReconciledWatchOptions,
+  type ReconciledWatchSession,
+  type ReconciliationResult,
+  type WatchInput,
 } from "./watch/index.js";
 import {
   HaxeSessionCompiler,
@@ -3147,6 +3148,91 @@ if (process.platform !== "win32") {
   } finally {
     if (resolverRoot !== "") {
       rmSync(resolverRoot, { recursive: true, force: true });
+    }
+  }
+
+  let registrationRaceRoot = "";
+  try {
+    await withHarness(
+      "resolver-owned-watch-registration-error-is-redacted",
+      async (harness) => {
+        await harness.session.start();
+        await harness.session.waitForIdle();
+        assert.equal(harness.session.state.kind, "blocked");
+        assert.equal(
+          harness.compiler.calls,
+          0,
+          "Haxe must not read a tree that changed during watch registration",
+        );
+        const publicRecord = JSON.stringify({
+          snapshot: harness.session.inspect(),
+          events: harness.events,
+        });
+        assert.equal(
+          publicRecord.includes(registrationRaceRoot),
+          false,
+          "watch registration diagnostics must hide resolver-owned roots",
+        );
+        assert.equal(publicRecord.includes("<external-root-"), true);
+      },
+      (dependencies) => {
+        let linkCreated = false;
+        return {
+          ...dependencies,
+          watch: <Cause>(options: ReconciledWatchOptions<Cause>) => {
+            if (!linkCreated) {
+              linkCreated = true;
+              symlinkSync(
+                path.join(registrationRaceRoot, "target.json"),
+                path.join(registrationRaceRoot, "schema", "linked.json"),
+                "file",
+              );
+            }
+            return watchReconciledInputs({
+              ...options,
+              nativeEvents: false,
+            });
+          },
+        };
+      },
+      (options, root) => {
+        registrationRaceRoot = realpathSync.native(
+          mkdtempSync(path.join(os.tmpdir(), "genes-resolver-watch-race-")),
+        );
+        mkdirSync(path.join(registrationRaceRoot, "schema"));
+        writeFileSync(
+          path.join(registrationRaceRoot, "target.json"),
+          "{}\n",
+          "utf8",
+        );
+        writeFileSync(
+          path.join(root, "build.hxml"),
+          "-cp src\n-lib external\n-main Main\n",
+          "utf8",
+        );
+        return {
+          ...options,
+          hxml: {
+            ...options.hxml,
+            resolveLibraries: () => ({
+              arguments: [],
+              provenanceFiles: [],
+              allowedRoots: [registrationRaceRoot],
+            }),
+          },
+          extraInputs: [
+            {
+              kind: "tree" as const,
+              path: path.join(registrationRaceRoot, "schema"),
+              impact: { rebuild: true },
+            },
+          ],
+        };
+      },
+    );
+  } finally {
+    if (registrationRaceRoot !== "") {
+      rmSync(registrationRaceRoot, { recursive: true, force: true });
     }
   }
 

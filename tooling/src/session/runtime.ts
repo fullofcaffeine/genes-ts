@@ -3,7 +3,6 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
-  readdirSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -30,6 +29,7 @@ import {
   type ReconciledWatchSession,
   type WatchInput,
 } from "../watch/index.js";
+import { assertRealInputTrees } from "../watch/reconciled-watch.js";
 import type { HaxeWaitServerEvent } from "../haxe-server/index.js";
 import {
   HaxeSessionCompiler,
@@ -281,26 +281,6 @@ function assertRealPath(root: string, candidate: string, label: string): void {
       throw new Error(`${label} traverses a symbolic link: ${current}`);
     }
   }
-}
-
-function assertInputTreeIsReal(inputTree: string, label: string): void {
-  if (!existsSync(inputTree)) return;
-  const visit = (directory: string): void => {
-    for (const child of readdirSync(directory, { withFileTypes: true })) {
-      const absolute = path.join(directory, child.name);
-      if (child.isSymbolicLink()) {
-        throw new Error(
-          `${label} contains a symbolic link: ${absolute}`,
-        );
-      }
-      if (child.isDirectory()) visit(absolute);
-    }
-  };
-  const stats = lstatSync(inputTree);
-  if (stats.isSymbolicLink() || !stats.isDirectory()) {
-    throw new Error(`${label} must be a real directory: ${inputTree}`);
-  }
-  visit(inputTree);
 }
 
 function mergeCause(left: BuildCause, right: BuildCause): BuildCause {
@@ -1039,39 +1019,52 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
   }
 
   #replaceWatch(inventory: HxmlInventory): void {
-    const next = this.#dependencies.watch<{
-      readonly reinventory: boolean;
-      readonly restartCompiler: boolean;
-      readonly rebuild: boolean;
-    }>({
-      inputs: this.#watchInputs(inventory),
-      merge: (left, right) => ({
-        reinventory: left.reinventory || right.reinventory,
-        restartCompiler: left.restartCompiler || right.restartCompiler,
-        rebuild: left.rebuild || right.rebuild,
-      }),
-      onChange: (change) => {
-        if (this.#acceptWatchChanges) {
-          this.#observe(change.path, change.cause);
-        } else {
-          this.#startupInputChanged = true;
-        }
-      },
-      onError: (error) => {
-        if (this.#closing === null) {
-          this.#fail(
-            "watch",
-            this.#newestRevision || null,
-            true,
-            diagnostic(
-              "INPUT_WATCH_FAILED",
-              this.#sanitizeCoreMessage(error.message),
-            ),
-          );
-        }
-      },
-      pollIntervalMs: this.#options.pollIntervalMs,
-    });
+    let next: ReconciledWatchSession;
+    try {
+      next = this.#dependencies.watch<{
+        readonly reinventory: boolean;
+        readonly restartCompiler: boolean;
+        readonly rebuild: boolean;
+      }>({
+        inputs: this.#watchInputs(inventory),
+        merge: (left, right) => ({
+          reinventory: left.reinventory || right.reinventory,
+          restartCompiler: left.restartCompiler || right.restartCompiler,
+          rebuild: left.rebuild || right.rebuild,
+        }),
+        onChange: (change) => {
+          if (this.#acceptWatchChanges) {
+            this.#observe(change.path, change.cause);
+          } else {
+            this.#startupInputChanged = true;
+          }
+        },
+        onError: (error) => {
+          if (this.#closing === null) {
+            this.#fail(
+              "watch",
+              this.#newestRevision || null,
+              true,
+              diagnostic(
+                "INPUT_WATCH_FAILED",
+                this.#sanitizeCoreMessage(
+                  error.message,
+                  inventory.allowedRoots,
+                ),
+              ),
+            );
+          }
+        },
+        pollIntervalMs: this.#options.pollIntervalMs,
+      });
+    } catch (error) {
+      throw new Error(
+        this.#sanitizeCoreMessage(
+          asError(error).message,
+          inventory.allowedRoots,
+        ),
+      );
+    }
     const previous = this.#watch;
     this.#watch = next;
     previous?.close();
@@ -1703,9 +1696,13 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
         );
       }
     }
-    for (const classPath of inventory.classPaths) {
-      assertInputTreeIsReal(classPath, "development-session class path");
-    }
+    const realInputTrees: Array<{
+      readonly path: string;
+      readonly label: string;
+    }> = inventory.classPaths.map((classPath) => ({
+      path: classPath,
+      label: "development-session class path",
+    }));
     for (const extra of this.#options.extraInputs ?? []) {
       if ((extra.kind ?? "exact") === "tree") {
         const absolute = path.resolve(this.#layout.projectRoot, extra.path);
@@ -1722,12 +1719,13 @@ class DevelopmentSessionRuntime<Diagnostic extends JsonValue>
           absolute,
           "development-session extra input tree",
         );
-        assertInputTreeIsReal(
-          absolute,
-          "development-session extra input tree",
-        );
+        realInputTrees.push({
+          path: absolute,
+          label: "development-session extra input tree",
+        });
       }
     }
+    assertRealInputTrees(realInputTrees);
   }
 
   /** Prevents generated companions or receipts from claiming authored inputs. */

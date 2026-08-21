@@ -19,6 +19,20 @@ import type {
 const DEFAULT_POLL_INTERVAL_MS = 250;
 const DEFAULT_MAX_SNAPSHOT_ENTRIES = 100_000;
 
+interface EntryBudget {
+  readonly maxEntries: number;
+  readonly label: string;
+  entries: number;
+}
+
+interface WalkedTreeEntry {
+  readonly absolute: string;
+  readonly relative: string;
+  readonly ignored: boolean;
+  readonly isDirectory: boolean;
+  readonly isSymbolicLink: boolean;
+}
+
 interface SnapshotEntry<Cause> {
   readonly fingerprint: string;
   readonly cause: Cause;
@@ -91,6 +105,76 @@ function assertNoSymlinkComponents(candidate: string): void {
   }
 }
 
+function entryBudget(maxEntries: number, label: string): EntryBudget {
+  if (!Number.isInteger(maxEntries) || maxEntries <= 0) {
+    throw new Error("invalid reconciled watch entry budget");
+  }
+  return { maxEntries, label, entries: 0 };
+}
+
+function consumeEntry(budget: EntryBudget): void {
+  budget.entries += 1;
+  if (budget.entries > budget.maxEntries) {
+    throw new Error(`${budget.label} entry budget exceeded`);
+  }
+}
+
+function* walkTree(
+  root: string,
+  ignore: TreeWatchInput<unknown>["ignore"],
+  budget: EntryBudget,
+): Generator<WalkedTreeEntry> {
+  const pending = [root];
+  while (pending.length > 0) {
+    const directory = pending.pop()!;
+    const nested: string[] = [];
+    for (const child of readdirSync(directory, { withFileTypes: true }).sort(
+      (left, right) => Buffer.from(left.name).compare(Buffer.from(right.name)),
+    )) {
+      consumeEntry(budget);
+      const absolute = path.join(directory, child.name);
+      const relative = path.relative(root, absolute).split(path.sep).join("/");
+      const ignored = ignore?.(relative) === true;
+      yield {
+        absolute,
+        relative,
+        ignored,
+        isDirectory: child.isDirectory(),
+        isSymbolicLink: child.isSymbolicLink(),
+      };
+      if (child.isDirectory() && !ignored) {
+        nested.push(absolute);
+      }
+    }
+    for (let index = nested.length - 1; index >= 0; index -= 1) {
+      pending.push(nested[index]!);
+    }
+  }
+}
+
+/** @internal Shared bounded validation for compiler-readable input trees. */
+export function assertRealInputTrees(
+  inputs: readonly { readonly path: string; readonly label: string }[],
+  maxEntries = DEFAULT_MAX_SNAPSHOT_ENTRIES,
+): void {
+  const budget = entryBudget(maxEntries, "watch input");
+  for (const input of inputs) {
+    consumeEntry(budget);
+    if (!existsSync(input.path)) continue;
+    const stats = lstatSync(input.path);
+    if (stats.isSymbolicLink() || !stats.isDirectory()) {
+      throw new Error(`${input.label} must be a real directory: ${input.path}`);
+    }
+    for (const entry of walkTree(input.path, undefined, budget)) {
+      if (entry.isSymbolicLink) {
+        throw new Error(
+          `${input.label} contains a symbolic link: ${entry.absolute}`,
+        );
+      }
+    }
+  }
+}
+
 function validateInputs<Cause>(
   options: ReconciledWatchOptions<Cause>,
 ): readonly WatchInput<Cause>[] {
@@ -143,8 +227,10 @@ function scanTree<Cause>(
   input: TreeWatchInput<Cause>,
   merge: (left: Cause, right: Cause) => Cause,
   maxEntries: number,
+  budget: EntryBudget,
 ): void {
   const root = input.path;
+  consumeEntry(budget);
   if (!existsSync(root)) {
     addEntry(snapshot, root, input.cause, "missing-tree", merge, maxEntries);
     return;
@@ -162,43 +248,35 @@ function scanTree<Cause>(
     return;
   }
   addEntry(snapshot, root, input.cause, "directory", merge, maxEntries);
-  const visit = (directory: string): void => {
-    for (const child of readdirSync(directory, { withFileTypes: true }).sort(
-      (left, right) => Buffer.from(left.name).compare(Buffer.from(right.name)),
-    )) {
-      const absolute = path.join(directory, child.name);
-      const relative = path.relative(root, absolute).split(path.sep).join("/");
-      if (input.ignore?.(relative) === true) {
-        continue;
-      }
-      if (child.isSymbolicLink() && input.rejectSymlinks === true) {
-        throw new Error(`watched tree contains a symbolic link: ${absolute}`);
-      }
-      if (child.isDirectory()) {
-        if (input.include(relative)) {
-          addEntry(
-            snapshot,
-            absolute,
-            input.cause,
-            "directory",
-            merge,
-            maxEntries,
-          );
-        }
-        visit(absolute);
-      } else if (input.include(relative)) {
+  for (const entry of walkTree(root, input.ignore, budget)) {
+    if (entry.ignored) continue;
+    if (entry.isSymbolicLink && input.rejectSymlinks === true) {
+      throw new Error(
+        `watched tree contains a symbolic link: ${entry.absolute}`,
+      );
+    }
+    if (entry.isDirectory) {
+      if (input.include(entry.relative)) {
         addEntry(
           snapshot,
-          absolute,
+          entry.absolute,
           input.cause,
-          fingerprint(absolute),
+          "directory",
           merge,
           maxEntries,
         );
       }
+    } else if (input.include(entry.relative)) {
+      addEntry(
+        snapshot,
+        entry.absolute,
+        input.cause,
+        fingerprint(entry.absolute),
+        merge,
+        maxEntries,
+      );
     }
-  };
-  visit(root);
+  }
 }
 
 function capture<Cause>(
@@ -207,12 +285,14 @@ function capture<Cause>(
   maxEntries: number,
 ): Snapshot<Cause> {
   const snapshot: Snapshot<Cause> = new Map();
+  const budget = entryBudget(maxEntries, "watch input traversal");
   for (const input of inputs) {
     // A missing input can gain a symbolic-link parent after registration.
     // Check the live path before every scan so reconciliation never follows
     // that new link into a different tree.
     assertNoSymlinkComponents(input.path);
     if (input.kind === "exact") {
+      consumeEntry(budget);
       addEntry(
         snapshot,
         input.path,
@@ -222,7 +302,7 @@ function capture<Cause>(
         maxEntries,
       );
     } else {
-      scanTree(snapshot, input, merge, maxEntries);
+      scanTree(snapshot, input, merge, maxEntries, budget);
     }
   }
   return snapshot;
@@ -279,8 +359,10 @@ function nearestRealDirectory(candidate: string): string {
 
 function collectTreeDirectories<Cause>(
   input: TreeWatchInput<Cause>,
+  budget: EntryBudget,
 ): readonly string[] {
   assertNoSymlinkComponents(input.path);
+  consumeEntry(budget);
   if (!existsSync(input.path)) {
     return Object.freeze([nearestRealDirectory(input.path)]);
   }
@@ -288,31 +370,17 @@ function collectTreeDirectories<Cause>(
   if (stats.isSymbolicLink() || !stats.isDirectory()) {
     return Object.freeze([nearestRealDirectory(input.path)]);
   }
-  const directories: string[] = [];
-  const visit = (directory: string): void => {
-    directories.push(directory);
-    for (const child of readdirSync(directory, { withFileTypes: true }).sort(
-      (left, right) => Buffer.from(left.name).compare(Buffer.from(right.name)),
-    )) {
-      if (child.isSymbolicLink() && input.rejectSymlinks === true) {
-        throw new Error(
-          `watched tree contains a symbolic link: ${path.join(directory, child.name)}`,
-        );
-      }
-      if (!child.isDirectory()) {
-        continue;
-      }
-      const absolute = path.join(directory, child.name);
-      const relative = path
-        .relative(input.path, absolute)
-        .split(path.sep)
-        .join("/");
-      if (input.ignore?.(relative) !== true) {
-        visit(absolute);
-      }
+  const directories: string[] = [input.path];
+  for (const entry of walkTree(input.path, input.ignore, budget)) {
+    if (entry.isSymbolicLink && input.rejectSymlinks === true) {
+      throw new Error(
+        `watched tree contains a symbolic link: ${entry.absolute}`,
+      );
     }
-  };
-  visit(input.path);
+    if (entry.isDirectory && !entry.ignored) {
+      directories.push(entry.absolute);
+    }
+  }
   return Object.freeze(directories);
 }
 
@@ -367,11 +435,13 @@ export function watchReconciledInputs<Cause>(
 
   const desiredDirectories = (): readonly string[] => {
     const directories = new Set<string>();
+    const budget = entryBudget(maxEntries, "watch directory traversal");
     for (const input of inputs) {
       if (input.kind === "exact") {
+        consumeEntry(budget);
         directories.add(nearestRealDirectory(path.dirname(input.path)));
       } else {
-        for (const directory of collectTreeDirectories(input)) {
+        for (const directory of collectTreeDirectories(input, budget)) {
           directories.add(directory);
         }
       }
