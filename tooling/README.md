@@ -741,12 +741,14 @@ Instead, stable consumers can install an immutable, prebuilt archive from the
 Genes GitHub Releases page. This keeps npm out of the current distribution
 path while still giving hosts exact, checksum-verified package bytes.
 
-The session runtime is implemented and exercised by all 14 released
-conformance scenarios plus a real cold/warm Haxe integration fixture. Version
-`0.4.0` adds the safe, reusable Lix resolver described below. It asks a
-project-selected Lix command for one ordered library group and checks the
-returned Haxe arguments, package folders, and proof files before Haxe starts.
-Do not use its archive URL until the `tooling-v0.4.0` GitHub Release exists.
+The session runtime is implemented and exercised by its released behavior
+examples plus a real cold/warm Haxe integration fixture. Version `0.5.0` gives
+one-shot hosts the exact compiler-owned output inventory and a guard against
+unowned neighboring files. It also lets a host move an existing generated
+application into the shared session without rewriting checked files and watch
+a complete extra input directory, including empty folders and later additions
+or removals. Symbolic links fail so they cannot hide input from the watcher.
+Do not use the archive URL until the `tooling-v0.5.0` GitHub Release exists.
 Verify its checksum and receipt before use.
 
 Version `0.2.0` added the compiler-data bridge described above. Compiler data
@@ -838,7 +840,7 @@ npm registry:
 ```json
 {
   "dependencies": {
-    "@genes-ts/tooling": "https://github.com/fullofcaffeine/genes-ts/releases/download/tooling-v0.4.0/genes-ts-tooling-0.4.0.tgz"
+    "@genes-ts/tooling": "https://github.com/fullofcaffeine/genes-ts/releases/download/tooling-v0.5.0/genes-ts-tooling-0.5.0.tgz"
   }
 }
 ```

@@ -4,7 +4,7 @@ All notable changes to `@genes-ts/tooling` are recorded here. This package has
 its own version and release lifecycle; compiler/Haxelib releases do not publish
 it.
 
-## Unreleased
+## 0.5.0
 
 - Export the exact Genes output inventory reader and unowned-file guard from
   `@genes-ts/tooling/session`. One-shot hosts can now derive handoff records
