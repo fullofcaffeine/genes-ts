@@ -2733,7 +2733,7 @@
       "size": "small",
       "alwaysRun": true,
       "timeoutSeconds": 600,
-      "historicalDurationMs": 14000,
+      "historicalDurationMs": 17000,
       "cacheMode": "warm-allowed",
       "command": "yarn test:official-haxe-inventory",
       "artifacts": [
