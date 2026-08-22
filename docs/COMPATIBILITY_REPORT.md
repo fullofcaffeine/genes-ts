@@ -175,7 +175,7 @@ Sources and declared profiles compile under their owned gates; compilation alone
 
 - Disposition: `blocking`
 - Scope: The exact upstream unit entry point is typed under each Genes JavaScript profile to record active conditional, standard-library specification, and issue-regression registrations.
-- Proves: The pinned Haxe entry point registers the reviewed 1,373 test identities in each exact profile, and injected profile drift stays red.
+- Proves: The pinned Haxe entry point registers the reviewed 1,373 test identities in each exact profile, and injected profile or cached-source drift stays red.
 - Does not prove: Registration inventory does not compile these tests with Genes, target-check generated files, run the tests, or report runtime compatibility.
 - Evidence:
   - [`tests/official-haxe-inventory/manifest.json`](../tests/official-haxe-inventory/manifest.json)

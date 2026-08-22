@@ -25,7 +25,10 @@ an inventory dependency. Haxe needs its extern types to type `TestHttp` under
 the `nodejs` define. This pin does not add a runtime claim.
 
 The runner fetches each exact revision into an ignored cache. It does not copy
-the upstream test corpus into this repository.
+the upstream test corpus into this repository. The cache marker records a
+SHA-256 hash of the complete extracted source tree. The runner recalculates
+that hash on every cache hit and stops if any file, directory, or symbolic link
+differs.
 
 ## How the inventory works
 

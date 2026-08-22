@@ -446,6 +446,9 @@ Each profile registers 1,373 test methods:
 The command generates classic and TypeScript inventories independently. Their
 identities must match the reviewed files and each other.
 
+Each ignored source cache records a SHA-256 hash of its complete extracted
+tree. Every cache hit recalculates that hash before Haxe reads the source.
+
 The manifest also records inactive upstream source and later runtime
 requirements. These requirements include resources, filesystem access,
 loopback sockets, and the official HTTP echo server.

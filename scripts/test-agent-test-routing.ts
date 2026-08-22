@@ -685,6 +685,15 @@ function main(): void {
     "The plan/smoke sentinel must run routing drift validation");
   assert(planSmokeJob.includes("- run: yarn test:compatibility-report"),
     "The plan/smoke sentinel must own generated compatibility claims");
+  for (const command of [
+    "test:official-haxe-inventory",
+    "test:official-haxe-inventory:failures"
+  ]) {
+    assert(planSmokeJob.includes(`- run: yarn ${command}`),
+      `The plan/smoke sentinel must run ${command}`);
+    assert(String(packageScripts["test:ci"]).includes(`yarn ${command}`),
+      `test:ci must retain ${command}`);
+  }
   assert(releaseJob.includes("- genes-test-plan-and-smoke"),
     "Release publication must depend on the claim-bearing plan/smoke job");
   assert(stringArray(

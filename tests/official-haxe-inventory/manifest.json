@@ -1,5 +1,6 @@
 {
   "schemaVersion": 1,
+  "sourceCacheSchema": 1,
   "contract": "genes-official-haxe-active-inventory",
   "disposition": "inventory-only",
   "claim": "This manifest inventories official Haxe tests registered for the two Genes JavaScript profiles. It does not claim that Genes compiles or runs the inventoried tests.",

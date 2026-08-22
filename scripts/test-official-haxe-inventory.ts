@@ -1,9 +1,11 @@
 import {spawnSync} from "node:child_process";
+import {createHash} from "node:crypto";
 import {
   existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
+  readlinkSync,
   renameSync,
   rmSync,
   writeFileSync
@@ -60,6 +62,7 @@ interface SourceExclusions {
 
 interface Manifest {
   schemaVersion: number;
+  sourceCacheSchema: number;
   contract: string;
   disposition: "inventory-only";
   claim: string;
@@ -118,6 +121,13 @@ interface ReviewedInventory {
 interface MaterializedSource {
   root: string;
   cacheHit: boolean;
+}
+
+interface SourceMarker {
+  schemaVersion: 1;
+  repository: string;
+  revision: string;
+  treeHash: string;
 }
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -189,15 +199,22 @@ function materialize(
   environmentName: string,
   nearbyRepositories: string[]
 ): MaterializedSource {
-  const destination = path.join(cacheRoot, `${id}-${pin.revision}`);
+  const destination = path.join(
+    cacheRoot,
+    `${id}-v${manifest.sourceCacheSchema}-${pin.revision}`
+  );
   const marker = path.join(destination, ".genes-source.json");
   if (existsSync(marker)) {
-    const recorded = JSON.parse(readFileSync(marker, "utf8")) as {
-      repository: string;
-      revision: string;
-    };
-    assert(recorded.repository === pin.repository && recorded.revision === pin.revision,
+    const recorded = JSON.parse(readFileSync(marker, "utf8")) as SourceMarker;
+    assert(recorded.schemaVersion === manifest.sourceCacheSchema
+      && recorded.repository === pin.repository
+      && recorded.revision === pin.revision,
       `${id} cache marker differs from the reviewed pin`);
+    const actualTreeHash = sourceTreeHash(destination);
+    const checkedTreeHash = injection === "cache-hash-drift" && id === "haxe"
+      ? `injected-${actualTreeHash}` : actualTreeHash;
+    assert(recorded.treeHash === checkedTreeHash,
+      `${id} cached source tree differs from its reviewed revision`);
     return {root: destination, cacheHit: true};
   }
 
@@ -222,10 +239,13 @@ function materialize(
     run("git", ["-C", clone, "archive", "--format=tar", "-o", archive, "FETCH_HEAD"], repoRoot);
   }
   run("tar", ["-xf", archive, "-C", tree], repoRoot);
-  writeFileSync(markerPath(tree), JSON.stringify({
+  const recorded: SourceMarker = {
+    schemaVersion: 1,
     repository: pin.repository,
-    revision: pin.revision
-  }, null, 2) + "\n");
+    revision: pin.revision,
+    treeHash: sourceTreeHash(tree)
+  };
+  writeFileSync(markerPath(tree), JSON.stringify(recorded, null, 2) + "\n");
   renameSync(tree, destination);
   rmSync(staging, {recursive: true, force: true});
   return {root: destination, cacheHit: false};
@@ -233,6 +253,33 @@ function materialize(
 
 function markerPath(root: string): string {
   return path.join(root, ".genes-source.json");
+}
+
+function sourceTreeHash(root: string): string {
+  const hash = createHash("sha256");
+  function visit(current: string): void {
+    const entries = readdirSync(current, {withFileTypes: true})
+      .sort((left, right) => compareStrings(left.name, right.name));
+    for (const entry of entries) {
+      const absolute = path.join(current, entry.name);
+      const relative = path.relative(root, absolute).replaceAll("\\", "/");
+      if (relative === ".genes-source.json") continue;
+      if (entry.isDirectory()) {
+        hash.update(`directory\0${relative}\0`);
+        visit(absolute);
+      } else if (entry.isFile()) {
+        hash.update(`file\0${relative}\0`);
+        hash.update(readFileSync(absolute));
+        hash.update("\0");
+      } else if (entry.isSymbolicLink()) {
+        hash.update(`symlink\0${relative}\0${readlinkSync(absolute)}\0`);
+      } else {
+        throw new Error(`unsupported cached source entry: ${relative}`);
+      }
+    }
+  }
+  visit(root);
+  return hash.digest("hex");
 }
 
 function listRelativeFiles(root: string, current = root): string[] {
@@ -252,6 +299,8 @@ function validateManifest(
 ): void {
   assert(manifest.schemaVersion === 1,
     "official Haxe inventory manifest schema must be 1");
+  assert(manifest.sourceCacheSchema === 1,
+    "official Haxe source cache schema must be 1");
   assert(manifest.contract === "genes-official-haxe-active-inventory",
     "official Haxe inventory contract changed unexpectedly");
   assert(manifest.disposition === "inventory-only",
@@ -426,7 +475,9 @@ function compareOrWrite(inventory: ReviewedInventory): void {
 
 assert(process.argv.slice(2).every((argument) => argument === "--write"),
   "usage: test-official-haxe-inventory.js [--write]");
-assert(injection === undefined || injection === "profile-drift",
+assert(injection === undefined
+  || injection === "profile-drift"
+  || injection === "cache-hash-drift",
   `unknown GENES_OFFICIAL_INVENTORY_INJECT value: ${String(injection)}`);
 const haxe = materialize(
   "haxe",

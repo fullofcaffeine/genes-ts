@@ -314,7 +314,7 @@
           "expected": 2
         }
       ],
-      "proves": "The pinned Haxe entry point registers the reviewed 1,373 test identities in each exact profile, and injected profile drift stays red.",
+      "proves": "The pinned Haxe entry point registers the reviewed 1,373 test identities in each exact profile, and injected profile or cached-source drift stays red.",
       "doesNotProve": "Registration inventory does not compile these tests with Genes, target-check generated files, run the tests, or report runtime compatibility."
     },
     {

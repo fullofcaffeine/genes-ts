@@ -2732,8 +2732,8 @@
       "ring": "R0",
       "size": "small",
       "alwaysRun": true,
-      "timeoutSeconds": 120,
-      "historicalDurationMs": 6000,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": 14000,
       "cacheMode": "warm-allowed",
       "command": "yarn test:official-haxe-inventory",
       "artifacts": [
@@ -2765,7 +2765,7 @@
         "scripts/test-official-haxe-inventory.ts",
         "tests/official-haxe-inventory"
       ],
-      "proves": "An injected TypeScript-only registration stays red at the reviewed active-inventory boundary.",
+      "proves": "An injected TypeScript-only registration and an injected cached-source hash mismatch stay red at their reviewed boundaries.",
       "doesNotProve": "This sentinel does not execute an official test or cover later Genes generation and runtime failures.",
       "owners": [
         "scripts/test-official-haxe-inventory-failures.ts",
