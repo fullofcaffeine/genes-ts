@@ -29,6 +29,7 @@
     "inventory:official-haxe": "yarn build:scripts && node scripts/dist/test-official-haxe-inventory.js --write",
     "test:official-haxe-inventory": "yarn build:scripts && node scripts/dist/test-official-haxe-inventory.js",
     "test:official-haxe-inventory:failures": "yarn build:scripts && node scripts/dist/test-official-haxe-inventory-failures.js",
+    "test:official-haxe-representative": "yarn build:scripts && cross-env GENES_PORTABLE_HAXE_LANE=representative node scripts/dist/test-portable-haxe-smoke.js",
     "test:portable-haxe-smoke": "yarn build:scripts && node scripts/dist/test-portable-haxe-smoke.js",
     "test:portable-haxe-smoke:failures": "yarn build:scripts && node scripts/dist/test-portable-haxe-smoke-failures.js",
     "test:smoke": "yarn build:scripts && node scripts/dist/test-portable-haxe-smoke.js && cross-env GENES_PORTABLE_SMOKE_BASELINE_READY=1 node scripts/dist/test-portable-haxe-smoke-failures.js",

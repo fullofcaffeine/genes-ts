@@ -38,6 +38,12 @@ const failureEvidence = path.join(
 );
 const cases: FailureCase[] = [
   {
+    injection: "cache-hash-drift",
+    profile: "classic-esm",
+    timeoutMs: 120_000,
+    expectedText: "cached source tree differs from its reviewed revision"
+  },
+  {
     injection: "generation",
     profile: "classic-esm",
     timeoutMs: 120_000,
@@ -148,12 +154,11 @@ function run(environment: NodeJS.ProcessEnv = {}): {
 /**
  * Proves that every important portable-smoke failure remains red.
  *
- * The test first publishes one known-good evidence tree. It then injects a
- * generation error, invalid target source, strict TypeScript error, module-load
- * error, assertion failure, runtime exception, runtime timeout, publication
- * rollback, and missing active identity. Every attempt must exit nonzero, name
- * its failure, retain a separate diagnostic tree, and leave the public
- * last-good evidence tree byte-identical.
+ * The test first publishes one known-good evidence tree. It then injects
+ * source-cache drift, generation and target errors, assertion failures,
+ * runtime failures, publication rollback, and missing active evidence. Every
+ * attempt must exit nonzero, name its failure, retain a separate diagnostic
+ * tree, and leave the public last-good evidence tree byte-identical.
  */
 function main(): void {
   rmSync(failureEvidence, {recursive: true, force: true});

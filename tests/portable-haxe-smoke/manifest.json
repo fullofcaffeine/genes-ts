@@ -1,5 +1,6 @@
 {
   "schemaVersion": 1,
+  "sourceCacheSchema": 1,
   "contract": "genes-official-haxe-smoke",
   "haxe": {
     "repository": "https://github.com/HaxeFoundation/haxe.git",
