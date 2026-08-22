@@ -86,9 +86,10 @@ waits for the same-run `Analyze (JavaScript)` CodeQL job and the representative
 official-Haxe job. The representative report records each classic and
 TypeScript method outcome separately, its reviewed exclusions, the exact
 source commit and workflow run, and the artifact name
-`official-haxe-release-<40-character-sha>`. Keeping either claim-bearing check
-in a separate workflow would preserve its branch-protection status but would
-not give the release job an exact-SHA dependency edge.
+`official-haxe-release-<40-character-sha>-run-<run-id>-attempt-<attempt>`.
+Keeping either claim-bearing check in a separate workflow would preserve its
+branch-protection status but would not give the release job an exact-SHA
+dependency edge.
 
 Only that final job receives `contents: write`. It checks out `github.sha`
 with full history and rebuilds from the frozen dependency graph. A newer push

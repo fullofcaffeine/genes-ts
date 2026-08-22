@@ -451,7 +451,8 @@ The machine report keeps all outcomes separate. In hosted runs it also records
 the scheduled or release scope, exact commit, run identity, reviewed
 exclusions, and exact artifact name. Compiler publication depends on that
 same-run job. CI uploads the complete tree as
-`official-haxe-<scope>-<40-character-sha>`.
+`official-haxe-<scope>-<40-character-sha>-run-<run-id>-attempt-<attempt>`.
+The final two fields distinguish reruns of the same commit.
 
 The report does not combine the profiles or calculate a compatibility
 percentage. See

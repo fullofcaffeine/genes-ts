@@ -713,11 +713,18 @@ function main(): void {
   assert(representativeJob.includes(
     "- run: yarn test:official-haxe-representative"
   ), "Representative evidence job must run the stable public command");
+  assert(representativeJob.includes(
+    "name: Official Haxe representative evidence"
+  ), "Representative evidence must keep a stable hosted check name");
   assert(representativeJob.includes("timeout-minutes: 30"),
     "Representative evidence job must have a reviewed runtime bound");
   assert(representativeJob.includes(
     "name: ${{ env.GENES_OFFICIAL_HAXE_EVIDENCE_ARTIFACT }}"
   ), "Representative evidence artifact must carry its scope and exact SHA");
+  for (const identity of ["github.run_id", "github.run_attempt"]) {
+    assert(representativeJob.includes(identity),
+      `Representative artifact identity must include ${identity}`);
+  }
   assert(!planSmokeJob.includes("test:official-haxe-representative"),
     "Normal pull-request smoke must not run the representative lane");
   assert(stringArray(

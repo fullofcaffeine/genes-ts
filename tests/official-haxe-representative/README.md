@@ -44,8 +44,10 @@ The report keeps the two profiles and all method outcomes separate:
 
 On GitHub, the report also records the scheduled or release scope, exact source
 commit, run ID and attempt, and the artifact identity. CI uploads the complete
-evidence tree as `official-haxe-<scope>-<40-character-sha>`. The manifest and
-report reconcile the five selected methods against all 1,373 reviewed active
+evidence tree as
+`official-haxe-<scope>-<40-character-sha>-run-<run-id>-attempt-<attempt>`.
+The run and attempt make rerun artifacts unambiguous. The manifest and report
+reconcile the five selected methods against all 1,373 reviewed active
 registrations, and name the deferred capability shards and claims.
 
 This lane does not calculate a compatibility percentage. It does not claim

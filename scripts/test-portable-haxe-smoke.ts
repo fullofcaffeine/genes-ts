@@ -250,11 +250,20 @@ function workflowEvidence(): {
   const runAttempt = Number.parseInt(process.env.GITHUB_RUN_ATTEMPT ?? "", 10);
   assert(/^[0-9a-f]{40}$/.test(sourceRevision),
     "Official Haxe workflow evidence requires the exact 40-character GitHub SHA");
+  const checkout = spawnSync("git", ["rev-parse", "HEAD"], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert(checkout.status === 0,
+    "Official Haxe workflow evidence could not resolve the checked-out commit");
+  assert(checkout.stdout.trim() === sourceRevision,
+    "Official Haxe workflow evidence SHA differs from the checked-out commit");
   assert(/^\d+$/.test(runId),
     "Official Haxe workflow evidence requires the GitHub run ID");
   assert(Number.isInteger(runAttempt) && runAttempt > 0,
     "Official Haxe workflow evidence requires a positive GitHub run attempt");
-  const expectedArtifact = `official-haxe-${workflowScope}-${sourceRevision}`;
+  const expectedArtifact = `official-haxe-${workflowScope}-${sourceRevision}`
+    + `-run-${runId}-attempt-${runAttempt}`;
   assert(workflowArtifact === expectedArtifact,
     `Official Haxe artifact identity changed: expected ${expectedArtifact}`);
   return {
@@ -1164,9 +1173,11 @@ function run(): void {
         local: manifest.runnerAdaptation.local
       },
       executionScopes: manifest.executionScopes,
-      activeTests: manifest.activeTests,
-      exclusions: manifest.exclusions,
-      workflowEvidence: declaredWorkflowEvidence,
+      ...(lane === "representative" ? {
+        activeTests: manifest.activeTests,
+        exclusions: manifest.exclusions,
+        workflowEvidence: declaredWorkflowEvidence
+      } : {}),
       toolchains: {
         haxe: manifest.haxe.version,
         node: process.version,

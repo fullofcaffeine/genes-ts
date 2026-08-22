@@ -267,7 +267,7 @@ jobs:
     timeout-minutes: 30
     env:
       GENES_OFFICIAL_HAXE_EVIDENCE_SCOPE: ${{ github.event_name == 'schedule' && 'scheduled' || 'release' }}
-      GENES_OFFICIAL_HAXE_EVIDENCE_ARTIFACT: official-haxe-${{ github.event_name == 'schedule' && 'scheduled' || 'release' }}-${{ github.sha }}
+      GENES_OFFICIAL_HAXE_EVIDENCE_ARTIFACT: official-haxe-${{ github.event_name == 'schedule' && 'scheduled' || 'release' }}-${{ github.sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
         with:
