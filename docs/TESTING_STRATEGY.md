@@ -156,7 +156,8 @@ Use these commands:
 | Command | What it does now | What it does not yet do |
 | --- | --- | --- |
 | `yarn test:focus -- <gate-id-or-path>` | Runs one smallest matching focused owner and writes its selection and log under `.tmp/test-evidence/test-plan/`. An exact gate ID is the most predictable form. | It is not a merge gate and deliberately omits unrelated matrices. |
-| `yarn test:smoke` | Packages the current Genes checkout, compiles the same five official Haxe tests through classic JS and TypeScript, target-checks both, executes both, then proves ten failure classes stay red. | It is not the complete official Haxe suite or broad Genes acceptance. |
+| `yarn test:smoke` | Packages the current Genes checkout, compiles the same six official Haxe tests through classic JS and TypeScript, target-checks both, executes both, then proves eleven failure classes stay red. | It is not the complete official Haxe suite or broad Genes acceptance. |
+| `yarn test:official-haxe-representative` | Runs five official methods in separate classic and TypeScript cells. Each cell must match its reviewed pass or owned known-problem outcome. | It is not a quick edit loop, the complete suite, or a compatibility percentage. |
 | `yarn test:ci:explain` | Reports selected and omitted gates, matching rules, unknown or ambiguous paths, estimated known duration, and remote jobs without running them. | The selected plan is observation-only. |
 | `yarn test:pr` | Reproduces the plan locally. During observation it still executes `test:ci` whenever the full backstop is selected. | It does not replace the hosted required gate. |
 | `yarn test:full` | Runs the current complete local `test:ci` contract. | A local run does not prove hosted settings or release publication. |
@@ -232,8 +233,8 @@ coverage. Every non-documentation pull request still runs:
 
 - plan/provenance validation;
 - the official Haxe both-profile smoke;
-- all ten failure-propagation checks, including a silently omitted assertion
-  count; and
+- all eleven failure-propagation checks, including source-cache drift and a
+  silently omitted assertion count; and
 - the existing required `genes-ts` full job.
 
 The selector must complete at least 30 representative pull-request/main runs
@@ -431,6 +432,25 @@ module-load, assertion, runtime-exception, timeout, and missing-active-test
 failures. Every case must exit nonzero, keep a diagnostic tree, and leave the
 last successful public evidence tree byte-identical.
 
+### Current representative official-suite lane
+
+`yarn test:official-haxe-representative` adds five methods from the reviewed
+inventory. Each method runs in a separate compilation for each profile.
+
+The manifest requires an exact result for each method and profile. A passing
+result has a reviewed assertion count. A known problem has a phase, diagnostic
+text, and Bead owner. A changed result fails until a reviewer updates the
+manifest. Each selected identity and source must also occur in both reviewed
+registration files.
+
+This command is for the scheduled and release scopes. Bead `genes-brxy.5` owns
+the workflow enrollment. The quick scope continues to use `yarn test:smoke`.
+
+The machine report keeps all outcomes separate. It does not combine the
+profiles or calculate a compatibility percentage. See
+[`tests/official-haxe-representative/README.md`](../tests/official-haxe-representative/README.md)
+for the current methods and outcomes.
+
 ### Complete active registration inventory
 
 `yarn test:official-haxe-inventory` records the complete active registration
@@ -460,10 +480,10 @@ This inventory does not claim that Genes compiles or runs all 1,373 methods.
 
 ### Remaining official-Haxe work
 
-Representative expansion, runtime capability shards, the Haxe preview source
-manifest, and the full release-package suite remain tracked work. Do not turn
-the six-test result into a compatibility percentage or say Genes “passes the
-Haxe suite.”
+Runtime capability shards, workflow enrollment for the representative lane,
+the Haxe preview source manifest, and the full release-package suite remain
+tracked work. Do not turn these results into a compatibility percentage or say
+Genes “passes the Haxe suite.”
 
 ## Measured starting point
 
