@@ -128,6 +128,7 @@ for (const dependency of [
   "beads-worktree-safety",
   "beads-pinned-client",
   "codeql",
+  "official-haxe-representative",
   "secrets",
   "vulns",
   "classic",

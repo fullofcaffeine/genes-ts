@@ -443,11 +443,19 @@ text, and Bead owner. A changed result fails until a reviewer updates the
 manifest. Each selected identity and source must also occur in both reviewed
 registration files.
 
-This command is for the scheduled and release scopes. Bead `genes-brxy.5` owns
-the workflow enrollment. The quick scope continues to use `yarn test:smoke`.
+The daily schedule and every release-eligible push to `main` run this command.
+The quick pull-request scope continues to use `yarn test:smoke`, and manual
+dispatches do not create representative release evidence.
 
-The machine report keeps all outcomes separate. It does not combine the
-profiles or calculate a compatibility percentage. See
+The machine report keeps all outcomes separate. In hosted runs it also records
+the scheduled or release scope, exact commit, run identity, reviewed
+exclusions, and exact artifact name. Compiler publication depends on that
+same-run job. CI uploads the complete tree as
+`official-haxe-<scope>-<40-character-sha>-run-<run-id>-attempt-<attempt>`.
+The final two fields distinguish reruns of the same commit.
+
+The report does not combine the profiles or calculate a compatibility
+percentage. See
 [`tests/official-haxe-representative/README.md`](../tests/official-haxe-representative/README.md)
 for the current methods and outcomes.
 

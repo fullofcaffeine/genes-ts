@@ -92,6 +92,14 @@ interface PortableManifest {
       enrollmentOwner: string;
     };
   };
+  exclusions?: {
+    activeRegistrationsPerProfile: number;
+    selectedPerProfile: number;
+    excludedPerProfile: number;
+    basis: string;
+    capabilityShards: string[];
+    claims: string[];
+  };
   claim: string;
 }
 
@@ -217,6 +225,60 @@ assert(injection === undefined || validInjections.has(injection),
   `Unknown GENES_PORTABLE_SMOKE_INJECT value: ${String(injection)}`);
 assert(injectionProfile === "classic-esm" || injectionProfile === "typescript",
   `Unknown GENES_PORTABLE_SMOKE_INJECT_PROFILE: ${injectionProfile}`);
+
+const workflowScope = process.env.GENES_OFFICIAL_HAXE_EVIDENCE_SCOPE;
+const workflowArtifact = process.env.GENES_OFFICIAL_HAXE_EVIDENCE_ARTIFACT;
+
+function workflowEvidence(): {
+  scope: "scheduled" | "release";
+  sourceRevision: string;
+  runId: string;
+  runAttempt: number;
+  artifact: {name: string; path: string};
+} | undefined {
+  if (workflowScope === undefined) {
+    assert(workflowArtifact === undefined,
+      "Official Haxe artifact identity requires a scheduled or release scope");
+    return undefined;
+  }
+  assert(lane === "representative",
+    "Workflow evidence scope is valid only for the representative lane");
+  assert(workflowScope === "scheduled" || workflowScope === "release",
+    `Unknown official Haxe evidence scope: ${workflowScope}`);
+  const sourceRevision = process.env.GITHUB_SHA ?? "";
+  const runId = process.env.GITHUB_RUN_ID ?? "";
+  const runAttempt = Number.parseInt(process.env.GITHUB_RUN_ATTEMPT ?? "", 10);
+  assert(/^[0-9a-f]{40}$/.test(sourceRevision),
+    "Official Haxe workflow evidence requires the exact 40-character GitHub SHA");
+  const checkout = spawnSync("git", ["rev-parse", "HEAD"], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert(checkout.status === 0,
+    "Official Haxe workflow evidence could not resolve the checked-out commit");
+  assert(checkout.stdout.trim() === sourceRevision,
+    "Official Haxe workflow evidence SHA differs from the checked-out commit");
+  assert(/^\d+$/.test(runId),
+    "Official Haxe workflow evidence requires the GitHub run ID");
+  assert(Number.isInteger(runAttempt) && runAttempt > 0,
+    "Official Haxe workflow evidence requires a positive GitHub run attempt");
+  const expectedArtifact = `official-haxe-${workflowScope}-${sourceRevision}`
+    + `-run-${runId}-attempt-${runAttempt}`;
+  assert(workflowArtifact === expectedArtifact,
+    `Official Haxe artifact identity changed: expected ${expectedArtifact}`);
+  return {
+    scope: workflowScope,
+    sourceRevision,
+    runId,
+    runAttempt,
+    artifact: {
+      name: expectedArtifact,
+      path: path.relative(repoRoot, publicEvidenceRoot)
+    }
+  };
+}
+
+const declaredWorkflowEvidence = workflowEvidence();
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -553,6 +615,24 @@ function validateManifest(haxeRoot: string, utestRoot: string): void {
         `${profile.id}.json`
       ), "utf8")
     ) as OfficialInventory);
+    assert(manifest.exclusions !== undefined,
+      "Representative evidence must declare its exact exclusions");
+    assert(inventories.every((inventory) =>
+      inventory.activeTests.length
+        === manifest.exclusions?.activeRegistrationsPerProfile),
+    "Representative exclusion total differs from the reviewed inventories");
+    assert(manifest.exclusions.selectedPerProfile === manifest.activeTests.length,
+      "Representative selected-test count differs from its exclusions record");
+    assert(manifest.exclusions.excludedPerProfile
+      === manifest.exclusions.activeRegistrationsPerProfile
+        - manifest.exclusions.selectedPerProfile,
+    "Representative excluded-test count does not reconcile");
+    assert(manifest.exclusions.basis.trim().length > 0,
+      "Representative exclusions require an explicit selection basis");
+    assert(manifest.exclusions.capabilityShards.length > 0,
+      "Representative exclusions must name deferred capability shards");
+    assert(manifest.exclusions.claims.length > 0,
+      "Representative exclusions must name claims this lane does not make");
     for (const test of manifest.activeTests) {
       assert(typeof test.define === "string" && test.define.length > 0,
         `${test.id} must declare its selection define`);
@@ -1093,6 +1173,11 @@ function run(): void {
         local: manifest.runnerAdaptation.local
       },
       executionScopes: manifest.executionScopes,
+      ...(lane === "representative" ? {
+        activeTests: manifest.activeTests,
+        exclusions: manifest.exclusions,
+        workflowEvidence: declaredWorkflowEvidence
+      } : {}),
       toolchains: {
         haxe: manifest.haxe.version,
         node: process.version,
