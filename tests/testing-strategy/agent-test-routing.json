@@ -32,7 +32,7 @@
       "exampleIds": ["todoapp", "typescript-target"],
       "claimCeiling": "The checked compiler and example corpora; not arbitrary Haxe ecosystem compatibility.",
       "lastCleanProof": "The current required main/release gates; run results live in GitHub Actions rather than this deterministic manifest.",
-      "residualRisks": ["The complete applicable official Haxe inventory remains tracked separately from the six-test smoke."]
+      "residualRisks": ["The complete applicable official Haxe inventory is registration evidence only; representative runtime expansion remains separate from the six-test smoke."]
     },
     {
       "id": "typescript-source-runtime",
@@ -2692,6 +2692,109 @@
       ]
     },
     {
+      "id": "official-haxe-inventory",
+      "packageScript": "test:official-haxe-inventory",
+      "runnerToken": "scripts/dist/test-official-haxe-inventory.js",
+      "tier": "focused",
+      "cost": "fast",
+      "axes": [
+        "portable-haxe"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "determinism",
+        "policy"
+      ],
+      "ownerPaths": [
+        "scripts/test-official-haxe-inventory.ts",
+        "tests/official-haxe-inventory"
+      ],
+      "proves": "The pinned Haxe 4.3.7 unit entry point registers the reviewed 1,373 test identities under each exact Genes JavaScript profile, with explicit capability rules and exclusions.",
+      "doesNotProve": "The inventory does not compile these tests with Genes, target-check generated output, execute a test, or report runtime compatibility.",
+      "owners": [
+        "scripts/test-official-haxe-inventory.ts",
+        "tests/official-haxe-inventory"
+      ],
+      "families": [
+        "compiler",
+        "determinism",
+        "policy"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "determinism",
+        "policy"
+      ],
+      "ring": "R0",
+      "size": "small",
+      "alwaysRun": true,
+      "timeoutSeconds": 120,
+      "historicalDurationMs": 6000,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:official-haxe-inventory",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/official-haxe-inventory.log"
+      ],
+      "remoteJobs": [
+        "genes-test-plan-and-smoke"
+      ]
+    },
+    {
+      "id": "official-haxe-inventory-drift",
+      "packageScript": "test:official-haxe-inventory:failures",
+      "runnerToken": "scripts/dist/test-official-haxe-inventory-failures.js",
+      "tier": "focused",
+      "cost": "fast",
+      "axes": [
+        "portable-haxe"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "determinism",
+        "policy"
+      ],
+      "ownerPaths": [
+        "scripts/test-official-haxe-inventory-failures.ts",
+        "scripts/test-official-haxe-inventory.ts",
+        "tests/official-haxe-inventory"
+      ],
+      "proves": "An injected TypeScript-only registration stays red at the reviewed active-inventory boundary.",
+      "doesNotProve": "This sentinel does not execute an official test or cover later Genes generation and runtime failures.",
+      "owners": [
+        "scripts/test-official-haxe-inventory-failures.ts",
+        "scripts/test-official-haxe-inventory.ts",
+        "tests/official-haxe-inventory"
+      ],
+      "families": [
+        "determinism",
+        "policy"
+      ],
+      "capabilities": [
+        "determinism",
+        "policy"
+      ],
+      "ring": "R0",
+      "size": "small",
+      "alwaysRun": true,
+      "timeoutSeconds": 300,
+      "historicalDurationMs": 6000,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:official-haxe-inventory:failures",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/official-haxe-inventory-drift.log"
+      ],
+      "remoteJobs": [
+        "genes-test-plan-and-smoke"
+      ]
+    },
+    {
       "id": "portable-haxe-smoke",
       "packageScript": "test:portable-haxe-smoke",
       "runnerToken": "scripts/dist/test-portable-haxe-smoke.js",
@@ -3598,6 +3701,7 @@
         "scripts/prepare-test-tools.mjs",
         "scripts/acceptance-gate-ownership.ts",
         "tests/testing-strategy/**",
+        "tests/official-haxe-inventory/**",
         ".audit/**",
         ".github/workflows/**",
         "docs/TESTING_STRATEGY.md",
@@ -3617,6 +3721,14 @@
           "when": "test-tool compilation, preparation caching, or compiled-runner freshness changes"
         },
         {
+          "gate": "official-haxe-inventory",
+          "when": "official test registration, profile defines, source pins, capability rules, or exclusions change"
+        },
+        {
+          "gate": "official-haxe-inventory-drift",
+          "when": "profile or reviewed-inventory drift detection changes"
+        },
+        {
           "gate": "portable-haxe-smoke",
           "when": "official source provenance, active smoke identity, target checking, or dual-profile runtime changes"
         },
@@ -3628,6 +3740,7 @@
       "inspect": [
         "selection explanation and omitted reasons",
         "prepared source/output hashes",
+        "reviewed active official Haxe inventories and capability rules",
         "portable smoke report and retained failure artifacts"
       ],
       "then": [
@@ -3646,7 +3759,7 @@
     }
   ],
   "plannedPortableHaxeEvidence": {
-    "status": "smoke-implemented",
+    "status": "inventory-and-smoke-implemented",
     "currentClaim": "Each Genes profile passes the published six-test official Haxe 4.3.7 smoke subset after target checking and Node execution. This is not the complete applicable official tests/unit contract.",
     "haxeRevision": "e0b355c6be312c1b17382603f018cf52522ec651",
     "utestRevision": "a94f8812e8786f2b5fec52ce9f26927591d26327",
@@ -3658,7 +3771,7 @@
       {
         "id": "inventory",
         "bead": "genes-brxy.1",
-        "outcome": "Pin upstream provenance and generate the exact active JavaScript-target test identity for each profile."
+        "outcome": "Implemented as separate reviewed 1,373-test classic and TypeScript registration inventories with explicit capability requirements and exclusions."
       },
       {
         "id": "smoke",

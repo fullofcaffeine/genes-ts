@@ -206,7 +206,7 @@ jobs:
       - run: yarn test
 
   genes-test-plan-and-smoke:
-    name: Genes test plan + official Haxe smoke
+    name: Genes test plan + official Haxe inventory/smoke
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -233,6 +233,11 @@ jobs:
         with:
           path: .cache/portable-haxe-smoke
           key: ${{ runner.os }}-portable-haxe-smoke-${{ hashFiles('tests/portable-haxe-smoke/manifest.json') }}
+      - name: Cache pinned official Haxe inventory source
+        uses: actions/cache@v4
+        with:
+          path: .cache/official-haxe-inventory
+          key: ${{ runner.os }}-official-haxe-inventory-${{ hashFiles('tests/official-haxe-inventory/manifest.json') }}
       - run: yarn install --frozen-lockfile
       - run: yarn lix install haxe ${{ steps.toolchains.outputs.haxe-stable }}
       - run: yarn lix use haxe ${{ steps.toolchains.outputs.haxe-stable }}
@@ -240,14 +245,17 @@ jobs:
       - run: yarn test:ci:explain
       - run: yarn test:agent-test-routing
       - run: yarn test:compatibility-report
+      - run: yarn test:official-haxe-inventory
+      - run: yarn test:official-haxe-inventory:failures
       - run: yarn test:smoke
       - name: Preserve selection, timings, generated source, and failure evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: genes-test-plan-and-portable-smoke
+          name: genes-test-plan-and-official-haxe
           path: |
             .tmp/test-evidence/test-plan
+            .tmp/official-haxe-inventory
             .tmp/test-evidence/portable-haxe-smoke
             .tmp/test-evidence/portable-haxe-smoke-failures
           if-no-files-found: error
