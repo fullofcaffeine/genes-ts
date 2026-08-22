@@ -261,7 +261,7 @@ jobs:
           if-no-files-found: error
 
   official-haxe-representative:
-    name: Official Haxe representative (${{ github.event_name == 'schedule' && 'scheduled' || 'release' }})
+    name: Official Haxe representative evidence
     if: github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     timeout-minutes: 30
