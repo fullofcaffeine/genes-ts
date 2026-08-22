@@ -291,6 +291,8 @@ function main(): void {
     enumValues(gateAxes, validAxes, `${id}.axes`);
     if (gateAxes.includes("portable-haxe"))
       assert([
+        "official-haxe-inventory",
+        "official-haxe-inventory-drift",
         "portable-haxe-smoke",
         "portable-haxe-failure-propagation"
       ].includes(id), `${id} has no reviewed portable-Haxe evidence owner`);
@@ -514,6 +516,10 @@ function main(): void {
     "Ambiguous ownership must expand to full");
   assert(selectionPolicy.currentRequiredBackstop === "full-ci",
     "The existing full gate must remain authoritative during observation");
+  assert(gatesById.get("official-haxe-inventory")?.alwaysRun === true,
+    "Official Haxe inventory must remain an always-run non-docs sentinel");
+  assert(gatesById.get("official-haxe-inventory-drift")?.alwaysRun === true,
+    "Official Haxe inventory drift must remain an always-run non-docs sentinel");
   assert(gatesById.get("portable-haxe-smoke")?.alwaysRun === true,
     "Portable Haxe smoke must remain an always-run non-docs sentinel");
   assert(gatesById.get("portable-haxe-failure-propagation")?.alwaysRun === true,
@@ -525,8 +531,8 @@ function main(): void {
     manifest.plannedPortableHaxeEvidence,
     "plannedPortableHaxeEvidence"
   );
-  assert(planned.status === "smoke-implemented",
-    "Portable Haxe evidence status must match the implemented smoke boundary");
+  assert(planned.status === "inventory-and-smoke-implemented",
+    "Portable Haxe evidence status must match the implemented inventory and smoke boundaries");
   assert(
     planned.haxeRevision === "e0b355c6be312c1b17382603f018cf52522ec651",
     "Official Haxe evidence revision drifted without a reviewed manifest update"
@@ -552,6 +558,20 @@ function main(): void {
       `Portable Haxe stage ${index} owner drifted: expected ${expectedStages[index]?.[1]}`);
     text(stage.outcome, `planned portable stage ${index}.outcome`);
   }
+  const officialInventoryManifest = record(JSON.parse(readFileSync(
+    path.join(repoRoot, "tests", "official-haxe-inventory", "manifest.json"),
+    "utf8"
+  )) as unknown, "official Haxe inventory manifest");
+  assert(officialInventoryManifest.contract === "genes-official-haxe-active-inventory",
+    "Official Haxe inventory manifest contract changed unexpectedly");
+  assert(officialInventoryManifest.disposition === "inventory-only",
+    "Official Haxe inventory must state its no-runtime-claim boundary");
+  const officialExpected = record(
+    officialInventoryManifest.expected,
+    "official Haxe inventory expected"
+  );
+  assert(officialExpected.testsPerProfile === 1373,
+    "Official Haxe inventory reviewed count drifted");
   const portableManifest = record(JSON.parse(readFileSync(
     path.join(repoRoot, "tests", "portable-haxe-smoke", "manifest.json"),
     "utf8"
@@ -665,6 +685,15 @@ function main(): void {
     "The plan/smoke sentinel must run routing drift validation");
   assert(planSmokeJob.includes("- run: yarn test:compatibility-report"),
     "The plan/smoke sentinel must own generated compatibility claims");
+  for (const command of [
+    "test:official-haxe-inventory",
+    "test:official-haxe-inventory:failures"
+  ]) {
+    assert(planSmokeJob.includes(`- run: yarn ${command}`),
+      `The plan/smoke sentinel must run ${command}`);
+    assert(String(packageScripts["test:ci"]).includes(`yarn ${command}`),
+      `test:ci must retain ${command}`);
+  }
   assert(releaseJob.includes("- genes-test-plan-and-smoke"),
     "Release publication must depend on the claim-bearing plan/smoke job");
   assert(stringArray(
@@ -732,7 +761,7 @@ function main(): void {
   );
 
   console.log(
-    `agent-test-routing:ok (${gateIds.length} gates, ${surfaceIds.length} product surfaces, ${routeIds.length} routes, ${impactRuleIds.length} impact rules, portable smoke implemented)`
+    `agent-test-routing:ok (${gateIds.length} gates, ${surfaceIds.length} product surfaces, ${routeIds.length} routes, ${impactRuleIds.length} impact rules, portable inventory and smoke implemented)`
   );
 }
 

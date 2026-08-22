@@ -31,7 +31,7 @@ Each row is an independent claim boundary. A green gate may cover several rows, 
 - Compatibility evidence: `compiler-output-inventory`, `runtime-semantic-differentials`, `official-haxe-dual-profile-smoke`
 - Maintained examples: `todoapp`, `typescript-target`
 - Last clean proof: The current required main/release gates; run results live in GitHub Actions rather than this deterministic manifest.
-- Residual risks: The complete applicable official Haxe inventory remains tracked separately from the six-test smoke.
+- Residual risks: The complete applicable official Haxe inventory is registration evidence only; representative runtime expansion remains separate from the six-test smoke.
 
 ### Typed TypeScript generation and runtime
 
@@ -123,6 +123,8 @@ Each row is an independent claim boundary. A green gate may cover several rows, 
 | Snapshot stability | ts2hx reviewed snapshot files | 50 | `blocking` |
 | Runtime smoke and E2E | Same-source dual-profile examples | 2 | `blocking` |
 | Runtime smoke and E2E | Todoapp browser journeys run in each profile | 4 | `blocking` |
+| Compile inventory | Reviewed active official Haxe test registrations per profile | 1373 | `blocking` |
+| Compile inventory | Independently generated registration profiles | 2 | `blocking` |
 | Runtime smoke and E2E | Reviewed active official Haxe test identities | 6 | `blocking` |
 | Runtime smoke and E2E | Independently executed Genes profiles | 2 | `blocking` |
 | Runtime smoke and E2E | Hash-pinned local harness adaptation files | 4 | `blocking` |
@@ -168,6 +170,21 @@ Sources and declared profiles compile under their owned gates; compilation alone
 - Gates:
   - `yarn test`
   - `yarn test:acceptance`
+
+### Pinned official Haxe 4.3.7 active registration inventory
+
+- Disposition: `blocking`
+- Scope: The exact upstream unit entry point is typed under each Genes JavaScript profile to record active conditional, standard-library specification, and issue-regression registrations.
+- Proves: The pinned Haxe entry point registers the reviewed 1,373 test identities in each exact profile, and injected profile or cached-source drift stays red.
+- Does not prove: Registration inventory does not compile these tests with Genes, target-check generated files, run the tests, or report runtime compatibility.
+- Evidence:
+  - [`tests/official-haxe-inventory/manifest.json`](../tests/official-haxe-inventory/manifest.json)
+  - [`tests/official-haxe-inventory/inventories`](../tests/official-haxe-inventory/inventories)
+  - [`scripts/test-official-haxe-inventory.ts`](../scripts/test-official-haxe-inventory.ts)
+  - [`scripts/test-official-haxe-inventory-failures.ts`](../scripts/test-official-haxe-inventory-failures.ts)
+- Gates:
+  - `yarn test:official-haxe-inventory`
+  - `yarn test:official-haxe-inventory:failures`
 
 ## Strict public typing
 

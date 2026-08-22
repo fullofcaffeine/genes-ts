@@ -1,0 +1,145 @@
+{
+  "schemaVersion": 1,
+  "sourceCacheSchema": 1,
+  "contract": "genes-official-haxe-active-inventory",
+  "disposition": "inventory-only",
+  "claim": "This manifest inventories official Haxe tests registered for the two Genes JavaScript profiles. It does not claim that Genes compiles or runs the inventoried tests.",
+  "haxe": {
+    "repository": "https://github.com/HaxeFoundation/haxe.git",
+    "version": "4.3.7",
+    "revision": "e0b355c6be312c1b17382603f018cf52522ec651",
+    "license": "MIT",
+    "licensePath": "extra/LICENSE.txt"
+  },
+  "utest": {
+    "repository": "https://github.com/haxe-utest/utest.git",
+    "revision": "a94f8812e8786f2b5fec52ce9f26927591d26327",
+    "license": "MIT",
+    "licensePath": "haxelib.json"
+  },
+  "inventoryDependencies": [
+    {
+      "id": "hxnodejs",
+      "repository": "https://github.com/HaxeFoundation/hxnodejs.git",
+      "version": "12.2.0",
+      "revision": "c9450595b2337587bcdaeacf159019531925f25d",
+      "license": "MIT",
+      "licensePath": "LICENSE.md",
+      "reason": "The official JavaScript registration activates TestHttp under nodejs. Haxe must type that case before the post-typing inventory can be observed; this dependency does not establish a runtime result."
+    }
+  ],
+  "profiles": [
+    {
+      "id": "classic-esm",
+      "defines": [
+        "analyzer-optimize",
+        "analyzer-user-var-fusion",
+        "js-es=6",
+        "nodejs"
+      ]
+    },
+    {
+      "id": "typescript",
+      "defines": [
+        "analyzer-optimize",
+        "analyzer-user-var-fusion",
+        "genes.ts",
+        "js-es=6",
+        "nodejs"
+      ]
+    }
+  ],
+  "profileComparison": "identical-active-tests",
+  "compilerRequest": {
+    "target": "js",
+    "main": "unit.TestMain",
+    "dce": "full",
+    "debug": true,
+    "noOutput": true
+  },
+  "expected": {
+    "testsPerProfile": 1373,
+    "familiesPerProfile": {
+      "unit": 250,
+      "unitstd": 67,
+      "issue": 1056
+    }
+  },
+  "capabilityRules": [
+    {
+      "id": "hxnodejs-types",
+      "phase": "inventory",
+      "selectors": [
+        {"kind": "case", "value": "unit.TestHttp"}
+      ],
+      "reason": "Typing the active nodejs registration requires the pinned hxnodejs extern surface."
+    },
+    {
+      "id": "node-runtime",
+      "phase": "future-runtime",
+      "selectors": [
+        {"kind": "all"}
+      ],
+      "reason": "Later Genes evidence must execute each selected JavaScript profile under the reviewed Node runtime."
+    },
+    {
+      "id": "embedded-resources",
+      "phase": "future-runtime",
+      "selectors": [
+        {"kind": "case", "value": "unit.TestResource"},
+        {"kind": "case", "value": "unit.TestSerializerCrossTarget"}
+      ],
+      "reason": "These tests consume the three official resource fixtures declared by tests/unit/compile-each.hxml."
+    },
+    {
+      "id": "writable-filesystem",
+      "phase": "future-runtime",
+      "selectors": [
+        {"kind": "case", "value": "unit.TestResource"},
+        {"kind": "case-prefix", "value": "unit.spec.sys.io."}
+      ],
+      "reason": "These tests read or write files in the official unit-test working directory."
+    },
+    {
+      "id": "loopback-sockets",
+      "phase": "future-runtime",
+      "selectors": [
+        {"kind": "case-prefix", "value": "unit.spec.sys.net."}
+      ],
+      "reason": "The active sys.net specification binds and connects local TCP sockets."
+    },
+    {
+      "id": "echo-server-20200",
+      "phase": "future-runtime",
+      "selectors": [
+        {"kind": "case", "value": "unit.TestHttp"}
+      ],
+      "reason": "The official HTTP tests require the Haxe test echo server on localhost:20200."
+    }
+  ],
+  "excludedRegistrations": [
+    {
+      "id": "commented-test-case",
+      "caseId": "unit.TestUnspecified",
+      "source": "src/unit/TestUnspecified.hx",
+      "reason": "The pinned upstream TestMain comments out this case, so it is source material but not an active registration."
+    },
+    {
+      "id": "disabled-source-files",
+      "sources": [
+        "src/unit/hxcpp_issues/Issue193.hx.disabled",
+        "src/unit/issues/Issue10821.hx.disabled",
+        "src/unit/issues/Issue2668.hx.disabled",
+        "src/unit/issues/Issue2857.hx.disabled",
+        "src/unit/issues/Issue3033.hx.disabled",
+        "src/unit/issues/Issue3414.hx.disabled",
+        "src/unit/issues/Issue4564.hx.disabled",
+        "src/unit/issues/Issue4581.hx.wtf",
+        "src/unit/issues/Issue5110.hx.disabled",
+        "src/unitstd/Https.unit.hx.no",
+        "src/unitstd/haxe/Http.unit.hx.disabled"
+      ],
+      "reason": "The upstream issue/specification discovery macros accept only .hx and .unit.hx suffixes; these explicitly disabled files are not registrations."
+    }
+  ]
+}

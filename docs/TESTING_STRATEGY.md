@@ -431,12 +431,39 @@ module-load, assertion, runtime-exception, timeout, and missing-active-test
 failures. Every case must exit nonzero, keep a diagnostic tree, and leave the
 last successful public evidence tree byte-identical.
 
+### Complete active registration inventory
+
+`yarn test:official-haxe-inventory` records the complete active registration
+set before Genes compilation or runtime execution. It reads the typed upstream
+`unit.TestMain` program after conditional compilation and macro expansion.
+
+Each profile registers 1,373 test methods:
+
+- 250 main unit methods.
+- 67 generated standard-library specification methods.
+- 1,056 issue-regression methods.
+
+The command generates classic and TypeScript inventories independently. Their
+identities must match the reviewed files and each other.
+
+Each ignored source cache records a SHA-256 hash of its complete extracted
+tree. Every cache hit recalculates that hash before Haxe reads the source.
+
+The manifest also records inactive upstream source and later runtime
+requirements. These requirements include resources, filesystem access,
+loopback sockets, and the official HTTP echo server.
+
+See
+[`tests/official-haxe-inventory/README.md`](../tests/official-haxe-inventory/README.md)
+for the exact pins, extraction rule, capability policy, and update command.
+This inventory does not claim that Genes compiles or runs all 1,373 methods.
+
 ### Remaining official-Haxe work
 
-The complete active official inventory, representative expansion, capability
-shards, Haxe preview source manifest, and full release-package suite remain
-tracked work. Do not turn the six-test result into a compatibility percentage
-or say Genes “passes the Haxe suite.”
+Representative expansion, runtime capability shards, the Haxe preview source
+manifest, and the full release-package suite remain tracked work. Do not turn
+the six-test result into a compatibility percentage or say Genes “passes the
+Haxe suite.”
 
 ## Measured starting point
 
