@@ -281,6 +281,43 @@
       "doesNotProve": "Two green examples do not imply whole-ecosystem or framework-independent parity."
     },
     {
+      "id": "official-haxe-active-registration-inventory",
+      "class": "compile_inventory",
+      "label": "Pinned official Haxe 4.3.7 active registration inventory",
+      "disposition": "blocking",
+      "scope": "The exact upstream unit entry point is typed under each Genes JavaScript profile to record active conditional, standard-library specification, and issue-regression registrations.",
+      "evidence": [
+        "tests/official-haxe-inventory/manifest.json",
+        "tests/official-haxe-inventory/inventories",
+        "scripts/test-official-haxe-inventory.ts",
+        "scripts/test-official-haxe-inventory-failures.ts"
+      ],
+      "commands": [
+        "yarn test:official-haxe-inventory",
+        "yarn test:official-haxe-inventory:failures"
+      ],
+      "metrics": [
+        {
+          "id": "official-active-registrations",
+          "label": "Reviewed active official Haxe test registrations per profile",
+          "kind": "json-array",
+          "path": "tests/official-haxe-inventory/inventories/classic-esm.json",
+          "pointer": ["activeTests"],
+          "expected": 1373
+        },
+        {
+          "id": "official-inventory-profiles",
+          "label": "Independently generated registration profiles",
+          "kind": "json-array",
+          "path": "tests/official-haxe-inventory/manifest.json",
+          "pointer": ["profiles"],
+          "expected": 2
+        }
+      ],
+      "proves": "The pinned Haxe entry point registers the reviewed 1,373 test identities in each exact profile, and injected profile or cached-source drift stays red.",
+      "doesNotProve": "Registration inventory does not compile these tests with Genes, target-check generated files, run the tests, or report runtime compatibility."
+    },
+    {
       "id": "official-haxe-dual-profile-smoke",
       "class": "smoke",
       "label": "Pinned official Haxe 4.3.7 dual-profile smoke",
