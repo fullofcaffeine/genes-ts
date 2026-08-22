@@ -31,14 +31,22 @@ The current selection contains these outcome types:
 | Issue regression | `unit.issues.Issue10007.test` | 1 assertion | 1 assertion |
 
 The quick scope continues to use `yarn test:smoke`. It does not run this lane.
-The scheduled and release scopes use the representative command. Bead
-`genes-brxy.5` owns their workflow enrollment.
+The daily scheduled workflow and every release-eligible push to `main` run the
+representative command. Pull requests and manual workflow dispatches do not.
+Compiler publication depends on the representative job from the same workflow
+run and exact commit.
 
 The report keeps the two profiles and all method outcomes separate:
 
 ```text
 .tmp/test-evidence/official-haxe-representative/report.json
 ```
+
+On GitHub, the report also records the scheduled or release scope, exact source
+commit, run ID and attempt, and the artifact identity. CI uploads the complete
+evidence tree as `official-haxe-<scope>-<40-character-sha>`. The manifest and
+report reconcile the five selected methods against all 1,373 reviewed active
+registrations, and name the deferred capability shards and claims.
 
 This lane does not calculate a compatibility percentage. It does not claim
 support for all 1,373 registered methods or for capability-specific shards.

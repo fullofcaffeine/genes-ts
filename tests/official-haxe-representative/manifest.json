@@ -161,5 +161,22 @@
       "enrollmentOwner": "genes-brxy.5"
     }
   },
+  "exclusions": {
+    "activeRegistrationsPerProfile": 1373,
+    "selectedPerProfile": 5,
+    "excludedPerProfile": 1368,
+    "basis": "Every reviewed active registration except the five exact activeTests above is outside this representative runtime selection.",
+    "capabilityShards": [
+      "resource-files",
+      "filesystem",
+      "loopback-sockets",
+      "official-http-echo-server"
+    ],
+    "claims": [
+      "complete official Haxe suite compatibility",
+      "a blended classic and TypeScript compatibility percentage",
+      "Genes product-surface coverage beyond portable Haxe execution"
+    ]
+  },
   "claim": "This is an additive representative selection from the reviewed official Haxe 4.3.7 inventory. Each method and profile is isolated and must match its reviewed pass or owned known-failure outcome. It is not the complete applicable official suite or a compatibility percentage."
 }

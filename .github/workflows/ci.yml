@@ -260,6 +260,51 @@ jobs:
             .tmp/test-evidence/portable-haxe-smoke-failures
           if-no-files-found: error
 
+  official-haxe-representative:
+    name: Official Haxe representative (${{ github.event_name == 'schedule' && 'scheduled' || 'release' }})
+    if: github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GENES_OFFICIAL_HAXE_EVIDENCE_SCOPE: ${{ github.event_name == 'schedule' && 'scheduled' || 'release' }}
+      GENES_OFFICIAL_HAXE_EVIDENCE_ARTIFACT: official-haxe-${{ github.event_name == 'schedule' && 'scheduled' || 'release' }}-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: toolchains
+        run: node scripts/emit-toolchain-outputs.mjs
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.toolchains.outputs.node-stable }}
+          cache: yarn
+          cache-dependency-path: yarn.lock
+      - run: corepack enable
+      - run: corepack prepare yarn@${{ env.YARN_VERSION }} --activate
+      - name: Cache Haxe toolchain (lix)
+        uses: actions/cache@v4
+        with:
+          path: ~/haxe
+          key: ${{ runner.os }}-lix-haxe-${{ steps.toolchains.outputs.haxe-stable }}-${{ hashFiles('.haxerc', 'haxe_libraries/*.hxml', 'yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-lix-haxe-${{ steps.toolchains.outputs.haxe-stable }}-
+      - name: Cache pinned representative official Haxe source
+        uses: actions/cache@v4
+        with:
+          path: .cache/official-haxe-representative
+          key: ${{ runner.os }}-official-haxe-representative-${{ hashFiles('tests/official-haxe-representative/manifest.json') }}
+      - run: yarn install --frozen-lockfile
+      - run: yarn lix install haxe ${{ steps.toolchains.outputs.haxe-stable }}
+      - run: yarn lix use haxe ${{ steps.toolchains.outputs.haxe-stable }}
+      - run: yarn test:official-haxe-representative
+      - name: Preserve exact per-profile representative evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.GENES_OFFICIAL_HAXE_EVIDENCE_ARTIFACT }}
+          path: .tmp/test-evidence/official-haxe-representative*
+          if-no-files-found: error
+
   genes-ts:
     name: genes-ts (TS output + todoapp E2E)
     needs: genes-test-plan-and-smoke
@@ -497,6 +542,7 @@ jobs:
       - beads-pinned-client
       - codeql
       - genes-test-plan-and-smoke
+      - official-haxe-representative
       - secrets
       - vulns
       - classic

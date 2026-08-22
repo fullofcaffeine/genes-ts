@@ -654,7 +654,16 @@ function main(): void {
       `Testing strategy omits agent-loop contract: ${required}`);
   assert(agentGuide.includes("yarn test:agent-test-routing"),
     "AGENTS.md must name the routing drift check");
-  const planSmokeJob = jobBlock(ci, "genes-test-plan-and-smoke", "genes-ts");
+  const planSmokeJob = jobBlock(
+    ci,
+    "genes-test-plan-and-smoke",
+    "official-haxe-representative"
+  );
+  const representativeJob = jobBlock(
+    ci,
+    "official-haxe-representative",
+    "genes-ts"
+  );
   const requiredGenesJob = jobBlock(ci, "genes-ts", "genes-ts-smoke-next-lts");
   const releaseStart = ci.indexOf("\n  release:");
   assert(releaseStart >= 0, "CI workflow is missing the release job");
@@ -696,6 +705,21 @@ function main(): void {
   }
   assert(releaseJob.includes("- genes-test-plan-and-smoke"),
     "Release publication must depend on the claim-bearing plan/smoke job");
+  assert(releaseJob.includes("- official-haxe-representative"),
+    "Release publication must depend on exact representative evidence");
+  assert(representativeJob.includes(
+    "if: github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main')"
+  ), "Representative evidence must run only for scheduled and release scopes");
+  assert(representativeJob.includes(
+    "- run: yarn test:official-haxe-representative"
+  ), "Representative evidence job must run the stable public command");
+  assert(representativeJob.includes("timeout-minutes: 30"),
+    "Representative evidence job must have a reviewed runtime bound");
+  assert(representativeJob.includes(
+    "name: ${{ env.GENES_OFFICIAL_HAXE_EVIDENCE_ARTIFACT }}"
+  ), "Representative evidence artifact must carry its scope and exact SHA");
+  assert(!planSmokeJob.includes("test:official-haxe-representative"),
+    "Normal pull-request smoke must not run the representative lane");
   assert(stringArray(
     gatesById.get("classic-core")?.remoteJobs,
     "classic-core.remoteJobs"
