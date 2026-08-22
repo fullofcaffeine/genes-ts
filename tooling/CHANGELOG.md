@@ -6,6 +6,9 @@ it.
 
 ## Unreleased
 
+- Export the exact Genes output inventory reader and unowned-file guard from
+  `@genes-ts/tooling/session`. One-shot hosts can now derive handoff records
+  from compiler ownership instead of guessing from a directory scan.
 - Let hosts declare a whole extra input directory for `DevelopmentSession`.
   Descendant edits, additions, and removals now request the declared rebuild,
   while symbolic links fail instead of hiding input from the watcher.

@@ -599,13 +599,19 @@ import type {
   CompilerDataFile,
   DevelopmentSession,
   DevelopmentSnapshot,
+  GenesOutputInventory,
+  GenesOwnedFile,
   GenesDevelopmentOptions,
   JsonValue,
   PreparedRevision,
   PreparationResult,
   ValidationTree,
 } from "@genes-ts/tooling/session";
-import { createGenesDevelopmentSession } from "@genes-ts/tooling/session";
+import {
+  assertCandidateContainsOnlyOwnedFiles,
+  createGenesDevelopmentSession,
+  readGenesOutput,
+} from "@genes-ts/tooling/session";
 import artifactProtocol from "@genes-ts/tooling/artifact-transactions/v1/protocol.schema.json" with { type: "json" };
 import artifactVectors from "@genes-ts/tooling/artifact-transactions/v1/vectors.json" with { type: "json" };
 import artifactVectorSchema from "@genes-ts/tooling/artifact-transactions/v1/vectors.schema.json" with { type: "json" };
@@ -637,6 +643,8 @@ const runtimeValues = [
   watchVectorSchema,
   DEVELOPMENT_SESSION_EVENT_PROTOCOL,
   createGenesDevelopmentSession,
+  readGenesOutput,
+  assertCandidateContainsOnlyOwnedFiles,
   sessionProtocol,
   sessionVectors,
   sessionVectorSchema,
@@ -652,6 +660,8 @@ const typeWitness:
   | DevelopmentEvent<Diagnostic>
   | DevelopmentSession<Diagnostic>
   | DevelopmentSnapshot<Diagnostic>
+  | GenesOutputInventory
+  | GenesOwnedFile
   | GenesDevelopmentOptions<Diagnostic>
   | PreparedRevision
   | PreparationResult<Diagnostic>
@@ -668,7 +678,16 @@ void typeWitness;
   );
   writeFileSync(
     path.join(consumer, "runtime.mjs"),
-    `import { createRequire } from "node:module";
+    `import { createHash } from "node:crypto";
+import {
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { createRequire } from "node:module";
+import os from "node:os";
+import path from "node:path";
 import * as root from "@genes-ts/tooling";
 import * as artifacts from "@genes-ts/tooling/artifacts";
 import * as cssModules from "@genes-ts/tooling/css-modules";
@@ -709,15 +728,21 @@ const witnesses = [
   session.DEVELOPMENT_SESSION_EVENT_VERSION,
   cssModuleSchema,
   session.createGenesDevelopmentSession,
+  session.readGenesOutput,
+  session.assertCandidateContainsOnlyOwnedFiles,
 ];
 if (witnesses.slice(0, 9).some((value) => typeof value !== "function")) {
   throw new Error("a public tooling runtime export is missing");
 }
 if (
   typeof root.createGenesDevelopmentSession !== "function" ||
-  typeof session.createGenesDevelopmentSession !== "function"
+  typeof session.createGenesDevelopmentSession !== "function" ||
+  typeof root.readGenesOutput !== "function" ||
+  typeof session.readGenesOutput !== "function" ||
+  typeof root.assertCandidateContainsOnlyOwnedFiles !== "function" ||
+  typeof session.assertCandidateContainsOnlyOwnedFiles !== "function"
 ) {
-  throw new Error("the public development-session runtime factory is missing");
+  throw new Error("a public development-session runtime export is missing");
 }
 if (
   root.DEVELOPMENT_SESSION_EVENT_PROTOCOL !==
@@ -742,6 +767,53 @@ for (const vectors of [
   if (typeof vectors !== "object" || vectors === null) {
     throw new Error("a public tooling vector export is missing");
   }
+}
+
+const outputRoot = mkdtempSync(path.join(os.tmpdir(), "genes-output-consumer-"));
+try {
+  const ownerIdentity = "index.ts";
+  const output = "export const packed = true;\\n";
+  writeFileSync(path.join(outputRoot, ownerIdentity), output, "utf8");
+  const manifestName = ".genes-output-" + ownerIdentity + "-" + createHash("sha256")
+    .update(ownerIdentity)
+    .digest("hex") + ".manifest";
+  writeFileSync(
+    path.join(outputRoot, manifestName),
+    [
+      "genes-output-manifest-v2",
+      "owner-base64:" + Buffer.from(ownerIdentity).toString("base64"),
+      ownerIdentity,
+      "",
+    ].join("\\n"),
+    "utf8",
+  );
+  const relativeOutputRoot = path.relative(process.cwd(), outputRoot);
+  const inventory = session.readGenesOutput(relativeOutputRoot, ownerIdentity, true);
+  if (
+    inventory === null ||
+    inventory.root !== path.resolve(relativeOutputRoot) ||
+    inventory.files.length !== 1 ||
+    inventory.files[0]?.relativePath !== ownerIdentity ||
+    !path.isAbsolute(inventory.files[0]?.absolutePath ?? "") ||
+    inventory.manifestFile.relativePath !== manifestName
+  ) {
+    throw new Error("the public Genes output reader did not return the manifest-owned inventory");
+  }
+  session.assertCandidateContainsOnlyOwnedFiles(inventory);
+  mkdirSync(path.join(outputRoot, "neighbor"));
+  writeFileSync(path.join(outputRoot, "neighbor", "native.ts"), "export {};\\n", "utf8");
+  let rejectedUnowned = false;
+  try {
+    session.assertCandidateContainsOnlyOwnedFiles(inventory);
+  } catch (error) {
+    rejectedUnowned =
+      error instanceof Error && error.message.includes("unowned file: neighbor/native.ts");
+  }
+  if (!rejectedUnowned) {
+    throw new Error("the public Genes output guard accepted an unowned neighboring file");
+  }
+} finally {
+  rmSync(outputRoot, { recursive: true, force: true });
 }
 console.log("tooling-packed-consumer:ok");
 `,

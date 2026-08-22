@@ -139,8 +139,9 @@ export function readGenesOutput(
   ownerIdentity: string,
   required: boolean,
 ): GenesOutputInventory | null {
+  const absoluteRoot = path.resolve(root);
   const manifestName = ownerManifestName(ownerIdentity);
-  const manifestPath = path.join(root, manifestName);
+  const manifestPath = path.join(absoluteRoot, manifestName);
   if (!existsSync(manifestPath)) {
     if (required) {
       throw new Error(
@@ -149,8 +150,8 @@ export function readGenesOutput(
     }
     return null;
   }
-  if (!existsSync(root) || !lstatSync(root).isDirectory()) {
-    throw new Error(`Genes output root is not a directory: ${root}`);
+  if (!existsSync(absoluteRoot) || !lstatSync(absoluteRoot).isDirectory()) {
+    throw new Error(`Genes output root is not a directory: ${absoluteRoot}`);
   }
   const manifestStats = lstatSync(manifestPath);
   if (manifestStats.isSymbolicLink() || !manifestStats.isFile()) {
@@ -183,8 +184,10 @@ export function readGenesOutput(
     portable.add(key);
     previous = entry;
   }
-  const files = Object.freeze(entries.map((entry) => readOwnedFile(root, entry)));
-  const manifestFile = readOwnedFile(root, manifestName);
+  const files = Object.freeze(
+    entries.map((entry) => readOwnedFile(absoluteRoot, entry)),
+  );
+  const manifestFile = readOwnedFile(absoluteRoot, manifestName);
   const manifestDigest = canonicalDigest({
     protocol: "genes.tooling.genes-output-inventory.v1",
     ownerIdentity,
@@ -201,7 +204,7 @@ export function readGenesOutput(
     })),
   } as CanonicalJson);
   return Object.freeze({
-    root,
+    root: absoluteRoot,
     ownerIdentity,
     manifestName,
     manifestPath,
