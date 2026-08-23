@@ -16,14 +16,16 @@ extern class ObjectMap<K:{}, V> implements haxe.Constraints.IMap<K, V> {
   public function clear(): Void;
 }
 #else
-class ObjectMap<K:{},
-  V> extends genes.util.EsMap<K, V> implements haxe.Constraints.IMap<K, V> {
+class ObjectMap<K:{}, V> extends genes.util.EsMap<K, V>
+    implements haxe.Constraints.IMap<K, V> {
   public function copy(): ObjectMap<K, V> {
     var copied = new ObjectMap();
     copied.inst = new js.lib.Map(inst);
     return cast copied;
   }
 
+  /** Keeps this inline API callable after a `Dynamic` field read. */
+  @:ifFeature("dynamic_read.keyValueIterator")
   @:runtime public inline function keyValueIterator(): KeyValueIterator<K, V>
     return new haxe.iterators.MapKeyValueIterator(this);
 }

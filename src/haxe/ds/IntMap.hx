@@ -16,13 +16,16 @@ extern class IntMap<T> implements haxe.Constraints.IMap<Int, T> {
   public function clear(): Void;
 }
 #else
-class IntMap<T> extends genes.util.EsMap<Int, T> implements haxe.Constraints.IMap<Int, T> {
+class IntMap<T> extends genes.util.EsMap<Int, T>
+    implements haxe.Constraints.IMap<Int, T> {
   public function copy(): IntMap<T> {
     var copied = new IntMap();
     copied.inst = new js.lib.Map(inst);
     return cast copied;
   }
 
+  /** Keeps this inline API callable after a `Dynamic` field read. */
+  @:ifFeature("dynamic_read.keyValueIterator")
   @:runtime public inline function keyValueIterator(): KeyValueIterator<Int, T>
     return new haxe.iterators.MapKeyValueIterator(this);
 }

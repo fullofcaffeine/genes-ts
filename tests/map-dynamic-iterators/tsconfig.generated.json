@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "strictNullChecks": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "types": ["node"],
+    "rootDir": "./out",
+    "outDir": "./out/ts-dist",
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": false
+  },
+  "include": ["out/ts-dynamic/src-gen/**/*.ts", "out/ts-typed/src-gen/**/*.ts"]
+}

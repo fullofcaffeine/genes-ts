@@ -114,7 +114,7 @@
       "id": "unit.spec.TestMap.test",
       "family": "unitstd",
       "expectedProfiles": {
-        "classic-esm": {"status": "known-failure", "phase": "runtime", "diagnostic": "TypeError: dyn1.keyValueIterator is not a function", "owner": "genes-brxy.10"},
+        "classic-esm": {"status": "pass", "assertions": 191},
         "typescript": {"status": "pass", "assertions": 191}
       }
     },
