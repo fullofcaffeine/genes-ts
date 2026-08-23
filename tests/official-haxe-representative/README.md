@@ -26,7 +26,7 @@ The current selection contains these outcome types:
 | --- | --- | --- | --- |
 | Language | `unit.TestArrowFunctions.testSyntax` | 10 assertions | Known target-check problem, `genes-brxy.11` |
 | Standard library | `unit.spec.TestEvaluationOrder.test` | 16 assertions | Known generation problem, `genes-brxy.9` |
-| Standard library | `unit.spec.TestMap.test` | Known runtime problem, `genes-brxy.10` | 191 assertions |
+| Standard library | `unit.spec.TestMap.test` | 191 assertions | 191 assertions |
 | Standard library | `unit.spec.TestStringTools.test` | 109 assertions | 109 assertions |
 | Issue regression | `unit.issues.Issue10007.test` | 1 assertion | 1 assertion |
 

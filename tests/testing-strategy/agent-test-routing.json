@@ -710,6 +710,67 @@
       ]
     },
     {
+      "id": "map-dynamic-iterators",
+      "packageScript": "test:map-dynamic-iterators",
+      "runnerToken": "scripts/dist/test-map-dynamic-iterators.js",
+      "tier": "focused",
+      "cost": "fast",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime"
+      ],
+      "ownerPaths": [
+        "scripts/test-map-dynamic-iterators.ts",
+        "src/haxe/ds/IntMap.hx",
+        "src/haxe/ds/ObjectMap.hx",
+        "src/haxe/ds/StringMap.hx",
+        "tests/map-dynamic-iterators"
+      ],
+      "proves": "String-, Int-, and object-keyed Haxe Maps retain iterator and keyValueIterator calls through Dynamic in both Genes profiles without changing typed-call lowering.",
+      "doesNotProve": "The fixture does not authorize arbitrary dynamic fields or change Map ordering and mutation semantics.",
+      "owners": [
+        "scripts/test-map-dynamic-iterators.ts",
+        "src/haxe/ds/IntMap.hx",
+        "src/haxe/ds/ObjectMap.hx",
+        "src/haxe/ds/StringMap.hx",
+        "tests/map-dynamic-iterators"
+      ],
+      "families": [
+        "compiler",
+        "generated-output",
+        "typescript",
+        "runtime"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "runtime"
+      ],
+      "ring": "R0",
+      "size": "small",
+      "alwaysRun": false,
+      "timeoutSeconds": 300,
+      "historicalDurationMs": null,
+      "cacheMode": "warm-allowed",
+      "command": "yarn test:map-dynamic-iterators",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/map-dynamic-iterators.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
       "id": "abstract-implementation-properties",
       "packageScript": "test:abstract-implementation-properties",
       "runnerToken": "scripts/dist/test-abstract-implementation-properties.js",
@@ -1128,7 +1189,7 @@
       "ownerPaths": [
         "config/stdlib-overrides.json",
         "scripts/test-stdlib-overrides.ts",
-        "src/haxe",
+        "src/haxe/io/Bytes.js.hx",
         "tests/stdlib-overrides"
       ],
       "proves": "Each Genes-owned Haxe JavaScript stdlib overlay has pinned provenance and declared edits; the Bytes fixture proves automatic source selection, strict TypeScript output, fail-closed raw syntax, unchanged classic JavaScript, standard-Haxe runtime parity, source maps, and cold/warm request isolation.",
@@ -1136,7 +1197,7 @@
       "owners": [
         "config/stdlib-overrides.json",
         "scripts/test-stdlib-overrides.ts",
-        "src/haxe",
+        "src/haxe/io/Bytes.js.hx",
         "tests/stdlib-overrides"
       ],
       "families": [
@@ -3203,6 +3264,10 @@
           "when": "reflection APIs consume or return Haxe class values"
         },
         {
+          "gate": "map-dynamic-iterators",
+          "when": "Map iterator methods cross a Dynamic boundary or their feature-gated runtime retention changes"
+        },
+        {
           "gate": "abstract-implementation-properties",
           "when": "abstract implementation read/write/static property lowering changes"
         },
@@ -3849,6 +3914,7 @@
       ],
       "selects": [
         "stdlib-overrides",
+        "map-dynamic-iterators",
         "portable-haxe-smoke",
         "package-imports",
         "dual-output-semantics",

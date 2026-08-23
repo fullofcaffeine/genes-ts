@@ -1,0 +1,11 @@
+extraParams.hxml
+-lib helder.set
+-cp src
+-cp tests/map-dynamic-iterators/src
+--main mapdynamic.Main
+-js tests/map-dynamic-iterators/out/ts-dynamic/src-gen/index.ts
+-D genes.ts
+-D no-deprecation-warnings
+-D js-es=6
+-debug
+-dce full

@@ -17,13 +17,16 @@ extern class StringMap<T> implements haxe.Constraints.IMap<String, T> {
   public function clear(): Void;
 }
 #else
-class StringMap<T> extends genes.util.EsMap<String, T> implements haxe.Constraints.IMap<String, T> {
+class StringMap<T> extends genes.util.EsMap<String, T>
+    implements haxe.Constraints.IMap<String, T> {
   public function copy(): StringMap<T> {
     var copied = new StringMap();
     copied.inst = new js.lib.Map(inst);
     return cast copied;
   }
 
+  /** Keeps this inline API callable after a `Dynamic` field read. */
+  @:ifFeature("dynamic_read.keyValueIterator")
   @:runtime public inline function keyValueIterator(): KeyValueIterator<String,
     T>
     return new haxe.iterators.MapKeyValueIterator(this);
