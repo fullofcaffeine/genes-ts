@@ -30,6 +30,8 @@ extern class NativeAsyncMarker {
    * assignable to the same `T`.
    */
   @:overload(function<T>(expected: js.lib.Promise<T>,
+    value: js.lib.Promise.Thenable<T>): js.lib.Promise<T> {})
+  @:overload(function<T>(expected: js.lib.Promise<T>,
     value: T): js.lib.Promise<T> {})
   public static function returnValue<T>(expected: js.lib.Promise<T>,
     value: js.lib.Promise<T>): js.lib.Promise<T>;

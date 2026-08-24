@@ -3,6 +3,7 @@ package asyncawaitevidence;
 import genes.js.Async.await;
 import js.lib.Error;
 import js.lib.Promise;
+import js.lib.Promise.Thenable;
 
 typedef AsyncEvidenceReport = {
   final staticValue: Int;
@@ -12,6 +13,8 @@ typedef AsyncEvidenceReport = {
   final promisedValue: Int;
   final anonymousPromisedValue: Int;
   final widenedValue: Float;
+  final thenableValue: Int;
+  final anonymousThenableValue: Int;
   final authoredCastValue: String;
   final nestedSyncValue: String;
   final defaultValue: Int;
@@ -114,6 +117,25 @@ class Main {
     return 42;
   }
 
+  static function promisedAsThenable(value: Int): Thenable<Int> {
+    return Promise.resolve(value);
+  }
+
+  /** Proves native async adopts a Promise-compatible thenable. */
+  @:async
+  static function thenableAsync(value: Int): Promise<Int> {
+    return promisedAsThenable(value);
+  }
+
+  /** Proves the same thenable contract for anonymous async. */
+  @:async
+  static function anonymousThenableAsync(): Promise<Int> {
+    final promised = @:async function(value: Int): Promise<Int> {
+      return promisedAsThenable(value);
+    };
+    return @:await promised(42);
+  }
+
   /** Proves the macro erases only its outer return bridge. */
   @:async
   static function authoredCastAsync(value: String): Promise<String> {
@@ -195,6 +217,8 @@ class Main {
     final promisedValue = @:await promisedAsync(42);
     final anonymousPromisedValue = @:await anonymousPromisedAsync();
     final widenedValue = @:await widenedAsync();
+    final thenableValue = @:await thenableAsync(42);
+    final anonymousThenableValue = @:await anonymousThenableAsync();
     final authoredCastValue = @:await authoredCastAsync("42");
     final nestedSyncValue = @:await nestedSyncAsync();
     final defaultValue = @:await defaultAnonymousAsync();
@@ -211,6 +235,8 @@ class Main {
       promisedValue: promisedValue,
       anonymousPromisedValue: anonymousPromisedValue,
       widenedValue: widenedValue,
+      thenableValue: thenableValue,
+      anonymousThenableValue: anonymousThenableValue,
       authoredCastValue: authoredCastValue,
       nestedSyncValue: nestedSyncValue,
       defaultValue: defaultValue,

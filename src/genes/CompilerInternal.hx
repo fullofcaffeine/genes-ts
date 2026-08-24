@@ -295,12 +295,38 @@ class CompilerInternal {
         if (owner.module == NATIVE_ASYNC_MARKER_MODULE && field.name == method):
         final value = switch [method, arguments] {
           case ['functionValue', [carried]]: carried;
-          case ['returnValue', [_, carried]]: carried;
+          case ['returnValue', [expected, carried]]
+            if (isInertNativeAsyncReturnWitness(expected)):
+            carried;
           default: null;
         }
         value == null ? null : {value: value};
       default:
         null;
+    }
+  }
+
+  /** Whether one return witness has the macro's runtime-inert typed-null shape. */
+  static function isInertNativeAsyncReturnWitness(expression: TypedExpr): Bool {
+    final isPromise = switch Context.followWithAbstracts(expression.t) {
+      case TInst(_.get() => owner, _): owner.module == 'js.lib.Promise' && owner.name == 'Promise';
+      default:
+        false;
+    }
+    if (!isPromise)
+      return false;
+    return isInertNativeAsyncReturnWitnessValue(expression);
+  }
+
+  /** Whether a promise-typed witness contains only an erased null value. */
+  static function isInertNativeAsyncReturnWitnessValue(expression: TypedExpr): Bool {
+    return switch expression.expr {
+      case TConst(TNull):
+        true;
+      case TMeta(_, inner) | TParenthesis(inner) | TCast(inner, null):
+        isInertNativeAsyncReturnWitnessValue(inner);
+      default:
+        false;
     }
   }
 

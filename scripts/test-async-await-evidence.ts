@@ -303,9 +303,20 @@ ok(tsSource.includes(
 ok(tsSource.includes("async function (value: number)"));
 strictEqual(
   tsSource.match(/return globalThis\.Promise\.resolve\(value\)/g)?.length,
-  2,
-  "named and anonymous async functions retain direct promised returns"
+  3,
+  "the thenable helper and named and anonymous async functions retain direct promised returns"
 );
+for (const [profile, source] of [
+  ["classic Genes", classicSource],
+  ["genes-ts", tsSource],
+  ["genes-ts TSX", tsxSource]
+] as const) {
+  strictEqual(
+    source.match(/return Main\.promisedAsThenable\(value\)/g)?.length,
+    2,
+    `${profile}: named and anonymous async functions retain direct thenable returns`
+  );
+}
 ok(tsSource.includes(
   "static async widenedAsync(): globalThis.Promise<number>"
 ), "native async preserves Haxe's valid Int-to-Float return widening");
@@ -349,6 +360,8 @@ const expected = {
   promisedValue: 42,
   anonymousPromisedValue: 42,
   widenedValue: 42,
+  thenableValue: 42,
+  anonymousThenableValue: 42,
   // A targetless Haxe cast is an erased assertion, not a runtime conversion.
   authoredCastValue: "42",
   nestedSyncValue: "42",
@@ -444,6 +457,11 @@ const invalidCases: ReadonlyArray<InvalidCase> = [
   {
     main: "asyncawaitinvalid.NonFunctionMarker",
     diagnostic: "GENES-NATIVE-ASYNC-PLAN-001",
+    genesOnly: true
+  },
+  {
+    main: "asyncawaitinvalid.EffectfulReturnWitness",
+    diagnostic: "GENES-NATIVE-ASYNC-PLAN-002",
     genesOnly: true
   }
 ];
