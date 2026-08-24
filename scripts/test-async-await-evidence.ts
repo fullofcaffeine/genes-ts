@@ -301,6 +301,14 @@ ok(tsSource.includes(
   "async instanceAsync(value: number): globalThis.Promise<number>"
 ));
 ok(tsSource.includes("async function (value: number)"));
+strictEqual(
+  tsSource.match(/return globalThis\.Promise\.resolve\(value\)/g)?.length,
+  2,
+  "named and anonymous async functions retain direct promised returns"
+);
+ok(tsSource.includes(
+  "static async widenedAsync(): globalThis.Promise<number>"
+), "native async preserves Haxe's valid Int-to-Float return widening");
 ok(tsSource.includes("NativeAsyncMarker.functionValue(value)"),
   "a same-named user member was incorrectly erased as compiler evidence");
 ok(tsSource.includes("const raw: (() => globalThis.Promise<number>) = async function"),
@@ -338,6 +346,9 @@ const expected = {
   instanceValue: 42,
   anonymousValue: 42,
   nestedValue: 42,
+  promisedValue: 42,
+  anonymousPromisedValue: 42,
+  widenedValue: 42,
   // A targetless Haxe cast is an erased assertion, not a runtime conversion.
   authoredCastValue: "42",
   nestedSyncValue: "42",
@@ -415,6 +426,11 @@ const invalidCases: ReadonlyArray<InvalidCase> = [
   {
     main: "asyncawaitinvalid.MissingReturn",
     diagnostic: "[GENES-ASYNC-RETURN-001]"
+  },
+  {
+    main: "asyncawaitinvalid.WrongReturnType",
+    diagnostic: "String should be Int",
+    standardDiagnostic: "[GENES-ASYNC-TARGET-001]"
   },
   {
     main: "asyncawaitinvalid.InvalidAuthoring",

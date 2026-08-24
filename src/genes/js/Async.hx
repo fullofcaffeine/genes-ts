@@ -561,13 +561,14 @@ class Async {
 
     final fnExpr = fn.expr != null ? processExpression(fn.expr, true,
       ranges) : null;
-    final rewritten = fnExpr != null ? rewriteReturns(fnExpr) : fnExpr;
+    final rewritten = fnExpr != null ? rewriteReturns(fnExpr,
+      newReturnType) : fnExpr;
 
     final isVoidPromise = isVoidType(promiseInnerType(newReturnType,
       field.pos, fn.params));
 
     final ensured = isVoidPromise ? ensureVoidPromiseReturn(rewritten,
-      field.pos) : rewritten;
+      newReturnType, field.pos) : rewritten;
 
     final newFunc: Function = {
       args: processFunctionArgs(fn.args, ranges),
@@ -671,12 +672,13 @@ class Async {
 
     final fnExpr = fn.expr != null ? processExpression(fn.expr, true,
       ranges) : null;
-    final rewritten = fnExpr != null ? rewriteReturns(fnExpr) : fnExpr;
+    final rewritten = fnExpr != null ? rewriteReturns(fnExpr,
+      newReturnType) : fnExpr;
 
     final isVoidPromise = isVoidType(promiseInnerType(newReturnType, pos,
       fn.params));
     final ensured = isVoidPromise ? ensureVoidPromiseReturn(rewritten,
-      pos) : rewritten;
+      newReturnType, pos) : rewritten;
 
     final newFunc: Function = {
       args: processFunctionArgs(fn.args, ranges),
@@ -722,7 +724,8 @@ class Async {
    * Stock Haxe keeps the established targetless-cast fallback because its JS
    * generator must carry anonymous async functions without the Genes plan.
    */
-  static function rewriteReturns(expr: Expr): Expr {
+  static function rewriteReturns(expr: Expr,
+      expectedPromise: ComplexType): Expr {
     if (expr == null)
       return expr;
 
@@ -732,15 +735,20 @@ class Async {
         expr;
       case EReturn(v):
         final value = v != null ? v : (macro js.Syntax.code('undefined'));
+        final expected: Expr = {
+          expr: ECheckType(macro null, expectedPromise),
+          pos: expr.pos
+        };
         final bridgedValue = if (Context.defined(genes.CompilerInternal.GENERATOR_ACTIVE_DEFINE))
-          macro genes.internal.NativeAsyncMarker.returnValue($value) else {
+          macro genes.internal.NativeAsyncMarker.returnValue($expected,
+            $value) else {
           expr: ECast(value, null),
           pos: expr.pos
         };
         bridgedValue.pos = expr.pos;
         {expr: EReturn(bridgedValue), pos: expr.pos};
       default:
-        ExprTools.map(expr, rewriteReturns);
+        ExprTools.map(expr, child -> rewriteReturns(child, expectedPromise));
     }
   }
 
@@ -752,11 +760,16 @@ class Async {
    * expresses that missing effect to Haxe; both Genes emitters erase it and
    * print normal native completion, so no weak type reaches generated code.
    */
-  static function ensureVoidPromiseReturn(expr: Expr, pos: Position): Expr {
+  static function ensureVoidPromiseReturn(expr: Expr,
+      expectedPromise: ComplexType, pos: Position): Expr {
     final undefinedValue = macro js.Syntax.code('undefined');
+    final expected: Expr = {
+      expr: ECheckType(macro null, expectedPromise),
+      pos: pos
+    };
     final bridgedValue = if (Context.defined(genes.CompilerInternal.GENERATOR_ACTIVE_DEFINE))
-      macro genes.internal.NativeAsyncMarker.returnValue($undefinedValue) else
-      {
+      macro genes.internal.NativeAsyncMarker.returnValue($expected,
+        $undefinedValue) else {
       expr: ECast(undefinedValue, null),
       pos: pos
     };

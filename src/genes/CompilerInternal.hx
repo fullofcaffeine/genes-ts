@@ -291,9 +291,14 @@ class CompilerInternal {
       case TCall(callee = {
         expr: TField(_, FStatic(_.get() => owner, _.get() => field))
       },
-        [value])
+        arguments)
         if (owner.module == NATIVE_ASYNC_MARKER_MODULE && field.name == method):
-        {value: value};
+        final value = switch [method, arguments] {
+          case ['functionValue', [carried]]: carried;
+          case ['returnValue', [_, carried]]: carried;
+          default: null;
+        }
+        value == null ? null : {value: value};
       default:
         null;
     }

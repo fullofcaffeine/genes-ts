@@ -9,6 +9,9 @@ typedef AsyncEvidenceReport = {
   final instanceValue: Int;
   final anonymousValue: Int;
   final nestedValue: Int;
+  final promisedValue: Int;
+  final anonymousPromisedValue: Int;
+  final widenedValue: Float;
   final authoredCastValue: String;
   final nestedSyncValue: String;
   final defaultValue: Int;
@@ -90,6 +93,27 @@ class Main {
     return @:await outer(40);
   }
 
+  /** Proves native async adopts an already promised return value. */
+  @:async
+  static function promisedAsync(value: Int): Promise<Int> {
+    return Promise.resolve(value);
+  }
+
+  /** Proves the same promise pass-through contract for anonymous async. */
+  @:async
+  static function anonymousPromisedAsync(): Promise<Int> {
+    final promised = @:async function(value: Int): Promise<Int> {
+      return Promise.resolve(value);
+    };
+    return @:await promised(42);
+  }
+
+  /** Proves the carrier preserves Haxe's valid scalar return widening. */
+  @:async
+  static function widenedAsync(): Promise<Float> {
+    return 42;
+  }
+
   /** Proves the macro erases only its outer return bridge. */
   @:async
   static function authoredCastAsync(value: String): Promise<String> {
@@ -168,6 +192,9 @@ class Main {
     final instanceValue = @:await new Main(2).instanceAsync(40);
     final anonymousValue = @:await anonymousAsync();
     final nestedValue = @:await nestedAnonymousAsync();
+    final promisedValue = @:await promisedAsync(42);
+    final anonymousPromisedValue = @:await anonymousPromisedAsync();
+    final widenedValue = @:await widenedAsync();
     final authoredCastValue = @:await authoredCastAsync("42");
     final nestedSyncValue = @:await nestedSyncAsync();
     final defaultValue = @:await defaultAnonymousAsync();
@@ -181,6 +208,9 @@ class Main {
       instanceValue: instanceValue,
       anonymousValue: anonymousValue,
       nestedValue: nestedValue,
+      promisedValue: promisedValue,
+      anonymousPromisedValue: anonymousPromisedValue,
+      widenedValue: widenedValue,
       authoredCastValue: authoredCastValue,
       nestedSyncValue: nestedSyncValue,
       defaultValue: defaultValue,
