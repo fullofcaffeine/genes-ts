@@ -104,7 +104,7 @@
       "family": "unitstd",
       "expectedProfiles": {
         "classic-esm": {"status": "pass", "assertions": 16},
-        "typescript": {"status": "known-failure", "phase": "generation", "diagnostic": "GTS-INDEX-BOUNDARY-001", "owner": "genes-brxy.9"}
+        "typescript": {"status": "pass", "assertions": 16}
       }
     },
     {

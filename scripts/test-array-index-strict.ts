@@ -10,7 +10,7 @@ const scriptRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptRoot, "../..");
 const fixtureRoot = path.join(repoRoot, "tests/array-index-strict");
 const expectedTranscript =
-  "typed|7|generic|generic-null|generic-undefined|effects-once|assigned|compound-bitwise|compound-effects-once|compound-null-coercion|compound-nullish|compound-nested|updates|null|undefined|3,5|missing|void-once|secondary-array-once|named-shift|named-pop|discarded|native-find-index";
+  "typed|7|generic|generic-null|generic-undefined|effects-once|assigned|compound-bitwise|compound-effects-once|compound-null-coercion|compound-nullish|compound-nested|updates|null|undefined|3,5|missing|void-once|secondary-array-once|named-shift|named-pop|discarded|discarded-index-order|native-find-index";
 
 /** Runs one deterministic fixture command from the repository root. */
 function run(command: string, args: ReadonlyArray<string>): void {
@@ -114,7 +114,8 @@ for (const expected of [
   "target:write:direct:write-only:wrappers=metadata(:indexedInventory):result=used",
   "target:write:direct:write-only:wrappers=implicit-cast:result=used",
   "target:write:direct:write-only:wrappers=none:result=used",
-  "read:direct:normalize-null"
+  "read:direct:normalize-null:result=used",
+  "read:direct:direct:result=discarded"
 ]) {
   ok(firstInventoryMessages.includes(expected),
     `typed probe records ${expected}`);
@@ -134,8 +135,8 @@ for (const expected of [
   "target:write:direct:write-only:wrappers=none:result=discarded",
   "target:arithmetic-OpAdd:assert-nullable:assert-slot:wrappers=none:result=discarded",
   "target:arithmetic-OpAdd:flow-present:assert-slot:wrappers=none:result=discarded",
-  "read:direct:assert-type-parameter",
-  "read:direct:normalize-null"
+  "read:direct:assert-type-parameter:result=used",
+  "read:direct:normalize-null:result=used"
 ]) {
   ok(firstInventoryMessages.some((message) => message.endsWith(expected)),
     `real typed module inventory records ${expected}`);
@@ -150,6 +151,10 @@ const rejectedProbes = new Map<string, string>([
   ["unresolved-write", "GTS-INDEX-BOUNDARY-001"],
   ["unresolved-target", "GTS-INDEX-BOUNDARY-001"],
   ["unresolved-read", "GTS-INDEX-BOUNDARY-001"],
+  ["unresolved-returned-read", "GTS-INDEX-BOUNDARY-001"],
+  ["unresolved-observed-local-read", "GTS-INDEX-BOUNDARY-001"],
+  ["unresolved-argument-read", "GTS-INDEX-BOUNDARY-001"],
+  ["unresolved-assigned-field-read", "GTS-INDEX-BOUNDARY-001"],
   ["undefined-receiver", "GTS-INDEX-BOUNDARY-001"],
   ["unknown-receiver", "GTS-INDEX-BOUNDARY-001"],
   ["syntax-metadata", "GTS-INDEX-WRAP-001"],
@@ -286,6 +291,14 @@ ok(!typescript.includes("(namedValues.pop() ?? null)"),
 ok(typescript.includes("discarded.shift();"));
 ok(!typescript.includes("(discarded.shift() ?? null)"),
   "a discarded native Array result does not need value normalization");
+ok(typescript.includes(
+  "const ignored: any = values(observe(1), observe(2))[index(observe(3), observe(4))];"
+), "a discarded unresolved read emits directly and preserves effect order");
+strictEqual(typescript.match(/\bignored\b/g)?.length, 1,
+  "the unresolved result is declared once and never observed");
+ok(!typescript.includes(
+  "values(observe(1), observe(2))[index(observe(3), observe(4))]!"
+), "a discarded unresolved read does not invent slot-presence evidence");
 ok(
   /\["first", "match"\]\.findIndex\(function \(value: string\)/.test(typescript),
   "the typed helper emits direct JavaScript Array.prototype.findIndex"
@@ -315,6 +328,11 @@ for (const relativeFile of [
     `${relativeFile} does not consume the TypeScript-only indexed plan`);
   ok(/\["first",\s*"match"\]\.findIndex\(/.test(generated),
     `${relativeFile} uses the native JavaScript findIndex operation`);
+  ok(
+    /values\(observe\(1\),\s*observe\(2\)\)\[index\(observe\(3\),\s*observe\(4\)\)\]/
+      .test(generated),
+    `${relativeFile} preserves discarded indexed-read evaluation order`
+  );
 }
 
 const source = readFileSync(
@@ -378,6 +396,19 @@ strictEqual(
   postfixTargetOrigin.line,
   sourceLine(source, "final postfix = values[0]++;"),
   "the postfix update preserves the authored update line"
+);
+const discardedReadOrigin = sourceMap.originalPositionFor(
+  generatedPoint(typescript,
+    "values(observe(1), observe(2))[index(observe(3), observe(4))]")
+);
+ok(
+  discardedReadOrigin.source?.endsWith("src/arrayindexstrict/Main.hx"),
+  "the discarded unresolved read maps back to Main.hx"
+);
+strictEqual(
+  discardedReadOrigin.line,
+  sourceLine(source, "final ignored = values(observe(1),"),
+  "the discarded unresolved read preserves its authored source line"
 );
 
 process.stdout.write(

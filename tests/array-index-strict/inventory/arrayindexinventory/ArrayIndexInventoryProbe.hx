@@ -70,6 +70,8 @@ class ArrayIndexInventoryProbe {
       replaceDirectRegistryRead(read, "$hxEnums");
       read.t = Context.makeMonomorph();
     });
+    probeRead(fields, "discardedUnresolvedRead",
+      read -> read.t = Context.makeMonomorph(), false);
     probeEnumParameterRead(fields, "enumParameters", "value", "value");
     switch mode {
       case "positive":
@@ -93,6 +95,14 @@ class ArrayIndexInventoryProbe {
       case "unresolved-read":
         rejectRead(fields, "rejectedUnresolved",
           operation -> indexedTarget(operation).t = Context.makeMonomorph());
+      case "unresolved-returned-read":
+        rejectFieldRead(fields, "rejectedReturnedRead");
+      case "unresolved-observed-local-read":
+        rejectFieldRead(fields, "rejectedObservedLocalRead");
+      case "unresolved-argument-read":
+        rejectFieldRead(fields, "rejectedArgumentRead");
+      case "unresolved-assigned-field-read":
+        rejectFieldRead(fields, "rejectedAssignedFieldRead");
       case "undefined-receiver":
         rejectRead(fields, "rejectedUndefinedReceiver",
           operation -> indexedReceiver(operation).t = argumentType(fields,
@@ -235,12 +245,26 @@ class ArrayIndexInventoryProbe {
     Context.error('typed negative read probe "$name" was accepted', read.pos);
   }
 
+  static function rejectFieldRead(fields: Map<String, ClassField>,
+      name: String): Void {
+    final field = fields.get(name);
+    if (field == null || field.expr() == null)
+      Context.error('missing typed field probe "$name"', Context.currentPos());
+    final expression = field.expr();
+    final read = firstIndexedRead(expression);
+    if (read == null)
+      Context.error('typed field probe "$name" has no indexed read', field.pos);
+    read.t = Context.makeMonomorph();
+    TsIndexedAccessPlan.probeTypedField(expression);
+    Context.error('typed field probe "$name" was accepted', read.pos);
+  }
+
   static function probeRead(fields: Map<String, ClassField>, name: String,
-      transform: TypedExpr->Void): Void {
+      transform: TypedExpr->Void, resultUsed = true): Void {
     final read = indexedRead(fields, name);
     transform(read);
     Context.info("[GTS-INDEX-PROBE] "
-      + TsIndexedAccessPlan.probeTypedRead(read),
+      + TsIndexedAccessPlan.probeTypedRead(read, resultUsed),
       read.pos);
   }
 
@@ -326,23 +350,24 @@ class ArrayIndexInventoryProbe {
     if (field == null || field.expr() == null)
       Context.error('missing typed read probe method "$name"',
         Context.currentPos());
-    function visit(expression: TypedExpr): Null<TypedExpr> {
-      switch expression.expr {
-        case TArray(_, _):
-          return expression;
-        default:
-      }
-      for (child in children(expression)) {
-        final found = visit(child);
-        if (found != null)
-          return found;
-      }
-      return null;
-    }
-    final found = visit(field.expr());
+    final found = firstIndexedRead(field.expr());
     return
       found == null ? Context.error('typed probe method "$name" has no indexed read',
         field.pos) : found;
+  }
+
+  static function firstIndexedRead(expression: TypedExpr): Null<TypedExpr> {
+    switch expression.expr {
+      case TArray(_, _):
+        return expression;
+      default:
+    }
+    for (child in children(expression)) {
+      final found = firstIndexedRead(child);
+      if (found != null)
+        return found;
+    }
+    return null;
   }
 
   static function indexedReadForReceiver(fields: Map<String, ClassField>,

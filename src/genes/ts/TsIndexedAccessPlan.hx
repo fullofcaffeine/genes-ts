@@ -88,13 +88,15 @@ enum TsIndexedTargetWrapper {
 /** One immutable decision for an ordinary indexed read occurrence. */
 final class TsIndexedReadDecision {
   public final expression: TypedExpr;
+  public final resultUse: TsIndexedResultUse;
   public final receiverProjection: TsIndexedReceiverProjection;
   public final resultProjection: TsIndexedReadProjection;
 
-  public function new(expression: TypedExpr,
+  public function new(expression: TypedExpr, resultUse: TsIndexedResultUse,
       receiverProjection: TsIndexedReceiverProjection,
       resultProjection: TsIndexedReadProjection) {
     this.expression = expression;
+    this.resultUse = resultUse;
     this.receiverProjection = receiverProjection;
     this.resultProjection = resultProjection;
   }
@@ -178,12 +180,12 @@ private enum TsIndexedTargetRootResult {
  *
  * How
  * ---
- * The builder walks the final typed module once. It uses exact `TypedExpr`
- * objects as private lookup keys and consumes `NullishContract`,
- * `TsNarrowingPlan`, and `TsBoundaryPlan`. It does not inspect source text,
- * generated names, TypeScript diagnostics, or emitted code. The TypeScript
- * emitter consumes these exact occurrence decisions and owns only their final
- * syntax; classic JavaScript never builds this plan.
+ * The builder walks the final typed module once. Only a direct unresolved
+ * indexed initializer performs a bounded second check for a read of its
+ * receiving `TVar` in the same field. Exact typed objects and local IDs are the
+ * authority; source text, names, positions, diagnostics, and emitted code are
+ * not. The TypeScript emitter consumes these exact occurrence decisions and
+ * owns only their final syntax; classic JavaScript never builds this plan.
  */
 final class TsIndexedAccessPlan {
   final reads: ObjectMap<TypedExpr, TsIndexedReadDecision>;
@@ -211,8 +213,15 @@ final class TsIndexedAccessPlan {
   }
 
   /** Classifies one synthetic ordinary indexed read for the focused fixture. */
-  public static function probeTypedRead(expression: TypedExpr): String {
-    return new TsIndexedAccessPlanBuilder().probeTypedRead(expression);
+  public static function probeTypedRead(expression: TypedExpr,
+      resultUsed = true): String {
+    return new TsIndexedAccessPlanBuilder().probeTypedRead(expression,
+      resultUsed);
+  }
+
+  /** Plans one complete synthetic field for focused result-use controls. */
+  public static function probeTypedField(expression: TypedExpr): String {
+    return new TsIndexedAccessPlanBuilder().probeTypedField(expression);
   }
 
   /**
@@ -362,15 +371,34 @@ private final class TsIndexedAccessPlanBuilder {
     return inventory[0].description;
   }
 
-  public function probeTypedRead(expression: TypedExpr): String {
+  public function probeTypedRead(expression: TypedExpr,
+      resultUsed = true): String {
     switch expression.expr {
       case TArray(receiver, _):
-        planRead(expression, receiver);
+        planRead(expression, receiver,
+          resultUsed ? ResultUsed : ResultDiscarded);
       default:
         return
           CompilerDiagnostic.fail("[GTS-INDEX-PLAN-002] The typed probe requires an indexed read.",
           expression.pos);
     }
+    return inventory[0].description;
+  }
+
+  public function probeTypedField(expression: TypedExpr): String {
+    currentOwner = null;
+    currentField = {
+      name: "indexedResultUseProbe",
+      kind: genes.FieldKind.Method,
+      isStatic: true,
+      expression: expression
+    };
+    currentHaxeEnumParameter = null;
+    visit(expression, ResultUsed);
+    if (inventory.length == 0)
+      return
+        CompilerDiagnostic.fail("[GTS-INDEX-PLAN-002] The typed field probe found no indexed occurrence.",
+        expression.pos);
     return inventory[0].description;
   }
 
@@ -419,7 +447,7 @@ private final class TsIndexedAccessPlanBuilder {
         visitUpdate(expression, target,
           Update(Decrement, postFix ? Postfix : Prefix), resultUse);
       case TArray(receiver, index):
-        planRead(expression, receiver);
+        planRead(expression, receiver, resultUse);
         visit(receiver, ResultUsed);
         visit(index, ResultUsed);
       case TFunction(func):
@@ -463,9 +491,9 @@ private final class TsIndexedAccessPlanBuilder {
       case TWhile(condition, body, _):
         visit(condition, ResultUsed);
         visit(body, ResultDiscarded);
-      case TVar(_, initializer):
+      case TVar(local, initializer):
         if (initializer != null)
-          visit(initializer, ResultUsed);
+          visit(initializer, localInitializerResultUse(local, initializer));
       case TReturn(value):
         if (value != null)
           visit(value, ResultUsed);
@@ -509,18 +537,66 @@ private final class TsIndexedAccessPlanBuilder {
     }
   }
 
-  function planRead(expression: TypedExpr, receiver: TypedExpr): Void {
+  /**
+   * Treats only an unobserved direct local initializer as a discarded result.
+   *
+   * Ordinary local initializers are consumed by their bindings. An unresolved
+   * indexed value is different only when the final typed field never reads
+   * that exact local. The bounded reference check runs only for direct local
+   * initializers with an unresolved result. Resolved reads gain no extra walk.
+   */
+  function localInitializerResultUse(local: TVar,
+      initializer: TypedExpr): TsIndexedResultUse {
+    if (currentField == null)
+      return ResultUsed;
+    if (!isDirectUnresolvedIndexedRead(initializer))
+      return ResultUsed;
+    return containsLocalRead(currentField.expression,
+      local.id) ? ResultUsed : ResultDiscarded;
+  }
+
+  /** Follows only wrappers whose result role the main visitor preserves. */
+  static function isDirectUnresolvedIndexedRead(expression: TypedExpr): Bool {
+    return switch expression.expr {
+      case TArray(_, _):
+        hasUnresolvedMonomorph(expression.t);
+      case TParenthesis(inner) | TMeta(_, inner) | TCast(inner, _):
+        isDirectUnresolvedIndexedRead(inner);
+      default:
+        false;
+    }
+  }
+
+  /** Finds an observation by stable typed-local identity, including closures. */
+  static function containsLocalRead(expression: TypedExpr, localId: Int): Bool {
+    var found = false;
+    function visitLocal(candidate: TypedExpr): Void {
+      if (found)
+        return;
+      switch candidate.expr {
+        case TLocal(local) if (local.id == localId):
+          found = true;
+        default:
+          candidate.iter(visitLocal);
+      }
+    }
+    visitLocal(expression);
+    return found;
+  }
+
+  function planRead(expression: TypedExpr, receiver: TypedExpr,
+      resultUse: TsIndexedResultUse): Void {
     if (reads.exists(expression) || targetRoots.exists(expression))
       CompilerDiagnostic.fail("[GTS-INDEX-PLAN-002] One typed indexed expression appeared in more "
         + "than one source role.",
         expression.pos);
-    final decision = new TsIndexedReadDecision(expression,
-      planReceiver(receiver), planReadProjection(expression, receiver));
+    final receiverProjection = planReceiver(receiver);
+    final decision = new TsIndexedReadDecision(expression, resultUse,
+      receiverProjection, planReadProjection(expression, receiver, resultUse));
     reads.set(expression, decision);
-    record("read:"
-      + describeReceiver(decision.receiverProjection)
-      + ":"
-      + describeRead(decision.resultProjection),
+    record("read:" + describeReceiver(decision.receiverProjection) + ":"
+      + describeRead(decision.resultProjection) + ":result="
+      + describeResultUse(decision.resultUse),
       expression.pos);
   }
 
@@ -684,8 +760,8 @@ private final class TsIndexedAccessPlanBuilder {
       && narrowingPlan.isKnownNonNull(expression);
   }
 
-  function planReadProjection(expression: TypedExpr,
-      receiver: TypedExpr): TsIndexedReadProjection {
+  function planReadProjection(expression: TypedExpr, receiver: TypedExpr,
+      resultUse: TsIndexedResultUse): TsIndexedReadProjection {
     final contract = NullishContract.forType(expression.t);
     // The indexed expression's own Haxe type owns the result contract. Haxe
     // can lower a precisely typed abstraction such as DynamicAccess<T>.get()
@@ -710,6 +786,11 @@ private final class TsIndexedAccessPlanBuilder {
         || isHaxeDynamicRegistryReadChain(receiver)
         || isExactHaxeEnumParameterRead(receiver)))
       return NormalizeMissingToHaxeNull;
+    // A discarded result carries no value into typed TypeScript. Emitting the
+    // direct access preserves the receiver and index effects without claiming
+    // an element type that Haxe did not resolve.
+    if (hasUnresolvedMonomorph(expression.t) && resultUse == ResultDiscarded)
+      return DirectRead;
     if (hasUnresolvedMonomorph(expression.t))
       return
         CompilerDiagnostic.fail("[GTS-INDEX-BOUNDARY-001] An unresolved indexed-result type cannot "

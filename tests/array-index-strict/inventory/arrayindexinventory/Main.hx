@@ -120,6 +120,27 @@ class Main {
     return values[0];
   }
 
+  static function discardedUnresolvedRead(values: Array<Int>): Void {
+    final ignored = values[0];
+  }
+
+  static function rejectedReturnedRead(values: Array<Int>): Int {
+    return values[0];
+  }
+
+  static function rejectedObservedLocalRead(values: Array<Int>): Int {
+    final observed = values[0];
+    return observed;
+  }
+
+  static function consumeRead(value: Int): Void {}
+
+  static function rejectedArgumentRead(values: Array<Int>): Void {
+    consumeRead(values[0]);
+  }
+
+  static final rejectedAssignedFieldRead = [7][0];
+
   static function enumParameters(value: Array<Dynamic>, other: Array<Dynamic>,
       index: Int): Dynamic {
     if (other[index] == null)
@@ -233,6 +254,7 @@ class Main {
     typedImplicitCast([7], 2);
     typedRegistryWrite(["before"], "after");
     typedRegistryRead(["value"]);
+    discardedUnresolvedRead([7]);
     enumParameters(["value"], ["other"], 0);
     boundaryReads(["value"], [null], [Undefinable.absent()],
       [Unknown.fromBoundary("unknown")], ["dynamic"]);
