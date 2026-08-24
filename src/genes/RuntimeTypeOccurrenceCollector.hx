@@ -44,10 +44,19 @@ class RuntimeTypeOccurrenceCollector {
       ?resolveDirectModuleFunction: (Ref<ClassType>,
       Ref<ClassField>) -> Null<ModuleFunctionEntry>,
       ?resolveDirectModuleValue: (Ref<ClassType>,
-      Ref<ClassField>) -> Null<String>): Array<RuntimeTypeOccurrence> {
+      Ref<ClassField>) -> Null<String>,
+      ?resolveNativeAsyncValue: TypedExpr->
+      Null<TypedExpr>): Array<RuntimeTypeOccurrence> {
     return switch expression {
       case null:
         [];
+      case value if (CompilerInternal.isNativeAsyncMarkerCall(value)):
+        final planned = resolveNativeAsyncValue == null ? null : resolveNativeAsyncValue(value);
+        if (planned == null)
+          CompilerDiagnostic.fail('GENES-NATIVE-ASYNC-PLAN-003: native async marker has no exact planned value',
+            value.pos);
+        collect(planned, resolveDirectModuleFunction,
+          resolveDirectModuleValue, resolveNativeAsyncValue);
       case {
         expr: TCall(call = {
           expr: TField(_,
@@ -64,10 +73,10 @@ class RuntimeTypeOccurrenceCollector {
                 continue;
             }
         ];
-        collect(call, resolveDirectModuleFunction,
-          resolveDirectModuleValue).concat(collect(body,
-            resolveDirectModuleFunction,
-            resolveDirectModuleValue).filter(occurrence -> {
+        collect(call, resolveDirectModuleFunction, resolveDirectModuleValue,
+          resolveNativeAsyncValue).concat(collect(body,
+            resolveDirectModuleFunction, resolveDirectModuleValue,
+            resolveNativeAsyncValue).filter(occurrence -> {
               for (name in names) {
                 final token = DynamicImportBindingPlan.decode(name);
                 final matches = switch [token, occurrence] {
@@ -109,19 +118,21 @@ class RuntimeTypeOccurrenceCollector {
         var result = [RuntimeType(TClassDecl(owner))];
         for (argument in arguments)
           result = result.concat(collect(argument,
-            resolveDirectModuleFunction, resolveDirectModuleValue));
+            resolveDirectModuleFunction, resolveDirectModuleValue,
+            resolveNativeAsyncValue));
         result;
       case {expr: TCast(inner, null)}:
-        collect(inner, resolveDirectModuleFunction, resolveDirectModuleValue);
+        collect(inner, resolveDirectModuleFunction, resolveDirectModuleValue,
+          resolveNativeAsyncValue);
       case {expr: TCast(inner, target)}:
-        collect(inner, resolveDirectModuleFunction,
-          resolveDirectModuleValue)
+        collect(inner, resolveDirectModuleFunction, resolveDirectModuleValue,
+          resolveNativeAsyncValue)
           .concat([RuntimeType(target), RuntimeType(TypeUtil.bootType)]);
       case other:
         var result = [];
         other.iter(child -> {
           result = result.concat(collect(child, resolveDirectModuleFunction,
-            resolveDirectModuleValue));
+            resolveDirectModuleValue, resolveNativeAsyncValue));
         });
         result;
     }

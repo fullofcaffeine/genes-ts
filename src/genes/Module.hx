@@ -115,6 +115,7 @@ class Module {
   public var moduleFunctionRequestPlan(get, null): ModuleFunctionRequestPlan;
   public var moduleFunctionPlan(get, null): ModuleFunctionPlan;
   public var moduleValuePlan(get, null): ModuleValuePlan;
+  public var nativeAsyncPlan(get, null): NativeAsyncPlan;
 
   final context: ModuleContext;
   final cycleCache = new Map<String, Bool>();
@@ -151,6 +152,38 @@ class Module {
     if (dependencyPlan == null)
       dependencyPlan = DependencyPlanBuilder.build(this);
     return dependencyPlan;
+  }
+
+  /** Returns exact request-local ownership for native async carriers. */
+  function get_nativeAsyncPlan(): NativeAsyncPlan {
+    if (nativeAsyncPlan == null)
+      nativeAsyncPlan = NativeAsyncPlan.build(this);
+    return nativeAsyncPlan;
+  }
+
+  /**
+   * Returns native-async facts only when this module can contain a carrier.
+   *
+   * Dependency traversal builds the plan lazily when it encounters an exact
+   * marker. The metadata check covers the normal macro path without adding an
+   * AST walk to modules that contain no async authoring.
+   */
+  public function nativeAsyncPlanForEmission(): Null<NativeAsyncPlan> {
+    if (nativeAsyncPlan != null)
+      return nativeAsyncPlan;
+    for (member in members) {
+      switch member {
+        case MClass(_, _, fields):
+          for (field in fields) {
+            if (field.meta != null
+              && (field.meta.has(':jsAsync') || field.meta.has('jsAsync')
+                || field.meta.has(':genes.asyncContext')))
+              return get_nativeAsyncPlan();
+          }
+        default:
+      }
+    }
+    return null;
   }
 
   function get_jsxPlan(): JsxPlan {

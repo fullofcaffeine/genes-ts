@@ -1,7 +1,7 @@
 -lib genes-ts
 -cp tests/async-await-evidence/src
 -main asyncawaitevidence.Main
--js tests/async-await-evidence/out/ts/src-gen/index.ts
+-js tests/async-await-evidence/out/tsx/src-gen/index.tsx
 -D genes.ts
 -D js-es=6
 -dce full
