@@ -93,6 +93,26 @@ final items = useState(([] : Array<Item>));
 Genes emits `useState<Item[]>([])` so TypeScript does not independently infer
 the narrower `never[]`.
 
+A local `State<T>` also selects the exact React state value type. This matters
+when the initializer is narrower than the state values that the Hook accepts:
+
+```haxe
+final cat:Cat = makeCat();
+final dog:Dog = makeDog();
+final animal:State<Animal> = useStateLazy(() -> cat);
+animal.set(dog);
+```
+
+Genes emits `useState<Animal>(() => cat)` in TypeScript and TSX. TypeScript
+therefore does not infer `Cat` and reject the later `Dog` replacement. The
+classic JavaScript and JSX profiles emit `useState(() => cat)` with no type
+syntax. An unannotated local still uses its inferred Haxe type, such as `Cat`.
+
+The local type is also the authority for a generic enum initializer. A
+`State<Choice<Int, String>>` local emits
+`useState<Choice<number, string>>(Choice.Left<number, string>(1))`. Genes waits
+until Haxe has closed both enum parameters before it prints this witness.
+
 When a dependency is a computed expression or an allocation-free tuple
 projection such as `state.value`, give the `useMemo` calculation one parameter
 for each dependency:

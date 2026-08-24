@@ -120,9 +120,11 @@ class Main {
     final typeOnlyComponent = TypeOnlyComponent.Identity;
     final optionalTypeOnlyComponent = TypeOnlyComponent.OptionalIdentity;
     final blockEdit = GutenbergBlock.BlockEdit;
+    final stateInitialization = StateInitialization.retainStateInitializationProof;
     if (counter == null || label == null || list == null
       || computed == null || component == null || typeOnlyComponent == null
-      || optionalTypeOnlyComponent == null || blockEdit == null) {
+      || optionalTypeOnlyComponent == null || blockEdit == null
+      || stateInitialization == null) {
       throw "React Hook functions were not retained";
     }
   }

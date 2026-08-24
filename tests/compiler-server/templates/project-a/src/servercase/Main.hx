@@ -1,10 +1,26 @@
 package servercase;
 
 import genes.ts.Imports;
+import genes.react.State;
+import genes.react.React.useStateLazy;
 import servercase.ModuleData.moduleLabel;
 #if server_jsx
 import genes.react.Element;
 #end
+
+private typedef ServerAnimal = {
+  final name: String;
+}
+
+private typedef ServerCat = {
+  > ServerAnimal,
+  final purr: Bool;
+}
+
+private typedef ServerDog = {
+  > ServerAnimal,
+  final bark: Bool;
+}
 
 /**
  * Project A's reusable public facade.
@@ -99,6 +115,15 @@ class Main {
     return value;
   }
 
+  /** Keeps destination-typed React state in every warm profile transition. */
+  @:genes.reactHook
+  public static function useServerAnimal(makeCat: Void->ServerCat,
+      dog: ServerDog): State<ServerAnimal> {
+    final state: State<ServerAnimal> = useStateLazy(() -> makeCat());
+    state.set(dog);
+    return state;
+  }
+
   #if server_indexed_plan
   /** Exercises request-local indexed planning under the warm compiler. */
   static function indexedDecision(values: Array<Int>, rhs: Int): Dynamic {
@@ -157,6 +182,9 @@ class Main {
     // instead of depending on macro static state from a previous request.
     final current = genes.ts.TypeArguments.call(RuntimePackage.identity(witness),
       witness);
+    final stateHook = useServerAnimal;
+    if (stateHook == null)
+      throw "React state Hook was not retained";
     var transcript = "project-a:"
       + current
       + ":"

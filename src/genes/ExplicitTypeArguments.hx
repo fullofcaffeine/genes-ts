@@ -65,6 +65,11 @@ class ExplicitTypeArguments {
   static inline final DIAGNOSTIC = 'GENES-TS-EXPLICIT-TYPE-ARGS-001';
   static inline final MAX_TYPE_DEPTH = 64;
 
+  /** Whether one compiler type is precise enough for a TS type argument. */
+  public static inline function isSafeTypeArgument(type: Type): Bool {
+    return !containsUnsafeType(type);
+  }
+
   /**
    * Returns the exact type arguments for an opted-in direct generic call.
    *
@@ -120,7 +125,7 @@ class ExplicitTypeArguments {
           callee.pos);
       }
       for (index in 0...carriedArguments.length) {
-        if (containsUnsafeType(carriedArguments[index].type)) {
+        if (!isSafeTypeArgument(carriedArguments[index].type)) {
           fail('TypeArguments.call(...) witness ${index + 1} is unresolved or broad; '
             + 'explicit TypeScript type arguments must remain precise',
             callee.pos);
@@ -145,7 +150,7 @@ class ExplicitTypeArguments {
           + 'parameter ${parameter.name}',
           callee.pos);
       }
-      if (containsUnsafeType(argument)) {
+      if (!isSafeTypeArgument(argument)) {
         fail('the Haxe-selected argument for method parameter '
           + '${parameter.name} is unresolved or broad; explicit TypeScript '
           + 'type arguments must remain precise',
@@ -195,7 +200,7 @@ class ExplicitTypeArguments {
     final arguments = new Array<ExplicitTypeArgument>();
     for (index in 0...witnesses.length) {
       final argument = Context.typeof(witnesses[index]);
-      if (containsUnsafeType(argument)) {
+      if (!isSafeTypeArgument(argument)) {
         fail('TypeArguments.call(...) witness ${index + 1} is unresolved or broad; '
           + 'explicit TypeScript type arguments must remain precise',
           witnesses[index].pos);

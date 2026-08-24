@@ -1,0 +1,9 @@
+-lib genes-ts
+-cp tests/react-hooks/src
+-main react_hooks.Main
+-js tests/react-hooks/out/jsx/index.jsx
+-D dts
+-D genes.react.inline_markup
+-D js-es=6
+-dce full
+-debug

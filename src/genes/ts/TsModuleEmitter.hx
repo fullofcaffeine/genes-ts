@@ -40,6 +40,7 @@ import genes.ts.TsIndexedAccessPlan.TsIndexedTargetDecision;
 import genes.ts.TsIndexedAccessPlan.TsIndexedReadProjection;
 import genes.ts.TsIndexedAccessPlan.TsIndexedTargetProjection;
 import genes.ts.TsIndexedAccessPlan.TsIndexedTargetWrapper;
+import genes.react.ReactStateInitializationPlan;
 import haxe.ds.Option;
 import haxe.macro.Expr;
 import haxe.macro.Type;
@@ -90,6 +91,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   var narrowingPlan: Null<TsNarrowingPlan> = null;
   var boundaryPlan: Null<TsBoundaryPlan> = null;
   var indexedAccessPlan: Null<TsIndexedAccessPlan> = null;
+  var reactStateInitializationPlan: Null<ReactStateInitializationPlan> = null;
   var currentCallableSignature: Null<CallableSignaturePlan> = null;
   var inRawSyntaxTemplate: Bool = false;
   var suppressOptionalFieldNullNormalization: Bool = false;
@@ -252,6 +254,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     // Runtime and type-only bindings share one collision-safe allocator, while
     // only the ordered runtime request array controls ESM evaluation order.
     final projection = module.implementationProjection;
+    reactStateInitializationPlan = module.plannedReactStateInitializations();
     final deps = projection.bindings;
     ctx.typeAccessor = type -> TypeAccessor.forTypeScript(type,
       deps.typeAccessor);
@@ -557,14 +560,21 @@ class TsModuleEmitter extends JsModuleEmitter {
     // enters this emitter. See `ExplicitTypeArguments` for validation and the
     // structural type-parameter binding contract.
     final explicitCallSite = currentExplicitTypeArguments;
-    final explicitTypeArguments = ExplicitTypeArguments.forCall(e,
+    final declarationTypeArguments = ExplicitTypeArguments.forCall(e,
       explicitCallSite);
-    if (explicitCallSite != null && explicitTypeArguments != null) {
+    if (explicitCallSite != null && declarationTypeArguments != null) {
       // A carrier belongs to one direct call occurrence. Clear it as soon as
       // that call claims the witness so a nested call to the same extern field
       // cannot accidentally receive the outer call's type argument.
       currentExplicitTypeArguments = null;
     }
+    final stateInitialization = reactStateInitializationPlan == null ? null : reactStateInitializationPlan.forCall(callExpression);
+    final explicitTypeArguments = stateInitialization == null ? declarationTypeArguments : [
+      {
+        type: stateInitialization.valueType,
+        tsType: SignatureCache.enumAbstractLiteralUnionTsType(stateInitialization.valueType)
+      }
+    ];
     final enumDecision = boundaryPlan == null ? null : boundaryPlan.enumCall(e);
     if (enumDecision != null) {
       // A Haxe enum constructor is a generic function in emitted TS. TypeScript
