@@ -9,22 +9,22 @@ import {Client} from "../Client"
 import {StringTools} from "../../../StringTools"
 import {Link} from "react-router"
 import {Register} from "../../../genes/Register"
+import type {Todo} from "../../shared/Todo"
 import type {ReactComponent1, ReactChild, ChangeEvent} from "../ReactTypes"
 import type {UseStateResult} from "../../../genes/react/UseStateResult"
-import type {Todo} from "../../shared/Todo"
 
 function Component(): JSX.Element {
 	const _keepTodoText: string = TodoText.interopBanner();
 	const todosState = useState<Todo[]>([]);
 	const todos: Todo[] = todosState[0];
-	const titleState: UseStateResult<string> = useState("");
+	const titleState: UseStateResult<string> = useState<string>("");
 	const title: string = titleState[0];
 	const initialFilter: (() => TodoFilter) = function () {
 		return TodoFilter.All;
 	};
-	const filterState: UseStateResult<TodoFilter> = useState(initialFilter);
+	const filterState: UseStateResult<TodoFilter> = useState<TodoFilter>(initialFilter);
 	const filter: TodoFilter = filterState[0];
-	const errorState: UseStateResult<string> = useState("");
+	const errorState: UseStateResult<string> = useState<string>("");
 	const error: string = errorState[0];
 	useEffect(function () {
 		Client.listTodos().then(function (next: Todo[]) {

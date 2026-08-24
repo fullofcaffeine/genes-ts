@@ -116,6 +116,8 @@ class Module {
   public var moduleFunctionPlan(get, null): ModuleFunctionPlan;
   public var moduleValuePlan(get, null): ModuleValuePlan;
   public var nativeAsyncPlan(get, null): NativeAsyncPlan;
+  public var reactStateInitializationPlan(get,
+    null): genes.react.ReactStateInitializationPlan;
 
   final context: ModuleContext;
   final cycleCache = new Map<String, Bool>();
@@ -159,6 +161,18 @@ class Module {
     if (nativeAsyncPlan == null)
       nativeAsyncPlan = NativeAsyncPlan.build(this);
     return nativeAsyncPlan;
+  }
+
+  /** Returns exact destination-typed React state initialization facts. */
+  function get_reactStateInitializationPlan(): genes.react.ReactStateInitializationPlan {
+    if (reactStateInitializationPlan == null)
+      reactStateInitializationPlan = genes.react.ReactStateInitializationPlan.build(this);
+    return reactStateInitializationPlan;
+  }
+
+  /** Returns the state plan only after dependency planning requested it. */
+  public function plannedReactStateInitializations(): Null<genes.react.ReactStateInitializationPlan> {
+    return reactStateInitializationPlan;
   }
 
   /**
@@ -400,6 +414,7 @@ class Module {
       moduleFunctionRequestPlan = null;
       moduleFunctionPlan = null;
       moduleValuePlan = null;
+      reactStateInitializationPlan = null;
       namePlans.clear();
       cycleCache.clear();
     }

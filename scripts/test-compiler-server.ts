@@ -1227,6 +1227,7 @@ async function main(): Promise<void> {
     assertContains(moduleFile("cold", baseline), '"server-project-a-v1"');
     assertContains(moduleFile("cold", baseline), "function serverTransformA");
     assertContains(moduleFile("cold", baseline), "identity<string>");
+    assertContains(moduleFile("cold", baseline), "useState<ServerAnimal>");
     assertModuleFunctionSourceMap(baseline);
 
     deepStrictEqual(
@@ -1299,6 +1300,8 @@ async function main(): Promise<void> {
     };
     await compilePair(compiler, server, classicRuntime, timeoutMs);
     assertContains(moduleFile("cold", classicRuntime), '"server-project-a-v1"');
+    assertContains(moduleFile("cold", classicRuntime), "useState(function ()");
+    assertNotContains(moduleFile("cold", classicRuntime), "useState<");
     assertContains(
       path.join(
         scenarioRoot("cold", classicRuntime),

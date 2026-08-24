@@ -113,10 +113,14 @@ function expectHaxeFailure(
 rmSync(path.join(fixtureRoot, "out"), {recursive: true, force: true});
 
 run("haxe", ["tests/react-hooks/build-ts.hxml"]);
+run("haxe", ["tests/react-hooks/build-tsx.hxml"]);
 run("haxe", ["tests/react-hooks/build-classic.hxml"]);
+run("haxe", ["tests/react-hooks/build-jsx.hxml"]);
 const firstTree = digestTree(path.join(fixtureRoot, "out"));
 run("haxe", ["tests/react-hooks/build-ts.hxml"]);
+run("haxe", ["tests/react-hooks/build-tsx.hxml"]);
 run("haxe", ["tests/react-hooks/build-classic.hxml"]);
+run("haxe", ["tests/react-hooks/build-jsx.hxml"]);
 deepStrictEqual(
   digestTree(path.join(fixtureRoot, "out")),
   firstTree,
@@ -138,8 +142,9 @@ ok(typed.includes("function useCounter(initial: number): CounterView"),
   "custom Hook body is one analyzer-visible module function");
 ok(typed.includes("function Counter(props: CounterProps): JSX.Element"),
   "component body is one analyzer-visible module function");
-ok(typed.includes("const state: UseStateResult<number> = useState(initial)"),
-  "semantic state remains React's native tuple");
+ok(typed.includes(
+  "const state: UseStateResult<number> = useState<number>(initial)"
+), "semantic state keeps its exact local value type on React's native tuple");
 ok(typed.includes("return useState<string[]>([])"),
   "empty-array state retains its Haxe-selected element type");
 ok(typed.includes("state[1](function (previous: number)"),
@@ -188,8 +193,47 @@ const gutenberg = source(
 ok(gutenberg.includes(
   "function BlockEdit(props: BlockEditProps): JSX.Element"
 ), "Gutenberg-shaped consumer uses the same analyzer-visible component contract");
-ok(gutenberg.includes("const selected: UseStateResult<boolean> = useState(false)"),
+ok(gutenberg.includes(
+  "const selected: UseStateResult<boolean> = useState<boolean>(false)"
+),
   "Gutenberg-shaped consumer keeps semantic state on the native Hook");
+
+const stateInitialization = source(
+  "out/ts/src-gen/react_hooks/StateInitialization.ts"
+);
+ok(stateInitialization.includes(
+  'import type {Animal, Cat, Dog} from "./StateInitializationTypes.js"'
+), "state witness types are allocated before TypeScript emission");
+ok(stateInitialization.includes(
+  "useState<Animal>(makeCat())"
+), "eager state uses the exact wider local type");
+ok(stateInitialization.includes(
+  "useState<Animal>(function ()"
+), "lazy state uses the same exact wider local type");
+ok(stateInitialization.includes(
+  "useState<Cat>(cat)"
+), "an unannotated state remains narrow");
+ok(stateInitialization.includes(
+  "useState<Choice<number, string>>(Choice.Left<number, string>(1))"
+), "generic enum state closes every parameter after local typing");
+strictEqual(
+  stateInitialization.match(/makeCat\(\)/g)?.length,
+  2,
+  "each eager and lazy initializer remains single-evaluation"
+);
+
+const stateInitializationTsx = source(
+  "out/tsx/src-gen/react_hooks/StateInitialization.tsx"
+);
+for (const expected of [
+  "useState<Animal>(makeCat())",
+  "useState<Animal>(function ()",
+  "useState<Cat>(cat)",
+  "useState<Choice<number, string>>(Choice.Left<number, string>(1))"
+]) {
+  ok(stateInitializationTsx.includes(expected),
+    `TSX state initialization retains ${expected}`);
+}
 
 const classic = source("out/classic/react_hooks/Main.js");
 ok(classic.includes(
@@ -213,6 +257,25 @@ ok(classic.includes(
 ), "classic callback and dependency array share snapshot identities");
 ok(!/\b(?:Dynamic|untyped|any|unknown)\b/.test(typed),
   "typed implementation introduces no broad boundary type");
+
+for (const profile of ["classic", "jsx"]) {
+  const extension = profile === "classic" ? "js" : "jsx";
+  const stateSource = source(
+    `out/${profile}/react_hooks/StateInitialization.${extension}`
+  );
+  ok(stateSource.includes("useState(makeCat())")
+    && stateSource.includes("useState(function ()")
+    && stateSource.includes("useState(cat)")
+    && stateSource.includes("useState(Choice.Left(1))"),
+  `${profile} erases state type witnesses`);
+  ok(!stateSource.includes("useState<"),
+    `${profile} contains no TypeScript call syntax`);
+  strictEqual(
+    stateSource.match(/makeCat\(\)/g)?.length,
+    2,
+    `${profile} preserves single initializer evaluation`
+  );
+}
 
 for (const profile of ["ts/src-gen", "classic"]) {
   const mainMap = path.join(fixtureRoot, "out", profile,

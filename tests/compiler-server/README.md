@@ -22,8 +22,8 @@ The focused owner covers:
 - TypeScript, TSX, classic MJS, and classic declarations;
 - repeated requests and changed output roots;
 - source edits, deleted/restored modules, module directives, module functions,
-  DCE/library roots, occurrence-local generic extern witnesses, and import
-  attributes;
+  DCE/library roots, occurrence-local generic extern witnesses, exact React
+  state initialization types, and import attributes;
 - a successful build followed by structured-diagnostic and raw-value
   post-staging failures in TS and classic declaration profiles, then recovery;
 - active-Genes then `genes.disable` capability isolation;

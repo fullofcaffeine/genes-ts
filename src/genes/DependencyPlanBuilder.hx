@@ -47,6 +47,7 @@ class DependencyPlanBuilder {
   final module: Module;
   final edges: Array<DependencyEdge> = [];
   var usesJsxNamespaceType = false;
+  var hasReactStateBinding = false;
 
   public static function build(module: Module): DependencyPlan {
     final builder = new DependencyPlanBuilder(module);
@@ -195,6 +196,9 @@ class DependencyPlanBuilder {
         return;
       switch expression.expr {
         case TField(_, FStatic(owner, _.get() => field)):
+          if (genes.react.ReactStateInitializationPlan.isStateBinding(owner.get(),
+            field))
+            hasReactStateBinding = true;
           final dependency = fieldImport(field.name, field.meta, field.pos);
           if (dependency != null)
             addImport(RuntimeValue, dependency,
@@ -526,6 +530,11 @@ class DependencyPlanBuilder {
       for (reference in module.tsBoundaryPlan.referencedTypes())
         collector.collect(reference.type,
           'type.ts-boundary.${reference.rule}', reference.pos);
+
+    if (includeExpressionLocals && hasReactStateBinding)
+      for (reference in module.reactStateInitializationPlan.referencedTypes())
+        collector.collect(reference.type, 'type.react-state-initialization',
+          reference.pos);
 
     function collectLocalTypes(expression: TypedExpr): Void {
       if (expression == null)

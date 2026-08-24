@@ -6,8 +6,8 @@ import {ReactRouter_Fields_} from "../../extern/ReactRouter"
 import {Client} from "../Client"
 import {StringTools} from "../../../StringTools"
 import {Register} from "../../../genes/Register"
-import type {UseStateResult} from "../../../genes/react/UseStateResult"
 import type {Todo} from "../../shared/Todo"
+import type {UseStateResult} from "../../../genes/react/UseStateResult"
 import type {ChangeEvent} from "../ReactTypes"
 
 function Component(): JSX.Element {
@@ -15,9 +15,9 @@ function Component(): JSX.Element {
 	const id: string | null = idStr;
 	const todoState = useState<Todo | null>(null);
 	const todo: Todo | null = todoState[0];
-	const titleState: UseStateResult<string> = useState("");
+	const titleState: UseStateResult<string> = useState<string>("");
 	const title: string = titleState[0];
-	const errorState: UseStateResult<string> = useState("");
+	const errorState: UseStateResult<string> = useState<string>("");
 	const error: string = errorState[0];
 	const navigate: ((arg0: string) => void) = useNavigate();
 	useEffect(function () {
