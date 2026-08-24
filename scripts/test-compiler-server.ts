@@ -837,6 +837,70 @@ async function assertSourcePropsServerIsolation(
   );
 }
 
+/**
+ * Proves one warm request cannot reuse an earlier React State use inventory.
+ *
+ * The safe request uses only value/update and emits native bindings. The next
+ * request observes the whole State and must restore the indexed representation.
+ * A classic profile request consumes the same safe plan, then the original TS
+ * request must reproduce its first cold and warm bytes.
+ */
+async function assertReactStateProjectionServerIsolation(
+  compiler: ReturnType<typeof selectedHaxeCompiler>,
+  server: OwnedHaxeCompilerServer,
+  timeoutMs: number
+): Promise<void> {
+  const safe: Scenario = {
+    id: "a-react-state-server",
+    project: "project-a",
+    profile: tsProfile,
+    defines: ["server_state_projection"]
+  };
+  const safeTree = await compilePair(compiler, server, safe, timeoutMs);
+  for (const mode of ["cold", "warm"] as const) {
+    assertContains(moduleFile(mode, safe),
+      "const [state, setState] = useState<number>(initial)");
+    assertContains(moduleFile(mode, safe),
+      "setState(function (previous: number)");
+    assertContains(moduleFile(mode, safe),
+      "function (setState_1: ((arg0: number) => void))");
+    assertContains(moduleFile(mode, safe), "setState(initial + 3)");
+    assertContains(moduleFile(mode, safe), "setState_1(initial + 4)");
+  }
+
+  const escaped: Scenario = {
+    ...safe,
+    defines: ["server_state_projection", "server_state_escape"]
+  };
+  await compilePair(compiler, server, escaped, timeoutMs);
+  for (const mode of ["cold", "warm"] as const) {
+    assertContains(moduleFile(mode, escaped),
+      "const state: UseStateResult<number> = useState<number>(initial)");
+    assertNotContains(moduleFile(mode, escaped), "const [state, setState]");
+  }
+
+  const classic: Scenario = {
+    id: "a-react-state-server-classic",
+    project: "project-a",
+    profile: classicDeclarationProfile,
+    defines: ["server_state_projection"]
+  };
+  await compilePair(compiler, server, classic, timeoutMs);
+  for (const mode of ["cold", "warm"] as const) {
+    assertContains(moduleFile(mode, classic),
+      "const [state, setState] = useState(initial)");
+    assertContains(moduleFile(mode, classic), "function (setState_1)");
+    assertContains(moduleFile(mode, classic), "setState(initial + 3)");
+    assertContains(moduleFile(mode, classic), "setState_1(initial + 4)");
+  }
+
+  deepStrictEqual(
+    await compilePair(compiler, server, safe, timeoutMs),
+    safeTree,
+    "Safe React State output changed after warm escape and profile requests"
+  );
+}
+
 async function assertCapabilityIsolation(
   compiler: ReturnType<typeof selectedHaxeCompiler>,
   server: OwnedHaxeCompilerServer,
@@ -1319,6 +1383,8 @@ async function main(): Promise<void> {
     await compilePair(compiler, server, tsx, timeoutMs);
     ok(existsSync(moduleFile("cold", tsx)), "TSX request emitted no .tsx module");
     await assertSourcePropsServerIsolation(compiler, server, timeoutMs);
+    await assertReactStateProjectionServerIsolation(compiler, server,
+      timeoutMs);
     await assertIndexedAccessServerIsolation(compiler, server, timeoutMs);
 
     const moved: Scenario = {

@@ -28,6 +28,12 @@ typedef CounterProps = {
   final initial: Int;
 }
 
+typedef ProjectedCounterView = {
+  final value: Int;
+  final increment: Void->Void;
+  final replace: Int->Void;
+}
+
 final CounterLabel: Context<String> = createContext("Counter");
 
 /**
@@ -62,6 +68,20 @@ function useCounter(initial: Int): CounterView {
     doubled: doubled,
     increment: increment,
     optimistic: optimistic
+  };
+}
+
+/** Uses only the semantic state operations that admit native destructuring. */
+@:genes.reactHook
+function useProjectedCounter(initial: Int): ProjectedCounterView {
+  final state = useState(initial);
+  final increment = useCallback(() -> state.update(previous -> previous + 1),
+    deps());
+  final replace = useCallback((next: Int) -> state.set(next), deps());
+  return {
+    value: state.value,
+    increment: increment,
+    replace: replace
   };
 }
 
@@ -113,6 +133,7 @@ function Counter(props: CounterProps): Element {
 class Main {
   static function main(): Void {
     final counter = useCounter;
+    final projectedCounter = useProjectedCounter;
     final label = useLazyLabel;
     final list = useStringList;
     final computed = useComputedSummary;
@@ -121,10 +142,34 @@ class Main {
     final optionalTypeOnlyComponent = TypeOnlyComponent.OptionalIdentity;
     final blockEdit = GutenbergBlock.BlockEdit;
     final stateInitialization = StateInitialization.retainStateInitializationProof;
-    if (counter == null || label == null || list == null
-      || computed == null || component == null || typeOnlyComponent == null
-      || optionalTypeOnlyComponent == null || blockEdit == null
-      || stateInitialization == null) {
+    final typedProjections = StateProjectionCases.useTypedProjections;
+    final lazyProjection = StateProjectionCases.useLazyProjection;
+    final contextualProjection = StateProjectionCases.useContextualProjection;
+    final genericEnumProjection = StateProjectionCases.useGenericEnumProjection;
+    final genericProjection: (Int,
+      Int) -> Int = StateProjectionCases.useGenericProjection;
+    final callableProjection = StateProjectionCases.useCallableProjection;
+    final setterOnly = StateProjectionCases.useSetterOnly;
+    final stableSetterCallback = StateProjectionCases.useStableSetterCallback;
+    final nestedSetterCollision = StateProjectionCases.useNestedSetterCollision;
+    final deepNestedSetterCollision = StateProjectionCases.useDeepNestedSetterCollision;
+    final projectionNameCollisions = StateProjectionCases.useProjectionNameCollisions;
+    final wholeStateFallbacks = StateProjectionFallbacks.useWholeStateFallbacks;
+    final returnedState = StateProjectionFallbacks.useReturnedState;
+    final customState = StateProjectionFallbacks.useCustomState;
+    final customStateConsumer = StateProjectionFallbacks.useCustomStateConsumer;
+    if (counter == null || projectedCounter == null || label == null
+      || list == null || computed == null || component == null
+      || typeOnlyComponent == null || optionalTypeOnlyComponent == null
+      || blockEdit == null || typedProjections == null
+      || lazyProjection == null || contextualProjection == null
+      || genericEnumProjection == null || genericProjection == null
+      || callableProjection == null || setterOnly == null
+      || stableSetterCallback == null || nestedSetterCollision == null
+      || deepNestedSetterCollision == null
+      || projectionNameCollisions == null || wholeStateFallbacks == null
+      || returnedState == null || customState == null
+      || customStateConsumer == null || stateInitialization == null) {
       throw "React Hook functions were not retained";
     }
   }

@@ -33,6 +33,8 @@ import genes.ModuleFunctionPlan;
 import genes.DynamicImportBindingPlan;
 import genes.DynamicImportBindingPlan.DynamicImportBindingToken;
 import genes.IdentifierPolicy;
+import genes.react.ReactStateProjectionPlan;
+import genes.react.ReactStateProjectionPlan.ReactStateProjectedAccess;
 import genes.util.TypeUtil.*;
 import genes.util.IteratorUtil.*;
 
@@ -55,6 +57,7 @@ class ExprEmitter extends Emitter {
   var tempPlan: Null<TempPlan> = null;
   var localBindingPlan: Null<LocalBindingPlan> = null;
   var nativeAsyncPlan: Null<NativeAsyncPlan> = null;
+  var reactStateProjectionPlan: Null<ReactStateProjectionPlan> = null;
   var directImportLocals: Array<String> = [];
   var currentModule: Null<Module> = null;
   var lexicalBindingUsePlan: Null<LexicalBindingUsePlan> = null;
@@ -170,6 +173,7 @@ class ExprEmitter extends Emitter {
       && plannedNativeAsync.hasCarriers() ? plannedNativeAsync : null;
     tempPlan = module.tempPlan;
     localBindingPlan = module.localBindingPlan;
+    reactStateProjectionPlan = module.reactStateProjectionPlan;
     namePlan = module.namePlan(profile, jsxEmitTsx);
     lexicalBindingUsePlan = module.plannedLexicalBindingUses();
     lexicalBindingProfile = profile == TypeScriptReadable ? TypeScriptLexicalBindings : ClassicLexicalBindings;
@@ -199,6 +203,43 @@ class ExprEmitter extends Emitter {
           lexicalBindingProfile);
     }
     return name;
+  }
+
+  /** Emits one exact planned State field as its native local binding. */
+  function emitReactStateProjectedAccess(expression: TypedExpr): Bool {
+    final decision = reactStateProjectionPlan == null ? null : reactStateProjectionPlan.accessFor(expression);
+    if (decision == null)
+      return false;
+    emitExpressionPos(expression);
+    switch decision.access {
+      case CurrentValue:
+        emitLocalVar(decision.local);
+      case Dispatcher:
+        emitLocalIdent(requireNamePlan().reactStateSetterFor(decision.local));
+    }
+    return true;
+  }
+
+  /** Emits one admitted State declaration as React's native value/dispatcher pair. */
+  function emitReactStateProjectionDeclaration(declaration: TypedExpr,
+      local: TVar, initializer: Null<TypedExpr>): Bool {
+    if (initializer == null
+      || reactStateProjectionPlan == null
+      || !reactStateProjectionPlan.projectsDeclaration(declaration, local,
+        initializer))
+      return false;
+    write('${localDeclaration(local, true)} [');
+    final usesCurrentValue = reactStateProjectionPlan.usesCurrentValue(local);
+    final usesDispatcher = reactStateProjectionPlan.usesDispatcher(local);
+    if (usesCurrentValue)
+      emitLocalVar(local);
+    if (usesDispatcher) {
+      write(', ');
+      emitLocalIdent(requireNamePlan().reactStateSetterFor(local));
+    }
+    write('] = ');
+    emitValue(initializer);
+    return true;
   }
 
   /**
@@ -437,6 +478,8 @@ class ExprEmitter extends Emitter {
       emitExpr(explicitTypeArgumentCall.value);
       return;
     }
+    if (emitReactStateProjectedAccess(e))
+      return;
     if (CompilerInternal.isSideEffectImportMarkerCall(e))
       return;
     final dynamicBinding = CompilerInternal.dynamicBindingDeclarationMarkerCall(e);
@@ -1377,6 +1420,8 @@ class ExprEmitter extends Emitter {
         case null:
       }
     }
+    if (emitReactStateProjectedAccess(e))
+      return;
     if (CompilerInternal.isSideEffectImportMarkerCall(e)) {
       CompilerDiagnostic.fail('GENES-SIDE-EFFECT-IMPORT-CONTEXT-001: compiler marker must be a direct statement',
         e.pos);
@@ -1751,6 +1796,8 @@ class ExprEmitter extends Emitter {
 
   public function emitVar(declaration: TypedExpr, v: TVar,
       eo: Null<TypedExpr>) {
+    if (emitReactStateProjectionDeclaration(declaration, v, eo))
+      return;
     if (eo != null && emitSourceJsxPropsCarrier(declaration, v, eo))
       return;
     write('${localDeclaration(v, eo != null)} ');

@@ -11,26 +11,25 @@ import {Link} from "react-router"
 import {Register} from "../../../genes/Register"
 import type {Todo} from "../../shared/Todo"
 import type {ReactComponent1, ReactChild, ChangeEvent} from "../ReactTypes"
-import type {UseStateResult} from "../../../genes/react/UseStateResult"
 
 function Component(): JSX.Element {
 	const _keepTodoText: string = TodoText.interopBanner();
-	const todosState = useState<Todo[]>([]);
-	const todos: Todo[] = todosState[0];
-	const titleState: UseStateResult<string> = useState<string>("");
-	const title: string = titleState[0];
+	const [todosState, setTodosState] = useState<Todo[]>([]);
+	const todos: Todo[] = todosState;
+	const [titleState, setTitleState] = useState<string>("");
+	const title: string = titleState;
 	const initialFilter: (() => TodoFilter) = function () {
 		return TodoFilter.All;
 	};
-	const filterState: UseStateResult<TodoFilter> = useState<TodoFilter>(initialFilter);
-	const filter: TodoFilter = filterState[0];
-	const errorState: UseStateResult<string> = useState<string>("");
-	const error: string = errorState[0];
+	const [filterState, setFilterState] = useState<TodoFilter>(initialFilter);
+	const filter: TodoFilter = filterState;
+	const [errorState, setErrorState] = useState<string>("");
+	const error: string = errorState;
 	useEffect(function () {
 		Client.listTodos().then(function (next: Todo[]) {
-			todosState[1](next);
+			setTodosState(next);
 		})["catch"](function (_) {
-			errorState[1]("Failed to load todos");
+			setErrorState("Failed to load todos");
 		});
 	}, []);
 	const replaceTodo: ((updated: Todo) => void) = function (updated: Todo) {
@@ -42,7 +41,7 @@ function Component(): JSX.Element {
 			_g.push((t.id == updated.id) ? updated : t);
 		};
 		const next: Todo[] = _g;
-		todosState[1](next);
+		setTodosState(next);
 	};
 	const removeTodo: ((id: string) => void) = function (id: string) {
 		const _g_1: Todo[] = [];
@@ -55,7 +54,7 @@ function Component(): JSX.Element {
 			};
 		};
 		const next: Todo[] = _g_1;
-		todosState[1](next);
+		setTodosState(next);
 	};
 	const isVisible: ((todo: Todo) => boolean) = function (todo: Todo) {
 		switch (filter._hx_index) {
@@ -79,16 +78,16 @@ function Component(): JSX.Element {
 	const onAdd: (() => void) = function () {
 		const trimmed: string = StringTools.trim(title);
 		if (trimmed.length == 0) {
-			errorState[1]("Title is required");
+			setErrorState("Title is required");
 			return;
 		};
-		errorState[1]("");
+		setErrorState("");
 		Client.createTodo(trimmed).then(function (todo: Todo) {
 			const next: Todo[] = todos.concat([todo]);
-			todosState[1](next);
-			titleState[1]("");
+			setTodosState(next);
+			setTitleState("");
 		})["catch"](function (_) {
-			errorState[1]("Failed to create todo");
+			setErrorState("Failed to create todo");
 		});
 	};
 	const errorView: ReactChild = (error != "") ? React__genes_jsx.createElement("p", ({style: {"color": "crimson"}} satisfies (React__genes_jsx.ComponentPropsWithRef<"p"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), error) : Register.unsafeCast<ReactChild>(null);
@@ -115,7 +114,7 @@ function Component(): JSX.Element {
 	const renderFilterButton: ((label: string, value: TodoFilter) => JSX.Element) = function (label: string, value: TodoFilter) {
 		const selected: boolean = filter == value;
 		return React__genes_jsx.createElement("button", ({"aria-pressed": selected, onClick: function () {
-			filterState[1](value);
+			setFilterState(value);
 		}, style: {"padding": "6px 10px", "border": (selected) ? "1px solid #2563eb" : "1px solid #d1d5db", "borderRadius": "999px", "backgroundColor": (selected) ? "#dbeafe" : "white", "color": (selected) ? "#1e3a8a" : "#374151"}} satisfies (React__genes_jsx.ComponentPropsWithRef<"button"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), label);
 	};
 	const _g_2: Todo[] = [];
@@ -130,7 +129,7 @@ function Component(): JSX.Element {
 	const visibleTodos: Todo[] = _g_2;
 	const tmp: JSX.Element = React__genes_jsx.createElement("h2", null, "Todos");
 	const tmp1: JSX.Element = React__genes_jsx.createElement("input", ({value: title, placeholder: "New todo", onChange: function (e: ChangeEvent) {
-		titleState[1](e.target.value);
+		setTitleState(e.target.value);
 	}, style: {"flex": "1", "padding": "8px"}} satisfies (React__genes_jsx.ComponentPropsWithRef<"input"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
 	const tmp2: JSX.Element = React__genes_jsx.createElement(TodoListPage.PrettyButton, ({label: "Add", onClick: function () {
 		onAdd();

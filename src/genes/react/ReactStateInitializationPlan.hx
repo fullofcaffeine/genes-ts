@@ -91,6 +91,11 @@ final class ReactStateInitializationPlan {
       && decision.initializer == initializer ? decision : null;
   }
 
+  /** Whether another state plan has any authenticated declaration to inspect. */
+  public inline function hasDecisions(): Bool {
+    return decisions.length > 0;
+  }
+
   /** Every type that TypeScript emission may print, in source order. */
   public function referencedTypes(): Array<ReactStateInitializationReference> {
     return [

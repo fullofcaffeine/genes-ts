@@ -2213,6 +2213,8 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   override public function emitVar(declaration: TypedExpr, v: TVar,
       eo: Null<TypedExpr>) {
+    if (emitReactStateProjectionDeclaration(declaration, v, eo))
+      return;
     if (eo != null && emitSourceJsxPropsCarrier(declaration, v, eo))
       return;
     if (eo != null && isJsxCarrierLocal(v.id)) {
@@ -2783,6 +2785,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       currentExplicitTypeArguments = previous;
       return;
     }
+    if (emitReactStateProjectedAccess(e))
+      return;
     if (inRawSyntaxTemplate) {
       super.emitValue(e);
       return;
@@ -2943,6 +2947,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       currentExplicitTypeArguments = previous;
       return;
     }
+    if (emitReactStateProjectedAccess(e))
+      return;
     if (CompilerInternal.isSideEffectImportMarkerCall(e))
       return;
     if (inRawSyntaxTemplate) {

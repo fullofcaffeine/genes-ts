@@ -4,6 +4,8 @@ package genes;
 import haxe.ds.ObjectMap;
 import haxe.macro.Type;
 import genes.DynamicImportBindingPlan.DynamicImportBindingToken;
+import genes.react.ReactStateProjectionPlan;
+import genes.react.ReactStateProjectionPlan.ReactStateProjectedAccess;
 
 using haxe.macro.TypedExprTools;
 
@@ -48,16 +50,19 @@ private typedef ObjectFieldLocalUse = {
  */
 class NamePlan {
   final names: Map<Int, String>;
+  final reactStateSetters: Map<Int, String>;
   final moduleBindings: Array<String>;
 
   public static function build(module: Module, temps: TempPlan,
       profile: NamePlanProfile, jsxEmitTsx = false): NamePlan {
-    return new NamePlanBuilder(temps, profile, jsxEmitTsx,
-      module.jsxPlan).build(module);
+    return new NamePlanBuilder(temps, profile, jsxEmitTsx, module.jsxPlan,
+      module.reactStateProjectionPlan).build(module);
   }
 
-  public function new(names: Map<Int, String>, moduleBindings: Array<String>) {
+  public function new(names: Map<Int, String>,
+      reactStateSetters: Map<Int, String>, moduleBindings: Array<String>) {
     this.names = names;
+    this.reactStateSetters = reactStateSetters;
     this.moduleBindings = moduleBindings.copy();
   }
 
@@ -74,6 +79,15 @@ class NamePlan {
   /** Returns locals emitted outside a function in deterministic order. */
   public function moduleBindingNames(): Array<String> {
     return moduleBindings.copy();
+  }
+
+  /** Returns the separately allocated dispatcher name for one projected State. */
+  public function reactStateSetterFor(local: TVar): String {
+    final planned = reactStateSetters.get(local.id);
+    if (planned != null)
+      return planned;
+    throw '[GTS-NAME-PLAN-003] Missing React dispatcher name for TVar '
+      + '${local.id} (${local.name}).';
   }
 }
 
@@ -95,18 +109,22 @@ private class NamePlanBuilder {
   final profile: NamePlanProfile;
   final jsxEmitTsx: Bool;
   final jsxPlan: JsxPlan;
+  final reactStateProjectionPlan: ReactStateProjectionPlan;
   final names: Map<Int, String> = [];
+  final reactStateSetters: Map<Int, String> = [];
   final moduleBindings: Array<String> = [];
   final generatedCounts: Map<String, Int> = [];
   final plannedFunctions = new ObjectMap<TFunc, Bool>();
   var currentModule: Null<Module> = null;
 
   public function new(temps: TempPlan, profile: NamePlanProfile,
-      jsxEmitTsx: Bool, jsxPlan: JsxPlan) {
+      jsxEmitTsx: Bool, jsxPlan: JsxPlan,
+      reactStateProjectionPlan: ReactStateProjectionPlan) {
     this.temps = temps;
     this.profile = profile;
     this.jsxEmitTsx = jsxEmitTsx;
     this.jsxPlan = jsxPlan;
+    this.reactStateProjectionPlan = reactStateProjectionPlan;
   }
 
   public function build(module: Module): NamePlan {
@@ -142,7 +160,7 @@ private class NamePlanBuilder {
         case MEnum(_, _) | MType(_, _):
       }
     }
-    return new NamePlan(names, moduleBindings);
+    return new NamePlan(names, reactStateSetters, moduleBindings);
   }
 
   /** Plans arguments and body locals in one independent function scope. */
@@ -150,12 +168,46 @@ private class NamePlanBuilder {
     if (plannedFunctions.exists(func))
       return;
     plannedFunctions.set(func, true);
-    final scope = allocationScope(fixedBindings);
+    final bindings = inheritedFunctionBindings(func.expr, fixedBindings);
+    final scope = allocationScope(bindings);
     final preferences: Map<Int, String> = [];
     reserveDirectBindings(func.expr, scope);
     for (argument in func.args)
       allocate(argument.v, scope, preferences, false);
     visit(func.expr, scope, preferences, false);
+  }
+
+  /**
+   * Reserves synthetic dispatchers captured by this exact function body.
+   *
+   * A projected setter has no authored `TVar` of its own. Without this step, a
+   * nested parameter can reuse its generated name and silently redirect an
+   * outer `state.set(...)` call. Exact planned dispatcher accesses identify
+   * every binding captured through this lexical scope, including accesses in
+   * deeper functions whose closures must pass through it.
+   */
+  function inheritedFunctionBindings(expression: TypedExpr,
+      fixedBindings: Null<Map<String, Bool>>): Map<String, Bool> {
+    final bindings: Map<String, Bool> = [];
+    if (fixedBindings != null)
+      for (name in fixedBindings.keys())
+        bindings.set(name, true);
+    if (!reactStateProjectionPlan.hasDispatchers())
+      return bindings;
+
+    function reserveCapturedSetters(current: TypedExpr): Void {
+      final access = reactStateProjectionPlan.accessFor(current);
+      if (access != null
+        && access.access == ReactStateProjectedAccess.Dispatcher) {
+        final setter = reactStateSetters.get(access.local.id);
+        if (setter != null)
+          bindings.set(setter, true);
+        return;
+      }
+      current.iter(reserveCapturedSetters);
+    }
+    reserveCapturedSetters(expression);
+    return bindings;
   }
 
   /** Traverses typed expressions using the lexical scopes the printers expose. */
@@ -240,35 +292,47 @@ private class NamePlanBuilder {
     if (jsxEmitTsx && profile == ClassicStable && preferences.exists(local.id)) {
       final preferred = preferences.get(local.id);
       final planned = allocateScopedName(scope, preferred);
-      names.set(local.id, planned);
-      if (moduleContext)
-        addModuleBinding(planned);
+      finishAllocation(local, planned, scope, moduleContext);
       return;
     }
     if (profile == ClassicStable) {
       final planned = scope.reserved.exists(local.name) ? allocateScopedName(scope,
         local.name) : local.name;
       scope.used.set(planned, true);
-      names.set(local.id, planned);
-      if (moduleContext)
-        addModuleBinding(planned);
+      finishAllocation(local, planned, scope, moduleContext);
       return;
     }
 
     final temp = temps.tempForLocal(local);
     if (temp != null && temp.kind == HaxeGeneratedLocal) {
       final planned = allocateGeneratedName(scope, local.name);
-      names.set(local.id, planned);
-      if (moduleContext)
-        addModuleBinding(planned);
+      finishAllocation(local, planned, scope, moduleContext);
       return;
     }
 
     final baseName = preferences.exists(local.id) ? preferences.get(local.id) : local.name;
     final planned = allocateScopedName(scope, baseName);
+    finishAllocation(local, planned, scope, moduleContext);
+  }
+
+  /** Freezes the local and its optional synthetic React dispatcher together. */
+  function finishAllocation(local: TVar, planned: String,
+      scope: AllocationScope, moduleContext: Bool): Void {
     names.set(local.id, planned);
     if (moduleContext)
       addModuleBinding(planned);
+    if (!reactStateProjectionPlan.projectsLocal(local)
+      || !reactStateProjectionPlan.usesDispatcher(local))
+      return;
+    final setterBase = 'set'
+      + planned.substr(0, 1).toUpperCase()
+      + planned.substr(1);
+    final setter = allocateScopedName(scope, setterBase);
+    // Classic normally preserves authored spelling unless an exact fixed name
+    // is reserved. Reserve this generated binding so later locals cannot reuse
+    // it even though they have no TVar identity of their own for the setter.
+    scope.reserved.set(setter, true);
+    reactStateSetters.set(local.id, setter);
   }
 
   function addModuleBinding(name: String): Void {
