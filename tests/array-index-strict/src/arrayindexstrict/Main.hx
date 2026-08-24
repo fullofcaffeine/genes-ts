@@ -176,6 +176,30 @@ class Main {
     return values.shift();
   }
 
+  /**
+   * Preserves receiver and index effects when an unresolved read is discarded.
+   *
+   * The empty array intentionally has no element evidence. The local that
+   * receives its indexed result is never read, so only the four calls are
+   * observable.
+   */
+  static function discardedUnresolvedRead(): String {
+    final order = new Array<Int>();
+    function observe(value: Int): Int {
+      order.push(value);
+      return value;
+    }
+    function values(first: Int, second: Int) {
+      return [];
+    }
+    function index(first: Int, second: Int): Int {
+      return 0;
+    }
+    final ignored = values(observe(1),
+      observe(2))[index(observe(3), observe(4))];
+    return order.join(",");
+  }
+
   public static function main(): Void {
     final undefinedValues: Array<Undefinable<String>> = [Undefinable.absent(), "present"];
     final nullableValues: Array<Null<String>> = [null];
@@ -239,6 +263,7 @@ class Main {
       namedValues.shift(),
       namedValues.pop(),
       discarded.length == 0 ? "discarded" : "unexpected",
+      discardedUnresolvedRead() == "1,2,3,4" ? "discarded-index-order" : "unexpected",
       ["first", "match"].findIndex(value ->
         value == "match") == 1 ? "native-find-index" : "unexpected"
     ];
