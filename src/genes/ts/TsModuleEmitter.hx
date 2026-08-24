@@ -3199,7 +3199,8 @@ class TsModuleEmitter extends JsModuleEmitter {
             write('return');
           case e1:
             final ret = currentReturnType;
-            final unwrapped = unwrapExpr(e1);
+            final nativeAsyncReturn = nativeAsyncPlan == null ? null : nativeAsyncPlan.returnValue(e1);
+            final unwrapped = unwrapExpr(nativeAsyncReturn ?? e1);
             final isNull = isNullConst(unwrapped)
               || isJsUndefinedConst(unwrapped);
             if (currentReturnIsVoidLike && isNull) {

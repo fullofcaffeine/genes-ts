@@ -3,5 +3,7 @@
 -main asyncawaitevidence.Main
 -js tests/async-await-evidence/out/classic/index.js
 -D js-es=6
+-D dts
 -dce full
 -debug
+--macro asyncawaitevidence.NativeAsyncInventoryProbe.install()

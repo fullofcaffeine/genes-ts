@@ -17,10 +17,10 @@ private enum FunctionContextKind {
 }
 
 private typedef FunctionContextRange = {
-  final file:String;
-  final min:Int;
-  final max:Int;
-  final kind:FunctionContextKind;
+  final file: String;
+  final min: Int;
+  final max: Int;
+  final kind: FunctionContextKind;
 }
 #end
 
@@ -37,10 +37,10 @@ private typedef FunctionContextRange = {
  *
  * How: a build macro rewrites return typing, records private function-context
  * ranges, and attaches the typed `:jsAsync` fact consumed by both emitters.
- * Calls fail during typing when they are outside an async function. Named
- * async methods additionally require an active Genes generator because only
- * the Genes printers consume `:jsAsync`; anonymous async functions lower to
- * explicit syntax and remain valid in stock Haxe JS.
+ * Exact compiler-owned calls carry anonymous functions and rewritten returns
+ * to a request-local Genes plan. Calls fail during typing when they are outside
+ * an async function. Stock Haxe keeps the explicit anonymous-function syntax
+ * fallback because it does not run that Genes plan.
  *
  * Usage:
  * - Mark functions with `@:async` metadata.
@@ -51,7 +51,7 @@ private typedef FunctionContextRange = {
  *
  * `@:async` functions must declare a return type. A declared `T` is lifted to
  * `Promise<T>`; an existing `Promise<T>` remains unchanged. The compile-only
- * casts used to bridge Haxe's missing async effect are documented at the
+ * carriers used to bridge Haxe's missing async effect are documented at the
  * rewrite site and are erased from generated user code.
  */
 class Async {
@@ -62,8 +62,8 @@ class Async {
   /** Installs the compile-local build macro used by the library HXML. */
   public static function enable(): Void {
     #if macro
-    Compiler.addGlobalMetadata('',
-      '@:build(genes.js.Async.build())', true, true, false);
+    Compiler.addGlobalMetadata('', '@:build(genes.js.Async.build())', true,
+      true, false);
     #end
   }
 
@@ -102,7 +102,7 @@ class Async {
         transformed.push(field);
         continue;
       }
-      final asyncRanges:Array<FunctionContextRange> = [];
+      final asyncRanges: Array<FunctionContextRange> = [];
       switch field.kind {
         case FFun(fn):
           if (fn == null) {
@@ -111,8 +111,8 @@ class Async {
           }
 
           if (hasAsyncMeta(field.meta)) {
-            transformed.push(withAsyncContextRanges(
-              transformAsyncField(field, fn, asyncRanges), asyncRanges));
+            transformed.push(withAsyncContextRanges(transformAsyncField(field,
+              fn, asyncRanges), asyncRanges));
           } else {
             fn.args = processFunctionArgs(fn.args, asyncRanges);
             if (fn.expr != null)
@@ -191,7 +191,8 @@ class Async {
       return macro @:pos(expr.pos) js.Syntax.code('await {0}', $expr);
     final ct = awaitedType.toComplexType();
     if (ct == null)
-      return macro @:pos(expr.pos) (js.Syntax.code('await {0}', $expr): Dynamic);
+      return macro @:pos(expr.pos) (js.Syntax.code('await {0}',
+        $expr) : Dynamic);
     final awaitedExpr = macro js.Syntax.code('await {0}', $expr);
     awaitedExpr.pos = expr.pos;
     return {
@@ -217,8 +218,8 @@ class Async {
    * each compilation, so nested anonymous functions work without mutable
    * compiler-global state.
    */
-  static function withAsyncContextRanges(field:Field,
-      ranges:Array<FunctionContextRange>):Field {
+  static function withAsyncContextRanges(field: Field,
+      ranges: Array<FunctionContextRange>): Field {
     if (ranges.length == 0)
       return field;
     final meta = field.meta == null ? [] : field.meta.copy();
@@ -244,12 +245,14 @@ class Async {
     };
   }
 
-  static function addFunctionSourceRange(ranges:Array<FunctionContextRange>,
-      pos:Position, kind:FunctionContextKind):Void {
+  static function addFunctionSourceRange(ranges: Array<FunctionContextRange>,
+      pos: Position, kind: FunctionContextKind): Void {
     final info = Context.getPosInfos(pos);
     for (existing in ranges) {
-      if (existing.file == info.file && existing.min == info.min
-        && existing.max == info.max && existing.kind == kind)
+      if (existing.file == info.file
+        && existing.min == info.min
+        && existing.max == info.max
+        && existing.kind == kind)
         return;
     }
     ranges.push({
@@ -260,7 +263,7 @@ class Async {
     });
   }
 
-  static function functionContextName(kind:FunctionContextKind):String {
+  static function functionContextName(kind: FunctionContextKind): String {
     return switch kind {
       case SynchronousFunction: 'sync';
       case AnonymousAsyncFunction: 'anonymous-async';
@@ -275,20 +278,18 @@ class Async {
    * Checking `genes.disable` alone would miss manual classpath use and could
    * accept a build whose printer never sees the `:jsAsync` semantic fact.
    */
-  static function requireGenesGenerator(pos:Position):Void {
+  static function requireGenesGenerator(pos: Position): Void {
     requireJsTarget(pos);
     if (!Context.defined(genes.CompilerInternal.GENERATOR_ACTIVE_DEFINE)) {
-      Context.error(
-        '[GENES-ASYNC-TARGET-001] named @:async methods require the active Genes JS generator',
+      Context.error('[GENES-ASYNC-TARGET-001] named @:async methods require the active Genes JS generator',
         pos);
     }
   }
 
   /** Rejects native async syntax on targets that cannot execute JavaScript. */
-  static function requireJsTarget(pos:Position):Void {
+  static function requireJsTarget(pos: Position): Void {
     if (!Context.defined('js')) {
-      Context.error(
-        '[GENES-ASYNC-TARGET-001] @:async and await require the JavaScript target',
+      Context.error('[GENES-ASYNC-TARGET-001] @:async and await require the JavaScript target',
         pos);
     }
   }
@@ -301,14 +302,14 @@ class Async {
    * smallest recorded function/default-expression range preserves that lexical
    * boundary without a mutable macro registry.
    */
-  static function requireAsyncContext(pos:Position):Bool {
+  static function requireAsyncContext(pos: Position): Bool {
     final localClass = Context.getLocalClass();
     final info = Context.getPosInfos(pos);
-    var nearestKind:Null<String> = null;
+    var nearestKind: Null<String> = null;
     var nearestSpan = -1;
-    final fields = localClass == null
-      ? []
-      : localClass.get().fields.get().concat(localClass.get().statics.get());
+    final fields = localClass == null ? [] : localClass.get()
+      .fields.get()
+      .concat(localClass.get().statics.get());
     for (field in fields) {
       for (entry in field.meta.extract(ASYNC_CONTEXT_METADATA)) {
         switch entry.params {
@@ -320,8 +321,11 @@ class Async {
           ]:
             final min = Std.parseInt(minValue);
             final max = Std.parseInt(maxValue);
-            if (min != null && max != null && file == info.file
-              && info.min >= min && info.max <= max) {
+            if (min != null
+              && max != null
+              && file == info.file
+              && info.min >= min
+              && info.max <= max) {
               final span = max - min;
               if (nearestSpan < 0 || span < nearestSpan) {
                 nearestSpan = span;
@@ -336,8 +340,7 @@ class Async {
       case 'anonymous-async': false;
       case 'named-async': true;
       default:
-        Context.error(
-          '[GENES-ASYNC-CONTEXT-001] await(...) and @:await require an enclosing @:async function',
+        Context.error('[GENES-ASYNC-CONTEXT-001] await(...) and @:await require an enclosing @:async function',
           pos);
     };
   }
@@ -391,10 +394,11 @@ class Async {
 
   static function promiseInnerType(promise: ComplexType, pos: Position,
       ?params: Array<TypeParamDecl>): Type {
-    final resolved = Context.resolveType(eraseLocalTypeParams(promise, params),
-      pos);
+    final resolved = Context.resolveType(eraseLocalTypeParams(promise,
+      params), pos);
     return switch Context.followWithAbstracts(resolved) {
-      case TInst(_.get() => {module: 'js.lib.Promise', name: 'Promise'}, [inner]):
+      case TInst(_.get() => {module: 'js.lib.Promise', name: 'Promise'},
+        [inner]):
         inner;
       case TInst(_.get() => {module: 'js.lib.Promise', name: 'Promise'}, []):
         resolved;
@@ -442,7 +446,7 @@ class Async {
       names: Map<String, Bool>): ComplexType {
     return switch t {
       case TPath(path) if (path.pack.length == 0 && names.exists(path.name)):
-        macro: Dynamic;
+        macro : Dynamic;
       case TPath(path):
         TPath({
           pack: path.pack,
@@ -457,7 +461,8 @@ class Async {
         TFunction(args.map(arg -> eraseLocalTypeParamRefs(arg, names)),
           eraseLocalTypeParamRefs(ret, names));
       case TAnonymous(fields):
-        TAnonymous(fields.map(field -> eraseFieldLocalTypeParams(field, names)));
+        TAnonymous(fields.map(field -> eraseFieldLocalTypeParams(field,
+          names)));
       case TParent(inner):
         TParent(eraseLocalTypeParamRefs(inner, names));
       case TOptional(inner):
@@ -465,10 +470,11 @@ class Async {
       case TNamed(name, inner):
         TNamed(name, eraseLocalTypeParamRefs(inner, names));
       case TExtend(paths, fields):
-        TExtend(paths, fields.map(field -> eraseFieldLocalTypeParams(field,
-          names)));
+        TExtend(paths,
+          fields.map(field -> eraseFieldLocalTypeParams(field, names)));
       case TIntersection(types):
-        TIntersection(types.map(inner -> eraseLocalTypeParamRefs(inner, names)));
+        TIntersection(types.map(inner -> eraseLocalTypeParamRefs(inner,
+          names)));
     }
   }
 
@@ -521,11 +527,10 @@ class Async {
    * The quoted macro call is typed later in the original lexical scope, where
    * the existing await macro can infer Promise<T> correctly.
    */
-  static function lowerAwaitMeta(whole: Expr, meta: MetadataEntry, inner: Expr,
-      ranges:Array<FunctionContextRange>):Expr {
+  static function lowerAwaitMeta(whole: Expr, meta: MetadataEntry,
+      inner: Expr, ranges: Array<FunctionContextRange>): Expr {
     if (meta.params.length > 0) {
-      Context.error(
-        '@:await does not take metadata arguments. Use `@:await expr`, `@:await (expr)` with a space, or `await(expr)`.',
+      Context.error('@:await does not take metadata arguments. Use `@:await expr`, `@:await (expr)` with a space, or `await(expr)`.',
         meta.pos);
     }
 
@@ -535,20 +540,18 @@ class Async {
     return out;
   }
 
-  static function transformAsyncField(field:Field, fn:Function,
-      ranges:Array<FunctionContextRange>):Field {
+  static function transformAsyncField(field: Field, fn: Function,
+      ranges: Array<FunctionContextRange>): Field {
     if (field.name == 'new')
-      Context.error(
-        '[GENES-ASYNC-CONSTRUCTOR-001] @:async is not supported on constructors',
+      Context.error('[GENES-ASYNC-CONSTRUCTOR-001] @:async is not supported on constructors',
         field.pos);
     requireGenesGenerator(field.pos);
-    addFunctionSourceRange(ranges,
-      fn.expr == null ? field.pos : fn.expr.pos, NamedAsyncFunction);
+    addFunctionSourceRange(ranges, fn.expr == null ? field.pos : fn.expr.pos,
+      NamedAsyncFunction);
 
     final newReturnType = switch fn.ret {
       case null:
-        Context.error(
-          '[GENES-ASYNC-RETURN-001] @:async functions must declare a return type',
+        Context.error('[GENES-ASYNC-RETURN-001] @:async functions must declare a return type',
           field.pos);
       case ret if (isJsPromiseType(ret, field.pos, fn.params)):
         ret;
@@ -556,15 +559,15 @@ class Async {
         toJsPromiseType(ret);
     }
 
-    final fnExpr = fn.expr != null
-      ? processExpression(fn.expr, true, ranges)
-      : null;
+    final fnExpr = fn.expr != null ? processExpression(fn.expr, true,
+      ranges) : null;
     final rewritten = fnExpr != null ? rewriteReturns(fnExpr) : fnExpr;
 
-    final isVoidPromise = isVoidType(promiseInnerType(newReturnType, field.pos,
-      fn.params));
+    final isVoidPromise = isVoidType(promiseInnerType(newReturnType,
+      field.pos, fn.params));
 
-    final ensured = isVoidPromise ? ensureVoidPromiseReturn(rewritten, field.pos) : rewritten;
+    final ensured = isVoidPromise ? ensureVoidPromiseReturn(rewritten,
+      field.pos) : rewritten;
 
     final newFunc: Function = {
       args: processFunctionArgs(fn.args, ranges),
@@ -585,26 +588,25 @@ class Async {
     };
   }
 
-  static function processExpression(expr:Expr, insideAsync:Bool,
-      ranges:Array<FunctionContextRange>):Expr {
+  static function processExpression(expr: Expr, insideAsync: Bool,
+      ranges: Array<FunctionContextRange>): Expr {
     if (expr == null)
       return expr;
 
     return switch expr.expr {
       case EMeta(meta, inner) if (meta != null && isAwaitMeta(meta)):
         if (!insideAsync) {
-          Context.error(
-            '[GENES-ASYNC-CONTEXT-001] await(...) and @:await require an enclosing @:async function',
+          Context.error('[GENES-ASYNC-CONTEXT-001] await(...) and @:await require an enclosing @:async function',
             expr.pos);
         }
         lowerAwaitMeta(expr, meta, inner, ranges);
-      case EMeta(meta, inner) if (meta != null && (meta.name == ':async' || meta.name == 'async')):
+      case EMeta(meta, inner)
+        if (meta != null && (meta.name == ':async' || meta.name == 'async')):
         switch inner.expr {
           case EFunction(kind, fn):
             transformAsyncFunctionExpr(inner.pos, kind, fn, ranges);
           default:
-            Context.error(
-              '[GENES-ASYNC-AUTHORING-001] @:async can only be applied to functions',
+            Context.error('[GENES-ASYNC-AUTHORING-001] @:async can only be applied to functions',
               expr.pos);
         }
       case EFunction(kind, fn):
@@ -616,9 +618,8 @@ class Async {
           expr: EFunction(kind, {
             args: processFunctionArgs(fn.args, ranges),
             ret: fn.ret,
-            expr: fn.expr == null
-              ? null
-              : processExpression(fn.expr, false, ranges),
+            expr: fn.expr == null ? null : processExpression(fn.expr, false,
+              ranges),
             params: fn.params
           }),
           pos: expr.pos
@@ -637,8 +638,8 @@ class Async {
    * keeps direct `await(...)` macro calls from inheriting the surrounding
    * function's async permission when Haxe types them later.
    */
-  static function processFunctionArgs(args:Array<FunctionArg>,
-      ranges:Array<FunctionContextRange>):Array<FunctionArg> {
+  static function processFunctionArgs(args: Array<FunctionArg>,
+      ranges: Array<FunctionContextRange>): Array<FunctionArg> {
     return args.map(arg -> {
       if (arg.value != null)
         addFunctionSourceRange(ranges, arg.value.pos, SynchronousFunction);
@@ -646,23 +647,21 @@ class Async {
         name: arg.name,
         opt: arg.opt,
         type: arg.type,
-        value: arg.value == null
-          ? null
-          : processExpression(arg.value, false, ranges),
+        value: arg.value == null ? null : processExpression(arg.value, false,
+          ranges),
         meta: arg.meta
       };
     });
   }
 
-  static function transformAsyncFunctionExpr(pos:Position,
-      kind:Null<FunctionKind>, fn:Function,
-      ranges:Array<FunctionContextRange>):Expr {
+  static function transformAsyncFunctionExpr(pos: Position,
+      kind: Null<FunctionKind>, fn: Function,
+      ranges: Array<FunctionContextRange>): Expr {
     requireJsTarget(pos);
     addFunctionSourceRange(ranges, pos, AnonymousAsyncFunction);
     final newReturnType = switch fn.ret {
       case null:
-        Context.error(
-          '[GENES-ASYNC-RETURN-001] @:async functions must declare a return type',
+        Context.error('[GENES-ASYNC-RETURN-001] @:async functions must declare a return type',
           pos);
       case ret if (isJsPromiseType(ret, pos, fn.params)):
         ret;
@@ -670,14 +669,14 @@ class Async {
         toJsPromiseType(ret);
     }
 
-    final fnExpr = fn.expr != null
-      ? processExpression(fn.expr, true, ranges)
-      : null;
+    final fnExpr = fn.expr != null ? processExpression(fn.expr, true,
+      ranges) : null;
     final rewritten = fnExpr != null ? rewriteReturns(fnExpr) : fnExpr;
 
     final isVoidPromise = isVoidType(promiseInnerType(newReturnType, pos,
       fn.params));
-    final ensured = isVoidPromise ? ensureVoidPromiseReturn(rewritten, pos) : rewritten;
+    final ensured = isVoidPromise ? ensureVoidPromiseReturn(rewritten,
+      pos) : rewritten;
 
     final newFunc: Function = {
       args: processFunctionArgs(fn.args, ranges),
@@ -697,10 +696,14 @@ class Async {
         // contract to preserve here. Keep that existing weakness inside this
         // macro-only check type; explicitly typed arguments remain precise,
         // and generated user modules do not receive an added Dynamic/any.
-        arg.type != null ? arg.type : (macro: Dynamic)
+        if (arg.opt || arg.value != null)
+          TOptional(arg.type != null ? arg.type : (macro : Dynamic)) else
+          arg.type != null ? arg.type : (macro : Dynamic)
     ], newReturnType);
 
-    final out = macro js.Syntax.code('async {0}', $fnExprOut);
+    final out = if (Context.defined(genes.CompilerInternal.GENERATOR_ACTIVE_DEFINE))
+      macro genes.internal.NativeAsyncMarker.functionValue($fnExprOut) else
+      macro js.Syntax.code('async {0}', $fnExprOut);
     out.pos = pos;
     return {expr: ECheckType(out, fnType), pos: pos};
   }
@@ -712,12 +715,14 @@ class Async {
    * native JavaScript async function returns `T`. Haxe has no async effect type
    * that can express this relationship directly.
    *
-   * What/How: `ECast` is a compile-time-only bridge around each source return;
-   * both Genes emitters erase it and print the original precise expression.
-   * Returns inside nested functions are deliberately untouched. Keep this cast
-   * contained here until Haxe can type native async bodies directly.
+   * What/How: one exact `NativeAsyncMarker.returnValue` call surrounds each
+   * source return when Genes is active. `NativeAsyncPlan` admits it only in the
+   * innermost native async function, and both emitters print its payload.
+   * Returns inside nested synchronous functions are deliberately untouched.
+   * Stock Haxe keeps the established targetless-cast fallback because its JS
+   * generator must carry anonymous async functions without the Genes plan.
    */
-  static function rewriteReturns(expr:Expr):Expr {
+  static function rewriteReturns(expr: Expr): Expr {
     if (expr == null)
       return expr;
 
@@ -726,11 +731,14 @@ class Async {
         // Do not rewrite returns inside nested function bodies.
         expr;
       case EReturn(v):
-        final castedValue: Expr = {
-          expr: ECast(v != null ? v : (macro js.Syntax.code('undefined')), null),
+        final value = v != null ? v : (macro js.Syntax.code('undefined'));
+        final bridgedValue = if (Context.defined(genes.CompilerInternal.GENERATOR_ACTIVE_DEFINE))
+          macro genes.internal.NativeAsyncMarker.returnValue($value) else {
+          expr: ECast(value, null),
           pos: expr.pos
         };
-        {expr: EReturn(castedValue), pos: expr.pos};
+        bridgedValue.pos = expr.pos;
+        {expr: EReturn(bridgedValue), pos: expr.pos};
       default:
         ExprTools.map(expr, rewriteReturns);
     }
@@ -740,16 +748,21 @@ class Async {
    * Adds the compile-only fallthrough return required for `Promise<Void>`.
    *
    * Haxe checks the transformed function as returning a Promise even though a
-   * native async body completes with `undefined`. The narrowly scoped `ECast`
-   * expresses that missing effect to Haxe; both Genes emitters erase the cast
-   * and print a normal `return`, so no weak type reaches generated user code.
+   * native async body completes with `undefined`. The exact return carrier
+   * expresses that missing effect to Haxe; both Genes emitters erase it and
+   * print normal native completion, so no weak type reaches generated code.
    */
-  static function ensureVoidPromiseReturn(expr:Expr, pos:Position):Expr {
+  static function ensureVoidPromiseReturn(expr: Expr, pos: Position): Expr {
+    final undefinedValue = macro js.Syntax.code('undefined');
+    final bridgedValue = if (Context.defined(genes.CompilerInternal.GENERATOR_ACTIVE_DEFINE))
+      macro genes.internal.NativeAsyncMarker.returnValue($undefinedValue) else
+      {
+      expr: ECast(undefinedValue, null),
+      pos: pos
+    };
+    bridgedValue.pos = pos;
     final retExpr: Expr = {
-      expr: EReturn({
-        expr: ECast(macro js.Syntax.code('undefined'), null),
-        pos: pos
-      }),
+      expr: EReturn(bridgedValue),
       pos: pos
     };
 
@@ -770,7 +783,8 @@ class Async {
     var cur = t;
     while (true) {
       switch Context.followWithAbstracts(cur) {
-        case TInst(_.get() => {module: 'js.lib.Promise', name: 'Promise'}, [inner]):
+        case TInst(_.get() => {module: 'js.lib.Promise', name: 'Promise'},
+          [inner]):
           cur = inner;
         case _:
           return cur;

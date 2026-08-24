@@ -52,6 +52,7 @@ class ExprEmitter extends Emitter {
   var namePlan: Null<NamePlan> = null;
   var tempPlan: Null<TempPlan> = null;
   var localBindingPlan: Null<LocalBindingPlan> = null;
+  var nativeAsyncPlan: Null<NativeAsyncPlan> = null;
   var directImportLocals: Array<String> = [];
   var currentModule: Null<Module> = null;
   var declare = #if (js_es == 6) 'let'; #else 'var'; #end
@@ -159,6 +160,9 @@ class ExprEmitter extends Emitter {
   public function configureLowering(module: Module, profile: NamePlanProfile,
       jsxEmitTsx = false): Void {
     currentModule = module;
+    final plannedNativeAsync = module.nativeAsyncPlanForEmission();
+    nativeAsyncPlan = plannedNativeAsync != null
+      && plannedNativeAsync.hasCarriers() ? plannedNativeAsync : null;
     tempPlan = module.tempPlan;
     localBindingPlan = module.localBindingPlan;
     namePlan = module.namePlan(profile, jsxEmitTsx);
@@ -1295,6 +1299,19 @@ class ExprEmitter extends Emitter {
     if (explicitTypeArgumentCall != null) {
       emitValue(explicitTypeArgumentCall.value);
       return;
+    }
+    if (nativeAsyncPlan != null) {
+      switch nativeAsyncPlan.projection(e) {
+        case AnonymousFunction(value):
+          emitExpressionPos(e);
+          write('async ');
+          emitValue(value);
+          return;
+        case ReturnPayload(value):
+          emitValue(value);
+          return;
+        case null:
+      }
     }
     if (CompilerInternal.isSideEffectImportMarkerCall(e)) {
       CompilerDiagnostic.fail('GENES-SIDE-EFFECT-IMPORT-CONTEXT-001: compiler marker must be a direct statement',

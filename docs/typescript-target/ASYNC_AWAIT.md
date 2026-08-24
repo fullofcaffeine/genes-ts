@@ -10,13 +10,14 @@ TypeScript `async`/`await`. It is shared by both Genes implementation profiles:
 | Stock Haxe JS, anonymous async function | Supported through explicit syntax lowering |
 | Stock Haxe JS, named async method | Explicit compile-time capability error |
 
-This distinction follows the generated mechanism. An anonymous async function
-is wrapped in explicit `async function` syntax by the macro, which stock Haxe
-can carry safely. A named method uses a private semantic fact consumed by the
-Genes printers. Haxe 4 does not understand that fact, so accepting the named
-form under stock Haxe would produce an ordinary method containing `await`,
-which is invalid JavaScript. The helper reports `GENES-ASYNC-TARGET-001` before
-replacing an existing output instead of publishing code that fails later.
+This distinction follows the generated mechanism. With Genes active, an exact
+compiler-owned typed call carries each anonymous function to a request-local
+plan. The plan authorizes native `async` only for that function occurrence.
+Stock Haxe cannot consume this plan, so the macro uses its established explicit
+`async function` syntax fallback there. A named method uses a private semantic
+fact consumed by the Genes printers. Haxe 4 does not understand that fact, so
+accepting the named form under stock Haxe would produce invalid JavaScript.
+The helper reports `GENES-ASYNC-TARGET-001` before it replaces existing output.
 
 When a build uses `-lib genes-ts`, `extraParams.hxml` installs the build macro
 and Genes generator. No additional setup is normally required.
@@ -74,6 +75,14 @@ Every `@:async` function must declare its return type. An existing
 the build macro. Declaring the Promise explicitly is recommended because it
 makes the calling contract clear in Haxe as well as in generated TypeScript.
 
+Haxe types an async body as returning `Promise<T>`, but native JavaScript
+returns `T` from that body. With Genes active, the macro puts one exact hidden
+call around each source return. A module-local plan accepts that call only in
+its owning native async function. Nested synchronous functions do not inherit
+that permission. The printers erase the hidden call and keep the source value,
+evaluation count, and authored casts unchanged. Copied method names, raw
+`async {0}` strings, and source positions do not create this authority.
+
 For `Promise<Void>`, an awaited expression should be used for its side effect.
 The macro adds the compile-only fallthrough bridge needed by Haxe, while both
 Genes printers emit ordinary native async completion. The implementation uses
@@ -122,14 +131,14 @@ replaced for an invalid async program.
 
 ## Evidence boundary
 
-`yarn test:async-await:evidence` runs one source through classic Genes and
-genes-ts, compiles the generated TypeScript with the pinned TypeScript 5, 6,
-and 7 lanes, and compares exact runtime JSON. The fixture covers static and
-instance methods, anonymous and nested anonymous functions, value and `Void`
-promises, property and index access after await, exception propagation, and
-single evaluation/order. It also checks the await source-map token, absence of
-the historical `__async_marker__` protocol, compiler-metadata containment, and
-transactional negative builds. Its standard-Haxe lanes execute the anonymous
-syntax-lowered form and separately prove the named-method capability guard.
-The ts2hx async snapshot independently runs its generated anonymous carrier
-through stock Haxe as part of the migration-tool aggregate.
+`yarn test:async-await:evidence` runs one source through classic Genes,
+TypeScript, and TSX. It checks the generated TypeScript with the pinned
+TypeScript 5, 6, and 7 lanes and compares exact runtime JSON. The fixture covers
+static and instance methods, anonymous and nested functions, parameter
+defaults, authored casts, copied-name and raw-string controls, value and
+`Void` promises, exception propagation, and evaluation order. It also checks
+declarations, source maps, DCE containment, cold/warm compiler-server equality,
+failed-request rollback, recovery, and source-positioned negative builds. Its
+stock-Haxe lanes execute the anonymous syntax fallback and prove the named
+method capability guard. The ts2hx async snapshot independently runs its
+generated anonymous carrier through stock Haxe.

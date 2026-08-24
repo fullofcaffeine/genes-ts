@@ -20,6 +20,10 @@ typedef UndefinablePresentMarkerCall = {
   final resultType: Type;
 }
 
+typedef NativeAsyncMarkerCall = {
+  final value: TypedExpr;
+}
+
 /**
  * Defines the narrow typed-AST boundary used by compiler-owned carrier values.
  *
@@ -44,10 +48,12 @@ typedef UndefinablePresentMarkerCall = {
  * consumed by dependency planning; the dynamic-import carrier is consumed by
  * expression emission after the current runtime suffix is known; and the
  * `Undefinable` presence carrier preserves one exact assertion result type for
- * TypeScript dependency planning and emission. Marker recognition uses
- * the compiler's typed owner/member identity, never a generated name or source
- * string. A producer must still prove its DCE and placement contract before
- * using this boundary; the metadata alone does not create a dependency edge.
+ * TypeScript dependency planning and emission. Native-async carriers preserve
+ * one exact anonymous function or return payload for `NativeAsyncPlan`.
+ * Marker recognition uses the compiler's typed owner/member identity, never a
+ * generated name or source string. A producer must still prove its DCE and
+ * placement contract before using this boundary; the metadata alone does not
+ * create a dependency edge.
  */
 class CompilerInternal {
   /**
@@ -71,6 +77,7 @@ class CompilerInternal {
   public static inline final SIDE_EFFECT_MARKER_MODULE = 'genes.internal.SideEffectImportMarker';
   public static inline final DYNAMIC_IMPORT_MARKER_MODULE = 'genes.internal.DynamicImportMarker';
   public static inline final UNDEFINABLE_PRESENT_MARKER_MODULE = 'genes.internal.UndefinablePresentMarker';
+  public static inline final NATIVE_ASYNC_MARKER_MODULE = 'genes.internal.NativeAsyncMarker';
 
   /** Returns whether one typed field is semantic-only compiler evidence. */
   public static function isField(meta: Null<MetaAccess>): Bool {
@@ -269,6 +276,50 @@ class CompilerInternal {
       case TField(_,
         FStatic(_.get() => owner, _.get() => {name: 'assumePresent'})):
         owner.module == UNDEFINABLE_PRESENT_MARKER_MODULE;
+      default:
+        false;
+    }
+  }
+
+  static function nativeAsyncMarkerCall(expression: TypedExpr,
+      method: String): Null<NativeAsyncMarkerCall> {
+    if (expression == null)
+      return null;
+    return switch expression.expr {
+      case TMeta(_, inner) | TParenthesis(inner) | TCast(inner, null):
+        nativeAsyncMarkerCall(inner, method);
+      case TCall(callee = {
+        expr: TField(_, FStatic(_.get() => owner, _.get() => field))
+      },
+        [value])
+        if (owner.module == NATIVE_ASYNC_MARKER_MODULE && field.name == method):
+        {value: value};
+      default:
+        null;
+    }
+  }
+
+  /** Returns one exact anonymous-native-async carrier, or null. */
+  public static function nativeAsyncFunctionValueCall(expression: TypedExpr): Null<NativeAsyncMarkerCall> {
+    return nativeAsyncMarkerCall(expression, 'functionValue');
+  }
+
+  /** Returns one exact native-async return bridge, or null. */
+  public static function nativeAsyncReturnValueCall(expression: TypedExpr): Null<NativeAsyncMarkerCall> {
+    return nativeAsyncMarkerCall(expression, 'returnValue');
+  }
+
+  /** Whether an expression calls either exact native-async marker member. */
+  public static function isNativeAsyncMarkerCall(expression: TypedExpr): Bool {
+    if (expression == null)
+      return false;
+    return switch expression.expr {
+      case TMeta(_, inner) | TParenthesis(inner) | TCast(inner, null):
+        isNativeAsyncMarkerCall(inner);
+      case TCall({
+        expr: TField(_, FStatic(_.get() => owner, _.get() => field))
+      }, _): owner.module == NATIVE_ASYNC_MARKER_MODULE && (field.name == 'functionValue'
+        || field.name == 'returnValue');
       default:
         false;
     }

@@ -5,20 +5,25 @@ import js.lib.Error;
 import js.lib.Promise;
 
 typedef AsyncEvidenceReport = {
-  final staticValue:Int;
-  final instanceValue:Int;
-  final anonymousValue:Int;
-  final nestedValue:Int;
-  final propertyAndIndex:String;
-  final recoveredError:String;
-  final voidCompleted:Bool;
-  final evaluations:Int;
-  final events:Array<String>;
+  final staticValue: Int;
+  final instanceValue: Int;
+  final anonymousValue: Int;
+  final nestedValue: Int;
+  final authoredCastValue: String;
+  final nestedSyncValue: String;
+  final defaultValue: Int;
+  final copiedNameValue: Int;
+  final copiedRawValue: Int;
+  final propertyAndIndex: String;
+  final recoveredError: String;
+  final voidCompleted: Bool;
+  final evaluations: Int;
+  final events: Array<String>;
 }
 
 typedef AsyncPayload = {
-  final label:String;
-  final values:Array<Int>;
+  final label: String;
+  final values: Array<Int>;
 }
 
 /**
@@ -37,23 +42,23 @@ typedef AsyncPayload = {
  * negative lane because it cannot emit native async methods from this API.
  */
 class Main {
-  static var events:Array<String> = [];
+  static var events: Array<String> = [];
   static var evaluations = 0;
 
-  final offset:Int;
+  final offset: Int;
 
-  public function new(offset:Int) {
+  public function new(offset: Int) {
     this.offset = offset;
   }
 
-  static function tracked(label:String, value:Int):Promise<AsyncPayload> {
+  static function tracked(label: String, value: Int): Promise<AsyncPayload> {
     evaluations++;
     events.push('evaluate:$label');
     return Promise.resolve({label: label, values: [value, value + 1]});
   }
 
   @:async
-  static function staticAsync(value:Int):Promise<Int> {
+  static function staticAsync(value: Int): Promise<Int> {
     events.push("static:before");
     final resolved = await(Promise.resolve(value));
     events.push("static:after");
@@ -61,23 +66,23 @@ class Main {
   }
 
   @:async
-  function instanceAsync(value:Int):Promise<Int> {
+  function instanceAsync(value: Int): Promise<Int> {
     final resolved = @:await Promise.resolve(value);
     return resolved + offset;
   }
 
   @:async
-  static function anonymousAsync():Promise<Int> {
-    final increment = @:async function(value:Int):Promise<Int> {
+  static function anonymousAsync(): Promise<Int> {
+    final increment = @:async function(value: Int): Promise<Int> {
       return (@:await Promise.resolve(value)) + 1;
     };
     return @:await increment(41);
   }
 
   @:async
-  static function nestedAnonymousAsync():Promise<Int> {
-    final outer = @:async function(base:Int):Promise<Int> {
-      final inner = @:async function(increment:Int):Promise<Int> {
+  static function nestedAnonymousAsync(): Promise<Int> {
+    final outer = @:async function(base: Int): Promise<Int> {
+      final inner = @:async function(increment: Int): Promise<Int> {
         return await(Promise.resolve(base)) + increment;
       };
       return @:await inner(2);
@@ -85,8 +90,46 @@ class Main {
     return @:await outer(40);
   }
 
+  /** Proves the macro erases only its outer return bridge. */
   @:async
-  static function propertyAndIndexAsync():Promise<String> {
+  static function authoredCastAsync(value: String): Promise<String> {
+    return cast value;
+  }
+
+  /** Proves a nested synchronous function does not inherit async authority. */
+  @:async
+  static function nestedSyncAsync(): Promise<String> {
+    final identity = function(value: String): String {
+      return value;
+    };
+    return identity(@:await Promise.resolve("42"));
+  }
+
+  /** Proves defaults do not inherit the anonymous function's async context. */
+  @:async
+  static function defaultAnonymousAsync(): Promise<Int> {
+    final withDefault = @:async function(value: Int = 40): Promise<Int> {
+      return value + 2;
+    };
+    return @:await withDefault();
+  }
+
+  /** A copied member name is an ordinary user call, not compiler evidence. */
+  static function copiedMarkerName(value: Int): Int {
+    return NativeAsyncMarker.functionValue(value);
+  }
+
+  /** A copied raw template remains authored target code, not plan authority. */
+  static function copiedRawAsync(): Promise<Int> {
+    final raw: () -> Promise<Int> = js.Syntax.code("async {0}",
+      function(): Promise<Int> {
+        return Promise.resolve(42);
+      });
+    return raw();
+  }
+
+  @:async
+  static function propertyAndIndexAsync(): Promise<String> {
     final property = (@:await tracked("property", 10)).label;
     events.push("between:property:index");
     final indexed = (await(tracked("index", 20))).values[1];
@@ -94,13 +137,13 @@ class Main {
   }
 
   @:async
-  static function throwAfterAwait():Promise<Int> {
+  static function throwAfterAwait(): Promise<Int> {
     @:await Promise.resolve(null);
     throw new Error("async-error");
   }
 
   @:async
-  static function recoverAsyncError():Promise<String> {
+  static function recoverAsyncError(): Promise<String> {
     try {
       @:await throwAfterAwait();
       return "missing-error";
@@ -110,14 +153,14 @@ class Main {
   }
 
   @:async
-  static function voidAsync(state:Array<Bool>):Promise<Void> {
+  static function voidAsync(state: Array<Bool>): Promise<Void> {
     @:await Promise.resolve(null);
     events.push("void:effect");
     state[0] = true;
   }
 
   @:async
-  static function run():Promise<AsyncEvidenceReport> {
+  static function run(): Promise<AsyncEvidenceReport> {
     events = [];
     evaluations = 0;
     final voidState = [false];
@@ -125,6 +168,11 @@ class Main {
     final instanceValue = @:await new Main(2).instanceAsync(40);
     final anonymousValue = @:await anonymousAsync();
     final nestedValue = @:await nestedAnonymousAsync();
+    final authoredCastValue = @:await authoredCastAsync("42");
+    final nestedSyncValue = @:await nestedSyncAsync();
+    final defaultValue = @:await defaultAnonymousAsync();
+    final copiedNameValue = copiedMarkerName(42);
+    final copiedRawValue = @:await copiedRawAsync();
     final propertyAndIndex = @:await propertyAndIndexAsync();
     final recoveredError = @:await recoverAsyncError();
     @:await voidAsync(voidState);
@@ -133,6 +181,11 @@ class Main {
       instanceValue: instanceValue,
       anonymousValue: anonymousValue,
       nestedValue: nestedValue,
+      authoredCastValue: authoredCastValue,
+      nestedSyncValue: nestedSyncValue,
+      defaultValue: defaultValue,
+      copiedNameValue: copiedNameValue,
+      copiedRawValue: copiedRawValue,
       propertyAndIndex: propertyAndIndex,
       recoveredError: recoveredError,
       voidCompleted: voidState[0],
@@ -146,8 +199,15 @@ class Main {
   }
 }
 
+/** Same spelling, different typed owner: this is ordinary application code. */
+private class NativeAsyncMarker {
+  public static function functionValue<T>(value: T): T {
+    return value;
+  }
+}
+
 /** Narrow typed binding to the host console used by the runtime transcript. */
 @:native("console")
 private extern class Console {
-  static function log(value:String):Void;
+  static function log(value: String): Void;
 }

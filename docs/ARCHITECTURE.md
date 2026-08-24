@@ -653,10 +653,10 @@ lifetimes:
 - **request state** includes pre-DCE surfaces, signature caches,
   directives, capability defines, and generation membership. Its owner
   replaces or reinstalls it for every compilation before the first consumer;
-- **module state** includes dependency, JSX, template, narrowing, TypeScript
-  value-boundary, temporary, naming, and projection plans. `Module.addTypes`
-  invalidates plans whose typed inputs can expand through declaration
-  reachability;
+- **module state** includes dependency, JSX, template, native-async, narrowing,
+  TypeScript value-boundary, temporary, naming, and projection plans.
+  `Module.addTypes` invalidates plans whose typed inputs can expand through
+  declaration reachability;
 - **emitter state** includes writers, source-map buffers, and syntax-local
   stacks. It is constructed for one artifact and never cached across requests;
 - **filesystem state** includes public output and ownership manifests.
@@ -668,7 +668,9 @@ Concrete rules follow from those lifetimes:
 - typed carriers may survive Haxe typing caches only when they contain stable,
   profile-independent facts; `DynamicImportMarker` carries an extension-free
   path and authored position, while `ExplicitTypeArgumentCallSite` carries
-  inert occurrence-local witness types. The active emitter chooses `.js`,
+  inert occurrence-local witness types. `NativeAsyncMarker` carries one exact
+  anonymous function or return payload, and `NativeAsyncPlan` validates its
+  function context for the current module. The active emitter chooses `.js`,
   `.mjs`, or no dynamic-import suffix from the current generation;
 - a typed carrier must be self-contained when Haxe can reuse it. An ordinary
   macro static map is not a valid companion store: the generator may execute

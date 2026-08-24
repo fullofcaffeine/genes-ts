@@ -316,6 +316,11 @@ class DependencyPlanBuilder {
           if (!DirectModuleBinding.isModuleFieldsOwner(ownerValue))
             return null;
           return ModuleValuePlan.requestedName(field.get());
+        }, expression -> {
+          return switch module.nativeAsyncPlan.projection(expression) {
+            case AnonymousFunction(value) | ReturnPayload(value): value;
+            case null: null;
+          }
         });
       for (occurrence in occurrences) {
         switch occurrence {
