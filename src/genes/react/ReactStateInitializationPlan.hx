@@ -4,6 +4,7 @@ package genes.react;
 import genes.ExplicitTypeArguments;
 import genes.Module;
 import haxe.ds.ObjectMap;
+import haxe.macro.Context;
 import haxe.macro.Expr.Position;
 import haxe.macro.Type;
 
@@ -142,11 +143,7 @@ private final class ReactStateInitializationPlanBuilder {
 
   static function recognize(declaration: TypedExpr, local: TVar,
       initializer: TypedExpr): Null<ReactStateInitializationDecision> {
-    final valueType = switch local.t {
-      case TAbstract(reference, [valueType]): final owner = reference.get(); owner.module == 'genes.react.State' && owner.name == 'State' ? valueType : null;
-      default:
-        null;
-    }
+    final valueType = stateValueType(local.t);
     if (valueType == null
       || !ExplicitTypeArguments.isSafeTypeArgument(valueType))
       return null;
@@ -164,6 +161,21 @@ private final class ReactStateInitializationPlanBuilder {
           default:
             null;
         }
+      default:
+        null;
+    }
+  }
+
+  /** Follows transparent compiler shells without erasing the State abstract. */
+  static function stateValueType(type: Type, depth = 0): Null<Type> {
+    if (depth > 64)
+      return null;
+    return switch type {
+      case TType(_, _) | TLazy(_):
+        stateValueType(Context.follow(type), depth + 1);
+      case TMono(reference) if (reference.get() != null):
+        stateValueType(reference.get(), depth + 1);
+      case TAbstract(reference, [valueType]): final owner = reference.get(); owner.module == 'genes.react.State' && owner.name == 'State' ? valueType : null;
       default:
         null;
     }

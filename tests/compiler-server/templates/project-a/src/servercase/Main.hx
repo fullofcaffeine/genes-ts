@@ -22,6 +22,8 @@ private typedef ServerDog = {
   final bark: Bool;
 }
 
+private typedef ServerAnimalState = State<ServerAnimal>;
+
 /**
  * Project A's reusable public facade.
  *
@@ -118,8 +120,8 @@ class Main {
   /** Keeps destination-typed React state in every warm profile transition. */
   @:genes.reactHook
   public static function useServerAnimal(makeCat: Void->ServerCat,
-      dog: ServerDog): State<ServerAnimal> {
-    final state: State<ServerAnimal> = useStateLazy(() -> makeCat());
+      dog: ServerDog): ServerAnimalState {
+    final state: ServerAnimalState = useStateLazy(() -> makeCat());
     state.set(dog);
     return state;
   }
