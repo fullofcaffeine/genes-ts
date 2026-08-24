@@ -210,6 +210,11 @@ ok(stateInitialization.includes(
 ok(stateInitialization.includes(
   "useState<Animal>(function ()"
 ), "lazy state uses the same exact wider local type");
+ok(
+  /function useAliasedAnimal[\s\S]*?useState<Animal>\(function \(\)/
+    .test(stateInitialization),
+  "a transparent State typedef keeps the exact underlying value type"
+);
 ok(stateInitialization.includes(
   "useState<Cat>(cat)"
 ), "an unannotated state remains narrow");
@@ -218,8 +223,8 @@ ok(stateInitialization.includes(
 ), "generic enum state closes every parameter after local typing");
 strictEqual(
   stateInitialization.match(/makeCat\(\)/g)?.length,
-  2,
-  "each eager and lazy initializer remains single-evaluation"
+  3,
+  "each eager, lazy, and aliased initializer remains single-evaluation"
 );
 
 const stateInitializationTsx = source(
@@ -234,6 +239,11 @@ for (const expected of [
   ok(stateInitializationTsx.includes(expected),
     `TSX state initialization retains ${expected}`);
 }
+ok(
+  /function useAliasedAnimal[\s\S]*?useState<Animal>\(function \(\)/
+    .test(stateInitializationTsx),
+  "TSX resolves the transparent State typedef before writing its witness"
+);
 
 const classic = source("out/classic/react_hooks/Main.js");
 ok(classic.includes(
@@ -272,7 +282,7 @@ for (const profile of ["classic", "jsx"]) {
     `${profile} contains no TypeScript call syntax`);
   strictEqual(
     stateSource.match(/makeCat\(\)/g)?.length,
-    2,
+    3,
     `${profile} preserves single initializer evaluation`
   );
 }

@@ -107,6 +107,7 @@ Genes emits `useState<Animal>(() => cat)` in TypeScript and TSX. TypeScript
 therefore does not infer `Cat` and reject the later `Dog` replacement. The
 classic JavaScript and JSX profiles emit `useState(() => cat)` with no type
 syntax. An unannotated local still uses its inferred Haxe type, such as `Cat`.
+Transparent typedef aliases of `State<T>` use the same exact underlying `T`.
 
 The local type is also the authority for a generic enum initializer. A
 `State<Choice<Int, String>>` local emits
