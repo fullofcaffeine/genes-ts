@@ -122,6 +122,7 @@ class Module {
   final context: ModuleContext;
   final cycleCache = new Map<String, Bool>();
   final namePlans = new Map<String, NamePlan>();
+  var lexicalBindingUsePlanCache: Null<LexicalBindingUsePlan>;
 
   public function new(context: ModuleContext, module, types: Array<Type>,
       ?main: TypedExpr, ?expose: Array<ModuleExport>) {
@@ -266,9 +267,41 @@ class Module {
     return localBindingPlan;
   }
 
+  /** Builds lexical runtime authority only for a synthetic-name consumer. */
+  public function requestLexicalBindingUsePlan(): LexicalBindingUsePlan {
+    if (lexicalBindingUsePlanCache == null) {
+      lexicalBindingUsePlanCache = LexicalBindingUsePlan.build(this);
+      #if genes.lexical_binding_inventory
+      final counts = lexicalBindingUsePlanCache.counts();
+      Sys.println('[GTS-LEXICAL-INVENTORY] $module:counts:'
+        + '${counts.expressions}:${counts.scopes}:'
+        + '${counts.runtimeAuthorities}:${counts.fixedBindings}:'
+        + counts.opaqueScopes);
+      for (profile in [
+        LexicalBindingUsePlan.LexicalBindingProfile.ClassicLexicalBindings,
+        LexicalBindingUsePlan.LexicalBindingProfile.TypeScriptLexicalBindings
+      ]) {
+        for (description in lexicalBindingUsePlanCache.inventoryDescriptions(profile))
+          Sys.println('[GTS-LEXICAL-INVENTORY] $module:${Std.string(profile)}:$description');
+        for (description in lexicalBindingUsePlanCache.queryInventoryDescriptions(profile))
+          Sys.println('[GTS-LEXICAL-INVENTORY] $module:${Std.string(profile)}:$description');
+      }
+      #end
+    }
+    return lexicalBindingUsePlanCache;
+  }
+
+  /** Returns a requested plan without turning an ordinary lookup into work. */
+  public function plannedLexicalBindingUses(): Null<LexicalBindingUsePlan> {
+    return lexicalBindingUsePlanCache;
+  }
+
   /** Returns one cached naming projection used by planning and printing. */
   public function namePlan(profile: NamePlan.NamePlanProfile,
       jsxEmitTsx = false): NamePlan {
+    #if (genes.lexical_binding_inventory || genes.lexical_binding_assertions)
+    requestLexicalBindingUsePlan();
+    #end
     final key = Std.string(profile) + ':' + (jsxEmitTsx ? 'tsx' : 'plain');
     if (!namePlans.exists(key))
       namePlans.set(key, NamePlan.build(this, tempPlan, profile, jsxEmitTsx));
@@ -411,6 +444,7 @@ class Module {
       implementationProjection = null;
       tempPlan = null;
       localBindingPlan = null;
+      lexicalBindingUsePlanCache = null;
       moduleFunctionRequestPlan = null;
       moduleFunctionPlan = null;
       moduleValuePlan = null;

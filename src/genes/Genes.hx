@@ -263,10 +263,11 @@ class Genes {
             final entries = bindingPlan.entriesForModule(0);
             final setup = [
               for (entry in entries)
-                macro js.Syntax.code($v{
+                macro genes.internal.DynamicBindingDeclarationMarker.declare($v{entry.encoded()},
+                  js.Syntax.code($v{
                   dynamicImportAccess('module', module.importType,
                     entry.localName(), entry.exportName())
-                })
+                }))
             ];
             final list = [
               for (entry in entries)
@@ -289,10 +290,11 @@ class Genes {
 
             for (i in 0...modules.length) {
               for (entry in bindingPlan.entriesForModule(i)) {
-                setup.push(macro js.Syntax.code($v{
+                setup.push(macro genes.internal.DynamicBindingDeclarationMarker.declare($v{entry.encoded()},
+                  js.Syntax.code($v{
                   dynamicImportAccess('modules[$i]', modules[i].importType,
                     entry.localName(), entry.exportName())
-                }));
+                })));
                 ignores.push(macro $v{entry.encoded()});
               }
             }

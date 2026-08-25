@@ -196,6 +196,44 @@ class TypeUtil {
     }
   }
 
+  /** Whether a Haxe JS type is one of Promise.resolve's thenable overloads. */
+  public static function isJsPromiseThenableType(t: Type): Bool {
+    return switch t {
+      case TAbstract(_.get() => {pack: ["js", "lib"], name: "Thenable"}, _):
+        true;
+      case TType(_.get() => {pack: ["js", "lib"], name: "ThenableStruct"}, _):
+        true;
+      case TAbstract(_.get() => {pack: ["haxe", "extern"], name: "EitherType"},
+        [left, right]): isJsPromiseThenableType(left) || isJsPromiseThenableType(right);
+      case TMono(tref): final inner = tref.get(); inner != null && isJsPromiseThenableType(inner);
+      case TType(_, _):
+        isJsPromiseThenableType(Context.follow(t));
+      default:
+        false;
+    }
+  }
+
+  /** Whether an exact typed callee is the native `Promise.resolve` method. */
+  public static function isJsPromiseResolveCallee(callee: TypedExpr): Bool {
+    return switch unwrapTransparent(callee).expr {
+      case TField(_, f = FStatic(_.get() => cl, _)): (cl.module == 'js.lib.Promise'
+          || (cl.pack.join('.') == 'js.lib' && cl.name == 'Promise')) && fieldName(f) == 'resolve';
+      default:
+        false;
+    }
+  }
+
+  /** Whether a Haxe type is the nullable or direct `Int`/`Float` domain. */
+  public static function isHaxeNumberLike(t: Type): Bool {
+    return
+      switch Context.followWithAbstracts(genes.NullishContract.stripHaxeNull(t)) {
+      case TAbstract(_.get() => {pack: [], name: "Int" | "Float"}, _):
+        true;
+      default:
+        false;
+    }
+  }
+
   /**
    * Resolves the destination-driven generic application of an enum constructor.
    *
@@ -284,6 +322,31 @@ class TypeUtil {
     return switch meta.extract(':native') {
       case [{params: [{expr: EConst(CString(name))}]}]:
         name;
+      default:
+        null;
+    }
+  }
+
+  /** Returns one exact literal-string metadata argument. */
+  public static function stringMetadata(meta: Null<MetaAccess>,
+      name: String): Null<String> {
+    if (meta == null)
+      return null;
+    return switch meta.extract(name) {
+      case [{params: [{expr: EConst(CString(value))}]}]: value;
+      default: null;
+    }
+  }
+
+  /** Returns an exact host-authored TypeScript projection, when declared. */
+  public static function explicitTypeProjection(type: Type): Null<String> {
+    return switch type {
+      case TInst(_.get().meta => meta, _) | TAbstract(_.get().meta => meta, _):
+        stringMetadata(meta, ':ts.type') ?? stringMetadata(meta, ':genes.type');
+      case TLazy(resolve):
+        explicitTypeProjection(resolve());
+      case TMono(reference) if (reference.get() != null):
+        explicitTypeProjection(reference.get());
       default:
         null;
     }

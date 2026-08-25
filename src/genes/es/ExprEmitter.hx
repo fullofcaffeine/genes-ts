@@ -11,6 +11,8 @@ import genes.Dependencies;
 import genes.Module;
 import genes.NamePlan;
 import genes.NamePlan.NamePlanProfile;
+import genes.LexicalBindingUsePlan;
+import genes.LexicalBindingUsePlan.LexicalBindingProfile;
 import genes.TempPlan;
 import genes.TempPlan.LoweredForIterator;
 import genes.NullishContract;
@@ -55,6 +57,9 @@ class ExprEmitter extends Emitter {
   var nativeAsyncPlan: Null<NativeAsyncPlan> = null;
   var directImportLocals: Array<String> = [];
   var currentModule: Null<Module> = null;
+  var lexicalBindingUsePlan: Null<LexicalBindingUsePlan> = null;
+  var lexicalBindingProfile: LexicalBindingProfile = ClassicLexicalBindings;
+  var activeBindingExpression: Null<TypedExpr> = null;
   var declare = #if (js_es == 6) 'let'; #else 'var'; #end
 
   /**
@@ -166,6 +171,34 @@ class ExprEmitter extends Emitter {
     tempPlan = module.tempPlan;
     localBindingPlan = module.localBindingPlan;
     namePlan = module.namePlan(profile, jsxEmitTsx);
+    lexicalBindingUsePlan = module.plannedLexicalBindingUses();
+    lexicalBindingProfile = profile == TypeScriptReadable ? TypeScriptLexicalBindings : ClassicLexicalBindings;
+  }
+
+  /** Resolves one runtime accessor through optional fail-closed inventory. */
+  function runtimeTypeAccessor(accessor: TypeAccessor): String {
+    if (lexicalBindingUsePlan != null) {
+      if (activeBindingExpression != null)
+        lexicalBindingUsePlan.assertRuntimeAccessor(activeBindingExpression,
+          accessor, directImportLocals, lexicalBindingProfile);
+      else
+        lexicalBindingUsePlan.assertModuleRuntimeAccessor(accessor,
+          lexicalBindingProfile);
+    }
+    return ctx.typeAccessor(accessor);
+  }
+
+  /** Emits one exact bare runtime binding through the same assertion seam. */
+  function runtimeDirectBinding(name: String): String {
+    if (lexicalBindingUsePlan != null) {
+      if (activeBindingExpression != null)
+        lexicalBindingUsePlan.assertDirectBinding(activeBindingExpression,
+          name, lexicalBindingProfile);
+      else
+        lexicalBindingUsePlan.assertModuleDirectBinding(name,
+          lexicalBindingProfile);
+    }
+    return name;
   }
 
   /**
@@ -207,7 +240,10 @@ class ExprEmitter extends Emitter {
 
   /** Returns the callback-local spelling for an exact dynamic-import origin. */
   function directImportLocalName(type: TypeAccessor): Null<String> {
-    for (encoded in directImportLocals) {
+    for (offset in 0...directImportLocals.length) {
+      final encoded = directImportLocals[directImportLocals.length
+        - offset
+        - 1];
       final token = DynamicImportBindingPlan.decode(encoded);
       switch [type, token] {
         case [
@@ -383,6 +419,17 @@ class ExprEmitter extends Emitter {
   }
 
   public function emitExpr(e: TypedExpr) {
+    if (lexicalBindingUsePlan != null && activeBindingExpression != e) {
+      final previous = activeBindingExpression;
+      activeBindingExpression = e;
+      emitExpr(e);
+      activeBindingExpression = previous;
+      return;
+    }
+    #if genes.lexical_binding_inventory
+    if (CompilerInternal.lexicalBindingQueryMarkerCall(e) != null)
+      return;
+    #end
     // TypeArguments.call(...) uses a typed carrier so nested macro output keeps
     // each occurrence's witness. Classic JS emits only the original statement.
     final explicitTypeArgumentCall = genes.ExplicitTypeArguments.callSiteMarker(e);
@@ -392,6 +439,11 @@ class ExprEmitter extends Emitter {
     }
     if (CompilerInternal.isSideEffectImportMarkerCall(e))
       return;
+    final dynamicBinding = CompilerInternal.dynamicBindingDeclarationMarkerCall(e);
+    if (dynamicBinding != null) {
+      emitExpr(dynamicBinding.value);
+      return;
+    }
     emitExpressionPos(e);
     switch e.expr {
       case TConst(c):
@@ -438,7 +490,7 @@ class ExprEmitter extends Emitter {
             emitField("iterator");
           default:
             ctx.addFeature("use.$iterator");
-            write(ctx.typeAccessor(registerType));
+            write(runtimeTypeAccessor(registerType));
             write('.iterator(');
             emitValue(x);
             write(')');
@@ -468,7 +520,7 @@ class ExprEmitter extends Emitter {
         final receiver = simpleBindReceiver(x);
         switch (receiver.expr) {
           case TConst(_) | TLocal(_):
-            write(ctx.typeAccessor(registerType));
+            write(runtimeTypeAccessor(registerType));
             write('.bind(');
             emitValue(receiver);
             write(', ');
@@ -479,7 +531,7 @@ class ExprEmitter extends Emitter {
           case _:
             // Todo: figure out this mess, also take care of selfCall
             write('(o=>');
-            write(ctx.typeAccessor(registerType));
+            write(runtimeTypeAccessor(registerType));
             write('.bind(o, o');
 
             emitField(name);
@@ -507,9 +559,9 @@ class ExprEmitter extends Emitter {
         final field = fieldRef.get();
         final request = currentModule.resolveModuleFunction(ownerRef, fieldRef);
         if (owner.module == currentModule.module)
-          write(request.requestedName);
+          write(runtimeDirectBinding(request.requestedName));
         else
-          write(ctx.typeAccessor(TypeAccessor.forStaticFieldBinding(owner,
+          write(runtimeTypeAccessor(TypeAccessor.forStaticFieldBinding(owner,
             field, request.requestedName)));
       case TField(_, FStatic(ownerRef, fieldRef))
         if (currentModule != null
@@ -519,15 +571,15 @@ class ExprEmitter extends Emitter {
         final field = fieldRef.get();
         final requestedName = ModuleValuePlan.requestedName(field);
         if (owner.module == currentModule.module)
-          write(requestedName);
+          write(runtimeDirectBinding(requestedName));
         else
-          write(ctx.typeAccessor(TypeAccessor.forStaticFieldBinding(owner,
+          write(runtimeTypeAccessor(TypeAccessor.forStaticFieldBinding(owner,
             field, requestedName)));
       case TField(_, FStatic(_.get() => {
         pack: [],
         name: ''
       }, _.get().name => fname)):
-        write(fname);
+        write(runtimeDirectBinding(fname));
       case TField(x,
         FInstance(_, _,
           _.get() => f) | FStatic(_, _.get() => f) | FAnon(_.get() => f))
@@ -552,7 +604,7 @@ class ExprEmitter extends Emitter {
         }
 
       case TTypeExpr(t):
-        write(ctx.typeAccessor(t));
+        write(runtimeTypeAccessor(t));
       case TParenthesis(e1):
         write('(');
         emitValue(e1);
@@ -620,7 +672,7 @@ class ExprEmitter extends Emitter {
         expr: TField(_,
           FStatic(_.get() => {module: 'js.Syntax'}, _.get() => {name: 'code'}))
       }, [{expr: TConst(TString("$global"))}]):
-        write(ctx.typeAccessor(registerType));
+        write(runtimeTypeAccessor(registerType));
         write(".$global");
       case TCall({
         expr: TField(_,
@@ -659,7 +711,7 @@ class ExprEmitter extends Emitter {
           default:
             'new ';
         });
-        write(ctx.typeAccessor(TClassDecl(c)));
+        write(runtimeTypeAccessor(TClassDecl(c)));
         write('(');
         for (e in join(el, write.bind(', ')))
           emitValue(e);
@@ -759,11 +811,11 @@ class ExprEmitter extends Emitter {
       case TCast(e, null):
         emitExpr(e);
       case TCast(e1, t):
-        write(ctx.typeAccessor(bootType));
+        write(runtimeTypeAccessor(bootType));
         write('.__cast(');
         emitValue(e1);
         write(', ');
-        write(ctx.typeAccessor(t));
+        write(runtimeTypeAccessor(t));
         write(')');
       case TIdent("$hxEnums"):
         writeGlobalVar("$hxEnums");
@@ -859,18 +911,18 @@ class ExprEmitter extends Emitter {
       case [TField(x, f), []]
         if (fieldName(f) == "iterator" && isDynamicIterator(x)):
         ctx.addFeature("use.$getIterator");
-        write(ctx.typeAccessor(registerType));
+        write(runtimeTypeAccessor(registerType));
         write('.getIterator(');
         emitValue(x);
         write(')');
       case [TConst(TSuper), args]:
         switch extendsExtern {
           case Some(t):
-            write(ctx.typeAccessor(t));
+            write(runtimeTypeAccessor(t));
             write(args.length > 0 ? '.call(this, ' : '.call(this');
           case None:
             write('super[');
-            write(ctx.typeAccessor(registerType));
+            write(runtimeTypeAccessor(registerType));
             write('.new](');
         }
         for (param in join(args, write.bind(', ')))
@@ -1293,11 +1345,23 @@ class ExprEmitter extends Emitter {
   }
 
   function emitValue(e: TypedExpr): Void {
+    if (lexicalBindingUsePlan != null && activeBindingExpression != e) {
+      final previous = activeBindingExpression;
+      activeBindingExpression = e;
+      emitValue(e);
+      activeBindingExpression = previous;
+      return;
+    }
     // Explicit type witnesses affect TS syntax only; classic JS erases the
     // compiler-owned carrier and emits the original runtime value unchanged.
     final explicitTypeArgumentCall = genes.ExplicitTypeArguments.callSiteMarker(e);
     if (explicitTypeArgumentCall != null) {
       emitValue(explicitTypeArgumentCall.value);
+      return;
+    }
+    final dynamicBinding = CompilerInternal.dynamicBindingDeclarationMarkerCall(e);
+    if (dynamicBinding != null) {
+      emitValue(dynamicBinding.value);
       return;
     }
     if (nativeAsyncPlan != null) {
@@ -1506,6 +1570,10 @@ class ExprEmitter extends Emitter {
   }
 
   function emitBlockElement(e: TypedExpr, after = false) {
+    #if genes.lexical_binding_inventory
+    if (CompilerInternal.lexicalBindingQueryMarkerCall(e) != null)
+      return;
+    #end
     if (CompilerInternal.isSideEffectImportMarkerCall(e))
       return;
     if (skipsSourceInlineJsxDeclaration(e))
@@ -1570,7 +1638,7 @@ class ExprEmitter extends Emitter {
    */
   function emitJsRequireField(owner: haxe.macro.Type.ClassType,
       field: haxe.macro.Type.ClassField) {
-    write(ctx.typeAccessor(TypeAccessor.forStaticField(owner, field)));
+    write(runtimeTypeAccessor(TypeAccessor.forStaticField(owner, field)));
   }
 
   function transformIdent(name: String) {
@@ -1818,7 +1886,7 @@ class ExprEmitter extends Emitter {
     write(keyword);
 
   function writeGlobalVar(name) {
-    write(ctx.typeAccessor(registerType));
+    write(runtimeTypeAccessor(registerType));
     switch (name) {
       case "$hxEnums":
         write(".hxEnums()");

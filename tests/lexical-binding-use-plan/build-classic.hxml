@@ -1,0 +1,9 @@
+-lib genes-ts
+-cp tests/lexical-binding-use-plan/src
+--main lexicalbinding.Main
+--macro include('lexicalbinding.LazyOne')
+--macro include('lexicalbinding.LazyTwo')
+-js tests/lexical-binding-use-plan/out/classic/index.js
+-D no-deprecation-warnings
+-D js-es=6
+-dce full

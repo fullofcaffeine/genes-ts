@@ -630,6 +630,22 @@ class Dependencies {
     return null;
   }
 
+  /** Returns only the allocated lexical root for one exact origin. */
+  public function resolveOriginRoot(origin: BindingOriginKey): Null<String> {
+    for (mapping in originMappings) {
+      if (!BindingIdentity.originsEqual(mapping.origin, origin))
+        continue;
+      final root = resolveIntentRoot(mapping.localIntent);
+      if (root != null)
+        return root;
+      CompilerDiagnostic.fail('GENES-IMPORT-BINDING-MISSING-001: the projected import for '
+        + BindingIdentity.originDescription(origin)
+        + ' was not allocated',
+        Context.currentPos());
+    }
+    return null;
+  }
+
   /**
    * Resolves a compiler-created Haxe import alias that has no ModuleType owner.
    *
@@ -648,6 +664,52 @@ class Dependencies {
       return result;
     }
     return null;
+  }
+
+  /** Returns the allocated local without appending its member path. */
+  public function resolveIntentRoot(intent: LocalBindingIntent): Null<String> {
+    for (dependency in allocated)
+      if (dependency.bindingFact.localIntent.equals(intent))
+        return dependency.alias == null ? dependency.name : dependency.alias;
+    return null;
+  }
+
+  /**
+   * Resolves the exact lexical binding that an implementation accessor reads.
+   *
+   * TypeScript host globals deliberately use `globalThis`; classic JavaScript
+   * keeps the bare host name. Dynamic-import callback bindings are handled by
+   * `LexicalBindingUsePlan` before this static projection is consulted. A
+   * cross-module accessor without a projected import has no shadowable root in
+   * that profile. The emitter still fails closed if it later tries to render
+   * that accessor; this distinction lets one shared typed tree retain a
+   * TypeScript-only runtime read without inventing a classic JavaScript read.
+   */
+  public function shadowableRoot(type: TypeAccessor,
+      typescript: Bool): Null<String> {
+    return switch type {
+      case CoreAbstract(_):
+        null;
+      case HostGlobal(name):
+        typescript ? 'globalThis' : name;
+      case DirectValue(path):
+        TypeAccessor.directRoot(path);
+      case ImportedDeclaration(key, fallbackName, dependencyPath, external,
+        pos):
+        final root = resolveOriginRoot(BindingOriginKey.HaxeDeclaration(key));
+        if (root != null) root; else if (external
+          || (dependencyPath != null && dependencyPath != module.module))
+          null; else TypeAccessor.directRoot(fallbackName);
+      case ImportedAlias(intent, fallbackName, _, dependencyPath, external,
+        pos):
+        final root = resolveIntentRoot(intent);
+        if (root != null) root; else if (external
+          || dependencyPath != module.module) null; else
+          TypeAccessor.directRoot(fallbackName);
+      case ImportedStaticField(key, _, pos):
+        final root = resolveOriginRoot(BindingOriginKey.StaticField(key));
+        root;
+    }
   }
 
   /** Resolves the reviewed JSX runtime capability without a name scan. */

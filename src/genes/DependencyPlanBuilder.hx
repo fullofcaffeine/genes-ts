@@ -309,6 +309,10 @@ class DependencyPlanBuilder {
     function addOrdinaryExpression(expression: TypedExpr): Void {
       if (expression == null)
         return;
+      #if genes.lexical_binding_inventory
+      if (CompilerInternal.lexicalBindingQueryMarkerCall(expression) != null)
+        return;
+      #end
       addJsRequireFromExpr(expression);
       final occurrences = RuntimeTypeOccurrenceCollector.collect(expression,
         (owner, field) -> {

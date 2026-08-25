@@ -720,6 +720,22 @@ cover receiver/index/RHS order, clean-tree hashes cover naming determinism, the
 no-temp entry point rejects needless declarations, and the main genes-ts suite
 keeps inline-expanded collision and record/TSX readability cases focused.
 
+The lexical-binding gate owns the runtime-name facts that a synthetic-name
+consumer gives to `NamePlan`. It checks imported and direct values, host
+globals, casts, nearest-alias precedence for nested dynamic imports,
+module-owned class and enum reflection roots, nested scopes, and raw-syntax
+barriers.
+It drives the exact conflict, opacity, function-capture, and case-capture
+queries with compiler-owned markers that are erased before output.
+The gate compiles both output profiles twice and requires identical output.
+It also type-checks TypeScript output with the supported TypeScript lanes.
+Negative builds remove one expression-owned authority and one module-owned
+authority. Each expects `GTS-LEXICAL-BINDING-PLAN-004` before publication. The
+deep fixture compares four and eight nested functions with fixed expression
+and scope counts. This structural limit rejects a recursive scan for each
+function. Ordinary builds do not create the plan until a synthetic-name
+consumer requests it.
+
 The package-shape gate covers a precise manual CommonJS `export =`
 const-plus-namespace constructor and a dts2hx-generated bridge for ESM,
 subpaths, conditional `import`/`require` exports, and a class-shaped CommonJS
