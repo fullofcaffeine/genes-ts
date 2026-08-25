@@ -4,8 +4,8 @@ package genes;
 import haxe.ds.ObjectMap;
 import haxe.macro.Type;
 import genes.DynamicImportBindingPlan.DynamicImportBindingToken;
+import genes.LexicalBindingUsePlan.LexicalBindingProfile;
 import genes.react.ReactStateProjectionPlan;
-import genes.react.ReactStateProjectionPlan.ReactStateProjectedAccess;
 
 using haxe.macro.TypedExprTools;
 
@@ -168,7 +168,7 @@ private class NamePlanBuilder {
     if (plannedFunctions.exists(func))
       return;
     plannedFunctions.set(func, true);
-    final bindings = inheritedFunctionBindings(func.expr, fixedBindings);
+    final bindings = inheritedFunctionBindings(func, fixedBindings);
     final scope = allocationScope(bindings);
     final preferences: Map<Int, String> = [];
     reserveDirectBindings(func.expr, scope);
@@ -186,27 +186,18 @@ private class NamePlanBuilder {
    * every binding captured through this lexical scope, including accesses in
    * deeper functions whose closures must pass through it.
    */
-  function inheritedFunctionBindings(expression: TypedExpr,
+  function inheritedFunctionBindings(func: TFunc,
       fixedBindings: Null<Map<String, Bool>>): Map<String, Bool> {
     final bindings: Map<String, Bool> = [];
     if (fixedBindings != null)
       for (name in fixedBindings.keys())
         bindings.set(name, true);
-    if (!reactStateProjectionPlan.hasDispatchers())
-      return bindings;
-
-    function reserveCapturedSetters(current: TypedExpr): Void {
-      final access = reactStateProjectionPlan.accessFor(current);
-      if (access != null
-        && access.access == ReactStateProjectedAccess.Dispatcher) {
-        final setter = reactStateSetters.get(access.local.id);
+    reactStateProjectionPlan.forEachDispatcherCapturedByFunction(func,
+      local -> {
+        final setter = reactStateSetters.get(local.id);
         if (setter != null)
           bindings.set(setter, true);
-        return;
-      }
-      current.iter(reserveCapturedSetters);
-    }
-    reserveCapturedSetters(expression);
+      });
     return bindings;
   }
 
@@ -327,7 +318,7 @@ private class NamePlanBuilder {
     final setterBase = 'set'
       + planned.substr(0, 1).toUpperCase()
       + planned.substr(1);
-    final setter = allocateScopedName(scope, setterBase);
+    final setter = allocateReactSetterName(local, scope, setterBase);
     // Classic normally preserves authored spelling unless an exact fixed name
     // is reserved. Reserve this generated binding so later locals cannot reuse
     // it even though they have no TVar identity of their own for the setter.
@@ -357,7 +348,11 @@ private class NamePlanBuilder {
     if (reserved != null)
       for (name in reserved.keys())
         inherited.set(name, true);
-    return {counts: [], reserved: inherited, used: []};
+    return {
+      counts: [],
+      reserved: inherited,
+      used: []
+    };
   }
 
   /** Reserves exact same-module bare direct bindings before local allocation. */
@@ -395,6 +390,28 @@ private class NamePlanBuilder {
     scope.counts.set(baseName, count + 1);
     scope.used.set(candidate, true);
     return candidate;
+  }
+
+  /** Allocates a synthetic setter without shadowing a finalized ESM import. */
+  function allocateReactSetterName(local: TVar, scope: AllocationScope,
+      baseName: String): String {
+    var count = scope.counts.exists(baseName) ? scope.counts.get(baseName) : 0;
+    var candidate = suffix(baseName, count);
+    while (scope.reserved.exists(candidate)
+      || scope.used.exists(candidate)
+      || reactStateProjectionPlan.dispatcherConflicts(local, candidate,
+        lexicalBindingProfile())) {
+      count++;
+      candidate = suffix(baseName, count);
+    }
+    scope.counts.set(baseName, count + 1);
+    scope.used.set(candidate, true);
+    return candidate;
+  }
+
+  inline function lexicalBindingProfile(): LexicalBindingProfile {
+    return
+      profile == TypeScriptReadable ? TypeScriptLexicalBindings : ClassicLexicalBindings;
   }
 
   /**

@@ -280,8 +280,11 @@ Generated setter names use the same scope and collision plan as Haxe locals.
 Projection requires exact compiler-owned `useState` provenance and a complete
 typed use inventory. Genes keeps `UseStateResult<T>` and tuple indices when the
 whole State is returned, passed, stored, aliased, cast, compared, reflected,
-placed in `deps(...)`, widened to `Dynamic`, or used by raw target syntax. A
-custom Hook that returns `State<T>` also keeps the honest representation.
+placed in `deps(...)`, or widened to `Dynamic`. Genes also keeps the indexed
+form when arbitrary target syntax is visible from the State binding's lexical
+scope, because that text can name the State or another runtime value without
+typed identity. An opaque sibling function does not affect an independent
+State. A custom Hook that returns `State<T>` also keeps the honest representation.
 Classic output before ES2015 keeps the indexed form because that syntax level
 cannot represent destructuring.
 

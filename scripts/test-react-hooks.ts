@@ -2,6 +2,7 @@ import {deepStrictEqual, ok, strictEqual} from "node:assert";
 import {execFileSync, spawnSync} from "node:child_process";
 import {createHash} from "node:crypto";
 import {
+  copyFileSync,
   existsSync,
   readFileSync,
   readdirSync,
@@ -136,6 +137,23 @@ deepStrictEqual(
   firstTree,
   "React Hook output is byte-deterministic across clean-equivalent rebuilds"
 );
+for (const outputRoot of [
+  "out/ts/src-gen/react_hooks",
+  "out/tsx/src-gen/react_hooks",
+  "out/classic/react_hooks",
+  "out/classic-no-dts/react_hooks",
+  "out/jsx/react_hooks"
+]) {
+  for (const fixture of [
+    "state-setter.js",
+    "state-setter.d.ts",
+    "state-constructor.js",
+    "state-constructor.d.ts",
+    "state-native.d.ts"
+  ])
+    copyFileSync(path.join(fixtureRoot, "resources", fixture),
+      path.join(fixtureRoot, outputRoot, fixture));
+}
 runGeneratedTypeScriptMatrix("tests/react-hooks/tsconfig.json", {emit: false});
 runGeneratedTypeScriptMatrix("tests/react-hooks/tsconfig.tsx.json", {
   emit: false
@@ -228,7 +246,7 @@ for (const binding of [
   "const [mode, setMode] = useState<ProjectionMode>(ProjectionMode.Idle)",
   "const [state, setState] = useState<string>(function ()",
   "const [, setState] = useState<number>(initial)",
-  "const [state, setState_1] = useState<number>(initial)",
+  "const [state, setState] = useState<number>(initial)",
   "const [later, setLater] = useState<number>(initial + 2)"
 ]) {
   ok(projectionCases.includes(binding),
@@ -242,15 +260,54 @@ ok(projectionCases.includes(
   "useState<Choice<number, string>>(Choice.Left<number, string>(1))"
 ), "projection reuses the fully closed generic-enum witness");
 ok(projectionCases.includes(
-  "return function (setState_1: ((arg0: number) => void))"
+  "return function (setState1: ((arg0: number) => void))"
 ) && projectionCases.includes("setState(initial + 1)")
-  && projectionCases.includes("setState_1(initial + 2)"),
+  && projectionCases.includes("setState1(initial + 2)"),
 "a nested parameter cannot shadow the captured synthetic dispatcher");
 ok(projectionCases.includes(
-  "return function (setState_1: ((arg0: number) => void))"
+  "return function (setState1: ((arg0: number) => void))"
 ) && projectionCases.includes("setState(initial + 3)")
-  && projectionCases.includes("setState_1(initial + 4)"),
+  && projectionCases.includes("setState1(initial + 4)"),
 "every intervening closure reserves a descendant-captured dispatcher");
+ok(projectionCases.includes(
+  "const setState1: number = initial + 1"
+) && projectionCases.includes("setState(setState1)"),
+"a case-local binding cannot shadow the dispatcher captured in that case");
+ok(projectionCases.includes(
+  "const setState1: number = initial + 1;\n\tconst [state, setState] = useState<number>(initial);\n\tsetState(setState1)"
+), "a nearby authored local and synthetic dispatcher stay distinct");
+const projectionImportCollision = source(
+  "out/ts/src-gen/react_hooks/StateProjectionImportCollision.ts"
+);
+ok(projectionImportCollision.includes(
+  "const [, setState_1] = useState<number>(initial)"
+) && projectionImportCollision.includes("setState_1(initial + 1)")
+  && projectionImportCollision.includes("setState(function ()"),
+"a projected dispatcher cannot shadow a referenced ESM import binding");
+const projectionModuleCollision = source(
+  "out/ts/src-gen/react_hooks/StateProjectionModuleBindingCollision.ts"
+);
+ok(projectionModuleCollision.includes(
+  "const [, setState_1] = useState<number>(initial)"
+) && projectionModuleCollision.includes("setState_1(initial + 1)")
+  && projectionModuleCollision.includes("setState(function ()"),
+"a projected dispatcher cannot shadow a descendant same-module binding");
+const projectionConstructorCollision = source(
+  "out/ts/src-gen/react_hooks/StateProjectionConstructorCollision.ts"
+);
+ok(projectionConstructorCollision.includes(
+  "const [, setState_1] = useState<number>(initial)"
+) && projectionConstructorCollision.includes("setState_1(initial + 1)")
+  && projectionConstructorCollision.includes("new setState()"),
+"a projected dispatcher cannot shadow an imported constructor binding");
+const projectionNativeCollision = source(
+  "out/ts/src-gen/react_hooks/StateProjectionNativeCollision.ts"
+);
+ok(projectionNativeCollision.includes(
+  "const [, setState_1] = useState<number>(initial)"
+) && projectionNativeCollision.includes("setState_1(initial + 1)")
+  && projectionNativeCollision.includes("new setState()"),
+"a projected dispatcher cannot shadow a direct host-global constructor");
 ok(projectionCases.includes(
   "StateRuntime_Fields_.replaceCallable(setState, replacement)"
 ) && projectionCases.includes(
@@ -278,17 +335,24 @@ for (const local of [
   "reflectedState",
   "dynamicState",
   "tupleState",
-  "opaqueState"
+  "opaqueState",
+  "opaqueDispatcherState",
+  "opaqueValueState",
+  "opaqueDescendantState",
+  "opaqueInitializerState"
 ]) {
   ok(projectionFallbacks.includes(
     `const ${local}: UseStateResult<number> = useState<number>(`
-  ), `${local} whole-State observation keeps the honest fallback`);
+  ), `${local} keeps the honest State fallback`);
 }
+ok(projectionFallbacks.includes(
+  "const [siblingState] = useState<number>(initial)"
+), "raw syntax in a sibling function does not disable safe projection");
 ok(projectionFallbacks.includes(
   "const state: UseStateResult<number> = useCustomState(initial)"
 ), "a custom State-returning Hook cannot forge compiler-owned provenance");
-ok(!projectionFallbacks.includes("const ["),
-  "fallback cases do not mix projected declarations with tuple-index uses");
+strictEqual(projectionFallbacks.match(/const \[/g)?.length, 1,
+  "only the independent non-opaque sibling State projects");
 
 const stateInitialization = source(
   "out/ts/src-gen/react_hooks/StateInitialization.ts"
@@ -364,15 +428,34 @@ const classicProjectionCases = source(
 ok(classicProjectionCases.includes(
   "const [, setState] = useState(initial)"
 ) && classicProjectionCases.includes(
-  "const [state, setState_1] = useState(initial)"
+  "const [state, setState] = useState(initial)"
+) && classicProjectionCases.includes(
+  "const setState1 = initial + 1"
 ), "classic JavaScript consumes the same projection and name plan");
+const classicProjectionNativeCollision = source(
+  "out/classic/react_hooks/StateProjectionNativeCollision.js"
+);
+ok(classicProjectionNativeCollision.includes(
+  "const [, setState_1] = useState(initial)"
+) && classicProjectionNativeCollision.includes("new setState()"),
+"classic JavaScript protects a direct host-global constructor");
+const classicProjectionFallbacks = source(
+  "out/classic/react_hooks/StateProjectionFallbacks.js"
+);
+ok(classicProjectionFallbacks.includes("opaqueDispatcherState[1]")
+  && classicProjectionFallbacks.includes("opaqueValueState[0]")
+  && classicProjectionFallbacks.includes("opaqueDescendantState[0]")
+  && classicProjectionFallbacks.includes("opaqueInitializerState[0]")
+  && classicProjectionFallbacks.includes(
+    "const [siblingState] = useState(initial)"
+  ), "classic JavaScript preserves the same lexical opaque boundary");
 const classicNoDtsProjectionCases = source(
   "out/classic-no-dts/react_hooks/StateProjectionCases.js"
 );
 ok(classicNoDtsProjectionCases.includes(
   "const [, setState] = useState(initial)"
 ) && classicNoDtsProjectionCases.includes(
-  "const [state, setState_1] = useState(initial)"
+  "const [state, setState] = useState(initial)"
 ), "classic projection does not depend on declaration generation");
 const tsxProjectionCases = source(
   "out/tsx/src-gen/react_hooks/StateProjectionCases.tsx"
@@ -394,6 +477,18 @@ for (const [profile, generated] of [
     `const [, setState] = useState${setterGeneric}(initial)`
   ),
     `${profile} source profile preserves setter-only destructuring`);
+  const outputRoot = profile === "TSX" ? "tsx/src-gen" : "jsx";
+  const extension = profile === "TSX" ? "tsx" : "jsx";
+  const fallback = source(
+    `out/${outputRoot}/react_hooks/StateProjectionFallbacks.${extension}`
+  );
+  ok(fallback.includes("opaqueDispatcherState[1]")
+    && fallback.includes("opaqueValueState[0]")
+    && fallback.includes("opaqueDescendantState[0]")
+    && fallback.includes("opaqueInitializerState[0]")
+    && fallback.includes(
+      `const [siblingState] = useState${setterGeneric}(initial)`
+    ), `${profile} source profile preserves the same lexical opaque boundary`);
 }
 run("node", ["tests/react-hooks/runtime.mjs"]);
 ok(!/\b(?:Dynamic|untyped|any|unknown)\b/.test(typed),

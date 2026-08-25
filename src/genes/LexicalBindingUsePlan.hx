@@ -35,6 +35,7 @@ private enum abstract RuntimeProfileMask(Int) from Int to Int {
 private typedef MutableLexicalScope = {
   final id: Int;
   final entry: Int;
+  final parentId: Null<Int>;
   var exit: Int;
   var opaque: Bool;
 }
@@ -89,12 +90,15 @@ final class LexicalBindingRequest {
   final plan: LexicalBindingUsePlan;
   final declarationScopeId: Int;
   final useScopeIds: Array<Int>;
+  final capturedFunctionScopeIds: Map<Int, Bool>;
 
   public function new(plan: LexicalBindingUsePlan, declarationScopeId: Int,
       useScopeIds: Array<Int>) {
     this.plan = plan;
     this.declarationScopeId = declarationScopeId;
     this.useScopeIds = useScopeIds.copy();
+    capturedFunctionScopeIds = plan.capturedFunctionScopes(declarationScopeId,
+      this.useScopeIds);
   }
 
   /** True when arbitrary target text is visible from the declaration. */
@@ -112,8 +116,12 @@ final class LexicalBindingRequest {
   /** Whether an exact function body must reserve the allocated binding. */
   public function capturedByFunction(func: TFunc): Bool {
     final scopeId = plan.functionScopeId(func);
-    return scopeId != null
-      && plan.scopeCapturesUse(declarationScopeId, useScopeIds, scopeId);
+    return scopeId != null && capturedFunctionScopeIds.exists(scopeId);
+  }
+
+  /** Visits each exact function on a synthetic use's capture path once. */
+  public function forEachCapturingFunction(visit: TFunc->Void): Void {
+    plan.forEachFunctionScope(capturedFunctionScopeIds, visit);
   }
 
   /** Whether an exact block/case scope must reserve the allocated binding. */
@@ -139,10 +147,11 @@ final class LexicalBindingRequest {
  * finalized import aliases and host-global spelling.
  *
  * How: one source-order walk keys expressions and functions by typed object
- * identity. Scope entry/exit intervals answer descendant and capture queries
- * without rescanning function bodies. Dynamic-import tokens form a scoped
- * environment and take precedence over static dependencies. The plan is built
- * only after a consumer explicitly requests synthetic-name hygiene.
+ * identity. Scope intervals answer descendant queries; parent links enumerate
+ * each function on a synthetic use path once without rescanning function
+ * bodies. Dynamic-import tokens form a scoped environment and take precedence
+ * over static dependencies. The plan is built only after a consumer explicitly
+ * requests synthetic-name hygiene.
  */
 @:allow(genes.LexicalBindingRequest)
 @:allow(genes.LexicalBindingUsePlanBuilder)
@@ -151,6 +160,7 @@ final class LexicalBindingUsePlan {
   final scopes: Array<MutableLexicalScope>;
   final expressionScopes: ObjectMap<TypedExpr, Int>;
   final functionScopes: ObjectMap<TFunc, Int>;
+  final scopeFunctions: Map<Int, TFunc>;
   final occurrences: Array<RuntimeAuthorityOccurrence>;
   final moduleOccurrences: Array<RuntimeAuthorityOccurrence>;
   final expressionOccurrences: ObjectMap<TypedExpr,
@@ -168,7 +178,7 @@ final class LexicalBindingUsePlan {
 
   public function new(module: Module, scopes: Array<MutableLexicalScope>,
       expressionScopes: ObjectMap<TypedExpr, Int>,
-      functionScopes: ObjectMap<TFunc, Int>,
+      functionScopes: ObjectMap<TFunc, Int>, scopeFunctions: Map<Int, TFunc>,
       occurrences: Array<RuntimeAuthorityOccurrence>,
       moduleOccurrences: Array<RuntimeAuthorityOccurrence>,
       expressionOccurrences: ObjectMap<TypedExpr,
@@ -178,6 +188,7 @@ final class LexicalBindingUsePlan {
     this.scopes = scopes;
     this.expressionScopes = expressionScopes;
     this.functionScopes = functionScopes;
+    this.scopeFunctions = scopeFunctions;
     this.occurrences = occurrences;
     this.moduleOccurrences = moduleOccurrences;
     this.expressionOccurrences = expressionOccurrences;
@@ -294,6 +305,9 @@ final class LexicalBindingUsePlan {
           group.declaration == null ? Context.currentPos() : group.declaration.pos);
       final request = request(group.declaration, group.uses);
       descriptions.push('query:$id:opaque:${request.hasOpaqueRegion()}');
+      var capturingFunctions = 0;
+      request.forEachCapturingFunction(_ -> capturingFunctions++);
+      descriptions.push('query:$id:function-captures:$capturingFunctions');
       for (candidate in group.candidates)
         descriptions.push('query:$id:conflict:$candidate:'
           + request.conflicts(candidate, profile));
@@ -383,6 +397,33 @@ final class LexicalBindingUsePlan {
 
   function functionScopeId(func: TFunc): Null<Int> {
     return functionScopes.get(func);
+  }
+
+  /** Precomputes function scopes on exact use-to-declaration paths. */
+  function capturedFunctionScopes(declarationScopeId: Int,
+      useScopeIds: Array<Int>): Map<Int, Bool> {
+    final result: Map<Int, Bool> = [];
+    for (useScopeId in useScopeIds) {
+      var currentScopeId: Null<Int> = useScopeId;
+      while (currentScopeId != null) {
+        if (scopeFunctions.exists(currentScopeId))
+          result.set(currentScopeId, true);
+        if (currentScopeId == declarationScopeId)
+          break;
+        currentScopeId = scopes[currentScopeId].parentId;
+      }
+    }
+    return result;
+  }
+
+  /** Visits each precomputed function scope once. */
+  function forEachFunctionScope(scopeIds: Map<Int, Bool>,
+      visit: TFunc->Void): Void {
+    for (scopeId in scopeIds.keys()) {
+      final func = scopeFunctions.get(scopeId);
+      if (func != null)
+        visit(func);
+    }
   }
 
   function hasOpaqueDescendant(declarationScopeId: Int): Bool {
@@ -544,6 +585,7 @@ private final class LexicalBindingUsePlanBuilder {
   final scopes: Array<MutableLexicalScope> = [];
   final expressionScopes = new ObjectMap<TypedExpr, Int>();
   final functionScopes = new ObjectMap<TFunc, Int>();
+  final scopeFunctions: Map<Int, TFunc> = [];
   final occurrences: Array<RuntimeAuthorityOccurrence> = [];
   final moduleOccurrences: Array<RuntimeAuthorityOccurrence> = [];
   final expressionOccurrences = new ObjectMap<TypedExpr,
@@ -564,6 +606,7 @@ private final class LexicalBindingUsePlanBuilder {
     scopes.push({
       id: 0,
       entry: 0,
+      parentId: null,
       exit: 0,
       opaque: false
     });
@@ -593,8 +636,8 @@ private final class LexicalBindingUsePlanBuilder {
       if (scope.opaque)
         opaqueCount++;
     final plan = new LexicalBindingUsePlan(module, scopes, expressionScopes,
-      functionScopes, occurrences, moduleOccurrences, expressionOccurrences,
-      fixedBindings, {
+      functionScopes, scopeFunctions, occurrences, moduleOccurrences,
+      expressionOccurrences, fixedBindings, {
         expressions: expressionCount,
         scopes: scopes.length,
         runtimeAuthorities: occurrences.length,
@@ -668,7 +711,8 @@ private final class LexicalBindingUsePlanBuilder {
 
     switch expression.expr {
       case TFunction(func):
-        visitFunction(func, dynamicTokens, [], suppressPromiseNullCast);
+        visitFunction(func, scopeId, dynamicTokens, [],
+          suppressPromiseNullCast);
 
       case TCall({
         expr: TField(_,
@@ -689,19 +733,20 @@ private final class LexicalBindingUsePlanBuilder {
               }
             default:
           }
-        visitFunction(func, nestedTokens, fixed, suppressPromiseNullCast);
+        visitFunction(func, scopeId, nestedTokens, fixed,
+          suppressPromiseNullCast);
 
       case TSwitch(condition, cases, fallback):
         visit(condition, scopeId, dynamicTokens, suppressPromiseNullCast);
         for (entry in cases) {
           for (value in entry.values)
             visit(value, scopeId, dynamicTokens, suppressPromiseNullCast);
-          final child = createScope([]);
+          final child = createScope([], scopeId);
           visit(entry.expr, child, dynamicTokens, suppressPromiseNullCast);
           closeScope(child);
         }
         if (fallback != null) {
-          final child = createScope([]);
+          final child = createScope([], scopeId);
           visit(fallback, child, dynamicTokens, suppressPromiseNullCast);
           closeScope(child);
         }
@@ -777,11 +822,12 @@ private final class LexicalBindingUsePlanBuilder {
     scopes[scopeId].opaque = true;
   }
 
-  function visitFunction(func: TFunc,
+  function visitFunction(func: TFunc, parentScopeId: Int,
       dynamicTokens: Array<DynamicImportBindingToken>, fixed: Array<String>,
       suppressPromiseNullCast = false): Void {
-    final scopeId = createScope(fixed);
+    final scopeId = createScope(fixed, parentScopeId);
     functionScopes.set(func, scopeId);
+    scopeFunctions.set(scopeId, func);
     #if genes.lexical_binding_inventory
     final previousFunction = currentFunction;
     currentFunction = func;
@@ -793,12 +839,13 @@ private final class LexicalBindingUsePlanBuilder {
     closeScope(scopeId);
   }
 
-  function createScope(fixed: Array<String>): Int {
+  function createScope(fixed: Array<String>, parentId: Int): Int {
     final id = scopes.length;
     final copied = fixed.copy();
     scopes.push({
       id: id,
       entry: id,
+      parentId: parentId,
       exit: id,
       opaque: false
     });

@@ -153,8 +153,18 @@ class Main {
     final stableSetterCallback = StateProjectionCases.useStableSetterCallback;
     final nestedSetterCollision = StateProjectionCases.useNestedSetterCollision;
     final deepNestedSetterCollision = StateProjectionCases.useDeepNestedSetterCollision;
+    final switchSetterCollision = StateProjectionCases.useSwitchSetterCollision;
     final projectionNameCollisions = StateProjectionCases.useProjectionNameCollisions;
+    final importedSetterCollision = StateProjectionImportCollision.useImportedSetterCollision;
+    final moduleSetterCollision = StateProjectionModuleBindingCollision.useModuleSetterCollision;
+    final constructorCollision = StateProjectionConstructorCollision.useConstructorCollision;
+    final nativeConstructorCollision = StateProjectionNativeCollision.useNativeConstructorCollision;
     final wholeStateFallbacks = StateProjectionFallbacks.useWholeStateFallbacks;
+    final opaqueDispatcherFallback = StateProjectionFallbacks.useOpaqueDispatcherFallback;
+    final opaqueValueOnlyFallback = StateProjectionFallbacks.useOpaqueValueOnlyFallback;
+    final opaqueDescendantFallback = StateProjectionFallbacks.useOpaqueDescendantFallback;
+    final opaqueInitializerFallback = StateProjectionFallbacks.useOpaqueInitializerFallback;
+    final opaqueSiblingProjection = StateProjectionFallbacks.useOpaqueSiblingProjection;
     final returnedState = StateProjectionFallbacks.useReturnedState;
     final customState = StateProjectionFallbacks.useCustomState;
     final customStateConsumer = StateProjectionFallbacks.useCustomStateConsumer;
@@ -166,9 +176,14 @@ class Main {
       || genericEnumProjection == null || genericProjection == null
       || callableProjection == null || setterOnly == null
       || stableSetterCallback == null || nestedSetterCollision == null
-      || deepNestedSetterCollision == null
-      || projectionNameCollisions == null || wholeStateFallbacks == null
-      || returnedState == null || customState == null
+      || deepNestedSetterCollision == null || switchSetterCollision == null
+      || projectionNameCollisions == null || importedSetterCollision == null
+      || moduleSetterCollision == null || constructorCollision == null
+      || nativeConstructorCollision == null || wholeStateFallbacks == null
+      || returnedState == null || opaqueDispatcherFallback == null
+      || opaqueValueOnlyFallback == null || opaqueDescendantFallback == null
+      || opaqueInitializerFallback == null
+      || opaqueSiblingProjection == null || customState == null
       || customStateConsumer == null || stateInitialization == null) {
       throw "React Hook functions were not retained";
     }

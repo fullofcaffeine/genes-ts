@@ -135,6 +135,19 @@ function useDeepNestedSetterCollision(initial: Int): (Int->Void)->(Void->Void) {
   };
 }
 
+/** A case-local binding cannot shadow a dispatcher used in the same case. */
+@:genes.reactHook
+function useSwitchSetterCollision(initial: Int): Int {
+  final state = useState(initial);
+  switch initial {
+    case 0:
+      final setState = initial + 1;
+      state.set(setState);
+    default:
+  }
+  return state.value;
+}
+
 /** Proves generated dispatcher names cannot collide with nearby Haxe locals. */
 @:genes.reactHook
 function useProjectionNameCollisions(initial: Int): Int {

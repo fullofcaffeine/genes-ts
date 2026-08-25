@@ -58,6 +58,45 @@ function useWholeStateFallbacks(initial: Int): Int {
     + opaque;
 }
 
+/** Raw syntax anywhere in the declaration scope keeps dispatcher uses opaque. */
+@:genes.reactHook
+function useOpaqueDispatcherFallback(initial: Int): Int {
+  final opaqueDispatcherState = useState(initial);
+  opaqueDispatcherState.set(initial + 1);
+  return js.Syntax.code("{0}", initial + 2);
+}
+
+/** Unrelated raw syntax keeps a value-only State in its tuple representation. */
+@:genes.reactHook
+function useOpaqueValueOnlyFallback(initial: Int): Int {
+  final opaqueValueState = useState(initial);
+  final opaque: Int = js.Syntax.code("{0}", initial + 1);
+  return opaqueValueState.value + opaque;
+}
+
+/** Raw syntax in a descendant closure can still observe an outer State. */
+@:genes.reactHook
+function useOpaqueDescendantFallback(initial: Int): Int {
+  final opaqueDescendantState = useState(initial);
+  final readOpaque = () -> js.Syntax.code("{0}", initial + 1);
+  return opaqueDescendantState.value + readOpaque();
+}
+
+/** Raw syntax in the initializer keeps that exact State unprojected. */
+@:genes.reactHook
+function useOpaqueInitializerFallback(initial: Int): Int {
+  final opaqueInitializerState = useState((js.Syntax.code("{0}",
+    initial) : Int));
+  return opaqueInitializerState.value;
+}
+
+/** An opaque sibling function does not disable this independent projection. */
+@:genes.reactHook
+function useOpaqueSiblingProjection(initial: Int): Int {
+  final siblingState = useState(initial);
+  return siblingState.value;
+}
+
 /** Returning the State itself keeps the public semantic abstraction. */
 @:genes.reactHook
 function useReturnedState(initial: Int): State<Int> {
