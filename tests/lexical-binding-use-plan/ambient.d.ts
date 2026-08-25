@@ -5,3 +5,7 @@ declare namespace setState {
 declare namespace TypeOnlyRoot {
   class Value {}
 }
+
+declare namespace queryRoot {
+  class Value {}
+}

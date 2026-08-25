@@ -280,9 +280,12 @@ class Module {
       for (profile in [
         LexicalBindingUsePlan.LexicalBindingProfile.ClassicLexicalBindings,
         LexicalBindingUsePlan.LexicalBindingProfile.TypeScriptLexicalBindings
-      ])
+      ]) {
         for (description in lexicalBindingUsePlanCache.inventoryDescriptions(profile))
           Sys.println('[GTS-LEXICAL-INVENTORY] $module:${Std.string(profile)}:$description');
+        for (description in lexicalBindingUsePlanCache.queryInventoryDescriptions(profile))
+          Sys.println('[GTS-LEXICAL-INVENTORY] $module:${Std.string(profile)}:$description');
+      }
       #end
     }
     return lexicalBindingUsePlanCache;

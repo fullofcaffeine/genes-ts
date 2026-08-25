@@ -723,6 +723,8 @@ keeps inline-expanded collision and record/TSX readability cases focused.
 The lexical-binding gate owns the runtime-name facts that a synthetic-name
 consumer gives to `NamePlan`. It checks imported and direct values, host
 globals, casts, dynamic-import locals, nested scopes, and raw-syntax barriers.
+It drives the exact conflict, opacity, function-capture, and case-capture
+queries with compiler-owned markers that are erased before output.
 The gate compiles both output profiles twice and requires identical output.
 It also type-checks TypeScript output with the supported TypeScript lanes.
 A negative build removes one required authority and expects

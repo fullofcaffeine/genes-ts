@@ -55,18 +55,16 @@ class RuntimeTypeOccurrenceCollector {
     return switch expression {
       case null:
         [];
-      case {
-        expr: TField(_, FStatic(owner, field))
-      }
-        if (resolveDirectModuleFunction != null
-          && resolveDirectModuleFunction(owner, field) != null):
-        [DirectModuleFunction(owner, field,
-          resolveDirectModuleFunction(owner, field))];
-      case {expr: TField(_, FStatic(owner, field))}
-        if (resolveDirectModuleValue != null
-          && resolveDirectModuleValue(owner, field) != null):
-        [DirectModuleValue(owner, field,
-          resolveDirectModuleValue(owner, field))];
+      case {expr: TField(_, FStatic(owner, field))}:
+        final directFunction = resolveDirectModuleFunction == null ? null : resolveDirectModuleFunction(owner,
+          field);
+        if (directFunction != null) [DirectModuleFunction(owner, field,
+          directFunction)]; else {
+          final directValue = resolveDirectModuleValue == null ? null : resolveDirectModuleValue(owner,
+            field);
+          directValue == null ? [] : [DirectModuleValue(owner, field,
+            directValue)];
+        }
       case {expr: TTypeExpr(type)}:
         [RuntimeType(type)];
       case {expr: TNew(owner, _, _)}:

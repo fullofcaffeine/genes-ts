@@ -29,6 +29,14 @@ typedef NativeAsyncMarkerCall = {
   final value: TypedExpr;
 }
 
+#if genes.lexical_binding_inventory
+typedef LexicalBindingQueryMarkerCall = {
+  final group: String;
+  final role: String;
+  final candidates: Array<String>;
+}
+#end
+
 /**
  * Defines the narrow typed-AST boundary used by compiler-owned carrier values.
  *
@@ -84,6 +92,9 @@ class CompilerInternal {
   public static inline final DYNAMIC_BINDING_DECLARATION_MARKER_MODULE = 'genes.internal.DynamicBindingDeclarationMarker';
   public static inline final UNDEFINABLE_PRESENT_MARKER_MODULE = 'genes.internal.UndefinablePresentMarker';
   public static inline final NATIVE_ASYNC_MARKER_MODULE = 'genes.internal.NativeAsyncMarker';
+  #if genes.lexical_binding_inventory
+  public static inline final LEXICAL_BINDING_QUERY_MARKER_MODULE = 'genes.internal.LexicalBindingQueryMarker';
+  #end
 
   /** Returns whether one typed field is semantic-only compiler evidence. */
   public static function isField(meta: Null<MetaAccess>): Bool {
@@ -248,6 +259,42 @@ class CompilerInternal {
         false;
     }
   }
+
+  #if genes.lexical_binding_inventory
+  /** Decodes one test-only query marker retained through Haxe DCE. */
+  public static function lexicalBindingQueryMarkerCall(expression: TypedExpr): Null<LexicalBindingQueryMarkerCall> {
+    return switch expression.expr {
+      case TMeta(_, inner) | TParenthesis(inner) | TCast(inner, null):
+        lexicalBindingQueryMarkerCall(inner);
+      case TCall({
+        expr: TField(_, FStatic(_.get() => owner, _.get() => {name: 'mark'}))
+      }, arguments) if (owner.module == LEXICAL_BINDING_QUERY_MARKER_MODULE):
+        switch arguments {
+          case [
+            {expr: TConst(TString(group))},
+            {expr: TConst(TString(role))},
+            {expr: TArrayDecl(values)}
+          ]:
+            final candidates: Array<String> = [];
+            for (value in values)
+              switch value.expr {
+                case TConst(TString(candidate)):
+                  candidates.push(candidate);
+                default:
+                  return
+                    CompilerDiagnostic.fail('GTS-LEXICAL-BINDING-PLAN-006: query marker candidates must be string literals',
+                    value.pos);
+              }
+            {group: group, role: role, candidates: candidates};
+          default:
+            CompilerDiagnostic.fail('GTS-LEXICAL-BINDING-PLAN-006: query marker needs literal group, role, and candidate array',
+              expression.pos);
+        }
+      default:
+        null;
+    }
+  }
+  #end
 
   /** Returns one exact token-backed lazy callback declaration carrier. */
   public static function dynamicBindingDeclarationMarkerCall(expression: TypedExpr): Null<DynamicBindingDeclarationMarkerCall> {

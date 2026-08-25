@@ -1524,12 +1524,14 @@
       ],
       "ownerPaths": [
         "scripts/test-lexical-binding-use-plan.ts",
+        "src/genes/internal/LexicalBindingQueryMarker.hx",
         "tests/lexical-binding-use-plan"
       ],
-      "proves": "One bounded typed plan inventories exact runtime lexical authorities, dynamic callback locals, profile roots, opaque scopes, deterministic output, and fail-closed publication.",
+      "proves": "One bounded typed plan inventories exact runtime lexical authorities, dynamic callback locals, profile roots, opaque scopes, exact conflict/capture queries, deterministic output, and fail-closed publication.",
       "doesNotProve": "The fixture does not allocate a React state binding or authorize parsing opaque target syntax.",
       "owners": [
         "scripts/test-lexical-binding-use-plan.ts",
+        "src/genes/internal/LexicalBindingQueryMarker.hx",
         "tests/lexical-binding-use-plan"
       ],
       "families": [

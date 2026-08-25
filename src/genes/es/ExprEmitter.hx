@@ -413,6 +413,10 @@ class ExprEmitter extends Emitter {
       activeBindingExpression = previous;
       return;
     }
+    #if genes.lexical_binding_inventory
+    if (CompilerInternal.lexicalBindingQueryMarkerCall(e) != null)
+      return;
+    #end
     // TypeArguments.call(...) uses a typed carrier so nested macro output keeps
     // each occurrence's witness. Classic JS emits only the original statement.
     final explicitTypeArgumentCall = genes.ExplicitTypeArguments.callSiteMarker(e);
@@ -1553,6 +1557,10 @@ class ExprEmitter extends Emitter {
   }
 
   function emitBlockElement(e: TypedExpr, after = false) {
+    #if genes.lexical_binding_inventory
+    if (CompilerInternal.lexicalBindingQueryMarkerCall(e) != null)
+      return;
+    #end
     if (CompilerInternal.isSideEffectImportMarkerCall(e))
       return;
     if (skipsSourceInlineJsxDeclaration(e))

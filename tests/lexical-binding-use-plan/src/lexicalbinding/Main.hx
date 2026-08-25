@@ -5,6 +5,7 @@ import lexicalbinding.DeepEight.deepEight;
 import lexicalbinding.DirectTarget.setStateFunction;
 import lexicalbinding.DirectTarget.setStateValue;
 import lexicalbinding.DynamicCases.nestedDynamicBindings;
+import lexicalbinding.QueryCases.retainQueryCases;
 
 /** A dependency-free dotted native path whose lexical root is `setState`. */
 @:native("setState.Factory")
@@ -64,5 +65,6 @@ class Main {
     nestedDynamicBindings();
     deepFour();
     deepEight();
+    retainQueryCases();
   }
 }

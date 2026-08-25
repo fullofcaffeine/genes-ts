@@ -150,6 +150,35 @@ function assertInventory(lines: ReadonlyArray<string>): void {
     requireInventoryLine(lines, suffix);
   }
 
+  for (const profile of ["classic", "typescript"] as const) {
+    for (const fact of [
+      "query:clean:opaque:false",
+      "query:clean:conflict:queryRoot:false",
+      "query:clean:conflict:missing:false",
+      "query:dynamic:opaque:false",
+      "query:dynamic:conflict:LazyOne:true",
+      "query:dynamic:conflict:LazyTwo:false",
+      "query:host:opaque:false",
+      "query:outer:opaque:true",
+      "query:outer:conflict:queryRoot:true",
+      "query:outer:conflict:missing:false",
+      "query:outer:function:capture:true",
+      "query:outer:function:sibling:false",
+      "query:outer:scope:capture:true",
+      "query:outer:scope:sibling:false"
+    ]) {
+      requireInventoryLine(lines, `QueryCases:${profile}:${fact}`);
+    }
+  }
+  for (const fact of [
+    "classic:query:host:conflict:Error:true",
+    "classic:query:host:conflict:globalThis:false",
+    "typescript:query:host:conflict:Error:false",
+    "typescript:query:host:conflict:globalThis:true"
+  ]) {
+    requireInventoryLine(lines, `QueryCases:${fact}`);
+  }
+
   ok(
     !lines.some((line) => line.includes(":classic:root:globalThis:")),
     "Classic roots must not use TypeScript's globalThis spelling"
@@ -192,6 +221,12 @@ function assertGeneratedShape(): void {
   const dynamicTs = readFileSync(path.join(
     profileRoot(profiles[1]), "lexicalbinding/DynamicCases.ts"
   ), "utf8");
+  const queryTs = readFileSync(path.join(
+    profileRoot(profiles[1]), "lexicalbinding/QueryCases.ts"
+  ), "utf8");
+  const queryClassic = readFileSync(path.join(
+    profileRoot(profiles[0]), "lexicalbinding/QueryCases.js"
+  ), "utf8");
 
   ok(tsMain.includes("const directType: any = setState.Factory"));
   ok(tsMain.includes("const hostType: any = globalThis.Error"));
@@ -214,6 +249,10 @@ function assertGeneratedShape(): void {
     'var setStateLazyTwo = (module as typeof import("./LazyTwo.js")).setStateLazyTwo'
   ));
   ok(!dynamicTs.includes("DynamicBindingDeclarationMarker"));
+  for (const generated of [queryTs, queryClassic]) {
+    ok(!generated.includes("LexicalBindingQueryMarker"));
+    ok(!generated.includes("genesLexicalBindingQuery"));
+  }
 }
 
 rmSync(outputRoot, { recursive: true, force: true });

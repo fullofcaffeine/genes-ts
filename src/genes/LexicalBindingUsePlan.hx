@@ -32,15 +32,12 @@ private enum abstract RuntimeProfileMask(Int) from Int to Int {
 
 private typedef MutableLexicalScope = {
   final id: Int;
-  final parent: Int;
   final entry: Int;
   var exit: Int;
-  final fixedBindings: Array<String>;
   var opaque: Bool;
 }
 
 private typedef RuntimeAuthorityOccurrence = {
-  final expression: Null<TypedExpr>;
   final scopeId: Int;
   final authority: LexicalRuntimeAuthority;
   final profile: RuntimeProfileMask;
@@ -50,6 +47,25 @@ private typedef ScopedBinding = {
   final scopeId: Int;
   final name: String;
 }
+
+#if genes.lexical_binding_inventory
+private typedef QueryInventoryProbe = {
+  final group: String;
+  final role: String;
+  final candidates: Array<String>;
+  final expression: TypedExpr;
+  final func: Null<TFunc>;
+}
+
+private typedef QueryInventoryGroup = {
+  final id: String;
+  final candidates: Array<String>;
+  final uses: Array<TypedExpr>;
+  final expressionProbes: Array<{label: String, expression: TypedExpr}>;
+  final functionProbes: Array<{label: String, func: TFunc}>;
+  var declaration: Null<TypedExpr>;
+}
+#end
 
 /** Deterministic structural evidence for the bounded plan walk. */
 typedef LexicalBindingUseCounts = {
@@ -114,9 +130,9 @@ final class LexicalBindingRequest {
  * checked-cast targets, or runtime owners added by lowering. Reconstructing
  * those authorities in each consumer leads to an open-ended expression scan.
  *
- * What: this request-local plan records one scope for every emitted lexical
- * boundary, one structured authority for every runtime value occurrence, each
- * fixed dynamic-import callback binding, and every opaque target-syntax scope.
+ * What: this request-local plan records the function and case scopes used by
+ * `NamePlan`, one structured authority for every runtime value occurrence,
+ * each fixed dynamic-import callback binding, and every opaque target-syntax scope.
  * Runtime roots retain `TypeAccessor` identity until a profile projection has
  * finalized import aliases and host-global spelling.
  *
@@ -139,6 +155,9 @@ final class LexicalBindingUsePlan {
   final fixedBindings: Array<ScopedBinding>;
   final countsValue: LexicalBindingUseCounts;
   final rootIndexes: Map<String, Map<String, Array<Int>>> = [];
+  #if genes.lexical_binding_inventory
+  var queryProbes: Array<QueryInventoryProbe> = [];
+  #end
 
   public static function build(module: Module): LexicalBindingUsePlan {
     return new LexicalBindingUsePlanBuilder(module).build();
@@ -203,7 +222,7 @@ final class LexicalBindingUsePlan {
     final descriptions: Array<String> = [];
     final roots = rootIndex(profile);
     final names = [for (name in roots.keys()) name];
-    names.sort(Reflect.compare);
+    names.sort(compareStrings);
     for (name in names)
       descriptions.push('root:$name:${roots.get(name).join(",")}');
     for (scope in scopes)
@@ -212,6 +231,79 @@ final class LexicalBindingUsePlan {
     for (binding in fixedBindings)
       descriptions.push('fixed:${binding.scopeId}:${binding.name}');
     return descriptions;
+  }
+
+  /** Exercises every exact query through compiler-owned fixture markers. */
+  public function queryInventoryDescriptions(profile: LexicalBindingProfile): Array<String> {
+    final groups: Map<String, QueryInventoryGroup> = [];
+    for (probe in queryProbes) {
+      if (!groups.exists(probe.group))
+        groups.set(probe.group, {
+          id: probe.group,
+          candidates: [],
+          uses: [],
+          expressionProbes: [],
+          functionProbes: [],
+          declaration: null
+        });
+      final group = groups.get(probe.group);
+      switch probe.role {
+        case 'declaration':
+          if (group.declaration != null)
+            CompilerDiagnostic.fail('GTS-LEXICAL-BINDING-PLAN-006: duplicate query declaration marker for '
+              + group.id,
+              probe.expression.pos);
+          group.declaration = probe.expression;
+          for (candidate in probe.candidates)
+            group.candidates.push(candidate);
+        case 'use':
+          group.uses.push(probe.expression);
+        case role if (role.indexOf('scope-') == 0):
+          group.expressionProbes.push({
+            label: role.substr('scope-'.length),
+            expression: probe.expression
+          });
+        case role if (role.indexOf('function-') == 0):
+          if (probe.func == null)
+            CompilerDiagnostic.fail('GTS-LEXICAL-BINDING-PLAN-006: query function marker is outside a function',
+              probe.expression.pos);
+          group.functionProbes.push({
+            label: role.substr('function-'.length),
+            func: probe.func
+          });
+        default:
+          CompilerDiagnostic.fail('GTS-LEXICAL-BINDING-PLAN-006: unknown query marker role '
+            + probe.role,
+            probe.expression.pos);
+      }
+    }
+
+    final descriptions: Array<String> = [];
+    final ids = [for (id in groups.keys()) id];
+    ids.sort(compareStrings);
+    for (id in ids) {
+      final group = groups.get(id);
+      if (group.declaration == null || group.uses.length == 0)
+        CompilerDiagnostic.fail('GTS-LEXICAL-BINDING-PLAN-006: incomplete query marker group '
+          + id,
+          group.declaration == null ? Context.currentPos() : group.declaration.pos);
+      final request = request(group.declaration, group.uses);
+      descriptions.push('query:$id:opaque:${request.hasOpaqueRegion()}');
+      for (candidate in group.candidates)
+        descriptions.push('query:$id:conflict:$candidate:'
+          + request.conflicts(candidate, profile));
+      for (probe in group.functionProbes)
+        descriptions.push('query:$id:function:${probe.label}:'
+          + request.capturedByFunction(probe.func));
+      for (probe in group.expressionProbes)
+        descriptions.push('query:$id:scope:${probe.label}:'
+          + request.capturedByExpression(probe.expression));
+    }
+    return descriptions;
+  }
+
+  static function compareStrings(left: String, right: String): Int {
+    return left < right ? -1 : left > right ? 1 : 0;
   }
   #end
 
@@ -426,6 +518,10 @@ private final class LexicalBindingUsePlanBuilder {
   final fixedBindings: Array<ScopedBinding> = [];
   var expressionCount = 0;
   var currentClass: Null<ClassType> = null;
+  #if genes.lexical_binding_inventory
+  final queryProbes: Array<QueryInventoryProbe> = [];
+  var currentFunction: Null<TFunc> = null;
+  #end
 
   public function new(module: Module) {
     this.module = module;
@@ -434,10 +530,8 @@ private final class LexicalBindingUsePlanBuilder {
   public function build(): LexicalBindingUsePlan {
     scopes.push({
       id: 0,
-      parent: -1,
       entry: 0,
       exit: 0,
-      fixedBindings: [],
       opaque: false
     });
     for (member in module.members)
@@ -460,7 +554,7 @@ private final class LexicalBindingUsePlanBuilder {
     for (scope in scopes)
       if (scope.opaque)
         opaqueCount++;
-    return new LexicalBindingUsePlan(module, scopes, expressionScopes,
+    final plan = new LexicalBindingUsePlan(module, scopes, expressionScopes,
       functionScopes, occurrences, expressionOccurrences, fixedBindings, {
         expressions: expressionCount,
         scopes: scopes.length,
@@ -468,6 +562,10 @@ private final class LexicalBindingUsePlanBuilder {
         fixedBindings: fixedBindings.length,
         opaqueScopes: opaqueCount
       });
+    #if genes.lexical_binding_inventory
+    plan.queryProbes = queryProbes;
+    #end
+    return plan;
   }
 
   function visit(expression: TypedExpr, scopeId: Int,
@@ -477,6 +575,20 @@ private final class LexicalBindingUsePlanBuilder {
       return;
     expressionCount++;
     expressionScopes.set(expression, scopeId);
+
+    #if genes.lexical_binding_inventory
+    final queryMarker = CompilerInternal.lexicalBindingQueryMarkerCall(expression);
+    if (queryMarker != null) {
+      queryProbes.push({
+        group: queryMarker.group,
+        role: queryMarker.role,
+        candidates: queryMarker.candidates,
+        expression: expression,
+        func: currentFunction
+      });
+      return;
+    }
+    #end
 
     if (CompilerInternal.isSideEffectImportMarkerCall(expression))
       return;
@@ -496,8 +608,7 @@ private final class LexicalBindingUsePlanBuilder {
 
     switch expression.expr {
       case TFunction(func):
-        visitFunction(func, scopeId, dynamicTokens, [],
-          suppressPromiseNullCast);
+        visitFunction(func, dynamicTokens, [], suppressPromiseNullCast);
 
       case TCall({
         expr: TField(_,
@@ -518,20 +629,19 @@ private final class LexicalBindingUsePlanBuilder {
               }
             default:
           }
-        visitFunction(func, scopeId, nestedTokens, fixed,
-          suppressPromiseNullCast);
+        visitFunction(func, nestedTokens, fixed, suppressPromiseNullCast);
 
       case TSwitch(condition, cases, fallback):
         visit(condition, scopeId, dynamicTokens, suppressPromiseNullCast);
         for (entry in cases) {
           for (value in entry.values)
             visit(value, scopeId, dynamicTokens, suppressPromiseNullCast);
-          final child = createScope(scopeId, []);
+          final child = createScope([]);
           visit(entry.expr, child, dynamicTokens, suppressPromiseNullCast);
           closeScope(child);
         }
         if (fallback != null) {
-          final child = createScope(scopeId, []);
+          final child = createScope([]);
           visit(fallback, child, dynamicTokens, suppressPromiseNullCast);
           closeScope(child);
         }
@@ -607,24 +717,29 @@ private final class LexicalBindingUsePlanBuilder {
     scopes[scopeId].opaque = true;
   }
 
-  function visitFunction(func: TFunc, parentScopeId: Int,
+  function visitFunction(func: TFunc,
       dynamicTokens: Array<DynamicImportBindingToken>, fixed: Array<String>,
       suppressPromiseNullCast = false): Void {
-    final scopeId = createScope(parentScopeId, fixed);
+    final scopeId = createScope(fixed);
     functionScopes.set(func, scopeId);
+    #if genes.lexical_binding_inventory
+    final previousFunction = currentFunction;
+    currentFunction = func;
+    #end
     visit(func.expr, scopeId, dynamicTokens, suppressPromiseNullCast);
+    #if genes.lexical_binding_inventory
+    currentFunction = previousFunction;
+    #end
     closeScope(scopeId);
   }
 
-  function createScope(parent: Int, fixed: Array<String>): Int {
+  function createScope(fixed: Array<String>): Int {
     final id = scopes.length;
     final copied = fixed.copy();
     scopes.push({
       id: id,
-      parent: parent,
       entry: id,
       exit: id,
-      fixedBindings: copied,
       opaque: false
     });
     for (name in copied)
@@ -713,7 +828,6 @@ private final class LexicalBindingUsePlanBuilder {
             return;
     }
     final occurrence: RuntimeAuthorityOccurrence = {
-      expression: expression,
       scopeId: scopeId,
       authority: authority,
       profile: profile
