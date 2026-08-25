@@ -1,6 +1,7 @@
 package genes;
 
 import genes.BindingIdentity.BindingIdentity;
+import genes.BindingIdentity.ExportSelector;
 import genes.BindingIdentity.HaxeDeclarationKey;
 import genes.BindingIdentity.LocalBindingIntent;
 import genes.BindingIdentity.StaticFieldOriginKey;
@@ -45,6 +46,77 @@ enum TypeAccessorImpl {
 }
 
 abstract TypeAccessor(TypeAccessorImpl) from TypeAccessorImpl {
+  /**
+   * Returns the lexical root carried by an exact direct target path.
+   *
+   * This inspects compiler-owned `@:native`/declaration authority before the
+   * path is rendered. It is not a generated-source parser: member suffixes are
+   * discarded at their structured boundary so name planning never has to
+   * split an emitted accessor such as `Alias.Member`.
+   */
+  public static function directRoot(path: String): Null<String> {
+    if (path == null || path.length == 0)
+      return null;
+    var end = path.length;
+    for (index in 0...path.length) {
+      final code = path.charCodeAt(index);
+      if (code == ".".code || code == "[".code) {
+        end = index;
+        break;
+      }
+    }
+    return end == 0 ? null : path.substr(0, end);
+  }
+
+  /** Stable structured identity used by runtime-occurrence assertions. */
+  public static function authorityKey(type: TypeAccessor): String {
+    return switch type {
+      case ImportedDeclaration(key, _, _, _, _):
+        'declaration:${Std.string(key.kind)}:${key.module}:${key.name}';
+      case ImportedAlias(intent, _, memberPath, _, _, _):
+        final request = intent.exportBinding.request;
+        final attribute = request.importAttributeType == null ? 'none' : request.importAttributeType;
+        final selector = switch intent.exportBinding.selector {
+          case DefaultExport: 'default';
+          case NamedExport(name): 'named:$name';
+          case NamespaceExport: 'namespace';
+        };
+        'alias:${request.external}:${request.path}:$attribute:$selector:' +
+        '${intent.requestedLocal}:${memberPath.join(".")}';
+      case ImportedStaticField(key, _, _):
+        'static-field:${key.ownerModule}:${key.ownerName}:${key.fieldName}';
+      case HostGlobal(name): 'host-global:$name';
+      case DirectValue(path): 'direct:$path';
+      case CoreAbstract(name): 'core-abstract:$name';
+    }
+  }
+
+  /** Exact structured equality for runtime-occurrence assertions. */
+  public static function authorityEquals(left: TypeAccessor,
+      right: TypeAccessor): Bool {
+    return switch [left, right] {
+      case [
+        ImportedDeclaration(leftKey, _, _, _, _),
+        ImportedDeclaration(rightKey, _, _, _, _)
+      ]:
+        leftKey.equals(rightKey);
+      case [
+        ImportedAlias(leftIntent, _, leftMembers, _, _, _),
+        ImportedAlias(rightIntent, _, rightMembers, _, _, _)
+      ]: leftIntent.equals(rightIntent) && BindingIdentity.memberPathsEqual(leftMembers,
+        rightMembers);
+      case [ImportedStaticField(leftKey, _,
+        _), ImportedStaticField(rightKey, _, _)]:
+        leftKey.equals(rightKey);
+      case [HostGlobal(leftName), HostGlobal(rightName)] |
+        [DirectValue(leftName), DirectValue(rightName)] |
+        [CoreAbstract(leftName), CoreAbstract(rightName)]:
+        leftName == rightName;
+      default:
+        false;
+    }
+  }
+
   @:from public static function fromModuleType(type: ModuleType): TypeAccessor {
     return switch type {
       case TAbstract(_.get() => cl = {meta: meta, name: name}):
@@ -86,14 +158,16 @@ abstract TypeAccessor(TypeAccessorImpl) from TypeAccessorImpl {
   public static function forStaticFieldBinding(owner: ClassType,
       field: ClassField, fallbackName: String): TypeAccessor {
     return ImportedStaticField(new StaticFieldOriginKey(owner.module,
-      owner.name, field.name), fallbackName, field.pos);
+      owner.name, field.name),
+      fallbackName, field.pos);
   }
 
   /** Same field origin factory for Module's normalized field record. */
   public static function forStaticFieldName(owner: ClassType,
       fieldName: String, pos: Position): TypeAccessor {
     return ImportedStaticField(new StaticFieldOriginKey(owner.module,
-      owner.name, fieldName), fieldName, pos);
+      owner.name, fieldName),
+      fieldName, pos);
   }
 
   /**
@@ -148,9 +222,8 @@ abstract TypeAccessor(TypeAccessorImpl) from TypeAccessorImpl {
     }
     final dependency = Dependencies.makeDependency(type);
     if (dependency == null)
-      return directNative == null
-        ? DirectValue(TypeUtil.baseTypeName(type))
-        : DirectValue(directNative);
+      return
+        directNative == null ? DirectValue(TypeUtil.baseTypeName(type)) : DirectValue(directNative);
 
     // Internal Haxe declarations can use `@:native` purely to choose their
     // emitted name, for example a typedef renamed in a classic `.d.ts`. They
@@ -163,11 +236,11 @@ abstract TypeAccessor(TypeAccessorImpl) from TypeAccessorImpl {
     // `@:native("Root.Member")` bindings, `makeDependency` has already kept the
     // compatible member suffix in the canonical mapping. Carrying the raw
     // native text here would let it skip collision-safe import allocation.
-    return key == null
-      ? ImportedAlias(BindingIdentity.localIntentFor(dependency),
-        TypeUtil.baseTypeName(type), dependency.memberPath.copy(),
-        dependency.path, dependency.external, type.pos)
-      : ImportedDeclaration(key, TypeUtil.baseTypeName(type), dependency.path,
-        dependency.external, type.pos);
+    return
+      key == null ? ImportedAlias(BindingIdentity.localIntentFor(dependency),
+        TypeUtil.baseTypeName(type),
+      dependency.memberPath.copy(), dependency.path, dependency.external,
+      type.pos) : ImportedDeclaration(key, TypeUtil.baseTypeName(type),
+        dependency.path, dependency.external, type.pos);
   }
 }

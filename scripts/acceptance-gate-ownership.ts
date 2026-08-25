@@ -16,6 +16,10 @@ import path from "node:path";
  */
 export const acceptanceOwnedFocusedGates = [
   {
+    packageScript: "test:lexical-binding-use-plan",
+    compiledScript: "scripts/dist/test-lexical-binding-use-plan.js"
+  },
+  {
     packageScript: "test:module-functions",
     compiledScript: "scripts/dist/test-module-functions.js"
   },

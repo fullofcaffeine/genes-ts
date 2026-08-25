@@ -167,17 +167,7 @@ class TsModuleEmitter extends JsModuleEmitter {
    * projection.
    */
   static function explicitTypeProjection(type: Type): Null<String> {
-    return switch type {
-      case TInst(_.get().meta => meta, _) | TAbstract(_.get().meta => meta, _):
-        extractStringMeta(meta,
-          ':ts.type') ?? extractStringMeta(meta, ':genes.type');
-      case TLazy(resolve):
-        explicitTypeProjection(resolve());
-      case TMono(reference) if (reference.get() != null):
-        explicitTypeProjection(reference.get());
-      default:
-        null;
-    }
+    return TypeUtil.explicitTypeProjection(type);
   }
 
   /**
@@ -311,7 +301,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       && ctx.hasFeature('js.Lib.global')) {
       writeNewline();
       write("const $global = ");
-      write(ctx.typeAccessor(TypeUtil.registerType));
+      write(runtimeTypeAccessor(TypeUtil.registerType));
       write(".$global");
       writeNewline();
     }
@@ -533,17 +523,17 @@ class TsModuleEmitter extends JsModuleEmitter {
         emitPos(e.pos);
         switch extendsExtern {
           case Some(t):
-            write(ctx.typeAccessor(t));
+            write(runtimeTypeAccessor(t));
             write(args.length > 0 ? '.call(this, ' : '.call(this');
           case None:
             // `[Register.new]` overload signatures are intentionally typed as
             // uncallable (`never[]`) to avoid forcing TS constructor signature
             // compatibility across inheritance. Use an unsafe cast here to
             // call the super initializer without leaking `any`.
-            write(ctx.typeAccessor(TypeUtil.registerType));
+            write(runtimeTypeAccessor(TypeUtil.registerType));
             write('.unsafeCast<Function>(');
             write('super[');
-            write(ctx.typeAccessor(TypeUtil.registerType));
+            write(runtimeTypeAccessor(TypeUtil.registerType));
             write('.new]');
             write(').call(this');
             if (args.length > 0) write(', ');
@@ -591,7 +581,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         final actual = params[i];
         final bridge = enumDecision.bridgeAt(i);
         if (bridge != null) {
-          write(ctx.typeAccessor(TypeUtil.registerType));
+          write(runtimeTypeAccessor(TypeUtil.registerType));
           write('.unsafeCast<');
           TypeEmitter.emitType(this, bridge.target);
           write('>(');
@@ -622,7 +612,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         final expectedArg = i < callDecision.argumentTypes.length ? callDecision.argumentTypes[i] : null;
         final bridge = callDecision.bridgeAt(i);
         if (bridge != null) {
-          write(ctx.typeAccessor(TypeUtil.registerType));
+          write(runtimeTypeAccessor(TypeUtil.registerType));
           write('.unsafeCast<');
           TypeEmitter.emitType(this, bridge.target);
           write('>(');
@@ -728,13 +718,13 @@ class TsModuleEmitter extends JsModuleEmitter {
             && isNullConst(unwrapExpr(actual))) {
             // Avoid TS inferring `null` for unconstrained generic params.
             // `never` keeps the call assignable without introducing `any`.
-            write(ctx.typeAccessor(TypeUtil.registerType));
+            write(runtimeTypeAccessor(TypeUtil.registerType));
             write('.unsafeCast<never>(null)');
           } else if (isEnumCtorCall && isNullConst(actualUnwrapped)
             && (expected == null || typeAllowsNull(expected))) {
             // Enum constructors are often used with `null` (e.g. `Noise`). Casting
             // to `never` avoids TS inferring `null` for generic params.
-            write(ctx.typeAccessor(TypeUtil.registerType));
+            write(runtimeTypeAccessor(TypeUtil.registerType));
             write('.unsafeCast<never>(null)');
           } else {
             // One sibling may have selected this manual argument loop. Keep
@@ -1096,7 +1086,7 @@ class TsModuleEmitter extends JsModuleEmitter {
       emitClassValue: () -> Void): Void {
     final needsBridge = TsReflectionClassValue.needsFunctionBridge(owner);
     if (needsBridge) {
-      write(ctx.typeAccessor(TypeUtil.registerType));
+      write(runtimeTypeAccessor(TypeUtil.registerType));
       write('.unsafeCast<Function>(');
     }
     emitClassValue();
@@ -1127,7 +1117,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         case null:
           // Root classes still use `Register.inherits()` so we can share the same
           // `[Register.new]` initialization convention across the runtime.
-          write(ctx.typeAccessor(TypeUtil.registerType));
+          write(runtimeTypeAccessor(TypeUtil.registerType));
           write('.inherits()');
         case {t: ref, params: superParams}:
           final t: ModuleType = TClassDecl(ref);
@@ -1136,15 +1126,15 @@ class TsModuleEmitter extends JsModuleEmitter {
           // always extending a `Register.inherits(...)` base class. We then cast
           // to the concrete superclass type so TS can see inherited members.
           write('(');
-          write(ctx.typeAccessor(TypeUtil.registerType));
+          write(runtimeTypeAccessor(TypeUtil.registerType));
           write('.inherits(');
           if (isCyclic)
             write('() => ');
-          write(ctx.typeAccessor(t));
+          write(runtimeTypeAccessor(t));
           if (isCyclic)
             write(', true');
           write(') as typeof ');
-          write(ctx.typeAccessor(t));
+          write(runtimeTypeAccessor(t));
           write(')');
           if (superParams != null)
             TypeEmitter.emitParams(this, superParams, false);
@@ -1299,12 +1289,12 @@ class TsModuleEmitter extends JsModuleEmitter {
                 // keep `[Register.new]` an internal runtime convention; TS
                 // consumers should use `new (...)`.
                 write('[');
-                write(ctx.typeAccessor(TypeUtil.registerType));
+                write(runtimeTypeAccessor(TypeUtil.registerType));
                 write('.new](...args: never[]): void;');
                 writeNewline();
                 emitPos(field.pos);
                 write('[');
-                write(ctx.typeAccessor(TypeUtil.registerType));
+                write(runtimeTypeAccessor(TypeUtil.registerType));
                 write('.new]');
               } else {
                 if (isAsync)
@@ -1372,7 +1362,7 @@ class TsModuleEmitter extends JsModuleEmitter {
                     increaseIndent();
                     writeNewline();
                     write('return ');
-                    write(ctx.typeAccessor(TypeUtil.registerType));
+                    write(runtimeTypeAccessor(TypeUtil.registerType));
                     write('.unsafeCast<');
                     write(v);
                     write('>(undefined);');
@@ -1426,7 +1416,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         for (i in join(v, write.bind(', '))) {
           final interfaceType = i.t.get();
           emitReflectedFunctionClassValue(interfaceType,
-            () -> write(ctx.typeAccessor(interfaceType)));
+            () -> write(runtimeTypeAccessor(interfaceType)));
         }
         write(']');
         decreaseIndent();
@@ -1445,7 +1435,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         write('return ');
         final superType = superRef.get();
         emitReflectedFunctionClassValue(superType,
-          () -> write(ctx.typeAccessor(t)));
+          () -> write(runtimeTypeAccessor(t)));
         decreaseIndent();
         writeNewline();
         write('}');
@@ -1474,7 +1464,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     if (registerRuntimeType && id != 'genes.Register'
       && !haxe.macro.Context.defined('genes.ts.minimal_runtime')) {
       writeNewline();
-      write(ctx.typeAccessor(TypeUtil.registerType));
+      write(runtimeTypeAccessor(TypeUtil.registerType));
       write('.setHxClass(');
       emitString(id);
       write(', ');
@@ -1536,7 +1526,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         writeNewline();
       } else {
         writeNewline();
-        write(ctx.typeAccessor(TypeUtil.registerType));
+        write(runtimeTypeAccessor(TypeUtil.registerType));
         write('.seedProtoField(');
         emitIdent(className);
         write(', ');
@@ -1772,7 +1762,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   function emitPrivateMethodRuntimeAssignment(cl: ClassType,
       field: GenesField, helperName: String) {
     writeNewline();
-    write(ctx.typeAccessor(TypeUtil.registerType));
+    write(runtimeTypeAccessor(TypeUtil.registerType));
     write('.unsafeCast<{');
     emitMemberName(moduleFieldName(field));
     write(': typeof ');
@@ -2288,14 +2278,14 @@ class TsModuleEmitter extends JsModuleEmitter {
           // initializer uses that exact `raw` local inside the guard's true
           // branch, so rendering the planned identity assertion is safe here.
           emitTokenPos(runtimeGuardBridge.pos);
-          write(ctx.typeAccessor(TypeUtil.registerType));
+          write(runtimeTypeAccessor(TypeUtil.registerType));
           write('.unsafeCast<');
           TypeEmitter.emitType(this, runtimeGuardBridge.target);
           write('>(');
           emitValueWithExpectedType(null, runtimeGuardBridge.source);
           write(')');
         } else if (valueBridge != null) {
-          write(ctx.typeAccessor(TypeUtil.registerType));
+          write(runtimeTypeAccessor(TypeUtil.registerType));
           write('.unsafeCast<');
           TypeEmitter.emitType(this, valueBridge.target);
           write('>(');
@@ -2582,10 +2572,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   static function isNumberLike(t: Type): Bool {
-    return switch haxe.macro.Context.followWithAbstracts(stripNull(t)) {
-      case TAbstract(_.get() => {pack: [], name: "Int" | "Float"}, _): true;
-      default: false;
-    }
+    return TypeUtil.isHaxeNumberLike(t);
   }
 
   static function isVoidLike(t: Type): Bool {
@@ -2619,28 +2606,11 @@ class TsModuleEmitter extends JsModuleEmitter {
    * Ordinary `Thenable<T>` parameters still keep their strict null assertions.
    */
   static function isPromiseThenableType(t: Type): Bool {
-    return switch t {
-      case TAbstract(_.get() => {pack: ["js", "lib"], name: "Thenable"}, _):
-        true;
-      case TType(_.get() => {pack: ["js", "lib"], name: "ThenableStruct"}, _):
-        true;
-      case TAbstract(_.get() => {pack: ["haxe", "extern"], name: "EitherType"},
-        [left, right]): isPromiseThenableType(left) || isPromiseThenableType(right);
-      case TMono(tref): final inner = tref.get(); inner != null && isPromiseThenableType(inner);
-      case TType(_, _):
-        isPromiseThenableType(haxe.macro.Context.follow(t));
-      default:
-        false;
-    }
+    return TypeUtil.isJsPromiseThenableType(t);
   }
 
   static function isJsPromiseResolveCallee(callee: TypedExpr): Bool {
-    return switch unwrapExpr(callee).expr {
-      case TField(_, f = FStatic(_.get() => cl, _)): (cl.module == 'js.lib.Promise'
-          || (cl.pack.join('.') == 'js.lib' && cl.name == 'Promise')) && fieldAccessName(f) == 'resolve';
-      default:
-        false;
-    }
+    return TypeUtil.isJsPromiseResolveCallee(callee);
   }
 
   function typeToString(type: Type): String {
@@ -2796,6 +2766,13 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   override public function emitValue(e: TypedExpr) {
+    if (lexicalBindingUsePlan != null && activeBindingExpression != e) {
+      final previous = activeBindingExpression;
+      activeBindingExpression = e;
+      emitValue(e);
+      activeBindingExpression = previous;
+      return;
+    }
     // Emit only the carried value while its exact generic witness is in scope.
     final explicitTypeArgumentCall = ExplicitTypeArguments.callSiteMarker(e);
     if (explicitTypeArgumentCall != null) {
@@ -2845,9 +2822,9 @@ class TsModuleEmitter extends JsModuleEmitter {
       // `unsafeCast` is a runtime identity operation: it evaluates `value`
       // once and neither converts nor validates it. Ordinary emitted
       // `_hx_index` switches receive no plan and keep native TS narrowing.
-      write(ctx.typeAccessor(TypeUtil.registerType));
+      write(runtimeTypeAccessor(TypeUtil.registerType));
       write('.unsafeCast<');
-      write(ctx.typeAccessor(TEnumDecl(enumPayloadRead.owner)));
+      write(runtimeTypeAccessor(TEnumDecl(enumPayloadRead.owner)));
       write('.');
       write(enumPayloadRead.constructor.name);
       TypeEmitter.emitParams(this, enumPayloadRead.parameters, false);
@@ -2901,7 +2878,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         // See `emitExpr` for rationale.
         inline function emitOperand(expr: TypedExpr) {
           if (typeAllowsNull(expr.t) && isNumberLike(expr.t)) {
-            write(ctx.typeAccessor(TypeUtil.registerType));
+            write(runtimeTypeAccessor(TypeUtil.registerType));
             write('.unsafeCast<number>(');
             emitValue(expr);
             write(')');
@@ -2949,6 +2926,13 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   override public function emitExpr(e: TypedExpr) {
+    if (lexicalBindingUsePlan != null && activeBindingExpression != e) {
+      final previous = activeBindingExpression;
+      activeBindingExpression = e;
+      emitExpr(e);
+      activeBindingExpression = previous;
+      return;
+    }
     // Statement-position calls need the same erasure and scoped witness.
     final explicitTypeArgumentCall = ExplicitTypeArguments.callSiteMarker(e);
     if (explicitTypeArgumentCall != null) {
@@ -2992,7 +2976,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           case _.get() => ctor if (ctor.meta.has(':selfCall')): '';
           default: 'new ';
         });
-        write(ctx.typeAccessor(TClassDecl(c)));
+        write(runtimeTypeAccessor(TClassDecl(c)));
         if (params.length > 0 && params.exists(typeUsesTypeParameter))
           TypeEmitter.emitParams(this, params, false);
         write('(');
@@ -3004,7 +2988,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           if (bridge == null) {
             emitValueWithExpectedType(expected, values[index]);
           } else {
-            write(ctx.typeAccessor(TypeUtil.registerType));
+            write(runtimeTypeAccessor(TypeUtil.registerType));
             write('.unsafeCast<');
             TypeEmitter.emitType(this, bridge.target);
             write('>(');
@@ -3025,7 +3009,7 @@ class TsModuleEmitter extends JsModuleEmitter {
           case _.get() => ctor if (ctor.meta.has(':selfCall')): '';
           default: 'new ';
         });
-        write(ctx.typeAccessor(TClassDecl(c)));
+        write(runtimeTypeAccessor(TClassDecl(c)));
         TypeEmitter.emitParams(this, params, false);
         write('(');
         for (value in join(values, write.bind(', ')))
@@ -3052,7 +3036,7 @@ class TsModuleEmitter extends JsModuleEmitter {
             && isPromiseThenableType(e.t))) {
           write('null');
         } else {
-          write(ctx.typeAccessor(TypeUtil.registerType));
+          write(runtimeTypeAccessor(TypeUtil.registerType));
           write('.unsafeCast<');
           TypeEmitter.emitType(this, e.t);
           write('>(null)');
@@ -3076,7 +3060,7 @@ class TsModuleEmitter extends JsModuleEmitter {
             && isNarrowedNonNull(e1))) {
           emitValue(e1);
         } else {
-          write(ctx.typeAccessor(TypeUtil.registerType));
+          write(runtimeTypeAccessor(TypeUtil.registerType));
           write('.unsafeCast<');
           TypeEmitter.emitType(this, e.t);
           write('>(');
@@ -3090,7 +3074,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         writeSpace();
         writeBinop(op);
         writeSpace();
-        write(ctx.typeAccessor(TypeUtil.registerType));
+        write(runtimeTypeAccessor(TypeUtil.registerType));
         write('.unsafeCast<typeof ');
         emitTypeQueryEntityName(bridge.target);
         write('>(');
@@ -3114,7 +3098,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         if (typeOverride == null || typeOverride == 'any') {
           emitValueWithExpectedType(lhs.t, rhs);
         } else {
-          write(ctx.typeAccessor(TypeUtil.registerType));
+          write(runtimeTypeAccessor(TypeUtil.registerType));
           write('.unsafeCast<');
           write(typeOverride);
           write('>(');
@@ -3128,7 +3112,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         writeSpace();
         writeBinop(op);
         writeSpace();
-        write(ctx.typeAccessor(TypeUtil.registerType));
+        write(runtimeTypeAccessor(TypeUtil.registerType));
         write('.unsafeCast<');
         TypeEmitter.emitType(this, bridge.target);
         write('>(');
@@ -3221,7 +3205,7 @@ class TsModuleEmitter extends JsModuleEmitter {
               write('return ');
               final bridge = boundaryPlan == null ? null : boundaryPlan.returnBridge(e);
               if (bridge != null) {
-                write(ctx.typeAccessor(TypeUtil.registerType));
+                write(runtimeTypeAccessor(TypeUtil.registerType));
                 write('.unsafeCast<');
                 TypeEmitter.emitType(this, bridge.target);
                 write('>(');
@@ -3378,7 +3362,7 @@ class TsModuleEmitter extends JsModuleEmitter {
         // coercion semantics (`null > 0` is `false`, etc).
         inline function emitOperand(expr: TypedExpr) {
           if (typeAllowsNull(expr.t) && isNumberLike(expr.t)) {
-            write(ctx.typeAccessor(TypeUtil.registerType));
+            write(runtimeTypeAccessor(TypeUtil.registerType));
             write('.unsafeCast<number>(');
             emitValue(expr);
             write(')');
@@ -3411,10 +3395,10 @@ class TsModuleEmitter extends JsModuleEmitter {
           // common reflection registries.
           switch name {
             case "$hxEnums":
-              write(ctx.typeAccessor(TypeUtil.registerType));
+              write(runtimeTypeAccessor(TypeUtil.registerType));
               write('.hxEnums()');
             case "$hxClasses":
-              write(ctx.typeAccessor(TypeUtil.registerType));
+              write(runtimeTypeAccessor(TypeUtil.registerType));
               write('.hxClasses()');
             default:
               super.emitExpr(e);
@@ -3604,14 +3588,14 @@ class TsModuleEmitter extends JsModuleEmitter {
       decision: TsRuntimeByteCacheRead): Void {
     switch decision.action {
       case NullableWrapper(target):
-        write(ctx.typeAccessor(TypeUtil.registerType));
+        write(runtimeTypeAccessor(TypeUtil.registerType));
         write('.unsafeCast<');
         TypeEmitter.emitType(this, target);
         write('>((');
         super.emitExpr(expression);
         write(' ?? null))');
       case InitializedValueAs(target):
-        write(ctx.typeAccessor(TypeUtil.registerType));
+        write(runtimeTypeAccessor(TypeUtil.registerType));
         write('.unsafeCast<');
         TypeEmitter.emitType(this, target);
         write('>(');
@@ -3939,7 +3923,7 @@ class TsModuleEmitter extends JsModuleEmitter {
   }
 
   function emitPrivateMethodRuntimeAccess(call: PrivateMethodCall) {
-    write(ctx.typeAccessor(TypeUtil.registerType));
+    write(runtimeTypeAccessor(TypeUtil.registerType));
     write('.unsafeCast<{');
     emitMemberName(TypeUtil.classFieldName(call.field));
     write(': ');
@@ -3947,7 +3931,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     write('}>(');
     switch call.receiver {
       case null:
-        write(ctx.typeAccessor((call.owner : BaseType)));
+        write(runtimeTypeAccessor((call.owner : BaseType)));
       case receiver:
         emitValue(receiver);
     }
@@ -4563,7 +4547,7 @@ class TsModuleEmitter extends JsModuleEmitter {
     writeNewline();
     if (registerRuntimeType
       && !haxe.macro.Context.defined('genes.ts.minimal_runtime')) {
-      write(ctx.typeAccessor(TypeUtil.registerType));
+      write(runtimeTypeAccessor(TypeUtil.registerType));
       write('.setHxEnum(');
       emitString(id);
       write(', ');
@@ -4823,11 +4807,6 @@ class TsModuleEmitter extends JsModuleEmitter {
 
   static function extractStringMeta(meta: Null<MetaAccess>,
       name: String): Null<String> {
-    if (meta == null)
-      return null;
-    return switch meta.extract(name) {
-      case [{params: [{expr: EConst(CString(value))}]}]: value;
-      default: null;
-    }
+    return TypeUtil.stringMetadata(meta, name);
   }
 }

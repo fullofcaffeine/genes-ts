@@ -1503,6 +1503,63 @@
       ]
     },
     {
+      "id": "lexical-binding-use-plan",
+      "packageScript": "test:lexical-binding-use-plan",
+      "runnerToken": "scripts/dist/test-lexical-binding-use-plan.js",
+      "tier": "focused",
+      "cost": "medium",
+      "axes": [
+        "genes-product"
+      ],
+      "profiles": [
+        "classic-esm",
+        "typescript"
+      ],
+      "evidence": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "determinism",
+        "transaction"
+      ],
+      "ownerPaths": [
+        "scripts/test-lexical-binding-use-plan.ts",
+        "tests/lexical-binding-use-plan"
+      ],
+      "proves": "One bounded typed plan inventories exact runtime lexical authorities, dynamic callback locals, profile roots, opaque scopes, deterministic output, and fail-closed publication.",
+      "doesNotProve": "The fixture does not allocate a React state binding or authorize parsing opaque target syntax.",
+      "owners": [
+        "scripts/test-lexical-binding-use-plan.ts",
+        "tests/lexical-binding-use-plan"
+      ],
+      "families": [
+        "compiler",
+        "generated-output",
+        "typescript",
+        "determinism"
+      ],
+      "capabilities": [
+        "haxe-compile",
+        "generated-source",
+        "target-typecheck",
+        "determinism",
+        "transaction"
+      ],
+      "ring": "R0",
+      "size": "medium",
+      "alwaysRun": false,
+      "timeoutSeconds": 600,
+      "historicalDurationMs": null,
+      "cacheMode": "required-clean",
+      "command": "yarn test:lexical-binding-use-plan",
+      "artifacts": [
+        ".tmp/test-evidence/test-plan/lexical-binding-use-plan.log"
+      ],
+      "remoteJobs": [
+        "genes-ts"
+      ]
+    },
+    {
       "id": "dynamic-import-policy",
       "packageScript": "test:dynamic-import-policy",
       "runnerToken": "scripts/dist/test-dynamic-import-policy.js",
@@ -3248,6 +3305,10 @@
       "changeArea": "Shared expression lowering, runtime helpers, evaluation order, temporaries, or names",
       "focusedChoices": [
         {
+          "gate": "lexical-binding-use-plan",
+          "when": "a compiler-created local must avoid runtime roots, fixed dynamic-import locals, or opaque target syntax"
+        },
+        {
           "gate": "dual-output-semantics",
           "when": "the same Haxe construct can affect both implementation profiles"
         },
@@ -3408,6 +3469,10 @@
       "id": "dependencies-or-interop",
       "changeArea": "Dependency planning, import identity, aliases, package shapes, side effects, or attributes",
       "focusedChoices": [
+        {
+          "gate": "lexical-binding-use-plan",
+          "when": "an exact projected import or host binding affects lexical collision planning"
+        },
         {
           "gate": "binding-identity",
           "when": "default, named, namespace, module-field, origin, or emitted-local identity changes"

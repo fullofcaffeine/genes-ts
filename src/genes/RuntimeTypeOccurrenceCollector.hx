@@ -40,6 +40,44 @@ enum RuntimeTypeOccurrence {
  * `Genes.ignore` removes a record only for that exact lazy module.
  */
 class RuntimeTypeOccurrenceCollector {
+  /**
+   * Classifies only the runtime authority stored on this exact expression.
+   *
+   * Lexical planning owns its own scope walk, while dependency planning owns
+   * ordered recursive collection. Sharing this finite node classifier keeps
+   * constructor and checked-cast authorities from drifting between them.
+   */
+  public static function collectExact(expression: TypedExpr,
+      ?resolveDirectModuleFunction: (Ref<ClassType>,
+      Ref<ClassField>) -> Null<ModuleFunctionEntry>,
+      ?resolveDirectModuleValue: (Ref<ClassType>,
+      Ref<ClassField>) -> Null<String>): Array<RuntimeTypeOccurrence> {
+    return switch expression {
+      case null:
+        [];
+      case {
+        expr: TField(_, FStatic(owner, field))
+      }
+        if (resolveDirectModuleFunction != null
+          && resolveDirectModuleFunction(owner, field) != null):
+        [DirectModuleFunction(owner, field,
+          resolveDirectModuleFunction(owner, field))];
+      case {expr: TField(_, FStatic(owner, field))}
+        if (resolveDirectModuleValue != null
+          && resolveDirectModuleValue(owner, field) != null):
+        [DirectModuleValue(owner, field,
+          resolveDirectModuleValue(owner, field))];
+      case {expr: TTypeExpr(type)}:
+        [RuntimeType(type)];
+      case {expr: TNew(owner, _, _)}:
+        [RuntimeType(TClassDecl(owner))];
+      case {expr: TCast(_, target)} if (target != null):
+        [RuntimeType(target), RuntimeType(TypeUtil.bootType)];
+      default:
+        [];
+    }
+  }
+
   public static function collect(expression: TypedExpr,
       ?resolveDirectModuleFunction: (Ref<ClassType>,
       Ref<ClassField>) -> Null<ModuleFunctionEntry>,

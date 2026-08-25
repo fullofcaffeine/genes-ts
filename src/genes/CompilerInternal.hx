@@ -15,6 +15,11 @@ typedef DynamicImportMarkerCall = {
   final pos: haxe.macro.Expr.Position;
 }
 
+typedef DynamicBindingDeclarationMarkerCall = {
+  final token: String;
+  final value: TypedExpr;
+}
+
 typedef UndefinablePresentMarkerCall = {
   final value: TypedExpr;
   final resultType: Type;
@@ -76,6 +81,7 @@ class CompilerInternal {
   public static inline final SEMANTIC_ONLY_METADATA = ':genes.semanticOnly';
   public static inline final SIDE_EFFECT_MARKER_MODULE = 'genes.internal.SideEffectImportMarker';
   public static inline final DYNAMIC_IMPORT_MARKER_MODULE = 'genes.internal.DynamicImportMarker';
+  public static inline final DYNAMIC_BINDING_DECLARATION_MARKER_MODULE = 'genes.internal.DynamicBindingDeclarationMarker';
   public static inline final UNDEFINABLE_PRESENT_MARKER_MODULE = 'genes.internal.UndefinablePresentMarker';
   public static inline final NATIVE_ASYNC_MARKER_MODULE = 'genes.internal.NativeAsyncMarker';
 
@@ -240,6 +246,22 @@ class CompilerInternal {
         owner.module == DYNAMIC_IMPORT_MARKER_MODULE;
       default:
         false;
+    }
+  }
+
+  /** Returns one exact token-backed lazy callback declaration carrier. */
+  public static function dynamicBindingDeclarationMarkerCall(expression: TypedExpr): Null<DynamicBindingDeclarationMarkerCall> {
+    return switch expression.expr {
+      case TMeta(_, inner) | TParenthesis(inner) | TCast(inner, null):
+        dynamicBindingDeclarationMarkerCall(inner);
+      case TCall({
+        expr: TField(_, FStatic(_.get() => owner, _.get() => {name: 'declare'}))
+      },
+        [{expr: TConst(TString(token))}, value])
+        if (owner.module == DYNAMIC_BINDING_DECLARATION_MARKER_MODULE):
+        {token: token, value: value};
+      default:
+        null;
     }
   }
 

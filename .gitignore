@@ -27,6 +27,7 @@
 /tests/library-profile/out
 /tests/ts2hx-bootstrap/out
 /tests/explicit-type-arguments/out
+/tests/lexical-binding-use-plan/out
 /tests/css-module-companions/generated
 /tests/css-module-companions/out
 /tests/css-module-companions/provider/node_modules
