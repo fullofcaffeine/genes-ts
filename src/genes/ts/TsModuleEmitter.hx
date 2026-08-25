@@ -1484,7 +1484,8 @@ class TsModuleEmitter extends JsModuleEmitter {
 
       if (field.getter || field.setter) {
         writeNewline();
-        write('Object.defineProperty(');
+        write(runtimeDirectBinding('Object'));
+        write('.defineProperty(');
         emitIdent(className);
         write('.prototype, ');
         emitString(moduleFieldName(field));
@@ -4557,7 +4558,8 @@ class TsModuleEmitter extends JsModuleEmitter {
     }
 
     writeNewline();
-    write('Object.assign(');
+    write(runtimeDirectBinding('Object'));
+    write('.assign(');
     write(et.name);
     write(', {');
     increaseIndent();
@@ -4579,7 +4581,8 @@ class TsModuleEmitter extends JsModuleEmitter {
       write(': ');
       switch c.type {
         case TFun(args, _):
-          write('Object.assign(');
+          write(runtimeDirectBinding('Object'));
+          write('.assign(');
           final allParams = enumParams.concat(c.params.map(p -> p.t));
           final used = new Map<String, Bool>();
           for (a in args)
@@ -4633,7 +4636,8 @@ class TsModuleEmitter extends JsModuleEmitter {
     writeNewline();
 
     writeNewline();
-    write('Object.assign(');
+    write(runtimeDirectBinding('Object'));
+    write('.assign(');
     write(et.name);
     write(', {');
     increaseIndent();

@@ -1,6 +1,9 @@
 package lexicalbinding;
 
 import genes.Genes;
+import lexicalbinding.LazyOne as InnerLazyOne;
+import lexicalbinding.LazyOne as OuterLazyOne;
+import lexicalbinding.LazyOne as SiblingLazyOne;
 #if genes.lexical_binding_inventory
 import genes.internal.LexicalBindingQueryMarker.mark;
 #end
@@ -92,9 +95,32 @@ function queryDynamic(input: Int): Void {
   });
 }
 
+/** The nearest callback alias wins for one repeated declaration origin. */
+function queryNestedDynamic(input: Int): Void {
+  #if genes.lexical_binding_inventory
+  mark("nested-dynamic", "declaration",
+    ["InnerLazyOne", "OuterLazyOne", "SiblingLazyOne"]);
+  #end
+  final anchor = input;
+  Genes.dynamicImport(OuterLazyOne -> {
+    Genes.dynamicImport(InnerLazyOne -> {
+      trace(OuterLazyOne);
+      #if genes.lexical_binding_inventory
+      mark("nested-dynamic", "use", []);
+      #end
+      trace(anchor);
+    });
+    return;
+  });
+  Genes.dynamicImport(SiblingLazyOne -> {
+    trace("dynamic-sibling");
+  });
+}
+
 function retainQueryCases(): Void {
   queryScopes(0);
   queryClean(0);
   queryHost(0);
   queryDynamic(0);
+  queryNestedDynamic(0);
 }

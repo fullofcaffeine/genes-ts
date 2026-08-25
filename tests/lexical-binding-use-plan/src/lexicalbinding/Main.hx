@@ -6,6 +6,8 @@ import lexicalbinding.DirectTarget.setStateFunction;
 import lexicalbinding.DirectTarget.setStateValue;
 import lexicalbinding.DynamicCases.nestedDynamicBindings;
 import lexicalbinding.QueryCases.retainQueryCases;
+import lexicalbinding.StructuralClassCases.retainStructuralClassCases;
+import lexicalbinding.StructuralEnumCases.retainStructuralEnumCases;
 
 /** A dependency-free dotted native path whose lexical root is `setState`. */
 @:native("setState.Factory")
@@ -24,20 +26,30 @@ extern class MissingProbeFactory {
 @:native("TypeOnlyRoot.Value")
 extern class TypeOnlyValue {}
 
+/** Precise retained values for the runtime-root fixture. */
+typedef RuntimeRootValues = {
+  final directType: Class<NativeFactory>;
+  final hostType: Class<js.lib.Error>;
+  final checked: NativeFactory;
+  final created: NativeFactory;
+  final functionValue: String;
+  final directValue: String;
+}
+
 class Main {
   /** Covers direct native, constructor, checked-cast, host, function, and value roots. */
-  static function runtimeRoots(value: Dynamic): Array<Dynamic> {
+  static function runtimeRoots(value: Dynamic): RuntimeRootValues {
     final directType = NativeFactory;
     final hostType = js.lib.Error;
     final checked = cast(value, NativeFactory);
-    return [
-      directType,
-      hostType,
-      checked,
-      new NativeFactory(),
-      setStateFunction(),
-      setStateValue
-    ];
+    return {
+      directType: directType,
+      hostType: hostType,
+      checked: checked,
+      created: new NativeFactory(),
+      functionValue: setStateFunction(),
+      directValue: setStateValue
+    };
   }
 
   /** Authored target syntax marks only this exact sibling scope opaque. */
@@ -66,5 +78,7 @@ class Main {
     deepFour();
     deepEight();
     retainQueryCases();
+    retainStructuralClassCases();
+    retainStructuralEnumCases();
   }
 }

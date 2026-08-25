@@ -9,3 +9,8 @@ declare namespace TypeOnlyRoot {
 declare namespace queryRoot {
   class Value {}
 }
+
+declare module "lexical-structural-fixture" {
+  export class RuntimeInterface {}
+  export function fieldValue(): string;
+}

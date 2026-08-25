@@ -3,11 +3,13 @@ package genes;
 #if macro
 import genes.BindingIdentity.HaxeDeclarationKey;
 import genes.DynamicImportBindingPlan.DynamicImportBindingToken;
+import genes.Module.FieldKind;
 import genes.RuntimeTypeOccurrenceCollector.RuntimeTypeOccurrence;
 import genes.TypeAccessor.TypeAccessorImpl;
 import genes.util.TypeUtil;
 import haxe.ds.ObjectMap;
 import haxe.macro.Context;
+import haxe.macro.Expr;
 import haxe.macro.Type;
 
 using haxe.macro.TypedExprTools;
@@ -150,6 +152,7 @@ final class LexicalBindingUsePlan {
   final expressionScopes: ObjectMap<TypedExpr, Int>;
   final functionScopes: ObjectMap<TFunc, Int>;
   final occurrences: Array<RuntimeAuthorityOccurrence>;
+  final moduleOccurrences: Array<RuntimeAuthorityOccurrence>;
   final expressionOccurrences: ObjectMap<TypedExpr,
     Array<RuntimeAuthorityOccurrence>>;
   final fixedBindings: Array<ScopedBinding>;
@@ -167,6 +170,7 @@ final class LexicalBindingUsePlan {
       expressionScopes: ObjectMap<TypedExpr, Int>,
       functionScopes: ObjectMap<TFunc, Int>,
       occurrences: Array<RuntimeAuthorityOccurrence>,
+      moduleOccurrences: Array<RuntimeAuthorityOccurrence>,
       expressionOccurrences: ObjectMap<TypedExpr,
       Array<RuntimeAuthorityOccurrence>>,
       fixedBindings: Array<ScopedBinding>, counts: LexicalBindingUseCounts) {
@@ -175,6 +179,7 @@ final class LexicalBindingUsePlan {
     this.expressionScopes = expressionScopes;
     this.functionScopes = functionScopes;
     this.occurrences = occurrences;
+    this.moduleOccurrences = moduleOccurrences;
     this.expressionOccurrences = expressionOccurrences;
     this.fixedBindings = fixedBindings;
     this.countsValue = counts;
@@ -345,6 +350,33 @@ final class LexicalBindingUsePlan {
       expression.pos);
   }
 
+  /** Fails when module structure emits an unregistered runtime accessor. */
+  public function assertModuleRuntimeAccessor(accessor: TypeAccessor,
+      profile: LexicalBindingProfile): Void {
+    assertModuleAuthority(Accessor(accessor), profile,
+      'runtime binding authority ' + authorityKey(Accessor(accessor)));
+  }
+
+  /** Fails when module structure emits an unregistered bare runtime root. */
+  public function assertModuleDirectBinding(name: String,
+      profile: LexicalBindingProfile): Void {
+    assertModuleAuthority(DirectBinding(name), profile,
+      'direct runtime binding ' + name);
+  }
+
+  function assertModuleAuthority(expected: LexicalRuntimeAuthority,
+      profile: LexicalBindingProfile, description: String): Void {
+    for (occurrence in moduleOccurrences)
+      if (profileMatches(occurrence.profile, profile)
+        && authoritiesEqual(occurrence.authority, expected))
+        return;
+    CompilerDiagnostic.fail('GTS-LEXICAL-BINDING-PLAN-004: module '
+      + module.module
+      + ' emission requested an unregistered '
+      + description,
+      Context.currentPos());
+  }
+
   function expressionScopeId(expression: TypedExpr): Null<Int> {
     return expressionScopes.get(expression);
   }
@@ -513,6 +545,7 @@ private final class LexicalBindingUsePlanBuilder {
   final expressionScopes = new ObjectMap<TypedExpr, Int>();
   final functionScopes = new ObjectMap<TFunc, Int>();
   final occurrences: Array<RuntimeAuthorityOccurrence> = [];
+  final moduleOccurrences: Array<RuntimeAuthorityOccurrence> = [];
   final expressionOccurrences = new ObjectMap<TypedExpr,
     Array<RuntimeAuthorityOccurrence>>();
   final fixedBindings: Array<ScopedBinding> = [];
@@ -534,11 +567,13 @@ private final class LexicalBindingUsePlanBuilder {
       exit: 0,
       opaque: false
     });
-    for (member in module.members)
+    registerModuleGlobalAuthority();
+    for (member in module.members) {
+      final projection = Module.memberProjection(member);
       switch member {
         case MClass(owner, _, fields):
           currentClass = owner;
-          registerClassRuntimeAuthorities(owner);
+          registerClassRuntimeAuthorities(owner, fields, projection);
           for (field in fields)
             if (field.expr != null)
               visit(field.expr, 0, []);
@@ -547,15 +582,19 @@ private final class LexicalBindingUsePlanBuilder {
           currentClass = null;
         case MMain(expression):
           visit(expression, 0, []);
-        case MEnum(_, _) | MType(_, _):
+        case MEnum(owner, _):
+          registerEnumRuntimeAuthorities(owner, projection);
+        case MType(_, _):
       }
+    }
     scopes[0].exit = scopes.length - 1;
     var opaqueCount = 0;
     for (scope in scopes)
       if (scope.opaque)
         opaqueCount++;
     final plan = new LexicalBindingUsePlan(module, scopes, expressionScopes,
-      functionScopes, occurrences, expressionOccurrences, fixedBindings, {
+      functionScopes, occurrences, moduleOccurrences, expressionOccurrences,
+      fixedBindings, {
         expressions: expressionCount,
         scopes: scopes.length,
         runtimeAuthorities: occurrences.length,
@@ -566,6 +605,27 @@ private final class LexicalBindingUsePlanBuilder {
     plan.queryProbes = queryProbes;
     #end
     return plan;
+  }
+
+  function registerModuleGlobalAuthority(): Void {
+    if (module.module == 'genes.Register'
+      || !module.hasFeature('js.Lib.global'))
+      return;
+    var classicEmitsModule = module.expose.length > 0;
+    var typeScriptHasRuntimeCode = false;
+    for (member in module.members)
+      switch member {
+        case MType(_, _):
+        case MClass(owner, _, _) if (owner.isInterface):
+          classicEmitsModule = true;
+        default:
+          classicEmitsModule = true;
+          typeScriptHasRuntimeCode = true;
+      }
+    if (classicEmitsModule)
+      recordAccessor(null, TypeUtil.registerType, 0, ClassicProfileOnly, []);
+    if (typeScriptHasRuntimeCode)
+      recordAccessor(null, TypeUtil.registerType, 0, TypeScriptProfileOnly, []);
   }
 
   function visit(expression: TypedExpr, scopeId: Int,
@@ -833,18 +893,113 @@ private final class LexicalBindingUsePlanBuilder {
       profile: profile
     };
     occurrences.push(occurrence);
-    if (expression != null) {
+    if (expression == null) {
+      moduleOccurrences.push(occurrence);
+    } else {
       if (!expressionOccurrences.exists(expression))
         expressionOccurrences.set(expression, []);
       expressionOccurrences.get(expression).push(occurrence);
     }
   }
 
-  function registerClassRuntimeAuthorities(owner: ClassType): Void {
-    if (owner.module != 'genes.Register')
+  function registerClassRuntimeAuthorities(owner: ClassType,
+      fields: Array<Module.Field>, projection: Module.MemberProjection): Void {
+    if (!projection.emitImplementation)
+      return;
+    var hasConstructor = false;
+    for (field in fields)
+      if (field.kind.equals(Constructor)) {
+        hasConstructor = true;
+        break;
+      }
+    if (owner.module != 'genes.Register' || hasConstructor)
       recordAccessor(null, TypeUtil.registerType, 0, BothProfiles, []);
     if (owner.superClass != null)
       recordAccessor(null, TClassDecl(owner.superClass.t), 0, BothProfiles, []);
+    if (!owner.isInterface)
+      for (implemented in owner.interfaces) {
+        final interfaceType = implemented.t.get();
+        if (!isMissingModuleProbe(interfaceType))
+          recordAccessor(null, TClassDecl(implemented.t), 0, BothProfiles, []);
+      }
+
+    var typeScriptUsesObject = false;
+    for (field in fields) {
+      if (!field.isStatic && field.kind.equals(Property)
+        && (field.getter || field.setter))
+        typeScriptUsesObject = true;
+      if (isFieldLevelRuntimeImport(owner, field))
+        recordAccessor(null,
+          TypeAccessor.forStaticFieldName(owner, field.name, field.pos), 0,
+          BothProfiles, []);
+    }
+    if (typeScriptUsesObject)
+      recordDirect(null, 'Object', 0, TypeScriptProfileOnly);
+  }
+
+  static function isMissingModuleProbe(type: BaseType): Bool {
+    #if genes.lexical_binding_missing_module_probe
+    return type.meta.has(':genesLexicalBindingMissingModuleProbe')
+      || type.meta.has('genesLexicalBindingMissingModuleProbe');
+    #else
+    return false;
+    #end
+  }
+
+  function registerEnumRuntimeAuthorities(owner: EnumType,
+      projection: Module.MemberProjection): Void {
+    if (!projection.emitImplementation)
+      return;
+    final classicRegisters = projection.registerRuntimeType;
+    final typeScriptRegisters = projection.registerRuntimeType
+      && !Context.defined('genes.ts.minimal_runtime');
+    recordModuleAccessorProfiles(TypeUtil.registerType, classicRegisters,
+      typeScriptRegisters);
+
+    var classicUsesObject = false;
+    for (name in owner.names)
+      if (owner.constructs.get(name).type.match(TFun(_, _))) {
+        classicUsesObject = true;
+        break;
+      }
+    recordModuleDirectProfiles('Object', classicUsesObject, true);
+  }
+
+  function recordModuleAccessorProfiles(accessor: TypeAccessor, classic: Bool,
+      typeScript: Bool): Void {
+    if (classic && typeScript)
+      recordAccessor(null, accessor, 0, BothProfiles, []);
+    else if (classic)
+      recordAccessor(null, accessor, 0, ClassicProfileOnly, []);
+    else if (typeScript)
+      recordAccessor(null, accessor, 0, TypeScriptProfileOnly, []);
+  }
+
+  function recordModuleDirectProfiles(name: String, classic: Bool,
+      typeScript: Bool): Void {
+    if (classic && typeScript)
+      recordDirect(null, name, 0, BothProfiles);
+    else if (classic)
+      recordDirect(null, name, 0, ClassicProfileOnly);
+    else if (typeScript)
+      recordDirect(null, name, 0, TypeScriptProfileOnly);
+  }
+
+  static function isFieldLevelRuntimeImport(owner: ClassType,
+      field: Module.Field): Bool {
+    if (!DirectModuleBinding.isModuleFieldsOwner(owner) || !field.isStatic
+      || field.meta == null)
+      return false;
+    return switch field.meta.extract(':jsRequire') {
+      case [{params: [{expr: EConst(CString(_))}]}] | [
+        {
+          params: [{expr: EConst(CString(_))}, {expr: EConst(CString(_))}]
+        }
+      ]:
+        true;
+      default:
+        false;
+    };
   }
 
   function registerFieldLowering(expression: TypedExpr, receiver: TypedExpr,

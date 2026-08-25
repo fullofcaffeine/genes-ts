@@ -159,6 +159,10 @@ function assertInventory(lines: ReadonlyArray<string>): void {
       "query:dynamic:conflict:LazyOne:true",
       "query:dynamic:conflict:LazyTwo:false",
       "query:host:opaque:false",
+      "query:nested-dynamic:opaque:false",
+      "query:nested-dynamic:conflict:InnerLazyOne:true",
+      "query:nested-dynamic:conflict:OuterLazyOne:true",
+      "query:nested-dynamic:conflict:SiblingLazyOne:false",
       "query:outer:opaque:true",
       "query:outer:conflict:queryRoot:true",
       "query:outer:conflict:missing:false",
@@ -177,6 +181,17 @@ function assertInventory(lines: ReadonlyArray<string>): void {
     "typescript:query:host:conflict:globalThis:true"
   ]) {
     requireInventoryLine(lines, `QueryCases:${fact}`);
+  }
+
+  for (const suffix of [
+    "StructuralClassCases:classic:root:RuntimeInterface:0",
+    "StructuralClassCases:typescript:root:RuntimeInterface:0",
+    "StructuralEnumCases:classic:root:Object:0",
+    "StructuralEnumCases:classic:root:Register:0",
+    "StructuralEnumCases:typescript:root:Object:0",
+    "StructuralEnumCases:typescript:root:Register:0"
+  ]) {
+    requireInventoryLine(lines, suffix);
   }
 
   ok(
@@ -227,6 +242,18 @@ function assertGeneratedShape(): void {
   const queryClassic = readFileSync(path.join(
     profileRoot(profiles[0]), "lexicalbinding/QueryCases.js"
   ), "utf8");
+  const structuralTs = readFileSync(path.join(
+    profileRoot(profiles[1]), "lexicalbinding/StructuralClassCases.ts"
+  ), "utf8");
+  const structuralClassic = readFileSync(path.join(
+    profileRoot(profiles[0]), "lexicalbinding/StructuralClassCases.js"
+  ), "utf8");
+  const enumTs = readFileSync(path.join(
+    profileRoot(profiles[1]), "lexicalbinding/StructuralEnumCases.ts"
+  ), "utf8");
+  const enumClassic = readFileSync(path.join(
+    profileRoot(profiles[0]), "lexicalbinding/StructuralEnumCases.js"
+  ), "utf8");
 
   ok(tsMain.includes("const directType: any = setState.Factory"));
   ok(tsMain.includes("const hostType: any = globalThis.Error"));
@@ -252,7 +279,16 @@ function assertGeneratedShape(): void {
   for (const generated of [queryTs, queryClassic]) {
     ok(!generated.includes("LexicalBindingQueryMarker"));
     ok(!generated.includes("genesLexicalBindingQuery"));
+    ok(generated.includes("var OuterLazyOne ="));
+    ok(generated.includes("var InnerLazyOne ="));
+    ok(generated.includes("var SiblingLazyOne ="));
+    ok(generated.includes(",InnerLazyOne);"));
+    ok(!generated.includes(",OuterLazyOne);"));
   }
+  for (const generated of [structuralTs, structuralClassic])
+    ok(generated.includes("return [RuntimeInterface]"));
+  for (const generated of [enumTs, enumClassic])
+    ok(generated.includes("Object.assign("));
 }
 
 rmSync(outputRoot, { recursive: true, force: true });
@@ -327,6 +363,28 @@ strictEqual(
   existsSync(compilerOutputSentinel(outputFile(tsProfile))),
   false,
   "The failed build left its private Haxe output sentinel"
+);
+
+const moduleFailure = compile(tsProfile, [
+  "genes.lexical_binding_inventory",
+  "genes.lexical_binding_missing_module_probe"
+]);
+ok(moduleFailure.status !== null && moduleFailure.status !== 0,
+  "The intentionally omitted module authority unexpectedly compiled");
+const moduleDiagnostics = `${moduleFailure.stdout}${moduleFailure.stderr}`;
+match(moduleDiagnostics, /GTS-LEXICAL-BINDING-PLAN-004/);
+match(moduleDiagnostics, /module lexicalbinding\.StructuralClassCases emission/);
+match(moduleDiagnostics,
+  /accessor:declaration:class:lexicalbinding\.StructuralClassCases:RuntimeInterface/);
+deepStrictEqual(
+  hashTree(profileRoot(tsProfile)),
+  lastGood,
+  "A missing module authority changed the last-known-good output tree"
+);
+strictEqual(
+  existsSync(compilerOutputSentinel(outputFile(tsProfile))),
+  false,
+  "The failed module build left its private Haxe output sentinel"
 );
 deepStrictEqual(
   leakedOutputStages(outputRoot),

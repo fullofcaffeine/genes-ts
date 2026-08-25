@@ -98,7 +98,7 @@ class ModuleEmitter extends ExprEmitter {
     if (module.module != 'genes.Register' && ctx.hasFeature('js.Lib.global')) {
       writeNewline();
       write("const $global = ");
-      write(ctx.typeAccessor(registerType));
+      write(runtimeTypeAccessor(registerType));
       write(".$global");
       writeNewline();
     }
@@ -318,7 +318,7 @@ class ModuleEmitter extends ExprEmitter {
               emitIdent(TypeUtil.className(cl));
               emitField(staticName(cl, field));
               write(' = ');
-              write(ctx.typeAccessor(TypeAccessor.forStaticFieldName(cl,
+              write(runtimeTypeAccessor(TypeAccessor.forStaticFieldName(cl,
                 field.name, field.pos)));
               writeNewline();
             default:
@@ -365,7 +365,7 @@ class ModuleEmitter extends ExprEmitter {
   function emitDeferredStatic(cl: ClassType, field: Field) {
     writeNewline();
     emitPos(field.pos);
-    write(ctx.typeAccessor(registerType));
+    write(runtimeTypeAccessor(registerType));
     write('.createStatic(');
     emitIdent(TypeUtil.className(cl));
     write(', ');
@@ -442,7 +442,7 @@ class ModuleEmitter extends ExprEmitter {
     write(TypeUtil.className(cl));
     if (cl.superClass != null || hasConstructor(fields)) {
       write(' extends ');
-      write(ctx.typeAccessor(registerType));
+      write(runtimeTypeAccessor(registerType));
       write('.inherits(');
       switch cl.superClass {
         case null:
@@ -450,7 +450,7 @@ class ModuleEmitter extends ExprEmitter {
           final isCyclic = checkCycles(TypeUtil.moduleTypeModule(t));
           if (isCyclic)
             write('() => ');
-          write(ctx.typeAccessor(t));
+          write(runtimeTypeAccessor(t));
           if (isCyclic)
             write(', true');
       }
@@ -498,7 +498,7 @@ class ModuleEmitter extends ExprEmitter {
                 write(staticName(cl, field));
               } else if (field.kind.equals(Constructor)) {
                 write('[');
-                write(ctx.typeAccessor(registerType));
+                write(runtimeTypeAccessor(registerType));
                 write('.new]');
               } else {
                 if (isAsync)
@@ -567,7 +567,7 @@ class ModuleEmitter extends ExprEmitter {
         writeNewline();
         write('return [');
         for (i in join(v, write.bind(', ')))
-          write(ctx.typeAccessor(i.t.get()));
+          write(runtimeTypeAccessor(i.t.get()));
         write(']');
         decreaseIndent();
         writeNewline();
@@ -582,7 +582,7 @@ class ModuleEmitter extends ExprEmitter {
         increaseIndent();
         writeNewline();
         write('return ');
-        write(ctx.typeAccessor(t));
+        write(runtimeTypeAccessor(t));
         decreaseIndent();
         writeNewline();
         write('}');
@@ -721,7 +721,8 @@ class ModuleEmitter extends ExprEmitter {
       write(': ');
       switch c.type {
         case TFun(args, ret):
-          write('Object.assign((');
+          write(runtimeDirectBinding('Object'));
+          write('.assign((');
           for (param in join(args, write.bind(', ')))
             emitLocalIdent(param.name);
           write(') => ({_hx_index: ${c.index}, __enum__: "${id}", ');

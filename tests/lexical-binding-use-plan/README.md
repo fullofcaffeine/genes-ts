@@ -3,9 +3,14 @@
 This fixture proves the target-neutral authority used before Genes allocates a
 compiler-created lexical name. It inventories exact imported/direct roots,
 profile-specific host globals, checked casts, direct module bindings, nested
-dynamic-import callback locals, lexical scope depth, and authored raw-syntax
-barriers. A negative lane removes one constructor registration and requires the
-emitter assertion to fail before replacing a sentinel output file.
+dynamic-import callback locals, module-owned class and enum reflection roots,
+lexical scope depth, and authored raw-syntax barriers. The nested import case
+also proves that the nearest callback alias wins when two active aliases refer
+to the same declaration.
+
+Two negative lanes remove one expression-owned constructor registration and
+one module-owned interface registration. Each lane requires the emitter
+assertion to fail before it replaces a sentinel output file.
 
 Test-only typed markers also call the real request API. They prove profile
 roots, fixed dynamic bindings on a use path, sibling precision, opaque-scope

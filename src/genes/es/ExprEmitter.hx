@@ -177,17 +177,27 @@ class ExprEmitter extends Emitter {
 
   /** Resolves one runtime accessor through optional fail-closed inventory. */
   function runtimeTypeAccessor(accessor: TypeAccessor): String {
-    if (lexicalBindingUsePlan != null && activeBindingExpression != null)
-      lexicalBindingUsePlan.assertRuntimeAccessor(activeBindingExpression,
-        accessor, directImportLocals, lexicalBindingProfile);
+    if (lexicalBindingUsePlan != null) {
+      if (activeBindingExpression != null)
+        lexicalBindingUsePlan.assertRuntimeAccessor(activeBindingExpression,
+          accessor, directImportLocals, lexicalBindingProfile);
+      else
+        lexicalBindingUsePlan.assertModuleRuntimeAccessor(accessor,
+          lexicalBindingProfile);
+    }
     return ctx.typeAccessor(accessor);
   }
 
   /** Emits one exact bare runtime binding through the same assertion seam. */
   function runtimeDirectBinding(name: String): String {
-    if (lexicalBindingUsePlan != null && activeBindingExpression != null)
-      lexicalBindingUsePlan.assertDirectBinding(activeBindingExpression, name,
-        lexicalBindingProfile);
+    if (lexicalBindingUsePlan != null) {
+      if (activeBindingExpression != null)
+        lexicalBindingUsePlan.assertDirectBinding(activeBindingExpression,
+          name, lexicalBindingProfile);
+      else
+        lexicalBindingUsePlan.assertModuleDirectBinding(name,
+          lexicalBindingProfile);
+    }
     return name;
   }
 
@@ -230,7 +240,10 @@ class ExprEmitter extends Emitter {
 
   /** Returns the callback-local spelling for an exact dynamic-import origin. */
   function directImportLocalName(type: TypeAccessor): Null<String> {
-    for (encoded in directImportLocals) {
+    for (offset in 0...directImportLocals.length) {
+      final encoded = directImportLocals[directImportLocals.length
+        - offset
+        - 1];
       final token = DynamicImportBindingPlan.decode(encoded);
       switch [type, token] {
         case [
