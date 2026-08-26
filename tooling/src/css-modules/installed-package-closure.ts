@@ -179,6 +179,13 @@ function plainRecord(value: unknown): value is Readonly<Record<string, unknown>>
   return prototype === Object.prototype || prototype === null;
 }
 
+function ownValue(
+  record: Readonly<Record<string, unknown>>,
+  key: string,
+): unknown {
+  return Object.hasOwn(record, key) ? record[key] : undefined;
+}
+
 function cleanIdentity(value: string): boolean {
   return (
     value.length > 0 &&
@@ -463,16 +470,6 @@ function parsePackageMetadata(
     const decoded = bytes.toString("utf8");
     parsed = JSON.parse(
       decoded.startsWith("\uFEFF") ? decoded.slice(1) : decoded,
-      (_key: string, value: unknown): unknown => {
-        if (
-          typeof value === "object" &&
-          value !== null &&
-          !Array.isArray(value)
-        ) {
-          Object.setPrototypeOf(value, null);
-        }
-        return value;
-      },
     );
   } catch {
     return fail("package-metadata-invalid", subject);
@@ -480,8 +477,8 @@ function parsePackageMetadata(
   if (!plainRecord(parsed)) {
     return fail("package-metadata-invalid", subject);
   }
-  const name = parsed.name;
-  const version = parsed.version;
+  const name = ownValue(parsed, "name");
+  const version = ownValue(parsed, "version");
   if (
     typeof name !== "string" ||
     typeof version !== "string" ||
@@ -491,13 +488,13 @@ function parsePackageMetadata(
     return fail("package-metadata-invalid", subject);
   }
   const peerDependencies = stringMap(
-    parsed.peerDependencies,
+    ownValue(parsed, "peerDependencies"),
     "peerDependencies",
     subject,
     maximumEdges,
   );
   const optionalPeers = new Set<string>();
-  const peerMetadata = parsed.peerDependenciesMeta;
+  const peerMetadata = ownValue(parsed, "peerDependenciesMeta");
   if (peerMetadata !== undefined) {
     if (!plainRecord(peerMetadata)) {
       return fail("package-metadata-invalid", `${subject}:peerDependenciesMeta`);
@@ -516,13 +513,11 @@ function parsePackageMetadata(
       if (!plainRecord(metadata)) {
         return fail("package-metadata-invalid", `${subject}:peerDependenciesMeta`);
       }
-      if (
-        metadata.optional !== undefined &&
-        typeof metadata.optional !== "boolean"
-      ) {
+      const optional = ownValue(metadata, "optional");
+      if (optional !== undefined && typeof optional !== "boolean") {
         return fail("package-metadata-invalid", `${subject}:peerDependenciesMeta`);
       }
-      if (metadata.optional === true && peerDependencies.has(key)) {
+      if (optional === true && peerDependencies.has(key)) {
         optionalPeers.add(key);
       }
     }
@@ -531,13 +526,13 @@ function parsePackageMetadata(
     name,
     version,
     dependencies: stringMap(
-      parsed.dependencies,
+      ownValue(parsed, "dependencies"),
       "dependencies",
       subject,
       maximumEdges,
     ),
     optionalDependencies: stringMap(
-      parsed.optionalDependencies,
+      ownValue(parsed, "optionalDependencies"),
       "optionalDependencies",
       subject,
       maximumEdges,

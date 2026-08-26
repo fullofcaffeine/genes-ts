@@ -436,6 +436,23 @@ try {
     assert.equal(Reflect.deleteProperty(Object.prototype, "optional"), true);
   }
 
+  const deepUnrelatedMetadata = projectRoot(
+    "genes-package-deep-unrelated-metadata-",
+  );
+  temporaryRoots.push(deepUnrelatedMetadata);
+  const nestedArrayDepth = 3_000;
+  createPackage(packageRoot(deepUnrelatedMetadata, "deep-root"), {
+    name: "deep-root",
+    packageJsonText:
+      `{"name":"deep-root","version":"1.0.0","unrelated":` +
+      `${"[".repeat(nestedArrayDepth)}0${"]".repeat(nestedArrayDepth)}}\n`,
+  });
+  const deepUnrelatedMeasurement = measureInstalledPackageClosure(
+    request(deepUnrelatedMetadata, "deep-root"),
+  );
+  assert.equal(deepUnrelatedMeasurement.packageCount, 1);
+  assert.equal(deepUnrelatedMeasurement.edgeCount, 0);
+
   const mandatoryPeer = projectRoot("genes-package-peer-mandatory-");
   temporaryRoots.push(mandatoryPeer);
   createPackage(packageRoot(mandatoryPeer, "peer-root"), {
