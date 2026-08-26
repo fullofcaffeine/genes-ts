@@ -461,7 +461,19 @@ function parsePackageMetadata(
   let parsed: unknown;
   try {
     const decoded = bytes.toString("utf8");
-    parsed = JSON.parse(decoded.startsWith("\uFEFF") ? decoded.slice(1) : decoded);
+    parsed = JSON.parse(
+      decoded.startsWith("\uFEFF") ? decoded.slice(1) : decoded,
+      (_key: string, value: unknown): unknown => {
+        if (
+          typeof value === "object" &&
+          value !== null &&
+          !Array.isArray(value)
+        ) {
+          Object.setPrototypeOf(value, null);
+        }
+        return value;
+      },
+    );
   } catch {
     return fail("package-metadata-invalid", subject);
   }

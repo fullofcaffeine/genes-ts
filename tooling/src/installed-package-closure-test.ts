@@ -408,6 +408,34 @@ try {
     );
   });
 
+  const pollutedPeerMetadata = projectRoot(
+    "genes-package-peer-metadata-prototype-",
+  );
+  temporaryRoots.push(pollutedPeerMetadata);
+  assert.equal(Object.hasOwn(Object.prototype, "optional"), false);
+  Object.defineProperty(Object.prototype, "optional", {
+    configurable: true,
+    enumerable: true,
+    value: true,
+  });
+  try {
+    createPackage(packageRoot(pollutedPeerMetadata, "peer-root"), {
+      name: "peer-root",
+      peerDependencies: { "peer-runtime": "1.0.0" },
+      peerDependenciesMeta: { "peer-runtime": {} },
+    });
+    expectFailure(
+      "package-unavailable",
+      "peer-root:peer-runtime",
+      () =>
+        measureInstalledPackageClosure(
+          request(pollutedPeerMetadata, "peer-root"),
+        ),
+    );
+  } finally {
+    assert.equal(Reflect.deleteProperty(Object.prototype, "optional"), true);
+  }
+
   const mandatoryPeer = projectRoot("genes-package-peer-mandatory-");
   temporaryRoots.push(mandatoryPeer);
   createPackage(packageRoot(mandatoryPeer, "peer-root"), {
