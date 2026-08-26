@@ -7,6 +7,10 @@ import servercase.ModuleData.moduleLabel;
 #if server_jsx
 import genes.react.Element;
 #end
+#if server_state_projection
+import genes.react.React.useState;
+import genes.react.State;
+#end
 
 private typedef ServerAnimal = {
   final name: String;
@@ -138,6 +142,35 @@ class Main {
   }
   #end
 
+  #if server_state_projection
+  /** Exercises request-local State projection under the warm compiler. */
+  @:genes.reactHook
+  public static function useServerState(initial: Int): Int {
+    final state = useState(initial);
+    #if server_state_escape
+    final retained: State<Int> = state;
+    return retained.value;
+    #else
+    state.update(previous -> previous + 1);
+    return state.value;
+    #end
+  }
+
+  #if !server_state_escape
+  /** Keeps a nested authored `setState` binding distinct from the projected dispatcher. */
+  @:genes.reactHook
+  public static function useServerStateCollision(initial: Int): (Int->Void)->
+    (Void->Void) {
+    final state = useState(initial);
+    return setState -> () -> {
+      state.set(initial + 3);
+      setState(initial + 4);
+    };
+  }
+  #end
+
+  #end
+
   #if server_jsx
   /**
    * Keeps real inline markup reachable in the `.tsx` and `.jsx` server lanes.
@@ -211,6 +244,17 @@ class Main {
     #end
     #if server_indexed_plan
     transcript += ":" + indexedDecision([1], 2);
+    #end
+    #if server_state_projection
+    // Retain the Hook declaration without executing it outside React.
+    final stateHook = useServerState;
+    if (stateHook == null)
+      throw "React State Hook was not retained";
+    #if !server_state_escape
+    final stateCollisionHook = useServerStateCollision;
+    if (stateCollisionHook == null)
+      throw "React State collision Hook was not retained";
+    #end
     #end
     trace(transform(transcript));
   }

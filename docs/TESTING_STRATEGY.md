@@ -573,7 +573,7 @@ yarn test:output-quality # exact maps, clean hashes, and reviewed budgets
 yarn test:output-transaction # failure atomicity and stale-file ownership
 yarn test:interop:module-shapes # npm declaration/runtime import contracts
 yarn test:library-profile # default DCE vs matched TS/classic library surfaces
-yarn test:react-hooks # semantic React state/deps, placement, analyzers, maps
+yarn test:react-hooks # four React profiles, State projection/fallbacks, runtime, lint, maps
 yarn test:react-flight # React 19 value algebra, host extensions, native identities
 yarn test:dynamic-import-policy # cold/warm runtime-suffix equivalence
 yarn test:compiler-server # whole-compiler cold/warm lifecycle equivalence

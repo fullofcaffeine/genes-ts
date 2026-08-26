@@ -2,6 +2,7 @@ import {deepStrictEqual, ok, strictEqual} from "node:assert";
 import {execFileSync, spawnSync} from "node:child_process";
 import {createHash} from "node:crypto";
 import {
+  copyFileSync,
   existsSync,
   readFileSync,
   readdirSync,
@@ -63,12 +64,17 @@ function generatedPoint(value: string, needle: string): {
 }
 
 function assertMappedFunction(
-  profile: "ts/src-gen" | "classic",
+  profile: "ts/src-gen" | "tsx/src-gen" | "classic" | "jsx",
   modulePath: string,
   generatedNeedle: string,
   haxeNeedle: string
 ): void {
-  const extension = profile === "classic" ? "js" : "ts";
+  const extension = {
+    "ts/src-gen": "ts",
+    "tsx/src-gen": "tsx",
+    "classic": "js",
+    "jsx": "jsx"
+  }[profile];
   const generatedPath = path.join(
     fixtureRoot,
     "out",
@@ -112,25 +118,55 @@ function expectHaxeFailure(
 
 rmSync(path.join(fixtureRoot, "out"), {recursive: true, force: true});
 
-run("haxe", ["tests/react-hooks/build-ts.hxml"]);
-run("haxe", ["tests/react-hooks/build-tsx.hxml"]);
-run("haxe", ["tests/react-hooks/build-classic.hxml"]);
-run("haxe", ["tests/react-hooks/build-jsx.hxml"]);
+const implementationProfiles = [
+  "build-ts.hxml",
+  "build-tsx.hxml",
+  "build-classic.hxml",
+  "build-classic-no-dts.hxml",
+  "build-jsx.hxml"
+] as const;
+for (const profile of implementationProfiles) {
+  run("haxe", [`tests/react-hooks/${profile}`]);
+}
 const firstTree = digestTree(path.join(fixtureRoot, "out"));
-run("haxe", ["tests/react-hooks/build-ts.hxml"]);
-run("haxe", ["tests/react-hooks/build-tsx.hxml"]);
-run("haxe", ["tests/react-hooks/build-classic.hxml"]);
-run("haxe", ["tests/react-hooks/build-jsx.hxml"]);
+for (const profile of implementationProfiles) {
+  run("haxe", [`tests/react-hooks/${profile}`]);
+}
 deepStrictEqual(
   digestTree(path.join(fixtureRoot, "out")),
   firstTree,
   "React Hook output is byte-deterministic across clean-equivalent rebuilds"
 );
+for (const outputRoot of [
+  "out/ts/src-gen/react_hooks",
+  "out/tsx/src-gen/react_hooks",
+  "out/classic/react_hooks",
+  "out/classic-no-dts/react_hooks",
+  "out/jsx/react_hooks"
+]) {
+  for (const fixture of [
+    "state-setter.js",
+    "state-setter.d.ts",
+    "state-constructor.js",
+    "state-constructor.d.ts",
+    "state-native.d.ts"
+  ])
+    copyFileSync(path.join(fixtureRoot, "resources", fixture),
+      path.join(fixtureRoot, outputRoot, fixture));
+}
 runGeneratedTypeScriptMatrix("tests/react-hooks/tsconfig.json", {emit: false});
+runGeneratedTypeScriptMatrix("tests/react-hooks/tsconfig.tsx.json", {
+  emit: false
+});
+const projection = source("out/ts/src-gen/react_hooks/Main.ts");
+ok(projection.includes(
+  "const [state, setState] = useState<number>(initial)"
+), "a closed semantic State local emits as one native React destructure");
 run(path.join(repositoryRoot, "node_modules/.bin/eslint"), [
   "--config",
   "tests/react-hooks/eslint.config.mjs",
-  "tests/react-hooks/out/classic"
+  "tests/react-hooks/out/classic",
+  "tests/react-hooks/out/jsx"
 ]);
 
 const typed = source("out/ts/src-gen/react_hooks/Main.ts");
@@ -148,8 +184,9 @@ ok(typed.includes(
 ok(typed.includes("return useState<string[]>([])"),
   "empty-array state retains its Haxe-selected element type");
 ok(typed.includes("state[1](function (previous: number)"),
-  "state update lowers directly to React's tuple dispatcher");
-ok(typed.includes("const current: number = state[0]"),
+  "whole-State fallback still lowers through React's tuple dispatcher");
+ok(typed.includes("const [state] = useState<number>(initial)")
+  && typed.includes("const current: number = state"),
   "computed state dependency receives one typed render-local snapshot");
 ok(typed.includes("const currentLabel: string = label.toUpperCase()"),
   "effectful computed dependency is evaluated once before useMemo");
@@ -194,9 +231,128 @@ ok(gutenberg.includes(
   "function BlockEdit(props: BlockEditProps): JSX.Element"
 ), "Gutenberg-shaped consumer uses the same analyzer-visible component contract");
 ok(gutenberg.includes(
-  "const selected: UseStateResult<boolean> = useState<boolean>(false)"
+  "const [selected, setSelected] = useState<boolean>(false)"
 ),
-  "Gutenberg-shaped consumer keeps semantic state on the native Hook");
+  "Gutenberg-shaped consumer emits native React state bindings");
+ok(!gutenberg.includes("UseStateResult"),
+  "a projected-only module retains no phantom State type import");
+
+const projectionCases = source(
+  "out/ts/src-gen/react_hooks/StateProjectionCases.ts"
+);
+for (const binding of [
+  "const [nullable, setNullable] = useState<string | null>(initial)",
+  "const [record, setRecord] = useState<ProjectionRecord>(initialRecord)",
+  "const [mode, setMode] = useState<ProjectionMode>(ProjectionMode.Idle)",
+  "const [state, setState] = useState<string>(function ()",
+  "const [, setState] = useState<number>(initial)",
+  "const [state, setState] = useState<number>(initial)",
+  "const [later, setLater] = useState<number>(initial + 2)"
+]) {
+  ok(projectionCases.includes(binding),
+    `projected state emits ${binding}`);
+}
+ok(projectionCases.includes(
+  "const [state, setState] = useState<Animal>(function ()"
+) && projectionCases.includes("setState(dog)"),
+"projection reuses the wider destination-selected state type");
+ok(projectionCases.includes(
+  "useState<Choice<number, string>>(Choice.Left<number, string>(1))"
+), "projection reuses the fully closed generic-enum witness");
+ok(projectionCases.includes(
+  "return function (setState1: ((arg0: number) => void))"
+) && projectionCases.includes("setState(initial + 1)")
+  && projectionCases.includes("setState1(initial + 2)"),
+"a nested parameter cannot shadow the captured synthetic dispatcher");
+ok(projectionCases.includes(
+  "return function (setState1: ((arg0: number) => void))"
+) && projectionCases.includes("setState(initial + 3)")
+  && projectionCases.includes("setState1(initial + 4)"),
+"every intervening closure reserves a descendant-captured dispatcher");
+ok(projectionCases.includes(
+  "const setState1: number = initial + 1"
+) && projectionCases.includes("setState(setState1)"),
+"a case-local binding cannot shadow the dispatcher captured in that case");
+ok(projectionCases.includes(
+  "const setState1: number = initial + 1;\n\tconst [state, setState] = useState<number>(initial);\n\tsetState(setState1)"
+), "a nearby authored local and synthetic dispatcher stay distinct");
+const projectionImportCollision = source(
+  "out/ts/src-gen/react_hooks/StateProjectionImportCollision.ts"
+);
+ok(projectionImportCollision.includes(
+  "const [, setState_1] = useState<number>(initial)"
+) && projectionImportCollision.includes("setState_1(initial + 1)")
+  && projectionImportCollision.includes("setState(function ()"),
+"a projected dispatcher cannot shadow a referenced ESM import binding");
+const projectionModuleCollision = source(
+  "out/ts/src-gen/react_hooks/StateProjectionModuleBindingCollision.ts"
+);
+ok(projectionModuleCollision.includes(
+  "const [, setState_1] = useState<number>(initial)"
+) && projectionModuleCollision.includes("setState_1(initial + 1)")
+  && projectionModuleCollision.includes("setState(function ()"),
+"a projected dispatcher cannot shadow a descendant same-module binding");
+const projectionConstructorCollision = source(
+  "out/ts/src-gen/react_hooks/StateProjectionConstructorCollision.ts"
+);
+ok(projectionConstructorCollision.includes(
+  "const [, setState_1] = useState<number>(initial)"
+) && projectionConstructorCollision.includes("setState_1(initial + 1)")
+  && projectionConstructorCollision.includes("new setState()"),
+"a projected dispatcher cannot shadow an imported constructor binding");
+const projectionNativeCollision = source(
+  "out/ts/src-gen/react_hooks/StateProjectionNativeCollision.ts"
+);
+ok(projectionNativeCollision.includes(
+  "const [, setState_1] = useState<number>(initial)"
+) && projectionNativeCollision.includes("setState_1(initial + 1)")
+  && projectionNativeCollision.includes("new setState()"),
+"a projected dispatcher cannot shadow a direct host-global constructor");
+ok(projectionCases.includes(
+  "StateRuntime_Fields_.replaceCallable(setState, replacement)"
+) && projectionCases.includes(
+  "StateRuntime_Fields_.replaceCallable(setState, next)"
+), "generic and callable state preserve constant-updater replacement semantics");
+strictEqual(
+  projectionCases.match(
+    /StateProjectionCases_Fields_\.makeCallback\(seed\)/g
+  )?.length,
+  1,
+  "effectful callable replacement is evaluated exactly once"
+);
+ok(!projectionCases.includes("UseStateResult"),
+  "fully projected positive cases retain no wrapper annotation or import");
+
+const projectionFallbacks = source(
+  "out/ts/src-gen/react_hooks/StateProjectionFallbacks.ts"
+);
+for (const local of [
+  "aliasedState",
+  "passedState",
+  "storedState",
+  "castState",
+  "identityState",
+  "reflectedState",
+  "dynamicState",
+  "tupleState",
+  "opaqueState",
+  "opaqueDispatcherState",
+  "opaqueValueState",
+  "opaqueDescendantState",
+  "opaqueInitializerState"
+]) {
+  ok(projectionFallbacks.includes(
+    `const ${local}: UseStateResult<number> = useState<number>(`
+  ), `${local} keeps the honest State fallback`);
+}
+ok(projectionFallbacks.includes(
+  "const [siblingState] = useState<number>(initial)"
+), "raw syntax in a sibling function does not disable safe projection");
+ok(projectionFallbacks.includes(
+  "const state: UseStateResult<number> = useCustomState(initial)"
+), "a custom State-returning Hook cannot forge compiler-owned provenance");
+strictEqual(projectionFallbacks.match(/const \[/g)?.length, 1,
+  "only the independent non-opaque sibling State projects");
 
 const stateInitialization = source(
   "out/ts/src-gen/react_hooks/StateInitialization.ts"
@@ -253,7 +409,8 @@ ok(classic.includes("function useCounter(initial)"),
   "classic output retains the analyzer-visible custom Hook");
 ok(classic.includes("function Counter(props)"),
   "classic output retains the analyzer-visible component");
-ok(classic.includes("const current = state[0]"),
+ok(classic.includes("const [state] = useState(initial)")
+  && classic.includes("const current = state"),
   "classic output preserves the computed state snapshot");
 ok(classic.includes("const currentLabel = label.toUpperCase()"),
   "classic output evaluates the computed dependency exactly once");
@@ -265,6 +422,75 @@ strictEqual(
 ok(classic.includes(
   "}, [current, currentLabel, currentEnabled])"
 ), "classic callback and dependency array share snapshot identities");
+const classicProjectionCases = source(
+  "out/classic/react_hooks/StateProjectionCases.js"
+);
+ok(classicProjectionCases.includes(
+  "const [, setState] = useState(initial)"
+) && classicProjectionCases.includes(
+  "const [state, setState] = useState(initial)"
+) && classicProjectionCases.includes(
+  "const setState1 = initial + 1"
+), "classic JavaScript consumes the same projection and name plan");
+const classicProjectionNativeCollision = source(
+  "out/classic/react_hooks/StateProjectionNativeCollision.js"
+);
+ok(classicProjectionNativeCollision.includes(
+  "const [, setState_1] = useState(initial)"
+) && classicProjectionNativeCollision.includes("new setState()"),
+"classic JavaScript protects a direct host-global constructor");
+const classicProjectionFallbacks = source(
+  "out/classic/react_hooks/StateProjectionFallbacks.js"
+);
+ok(classicProjectionFallbacks.includes("opaqueDispatcherState[1]")
+  && classicProjectionFallbacks.includes("opaqueValueState[0]")
+  && classicProjectionFallbacks.includes("opaqueDescendantState[0]")
+  && classicProjectionFallbacks.includes("opaqueInitializerState[0]")
+  && classicProjectionFallbacks.includes(
+    "const [siblingState] = useState(initial)"
+  ), "classic JavaScript preserves the same lexical opaque boundary");
+const classicNoDtsProjectionCases = source(
+  "out/classic-no-dts/react_hooks/StateProjectionCases.js"
+);
+ok(classicNoDtsProjectionCases.includes(
+  "const [, setState] = useState(initial)"
+) && classicNoDtsProjectionCases.includes(
+  "const [state, setState] = useState(initial)"
+), "classic projection does not depend on declaration generation");
+const tsxProjectionCases = source(
+  "out/tsx/src-gen/react_hooks/StateProjectionCases.tsx"
+);
+const jsxProjectionCases = source(
+  "out/jsx/react_hooks/StateProjectionCases.jsx"
+);
+for (const [profile, generated] of [
+  ["TSX", tsxProjectionCases],
+  ["JSX", jsxProjectionCases]
+] as const) {
+  const generic = profile === "TSX" ? "<string>" : "";
+  const setterGeneric = profile === "TSX" ? "<number>" : "";
+  ok(generated.includes(
+    `const [state, setState] = useState${generic}(function ()`
+  ),
+    `${profile} source profile consumes the same state projection`);
+  ok(generated.includes(
+    `const [, setState] = useState${setterGeneric}(initial)`
+  ),
+    `${profile} source profile preserves setter-only destructuring`);
+  const outputRoot = profile === "TSX" ? "tsx/src-gen" : "jsx";
+  const extension = profile === "TSX" ? "tsx" : "jsx";
+  const fallback = source(
+    `out/${outputRoot}/react_hooks/StateProjectionFallbacks.${extension}`
+  );
+  ok(fallback.includes("opaqueDispatcherState[1]")
+    && fallback.includes("opaqueValueState[0]")
+    && fallback.includes("opaqueDescendantState[0]")
+    && fallback.includes("opaqueInitializerState[0]")
+    && fallback.includes(
+      `const [siblingState] = useState${setterGeneric}(initial)`
+    ), `${profile} source profile preserves the same lexical opaque boundary`);
+}
+run("node", ["tests/react-hooks/runtime.mjs"]);
 ok(!/\b(?:Dynamic|untyped|any|unknown)\b/.test(typed),
   "typed implementation introduces no broad boundary type");
 
@@ -287,9 +513,19 @@ for (const profile of ["classic", "jsx"]) {
   );
 }
 
-for (const profile of ["ts/src-gen", "classic"]) {
+for (const profile of [
+  "ts/src-gen",
+  "tsx/src-gen",
+  "classic",
+  "jsx"
+] as const) {
   const mainMap = path.join(fixtureRoot, "out", profile,
-    "react_hooks/Main." + (profile === "classic" ? "js.map" : "ts.map"));
+    "react_hooks/Main." + ({
+      "ts/src-gen": "ts.map",
+      "tsx/src-gen": "tsx.map",
+      "classic": "js.map",
+      "jsx": "jsx.map"
+    }[profile]));
   ok(existsSync(mainMap), `${profile} emits a source map`);
 }
 for (const profile of ["ts/src-gen", "classic"] as const) {
@@ -328,6 +564,22 @@ for (const profile of ["ts/src-gen", "classic"] as const) {
     "react_hooks/TypeOnlyComponent",
     "function OptionalIdentity",
     "function OptionalIdentity"
+  );
+}
+for (const profile of [
+  "ts/src-gen",
+  "tsx/src-gen",
+  "classic",
+  "jsx"
+] as const) {
+  const generic = profile === "ts/src-gen" || profile === "tsx/src-gen"
+    ? "<string>"
+    : "";
+  assertMappedFunction(
+    profile,
+    "react_hooks/StateProjectionCases",
+    `const [state, setState] = useState${generic}(function ()`,
+    "final state = useStateLazy(() -> seed.toUpperCase())"
   );
 }
 

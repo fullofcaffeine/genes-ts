@@ -7,29 +7,28 @@ import {Client} from "../Client"
 import {StringTools} from "../../../StringTools"
 import {Register} from "../../../genes/Register"
 import type {Todo} from "../../shared/Todo"
-import type {UseStateResult} from "../../../genes/react/UseStateResult"
 import type {ChangeEvent} from "../ReactTypes"
 
 function Component(): JSX.Element {
 	const idStr: string | null = Router.useParam("id");
 	const id: string | null = idStr;
-	const todoState = useState<Todo | null>(null);
-	const todo: Todo | null = todoState[0];
-	const titleState: UseStateResult<string> = useState<string>("");
-	const title: string = titleState[0];
-	const errorState: UseStateResult<string> = useState<string>("");
-	const error: string = errorState[0];
+	const [todoState, setTodoState] = useState<Todo | null>(null);
+	const todo: Todo | null = todoState;
+	const [titleState, setTitleState] = useState<string>("");
+	const title: string = titleState;
+	const [errorState, setErrorState] = useState<string>("");
+	const error: string = errorState;
 	const navigate: ((arg0: string) => void) = useNavigate();
 	useEffect(function () {
 		if (id == null) {
-			errorState[1]("Missing id");
+			setErrorState("Missing id");
 			return;
 		};
 		Client.getTodo(id).then(function (t: Todo) {
-			todoState[1](t);
-			titleState[1](t.title);
+			setTodoState(t);
+			setTitleState(t.title);
 		})["catch"](function (_) {
-			errorState[1]("Todo not found");
+			setErrorState("Todo not found");
 		});
 	}, [idStr]);
 	const onSave: (() => void) = function () {
@@ -38,14 +37,14 @@ function Component(): JSX.Element {
 		};
 		const trimmed: string = StringTools.trim(title);
 		if (trimmed.length == 0) {
-			errorState[1]("Title is required");
+			setErrorState("Title is required");
 			return;
 		};
 		Client.updateTodoTitle(id, trimmed).then(function (updated: Todo) {
-			todoState[1](updated);
+			setTodoState(updated);
 			navigate("/");
 		})["catch"](function (_) {
-			errorState[1]("Failed to save");
+			setErrorState("Failed to save");
 		});
 	};
 	if (error != "") {
@@ -67,7 +66,7 @@ function Component(): JSX.Element {
 	const b_2: JSX.Element = <b>Updated:</b>;
 	const p_4: JSX.Element = <p>{b_2}{todoValue.updatedAt}</p>;
 	return <div>{p_1}{h2}{p_2}{p_3}{p_4}<label style={{"display": "block", "marginTop": "12px"}}> Title <input value={title} onChange={function (e: ChangeEvent) {
-		titleState[1](e.target.value);
+		setTitleState(e.target.value);
 	}} style={{"display": "block", "width": "100%", "padding": "8px", "marginTop": "6px"}} /></label><div style={{"marginTop": "12px"}}><button onClick={function () {
 		onSave();
 	}} style={{"padding": "8px 12px"}}>Save</button></div></div>;

@@ -8,29 +8,28 @@ import {Client} from "../Client"
 import {StringTools} from "../../../StringTools"
 import {Register} from "../../../genes/Register"
 import type {Todo} from "../../shared/Todo"
-import type {UseStateResult} from "../../../genes/react/UseStateResult"
 import type {ChangeEvent} from "../ReactTypes"
 
 function Component(): JSX.Element {
 	const idStr: string | null = Router.useParam("id");
 	const id: string | null = idStr;
-	const todoState = useState<Todo | null>(null);
-	const todo: Todo | null = todoState[0];
-	const titleState: UseStateResult<string> = useState<string>("");
-	const title: string = titleState[0];
-	const errorState: UseStateResult<string> = useState<string>("");
-	const error: string = errorState[0];
+	const [todoState, setTodoState] = useState<Todo | null>(null);
+	const todo: Todo | null = todoState;
+	const [titleState, setTitleState] = useState<string>("");
+	const title: string = titleState;
+	const [errorState, setErrorState] = useState<string>("");
+	const error: string = errorState;
 	const navigate: ((arg0: string) => void) = useNavigate();
 	useEffect(function () {
 		if (id == null) {
-			errorState[1]("Missing id");
+			setErrorState("Missing id");
 			return;
 		};
 		Client.getTodo(id).then(function (t: Todo) {
-			todoState[1](t);
-			titleState[1](t.title);
+			setTodoState(t);
+			setTitleState(t.title);
 		})["catch"](function (_) {
-			errorState[1]("Todo not found");
+			setErrorState("Todo not found");
 		});
 	}, [idStr]);
 	const onSave: (() => void) = function () {
@@ -39,14 +38,14 @@ function Component(): JSX.Element {
 		};
 		const trimmed: string = StringTools.trim(title);
 		if (trimmed.length == 0) {
-			errorState[1]("Title is required");
+			setErrorState("Title is required");
 			return;
 		};
 		Client.updateTodoTitle(id, trimmed).then(function (updated: Todo) {
-			todoState[1](updated);
+			setTodoState(updated);
 			navigate("/");
 		})["catch"](function (_) {
-			errorState[1]("Failed to save");
+			setErrorState("Failed to save");
 		});
 	};
 	if (error != "") {
@@ -68,7 +67,7 @@ function Component(): JSX.Element {
 	const tmp7: JSX.Element = React__genes_jsx.createElement("b", null, "Updated:");
 	const tmp8: JSX.Element = React__genes_jsx.createElement("p", null, tmp7, todoValue.updatedAt);
 	const tmp9: JSX.Element = React__genes_jsx.createElement("input", ({value: title, onChange: function (e: ChangeEvent) {
-		titleState[1](e.target.value);
+		setTitleState(e.target.value);
 	}, style: {"display": "block", "width": "100%", "padding": "8px", "marginTop": "6px"}} satisfies (React__genes_jsx.ComponentPropsWithRef<"input"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })));
 	const tmp10: JSX.Element = React__genes_jsx.createElement("label", ({style: {"display": "block", "marginTop": "12px"}} satisfies (React__genes_jsx.ComponentPropsWithRef<"label"> & React__genes_jsx.Attributes & { [K in `data-${string}`]?: string | number | boolean | null | undefined } & { [K in `aria-${string}`]?: string | number | boolean | null | undefined })), " Title ", tmp9);
 	const tmp11: JSX.Element = React__genes_jsx.createElement("button", ({onClick: function () {

@@ -112,6 +112,8 @@ class Module {
   public var implementationProjection(get, null): DependencyProjection;
   public var tempPlan(get, null): TempPlan;
   public var localBindingPlan(get, null): LocalBindingPlan;
+  public var reactStateProjectionPlan(get,
+    null): genes.react.ReactStateProjectionPlan;
   public var moduleFunctionRequestPlan(get, null): ModuleFunctionRequestPlan;
   public var moduleFunctionPlan(get, null): ModuleFunctionPlan;
   public var moduleValuePlan(get, null): ModuleValuePlan;
@@ -123,6 +125,7 @@ class Module {
   final cycleCache = new Map<String, Bool>();
   final namePlans = new Map<String, NamePlan>();
   var lexicalBindingUsePlanCache: Null<LexicalBindingUsePlan>;
+  var reactStateInitializationPlanCache: Null<genes.react.ReactStateInitializationPlan>;
 
   public function new(context: ModuleContext, module, types: Array<Type>,
       ?main: TypedExpr, ?expose: Array<ModuleExport>) {
@@ -166,14 +169,19 @@ class Module {
 
   /** Returns exact destination-typed React state initialization facts. */
   function get_reactStateInitializationPlan(): genes.react.ReactStateInitializationPlan {
-    if (reactStateInitializationPlan == null)
-      reactStateInitializationPlan = genes.react.ReactStateInitializationPlan.build(this);
-    return reactStateInitializationPlan;
+    if (reactStateInitializationPlanCache == null)
+      reactStateInitializationPlanCache = genes.react.ReactStateInitializationPlan.build(this);
+    return reactStateInitializationPlanCache;
+  }
+
+  /** Builds state facts after dependency traversal authenticates a binding. */
+  public function planReactStateInitializations(): Void {
+    get_reactStateInitializationPlan();
   }
 
   /** Returns the state plan only after dependency planning requested it. */
   public function plannedReactStateInitializations(): Null<genes.react.ReactStateInitializationPlan> {
-    return reactStateInitializationPlan;
+    return reactStateInitializationPlanCache;
   }
 
   /**
@@ -294,6 +302,13 @@ class Module {
   /** Returns a requested plan without turning an ordinary lookup into work. */
   public function plannedLexicalBindingUses(): Null<LexicalBindingUsePlan> {
     return lexicalBindingUsePlanCache;
+  }
+
+  /** Returns exact React State projections shared by both output profiles. */
+  function get_reactStateProjectionPlan(): genes.react.ReactStateProjectionPlan {
+    if (reactStateProjectionPlan == null)
+      reactStateProjectionPlan = genes.react.ReactStateProjectionPlan.build(this);
+    return reactStateProjectionPlan;
   }
 
   /** Returns one cached naming projection used by planning and printing. */
@@ -445,10 +460,11 @@ class Module {
       tempPlan = null;
       localBindingPlan = null;
       lexicalBindingUsePlanCache = null;
+      reactStateProjectionPlan = null;
       moduleFunctionRequestPlan = null;
       moduleFunctionPlan = null;
       moduleValuePlan = null;
-      reactStateInitializationPlan = null;
+      reactStateInitializationPlanCache = null;
       namePlans.clear();
       cycleCache.clear();
     }

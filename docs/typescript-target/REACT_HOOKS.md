@@ -259,17 +259,34 @@ and do not add `@:genes.moduleFunction` beside `@:genes.reactComponent`.
 
 ## Generated behavior
 
-The semantic state and dependency views erase to React's existing values:
+When every typed use of a local State is `value`, `set`, or `update`, Genes
+emits React's native value and dispatcher bindings:
 
 ```ts
 import { useState, useMemo } from "react";
 
 export function useCounter(initial: number): number {
-  const state = useState(initial);
-  const value = state[0];
+  const [state, setState] = useState<number>(initial);
+  const value = state;
+  setState(4);
+  setState(old => old + 1);
   return useMemo(() => value * 2, [value]);
 }
 ```
+
+Value-only state emits `[state]`. Setter-only state emits `[, setState]`.
+Generated setter names use the same scope and collision plan as Haxe locals.
+
+Projection requires exact compiler-owned `useState` provenance and a complete
+typed use inventory. Genes keeps `UseStateResult<T>` and tuple indices when the
+whole State is returned, passed, stored, aliased, cast, compared, reflected,
+placed in `deps(...)`, or widened to `Dynamic`. Genes also keeps the indexed
+form when arbitrary target syntax is visible from the State binding's lexical
+scope, because that text can name the State or another runtime value without
+typed identity. An opaque sibling function does not affect an independent
+State. A custom Hook that returns `State<T>` also keeps the honest representation.
+Classic output before ES2015 keeps the indexed form because that syntax level
+cannot represent destructuring.
 
 There is no alternate Hook runtime, tuple wrapper, dispatcher registry, or
 framework adapter. TypeScript/TSX and classic JavaScript use the same canonical
@@ -289,11 +306,9 @@ Run the focused dual-profile contract:
 yarn test:react-hooks
 ```
 
-It compiles strict TypeScript across the supported TypeScript lanes and classic
-JavaScript/declarations, checks direct React imports and analyzer-visible
-functions, verifies context/ref/effect typing, cleanup preservation,
-computed-dependency exactly-once snapshots, deterministic output, and exact
-source-map mappings, and asserts callable-state, effect-result,
-dependency-snapshot, and Hook-placement failures. The fixture includes an
-ordinary React component and a Gutenberg-shaped block editor with no
-framework-specific compiler knowledge.
+It compiles typed TypeScript, TSX, classic JavaScript, and source JSX. The gate
+checks strict TypeScript 5, 6, and 7, declarations, direct React imports, React
+server rendering, official Hook lint, deterministic names, and source maps. It
+also checks safe State projections and whole-State fallbacks. The fixture
+includes an ordinary React component and a Gutenberg-shaped block editor with
+no framework-specific compiler knowledge.

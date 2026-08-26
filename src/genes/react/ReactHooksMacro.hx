@@ -411,7 +411,7 @@ private function isEmptyArrayLiteral(expression: Expr): Bool {
   }
 }
 
-/** Whether TypeScript would widen a closed Haxe enum abstract literal. */
+/** Whether TypeScript could infer one enum member instead of Haxe's full type. */
 private function needsExplicitStateType(type: Type, depth: Int = 0): Bool {
   if (depth > 32)
     return false;

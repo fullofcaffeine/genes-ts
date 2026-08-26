@@ -197,8 +197,10 @@ class DependencyPlanBuilder {
       switch expression.expr {
         case TField(_, FStatic(owner, _.get() => field)):
           if (genes.react.ReactStateInitializationPlan.isStateBinding(owner.get(),
-            field))
+            field)) {
             hasReactStateBinding = true;
+            module.planReactStateInitializations();
+          }
           final dependency = fieldImport(field.name, field.meta, field.pos);
           if (dependency != null)
             addImport(RuntimeValue, dependency,
@@ -544,10 +546,20 @@ class DependencyPlanBuilder {
       if (expression == null)
         return;
       switch expression.expr {
-        case TVar(variable, _):
-          collector.observeOverrideMeta(variable.meta,
-            'type.local-variable-override', expression.pos);
-          collector.collect(variable.t, 'type.local-variable', expression.pos);
+        case TVar(variable, initializer):
+          // A projected React State declaration emits an inferred native
+          // destructure, not the Haxe State annotation. Keep dependency planning
+          // aligned with that syntax so a projected-only module does not retain
+          // a phantom UseStateResult type import.
+          final projected = initializer != null
+            && module.reactStateProjectionPlan.projectsDeclaration(expression,
+              variable, initializer);
+          if (!projected) {
+            collector.observeOverrideMeta(variable.meta,
+              'type.local-variable-override', expression.pos);
+            collector.collect(variable.t, 'type.local-variable',
+              expression.pos);
+          }
         case TFunction(functionType):
           for (argument in functionType.args) {
             collector.observeOverrideMeta(argument.v.meta,
