@@ -250,6 +250,7 @@ function validateResolutionEnvironment(): void {
     (process.env.NODE_OPTIONS?.length ?? 0) > 0 ||
     (process.env.NODE_PATH?.length ?? 0) > 0 ||
     (process.env.NODE_PRESERVE_SYMLINKS?.length ?? 0) > 0 ||
+    (process.env.NODE_PRESERVE_SYMLINKS_MAIN?.length ?? 0) > 0 ||
     process.versions["pnp"] !== undefined
   ) {
     return fail(

@@ -169,6 +169,7 @@ const temporaryRoots: string[] = [];
 try {
   assert.equal(process.env.NODE_OPTIONS ?? "", "");
   assert.equal(process.env.NODE_PATH ?? "", "");
+  assert.equal(process.env.NODE_PRESERVE_SYMLINKS_MAIN ?? "", "");
 
   const hoisted = projectRoot("genes-package-hoisted-");
   const nested = projectRoot("genes-package-nested-");
@@ -756,6 +757,17 @@ try {
     );
   } finally {
     delete process.env.NODE_PRESERVE_SYMLINKS;
+  }
+  process.env.NODE_PRESERVE_SYMLINKS_MAIN = "1";
+  try {
+    expectFailure(
+      "resolution-profile-unsupported",
+      INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+      () =>
+        measureInstalledPackageClosure(request(hoisted, "fixture-root")),
+    );
+  } finally {
+    delete process.env.NODE_PRESERVE_SYMLINKS_MAIN;
   }
   process.env.NODE_OPTIONS = "--trace-warnings";
   try {
