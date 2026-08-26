@@ -70,7 +70,9 @@ characters, backslashes, and the Unicode replacement character cause failure.
 Each capture has reviewed maximums and caller-selected lower limits for
 packages, dependency edges, directory entries, files, bytes, and path lengths.
 It reads directories incrementally, charges package metadata to the same byte
-budget, and does not use a path, size, or timestamp cache.
+budget, and processes dependency maps and peer metadata under the edge limit.
+Each complete pass resolves the base directory and every package locator again.
+The capture does not use a path, size, or timestamp cache.
 
 Installed-closure identity is not final `processorIntegrity`. Package metadata
 can omit a module that Node later loads, and equal endpoint snapshots cannot

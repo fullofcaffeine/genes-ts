@@ -294,7 +294,7 @@ function validateRequest(request: InstalledPackageClosureRequest): string {
     return fail("invalid-request", "roots");
   }
 
-  let baseDirectory: string;
+  let baseDirectoryLocator: string;
   try {
     const base = new URL(request.resolutionBaseUrl);
     if (base.protocol !== "file:") {
@@ -304,7 +304,7 @@ function validateRequest(request: InstalledPackageClosureRequest): string {
     if (!path.isAbsolute(baseFile)) {
       return fail("invalid-request", "resolutionBaseUrl");
     }
-    baseDirectory = realpathSync.native(path.dirname(baseFile));
+    baseDirectoryLocator = path.dirname(baseFile);
   } catch (error) {
     if (error instanceof InstalledPackageClosureError) throw error;
     return fail("invalid-request", "resolutionBaseUrl");
@@ -324,7 +324,15 @@ function validateRequest(request: InstalledPackageClosureRequest): string {
     rootNames.add(root.packageName);
   }
   validateResolutionEnvironment();
-  return baseDirectory;
+  return baseDirectoryLocator;
+}
+
+function resolveBaseDirectory(baseDirectoryLocator: string): string {
+  try {
+    return realpathSync.native(baseDirectoryLocator);
+  } catch {
+    return fail("invalid-request", "resolutionBaseUrl");
+  }
 }
 
 function sameFile(left: BigIntStats, right: BigIntStats): boolean {
@@ -482,7 +490,13 @@ function parsePackageMetadata(
     if (!plainRecord(peerMetadata)) {
       return fail("package-metadata-invalid", `${subject}:peerDependenciesMeta`);
     }
-    for (const key of sortedStrings(Object.keys(peerMetadata))) {
+    let peerMetadataEntries = 0;
+    for (const key in peerMetadata) {
+      if (!Object.hasOwn(peerMetadata, key)) continue;
+      if (peerMetadataEntries >= maximumEdges) {
+        return fail("package-closure-limit", "maxEdges");
+      }
+      peerMetadataEntries += 1;
       if (packageKeySegments(key) === null) {
         return fail("package-metadata-invalid", `${subject}:peerDependenciesMeta`);
       }
@@ -978,8 +992,9 @@ function canonicalIntegrity(
 export function measureInstalledPackageClosure(
   request: InstalledPackageClosureRequest,
 ): InstalledPackageClosureMeasurement {
-  const baseDirectory = validateRequest(request);
+  const baseDirectoryLocator = validateRequest(request);
   const capture = (): InstalledPackageClosureMeasurement => {
+    const baseDirectory = resolveBaseDirectory(baseDirectoryLocator);
     const graph = discoverGraph(request, baseDirectory);
     return Object.freeze({
       installedClosureIntegrity: canonicalIntegrity(

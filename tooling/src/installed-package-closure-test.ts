@@ -387,6 +387,27 @@ try {
   assert.equal(metadataOnlyPeerMeasurement.packageCount, 1);
   assert.equal(metadataOnlyPeerMeasurement.edgeCount, 0);
 
+  const excessivePeerMetadata = projectRoot(
+    "genes-package-peer-metadata-limit-",
+  );
+  temporaryRoots.push(excessivePeerMetadata);
+  createPackage(packageRoot(excessivePeerMetadata, "peer-root"), {
+    name: "peer-root",
+    peerDependenciesMeta: {
+      "metadata-a": { optional: true },
+      "metadata-b": { optional: true },
+      "metadata-c": { optional: true },
+    },
+  });
+  expectFailure("package-closure-limit", "maxEdges", () => {
+    measureInstalledPackageClosure(
+      request(excessivePeerMetadata, "peer-root", "genes.test.processor", {
+        ...LIMITS,
+        maxEdges: 2,
+      }),
+    );
+  });
+
   const mandatoryPeer = projectRoot("genes-package-peer-mandatory-");
   temporaryRoots.push(mandatoryPeer);
   createPackage(packageRoot(mandatoryPeer, "peer-root"), {
@@ -723,6 +744,42 @@ try {
     "genes.test.processor",
     () => measureInstalledPackageClosure(changingRequest),
     changingClosure,
+  );
+
+  const firstBase = projectRoot("genes-package-base-first-");
+  const secondBase = projectRoot("genes-package-base-second-");
+  const baseLinkOwner = projectRoot("genes-package-base-link-");
+  temporaryRoots.push(firstBase, secondBase, baseLinkOwner);
+  createPackage(packageRoot(firstBase, "base-root"), {
+    name: "base-root",
+    files: { "value.txt": "first\n" },
+  });
+  createPackage(packageRoot(secondBase, "base-root"), {
+    name: "base-root",
+    files: { "value.txt": "second\n" },
+  });
+  const linkedBase = path.join(baseLinkOwner, "active");
+  symlinkSync(firstBase, linkedBase, "dir");
+  let baseProviderKindReads = 0;
+  const changingBaseRequest: InstalledPackageClosureRequest = {
+    get providerKind(): string {
+      baseProviderKindReads += 1;
+      if (baseProviderKindReads === 2) {
+        rmSync(linkedBase, { force: true });
+        symlinkSync(secondBase, linkedBase, "dir");
+      }
+      return "genes.test.processor";
+    },
+    resolutionProfile: INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+    resolutionBaseUrl: pathToFileURL(path.join(linkedBase, "anchor.mjs")).href,
+    roots: [{ packageName: "base-root", expectedVersion: "1.0.0" }],
+    limits: LIMITS,
+  };
+  expectFailure(
+    "package-closure-changed",
+    "genes.test.processor",
+    () => measureInstalledPackageClosure(changingBaseRequest),
+    baseLinkOwner,
   );
 
   process.env.NODE_PATH = path.join(hoisted, "node_modules");
