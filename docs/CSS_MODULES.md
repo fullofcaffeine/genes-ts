@@ -23,10 +23,11 @@ That declaration accepts `styles.misspelled` because it claims every string is a
 possible key. A hand-written closed declaration is safer, but then a person has
 to keep the stylesheet, TypeScript declaration, and Haxe type synchronized.
 
-Genes uses one processor-produced manifest instead. Here, a **manifest** means
-a small JSON file that records the exact exported keys plus the source,
-processor, configuration, and hashes that produced them. If a stylesheet
-changes without a new manifest, tooling rejects the stale data.
+Genes uses one exact manifest instead. A pinned processor or one closed
+per-file declaration can provide the keys. Here, a **manifest** means a small
+JSON record with the keys, sources, producer identity, configuration, and input
+hashes. If a stylesheet changes without a new manifest, tooling rejects the
+stale data.
 
 ## Why Genes does not parse the stylesheet
 
@@ -34,9 +35,10 @@ Reading `.card` selectors looks simple until real CSS Module behavior enters the
 picture. `:global`, `composes`, escaped selectors, naming options, preprocessors,
 and plugins can all change the JavaScript object's keys.
 
-The configured CSS Modules processor is the only honest authority for those
-keys. Genes validates the exact list it reports; it does not build a second CSS
-parser that could disagree with the application.
+The configured CSS Modules processor is the best authority for those keys.
+A declaration producer can also record a finite key list for one file. Genes
+validates either exact list. It does not build a second CSS parser that can
+disagree with the application.
 
 ## Tested authoring flow
 
@@ -212,6 +214,106 @@ to stand in for it.
 
 ## What the tooling API does
 
+The public package can create the manifest in two bounded ways. The first way
+runs the package's pinned `postcss-modules` provider:
+
+```bash
+npm install --save-exact postcss@8.5.25 postcss-modules@9.0.1 postcss-selector-parser@7.1.4
+```
+
+```ts
+import {
+  createPostcssModulesManifest,
+} from "@genes-ts/tooling/css-modules/postcss-modules"
+import {
+  generateCssModuleCompanion,
+} from "@genes-ts/tooling/css-modules"
+
+const binding = {
+  haxeOwner: "app.Card",
+  generatedModule: "app/Card",
+  request: "../styles/card.module.css",
+  hostModulePath: "src-gen/styles/card.module.css",
+  companionType: "app.CardStyles",
+}
+
+const manifest = await createPostcssModulesManifest({
+  projectRoot,
+  entry: "styles/card.module.css",
+  binding,
+  configuration: {
+    generateScopedName: "genes_[name]__[local]",
+    scopeBehaviour: "local",
+    exportGlobals: true,
+    hashPrefix: "my-project",
+  },
+})
+
+const candidate = generateCssModuleCompanion({ projectRoot, manifest })
+```
+
+The provider uses `postcss` 8.5.25 and `postcss-modules` 9.0.1. It uses
+`postcss-selector-parser` 7.1.4 to record the exact selector locations.
+
+The configuration has exactly four data properties. The provider rejects
+functions, accessors, symbols, extra properties, and class instances. It never
+loads an application PostCSS configuration file.
+
+The provider resolves only relative `composes ... from` requests. Each resolved
+file must stay inside `projectRoot` and must not use a symbolic link. The
+manifest includes the entry and every resolved composition file with its
+SHA-256 hash.
+
+The second way reads one exact TypeScript declaration for one stylesheet:
+
+```bash
+npm install --save-exact typescript@6.0.3
+```
+
+```ts
+import {
+  createTypeScriptDeclarationManifest,
+} from "@genes-ts/tooling/css-modules/typescript-declaration"
+
+const manifest = createTypeScriptDeclarationManifest({
+  projectRoot,
+  entry: "styles/card.module.css",
+  declaration: "styles/card.module.css.d.ts",
+  binding,
+})
+```
+
+The declaration must contain only this closed shape:
+
+```ts
+declare const styles: {
+  readonly card: string
+  readonly "error-state": string
+}
+export default styles
+```
+
+The adapter uses TypeScript 6.0.3. It rejects wildcard modules, imports, index
+signatures, `Record` types, optional properties, mutable properties, duplicate
+keys, non-string values, and unrelated declaration paths.
+
+The declaration adapter does not compare the declared keys with CSS selectors.
+The declaration producer owns that agreement. The host still tests the real
+loader before it publishes generated files.
+
+Both functions return the same checked version-one manifest type. They do not
+write files or publish a candidate.
+
+The provider subpaths are separate from the core CSS Modules subpath. A host
+that only checks a manifest and generates a companion does not load either
+parser. The parser packages are optional peers, so install only the selected
+provider's exact packages.
+
+Hosts can also supply a manifest from another processor. The version-one JSON
+contract stays the boundary for those integrations.
+
+### Generate the companion
+
 Hosts call:
 
 ```ts
@@ -242,10 +344,12 @@ The protocol guide explains every field and the ownership boundary in
 
 Examples of early failures include:
 
-- `GENES-CSS-MODULE-TYPE-009` — the Haxe value has no generated companion type;
-- `GENES-CSS-MODULE-BINDING-010` — the companion belongs to another module or stylesheet;
-- `GENES-CSS-MODULE-MANIFEST-STALE-004` — an input file no longer matches its recorded hash;
-- `GENES-CSS-MODULE-NAME-COLLISION-006` — two runtime keys would become the same Haxe field;
+- `GENES-CSS-MODULE-TYPE-009` — the Haxe value has no generated companion type.
+- `GENES-CSS-MODULE-BINDING-010` — the companion belongs to another module or stylesheet.
+- `GENES-CSS-MODULE-MANIFEST-STALE-004` — an input file no longer matches its recorded hash.
+- `GENES-CSS-MODULE-NAME-COLLISION-006` — two runtime keys would become the same Haxe field.
+- `GENES-CSS-MODULE-PROVIDER-016` — the processor configuration or result is outside the closed provider contract.
+- `GENES-CSS-MODULE-DECLARATION-017` — a per-file declaration has an unsupported or unrelated shape.
 - the normal Haxe `has no field ...` error — application code used a class name the processor did not report.
 
 Each compiler-side error points into the authored Haxe call or field access.
@@ -282,17 +386,18 @@ yarn test:css-module-companions
 
 The fixture deliberately uses different owners for expected and actual results:
 
-1. a hand-reviewed JSON file states the expected class keys;
-2. pinned `postcss-modules` independently reports its keys;
-3. Genes tooling generates the Haxe companion and exact TypeScript declaration
-   from that processor manifest;
-4. Haxe checks valid and invalid field access;
-5. strict TypeScript checks the generated closed type;
-6. Genes emits TypeScript plus classic JavaScript, including the classic
-   `.d.ts` declaration consumed by TypeScript callers;
-7. pinned esbuild loads and runs both generated programs through a controlled
-   CSS Modules loader;
-8. the object available to the running JavaScript must contain all five
+1. a hand-reviewed list states the expected class keys.
+2. the pinned provider reports local, global, dashed, escaped, and composed keys.
+3. the declaration adapter accepts one closed per-file declaration and rejects broad declarations.
+4. Genes tooling generates the Haxe companion and exact TypeScript declaration
+   from that processor manifest.
+5. Haxe checks valid and invalid field access.
+6. strict TypeScript checks the generated closed type.
+7. Genes emits TypeScript plus classic JavaScript, including the classic
+   `.d.ts` declaration consumed by TypeScript callers.
+8. pinned esbuild loads and runs both generated programs through a controlled
+   CSS Modules loader.
+9. the object available to the running JavaScript must contain all five
    reviewed keys and string values.
 
 The expected keys are never generated by the companion generator and compared
@@ -304,7 +409,8 @@ The manifest and companion generator stay useful in a one-shot build. A
 long-running host can also compose them with `@genes-ts/tooling/session` for a
 safe warm edit loop.
 
-- hosts supply an exact manifest from a processor they selected and pinned;
+- hosts can use the pinned provider, adapt one closed per-file TypeScript
+  declaration, or supply another exact manifest;
 - exact keys wrapped in square brackets are rejected for the reason above;
 - tooling checks and generates one Haxe companion plus one exact TypeScript
   declaration candidate;
@@ -318,7 +424,7 @@ safe warm edit loop.
 
 Genes still does not provide automatic processor discovery or decide a host's
 watch list. The host must watch the authored stylesheet, binding data,
-processor configuration, lock identity, and every processor-reported input.
+configuration, lock identity, and every provider-reported input.
 Direct editor navigation from a Haxe field to the CSS selector is also not yet
 promised. Published generated Haxe companions do keep a stable source-map path
 when the host uses the same private and public relative path.

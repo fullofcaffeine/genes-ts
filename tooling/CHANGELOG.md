@@ -4,6 +4,17 @@ All notable changes to `@genes-ts/tooling` are recorded here. This package has
 its own version and release lifecycle; compiler/Haxelib releases do not publish
 it.
 
+## Unreleased
+
+- Add a pinned PostCSS Modules provider that creates exact version-one CSS
+  Module manifests. It records composed files, source locations, package
+  identity, configuration identity, and file hashes.
+- Add an adapter for one closed per-file TypeScript declaration. It rejects
+  wildcard modules, index signatures, broad records, mutable properties, and
+  other shapes that do not prove a finite key list.
+- Declare exact optional peer packages for both provider subpaths. Core CSS
+  Module users do not install or load either parser.
+
 ## 0.5.0
 
 - Export the exact Genes output inventory reader and unowned-file guard from

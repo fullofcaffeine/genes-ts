@@ -18,6 +18,15 @@ export interface CssModuleExport {
   readonly source: CssModuleSourceLocation;
 }
 
+/** One Haxe import and the generated companion that describes it. */
+export interface CssModuleBinding {
+  readonly haxeOwner: string;
+  readonly generatedModule: string;
+  readonly request: string;
+  readonly hostModulePath: string;
+  readonly companionType: string;
+}
+
 /**
  * Exact, portable evidence supplied by a CSS Modules processor integration.
  *
@@ -29,13 +38,7 @@ export interface CssModuleExportsManifestV1 {
   readonly protocol: typeof CSS_MODULE_EXPORTS_PROTOCOL;
   readonly version: typeof CSS_MODULE_EXPORTS_VERSION;
   readonly namingPolicy: typeof CSS_MODULE_NAMING_POLICY;
-  readonly binding: {
-    readonly haxeOwner: string;
-    readonly generatedModule: string;
-    readonly request: string;
-    readonly hostModulePath: string;
-    readonly companionType: string;
-  };
+  readonly binding: CssModuleBinding;
   readonly source: {
     readonly entry: string;
     readonly inputs: readonly CssModuleInput[];

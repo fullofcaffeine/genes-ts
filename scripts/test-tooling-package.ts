@@ -366,6 +366,8 @@ const expectedPublicExports = [
   "./artifact-transactions/v1/vectors.schema.json",
   "./artifacts",
   "./css-modules",
+  "./css-modules/postcss-modules",
+  "./css-modules/typescript-declaration",
   "./css-modules/v1/exports.schema.json",
   "./development-session/v1/protocol.schema.json",
   "./development-session/v1/vectors.json",
@@ -416,6 +418,10 @@ function verifyInventory(result: PackResult): readonly string[] {
     "dist/artifacts/index.d.ts",
     "dist/css-modules/index.js",
     "dist/css-modules/index.d.ts",
+    "dist/css-modules/postcss-modules-provider.js",
+    "dist/css-modules/postcss-modules-provider.d.ts",
+    "dist/css-modules/typescript-declaration-provider.js",
+    "dist/css-modules/typescript-declaration-provider.d.ts",
     "dist/hxml/index.js",
     "dist/hxml/index.d.ts",
     "dist/lix/index.js",
@@ -478,7 +484,30 @@ function verifyPackageMetadata(): { name: string; version: string } {
   verifyChangelogVersion(version);
   assert(
     packageJson.dependencies === undefined,
-    "@genes-ts/tooling must remain dependency-free unless release policy is explicitly expanded"
+    "@genes-ts/tooling production dependencies changed"
+  );
+  const peerDependencies = packageJson.peerDependencies;
+  assert(
+    isRecord(peerDependencies) &&
+      peerDependencies.postcss === "8.5.25" &&
+      peerDependencies["postcss-modules"] === "9.0.1" &&
+      peerDependencies["postcss-selector-parser"] === "7.1.4" &&
+      peerDependencies.typescript === "6.0.3" &&
+      Object.keys(peerDependencies).length === 4,
+    "CSS Module provider peer dependencies must stay exact and closed"
+  );
+  const peerDependenciesMeta = packageJson.peerDependenciesMeta;
+  assert(
+    isRecord(peerDependenciesMeta) &&
+      Object.keys(peerDependenciesMeta).length === 4 &&
+      Object.entries(peerDependenciesMeta).every(
+        ([name, metadata]) =>
+          name in peerDependencies &&
+          isRecord(metadata) &&
+          metadata.optional === true &&
+          Object.keys(metadata).length === 1
+      ),
+    "every CSS Module provider peer must remain optional for core consumers"
   );
   const scripts = packageJson.scripts;
   assert(
@@ -492,8 +521,9 @@ function verifyPackageMetadata(): { name: string; version: string } {
     isRecord(devDependencies) &&
       devDependencies["@types/node"] === "20.19.30" &&
       devDependencies.ajv === "8.20.0" &&
-      devDependencies.typescript === "npm:@typescript/typescript6@6.0.2" &&
-      Object.keys(devDependencies).length === 3,
+      devDependencies.typescript === "6.0.3" &&
+      devDependencies["typescript-build"] === "npm:@typescript/typescript6@6.0.2" &&
+      Object.keys(devDependencies).length === 4,
     "Git-source build dependencies must stay exact and self-contained"
   );
   const repository = packageJson.repository;
@@ -539,6 +569,12 @@ function verifyCleanConsumer(tarball: string, tempRoot: string): void {
     version: "0.0.0",
     private: true,
     type: "module",
+    dependencies: {
+      postcss: "8.5.25",
+      "postcss-modules": "9.0.1",
+      "postcss-selector-parser": "7.1.4",
+      typescript: "6.0.3",
+    },
   };
   mkdirSync(consumer, { recursive: true });
   writeFileSync(
@@ -578,6 +614,14 @@ import {
   generateCssModuleCompanion,
   type CssModuleExportsManifestV1,
 } from "@genes-ts/tooling/css-modules";
+import {
+  createPostcssModulesManifest,
+  type PostcssModulesManifestOptions,
+} from "@genes-ts/tooling/css-modules/postcss-modules";
+import {
+  createTypeScriptDeclarationManifest,
+  type TypeScriptDeclarationManifestOptions,
+} from "@genes-ts/tooling/css-modules/typescript-declaration";
 import { inventoryHxml, type HxmlInventory } from "@genes-ts/tooling/hxml";
 import {
   resolveLixLibraryGroup,
@@ -627,6 +671,8 @@ import cssModuleSchema from "@genes-ts/tooling/css-modules/v1/exports.schema.jso
 const runtimeValues = [
   publishArtifacts,
   recoverArtifacts,
+  createPostcssModulesManifest,
+  createTypeScriptDeclarationManifest,
   generateCssModuleCompanion,
   inventoryHxml,
   resolveLixLibraryGroup,
@@ -670,6 +716,8 @@ const typeWitness:
   | CompilerDataFile
   | ValidationTree
   | CssModuleExportsManifestV1
+  | PostcssModulesManifestOptions
+  | TypeScriptDeclarationManifestOptions
   | undefined = undefined;
 void runtimeValues;
 void typeWitness;
@@ -691,6 +739,8 @@ import path from "node:path";
 import * as root from "@genes-ts/tooling";
 import * as artifacts from "@genes-ts/tooling/artifacts";
 import * as cssModules from "@genes-ts/tooling/css-modules";
+import * as cssPostcss from "@genes-ts/tooling/css-modules/postcss-modules";
+import * as cssDeclaration from "@genes-ts/tooling/css-modules/typescript-declaration";
 import * as hxml from "@genes-ts/tooling/hxml";
 import * as lix from "@genes-ts/tooling/lix";
 import * as loop from "@genes-ts/tooling/loop";
@@ -718,6 +768,8 @@ const witnesses = [
   root.publishArtifacts,
   artifacts.recoverArtifacts,
   cssModules.generateCssModuleCompanion,
+  cssPostcss.createPostcssModulesManifest,
+  cssDeclaration.createTypeScriptDeclarationManifest,
   hxml.inventoryHxml,
   lix.resolveLixLibraryGroup,
   loop.SerializedDirtyLoop,
@@ -731,7 +783,7 @@ const witnesses = [
   session.readGenesOutput,
   session.assertCandidateContainsOnlyOwnedFiles,
 ];
-if (witnesses.slice(0, 9).some((value) => typeof value !== "function")) {
+if (witnesses.slice(0, 11).some((value) => typeof value !== "function")) {
   throw new Error("a public tooling runtime export is missing");
 }
 if (
