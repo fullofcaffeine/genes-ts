@@ -240,8 +240,8 @@ function validateLimits(
 
 function validateResolutionEnvironment(): void {
   if (
-    (process.env.NODE_OPTIONS?.trim().length ?? 0) > 0 ||
-    (process.env.NODE_PATH?.trim().length ?? 0) > 0 ||
+    (process.env.NODE_OPTIONS?.length ?? 0) > 0 ||
+    (process.env.NODE_PATH?.length ?? 0) > 0 ||
     process.versions["pnp"] !== undefined
   ) {
     return fail(
@@ -261,7 +261,10 @@ function validateResolutionEnvironment(): void {
   for (const argument of process.execArgv) {
     const equals = argument.indexOf("=");
     const flag = equals < 0 ? argument : argument.slice(0, equals);
-    if (unsupported.has(flag)) {
+    const normalizedFlag = flag.startsWith("--")
+      ? flag.replaceAll("_", "-")
+      : flag;
+    if (unsupported.has(normalizedFlag)) {
       return fail(
         "resolution-profile-unsupported",
         INSTALLED_PACKAGE_RESOLUTION_PROFILE,
@@ -464,7 +467,7 @@ function parsePackageMetadata(
       return fail("package-metadata-invalid", `${subject}:peerDependenciesMeta`);
     }
     for (const key of sortedStrings(Object.keys(peerMetadata))) {
-      if (!peerDependencies.has(key)) {
+      if (packageKeySegments(key) === null) {
         return fail("package-metadata-invalid", `${subject}:peerDependenciesMeta`);
       }
       const metadata = peerMetadata[key];
@@ -477,7 +480,9 @@ function parsePackageMetadata(
       ) {
         return fail("package-metadata-invalid", `${subject}:peerDependenciesMeta`);
       }
-      if (metadata.optional === true) optionalPeers.add(key);
+      if (metadata.optional === true && peerDependencies.has(key)) {
+        optionalPeers.add(key);
+      }
     }
   }
   return Object.freeze({
@@ -942,24 +947,49 @@ function canonicalIntegrity(
 }
 
 /**
- * Captures one bounded installed package closure without serializing paths.
+ * Measures one bounded closure from two matching, path-free captures.
  * This evidence does not prove which module bytes a provider later executes.
  */
 export function measureInstalledPackageClosure(
   request: InstalledPackageClosureRequest,
 ): InstalledPackageClosureMeasurement {
   const baseDirectory = validateRequest(request);
-  const graph = discoverGraph(request, baseDirectory);
-  return Object.freeze({
-    installedClosureIntegrity: canonicalIntegrity(
-      request,
-      graph.roots,
-      graph.nodes,
-    ),
-    packageCount: graph.nodes.length,
-    edgeCount: graph.edgeCount,
-    entryCount: graph.budget.entries,
-    fileCount: graph.budget.files,
-    totalBytes: graph.budget.bytes,
-  });
+  const capture = (): InstalledPackageClosureMeasurement => {
+    const graph = discoverGraph(request, baseDirectory);
+    return Object.freeze({
+      installedClosureIntegrity: canonicalIntegrity(
+        request,
+        graph.roots,
+        graph.nodes,
+      ),
+      packageCount: graph.nodes.length,
+      edgeCount: graph.edgeCount,
+      entryCount: graph.budget.entries,
+      fileCount: graph.budget.files,
+      totalBytes: graph.budget.bytes,
+    });
+  };
+  // A package captured early can change while a later dependency is scanned.
+  // Repeating resolution and inventory makes that stale first view fail closed.
+  const first = capture();
+  let verified: InstalledPackageClosureMeasurement;
+  try {
+    verified = capture();
+  } catch (error) {
+    if (error instanceof InstalledPackageClosureError) {
+      return fail("package-closure-changed", request.providerKind);
+    }
+    throw error;
+  }
+  if (
+    first.installedClosureIntegrity !== verified.installedClosureIntegrity ||
+    first.packageCount !== verified.packageCount ||
+    first.edgeCount !== verified.edgeCount ||
+    first.entryCount !== verified.entryCount ||
+    first.fileCount !== verified.fileCount ||
+    first.totalBytes !== verified.totalBytes
+  ) {
+    return fail("package-closure-changed", request.providerKind);
+  }
+  return verified;
 }

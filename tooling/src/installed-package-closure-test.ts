@@ -374,6 +374,18 @@ try {
     peerPresentMeasurement.installedClosureIntegrity,
   );
 
+  const metadataOnlyPeer = projectRoot("genes-package-peer-metadata-only-");
+  temporaryRoots.push(metadataOnlyPeer);
+  createPackage(packageRoot(metadataOnlyPeer, "peer-root"), {
+    name: "peer-root",
+    peerDependenciesMeta: { "undeclared-peer": { optional: true } },
+  });
+  const metadataOnlyPeerMeasurement = measureInstalledPackageClosure(
+    request(metadataOnlyPeer, "peer-root"),
+  );
+  assert.equal(metadataOnlyPeerMeasurement.packageCount, 1);
+  assert.equal(metadataOnlyPeerMeasurement.edgeCount, 0);
+
   const mandatoryPeer = projectRoot("genes-package-peer-mandatory-");
   temporaryRoots.push(mandatoryPeer);
   createPackage(packageRoot(mandatoryPeer, "peer-root"), {
@@ -660,7 +672,48 @@ try {
     unsafeNameProject,
   );
 
+  const changingClosure = projectRoot("genes-package-changing-closure-");
+  temporaryRoots.push(changingClosure);
+  const earlyRoot = createPackage(packageRoot(changingClosure, "a-early"), {
+    name: "a-early",
+    files: { "value.txt": "before\n" },
+  });
+  const changedFile = path.join(earlyRoot, "value.txt");
+  let providerKindReads = 0;
+  const changingRequest: InstalledPackageClosureRequest = {
+    get providerKind(): string {
+      providerKindReads += 1;
+      if (providerKindReads === 2) {
+        writeFileSync(changedFile, "after!\n", "utf8");
+      }
+      return "genes.test.processor";
+    },
+    resolutionProfile: INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+    resolutionBaseUrl: pathToFileURL(
+      path.join(changingClosure, "anchor.mjs"),
+    ).href,
+    roots: [{ packageName: "a-early", expectedVersion: "1.0.0" }],
+    limits: LIMITS,
+  };
+  expectFailure(
+    "package-closure-changed",
+    "genes.test.processor",
+    () => measureInstalledPackageClosure(changingRequest),
+    changingClosure,
+  );
+
   process.env.NODE_PATH = path.join(hoisted, "node_modules");
+  try {
+    expectFailure(
+      "resolution-profile-unsupported",
+      INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+      () =>
+        measureInstalledPackageClosure(request(hoisted, "fixture-root")),
+    );
+  } finally {
+    delete process.env.NODE_PATH;
+  }
+  process.env.NODE_PATH = " ";
   try {
     expectFailure(
       "resolution-profile-unsupported",
@@ -692,6 +745,31 @@ try {
     );
   } finally {
     assert.equal(process.execArgv.pop(), "--preserve-symlinks");
+  }
+  process.execArgv.push("--preserve_symlinks");
+  try {
+    expectFailure(
+      "resolution-profile-unsupported",
+      INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+      () =>
+        measureInstalledPackageClosure(request(hoisted, "fixture-root")),
+    );
+  } finally {
+    assert.equal(process.execArgv.pop(), "--preserve_symlinks");
+  }
+  process.execArgv.push("--experimental_loader=data:text/javascript,");
+  try {
+    expectFailure(
+      "resolution-profile-unsupported",
+      INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+      () =>
+        measureInstalledPackageClosure(request(hoisted, "fixture-root")),
+    );
+  } finally {
+    assert.equal(
+      process.execArgv.pop(),
+      "--experimental_loader=data:text/javascript,",
+    );
   }
 
   const typeScriptRequest: InstalledPackageClosureRequest = {
