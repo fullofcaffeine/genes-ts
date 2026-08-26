@@ -167,8 +167,8 @@ function comparableCounts(
 
 const temporaryRoots: string[] = [];
 try {
-  assert.equal(process.env.NODE_OPTIONS, undefined);
-  assert.equal(process.env.NODE_PATH, undefined);
+  assert.equal(process.env.NODE_OPTIONS ?? "", "");
+  assert.equal(process.env.NODE_PATH ?? "", "");
 
   const hoisted = projectRoot("genes-package-hoisted-");
   const nested = projectRoot("genes-package-nested-");
@@ -528,6 +528,28 @@ try {
     });
   }
 
+  const declaredEdgeLimit = projectRoot("genes-package-declared-edge-limit-");
+  temporaryRoots.push(declaredEdgeLimit);
+  createPackage(packageRoot(declaredEdgeLimit, "edge-root"), {
+    name: "edge-root",
+    dependencies: {
+      "missing-a": "1.0.0",
+      "missing-b": "1.0.0",
+      "missing-c": "1.0.0",
+    },
+  });
+  expectFailure(
+    "package-closure-limit",
+    "maxEdges",
+    () =>
+      measureInstalledPackageClosure(
+        request(declaredEdgeLimit, "edge-root", "genes.test.processor", {
+          ...LIMITS,
+          maxEdges: 2,
+        }),
+      ),
+  );
+
   const exactCeiling = projectRoot("genes-package-exact-ceiling-");
   temporaryRoots.push(exactCeiling);
   createPackage(packageRoot(exactCeiling, "ceiling-root"), {
@@ -723,6 +745,17 @@ try {
     );
   } finally {
     delete process.env.NODE_PATH;
+  }
+  process.env.NODE_PRESERVE_SYMLINKS = "1";
+  try {
+    expectFailure(
+      "resolution-profile-unsupported",
+      INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+      () =>
+        measureInstalledPackageClosure(request(hoisted, "fixture-root")),
+    );
+  } finally {
+    delete process.env.NODE_PRESERVE_SYMLINKS;
   }
   process.env.NODE_OPTIONS = "--trace-warnings";
   try {

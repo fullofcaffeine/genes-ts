@@ -105,7 +105,14 @@ interface DependencyEdge {
   readonly target: PackageNode | null;
 }
 
+interface DependencySpecification {
+  readonly kind: DependencyKind;
+  readonly key: string;
+  readonly optional: boolean;
+}
+
 interface PackageNode extends CapturedPackage {
+  readonly specifications: readonly DependencySpecification[];
   edges: readonly DependencyEdge[];
 }
 
@@ -242,6 +249,7 @@ function validateResolutionEnvironment(): void {
   if (
     (process.env.NODE_OPTIONS?.length ?? 0) > 0 ||
     (process.env.NODE_PATH?.length ?? 0) > 0 ||
+    (process.env.NODE_PRESERVE_SYMLINKS?.length ?? 0) > 0 ||
     process.versions["pnp"] !== undefined
   ) {
     return fail(
@@ -411,13 +419,18 @@ function stringMap(
   value: unknown,
   field: string,
   subject: string,
+  maximumEntries: number,
 ): ReadonlyMap<string, string> {
   if (value === undefined) return new Map();
   if (!plainRecord(value)) {
     return fail("package-metadata-invalid", `${subject}:${field}`);
   }
   const result = new Map<string, string>();
-  for (const key of sortedStrings(Object.keys(value))) {
+  for (const key in value) {
+    if (!Object.hasOwn(value, key)) continue;
+    if (result.size >= maximumEntries) {
+      return fail("package-closure-limit", "maxEdges");
+    }
     const entry = value[key];
     if (
       packageKeySegments(key) === null ||
@@ -434,6 +447,7 @@ function stringMap(
 function parsePackageMetadata(
   bytes: Buffer,
   subject: string,
+  maximumEdges: number,
 ): ParsedPackageMetadata {
   let parsed: unknown;
   try {
@@ -459,6 +473,7 @@ function parsePackageMetadata(
     parsed.peerDependencies,
     "peerDependencies",
     subject,
+    maximumEdges,
   );
   const optionalPeers = new Set<string>();
   const peerMetadata = parsed.peerDependenciesMeta;
@@ -488,11 +503,17 @@ function parsePackageMetadata(
   return Object.freeze({
     name,
     version,
-    dependencies: stringMap(parsed.dependencies, "dependencies", subject),
+    dependencies: stringMap(
+      parsed.dependencies,
+      "dependencies",
+      subject,
+      maximumEdges,
+    ),
     optionalDependencies: stringMap(
       parsed.optionalDependencies,
       "optionalDependencies",
       subject,
+      maximumEdges,
     ),
     peerDependencies,
     optionalPeers,
@@ -601,6 +622,7 @@ function capturePackage(
   subject: string,
   limits: InstalledPackageClosureLimits,
   budget: InventoryBudget,
+  maximumEdges: number,
 ): CapturedPackage {
   const files: CapturedFile[] = [];
   const directories: PendingDirectory[] = [{ absolute: root, segments: [] }];
@@ -694,7 +716,7 @@ function capturePackage(
   }
   return Object.freeze({
     root,
-    metadata: parsePackageMetadata(metadataBytes, subject),
+    metadata: parsePackageMetadata(metadataBytes, subject, maximumEdges),
     files: Object.freeze(
       files.sort((left, right) =>
         compareUtf8(left.relativePath, right.relativePath),
@@ -705,16 +727,8 @@ function capturePackage(
 
 function edgeSpecifications(
   metadata: ParsedPackageMetadata,
-): readonly {
-  readonly kind: DependencyKind;
-  readonly key: string;
-  readonly optional: boolean;
-}[] {
-  const result: {
-    readonly kind: DependencyKind;
-    readonly key: string;
-    readonly optional: boolean;
-  }[] = [];
+): readonly DependencySpecification[] {
+  const result: DependencySpecification[] = [];
   for (const key of sortedStrings(metadata.dependencies.keys())) {
     if (metadata.optionalDependencies.has(key)) continue;
     result.push({ kind: "dependency", key, optional: false });
@@ -729,10 +743,12 @@ function edgeSpecifications(
       optional: metadata.optionalPeers.has(key),
     });
   }
-  return result.sort((left, right) => {
-    const kind = compareUtf8(left.kind, right.kind);
-    return kind === 0 ? compareUtf8(left.key, right.key) : kind;
-  });
+  return Object.freeze(
+    result.sort((left, right) => {
+      const kind = compareUtf8(left.kind, right.kind);
+      return kind === 0 ? compareUtf8(left.key, right.key) : kind;
+    }),
+  );
 }
 
 function discoverGraph(
@@ -756,9 +772,21 @@ function discoverGraph(
     if (nodesByRoot.size >= limits.maxPackages) {
       return fail("package-closure-limit", "maxPackages");
     }
-    const captured = capturePackage(root, subject, limits, budget);
+    const captured = capturePackage(
+      root,
+      subject,
+      limits,
+      budget,
+      limits.maxEdges - edgeCount,
+    );
+    const specifications = edgeSpecifications(captured.metadata);
+    if (specifications.length > limits.maxEdges - edgeCount) {
+      return fail("package-closure-limit", "maxEdges");
+    }
+    edgeCount += specifications.length;
     const node: PackageNode = {
       ...captured,
+      specifications,
       edges: Object.freeze([]),
     };
     nodesByRoot.set(root, node);
@@ -788,11 +816,7 @@ function discoverGraph(
   for (let index = 0; index < queue.length; index += 1) {
     const node = queue[index]!;
     const edges: DependencyEdge[] = [];
-    for (const specification of edgeSpecifications(node.metadata)) {
-      if (edgeCount >= limits.maxEdges) {
-        return fail("package-closure-limit", "maxEdges");
-      }
-      edgeCount += 1;
+    for (const specification of node.specifications) {
       const subject = `${node.metadata.name}:${specification.key}`;
       const installedRoot = findInstalledPackageRoot(
         node.root,

@@ -47,8 +47,9 @@ local package bytes or runtime module resolution change.
 
 Tooling provides a narrower prerequisite. It can capture the installed package
 closure under the `node-modules-realpath-v1` profile. This profile uses ordinary
-ancestor `node_modules` directories and default realpath behavior. It rejects
-nonempty `NODE_OPTIONS`, `NODE_PATH`, and Plug'n'Play. It also rejects the
+ancestor `node_modules` directories and default realpath behavior. Nonempty
+`NODE_OPTIONS`, `NODE_PATH`, `NODE_PRESERVE_SYMLINKS`, and Plug'n'Play cause
+failure. The profile also rejects the
 `--loader`, `--experimental-loader`, `--import`, `--require`, `-r`,
 `--preserve-symlinks`, and `--preserve-symlinks-main` process flags.
 Internal package links and invalid package roots also cause failure.
