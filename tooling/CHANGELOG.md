@@ -4,6 +4,12 @@ All notable changes to `@genes-ts/tooling` are recorded here. This package has
 its own version and release lifecycle; compiler/Haxelib releases do not publish
 it.
 
+## Unreleased
+
+- Add internal bounded installed package closure measurement for CSS Modules
+  tooling. It records deterministic evidence for installed package bytes. A
+  separate execution-admission step must establish final processor identity.
+
 ## 0.5.0
 
 - Export the exact Genes output inventory reader and unowned-file guard from

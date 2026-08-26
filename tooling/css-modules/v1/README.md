@@ -34,6 +34,48 @@ Haxe companion plus a precise per-file TypeScript declaration. “Closed” mean
 only the listed fields exist: `styles.card` compiles while `styles.missing`
 fails in Haxe, and strict TypeScript sees the same required keys.
 
+## Installed closure evidence
+
+The manifest separates processor code from processor configuration.
+`processorIntegrity` identifies the implementation that the provider admitted
+to run. `configurationSha256` identifies the normalized, data-only options that
+the processor used.
+
+A package version, lock file, registry checksum, or declared dependency graph
+cannot establish final processor identity. Those facts can stay constant while
+local package bytes or runtime module resolution change.
+
+Tooling provides a narrower prerequisite. It can capture the installed package
+closure under the `node-modules-realpath-v1` profile. This profile uses ordinary
+ancestor `node_modules` directories and default realpath behavior. It rejects
+nonempty `NODE_OPTIONS`, `NODE_PATH`, and Plug'n'Play. It also rejects the
+`--loader`, `--experimental-loader`, `--import`, `--require`, `-r`,
+`--preserve-symlinks`, and `--preserve-symlinks-main` process flags.
+Internal package links and invalid package roots also cause failure.
+
+The installed closure contains fixed roots, declared runtime dependencies,
+present optional dependencies, resolved peers, and optional absence. It also
+contains every package-owned regular file except files below nested
+`node_modules` directories. The canonical SHA-256 SRI contains logical
+dependency paths and exact file hashes. It does not contain installation paths,
+timestamps, inode numbers, or package manager layout. Equivalent hoisted,
+nested, or package-root-link layouts therefore keep one installed-closure
+identity.
+
+Package file names must have one lossless UTF-8 representation. Control
+characters, backslashes, and the Unicode replacement character cause failure.
+
+Each capture has reviewed maximums and caller-selected lower limits for
+packages, dependency edges, directory entries, files, bytes, and path lengths.
+It reads directories incrementally, charges package metadata to the same byte
+budget, and does not use a path, size, or timestamp cache.
+
+Installed-closure identity is not final `processorIntegrity`. Package metadata
+can omit a module that Node later loads, and equal endpoint snapshots cannot
+prove which transient bytes executed. A provider must separately constrain
+execution to measured module bytes. The provider returns no manifest when it
+cannot prove that admission. Registry-pristine policy remains with the host.
+
 ## Complete one-shot flow
 
 ```text

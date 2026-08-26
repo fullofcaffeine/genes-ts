@@ -45,7 +45,9 @@ export interface CssModuleExportsManifestV1 {
     readonly providerVersion: string;
     readonly processorId: string;
     readonly processorVersion: string;
+    /** SRI identity for the processor implementation admitted to run. */
     readonly processorIntegrity: string;
+    /** SHA-256 of the normalized, data-only processor configuration. */
     readonly configurationSha256: string;
   };
   readonly exports: readonly CssModuleExport[];
