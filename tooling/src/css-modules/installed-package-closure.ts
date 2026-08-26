@@ -441,6 +441,7 @@ function stringMap(
   if (!plainRecord(value)) {
     return fail("package-metadata-invalid", `${subject}:${field}`);
   }
+  Object.setPrototypeOf(value, null);
   const result = new Map<string, string>();
   for (const key in value) {
     if (!Object.hasOwn(value, key)) continue;
@@ -499,6 +500,7 @@ function parsePackageMetadata(
     if (!plainRecord(peerMetadata)) {
       return fail("package-metadata-invalid", `${subject}:peerDependenciesMeta`);
     }
+    Object.setPrototypeOf(peerMetadata, null);
     let peerMetadataEntries = 0;
     for (const key in peerMetadata) {
       if (!Object.hasOwn(peerMetadata, key)) continue;

@@ -412,11 +412,30 @@ try {
     "genes-package-peer-metadata-prototype-",
   );
   temporaryRoots.push(pollutedPeerMetadata);
+  const inheritedMetadataProbe = "genes-inherited-metadata-probe";
+  let inheritedMetadataVisits = 0;
+  const hasOwnDescriptor = Object.getOwnPropertyDescriptor(Object, "hasOwn")!;
+  const originalHasOwn = Object.hasOwn;
   assert.equal(Object.hasOwn(Object.prototype, "optional"), false);
+  assert.equal(Object.hasOwn(Object.prototype, inheritedMetadataProbe), false);
   Object.defineProperty(Object.prototype, "optional", {
     configurable: true,
     enumerable: true,
     value: true,
+  });
+  Object.defineProperty(Object.prototype, inheritedMetadataProbe, {
+    configurable: true,
+    enumerable: true,
+    value: "polluted",
+  });
+  Object.defineProperty(Object, "hasOwn", {
+    configurable: true,
+    writable: true,
+    value: (value: object, key: PropertyKey): boolean => {
+      const result = originalHasOwn(value, key);
+      if (!result && key === inheritedMetadataProbe) inheritedMetadataVisits += 1;
+      return result;
+    },
   });
   try {
     createPackage(packageRoot(pollutedPeerMetadata, "peer-root"), {
@@ -432,8 +451,14 @@ try {
           request(pollutedPeerMetadata, "peer-root"),
         ),
     );
+    assert.equal(inheritedMetadataVisits, 0);
   } finally {
+    Object.defineProperty(Object, "hasOwn", hasOwnDescriptor);
     assert.equal(Reflect.deleteProperty(Object.prototype, "optional"), true);
+    assert.equal(
+      Reflect.deleteProperty(Object.prototype, inheritedMetadataProbe),
+      true,
+    );
   }
 
   const deepUnrelatedMetadata = projectRoot(
