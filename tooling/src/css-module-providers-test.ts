@@ -256,6 +256,10 @@ try {
       "mutable",
       "declare const styles: { panel: string }; export default styles;\n",
     ],
+    [
+      "malformed",
+      "declare const styles: { readonly panel: string }; export default styles /*\n",
+    ],
   ]);
   for (const [name, content] of invalidDeclarations) {
     const invalidEntry = `invalid/${name}.module.css`;

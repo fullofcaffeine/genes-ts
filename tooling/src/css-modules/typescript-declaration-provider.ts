@@ -166,6 +166,17 @@ export function createTypeScriptDeclarationManifest(
   }
   const entry = readProviderFile(root, entryPath, "entry");
   const declaration = readProviderFile(root, declarationPath, "declaration");
+  const syntax = ts.transpileModule(declaration.text, {
+    compilerOptions: { target: ts.ScriptTarget.Latest },
+    fileName: `${entryPath}.syntax.ts`,
+    reportDiagnostics: true,
+  });
+  if (syntax.diagnostics !== undefined && syntax.diagnostics.length > 0) {
+    return declarationFailure(
+      "The CSS Module declaration must contain syntactically valid TypeScript.",
+      declarationPath,
+    );
+  }
   const source = ts.createSourceFile(
     declarationPath,
     declaration.text,
