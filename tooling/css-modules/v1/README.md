@@ -34,6 +34,44 @@ Haxe companion plus a precise per-file TypeScript declaration. “Closed” mean
 only the listed fields exist: `styles.card` compiles while `styles.missing`
 fails in Haxe, and strict TypeScript sees the same required keys.
 
+## How processor identity works
+
+The manifest separates processor code from processor configuration.
+`processorIntegrity` identifies the implementation that produced the export
+facts. `configurationSha256` identifies the normalized, data-only options that
+the processor used.
+
+A provider must establish `processorIntegrity` from the implementation that
+ran. A package version, lock file, or unverified registry checksum is not
+sufficient. Those values can stay constant after a local patch or a dependency
+resolution change.
+
+Repository-owned providers use a domain-separated SHA-256 SRI for the installed
+processor closure. The closure contains fixed root packages, runtime
+dependencies, present optional dependencies, resolved peers, and optional
+absence facts. It also contains every package-owned regular file except nested
+`node_modules` trees. Dependency packages appear as separate graph records.
+
+The canonical digest contains logical dependency paths and exact file hashes.
+It does not contain installation paths, timestamps, inode numbers, or package
+manager layout. Equivalent hoisted, nested, or package-root-link layouts
+therefore produce the same identity.
+
+A repository-owned provider measures this closure in a fresh worker before it
+loads optional processor packages. It measures the closure again after the
+processor operation. If the two measurements differ, the provider returns no
+manifest.
+
+Each provider sets limits for packages, dependency edges, directory entries,
+files, bytes, and path lengths. The provider rejects an overflow before it
+loads the processor. Version 1 measures every invocation and does not use a
+path, size, or timestamp cache.
+
+A same-version local patch is valid input, but it produces a different
+`processorIntegrity`. A host that requires pristine packages can compare that
+value with an allowlist. The provider does not put lock-file identity, package
+bytes, source hashes, or worker identity in `configurationSha256`.
+
 ## Complete one-shot flow
 
 ```text

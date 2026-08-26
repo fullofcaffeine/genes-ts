@@ -28,6 +28,14 @@ a small JSON file that records the exact exported keys plus the source,
 processor, configuration, and hashes that produced them. If a stylesheet
 changes without a new manifest, tooling rejects the stale data.
 
+The processor identity must describe the implementation that ran. A package
+version or unverified registry checksum cannot prove that fact after a local
+patch or dependency change. Repository-owned providers measure the installed
+processor package closure before and after work in a fresh worker. A changed
+closure returns no manifest. The
+[protocol guide](../tooling/css-modules/v1/README.md#how-processor-identity-works)
+defines the canonical digest and the separate configuration hash.
+
 ## Why Genes does not parse the stylesheet
 
 Reading `.card` selectors looks simple until real CSS Module behavior enters the
