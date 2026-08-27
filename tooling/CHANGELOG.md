@@ -13,9 +13,11 @@ it.
   measured files. Undeclared, outside, custom-scheme, and native-addon loads
   fail without a result. Network built-ins, direct built-in lookup, private
   native bindings, and network globals are also denied because Node's
-  permission model does not restrict sockets. The optional operation supports
-  reviewed Node 22.22+ and 24.10+ runtimes; Node 20 remains supported for the
-  public tooling package and fails this operation before package capture.
+  permission model does not restrict sockets. Private underscore and internal
+  built-ins are denied as one class so their lower-level socket entry points
+  cannot bypass that rule. The optional operation supports reviewed Node
+  22.22+ and 24.10+ runtimes; Node 20 remains supported for the public tooling
+  package and fails this operation before package capture.
 - Add internal bounded installed package closure measurement for CSS Modules
   tooling. It records deterministic evidence for installed package bytes. A
   separate execution-admission step must establish final processor identity.

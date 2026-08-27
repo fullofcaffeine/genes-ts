@@ -115,8 +115,9 @@ loads from copied measured files; cycles and nested duplicate versions;
 optional-subpath presence and absence; source replacement after copying;
 undeclared hoists; and default-realpath link behavior. It rejects outside,
 custom-scheme, native-addon, and later-hook loads, invalid result data,
-oversized output, and timeout. It runs on the reviewed Node 22 and Node 24
-lanes and records materialization, child, cleanup, file, and byte costs.
+public and private network entry points, oversized output, and timeout. It runs
+on the reviewed Node 22 and Node 24 lanes and records materialization, child,
+cleanup, file, and byte costs.
 
 Compiler representation, runtime/ABI, package publication, security,
 migration, and public-claim changes require a review pass distinct from the

@@ -562,6 +562,9 @@ try {
         "  if (input.mode === 'network-builtin-esm') return typeof (await import('node:http')).request;\n" +
         "  if (input.mode === 'network-builtin-direct') return typeof process.getBuiltinModule('http').request;\n" +
         "  if (input.mode === 'network-builtin-esm-direct') return typeof (await import('node:process')).getBuiltinModule('http').request;\n" +
+        "  if (input.mode === 'network-private-builtin') return typeof require('_http_client').ClientRequest;\n" +
+        "  if (input.mode === 'network-private-builtin-esm') return typeof (await import('_http_client')).ClientRequest;\n" +
+        "  if (input.mode === 'network-private-builtin-direct') return await new Promise((resolve, reject) => { const ClientRequest = process.getBuiltinModule('_http_client').ClientRequest; const request = new ClientRequest(input.url, (response) => { let body = ''; response.setEncoding('utf8'); response.on('data', (chunk) => { body += chunk; }); response.on('end', () => resolve(body)); }); request.on('error', reject); request.end(); });\n" +
         "  if (input.mode === 'network-private-binding') return typeof process.binding('tcp_wrap').TCP;\n" +
         "  if (input.mode === 'outside') return require(input.path);\n" +
         "  if (input.mode === 'read') return require('node:fs').readFileSync(input.path, 'utf8');\n" +
@@ -602,6 +605,12 @@ try {
       { mode: "network-builtin-esm" },
       { mode: "network-builtin-direct" },
       { mode: "network-builtin-esm-direct" },
+      {
+        mode: "network-private-builtin-direct",
+        url: `http://127.0.0.1:${networkAddress.port}/`,
+      },
+      { mode: "network-private-builtin" },
+      { mode: "network-private-builtin-esm" },
       { mode: "network-private-binding" },
       { mode: "outside", path: outsideFile },
       { mode: "read", path: outsideFile },

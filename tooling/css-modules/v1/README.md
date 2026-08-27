@@ -175,12 +175,13 @@ The child receives only validated inert JSON data. Node's permission model
 grants read access only to the private execution tree and fixed child entry,
 with no filesystem writes, child processes, workers, or native add-ons. Node's
 permission model does not restrict sockets, so the child separately rejects
-network built-ins, direct built-in lookup, private native bindings, and the
-`fetch`, `WebSocket`, `EventSource`, and `WebTransport` globals. String-based
-`eval` and `Function` code generation are disabled. The process has bounded
-request, result, diagnostic-output, and wall-clock limits. It is terminated
-once and the private graph is removed before a result returns. Copy, child, or
-cleanup failure releases no result.
+network built-ins, all private underscore or internal built-ins, private native
+bindings, and the `fetch`, `WebSocket`, `EventSource`, and `WebTransport`
+globals. The same rule covers direct built-in lookup. String-based `eval` and
+`Function` code generation are disabled. The process has bounded request,
+result, diagnostic-output, and wall-clock limits. It is terminated once and
+the private graph is removed before a result returns. Copy, child, or cleanup
+failure releases no result.
 
 Execution admission is available only on the reviewed Node 22.22-or-newer and
 Node 24.10-or-newer lanes. The tooling package remains importable on Node 20,
@@ -188,12 +189,12 @@ but this optional operation returns a stable unsupported-runtime failure before
 it captures packages there. Later Node majors require their own review.
 
 This is a trusted-processor correctness boundary, not a hostile-code sandbox.
-Node documents its permission model as a guard for trusted code. Common private
-native entry points are disabled, but deliberate use of another private runtime
-API, `node:vm`, dynamic WebAssembly, protocol spoofing, or another in-process
-escape is outside this claim. Hosts must still select a reviewed adapter,
-normalize configuration as inert data, and decide whether installed bytes
-satisfy registry or lock policy.
+Node documents its permission model as a guard for trusted code. Private
+built-ins and common private native entry points are disabled, but deliberate
+use of another private runtime API, `node:vm`, dynamic WebAssembly, protocol
+spoofing, or another in-process escape is outside this claim. Hosts must still
+select a reviewed adapter, normalize configuration as inert data, and decide
+whether installed bytes satisfy registry or lock policy.
 
 After successful execution, the copied second capture's path-free
 `installedClosureIntegrity` becomes `processorIntegrity`. Configuration,

@@ -305,9 +305,13 @@ function moduleFailure(): Error {
   return error;
 }
 
-function networkBuiltin(specifier: string): boolean {
+function disallowedBuiltin(specifier: string): boolean {
   const key = specifier.startsWith("node:") ? specifier.slice(5) : specifier;
-  return NETWORK_BUILTIN_KEYS.has(key);
+  return (
+    key.startsWith("_") ||
+    key.startsWith("internal/") ||
+    NETWORK_BUILTIN_KEYS.has(key)
+  );
 }
 
 function denyNetworkAccess(): never {
@@ -318,16 +322,17 @@ function denyNetworkAccess(): never {
  * Closes network entry points that do not pass through module resolution.
  *
  * Node's permission model does not restrict sockets. Module hooks can reject
- * `node:http` and its peers, but global fetch/WebSocket and
- * process.getBuiltinModule would otherwise bypass those hooks. Private native
- * bindings are outside the supported adapter contract and are disabled too.
+ * `node:http` and its peers, but global fetch/WebSocket and direct built-in
+ * lookup would otherwise bypass those hooks. Undocumented built-ins and
+ * private native bindings are outside the supported adapter contract and are
+ * disabled too; this also closes their lower-level socket entry points.
  */
 function installNetworkGuards(rawGetBuiltinModule: BuiltinLookup): void {
   Object.defineProperty(process, "getBuiltinModule", {
     configurable: false,
     enumerable: true,
     value: (specifier: unknown): unknown => {
-      if (typeof specifier === "string" && networkBuiltin(specifier)) {
+      if (typeof specifier === "string" && disallowedBuiltin(specifier)) {
         throw moduleFailure();
       }
       return Reflect.apply(rawGetBuiltinModule, process, [specifier]);
@@ -380,7 +385,7 @@ async function main(): Promise<void> {
 
   const admit = (url: string): void => {
     if (url.startsWith("node:")) {
-      if (networkBuiltin(url)) throw moduleFailure();
+      if (disallowedBuiltin(url)) throw moduleFailure();
       return;
     }
     if (!url.startsWith("file:")) throw moduleFailure();
