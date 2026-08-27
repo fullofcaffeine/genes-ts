@@ -79,11 +79,15 @@ helper checks those ambient directories only to prevent false absence. If an
 ambient package or legacy package file would win, the profile fails. It does
 not include ambient package bytes in the closure.
 
-Built-in modules, declared self-edges, and default legacy package files are
-also unsupported. Legacy files are the exact key and its `.js`, `.json`, or
-`.node` forms. The profile conservatively rejects these files beside a package
-directory, even when package exports would choose the directory. This rule
-keeps the helper from becoming a second CommonJS loader.
+Built-in modules, root package self-references, declared self-edges, and default
+legacy package files are also unsupported. A root self-reference exists when
+the nearest package scope has the requested name and a non-null `exports`
+value. This conservative rule keeps the profile stable where supported Node
+releases disagree about invalid primitive values. Legacy files are the exact
+key and its `.js`, `.json`, or `.node` forms. The profile conservatively rejects
+these files beside a package directory, even when package exports would choose
+the directory. This rule keeps the helper from becoming a second CommonJS
+loader.
 
 Nonempty `NODE_OPTIONS`, `NODE_PATH`, `NODE_PRESERVE_SYMLINKS`,
 `NODE_PRESERVE_SYMLINKS_MAIN`, and Plug'n'Play cause failure. The profile also
@@ -115,10 +119,11 @@ directories and three ambient suffix directories. One lookup path can use at
 most 16,448 UTF-8 bytes and 16,448 code units.
 
 One complete capture permits at most 262,144 resolution work units. One Node
-lookup request, one generated or observed path, and one exact or legacy package
-candidate each use one unit. The 32 MiB retained lookup-path limit also applies
-to the complete capture. Verification starts a second complete capture with
-fresh limits. Lookup paths never enter the digest or a public error.
+lookup request, one generated or observed path, one package-scope metadata
+candidate, and one exact or legacy package candidate each use one unit. The 32
+MiB retained lookup-path limit also applies to the complete capture.
+Verification starts a second complete capture with fresh limits. Lookup paths
+never enter the digest or a public error.
 
 The helper reads directories incrementally. It limits retained relative-path
 state to 32 MiB. It does not retain absolute directory paths after each local
@@ -126,8 +131,9 @@ enumeration check.
 
 Regular files use a fixed 64 KiB read buffer. An overflow check reads at most
 one byte past the active allowance. Only `package.json` bytes are retained for
-parsing. Each `package.json` has a fixed 1 MiB limit and still counts against
-the cumulative byte limit.
+parsing. Each `package.json` has a fixed 1 MiB limit. Measured package metadata
+also counts against the caller's cumulative byte limit. Nearest package-scope
+metadata is resolution work and does not enter the measured closure totals.
 
 Dependency maps and peer metadata share the remaining edge-work limit for each
 package. Dependency specification text is opaque because it does not select a

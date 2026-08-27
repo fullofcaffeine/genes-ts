@@ -14,10 +14,11 @@ it.
   limits. Resolver-directory aliases follow the host filesystem's case
   behavior. Node's ordered lookup paths now prevent ambient global packages
   from becoming false absence. The local-only profile rejects effective global
-  winners, built-ins, legacy package files, declared self-edges, policy flags,
-  and unsupported lookup shapes. Root package metadata aliases require
-  filesystem-identity proof. Root, alias, dependency, peer, and metadata names
-  use one position-sensitive, historical npm-compatible ASCII grammar.
+  winners, built-ins, legacy package files, root package self-references,
+  declared self-edges, policy flags, and unsupported lookup shapes. Root
+  package metadata aliases require filesystem-identity proof. Root, alias,
+  dependency, peer, and metadata names use one position-sensitive, historical
+  npm-compatible ASCII grammar.
 
 ## 0.5.0
 

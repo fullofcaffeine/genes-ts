@@ -153,6 +153,18 @@ function resolverPathsWithAmbient(
   ]);
 }
 
+function packageScopeSearchCount(fromDirectory: string): number {
+  let count = 0;
+  let current = fromDirectory;
+  while (path.basename(current) !== "node_modules") {
+    count += 1;
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return count;
+}
+
 function expectFailure(
   code: InstalledPackageClosureError["code"],
   subject: string,
@@ -630,6 +642,87 @@ try {
       ),
   );
 
+  const rootSelfReference = projectRoot("genes-package-root-self-reference-");
+  temporaryRoots.push(rootSelfReference);
+  const rootSelfReferenceName = "root-self-reference";
+  createPackage(rootSelfReference, {
+    name: rootSelfReferenceName,
+    version: "2.0.0",
+    extraMetadata: { exports: "./index.cjs" },
+  });
+  createPackage(packageRoot(rootSelfReference, rootSelfReferenceName), {
+    name: rootSelfReferenceName,
+  });
+  assert.equal(
+    realpathSync.native(
+      createRequire(path.join(rootSelfReference, "anchor.mjs")).resolve(
+        rootSelfReferenceName,
+      ),
+    ),
+    realpathSync.native(path.join(rootSelfReference, "index.cjs")),
+    "Node resolves the containing package before its nested installed copy",
+  );
+  expectFailure(
+    "resolution-profile-unsupported",
+    INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+    () =>
+      measureInstalledPackageClosure(
+        request(rootSelfReference, rootSelfReferenceName),
+      ),
+  );
+
+  for (const [label, primitiveExports] of [
+    ["boolean", false],
+    ["number", 1],
+  ] as const) {
+    const primitiveSelfReference = projectRoot(
+      `genes-package-root-self-${label}-`,
+    );
+    temporaryRoots.push(primitiveSelfReference);
+    const primitiveSelfReferenceName = `root-self-${label}`;
+    createPackage(primitiveSelfReference, {
+      name: primitiveSelfReferenceName,
+      version: "2.0.0",
+      extraMetadata: { exports: primitiveExports },
+    });
+    createPackage(
+      packageRoot(primitiveSelfReference, primitiveSelfReferenceName),
+      { name: primitiveSelfReferenceName },
+    );
+    expectFailure(
+      "resolution-profile-unsupported",
+      INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+      () =>
+        measureInstalledPackageClosure(
+          request(primitiveSelfReference, primitiveSelfReferenceName),
+        ),
+    );
+  }
+
+  const rootWithoutSelfReference = projectRoot(
+    "genes-package-root-without-self-reference-",
+  );
+  temporaryRoots.push(rootWithoutSelfReference);
+  const rootWithoutSelfReferenceName = "root-without-self-reference";
+  createPackage(rootWithoutSelfReference, {
+    name: rootWithoutSelfReferenceName,
+    version: "2.0.0",
+    extraMetadata: { exports: null },
+  });
+  createPackage(
+    packageRoot(rootWithoutSelfReference, rootWithoutSelfReferenceName),
+    { name: rootWithoutSelfReferenceName },
+  );
+  assertBarePackageResolvers(rootWithoutSelfReference, [
+    rootWithoutSelfReferenceName,
+  ]);
+  assert.equal(
+    measureInstalledPackageClosure(
+      request(rootWithoutSelfReference, rootWithoutSelfReferenceName),
+    ).packageCount,
+    1,
+  );
+
   for (const dependencyKind of ["mandatory", "optional"] as const) {
     const selfProject = projectRoot(`genes-package-self-${dependencyKind}-`);
     temporaryRoots.push(selfProject);
@@ -1062,6 +1155,7 @@ try {
   ): number =>
     1 + 2 * searchPathCount + 4 * candidateDirectoryCount;
   const exactResolutionWork =
+    packageScopeSearchCount(lookupWorkProject) +
     resolutionWorkForLookup(rootSearchPathCount, 1) +
     resolutionWorkForLookup(edgeSearchPathCount, edgeSearchPathCount);
   assert.equal(

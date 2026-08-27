@@ -1113,6 +1113,68 @@ function stableResolutionEntry(
   });
 }
 
+/** Returns the one package name that Node can resolve from its own scope. */
+function packageScopeSelfReferenceName(
+  fromDirectory: string,
+  budget: ResolutionWorkBudget,
+  scratch: Buffer,
+  hooks: InstalledPackageClosureTestHooks | undefined,
+): string | null {
+  let current = fromDirectory;
+  while (path.basename(current) !== "node_modules") {
+    const metadataPath = path.join(current, "package.json");
+    const entry = stableResolutionEntry(
+      metadataPath,
+      INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+      budget,
+    );
+    if (entry !== null) {
+      if (entry.kind !== "file") {
+        return fail(
+          "resolution-profile-unsupported",
+          INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+        );
+      }
+      const captured = safeReadFile(
+        metadataPath,
+        INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+        Number.MAX_SAFE_INTEGER,
+        true,
+        scratch,
+        hooks,
+      );
+      let parsed: unknown;
+      try {
+        const decoded = captured.retainedBytes!.toString("utf8");
+        parsed = JSON.parse(
+          decoded.startsWith("\uFEFF") ? decoded.slice(1) : decoded,
+        );
+      } catch {
+        return fail(
+          "resolution-profile-unsupported",
+          INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+        );
+      }
+      if (!plainRecord(parsed)) {
+        return fail(
+          "resolution-profile-unsupported",
+          INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+        );
+      }
+      const name = ownValue(parsed, "name");
+      const exports = ownValue(parsed, "exports");
+      // Node 20 intercepts invalid primitive values that newer lanes ignore.
+      // Reject every non-null value so one profile never measures two winners.
+      const supportsSelfReference = exports !== undefined && exports !== null;
+      return typeof name === "string" && supportsSelfReference ? name : null;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return null;
+}
+
 function packageRootCandidate(
   searchDirectory: string,
   segments: readonly string[],
@@ -1440,6 +1502,12 @@ function discoverGraph(
       MAX_RETAINED_RESOLUTION_PATH_BYTES,
   };
   const scratch = Buffer.allocUnsafe(FILE_READ_CHUNK_BYTES);
+  const selfReferenceName = packageScopeSelfReferenceName(
+    baseDirectory,
+    resolutionBudget,
+    scratch,
+    hooks,
+  );
   let edgeCount = 0;
 
   const intern = (root: string, subject: string): PackageNode => {
@@ -1475,6 +1543,12 @@ function discoverGraph(
   const roots = [...request.roots]
     .sort((left, right) => compareUtf8(left.packageName, right.packageName))
     .map((root): RootRecord => {
+      if (root.packageName === selfReferenceName) {
+        return fail(
+          "resolution-profile-unsupported",
+          INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+        );
+      }
       const installedRoot = findInstalledPackageRoot(
         baseDirectory,
         root.packageName,
