@@ -66,7 +66,10 @@ Module types. It intentionally crosses several existing product surfaces
 without letting one substitute for another:
 
 - a hand-reviewed JSON file owns the five expected class keys;
-- pinned `postcss-modules` independently reports its runtime exports;
+- a fixed adapter loads pinned `postcss-modules` only in a fresh child from a
+  copied, measured package closure; the host process never loads that optional
+  processor, and the closure digest becomes the manifest's
+  `processorIntegrity` only after successful execution;
 - host tooling validates that manifest, checks source hashes, and generates the
   closed Haxe companion twice to prove deterministic bytes;
 - Haxe accepts valid fields and rejects missing, untyped, wrong-owner,
@@ -105,6 +108,15 @@ are witnesses, not dependencies of the Genes compiler or
 warm-publication contracts. It still does not advance a Next.js or browser
 claim; those need a real Next build and browser owner in NextJsHx. See
 [Closed CSS Module types](CSS_MODULES.md) for the user-facing flow and limits.
+
+The focused tooling admission suite separately owns the module boundary. It
+proves CommonJS, ESM, JSON, `createRequire`, relative, absolute, and `file:`
+loads from copied measured files; cycles and nested duplicate versions;
+optional-subpath presence and absence; source replacement after copying;
+undeclared hoists; and default-realpath link behavior. It rejects outside,
+custom-scheme, native-addon, and later-hook loads, invalid result data,
+oversized output, and timeout. It runs on the reviewed Node 22 and Node 24
+lanes and records materialization, child, cleanup, file, and byte costs.
 
 Compiler representation, runtime/ABI, package publication, security,
 migration, and public-claim changes require a review pass distinct from the

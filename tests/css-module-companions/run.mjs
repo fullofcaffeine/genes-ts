@@ -12,14 +12,17 @@ import {
   readdirSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import os, { homedir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { generateCssModuleCompanion } from "../../tooling/dist/css-modules/index.js";
+import { INSTALLED_PACKAGE_RESOLUTION_PROFILE } from "../../tooling/dist/css-modules/installed-package-closure.js";
+import { executeAdmittedProcessor } from "../../tooling/dist/css-modules/processor-execution-admission.js";
 import {
   canonicalDigest,
   canonicalJson,
@@ -36,8 +39,6 @@ const require = createRequire(path.join(fixtureRoot, "provider/package.json"));
 // These packages are test witnesses only. The public compiler and tooling do
 // not load them or require an application to use this particular processor.
 const esbuild = require("esbuild");
-const postcss = require("postcss");
-const postcssModules = require("postcss-modules");
 const ts = repoRequire("typescript");
 const { SourceMapConsumer } = repoRequire("source-map");
 const cssRelative = "provider/card.module.css";
@@ -91,17 +92,74 @@ function buildClassicDeclarations(companionFile) {
 
 async function processCss(file) {
   const css = readFileSync(file, "utf8");
-  let tokens = null;
-  const result = await postcss([
-    postcssModules({
-      generateScopedName: "genes_test_[name]__[local]",
-      getJSON(_filename, output) {
-        tokens = output;
+  const adapterName = "@genes-ts/test-postcss-execution-adapter";
+  const adapterRoot = path.join(
+    fixtureRoot,
+    "provider/adapters/postcss-execution",
+  );
+  const admissionProject = realpathSync(
+    mkdtempSync(path.join(realpathSync(os.tmpdir()), "genes-css-processor-")),
+  );
+  try {
+    writeFileSync(path.join(admissionProject, "anchor.mjs"), "export {};\n");
+    const adapterLink = path.join(
+      admissionProject,
+      "node_modules/@genes-ts/test-postcss-execution-adapter",
+    );
+    mkdirSync(path.dirname(adapterLink), { recursive: true });
+    symlinkSync(
+      adapterRoot,
+      adapterLink,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    const postcssEntry = require.resolve("postcss");
+    const modulesEntry = require.resolve("postcss-modules");
+    assert.equal(require.cache[postcssEntry], undefined);
+    assert.equal(require.cache[modulesEntry], undefined);
+    const executed = await executeAdmittedProcessor({
+      closure: {
+        providerKind: "genes.test.postcss-modules",
+        resolutionProfile: INSTALLED_PACKAGE_RESOLUTION_PROFILE,
+        resolutionBaseUrl: pathToFileURL(
+          path.join(admissionProject, "anchor.mjs"),
+        ).href,
+        roots: [{ packageName: adapterName, expectedVersion: "1.0.0" }],
+        limits: {
+          maxPackages: 64,
+          maxEdges: 256,
+          maxEntries: 4096,
+          maxFiles: 4096,
+          maxBytes: 64 * 1024 * 1024,
+          maxPathBytes: 1024,
+        },
       },
-    }),
-  ]).process(css, { from: file });
-  assert.notEqual(tokens, null, "the real processor reports its runtime exports");
-  return { css: result.css, tokens };
+      adapterPackageName: adapterName,
+      input: { css, from: path.basename(file) },
+      limits: {
+        maxRequestBytes: 4 * 1024 * 1024,
+        maxResultBytes: 4 * 1024 * 1024,
+        timeoutMs: 30_000,
+      },
+    });
+    assert.equal(require.cache[postcssEntry], undefined);
+    assert.equal(require.cache[modulesEntry], undefined);
+    assert.equal(typeof executed.result, "object");
+    assert.notEqual(executed.result, null);
+    assert.equal(typeof executed.result.css, "string");
+    assert.equal(typeof executed.result.tokens, "object");
+    assert.notEqual(
+      executed.result.tokens,
+      null,
+      "the real processor reports its runtime exports",
+    );
+    return {
+      css: executed.result.css,
+      tokens: executed.result.tokens,
+      processorIntegrity: executed.processorIntegrity,
+    };
+  } finally {
+    rmSync(admissionProject, { recursive: true, force: true });
+  }
 }
 
 function sourceLocation(name) {
@@ -146,7 +204,7 @@ async function makeManifest() {
       providerVersion: "1.0.0",
       processorId: "postcss-modules",
       processorVersion: processorPackage.version,
-      processorIntegrity: processorPackage.integrity,
+      processorIntegrity: processed.processorIntegrity,
       configurationSha256: sha256("generateScopedName=genes_test_[name]__[local]"),
     },
     exports: keys.map((name) => ({ name, source: sourceLocation(name) })),
@@ -355,7 +413,7 @@ async function makeWarmManifest(projectRoot, expected) {
       providerVersion: "1.0.0",
       processorId: "postcss-modules",
       processorVersion: processorPackage.version,
-      processorIntegrity: processorPackage.integrity,
+      processorIntegrity: processed.processorIntegrity,
       configurationSha256: sha256(
         "generateScopedName=genes_test_[name]__[local]",
       ),

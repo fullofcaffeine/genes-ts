@@ -154,18 +154,60 @@ Each complete pass resolves the base directory and every package locator again.
 Each directory and file also has local before-and-after checks. The capture does
 not use a path, size, or timestamp cache.
 
-Installed-closure identity is not final `processorIntegrity`. Package metadata
-can omit a module that Node later loads, and equal endpoint snapshots cannot
-prove which transient bytes existed between checks. A provider must separately
-constrain execution to measured module bytes. The provider returns no manifest
-when it cannot prove that admission. Registry-pristine policy remains with the
-host.
+Installed-closure identity alone is not final `processorIntegrity`. Package
+metadata can omit a module that Node later loads, and equal endpoint snapshots
+cannot prove which transient bytes existed between checks.
+
+The repository now has an internal execution-admission seam for one fixed
+provider adapter. During the second verified capture, it streams the exact
+hashed bytes into a private package graph. Only generated links between those
+copied package roots participate in dependency lookup. A later replacement in
+the original installation therefore cannot change the bytes that execute.
+
+The seam starts a fresh Node process with an empty environment. Synchronous
+module hooks admit built-in modules and copied regular files by their exact
+real path. They cover ordinary CommonJS, ESM, JSON, `createRequire`, relative
+loads, absolute loads, and `file:` loads. An undeclared, ambient, outside, or
+otherwise unlisted file fails. `data:`, network, and other custom module
+schemes fail. Native add-ons are disabled even when their file was copied.
+
+The child receives only validated inert JSON data. Node's permission model
+grants read access only to the private execution tree and fixed child entry,
+with no filesystem writes, child processes, workers, or native add-ons. Node's
+permission model does not restrict sockets, so the child separately rejects
+network built-ins, direct built-in lookup, private native bindings, and the
+`fetch`, `WebSocket`, `EventSource`, and `WebTransport` globals. String-based
+`eval` and `Function` code generation are disabled. The process has bounded
+request, result, diagnostic-output, and wall-clock limits. It is terminated
+once and the private graph is removed before a result returns. Copy, child, or
+cleanup failure releases no result.
+
+Execution admission is available only on the reviewed Node 22.22-or-newer and
+Node 24.10-or-newer lanes. The tooling package remains importable on Node 20,
+but this optional operation returns a stable unsupported-runtime failure before
+it captures packages there. Later Node majors require their own review.
+
+This is a trusted-processor correctness boundary, not a hostile-code sandbox.
+Node documents its permission model as a guard for trusted code. Common private
+native entry points are disabled, but deliberate use of another private runtime
+API, `node:vm`, dynamic WebAssembly, protocol spoofing, or another in-process
+escape is outside this claim. Hosts must still select a reviewed adapter,
+normalize configuration as inert data, and decide whether installed bytes
+satisfy registry or lock policy.
+
+After successful execution, the copied second capture's path-free
+`installedClosureIntegrity` becomes `processorIntegrity`. Configuration,
+provider, processor, and version fields remain separate manifest facts. The
+public CSS Modules subpath does not discover or choose processors; the next
+finite provider layer owns when to call this internal seam. A provider returns
+no manifest when admission fails.
 
 ## Complete one-shot flow
 
 ```text
 authored card.module.css
-  → host-selected CSS Modules processor reports exact keys
+  → fixed host-selected adapter executes only its measured package copy
+  → admitted CSS Modules processor reports exact keys and processorIntegrity
   → host writes genes.css-module-exports@1 manifest
   → Genes tooling checks paths, hashes, duplicate identities, and processor identity
   → Genes tooling normalizes list order for deterministic output
