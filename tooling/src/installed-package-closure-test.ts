@@ -1004,6 +1004,67 @@ try {
       ),
   );
 
+  const lookupWorkProject = projectRoot("genes-package-lookup-work-");
+  temporaryRoots.push(lookupWorkProject);
+  const lookupWorkName = "lookup-work-root";
+  const lookupWorkRoot = createPackage(
+    packageRoot(lookupWorkProject, lookupWorkName),
+    {
+      name: lookupWorkName,
+      optionalDependencies: { "missing-a": "1.0.0" },
+    },
+  );
+  const localOnlyResolvePaths = ({
+    fromDirectory,
+    packageName,
+  }: {
+    readonly fromDirectory: string;
+    readonly packageName: string;
+  }): readonly string[] =>
+    resolverPathsWithAmbient(fromDirectory, packageName, []);
+  const rootSearchPathCount = localOnlyResolvePaths({
+    fromDirectory: lookupWorkProject,
+    packageName: lookupWorkName,
+  }).length;
+  const edgeSearchPathCount = localOnlyResolvePaths({
+    fromDirectory: lookupWorkRoot,
+    packageName: "missing-a",
+  }).length;
+  const resolutionWorkForLookup = (
+    searchPathCount: number,
+    candidateDirectoryCount: number,
+  ): number =>
+    1 + 2 * searchPathCount + 4 * candidateDirectoryCount;
+  const exactResolutionWork =
+    resolutionWorkForLookup(rootSearchPathCount, 1) +
+    resolutionWorkForLookup(edgeSearchPathCount, edgeSearchPathCount);
+  assert.equal(
+    measureInstalledPackageClosureWithHooks(
+      request(lookupWorkProject, lookupWorkName),
+      {
+        maxResolutionWork: exactResolutionWork,
+        resolvePaths: localOnlyResolvePaths,
+      },
+    ).packageCount,
+    1,
+  );
+  createPackage(lookupWorkRoot, {
+    name: lookupWorkName,
+    optionalDependencies: {
+      "missing-a": "1.0.0",
+      "missing-b": "1.0.0",
+    },
+  });
+  expectFailure("package-closure-limit", "maxResolutionWork", () => {
+    measureInstalledPackageClosureWithHooks(
+      request(lookupWorkProject, lookupWorkName),
+      {
+        maxResolutionWork: exactResolutionWork,
+        resolvePaths: localOnlyResolvePaths,
+      },
+    );
+  });
+
   const linkedProject = projectRoot("genes-package-root-link-");
   const directProject = projectRoot("genes-package-root-direct-");
   temporaryRoots.push(linkedProject, directProject);

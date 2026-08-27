@@ -159,6 +159,7 @@ export interface InstalledPackageClosureTestHooks {
   readonly afterFileRead?: (subject: string) => void;
   readonly maxRetainedPathBytes?: number;
   readonly maxRetainedResolutionPathBytes?: number;
+  readonly maxResolutionWork?: number;
   readonly resolvePaths?: (input: {
     readonly fromDirectory: string;
     readonly packageName: string;
@@ -188,6 +189,7 @@ const MAX_RESOLUTION_SEARCH_PATHS = 4100;
 const MAX_RESOLUTION_PATH_CODE_UNITS =
   4 * ABSOLUTE_LIMITS.maxPathBytes + 64;
 const MAX_RETAINED_RESOLUTION_PATH_BYTES = 32 * 1024 * 1024;
+const MAX_RESOLUTION_WORK = 262_144;
 const MAX_AMBIENT_RESOLUTION_PATHS = 3;
 const FILE_READ_CHUNK_BYTES = 64 * 1024;
 const MAX_RESOLUTION_BASE_URL_CODE_UNITS =
@@ -871,8 +873,11 @@ function caseAliasedPackageMetadata(
   );
 }
 
-interface ResolutionPathBudget {
-  retainedBytes: number;
+interface ResolutionWorkBudget {
+  work: number;
+  retainedPathBytes: number;
+  readonly maximumWork: number;
+  readonly maximumRetainedPathBytes: number;
 }
 
 interface ResolutionSearchPlan {
@@ -880,11 +885,18 @@ interface ResolutionSearchPlan {
   readonly ancestorCount: number;
 }
 
+function chargeResolutionWork(budget: ResolutionWorkBudget): void {
+  if (budget.work >= budget.maximumWork) {
+    return fail("package-closure-limit", "maxResolutionWork");
+  }
+  budget.work += 1;
+}
+
 function retainedResolutionPath(
   value: unknown,
-  budget: ResolutionPathBudget,
-  maximumRetainedBytes: number,
+  budget: ResolutionWorkBudget,
 ): string {
+  chargeResolutionWork(budget);
   if (typeof value !== "string") {
     return fail(
       "resolution-profile-unsupported",
@@ -907,8 +919,8 @@ function retainedResolutionPath(
       INSTALLED_PACKAGE_RESOLUTION_PROFILE,
     );
   }
-  budget.retainedBytes += bytes.length;
-  if (budget.retainedBytes > maximumRetainedBytes) {
+  budget.retainedPathBytes += bytes.length;
+  if (budget.retainedPathBytes > budget.maximumRetainedPathBytes) {
     return fail(
       "package-closure-limit",
       "maxRetainedResolutionPathBytes",
@@ -919,8 +931,7 @@ function retainedResolutionPath(
 
 function nodeModulesSearchDirectories(
   fromDirectory: string,
-  budget: ResolutionPathBudget,
-  maximumRetainedBytes: number,
+  budget: ResolutionWorkBudget,
 ): readonly string[] {
   const result: string[] = [];
   let current = fromDirectory;
@@ -933,7 +944,6 @@ function nodeModulesSearchDirectories(
         retainedResolutionPath(
           path.join(current, "node_modules"),
           budget,
-          maximumRetainedBytes,
         ),
       );
     }
@@ -947,11 +957,11 @@ function nodeModulesSearchDirectories(
 function observedResolutionPaths(
   fromDirectory: string,
   packageName: string,
-  budget: ResolutionPathBudget,
-  maximumRetainedBytes: number,
+  budget: ResolutionWorkBudget,
   hooks: InstalledPackageClosureTestHooks | undefined,
 ): readonly string[] {
   let source: readonly string[] | null;
+  chargeResolutionWork(budget);
   try {
     source = hooks?.resolvePaths === undefined
       ? createRequire(
@@ -1007,7 +1017,7 @@ function observedResolutionPaths(
       );
     }
     result.push(
-      retainedResolutionPath(value, budget, maximumRetainedBytes),
+      retainedResolutionPath(value, budget),
     );
   }
   return Object.freeze(result);
@@ -1017,22 +1027,17 @@ function observedResolutionPaths(
 function resolutionSearchPlan(
   fromDirectory: string,
   packageName: string,
+  budget: ResolutionWorkBudget,
   hooks: InstalledPackageClosureTestHooks | undefined,
 ): ResolutionSearchPlan {
-  const budget: ResolutionPathBudget = { retainedBytes: 0 };
-  const maximumRetainedBytes =
-    hooks?.maxRetainedResolutionPathBytes ??
-    MAX_RETAINED_RESOLUTION_PATH_BYTES;
   const ancestors = nodeModulesSearchDirectories(
     fromDirectory,
     budget,
-    maximumRetainedBytes,
   );
   const observed = observedResolutionPaths(
     fromDirectory,
     packageName,
     budget,
-    maximumRetainedBytes,
     hooks,
   );
   if (
@@ -1066,7 +1071,9 @@ interface StableResolutionEntry {
 function stableResolutionEntry(
   absolute: string,
   subject: string,
+  budget: ResolutionWorkBudget,
 ): StableResolutionEntry | null {
+  chargeResolutionWork(budget);
   let before: BigIntStats;
   try {
     before = lstatSync(absolute, { bigint: true });
@@ -1109,9 +1116,10 @@ function packageRootCandidate(
   searchDirectory: string,
   segments: readonly string[],
   subject: string,
+  budget: ResolutionWorkBudget,
 ): string | null {
   const candidate = path.join(searchDirectory, ...segments);
-  const exact = stableResolutionEntry(candidate, subject);
+  const exact = stableResolutionEntry(candidate, subject, budget);
   if (exact?.kind === "file") {
     return fail(
       "resolution-profile-unsupported",
@@ -1121,7 +1129,11 @@ function packageRootCandidate(
   // Default CommonJS can select one of these files before a package directory.
   // Reject every stable candidate instead of reproducing package-exports rules.
   for (const extension of [".js", ".json", ".node"] as const) {
-    const legacy = stableResolutionEntry(`${candidate}${extension}`, subject);
+    const legacy = stableResolutionEntry(
+      `${candidate}${extension}`,
+      subject,
+      budget,
+    );
     if (legacy?.kind === "file") {
       return fail(
         "resolution-profile-unsupported",
@@ -1137,18 +1149,25 @@ function findInstalledPackageRoot(
   packageName: string,
   optional: boolean,
   subject: string,
+  budget: ResolutionWorkBudget,
   hooks: InstalledPackageClosureTestHooks | undefined,
 ): string | null {
   const segments = packageKeySegments(packageName);
   if (segments === null) {
     return fail("package-metadata-invalid", subject);
   }
-  const plan = resolutionSearchPlan(fromDirectory, packageName, hooks);
+  const plan = resolutionSearchPlan(
+    fromDirectory,
+    packageName,
+    budget,
+    hooks,
+  );
   for (let index = 0; index < plan.directories.length; index += 1) {
     const root = packageRootCandidate(
       plan.directories[index]!,
       segments,
       subject,
+      budget,
     );
     if (root === null) continue;
     if (index >= plan.ancestorCount) {
@@ -1411,6 +1430,14 @@ function discoverGraph(
     bytes: 0,
     relativePathBytes: 0,
   };
+  const resolutionBudget: ResolutionWorkBudget = {
+    work: 0,
+    retainedPathBytes: 0,
+    maximumWork: hooks?.maxResolutionWork ?? MAX_RESOLUTION_WORK,
+    maximumRetainedPathBytes:
+      hooks?.maxRetainedResolutionPathBytes ??
+      MAX_RETAINED_RESOLUTION_PATH_BYTES,
+  };
   const scratch = Buffer.allocUnsafe(FILE_READ_CHUNK_BYTES);
   let edgeCount = 0;
 
@@ -1452,6 +1479,7 @@ function discoverGraph(
         root.packageName,
         false,
         root.packageName,
+        resolutionBudget,
         hooks,
       )!;
       const node = intern(installedRoot, root.packageName);
@@ -1480,6 +1508,7 @@ function discoverGraph(
         specification.key,
         specification.optional,
         subject,
+        resolutionBudget,
         hooks,
       );
       edges.push(

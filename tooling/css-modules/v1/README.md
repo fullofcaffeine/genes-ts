@@ -89,9 +89,13 @@ capture. Later work uses only that immutable copy.
 
 Each package lookup has fixed internal limits. It permits at most 4,100 lookup
 directories and three ambient suffix directories. One lookup path can use at
-most 16,448 UTF-8 bytes and 16,448 code units. The helper retains at most 32
-MiB of lookup-path state for one plan. Lookup paths never enter the digest or a
-public error.
+most 16,448 UTF-8 bytes and 16,448 code units.
+
+One complete capture permits at most 262,144 resolution work units. One Node
+lookup request, one generated or observed path, and one exact or legacy package
+candidate each use one unit. The 32 MiB retained lookup-path limit also applies
+to the complete capture. Verification starts a second complete capture with
+fresh limits. Lookup paths never enter the digest or a public error.
 
 The helper reads directories incrementally. It limits retained relative-path
 state to 32 MiB. It does not retain absolute directory paths after each local
